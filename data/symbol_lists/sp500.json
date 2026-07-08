@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "list_name": "S&P 500",
+    "list_type": "index",
+    "source": "Static reference list",
+    "source_url": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+    "last_updated": "2024-01-01",
+    "total_count": 50,
+    "description": "Representative sample of S&P 500 constituents for testing"
+  },
+  "symbols": [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "GOOG", "BRK.B", "UNH",
+    "JNJ", "AVGO", "XOM", "JPM", "V", "PG", "LLY", "HD", "CVX", "MA",
+    "ABBV", "BAC", "PFE", "ASML", "KO", "COST", "MRK", "WMT", "TMO", "ADBE",
+    "ACN", "NFLX", "AMD", "CRM", "VZ", "DHR", "NKE", "LIN", "TXN", "ABT",
+    "ORCL", "QCOM", "WFC", "PM", "RTX", "NEE", "DIS", "IBM", "SCHW", "T"
+  ]
+}

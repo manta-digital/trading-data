@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Docs prose and CF artifacts - non-credential strings"
+regexes = [
+  '''is_valid=(True|False)''',
+]
+

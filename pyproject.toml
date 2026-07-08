@@ -1,0 +1,62 @@
+[project]
+name = "manta-trading"
+version = "0.4.0"
+description = "manta.digital news and market data management utilities"
+authors = [{name = "Erik Corkran", email = "erik.corkran@manta.digital"}]
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+
+dependencies = [
+    "aiofiles>=24.1.0",
+    "backoff>=2.2.1",
+    "httpx>=0.28.0",
+    "pandas>=2.3.2",
+    "pydantic-settings>=2.9.1",
+    "python-dotenv>=1.0.1",
+    "psycopg[binary]>=3.2.0",
+    "psycopg_pool>=3.2.0",
+    "pymongo>=4.9.2",
+    "pytz>=2024.1",
+    "pyyaml>=6.0",
+    "chromadb>=0.5.0",
+    "tomli_w>=1.2.0",
+    "typer>=0.15.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "orjson>=3.10.0",
+    "msgpack>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1.1",
+    "pytest-asyncio>=0.23.5",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "pytest-timeout>=2.3.1",
+    "motor>=3.6.0",
+    "psutil>=5.9.0",
+    "ruff>=0.9.0",
+    "mypy>=1.13.0",
+]
+
+[project.scripts]
+mt = "manta_trading.cli.app:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/manta_trading"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["test"]
+python_files = ["test_*.py", "*_test.py", "test*.py"]
+timeout = 30
+
+[dependency-groups]
+dev = [
+    "respx>=0.23.1",
+]

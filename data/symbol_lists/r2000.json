@@ -1,0 +1,16 @@
+{
+  "metadata": {
+    "list_name": "Russell 2000",
+    "list_type": "index",
+    "source": "Static reference list",
+    "source_url": "https://www.ftserussell.com/products/indices/russell-us",
+    "last_updated": "2024-01-01",
+    "total_count": 30,
+    "description": "Representative sample of Russell 2000 small-cap constituents for testing"
+  },
+  "symbols": [
+    "AMC", "BBBY", "GME", "NOK", "SNDL", "NAKD", "EXPR", "KOSS", "WKHS", "CLOV",
+    "SPCE", "PLTR", "WISH", "SOFI", "HOOD", "RBLX", "COIN", "RIVN", "LCID", "NKLA",
+    "AFRM", "UPST", "SQ", "ROKU", "TWTR", "SNAP", "PINS", "UBER", "LYFT", "ABNB"
+  ]
+}

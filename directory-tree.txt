@@ -1,0 +1,118 @@
+D:\Source\Repos\manta\trading
+├── manta_trading/
+|  ├── agents/
+|  |  ├── __pycache__/
+|  |  ├── newsagent.py
+|  |  └── __init__.py
+|  ├── api/
+|  |  ├── alphavantage/
+|  |  ├── __pycache__/
+|  |  ├── apireadstatus.py
+|  |  └── __init__.py
+|  ├── backtest/
+|  |  ├── results/
+|  |  ├── strategy/
+|  |  ├── backtest.md
+|  |  ├── backtest.py
+|  |  ├── bt.py
+|  |  ├── order.py
+|  |  ├── SmaCross.html
+|  |  ├── strategyaction.py
+|  |  ├── strategytypes.py
+|  |  └── __init__.py
+|  ├── embeddings/
+|  |  └── embeddingdb.py
+|  ├── market/
+|  |  ├── __pycache__/
+|  |  ├── config.py
+|  |  ├── marketdb.py
+|  |  ├── marketservice.py
+|  |  ├── minutedatabackfill.py
+|  |  ├── minutedatacoverage.py
+|  |  ├── minutedatamanager.py
+|  |  ├── minutedataservice.py
+|  |  ├── ohlc.py
+|  |  ├── ohlcoptions.py
+|  |  └── __init__.py
+|  ├── news/
+|  |  ├── __pycache__/
+|  |  ├── news.py
+|  |  ├── newsdb.py
+|  |  ├── newsdbmigrationutility.py
+|  |  ├── newsfields.py
+|  |  ├── newsoptions.py
+|  |  ├── newsservice.py
+|  |  ├── newsutility.py
+|  |  └── __init__.py
+|  ├── tasks/
+|  |  ├── __pycache__/
+|  |  ├── taskqueue.py
+|  |  └── __init__.py
+|  ├── util/
+|  |  ├── __pycache__/
+|  |  ├── asynceventemitter.py
+|  |  ├── datetimehelper.py
+|  |  ├── pathutil.py
+|  |  ├── ratelimiter.py
+|  |  └── threadedratelimiter.py
+|  ├── __pycache__/
+|  |  └── __init__.cpython-312.pyc
+|  └── __init__.py
+├── test/
+|  ├── extended/
+|  |  ├── __pycache__/
+|  |  └── testextendedrun.py
+|  ├── integration/
+|  |  ├── data/
+|  |  ├── __pycache__/
+|  |  ├── testalphavantageIntegration.py
+|  |  ├── testmarketservicehistoricalintegration.py
+|  |  ├── testmarketserviceIntegration.py
+|  |  ├── testminutedataserviceintegration.py
+|  |  ├── testnewsagentIntegration.py
+|  |  ├── testnewsdbintegration.py
+|  |  ├── testnewsdbmigrationintegration.py
+|  |  ├── testNewsIntegration.py
+|  |  ├── testnewsserviceIntegration.py
+|  |  └── testohlcintegration.py
+|  └── unit/
+|     ├── data/
+|     ├── __pycache__/
+|     ├── testalphavantage.py
+|     ├── testasyncevent.py
+|     ├── testdatetimehelper.py
+|     ├── testmarketdb.py
+|     ├── testmarketservice.py
+|     ├── testminutedatabackfill.py
+|     ├── testminutedatamanager.py
+|     ├── testminutedataservice.py
+|     ├── testnews.py
+|     ├── testnewsagent.py
+|     ├── testnewsdb.py
+|     ├── testnewsdbmigration.py
+|     ├── testnewsoptions.py
+|     ├── testnewsservice.py
+|     ├── testohlc.py
+|     ├── testohlcoptions.py
+|     ├── testpathutil.py
+|     ├── testratelimiter.py
+|     └── testtaskqueue.py
+├── claude_instructions.md
+├── directory_tree.txt
+├── files.txt
+├── news.bat
+├── news.sh
+├── npx
+├── ohlc.bat
+├── ohlc.sh
+├── poetry.lock
+├── pyproject.toml
+├── README - plan.md
+├── readme-claude.md
+├── README.md
+├── setup.py
+└── test-directory-tree.txt
+
+directory: 45 file: 99
+
+ignored: directory (3)

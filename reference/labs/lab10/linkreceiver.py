@@ -1,0 +1,90 @@
+import zmq
+
+# MarketLinkReceiver just provides an interface
+from marketlink import MarketLinkReceiver
+from databaselink import DBError
+
+
+# Link receiver which is slowly assuming and delegating responsibilities.  This is a ZMQ receiver.
+# _db: database connection (in form of DatabaseLink object).  Optional, doesn't db-link if not specified.
+
+class LinkReceiver(MarketLinkReceiver):
+
+    def __init__(self, _db=None, _channels=None):
+        self.initialPacket = False
+        self.db = _db
+        self.channels = _channels
+
+        #self.context = zmq.Context()
+        #self.socket = self.context.socket(zmq.PUB)
+        #self.socket.bind("tcp://*:5555")
+
+    def onQuoteAvailable(self, dataFrame):
+        try:
+            if not self.initialPacket:
+                self.initialPacket = True
+
+            print("Link Receiver: ")
+            print(dataFrame)
+            print()
+
+            if self.db is not None:
+                self.db.addTickData(dataFrame)
+
+            # sending pickle dumps with topic as multipart works here also.
+            # self.socket.send_pyobj(dataFrame)
+
+            # send an 'all' packet and send any specific packets configured in channels ('/ES', etc)
+            # self.socket.send_multipart([b'ALL', pickle.dumps(dataList)])
+
+        # Update to process this separately still add to database even if this doesn't work
+        # except zmq.ZMQError as e:
+        #     print(f"ZMQ error: {e}")
+
+        except Exception as e:
+            print(f"Exception receiving quote: {e}")
+
+    # When meta quote is received, ensure that the corresponding records are created in the database
+    def onMetaQuoteAvailable(self, dataFrame):
+        print("Metaquote Received:")
+        print(dataFrame)
+
+        # Does this belong in a linkReceiver class?  Because it feels a lot more like DatabaseLink
+        # code.
+        if self.db is not None:
+
+            def addMetaSymbolRow(row):
+                result = self.db.addMetaSymbol(
+                    str(row['symbol']),
+                    str(row['symbolActive']),
+                    str(row['description']),
+                    row['dateActive'],
+                    row['dateExpire'],
+                    row['dateRollover'],
+                    row['tick'],
+                    row['tickAmount'],
+                    row['futureMultiplier'],
+                    row['delayed'],
+                    row['realTime'],
+                    row['isActive']
+                )
+
+                return result
+
+            def f(row):
+                result = addMetaSymbolRow(row)
+
+                # Symbol missing.  Make one attempt to create.
+                if result == DBError.MISSING_FK:
+                    status = self.db.addSymbol(
+                        row['symbol'], row['assetType'], row['assetMainType'], row['exchange'])
+
+                    print(f"Missing FK.  Adding symbol.  Result: {status}")
+
+                    if status == DBError.SUCCESS:
+                        result = addMetaSymbolRow(row)
+
+                return result
+
+            # apply function to each row.  Function will use data from the row and create metaSymbol in db.
+            dataFrame.apply(f, axis=1)

@@ -1,0 +1,27 @@
+# Named symbol lists for the manta_trading data daemon (slice 146).
+#
+# Each entry under `lists:` defines a named scope that can be passed to
+# `mt data daemon run --list NAME` or `mt data ca update --list NAME`.
+# Entries take exactly one of `symbols:` (inline) or `source:` (a file
+# reference like `file:config/lists/sp500-snapshot.txt`).
+#
+# Lists are operator config — edit, commit, review in git.
+
+lists:
+  smoke:
+    description: "Top-10 liquid US equities for smoke testing and daemon validation."
+    symbols:
+      - SPY
+      - QQQ
+      - AAPL
+      - MSFT
+      - NVDA
+      - GOOGL
+      - META
+      - TSLA
+      - AMZN
+      - BRK-B
+
+  sp500:
+    description: "S&P 500 snapshot (503 symbols, sourced 2026-05-09 from Wikipedia)."
+    source: file:lists/sp500.txt

@@ -1,0 +1,175 @@
+---
+docType: slice-plan
+parent: user/architecture/140-arch.data-quality-operations.md
+project: trading
+dateCreated: 20260429
+dateUpdated: 20260515
+status: complete
+---
+
+# Slice Plan: Data Quality and Operations
+
+## Source
+
+[140-arch.data-quality-operations.md](140-arch.data-quality-operations.md)
+
+## Approach
+
+Seven slices. Universe rebuild from EODHD first because slice 142's
+TRUNCATE depends on `instruments` being populated with the correct
+universe shape; doing this as a separate slice keeps each step
+reviewable. Then schema migration and TRUNCATE (the destructive step).
+Then the adjustment correctness function because every ingest from
+then on uses it. Then the daemon refactor that drives backfill from
+`data_gaps` and populates the date columns from slice 141. Finally
+the three operator commands in order of operator value: status
+(visibility), refetch (control), audit (verification).
+
+Each slice produces an operator-visible behavior change. No slice
+exists purely as scaffolding for a later slice.
+
+## Slices
+
+1. [x] **(141) Universe rebuild from EODHD + instruments schema migration** [→ slice design](../slices/141-slice.universe-rebuild-from-eodhd-instruments-schema-migration.md) — Schema migration on `instruments`: add `first_listing_date date` (IPO date from Finnhub `/stock/profile2.ipo` when available), `first_data_date date` (populated by slice 144 from MIN bar date — left NULL by this slice), `delisted_date date` (populated by slice 144 from MAX bar date when `delisted_at_eodhd = true` — left NULL by this slice), `eodhd_type text NOT NULL` (`'Common Stock' | 'ETF' | 'Preferred Stock' | 'INDEX'`), `delisted_at_eodhd boolean NOT NULL DEFAULT false`. Drop `active` boolean (will be derived in `data_status` view as `delisted_at_eodhd = false AND delisted_date IS NULL`). New CLI `mt data instruments rebuild [--dry-run] [--skip-finnhub]`: fetches `/exchange-symbol-list/US` (active), `/exchange-symbol-list/US?delisted=1`, `/exchange-symbol-list/INDX` (filter to `Country = 'USA'`); filters to `Type IN ('Common Stock', 'ETF', 'Preferred Stock', 'INDEX')`; upserts into `instruments` with type, exchange, currency, `delisted_at_eodhd` flag. Optionally enriches `first_listing_date` from Finnhub for rows where it's NULL (60/min rate limit; resumable; skipped under `--skip-finnhub`). Pre-flight: EODHD bulk endpoints respond and return expected shape (halts on Forbidden / unexpected schema). Idempotent: re-running with no upstream change is a no-op. Symbol that disappears from EODHD's lists between runs is **not** deleted (audit trail; future-work follow-up if needed). Does NOT TRUNCATE bars or any acquisition state. Does NOT populate `first_data_date` or `delisted_date` (slice 144 does that as side effect of daily backfill). Verifiable: `mt data instruments rebuild` against current EODHD data populates ~57k rows (`Common Stock` ~48k, `ETF` ~7.9k, `Preferred Stock` ~1.9k, `INDEX` ~50 USA-related); `--dry-run` prints same counts without DB mutation; re-running is a no-op; Finnhub-enriched rows have `first_listing_date` populated, others NULL. Effort: 2/5.
+
+2. [x] **(142) Schema migration and cold-start** [→ slice design](../slices/142-slice.schema-migration-and-cold-start.md) — Add `data_gaps` table with normalized session-open/close UTC timestamps and `fetch_status` enum `'UNKNOWN' | 'PROVIDER_HOLE' | 'FAILED_RETRYABLE' | 'RETRY_EXHAUSTED'`. Slim `acquisition_state` (drop `last_success_ts`, drop `retry_count`; add `last_adjusted_ca_snapshot_id`; `last_attempt_outcome` as enum `'success' | 'partial' | 'empty' | 'transient_failure'`). Drop `coverage_gaps`. Create `data_status` view per arch spec — view uses LEFT JOIN against `acquisition_state`, exchange-keyed CTE for `target_end` lookup (per-exchange completed-session close, not per-row function call), health derived from existence of `RETRY_EXHAUSTED` rows in `data_gaps` (not from `acquisition_state.retry_count`). Add `manta_trading.constants` module with `ADJUSTMENT_DRIFT_EPSILON`, `MAX_RETRY_COUNT`, `DAILY_STALENESS_THRESHOLD`, `MINUTE_STALENESS_THRESHOLD`, `DAILY_HISTORY_MONTHS`, `MINUTE_HISTORY_MONTHS`, `LATE_BAR_GRACE_PERIOD`, `MAX_GAP_STALENESS`. Pre-flight check: verify slice 141 ran successfully (`instruments.eodhd_type` column populated for all rows; instruments table has the expected ~57k row order of magnitude). TRUNCATE `minute_ohlcv`, `daily_ohlcv`, old `acquisition_state`, `coverage_gaps`. No code reads `last_success_ts` after this slice. Daemon does not run yet — that's slice 144. Verifiable: migration applies cleanly, view returns rows for an empty DB (every symbol STALE; LEFT JOIN works for symbols with no acquisition_state row), pre-flight catches a partial / unrun slice 141, constraints hold; view query latency stays sub-second at ~57k symbols (no per-row function calls).
+
+3. [x] **(143) `compute_k_factor` single source of truth + `daily_ohlcv` hypertable** [→ slice design](../slices/143-slice.compute-k-factor-single-source-of-truth-daily-ohlcv-hypertable.md) — Confirm/extend `compute_k_factor(symbol, target_date, ca_snapshot) -> Decimal` in `src/manta_trading/data/adjustment/k_factor.py` (existing module; verify it implements the EODHD-matching backward-adjustment model per arch — splits contribute `ratio_from / ratio_to`, dividends contribute `(prev_close - amount) / prev_close`, factor is product over CAs with `ex_date > target_date`, returns `Decimal('1')` when no CAs). Add `current_ca_snapshot(symbol)` helper that loads splits + dividends + prev_closes and returns a `ca_snapshot` with stable `snapshot_id`. Implement `compute_snapshot_id(splits, dividends)` per the canonicalized SHA256 algorithm in arch (deterministic across processes; never use Python `hash()`). Replace every existing call site that derives k_factor inline with a call to this function. **Also creates the `daily_ohlcv` hypertable on the timescale DB** (peer to `minute_ohlcv`, same column shape including `adj_*` and `k_factor`, `chunk_time_interval => INTERVAL '7 days'`); this was deferred from slice 142 to avoid a one-off table-creation in a schema-migration slice. The legacy `dailyOHLCVAdjusted` on the market DB is left in place for backtest history; slice 144's daemon refetches the full ~22-year EODHD daily history into the new table from scratch (cheap given EODHD's quota). Slice 142's `data_status` view picks up the daily branch automatically once `daily_ohlcv` exists — re-running `mt data migrate-cold-start` re-applies migration 021's DO-block, which branches on `to_regclass('daily_ohlcv')`. Closes invariant I1 from data-correctness-architecture and resolves issue #10 (MSFT k_factor staleness). Verifiable: `compute_snapshot_id` returns identical hex digest across separate processes for the same input; the function's output matches EODHD's `adjusted_close / close` ratio within `ADJUSTMENT_DRIFT_EPSILON` for AAPL/MSFT/GOOGL across the slice 128 dry-run sample window; running with an artificially-incomplete snapshot reproduces issue #10's drift, then running with the current snapshot resolves it; `daily_ohlcv` exists with the expected shape after the slice; `data_status` includes the daily branch in its plan.
+
+4. [x] **(144) `trading_sessions` materialization + `data_status` view rewrite + `TradingCalendar` consolidation** [→ slice design](../slices/144-slice.trading-sessions-materialization-data-status-view-rewrite.md) — Create `trading_sessions(calendar_id, session_date, session_open_utc, session_close_utc)` table populated from `trading_calendars` × `trading_holidays` (weekend skip, holiday closure skip, early-close override, timezone math); per-year horizon refreshed by a maintenance job. Rewrite `data_status` view's missing CTE in a follow-up migration to project `target_end_ts` from `MAX(session_close_utc) WHERE session_close_utc + LATE_BAR_GRACE_PERIOD < NOW()` per calendar (replaces slice 142's deferred placeholder). Refactor Python `TradingCalendar` to read from this table instead of recomputing per call — Python and SQL share one source of truth. **Leading approach: option A (materialized `trading_sessions`).** Option B (in-view SQL replacement covering weekends + holidays + early-close inline) is a documented fallback only; A wins on query latency (single index lookup vs. holiday-join CTE per query) and source-of-truth consolidation. Slices 145 and beyond consume this table for per-symbol `target_end` lookup. Verifiable: `trading_sessions` populated for the configured horizon, holidays correctly excluded, early-close days have `session_close_utc` reflecting the override; `data_status.target_end_ts` populated and sub-second at universe scope; Python `TradingCalendar` returns the same `session_close_utc` values as the table for a sample of NYSE/NASDAQ days including a known early-close (Black Friday or July 3rd) and a known closure (Christmas Day); maintenance job extends horizon idempotently. Effort: 2/5.
+
+5. [x] **(145) Daemon refactor: `data_gaps`-driven backfill + advisory locking + band-based `adj_*` writes** — Reopens 120's daemon code intentionally. Daily daemon backfill path (per-symbol `/eod` with `output_size=full`): store everything, populate `instruments.first_data_date = MIN(date)` of returned bars and `instruments.delisted_date = MAX(date)` when `delisted_at_eodhd = true`, call `update_data_gaps(symbol, 'daily', first_data_date, target_end, fetch_status_for_unfilled)` per the outcome mapping. Minute daemon: most-recent-chunk-first loop driven by `data_gaps` per arch's algorithm. Bar inserts use **band-based UPDATE** to write `adj_*` columns (one UPDATE per ex-date band intersecting the chunk, not per-bar Python) — daemon writes correct `adj_*` on initial fetch via `current_ca_snapshot` + `compute_k_factor` (slice 143). Implement `compute_missing_ranges`, `update_data_gaps`, `coalesce_data_gaps` per arch specs: advisory locking on `(symbol, granularity)` with daemon-holds-one-lock-at-a-time discipline (deadlock-free with backtest's sorted-acquisition); `update_data_gaps` accepts `force_reset_terminal` flag for refetch's terminal-state escape valve (slice 148 consumer); coalesce is single-pass O(n) using `next_trading_session_after` predicate. Daemon's actionable-gap selector excludes `PROVIDER_HOLE` and `RETRY_EXHAUSTED` (terminal states). Daemon uses per-symbol `/eod` for daily; bulk EOD steady-state deferred to slice 146. CA-detection drift handling deferred to slice 146 (this slice writes correct `adj_*` on initial fetch but does not detect snapshot drift on subsequent cycles). Verifiable: from cold DB, daemon backfills a sample symbol set within target window, gaps converge to terminal states, `data_status` shows OK for symbols whose vendor data is complete; `instruments.first_data_date` populated after first daily fetch per symbol; `delisted_date` populated for symbols with `delisted_at_eodhd = true`; injecting transient failures hits `MAX_RETRY_COUNT` and promotes to `RETRY_EXHAUSTED`; bar inserts produce correct `adj_*` values verified against EODHD `adjusted_close / close` ratio within `ADJUSTMENT_DRIFT_EPSILON`; under deliberate concurrent daemon + backtest load on disjoint scopes, no deadlock observed; under concurrent load on overlapping scopes, requests serialize correctly without deadlock. Effort: 4/5.
+
+6. [x] **(146) Long-running daemon + named lists + `mt data ca` + CA-drift recompute** [→ slice design](../slices/146-slice.long-running-daemon-named-lists-mt-data-ca-ca-drift-recompute.md) — Reframed 2026-05-03 to absorb proposals #1, #1a, and #2 from `notes/2026-05-03-data-pipeline-simplification.md`. Bulk-EOD steady-state was originally bundled here but was deferred to slice 152 on 2026-05-03 because its mode-selection edge cases (newly-added symbols mid-day, mixed-mode cycles, routing the bulk response into the per-symbol band-write path) deserve their own design pass; per-symbol `/eod` at ~13k credits/day is comfortably under quota. Layered on top of slice 145's daemon primitives. **Long-running daemon mode** (`mt data daemon run [--minute] [--daily] [--symbols X,Y,Z] [--list NAME] [--max-credits N] [--stop-when-done | --forever]`): continuous loop that calls `run_daily_cycle` / `run_minute_cycle` back-to-back, with token-bucket throttling against `EODHD_PER_MINUTE_BURST` (1000) and `EODHD_DAILY_QUOTA` (100k) using per-call-type credit costs (`EODHD_INTRADAY_CALL_COST=5`, `EODHD_EOD_CALL_COST=1`). Termination defaults: `--symbols X` and `--list NAME` exit when their scope is fully backfilled; bare invocation runs forever; `--max-credits N` exits when budget exhausted. Override flags `--forever` and `--stop-when-done` reverse the default. SIGTERM finishes the current symbol, then exits cleanly. Per-cycle progress logging (symbols processed, credits spent today, est. completion). Replaces slice-145 one-shot CLI commands. **Named symbol lists:** list config at `config/symbol-lists.yaml` (or `symbol_lists` table); `--list NAME` resolves to a symbol set that filters `iter_active_instruments`. New CLI: `mt data lists ls`, `mt data lists show NAME`, `mt data lists refresh-sp500` (10 credits to `/fundamentals/GSPC.INDX` populates `config/lists/sp500-snapshot.txt`). Lists are operator state, not instrument state — no column on `instruments`. **`mt data ca` command group** (replaces legacy `mt data adjustment ingest`): `ca update` defaults to bulk-fetching yesterday's splits + dividends across the full exchange (200 credits, via `/eod-bulk-last-day/US?type=splits|dividends`); `--since N` extends to a per-day catchup range; `--symbol X` switches to per-symbol full-history backfill (`/splits/X` + `/div/X`, 2 credits); `--list NAME` does per-symbol backfill across each list member; `--symbol` and `--list` are mutually exclusive. `ca show --symbol X` and `ca list --from --to` for inspection. No `--type` flag (splits + dividends always paired). No `--date YYYY-MM-DD` for single historical days (no real workflow). Deletes the `adjustment` Typer sub-app entirely. **CA-drift detection + band-based `adj_*` recompute** (the original slice 146 scope, retained because it's correct and necessary for cagg consistency): each daemon cycle computes the current `snapshot_id` (slice 143's `compute_snapshot_id`); on mismatch with `acquisition_state.last_adjusted_ca_snapshot_id`, runs band-based UPDATE of `k_factor` AND `adj_*` for affected ex-date ranges, refreshes affected cagg ranges, then advances `last_adjusted_ca_snapshot_id` before fetching new bars. Stale `adj_*` self-heals without operator action. Verifiable: `mt data daemon run --symbols SPY` finishes a 22-year SPY backfill in <2 minutes and exits; `mt data daemon run --list priority1` finishes the priority1 list and exits; bare `mt data daemon run` runs indefinitely with quota awareness, never exceeding `EODHD_DAILY_QUOTA` in a 24h rolling window or `EODHD_PER_MINUTE_BURST` in a 60s rolling window; `mt data ca update` (no flags) fetches and upserts yesterday's splits + dividends for the full exchange in two HTTP calls totaling 200 credits; `mt data ca update --symbol X` matches the legacy `adjustment ingest --symbol X` row-for-row on a sample symbol; injecting a new corporate action and running the daemon updates `adj_*` columns via band-based UPDATEs (verified by `EXPLAIN` showing range-scoped UPDATE plans, not per-row); seeded artificially-stale `last_adjusted_ca_snapshot_id` triggers a recompute on next daemon cycle and clears the drift; affected cagg ranges show updated values after recompute. Dependencies: [145]. Effort: 3/5.
+
+7. [x] **(147) `mt data status`** [→ slice design](../slices/147-slice.mt-data-status.md) — Reads `data_status` view. Default scope: all symbols in instrument registry. With `--symbol`, prints detail row plus full `data_gaps` listing for that symbol (including `fetch_status` per row so the operator distinguishes `UNKNOWN`, `PROVIDER_HOLE`, `FAILED_RETRYABLE`, `RETRY_EXHAUSTED`). Rich table output, `--json` flag for machine consumption. Single command, no subcommands. **Also adds automated horizon extension for `trading_sessions`:** on status invocation (or a scheduled daemon tick), if any calendar's `MAX(session_date)` is within 90 days of today, automatically run the equivalent of `mt data --extend` for that calendar; operators never need to run the command manually after this slice lands. Verifiable: status correctly classifies a seeded DB — one symbol fully covered → `health = OK`; one with intentional missing session → `health = GAPS`; one with no recent attempts (or no `acquisition_state` row at all) → `health = STALE`; one with at least one `data_gaps` row in target window having `fetch_status = RETRY_EXHAUSTED` → `health = FAILED`. Target-window correctness: during a synthetic active-session test (today's close in the future), today's session is **not** counted in `bars_expected` and a fully-covered symbol still shows `health = OK`, not `GAPS`. After synthetic session-close + grace-period elapse, today enters the target window and missing bars register as gaps. Auto-extension: seeding a calendar with `MAX(session_date) = today + 45 days` and running `mt data status` extends the horizon and prints a notice; re-running with a healthy horizon is a no-op.
+
+8. [x] **(148) `mt data refetch`** [→ slice design](../slices/148-slice.mt-data-refetch.md) — `mt data refetch --symbol X --from D1 --to D2`. Behavior per arch: chunked fetch (provider-sized), per-chunk transactional `update_data_gaps(..., force_reset_terminal=True)` with the appropriate `fetch_status_for_unfilled`, post-loop `coalesce_data_gaps`. The `force_reset_terminal=True` flag clears `PROVIDER_HOLE` and `RETRY_EXHAUSTED` rows in scope before re-attempting — this is the operator's escape valve for terminal-state rows. No `--reapply-only` flag (re-adjustment is handled automatically by the daemon's CA-detection mechanism in slice 146, not via operator command). Verifiable: refetch over a window with seeded data correctly replaces bars by timestamp; partial-fill case (chunk fills middle of an existing gap row) splits the row into head + tail correctly with attempt_count carried forward; cross-chunk gap is coalesced into one row; `PROVIDER_HOLE` row in scope is reset to `UNKNOWN` and re-attempted; `RETRY_EXHAUSTED` row in scope is reset to `UNKNOWN, attempt_count = 0` and re-attempted.
+
+9. [x] **(149) `mt data audit`** ~~deprecated~~ — Deprecated. The audit machinery (band_writer, verify, ca_drift, adj_* columns) is deleted in slice 152. An audit command against adjusted-on-read has no stored k_factor to check; correctness is validated by the `adjusted()` function's unit and integration tests instead.
+
+10. [x] **(150) Rebuild minute OHLCV continuous aggregates — adjusted prices** ~~deprecated~~ — Deprecated. Slice 150 projected `adj_*` columns from `minute_ohlcv`; those columns no longer exist after slice 152. Slice 152 rebuilds caggs with raw projection instead.
+
+11. [x] **(151) Backtest scaffold + MarketDB cleanup** ~~deprecated~~ — Deprecated. Absorbed into slice 152's demolition scope.
+
+12. [x] **(152) Consolidation: demolition + migration** [→ slice design](../slices/152-slice.consolidation.md) — Delete adjusted-on-write pipeline (~3000 lines): `data/adjustment/{band_writer,verify,verify_eod,audit,context}.py`, `daemon/ca_drift.py`, `market/{marketdb,symbol_list_manager,instrument_seed}.py`, `backtest/` directory, all AlphaVantage code, legacy CLI commands, all tests for deleted modules. Schema migrations: create `splits`/`dividends` in TimescaleDB, copy rows from MarketDB, drop `adj_*`/`k_factor`/`adjusted_at` columns from `daily_ohlcv` and `minute_ohlcv`, drop `acquisition_state.last_adjusted_ca_snapshot_id`. Cagg rebuild: drop 11 legacy minute caggs, recreate 4 minute caggs (`5m/15m/1h/4h`) and 3 daily caggs (`1w/1mo/1q`) with raw projection, install refresh policies. Architecture amendment. After this slice the tree is clean and the schema is raw-only; adjusted reads are not yet wired (slice 153). Dependencies: [145, 146, 147, 148]. Deprecates: [149, 150, 151]. Effort: 3/5.
+
+13. [x] **(153) Adjusted-on-read: core function and DB read layer** [→ slice design](../slices/153-slice.adjusted-on-read-core.md) — `Granularity` StrEnum (`1m 5m 15m 1h 4h 1d 1w 1mo 1q`) in `manta_trading.constants`. New `src/manta_trading/data/adjustment.py` with `adjusted(bars, symbol, conn, *, ca_snapshot=None) -> bars` (~80 lines, pure function). New `TimescaleDailyDataDB.get_daily_data(symbol, start, end, granularity, *, adjusted=True)` routing `1d` to `daily_ohlcv` and weekly/monthly/quarterly to daily caggs. Extend `TimescaleMinuteDataDB.get_minute_data` with `adjusted=True` kwarg. No CLI changes. After this slice, programmatic callers get adjusted bars by default. Dependencies: [152]. Effort: 2/5.
+
+14. [x] **(154) CLI surface: get, pull, caggs; old command deletion; daemon bulk-EOD** [→ slice design](../slices/154-slice.cli-surface.md) — `mt data get <symbol> <granularity>` (adjusted by default, `--raw` for unadjusted, `--json/--csv`). `mt data pull <granularity> [--symbol|--symbols|--list|--universe] [--verify] [--reset] [--dry-run]` — subsumes `daily {update,update-all,update-file,verify,coverage}`, `minute {update,update-all,backfill}`, and `refetch`. `mt data caggs {refresh,status}`. Delete `daily_app`, `minute_app` subgroups and `mt data refetch`. Daemon bulk-EOD steady-state: `DailyMode` enum, single `/eod-bulk-last-day` call per cycle when all scope members are caught up. Dependencies: [153]. Effort: 2/5.
+
+16. [x] **(156) Cold-start integrity: restore working empty-DB → working-DB path** [→ slice design](../slices/156-slice.cold-start-integrity.md) — Issue #16. A fresh empty Postgres database cannot be brought to a working state today. `mt data migrate apply` fails on migration 019 (`UndefinedTable: relation "acquisition_state" does not exist`) because the original `CREATE TABLE acquisition_state` migration was deleted (likely during slice 152's demolition) without folding the create into a surviving prerequisite. Audit confirms `acquisition_state` is the only missing CREATE in the current chain. Slice 154 also removed the unified `mt data migrate-cold-start` command without replacement, so the documented one-liner for cold-start is gone. Bug went undetected because every existing dev DB and `trading_test` already had the missing tables from earlier in their lifecycle; first attempt at a fresh DB (2026-05-08, for prod cutover to the empty `trading` DB on 144) hit it. Scope: (1) fixup migration `038_create_acquisition_state` — idempotent CREATE TABLE IF NOT EXISTS, inserted before `019_slim_acquisition_state` in the migration list; (2) `mt data init` CLI as the documented single entry point; (3) cold-start integration test that runs the full bootstrap against an ephemeral DB and asserts the resulting schema matches expected, gating CI so the regression class cannot recur silently; (4) **fold `timescale_init.py` into the migration chain** — move TimescaleDB extension creation, `minute_ohlcv` hypertable creation, and indexes into new front-of-list migrations `001a/b/c/d` (each idempotent against existing DBs), then delete `timescale_init.py`. After this slice the migration list is the single source of schema truth. Verifiable: `createdb trading_clean && MT_TIMESCALE_DB_URL=...trading_clean mt data init` produces a fully-migrated working DB with no manual intervention; `mt data migrate apply` against `trading_test` is a clean no-op (new migrations apply idempotently, no schema diff in existing tables); `timescale_init.py` is deleted; integration test runs in CI and passes; deliberately deleting a CREATE migration causes the integration test to fail loudly. Dependencies: []. Risk: Med. Effort: 3/5.
+
+17. [x] **(157) Preferred stock registry filter** [→ slice design](../slices/157-slice.preferred-stock-registry-filter.md) — Remove `Preferred Stock` from `EodhdType` enum and `_ALLOWED_TYPES`; add idempotent migration that drops and re-adds the instruments CHECK constraint without 'Preferred Stock' and DELETEs existing preferred rows (~1,913 in prod). Re-run `instruments rebuild` to clean prod and trading_test. Dependencies: [156]. Risk: Low. Effort: 1/5.
+
+18. [x] **(158) `--universe` delisted filter + `--include-delisted` flag** [→ slice design](../slices/158-slice.universe-delisted-filter.md) — Default `pull --universe` filters to `delisted_at_eodhd = FALSE AND delisted_date IS NULL` (~12,935 active symbols). Add `--include-delisted` opt-in to re-include delisted symbols for full-history pulls. Tests: default excludes delisted; flag re-includes. Dependencies: [157]. Risk: Low. Effort: 1/5.
+
+19. [x] **(159) Point-in-time universe: populate lifecycle dates for delisted symbols** [→ slice design](../slices/159-slice.point-in-time-universe-populate-lifecycle-dates-for-delisted-symbols.md) — Populate `delisted_date` for all delisted instruments via a lightweight single-bar fetch (`/eod/{SYMBOL}?limit=1&order=d`, 1 credit/symbol) rather than a full history pull. The last bar date for a delisted symbol is its last trading day. Separate operator step: Finnhub enrichment must complete for all registry symbols including delisted (`instruments rebuild`, full run, no `--skip-finnhub`) to populate `first_listing_date`. After this slice, a point-in-time universe query (`first_listing_date <= window_end AND (delisted_date IS NULL OR delisted_date >= window_start)`) works for any window within EODHD's history, eliminating survivorship bias in backtests. EODHD's `delisted=1` symbol-list response carries no date fields (confirmed); fundamentals endpoint not available on current plan. Known limitation: `delisted_date` is derived from last bar seen (may be off by a few days for thinly-traded names); symbols delisted before EODHD's history are permanently absent. Dependencies: [158]. Risk: Low. Effort: 2/5.
+
+20. [x] **(160) TimescaleDB columnar compression on `minute_ohlcv` and `daily_ohlcv`** [→ slice design](../slices/160-slice.timescaledb-columnar-compression-on-minute-ohlcv-and-daily-ohlcv.md) — Enable TimescaleDB columnar compression on both OHLCV hypertables. At full SP500 universe (~1B rows), uncompressed `minute_ohlcv` is estimated 200-300GB; 10-20× columnar compression brings this to 15-30GB. Two-tier policy: (1) a **backfill compression migration** that immediately compresses all chunks older than 7 days (covers all existing historical data — the 2-year `compress_after` default would leave everything uncompressed); (2) an ongoing **compression policy** of `compress_after = interval '7 days'` so newly-written chunks compress automatically after the daemon moves past them. Settings: `compress_segmentby = 'symbol'` (preserves per-symbol scan performance; chunk pruning still works), `compress_orderby = 'time DESC'` (recent data first within each chunk). Audit and harden the CA recomputation path (`UPDATE minute_ohlcv SET adj_* WHERE symbol = X AND time >= ex_date`) to handle compressed chunks correctly — compressed chunks require `decompress_chunk` before UPDATE, or use `timescaledb_information.chunks` to identify and decompress only affected chunks. Same treatment for `daily_ohlcv`. Add migration scripts; validate on `trading_test` before prod. Measure before/after disk usage and a per-symbol bounded query latency. Apply before the 3B row milestone. Dependencies: [156]. Risk: Low. Effort: 2/5.
+
+21. [x] **(161) Index constituent tracking — daily snapshot of SP500, R2000, NASDAQ-100** [→ slice design](../slices/161-slice.index-constituent-tracking-daily-snapshot-of-sp500-r2000-nasdaq-100.md) — Capture daily point-in-time index membership going forward so slice 130's survivorship-bias-free API has reliable constituent history from this slice's deploy date onward (historical reconstitution data is prohibitively expensive to source). New `universe_members (universe_name TEXT, symbol TEXT, added_date DATE, removed_date DATE)` table — `removed_date` NULL while active, set on next daily comparison when a symbol drops out. Daemon runs one comparison per day per tracked index: fetch current EODHD constituent list (`exchange-symbol-list/{INDEX}`), diff against yesterday's snapshot, INSERT new members, UPDATE `removed_date` for departures. Seed the table with today's constituent snapshot on first run (start-of-history marker). Track at minimum: SP500 (`GSPC`), R2000 (`RUT`), NASDAQ-100 (`NDX`). `mt data universes as-of --date YYYY-MM-DD --name sp500` CLI for operator inspection. Note: data is only reliable from deploy date forward; slice 130 API must surface the tracking start date so callers know the reliability horizon. Dependencies: [141]. Risk: Low. Effort: 2/5.
+
+## Notes
+
+- Slice 141 is non-destructive (universe rebuild + schema add only)
+  and runs before slice 142's TRUNCATE so the new universe is in
+  place before the wipe.
+- Slice 142 is destructive. It TRUNCATEs production tables in the test
+  DB. Operator must explicitly approve before running. The migration
+  script prompts.
+- Slices 141 → 142 → 143 → 144 → 145 → 146 are a strict chain. Slices
+  147 and 148 depend on 146. Slices 149, 150, 151 are deprecated by 152.
+- Slices 152 → 153 → 154 are a strict chain: demolition first (152),
+  then adjusted-on-read core (153), then CLI surface (154). No slice
+  in this chain can ship out of order.
+- Slice 143's single-source `compute_k_factor` makes Stage A and
+  Stage B comparable. Without it, audit results are noise — Stage A
+  measures one calculation, Stage B measures another, they cannot
+  reconcile.
+- The daemon refactor (slice 145) absorbs and replaces the work-queue
+  freshness heuristics in 120's existing `freshness.py` modules. The
+  120 daemon code is reopened. This is intentional and reflected in
+  the dependency on 120-arch.
+- Slice 146 ships per-symbol `/eod` for the daily cycle path
+  (inherited from slice 145). At ~13k symbols × 1 credit/call =
+  ~13k credits/day, this is well under the 100k/day quota. Slice 152
+  layers in `/eod-bulk-last-day/US` (100 credits flat) once the
+  bulk-mode-selection edge cases (newly-added symbols, mixed-mode
+  cycles, bulk-response routing) have been worked through in their
+  own design pass.
+- Slice 146 was reframed 2026-05-03 to absorb the long-running
+  daemon, named symbol lists, and the `mt data ca` command group
+  (per `notes/2026-05-03-data-pipeline-simplification.md` and
+  `notes/2026-05-03-140-slice-impact.md`). The original slice 146
+  CA-drift detection scope is retained verbatim. Bulk-EOD
+  steady-state was originally bundled here too but was split out to
+  slice 152 on 2026-05-03 once its complexity (mode selection,
+  bulk-response routing, mixed-mode cycles) became clear.
+- Stored `adj_*` columns and the band-based UPDATE writer (slice 145)
+  are correct and necessary for cagg consistency across ex-date
+  boundaries. A "compute-on-read" simplification was considered
+  2026-05-03 and withdrawn for this reason — see
+  `notes/2026-05-03-data-pipeline-simplification.md` §3.
+- Operator commands `mt data ca update`, `mt data lists *`, and
+  `mt data daemon run` (long-running form) are specified in
+  `140-arch.data-quality-operations.md` §"Operator commands."
+- No `data_gaps` row stores `HOLIDAY`, `PRE_LISTING`, or `DELISTED`.
+  Those are filtered out of expected-vs-stored computation, never
+  persisted. Storing them would be noise that operators would have to
+  filter out of every query.
+- `data_status` is a view, not a materialized view. At current scale
+  (low-thousands of symbols, two granularities) view performance is
+  fine. Materializing is a follow-up if measurement justifies it.
+
+## Out of scope (designed out, not deferred)
+
+- Quality validator protocol with registry-driven extensions.
+- Persistent JSON quality reports as artifacts.
+- Recovery coordinator (report → fix → verify workflow).
+- `acquisition_gap_targets` and `coverage_gaps` tables (replaced by
+  `data_gaps`).
+- Scheduled quality runner.
+- Cross-vendor audit (Yahoo, Polygon, etc.) — possible future
+  extension to slice 146 by adding a vendor argument; not in initial
+  scope. The bar to add it: a concrete operator pain that current
+  audit does not solve.
+
+## Future work
+
+1. [ ] **(155) Daemon as a real background service: detached lifecycle + CLI control**~~ — ~~deprecated~~ — Deferred to future work. The foreground `mt data daemon run` with tmux/screen is sufficient for current single-operator use. The OS supervisor decisions (systemd user vs. system unit, env-var injection, daemon_id resolution, log routing) carry more design overhead than the value delivered right now. Moved to initiative 180's future work section; no dependency on this slice before picking it up there.
+
+2. [ ]**Bulk CA ingestion (splits + dividends)** — EODHD exposes
+  `/api/eod-bulk-last-day/US?type=splits&date=YYYY-MM-DD` and
+  `type=dividends` at 100 credits per full-exchange call (same pricing
+  as bulk EOD). Slice 146 ships per-symbol CA fetches; this future
+  item switches the daily CA poll to the bulk endpoint, polling
+  yesterday's ex-dates once per cycle instead of one call per symbol.
+  Add when per-symbol CA polling becomes a measurable quota pressure.
+
+- **Cross-vendor audit option for `mt data audit`** — `--vendor yahoo`
+  flag that compares stored adj_close against a second vendor's
+  published adjusted close. Single function extension, no protocol.
+  Add when a second vendor is integrated.
+
+- **Materialized `data_status`** — only if `mt data status` becomes
+  too slow to be useful at full-universe scope. Measurement-driven.
+- **`mt data refetch --auto`** — daemon-driven gap repair without
+  manual symbol selection. Add when the operator pain of repeated
+  manual refetch shows up.
+- **Daemon-driven cagg refresh on chunk write** — issue #15. After
+  each chunk the daemon writes, trigger a scoped
+  `refresh_continuous_aggregate(view, chunk_start, chunk_end)` for
+  every cagg covering that source. Removes the manual
+  `mt data caggs refresh` step after backfills. Refresh policies cover
+  steady-state late arrivals only; deep backfill writes data older than
+  any reasonable `start_offset` and stays unmaterialized otherwise.
+  Migration 037 widens 5m/15m `start_offset` to 1 day as a partial
+  mitigation for the steady-state side.
+
+- **Tick-granularity extension** — initiative 200. Same operator-
+  command pattern (`mt data tick status / refetch / audit`) and
+  strict-by-default backtest gap policy. **Separate** `tick_gaps`
+  table keyed by sequence-number ranges — `data_gaps` is not reused
+  because the semantics differ. Tick storage (parquet + QuestDB or
+  similar) is also distinct from the equity tables.

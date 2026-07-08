@@ -1,0 +1,2 @@
+#!/bin/bash
+exec project-documents/ai-project-guide/scripts/template-stubs/update-guides.sh "$@"

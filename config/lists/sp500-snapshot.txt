@@ -1,0 +1,7 @@
+# S&P 500 snapshot. One ticker per line. Lines beginning with '#' are
+# ignored. Populated/refreshed by `mt data lists refresh-sp500`, which
+# calls EODHD /fundamentals/GSPC.INDX and writes one Code per line.
+#
+# This file ships as a placeholder; until refreshed, `mt data lists show
+# priority2` returns zero symbols and any --list priority2 invocation
+# resolves to an empty scope.

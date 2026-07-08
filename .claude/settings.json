@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(break)",
+      "Skill(cf:next)",
+      "Skill(cf:next:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/manta"
+    ]
+  },
+  "enabledPlugins": {
+    "eodhd-api@eodhd-claude-skills": true
+  }
+}

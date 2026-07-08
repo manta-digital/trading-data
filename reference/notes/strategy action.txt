@@ -1,0 +1,161 @@
+
+How is this going to look?  What do we want to be able to do, at least to start?
+
+
+1) Retrieve or stream data for a single stock symbol.
+   Advance through prices with no lookahead
+   Apply a strategy and determine actions to take.
+
+
+2) Initial Actions Supported:
+
+   buy long market
+   buy long limit or sell short
+   close position (buy or sell, depending on the position type)
+   close with market vs limit?
+
+   limit
+   trailing stop
+   OTOCO (limit order triggers one-cancels-other).
+
+   Replace order
+   Define these actions.  Make sure type is extensible.
+
+3) Strategy evaluators:
+   given data, determine if action should be taken.
+   don't record inaction
+   
+   1. Open position
+      timestamp
+      long/short
+      asset
+      position type?
+      order type
+      store relevant order for order type
+
+   2. Close position
+      timestamp
+      relevant data.
+      result (profit/loss details)
+
+   Then a strategy result can be a collection of these open and close position
+   actions.  You don't need to keep the play by play profit and loss for the
+   strategy.  The actions record is enough to re-run it.  We *do* want to be
+   able to keep strategy details when needed.
+
+4) As you run the strategy, keep a running count of its effects.
+   This is the profit/loss at each step.  a total cumulative profit/loss at
+   each action (store with actions record) would cover most of this.
+
+5) Strategy Evaluators
+   This is the hard part.  Need to be able to create flexible and extensible
+   rules to describe data evaluations.  
+
+   a. Simple Example: golden cross MA.  Buy on golden cross up, sell on golden
+      cross down.  For golden cross you need: MA, variable periods (50, 200),
+      cross up, cross down.
+
+   b. for a strategy, you want current price.  so if you are running the strategy
+      on closing prices, and you have a target of $100.  During the day the stock
+      in question is $105, but it closes at $95.  If you run strategy off same
+      index (close), it will not sell.  But if you use high/low, it would.  Need
+      option to use high/low vs open/close, and try to default it if possible.
+
+   c. need auxiliary data structures available.  
+      moving averages, derivatives, additional technical indicators.  If strategy
+      could be an interface it could define this, but it would be nice to not have
+      to *completely* re-invent wheel.
+
+   d. Need framework-agnostic activities and indicators.
+      We're going to test 5-6 backtesting packages for a start.  Write strategy
+      code such that it will work with any of them.
+
+6) how do we store strategies in the database?  is that where we want them?
+   probably because we need to be able to compare and learn from them.  The following
+   two data structures *should* be enough to represent strategy results in the
+   database.  This does not include describing the strategies themselve in data.
+
+   Strategy Summary Action:
+   summary-action-id
+   timestamp start
+   timestamp stop
+   data points processed 
+   strategy type
+   strategy name
+
+   Strategy Actions:
+   timestamp
+   strategy: what strategy (id?) are you running?
+   run-id: what run/variation of the strategy is this?
+   action (open/close position)
+   position type (long/short, additional types possible later)
+   order type (buy market, sell limit, buy OTOCO, etc)
+   security (what did you buy or sell)
+   security type (stock, ETF, futures contract, etc)
+   quantity (number of shares, contracts, etc)
+   commission
+   slip
+   action     profit/loss
+   cumulative profit/loss 
+   action reason (ideally a rule in a strategy would be connected to this)
+
+   Support strategy overall actions too:
+   train strategy on one set of data
+   then use another set of data to test (different time periods is sufficient)
+
+   Strategy code objects:
+   * strategy, strategy type
+   * action type, order type, equity type
+   * strategy result, strategy action result (collection of these)
+
+   
+
+*) Being able to re-run strategy with changed params and keep multiple sets of 
+   results is useful.  For example what if you had widened a stop?  changed a
+   target?
+
+*) if strategies could be specified in the database and even better, provided
+   in readable text form (!) that would be amazing.  
+
+*) is it possible to have an AI be able to create the strategies from prompts?
+   THIS would be amazing:
+   track price of XYZ.  Enter long any time the 50 day MA crosses above the 200
+   MA. This applies to any price in the trading interval, not just end of day.
+   Sell when the 50 crosses below the 200.  In all positions, maintain a 5%
+   stop loss.  Update stop at each action point.
+
+
+
+
+================================================================================
+First finish fixing the infinite loop from no data available, since the one from
+errors is fixed for practical purposes.
+
+we might have a big pile of errors and they could be first time errors.  so maybe
+we have batchSize errors and no successful transactions.  we don't want to exit
+if that happens.  since errors get shuffled away now, we don't have to worry about
+continuing to encounter them.
+
+we are done when an entire batch returns 'no data'. e.g. when noData count == batch
+size
+
+
+
+then work on above.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

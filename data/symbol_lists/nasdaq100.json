@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "list_name": "NASDAQ-100",
+    "list_type": "index",
+    "source": "Static reference list",
+    "source_url": "https://en.wikipedia.org/wiki/NASDAQ-100",
+    "last_updated": "2024-01-01",
+    "total_count": 20,
+    "description": "Representative sample of NASDAQ-100 technology constituents for testing"
+  },
+  "symbols": [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "GOOG", "AVGO", "NFLX",
+    "AMD", "ADBE", "CRM", "QCOM", "ORCL", "INTC", "CMCSA", "TXN", "COST", "AMGN"
+  ]
+}
