@@ -78,14 +78,32 @@ hallucination trap.
 ## Git Rules
 
 ### Branch Naming
-When working on a slice, use a branch named after the slice (without the `.md` extension but with the numeric index prefix).
+A branch corresponds to one unit of work: slice implementation (Phase 6). Planning work (Phases 0–5: concept, initiative plan, architecture, slice plan, slice design, task breakdown, and reviews of those artifacts) does not get its own branch — it commits directly to the current integration target (see below).
 
-Before starting implementation work on a slice:
-1. verify you are on main or the expected slice branch
-2. if the expected slice branch does not exist, create it from `main`: `git checkout -b {branch-name}`
-3. If the slice branch already exists, switch to it: `git checkout {branch-name}`
-4. Never start slice work from another slice's branch unless explicitly instructed
-5. If in doubt, STOP and ask the Project Manager
+- **Slice work** → `{index}-slice.{name}`, where `{index}` is the slice's index and `{name}` is the document name without the `.md` extension.
+
+#### Integration branch
+A project may configure an **optional** integration branch that work forks from and merges into, instead of `main`. Read it with `cf config get git.integration_branch`. This key is optional and defaults to empty:
+
+- **Unset (default):** no change from plain historical behavior. Work branches fork from `main` and merge into `main`, named exactly `{index}-{type}.{name}` — no prefix.
+- **Set** (e.g. `dev/erik`):
+  - Work branches are named the same as when unset — `{index}-{type}.{name}` (e.g. `910-slice.foo`), with no prefix.
+  - Work branches fork **from** `{integration_branch}`, not `main`.
+  - Work branches merge **into** `{integration_branch}`, not `main`.
+  - **Hard rule: never merge to `main` when `integration_branch` is set.** Syncing `{integration_branch}` from `main`, and eventually merging `{integration_branch}` into `main`, are PM-only actions outside automation scope — never perform either as part of normal slice/planning workflow, only if the Project Manager explicitly instructs it as a standalone action.
+
+The integration branch affects **git topology only** (fork point and merge target) — not the branch name. It does not move documents or change where artifacts resolve — the `project-documents/user/...` layout under the branch is unchanged. The configured value is relative and contained (never absolute, never `..`, no trailing slash, no Windows drive/`\`); `cf` rejects invalid values when the key is set.
+
+Before starting work on a slice, or before committing planning work:
+1. read `cf config get git.integration_branch`; call its value (or `main` if empty) the **target**
+2. for slice work, determine the branch name per the rules above (no prefix, regardless of target)
+3. verify you are on the target or the expected slice branch
+4. if the expected slice branch does not exist, create it from the target: `git checkout -b {branch-name} {target}`
+5. if the branch already exists, switch to it: `git checkout {branch-name}`
+6. never start work from another unit's branch unless explicitly instructed
+7. if in doubt, STOP and ask the Project Manager
+
+A slice branch merges into the target when its implementation is done. Do not hold a branch open across units. Do not delete branches unless specifically instructed to do so.
 
 ### Commit Messages
 Use semantic commit prefixes. The goal is a readable `git log --oneline`.
