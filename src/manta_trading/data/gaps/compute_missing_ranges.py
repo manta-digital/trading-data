@@ -94,7 +94,7 @@ def compute_missing_ranges(
         return []
 
     # Step 5 — group contiguous runs into GapRange spans
-    return _group_into_ranges(symbol, granularity, missing, sessions)
+    return group_sessions_into_ranges(symbol, granularity, missing, sessions)
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +192,7 @@ def _fetch_stored_timestamps(
         return {row[0] for row in cur.fetchall()}
 
 
-def _group_into_ranges(
+def group_sessions_into_ranges(
     symbol: str,
     granularity: str,
     missing: list[datetime],
