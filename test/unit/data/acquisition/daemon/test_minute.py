@@ -70,6 +70,7 @@ class TestRunMinuteCycle:
         symbols: list[str],
         gaps_sequence: list,
         outcome: LastAttemptOutcome = LastAttemptOutcome.SUCCESS,
+        gaps_inserted: int = 0,
     ) -> tuple:
         gap_iter = iter(gaps_sequence)
         mocks: dict[str, MagicMock] = {}
@@ -93,7 +94,15 @@ class TestRunMinuteCycle:
             )
             update_mock = mp(
                 "manta_trading.data.acquisition.daemon.minute.update_data_gaps",
-                return_value=MagicMock(gaps_inserted=0),
+                return_value=MagicMock(gaps_inserted=gaps_inserted),
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.build_minute_coverage_index",
+                return_value={},
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.compute_missing_minute_sessions",
+                return_value=[],
             )
             from manta_trading.constants import EODHD_INTRADAY_HORIZON
             from datetime import datetime as _datetime, timezone as _tz
@@ -194,6 +203,20 @@ class TestRunMinuteCycle:
         # Each symbol does 1 coalesce
         assert coalesce_mock.call_count == 2
 
+    def test_seed_progress_accumulates_gaps_seeded_across_symbols(self, caplog) -> None:
+        """slice 162: seed-phase progress sums gaps_inserted across all symbols
+        and emits a completion INFO line with the accumulated total."""
+        import logging
+
+        gaps = [None, None, None]
+        with caplog.at_level(logging.INFO, logger="manta_trading.data.acquisition.daemon.minute"):
+            self._run(["AAPL", "MSFT", "GOOG"], gaps, gaps_inserted=3)
+
+        complete_lines = [r.message for r in caplog.records if "minute seed: complete" in r.message]
+        assert len(complete_lines) == 1
+        assert "3 symbols" in complete_lines[0]
+        assert "9 gap rows seeded" in complete_lines[0]
+
 
 # ---------------------------------------------------------------------------
 # T7: _do_minute_symbol extensions (force_reset_terminal + window)
@@ -214,14 +237,23 @@ class TestDoMinuteSymbolExtensions:
         window: tuple[date, date] | None = None,
         outcome: LastAttemptOutcome = LastAttemptOutcome.SUCCESS,
         gaps_sequence: list | None = None,
-    ) -> tuple[LastAttemptOutcome, MagicMock, MagicMock]:
-        """Call _do_minute_symbol with all external deps mocked. Returns (outcome, update_gaps_mock, coalesce_mock)."""
+        coverage_index: dict | None = None,
+        precomputed_ranges: list | None = None,
+        update_gaps_result: MagicMock | None = None,
+    ) -> tuple[tuple, MagicMock, MagicMock, MagicMock]:
+        """Call _do_minute_symbol with all external deps mocked.
+
+        Returns (result, update_gaps_mock, coalesce_mock, compute_missing_mock).
+        """
         if gaps_sequence is None:
             gaps_sequence = [None]  # no gaps → loop exits immediately
 
         gap_iter = iter(gaps_sequence)
-        mock_update_gaps = MagicMock(return_value=MagicMock(gaps_inserted=0))
+        mock_update_gaps = MagicMock(
+            return_value=update_gaps_result or MagicMock(gaps_inserted=0)
+        )
         mock_coalesce = MagicMock(return_value=0)
+        mock_compute_missing = MagicMock(return_value=precomputed_ranges or [])
         conn = MagicMock()
         txn = MagicMock()
         txn.__enter__ = MagicMock(return_value=txn)
@@ -254,6 +286,7 @@ class TestDoMinuteSymbolExtensions:
             patch("manta_trading.data.acquisition.daemon.minute.classify_outcome", return_value=outcome),
             patch("manta_trading.data.acquisition.daemon.minute.outcome_to_fetch_status", return_value=None),
             patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps", mock_update_gaps),
+            patch("manta_trading.data.acquisition.daemon.minute.compute_missing_minute_sessions", mock_compute_missing),
             patch("manta_trading.data.acquisition.daemon.minute._advance_minute_gap", return_value=None),
             patch("manta_trading.data.acquisition.daemon.minute._record_minute_attempt", return_value=None),
             patch("manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start", return_value=resolved_start),
@@ -273,22 +306,23 @@ class TestDoMinuteSymbolExtensions:
                 settings=_FakeSettings(),
                 force_reset_terminal=force_reset_terminal,
                 window=window,
+                coverage_index=coverage_index,
             )
-        return result, mock_update_gaps, mock_coalesce
+        return result, mock_update_gaps, mock_coalesce, mock_compute_missing
 
     def test_force_reset_terminal_true_forwarded_to_initial_update_data_gaps(self) -> None:
-        _, mock_update, _ = self._run_do_minute(force_reset_terminal=True)
+        _, mock_update, _, _ = self._run_do_minute(force_reset_terminal=True)
         first_call_kwargs = mock_update.call_args_list[0].kwargs
         assert first_call_kwargs["force_reset_terminal"] is True
 
     def test_force_reset_terminal_false_default_forwarded(self) -> None:
-        _, mock_update, _ = self._run_do_minute(force_reset_terminal=False)
+        _, mock_update, _, _ = self._run_do_minute(force_reset_terminal=False)
         first_call_kwargs = mock_update.call_args_list[0].kwargs
         assert first_call_kwargs["force_reset_terminal"] is False
 
     def test_window_none_uses_resolved_history_start(self) -> None:
         """window=None → history_start = _resolve_minute_history_start()."""
-        _, mock_update, _ = self._run_do_minute(window=None)
+        _, mock_update, _, _ = self._run_do_minute(window=None)
         from_ts = mock_update.call_args_list[0].args[3]
         # _run_do_minute patches the resolver to return a known datetime —
         # asserting the patched value flows into update_data_gaps args[3].
@@ -302,7 +336,7 @@ class TestDoMinuteSymbolExtensions:
         """window=(date1, date2) → history_start = max(window_start, resolved floor)."""
         future_start = date(2025, 1, 1)
         w = (future_start, date(2025, 12, 31))
-        _, mock_update, _ = self._run_do_minute(window=w)
+        _, mock_update, _, _ = self._run_do_minute(window=w)
         from_ts = mock_update.call_args_list[0].args[3]
         # window_start (2025-01-01) is well above the EODHD horizon (2004-01-01),
         # so history_start should equal window_start.
@@ -310,15 +344,49 @@ class TestDoMinuteSymbolExtensions:
 
     def test_coalesce_called_after_chunk_loop(self) -> None:
         """coalesce_data_gaps must be called after the chunk loop."""
-        _, _, mock_coalesce = self._run_do_minute()
+        _, _, mock_coalesce, _ = self._run_do_minute()
         mock_coalesce.assert_called_once()
         args = mock_coalesce.call_args.args
         assert args[1] == "AAPL"
         assert args[2] == "minute"
 
+    def test_coverage_index_present_passes_precomputed_ranges_not_span(self) -> None:
+        """slice 162: with a coverage index, seed uses coverage-derived ranges."""
+        from manta_trading.data.gaps.compute_missing_ranges import GapRange
+
+        ranges = [GapRange("AAPL", "minute", _dt(2024, 6, 10), _dt(2024, 6, 12))]
+        _, mock_update, _, mock_compute_missing = self._run_do_minute(
+            coverage_index={"AAPL": {date(2024, 1, 1)}},
+            precomputed_ranges=ranges,
+        )
+        mock_compute_missing.assert_called_once()
+        first_call_kwargs = mock_update.call_args_list[0].kwargs
+        assert first_call_kwargs["precomputed_ranges"] == ranges
+        # Not the legacy single [history_start, target_end] span behavior —
+        # precomputed_ranges must be the coverage-derived list, not None.
+        assert first_call_kwargs["precomputed_ranges"] is not None
+
+    def test_coverage_index_none_skips_coverage_seeding_no_full_window_fallback(self) -> None:
+        """slice 162 fail-safe: coverage_index=None must not compute_missing_minute_sessions,
+        and update_data_gaps must receive precomputed_ranges=None (its own legacy
+        single-span fallback), never a coverage-aware call that never happened."""
+        _, mock_update, _, mock_compute_missing = self._run_do_minute(coverage_index=None)
+        mock_compute_missing.assert_not_called()
+        first_call_kwargs = mock_update.call_args_list[0].kwargs
+        assert first_call_kwargs["precomputed_ranges"] is None
+
+    def test_gaps_seeded_returned_from_update_result(self) -> None:
+        """The 5th return element reflects update_data_gaps' gaps_inserted count."""
+        result, _, _, _ = self._run_do_minute(
+            coverage_index={"AAPL": set()},
+            update_gaps_result=MagicMock(gaps_inserted=7),
+        )
+        gaps_seeded = result[4]
+        assert gaps_seeded == 7
+
     def test_coalesce_called_on_refetch_path_too(self) -> None:
         """coalesce called even when force_reset_terminal=True."""
-        _, _, mock_coalesce = self._run_do_minute(force_reset_terminal=True)
+        _, _, mock_coalesce, _ = self._run_do_minute(force_reset_terminal=True)
         mock_coalesce.assert_called_once()
 
 
@@ -336,7 +404,7 @@ class TestRunMinuteRefetch:
         to_date: date | None = None,
         outcome: LastAttemptOutcome = LastAttemptOutcome.SUCCESS,
     ) -> tuple:
-        mock_do_minute = MagicMock(return_value=(outcome, None, None, 0))
+        mock_do_minute = MagicMock(return_value=(outcome, None, None, 0, 0))
         # The resolver returns 2010-01-01 (later than the EODHD horizon) so
         # tests can assert the per-symbol floor flows through.
         mock_resolve = MagicMock(

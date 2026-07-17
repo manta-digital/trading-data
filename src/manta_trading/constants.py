@@ -75,6 +75,14 @@ coverage-aware seeding is skipped for that cycle rather than falling back to
 the old full-window `[history_start, today]` seed.
 """
 
+MINUTE_SEED_PROGRESS_LOG_INTERVAL: int = 250
+"""Emit a minute-seed progress INFO line every this many symbols scanned.
+
+The universe-wide seed pass (slice 162) runs silently otherwise; this bounds
+how often the daemon reports `seeded N/<total> symbols, M gaps` during a
+long-running cycle.
+"""
+
 EODHD_DAILY_QUOTA: int = 100_000
 """EODHD All-In-One plan: maximum API credits per UTC day."""
 
