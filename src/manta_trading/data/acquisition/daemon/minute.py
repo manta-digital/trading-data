@@ -16,6 +16,7 @@ from manta_trading.constants import (
     DAEMON_LOCK_TIMEOUT,
     EODHD_INTRADAY_HORIZON,
     MAX_RETRY_COUNT,
+    MINUTE_SEED_PROGRESS_LOG_INTERVAL,
 )
 from manta_trading.data.acquisition.quota import CallType
 from manta_trading.data.acquisition.daemon.daily import (
@@ -37,6 +38,10 @@ from manta_trading.data.gaps import (
     coalesce_data_gaps,
     pick_most_recent_actionable_gap,
     update_data_gaps,
+)
+from manta_trading.data.gaps.minute_coverage import (
+    build_minute_coverage_index,
+    compute_missing_minute_sessions,
 )
 from manta_trading.data.locking import advisory_lock
 from manta_trading.logging import get_logger
@@ -139,6 +144,16 @@ def run_minute_cycle(
                         )
                     ]
 
+            with pool.connection() as conn:
+                coverage_index = build_minute_coverage_index(conn)
+            if coverage_index is None:
+                _logger.error(
+                    "run_minute_cycle: coverage index unavailable this cycle — "
+                    "seeding will use existing gap rows only (no full-window fallback)"
+                )
+
+            symbols_scanned = 0
+            gaps_seeded_total = 0
             for sym in symbol_list:
                 if should_continue is not None and not should_continue():
                     _logger.info(
@@ -148,7 +163,9 @@ def run_minute_cycle(
                         len(symbol_list) - report.total,
                     )
                     break
-                outcome, cs, ce, n_chunks = _process_minute_symbol(sym, pool=pool, http=http, settings=settings)
+                outcome, cs, ce, n_chunks, gaps_seeded = _process_minute_symbol(
+                    sym, pool=pool, http=http, settings=settings, coverage_index=coverage_index
+                )
                 report.symbol_outcomes[sym] = str(outcome)
                 if outcome == LastAttemptOutcome.SUCCESS:
                     report.success_count += 1
@@ -161,6 +178,19 @@ def run_minute_cycle(
                 if on_symbol is not None:
                     on_symbol(sym, str(outcome), cs, ce, n_chunks)
 
+                symbols_scanned += 1
+                gaps_seeded_total += gaps_seeded
+                if symbols_scanned % MINUTE_SEED_PROGRESS_LOG_INTERVAL == 0:
+                    _logger.info(
+                        "minute seed: %d/%d symbols scanned, %d gap rows seeded",
+                        symbols_scanned, len(symbol_list), gaps_seeded_total,
+                    )
+
+            _logger.info(
+                "minute seed: complete — %d symbols, %d gap rows seeded",
+                symbols_scanned, gaps_seeded_total,
+            )
+
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report
 
@@ -171,31 +201,34 @@ def _process_minute_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
-) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int]:
+    coverage_index: dict[str, set[date]] | None = None,
+) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     try:
-        return _do_minute_symbol(symbol, pool=pool, http=http, settings=settings)
+        return _do_minute_symbol(
+            symbol, pool=pool, http=http, settings=settings, coverage_index=coverage_index
+        )
     except ProviderResponseError as exc:
         # Non-404 4xx from EODHD — unexpected but skip this symbol rather than
         # crashing the entire cycle. Log at ERROR so it surfaces for investigation.
         _logger.error("ProviderResponseError for %s minute — skipping: %s", symbol, exc)
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0
+        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except psycopg.errors.LockNotAvailable:
         _logger.warning("Advisory lock timeout for %s minute — skipping", symbol)
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0
+        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except PoolTimeout:
         _logger.warning(
             "DB pool timeout for %s minute — DB unreachable, skipping", symbol
         )
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0
+        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         _logger.warning(
             "HTTP transient failure for %s minute (retries exhausted): %s",
             symbol, exc,
         )
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0
+        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except Exception:
         _logger.exception("Transient failure for %s minute", symbol)
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0
+        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
 
 
 def _do_minute_symbol(
@@ -206,7 +239,8 @@ def _do_minute_symbol(
     settings: Settings,
     force_reset_terminal: bool = False,
     window: tuple[date, date] | None = None,
-) -> LastAttemptOutcome:
+    coverage_index: dict[str, set[date]] | None = None,
+) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     now_midnight = datetime.now(_UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     with pool.connection() as conn:
         default_history_start = _resolve_minute_history_start(
@@ -229,6 +263,7 @@ def _do_minute_symbol(
     first_chunk_outcome: LastAttemptOutcome | None = None
     last_chunk_end: datetime | None = None
     chunk_count: int = 0
+    gaps_seeded: int = 0
 
     # Check and seed use a short-lived connection that is returned to the pool
     # before the chunk loop starts. Holding conn open across the chunk loop
@@ -255,18 +290,33 @@ def _do_minute_symbol(
         _needs_seed = force_reset_terminal or not _has_bars or not _has_any_gaps or _has_unknown_gaps
 
         if _needs_seed:
+            # Coverage-aware seeding (slice 162): when the caller has a coverage
+            # index, seed only genuinely-missing sessions instead of a single
+            # [history_start, target_end] span. When coverage_index is None (the
+            # index build failed this cycle, or the caller — e.g. run_minute_refetch
+            # — didn't build one), precomputed_ranges stays None and
+            # update_data_gaps falls back to its legacy single-span behavior —
+            # never a silent full-window re-seed beyond what already happens today.
+            precomputed_ranges = None
+            if coverage_index is not None:
+                precomputed_ranges = compute_missing_minute_sessions(
+                    conn, symbol, coverage_index, history_start, target_end
+                )
+
             # Seed gap rows and commit before entering the fetch loop.
             # Each per-chunk write must commit independently so a Ctrl-C between
             # chunks does not roll back already-fetched bars.  pg_advisory_xact_lock
             # is transaction-scoped, so we release it here and re-acquire per chunk.
             with conn.transaction():
                 with advisory_lock(conn, symbol, "minute", timeout=DAEMON_LOCK_TIMEOUT):
-                    update_data_gaps(
+                    seed_result = update_data_gaps(
                         conn, symbol, "minute", history_start, target_end,
                         fetch_status_for_unfilled=FetchStatus.UNKNOWN,
                         outcome=LastAttemptOutcome.PARTIAL,
                         force_reset_terminal=force_reset_terminal,
+                        precomputed_ranges=precomputed_ranges,
                     )
+            gaps_seeded = seed_result.gaps_inserted
     # conn is returned to pool here — chunk loop uses fresh connections per chunk.
 
     while True:
@@ -347,7 +397,7 @@ def _do_minute_symbol(
     # Display outcome: first chunk (most recent window) is the meaningful signal.
     # last_outcome (oldest chunk) is often empty for pre-IPO periods.
     display_outcome = first_chunk_outcome if first_chunk_outcome is not None else last_outcome
-    return display_outcome, first_chunk_end, last_chunk_end, chunk_count
+    return display_outcome, first_chunk_end, last_chunk_end, chunk_count, gaps_seeded
 
 
 def run_minute_refetch(
@@ -399,7 +449,7 @@ def run_minute_refetch(
                 resolved_to = to_date
 
             window = (resolved_from, resolved_to)
-            outcome, _, __, ___ = _do_minute_symbol(
+            outcome, _, __, ___, ____ = _do_minute_symbol(
                 symbol,
                 pool=pool,
                 http=http,

@@ -114,11 +114,11 @@ class TestComputeMissingRanges:
 
         with (
             patch(
-                "manta_trading.data.gaps.compute_missing_ranges._clamp_to_lifecycle",
+                "manta_trading.data.gaps.compute_missing_ranges.clamp_to_lifecycle",
                 return_value=(from_ts, to_ts) if lifecycle[0] or lifecycle[1] else (None, None),
             ),
             patch(
-                "manta_trading.data.gaps.compute_missing_ranges._fetch_sessions",
+                "manta_trading.data.gaps.compute_missing_ranges.fetch_sessions",
                 return_value=sessions or [],
             ),
             patch(
@@ -193,11 +193,11 @@ class TestComputeMissingRanges:
 
         with (
             patch(
-                "manta_trading.data.gaps.compute_missing_ranges._clamp_to_lifecycle",
+                "manta_trading.data.gaps.compute_missing_ranges.clamp_to_lifecycle",
                 return_value=(from_ts, to_ts),
             ),
             patch(
-                "manta_trading.data.gaps.compute_missing_ranges._fetch_sessions",
+                "manta_trading.data.gaps.compute_missing_ranges.fetch_sessions",
                 return_value=sessions,
             ),
             patch(

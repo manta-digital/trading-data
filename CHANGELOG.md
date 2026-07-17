@@ -17,7 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Coverage-aware minute gap-seeding** (slice 162) — the minute daemon now seeds `data_gaps` only for trading sessions genuinely missing from `minute_ohlcv`, instead of a single full-history span. A restart on a mostly-complete universe now produces near-zero chunks per already-covered symbol instead of ~69 (the credit-burning behavior that had the production minute daemon stopped). Adds seed-phase progress logging (`minute seed: N/<total> symbols scanned, M gap rows seeded`) so the daemon no longer runs silent during a universe-wide seed pass.
 - **TimescaleDB columnar compression** (slice 160) — migration `042_enable_columnar_compression` enables compression on `minute_ohlcv` and `daily_ohlcv` (segmentby=symbol, orderby=time DESC), installs 7-day compress-after policies, and backfills all existing eligible chunks. Production `minute_ohlcv` achieved 87.7% space savings (10× ratio). All queries return identical results post-compression; cagg refresh policies are unaffected.
+
+### Fixed
+- **Minute coverage-index date/datetime type mismatch** (slice 162) — `build_minute_coverage_index` stored the coverage day as a `timestamptz` instead of a plain date, so the session-diff comparison never matched and every symbol was treated as fully uncovered. Fixed before the daemon was restarted in production.
+
+### Changed
+- **`MINUTE_HISTORY_MONTHS` NFR removed from architecture docs** (slice 162) — the documented 24-month minute-history cap was a dead AlphaVantage-era workaround, never implemented in code. Minute history is, and remains, full-to-`EODHD_INTRADAY_HORIZON` (2004-01-01) by default, narrowable via `MT_MINUTE_HISTORY_START`.
 
 ### Added (previous)
 - **`mt serve`** — new CLI command that starts the Data Serving API

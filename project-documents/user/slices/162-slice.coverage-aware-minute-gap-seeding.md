@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [145, 146]
 interfaces: [163, 164, 182]
 dateCreated: 20260716
-dateUpdated: 20260716
-status: not_started
+dateUpdated: 20260717
+status: complete
 ---
 
 # Slice Design: Coverage-Aware Minute Gap-Seeding
@@ -451,9 +451,20 @@ the regression test pins.
 ### Verification Walkthrough
 
 > **Note:** all raw-`minute_ohlcv` / cagg data reads below must be run by the
-> operator via `psql` as `postgres`/owner — the MCP `trading_app` role cannot
-> `SELECT` OHLCV/gap tables. Production DB is `<db-host>:5432/trading`.
+> operator via `psql`/DataGrip as `postgres`/owner — the MCP `trading_app` role
+> cannot `SELECT` OHLCV/gap tables. Production DB is `<db-host>:5432/trading`.
 > **Do not restart the production minute daemon until this slice lands.**
+>
+> **CLI correction (found during Phase 6, 2026-07-17):** the commands below
+> use `mt data daemon run --minute --symbols <SYM>`, **not**
+> `mt data pull --granularity minute --symbols <SYM>` (an earlier draft of
+> this walkthrough specified the latter, which does not exist as written —
+> `pull` takes a positional `1d`/`1m` argument, not a `--granularity` flag —
+> and even corrected to `mt data pull 1m --symbol <SYM>` it silently routes
+> through `run_minute_refetch`, a different, non-coverage-aware code path,
+> rather than `run_minute_cycle` — see
+> `user/reference/minute-fetch-code-paths.md` and slice 165, filed to fix
+> this divergence).
 
 **1. Unit tests pass:**
 ```bash
@@ -472,35 +483,103 @@ GROUP BY symbol, date_trunc('day', time_bucket);
 Expected: single Finalize HashAggregate over a parallel Gather, ~3s total (not
 minutes). This is the query `build_minute_coverage_index` issues.
 
+Captured (2026-07-17, production `trading`): Finalize HashAggregate,
+`rows=2425433`, Gather with 13 workers launched, `Buffers: shared hit=64245`
+(all cache hits this run), Planning Time 1269ms, Execution Time 2956ms
+(~4.2s total including planning). Universe cardinality:
+`count(DISTINCT symbol)` / `count(*)` over `minute_4hour_ohlcv` — record the
+two numbers precisely (an earlier capture attempt returned an ambiguous
+pasted value; re-run and label each column explicitly before trusting it).
+
 **3. Fully-covered symbol seeds nothing.** Pick a symbol known to be fully
 backfilled (operator confirms via a bounded count). Delete its minute gap rows,
 run one scoped cycle, and confirm no `[2004, today]` row appears:
 ```bash
 # operator: DELETE FROM data_gaps WHERE symbol='<covered>' AND granularity='minute';
-mt data pull --granularity minute --symbols <covered> -v
+mt data daemon run --minute --symbols <covered> -v
 # operator: SELECT gap_start, gap_end, fetch_status FROM data_gaps
 #           WHERE symbol='<covered>' AND granularity='minute' ORDER BY gap_start;
 ```
 Expected: zero rows seeded (or only today's partial session), and the `-v`
 chunk output shows near-zero chunks attempted — **not** ~69.
 
+Captured (2026-07-17, AAPL): `minute seed: complete — 1 symbols, 0 gap rows
+seeded` (via the corrected `daemon run` command); `SELECT count(*) FROM
+data_gaps WHERE symbol='AAPL'` → 0. **Pass.**
+
 **4. Partially-covered symbol with a past hole seeds only the hole.** Using a
 test fixture (or an operator-prepared symbol) with a known interior gap,
 confirm the seeded ranges cover only the missing sessions.
+
+Captured (2026-07-17, TSLA, known real interior holes 2023–2025):
+first attempt (pre-fix, via the wrong `run_minute_refetch` path) produced
+one row spanning `20200418–20260716` (23 chunks) — this surfaced a real bug,
+**not** expected coverage-aware behavior; see Bugs Found below. After fixing
+the bug and re-running via the corrected `daemon run --minute --symbols
+TSLA` command: `minute seed: complete — 1 symbols, 5 gap rows seeded`,
+7 chunks fetched (`20230917–20260715`), final `data_gaps` rows are 6 tight
+`PROVIDER_HOLE` ranges (5 seeded + coalescing), e.g.
+`2023-07-19→2023-09-17`, `2023-09-17→2024-01-15`, `2024-01-15→2024-05-14`,
+plus three single-day holes — all confirmed-empty-by-provider after the
+chunk loop ran, not a `[2004, today]` span. **Pass** (post-fix).
 
 **5. Empty symbol seeds full history.** A symbol with no minute bars seeds
 session-contiguous ranges spanning `[history_start, today]` — verify the chunk
 loop then backfills it normally.
 
+Captured (2026-07-17, AACB — a symbol absent from `minute_4hour_ohlcv`,
+confirming zero coverage): `minute seed: complete — 1 symbols, 1 gap rows
+seeded` (one range spanning the full clamped history window, as expected for
+zero coverage). Chunk loop ran 5 chunks (`20250323–20260716`); each chunk's
+outcome split the seeded range further, ending with 4
+`PROVIDER_HOLE`-status rows (`2025-02-13→2025-03-23`, `2025-03-23→2025-07-21`,
+`2025-07-21→2025-11-18`, `2025-11-18→2026-03-18`) — confirmed **not** a
+correctness issue: `SELECT count(*)/MIN(time)/MAX(time) FROM minute_ohlcv
+WHERE symbol='AACB'` showed 162 bars spanning `2026-05-29→2026-07-15`,
+entirely *after* all four `PROVIDER_HOLE` ranges. AACB genuinely has only
+recent minute history at EODHD; the older window the seeder correctly
+identified as uncovered was correctly confirmed empty by the provider, not a
+gap in what the daemon fetched. **Pass.**
+
+**Side finding — not in scope for this slice, filed as slice 166:** the
+`MIN(time)/MAX(time)` verification query above (single symbol, no join, no
+time filter) took **10m47s** in production, and an earlier ad-hoc
+universe-wide existence probe (Step 5 candidate discovery) took **8m8s**.
+Both point to `minute_ohlcv` itself being pathologically slow for even
+trivial ad-hoc queries — more severe than what slice 164's bounded-time-
+convention framing anticipated. See
+`140-slices.data-quality-operations.md` slice 166 (filed 2026-07-17,
+prioritized ahead of 163/164).
+
 **6. Seed-phase progress is visible:**
 ```bash
-mt data pull --granularity minute -v 2>&1 | grep 'minute seed:'
+mt data daemon run --minute --symbols <SYM> -v 2>&1 | grep 'minute seed:'
 ```
 Expected: periodic `minute seed: N/<total> symbols scanned, M gap rows seeded`
 lines, ending with a `complete` line — no long silent stretch.
 
-> The concrete symbols, counts, and captured EXPLAIN output are filled in during
-> Phase 6 so an external agent can replay this walkthrough verbatim.
+Captured (2026-07-17): the `complete` line appears reliably
+(`minute seed: complete — N symbols, M gap rows seeded`); for a single-symbol
+scope the periodic (every-250-symbols) line never fires since N=1, which is
+expected, not a bug. **Pass.**
+
+**Bugs found and fixed during this walkthrough:**
+1. **`date_trunc` type mismatch** (fixed in this slice, commit `ea5ac83`):
+   `build_minute_coverage_index` stored `date_trunc('day', time_bucket)`
+   results (a `timestamptz`/`datetime`) directly as dict keys, while
+   `compute_missing_minute_sessions` compared against `session.date()` (a
+   plain `date`). The two never matched, so every symbol appeared fully
+   uncovered and seeded one full-history span — reproducing the exact bug
+   this slice exists to fix. Caught only because production verification
+   used real DB rows; the unit tests' mocked fixtures used plain `date(...)`
+   objects and never exercised the real psycopg return type. Fixed by
+   normalizing to `.date()` in `build_minute_coverage_index`; regression
+   tests added in `test_minute_coverage.py`.
+2. **Wrong CLI command in this walkthrough** — see the correction note above
+   and slice 165.
+3. **`minute_ohlcv` pathological query latency** (not this slice's bug —
+   filed as slice 166): unrelated to the coverage-aware seeder's correctness,
+   but discovered while verifying it. See Step 5's side finding above.
 
 ## Operational-Fix Re-Audit
 
@@ -516,6 +595,16 @@ the new seeder:
 
 Only the first requires a code-adjacent action, and that action is a test, not a
 behavior change.
+
+**Phase 6 re-audit outcome (T14):** confirmed as designed. `_has_any_gaps`
+trigger is unchanged at `daemon/minute.py:290`; the T11 regression test
+(`test_refire_seeds_only_real_holes_not_full_history_span`) pins that a
+re-fire now recreates only genuinely-missing sessions via
+`compute_missing_minute_sessions`, not a `[2004, today]` span. The other three
+fixes (EODHD 404→EMPTY in `outcomes.py`, `httpx.TimeoutException` retry in
+`eodhd_sync.py`, `PoolTimeout` WARNING at `minute.py:218`) are untouched by
+this slice's diff — verified via `git diff` against the pre-slice tree. Three
+no-change verdicts, one test-covered verdict, as designed.
 
 ## Risk Assessment
 

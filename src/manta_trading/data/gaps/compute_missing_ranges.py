@@ -75,13 +75,13 @@ def compute_missing_ranges(
         )
 
     # Step 1 — lifecycle-date clamping
-    clamped_from, clamped_to = _clamp_to_lifecycle(conn, symbol, from_ts, to_ts)
+    clamped_from, clamped_to = clamp_to_lifecycle(conn, symbol, from_ts, to_ts)
     if clamped_from is None:
         # No lifecycle dates available — cannot compute ranges
         return []
 
     # Step 2 — ordered trading sessions in clamped window
-    sessions = _fetch_sessions(conn, symbol, clamped_from, clamped_to)
+    sessions = fetch_sessions(conn, symbol, clamped_from, clamped_to)
     if not sessions:
         return []
 
@@ -94,7 +94,7 @@ def compute_missing_ranges(
         return []
 
     # Step 5 — group contiguous runs into GapRange spans
-    return _group_into_ranges(symbol, granularity, missing, sessions)
+    return group_sessions_into_ranges(symbol, granularity, missing, sessions)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ def compute_missing_ranges(
 # ---------------------------------------------------------------------------
 
 
-def _clamp_to_lifecycle(
+def clamp_to_lifecycle(
     conn: "psycopg.Connection[object]",
     symbol: str,
     from_ts: datetime,
@@ -148,7 +148,7 @@ def _clamp_to_lifecycle(
     return effective_from, effective_to
 
 
-def _fetch_sessions(
+def fetch_sessions(
     conn: "psycopg.Connection[object]",
     symbol: str,
     from_ts: datetime,
@@ -192,7 +192,7 @@ def _fetch_stored_timestamps(
         return {row[0] for row in cur.fetchall()}
 
 
-def _group_into_ranges(
+def group_sessions_into_ranges(
     symbol: str,
     granularity: str,
     missing: list[datetime],

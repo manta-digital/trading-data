@@ -227,3 +227,101 @@ class TestUpdateDataGaps:
         assert delete_idx != -1, "Expected a DELETE"
         assert insert_idx != -1, "Expected an INSERT"
         assert delete_idx < insert_idx
+
+
+class TestUpdateDataGapsPrecomputedRanges:
+    """Tests for the minute-path precomputed_ranges parameter (slice 162)."""
+
+    def _call_minute(
+        self,
+        *,
+        prior_rows: list[dict] | None = None,
+        precomputed_ranges: list[GapRange] | None,
+        fetch_status: FetchStatus | None = FetchStatus.UNKNOWN,
+        outcome: LastAttemptOutcome = LastAttemptOutcome.SUCCESS,
+    ) -> tuple[UpdateResult, list[_CapturingCursor]]:
+        conn, cursors = _make_conn(prior_rows or [])
+        result = update_data_gaps(
+            conn,
+            "AAPL",
+            "minute",
+            _dt(2024, 1, 1),
+            _dt(2024, 12, 31),
+            fetch_status,
+            outcome=outcome,
+            precomputed_ranges=precomputed_ranges,
+        )
+        return result, cursors
+
+    def test_precomputed_ranges_inserts_exactly_those_ranges_not_one_span(self) -> None:
+        ranges = [
+            GapRange("AAPL", "minute", _dt(2024, 1, 3), _dt(2024, 1, 3)),
+            GapRange("AAPL", "minute", _dt(2024, 6, 10), _dt(2024, 6, 12)),
+        ]
+        result, cursors = self._call_minute(precomputed_ranges=ranges)
+
+        assert result.gaps_inserted == 2
+        insert_calls = [
+            params
+            for cur in cursors
+            for sql, params in cur.executes
+            if "INSERT INTO data_gaps" in sql
+        ]
+        assert len(insert_calls) == 2
+        inserted_spans = {(p[2], p[3]) for p in insert_calls}
+        assert inserted_spans == {
+            (_dt(2024, 1, 3), _dt(2024, 1, 3)),
+            (_dt(2024, 6, 10), _dt(2024, 6, 12)),
+        }
+        # Not the legacy single [from_ts, to_ts] span
+        assert (_dt(2024, 1, 1), _dt(2024, 12, 31)) not in inserted_spans
+
+    def test_precomputed_ranges_empty_list_inserts_nothing(self) -> None:
+        result, _ = self._call_minute(precomputed_ranges=[])
+        assert result.gaps_inserted == 0
+
+    def test_carry_forward_preserved_for_precomputed_range(self) -> None:
+        """A re-seed over a prior status carries forward attempt_count."""
+        prior = [
+            {
+                "gap_start": _dt(2024, 6, 10),
+                "gap_end": _dt(2024, 6, 12),
+                "fetch_status": str(FetchStatus.UNKNOWN),
+                "attempt_count": 2,
+            }
+        ]
+        ranges = [GapRange("AAPL", "minute", _dt(2024, 6, 10), _dt(2024, 6, 12))]
+        result, cursors = self._call_minute(
+            prior_rows=prior,
+            precomputed_ranges=ranges,
+            fetch_status=FetchStatus.UNKNOWN,
+        )
+        insert_calls = [
+            params
+            for cur in cursors
+            for sql, params in cur.executes
+            if "INSERT INTO data_gaps" in sql
+        ]
+        assert len(insert_calls) == 1
+        assert insert_calls[0][6] == 3  # carried forward 2 -> 3
+
+    def test_omitting_precomputed_ranges_keeps_legacy_single_span_behavior(self) -> None:
+        """Daily-style legacy minute behavior is byte-for-byte unchanged."""
+        result, cursors = self._call_minute(
+            precomputed_ranges=None, fetch_status=FetchStatus.UNKNOWN
+        )
+        assert result.gaps_inserted == 1
+        insert_calls = [
+            params
+            for cur in cursors
+            for sql, params in cur.executes
+            if "INSERT INTO data_gaps" in sql
+        ]
+        assert len(insert_calls) == 1
+        # Legacy behavior: single span covering the full [from_ts, to_ts] window
+        assert insert_calls[0][2] == _dt(2024, 1, 1)
+        assert insert_calls[0][3] == _dt(2024, 12, 31)
+
+    def test_omitting_precomputed_ranges_with_no_fetch_status_inserts_nothing(self) -> None:
+        result, _ = self._call_minute(precomputed_ranges=None, fetch_status=None)
+        assert result.gaps_inserted == 0
