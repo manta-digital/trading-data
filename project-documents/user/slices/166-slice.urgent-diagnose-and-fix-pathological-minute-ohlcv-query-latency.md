@@ -3,7 +3,7 @@ docType: slice-design
 slice: urgent-diagnose-and-fix-pathological-minute-ohlcv-query-latency
 project: trading-data
 parent: user/architecture/140-slices.data-quality-operations.md
-dependencies: []
+dependencies: [156, 160]
 interfaces: [163, 164, 182]
 dateCreated: 20260717
 dateUpdated: 20260717
@@ -73,6 +73,18 @@ Additional facts:
   re-analyzed post-fix.
 - TimescaleDB 2.23 provides `merge_chunks` and `split_chunk` (present in
   `pg_proc`).
+- **The `data_status` view sits on the affected path** (verified via
+  `pg_get_viewdef`, 2026-07-17): its `bars_summary` CTE computes
+  `MIN(time) / MAX(time) / COUNT(*) FROM minute_ohlcv GROUP BY symbol` —
+  unbounded, the exact query shape measured at 10m47s. The parent
+  architecture's NFR (`140-arch.data-quality-operations.md`: "View latency
+  stays sub-second at full-universe scope") therefore binds this slice; see
+  Success Criteria.
+- Background jobs against the minute family (from
+  `timescaledb_information.jobs`, 2026-07-17): cagg refresh every **5 min**
+  (`minute_5min_ohlcv`, job 1007), **15 min** (job 1008), **1 h** (jobs
+  1002/1003), plus columnstore policy every **2 h** (job 1009). Any
+  multi-hour Phase C run will overlap these; see Phase C.
 
 ## Root-Cause Analysis (hypothesis, to be confirmed in Phase A)
 
@@ -179,6 +191,10 @@ breakdown; consistent with existing CLI structure) that:
 - enumerates current chunks from the Timescale catalog, groups them into
   target 7-day windows, skips windows already consisting of a single chunk
   (idempotent — safe to re-run until done),
+- skips (and logs) windows containing any **uncompressed** chunk — the
+  trailing ~21 chunks inside the `compress_after` horizon; they are handled
+  by a later idempotent re-run once the compression policy has caught up
+  (subject to the Phase A rehearsal's mixed-window answer),
 - merges one window per transaction, logging `merged W/<total> windows`
   progress,
 - stops cleanly on first error with the failing window identified.
@@ -206,7 +222,20 @@ Phase D results.
    backend, confirming lock-table pressure.
 4. Rehearse `merge_chunks` on a scratch hypertable (small synthetic data,
    same compression settings, one attached cagg): verify compressed-chunk
-   merge works in 2.23, verify cagg survives and still refreshes.
+   merge works in 2.23, verify cagg survives and still refreshes. The
+   rehearsal must explicitly answer three questions:
+   - **Batch rewrite:** does merging compressed chunks rewrite compression
+     batches (compare per-batch row counts and TOAST size before/after on the
+     scratch table)? If batches are carried over fragmented, Phase C gains a
+     mandatory recompression pass; if merge requires decompress-first, size
+     the transient disk cost. Success Criterion 7 depends on this answer —
+     it must not be assumed.
+   - **Mixed windows:** behavior when a target window contains both
+     compressed and uncompressed chunks (the trailing ~21 chunks inside the
+     `compress_after` horizon).
+   - **Job collision:** behavior when a cagg refresh or compression policy
+     job fires against a chunk mid-merge (confirming the Phase C job-pause
+     approach is necessary and sufficient).
 5. Decision gate (PM): confirm root cause matches hypothesis; select Option
    A/B/C per rehearsal outcome; confirm a DB snapshot/backup point exists
    before bulk mutation.
@@ -218,21 +247,46 @@ Phase D results.
    call (`migrations/minute.py:531`) to reference the same constant so a cold
    start creates 7-day chunks directly (migration chain remains the single
    schema source of truth, per slice 156).
+6a. Update architecture docs that state the old interval:
+    `100-arch.data-storage.md:67` ("Hypertable: `minute_ohlcv` (4hr chunks)")
+    and the comparative chunk-sizing rationale at `:124` ("1hr vs 4hr"),
+    plus a grep sweep for any other doc restating 4-hour minute chunks. The
+    interval is centralized in code; the docs must not keep teaching the
+    superseded value (the 10×-source cagg default makes stale sizing text a
+    live hazard for future decisions).
 
 ### Phase C — Execute remediation
 
 7. Implement the merge driver per the decision above.
-8. Run it against prod (daemon is stopped; no writer contention). Interrupt /
-   resume at least once deliberately to prove resumability early in the run.
-9. `ANALYZE minute_ohlcv` on completion.
+8. **Pause background jobs** for the minute family before the run: minute
+   cagg refresh policies (jobs 1002, 1003, 1007, 1008) and the minute
+   columnstore policy (job 1009) via `alter_job(..., scheduled => false)`.
+   These fire every 5 min–2 h (see baseline); a multi-hour merge run *will*
+   otherwise collide with them mid-merge. The driver pre-flight asserts the
+   jobs are paused and refuses to run otherwise; job IDs are resolved from
+   the catalog at runtime, not hardcoded.
+9. Run the driver against prod (daemon stopped, jobs paused; no contention).
+   Interrupt / resume at least once deliberately to prove resumability early
+   in the run.
+10. **Recompression pass, if the Phase A rehearsal showed merged batches are
+    carried over fragmented:** recompress each merged chunk so batches are
+    rebuilt at proper size (this, not the merge itself, is what collapses
+    the 85 GB TOAST pathology). If rehearsal showed merge already rewrites
+    batches, record that and skip.
+11. **Resume the paused jobs**; verify the cagg refresh policies catch up
+    over their normal windows and the compression policy re-engages.
+12. `ANALYZE minute_ohlcv` on completion.
 
 ### Phase D — Verify
 
-10. Re-run the exact three T15 queries (below) and capture timings + `EXPLAIN
+13. Re-run the exact three T15 queries (below) and capture timings + `EXPLAIN
     (ANALYZE, BUFFERS)`; append before/after as the root-cause record in this
     document.
-11. Integrity checks (see Success Criteria).
-12. Storage re-measurement (`hypertable_detailed_size`, compression stats).
+14. Time a full-universe `data_status` read (`mt data status` / `SELECT` over
+    the view) before and after; restate the 140-arch sub-second NFR against
+    the result (see Success Criterion 8).
+15. Integrity checks (see Success Criteria).
+16. Storage re-measurement (`hypertable_detailed_size`, compression stats).
 
 ## Integration Points
 
@@ -269,9 +323,22 @@ Phase D results.
 5. All four minute caggs still refresh and serve identical query results.
 6. Before/after `EXPLAIN` evidence and timings are recorded in this document
    (root-cause record), including the corrected `approximate_row_count`.
-7. Storage total for `minute_ohlcv` drops materially from 126 GB (expected
-   ~30–40 GB; the 85 GB TOAST pathology collapses with proper batch sizes).
-   Record actual.
+7. All ~1,180 merged chunks end up **compressed with properly-sized batches**
+   (via the merge itself or the conditional Phase C recompression pass, per
+   the rehearsal's batch-rewrite answer), and storage total for
+   `minute_ohlcv` drops materially from 126 GB (expected ~30–40 GB; the
+   85 GB TOAST pathology collapses only when batches are rebuilt). Record
+   actual.
+8. Full-universe `data_status` latency is measured before and after and
+   recorded against the 140-arch NFR ("view latency stays sub-second at
+   full-universe scope"). The view's `bars_summary` CTE full-scans
+   `minute_ohlcv`, so this slice must leave it dramatically faster; if the
+   post-fix measurement still misses the sub-second target, record the
+   actual and raise to the PM whether the NFR requires a view rewrite (e.g.
+   cagg-backed `bars_summary`) as a follow-up slice — do not silently leave
+   the NFR unmet or widen this slice's scope to a view redesign.
+9. Background jobs (minute cagg refresh + columnstore policies) are running
+   again post-remediation, caggs have caught up, and no job is left paused.
 
 ## Verification Walkthrough (draft — refined at Phase 6 completion)
 
@@ -295,10 +362,20 @@ WHERE hypertable_name = 'minute_ohlcv';
 SELECT pg_size_pretty(total_bytes), pg_size_pretty(toast_bytes)
 FROM hypertable_detailed_size('minute_ohlcv');
 -- Expected: total well under 126 GB; TOAST far under 85 GB. Record actuals.
+
+-- 5. data_status NFR (140-arch: sub-second at full-universe scope):
+SELECT count(*) FROM data_status;
+-- Record before/after timing. If post-fix latency still exceeds the NFR
+-- target, that is a PM escalation per Success Criterion 8, not a pass.
+
+-- 6. No job left paused:
+SELECT job_id, application_name, scheduled FROM timescaledb_information.jobs
+WHERE scheduled = false;
+-- Expected: zero rows.
 ```
 
 ```bash
-# 5. Cold-start still correct (fixture/dev DB):
+# 7. Cold-start still correct (fixture/dev DB):
 mt data init   # then confirm minute_ohlcv chunk_time_interval = 7 days
 ```
 
