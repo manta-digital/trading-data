@@ -62,7 +62,11 @@ def build_minute_coverage_index(
             cur.execute(sql)
             index: dict[str, set[date]] = {}
             for symbol, covered_day in cur.fetchall():
-                index.setdefault(symbol, set()).add(covered_day)
+                # date_trunc('day', ...) returns a timestamp/timestamptz, not a
+                # date — normalize so membership checks against session.date()
+                # (a plain date) actually match.
+                day = covered_day.date() if isinstance(covered_day, datetime) else covered_day
+                index.setdefault(symbol, set()).add(day)
             return index
     except psycopg.OperationalError:
         _logger.exception(

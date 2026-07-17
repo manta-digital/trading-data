@@ -41,10 +41,25 @@ def _make_index_conn(rows: list[tuple[str, date]]) -> MagicMock:
 
 class TestBuildMinuteCoverageIndex:
     def test_groups_rows_by_symbol(self) -> None:
+        """date_trunc('day', ...) returns a timestamptz, not a date — psycopg
+        hands back datetime rows here, matching production. A prior version
+        of this fixture used plain `date(...)` rows, which masked a real bug:
+        the index stored raw datetimes while the diff compared against
+        `session.date()` (a plain date), so nothing ever matched and every
+        symbol was treated as fully uncovered."""
         rows = [
-            ("AAPL", date(2024, 1, 2)),
-            ("AAPL", date(2024, 1, 3)),
-            ("MSFT", date(2024, 1, 2)),
+            (
+                "AAPL",
+                datetime(2024, 1, 2, tzinfo=UTC),
+            ),
+            (
+                "AAPL",
+                datetime(2024, 1, 3, tzinfo=UTC),
+            ),
+            (
+                "MSFT",
+                datetime(2024, 1, 2, tzinfo=UTC),
+            ),
         ]
         conn = _make_index_conn(rows)
         result = build_minute_coverage_index(conn)
@@ -52,6 +67,12 @@ class TestBuildMinuteCoverageIndex:
             "AAPL": {date(2024, 1, 2), date(2024, 1, 3)},
             "MSFT": {date(2024, 1, 2)},
         }
+        # Every value must be a plain date, not a datetime — otherwise
+        # compute_missing_minute_sessions' `session.date() not in covered_days`
+        # check silently never matches.
+        for covered in result.values():
+            for day in covered:
+                assert type(day) is date
 
     def test_empty_cagg_returns_empty_dict_not_none(self) -> None:
         conn = _make_index_conn([])
@@ -191,5 +212,39 @@ class TestComputeMissingMinuteSessions:
             lifecycle_to=_dt(2024, 1, 31),
             sessions=[],
             coverage_index={},
+        )
+        assert result == []
+
+
+class TestCoverageIndexIntegration:
+    """End-to-end: build_minute_coverage_index's real (datetime-typed) rows
+    feed correctly into compute_missing_minute_sessions' day-set diff.
+
+    Regression for a production bug (slice 162 walkthrough, 2026-07-17):
+    date_trunc('day', ...) returns a timestamptz, so build_minute_coverage_index
+    stored datetime keys while the diff checked `session.date()` (a plain
+    date) — the two never matched, so every symbol appeared fully uncovered
+    and seeded a single full-history span regardless of real coverage.
+    """
+
+    def test_fully_covered_symbol_from_real_cagg_rows_seeds_nothing(self) -> None:
+        sessions = [_dt(2024, 1, 2), _dt(2024, 1, 3), _dt(2024, 1, 4)]
+        # Simulates raw psycopg rows from `date_trunc('day', time_bucket)` —
+        # datetime, not date.
+        cagg_rows = [
+            ("TSLA", datetime(2024, 1, 2, tzinfo=UTC)),
+            ("TSLA", datetime(2024, 1, 3, tzinfo=UTC)),
+            ("TSLA", datetime(2024, 1, 4, tzinfo=UTC)),
+        ]
+        index_conn = _make_index_conn(cagg_rows)
+        coverage_index = build_minute_coverage_index(index_conn)
+        assert coverage_index is not None
+
+        result = _patched_run(
+            lifecycle_from=sessions[0],
+            lifecycle_to=sessions[-1],
+            sessions=sessions,
+            coverage_index=coverage_index,
+            symbol="TSLA",
         )
         assert result == []
