@@ -465,3 +465,93 @@ class TestRunMinuteRefetch:
         report, _ = self._run_refetch(outcome=LastAttemptOutcome.SUCCESS)
         assert report.success_count == 1
         assert report.total == 1
+
+
+# ---------------------------------------------------------------------------
+# T11: _has_any_gaps re-fire regression (slice 162)
+# ---------------------------------------------------------------------------
+
+
+class TestHasAnyGapsRefireRegression:
+    """Pins: a symbol WITH bars whose gap rows were deleted (so _has_any_gaps
+    is false and _needs_seed fires) must re-seed only genuinely-missing
+    sessions — never a full [history_start, today] span.
+
+    Exercises the real compute_missing_minute_sessions (not mocked) against a
+    controlled coverage index and session calendar, so the diff logic itself
+    is under test, not just the wiring.
+    """
+
+    def test_refire_seeds_only_real_holes_not_full_history_span(self) -> None:
+        history_start = datetime(2004, 1, 1, tzinfo=UTC)
+        target_end = datetime(2024, 12, 31, tzinfo=UTC)
+
+        # Symbol has bars for every session except one interior hole
+        # (2024-06-11). _has_any_gaps is false (gap rows were deleted), so
+        # _needs_seed fires purely on that trigger — coverage_index is what
+        # must recreate only the real hole.
+        sessions = [_dt(2024, 6, 10), _dt(2024, 6, 11), _dt(2024, 6, 12)]
+        coverage_index = {"AAPL": {_dt(2024, 6, 10).date(), _dt(2024, 6, 12).date()}}
+
+        mock_update_gaps = MagicMock(return_value=MagicMock(gaps_inserted=0))
+        mock_coalesce = MagicMock(return_value=0)
+        conn = MagicMock()
+        txn = MagicMock()
+        txn.__enter__ = MagicMock(return_value=txn)
+        txn.__exit__ = MagicMock(return_value=False)
+        conn.transaction.return_value = txn
+        lock_cm = MagicMock()
+        lock_cm.__enter__ = MagicMock(return_value=None)
+        lock_cm.__exit__ = MagicMock(return_value=False)
+
+        pool = MagicMock()
+        pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+
+        http = MagicMock()
+        gap_iter = iter([None])  # no chunk gaps → loop exits immediately
+
+        with (
+            patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps", mock_update_gaps),
+            patch("manta_trading.data.acquisition.daemon.minute._advance_minute_gap", return_value=None),
+            patch("manta_trading.data.acquisition.daemon.minute._record_minute_attempt", return_value=None),
+            patch("manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start", return_value=history_start),
+            patch("manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps", mock_coalesce),
+            patch("manta_trading.data.acquisition.daemon.minute._insert_minute_bars"),
+            patch("manta_trading.data.acquisition.daemon.minute.advisory_lock", return_value=lock_cm),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
+                side_effect=lambda *a, **kw: next(gap_iter, None),
+            ),
+            # Real compute_missing_minute_sessions runs; only clamp_to_lifecycle
+            # and fetch_sessions (its DB I/O boundary) are patched.
+            patch(
+                "manta_trading.data.gaps.minute_coverage.clamp_to_lifecycle",
+                return_value=(history_start, target_end),
+            ),
+            patch(
+                "manta_trading.data.gaps.minute_coverage.fetch_sessions",
+                return_value=sessions,
+            ),
+        ):
+            result = _do_minute_symbol(
+                "AAPL",
+                pool=pool,
+                http=http,
+                settings=_FakeSettings(),
+                window=(date(2024, 6, 10), date(2024, 6, 12)),
+                coverage_index=coverage_index,
+            )
+
+        assert result[4] == 0  # gaps_seeded reported via update_data_gaps mock (0 here)
+        first_call_kwargs = mock_update_gaps.call_args_list[0].kwargs
+        seeded_ranges = first_call_kwargs["precomputed_ranges"]
+        assert seeded_ranges is not None
+        assert len(seeded_ranges) == 1
+        assert seeded_ranges[0].gap_start_utc == _dt(2024, 6, 11)
+        assert seeded_ranges[0].gap_end_utc == _dt(2024, 6, 11)
+        # Never the legacy full-history span
+        assert not any(
+            r.gap_start_utc == history_start and r.gap_end_utc == target_end
+            for r in seeded_ranges
+        )
