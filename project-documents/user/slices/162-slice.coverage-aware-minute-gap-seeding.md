@@ -517,6 +517,16 @@ the new seeder:
 Only the first requires a code-adjacent action, and that action is a test, not a
 behavior change.
 
+**Phase 6 re-audit outcome (T14):** confirmed as designed. `_has_any_gaps`
+trigger is unchanged at `daemon/minute.py:290`; the T11 regression test
+(`test_refire_seeds_only_real_holes_not_full_history_span`) pins that a
+re-fire now recreates only genuinely-missing sessions via
+`compute_missing_minute_sessions`, not a `[2004, today]` span. The other three
+fixes (EODHD 404→EMPTY in `outcomes.py`, `httpx.TimeoutException` retry in
+`eodhd_sync.py`, `PoolTimeout` WARNING at `minute.py:218`) are untouched by
+this slice's diff — verified via `git diff` against the pre-slice tree. Three
+no-change verdicts, one test-covered verdict, as designed.
+
 ## Risk Assessment
 
 ### Technical Risks
