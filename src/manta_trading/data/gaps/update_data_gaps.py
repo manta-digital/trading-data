@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from manta_trading.constants import MAX_RETRY_COUNT
 from manta_trading.data.acquisition.state import LastAttemptOutcome
@@ -79,16 +79,30 @@ def update_data_gaps(
                                   coverage-aware missing sessions via
                                   compute_missing_minute_sessions. When None
                                   (daily path, and any caller that doesn't pass
-                                  it), behavior is unchanged.
+                                  it), behavior is unchanged.  Requires a
+                                  non-None fetch_status_for_unfilled: with no
+                                  status there is nothing to insert the ranges
+                                  as, so the combination is a caller error.
 
     Returns:
         UpdateResult with counts of inserted, promoted, and reset rows.
+
+    Raises:
+        ValueError: If precomputed_ranges is provided without a
+            fetch_status_for_unfilled.  Supplying ranges signals intent to
+            insert them; a null status silently discards them.
 
     Note:
         Caller must already hold the advisory lock for (symbol, granularity).
         This function does not acquire the lock itself — it runs inside the
         caller's transaction and lock scope.
     """
+    if precomputed_ranges is not None and fetch_status_for_unfilled is None:
+        raise ValueError(
+            "precomputed_ranges requires a non-None fetch_status_for_unfilled; "
+            "ranges cannot be inserted without a status to record them under."
+        )
+
     return _do_update(
         conn,
         symbol,
@@ -121,7 +135,9 @@ def _do_update(
 
     # Step 2 — optional force-reset: clear terminal rows before carry-forward
     if force_reset_terminal:
-        terminal_rows_reset = _reset_terminal_rows(conn, symbol, granularity, from_ts, to_ts)
+        terminal_rows_reset = _reset_terminal_rows(
+            conn, symbol, granularity, from_ts, to_ts
+        )
         # Re-snapshot after reset (terminal rows gone)
         prior_rows = _fetch_prior_rows(conn, symbol, granularity, from_ts, to_ts)
 
@@ -131,7 +147,9 @@ def _do_update(
         for row in prior_rows:
             if row["fetch_status"] == str(fetch_status_for_unfilled):
                 key = row["gap_start"]
-                carry_forward[key] = max(carry_forward.get(key, 0), row["attempt_count"])
+                carry_forward[key] = max(
+                    carry_forward.get(key, 0), row["attempt_count"]
+                )
 
     # Step 3 — delete intersecting rows
     _delete_intersecting(conn, symbol, granularity, from_ts, to_ts)
@@ -149,12 +167,14 @@ def _do_update(
         if precomputed_ranges is not None:
             gap_ranges = precomputed_ranges
         elif fetch_status_for_unfilled is not None:
-            gap_ranges = [GapRange(
-                symbol=symbol,
-                granularity=granularity,
-                gap_start_utc=from_ts,
-                gap_end_utc=to_ts,
-            )]
+            gap_ranges = [
+                GapRange(
+                    symbol=symbol,
+                    granularity=granularity,
+                    gap_start_utc=from_ts,
+                    gap_end_utc=to_ts,
+                )
+            ]
         else:
             gap_ranges = []
     else:
@@ -223,6 +243,9 @@ def _fetch_prior_rows(
     from_ts: datetime,
     to_ts: datetime,
 ) -> list[dict]:
+    # Column order is fixed by the SELECT below; naming it here keeps the row
+    # unpacking type-checked instead of reading names back off cur.description.
+    cols = ("gap_start", "gap_end", "fetch_status", "attempt_count")
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -235,8 +258,8 @@ def _fetch_prior_rows(
             """,
             (symbol, granularity, from_ts, to_ts),
         )
-        cols = [d.name for d in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        rows = cast("list[tuple[datetime, datetime, str, int]]", cur.fetchall())
+        return [dict(zip(cols, row, strict=True)) for row in rows]
 
 
 def _reset_terminal_rows(

@@ -137,7 +137,12 @@ def _patched_run(
 
 class TestComputeMissingMinuteSessions:
     def test_past_hole_seeds_only_the_hole(self) -> None:
-        s1, s2, s3, s4 = _dt(2024, 1, 2), _dt(2024, 1, 3), _dt(2024, 1, 4), _dt(2024, 1, 5)
+        s1, s2, s3, s4 = (
+            _dt(2024, 1, 2),
+            _dt(2024, 1, 3),
+            _dt(2024, 1, 4),
+            _dt(2024, 1, 5),
+        )
         sessions = [s1, s2, s3, s4]
         # s1, s4 covered; s2, s3 (interior hole) missing
         coverage_index = {"AAPL": {s1.date(), s4.date()}}

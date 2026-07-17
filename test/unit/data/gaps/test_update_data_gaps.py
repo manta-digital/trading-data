@@ -8,7 +8,7 @@ required fixture cases.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -38,8 +38,12 @@ class _CapturingCursor:
         self._fetchone_val: tuple | None = None
         self._fetchall_val: list[tuple] = []
         self.rowcount: int = 0
-        self.description: list = [MagicMock(name="gap_start"), MagicMock(name="gap_end"),
-                                   MagicMock(name="fetch_status"), MagicMock(name="attempt_count")]
+        self.description: list = [
+            MagicMock(name="gap_start"),
+            MagicMock(name="gap_end"),
+            MagicMock(name="fetch_status"),
+            MagicMock(name="attempt_count"),
+        ]
         # Make description items have .name attr
         self.description[0].name = "gap_start"
         self.description[1].name = "gap_end"
@@ -62,7 +66,9 @@ class _CapturingCursor:
         return self._fetchall_val
 
 
-def _make_conn(prior_rows: list[dict] | None = None) -> tuple[MagicMock, list[_CapturingCursor]]:
+def _make_conn(
+    prior_rows: list[dict] | None = None,
+) -> tuple[MagicMock, list[_CapturingCursor]]:
     """Return (conn, cursor_list) where cursors track execute calls in order."""
     cursors: list[_CapturingCursor] = [_CapturingCursor() for _ in range(20)]
     cursor_iter = iter(cursors)
@@ -127,7 +133,9 @@ class TestUpdateDataGaps:
         assert result.gaps_promoted_exhausted == 0
         # Find the INSERT execute call
         insert_calls = [
-            c for cur in cursors for sql, params in cur.executes
+            c
+            for cur in cursors
+            for sql, params in cur.executes
             if "INSERT INTO data_gaps" in sql
             for c in [(sql, params)]
         ]
@@ -136,7 +144,9 @@ class TestUpdateDataGaps:
         assert params[6] == 1  # attempt_count = 1
 
     def test_success_outcome_inserts_no_gap_rows(self) -> None:
-        result, _ = self._call(gap_ranges=[], fetch_status=None, outcome=LastAttemptOutcome.SUCCESS)
+        result, _ = self._call(
+            gap_ranges=[], fetch_status=None, outcome=LastAttemptOutcome.SUCCESS
+        )
         assert result.gaps_inserted == 0
 
     def test_retry_exhausted_promoted_at_max_count(self) -> None:
@@ -222,8 +232,12 @@ class TestUpdateDataGaps:
         _, cursors = self._call(gap_ranges=[gap])
         all_sqls = [sql for cur in cursors for sql, _ in cur.executes]
         # DELETE should appear before INSERT
-        delete_idx = next((i for i, s in enumerate(all_sqls) if "DELETE FROM data_gaps" in s), -1)
-        insert_idx = next((i for i, s in enumerate(all_sqls) if "INSERT INTO data_gaps" in s), -1)
+        delete_idx = next(
+            (i for i, s in enumerate(all_sqls) if "DELETE FROM data_gaps" in s), -1
+        )
+        insert_idx = next(
+            (i for i, s in enumerate(all_sqls) if "INSERT INTO data_gaps" in s), -1
+        )
         assert delete_idx != -1, "Expected a DELETE"
         assert insert_idx != -1, "Expected an INSERT"
         assert delete_idx < insert_idx
@@ -305,7 +319,9 @@ class TestUpdateDataGapsPrecomputedRanges:
         assert len(insert_calls) == 1
         assert insert_calls[0][6] == 3  # carried forward 2 -> 3
 
-    def test_omitting_precomputed_ranges_keeps_legacy_single_span_behavior(self) -> None:
+    def test_omitting_precomputed_ranges_keeps_legacy_single_span_behavior(
+        self,
+    ) -> None:
         """Daily-style legacy minute behavior is byte-for-byte unchanged."""
         result, cursors = self._call_minute(
             precomputed_ranges=None, fetch_status=FetchStatus.UNKNOWN
@@ -322,6 +338,19 @@ class TestUpdateDataGapsPrecomputedRanges:
         assert insert_calls[0][2] == _dt(2024, 1, 1)
         assert insert_calls[0][3] == _dt(2024, 12, 31)
 
-    def test_omitting_precomputed_ranges_with_no_fetch_status_inserts_nothing(self) -> None:
+    def test_omitting_precomputed_ranges_with_no_fetch_status_inserts_nothing(
+        self,
+    ) -> None:
         result, _ = self._call_minute(precomputed_ranges=None, fetch_status=None)
         assert result.gaps_inserted == 0
+
+    def test_precomputed_ranges_with_no_fetch_status_raises(self) -> None:
+        """Ranges with a null status would be silently discarded — reject it."""
+        ranges = [GapRange("AAPL", "minute", _dt(2024, 6, 10), _dt(2024, 6, 12))]
+        with pytest.raises(ValueError, match="fetch_status_for_unfilled"):
+            self._call_minute(precomputed_ranges=ranges, fetch_status=None)
+
+    def test_empty_precomputed_ranges_with_no_fetch_status_raises(self) -> None:
+        """The guard keys on the parameter being supplied, not on it being non-empty."""
+        with pytest.raises(ValueError, match="fetch_status_for_unfilled"):
+            self._call_minute(precomputed_ranges=[], fetch_status=None)

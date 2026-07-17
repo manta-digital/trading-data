@@ -104,7 +104,8 @@ def run_minute_cycle(
     *,
     symbols: list[str] | None = None,
     should_continue: Callable[[], bool] | None = None,
-    on_symbol: Callable[[str, str, datetime | None, datetime | None, int], None] | None = None,
+    on_symbol: Callable[[str, str, datetime | None, datetime | None, int], None]
+    | None = None,
 ) -> CycleReport:
     """Drive one minute-data acquisition pass over the instrument universe.
 
@@ -164,7 +165,11 @@ def run_minute_cycle(
                     )
                     break
                 outcome, cs, ce, n_chunks, gaps_seeded = _process_minute_symbol(
-                    sym, pool=pool, http=http, settings=settings, coverage_index=coverage_index
+                    sym,
+                    pool=pool,
+                    http=http,
+                    settings=settings,
+                    coverage_index=coverage_index,
                 )
                 report.symbol_outcomes[sym] = str(outcome)
                 if outcome == LastAttemptOutcome.SUCCESS:
@@ -183,12 +188,15 @@ def run_minute_cycle(
                 if symbols_scanned % MINUTE_SEED_PROGRESS_LOG_INTERVAL == 0:
                     _logger.info(
                         "minute seed: %d/%d symbols scanned, %d gap rows seeded",
-                        symbols_scanned, len(symbol_list), gaps_seeded_total,
+                        symbols_scanned,
+                        len(symbol_list),
+                        gaps_seeded_total,
                     )
 
             _logger.info(
                 "minute seed: complete — %d symbols, %d gap rows seeded",
-                symbols_scanned, gaps_seeded_total,
+                symbols_scanned,
+                gaps_seeded_total,
             )
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
@@ -205,7 +213,11 @@ def _process_minute_symbol(
 ) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     try:
         return _do_minute_symbol(
-            symbol, pool=pool, http=http, settings=settings, coverage_index=coverage_index
+            symbol,
+            pool=pool,
+            http=http,
+            settings=settings,
+            coverage_index=coverage_index,
         )
     except ProviderResponseError as exc:
         # Non-404 4xx from EODHD — unexpected but skip this symbol rather than
@@ -223,7 +235,8 @@ def _process_minute_symbol(
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         _logger.warning(
             "HTTP transient failure for %s minute (retries exhausted): %s",
-            symbol, exc,
+            symbol,
+            exc,
         )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except Exception:
@@ -249,10 +262,14 @@ def _do_minute_symbol(
 
     if window is not None:
         # Clamp window start to provider history limit.
-        window_start = datetime(window[0].year, window[0].month, window[0].day, tzinfo=_UTC)
+        window_start = datetime(
+            window[0].year, window[0].month, window[0].day, tzinfo=_UTC
+        )
         history_start = max(window_start, default_history_start)
         # Clamp window end to today midnight (last completed session close UTC).
-        window_end = datetime(window[1].year, window[1].month, window[1].day, tzinfo=_UTC)
+        window_end = datetime(
+            window[1].year, window[1].month, window[1].day, tzinfo=_UTC
+        )
         target_end = min(window_end, now_midnight)
     else:
         history_start = default_history_start
@@ -287,7 +304,12 @@ def _do_minute_symbol(
         # Seed when: no bars yet, OR no gap rows at all (gap table out of sync
         # with bars — e.g. after a DB migration or manual gap-row deletion), OR
         # there are unknown gaps to fill, OR force_reset_terminal requested.
-        _needs_seed = force_reset_terminal or not _has_bars or not _has_any_gaps or _has_unknown_gaps
+        _needs_seed = (
+            force_reset_terminal
+            or not _has_bars
+            or not _has_any_gaps
+            or _has_unknown_gaps
+        )
 
         if _needs_seed:
             # Coverage-aware seeding (slice 162): when the caller has a coverage
@@ -310,7 +332,11 @@ def _do_minute_symbol(
             with conn.transaction():
                 with advisory_lock(conn, symbol, "minute", timeout=DAEMON_LOCK_TIMEOUT):
                     seed_result = update_data_gaps(
-                        conn, symbol, "minute", history_start, target_end,
+                        conn,
+                        symbol,
+                        "minute",
+                        history_start,
+                        target_end,
                         fetch_status_for_unfilled=FetchStatus.UNKNOWN,
                         outcome=LastAttemptOutcome.PARTIAL,
                         force_reset_terminal=force_reset_terminal,
@@ -329,7 +355,9 @@ def _do_minute_symbol(
             if gap is None:
                 break
 
-        chunk_start = max(gap.gap_start, gap.gap_end - timedelta(days=_PROVIDER_MAX_CHUNK_DAYS))
+        chunk_start = max(
+            gap.gap_start, gap.gap_end - timedelta(days=_PROVIDER_MAX_CHUNK_DAYS)
+        )
         chunk_end = gap.gap_end
         if first_chunk_end is None:
             first_chunk_end = chunk_end
@@ -346,7 +374,10 @@ def _do_minute_symbol(
         outcome = classify_outcome(response, chunk_start, chunk_end)
 
         bars: list[dict] = []
-        if outcome not in (LastAttemptOutcome.TRANSIENT_FAILURE, LastAttemptOutcome.EMPTY):
+        if outcome not in (
+            LastAttemptOutcome.TRANSIENT_FAILURE,
+            LastAttemptOutcome.EMPTY,
+        ):
             try:
                 bars = response.json()
             except Exception:
@@ -376,7 +407,9 @@ def _do_minute_symbol(
 
         with pool.connection() as chunk_conn:
             with chunk_conn.transaction():
-                with advisory_lock(chunk_conn, symbol, "minute", timeout=DAEMON_LOCK_TIMEOUT):
+                with advisory_lock(
+                    chunk_conn, symbol, "minute", timeout=DAEMON_LOCK_TIMEOUT
+                ):
                     if bars:
                         _insert_minute_bars(chunk_conn, symbol, bars)
 
@@ -396,7 +429,9 @@ def _do_minute_symbol(
 
     # Display outcome: first chunk (most recent window) is the meaningful signal.
     # last_outcome (oldest chunk) is often empty for pre-IPO periods.
-    display_outcome = first_chunk_outcome if first_chunk_outcome is not None else last_outcome
+    display_outcome = (
+        first_chunk_outcome if first_chunk_outcome is not None else last_outcome
+    )
     return display_outcome, first_chunk_end, last_chunk_end, chunk_count, gaps_seeded
 
 
@@ -444,7 +479,9 @@ def run_minute_refetch(
             if to_date is None:
                 with pool.connection() as conn:
                     last_session = _last_completed_session(conn, symbol)
-                resolved_to = last_session.date() if last_session is not None else date.today()
+                resolved_to = (
+                    last_session.date() if last_session is not None else date.today()
+                )
             else:
                 resolved_to = to_date
 
@@ -485,7 +522,9 @@ def _latest_bar_dt(bars: list[dict]) -> datetime | None:
             if ts_epoch is not None:
                 ts = datetime.fromtimestamp(int(ts_epoch), tz=_UTC)
             else:
-                ts = datetime.fromisoformat(bar.get("datetime", "")).replace(tzinfo=_UTC)
+                ts = datetime.fromisoformat(bar.get("datetime", "")).replace(
+                    tzinfo=_UTC
+                )
         except (KeyError, ValueError, TypeError):
             continue
         if latest is None or ts > latest:
@@ -687,7 +726,9 @@ def _record_minute_attempt(
         )
 
 
-def _insert_minute_bars(conn: psycopg.Connection, symbol: str, bars: list[dict]) -> None:
+def _insert_minute_bars(
+    conn: psycopg.Connection, symbol: str, bars: list[dict]
+) -> None:
     """Bulk-insert minute bars via COPY (fastest path for large payloads)."""
     rows: list[tuple] = []
     for bar in bars:
@@ -696,15 +737,20 @@ def _insert_minute_bars(conn: psycopg.Connection, symbol: str, bars: list[dict])
             if ts_epoch is not None:
                 bar_ts = datetime.fromtimestamp(int(ts_epoch), tz=_UTC)
             else:
-                bar_ts = datetime.fromisoformat(bar.get("datetime", "")).replace(tzinfo=_UTC)
-            rows.append((
-                bar_ts, symbol,
-                Decimal(str(bar.get("open", 0))),
-                Decimal(str(bar.get("high", 0))),
-                Decimal(str(bar.get("low", 0))),
-                Decimal(str(bar.get("close", 0))),
-                int(bar.get("volume") or 0),
-            ))
+                bar_ts = datetime.fromisoformat(bar.get("datetime", "")).replace(
+                    tzinfo=_UTC
+                )
+            rows.append(
+                (
+                    bar_ts,
+                    symbol,
+                    Decimal(str(bar.get("open", 0))),
+                    Decimal(str(bar.get("high", 0))),
+                    Decimal(str(bar.get("low", 0))),
+                    Decimal(str(bar.get("close", 0))),
+                    int(bar.get("volume") or 0),
+                )
+            )
         except (KeyError, ValueError, TypeError):
             _logger.warning("Skipping malformed minute bar for %s: %r", symbol, bar)
 
@@ -735,5 +781,3 @@ def _insert_minute_bars(conn: psycopg.Connection, symbol: str, bars: list[dict])
             SELECT time, symbol, open, high, low, close, volume FROM _minute_stage
             ON CONFLICT (symbol, time) DO NOTHING
         """)
-
-

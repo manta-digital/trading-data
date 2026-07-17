@@ -11,6 +11,7 @@ See slice-design §"The Fix — Batch Coverage Index + Day-Granularity Diff".
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import cast
 
 import psycopg
 
@@ -61,11 +62,20 @@ def build_minute_coverage_index(
             )
             cur.execute(sql)
             index: dict[str, set[date]] = {}
-            for symbol, covered_day in cur.fetchall():
+            # fetchall() on a Connection[object] is untyped; annotate the row so
+            # the normalization below is actually type-checked.  The date_trunc
+            # column arrives as datetime, and a mismatch here is invisible at
+            # runtime (a datetime key simply never matches a date lookup).
+            rows = cast("list[tuple[str, datetime | date]]", cur.fetchall())
+            for symbol, covered_day in rows:
                 # date_trunc('day', ...) returns a timestamp/timestamptz, not a
                 # date — normalize so membership checks against session.date()
                 # (a plain date) actually match.
-                day = covered_day.date() if isinstance(covered_day, datetime) else covered_day
+                day = (
+                    covered_day.date()
+                    if isinstance(covered_day, datetime)
+                    else covered_day
+                )
                 index.setdefault(symbol, set()).add(day)
             return index
     except psycopg.OperationalError:
@@ -101,7 +111,7 @@ def compute_missing_minute_sessions(
         symbol is fully covered or has no lifecycle dates.
     """
     clamped_from, clamped_to = clamp_to_lifecycle(conn, symbol, from_ts, to_ts)
-    if clamped_from is None:
+    if clamped_from is None or clamped_to is None:
         return []
 
     sessions = fetch_sessions(conn, symbol, clamped_from, clamped_to)

@@ -14,6 +14,10 @@ from manta_trading.data.acquisition.daemon.minute import (
     run_minute_refetch,
 )
 from manta_trading.data.acquisition.quota import QuotaBucket
+from manta_trading.data.acquisition.state import LastAttemptOutcome
+from manta_trading.data.gaps.actionable_gap_selector import GapRow
+
+UTC = timezone.utc
 
 
 @pytest.fixture(autouse=True)
@@ -26,11 +30,6 @@ def _quota_bucket_in_context():
     token = QUOTA_BUCKET_VAR.set(bucket)
     yield bucket
     QUOTA_BUCKET_VAR.reset(token)
-from manta_trading.data.acquisition.outcomes import ProviderResponseError
-from manta_trading.data.acquisition.state import LastAttemptOutcome
-from manta_trading.data.gaps.actionable_gap_selector import GapRow
-
-UTC = timezone.utc
 
 
 def _dt(y: int, m: int, d: int) -> datetime:
@@ -76,17 +75,24 @@ class TestRunMinuteCycle:
         mocks: dict[str, MagicMock] = {}
 
         with ExitStack() as stack:
+
             def mp(target: str, **kwargs) -> MagicMock:
                 m = stack.enter_context(patch(target, **kwargs))
                 mocks[target] = m
                 return m
 
-            mp("manta_trading.data.acquisition.daemon.minute.Settings",
-               return_value=_FakeSettings())
-            mp("manta_trading.data.acquisition.daemon.minute.classify_outcome",
-               return_value=outcome)
-            mp("manta_trading.data.acquisition.daemon.minute.outcome_to_fetch_status",
-               return_value=None)
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_FakeSettings(),
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.classify_outcome",
+                return_value=outcome,
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.outcome_to_fetch_status",
+                return_value=None,
+            )
 
             pick_mock = mp(
                 "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
@@ -106,6 +112,7 @@ class TestRunMinuteCycle:
             )
             from manta_trading.constants import EODHD_INTRADAY_HORIZON
             from datetime import datetime as _datetime, timezone as _tz
+
             mp(
                 "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
                 return_value=_datetime(
@@ -119,8 +126,10 @@ class TestRunMinuteCycle:
                 "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
                 return_value=None,
             )
-            mp("manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
-               return_value=None)
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                return_value=None,
+            )
             coalesce_mock = mp(
                 "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
                 return_value=0,
@@ -131,11 +140,17 @@ class TestRunMinuteCycle:
             lock_cm = MagicMock()
             lock_cm.__enter__ = MagicMock(return_value=None)
             lock_cm.__exit__ = MagicMock(return_value=False)
-            mp("manta_trading.data.acquisition.daemon.minute.advisory_lock",
-               return_value=lock_cm)
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            )
 
-            mock_pool_cls = mp("manta_trading.data.acquisition.daemon.minute.ConnectionPool")
-            mock_http_cls = mp("manta_trading.data.acquisition.daemon.minute.httpx.Client")
+            mock_pool_cls = mp(
+                "manta_trading.data.acquisition.daemon.minute.ConnectionPool"
+            )
+            mock_http_cls = mp(
+                "manta_trading.data.acquisition.daemon.minute.httpx.Client"
+            )
 
             # Pool setup
             mock_pool = MagicMock()
@@ -157,7 +172,18 @@ class TestRunMinuteCycle:
             # Return at least one bar so the `if bars:` branch executes
             mock_http.get.return_value = MagicMock(
                 status_code=200,
-                json=MagicMock(return_value=[{"timestamp": 1704196200, "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"}]),
+                json=MagicMock(
+                    return_value=[
+                        {
+                            "timestamp": 1704196200,
+                            "open": "100",
+                            "high": "101",
+                            "low": "99",
+                            "close": "100",
+                            "volume": "1000",
+                        }
+                    ]
+                ),
             )
 
             report = run_minute_cycle(symbols=symbols)
@@ -170,7 +196,9 @@ class TestRunMinuteCycle:
         g3 = _gap(_dt(2024, 9, 1), _dt(2024, 12, 31))
         gaps = [g1, g2, g3, None]
 
-        _, pick_mock, update_mock, coalesce_mock, advance_mock = self._run(["AAPL"], gaps)
+        _, pick_mock, update_mock, coalesce_mock, advance_mock = self._run(
+            ["AAPL"], gaps
+        )
 
         # 1 initial seed via update_data_gaps
         assert update_mock.call_count == 1
@@ -187,7 +215,6 @@ class TestRunMinuteCycle:
 
     def test_success_count(self) -> None:
         report, _, _, _, _ = self._run(
-
             ["AAPL"], [None], outcome=LastAttemptOutcome.SUCCESS
         )
         assert report.success_count == 1
@@ -195,9 +222,7 @@ class TestRunMinuteCycle:
     def test_multiple_symbols_each_get_own_gap_loop(self) -> None:
         # Two symbols; each gets None immediately
         gaps = [None, None]
-        report, _, update_mock, coalesce_mock, _ = self._run(
-            ["AAPL", "MSFT"], gaps
-        )
+        report, _, update_mock, coalesce_mock, _ = self._run(["AAPL", "MSFT"], gaps)
         # Each symbol does 1 initial update_data_gaps call
         assert update_mock.call_count == 2
         # Each symbol does 1 coalesce
@@ -209,10 +234,14 @@ class TestRunMinuteCycle:
         import logging
 
         gaps = [None, None, None]
-        with caplog.at_level(logging.INFO, logger="manta_trading.data.acquisition.daemon.minute"):
+        with caplog.at_level(
+            logging.INFO, logger="manta_trading.data.acquisition.daemon.minute"
+        ):
             self._run(["AAPL", "MSFT", "GOOG"], gaps, gaps_inserted=3)
 
-        complete_lines = [r.message for r in caplog.records if "minute seed: complete" in r.message]
+        complete_lines = [
+            r.message for r in caplog.records if "minute seed: complete" in r.message
+        ]
         assert len(complete_lines) == 1
         assert "3 symbols" in complete_lines[0]
         assert "9 gap rows seeded" in complete_lines[0]
@@ -221,6 +250,7 @@ class TestRunMinuteCycle:
 # ---------------------------------------------------------------------------
 # T7: _do_minute_symbol extensions (force_reset_terminal + window)
 # ---------------------------------------------------------------------------
+
 
 class _FakeSettings:
     timescale_db_url = "postgresql://localhost/test"
@@ -270,11 +300,23 @@ class TestDoMinuteSymbolExtensions:
         http = MagicMock()
         http.get.return_value = MagicMock(
             status_code=200,
-            json=MagicMock(return_value=[{"timestamp": 1704196200, "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"}]),
+            json=MagicMock(
+                return_value=[
+                    {
+                        "timestamp": 1704196200,
+                        "open": "100",
+                        "high": "101",
+                        "low": "99",
+                        "close": "100",
+                        "volume": "1000",
+                    }
+                ]
+            ),
         )
 
         from manta_trading.constants import EODHD_INTRADAY_HORIZON
         from datetime import datetime as _datetime, timezone as _tz
+
         resolved_start = _datetime(
             EODHD_INTRADAY_HORIZON.year,
             EODHD_INTRADAY_HORIZON.month,
@@ -283,17 +325,47 @@ class TestDoMinuteSymbolExtensions:
         )
 
         with (
-            patch("manta_trading.data.acquisition.daemon.minute.classify_outcome", return_value=outcome),
-            patch("manta_trading.data.acquisition.daemon.minute.outcome_to_fetch_status", return_value=None),
-            patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps", mock_update_gaps),
-            patch("manta_trading.data.acquisition.daemon.minute.compute_missing_minute_sessions", mock_compute_missing),
-            patch("manta_trading.data.acquisition.daemon.minute._advance_minute_gap", return_value=None),
-            patch("manta_trading.data.acquisition.daemon.minute._record_minute_attempt", return_value=None),
-            patch("manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start", return_value=resolved_start),
-            patch("manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps", mock_coalesce),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.classify_outcome",
+                return_value=outcome,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.outcome_to_fetch_status",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.update_data_gaps",
+                mock_update_gaps,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.compute_missing_minute_sessions",
+                mock_compute_missing,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=resolved_start,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                mock_coalesce,
+            ),
             patch("manta_trading.data.acquisition.daemon.minute._insert_minute_bars"),
-            patch("manta_trading.data.acquisition.daemon.minute.advisory_lock", return_value=lock_cm),
-            patch("manta_trading.data.acquisition.daemon.minute.eodhd_get", return_value=http.get.return_value),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.eodhd_get",
+                return_value=http.get.return_value,
+            ),
             patch(
                 "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
                 side_effect=lambda *a, **kw: next(gap_iter, None),
@@ -310,7 +382,9 @@ class TestDoMinuteSymbolExtensions:
             )
         return result, mock_update_gaps, mock_coalesce, mock_compute_missing
 
-    def test_force_reset_terminal_true_forwarded_to_initial_update_data_gaps(self) -> None:
+    def test_force_reset_terminal_true_forwarded_to_initial_update_data_gaps(
+        self,
+    ) -> None:
         _, mock_update, _, _ = self._run_do_minute(force_reset_terminal=True)
         first_call_kwargs = mock_update.call_args_list[0].kwargs
         assert first_call_kwargs["force_reset_terminal"] is True
@@ -329,6 +403,7 @@ class TestDoMinuteSymbolExtensions:
         from manta_trading.data.acquisition.daemon.minute import (
             EODHD_INTRADAY_HORIZON,
         )
+
         # Resolver default (mocked) is the EODHD intraday horizon.
         assert from_ts.date() == EODHD_INTRADAY_HORIZON
 
@@ -366,11 +441,15 @@ class TestDoMinuteSymbolExtensions:
         # precomputed_ranges must be the coverage-derived list, not None.
         assert first_call_kwargs["precomputed_ranges"] is not None
 
-    def test_coverage_index_none_skips_coverage_seeding_no_full_window_fallback(self) -> None:
+    def test_coverage_index_none_skips_coverage_seeding_no_full_window_fallback(
+        self,
+    ) -> None:
         """slice 162 fail-safe: coverage_index=None must not compute_missing_minute_sessions,
         and update_data_gaps must receive precomputed_ranges=None (its own legacy
         single-span fallback), never a coverage-aware call that never happened."""
-        _, mock_update, _, mock_compute_missing = self._run_do_minute(coverage_index=None)
+        _, mock_update, _, mock_compute_missing = self._run_do_minute(
+            coverage_index=None
+        )
         mock_compute_missing.assert_not_called()
         first_call_kwargs = mock_update.call_args_list[0].kwargs
         assert first_call_kwargs["precomputed_ranges"] is None
@@ -394,6 +473,7 @@ class TestDoMinuteSymbolExtensions:
 # T9: run_minute_refetch tests
 # ---------------------------------------------------------------------------
 
+
 class TestRunMinuteRefetch:
     """Tests for the run_minute_refetch entry point added in slice 148."""
 
@@ -407,9 +487,7 @@ class TestRunMinuteRefetch:
         mock_do_minute = MagicMock(return_value=(outcome, None, None, 0, 0))
         # The resolver returns 2010-01-01 (later than the EODHD horizon) so
         # tests can assert the per-symbol floor flows through.
-        mock_resolve = MagicMock(
-            return_value=datetime(2010, 1, 1, tzinfo=timezone.utc)
-        )
+        mock_resolve = MagicMock(return_value=datetime(2010, 1, 1, tzinfo=timezone.utc))
         mock_last_session = MagicMock(return_value=_dt(2024, 12, 31))
 
         conn = MagicMock()
@@ -422,12 +500,26 @@ class TestRunMinuteRefetch:
         mock_pool.connection.return_value.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("manta_trading.data.acquisition.daemon.minute.Settings", return_value=_FakeSettings()),
-            patch("manta_trading.data.acquisition.daemon.minute._do_minute_symbol", mock_do_minute),
-            patch("manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start", mock_resolve),
-            patch("manta_trading.data.acquisition.daemon.minute._last_completed_session", mock_last_session),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_FakeSettings(),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._do_minute_symbol",
+                mock_do_minute,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                mock_resolve,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._last_completed_session",
+                mock_last_session,
+            ),
             patch("manta_trading.data.acquisition.daemon.minute.httpx.Client"),
-            patch("manta_trading.data.acquisition.daemon.minute.ConnectionPool") as mock_pool_cls,
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.ConnectionPool"
+            ) as mock_pool_cls,
         ):
             mock_pool_cls.return_value.__enter__ = MagicMock(return_value=mock_pool)
             mock_pool_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -512,13 +604,31 @@ class TestHasAnyGapsRefireRegression:
         gap_iter = iter([None])  # no chunk gaps → loop exits immediately
 
         with (
-            patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps", mock_update_gaps),
-            patch("manta_trading.data.acquisition.daemon.minute._advance_minute_gap", return_value=None),
-            patch("manta_trading.data.acquisition.daemon.minute._record_minute_attempt", return_value=None),
-            patch("manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start", return_value=history_start),
-            patch("manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps", mock_coalesce),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.update_data_gaps",
+                mock_update_gaps,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=history_start,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                mock_coalesce,
+            ),
             patch("manta_trading.data.acquisition.daemon.minute._insert_minute_bars"),
-            patch("manta_trading.data.acquisition.daemon.minute.advisory_lock", return_value=lock_cm),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
             patch(
                 "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
                 side_effect=lambda *a, **kw: next(gap_iter, None),

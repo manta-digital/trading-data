@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from enum import StrEnum
+
 MAX_RETRY_COUNT: int = 5
 """Maximum number of fetch retries before a gap is marked RETRY_EXHAUSTED."""
 
