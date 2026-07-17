@@ -65,6 +65,16 @@ as transient_failure and retried on the next cycle rather than blocking
 indefinitely.
 """
 
+MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT: str = "30s"
+"""PostgreSQL statement_timeout for the universe-wide minute coverage-index
+query (slice 162 ``build_minute_coverage_index``).
+
+A small multiple of the measured ~3s full-universe scan of the
+``minute_4hour_ohlcv`` cagg. On timeout the coverage index build fails safe:
+coverage-aware seeding is skipped for that cycle rather than falling back to
+the old full-window `[history_start, today]` seed.
+"""
+
 EODHD_DAILY_QUOTA: int = 100_000
 """EODHD All-In-One plan: maximum API credits per UTC day."""
 
