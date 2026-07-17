@@ -527,8 +527,29 @@ chunk loop ran, not a `[2004, today]` span. **Pass** (post-fix).
 session-contiguous ranges spanning `[history_start, today]` — verify the chunk
 loop then backfills it normally.
 
-Not yet captured against production — no empty (never-fetched) symbol was
-exercised in this pass. Deferred to next operator session or slice 165.
+Captured (2026-07-17, AACB — a symbol absent from `minute_4hour_ohlcv`,
+confirming zero coverage): `minute seed: complete — 1 symbols, 1 gap rows
+seeded` (one range spanning the full clamped history window, as expected for
+zero coverage). Chunk loop ran 5 chunks (`20250323–20260716`); each chunk's
+outcome split the seeded range further, ending with 4
+`PROVIDER_HOLE`-status rows (`2025-02-13→2025-03-23`, `2025-03-23→2025-07-21`,
+`2025-07-21→2025-11-18`, `2025-11-18→2026-03-18`) — confirmed **not** a
+correctness issue: `SELECT count(*)/MIN(time)/MAX(time) FROM minute_ohlcv
+WHERE symbol='AACB'` showed 162 bars spanning `2026-05-29→2026-07-15`,
+entirely *after* all four `PROVIDER_HOLE` ranges. AACB genuinely has only
+recent minute history at EODHD; the older window the seeder correctly
+identified as uncovered was correctly confirmed empty by the provider, not a
+gap in what the daemon fetched. **Pass.**
+
+**Side finding — not in scope for this slice, filed as slice 166:** the
+`MIN(time)/MAX(time)` verification query above (single symbol, no join, no
+time filter) took **10m47s** in production, and an earlier ad-hoc
+universe-wide existence probe (Step 5 candidate discovery) took **8m8s**.
+Both point to `minute_ohlcv` itself being pathologically slow for even
+trivial ad-hoc queries — more severe than what slice 164's bounded-time-
+convention framing anticipated. See
+`140-slices.data-quality-operations.md` slice 166 (filed 2026-07-17,
+prioritized ahead of 163/164).
 
 **6. Seed-phase progress is visible:**
 ```bash
@@ -556,6 +577,9 @@ expected, not a bug. **Pass.**
    tests added in `test_minute_coverage.py`.
 2. **Wrong CLI command in this walkthrough** — see the correction note above
    and slice 165.
+3. **`minute_ohlcv` pathological query latency** (not this slice's bug —
+   filed as slice 166): unrelated to the coverage-aware seeder's correctness,
+   but discovered while verifying it. See Step 5's side finding above.
 
 ## Operational-Fix Re-Audit
 
