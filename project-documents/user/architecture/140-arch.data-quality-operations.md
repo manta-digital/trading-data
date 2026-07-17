@@ -9,7 +9,7 @@ dependencies:
 relatedReference: user/reference/data-correctness-architecture.md
 archIndex: 140
 dateCreated: 20260429
-dateUpdated: 20260505
+dateUpdated: 20260717
 status: in-progress
 ---
 
@@ -158,8 +158,12 @@ target_start = max(first_trade_date, today - history_months)
 target_end   = most_recent_completed_session_close_utc(exchange)
 ```
 
-`history_months` is configured per-granularity (defaulting to `unbounded`
-for daily and `24` for minute).
+`history_months` is configured per-granularity — `unbounded` for daily.
+Minute history is full-to-`EODHD_INTRADAY_HORIZON` (2004-01-01) by default,
+not a month-count; narrowable per-deployment via `MT_MINUTE_HISTORY_START`
+(see slice 162 §History window — the earlier `MINUTE_HISTORY_MONTHS = 24`
+NFR was a dead AlphaVantage workaround, never implemented, and has been
+removed from this doc).
 
 `most_recent_completed_session_close_utc(exchange)` returns the close
 timestamp of the most recent session whose
@@ -1026,7 +1030,12 @@ DAILY_STALENESS_THRESHOLD   = 2 days   -- after which health = STALE
 MINUTE_STALENESS_THRESHOLD  = 1 day
 
 DAILY_HISTORY_MONTHS  = unbounded  -- full provider history
-MINUTE_HISTORY_MONTHS = 24         -- target backfill window for minute
+
+-- Minute history has no month-count constant. Effective floor =
+-- max(EODHD_INTRADAY_HORIZON, MT_MINUTE_HISTORY_START, per-symbol
+-- first_listing_date/first_data_date) — full history to 2004 by default,
+-- narrowable per-deployment via the MT_MINUTE_HISTORY_START env var
+-- (slice 162 §History window).
 
 LATE_BAR_GRACE_PERIOD = 30 minutes  -- absorbs vendors that publish
                                     -- last bars of a session shortly

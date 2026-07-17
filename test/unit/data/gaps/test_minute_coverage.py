@@ -11,7 +11,6 @@ from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import psycopg
-import pytest
 
 from manta_trading.data.gaps.minute_coverage import (
     build_minute_coverage_index,
