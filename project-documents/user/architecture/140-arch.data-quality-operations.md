@@ -10,7 +10,7 @@ relatedReference: user/reference/data-correctness-architecture.md
 archIndex: 140
 dateCreated: 20260429
 dateUpdated: 20260505
-status: complete
+status: in-progress
 ---
 
 # Data Quality & Operations Architecture
