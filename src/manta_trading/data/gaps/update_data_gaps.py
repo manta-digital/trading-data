@@ -20,7 +20,10 @@ from typing import TYPE_CHECKING
 
 from manta_trading.constants import MAX_RETRY_COUNT
 from manta_trading.data.acquisition.state import LastAttemptOutcome
-from manta_trading.data.gaps.compute_missing_ranges import compute_missing_ranges
+from manta_trading.data.gaps.compute_missing_ranges import (
+    GapRange,
+    compute_missing_ranges,
+)
 from manta_trading.data.quality.fetch_status import FetchStatus
 
 if TYPE_CHECKING:
@@ -46,6 +49,7 @@ def update_data_gaps(
     *,
     force_reset_terminal: bool = False,
     outcome: LastAttemptOutcome,
+    precomputed_ranges: list[GapRange] | None = None,
 ) -> UpdateResult:
     """Synchronize data_gaps and acquisition_state for one (symbol, granularity) window.
 
@@ -68,6 +72,14 @@ def update_data_gaps(
                                   Used by slice 148 (mt data refetch).
         outcome:                  The caller's fetch outcome; written to
                                   acquisition_state.last_attempt_outcome.
+        precomputed_ranges:       Minute-path only (slice 162). When provided,
+                                  insert exactly these GapRanges instead of the
+                                  single-span short-circuit — the caller (the
+                                  minute daemon) has already computed the
+                                  coverage-aware missing sessions via
+                                  compute_missing_minute_sessions. When None
+                                  (daily path, and any caller that doesn't pass
+                                  it), behavior is unchanged.
 
     Returns:
         UpdateResult with counts of inserted, promoted, and reset rows.
@@ -86,6 +98,7 @@ def update_data_gaps(
         fetch_status_for_unfilled,
         force_reset_terminal=force_reset_terminal,
         outcome=outcome,
+        precomputed_ranges=precomputed_ranges,
     )
 
 
@@ -99,6 +112,7 @@ def _do_update(
     *,
     force_reset_terminal: bool,
     outcome: LastAttemptOutcome,
+    precomputed_ranges: list[GapRange] | None = None,
 ) -> UpdateResult:
     terminal_rows_reset = 0
 
@@ -124,13 +138,17 @@ def _do_update(
 
     # Step 4 — recompute gap ranges.
     # For daily granularity: compare stored bars against trading sessions
-    # (compute_missing_ranges). For minute granularity this is prohibitively
-    # expensive (fetches all stored minute timestamps) and semantically wrong
-    # (sessions are daily, not per-minute). Minute gaps are tracked as a
-    # single window row; presence of bars is inferred from fetch outcome.
+    # (compute_missing_ranges). For minute granularity, the caller (the minute
+    # daemon) precomputes coverage-aware missing sessions via
+    # compute_missing_minute_sessions (slice 162) and passes them as
+    # precomputed_ranges — recomputing here would repeat the same universe-wide
+    # scan per symbol. Absent precomputed_ranges, minute falls back to the
+    # legacy single-span behavior (e.g. a caller that hasn't adopted the
+    # coverage-aware seeder yet).
     if granularity == "minute":
-        if fetch_status_for_unfilled is not None:
-            from manta_trading.data.gaps.compute_missing_ranges import GapRange
+        if precomputed_ranges is not None:
+            gap_ranges = precomputed_ranges
+        elif fetch_status_for_unfilled is not None:
             gap_ranges = [GapRange(
                 symbol=symbol,
                 granularity=granularity,
