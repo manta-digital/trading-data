@@ -138,56 +138,58 @@ status: in_progress
 
 ## Phase B — Migration & config (future chunks + doc truth)
 
-- [ ] **B1. Add `MINUTE_OHLCV_CHUNK_INTERVAL` constant.**
-  - [ ] Add to `constants.py` a single `timedelta`/interval constant for the
+- [x] **B1. Add `MINUTE_OHLCV_CHUNK_INTERVAL` constant.**
+  - [x] Add to `constants.py` a single `timedelta`/interval constant for the
         target interval (7 days per design §Target chunk interval, unless the
         A7 gate selected otherwise). Document its origin (slice 166) in a
         comment.
-  - [ ] Success: constant exists; `grep -rn "4 hours\|INTERVAL '7 days'"` shows
+  - [x] Success: constant exists; `grep -rn "4 hours\|INTERVAL '7 days'"` shows
         no competing literal is introduced.
 
-- [ ] **B2. Reference the constant from the `create_hypertable` migration.**
-  - [ ] Edit `migrations/minute.py:531` so the `chunk_time_interval` derives
+- [x] **B2. Reference the constant from the `create_hypertable` migration.**
+  - [x] Edit `migrations/minute.py:531` so the `chunk_time_interval` derives
         from `MINUTE_OHLCV_CHUNK_INTERVAL` (interpolated into the migration
         SQL), not a hardcoded `INTERVAL '4 hours'`. A cold-start DB must create
         chunks at the new interval from the first run.
-  - [ ] Success: the create-hypertable migration no longer contains a literal
+  - [x] Success: the create-hypertable migration no longer contains a literal
         `'4 hours'`; the value traces to the constant.
 
-- [ ] **B3. Add migration `043` — `set_chunk_time_interval` for the existing
+- [x] **B3. Add migration `043` — `set_chunk_time_interval` for the existing
       hypertable.**
-  - [ ] Append a dict to `MINUTE_MIGRATIONS` (id `043_minute_chunk_interval_7d`,
+  - [x] Append a dict to `MINUTE_MIGRATIONS` (id `043_minute_chunk_interval_7d`,
         clear `description` with manual-revert note) calling
         `set_chunk_time_interval('minute_ohlcv', <constant>)`. This governs
         **future** chunks only and is safe/idempotent regardless of the
         remediation option chosen.
-  - [ ] Success: `mt data migrate status` lists `043`; applying it against a
+  - [x] Success: `mt data migrate status` lists `043`; applying it against a
         DB where it already ran is a no-op.
 
-- [ ] **B4. Test: migration + cold-start chunk interval.** (test-with B2/B3)
-  - [ ] Add a test (dev/fixture DB or a migration-level test in the existing
+- [x] **B4. Test: migration + cold-start chunk interval.** (test-with B2/B3)
+  - [x] Add a test (dev/fixture DB or a migration-level test in the existing
         schema-migration test module) asserting that after the migration chain
         runs, `minute_ohlcv`'s dimension `time_interval` equals the constant.
-  - [ ] Success: test passes via per-subpackage `uv run --extra dev pytest`;
+  - [x] Success: test passes via per-subpackage `uv run --extra dev pytest`;
         it fails if the interval reverts to 4 hours.
 
-- [ ] **B5. Update architecture docs stating the old interval.** (Design
+- [x] **B5. Update architecture docs stating the old interval.** (Design
       §Phase B 6a; review F004.)
-  - [ ] Update `user/architecture/100-arch.data-storage.md:67`
+  - [x] Update `user/architecture/100-arch.data-storage.md:67`
         ("`minute_ohlcv` (4hr chunks)") and the chunk-sizing rationale at `:124`
         ("1hr vs 4hr") to the new interval, noting slice 166 as the change.
-  - [ ] `grep -rn "4hr\|4 hour\|4-hour" project-documents/user/architecture/`
+  - [x] `grep -rn "4hr\|4 hour\|4-hour" project-documents/user/architecture/`
         and fix any other doc restating minute chunks as 4-hour.
-  - [ ] Success: no architecture doc still asserts a 4-hour `minute_ohlcv`
+  - [x] Success: no architecture doc still asserts a 4-hour `minute_ohlcv`
         interval; grep is clean.
 
-- [ ] **B6. Commit Phase B.**
-  - [ ] `feat: re-chunk minute_ohlcv to 7-day interval (migration 043)` plus
+- [x] **B6. Commit Phase B.**
+  - [x] `feat: re-chunk minute_ohlcv to 7-day interval (migration 043)` plus
         the doc update. Buildable checkpoint before the bulk operation.
 
 ---
 
 ## Phase C — Execute remediation (resumable bulk merge)
+
+*Phase C mechanism changed at the A7 gate: PM approved Option D (in-place per-window drop_chunks+reinsert rewrite, command renamed `mt data rechunk`) because merge_chunks cannot cross empty chunk ranges — see design doc Root-Cause Record.*
 
 - [ ] **C1. Implement the merge driver as `mt data caggs merge-chunks`.**
   (Design §Merge driver.)
