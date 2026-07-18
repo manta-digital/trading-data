@@ -219,7 +219,37 @@ status: not_started
   - [ ] Success: all assertions pass per-subpackage; **no test touches the
         126 GB prod table.**
 
-- [ ] **C3. Pause minute-family background jobs (operational).**
+- [ ] **C2a. Commit Phase C tooling (before any prod mutation).**
+  (review F003.)
+  - [ ] `feat: add resumable minute_ohlcv chunk-merge maintenance command`
+        (driver + tests). This is the buildable checkpoint: the exact driver
+        version that will mutate 126 GB of prod is committed **before** the
+        run, so the code is recoverable if C4 is disturbed mid-run.
+  - [ ] Success: `git log` shows the merge-driver commit; working tree clean
+        before C3.
+
+- [ ] **C3. Apply the migration chain to prod and confirm the interval.**
+  (review F002; design §Success Criterion 3.)
+  - [ ] Run `mt data migrate apply` against the prod `trading` DB so migration
+        `043` (`set_chunk_time_interval`) takes effect. Phases C4+ assume this
+        — without it, post-merge inserts would recreate 4-hour chunks.
+  - [ ] Confirm prod's dimension interval:
+        `SELECT time_interval FROM timescaledb_information.dimensions WHERE
+        hypertable_name = 'minute_ohlcv'` equals the constant.
+  - [ ] Success: migrate status shows `043` applied; the prod dimension
+        interval equals `MINUTE_OHLCV_CHUNK_INTERVAL`.
+
+- [ ] **C4a. Capture pre-merge integrity baselines (immediately before the
+      irreversible merge).** (review F001; design §Success Criteria 4–5.)
+  - [ ] For ≥3 sampled symbols, capture bounded-window `count(*)`, `MIN(time)`,
+        `MAX(time)` (the exact comparisons D3 will re-run).
+  - [ ] Capture the 162 grouped coverage query result and per-cagg total bar
+        counts for the same symbols.
+  - [ ] Persist these baselines to a scratch note / file — the prod merge
+        cannot be un-run, so D3 is unverifiable if this is skipped.
+  - [ ] Success: baseline values recorded and referenced by D3.
+
+- [ ] **C5. Pause minute-family background jobs (operational).**
   (Design §Phase C step 8; review F002.)
   - [ ] `alter_job(<id>, scheduled => false)` for the minute cagg refresh
         policies (jobs 1002, 1003, 1007, 1008) and the minute columnstore
@@ -228,15 +258,16 @@ status: not_started
   - [ ] Success: `SELECT job_id FROM timescaledb_information.jobs WHERE
         scheduled = false` lists exactly the five minute-family jobs.
 
-- [ ] **C4. Confirm backup point, then run the merge against prod.**
-  - [ ] Verify the PM-confirmed snapshot/backup (A7 gate) is in place.
+- [ ] **C6. Confirm backup point, then run the merge against prod.**
+  - [ ] Verify the PM-confirmed snapshot/backup (A7 gate) is in place, and
+        that C3 (interval applied) and C4a (baselines captured) are done.
   - [ ] Run `mt data caggs merge-chunks` against prod (daemon stopped, jobs
         paused). Deliberately Ctrl-C once early and resume, proving
         resumability on the real table.
   - [ ] Success: chunk count for `minute_ohlcv` falls to ~1,200; progress log
         shows all windows processed; the interrupted run resumed cleanly.
 
-- [ ] **C5. Conditional recompression pass.** (Design §Phase C step 10;
+- [ ] **C7. Conditional recompression pass.** (Design §Phase C step 10;
       review F003.)
   - [ ] **Only if** the A5 rehearsal showed merged chunks retain fragmented
         batches: recompress each merged chunk so batches rebuild at proper
@@ -245,24 +276,19 @@ status: not_started
   - [ ] Success: sampled merged chunks report full-size compression batches;
         or a recorded note that recompression was unnecessary per A5.
 
-- [ ] **C6. Resume paused jobs and confirm catch-up.**
+- [ ] **C8. Resume paused jobs and confirm catch-up.**
   (Design §Phase C step 11; review F002.)
-  - [ ] `alter_job(<id>, scheduled => true)` for all five jobs paused in C3.
+  - [ ] `alter_job(<id>, scheduled => true)` for all five jobs paused in C5.
   - [ ] Confirm cagg refresh policies catch up over their normal windows and
         the columnstore policy re-engages.
   - [ ] Success: `SELECT job_id FROM timescaledb_information.jobs WHERE
         scheduled = false` returns **zero rows** (design §Success Criterion 9).
 
-- [ ] **C7. `ANALYZE minute_ohlcv` and re-check row-count sanity.**
+- [ ] **C9. `ANALYZE minute_ohlcv` and re-check row-count sanity.**
   - [ ] Run `ANALYZE`; re-check `approximate_row_count('minute_ohlcv')` — the
         pre-fix 64.2 B figure should correct to a plausible value.
   - [ ] Success: corrected row count recorded for the design's root-cause
         record.
-
-- [ ] **C8. Commit Phase C tooling.**
-  - [ ] `feat: add resumable minute_ohlcv chunk-merge maintenance command`
-        (driver + tests). The prod run itself is operational, not a code
-        commit, but its outcome is recorded in Phase D.
 
 ---
 
@@ -286,15 +312,26 @@ status: not_started
         misses sub-second, record the actual and **raise to the PM** whether a
         cagg-backed `bars_summary` rewrite is a follow-up slice — do not
         silently leave the NFR unmet nor widen this slice into a view redesign.
+  - [ ] **No `test/load/` task is added** (review F004): per the project's
+        Python load-test tier (recorded in slice 147's task file), the tier
+        covers "simulation, network, concurrency, or environment-layer paths."
+        `data_status` is a single sequential DB view read, outside that tier;
+        and the NFR is measured against the 126 GB **prod** table, which a
+        CI-run load test cannot reproduce. D2's before/after measurement is
+        the regression check for this slice. Should the D2 escalation result
+        in a `bars_summary` rewrite, load-test coverage is that follow-up
+        slice's concern, decided by the PM there — recorded here so the gap is
+        an explicit decision, not an omission.
 
 - [ ] **D3. Integrity checks — no data loss.** (Design §Success Criteria 4, 5.)
-  - [ ] For ≥3 sampled symbols, confirm bounded-window `count(*)`, `MIN(time)`,
-        `MAX(time)` are identical to pre-merge captures (capture the baselines
-        before C4 if not already recorded).
-  - [ ] Confirm the 162 grouped coverage query returns identical results and
-        all four minute caggs refresh and serve identical query results.
-  - [ ] Success: every integrity comparison matches exactly; any mismatch
-        halts and is escalated.
+  - [ ] For the same ≥3 symbols, confirm bounded-window `count(*)`,
+        `MIN(time)`, `MAX(time)` are **identical to the C4a pre-merge
+        baselines**.
+  - [ ] Confirm the 162 grouped coverage query returns results identical to
+        the C4a baseline and all four minute caggs refresh and serve identical
+        query results.
+  - [ ] Success: every integrity comparison matches the C4a baseline exactly;
+        any mismatch halts and is escalated.
 
 - [ ] **D4. Storage re-measurement.** (Design §Success Criterion 7.)
   - [ ] `hypertable_detailed_size('minute_ohlcv')` and compression stats;
@@ -327,17 +364,22 @@ status: not_started
 - Constant + create-hypertable reference → B1, B2
 - Migration 043 (`set_chunk_time_interval`) → B3, B4
 - Architecture-doc truth (F004) → B5
-- Resumable merge driver → C1, C2
-- Background-job pause/resume (F002) → C3, C6
-- Prod merge run + resumability → C4
-- Conditional recompression (F003) → C5
-- ANALYZE / row-count sanity → C7
+- Resumable merge driver → C1, C2 (committed C2a, before prod mutation)
+- Apply migration 043 to prod + confirm interval → C3
+- Pre-merge integrity baselines → C4a
+- Background-job pause/resume → C5, C8
+- Prod merge run + resumability → C6
+- Conditional recompression → C7
+- ANALYZE / row-count sanity → C9
 - T15 query re-run + EXPLAIN → D1
-- `data_status` NFR (F001) → D2
+- `data_status` NFR → D2
 - No-data-loss + cagg integrity → D3
 - Storage reclaim → D4
 - Cold-start → D5
 - Root-cause record + slice close → A7, D6
+
+Review findings (166 tasks review): F001 → C4a; F002 → C3;
+F003 → C2a; F004 → D2 (recorded no-load-test decision).
 
 Effort: 3/5. Risk: High (prod bulk mutation), mitigated by rehearsal,
 resumable per-window execution, and the A7 backup/decision gate.
