@@ -11,8 +11,8 @@ projectState: >
   trivial single-symbol MIN/MAX runs 10m47s. TimescaleDB 2.23.0 / PostgreSQL
   17.7. This slice diagnoses and fixes the table's chunk pathology.
 dateCreated: 20260717
-dateUpdated: 20260717
-status: not_started
+dateUpdated: 20260718
+status: in_progress
 ---
 
 ## Context Summary
@@ -61,71 +61,71 @@ status: not_started
 
 ## Phase A — Diagnose (evidence before any table mutation)
 
-- [ ] **A1. Capture `EXPLAIN` (no ANALYZE) of the single-symbol MIN/MAX query.**
-  - [ ] Run `EXPLAIN (VERBOSE, COSTS)` of
+- [x] **A1. Capture `EXPLAIN` (no ANALYZE) of the single-symbol MIN/MAX query.**
+  - [x] Run `EXPLAIN (VERBOSE, COSTS)` of
         `SELECT MIN(time), MAX(time) FROM minute_ohlcv WHERE symbol = '<sym>'`
         against prod `trading` DB (choose an active symbol, e.g. AAPL).
-  - [ ] Record **planning time** and plan shape (expect a many-thousand-way
+  - [x] Record **planning time** and plan shape (expect a many-thousand-way
         chunk `Append`). Do **not** run ANALYZE in this task.
-  - [ ] Success: EXPLAIN text captured verbatim into a Phase A scratch note
+  - [x] Success: EXPLAIN text captured verbatim into a Phase A scratch note
         for later transcription into the design's root-cause record.
 
-- [ ] **A2. Capture `EXPLAIN (ANALYZE, BUFFERS)` of the same query — one
+- [x] **A2. Capture `EXPLAIN (ANALYZE, BUFFERS)` of the same query — one
       deliberate diagnostic run.**
-  - [ ] Run once, knowingly accepting the ~10m cost, on prod. Capture actual
+  - [x] Run once, knowingly accepting the ~10m cost, on prod. Capture actual
         total time, per-node timing, and buffer counts.
-  - [ ] Identify where execution time concentrates (chunk-open/plan overhead
+  - [x] Identify where execution time concentrates (chunk-open/plan overhead
         vs decompression vs heap reads).
-  - [ ] Success: ANALYZE output captured; a one-line conclusion states whether
+  - [x] Success: ANALYZE output captured; a one-line conclusion states whether
         the chunk-count hypothesis is **confirmed** or **contradicted**.
 
-- [ ] **A3. Sample lock-table pressure during A2.**
-  - [ ] From a second connection while A2 runs, sample
+- [x] **A3. Sample lock-table pressure during A2.**
+  - [x] From a second connection while A2 runs, sample
         `SELECT count(*) FROM pg_locks WHERE pid = <A2 backend pid>`.
-  - [ ] Success: peak lock count recorded (expected in the thousands,
+  - [x] Success: peak lock count recorded (expected in the thousands,
         corroborating why `max_locks_per_transaction` was raised to 2048).
 
-- [ ] **A4. Build a scratch hypertable mirroring `minute_ohlcv` compression +
+- [x] **A4. Build a scratch hypertable mirroring `minute_ohlcv` compression +
       one attached cagg.**
-  - [ ] Create a throwaway hypertable with 4-hour chunks, `segmentby=symbol`,
+  - [x] Create a throwaway hypertable with 4-hour chunks, `segmentby=symbol`,
         `orderby=time DESC`, populated with enough synthetic multi-symbol data
         to produce dozens of small chunks; compress the older chunks; attach
         one continuous aggregate with a refresh policy.
-  - [ ] Success: scratch table exists with ≥40 compressed chunks and a
+  - [x] Success: scratch table exists with ≥40 compressed chunks and a
         working cagg; teardown SQL noted for cleanup.
 
-- [ ] **A5. Rehearse `merge_chunks` on the scratch table — answer the three
+- [x] **A5. Rehearse `merge_chunks` on the scratch table — answer the three
       gating questions.** (Design §Phase A step 4.)
-  - [ ] **Batch rewrite:** merge a window of adjacent compressed chunks;
+  - [x] **Batch rewrite:** merge a window of adjacent compressed chunks;
         compare per-batch row counts and TOAST size before/after. Record
         whether batches are rebuilt, carried over fragmented, or whether merge
         requires decompress-first (and if so, the transient size delta).
-  - [ ] **Mixed windows:** attempt a merge over a window containing both a
+  - [x] **Mixed windows:** attempt a merge over a window containing both a
         compressed and an uncompressed chunk; record the behavior (succeeds /
         errors / requires uniform state).
-  - [ ] **Job collision:** trigger a cagg refresh (or compression) against a
+  - [x] **Job collision:** trigger a cagg refresh (or compression) against a
         chunk mid-merge; record whether it blocks, errors, or corrupts, to
         confirm the Phase C job-pause is necessary and sufficient.
-  - [ ] Verify the cagg still refreshes and returns correct results after the
+  - [x] Verify the cagg still refreshes and returns correct results after the
         merge.
-  - [ ] Success: all three questions answered in writing; each answer maps to
+  - [x] Success: all three questions answered in writing; each answer maps to
         a concrete Phase C decision (recompress pass yes/no, mixed-window
         handling, job-pause confirmed). Scratch table torn down.
 
-- [ ] **A6. Consult TimescaleDB 2.23 `merge_chunks` docs to corroborate the
+- [x] **A6. Consult TimescaleDB 2.23 `merge_chunks` docs to corroborate the
       rehearsal.**
-  - [ ] Use context7 (`/timescale/timescaledb`) and/or official docs for
+  - [x] Use context7 (`/timescale/timescaledb`) and/or official docs for
         `merge_chunks` restrictions on compressed and cagg-attached
         hypertables; note any documented constraint the rehearsal did not
         surface.
-  - [ ] Success: doc findings recorded alongside A5; any conflict between docs
+  - [x] Success: doc findings recorded alongside A5; any conflict between docs
         and rehearsal flagged for the A7 gate.
 
 - [ ] **A7. Transcribe Phase A evidence into the design's root-cause record and
       reach the PM decision gate.** (Design §Success Criterion 6.)
-  - [ ] Append A1–A3 EXPLAIN/lock evidence to the design doc under a
+  - [x] Append A1–A3 EXPLAIN/lock evidence to the design doc under a
         "Root-Cause Record" heading; state hypothesis confirmed or corrected.
-  - [ ] Commit: `review: record slice 166 Phase A root-cause evidence`.
+  - [x] Commit: `review: record slice 166 Phase A root-cause evidence`.
   - [ ] **PM gate (stop here):** PM confirms (a) root cause matches
         hypothesis, (b) remediation Option **A / B / C** selected per the A5
         rehearsal, (c) a DB snapshot/backup point exists before any bulk
