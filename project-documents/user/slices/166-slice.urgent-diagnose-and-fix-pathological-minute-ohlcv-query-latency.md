@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [156, 160]
 interfaces: [163, 164, 182]
 dateCreated: 20260717
-dateUpdated: 20260717
-status: not_started
+dateUpdated: 20260718
+status: in_progress
 ---
 
 # Slice Design: URGENT — Diagnose and Fix Pathological `minute_ohlcv` Query Latency
@@ -404,3 +404,174 @@ WHERE symbol = 'AAPL' AND time >= '2024-01-01' AND time < '2024-02-01';
 
 Effort: 3/5. Risk: High (production bulk operation), mitigated by
 rehearsal + resumable per-window execution.
+
+---
+
+## Root-Cause Record (Phase A, executed 2026-07-18)
+
+Method: all diagnostics run against prod `trading` (PostgreSQL 17.7,
+TimescaleDB 2.23.0) via psql; lock sampling from a second connection.
+Full EXPLAIN outputs are large (278k / 152k lines); verbatim excerpts below,
+full captures retained in the session scratchpad during execution.
+
+### A1 — `EXPLAIN (VERBOSE, COSTS)`, no ANALYZE
+
+`SELECT MIN(time), MAX(time) FROM minute_ohlcv WHERE symbol = 'AAPL'`
+
+- **Plan-only EXPLAIN took 868,195 ms (14m28s)** — longer than the original
+  10m47s full query. Producing the plan is the pathology.
+- Plan text is **277,749 lines**: two InitPlans (MIN, MAX), each a
+  `Custom Scan (ChunkAppend)` over all ~25k chunks, each chunk a
+  `ColumnarScan` + `Index Scan` on its compressed chunk
+  (`Index Cond: symbol = 'AAPL'`). Per-chunk work is trivial; there are just
+  25,256 of them, twice.
+
+### A2 — `EXPLAIN (ANALYZE, BUFFERS, TIMING OFF)` — one deliberate run
+
+```
+Planning:
+  Buffers: shared hit=16452348 dirtied=1
+Planning Time: 846597.124 ms        -- 14m07s
+Execution Time: 4188.955 ms         -- 4.2s
+Total: 854,129 ms (14m14s)
+```
+
+- **>99.5% of wall time is planning**, not execution. Planning touched
+  16.45M buffer pages (catalog + index metadata for ~25k chunks × ~7
+  relations each).
+- Execution itself: 4.2s, 784,994 buffer hits; the vast majority of chunk
+  subplans report `(never executed)` — runtime chunk exclusion works, but
+  only after planning has already paid for every chunk.
+- Verdict: **primary hypothesis (chunk-count pathology) CONFIRMED.** The
+  alternative hypotheses (sparse-metadata MIN/MAX failure, missing index
+  path, decompression cost) are ruled out: the compressed-chunk index path
+  is used and execution is cheap.
+
+### A3 — lock-table pressure
+
+- Peak locks held by the diagnostic backend: **176,764** (42 samples, 20s
+  interval; grew from ~126k early in planning to a 176,764 plateau).
+- ~7 locks per chunk (chunk + compressed chunk + their indexes),
+  corroborating why `max_locks_per_transaction` had to be raised to 2048.
+- Backend state throughout: `active`, no wait events — pure CPU/catalog
+  work, no blocking.
+
+### A4/A5 — scratch-hypertable rehearsal (three gating questions)
+
+Scratch: 126 four-hour chunks (108 compressed), 151,200 rows, 5 symbols,
+`segmentby=symbol`, `orderby=time DESC`, one 5-min cagg with refresh policy.
+
+1. **Batch rewrite: NO.** `CALL merge_chunks(ARRAY[42 compressed chunks])`
+   succeeded in one call (~124 ms scratch-scale) and produced a single
+   *compressed* chunk — but batches were carried over unchanged
+   (210 batches, avg 240 rows before AND after). Merge alone does **not**
+   collapse the TOAST pathology. A decompress+recompress of the merged
+   chunk rebuilt batches to healthy size (210 → 55 batches, avg 916 ≈ the
+   1000-row target; 984 kB → 336 kB). **A recompression pass is mandatory**
+   wherever merged chunks retain old batches.
+2. **Mixed windows: merge succeeds.** A window of 6 compressed + 6
+   uncompressed chunks merged into one compressed chunk, integrity intact.
+   The driver still skips windows containing uncompressed chunks (the
+   active insert region) as designed — the failure mode is benign, not an
+   error.
+3. **Job collision: blocks AND corrupts.** With a merge transaction open, a
+   concurrent cagg refresh over an invalidated range blocked ~16s until the
+   merge committed, then **silently lost the invalidated buckets**: the
+   refresh consumed the invalidation log but materialized nothing for the
+   range (its snapshot predated the merge commit). The cagg then reported
+   "already up-to-date" while permanently missing rows. Repair required
+   `refresh_continuous_aggregate(..., force => true)`. **Pausing the five
+   minute-family jobs during any chunk restructuring is therefore
+   correctness-critical, not merely a performance nicety.**
+
+### A6 — documentation + the adjacency discovery
+
+Official `merge_chunks` docs (TimescaleDB ≥2.18): *"You can only merge
+chunks that have directly adjacent partitions. It is not possible to merge
+chunks that have another chunk, or an empty range between them."* Also: no
+tiered data, no writes to chunks mid-merge; merged chunk keeps the first
+chunk's name/constraints/triggers.
+
+**This restriction is enforced and is decisive for prod.** On a gap-faithful
+scratch table (market-hours-only data → chunks separated by empty
+overnight/weekend ranges):
+
+- Merging a week's chunks across gaps fails:
+  `ERROR: cannot create new chunk partition boundaries` /
+  `HINT: Try merging chunks that have adjacent partitions.`
+- Range-touching chunks merge fine.
+- **Option B (`compress_chunk_time_interval` roll-up) has the same
+  limitation**: recompressing every chunk with a 7-day roll-up interval
+  consolidated only same-day touching chunks (19 → 10, one chunk per
+  trading day) — it also cannot cross empty ranges.
+
+Prod contiguity (catalog measurement, 2026-07-18): `minute_ohlcv`'s 25,256
+chunks form **5,671 contiguous runs** (run lengths: 4 chunks × 2,792 runs,
+5 × 2,728, 3 × 147, ≤2 × 4) — one run per trading day, split by empty
+overnight/weekend chunk ranges.
+
+**Consequence: Options A and B cannot go below ~5,671 chunks** (~4.4×
+reduction; planning ≈ 14m28s / 4.4 ≈ ~3 min — still failing Success
+Criteria 1 and 3).
+
+### Option D rehearsal — in-place window rewrite (drop_chunks + reinsert)
+
+Because A and B cannot reach the target, a fourth option was rehearsed on the
+gap-faithful scratch table (with attached cagg):
+
+Per 7-day window, in **one transaction**: stage the window's rows into a
+temp table → `drop_chunks()` for the window (removes chunks *and* their
+dimension slices) → `INSERT` the rows back (tuple routing finds no slices,
+creates fresh chunks at the now-7-day interval) → commit; then
+`compress_chunk()` the new chunk.
+
+Rehearsal results:
+
+- The window collapsed to a single 7-day chunk; compression produced
+  healthy batches directly (no separate recompression pass needed — the
+  batch-rewrite problem from A5-Q1 does not arise on freshly inserted data).
+- **The cagg was untouched**: identical row count and aggregate values
+  before the cycle, after the cycle, and after a `force => true` refresh
+  over the window (`drop_chunks` does not invalidate caggs; the reinsert's
+  invalidations recompute to identical values over identical data).
+- **Atomicity proven**: a deliberate mid-cycle `ROLLBACK` (after
+  `drop_chunks`, before reinsert) restored the table exactly.
+- **Grid alignment caveat**: new 7-day slices are epoch-anchored
+  (1970-01-01 + k×7d), not window-anchored. A window straddling two grid
+  weeks produces two chunks. The driver must iterate **grid-aligned**
+  windows; 4-hour slices nest exactly inside the 7-day grid, so each grid
+  window then yields exactly one chunk.
+
+Cost model (bounded prod samples): ~4.46M rows/week recent, ~3.3M (2015),
+~1.2M (2005); ~1,175 grid weeks ≈ **~3.5B rows rewritten** over the run —
+hours of unattended runtime, resumable per-window, transient disk one
+window's staging (≤ ~1 GB).
+
+### Revised remediation options (supersedes the design's A/B/C table)
+
+| Option | Result on prod | Caggs | Meets criteria? | Status |
+|---|---|---|---|---|
+| A′. `merge_chunks` per contiguous run (+recompress) | ~5,671 day-chunks; planning ~3 min | Preserved | **No** (Criteria 1, 3) | Rehearsed, works, insufficient |
+| B. `compress_chunk_time_interval` roll-up | Same ~5,671 cap (cannot cross gaps) | Preserved | **No** | Rehearsed, works, insufficient |
+| C. New hypertable + copy + swap | ~1,175 chunks | **Destroyed** (4 caggs recreate + re-materialize) | Yes | Not rehearsed; last resort |
+| **D. In-place per-window rewrite (drop_chunks + reinsert + compress)** | ~1,175 grid-week chunks | **Preserved** (verified incl. force-refresh identity) | Yes | **Rehearsed successfully** |
+
+Senior-AI recommendation to PM: **Option D**, with the A5-Q3 job-pause
+(correctness-critical) and the C2-style resumable driver (windows derived
+from the catalog: any grid week still holding >1 chunk or any 4-hour-slice
+chunk is unfinished — idempotent re-run). Migration 043
+(`set_chunk_time_interval`) remains required and unchanged. Note: the
+planned command name `caggs merge-chunks` no longer matches the mechanism;
+propose `mt data rechunk` (or PM's preferred name) at implementation.
+
+### A7 gate status
+
+- (a) Root cause: **confirmed** — planning/locking over 25,256 chunks
+  (846.6s planning vs 4.2s execution).
+- (b) Remediation selection: **awaiting PM** — rehearsal evidence above;
+  recommendation Option D. (Design's preferred Option A is proven
+  insufficient on prod's gap structure; this is the "revise with the PM"
+  path, not automatic escalation.)
+- (c) Backup point before bulk mutation: **awaiting PM confirmation**.
+
+*Phase D before/after evidence to be appended after remediation.*
