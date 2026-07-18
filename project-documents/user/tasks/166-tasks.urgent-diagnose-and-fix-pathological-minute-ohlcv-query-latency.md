@@ -191,79 +191,79 @@ status: in_progress
 
 *Phase C mechanism changed at the A7 gate: PM approved Option D (in-place per-window drop_chunks+reinsert rewrite, command renamed `mt data rechunk`) because merge_chunks cannot cross empty chunk ranges — see design doc Root-Cause Record.*
 
-- [ ] **C1. Implement the merge driver as `mt data caggs merge-chunks`.**
+- [x] **C1. Implement the merge driver as `mt data caggs merge-chunks`.**
   (Design §Merge driver.)
-  - [ ] Add a `caggs_app` command modeled on `data extend` (slice 144):
+  - [x] Add a `caggs_app` command modeled on `data extend` (slice 144):
         enumerate current `minute_ohlcv` chunks from the Timescale catalog,
         group into target 7-day windows, and merge one window per transaction.
-  - [ ] Skip windows already a single chunk (idempotent — safe to re-run).
-  - [ ] Skip **and log** windows containing any uncompressed chunk (the
+  - [x] Skip windows already a single chunk (idempotent — safe to re-run).
+  - [x] Skip **and log** windows containing any uncompressed chunk (the
         trailing chunks inside `compress_after`), per design; handling matches
         the A5 mixed-window answer.
-  - [ ] Emit `merged W/<total> windows` progress; stop cleanly on first error
+  - [x] Emit `merged W/<total> windows` progress; stop cleanly on first error
         with the failing window identified and a non-zero exit code.
-  - [ ] Provide `--dry-run` (report the window plan and counts; mutate
+  - [x] Provide `--dry-run` (report the window plan and counts; mutate
         nothing). No other configuration surface.
-  - [ ] Pre-flight: assert the minute background jobs are paused (see C3);
+  - [x] Pre-flight: assert the minute background jobs are paused (see C3);
         refuse to run otherwise. Job IDs resolved from the catalog at runtime,
         **not** hardcoded.
-  - [ ] Success: `--dry-run` prints a coherent window plan (~600 windows over
+  - [x] Success: `--dry-run` prints a coherent window plan (~600 windows over
         ~25k chunks) and mutates nothing.
 
-- [ ] **C2. Test: merge driver on the scratch/fixture hypertable.**
+- [x] **C2. Test: merge driver on the scratch/fixture hypertable.**
   (test-with C1)
-  - [ ] Reusing the A4-style scratch setup (or a fixture), assert: (a)
+  - [x] Reusing the A4-style scratch setup (or a fixture), assert: (a)
         `--dry-run` mutates nothing; (b) a real run reduces chunk count for a
         multi-window range; (c) re-running is a no-op (idempotent); (d) a
         deliberate mid-run interrupt leaves a valid, partially-merged table and
         a subsequent run completes the remainder; (e) pre-flight refuses when a
         job is unpaused.
-  - [ ] Success: all assertions pass per-subpackage; **no test touches the
+  - [x] Success: all assertions pass per-subpackage; **no test touches the
         126 GB prod table.**
 
-- [ ] **C2a. Commit Phase C tooling (before any prod mutation).**
+- [x] **C2a. Commit Phase C tooling (before any prod mutation).**
   (review F003.)
-  - [ ] `feat: add resumable minute_ohlcv chunk-merge maintenance command`
+  - [x] `feat: add resumable minute_ohlcv chunk-merge maintenance command`
         (driver + tests). This is the buildable checkpoint: the exact driver
         version that will mutate 126 GB of prod is committed **before** the
         run, so the code is recoverable if C4 is disturbed mid-run.
-  - [ ] Success: `git log` shows the merge-driver commit; working tree clean
+  - [x] Success: `git log` shows the merge-driver commit; working tree clean
         before C3.
 
-- [ ] **C3. Apply the migration chain to prod and confirm the interval.**
+- [x] **C3. Apply the migration chain to prod and confirm the interval.**
   (review F002; design §Success Criterion 3.)
-  - [ ] Run `mt data migrate apply` against the prod `trading` DB so migration
+  - [x] Run `mt data migrate apply` against the prod `trading` DB so migration
         `043` (`set_chunk_time_interval`) takes effect. Phases C4+ assume this
         — without it, post-merge inserts would recreate 4-hour chunks.
-  - [ ] Confirm prod's dimension interval:
+  - [x] Confirm prod's dimension interval:
         `SELECT time_interval FROM timescaledb_information.dimensions WHERE
         hypertable_name = 'minute_ohlcv'` equals the constant.
-  - [ ] Success: migrate status shows `043` applied; the prod dimension
+  - [x] Success: migrate status shows `043` applied; the prod dimension
         interval equals `MINUTE_OHLCV_CHUNK_INTERVAL`.
 
-- [ ] **C4a. Capture pre-merge integrity baselines (immediately before the
+- [x] **C4a. Capture pre-merge integrity baselines (immediately before the
       irreversible merge).** (review F001; design §Success Criteria 4–5.)
-  - [ ] For ≥3 sampled symbols, capture bounded-window `count(*)`, `MIN(time)`,
+  - [x] For ≥3 sampled symbols, capture bounded-window `count(*)`, `MIN(time)`,
         `MAX(time)` (the exact comparisons D3 will re-run).
-  - [ ] Capture the 162 grouped coverage query result and per-cagg total bar
+  - [x] Capture the 162 grouped coverage query result and per-cagg total bar
         counts for the same symbols.
-  - [ ] Persist these baselines to a scratch note / file — the prod merge
+  - [x] Persist these baselines to a scratch note / file — the prod merge
         cannot be un-run, so D3 is unverifiable if this is skipped.
-  - [ ] Success: baseline values recorded and referenced by D3.
+  - [x] Success: baseline values recorded and referenced by D3.
 
-- [ ] **C5. Pause minute-family background jobs (operational).**
+- [x] **C5. Pause minute-family background jobs (operational).**
   (Design §Phase C step 8; review F002.)
-  - [ ] `alter_job(<id>, scheduled => false)` for the minute cagg refresh
+  - [x] `alter_job(<id>, scheduled => false)` for the minute cagg refresh
         policies (jobs 1002, 1003, 1007, 1008) and the minute columnstore
         policy (1009) — IDs resolved from
         `timescaledb_information.jobs` at runtime, not assumed.
-  - [ ] Success: `SELECT job_id FROM timescaledb_information.jobs WHERE
+  - [x] Success: `SELECT job_id FROM timescaledb_information.jobs WHERE
         scheduled = false` lists exactly the five minute-family jobs.
 
 - [ ] **C6. Confirm backup point, then run the merge against prod.**
-  - [ ] Verify the PM-confirmed snapshot/backup (A7 gate) is in place, and
+  - [x] Verify the PM-confirmed snapshot/backup (A7 gate) is in place, and
         that C3 (interval applied) and C4a (baselines captured) are done.
-  - [ ] Run `mt data caggs merge-chunks` against prod (daemon stopped, jobs
+  - [x] Run `mt data caggs merge-chunks` against prod (daemon stopped, jobs
         paused). Deliberately Ctrl-C once early and resume, proving
         resumability on the real table.
   - [ ] Success: chunk count for `minute_ohlcv` falls to ~1,200; progress log
