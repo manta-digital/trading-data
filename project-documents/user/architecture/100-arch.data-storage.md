@@ -64,7 +64,7 @@ Two independent storage layers exist on separate hosts, using two different DB d
 - SQLAlchemy engine with `QueuePool`, `COPY FROM STDIN` bulk writes (13k+ rows/sec)
 - All queries are raw SQL via `connection.execute(text(...))` — no ORM or query builder usage
 - SQLAlchemy serves only as a connection pool manager; its weight is unjustified for this use case
-- Hypertable: `minute_ohlcv` (4hr chunks), columns: `time, symbol, open, high, low, close, volume`
+- Hypertable: `minute_ohlcv` (7-day chunks per `MINUTE_OHLCV_CHUNK_INTERVAL`; re-chunked from the pathological 4hr interval in slice 166), columns: `time, symbol, open, high, low, close, volume`
 - Continuous aggregates: 5min, 15min, 1hr, 4hr, daily, weekly, monthly (v2 materialized views)
 - Compression: ~95% ratio
 - Takes a `db_config` dict via `TimescaleDBConfig` which reads `TRADING_PSQL_*` env vars
@@ -121,7 +121,7 @@ A unified data storage layer where:
 
 - **SQLAlchemy removal from TimescaleMinuteDataDB** — The module uses SQLAlchemy purely as a connection pool around raw SQL. Migration path: replace `create_engine()` + `engine.connect()` with `psycopg_pool.ConnectionPool(conninfo)`. The `COPY FROM STDIN` path currently drops through SQLAlchemy to the underlying psycopg2 connection; with psycopg3 this becomes a first-class `cursor.copy()` call, which is simpler and more efficient.
 
-- **Tick schema design** — The archived architecture doc (050-arch) defines a comprehensive tick event model (trade, quote, BBO, NBBO, depth, status). For the initial schema, focus on trade and quote events only — these cover the primary use cases. The tick hypertable should be on a **separate database instance** from minute data — volume difference (~28x at modest scale), different chunk sizing (1hr vs 4hr), different compression/retention policies, and operational independence all argue against sharing. Architectural outline for the schema slice:
+- **Tick schema design** — The archived architecture doc (050-arch) defines a comprehensive tick event model (trade, quote, BBO, NBBO, depth, status). For the initial schema, focus on trade and quote events only — these cover the primary use cases. The tick hypertable should be on a **separate database instance** from minute data — volume difference (~28x at modest scale), different chunk sizing (1hr vs the 7-day minute interval set in slice 166), different compression/retention policies, and operational independence all argue against sharing. Architectural outline for the schema slice:
   - Natural key: `(instrument_id, timestamp, sequence_number, source)`
   - Event type column: enum discriminator (trade, quote) — single table, not separate tables per type
   - Trade fields: `price, size, exchange, conditions`
