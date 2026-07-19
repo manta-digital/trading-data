@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (latest)
+- **Pathological `minute_ohlcv` query latency** (slice 166) — a trivial single-symbol `MIN(time)/MAX(time)` took 10m47s and a universe-wide existence probe 8m8s, because the hypertable had accumulated 25,256 four-hour chunks and query *planning* alone (846 s, 176k locks) dominated. The table has been rewritten in place to 1,203 seven-day chunks (`mt data rechunk`, resumable, verified zero data loss against pre-rewrite baselines): single-symbol MIN/MAX now ~0.7 s, the universe probe 37.7 s, `mt data status` full-universe 7.8 s (was 117 s), and storage dropped 126 GB → 78 GB. Migration `043` keeps future chunks at 7 days (`MINUTE_OHLCV_CHUNK_INTERVAL`), including on cold-start databases.
+
+### Added (slice 166)
+- **`mt data rechunk`** — one-shot, resumable maintenance command that rewrites `minute_ohlcv`'s legacy small chunks into 7-day chunks, one atomic window per transaction, with `--dry-run` planning and a pre-flight that refuses to run unless migration 043 is applied and the minute-family background jobs are paused (Phase A rehearsal proved a concurrent cagg refresh can silently lose materialized rows).
+
 ### Added
 - **Coverage-aware minute gap-seeding** (slice 162) — the minute daemon now seeds `data_gaps` only for trading sessions genuinely missing from `minute_ohlcv`, instead of a single full-history span. A restart on a mostly-complete universe now produces near-zero chunks per already-covered symbol instead of ~69 (the credit-burning behavior that had the production minute daemon stopped). Adds seed-phase progress logging (`minute seed: N/<total> symbols scanned, M gap rows seeded`) so the daemon no longer runs silent during a universe-wide seed pass.
 - **TimescaleDB columnar compression** (slice 160) — migration `042_enable_columnar_compression` enables compression on `minute_ohlcv` and `daily_ohlcv` (segmentby=symbol, orderby=time DESC), installs 7-day compress-after policies, and backfills all existing eligible chunks. Production `minute_ohlcv` achieved 87.7% space savings (10× ratio). All queries return identical results post-compression; cagg refresh policies are unaffected.

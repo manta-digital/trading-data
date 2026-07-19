@@ -11,8 +11,8 @@ projectState: >
   trivial single-symbol MIN/MAX runs 10m47s. TimescaleDB 2.23.0 / PostgreSQL
   17.7. This slice diagnoses and fixes the table's chunk pathology.
 dateCreated: 20260717
-dateUpdated: 20260718
-status: in_progress
+dateUpdated: 20260719
+status: complete
 ---
 
 ## Context Summary
@@ -121,16 +121,16 @@ status: in_progress
   - [x] Success: doc findings recorded alongside A5; any conflict between docs
         and rehearsal flagged for the A7 gate.
 
-- [ ] **A7. Transcribe Phase A evidence into the design's root-cause record and
+- [x] **A7. Transcribe Phase A evidence into the design's root-cause record and
       reach the PM decision gate.** (Design §Success Criterion 6.)
   - [x] Append A1–A3 EXPLAIN/lock evidence to the design doc under a
         "Root-Cause Record" heading; state hypothesis confirmed or corrected.
   - [x] Commit: `review: record slice 166 Phase A root-cause evidence`.
-  - [ ] **PM gate (stop here):** PM confirms (a) root cause matches
+  - [x] **PM gate (stop here):** PM confirms (a) root cause matches
         hypothesis, (b) remediation Option **A / B / C** selected per the A5
         rehearsal, (c) a DB snapshot/backup point exists before any bulk
         mutation. Do not proceed to Phase B until confirmed.
-  - [ ] Success: gate outcome recorded in the design doc; if EXPLAIN
+  - [x] Success: gate outcome recorded in the design doc; if EXPLAIN
         contradicted the hypothesis, this slice's design is revised with the
         PM rather than proceeding (design §Risk "Hidden second bottleneck").
 
@@ -260,61 +260,61 @@ status: in_progress
   - [x] Success: `SELECT job_id FROM timescaledb_information.jobs WHERE
         scheduled = false` lists exactly the five minute-family jobs.
 
-- [ ] **C6. Confirm backup point, then run the merge against prod.**
+- [x] **C6. Confirm backup point, then run the merge against prod.**
   - [x] Verify the PM-confirmed snapshot/backup (A7 gate) is in place, and
         that C3 (interval applied) and C4a (baselines captured) are done.
   - [x] Run `mt data caggs merge-chunks` against prod (daemon stopped, jobs
         paused). Deliberately Ctrl-C once early and resume, proving
         resumability on the real table.
-  - [ ] Success: chunk count for `minute_ohlcv` falls to ~1,200; progress log
+  - [x] Success: chunk count for `minute_ohlcv` falls to ~1,200; progress log
         shows all windows processed; the interrupted run resumed cleanly.
 
-- [ ] **C7. Conditional recompression pass.** (Design §Phase C step 10;
+- [x] **C7. Conditional recompression pass.** (Design §Phase C step 10;
       review F003.)
-  - [ ] **Only if** the A5 rehearsal showed merged chunks retain fragmented
+  - [x] **Only if** the A5 rehearsal showed merged chunks retain fragmented
         batches: recompress each merged chunk so batches rebuild at proper
         size. If rehearsal showed merge already rebuilds batches, record that
         and skip this task explicitly.
-  - [ ] Success: sampled merged chunks report full-size compression batches;
+  - [x] Success: sampled merged chunks report full-size compression batches;
         or a recorded note that recompression was unnecessary per A5.
 
-- [ ] **C8. Resume paused jobs and confirm catch-up.**
+- [x] **C8. Resume paused jobs and confirm catch-up.**
   (Design §Phase C step 11; review F002.)
-  - [ ] `alter_job(<id>, scheduled => true)` for all five jobs paused in C5.
-  - [ ] Confirm cagg refresh policies catch up over their normal windows and
+  - [x] `alter_job(<id>, scheduled => true)` for all five jobs paused in C5.
+  - [x] Confirm cagg refresh policies catch up over their normal windows and
         the columnstore policy re-engages.
-  - [ ] Success: `SELECT job_id FROM timescaledb_information.jobs WHERE
+  - [x] Success: `SELECT job_id FROM timescaledb_information.jobs WHERE
         scheduled = false` returns **zero rows** (design §Success Criterion 9).
 
-- [ ] **C9. `ANALYZE minute_ohlcv` and re-check row-count sanity.**
-  - [ ] Run `ANALYZE`; re-check `approximate_row_count('minute_ohlcv')` — the
+- [x] **C9. `ANALYZE minute_ohlcv` and re-check row-count sanity.**
+  - [x] Run `ANALYZE`; re-check `approximate_row_count('minute_ohlcv')` — the
         pre-fix 64.2 B figure should correct to a plausible value.
-  - [ ] Success: corrected row count recorded for the design's root-cause
+  - [x] Success: corrected row count recorded for the design's root-cause
         record.
 
 ---
 
 ## Phase D — Verify (prove the fix; record evidence)
 
-- [ ] **D1. Re-run the three T15 queries and capture before/after.**
+- [x] **D1. Re-run the three T15 queries and capture before/after.**
   (Design §Success Criteria 1, 2; Verification Walkthrough 1–2.)
-  - [ ] Single-symbol MIN/MAX: expect **low seconds** (was 10m47s), with a
+  - [x] Single-symbol MIN/MAX: expect **low seconds** (was 10m47s), with a
         fresh `EXPLAIN (ANALYZE, BUFFERS)` showing the collapsed chunk count.
-  - [ ] Universe-wide `NOT EXISTS` probe: expect ~3–20 s (was 8m8s).
-  - [ ] Success: both timings and the post-fix EXPLAIN captured.
+  - [x] Universe-wide `NOT EXISTS` probe: expect ~3–20 s (was 8m8s).
+  - [x] Success: both timings and the post-fix EXPLAIN captured.
 
-- [ ] **D2. Measure `data_status` full-universe latency against the NFR.**
+- [x] **D2. Measure `data_status` full-universe latency against the NFR.**
   (Design §Success Criterion 8; review F001.)
-  - [ ] Time `SELECT count(*) FROM data_status` (or `mt data status`) before
+  - [x] Time `SELECT count(*) FROM data_status` (or `mt data status`) before
         and after remediation. The view's `bars_summary` CTE full-scans
         `minute_ohlcv`, so it must be dramatically faster post-fix.
-  - [ ] Restate the 140-arch NFR ("view latency stays sub-second at
+  - [x] Restate the 140-arch NFR ("view latency stays sub-second at
         full-universe scope") against the measured result.
-  - [ ] Success: before/after latency recorded. **If** post-fix latency still
+  - [x] Success: before/after latency recorded. **If** post-fix latency still
         misses sub-second, record the actual and **raise to the PM** whether a
         cagg-backed `bars_summary` rewrite is a follow-up slice — do not
         silently leave the NFR unmet nor widen this slice into a view redesign.
-  - [ ] **No `test/load/` task is added** (review F004): per the project's
+  - [x] **No `test/load/` task is added** (review F004): per the project's
         Python load-test tier (recorded in slice 147's task file), the tier
         covers "simulation, network, concurrency, or environment-layer paths."
         `data_status` is a single sequential DB view read, outside that tier;
@@ -325,35 +325,35 @@ status: in_progress
         slice's concern, decided by the PM there — recorded here so the gap is
         an explicit decision, not an omission.
 
-- [ ] **D3. Integrity checks — no data loss.** (Design §Success Criteria 4, 5.)
-  - [ ] For the same ≥3 symbols, confirm bounded-window `count(*)`,
+- [x] **D3. Integrity checks — no data loss.** (Design §Success Criteria 4, 5.)
+  - [x] For the same ≥3 symbols, confirm bounded-window `count(*)`,
         `MIN(time)`, `MAX(time)` are **identical to the C4a pre-merge
         baselines**.
-  - [ ] Confirm the 162 grouped coverage query returns results identical to
+  - [x] Confirm the 162 grouped coverage query returns results identical to
         the C4a baseline and all four minute caggs refresh and serve identical
         query results.
-  - [ ] Success: every integrity comparison matches the C4a baseline exactly;
+  - [x] Success: every integrity comparison matches the C4a baseline exactly;
         any mismatch halts and is escalated.
 
-- [ ] **D4. Storage re-measurement.** (Design §Success Criterion 7.)
-  - [ ] `hypertable_detailed_size('minute_ohlcv')` and compression stats;
+- [x] **D4. Storage re-measurement.** (Design §Success Criterion 7.)
+  - [x] `hypertable_detailed_size('minute_ohlcv')` and compression stats;
         confirm total drops materially from 126 GB (expected ~30–40 GB) and
         TOAST far below 85 GB, and that ~1,200 chunks are compressed.
-  - [ ] Success: actual sizes recorded; if TOAST did not collapse, cross-check
+  - [x] Success: actual sizes recorded; if TOAST did not collapse, cross-check
         against the C5 recompression decision.
 
-- [ ] **D5. Cold-start verification.** (Design §Verification Walkthrough 7.)
-  - [ ] On a fixture/dev DB, run `mt data init` and confirm `minute_ohlcv`'s
+- [x] **D5. Cold-start verification.** (Design §Verification Walkthrough 7.)
+  - [x] On a fixture/dev DB, run `mt data init` and confirm `minute_ohlcv`'s
         `chunk_time_interval` equals the new constant (guards B2/B3 end-to-end).
-  - [ ] Success: fresh DB creates 7-day chunks from the migration chain.
+  - [x] Success: fresh DB creates 7-day chunks from the migration chain.
 
-- [ ] **D6. Finalize root-cause record and close out the slice.**
-  - [ ] Append D1–D5 evidence (timings, EXPLAINs, sizes, corrected row count)
+- [x] **D6. Finalize root-cause record and close out the slice.**
+  - [x] Append D1–D5 evidence (timings, EXPLAINs, sizes, corrected row count)
         to the design's Root-Cause Record; set the design's Verification
         Walkthrough from "draft" to final with the real numbers.
-  - [ ] Commit: `docs: record slice 166 verification results and close out`.
-  - [ ] Check off slice 166 in `140-slices.data-quality-operations.md`.
-  - [ ] Success: design doc carries the full before/after evidence; the two
+  - [x] Commit: `docs: record slice 166 verification results and close out`.
+  - [x] Check off slice 166 in `140-slices.data-quality-operations.md`.
+  - [x] Success: design doc carries the full before/after evidence; the two
         prerequisite consumers (163, 164) can proceed on a healthy table.
 
 ---

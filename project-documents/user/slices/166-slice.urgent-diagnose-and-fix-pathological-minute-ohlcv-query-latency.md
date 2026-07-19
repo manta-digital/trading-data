@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [156, 160]
 interfaces: [163, 164, 182]
 dateCreated: 20260717
-dateUpdated: 20260718
-status: in_progress
+dateUpdated: 20260719
+status: complete
 ---
 
 # Slice Design: URGENT — Diagnose and Fix Pathological `minute_ohlcv` Query Latency
@@ -340,52 +340,77 @@ Phase D results.
 9. Background jobs (minute cagg refresh + columnstore policies) are running
    again post-remediation, caggs have caught up, and no job is left paused.
 
-## Verification Walkthrough (draft — refined at Phase 6 completion)
+## Verification Walkthrough (final — verified 2026-07-19 on prod)
 
 ```sql
--- 1. The query that took 10m47s on 2026-07-17 (use any active symbol):
+-- 1. The query that took 10m47s on 2026-07-17 (any active symbol):
 \timing on
-SELECT MIN(time), MAX(time) FROM minute_ohlcv WHERE symbol = 'AACB';
--- Expected: low seconds. Was: 10m47s.
+SELECT MIN(time), MAX(time) FROM minute_ohlcv WHERE symbol = 'AAPL';
+-- VERIFIED: 0.68 s (AAPL), 0.89 s (AACB). Was 10m47s.
+-- EXPLAIN (ANALYZE, BUFFERS): Planning 1.93 s, Execution 0.05 s.
 
 -- 2. The universe-wide existence probe that took 8m8s:
 SELECT count(*) FROM instruments i
 WHERE NOT EXISTS (SELECT 1 FROM minute_ohlcv m WHERE m.symbol = i.symbol);
--- Expected: same order of magnitude as the cagg version (~3–20s). Was: 8m8s.
+-- VERIFIED: 37.7 s, count = 19,988. Was 8m8s. Above the draft's ~3-20 s
+-- band but same order; recorded as-is in the Phase D results table.
 
 -- 3. Chunk health:
 SELECT num_chunks FROM timescaledb_information.hypertables
 WHERE hypertable_name = 'minute_ohlcv';
--- Expected: ~1,200 (was 25,256).
+-- VERIFIED: 1,203 (1,186 compressed). Was 25,256.
 
 -- 4. Storage reclaimed:
 SELECT pg_size_pretty(total_bytes), pg_size_pretty(toast_bytes)
 FROM hypertable_detailed_size('minute_ohlcv');
--- Expected: total well under 126 GB; TOAST far under 85 GB. Record actuals.
+-- VERIFIED: total 78 GB (was 126 GB); TOAST 75 GB (was 85 GB — see the
+-- Phase D storage note: residual TOAST is real compressed data).
 
 -- 5. data_status NFR (140-arch: sub-second at full-universe scope):
 SELECT count(*) FROM data_status;
--- Record before/after timing. If post-fix latency still exceeds the NFR
--- target, that is a PM escalation per Success Criterion 8, not a pass.
+-- VERIFIED: 7.8 s (was 117.2 s). Still over the sub-second NFR —
+-- escalated to PM per Success Criterion 8 (cagg-backed bars_summary
+-- rewrite as candidate follow-up slice).
 
 -- 6. No job left paused:
 SELECT job_id, application_name, scheduled FROM timescaledb_information.jobs
 WHERE scheduled = false;
--- Expected: zero rows.
+-- VERIFIED: zero rows; all five resumed jobs report last_run_status =
+-- 'Success' in timescaledb_information.job_stats.
 ```
 
 ```bash
-# 7. Cold-start still correct (fixture/dev DB):
+# 7. Cold-start still correct:
+# VERIFIED 2026-07-19 on a throwaway DB (slice166_coldstart, dropped after):
+# createdb -> mt data init applied all 46 migrations ->
+# timescaledb_information.dimensions shows time_interval = '7 days'.
 mt data init   # then confirm minute_ohlcv chunk_time_interval = 7 days
 ```
 
-Integrity spot-check (before/after capture during Phase C/D):
+Integrity spot-check (C4a baseline vs post-rewrite, all five probes):
 
 ```sql
 SELECT count(*), MIN(time), MAX(time) FROM minute_ohlcv
 WHERE symbol = 'AAPL' AND time >= '2024-01-01' AND time < '2024-02-01';
--- Identical results pre- and post-merge.
+-- VERIFIED identical: 20,144 rows, same MIN/MAX. Likewise AAPL 2015-06
+-- (14,289), AMD 2024-01 (20,040), AMD 2006-03 (10,672), AACB 2026-06
+-- (103); the 162 grouped coverage query (5,871 symbols / 7,761,587
+-- 4h-bars, same bounds) and per-cagg bar counts for AAPL/AMD are
+-- byte-identical to the C4a baselines.
 ```
+
+Caveats discovered during implementation, for future operators:
+
+- `mt data rechunk` re-runs are safe and are the intended way to pick up
+  the trailing windows skipped while inside `compress_after` (run it after
+  the columnstore policy has compressed them; pause jobs 1002/1003/1007/
+  1008/1009 first — the pre-flight enforces this).
+- A rechunk-style rewrite MUST keep the minute-family jobs paused: the
+  Phase A rehearsal proved a concurrent cagg refresh can silently and
+  permanently lose materialized rows (repair only via
+  refresh_continuous_aggregate(..., force => true)).
+- Window boundaries are TimescaleDB's epoch grid (1970-01-01 + k×7d), not
+  calendar weeks; windows begin on Thursdays.
 
 ## Risk Assessment
 
@@ -568,10 +593,68 @@ propose `mt data rechunk` (or PM's preferred name) at implementation.
 
 - (a) Root cause: **confirmed** — planning/locking over 25,256 chunks
   (846.6s planning vs 4.2s execution).
-- (b) Remediation selection: **awaiting PM** — rehearsal evidence above;
-  recommendation Option D. (Design's preferred Option A is proven
-  insufficient on prod's gap structure; this is the "revise with the PM"
-  path, not automatic escalation.)
-- (c) Backup point before bulk mutation: **awaiting PM confirmation**.
+- (b) Remediation selection: **PM approved Option D** (2026-07-18), with the
+  driver renamed `mt data rechunk`.
+- (c) Backup point: **PM confirmed** — cold-copy rsync of the whole cluster
+  (~202 GB) to a separate physical drive, taken with PostgreSQL stopped,
+  2026-07-18.
 
-*Phase D before/after evidence to be appended after remediation.*
+### Remediation execution record (C phases, 2026-07-18/19)
+
+- Migration 043 applied to prod; `timescaledb_information.dimensions` shows
+  `7 days` for `minute_ohlcv`.
+- Jobs 1002/1003/1007/1008/1009 paused (catalog-resolved), verified as the
+  only unscheduled jobs.
+- Pre-rewrite baselines captured (C4a) for AAPL/AMD/AACB bounded windows,
+  the 162 grouped coverage query (5,871 symbols / 7,761,587 4h-bars), and
+  per-cagg bar counts. `data_status` "before" timing: **117.2 s** (63,224
+  rows).
+- Rechunk run: dry-run planned **1,177 windows (1,175 rewrite, 2 trailing
+  skipped — uncompressed inside compress_after)**. First leg deliberately
+  killed after 15 windows (mid-window SIGTERM): no orphaned backends, the
+  killed window rolled back, window 2004-02-19's bounded count matched the
+  log's rewritten count exactly (1,307,731), and the relaunch classified
+  15 done / 1,160 remaining. Full run completed in ~13.3 h wall clock
+  (windows ranged ~10 s at ~1.3M rows in 2004 to ~100 s at ~8.9M rows in
+  2025-2026), zero errors, every window passing the staged==reinserted
+  in-transaction guard. Exit 0.
+- C7 recompression decision: **not needed and skipped** — Option D
+  compresses freshly inserted data, so batches build at target size by
+  construction. Sample merged chunk: AAPL/AMD avg **958.7 rows/batch**
+  (was 240); all-symbol avg 615.8 (thin symbols have few bars/week — data
+  shape, not fragmentation).
+- Jobs resumed; all five report `last_run_status = Success` post-resume and
+  zero jobs left unscheduled (Success Criterion 9).
+- `ANALYZE` (16.6 s); `approximate_row_count` corrected from the impossible
+  64.2 B to **7,272,416,381** (~7.27 B rows — consistent with per-window
+  row totals).
+
+### Phase D results (before → after)
+
+| Measurement | Before | After | Verdict |
+|---|---|---|---|
+| Single-symbol MIN/MAX (AAPL) | 10m47s (T15); 854 s measured | **2.06 s** incl. EXPLAIN (planning 1.93 s / execution 0.05 s); plain query 0.68 s | Criterion 1 **met** |
+| Same, recent listing (AACB) | — | 0.89 s | met |
+| Universe `NOT EXISTS` probe | 8m8s | **37.7 s** (19,988 instruments without minute bars) | Criterion 2 **partially met** — tens of seconds, above the ~3-20 s band; recorded |
+| `data_status` full read | 117.2 s | **7.8 s** | 15× better, but **misses the sub-second NFR** → PM escalation per Criterion 8 (below) |
+| Chunk count | 25,256 | **1,203** (1,186 compressed) | Criterion 3 **met**; cold-start verified (fresh DB `mt data init` → 7-day dimension) |
+| Storage total | 126 GB | **78 GB** (table 2 GB, TOAST 75 GB, index 0.4 GB) | Criterion 7 **partially met** — storage note below |
+| Integrity (5 bounded windows, coverage query, per-cagg counts) | C4a baselines | **identical, every comparison** | Criteria 4, 5 **met** |
+| `approximate_row_count` | 64.2 B (implausible) | 7.27 B | Criterion 6 met (this record) |
+
+**Storage note (Criterion 7):** total dropped 126 → 78 GB (−48 GB; index
+−5.1 GB, heap −34 GB), but TOAST only dropped 85 → 75 GB rather than
+collapsing toward the hypothesized ~25 GB. Batches are verifiably healthy
+(958.7 avg rows/batch on liquid symbols), so the residual 75 GB is the true
+compressed size of 7.27 B rows at ~10 bytes/row — the design's "85 GB TOAST
+is mostly per-batch overhead" hypothesis was **partially wrong**: most of
+it was real compressed data. No further compression action recommended in
+this slice.
+
+**Criterion 8 — NFR escalation (PM decision required):** `data_status` at
+full-universe scope improved 117.2 s → 7.8 s but remains ~8× over the
+140-arch sub-second NFR. The residual cost is the view's `bars_summary`
+CTE genuinely scanning/grouping 7.27 B rows — chunk overhead is gone; only
+a cagg-backed `bars_summary` rewrite can reach sub-second. Per the design,
+this is raised to the PM as a candidate follow-up slice, not silently left
+nor absorbed into this slice.
