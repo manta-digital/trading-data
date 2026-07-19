@@ -1028,6 +1028,12 @@ def data_rechunk(
     run unless migration 043 is applied and the minute-family background
     jobs are paused.
 
+    OPERATOR: stop the data daemon and any `mt data pull` / gap-seeding
+    processes before a real run. Each window transaction takes an EXCLUSIVE
+    lock on minute_ohlcv (writers block for that window's duration, readers
+    are unaffected), so concurrent writers cannot lose rows — but they would
+    stall repeatedly across ~1,175 windows.
+
     Exit codes:
       0   success (or dry run)
       1   MT_TIMESCALE_DB_URL not configured, or pre-flight refused
@@ -1050,13 +1056,13 @@ def data_rechunk(
         result = run_rechunk(settings.timescale_db_url, dry_run=dry_run)
     except PreflightError as exc:
         print_error(f"Pre-flight refused: {exc}", json_mode=False)
-        raise typer.Exit(_EXIT_PREFLIGHT_FAILED)
+        raise typer.Exit(_EXIT_PREFLIGHT_FAILED) from exc
     except RechunkError as exc:
         print_error(f"Rechunk failed: {exc}", json_mode=False)
-        raise typer.Exit(_EXIT_RECHUNK_FAILED)
+        raise typer.Exit(_EXIT_RECHUNK_FAILED) from exc
     except _psycopg.OperationalError as exc:
         print_error(f"Database unreachable: {exc}", json_mode=False)
-        raise typer.Exit(_EXIT_PREFLIGHT_FAILED)
+        raise typer.Exit(_EXIT_PREFLIGHT_FAILED) from exc
 
     mode = "DRY RUN — no changes made" if result.dry_run else "complete"
     print_result(

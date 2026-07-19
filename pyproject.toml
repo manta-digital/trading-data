@@ -56,6 +56,21 @@ testpaths = ["test"]
 python_files = ["test_*.py", "*_test.py", "test*.py"]
 timeout = 30
 
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "BLE", "ASYNC", "B"]
+
+# Type checker: this project uses mypy (the python-rules "or mypy" alternative
+# to strict pyright). Run per-subpackage: uv run --extra dev mypy <paths>.
+# Zero errors on files touched by a slice is the merge bar; repo-wide strict
+# adoption is tracked as its own chore (see slice 166 code-review resolution).
+[tool.mypy]
+python_version = "3.12"
+files = ["src/manta_trading"]
+ignore_missing_imports = true
+
 [dependency-groups]
 dev = [
     "respx>=0.23.1",

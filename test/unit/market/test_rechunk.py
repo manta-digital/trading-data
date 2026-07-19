@@ -32,12 +32,14 @@ class TestWindowStart:
     def test_mid_window_timestamp_floors_to_grid(self) -> None:
         # Any instant during 2025-01-06 (a Monday) belongs to the grid week
         # starting Thursday 2025-01-02.
-        assert _window_start(_utc(2025, 1, 6, 15, 30), timedelta(days=7)) == _utc(2025, 1, 2)
+        week = timedelta(days=7)
+        assert _window_start(_utc(2025, 1, 6, 15, 30), week) == _utc(2025, 1, 2)
 
     def test_window_end_minus_epsilon_stays_in_window(self) -> None:
+        week = timedelta(days=7)
         end = _utc(2025, 1, 9)
-        assert _window_start(end - timedelta(seconds=1), timedelta(days=7)) == _utc(2025, 1, 2)
-        assert _window_start(end, timedelta(days=7)) == _utc(2025, 1, 9)
+        assert _window_start(end - timedelta(seconds=1), week) == _utc(2025, 1, 2)
+        assert _window_start(end, week) == _utc(2025, 1, 9)
 
 
 def _mock_conn_with_chunks(rows: list[dict]) -> MagicMock:

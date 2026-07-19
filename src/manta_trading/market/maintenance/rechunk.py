@@ -21,6 +21,7 @@ interrupted between COMMIT and compression is finished by compressing only.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
@@ -29,7 +30,11 @@ import psycopg
 from psycopg import sql as _sql
 from psycopg.rows import dict_row
 
-from manta_trading.constants import Granularity, GRANULARITY_SOURCE, MINUTE_OHLCV_CHUNK_INTERVAL
+from manta_trading.constants import (
+    GRANULARITY_SOURCE,
+    MINUTE_OHLCV_CHUNK_INTERVAL,
+    Granularity,
+)
 from manta_trading.logging import get_logger
 
 logger = get_logger(__name__)
@@ -184,11 +189,27 @@ def _resolve_paused_job_violations(
         ]
 
 
-def _rewrite_window(conn: psycopg.Connection, table: str, window: Window) -> int:
-    """Run one atomic stage -> drop_chunks -> reinsert cycle. Returns rows moved."""
+def _rewrite_window(
+    conn: psycopg.Connection,
+    table: str,
+    window: Window,
+    after_stage: Callable[[Window], None] | None = None,
+) -> int:
+    """Run one atomic stage -> drop_chunks -> reinsert cycle. Returns rows moved.
+
+    The EXCLUSIVE table lock is taken BEFORE the stage snapshot: a concurrent
+    application writer (daemon, ``mt data pull``, gap seeding) committing into
+    the window between staging and drop_chunks would otherwise have its rows
+    destroyed by the drop and never reinserted — silently, because the
+    staged==reinserted guard cannot see rows it never staged. EXCLUSIVE blocks
+    writers for the duration of one window (~seconds) while leaving readers
+    unaffected. ``after_stage`` is a test seam (fires inside the transaction,
+    between staging and drop) — never set it in production use.
+    """
     tbl = _sql.Identifier(table)
     with conn.transaction():
         with conn.cursor() as cur:
+            cur.execute(_sql.SQL("LOCK TABLE {} IN EXCLUSIVE MODE").format(tbl))
             cur.execute(
                 _sql.SQL(
                     "CREATE TEMP TABLE _rechunk_stage ON COMMIT DROP AS "
@@ -196,6 +217,8 @@ def _rewrite_window(conn: psycopg.Connection, table: str, window: Window) -> int
                 ).format(tbl),
                 (window.start, window.end),
             )
+            if after_stage is not None:
+                after_stage(window)
             staged_row = cur.execute("SELECT count(*) FROM _rechunk_stage").fetchone()
             assert staged_row is not None  # count(*) always returns one row
             staged: int = staged_row[0]
@@ -254,11 +277,12 @@ def run_rechunk(
     table: str = RECHUNK_TABLE,
     cagg_views: tuple[str, ...] | None = None,
     max_windows: int | None = None,
+    after_stage: Callable[[Window], None] | None = None,
 ) -> RechunkResult:
     """Re-chunk ``table`` into MINUTE_OHLCV_CHUNK_INTERVAL windows.
 
-    ``table``/``cagg_views``/``max_windows`` are test seams, not operator
-    configuration — the CLI exposes only ``--dry-run``.
+    ``table``/``cagg_views``/``max_windows``/``after_stage`` are test seams,
+    not operator configuration — the CLI exposes only ``--dry-run``.
     """
     interval = MINUTE_OHLCV_CHUNK_INTERVAL
     if cagg_views is None:
@@ -280,7 +304,11 @@ def run_rechunk(
 
         windows = _load_windows(conn, table, interval)
         conn.commit()
-        todo = [w for w in windows if w.state in (WindowState.REWRITE, WindowState.COMPRESS_ONLY)]
+        todo = [
+            w
+            for w in windows
+            if w.state in (WindowState.REWRITE, WindowState.COMPRESS_ONLY)
+        ]
         skipped = [w for w in windows if w.state == WindowState.SKIP_UNCOMPRESSED]
         done = len(windows) - len(todo) - len(skipped)
 
@@ -309,7 +337,7 @@ def run_rechunk(
                     logger.info("stopping after %d windows (max_windows)", max_windows)
                     break
                 if w.state == WindowState.REWRITE:
-                    rows = _rewrite_window(conn, table, w)
+                    rows = _rewrite_window(conn, table, w, after_stage)
                     if rows > 0:
                         _compress_window(conn, table, w)
                     rewritten += 1
