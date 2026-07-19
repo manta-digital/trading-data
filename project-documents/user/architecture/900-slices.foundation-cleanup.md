@@ -3,8 +3,8 @@ docType: slice-plan
 parent: user/architecture/900-arch.foundation-cleanup.md
 project: trading
 dateCreated: 20260328
-dateUpdated: 20260401
-status: complete
+dateUpdated: 20260719
+status: in-progress
 ---
 
 # Slice Plan: Foundation & Cleanup
@@ -26,9 +26,11 @@ status: complete
 
 4. [x] **(903) Deprecated Code Removal and httpx Migration** — Delete `market/deprecated/` directory and all imports from it. Remove old CLI entry points (`ohlc.py` direct invocation, `newsoptions.py`). Replace aiohttp with httpx in AlphaVantage client. Wire existing daily pipeline (`marketdb.py`, `marketservice.py`) into new CLI as `mt data daily` subcommands. Dependencies: [900, 902]. Risk: Med. Effort: 3/5
 
+5. [ ] **(905) Lint and Type-Checker Debt Remediation** — Slice 166's code review landed the mandated `[tool.ruff]`/`[tool.ruff.lint]` config (`E,F,W,I,UP,BLE,ASYNC,B`) and a `[tool.mypy]` block in `pyproject.toml`; activating it exposed **1,730 pre-existing violations across `src/` and `test/` (752 autofixable)** that had never been mechanically gated. This slice drives that count to zero so the config gates all code, not just new code by review convention. Scope: (1) apply the 752 ruff autofixes and verify no behavior change (per-subpackage test runs); (2) manually triage the remainder — **note that some findings are latent runtime bugs, not style**: the sweep includes `F821` undefined names in `cli/commands/data.py` (e.g. `datetime`, `psycopg` referenced in code paths where they are not imported — a `NameError` waiting on those paths), plus `F401` unused imports, `E402` late imports, `E501` line lengths, and any `BLE` blind-except violations, each fixed or explicitly `noqa`'d with an inline justification per the exception-handling rules; (3) sweep `raise ... from exc` (B904) across the legacy handlers noted in the 166 review; (4) confirm `uv run --extra dev mypy` passes on `src/manta_trading` per the new `[tool.mypy]` block. Latent-bug fixes (F821 class) get their own commit(s) with a note distinguishing them from mechanical style fixes. Verifiable: `uv run --extra dev ruff check src/ test/` reports zero violations; mypy per the config block passes; all per-subpackage test suites pass unchanged; the F821 code paths are exercised by at least a smoke test or documented as dead code and removed. Dependencies: [166]. Risk: Med (BLE and F821 triage touches many files; behavior must be preserved except documented latent-bug fixes). Effort: 2/5
+
 ## Integration Work
 
-5. [x] **(904) Packaging and Version** — Completed incrementally across slices 900–903: `uv.lock` committed, `mt` entry point wired, `mt --version` implemented, `pip install -e .` and `uv sync` verified. No standalone slice design needed. Dependencies: [903]. Effort: 0/5
+6. [x] **(904) Packaging and Version** — Completed incrementally across slices 900–903: `uv.lock` committed, `mt` entry point wired, `mt --version` implemented, `pip install -e .` and `uv sync` verified. No standalone slice design needed. Dependencies: [903]. Effort: 0/5
 
 ## Notes
 
