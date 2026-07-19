@@ -39,6 +39,18 @@ Single source of truth — replaces the three scattered ``datetime(1970,1,1)``
 literals in the daily acquisition paths.
 """
 
+MINUTE_OHLCV_CHUNK_INTERVAL: timedelta = timedelta(days=7)
+"""TimescaleDB ``chunk_time_interval`` for the ``minute_ohlcv`` hypertable.
+
+Single source of truth (slice 166). The original 4-hour interval (slice 156)
+produced 25,256 chunks over 22.5 years; planning any un-pruned query against
+that many chunks took ~14 minutes and fragmented compression batches (85 GB
+TOAST overhead). 7 days matches ``daily_ohlcv``'s proven-healthy interval and
+the ``compress_after = 7 days`` policy cadence. Referenced by the
+create-hypertable migration (001c), migration 043, and the slice 166 rechunk
+maintenance command — never restate the value as a literal elsewhere.
+"""
+
 LATE_BAR_GRACE_PERIOD: timedelta = timedelta(minutes=30)
 """Grace period after session_close_utc before a day is considered completed."""
 

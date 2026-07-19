@@ -14,6 +14,7 @@ from manta_trading.constants import (
     DAILY_HISTORY_MONTHS,
     DAILY_STALENESS_THRESHOLD,
     LATE_BAR_GRACE_PERIOD,
+    MINUTE_OHLCV_CHUNK_INTERVAL,
     MINUTE_STALENESS_THRESHOLD,
     TRADING_SESSIONS_EXTENSION_YEARS,
 )
@@ -27,6 +28,14 @@ from manta_trading.market.schema.seed_calendar import (
     generate_holidays,
     generate_holidays_insert_sql,
 )
+
+
+def _minute_chunk_interval_sql() -> str:
+    """Render MINUTE_OHLCV_CHUNK_INTERVAL as a SQL INTERVAL literal.
+
+    Seconds-based so any timedelta renders exactly; keeps migrations 001c and
+    043 derived from the one constant (slice 166)."""
+    return f"INTERVAL '{int(MINUTE_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
 
 
 def _eodhd_type_check_sql() -> str:
@@ -518,17 +527,16 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
     {
         "id": "001c_create_minute_ohlcv_hypertable",
         "description": (
-            "Convert minute_ohlcv into a TimescaleDB hypertable with 4-hour "
-            "chunks (slice 156). Matches trading_test reality (4 hour, not "
-            "the 1 day stated in the slice design — verified against "
-            "timescaledb_information.dimensions). Idempotent via "
-            "if_not_exists => TRUE."
+            "Convert minute_ohlcv into a TimescaleDB hypertable (slice 156). "
+            "Chunk interval derives from MINUTE_OHLCV_CHUNK_INTERVAL (slice "
+            "166; originally a hardcoded 4 hours, which produced the 25k-chunk "
+            "planning pathology). Idempotent via if_not_exists => TRUE."
         ),
-        "sql": """
+        "sql": f"""
             SELECT create_hypertable(
                 'minute_ohlcv',
                 'time',
-                chunk_time_interval => INTERVAL '4 hours',
+                chunk_time_interval => {_minute_chunk_interval_sql()},
                 if_not_exists       => TRUE
             );
         """,
@@ -1554,5 +1562,19 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         ),
         "requires_autocommit": True,
         "python_fn": _setup_and_backfill_compression,
+    },
+    {
+        "id": "043_minute_chunk_interval_7d",
+        "description": (
+            "Set minute_ohlcv chunk_time_interval to MINUTE_OHLCV_CHUNK_INTERVAL "
+            "(7 days, slice 166). Affects FUTURE chunks only; existing 4-hour "
+            "chunks are rewritten by the slice 166 `mt data rechunk` maintenance "
+            "run. Idempotent — re-applying the same interval is a no-op. "
+            "To revert manually: SELECT set_chunk_time_interval('minute_ohlcv', "
+            "INTERVAL '4 hours');"
+        ),
+        "sql": f"""
+            SELECT set_chunk_time_interval('minute_ohlcv', {_minute_chunk_interval_sql()});
+        """,
     },
 ]

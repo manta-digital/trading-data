@@ -139,7 +139,7 @@ class TestMigrationsListIntegrity:
         assert filtered == sorted(filtered)
 
     def test_migration_count(self):
-        assert len(MIGRATIONS) == 45
+        assert len(MIGRATIONS) == 46
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +313,13 @@ class TestInitFoldMigrations:
         ):
             assert col in sql, f"column '{col}' missing from 001b SQL"
 
-    def test_001c_4_hour_chunks(self) -> None:
+    def test_001c_chunk_interval_from_constant(self) -> None:
+        """Slice 166 re-chunk: was a hardcoded '4 hours' (slice 156)."""
+        from manta_trading.constants import MINUTE_OHLCV_CHUNK_INTERVAL
+
         sql = self._get("001c_create_minute_ohlcv_hypertable")["sql"]
-        assert "4 hours" in sql, "must match trading_test reality"
+        expected = f"INTERVAL '{int(MINUTE_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
+        assert expected in sql, "001c must derive from MINUTE_OHLCV_CHUNK_INTERVAL"
 
     def test_001d_creates_two_indexes(self) -> None:
         sql = self._get("001d_create_minute_ohlcv_indexes")["sql"]
@@ -622,3 +626,60 @@ class TestTimescaleListMigrationState:
 
         mock_runner.assert_called_once_with(pool_mock, TRACKS["minute"])
         assert result is sentinel
+
+
+# ---------------------------------------------------------------------------
+# Migration 043 + 001c chunk-interval checks (slice 166)
+# ---------------------------------------------------------------------------
+
+
+class TestMigration043MinuteChunkInterval:
+    """Slice 166: minute_ohlcv chunk interval derives from the one constant."""
+
+    def _get(self) -> dict:
+        return next(
+            m for m in MINUTE_MIGRATIONS
+            if m["id"] == "043_minute_chunk_interval_7d"
+        )
+
+    def test_id(self) -> None:
+        assert self._get()["id"] == "043_minute_chunk_interval_7d"
+
+    def test_sql_calls_set_chunk_time_interval(self) -> None:
+        sql = self._get()["sql"]
+        assert "set_chunk_time_interval" in sql
+        assert "minute_ohlcv" in sql
+
+    def test_sql_interval_derives_from_constant(self) -> None:
+        from manta_trading.constants import MINUTE_OHLCV_CHUNK_INTERVAL
+
+        expected = f"INTERVAL '{int(MINUTE_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
+        assert expected in self._get()["sql"]
+
+    def test_constant_is_seven_days(self) -> None:
+        """Guards the slice 166 decision; changing it must be deliberate."""
+        from datetime import timedelta
+
+        from manta_trading.constants import MINUTE_OHLCV_CHUNK_INTERVAL
+
+        assert MINUTE_OHLCV_CHUNK_INTERVAL == timedelta(days=7)
+
+
+class TestMigration001cChunkIntervalFromConstant:
+    """Slice 166: cold-start create_hypertable must use the constant, so a
+    fresh DB creates 7-day chunks from the first migration run."""
+
+    def _get(self) -> dict:
+        return next(
+            m for m in MINUTE_MIGRATIONS
+            if m["id"] == "001c_create_minute_ohlcv_hypertable"
+        )
+
+    def test_sql_has_no_hardcoded_4_hours(self) -> None:
+        assert "4 hours" not in self._get()["sql"]
+
+    def test_sql_interval_derives_from_constant(self) -> None:
+        from manta_trading.constants import MINUTE_OHLCV_CHUNK_INTERVAL
+
+        expected = f"INTERVAL '{int(MINUTE_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
+        assert expected in self._get()["sql"]

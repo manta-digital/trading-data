@@ -1006,6 +1006,75 @@ def data_extend(
 
 
 # ---------------------------------------------------------------------------
+# mt data rechunk — slice 166 one-shot hypertable re-chunk maintenance
+# ---------------------------------------------------------------------------
+
+_EXIT_RECHUNK_FAILED: int = 2
+
+
+@data_app.command("rechunk")
+def data_rechunk(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Report the window plan and counts; mutate nothing.",
+    ),
+) -> None:
+    """Rewrite minute_ohlcv's 4-hour chunks into 7-day chunks (slice 166).
+
+    One window per transaction; resumable and idempotent (window state is
+    re-derived from the Timescale catalog each run). Pre-flight refuses to
+    run unless migration 043 is applied and the minute-family background
+    jobs are paused.
+
+    OPERATOR: stop the data daemon and any `mt data pull` / gap-seeding
+    processes before a real run. Each window transaction takes an EXCLUSIVE
+    lock on minute_ohlcv (writers block for that window's duration, readers
+    are unaffected), so concurrent writers cannot lose rows — but they would
+    stall repeatedly across ~1,175 windows.
+
+    Exit codes:
+      0   success (or dry run)
+      1   MT_TIMESCALE_DB_URL not configured, or pre-flight refused
+      2   a window cycle failed (failing window identified on stderr)
+    """
+    import psycopg as _psycopg
+
+    from manta_trading.market.maintenance.rechunk import (
+        PreflightError,
+        RechunkError,
+        run_rechunk,
+    )
+
+    settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=False)
+        raise typer.Exit(_EXIT_PREFLIGHT_FAILED)
+
+    try:
+        result = run_rechunk(settings.timescale_db_url, dry_run=dry_run)
+    except PreflightError as exc:
+        print_error(f"Pre-flight refused: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_PREFLIGHT_FAILED) from exc
+    except RechunkError as exc:
+        print_error(f"Rechunk failed: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_RECHUNK_FAILED) from exc
+    except _psycopg.OperationalError as exc:
+        print_error(f"Database unreachable: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_PREFLIGHT_FAILED) from exc
+
+    mode = "DRY RUN — no changes made" if result.dry_run else "complete"
+    print_result(
+        f"Rechunk {mode}: {result.total_windows} windows "
+        f"({result.rewritten} rewritten, {result.compressed_only} compressed-only, "
+        f"{result.skipped_uncompressed} skipped uncompressed, "
+        f"{result.already_done} already done).",
+        json_mode=False,
+    )
+
+
+# ---------------------------------------------------------------------------
 # mt data daemon — slice 146 long-running daemon (T27)
 # ---------------------------------------------------------------------------
 
