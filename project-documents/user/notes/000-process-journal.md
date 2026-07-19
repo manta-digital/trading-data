@@ -20,6 +20,52 @@ file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
 
+## 20260719 — Stage-then-drop rewrite cycles must take the exclusive lock BEFORE the snapshot, and safety must come from the transaction, not from operational circumstance
+
+**Context:** The slice 166 rechunk driver's window cycle was: snapshot the
+window's rows into a temp table, `drop_chunks()`, reinsert, all in one
+transaction, with a staged==reinserted rowcount guard. Code review (166
+code-review F001) identified a silent-loss race the guard cannot catch: a
+concurrent application writer (daemon, `mt data pull`, gap seeding) that
+commits rows into the window *after* the stage snapshot but *before*
+`drop_chunks` acquires its exclusive lock has those rows destroyed by the
+drop and never reinserted — and both sides of the rowcount guard equally
+exclude them, so the check passes. The production run happened to be safe
+because the daemon was stopped and jobs were paused, but nothing in the tool
+enforced that safety, and the tool is reusable.
+
+**Decision:** Any stage-then-drop rewrite takes `LOCK TABLE <hypertable> IN
+EXCLUSIVE MODE` as the **first statement of the window transaction, before
+the stage snapshot**. EXCLUSIVE blocks all writers for the window's duration
+(seconds) while leaving readers unaffected; a writer therefore lands either
+wholly before the snapshot (and is staged) or wholly after the commit (and
+writes into the new chunk) — never in between. Row-count guards are kept as
+invariant checks but are **not** accepted as concurrency protection: a guard
+that compares two views taken under the same snapshot cannot detect rows
+that neither view saw. Operational preconditions ("daemon is stopped")
+remain documented operator guidance but never substitute for the lock.
+The lock's presence is proven by a deterministic test using an
+`after_stage` injection seam that attempts a concurrent write inside the
+critical span and asserts it is refused — concurrency claims get
+deterministic tests via seams, not sleep-based races.
+
+**Rationale:** This is the second silent-loss mechanism found in one slice
+(after the cagg-refresh collision), and both share a shape: the danger
+window is invisible to the code's own consistency checks, and the loss
+leaves no error. Correctness against concurrent writers must be structural
+(a lock ordering guarantee) rather than circumstantial (a process someone
+remembered to stop), because the circumstance is exactly what erodes first
+when a tool is reused months later by an operator who didn't read the
+original slice.
+
+**Follow-ups:** Implementation and test:
+`market/maintenance/rechunk.py` (`_rewrite_window`), integration test
+`test_concurrent_writer_blocked_during_window`; review record in
+`166-review.code.*.md` (F001, Resolution). Related journal entry: the
+background-job pause (cagg refresh corruption) — the two together define the
+concurrency preconditions for any future chunk-restructuring tool,
+including slice 163's cagg re-chunk.
+
 ## 20260719 — Chunk intervals must be sized against wall-clock span, not data volume; the archived tick schema's 1-hour interval would reproduce the minute_ohlcv pathology
 
 **Context:** Slice 166's root-cause work established that `minute_ohlcv`'s
