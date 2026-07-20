@@ -20,7 +20,7 @@ Slice 166 re-chunked `minute_ohlcv` and brought a single-symbol MIN/MAX from
 sub-second at full-universe scope"). The residual cost is **structural**: the
 view's `bars_summary` CTE scans and groups the entire raw `minute_ohlcv`
 hypertable (plus `daily_ohlcv`) on every read. No amount of raw-table
-chunk tuning removes a full per-symbol aggregate over ~1B minute rows.
+chunk tuning removes a full per-symbol aggregate over ~7.27B minute rows.
 
 This slice rewrites `bars_summary` to derive `first_bar_ts / last_bar_ts /
 bars_stored` per symbol from **continuous aggregates** instead of the raw
@@ -47,20 +47,23 @@ Environment: PostgreSQL 17.7, TimescaleDB 2.23.0.
 |---|---|
 | `data_status` full-universe read (post-166) | 7.8 s |
 | NFR target | sub-second |
-| Raw `minute_ohlcv` authoritative row count | **~918M–1.0B** (see note) |
+| Raw `minute_ohlcv` authoritative row count | **~7.27B** (see note) |
 | Raw `daily_ohlcv` row count | 34,223,492 |
 | `minute_4hour_ohlcv` cagg row count | 7,761,587 (5,871 symbols) |
 | Minute `bars_summary` via 4h cagg group-by | 5.7 s |
 | Daily `bars_summary` raw group-by | 3.8 s |
 
-**Row-count note (correcting the plan entry's "~7.27B"):**
-`approximate_row_count('minute_ohlcv')` returns **7,305,902,006**, but this is
-the *distorted catalog estimate* that slice 166 already flagged as unreliable
-(it read 64.2B pre-ANALYZE). The authoritative count via `SUM(minute_count)`
-over the 4h cagg is **917,581,068**, and that is itself an undercount because
-the cagg is under-materialized (see §Critical prerequisite). True raw total is
-**~1.0–1.1B minute bars**, not 7.27B. The plan entry's "~7.27B rows" figure is
-an artifact of the stale estimate and should not be treated as the real scale.
+**Row-count note (correcting a 2026-07-20 design-phase error):** during this
+design an "authoritative" count of ~918M–1.0B was briefly recorded, sourced
+from `SUM(minute_count)` over the 4h cagg (917,581,068). That figure was
+itself the corruption artifact: the cagg holds ~12.6% of raw (see §Critical
+prerequisite), and 917.6M ≈ 12.6% × 7.27B. The plan entry's original
+**~7.27B** is correct, independently confirmed by (a) slice 166's per-window
+staged==reinserted rowcount guards across the whole table, (b) 75 GB TOAST at
+the measured ~10 bytes/row compressed floor, and (c) direct bounded counts
+(2024–2026 alone = 1.05B). Post-166 ANALYZE, `approximate_row_count` (7.31B)
+is once again trustworthy. Once slice 163 repairs the caggs,
+`SUM(minute_count)` becomes a valid fast cross-check.
 
 ## Critical prerequisite (discovered 2026-07-20): minute caggs are ~85% under-materialized
 
@@ -104,7 +107,7 @@ read), but the caggs are silently wrong.
 
 **Decision (PM, 2026-07-20): fold the repair into slice 163.**
 Re-chunking a cagg invalidates and re-materializes it regardless, so a
-standalone repair slice would force-refresh ~1B rows now and slice 163 would
+standalone repair slice would run the full re-materialization now and slice 163 would
 re-refresh them again during its re-chunk — paying the full materialization
 twice. Folding the `refresh_continuous_aggregate(..., force => true)` repair
 into 163 does it once, as an intrinsic part of correctly restructuring the
