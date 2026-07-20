@@ -25,8 +25,9 @@ file-naming-conventions (`-1`, `-2`, …).
 **Context:** `minute_ohlcv`'s row count bounced across four figures in two days:
 ~7.27 B (`approximate_row_count` post-ANALYZE, recorded by slice 166 as fact),
 ~918 M ("corrected" during slice 167 design from `SUM(minute_count)` over a
-cagg that was, unknown at the time, ~79% under-materialized), ~1.2 B (a
-planning-era anchor from the SP500-only / 24-month-cap scope), and finally
+cagg that was, unknown at the time, ~79% under-materialized), ~1.2 B (operator
+estimate extrapolated from the 5-min cagg — poisoned by the same
+under-materialization; older SP500-era planning anchors land nearby), and finally
 **4,405,379,285 — the exact `count(*)`**, which post-166 runs in ~1.3 s using
 compressed-batch metadata. Each wrong figure came from trusting a derived or
 estimated source because the exact count *used to be* prohibitively slow.

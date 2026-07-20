@@ -59,7 +59,8 @@ post-166. Three earlier figures were all wrong, each from a source that
 looked authoritative: ~7.27B was `approximate_row_count` post-ANALYZE (still
 ~66% high on this compressed hypertable); ~918M was `SUM(minute_count)` over
 the corrupted cagg (the ~21% materialization artifact, see §Critical
-prerequisite); ~1.2B was a planning-era anchor from the SP500-only scope.
+prerequisite); ~1.2B was an operator estimate extrapolated from the 5-min
+cagg — poisoned by the same under-materialization.
 Corrected compressed floor: 78 GB ÷ 4.405B ≈ 17 bytes/row. Standing rule
 (journal 20260720): exact `count(*)` is the only authoritative row-scale
 source; once slice 163 repairs the caggs and parity is verified,

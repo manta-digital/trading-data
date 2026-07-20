@@ -90,7 +90,8 @@ bounced across three wrong figures before being measured exactly —
 figures, for the record: ~7.27 B was `approximate_row_count` post-ANALYZE
 (still ~66% high on this compressed hypertable — never authoritative); ~918 M
 was `SUM(minute_count)` over the corrupted cagg (the 20.8% artifact); ~1.2 B
-was a planning-era anchor from the SP500-only scope. Corrected compressed
+was an operator estimate extrapolated from the 5-min cagg — poisoned by the
+same under-materialization. Corrected compressed
 floor: 78 GB ÷ 4.405 B ≈ 17 bytes/row. Full story and standing discipline:
 journal entry 20260720.
 
