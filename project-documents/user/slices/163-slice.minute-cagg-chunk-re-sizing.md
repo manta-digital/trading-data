@@ -27,12 +27,12 @@ path**:
    measured in 162 prep; `DISTINCT symbol` over the 4h cagg is 1.4 s,
    per-symbol group-by 5.7 s — measured 2026-07-20).
 
-2. **~87% under-materialized** (urgent addition, discovered in 167 design,
+2. **~79% under-materialized** (urgent addition, discovered in 167 design,
    2026-07-20): slice 166's raw-table rechunk (`drop_chunks` + reinsert of all
    of `minute_ohlcv`) invalidated every materialized region; the caggs'
    trailing refresh policies (`start_offset = 1 day`) re-materialize only the
-   last day and can never heal history. All four caggs uniformly hold ~13% of
-   the raw bars across 2004–2026. Because every cagg is `materialized_only =
+   last day and can never heal history. All four caggs uniformly hold ~21% of
+   the raw bars overall (9.5–21% in measured 2019+ years, higher pre-2019). Because every cagg is `materialized_only =
    true`, consumers get the missing-row results served as truth — and the
    caggs **are** the serving path for aggregated bar reads
    (`timescale_minute_db.py` granularity dispatch, API `symbols.py`, CLI).
@@ -45,20 +45,24 @@ slice would pay it twice — PM decision 2026-07-20, recorded in the 140 plan
 and 167 design).
 
 This slice **blocks slice 167** (cagg-backed `data_status`), which cannot
-derive coverage from a cagg holding 13% of the data.
+derive coverage from a cagg holding ~21% of the data.
 
 ## Measured Baseline (2026-07-20, prod `trading` DB)
 
-PostgreSQL 17.7, TimescaleDB 2.23.0. Raw `minute_ohlcv`: ~7.27 B rows
-(rechunk-verified, slice 166), 1,204 chunks @ 7 days, 78 GB.
+PostgreSQL 17.7, TimescaleDB 2.23.0. Raw `minute_ohlcv`: **4,405,379,285 rows
+(exact `count(*)`, ~1.3 s, 2026-07-20)**, 1,204 chunks @ 7 days, 78 GB
+(≈ 17 bytes/row compressed — see journal 20260720 entry).
 
-| Cagg (mat hypertable) | Interval | Chunks | Size now (~13% mat.) | Est. full, uncompressed |
+| Cagg (mat hypertable) | Interval | Chunks | Size now (~21% mat.) | Est. full, uncompressed |
 |---|---|---|---|---|
-| `minute_5min_ohlcv` (mat_3) | 1.67 d | 4,236 | 41 GB | **~325 GB** |
-| `minute_15min_ohlcv` (mat_4) | 1.67 d | 4,236 | 15 GB | ~119 GB |
-| `minute_hourly_ohlcv` (mat_5) | 1.67 d | 4,236 | 4.9 GB | ~39 GB |
-| `minute_4hour_ohlcv` (mat_6) | 1.67 d | 4,235 | 1.8 GB | ~15 GB |
+| `minute_5min_ohlcv` (mat_3) | 1.67 d | 4,236 | 41 GB | **~197 GB** |
+| `minute_15min_ohlcv` (mat_4) | 1.67 d | 4,236 | 15 GB | ~72 GB |
+| `minute_hourly_ohlcv` (mat_5) | 1.67 d | 4,236 | 4.9 GB | ~24 GB |
+| `minute_4hour_ohlcv` (mat_6) | 1.67 d | 4,235 | 1.8 GB | ~9 GB |
 | *(reference)* `daily_weekly_ohlcv` (mat_7) | 70 d | 337 | 152 MB | healthy |
+
+(Est.-full column scales current size by 1/0.208 — the measured overall
+materialization fraction.)
 
 **Materialization deficit** (identical counts across all four caggs — common
 cause):
@@ -71,19 +75,24 @@ cause):
 | 2025 | 442,655,155 | 59,833,368 | 13.5% |
 | 2026 | 247,389,640 | 23,483,264 | 9.5% |
 
-Total `SUM(minute_count)` = 917,581,068 ≈ 12.6% of raw ~7.27 B.
+Total `SUM(minute_count)` = 917,581,068 ≈ **20.8%** of the exact raw
+4,405,379,285. (Per-year coverage is *lower* in recent years because raw
+volume grew; pre-2019 coverage is ~28% by subtraction.)
 
 Refresh policies (must be paused per-cagg during its sweep): jobs 1007 (5min),
 1008 (15min), 1002 (hourly), 1003 (4h) — resolve IDs from
 `timescaledb_information.jobs` at runtime, never hardcoded. None of the mat
 hypertables currently has compression enabled (`compression_state = 0`).
 
-**Row-count record correction:** during 167's design (2026-07-20) the figure
-"~918M authoritative raw rows" was briefly recorded — that number came from
-`SUM(minute_count)` over the *corrupted* cagg and is exactly the 12.6%
-artifact. The authoritative raw count is **~7.27 B**, independently confirmed
-by (a) slice 166's per-window staged==reinserted rowcount guards over the full
-table, and (b) 75 GB TOAST at the measured ~10 bytes/row compressed floor.
+**Row-count record (settled by exact count, 2026-07-20):** the raw count
+bounced across three wrong figures before being measured exactly —
+**4,405,379,285** (`SELECT count(*)`, metadata-assisted, ~1.3 s). The wrong
+figures, for the record: ~7.27 B was `approximate_row_count` post-ANALYZE
+(still ~66% high on this compressed hypertable — never authoritative); ~918 M
+was `SUM(minute_count)` over the corrupted cagg (the 20.8% artifact); ~1.2 B
+was a planning-era anchor from the SP500-only scope. Corrected compressed
+floor: 78 GB ÷ 4.405 B ≈ 17 bytes/row. Full story and standing discipline:
+journal entry 20260720.
 
 ## Technical Decisions
 
@@ -143,7 +152,7 @@ post-043 `minute_ohlcv` is 7 days → 70 days automatic; migration 044's
 
 ### D3 — Columnstore compression on the four mat hypertables is mandatory, not optional
 
-The disk math forces it: full materialization uncompressed is ~500 GB total
+The disk math forces it: full materialization uncompressed is ~300 GB total
 (table above) against a cluster currently around ~200 GB — infeasible.
 Migration 045 enables columnstore on all four minute caggs
 (`segmentby = symbol`, `orderby = time_bucket DESC`, mirroring the raw table
@@ -152,10 +161,12 @@ and migration-042 precedent) plus a columnstore policy per cagg
 `start_offset` so the policy never compresses inside the actively-refreshed
 head). The repair sweep compresses each window's chunk immediately after
 refresh (**compress-behind-frontier**), bounding peak uncompressed footprint
-to roughly one window per cagg; dropping the old ~62 GB of wrong
+to roughly one window per cagg; dropping the old ~63 GB of wrong
 materialization is reclaimed progressively as windows are dropped. At the raw
-table's measured compression behavior, expect order-of ~50 GB total end-state
-(recorded as estimate, verified in the walkthrough).
+table's measured ~17 bytes/row compressed floor, expect order-of ~30–40 GB
+total end-state — i.e. complete-and-compressed should end *smaller* than
+today's incomplete-and-uncompressed (recorded as estimate, verified in the
+walkthrough).
 
 Pre-flight includes a **disk-headroom check** on the DB host before starting
 (refuse, don't warn — the 166 pre-flight pattern).
@@ -182,7 +193,7 @@ Two subcommands under `mt data cagg` (pattern: `mt data rechunk`):
   vs raw `COUNT(*)`, plus chunk-count and interval summary. This is the
   standing **detector** for the self-hiding corruption class the journal
   describes ("only a direct cagg-vs-source comparison can detect it") — it
-  did not exist, which is why 87% corruption sat unnoticed in prod.
+  did not exist, which is why ~79% corruption sat unnoticed in prod.
 - `mt data cagg repair [--granularity ...] [--dry-run]` — pre-flight
   (jobs paused, interval = constant via catalog, disk headroom), then the D1
   sweep. `--dry-run` prints planned windows and per-window parity states
@@ -270,7 +281,7 @@ resume jobs → verify last_run_status = 'Success'
 3. Single-symbol `minute_4hour_ohlcv` query: before/after EXPLAIN captured;
    ~2 s → sub-100 ms order.
 4. All four mat hypertables compressed; total minute-cagg footprint recorded
-   (expected order ~50 GB, not ~500 GB uncompressed).
+   (expected order ~30–40 GB, not ~300 GB uncompressed).
 5. Repair is resumable: killing mid-sweep and re-running skips completed
    windows (parity-derived) and finishes cleanly.
 6. Jobs resumed with `last_run_status = 'Success'`; daemon uninterrupted
@@ -284,7 +295,7 @@ re-materialization sweep, compression enablement, and the verify/repair CLI).
 
 ## Verification Walkthrough (draft — refined at Phase 6)
 
-1. **Baseline capture:** `mt data cagg verify` → shows ~13% parity failures
+1. **Baseline capture:** `mt data cagg verify` → shows ~21%-coverage parity failures
    across years/granularities (the corruption made visible for the first
    time). Save output.
 2. **Migrations:** apply 044/045; confirm
@@ -295,7 +306,7 @@ re-materialization sweep, compression enablement, and the verify/repair CLI).
 4. **Pre-flight refusal:** run with jobs unpaused → refuses with actionable
    message. Pause jobs (IDs printed by the tool), re-run.
 5. **Repair one granularity first:** `mt data cagg repair --granularity 4h`
-   (smallest, ~15 GB full) — watch per-window progress; kill mid-run once
+   (smallest, ~9 GB full) — watch per-window progress; kill mid-run once
    (Ctrl-C), re-run, observe skip-to-resume; on completion
    `mt data cagg verify --granularity 4h` shows full parity.
 6. **Prove the win:** EXPLAIN ANALYZE single-symbol 4h query before (saved in

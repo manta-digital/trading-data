@@ -20,7 +20,7 @@ Slice 166 re-chunked `minute_ohlcv` and brought a single-symbol MIN/MAX from
 sub-second at full-universe scope"). The residual cost is **structural**: the
 view's `bars_summary` CTE scans and groups the entire raw `minute_ohlcv`
 hypertable (plus `daily_ohlcv`) on every read. No amount of raw-table
-chunk tuning removes a full per-symbol aggregate over ~7.27B minute rows.
+chunk tuning removes a full per-symbol aggregate over ~4.4B minute rows.
 
 This slice rewrites `bars_summary` to derive `first_bar_ts / last_bar_ts /
 bars_stored` per symbol from **continuous aggregates** instead of the raw
@@ -47,25 +47,25 @@ Environment: PostgreSQL 17.7, TimescaleDB 2.23.0.
 |---|---|
 | `data_status` full-universe read (post-166) | 7.8 s |
 | NFR target | sub-second |
-| Raw `minute_ohlcv` authoritative row count | **~7.27B** (see note) |
+| Raw `minute_ohlcv` authoritative row count | **4,405,379,285** exact (see note) |
 | Raw `daily_ohlcv` row count | 34,223,492 |
 | `minute_4hour_ohlcv` cagg row count | 7,761,587 (5,871 symbols) |
 | Minute `bars_summary` via 4h cagg group-by | 5.7 s |
 | Daily `bars_summary` raw group-by | 3.8 s |
 
-**Row-count note (correcting a 2026-07-20 design-phase error):** during this
-design an "authoritative" count of ~918M–1.0B was briefly recorded, sourced
-from `SUM(minute_count)` over the 4h cagg (917,581,068). That figure was
-itself the corruption artifact: the cagg holds ~12.6% of raw (see §Critical
-prerequisite), and 917.6M ≈ 12.6% × 7.27B. The plan entry's original
-**~7.27B** is correct, independently confirmed by (a) slice 166's per-window
-staged==reinserted rowcount guards across the whole table, (b) 75 GB TOAST at
-the measured ~10 bytes/row compressed floor, and (c) direct bounded counts
-(2024–2026 alone = 1.05B). Post-166 ANALYZE, `approximate_row_count` (7.31B)
-is once again trustworthy. Once slice 163 repairs the caggs,
+**Row-count note (settled by exact count, 2026-07-20):** the raw count is
+**4,405,379,285** — exact `SELECT count(*)`, metadata-assisted, ~1.3 s
+post-166. Three earlier figures were all wrong, each from a source that
+looked authoritative: ~7.27B was `approximate_row_count` post-ANALYZE (still
+~66% high on this compressed hypertable); ~918M was `SUM(minute_count)` over
+the corrupted cagg (the ~21% materialization artifact, see §Critical
+prerequisite); ~1.2B was a planning-era anchor from the SP500-only scope.
+Corrected compressed floor: 78 GB ÷ 4.405B ≈ 17 bytes/row. Standing rule
+(journal 20260720): exact `count(*)` is the only authoritative row-scale
+source; once slice 163 repairs the caggs and parity is verified,
 `SUM(minute_count)` becomes a valid fast cross-check.
 
-## Critical prerequisite (discovered 2026-07-20): minute caggs are ~85% under-materialized
+## Critical prerequisite (discovered 2026-07-20): minute caggs are ~79% under-materialized
 
 > **This finding was discovered during 167's design phase and materially
 > changes the slice. It is documented here per PM instruction; the slice will
@@ -74,9 +74,9 @@ is once again trustworthy. Once slice 163 repairs the caggs,
 
 While measuring the cagg-backed approach, the design phase found that **all four
 minute continuous aggregates** (`minute_5min_ohlcv`, `minute_15min_ohlcv`,
-`minute_hourly_ohlcv`, `minute_4hour_ohlcv`) are materialized with only
-~13–21% of the raw bars they should contain, uniformly across the entire
-2004–2026 span:
+`minute_hourly_ohlcv`, `minute_4hour_ohlcv`) are materialized with only ~21%
+of the raw bars they should contain (9.5–21% across measured 2019+ years,
+~28% pre-2019 by subtraction), spanning the entire 2004–2026 range:
 
 | Year | Raw `minute_ohlcv` | Cagg `SUM(minute_count)` | Coverage |
 |---|---|---|---|
@@ -101,7 +101,7 @@ they are simply not scoped to repair history.
 
 **Impact:** this is a live production integrity issue **independent of 167** —
 any consumer reading the 4h / hourly / 15m / 5m rollups today gets aggregates
-computed over ~13% of the data. No data is being lost or mis-written (the *raw*
+computed over ~21% of the data. No data is being lost or mis-written (the *raw*
 table is intact and is what the daemon and the current `data_status` view
 read), but the caggs are silently wrong.
 
@@ -293,7 +293,7 @@ raw daily_ohlcv ──▶ daily_coverage             │
 
 1. **Prove the prerequisite is met** (163 ran): confirm the 4h cagg is fully
    materialized — `SELECT SUM(minute_count) FROM minute_4hour_ohlcv` matches
-   the raw count within the lag bound (not ~13%).
+   the raw count within the lag bound (not ~21%).
 2. **Timing before/after:** `\timing on`; `SELECT count(*) FROM data_status;`
    — record sub-second vs the 7.8 s baseline.
 3. **Equivalence:** diff a snapshot of `data_status` (all columns) taken

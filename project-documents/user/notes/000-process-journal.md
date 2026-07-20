@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260719
+dateUpdated: 20260720
 status: in_progress
 ---
 
@@ -19,6 +19,54 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260720 — Row-scale claims require exact counts; `approximate_row_count` on compressed hypertables is unreliable even post-ANALYZE; ad-hoc prod aggregates require a statement_timeout
+
+**Context:** `minute_ohlcv`'s row count bounced across four figures in two days:
+~7.27 B (`approximate_row_count` post-ANALYZE, recorded by slice 166 as fact),
+~918 M ("corrected" during slice 167 design from `SUM(minute_count)` over a
+cagg that was, unknown at the time, ~79% under-materialized), ~1.2 B (a
+planning-era anchor from the SP500-only / 24-month-cap scope), and finally
+**4,405,379,285 — the exact `count(*)`**, which post-166 runs in ~1.3 s using
+compressed-batch metadata. Each wrong figure came from trusting a derived or
+estimated source because the exact count *used to be* prohibitively slow.
+Verifying the exact figure with a full-table `GROUP BY extract(year ...)`
+then caused a production incident: the expression GROUP BY cannot use batch
+metadata, so it decompressed the entire table server-side; the client timed
+out (which does not cancel the backend), follow-up queries stacked behind it,
+a backend died ("server closed the connection unexpectedly"), and the server
+required a reboot.
+
+**Decision:** (1) The only authoritative row-scale source is an exact
+`count(*)` — cheap now on a healthy chunk layout; `approximate_row_count` is
+treated as order-of-magnitude only on compressed hypertables (it was still
+~66% high *after* ANALYZE: 7.31 B vs 4.41 B), and a cagg-derived count is
+valid only after cagg-vs-raw parity is verified. (2) Capacity planning uses
+the corrected compressed floor: 75 GB TOAST ÷ 4.405 B rows ≈ **17 bytes/row**
+(supersedes the ~10 bytes/row figure in the 20260719 chunk-interval entry,
+which divided by the estimate). (3) Ad-hoc analytical queries against prod
+run under `SET statement_timeout` sized to intent (seconds for probes,
+minutes only deliberately); after any client-side timeout the server-side
+backend is explicitly cancelled (`pg_cancel_backend`) before anything else is
+run. (4) Full-table aggregates over expressions (anything the columnstore
+cannot answer from batch metadata) are treated as decompress-everything
+operations and bounded or windowed accordingly.
+
+**Rationale:** Three independent readers (slice 166's docs, slice 167's
+design, the PM's recollection) each held a different number for the same
+table, and each source *looked* authoritative. Estimates and derived tables
+drift silently; only the source table counts. The incident half of the lesson
+is the operational mirror of the same error — treating a query as cheap
+because a superficially similar one (metadata-assisted plain `count(*)`) was
+cheap.
+
+**Follow-ups:** Corrected figures in slices 163/167 designs and 140-plan
+entries 23/27 (raw = 4.405 B exact; caggs ~79% under-materialized overall —
+per-year 9.5–21% in 2019+, higher pre-2019; full uncompressed cagg
+materialization ≈ 300 GB, not 500 GB). Tick-capacity math must use
+17 bytes/row. `mt data cagg verify` (slice 163) makes the parity
+precondition checkable. Daemon must be verified running after the
+2026-07-20 server reboot.
 
 ## 20260719 — Stage-then-drop rewrite cycles must take the exclusive lock BEFORE the snapshot, and safety must come from the transaction, not from operational circumstance
 
