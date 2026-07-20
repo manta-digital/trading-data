@@ -7,7 +7,7 @@ dependencies: [166, 163]
 interfaces: [147, 182]
 dateCreated: 20260720
 dateUpdated: 20260720
-status: draft
+status: not_started
 ---
 
 # Slice Design: Cagg-backed `data_status` bars summary — reach the sub-second NFR
