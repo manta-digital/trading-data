@@ -633,6 +633,27 @@ it automatically when corporate actions change.
   `--tolerance` overrides the default `ADJUSTMENT_DRIFT_EPSILON`
   per-run.
 
+#### `mt data caggs` — continuous-aggregate maintenance
+
+*(Architecture amendment, 2026-07-20 — slices 154 and 163.)* Slice 154
+shipped `mt data caggs {refresh, status}`. Slice 163 extends the group:
+
+```
+mt data caggs verify [--granularity 5m|15m|1h|4h|all] [--detail]
+mt data caggs repair [--granularity ...] [--dry-run]
+```
+
+`verify` is the standing **source-parity detector**: per-year (or
+per-window) comparison of each cagg's `SUM(minute_count)` against the raw
+bounded `COUNT(*)`. It answers question 3 of this document's Purpose ("are
+the stored prices correct?") at the aggregate level — a corrupted cagg's own
+bookkeeping reports healthy, so only this direct comparison can detect
+silent under-materialization. `repair` is the incremental heal: a per-window
+drop → force-refresh → compress sweep whose done-state is the same parity
+check. **Standing rule:** after any raw chunk restructuring, run `verify`;
+if parity fails, run `repair`. See slice 163 design for mechanism and
+pre-flight discipline.
+
 ### Gap function (the core invariant)
 
 The gap state in `data_gaps` is maintained by two pure functions plus

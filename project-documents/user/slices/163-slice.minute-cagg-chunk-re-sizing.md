@@ -132,13 +132,37 @@ for *future* raw-restructuring invalidations (D5). Interrupted runs re-derive
 state from this check on the next invocation, mirroring 166's
 catalog-derived window states.
 
+**Crash-window enumeration (review F002):** `refresh_continuous_aggregate`
+cannot execute inside a transaction block, so steps 1–3 commit
+**independently** — there is no per-window transaction. The failure modes and
+their recovery, explicitly:
+
+- *Kill after `drop_chunks`, before refresh completes:* the window's cagg
+  region is **empty** and, with `materialized_only = true`, consumers are
+  served zero rows for it until repair re-runs. Parity check reads
+  0 ≠ raw count → window rebuilt on next invocation. Bounded data-unavailability,
+  never wrong-data.
+- *Kill after refresh, before `compress_chunk`:* window is correct but
+  uncompressed; parity passes, and the compression pass (or the columnstore
+  policy, post-045) picks the chunk up. No rebuild needed.
+- *Kill mid-refresh:* the refresh's own internal transaction rolls back or
+  completes per TimescaleDB's semantics; either way parity decides on
+  re-run.
+
 **Rejected — global `TRUNCATE` + full refresh:** simpler bookkeeping, but the
-cagg would serve *nothing* until the multi-hour sweep completes; per-window
-keeps the (correct) trailing region and each repaired window continuously
-available, and preserves 166's proven never-broken-intermediate-state
-property. Rejected — `merge_chunks` roll-up: same adjacency restriction as on
-raw (cannot merge across empty ranges; market-hours gaps guarantee them —
-journal).
+cagg would serve *nothing* until the multi-hour sweep completes. Per-window
+bounds the serving impact instead — but honestly stated (review F003): during
+each window's drop→refresh interval, consumers of that cagg see **zero
+coverage for that one 70-day window** (worse than today's ~21% for that
+window, for seconds-to-minutes), and 162's coverage queries plus the 182 bars
+path do read these caggs live. The availability property is therefore
+*bounded per-window gaps*, not 166's never-broken-intermediate-state (which
+came from stage-under-lock, deliberately not used here per this decision's
+own reasoning). Operators wanting zero serving impact run the sweep outside
+market hours; the trailing (correct) region and all already-repaired windows
+remain served throughout. Rejected — `merge_chunks` roll-up: same adjacency
+restriction as on raw (cannot merge across empty ranges; market-hours gaps
+guarantee them — journal).
 
 ### D2 — Chunk interval: 70 days, from the wall-clock rule
 
@@ -185,26 +209,38 @@ resume (sweep end → resume gap is minutes; policy window is 1 day). Raw-table
 jobs (e.g. columnstore 1009) are untouched — this slice never restructures
 raw.
 
-### D5 — Operator surface: `mt data cagg repair` and `mt data cagg verify`
+### D5 — Operator surface: `verify` and `repair` under the existing `mt data caggs` group
 
-Two subcommands under `mt data cagg` (pattern: `mt data rechunk`):
+Slice 154 already shipped the `mt data caggs` group (`refresh`, `status`);
+this slice **extends that group** with two subcommands rather than adding a
+new near-collision group (review F001). Relationship to the existing
+subcommands: `caggs refresh` remains the plain re-materialization wrapper for
+routine use; `repair` is the restructuring sweep (drop + refresh + compress,
+parity-derived state) for corruption and re-chunk scenarios; `caggs status`
+gains nothing here but `verify` complements it with source-parity depth.
+Per the 20260720 journal discipline, both new subcommands run every prod
+query under an explicit `statement_timeout` and cancel the server-side
+backend on client interrupt (review F005).
 
-- `mt data cagg verify [--granularity 5m|15m|1h|4h|all]` — read-only parity
+- `mt data caggs verify [--granularity 5m|15m|1h|4h|all]` — read-only parity
   report: per-year (or per-window with `--detail`) cagg `SUM(minute_count)`
   vs raw `COUNT(*)`, plus chunk-count and interval summary. This is the
   standing **detector** for the self-hiding corruption class the journal
   describes ("only a direct cagg-vs-source comparison can detect it") — it
   did not exist, which is why ~79% corruption sat unnoticed in prod.
-- `mt data cagg repair [--granularity ...] [--dry-run]` — pre-flight
+- `mt data caggs repair [--granularity ...] [--dry-run]` — pre-flight
   (jobs paused, interval = constant via catalog, disk headroom), then the D1
   sweep. `--dry-run` prints planned windows and per-window parity states
-  without mutation. Resumable; safe to kill mid-window (per-window
-  transaction boundaries).
+  without mutation. Resumable and safe to kill mid-window — by **parity-derived
+  state, not transactionality** (see D1's crash-window enumeration:
+  `refresh_continuous_aggregate` cannot run inside a transaction block, so the
+  three steps commit independently; a kill between them leaves a state the
+  next invocation detects and rebuilds).
 
 **Standing operational rule** (documented in both commands' help and the
 design): after **any** raw `minute_ohlcv` chunk restructuring — including the
 scheduled ~2026-07-23 `mt data rechunk` re-run for trailing legacy chunks —
-run `mt data cagg verify` and, if parity fails, `mt data cagg repair`. The
+run `mt data caggs verify` and, if parity fails, `mt data caggs repair`. The
 parity-based done-check makes repair exactly incremental: it rebuilds only
 the windows the restructuring invalidated. Sequencing of this slice vs the
 07-23 re-run is therefore free (whichever runs second, verify/repair closes
@@ -237,7 +273,7 @@ for each 70-day grid window, oldest → newest:
               compress_chunk(new chunk)             (behind-frontier)
         ▼
 resume jobs → verify last_run_status = 'Success'
-`mt data cagg verify` → full parity report
+`mt data caggs verify` → full parity report
 ```
 
 ## Migration Plan
@@ -254,7 +290,7 @@ resume jobs → verify last_run_status = 'Success'
   compression settings without the repair tool ever running.
 - **Consumers:** none change — cagg names, columns, and semantics are
   unchanged; consumers simply start receiving complete data.
-- The repair itself is **operational tooling** (`mt data cagg repair`), not a
+- The repair itself is **operational tooling** (`mt data caggs repair`), not a
   migration — same separation as 166's `mt data rechunk`.
 
 ## Cross-Slice Dependencies and Interfaces
@@ -276,7 +312,7 @@ resume jobs → verify last_run_status = 'Success'
 
 1. All four minute caggs at `chunk_time_interval = 70 days`, chunk count
    ~4,236 → low hundreds each (measured and recorded).
-2. `mt data cagg verify` reports **full parity** (cagg `SUM(minute_count)` ==
+2. `mt data caggs verify` reports **full parity** (cagg `SUM(minute_count)` ==
    raw `COUNT(*)`) for every year and every granularity, within the
    trailing refresh-lag bound (≤ policy `start_offset`).
 3. Single-symbol `minute_4hour_ohlcv` query: before/after EXPLAIN captured;
@@ -296,28 +332,28 @@ re-materialization sweep, compression enablement, and the verify/repair CLI).
 
 ## Verification Walkthrough (draft — refined at Phase 6)
 
-1. **Baseline capture:** `mt data cagg verify` → shows ~21%-coverage parity failures
+1. **Baseline capture:** `mt data caggs verify` → shows ~21%-coverage parity failures
    across years/granularities (the corruption made visible for the first
    time). Save output.
 2. **Migrations:** apply 044/045; confirm
    `SELECT ... FROM timescaledb_information.dimensions` shows 70 days for the
    four mat hypertables and compression settings exist.
-3. **Dry run:** `mt data cagg repair --dry-run` → planned windows per cagg,
+3. **Dry run:** `mt data caggs repair --dry-run` → planned windows per cagg,
    parity states, no mutation.
 4. **Pre-flight refusal:** run with jobs unpaused → refuses with actionable
    message. Pause jobs (IDs printed by the tool), re-run.
-5. **Repair one granularity first:** `mt data cagg repair --granularity 4h`
+5. **Repair one granularity first:** `mt data caggs repair --granularity 4h`
    (smallest, ~9 GB full) — watch per-window progress; kill mid-run once
    (Ctrl-C), re-run, observe skip-to-resume; on completion
-   `mt data cagg verify --granularity 4h` shows full parity.
+   `mt data caggs verify --granularity 4h` shows full parity.
 6. **Prove the win:** EXPLAIN ANALYZE single-symbol 4h query before (saved in
    step 1 era) and after — chunk fan-out and latency collapse; chunk count
    low hundreds.
 7. **Remaining granularities:** repeat for 1h, 15m, 5m; disk monitored;
    footprint recorded.
 8. **Resume jobs; steady state:** jobs `Success`; next morning
-   `mt data cagg verify` still at parity (trailing policy healing works).
+   `mt data caggs verify` still at parity (trailing policy healing works).
 9. **162 regression:** re-run 162's coverage query — correct results.
 10. **Post-07-23 rule rehearsal:** after the scheduled raw rechunk re-run,
-    `mt data cagg verify` (expect bounded parity failures in the rewritten
-    window) → `mt data cagg repair` (rebuilds only those windows) → parity.
+    `mt data caggs verify` (expect bounded parity failures in the rewritten
+    window) → `mt data caggs repair` (rebuilds only those windows) → parity.
