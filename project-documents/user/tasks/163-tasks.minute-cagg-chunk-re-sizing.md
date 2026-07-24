@@ -88,213 +88,213 @@ status: not_started
 ## Phase A — Constants and migrations (effort: 2)
 
 ### Task A1: Add cagg chunk-interval and compression constants
-- [ ] In `src/manta_trading/constants.py` add
+- [x] In `src/manta_trading/constants.py` add
       `MINUTE_CAGG_CHUNK_INTERVAL: timedelta = timedelta(days=70)` with a
       comment citing the journal wall-clock rule (span ÷ target count; 22.5 y
       / 70 d ≈ 117 chunks — design D2).
-- [ ] Add `MINUTE_CAGG_COMPRESS_AFTER: timedelta` for the columnstore
+- [x] Add `MINUTE_CAGG_COMPRESS_AFTER: timedelta` for the columnstore
       policies (design D3). Value must be **greater than** the refresh
       policies' `start_offset` (1 day) so the policy never compresses inside
       the actively-refreshed head; use 7 days (mirrors the raw-table 042
       policy precedent) and record the >1-day constraint in the comment.
-- [ ] Add `MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT: str` for verify/repair
+- [x] Add `MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT: str` for verify/repair
       prod queries (precedent: `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT`).
-- [ ] Success: constants importable; no other file defines these values;
+- [x] Success: constants importable; no other file defines these values;
       `uv run --extra dev ruff check` and `mypy` clean on the touched file.
 
 ### Task A2: Migration 044 — cagg chunk interval 70 d
-- [ ] Add `044_minute_cagg_chunk_interval_70d` to `MINUTE_MIGRATIONS`
+- [x] Add `044_minute_cagg_chunk_interval_70d` to `MINUTE_MIGRATIONS`
       following 043's pattern: `set_chunk_time_interval` on each of the four
       minute caggs, interval rendered from `MINUTE_CAGG_CHUNK_INTERVAL`.
-- [ ] Resolve mat hypertables **by continuous-aggregate view name** from
+- [x] Resolve mat hypertables **by continuous-aggregate view name** from
       `timescaledb_information.continuous_aggregates` (never `mat_N`
       literals). A DO-block or `python_fn` is acceptable if plain SQL can't
       express the lookup cleanly.
-- [ ] Description documents: idempotent; affects future chunks only; existing
+- [x] Description documents: idempotent; affects future chunks only; existing
       1.67-day chunks are rewritten by `mt data caggs repair`; cold-start
       no-op (post-043 source at 7 d → 10× = 70 d automatic, design D2);
       manual revert statement.
-- [ ] Success: migration registered; id sequence and description conventions
+- [x] Success: migration registered; id sequence and description conventions
       match 040–043.
 
 ### Task A3: Unit tests for migration 044
-- [ ] In `test/unit/test_schema_migrations.py`: update the count assertion
+- [x] In `test/unit/test_schema_migrations.py`: update the count assertion
       (46 → 47 at this point), assert 044's id/ordering, and assert the
       rendered interval derives from `MINUTE_CAGG_CHUNK_INTERVAL` (test must
       fail if someone hardcodes `'70 days'` divorced from the constant —
       pattern: the existing 043 interval test).
-- [ ] Success: `uv run --extra dev pytest test/unit/test_schema_migrations.py`
+- [x] Success: `uv run --extra dev pytest test/unit/test_schema_migrations.py`
       passes.
 
 ### Task A4: Migration 045 — cagg columnstore enable + policies
-- [ ] Add `045_minute_cagg_columnstore` following 042's pattern (`python_fn`,
+- [x] Add `045_minute_cagg_columnstore` following 042's pattern (`python_fn`,
       `requires_autocommit: True` as needed): for each of the four caggs,
       enable columnstore with `segmentby = symbol`,
       `orderby = time_bucket DESC`, and add a compression policy with
       `compress_after` rendered from `MINUTE_CAGG_COMPRESS_AFTER`.
-- [ ] Idempotent: re-running must not error when settings/policies already
+- [x] Idempotent: re-running must not error when settings/policies already
       exist (042 precedent).
-- [ ] Unlike 042, **no backfill-compress** of existing chunks: existing
+- [x] Unlike 042, **no backfill-compress** of existing chunks: existing
       wrong-interval chunks are dropped by repair; the sweep compresses new
       chunks itself (compress-behind-frontier, design D3). Record this
       difference in the description.
-- [ ] Success: migration registered; four caggs covered; no `mat_N` literals.
+- [x] Success: migration registered; four caggs covered; no `mat_N` literals.
 
 ### Task A5: Unit tests for migration 045
-- [ ] Update count assertion to **48**; assert 045's id/ordering,
+- [x] Update count assertion to **48**; assert 045's id/ordering,
       autocommit flag, and that `compress_after` derives from the constant.
-- [ ] Success: schema-migrations test file passes.
+- [x] Success: schema-migrations test file passes.
 
 ### Task A6: Commit checkpoint
-- [ ] `uv run --extra dev pytest` on `test/unit` (per-subpackage as needed),
+- [x] `uv run --extra dev pytest` on `test/unit` (per-subpackage as needed),
       `ruff`, `mypy` on touched files; commit
       (`feat: add minute-cagg chunk interval and columnstore migrations 044/045`).
 
 ## Phase B — Parity core and `mt data caggs verify` (effort: 3)
 
 ### Task B1: Parity computation module
-- [ ] New module `src/manta_trading/market/maintenance/cagg_parity.py`
+- [x] New module `src/manta_trading/market/maintenance/cagg_parity.py`
       (~300-line file budget; split only if actually needed):
-  - [ ] Window enumeration: 70-day epoch-grid windows (1970-01-01 + k×70 d)
+  - [x] Window enumeration: 70-day epoch-grid windows (1970-01-01 + k×70 d)
         covering the raw table's `[min(time), max(time)]` — reuse/share
         `rechunk.py`'s `_window_start` grid logic rather than duplicating.
-  - [ ] Per-window parity: cagg `SUM(minute_count)` vs raw bounded
+  - [x] Per-window parity: cagg `SUM(minute_count)` vs raw bounded
         `COUNT(*)` over the same window; result carries both counts and a
         derived state (reuse or mirror `WindowState`).
-  - [ ] Per-year rollup for report mode (verify's default view; per-window is
+  - [x] Per-year rollup for report mode (verify's default view; per-window is
         `--detail` — design D5).
-  - [ ] Chunk-count and `chunk_time_interval` summary per cagg from the
+  - [x] Chunk-count and `chunk_time_interval` summary per cagg from the
         catalog.
-  - [ ] Every query runs under
+  - [x] Every query runs under
         `MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT`; on client interrupt or
         timeout, `pg_cancel_backend` the server-side backend before raising
         (journal 20260720 discipline; review F005).
-- [ ] Success: module importable; zero mutation paths (read-only by
+- [x] Success: module importable; zero mutation paths (read-only by
       construction); ruff/mypy clean.
 
 ### Task B2: Unit tests for parity module
-- [ ] New `test/unit/market/test_cagg_parity.py` (pattern:
+- [x] New `test/unit/market/test_cagg_parity.py` (pattern:
       `test_rechunk.py`): grid alignment (straddling range → two windows),
       parity state derivation (equal → DONE; 0 vs n → PENDING; partial →
       PENDING), per-year rollup math, granularity filtering. Mock the DB
       boundary; test logic with real numbers from the design's baseline
       table (e.g. 2019: 208,673,609 raw vs 43,440,140 cagg → 20.8%).
-- [ ] Success: tests pass; parity states cover the three D1 crash-window
+- [x] Success: tests pass; parity states cover the three D1 crash-window
       outcomes.
 
 ### Task B3: `mt data caggs verify` subcommand
-- [ ] Add `verify` to `caggs_app` (`cli/commands/data.py`) with
+- [x] Add `verify` to `caggs_app` (`cli/commands/data.py`) with
       `--granularity 5m|15m|1h|4h|all` (default all) and `--detail`
       (per-window instead of per-year). Reuse the granularity-token parsing
       already used by `caggs refresh`.
-- [ ] Output: per-year (or per-window) cagg-vs-raw counts, coverage %, parity
+- [x] Output: per-year (or per-window) cagg-vs-raw counts, coverage %, parity
       pass/fail; per-cagg chunk count + interval summary; non-zero exit code
       when any parity failure exists (script-friendly detector).
-- [ ] Help text states the **standing rule**: run `verify` after any raw
+- [x] Help text states the **standing rule**: run `verify` after any raw
       `minute_ohlcv` restructuring; on parity failure run
       `mt data caggs repair` (design D5).
-- [ ] Success: `mt data caggs verify --help` accurate; read-only; timeout
+- [x] Success: `mt data caggs verify --help` accurate; read-only; timeout
       discipline inherited from the parity module.
 
 ### Task B4: Unit tests for verify CLI
-- [ ] CLI-level tests (pattern: existing `test_data_ca.py` /
+- [x] CLI-level tests (pattern: existing `test_data_ca.py` /
       caggs-command tests): granularity parsing, exit-code behavior on
       parity failure vs full parity, `--detail` switch. Mock the parity
       module boundary.
-- [ ] Success: tests pass.
+- [x] Success: tests pass.
 
 ### Task B5: Commit checkpoint + prod baseline capture
-- [ ] Commit (`feat: add cagg parity core and mt data caggs verify`).
-- [ ] Run `mt data caggs verify` against prod (read-only; walkthrough
+- [x] Commit (`feat: add cagg parity core and mt data caggs verify`).
+- [x] Run `mt data caggs verify` against prod (read-only; walkthrough
       step 1). Expected: ~20.8% overall coverage, parity failures across all
       years/granularities — the corruption made visible for the first time.
-- [ ] Save the full output to
+- [x] Save the full output to
       `project-documents/user/notes/163-baseline-verify-20260721.md` (or
       dated as run) together with the saved single-symbol 4h `EXPLAIN
       ANALYZE` baseline (~2 s, from 162 prep — re-capture if not on file).
-- [ ] Success: baseline artifact committed
+- [x] Success: baseline artifact committed
       (`docs: capture 163 pre-repair parity and EXPLAIN baselines`).
 
 ## Phase C — Repair sweep and `mt data caggs repair` (effort: 4)
 
 ### Task C1: Pre-flight checks
-- [ ] New module `src/manta_trading/market/maintenance/cagg_repair.py`,
+- [x] New module `src/manta_trading/market/maintenance/cagg_repair.py`,
       pre-flight section (refuse — don't warn — on any failure, raising a
       `PreflightError`-style typed error; 166 pattern):
-  - [ ] Target cagg's refresh policy **and** (post-045) columnstore policy
+  - [x] Target cagg's refresh policy **and** (post-045) columnstore policy
         are paused — job IDs resolved from `timescaledb_information.jobs`
         by cagg/mat-hypertable association at runtime; refusal message
         prints the exact job IDs and the pause command.
-  - [ ] Mat hypertable `chunk_time_interval` equals
+  - [x] Mat hypertable `chunk_time_interval` equals
         `MINUTE_CAGG_CHUNK_INTERVAL` (i.e. migration 044 applied), read from
         the catalog.
-  - [ ] Disk headroom on the DB host sufficient for the sweep's peak
+  - [x] Disk headroom on the DB host sufficient for the sweep's peak
         (roughly one uncompressed window per cagg plus existing footprint —
         design D3); refuse with measured numbers. Derive free space via SQL
         available to the connection; if no reliable SQL source
         exists, require an explicit `--assume-headroom-gb` operator input
         rather than silently skipping the check.
-- [ ] Raw-table jobs (e.g. columnstore 1009) are **out of scope** — assert
+- [x] Raw-table jobs (e.g. columnstore 1009) are **out of scope** — assert
       the pre-flight never touches them.
-- [ ] Success: each check individually testable; refusal messages actionable.
+- [x] Success: each check individually testable; refusal messages actionable.
 
 ### Task C2: Unit tests for pre-flight
-- [ ] Tests: unpaused refresh job → refuse; unpaused columnstore policy →
+- [x] Tests: unpaused refresh job → refuse; unpaused columnstore policy →
       refuse; wrong interval (044 unapplied) → refuse; insufficient headroom
       → refuse; all-clear → pass. Mock catalog responses.
-- [ ] Success: tests pass.
+- [x] Success: tests pass.
 
 ### Task C3: Window sweep
-- [ ] Sweep section of `cagg_repair.py`, per design D1 exactly — for one
+- [x] Sweep section of `cagg_repair.py`, per design D1 exactly — for one
       cagg, over 70-day grid windows oldest → newest:
-  - [ ] Parity check first (reuse `cagg_parity`); window at parity → skip
+  - [x] Parity check first (reuse `cagg_parity`); window at parity → skip
         (this is the resumability and the incremental-repair property).
-  - [ ] `drop_chunks()` on the cagg over the window.
-  - [ ] `refresh_continuous_aggregate(cagg, start, end, force => true)` —
+  - [x] `drop_chunks()` on the cagg over the window.
+  - [x] `refresh_continuous_aggregate(cagg, start, end, force => true)` —
         `force` because invalidation entries were already consumed; document
         in a comment. **No enclosing transaction** — the three steps commit
         independently (D1 crash-window enumeration).
-  - [ ] `compress_chunk()` on the window's chunk(s) (compress-behind-
+  - [x] `compress_chunk()` on the window's chunk(s) (compress-behind-
         frontier; a grid-straddling table edge may yield two chunks —
         handle by compressing all uncompressed chunks in the window).
-  - [ ] Per-window progress output (window bounds, raw count, elapsed) —
+  - [x] Per-window progress output (window bounds, raw count, elapsed) —
         the operator watches a multi-hour sweep.
-  - [ ] Ctrl-C safe: interrupt cancels the server-side backend, exits
+  - [x] Ctrl-C safe: interrupt cancels the server-side backend, exits
         cleanly; next invocation resumes via parity skip.
-- [ ] Multi-granularity: sweep one cagg at a time in fixed order
+- [x] Multi-granularity: sweep one cagg at a time in fixed order
       (4h → 1h → 15m → 5m: smallest first, matching the walkthrough).
-- [ ] Success: function signature mirrors `run_rechunk` (url, granularities,
+- [x] Success: function signature mirrors `run_rechunk` (url, granularities,
       dry_run); no bookkeeping table — state is parity-derived only.
 
 ### Task C4: Unit tests for sweep
-- [ ] New `test/unit/market/test_cagg_repair.py`: parity-skip (window at
+- [x] New `test/unit/market/test_cagg_repair.py`: parity-skip (window at
       parity → no drop/refresh calls), full-rebuild path ordering
       (drop → refresh → compress), resume-after-kill simulation (first run
       dies after drop_chunks → second run rebuilds that window),
       kill-before-compress (parity passes → only compression re-attempted),
       dry-run performs zero mutations. Mock the DB boundary; assert call
       order, not SQL text.
-- [ ] Success: tests pass; the three D1 crash windows each have a test.
+- [x] Success: tests pass; the three D1 crash windows each have a test.
 
 ### Task C5: `mt data caggs repair` subcommand
-- [ ] Add `repair` to `caggs_app` with `--granularity` (as verify) and
+- [x] Add `repair` to `caggs_app` with `--granularity` (as verify) and
       `--dry-run` (prints planned windows and per-window parity states, no
       mutation — design D5).
-- [ ] Help text documents: pre-flight requirements (paused jobs, migrations,
+- [x] Help text documents: pre-flight requirements (paused jobs, migrations,
       headroom), bounded per-window serving gaps + off-hours guidance
       (design D1/F003), resumability, and the **standing rule** (same wording
       as verify's).
-- [ ] Success: command wired; typed exit codes (pre-flight refusal vs
+- [x] Success: command wired; typed exit codes (pre-flight refusal vs
       completion vs interrupt) following the `data rechunk` precedent.
 
 ### Task C6: Unit tests for repair CLI
-- [ ] CLI-level tests: dry-run flag propagation, granularity parsing,
+- [x] CLI-level tests: dry-run flag propagation, granularity parsing,
       pre-flight refusal surfaces as the documented exit code. Mock
       `cagg_repair` boundary.
-- [ ] Success: tests pass.
+- [x] Success: tests pass.
 
 ### Task C7: Commit checkpoint
-- [ ] Full per-subpackage unit-test run, ruff, mypy; commit
+- [x] Full per-subpackage unit-test run, ruff, mypy; commit
       (`feat: add mt data caggs repair windowed re-materialization sweep`).
 
 ## Phase D — Prod execution and verification (effort: 3)
