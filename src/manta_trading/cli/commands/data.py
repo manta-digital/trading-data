@@ -5,12 +5,17 @@ from __future__ import annotations
 import asyncio
 from datetime import date as _date_t
 from pathlib import Path
+from typing import TYPE_CHECKING
+
 import typer
 
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.logging import get_logger
 from manta_trading.providers.auth import resolve_auth
 from manta_trading.providers.profiles import get_profile
+
+if TYPE_CHECKING:
+    from manta_trading.constants import Granularity
 
 logger = get_logger(__name__)
 
@@ -3010,4 +3015,207 @@ def caggs_status(
         )
     print_result(table, json_mode=False)
     print_result(f"\n{len(rows)} aggregate(s)", json_mode=False)
+
+
+# ---------------------------------------------------------------------------
+# caggs verify / repair (slice 163) — minute-cagg parity + restructuring sweep
+# ---------------------------------------------------------------------------
+
+# The standing operational rule surfaced in both verify's and repair's help so
+# an operator reading either learns it (design D5). Single source of truth.
+_CAGG_MAINTENANCE_STANDING_RULE: str = (
+    "STANDING RULE: after ANY raw minute_ohlcv chunk restructuring "
+    "(e.g. `mt data rechunk`), run `mt data caggs verify`; if parity fails, "
+    "run `mt data caggs repair` (rebuilds only the invalidated windows)."
+)
+
+_EXIT_PARITY_FAILURE: int = 2
+"""caggs verify exit code when any cagg is out of parity (script detector)."""
+
+
+def _resolve_minute_granularities(
+    granularity_opt: str, *, json_output: bool
+) -> tuple["Granularity", ...]:
+    """Resolve a --granularity option to minute-cagg Granularity values.
+
+    Accepts ``all`` (the four minute caggs) or a comma-separated subset of
+    ``5m,15m,1h,4h``. Daily caggs are out of scope for parity/repair. Exits
+    non-zero (via typer) on an unknown or non-minute token.
+    """
+    from manta_trading.constants import Granularity
+    from manta_trading.market.maintenance.cagg_parity import (
+        MINUTE_CAGG_GRANULARITIES,
+    )
+
+    if granularity_opt.strip().lower() == "all":
+        return MINUTE_CAGG_GRANULARITIES
+
+    valid_minute = ", ".join(g.value for g in MINUTE_CAGG_GRANULARITIES)
+    requested = [t.strip() for t in granularity_opt.split(",") if t.strip()]
+    resolved: list[Granularity] = []
+    for token in requested:
+        try:
+            gran = Granularity(token)
+        except ValueError:
+            print_error(
+                f"Unknown granularity token '{token}'. Valid: all, {valid_minute}",
+                json_mode=json_output,
+            )
+            raise typer.Exit(1) from None
+        if gran not in MINUTE_CAGG_GRANULARITIES:
+            print_error(
+                f"Granularity '{token}' is not a minute cagg. "
+                f"Valid: all, {valid_minute}",
+                json_mode=json_output,
+            )
+            raise typer.Exit(1)
+        resolved.append(gran)
+    if not resolved:
+        print_error(
+            f"No granularity selected. Valid: all, {valid_minute}",
+            json_mode=json_output,
+        )
+        raise typer.Exit(1)
+    # Preserve the canonical smallest-first order regardless of input order.
+    return tuple(g for g in MINUTE_CAGG_GRANULARITIES if g in resolved)
+
+
+@caggs_app.command("verify")
+def caggs_verify(
+    ctx: typer.Context,
+    granularity_opt: str = typer.Option(
+        "all",
+        "--granularity",
+        help="Minute cagg(s) to verify: all | 5m,15m,1h,4h (default all).",
+    ),
+    detail: bool = typer.Option(
+        False,
+        "--detail",
+        help="Report per 70-day window instead of the per-year rollup.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
+) -> None:
+    """Verify minute-cagg parity against the raw table (read-only).
+
+    Compares each cagg's SUM(minute_count) to the raw COUNT(*) over 70-day
+    epoch-grid windows and reports per-year (or per-window with --detail)
+    coverage and parity, plus each cagg's chunk count and interval. Exits with
+    a non-zero code if ANY cagg is out of parity, so it doubles as a scriptable
+    detector for the self-hiding under-materialization corruption class.
+
+    Every query runs under an explicit statement_timeout and cancels its
+    server-side backend on interrupt. See the standing rule below.
+    """
+    from manta_trading.market.maintenance.cagg_parity import (
+        WindowParity,
+        compute_parity,
+    )
+
+    settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=json_output)
+        raise typer.Exit(1)
+
+    granularities = _resolve_minute_granularities(
+        granularity_opt, json_output=json_output
+    )
+
+    reports = compute_parity(settings.timescale_db_url, granularities)
+    any_failure = any(not r.in_parity for r in reports)
+
+    if json_output:
+        payload = []
+        for r in reports:
+            if detail:
+                report_rows: list[dict] = [
+                    {
+                        "start": w.start.isoformat(),
+                        "end": w.end.isoformat(),
+                        "raw": w.raw_count,
+                        "cagg": w.cagg_count,
+                        "coverage": round(w.coverage, 4),
+                        "parity": w.parity.value,
+                    }
+                    for w in r.windows
+                ]
+            else:
+                report_rows = [
+                    {
+                        "year": y.year,
+                        "raw": y.raw_count,
+                        "cagg": y.cagg_count,
+                        "coverage": round(y.coverage, 4),
+                        "parity": y.parity.value,
+                    }
+                    for y in r.years
+                ]
+            payload.append({
+                "granularity": r.granularity.value,
+                "view": r.view_name,
+                "raw_total": r.raw_total,
+                "cagg_total": r.cagg_total,
+                "in_parity": r.in_parity,
+                "chunk_count": r.chunk_summary.chunk_count,
+                "chunk_interval": (
+                    str(r.chunk_summary.chunk_interval)
+                    if r.chunk_summary.chunk_interval is not None
+                    else None
+                ),
+                "rows": report_rows,
+            })
+        print_result(payload, json_mode=True)
+        raise typer.Exit(_EXIT_PARITY_FAILURE if any_failure else 0)
+
+    for r in reports:
+        interval = (
+            str(r.chunk_summary.chunk_interval)
+            if r.chunk_summary.chunk_interval is not None
+            else "—"
+        )
+        overall = r.cagg_total / r.raw_total if r.raw_total else 0.0
+        header = (
+            f"{r.granularity.value} ({r.view_name}) — "
+            f"{r.chunk_summary.chunk_count} chunks @ {interval} — "
+            f"overall coverage {overall * 100:.1f}% — "
+            f"{'PARITY' if r.in_parity else 'PARITY FAILURE'}"
+        )
+        print_result(header, json_mode=False)
+
+        if detail:
+            table = make_table(
+                "",
+                [("Window start", ""), ("Raw", ""), ("Cagg", ""),
+                 ("Coverage", ""), ("Parity", "")],
+            )
+            for w in r.windows:
+                table.add_row(
+                    str(w.start)[:10],
+                    f"{w.raw_count:,}",
+                    f"{w.cagg_count:,}",
+                    f"{w.coverage * 100:.1f}%",
+                    "ok" if w.parity is WindowParity.DONE else "FAIL",
+                )
+        else:
+            table = make_table(
+                "",
+                [("Year", ""), ("Raw", ""), ("Cagg", ""),
+                 ("Coverage", ""), ("Parity", "")],
+            )
+            for y in r.years:
+                table.add_row(
+                    str(y.year),
+                    f"{y.raw_count:,}",
+                    f"{y.cagg_count:,}",
+                    f"{y.coverage * 100:.1f}%",
+                    "ok" if y.parity is WindowParity.DONE else "FAIL",
+                )
+        print_result(table, json_mode=False)
+
+    print_result(f"\n{_CAGG_MAINTENANCE_STANDING_RULE}", json_mode=False)
+    if any_failure:
+        print_error(
+            "Parity failure detected — run `mt data caggs repair`.",
+            json_mode=False,
+        )
+    raise typer.Exit(_EXIT_PARITY_FAILURE if any_failure else 0)
 

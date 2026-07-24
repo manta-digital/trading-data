@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
@@ -252,3 +251,166 @@ class TestCaggsStatus:
             call.args[0] for call in mock_cur.execute.call_args_list
         ]
         assert not any("to_timestamp" in s for s in executed_sqls)
+
+
+# ---------------------------------------------------------------------------
+# caggs verify (slice 163)
+# ---------------------------------------------------------------------------
+
+
+def _parity_report(*, granularity, in_parity: bool):
+    """Build a minimal CaggParityReport double for CLI tests.
+
+    Uses the real dataclasses so property logic (in_parity, coverage, totals)
+    is exercised end-to-end from real window counts."""
+    from datetime import datetime, timezone
+
+    from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL
+    from manta_trading.market.maintenance.cagg_parity import (
+        CaggChunkSummary,
+        CaggParityReport,
+        WindowCounts,
+        rollup_by_year,
+    )
+
+    def _utc(y):
+        return datetime(y, 1, 1, tzinfo=timezone.utc)
+
+    cagg = 1000 if in_parity else 208  # 100% vs ~21% coverage
+    windows = [WindowCounts(_utc(2019), _utc(2019).replace(month=3), 1000, cagg)]
+    view = {
+        "5m": "minute_5min_ohlcv",
+        "15m": "minute_15min_ohlcv",
+        "1h": "minute_hourly_ohlcv",
+        "4h": "minute_4hour_ohlcv",
+    }[granularity.value]
+    return CaggParityReport(
+        granularity=granularity,
+        view_name=view,
+        windows=windows,
+        years=rollup_by_year(windows),
+        chunk_summary=CaggChunkSummary(view, 117, MINUTE_CAGG_CHUNK_INTERVAL),
+    )
+
+
+class TestCaggsVerify:
+    def test_missing_url_exits_with_error(self):
+        s = _settings(timescale_url=None)
+        with _patch_app(s):
+            result = runner.invoke(app, ["data", "caggs", "verify"])
+        assert result.exit_code != 0
+
+    def test_unknown_granularity_token_errors(self):
+        s = _settings()
+        with _patch_app(s):
+            result = runner.invoke(
+                app, ["data", "caggs", "verify", "--granularity", "99x"]
+            )
+        assert result.exit_code != 0
+        assert "Unknown granularity token" in result.output
+
+    def test_daily_granularity_rejected(self):
+        # 1d is a valid Granularity but not a minute cagg — must be refused.
+        s = _settings()
+        with _patch_app(s):
+            result = runner.invoke(
+                app, ["data", "caggs", "verify", "--granularity", "1d"]
+            )
+        assert result.exit_code != 0
+        assert "not a minute cagg" in result.output
+
+    def test_full_parity_exits_zero(self):
+        from manta_trading.constants import Granularity
+
+        s = _settings()
+        reports = [_parity_report(granularity=g, in_parity=True)
+                   for g in (Granularity.M5, Granularity.M15,
+                             Granularity.H1, Granularity.H4)]
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_parity.compute_parity",
+                return_value=reports,
+            ):
+                result = runner.invoke(app, ["data", "caggs", "verify"])
+        assert result.exit_code == 0, result.output
+
+    def test_parity_failure_exits_nonzero(self):
+        from manta_trading.cli.commands.data import _EXIT_PARITY_FAILURE
+        from manta_trading.constants import Granularity
+
+        s = _settings()
+        reports = [_parity_report(granularity=Granularity.H4, in_parity=False)]
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_parity.compute_parity",
+                return_value=reports,
+            ):
+                result = runner.invoke(
+                    app, ["data", "caggs", "verify", "--granularity", "4h"]
+                )
+        assert result.exit_code == _EXIT_PARITY_FAILURE
+        assert "PARITY FAILURE" in result.output
+
+    def test_detail_flag_reports_per_window(self):
+        from manta_trading.constants import Granularity
+
+        s = _settings()
+        reports = [_parity_report(granularity=Granularity.H4, in_parity=False)]
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_parity.compute_parity",
+                return_value=reports,
+            ):
+                result = runner.invoke(
+                    app,
+                    ["data", "caggs", "verify", "--granularity", "4h", "--detail"],
+                )
+        # Per-window detail prints a window start date (2019-01-01), not a bare year.
+        assert "2019-01-01" in result.output
+
+    def test_json_output_shape_and_exit(self):
+        import json
+
+        from manta_trading.cli.commands.data import _EXIT_PARITY_FAILURE
+        from manta_trading.constants import Granularity
+
+        s = _settings()
+        reports = [_parity_report(granularity=Granularity.H4, in_parity=False)]
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_parity.compute_parity",
+                return_value=reports,
+            ):
+                result = runner.invoke(
+                    app,
+                    ["data", "caggs", "verify", "--granularity", "4h", "--json"],
+                )
+        assert result.exit_code == _EXIT_PARITY_FAILURE
+        payload = json.loads(result.output)
+        assert payload[0]["view"] == "minute_4hour_ohlcv"
+        assert payload[0]["in_parity"] is False
+        assert payload[0]["chunk_count"] == 117
+        assert isinstance(payload[0]["rows"], list)
+
+    def test_granularity_order_is_canonical(self):
+        """Requesting out-of-order tokens still verifies smallest-first."""
+        from manta_trading.constants import Granularity
+
+        s = _settings()
+        captured = {}
+
+        def _fake_compute(url, grans):
+            captured["grans"] = grans
+            return [_parity_report(granularity=g, in_parity=True) for g in grans]
+
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_parity.compute_parity",
+                side_effect=_fake_compute,
+            ):
+                result = runner.invoke(
+                    app, ["data", "caggs", "verify", "--granularity", "4h,5m"]
+                )
+        assert result.exit_code == 0, result.output
+        # Canonical order is 5m, 15m, 1h, 4h → requested {4h,5m} → (5m, 4h).
+        assert captured["grans"] == (Granularity.M5, Granularity.H4)
