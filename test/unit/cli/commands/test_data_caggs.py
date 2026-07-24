@@ -414,3 +414,142 @@ class TestCaggsVerify:
         assert result.exit_code == 0, result.output
         # Canonical order is 5m, 15m, 1h, 4h → requested {4h,5m} → (5m, 4h).
         assert captured["grans"] == (Granularity.M5, Granularity.H4)
+
+
+# ---------------------------------------------------------------------------
+# caggs repair (slice 163)
+# ---------------------------------------------------------------------------
+
+
+class TestCaggsRepair:
+    def test_missing_url_exits_preflight_code(self):
+        from manta_trading.cli.commands.data import _EXIT_REPAIR_PREFLIGHT
+
+        s = _settings(timescale_url=None)
+        with _patch_app(s):
+            result = runner.invoke(app, ["data", "caggs", "repair"])
+        assert result.exit_code == _EXIT_REPAIR_PREFLIGHT
+
+    def test_unknown_granularity_errors(self):
+        s = _settings()
+        with _patch_app(s):
+            result = runner.invoke(
+                app, ["data", "caggs", "repair", "--granularity", "99x"]
+            )
+        assert result.exit_code != 0
+        assert "Unknown granularity token" in result.output
+
+    def test_dry_run_flag_propagates(self):
+        from manta_trading.market.maintenance.cagg_repair import RepairResult
+
+        s = _settings()
+        captured = {}
+
+        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress):
+            captured["dry_run"] = dry_run
+            captured["headroom"] = assume_headroom_gb
+            return RepairResult(dry_run=dry_run)
+
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                side_effect=_fake_repair,
+            ):
+                result = runner.invoke(
+                    app, ["data", "caggs", "repair", "--dry-run"]
+                )
+        assert result.exit_code == 0, result.output
+        assert captured["dry_run"] is True
+        assert captured["headroom"] is None
+
+    def test_headroom_flag_propagates(self):
+        from manta_trading.market.maintenance.cagg_repair import RepairResult
+
+        s = _settings()
+        captured = {}
+
+        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress):
+            captured["headroom"] = assume_headroom_gb
+            return RepairResult(dry_run=dry_run)
+
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                side_effect=_fake_repair,
+            ):
+                result = runner.invoke(
+                    app,
+                    ["data", "caggs", "repair", "--granularity", "4h",
+                     "--assume-headroom-gb", "50"],
+                )
+        assert result.exit_code == 0, result.output
+        assert captured["headroom"] == 50.0
+
+    def test_preflight_refusal_surfaces_exit_code(self):
+        from manta_trading.cli.commands.data import _EXIT_REPAIR_PREFLIGHT
+        from manta_trading.market.maintenance.rechunk import PreflightError
+
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                side_effect=PreflightError("job 1003 still scheduled"),
+            ):
+                result = runner.invoke(
+                    app, ["data", "caggs", "repair", "--granularity", "4h"]
+                )
+        assert result.exit_code == _EXIT_REPAIR_PREFLIGHT
+        assert "Pre-flight refused" in result.output
+        assert "1003" in result.output
+
+    def test_repair_failure_surfaces_exit_code(self):
+        from manta_trading.cli.commands.data import _EXIT_REPAIR_FAILED
+        from manta_trading.market.maintenance.cagg_repair import RepairError
+
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                side_effect=RepairError("window 2020-01-01 rebuild failed"),
+            ):
+                result = runner.invoke(app, ["data", "caggs", "repair"])
+        assert result.exit_code == _EXIT_REPAIR_FAILED
+        assert "Repair failed" in result.output
+
+    def test_interrupt_surfaces_resume_message(self):
+        from manta_trading.cli.commands.data import _EXIT_REPAIR_INTERRUPTED
+
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                side_effect=KeyboardInterrupt(),
+            ):
+                result = runner.invoke(app, ["data", "caggs", "repair"])
+        assert result.exit_code == _EXIT_REPAIR_INTERRUPTED
+        assert "resume" in result.output.lower()
+
+    def test_granularity_subset_propagates_canonical_order(self):
+        from manta_trading.constants import Granularity
+        from manta_trading.market.maintenance.cagg_repair import RepairResult
+
+        s = _settings()
+        captured = {}
+
+        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress):
+            captured["grans"] = grans
+            return RepairResult(dry_run=dry_run)
+
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                side_effect=_fake_repair,
+            ):
+                result = runner.invoke(
+                    app,
+                    ["data", "caggs", "repair", "--granularity", "1h,15m",
+                     "--dry-run"],
+                )
+        assert result.exit_code == 0, result.output
+        # Canonical order: 5m,15m,1h,4h → requested {1h,15m} → (15m, 1h).
+        assert captured["grans"] == (Granularity.M15, Granularity.H1)

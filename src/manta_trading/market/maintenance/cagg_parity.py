@@ -183,8 +183,14 @@ def _cancel_backend(conninfo: str, pid: int) -> None:
 
 
 class _TimeoutConnection:
-    """Read-only connection wrapper: statement_timeout set, backend cancelled
-    on interrupt/timeout before the exception propagates.
+    """Connection wrapper: statement_timeout set, backend cancelled on
+    interrupt/timeout before the exception propagates.
+
+    Used read-only by parity (``autocommit=False``, the default) and by the
+    repair sweep with ``autocommit=True`` — ``refresh_continuous_aggregate``
+    cannot run in a transaction block, so the sweep needs each statement to
+    commit on its own, while still getting the same Ctrl-C backend-cancel
+    discipline (design F005).
 
     Usage::
 
@@ -192,19 +198,22 @@ class _TimeoutConnection:
             conn.execute(...)   # runs under MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT
     """
 
-    def __init__(self, conninfo: str) -> None:
+    def __init__(self, conninfo: str, *, autocommit: bool = False) -> None:
         self._conninfo = conninfo
+        self._autocommit = autocommit
         self._conn: psycopg.Connection[dict[str, object]] | None = None
         self._pid: int | None = None
 
     def __enter__(self) -> psycopg.Connection[dict[str, object]]:
-        conn = psycopg.connect(self._conninfo, row_factory=dict_row)
+        conn = psycopg.connect(
+            self._conninfo, row_factory=dict_row, autocommit=self._autocommit
+        )
         conn.execute(
             f"SET statement_timeout = '{MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT}'"
         )
         row = conn.execute("SELECT pg_backend_pid() AS pid").fetchone()
         assert row is not None  # pg_backend_pid always returns one row
-        self._pid = int(row["pid"])
+        self._pid = int(cast("int", row["pid"]))
         self._conn = conn
         return conn
 

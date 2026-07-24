@@ -63,7 +63,7 @@ ca_app = typer.Typer(
 
 caggs_app = typer.Typer(
     name="caggs",
-    help="Continuous aggregate management (refresh, status).",
+    help="Continuous aggregate management (refresh, status, verify, repair).",
     no_args_is_help=True,
 )
 
@@ -3218,4 +3218,113 @@ def caggs_verify(
             json_mode=False,
         )
     raise typer.Exit(_EXIT_PARITY_FAILURE if any_failure else 0)
+
+
+_EXIT_REPAIR_PREFLIGHT: int = 1
+"""caggs repair exit code when pre-flight refuses (jobs unpaused, wrong
+interval, headroom not attested) or the DB URL is missing."""
+
+_EXIT_REPAIR_FAILED: int = 2
+"""caggs repair exit code when a window rebuild fails mid-sweep."""
+
+_EXIT_REPAIR_INTERRUPTED: int = 130
+"""caggs repair exit code on Ctrl-C (128 + SIGINT); resume by re-running."""
+
+
+@caggs_app.command("repair")
+def caggs_repair(
+    ctx: typer.Context,
+    granularity_opt: str = typer.Option(
+        "all",
+        "--granularity",
+        help="Minute cagg(s) to repair: all | 5m,15m,1h,4h (default all).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print planned windows and per-window parity states; mutate nothing.",
+    ),
+    assume_headroom_gb: float | None = typer.Option(
+        None,
+        "--assume-headroom-gb",
+        help="Attested free GB on the DB volume (pre-flight cannot read disk "
+        "from SQL; required for a real run).",
+    ),
+) -> None:
+    """Re-materialize under-materialized / re-chunked minute caggs (slice 163).
+
+    For each selected cagg, over 70-day epoch-grid windows oldest→newest: skip
+    windows already at parity, else drop_chunks → refresh_continuous_aggregate
+    (force) → compress. Rebuilds ONLY the windows a restructuring invalidated,
+    so the same command is the standing heal after any raw rechunk.
+
+    PRE-FLIGHT (refuses, does not warn): the cagg's refresh policy AND columnstore
+    policy must be paused (job IDs printed if not); migration 044 must be applied
+    (70-day mat interval); disk headroom must be attested via
+    --assume-headroom-gb. Raw-table jobs are never touched; the daemon may keep
+    running.
+
+    AVAILABILITY: during each window's drop→refresh interval, consumers of that
+    cagg see zero coverage for that one 70-day window (seconds-to-minutes).
+    Already-repaired and trailing windows stay served. Run outside market hours
+    for zero serving impact.
+
+    RESUMABILITY: safe to Ctrl-C mid-window — the server-side backend is
+    cancelled and the next run resumes via each window's parity check (state is
+    parity-derived, not transactional).
+
+    STANDING RULE: after ANY raw minute_ohlcv restructuring, run
+    `mt data caggs verify`; if parity fails, run this command.
+
+    \b
+    Exit codes:
+      0    success (or dry run)
+      1    DB URL missing, or pre-flight refused
+      2    a window rebuild failed
+      130  interrupted (Ctrl-C) — re-run to resume
+    """
+    import psycopg as _psycopg
+
+    from manta_trading.market.maintenance.cagg_repair import (
+        RepairError,
+        run_repair,
+    )
+    from manta_trading.market.maintenance.rechunk import PreflightError
+
+    settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=False)
+        raise typer.Exit(_EXIT_REPAIR_PREFLIGHT)
+
+    granularities = _resolve_minute_granularities(granularity_opt, json_output=False)
+
+    try:
+        result = run_repair(
+            settings.timescale_db_url,
+            granularities,
+            dry_run=dry_run,
+            assume_headroom_gb=assume_headroom_gb,
+            progress=lambda msg: print(msg, flush=True),
+        )
+    except PreflightError as exc:
+        print_error(f"Pre-flight refused: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_REPAIR_PREFLIGHT) from exc
+    except RepairError as exc:
+        print_error(f"Repair failed: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_REPAIR_FAILED) from exc
+    except KeyboardInterrupt:
+        print_error(
+            "Interrupted — backend cancelled. Re-run `mt data caggs repair` "
+            "to resume (completed windows are skipped via parity).",
+            json_mode=False,
+        )
+        raise typer.Exit(_EXIT_REPAIR_INTERRUPTED) from None
+    except _psycopg.OperationalError as exc:
+        print_error(f"Database error: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_REPAIR_FAILED) from exc
+
+    mode = "DRY RUN — no changes made" if result.dry_run else "complete"
+    print_result(f"\nCagg repair {mode}.", json_mode=False)
+    if not result.dry_run:
+        print_result(f"\n{_CAGG_MAINTENANCE_STANDING_RULE}", json_mode=False)
 
