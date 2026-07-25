@@ -122,15 +122,27 @@ head, where the trailing refresh still rewrites rows. 7 days mirrors the raw
 never restate as a literal.
 """
 
-MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT: str = "300s"
+MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT: str = "1800s"
 """PostgreSQL statement_timeout for the ``mt data caggs verify``/``repair``
 prod parity and sweep queries (slice 163).
 
-Precedent: ``MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT``. Sized well above a
-single-window ``refresh_continuous_aggregate`` + parity ``COUNT(*)`` over one
-70-day window on the 4.4-billion-row raw table. On timeout or client interrupt,
-the maintenance code cancels the server-side backend (journal 20260720
-discipline) before raising — never leaves a runaway query on prod.
+Precedent: ``MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT``. Must exceed the cost of
+a single-window ``refresh_continuous_aggregate`` + parity ``COUNT(*)`` over one
+70-day window on the 4.4-billion-row raw table.
+
+**Sized from measurement, not estimate.** The original 300s was set from the 4h
+cagg (17-62 s/window) and held for 1h (max 181 s) and 15m (max ~200 s), but the
+5m sweep crossed it on prod at window 103/119: per-window cost climbed
+268.8 s -> 287.5 s -> 305.7 s with raw volume and the refresh INSERT was
+cancelled mid-sweep. Per-window cost scales with both raw volume *and* bucket
+density, so the ceiling must clear the worst case — the finest granularity over
+the densest years — not the granularity that happened to be measured first.
+1800s leaves ~5x headroom over the observed 5m peak.
+
+This bounds a single statement, not the sweep: a genuinely stuck query still
+gets cancelled, just not a legitimately slow one. On timeout or client
+interrupt, the maintenance code cancels the server-side backend (journal
+20260720 discipline) before raising — never leaves a runaway query on prod.
 """
 
 EODHD_DAILY_QUOTA: int = 100_000
