@@ -346,6 +346,36 @@ Jobs 1002 + 1020 resumed; all 8 back to `scheduled = t`.
 Same curve the 4h run showed (17s → 62s). Any ETA extrapolated from the early, sparse
 years will under-estimate; scale the whole curve, not the front of it.
 
+## D5: 15m cagg repaired (2026-07-25)
+
+Jobs 1008 + 1019 paused; **1003 left scheduled** (runbook R1). Daemon ran throughout.
+
+**119 windows — 0 already at parity, 119 rebuilt.** Exit 0, **3.36 h** of logged
+per-window time. Chunks **~4,239 → 119, all 119 compressed**.
+
+Parity: 23 of 24 years digit-for-digit exact. 2026 short by 1,211 bars
+(182,445,457 raw vs 182,444,246 cagg) — trailing lag, larger than the 4h/1h runs'
+84 bars only because finer buckets leave more of the open bucket uncovered.
+**Closed-window delta verified = 0** (runbook R5), confirming every closed window exact.
+
+### Chaining automation aborted on a shell parsing bug (not a data problem)
+
+A script chaining 15m → verify → 5m aborted with
+`closed-window delta = SET0`. `psql -tAc "SET statement_timeout=...; SELECT ..."`
+echoes `SET` on its own stdout line; piping straight into `tr -d '[:space:]'` glues it
+to the number, producing `SET0`, which fails an `== "0"` compare.
+
+The gate **failed closed** — it refused to launch a 5-hour sweep on a value it could not
+parse, which is the correct behavior. But the bug was avoidable and is the **same class**
+as the migration 045 `INTERVAL` failure in D1: *code that parses real output was never
+tested against real output*. The gate's SQL had been validated against the 1h cagg
+(returned `0`); the shell parsing around it had not.
+
+Fix: `| grep -vx 'SET' | tail -1 | tr -d '[:space:]'`. Verified to yield `0` and pass.
+
+**Rule:** when scripting the R5 gate, strip the `SET` echo explicitly, or issue the
+timeout via `PGOPTIONS` instead of an in-band statement.
+
 ### D7 (partial): slice 162 coverage-query regression
 
 Run against the **completed 4h cagg** while the 15m sweep was still in flight — this

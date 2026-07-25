@@ -138,6 +138,20 @@ Verified against the fully-repaired 1h cagg on 2026-07-25: returned `0` while
 Gating on exit 0 alone stalls forever on benign lag; ignoring the exit code entirely
 marches past real corruption.
 
+When scripting it, beware the `SET` echo: `psql -tAc "SET statement_timeout=...; SELECT
+..."` prints `SET` on its own stdout line before the result. Piping that into
+`tr -d '[:space:]'` yields `SET0`, not `0`, and a `== "0"` compare then aborts a
+perfectly healthy sweep (observed 2026-07-25). Either strip it —
+
+```bash
+CLOSED=$(psql "$DBURL" -tAc "SET statement_timeout='300s'; SELECT ..." \
+  | grep -vx 'SET' | tail -1 | tr -d '[:space:]')
+```
+
+— or set the timeout out of band with `PGOPTIONS='-c statement_timeout=300s'` so the
+query is the only statement. Always log the parsed value, and fail closed on anything
+that is not a bare integer.
+
 ## Diagnostic: is the daemon in a re-seed loop?
 
 Symptom — the daemon re-pulls many chunks on symbols that should be complete.
