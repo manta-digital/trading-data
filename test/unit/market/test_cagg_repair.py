@@ -24,6 +24,12 @@ from manta_trading.market.maintenance.rechunk import PreflightError
 
 _VIEW = "minute_4hour_ohlcv"
 _MAT = "_materialized_hypertable_6"
+# The cagg feeding the daemon coverage index. Equal to _VIEW today (the 4h
+# cagg); named separately so the cross-granularity guard tests read clearly and
+# survive the source constant changing.
+_COVERAGE_VIEW = "minute_4hour_ohlcv"
+# A repair target that is NOT the coverage-index cagg.
+_OTHER_VIEW = "minute_1hour_ohlcv"
 
 
 def _utc(y: int, m: int = 1, d: int = 1) -> datetime:
@@ -58,12 +64,17 @@ class _FakeConn:
         self,
         *,
         jobs=None,
+        coverage_jobs=None,
         interval=MINUTE_CAGG_CHUNK_INTERVAL,
         parity_sequence=None,
         uncompressed_chunks=None,
     ):
         self.executed: list[str] = []
         self._jobs = jobs if jobs is not None else []
+        # Jobs returned when the job query is scoped to the coverage-index cagg
+        # (a different view than the repair target). None => reuse self._jobs,
+        # which is what the same-view case wants.
+        self._coverage_jobs = coverage_jobs
         self._interval = interval
         # parity_sequence: list of (raw, cagg) returned by successive parity
         # probes (one raw COUNT + one cagg SUM per window). We pop per window.
@@ -79,6 +90,11 @@ class _FakeConn:
         self.executed.append(sql)
         s = sql
         if "FROM timescaledb_information.jobs" in s:
+            # _resolve_cagg_jobs passes (view_name, [procs]) — dispatch on the
+            # view so the coverage-index probe can differ from the target's.
+            scoped_view = params[0] if params else None
+            if self._coverage_jobs is not None and scoped_view == _COVERAGE_VIEW:
+                return _FakeCursorResult(many=self._coverage_jobs)
             return _FakeCursorResult(many=self._jobs)
         if "materialization_hypertable_name" in s and "continuous_aggregates" in s:
             return _FakeCursorResult(one={"mat_name": _MAT})
@@ -110,11 +126,11 @@ class _FakeConn:
         return _FakeCursorResult(one=None)
 
 
-def _job(job_id: int, proc: str, scheduled: bool) -> dict:
+def _job(job_id: int, proc: str, scheduled: bool, view: str = _VIEW) -> dict:
     return {
         "job_id": job_id,
         "proc_name": proc,
-        "hypertable_name": _VIEW,
+        "hypertable_name": view,
         "scheduled": scheduled,
     }
 
@@ -151,6 +167,85 @@ class TestPreflight:
         msg = str(exc.value)
         assert "1003" in msg
         assert "alter_job(1003, scheduled => false)" in msg
+
+    def test_paused_coverage_index_cagg_refuses_for_other_target(self):
+        """Repairing 1h while the 4h coverage cagg's refresh is paused refuses.
+
+        Regression for the 2026-07-25 prod incident: a paused coverage cagg
+        makes the minute daemon re-seed and re-pull recent sessions every cycle
+        for the sweep's whole duration.
+        """
+        conn = _FakeConn(
+            jobs=[_job(1002, _REFRESH, scheduled=False, view=_OTHER_VIEW)],
+            coverage_jobs=[
+                _job(1003, _REFRESH, scheduled=False, view=_COVERAGE_VIEW)
+            ],
+        )
+        with pytest.raises(PreflightError, match="coverage index"):
+            preflight(
+                conn,
+                _OTHER_VIEW,
+                assume_headroom_gb=_REQUIRED_HEADROOM_GB,
+                required_headroom_gb=_REQUIRED_HEADROOM_GB,
+            )
+
+    def test_coverage_refusal_names_resume_and_catchup(self):
+        conn = _FakeConn(
+            jobs=[_job(1002, _REFRESH, scheduled=False, view=_OTHER_VIEW)],
+            coverage_jobs=[
+                _job(1003, _REFRESH, scheduled=False, view=_COVERAGE_VIEW)
+            ],
+        )
+        with pytest.raises(PreflightError) as exc:
+            preflight(
+                conn,
+                _OTHER_VIEW,
+                assume_headroom_gb=_REQUIRED_HEADROOM_GB,
+                required_headroom_gb=_REQUIRED_HEADROOM_GB,
+            )
+        msg = str(exc.value)
+        # Resuming alone is insufficient — the message must also point at the
+        # catch-up refresh, which is the half operators miss.
+        assert "alter_job(1003, scheduled => true)" in msg
+        assert "refresh_continuous_aggregate" in msg
+        assert "cagg-maintenance-pausing" in msg
+
+    def test_scheduled_coverage_index_cagg_allows_other_target(self):
+        conn = _FakeConn(
+            jobs=[_job(1002, _REFRESH, scheduled=False, view=_OTHER_VIEW)],
+            coverage_jobs=[
+                _job(1003, _REFRESH, scheduled=True, view=_COVERAGE_VIEW)
+            ],
+        )
+        preflight(
+            conn,
+            _OTHER_VIEW,
+            assume_headroom_gb=_REQUIRED_HEADROOM_GB,
+            required_headroom_gb=_REQUIRED_HEADROOM_GB,
+        )  # must not raise
+
+    def test_repairing_the_coverage_cagg_itself_is_allowed_while_paused(self):
+        """The 4h sweep legitimately pauses its own refresh job — allow it."""
+        conn = _FakeConn(
+            jobs=[_job(1003, _REFRESH, scheduled=False, view=_COVERAGE_VIEW)]
+        )
+        self._run(conn)  # target IS the coverage cagg; must not raise
+
+    def test_paused_coverage_columnstore_alone_does_not_refuse(self):
+        """Only the *refresh* policy starves the index; columnstore is fine."""
+        conn = _FakeConn(
+            jobs=[_job(1002, _REFRESH, scheduled=False, view=_OTHER_VIEW)],
+            coverage_jobs=[
+                _job(1003, _REFRESH, scheduled=True, view=_COVERAGE_VIEW),
+                _job(1021, _COLUMNSTORE, scheduled=False, view=_COVERAGE_VIEW),
+            ],
+        )
+        preflight(
+            conn,
+            _OTHER_VIEW,
+            assume_headroom_gb=_REQUIRED_HEADROOM_GB,
+            required_headroom_gb=_REQUIRED_HEADROOM_GB,
+        )  # must not raise
 
     def test_wrong_interval_refuses(self):
         conn = _FakeConn(

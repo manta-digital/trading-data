@@ -32,7 +32,11 @@ from typing import cast
 
 import psycopg
 
-from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL, Granularity
+from manta_trading.constants import (
+    GRANULARITY_SOURCE,
+    MINUTE_CAGG_CHUNK_INTERVAL,
+    Granularity,
+)
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.cagg_parity import (
     MINUTE_CAGG_GRANULARITIES,
@@ -82,6 +86,11 @@ _PROC_COLUMNSTORE: str = "policy_compression"
 
 # The raw-table columnstore job (e.g. 1009) — asserted untouched by pre-flight.
 _RAW_TABLE: str = "minute_ohlcv"
+
+# The cagg the minute daemon's coverage index reads (slice 162,
+# build_minute_coverage_index). Resolved from GRANULARITY_SOURCE rather than
+# spelled out, so the two paths cannot drift apart.
+_COVERAGE_INDEX_VIEW: str = GRANULARITY_SOURCE[Granularity.H4]
 
 
 @dataclass(frozen=True)
@@ -141,6 +150,53 @@ def _mat_chunk_interval(
     return cast("timedelta", interval_row["time_interval"])
 
 
+def _check_coverage_index_available(
+    conn: psycopg.Connection[dict[str, object]], view_name: str
+) -> None:
+    """Refuse if repairing ``view_name`` would starve the daemon coverage index.
+
+    The minute daemon's coverage index reads ``_COVERAGE_INDEX_VIEW``
+    (``build_minute_coverage_index``, slice 162). If that cagg's refresh policy
+    is paused, its leading edge freezes while raw keeps growing, so
+    ``compute_missing_minute_sessions`` sees recent sessions as missing and
+    re-seeds gap rows for them every cycle — a silent, perpetual re-pull that
+    costs provider calls and never self-heals (prod incident 2026-07-25).
+
+    Repairing the coverage cagg *itself* legitimately requires pausing it, so
+    that case is allowed — the sweep is bounded and the operator follows the
+    catch-up refresh in the pausing runbook. What this refuses is the
+    cross-granularity case: pausing the coverage cagg to repair a *different*
+    one, where the pause buys nothing and the loop runs for the whole sweep.
+    """
+    if view_name == _COVERAGE_INDEX_VIEW:
+        return
+
+    rows = [
+        j
+        for j in _resolve_cagg_jobs(conn, _COVERAGE_INDEX_VIEW)
+        if j.proc_name == _PROC_REFRESH
+    ]
+    paused = [j for j in rows if not j.scheduled]
+    if not paused:
+        return
+
+    ids = ", ".join(str(j.job_id) for j in paused)
+    resume_cmds = " ".join(
+        f"SELECT alter_job({j.job_id}, scheduled => true);" for j in paused
+    )
+    raise PreflightError(
+        f"refusing to repair {view_name}: the refresh policy for "
+        f"{_COVERAGE_INDEX_VIEW} (job(s) {ids}) is paused. That cagg feeds the "
+        "minute daemon's coverage index — leaving it paused through this sweep "
+        "makes the daemon re-seed and re-pull recent sessions every cycle. "
+        f"Resume it first: {resume_cmds} Then, if it was paused for longer than "
+        "its start_offset, run a catch-up "
+        f"CALL refresh_continuous_aggregate('{_COVERAGE_INDEX_VIEW}', "
+        "<pause_start - 1 day>, <now + 1 day>); "
+        "see user/runbooks/cagg-maintenance-pausing.md"
+    )
+
+
 def preflight(
     conn: psycopg.Connection[dict[str, object]],
     view_name: str,
@@ -162,11 +218,14 @@ def preflight(
        free-disk-space source over a connection, so rather than silently
        skipping the check the operator must pass ``--assume-headroom-gb`` with a
        value at least ``required_headroom_gb``.
+    4. The coverage-index cagg's refresh policy is still scheduled when a
+       *different* cagg is the repair target — see
+       ``_check_coverage_index_available``.
 
-    Never touches raw-table jobs — assert-only guard 4 documents that the job
+    Never touches raw-table jobs — assert-only guard 5 documents that the job
     query is scoped to the cagg view name, never ``minute_ohlcv``.
     """
-    # Guard 4 (assertion): job resolution is scoped to the cagg view; the raw
+    # Guard 5 (assertion): job resolution is scoped to the cagg view; the raw
     # table's own jobs are structurally out of reach of this pre-flight.
     assert view_name != _RAW_TABLE, (
         "cagg repair pre-flight must never target the raw hypertable"
@@ -186,6 +245,11 @@ def preflight(
             f"— {details}. Pause them first: {pause_cmds} "
             f"(job ids: {ids})"
         )
+
+    # Check 4: the daemon's coverage-index cagg must stay refreshed while a
+    # different cagg is repaired (ordered after check 1 so the target's own
+    # unpaused jobs — the more direct problem — are reported first).
+    _check_coverage_index_available(conn, view_name)
 
     # Check 2: interval == constant (migration 044 applied).
     interval = _mat_chunk_interval(conn, view_name)
