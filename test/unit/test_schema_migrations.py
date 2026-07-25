@@ -880,6 +880,26 @@ class TestMigration045ColumnstoreExecution:
         # Procedure invoked with CALL, not SELECT.
         assert all(sql.strip().startswith("CALL") for sql in policy_calls)
 
+    def test_policy_after_is_a_typed_interval_literal(self) -> None:
+        """Regression (prod apply, 2026-07-25): `after` is interpolated straight
+        into the CALL, so a bare '7 days' renders `after => 7 days` and Postgres
+        raises `syntax error at or near "days"`. It must be a typed INTERVAL."""
+        from manta_trading.constants import MINUTE_CAGG_COMPRESS_AFTER
+
+        conn = self._conn_with_caggs(existing_policy=False)
+        self._fn()(conn)
+        policy_calls = [
+            c.args[0] for c in conn.execute.call_args_list
+            if "add_columnstore_policy" in str(c.args[0])
+        ]
+        expected = (
+            f"INTERVAL '{int(MINUTE_CAGG_COMPRESS_AFTER.total_seconds())} seconds'"
+        )
+        for sql in policy_calls:
+            assert f"after => {expected}" in sql, (
+                f"after must be a typed INTERVAL literal; got: {sql}"
+            )
+
     def test_idempotent_skips_existing_policy(self) -> None:
         conn = self._conn_with_caggs(existing_policy=True)
         self._fn()(conn)

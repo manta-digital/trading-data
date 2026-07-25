@@ -533,7 +533,11 @@ def _setup_minute_cagg_columnstore(conn: Any) -> None:
     from manta_trading.logging import get_logger
 
     _log = get_logger(__name__)
-    compress_after = _interval_literal(MINUTE_CAGG_COMPRESS_AFTER)
+    # Must be a typed INTERVAL literal: add_columnstore_policy's `after` argument
+    # is interpolated directly into the CALL, so a bare "7 days" (what
+    # _interval_literal renders, for contexts that write the INTERVAL keyword
+    # separately) is a syntax error.
+    compress_after = _interval_seconds_sql(MINUTE_CAGG_COMPRESS_AFTER)
 
     # Confirm all four caggs exist before mutating any (fail-fast, not partial).
     with conn.cursor() as cur:
