@@ -221,3 +221,86 @@ compressed chunks. Chunk count 119 matches the design's ~117 prediction.
 
 4h cagg size: 1,830 MB (21% materialized, uncompressed) → **~1.6 GB (100%, compressed)**
 — complete-and-compressed is smaller than incomplete-and-uncompressed, per design D3.
+
+## Incident: paused 4h refresh job caused a perpetual minute re-pull loop (2026-07-25)
+
+**Discovered by the PM from daemon behavior**, not by our verification: the minute
+daemon was re-pulling large chunk counts on symbols that should have been complete
+(e.g. AUTL, 21 chunks).
+
+### Root cause — ours
+
+`build_minute_coverage_index` reads **`minute_4hour_ohlcv`**
+(`src/manta_trading/data/gaps/minute_coverage.py`, via `GRANULARITY_SOURCE[Granularity.H4]`).
+Job **1003** (4h refresh) was paused in D2 for the repair sweep and **left paused after
+D3 completed**. With the cagg's leading edge frozen at its last run (2026-07-24 23:44)
+while raw kept growing, `compute_missing_minute_sessions` saw the trailing days as
+genuinely missing and re-seeded gap rows for them every cycle.
+
+AUTL: raw had 2,032 distinct days, the 4h cagg only 2,028. The four missing days were
+exactly 2026-07-21 → 07-24 — the paused-job window.
+
+Universe-wide exposure before the fix:
+
+```
+    day     | symbols invisible to coverage index
+------------+-------------------------------------
+ 2026-07-20 |    79
+ 2026-07-21 |   349
+ 2026-07-22 |   349
+ 2026-07-23 |   346
+ 2026-07-24 |   298
+```
+
+Bounded to ~349 of 4,198 symbols because 1003's final run materialized most of the
+universe before going idle. **Non-corrupting** — bars re-insert via
+`ON CONFLICT (symbol, time) DO NOTHING` — but perpetual, and growing one day per day.
+The wasted cost is EODHD API calls.
+
+### Second-order finding: resuming the job is NOT sufficient
+
+All four minute refresh jobs use `start_offset => '1 day'`:
+
+```
+ job_id | schedule_interval |                         config
+--------+-------------------+--------------------------------------------------------
+   1002 | 01:00:00          | {"end_offset": "01:00:00", "start_offset": "1 day", ...}
+   1003 | 01:00:00          | {"end_offset": "04:00:00", "start_offset": "1 day", ...}
+   1007 | 00:05:00          | {"end_offset": "00:05:00", "start_offset": "1 day", ...}
+   1008 | 00:15:00          | {"end_offset": "00:15:00", "start_offset": "1 day", ...}
+```
+
+The resumed schedule would have healed only 2026-07-24 and left 07-21 → 07-23
+**stranded permanently** — the re-pull loop would have continued silently. Any cagg
+pause longer than the job's `start_offset` requires a manual catch-up refresh.
+
+### Remediation applied to prod
+
+```sql
+SELECT alter_job(1003, scheduled => true);
+SELECT alter_job(1021, scheduled => true);
+CALL refresh_continuous_aggregate('minute_4hour_ohlcv', '2026-07-19', '2026-07-25');
+```
+
+Verified: all 8 jobs `scheduled = t`; the raw-vs-cagg day-coverage diff returns
+**0 rows** for every day since 2026-07-01. Re-seed loop closed.
+
+### Standing constraint for D5 (new — not anticipated by the design)
+
+**Job 1003 must remain scheduled throughout the 1h/15m/5m sweeps.** The coverage index
+depends only on the 4h cagg, so pausing the other three pairs (1002+1020, 1008+1019,
+1007+1018) is safe. Pausing 1003 during a long sweep would re-open this loop for the
+sweep's full duration.
+
+`preflight()` in `cagg_repair.py` currently has no guard against this — it refuses when
+the *target* cagg's jobs are scheduled, but says nothing about 1003 being unscheduled
+while a *different* granularity is repaired. Follow-up candidate.
+
+### Also confirmed non-issues
+
+- **Daemon symbol order wrapping Z→A is correct.** `iter_active_instruments` uses
+  `most_stale_first`: `ORDER BY s.last_attempt_ts ASC NULLS FIRST, i.symbol ASC`
+  (`src/manta_trading/data/acquisition/symbols.py`). Symbol is only the tiebreaker; a
+  strict A→Z sweep would indicate the ordering was broken.
+- **AUTL's re-pull itself was legitimate** — it fetched real missing sessions and
+  correctly deleted all its gap rows afterward (0 rows remain, 477,141 bars).
