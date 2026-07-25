@@ -304,3 +304,52 @@ while a *different* granularity is repaired. Follow-up candidate.
   strict A→Z sweep would indicate the ordering was broken.
 - **AUTL's re-pull itself was legitimate** — it fetched real missing sessions and
   correctly deleted all its gap rows afterward (0 rows remain, 477,141 bars).
+
+## D5: 1h cagg repaired (2026-07-25)
+
+Jobs 1002 + 1020 paused for the sweep; **job 1003 deliberately left scheduled**
+(runbook R1 — it feeds the daemon coverage index). Daemon ran throughout.
+
+`mt data caggs repair --granularity 1h --assume-headroom-gb 1050`
+
+**119 windows — 0 already at parity, 119 rebuilt.** Exit 0, ~1h 22m wall clock
+(115.7 min of logged per-window time).
+
+Chunks: **~4,239 → 119, all 119 compressed** — same 36x reduction as the 4h cagg.
+
+### Parity after repair
+
+23 of 24 years digit-for-digit exact. 2026 shows an 84-bar shortfall, localized to
+prove it is trailing lag rather than corruption:
+
+```
+window 2026-05-07..07-16 : raw 77,941,663  cagg 77,941,663  EXACT
+window 2026-07-16..open  : raw  4,772,083  cagg  4,771,999  DIFF 84
+```
+
+Raw newest `2026-07-24 07:30` vs cagg newest bucket `2026-07-24 07:00` — one hourly
+bucket behind while the daemon keeps writing. Same signature as the 4h run; heals now
+that job 1002 is resumed.
+
+**`verify` exits 2 on this.** That is correct — it cannot distinguish trailing lag from
+corruption, so the operator must. Success criterion 2 is "parity within the trailing
+refresh-lag bound", *not* a clean exit code. Note for the D8 criteria audit.
+
+Jobs 1002 + 1020 resumed; all 8 back to `scheduled = t`.
+
+### Per-window cost scales with raw volume
+
+```
+2020 windows ~59s   2022 ~87s   2024 ~122s   2026 ~181s
+```
+
+Same curve the 4h run showed (17s → 62s). Any ETA extrapolated from the early, sparse
+years will under-estimate; scale the whole curve, not the front of it.
+
+### Granularity cost is a clean multiplier (measured)
+
+The 15m sweep re-runs the *identical* windows, so comparing the same window index
+across runs isolates granularity cost with raw volume held constant. Across the first
+20 windows the 15m/1h ratio was **2.08–2.15, aggregate 2.11** — tight enough that
+scaling the 1h run's complete 119-window curve is a sound projection method
+(15m projected 4.08 h against the design's ~4 h estimate).
