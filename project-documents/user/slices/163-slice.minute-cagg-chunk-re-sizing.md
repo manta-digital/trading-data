@@ -7,8 +7,8 @@ dependencies: [152, 166]
 interfaces: [162, 164, 167, 182]
 tools: [timescaledb]
 dateCreated: 20260720
-dateUpdated: 20260720
-status: not_started
+dateUpdated: 20260725
+status: in_progress
 ---
 
 # Slice Design: Minute-cagg chunk re-sizing + full re-materialization repair
@@ -330,7 +330,113 @@ resume jobs → verify last_run_status = 'Success'
 Effort: 3/5 (raised from the plan's 2/5 — the folded repair adds the full
 re-materialization sweep, compression enablement, and the verify/repair CLI).
 
-## Verification Walkthrough (draft — refined at Phase 6)
+### Criteria audit (2026-07-25)
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| 1 | 70-day intervals, chunks → low hundreds | **met** | All four at `time_interval = 70 days`; ~4,239 → **119 chunks** each (36×) |
+| 2 | Full parity every year/granularity, within lag bound | **met** | 23 of 24 years digit-for-digit exact per cagg; 2026 shortfall confined to the open window with closed-window delta `0` (R5) |
+| 3 | 4h single-symbol query ~2 s → sub-100 ms | **met** | ~5.2 s → **~95 ms**; plan nodes 12,721 → 238 |
+| 4 | All mat hypertables compressed; footprint recorded | **met** | 119/119 compressed per cagg; total **41 GB** (expected ~30–40 GB) |
+| 5 | Repair resumable | **met** | Killed 4h mid-sweep: no orphaned backend; re-run resumed at window 7 |
+| 6 | Jobs resumed with `last_run_status = 'Success'`; daemon uninterrupted | **partial** | All eight resumed and verified `scheduled = t`; daemon ran throughout. Next-scheduled-run status confirmation is next-trading-day work (D6) |
+| 7 | Cold start yields correct intervals + compression from migrations alone | **partial** | Assertions added to the cold-start integration test (mat interval, `compression_enabled`, columnstore policy count). Execution pending — the test was previously a false green, verifying only that caggs *existed* |
+| 8 | 162 coverage query returns complete results | **met** | 22,687,666 symbol-days / 11,625 symbols, `ColumnarScan` plan |
+
+Six of eight met outright. **6** and **7** are complete in substance with a
+time-gated confirmation outstanding, neither of which can be closed the same day.
+
+## Verification Walkthrough (as executed, 2026-07-24/25)
+
+Executed against prod `trading` (TimescaleDB 2.23.0 / PostgreSQL 17.7,
+192.168.1.144:5432). **The acquisition daemon ran uninterrupted throughout** — no
+contention was observed in `pg_stat_activity` wait events across all four sweeps.
+Full evidence log: `user/notes/163-baseline-verify-20260724.md`.
+
+Environment notes that cost time if unknown:
+
+- Always `export PGCONNECT_TIMEOUT=10`; bare `psql` connects to this host stall
+  intermittently even though the DB is healthy.
+- Every ad-hoc prod query needs an explicit `SET statement_timeout`.
+- The postgres MCP `execute_sql` tool hangs against this DB — use `psql`.
+- The 1h cagg's view name is `minute_hourly_ohlcv`, **not** `minute_1hour_ohlcv`.
+
+1. **Baseline capture.** `mt data caggs verify` → parity failures across every year
+   and granularity (4h at 20.8% coverage, 4,238 chunks). Saved with the before-EXPLAIN.
+
+2. **Migrations.** Applied 044/045.
+   **045 failed on first apply**: it interpolated a bare `7 days` into
+   `CALL add_columnstore_policy(..., after => ...)` → `syntax error at or near "days"`.
+   Unit tests asserted the constant, never the rendered SQL, so they passed. Fixed to a
+   typed `INTERVAL` (`_interval_seconds_sql`), regression test added, and the
+   idempotency guards let the corrected re-run finish over the half-applied state.
+   After: all four caggs `time_interval = 70 days`, `compression_enabled = t`.
+
+3. **Dry run.** `repair --granularity 4h --dry-run` → 119 windows, 0 at parity, 119
+   would rebuild; chunk count unchanged afterwards (zero mutation proven).
+
+4. **Pre-flight refusal.** Ran with jobs unpaused → refused, naming both the refresh
+   and columnstore job IDs with paste-ready `alter_job(..., scheduled => false)`.
+
+5. **Repair 4h, with a deliberate interrupt.** Killed after 5 windows: no orphaned
+   backend in `pg_stat_activity`, and the re-run's first action was window 7 (1–6
+   skipped by parity). Full sweep: 119 windows, 6 already at parity, 113 rebuilt.
+
+6. **The win.** Single-symbol 4h query: ~5.2 s → **~95 ms** (~55×); plan nodes
+   12,721 → 238; scans became `Custom Scan (ColumnarScan)`.
+
+7. **Remaining granularities**, each with its own job pair paused and
+   **job 1003 (4h refresh) deliberately left scheduled** — see the incident below:
+
+   | Cagg | Windows | Wall clock | Chunks after |
+   |---|---|---|---|
+   | 4h | 119 (113 rebuilt) | ~50 min | 119, compressed |
+   | 1h | 119/119 | ~1h 22m | 119, compressed |
+   | 15m | 119/119 | 3.36 h | 119, compressed |
+   | 5m | 119/119 | ~6 h | 119, compressed |
+
+   Total minute-cagg footprint: **41 GB** (design expected ~30–40 GB).
+
+   Per-window cost scales with raw volume (4h: 17 s → 62 s; 1h: 59 s → 181 s). Any
+   ETA extrapolated from the early sparse years under-estimates by ~30%; scale the
+   whole curve.
+
+8. **Resume jobs; steady state.** All eight jobs back to `scheduled = t`.
+
+9. **162 regression.** The coverage-index query returns 22,687,666 symbol-days across
+   11,625 symbols with a `ColumnarScan` plan. Pre-repair this silently returned a
+   fraction of true coverage. (23 s execution — amortized once per daemon cycle, and
+   the workload slice 167 replaces; a pre-167 baseline, not a performance claim.)
+
+10. **Post-rechunk rule rehearsal.** Deferred to the scheduled raw rechunk re-run.
+
+### Incident encountered mid-walkthrough (and the rule it produced)
+
+Pausing the **4h** refresh job for step 5 and leaving it paused afterwards froze the
+cagg the minute daemon's coverage index reads, so the daemon re-seeded and re-pulled
+recent sessions every cycle across ~349 symbols. Silent and non-corrupting, but
+perpetual.
+
+**Resuming the job was not sufficient** — all four refresh policies use
+`start_offset => '1 day'`, so a resumed job heals only the most recent day and strands
+the rest permanently. A manual catch-up
+`refresh_continuous_aggregate('minute_4hour_ohlcv', <pause_start - 1d>, <now + 1d>)`
+was required; verified closed via a per-symbol/per-day coverage diff returning zero rows.
+
+Codified as `user/runbooks/cagg-maintenance-pausing.md` (R1–R5) and enforced by a
+pre-flight check that refuses cross-granularity repair while the coverage-index cagg's
+refresh policy is paused.
+
+### Reading `verify`'s exit code
+
+`verify` **exits 2 on any shortfall**, including benign trailing refresh lag, and cannot
+distinguish lag from corruption. Criterion 2 is "parity within the trailing refresh-lag
+bound", not a clean exit code. The discriminator (runbook R5) is that a lag shortfall is
+confined to the open trailing window — sum parity over all *closed* windows and require
+exactly `0`. Measured: 4h 84 bars, 1h 84 bars, 15m 1,211 bars, all confined to the open
+window, all with closed-window delta `0`.
+
+## Verification Walkthrough (original draft — superseded by the above)
 
 1. **Baseline capture:** `mt data caggs verify` → shows ~21%-coverage parity failures
    across years/granularities (the corruption made visible for the first

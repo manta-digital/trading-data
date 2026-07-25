@@ -13,7 +13,7 @@ projectState: >
   both with one sweep and blocks slice 167. TimescaleDB 2.23.0 / PostgreSQL
   17.7 on prod trading DB (192.168.1.144).
 dateCreated: 20260721
-dateUpdated: 20260721
+dateUpdated: 20260725
 status: not_started
 ---
 

@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260720
+dateUpdated: 20260725
 status: in_progress
 ---
 
@@ -19,6 +19,64 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260725 — Derived-data staleness leaks into acquisition: a paused cagg refresh job silently drove a perpetual re-pull, and resuming it was not the fix
+
+**Context:** During slice 163's repair sweeps the minute daemon began re-pulling
+many chunks on symbols that were already complete. The 4h cagg refresh job had been
+paused for the 4h sweep and left paused after that sweep finished.
+
+**Decision:** Treat any cagg that feeds an acquisition decision as a **production
+input**, not merely derived output. Pausing its refresh policy is a change to
+acquisition behavior and must be scoped to the shortest possible window. Recorded as
+`user/runbooks/cagg-maintenance-pausing.md` (R1–R5) and enforced in code by a new
+pre-flight check that refuses to repair one cagg while the coverage-index cagg's
+refresh policy is paused.
+
+**Rationale:** The daemon's coverage index reads `minute_4hour_ohlcv`. With that cagg
+frozen while raw kept growing, the missing-session diff reported recent sessions as
+absent and re-seeded gap rows every cycle. The loop was silent — no errors, and
+`ON CONFLICT DO NOTHING` meant no corruption — so the only symptom was wasted provider
+calls, which is exactly the kind of failure that persists indefinitely because nothing
+alarms.
+
+Two second-order lessons carried more weight than the original bug:
+
+- **Resuming the job does not repair the gap.** All four minute refresh policies use
+  `start_offset => '1 day'`, so a resumed job heals only the most recent day and
+  strands everything older *permanently*. Any pause longer than `start_offset`
+  requires an explicit catch-up `refresh_continuous_aggregate` over the pause window.
+- **A universe-wide `max(time)` comparison hides the problem.** Raw and cagg maxima
+  differed by one bucket while 349 symbols were invisible for four days. Per-symbol,
+  per-day coverage diffs are the only trustworthy check.
+
+**Follow-ups:** Slice 167 adds another cagg-backed read path (hierarchical coverage for
+`data_status`) and inherits this coupling — the runbook applies there unchanged.
+
+## 20260725 — Code that parses real output must be tested against real output
+
+**Context:** Two failures in one slice shared a root cause. Migration 045 rendered an
+untyped `7 days` into `add_columnstore_policy` and raised a syntax error on prod, having
+passed unit tests that asserted the *constant* rather than the *rendered SQL*. Later, a
+sweep-chaining script aborted a healthy run because `psql -tAc "SET ...; SELECT ..."`
+echoes `SET` on stdout, so `tr -d '[:space:]'` produced `SET0` instead of `0` — the
+underlying SQL had been validated, but the shell parsing around it had not.
+
+**Decision:** Where a value crosses a formatting boundary — SQL rendered from a
+constant, shell parsing of command output, a regex over a file — the test fixture must
+be the *real* artifact, not a reconstruction of it. Assertions on inputs do not
+substitute for assertions on rendered output.
+
+**Rationale:** Both bugs were invisible to otherwise-reasonable tests because the tests
+asserted one side of a transformation. Only execution against the real consumer catches
+this class. The cold-start integration test was extended for the same reason: it
+verified caggs *existed* but never that migrations 044/045 took effect, so it would have
+passed on a database with the wrong chunk interval and no compression — a false green on
+the slice's central property.
+
+**Follow-ups:** Guard added to the cold-start test (mat `chunk_time_interval`,
+`compression_enabled`, columnstore policy count per cagg). Runbook R5 documents the
+`psql` `SET`-echo trap and the `PGOPTIONS` alternative.
 
 ## 20260720 — Row-scale claims require exact counts; `approximate_row_count` on compressed hypertables is unreliable even post-ANALYZE; ad-hoc prod aggregates require a statement_timeout
 
