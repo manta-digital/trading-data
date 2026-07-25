@@ -108,6 +108,36 @@ WHERE job_id IN (1002,1003,1007,1008,1018,1019,1020,1021) ORDER BY job_id;
 
 All must be `t`. Then confirm `last_run_status = 'Success'` after the next scheduled run.
 
+### R5 — Distinguish trailing refresh lag from real corruption
+
+`mt data caggs verify` **exits 2 whenever cagg totals fall short of raw**, including the
+benign case where the daemon has written bars the cagg's newest bucket has not covered
+yet. It cannot tell the two apart — the operator must. Do not read exit 2 as corruption,
+and do not read it as safe.
+
+The discriminator: **a lag shortfall is confined to the open trailing window.** Sum
+parity over everything *before* the newest window boundary; it must be exactly `0`.
+
+```sql
+SET statement_timeout = '300s';
+SELECT (SELECT count(*) FROM minute_ohlcv
+         WHERE "time" >= '2003-01-01' AND "time" < '<newest_window_start>')
+     - (SELECT coalesce(sum(minute_count), 0) FROM <cagg_view>
+         WHERE time_bucket >= '2003-01-01' AND time_bucket < '<newest_window_start>');
+```
+
+- `0` → every closed window is exact; the shortfall is trailing lag. Benign. It heals
+  once the refresh policy is resumed.
+- non-zero → a closed window is short. That is real under-materialization. Re-run
+  `mt data caggs repair` for that granularity; do **not** proceed to other work.
+
+Verified against the fully-repaired 1h cagg on 2026-07-25: returned `0` while
+`verify` was exiting 2 on an 84-bar open-window gap.
+
+**Any automation that chains sweeps must gate on this query, not on the exit code.**
+Gating on exit 0 alone stalls forever on benign lag; ignoring the exit code entirely
+marches past real corruption.
+
 ## Diagnostic: is the daemon in a re-seed loop?
 
 Symptom — the daemon re-pulls many chunks on symbols that should be complete.
