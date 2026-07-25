@@ -346,10 +346,66 @@ Jobs 1002 + 1020 resumed; all 8 back to `scheduled = t`.
 Same curve the 4h run showed (17s → 62s). Any ETA extrapolated from the early, sparse
 years will under-estimate; scale the whole curve, not the front of it.
 
-### Granularity cost is a clean multiplier (measured)
+### D7 (partial): slice 162 coverage-query regression
+
+Run against the **completed 4h cagg** while the 15m sweep was still in flight — this
+path reads only the 4h cagg, so it did not need the other granularities.
+
+Query is the exact statement `build_minute_coverage_index` issues
+(`src/manta_trading/data/gaps/minute_coverage.py`):
+
+```sql
+SELECT symbol, date_trunc('day', time_bucket) FROM minute_4hour_ohlcv
+GROUP BY symbol, date_trunc('day', time_bucket);
+```
+
+| Metric | Value |
+|---|---|
+| Planning Time | 57 ms |
+| Execution Time | 22,969 ms |
+| Index rows returned | 22,687,666 |
+| Distinct symbols | 11,625 |
+
+**Success criterion 8 (correct, complete results): met.** Pre-repair the 4h cagg was
+~21% materialized, so this query silently returned a fraction of true coverage — the
+direct cause of the daemon re-seeding phantom gaps. Results changed *for the better*
+wherever prior reads touched under-materialized regions, exactly as the design
+predicted.
+
+Plan shape is the intended post-migration form: `Custom Scan (ColumnarScan)` over
+compressed 70-day chunks under a `Parallel Append`, not per-chunk index scans.
+
+**Caveat — do not read this as "the coverage path is fast."** 23 s is a universe-wide
+aggregate over every 4h bucket, run once per daemon cycle (amortized, not per-symbol).
+Criterion 8 is about correctness and completeness, not latency, so this passes. But
+this workload is precisely what **slice 167** replaces with a hierarchical coverage
+cagg for sub-second `data_status`. Treat the 23 s / 22.7 M rows / 11,625 symbols
+figures as the **pre-167 baseline**.
+
+### Granularity cost ratio: banded, not a stable multiplier
 
 The 15m sweep re-runs the *identical* windows, so comparing the same window index
-across runs isolates granularity cost with raw volume held constant. Across the first
-20 windows the 15m/1h ratio was **2.08–2.15, aggregate 2.11** — tight enough that
-scaling the 1h run's complete 119-window curve is a sound projection method
-(15m projected 4.08 h against the design's ~4 h estimate).
+across runs isolates granularity cost with raw volume held constant.
+
+The first 20 windows suggested a tight multiplier (2.08–2.15, aggregate 2.11). **That
+did not hold.** Measured by 15-window block:
+
+| Windows | 1h (s) | 15m (s) | Ratio |
+|---|---|---|---|
+| 1–15 | 329 | 694 | 2.11 |
+| 16–30 | 457 | 969 | 2.12 |
+| 31–45 | 520 | 1051 | 2.02 |
+| 46–60 | 641 | 969 | **1.51** |
+| 61–75 | 788 | 1201 | 1.52 |
+| 76–90 | 972 | 1729 | **1.78** |
+
+The ratio steps down around window 46 and back up by window 76 — it moves in a
+**1.5–2.1 band with no reliable trend**. An interim reading of "the ratio compresses as
+raw volume grows" was a story fitted to three declining points and was contradicted by
+the next block.
+
+**Lesson for future sweep planning:** cross-granularity extrapolation is not reliable
+here. Projections made from the first N windows of a run drifted repeatedly (15m total
+projected 4.08 h → 3.89 h → 3.44 h as blocks accumulated). Use the band for planning,
+quote a range rather than a point, and re-fit from ~15 real windows of the *target*
+granularity before committing to a number.
