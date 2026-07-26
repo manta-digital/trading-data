@@ -7,7 +7,7 @@ dependencies: [163]
 interfaces: [162, 167]
 dateCreated: 20260726
 dateUpdated: 20260726
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: Cagg freshness assertion for derived-data readers
