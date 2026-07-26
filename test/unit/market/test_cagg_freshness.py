@@ -156,22 +156,42 @@ class TestReadRefreshJob:
 
     def test_populated_row_parses_with_correct_types(self) -> None:
         conn = _RecordingConnection(
-            rows=[(1003, True, timedelta(days=1), "Success", _utc(2026, 7, 26))]
+            rows=[
+                (
+                    1003,
+                    True,
+                    timedelta(days=1),
+                    timedelta(hours=4),
+                    "Success",
+                    _utc(2026, 7, 26),
+                )
+            ]
         )
         job = _read_refresh_job(conn, _VIEW)  # type: ignore[arg-type]
         assert job is not None
         assert job.job_id == 1003
         assert job.scheduled is True
         assert job.start_offset == timedelta(days=1)
+        assert job.end_offset == timedelta(hours=4)
         assert job.last_run_status == "Success"
         assert job.last_successful_finish == _utc(2026, 7, 26)
+
+    def test_infinity_last_success_is_normalized_to_null_in_sql(self) -> None:
+        # A policy created but never run stores '-infinity', which psycopg
+        # cannot load into a datetime — it raises DataError mid-fetch and every
+        # freshly-created cagg would refuse. Normalized in SQL instead.
+        conn = _RecordingConnection(rows=[(1, True, None, None, "Success", None)])
+        _read_refresh_job(conn, _VIEW)  # type: ignore[arg-type]
+        catalog_sql = conn.log[-1][0]
+        assert "nullif" in catalog_sql
+        assert "-infinity" in catalog_sql
 
     def test_empty_result_returns_none(self) -> None:
         conn = _RecordingConnection(rows=[])
         assert _read_refresh_job(conn, _VIEW) is None  # type: ignore[arg-type]
 
     def test_view_name_is_a_bound_parameter_not_inlined(self) -> None:
-        conn = _RecordingConnection(rows=[(1, True, None, "Success", None)])
+        conn = _RecordingConnection(rows=[(1, True, None, None, "Success", None)])
         _read_refresh_job(conn, _VIEW)  # type: ignore[arg-type]
         catalog_sql, params = conn.log[-1]
         assert _VIEW not in catalog_sql, "view_name must not be interpolated"
@@ -182,7 +202,7 @@ class TestReadRefreshJob:
         # TimescaleDB keeps start_offset in jobs.config as a jsonb interval
         # string; the cast is what makes psycopg return a timedelta.
         conn = _RecordingConnection(
-            rows=[(1, True, timedelta(days=1), "Success", None)]
+            rows=[(1, True, timedelta(days=1), None, "Success", None)]
         )
         _read_refresh_job(conn, _VIEW)  # type: ignore[arg-type]
         catalog_sql = conn.log[-1][0]
@@ -221,8 +241,26 @@ class TestProbeTimeoutDiscipline:
         assert "statement_timeout" in statements[0]
         assert statements[1].startswith("SELECT max(")
 
+    def test_raw_probe_buckets_the_edge_when_given_a_width(self) -> None:
+        # Both sides of the lag comparison must be bucket starts, otherwise a
+        # healthy coarse cagg reports its own bucket width as lag (measured on
+        # prod: daily_quarterly_ohlcv sat 72 days "behind" raw while healthy).
+        conn = _RecordingConnection(rows=[(_utc(2026, 7, 24),)])
+        _raw_max(conn, _RAW, "3 mons")  # type: ignore[arg-type]
+        probe_sql, params = conn.log[-1]
+        assert "time_bucket(" in probe_sql
+        # The width is bound, not interpolated — variable-width month/quarter
+        # buckets are aligned by PostgreSQL, never by Python arithmetic.
+        assert "3 mons" not in probe_sql
+        assert isinstance(params, tuple) and params[0] == "3 mons"
+
+    def test_raw_probe_falls_back_to_plain_max_without_a_width(self) -> None:
+        conn = _RecordingConnection(rows=[(_utc(2026, 7, 24),)])
+        _raw_max(conn, _RAW)  # type: ignore[arg-type]
+        assert "time_bucket(" not in conn.log[-1][0]
+
     def test_catalog_read_also_sets_the_timeout_first(self) -> None:
-        conn = _RecordingConnection(rows=[(1, True, None, "Success", None)])
+        conn = _RecordingConnection(rows=[(1, True, None, None, "Success", None)])
         _read_refresh_job(conn, _VIEW)  # type: ignore[arg-type]
         assert "statement_timeout" in conn.statements[0]
 
@@ -284,25 +322,45 @@ class TestResolveThreshold:
             "MAX_COVERAGE_SOURCE_STALENESS ceiling breaks this"
         )
 
+    def test_end_offset_is_added_to_the_budget(self) -> None:
+        # A policy deliberately refuses to materialize the most recent
+        # end_offset of data, so that much lag is configured, not stale.
+        # daily_monthly_ohlcv's end_offset is 30 days (verified on prod).
+        assert _resolve_threshold(
+            timedelta(days=90), timedelta(days=30)
+        ) == MAX_COVERAGE_SOURCE_STALENESS + timedelta(days=30)
+
+    def test_ceiling_still_applies_with_an_end_offset(self) -> None:
+        # end_offset widens the budget but must not defeat the ceiling on the
+        # start_offset term itself.
+        assert _resolve_threshold(timedelta(days=270), timedelta(hours=4)) == (
+            MAX_COVERAGE_SOURCE_STALENESS + timedelta(hours=4)
+        )
+
 
 # --- Task 5: evaluation fixtures -------------------------------------------
 #
-# _evaluate issues exactly three queries in order: catalog read, cagg edge,
-# raw edge. The fake below serves that sequence and can raise on any of them.
+# _evaluate issues exactly four queries in order: catalog read, bucket width,
+# cagg edge, raw edge. The fake serves that sequence and can raise on any one.
+# Both edges are bucket starts (the raw edge is bucketed in SQL), so a healthy
+# fixture has them equal — the structural bucket-width offset is cancelled, not
+# budgeted for.
 
 _NOW = _utc(2026, 7, 26)
-_CAGG_EDGE = _NOW - timedelta(hours=2)
-_RAW_EDGE = _NOW - timedelta(minutes=30)
+_CAGG_EDGE = _NOW - timedelta(hours=4)
+_RAW_EDGE = _CAGG_EDGE
+_BUCKET_WIDTH = "04:00:00"
 
 
 class _EvalConnection(_RecordingConnection):
-    """Serves the catalog row then the two edge probes, optionally raising."""
+    """Serves the catalog row, bucket width, then the two edge probes."""
 
     def __init__(
         self,
         *,
         scheduled: bool = True,
         start_offset: timedelta | None = timedelta(days=1),
+        end_offset: timedelta | None = None,
         last_run_status: str | None = "Success",
         last_successful_finish: datetime | None = None,
         job_row: bool = True,
@@ -315,6 +373,7 @@ class _EvalConnection(_RecordingConnection):
                 1003,
                 scheduled,
                 start_offset,
+                end_offset,
                 last_run_status,
                 last_successful_finish if last_successful_finish else _NOW,
             )
@@ -323,6 +382,7 @@ class _EvalConnection(_RecordingConnection):
         )
         self._template: list[Any] = [
             catalog,
+            (_BUCKET_WIDTH,),
             (cagg_max,) if cagg_max is not None else None,
             (raw_max,) if raw_max is not None else None,
         ]
@@ -369,7 +429,9 @@ class TestEvaluateSignals:
         verdict = _evaluate(_EvalConnection(), _VIEW)  # type: ignore[arg-type]
         assert verdict.is_fresh is True
         assert verdict.signals == ()
-        assert verdict.lag == _RAW_EDGE - _CAGG_EDGE
+        # Both edges are bucket starts, so a healthy cagg has zero lag — the
+        # bucket width is cancelled by bucketing the raw edge, not budgeted for.
+        assert verdict.lag == timedelta(0)
 
     def test_lag_exceeding_threshold_trips(self) -> None:
         # Raw ran four days past the cagg edge — the 163 incident's lag shape.
@@ -431,7 +493,7 @@ class TestEvaluateIndeterminate:
         with pytest.raises(ValueError, match="not a known continuous aggregate"):
             _evaluate(_EvalConnection(), "not_a_cagg")  # type: ignore[arg-type]
 
-    @pytest.mark.parametrize("failing_query", [1, 2, 3])
+    @pytest.mark.parametrize("failing_query", [1, 2, 3, 4])
     def test_probe_error_trips_with_probe_failed(self, failing_query: int) -> None:
         # Whichever of the three queries raises, the verdict is a refusal and
         # the error never propagates into the reader's own error path.

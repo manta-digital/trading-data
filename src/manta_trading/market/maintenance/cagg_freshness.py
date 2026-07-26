@@ -62,20 +62,40 @@ _PROC_REFRESH = "policy_refresh_continuous_aggregate"
 # as an interval *string* ("1 day", "270 days", "04:00:00") — there is no
 # start_offset column. Casting in SQL means psycopg hands back a timedelta
 # rather than this module re-implementing PostgreSQL interval parsing.
+#
+# last_successful_finish is '-infinity' for a policy that has been created but
+# has never completed a run. psycopg cannot load that into a datetime — it
+# raises DataError mid-fetch, which would surface as PROBE_FAILED and refuse
+# reads on every freshly-created cagg. Normalize it to NULL in SQL, which is
+# the same "never succeeded" state the column uses before job_stats has a row.
 _JOB_SQL = (
     "SELECT j.job_id, j.scheduled, "
     "(j.config ->> 'start_offset')::interval AS start_offset, "
-    "s.last_run_status, s.last_successful_finish "
+    "(j.config ->> 'end_offset')::interval AS end_offset, "
+    "s.last_run_status, "
+    "nullif(s.last_successful_finish, '-infinity'::timestamptz) "
+    "  AS last_successful_finish "
     "FROM timescaledb_information.jobs j "
     "LEFT JOIN timescaledb_information.job_stats s USING (job_id) "
     "WHERE j.hypertable_name = %s AND j.proc_name = %s"
+)
+
+# A cagg's bucket width, from the TimescaleDB catalog. Stored as an interval
+# *string* and may be variable-width ("1 mon", "3 mons"), which is why the raw
+# edge is bucketed by PostgreSQL rather than by arithmetic in Python.
+_BUCKET_WIDTH_SQL = (
+    "SELECT bf.bucket_width "
+    "FROM _timescaledb_catalog.continuous_agg ca "
+    "JOIN _timescaledb_catalog.continuous_aggs_bucket_function bf "
+    "  USING (mat_hypertable_id) "
+    "WHERE ca.user_view_name = %s"
 )
 
 # TimescaleDB's own spelling of a successful job run in job_stats.
 _STATUS_SUCCESS = "Success"
 
 # Number of columns _JOB_SQL selects; guards the row unpack.
-_JOB_ROW_FIELDS = 5
+_JOB_ROW_FIELDS = 6
 
 
 class StalenessSignal(StrEnum):
@@ -142,6 +162,7 @@ class _JobRow:
     job_id: int
     scheduled: bool
     start_offset: timedelta | None
+    end_offset: timedelta | None
     last_run_status: str | None
     last_successful_finish: datetime | None
 
@@ -149,14 +170,37 @@ class _JobRow:
 def _set_probe_timeout(cur: psycopg.Cursor[object]) -> None:
     """Bound every statement this module issues on the caller's connection.
 
-    ``SET LOCAL`` so the bound is scoped to the caller's transaction and never
-    leaks into the reader's own subsequent queries (the coverage-index scan has
-    its own, much larger, budget). Called before *every* probe — including the
-    paths that early-return — so no query this module issues can run unbounded.
+    Plain ``SET``, deliberately **not** ``SET LOCAL``. ``SET LOCAL`` is scoped
+    to the enclosing transaction, and on an autocommit connection — which is how
+    the maintenance paths and the integration fixtures connect — each statement
+    is its own transaction, so ``SET LOCAL`` is discarded before the next
+    statement runs and ``statement_timeout`` stays 0 (unlimited). Verified
+    against PG 17.7 on 2026-07-26: ``SET LOCAL`` then ``SHOW`` returns ``0``
+    under autocommit, and a ``pg_sleep(2)`` under a 100 ms ``SET LOCAL`` runs to
+    completion. That would leave every probe unbounded, which is the exact
+    failure D3 requires us to prevent.
+
+    Called before *every* probe — including the paths that early-return — so no
+    query this module issues can run unbounded. ``_restore_probe_timeout``
+    returns the session setting afterwards so the reader's own much larger
+    budget is not clamped to the probe's.
     """
-    cur.execute(
-        f"SET LOCAL statement_timeout = '{CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT}'"
-    )
+    cur.execute(f"SET statement_timeout = '{CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT}'")
+
+
+def _restore_probe_timeout(conn: psycopg.Connection[object]) -> None:
+    """Return statement_timeout to the session default after probing.
+
+    Best-effort: the verdict is already decided by the time this runs, and a
+    failure here must not turn a completed evaluation into an exception.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = DEFAULT")
+    except psycopg.Error:
+        # The connection is already broken (this runs after a probe failure in
+        # the failure path); the caller's next statement will surface it.
+        logger.exception("failed to restore statement_timeout after freshness probe")
 
 
 def _read_refresh_job(
@@ -177,7 +221,8 @@ def _read_refresh_job(
         _set_probe_timeout(cur)
         cur.execute(_JOB_SQL, (view_name, _PROC_REFRESH))
         row = cast(
-            "tuple[int, bool, timedelta | None, str | None, datetime | None] | None",
+            "tuple[int, bool, timedelta | None, timedelta | None, str | None, "
+            "datetime | None] | None",
             cur.fetchone(),
         )
     if row is None or len(row) != _JOB_ROW_FIELDS:
@@ -186,14 +231,39 @@ def _read_refresh_job(
         # keeps the failure mode a refusal rather than an unpack ValueError
         # that would escape as a caller-visible crash.
         return None
-    job_id, scheduled, start_offset, last_run_status, last_successful_finish = row
+    (
+        job_id,
+        scheduled,
+        start_offset,
+        end_offset,
+        last_run_status,
+        last_successful_finish,
+    ) = row
     return _JobRow(
         job_id=int(job_id),
         scheduled=bool(scheduled),
         start_offset=start_offset,
+        end_offset=end_offset,
         last_run_status=last_run_status,
         last_successful_finish=last_successful_finish,
     )
+
+
+def _bucket_width(conn: psycopg.Connection[object], view_name: str) -> str | None:
+    """The cagg's bucket width as a PostgreSQL interval string, from the
+    catalog. ``None`` if the view is not a continuous aggregate.
+
+    Returned as a string, not a timedelta, because month- and quarter-width
+    buckets ("1 mon", "3 mons") have no fixed length — only PostgreSQL's
+    ``time_bucket`` can align a timestamp to them correctly.
+    """
+    with conn.cursor() as cur:
+        _set_probe_timeout(cur)
+        cur.execute(_BUCKET_WIDTH_SQL, (view_name,))
+        row = cast("tuple[str] | None", cur.fetchone())
+    if row is None:
+        return None
+    return row[0]
 
 
 def _cagg_max(conn: psycopg.Connection[object], view_name: str) -> datetime | None:
@@ -201,9 +271,40 @@ def _cagg_max(conn: psycopg.Connection[object], view_name: str) -> datetime | No
     return _max_probe(conn, view_name, "time_bucket")
 
 
-def _raw_max(conn: psycopg.Connection[object], source_table: str) -> datetime | None:
-    """The raw hypertable's leading edge: ``max(time)``, or None if empty."""
-    return _max_probe(conn, source_table, "time")
+def _raw_max(
+    conn: psycopg.Connection[object],
+    source_table: str,
+    bucket_width: str | None = None,
+) -> datetime | None:
+    """The raw hypertable's leading edge, aligned to the cagg's bucket grid.
+
+    Both sides of the lag comparison must be bucket *starts*. ``time_bucket``
+    on a cagg is the start of its window, so comparing it to a raw timestamp
+    would report the bucket width itself as lag: measured on prod 2026-07-26,
+    a healthy ``daily_quarterly_ohlcv`` sat 72 days "behind" raw purely
+    because its newest bucket had a quarter still to run. Bucketing the raw
+    edge to the same grid cancels that structural offset, so the threshold
+    stays the plain ``min(start_offset, ceiling)`` D2 specifies instead of
+    growing a bucket-width term.
+
+    ``bucket_width`` is a PostgreSQL interval string bound as a parameter and
+    cast in SQL, so variable-width month/quarter buckets align correctly
+    without any Python-side interval arithmetic. When it is None (the source
+    table is not a cagg's base, or the width could not be read) the probe
+    degrades to a plain ``max(time)``.
+    """
+    if bucket_width is None:
+        return _max_probe(conn, source_table, "time")
+    with conn.cursor() as cur:
+        _set_probe_timeout(cur)
+        cur.execute(
+            f"SELECT time_bucket(%s::interval, max(time)) FROM {source_table}",  # noqa: S608
+            (bucket_width,),
+        )
+        row = cast("tuple[datetime | None] | None", cur.fetchone())
+    if row is None:
+        return None
+    return row[0]
 
 
 def _max_probe(
@@ -253,20 +354,33 @@ def _resolve_source_table(view_name: str) -> str:
     return base
 
 
-def _resolve_threshold(start_offset: timedelta | None) -> timedelta:
-    """The staleness budget: ``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)``.
+def _resolve_threshold(
+    start_offset: timedelta | None, end_offset: timedelta | None = None
+) -> timedelta:
+    """The staleness budget: ``min(start_offset, ceiling) + end_offset``.
 
     The ceiling is load-bearing, not defensive. A refresh policy only reconsiders
     the last ``start_offset`` of data, so ``start_offset`` alone is the natural
     budget — but the daily caggs use 21/90/270-day offsets, which would let a
     daily cagg stalled 100 days pass every ``start_offset``-relative check.
 
+    ``end_offset`` is added because a policy deliberately refuses to materialize
+    the most recent ``end_offset`` of data, so that much lag is configured, not
+    stale. Bucket width is *not* added — the raw edge is bucketed to the cagg's
+    own grid instead (see ``_raw_max``), which cancels that term exactly rather
+    than budgeting for it. Verified on prod 2026-07-26:
+    ``daily_monthly_ohlcv``'s newest bucket is one month behind raw precisely
+    because its ``end_offset`` is 30 days.
+
     ``start_offset is None`` (a policy configured without one) falls back to the
     ceiling alone rather than to "no bound".
     """
-    if start_offset is None:
-        return MAX_COVERAGE_SOURCE_STALENESS
-    return min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)
+    base = (
+        MAX_COVERAGE_SOURCE_STALENESS
+        if start_offset is None
+        else min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)
+    )
+    return base if end_offset is None else base + end_offset
 
 
 def _now() -> datetime:
@@ -290,6 +404,7 @@ def assert_cagg_fresh(
     view_name: str,
     *,
     now: Callable[[], datetime] = _now,
+    source_table: str | None = None,
 ) -> FreshnessVerdict:
     """Assert a continuous aggregate is fresh enough to read from.
 
@@ -316,6 +431,10 @@ def assert_cagg_fresh(
         view_name: The cagg view to assert, e.g. ``minute_4hour_ohlcv``.
         now:       Clock seam; overridden in tests to exercise TTL expiry
                    without sleeping.
+        source_table: Raw hypertable seam. Production callers omit it and the
+                   source is resolved from ``GRANULARITY_SOURCE``; the
+                   integration tests pass a scratch table so staleness can be
+                   induced without touching a production cagg or its policy.
 
     Returns:
         A FreshnessVerdict. Callers must check ``is_fresh`` and refuse to use
@@ -329,12 +448,17 @@ def assert_cagg_fresh(
     if cached is not None and current_time - cached[0] < CAGG_FRESHNESS_CACHE_TTL:
         return cached[1]
 
-    verdict = _evaluate(conn, view_name)
+    verdict = _evaluate(conn, view_name, source_table=source_table)
     _VERDICT_CACHE[view_name] = (current_time, verdict)
     return verdict
 
 
-def _evaluate(conn: psycopg.Connection[object], view_name: str) -> FreshnessVerdict:
+def _evaluate(
+    conn: psycopg.Connection[object],
+    view_name: str,
+    *,
+    source_table: str | None = None,
+) -> FreshnessVerdict:
     """Uncached freshness evaluation: the four D1 signals, OR'd.
 
     Every signal that fires is collected, not just the first — a policy can be
@@ -347,13 +471,15 @@ def _evaluate(conn: psycopg.Connection[object], view_name: str) -> FreshnessVerd
     """
     # Resolved before the try: a bad view name is a caller bug and must
     # propagate as ValueError rather than being reported as staleness.
-    source_table = _resolve_source_table(view_name)
+    resolved_source = source_table or _resolve_source_table(view_name)
 
     try:
         job = _read_refresh_job(conn, view_name)
+        bucket_width = _bucket_width(conn, view_name)
         cagg_max = _cagg_max(conn, view_name)
-        raw_max = _raw_max(conn, source_table)
+        raw_max = _raw_max(conn, resolved_source, bucket_width)
     except psycopg.Error:
+        _restore_probe_timeout(conn)
         # D3/F001: a probe timeout or connection loss leaves freshness
         # indeterminate, and indeterminate is stale. Trapping is correct here
         # because the reader's contract is "refuse and skip", not "raise" —
@@ -370,6 +496,8 @@ def _evaluate(conn: psycopg.Connection[object], view_name: str) -> FreshnessVerd
             detail=f"{view_name}: freshness probe failed (see traceback above)",
         )
 
+    _restore_probe_timeout(conn)
+
     if job is None:
         # A cagg with no refresh policy never self-heals — the strongest form of
         # the 163 incident, not an exemption from it.
@@ -382,11 +510,20 @@ def _evaluate(conn: psycopg.Connection[object], view_name: str) -> FreshnessVerd
             detail=f"{view_name}: no refresh policy found in the job catalog",
         )
 
-    threshold = _resolve_threshold(job.start_offset)
+    threshold = _resolve_threshold(job.start_offset, job.end_offset)
     signals: list[StalenessSignal] = []
 
     lag: timedelta | None = None
-    if raw_max is not None and cagg_max is not None:
+    if raw_max is None:
+        # Empty raw table: nothing has been ingested, so there is no lag to
+        # measure and no derived data worth reading. Fresh-by-default here would
+        # mean "trust a cagg over a source we could not read".
+        signals.append(StalenessSignal.PROBE_FAILED)
+    elif cagg_max is None:
+        # Raw has rows but the cagg has none: the cagg has never materialized
+        # anything, which is maximal lag, not an absence of it.
+        signals.append(StalenessSignal.LAG_EXCEEDS_THRESHOLD)
+    else:
         lag = raw_max - cagg_max
         if lag > threshold:
             signals.append(StalenessSignal.LAG_EXCEEDS_THRESHOLD)
@@ -394,11 +531,17 @@ def _evaluate(conn: psycopg.Connection[object], view_name: str) -> FreshnessVerd
     if not job.scheduled:
         signals.append(StalenessSignal.NOT_SCHEDULED)
 
-    if job.last_successful_finish is None:
-        # Scheduled but never completed once: the same operational hole as a
-        # success that has aged out of the budget.
-        signals.append(StalenessSignal.LAST_SUCCESS_TOO_OLD)
-    elif _now() - job.last_successful_finish > threshold:
+    # A policy that has never fired reports last_successful_finish = NULL and
+    # last_run_status = NULL (verified against TimescaleDB 2.23 on 2026-07-26).
+    # That is a policy created moments ago on an already-materialized cagg, not
+    # a stalled one — the cold-start case, and the shape every freshly-built
+    # cagg passes through. Judging it stale would refuse reads on a healthy new
+    # cagg. Its actual currency is still covered: the lag signal above measures
+    # the edges directly and does not depend on job history.
+    if (
+        job.last_successful_finish is not None
+        and _now() - job.last_successful_finish > threshold
+    ):
         signals.append(StalenessSignal.LAST_SUCCESS_TOO_OLD)
 
     if job.last_run_status is not None and job.last_run_status != _STATUS_SUCCESS:
