@@ -376,6 +376,63 @@ Fix: `| grep -vx 'SET' | tail -1 | tr -d '[:space:]'`. Verified to yield `0` and
 **Rule:** when scripting the R5 gate, strip the `SET` echo explicitly, or issue the
 timeout via `PGOPTIONS` instead of an in-band statement.
 
+## D5: 5m cagg repaired (2026-07-25) — and the statement_timeout failure
+
+Jobs 1007 + 1018 paused; **1003 left scheduled** (runbook R1). Daemon ran throughout.
+
+### Run 1 failed at window 103/119
+
+```
+minute_5min_ohlcv window 102/119 2023-04-13..2023-06-22 rebuilt (raw 57,532,937, 305.7s)
+WARNING cagg_parity: cancelled server-side backend pid=274305 after interrupt
+Error: Database error: canceling statement due to statement timeout
+CONTEXT:  SQL statement "INSERT INTO _timescaledb_internal._materialized_hypertable_3
+          SELECT * FROM _timescaledb_internal._partial_view_3 AS I
+          WHERE I.time_bucket >= $1 AND I.time_bucket < $2 ;"
+```
+
+102 windows completed (4.27 h) before a single windowed
+`refresh_continuous_aggregate` exceeded `MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT`.
+
+**Why the ceiling was wrong.** 300 s was sized from the 4h cagg (17–62 s/window) and
+held for 1h (max 181 s) and 15m (max ~200 s). Per-window cost scales with raw volume
+**and** bucket density, so the binding case is the *finest granularity over the densest
+years* — which was never measured before the value was fixed. The approach curve was
+visible in the log for three windows (268.8 → 287.5 → 305.7 s) and was read as an ETA
+input rather than as a ceiling approach.
+
+Raised to **1800 s** (commit `081225c`). Validated immediately: window 104 ran
+**385.1 s**, so run 2 would have failed again at the very next window without the change.
+
+### Recovery: three safety properties held simultaneously
+
+- **102 windows survived** — parity-derived state, nothing to roll back
+- **No orphaned backend** — `_TimeoutConnection`'s cancel-on-interrupt path fired
+  (`cancelled server-side backend pid=274305`) and `pg_stat_activity` was clean
+- **Resume skipped straight to window 103** — no operator input, no flags
+- The chaining script **refused to run verify** on a sweep that exited non-zero
+
+This is stronger evidence for success criterion 5 than the deliberate D3 kill, because
+nothing about it was staged.
+
+**Rule:** before a sweep, check the projected **worst-case single window** against
+`statement_timeout` — not just the projected total against the clock.
+
+### Post-fix steady state
+
+| Window | Seconds | vs 15m |
+|---|---|---|
+| 103 (retried after cancel) | 817.5 | — (paid for discarded partial work) |
+| 104 | 385.1 | 2.06x |
+| 105 | 380.8 | — |
+| 106 | 428.6 | — |
+| 107 | 420.9 | — |
+
+Steady ratio **2.07x** of the 15m run. Window 103's 817.5 s is a one-off: the cancelled
+INSERT's partial work was discarded and the window rebuilt from scratch.
+
+Projected worst remaining window (117, dense 2026): ~628 s against the 1800 s ceiling.
+
 ### D7 (partial): slice 162 coverage-query regression
 
 Run against the **completed 4h cagg** while the 15m sweep was still in flight — this
