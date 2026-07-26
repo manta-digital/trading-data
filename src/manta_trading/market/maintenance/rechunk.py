@@ -32,23 +32,16 @@ from psycopg.rows import dict_row
 
 from manta_trading.constants import (
     GRANULARITY_SOURCE,
+    MINUTE_CAGG_GRANULARITIES,
     MINUTE_OHLCV_CHUNK_INTERVAL,
-    Granularity,
+    MINUTE_OHLCV_TABLE,
 )
 from manta_trading.logging import get_logger
 
 logger = get_logger(__name__)
 
-RECHUNK_TABLE: str = "minute_ohlcv"
+RECHUNK_TABLE: str = MINUTE_OHLCV_TABLE
 """The hypertable this maintenance run targets (parameterized for tests only)."""
-
-MINUTE_CAGG_GRANULARITIES: tuple[Granularity, ...] = (
-    Granularity.M5,
-    Granularity.M15,
-    Granularity.H1,
-    Granularity.H4,
-)
-"""The caggs whose refresh policies must be paused during a rechunk run."""
 
 
 class WindowState(StrEnum):

@@ -25,8 +25,16 @@ from urllib.parse import urlparse, urlunparse
 import psycopg
 import pytest
 
-from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL
+from manta_trading.market.schema.migrations.minute import (
+    _MINUTE_CAGG_VIEWS,
+    MINUTE_MIGRATIONS,
+)
 from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
+
+# The four minute caggs migrations 044/045 target. Sourced from the migration
+# module so a granularity added there is automatically covered here.
+MINUTE_CAGG_VIEWS: tuple[str, ...] = tuple(_MINUTE_CAGG_VIEWS)
 
 TEST_ADMIN_URL = os.environ.get("MT_TIMESCALE_TEST_URL", "")
 
@@ -182,6 +190,59 @@ class TestColdStartProducesWorkingSchema:
                 assert row is not None
                 assert int(row[0]) == len(EXPECTED_CAGGS), (
                     "expected one refresh policy per cagg"
+                )
+
+                # Minute caggs land at the slice-163 chunk interval and have
+                # columnstore enabled *from migrations alone* (044 + 045) —
+                # the repair tool must never be needed on a fresh DB. Asserted
+                # against the constants so changing one updates both.
+                for view in MINUTE_CAGG_VIEWS:
+                    cur.execute(
+                        "SELECT d.time_interval "
+                        "FROM timescaledb_information.continuous_aggregates ca "
+                        "JOIN timescaledb_information.dimensions d "
+                        "  ON d.hypertable_name = ca.materialization_hypertable_name "
+                        "WHERE ca.view_name = %s",
+                        (view,),
+                    )
+                    row = cur.fetchone()
+                    assert row is not None, (
+                        f"no mat-hypertable dimension found for cagg '{view}'"
+                    )
+                    assert row[0] == MINUTE_CAGG_CHUNK_INTERVAL, (
+                        f"cagg '{view}' mat chunk_time_interval is {row[0]}, "
+                        f"expected {MINUTE_CAGG_CHUNK_INTERVAL} "
+                        "(migration 044 did not take effect on cold start)"
+                    )
+
+                    cur.execute(
+                        "SELECT compression_enabled "
+                        "FROM timescaledb_information.continuous_aggregates "
+                        "WHERE view_name = %s",
+                        (view,),
+                    )
+                    row = cur.fetchone()
+                    assert row is not None and bool(row[0]), (
+                        f"cagg '{view}' does not have columnstore enabled "
+                        "(migration 045 did not take effect on cold start)"
+                    )
+
+                # One columnstore policy per minute cagg, with the configured
+                # compress_after. Regression guard for the D1 prod bug where
+                # 045 rendered an untyped `7 days` into add_columnstore_policy
+                # and raised a syntax error: unit tests asserted the constant
+                # but never the rendered SQL, so only execution catches it.
+                cur.execute(
+                    "SELECT COUNT(*) FROM timescaledb_information.jobs "
+                    "WHERE proc_name = 'policy_compression' "
+                    "  AND hypertable_name = ANY(%s)",
+                    (list(MINUTE_CAGG_VIEWS),),
+                )
+                row = cur.fetchone()
+                assert row is not None
+                assert int(row[0]) == len(MINUTE_CAGG_VIEWS), (
+                    "expected one columnstore policy per minute cagg after "
+                    "cold start (migration 045)"
                 )
 
                 # data_status view returns 0 rows on an empty registry

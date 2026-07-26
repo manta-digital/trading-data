@@ -22,10 +22,38 @@ def _patch_runner_psycopg_connect():
 
     Without this, unit tests that trigger requires_autocommit migrations would
     try to open a real DB connection to 'postgresql://host/db'.
+
+    The mock cursor's ``fetchall`` yields the four minute-cagg view names so the
+    045 columnstore migration's fail-fast existence guard is satisfied when the
+    full migration sequence runs end-to-end here (042's chunk query filters to a
+    different shape and is unaffected — it reads len()/iteration, both empty-safe
+    on MagicMock, and its own fetchall rows are ignored by these runner tests).
     """
     mock_conn = MagicMock()
     mock_conn.__enter__ = MagicMock(return_value=mock_conn)
     mock_conn.__exit__ = MagicMock(return_value=False)
+    _cagg_rows = [
+        ("minute_5min_ohlcv",),
+        ("minute_15min_ohlcv",),
+        ("minute_hourly_ohlcv",),
+        ("minute_4hour_ohlcv",),
+    ]
+    mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+
+    # fetchall is query-aware: only the 045 cagg-existence query (which selects
+    # from continuous_aggregates) returns the four cagg rows. Every other
+    # autocommit migration's fetchall (e.g. 042's chunk list) stays empty so its
+    # loop body doesn't run and no row-shape assumptions break.
+    def _fetchall_side_effect():
+        last_execute = mock_cur.execute.call_args
+        sql = str(last_execute.args[0]) if last_execute else ""
+        if "continuous_aggregates" in sql:
+            return _cagg_rows
+        return []
+
+    mock_cur.fetchall.side_effect = _fetchall_side_effect
+    # 045 checks per-cagg policy existence via fetchone; None → policy added.
+    mock_cur.fetchone.return_value = None
     with patch("manta_trading.market.schema.runner._psycopg.connect", return_value=mock_conn):
         yield mock_conn
 
@@ -53,7 +81,7 @@ def _cur(conn: MagicMock) -> MagicMock:
 def _mock_db(
     table_exists: bool = True,
     applied_ids: set[str] | None = None,
-    num_extra_conns: int = 42,
+    num_extra_conns: int = 60,
 ):
     """Create a TimescaleMinuteDataDB with pre-configured mock connections.
 
@@ -139,7 +167,7 @@ class TestMigrationsListIntegrity:
         assert filtered == sorted(filtered)
 
     def test_migration_count(self):
-        assert len(MIGRATIONS) == 46
+        assert len(MIGRATIONS) == 48
 
 
 # ---------------------------------------------------------------------------
@@ -683,3 +711,214 @@ class TestMigration001cChunkIntervalFromConstant:
 
         expected = f"INTERVAL '{int(MINUTE_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
         assert expected in self._get()["sql"]
+
+
+# ---------------------------------------------------------------------------
+# Migrations 044 / 045 (slice 163: minute-cagg chunk re-sizing + columnstore)
+# ---------------------------------------------------------------------------
+
+
+_MINUTE_CAGG_VIEW_NAMES = (
+    "minute_5min_ohlcv",
+    "minute_15min_ohlcv",
+    "minute_hourly_ohlcv",
+    "minute_4hour_ohlcv",
+)
+
+
+class TestMigration044MinuteCaggChunkInterval:
+    """Slice 163: minute caggs' chunk interval derives from the one constant
+    and targets all four caggs by view name (never mat_N literals)."""
+
+    def _get(self) -> dict:
+        return next(
+            m for m in MINUTE_MIGRATIONS
+            if m["id"] == "044_minute_cagg_chunk_interval_70d"
+        )
+
+    def test_id(self) -> None:
+        assert self._get()["id"] == "044_minute_cagg_chunk_interval_70d"
+
+    def test_ordering_after_043(self) -> None:
+        ids = [m["id"] for m in MINUTE_MIGRATIONS]
+        assert ids.index("044_minute_cagg_chunk_interval_70d") == (
+            ids.index("043_minute_chunk_interval_7d") + 1
+        )
+
+    def test_sql_calls_set_chunk_time_interval(self) -> None:
+        assert "set_chunk_time_interval" in self._get()["sql"]
+
+    def test_sql_targets_all_four_caggs_by_view_name(self) -> None:
+        sql = self._get()["sql"]
+        for view in _MINUTE_CAGG_VIEW_NAMES:
+            assert view in sql, f"cagg '{view}' missing from migration 044 SQL"
+
+    def test_sql_uses_no_mat_n_literals(self) -> None:
+        # Resolution must be by view name — never mat_3..mat_6 (assignment-order
+        # dependent). Guards against a regression to hardcoded mat table names.
+        sql = self._get()["sql"]
+        for mat in ("mat_3", "mat_4", "mat_5", "mat_6"):
+            assert mat not in sql, f"migration 044 must not reference {mat}"
+
+    def test_sql_interval_derives_from_constant(self) -> None:
+        # Fails if someone hardcodes '70 days' divorced from the constant.
+        from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL
+
+        expected = (
+            f"INTERVAL '{int(MINUTE_CAGG_CHUNK_INTERVAL.total_seconds())} seconds'"
+        )
+        assert expected in self._get()["sql"]
+
+    def test_constant_is_seventy_days(self) -> None:
+        """Guards the slice 163 wall-clock decision; changing it is deliberate."""
+        from datetime import timedelta
+
+        from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL
+
+        assert MINUTE_CAGG_CHUNK_INTERVAL == timedelta(days=70)
+
+
+class TestMigration045MinuteCaggColumnstore:
+    """Slice 163: columnstore enable + policy on the four minute caggs,
+    autocommit, compress_after derived from the constant."""
+
+    def _get(self) -> dict:
+        return next(
+            m for m in MINUTE_MIGRATIONS
+            if m["id"] == "045_minute_cagg_columnstore"
+        )
+
+    def test_id(self) -> None:
+        assert self._get()["id"] == "045_minute_cagg_columnstore"
+
+    def test_ordering_after_044(self) -> None:
+        ids = [m["id"] for m in MINUTE_MIGRATIONS]
+        assert ids.index("045_minute_cagg_columnstore") == (
+            ids.index("044_minute_cagg_chunk_interval_70d") + 1
+        )
+
+    def test_requires_autocommit(self) -> None:
+        assert self._get().get("requires_autocommit"), (
+            "columnstore policy management must run in autocommit mode (042 precedent)"
+        )
+
+    def test_uses_python_fn(self) -> None:
+        assert "python_fn" in self._get(), (
+            "045 resolves caggs from the catalog — must use python_fn like 042"
+        )
+
+    def test_python_fn_targets_all_four_caggs_by_view_name(self) -> None:
+        # The migration iterates the module-level view-name tuple. Assert that
+        # tuple is exactly the four minute caggs (source of the SQL targets).
+        from manta_trading.market.schema.migrations.minute import _MINUTE_CAGG_VIEWS
+
+        assert set(_MINUTE_CAGG_VIEWS) == set(_MINUTE_CAGG_VIEW_NAMES)
+
+    def test_compress_after_derives_from_constant(self) -> None:
+        # The python_fn renders compress_after via _interval_literal on the
+        # constant. Assert the constant is the single source (fails on a hardcode).
+        from datetime import timedelta
+
+        from manta_trading.constants import MINUTE_CAGG_COMPRESS_AFTER
+
+        assert MINUTE_CAGG_COMPRESS_AFTER == timedelta(days=7)
+
+    def test_compress_after_exceeds_refresh_start_offset(self) -> None:
+        """compress_after must be strictly > the refresh policy's 1-day
+        start_offset, so the columnstore policy never compresses the
+        actively-refreshed head (design D3)."""
+        from datetime import timedelta
+
+        from manta_trading.constants import MINUTE_CAGG_COMPRESS_AFTER
+
+        assert MINUTE_CAGG_COMPRESS_AFTER > timedelta(days=1)
+
+
+class TestMigration045ColumnstoreExecution:
+    """Exercise the 045 python_fn against a mock connection to lock in the
+    cagg-native API (ALTER MATERIALIZED VIEW + CALL add_columnstore_policy),
+    idempotency, and the fail-fast missing-cagg guard."""
+
+    def _fn(self):
+        from manta_trading.market.schema.migrations.minute import (
+            _setup_minute_cagg_columnstore,
+        )
+        return _setup_minute_cagg_columnstore
+
+    def _conn_with_caggs(self, *, existing_policy: bool) -> MagicMock:
+        conn = _make_conn()
+        cur = _cur(conn)
+        # First cursor use: the existence check → return all four views.
+        # Per-cagg policy check: fetchone truthy iff a policy already exists.
+        cur.fetchall.return_value = [(v,) for v in _MINUTE_CAGG_VIEW_NAMES]
+        cur.fetchone.return_value = (1,) if existing_policy else None
+        return conn
+
+    def test_enables_columnstore_on_each_cagg_by_view_name(self) -> None:
+        conn = self._conn_with_caggs(existing_policy=False)
+        self._fn()(conn)
+        enable_calls = [
+            c.args[0] for c in conn.execute.call_args_list
+            if "enable_columnstore" in str(c.args[0])
+        ]
+        assert len(enable_calls) == len(_MINUTE_CAGG_VIEW_NAMES)
+        for view in _MINUTE_CAGG_VIEW_NAMES:
+            assert any(
+                f"ALTER MATERIALIZED VIEW {view} " in sql for sql in enable_calls
+            ), f"no ALTER MATERIALIZED VIEW for {view}"
+        # segmentby=symbol on every enable
+        assert all("segmentby = 'symbol'" in sql for sql in enable_calls)
+
+    def test_adds_columnstore_policy_when_absent(self) -> None:
+        conn = self._conn_with_caggs(existing_policy=False)
+        self._fn()(conn)
+        policy_calls = [
+            c.args[0] for c in conn.execute.call_args_list
+            if "add_columnstore_policy" in str(c.args[0])
+        ]
+        assert len(policy_calls) == len(_MINUTE_CAGG_VIEW_NAMES)
+        # Procedure invoked with CALL, not SELECT.
+        assert all(sql.strip().startswith("CALL") for sql in policy_calls)
+
+    def test_policy_after_is_a_typed_interval_literal(self) -> None:
+        """Regression (prod apply, 2026-07-25): `after` is interpolated straight
+        into the CALL, so a bare '7 days' renders `after => 7 days` and Postgres
+        raises `syntax error at or near "days"`. It must be a typed INTERVAL."""
+        from manta_trading.constants import MINUTE_CAGG_COMPRESS_AFTER
+
+        conn = self._conn_with_caggs(existing_policy=False)
+        self._fn()(conn)
+        policy_calls = [
+            c.args[0] for c in conn.execute.call_args_list
+            if "add_columnstore_policy" in str(c.args[0])
+        ]
+        expected = (
+            f"INTERVAL '{int(MINUTE_CAGG_COMPRESS_AFTER.total_seconds())} seconds'"
+        )
+        for sql in policy_calls:
+            assert f"after => {expected}" in sql, (
+                f"after must be a typed INTERVAL literal; got: {sql}"
+            )
+
+    def test_idempotent_skips_existing_policy(self) -> None:
+        conn = self._conn_with_caggs(existing_policy=True)
+        self._fn()(conn)
+        policy_calls = [
+            c for c in conn.execute.call_args_list
+            if "add_columnstore_policy" in str(c.args[0])
+        ]
+        assert policy_calls == [], "must not re-add an existing columnstore policy"
+
+    def test_fails_fast_when_a_cagg_missing(self) -> None:
+        conn = _make_conn()
+        # Existence check returns only three of four caggs.
+        _cur(conn).fetchall.return_value = [
+            (v,) for v in _MINUTE_CAGG_VIEW_NAMES[:3]
+        ]
+        with pytest.raises(RuntimeError, match="not found in"):
+            self._fn()(conn)
+        # No columnstore was enabled before the guard fired.
+        assert not any(
+            "enable_columnstore" in str(c.args[0])
+            for c in conn.execute.call_args_list
+        )

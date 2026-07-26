@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260720
+dateUpdated: 20260725
 status: in_progress
 ---
 
@@ -19,6 +19,191 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260725 — ADR: design rules for the next storage tier (tick), derived from what minute cost us
+
+**Context:** The storage tiers were deliberately built easiest-first — daily, then minute,
+then tick. Minute was the *fail-case* for tick: if minute could not be structured well,
+tick could not succeed at all, since tick carries the same failure modes at one to three
+orders of magnitude more volume. Slice 163 surfaced four defects during minute's repair.
+Three of them were **design-time** decisions that only became expensive later, and all
+four scale *worse* with tick. This entry exists so the tick slice's design phase inherits
+them instead of rediscovering them.
+
+**Decision:** The following are design-phase requirements for any new storage tier, and
+for slice 167 (the nearest instance — it adds a cagg-backed read path).
+
+### 1. Set every cagg's `chunk_time_interval` explicitly at creation
+
+TimescaleDB sizes a new cagg's materialization hypertable at **10x the source
+hypertable's interval, frozen at creation time**. It never revisits this. Every cagg
+therefore inherits whatever the source interval happened to be on the day it was created.
+
+Minute's caggs were created while `minute_ohlcv` was on a 4-hour interval → 1.67-day
+cagg chunks → ~4,239 chunks each. Slice 166 later fixed the *source* to 7 days; the
+existing caggs kept the old geometry, and slice 163 was the cost of that.
+
+Tick makes this sharper, because volume pressure pushes the source interval *down*:
+
+| Source interval | Cagg interval (10x) | Chunks / 22.5 yr |
+|---|---|---|
+| 1 hour | 10 hours | ~19,700 |
+| 1 day | 10 days | ~820 |
+| 7 days | 70 days | ~117 |
+
+A 1-hour tick source yields ~19,700 chunks per cagg — worse than the state 163 repaired,
+and past the planning-time wall slice 166 hit (10m47s for a single-symbol `MIN/MAX`).
+
+**Rule:** in the same migration that creates a cagg, set its mat hypertable interval from
+the wall-clock rule — *interval = wall-clock span ÷ target chunk count, never data
+volume*. Never accept the 10x default. This is one line per cagg at creation and makes
+migration-044-equivalents unnecessary.
+
+Note the corollary discovered while verifying criterion 7: post-043, `minute_ohlcv` is
+7 days, so 70-day cagg chunks now arise *automatically* and migration 044 is a verified
+no-op on cold start. 044 matters only for databases that already existed. Getting the
+source interval right first makes the cagg geometry correct for free.
+
+### 2. Decide deliberately whether derived data may inform acquisition
+
+The expensive defect was not the chunk interval — that was known, planned, and scoped.
+It was that **a cagg fed an acquisition decision**. The minute daemon's coverage index
+reads `minute_4hour_ohlcv`, so a paused refresh policy silently changed what the daemon
+believed existed, and it re-pulled data indefinitely with no error surfaced anywhere.
+
+Tick makes this *more* likely, not less: tick volumes make answering "what do I already
+have?" from a rollup far more attractive than scanning raw.
+
+**Rule:** completeness and coverage questions are answered from the raw table, or from a
+source carrying an explicit freshness contract that **the reader asserts** rather than
+assumes. A derived object that informs acquisition is a production input, not an
+optimization, and pausing its refresh is a change to acquisition behavior.
+
+### 3. Refresh policies have a horizon; long pauses are not self-healing
+
+A refresh policy only reconsiders the last `start_offset` of data. Resuming a policy
+paused for longer than that heals the most recent window and **strands everything older
+permanently** — the scheduled job never revisits it. Current values across the family:
+2 h (pre-043 5m/15m), 1 day (minute caggs), 21/90/270 days (daily caggs). The daily
+tier's 270-day offset means a stalled policy there could go unnoticed for months.
+
+**Rule:** treat `start_offset` as a maintenance budget. Any interruption longer than it —
+deliberate pause, crashed job, failed policy, restart — requires an explicit catch-up
+`refresh_continuous_aggregate` over the affected span. Verify with a per-entity,
+per-period coverage diff; a universe-wide `max(time)` comparison hides it (ours differed
+by one bucket while 349 symbols were invisible for four days).
+
+**Corollary — `start_offset` alone is the wrong staleness threshold.** It is set for
+refresh *efficiency*, not for how stale a consumer can tolerate its input, and the two
+diverge badly: the daily caggs use 21/90/**270**-day offsets, so a policy stalled for
+three months is "within `start_offset`" and passes any check written against it.
+Simulation of a 100-day daily-cagg stall confirmed the false negative. A consumer's
+freshness bound must be `min(start_offset, <absolute ceiling the consumer requires>)`.
+The looser the policy's offset, the longer staleness hides — so the tiers with the
+weakest natural signal need the tightest explicit bound.
+
+### 4. Silent-and-harmless is the hardest failure to find
+
+The re-pull loop produced no errors and no corruption — `ON CONFLICT DO NOTHING`
+discarded the redundant rows — so the only symptom was wasted provider quota. It was
+found by the PM noticing unusual chunk counts, not by any check we had. Failures that are
+individually harmless have no natural discovery pressure and persist indefinitely.
+
+**Rule:** where a subsystem can do redundant work harmlessly, add a cheap explicit signal
+(counter, log line, periodic assertion). Correctness alone is not observability.
+
+### Two operational rules that generalize
+
+- **Size budgets from the worst case, not the first case measured.** The 300 s
+  `statement_timeout` was derived from the 4h cagg (17–62 s/window), survived 1h and 15m,
+  and killed the 5m sweep at window 103/119. Cost scaled with raw volume *and* bucket
+  density; the binding case was the finest granularity over the densest period, never
+  measured before the constant was fixed. Check the projected worst-case **single unit**
+  against the ceiling, not the projected total against the clock.
+- **Test rendered output, not inputs.** Migration 045 passed unit tests while emitting
+  invalid SQL (asserted the constant, not the rendered statement). The cold-start test
+  verified caggs *existed* but not that they were configured correctly — a false green on
+  the slice's central property. A chaining script aborted a healthy sweep by parsing
+  `psql`'s `SET` echo. Same class each time: one side of a transformation was asserted.
+  For anything schema-shaped, execute against a real database.
+
+**Rationale:** Rules 1, 2, and 3 are cheap at design time and expensive afterward. Rule 1
+cost a full slice to retrofit. Rule 2 cost an incident plus a code guard. Rule 3 is
+*still* only partially addressed (see Follow-ups) — the hardest to retrofit, because it
+requires detecting a condition nothing currently watches for.
+
+**Follow-ups:**
+
+- **Open gap — rule 3 is not enforced in code.** `preflight()` refuses to repair one cagg
+  while the coverage-index cagg's refresh is paused, which blocks the exact path taken in
+  163. Nothing detects a pause *exceeding* `start_offset`, performs or verifies the
+  catch-up refresh, or notices staleness from any other cause — a crashed job, a failed
+  policy, an `alter_job` issued outside our tooling, a restart mid-maintenance. Runbook
+  R2 covers it by human discipline only, and this failure's defining property is that
+  nobody goes looking. A freshness assertion in the coverage-index reader is the
+  candidate fix.
+- Slice 167 adds a hierarchical coverage cagg for `data_status` — a cagg-backed read path
+  informing operational decisions. Rules 1–3 apply directly; it is the first place to
+  enforce them.
+- Operational half recorded in `user/runbooks/cagg-maintenance-pausing.md` (R1–R5).
+
+## 20260725 — Derived-data staleness leaks into acquisition: a paused cagg refresh job silently drove a perpetual re-pull, and resuming it was not the fix
+
+**Context:** During slice 163's repair sweeps the minute daemon began re-pulling
+many chunks on symbols that were already complete. The 4h cagg refresh job had been
+paused for the 4h sweep and left paused after that sweep finished.
+
+**Decision:** Treat any cagg that feeds an acquisition decision as a **production
+input**, not merely derived output. Pausing its refresh policy is a change to
+acquisition behavior and must be scoped to the shortest possible window. Recorded as
+`user/runbooks/cagg-maintenance-pausing.md` (R1–R5) and enforced in code by a new
+pre-flight check that refuses to repair one cagg while the coverage-index cagg's
+refresh policy is paused.
+
+**Rationale:** The daemon's coverage index reads `minute_4hour_ohlcv`. With that cagg
+frozen while raw kept growing, the missing-session diff reported recent sessions as
+absent and re-seeded gap rows every cycle. The loop was silent — no errors, and
+`ON CONFLICT DO NOTHING` meant no corruption — so the only symptom was wasted provider
+calls, which is exactly the kind of failure that persists indefinitely because nothing
+alarms.
+
+Two second-order lessons carried more weight than the original bug:
+
+- **Resuming the job does not repair the gap.** All four minute refresh policies use
+  `start_offset => '1 day'`, so a resumed job heals only the most recent day and
+  strands everything older *permanently*. Any pause longer than `start_offset`
+  requires an explicit catch-up `refresh_continuous_aggregate` over the pause window.
+- **A universe-wide `max(time)` comparison hides the problem.** Raw and cagg maxima
+  differed by one bucket while 349 symbols were invisible for four days. Per-symbol,
+  per-day coverage diffs are the only trustworthy check.
+
+**Follow-ups:** Slice 167 adds another cagg-backed read path (hierarchical coverage for
+`data_status`) and inherits this coupling — the runbook applies there unchanged.
+
+## 20260725 — Code that parses real output must be tested against real output
+
+**Context:** Two failures in one slice shared a root cause. Migration 045 rendered an
+untyped `7 days` into `add_columnstore_policy` and raised a syntax error on prod, having
+passed unit tests that asserted the *constant* rather than the *rendered SQL*. Later, a
+sweep-chaining script aborted a healthy run because `psql -tAc "SET ...; SELECT ..."`
+echoes `SET` on stdout, so `tr -d '[:space:]'` produced `SET0` instead of `0` — the
+underlying SQL had been validated, but the shell parsing around it had not.
+
+**Decision:** Where a value crosses a formatting boundary — SQL rendered from a
+constant, shell parsing of command output, a regex over a file — the test fixture must
+be the *real* artifact, not a reconstruction of it. Assertions on inputs do not
+substitute for assertions on rendered output.
+
+**Rationale:** Both bugs were invisible to otherwise-reasonable tests because the tests
+asserted one side of a transformation. Only execution against the real consumer catches
+this class. The cold-start integration test was extended for the same reason: it
+verified caggs *existed* but never that migrations 044/045 took effect, so it would have
+passed on a database with the wrong chunk interval and no compression — a false green on
+the slice's central property.
+
+**Follow-ups:** Guard added to the cold-start test (mat `chunk_time_interval`,
+`compression_enabled`, columnstore policy count per cagg). Runbook R5 documents the
+`psql` `SET`-echo trap and the `PGOPTIONS` alternative.
 
 ## 20260720 — Row-scale claims require exact counts; `approximate_row_count` on compressed hypertables is unreliable even post-ANALYZE; ad-hoc prod aggregates require a statement_timeout
 

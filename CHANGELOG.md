@@ -16,7 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed (latest)
+### Fixed (latest, slice 163)
+- **Minute continuous aggregates were ~79% under-materialized and 36× over-chunked** — the four minute caggs (`minute_5min_ohlcv`, `minute_15min_ohlcv`, `minute_hourly_ohlcv`, `minute_4hour_ohlcv`) each carried ~4,239 chunks at ~1.67 days and were missing most of their history, so anything reading them returned *silently incomplete* data. All four have been rebuilt window-by-window against raw and verified digit-for-digit against `minute_ohlcv`. A single-symbol `minute_4hour_ohlcv` read went from ~5.2 s to ~95 ms (~55× faster: 12,721 plan nodes → 238, planning 1,434–3,201 ms → 66–74 ms), and the four caggs are now fully compressed columnstore. Migrations `044`/`045` keep new chunks at 70 days with compression enabled, so a cold-start database never reaches this state.
+- **Minute daemon re-pulled data it already had, indefinitely** — the daemon's coverage index reads the 4h cagg, so whenever that cagg's refresh policy was paused (as during maintenance) recent sessions looked missing and gap rows were re-seeded every cycle, burning provider calls with nothing to show for it. Bars were never duplicated (`ON CONFLICT DO NOTHING`), so the only cost was wasted API quota — and nothing alarmed. `mt data caggs repair` now refuses to run while the coverage-index cagg's refresh policy is paused, and `user/runbooks/cagg-maintenance-pausing.md` documents the catch-up refresh that a resumed policy alone does *not* perform.
+
+### Added (slice 163)
+- **`mt data caggs verify`** — reports per-year and per-window parity between each minute cagg and raw `minute_ohlcv`, with `--granularity`, `--detail`, and `--json`. Exits non-zero on any shortfall. Read-only. Note that a shortfall confined to the newest, still-filling window is normal trailing refresh lag rather than data loss; the runbook's closed-window parity query tells the two apart.
+- **`mt data caggs repair`** — rebuilds under-materialized cagg windows in place, oldest to newest, over 70-day windows. Resumable: progress is derived from parity rather than bookkeeping, so an interrupted run re-derives its position and skips completed windows on the next invocation. Pre-flight refuses (never warns) unless the target cagg's refresh and columnstore policies are paused, migration 044 is applied, the coverage-index cagg is still refreshing, and disk headroom is attested via `--assume-headroom-gb`. Supports `--dry-run`.
+
+### Fixed (previous)
 - **Pathological `minute_ohlcv` query latency** (slice 166) — a trivial single-symbol `MIN(time)/MAX(time)` took 10m47s and a universe-wide existence probe 8m8s, because the hypertable had accumulated 25,256 four-hour chunks and query *planning* alone (846 s, 176k locks) dominated. The table has been rewritten in place to 1,203 seven-day chunks (`mt data rechunk`, resumable, verified zero data loss against pre-rewrite baselines): single-symbol MIN/MAX now ~0.7 s, the universe probe 37.7 s, `mt data status` full-universe 7.8 s (was 117 s), and storage dropped 126 GB → 78 GB. Migration `043` keeps future chunks at 7 days (`MINUTE_OHLCV_CHUNK_INTERVAL`), including on cold-start databases.
 
 ### Added (slice 166)

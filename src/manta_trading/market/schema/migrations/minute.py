@@ -13,7 +13,11 @@ from typing import Any
 from manta_trading.constants import (
     DAILY_HISTORY_MONTHS,
     DAILY_STALENESS_THRESHOLD,
+    GRANULARITY_SOURCE,
     LATE_BAR_GRACE_PERIOD,
+    MINUTE_CAGG_CHUNK_INTERVAL,
+    MINUTE_CAGG_COMPRESS_AFTER,
+    MINUTE_CAGG_GRANULARITIES,
     MINUTE_OHLCV_CHUNK_INTERVAL,
     MINUTE_STALENESS_THRESHOLD,
     TRADING_SESSIONS_EXTENSION_YEARS,
@@ -22,8 +26,8 @@ from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.universe.eodhd_classification import EodhdType
 from manta_trading.market.schema.seed_calendar import (
-    NYSE_CALENDAR,
     NASDAQ_CALENDAR,
+    NYSE_CALENDAR,
     generate_calendar_insert_sql,
     generate_holidays,
     generate_holidays_insert_sql,
@@ -36,6 +40,29 @@ def _minute_chunk_interval_sql() -> str:
     Seconds-based so any timedelta renders exactly; keeps migrations 001c and
     043 derived from the one constant (slice 166)."""
     return f"INTERVAL '{int(MINUTE_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
+
+
+# The four minute-cagg view names migrations 044/045 target — resolved from the
+# canonical constants so the views cannot drift from the granularity→source
+# mapping (slice 163).
+_MINUTE_CAGG_VIEWS: tuple[str, ...] = tuple(
+    GRANULARITY_SOURCE[g] for g in MINUTE_CAGG_GRANULARITIES
+)
+
+
+def _minute_cagg_views_sql_array() -> str:
+    """Render the four minute-cagg view names as a SQL text[] array literal.
+
+    Used by migrations 044/045 to iterate the caggs inside a DO-block that
+    resolves each mat hypertable by *view name* from the catalog (never by
+    ``mat_N`` literal, which is assignment-order-dependent)."""
+    quoted = ", ".join(f"'{v}'" for v in _MINUTE_CAGG_VIEWS)
+    return f"ARRAY[{quoted}]"
+
+
+def _interval_seconds_sql(td: timedelta) -> str:
+    """Render a timedelta as a seconds-based SQL INTERVAL literal (exact)."""
+    return f"INTERVAL '{int(td.total_seconds())} seconds'"
 
 
 def _eodhd_type_check_sql() -> str:
@@ -477,6 +504,78 @@ def _setup_and_backfill_compression(conn: Any) -> None:
             _log.info("compressed %d/%d chunks (%s, %d skipped)", i, total, table, skipped)
     if total > 0:
         _log.info("backfill complete: %d compressed, %d skipped (already compressed)", total - skipped, skipped)
+
+
+def _setup_minute_cagg_columnstore(conn: Any) -> None:
+    """Enable columnstore compression + policy on the four minute caggs (slice 163).
+
+    Requires an autocommit connection (TimescaleDB policy management
+    restriction). Operates on each cagg by **view name** via the
+    continuous-aggregate-native API (``ALTER MATERIALIZED VIEW`` +
+    ``add_columnstore_policy``) — never touches ``mat_N`` mat-hypertable
+    literals. ``segmentby = symbol``; ``orderby`` defaults to the cagg's
+    ``time_bucket`` column (design D3). ``compress_after`` is
+    ``MINUTE_CAGG_COMPRESS_AFTER`` (> the refresh policy's 1-day ``start_offset``
+    so the policy never compresses inside the actively-refreshed head).
+
+    Unlike migration 042, performs **no backfill-compress** of existing chunks:
+    the existing wrong-interval (~1.67-day) cagg chunks are dropped by ``mt data
+    caggs repair``, and that sweep compresses each freshly-refreshed 70-day
+    chunk itself (compress-behind-frontier). Idempotent: re-enabling columnstore
+    and re-adding an existing policy are no-ops.
+    """
+    from manta_trading.logging import get_logger
+
+    _log = get_logger(__name__)
+    # Must be a typed INTERVAL literal: add_columnstore_policy's `after` argument
+    # is interpolated directly into the CALL, so a bare "7 days" (what
+    # _interval_literal renders, for contexts that write the INTERVAL keyword
+    # separately) is a syntax error.
+    compress_after = _interval_seconds_sql(MINUTE_CAGG_COMPRESS_AFTER)
+
+    # Confirm all four caggs exist before mutating any (fail-fast, not partial).
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT view_name FROM timescaledb_information.continuous_aggregates "
+            "WHERE view_name = ANY(%s)",
+            (list(_MINUTE_CAGG_VIEWS),),
+        )
+        found = {row[0] for row in cur.fetchall()}
+    missing = [v for v in _MINUTE_CAGG_VIEWS if v not in found]
+    if missing:
+        raise RuntimeError(
+            "045_minute_cagg_columnstore: expected minute caggs not found in "
+            f"catalog: {missing} — apply the cagg-creation migrations first"
+        )
+
+    for view in _MINUTE_CAGG_VIEWS:
+        # Step 1: enable columnstore on the cagg, segmented by symbol. ALTER ...
+        # SET is idempotent (re-setting the same options is a no-op).
+        conn.execute(
+            f"ALTER MATERIALIZED VIEW {view} SET ("  # noqa: S608 — view is a fixed catalog name
+            "timescaledb.enable_columnstore = true, "
+            "timescaledb.segmentby = 'symbol'"
+            ")"
+        )
+        _log.info("columnstore enabled on %s", view)
+
+        # Step 2: add the columnstore policy (idempotent — check before add;
+        # add_columnstore_policy is a procedure invoked with CALL).
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM timescaledb_information.jobs "
+                "WHERE hypertable_name = %s "
+                "  AND proc_name = 'policy_compression'",
+                (view,),
+            )
+            if cur.fetchone():
+                _log.info("columnstore policy already exists on %s", view)
+                continue
+        conn.execute(
+            f"CALL add_columnstore_policy('{view}', "  # noqa: S608 — view is a fixed catalog name
+            f"after => {compress_after})"
+        )
+        _log.info("columnstore policy installed on %s (%s)", view, compress_after)
 
 
 MINUTE_MIGRATIONS: list[dict[str, Any]] = [
@@ -1576,5 +1675,53 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         "sql": f"""
             SELECT set_chunk_time_interval('minute_ohlcv', {_minute_chunk_interval_sql()});
         """,
+    },
+    {
+        "id": "044_minute_cagg_chunk_interval_70d",
+        "description": (
+            "Set chunk_time_interval to MINUTE_CAGG_CHUNK_INTERVAL (70 days, "
+            "slice 163) on the four minute caggs' materialized hypertables, "
+            "resolved by continuous-aggregate VIEW NAME (never mat_N literals). "
+            "Affects FUTURE chunks only; the existing ~1.67-day chunks are "
+            "rewritten by the `mt data caggs repair` maintenance sweep. "
+            "Idempotent — re-applying the same interval is a no-op. Cold-start "
+            "no-op: TimescaleDB sizes a new cagg's mat hypertable at 10x the "
+            "source interval, and post-043 minute_ohlcv is 7 days -> 70 days "
+            "automatic. To revert manually, per cagg: "
+            "SELECT set_chunk_time_interval('minute_5min_ohlcv', "
+            "INTERVAL '1 day 16 hours')."
+        ),
+        "sql": f"""
+            DO $$
+            DECLARE
+                cagg TEXT;
+            BEGIN
+                FOREACH cagg IN ARRAY {_minute_cagg_views_sql_array()}
+                LOOP
+                    PERFORM set_chunk_time_interval(
+                        cagg::regclass,
+                        {_interval_seconds_sql(MINUTE_CAGG_CHUNK_INTERVAL)}
+                    );
+                END LOOP;
+            END $$;
+        """,
+    },
+    {
+        "id": "045_minute_cagg_columnstore",
+        "description": (
+            "Enable TimescaleDB columnstore compression + policy on the four "
+            "minute caggs (slice 163), by VIEW NAME (enable_columnstore + "
+            "segmentby=symbol; orderby defaults to time_bucket). "
+            "compress_after=MINUTE_CAGG_COMPRESS_AFTER (7 days, > the refresh "
+            "policy's 1-day start_offset). Unlike migration 042, NO "
+            "backfill-compress: existing wrong-interval chunks are dropped by "
+            "`mt data caggs repair`, which compresses each fresh 70-day chunk "
+            "behind the sweep frontier. Idempotent. To revert manually, per "
+            "cagg: CALL remove_columnstore_policy('minute_5min_ohlcv'); "
+            "ALTER MATERIALIZED VIEW minute_5min_ohlcv "
+            "SET (timescaledb.enable_columnstore = false);"
+        ),
+        "requires_autocommit": True,
+        "python_fn": _setup_minute_cagg_columnstore,
     },
 ]

@@ -9,12 +9,14 @@ from rich import print as rprint
 from rich.table import Table
 
 
-def print_result(data: dict | list, *, json_mode: bool) -> None:
+def print_result(data: dict | list | str | Table, *, json_mode: bool) -> None:
     """Print command result to stdout.
 
-    When *json_mode* is ``True``, serialise *data* as indented JSON.
-    Otherwise the caller is responsible for Rich formatting before this
-    point — this function simply passes *data* through to Rich.
+    When *json_mode* is ``True``, serialise *data* as indented JSON (callers
+    pass ``dict``/``list`` payloads in this mode). Otherwise the caller is
+    responsible for Rich formatting before this point — this function simply
+    passes *data* (including plain strings and Rich ``Table``s) through to
+    Rich.
     """
     if json_mode:
         sys.stdout.write(json.dumps(data, indent=2, default=str) + "\n")

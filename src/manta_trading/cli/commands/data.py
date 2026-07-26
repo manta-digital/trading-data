@@ -5,12 +5,17 @@ from __future__ import annotations
 import asyncio
 from datetime import date as _date_t
 from pathlib import Path
+from typing import TYPE_CHECKING
+
 import typer
 
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.logging import get_logger
 from manta_trading.providers.auth import resolve_auth
 from manta_trading.providers.profiles import get_profile
+
+if TYPE_CHECKING:
+    from manta_trading.constants import Granularity
 
 logger = get_logger(__name__)
 
@@ -58,7 +63,7 @@ ca_app = typer.Typer(
 
 caggs_app = typer.Typer(
     name="caggs",
-    help="Continuous aggregate management (refresh, status).",
+    help="Continuous aggregate management (refresh, status, verify, repair).",
     no_args_is_help=True,
 )
 
@@ -3010,4 +3015,357 @@ def caggs_status(
         )
     print_result(table, json_mode=False)
     print_result(f"\n{len(rows)} aggregate(s)", json_mode=False)
+
+
+# ---------------------------------------------------------------------------
+# caggs verify / repair (slice 163) — minute-cagg parity + restructuring sweep
+# ---------------------------------------------------------------------------
+
+# The standing operational rule surfaced in both verify's and repair's help so
+# an operator reading either learns it (design D5). Single source of truth.
+_CAGG_MAINTENANCE_STANDING_RULE: str = (
+    "STANDING RULE: after ANY raw minute_ohlcv chunk restructuring "
+    "(e.g. `mt data rechunk`), run `mt data caggs verify`; if parity fails, "
+    "run `mt data caggs repair` (rebuilds only the invalidated windows)."
+)
+
+_EXIT_PARITY_FAILURE: int = 2
+"""caggs verify exit code when any cagg is out of parity (script detector)."""
+
+
+def _resolve_minute_granularities(
+    granularity_opt: str, *, json_output: bool
+) -> tuple[Granularity, ...]:
+    """Resolve a --granularity option to minute-cagg Granularity values.
+
+    Accepts ``all`` (the four minute caggs) or a comma-separated subset of
+    ``5m,15m,1h,4h``. Daily caggs are out of scope for parity/repair. Exits
+    non-zero (via typer) on an unknown or non-minute token.
+    """
+    from manta_trading.constants import (
+        MINUTE_CAGG_GRANULARITIES,
+        Granularity,
+    )
+
+    if granularity_opt.strip().lower() == "all":
+        return MINUTE_CAGG_GRANULARITIES
+
+    valid_minute = ", ".join(g.value for g in MINUTE_CAGG_GRANULARITIES)
+    requested = [t.strip() for t in granularity_opt.split(",") if t.strip()]
+    resolved: list[Granularity] = []
+    for token in requested:
+        try:
+            gran = Granularity(token)
+        except ValueError:
+            print_error(
+                f"Unknown granularity token '{token}'. Valid: all, {valid_minute}",
+                json_mode=json_output,
+            )
+            raise typer.Exit(1) from None
+        if gran not in MINUTE_CAGG_GRANULARITIES:
+            print_error(
+                f"Granularity '{token}' is not a minute cagg. "
+                f"Valid: all, {valid_minute}",
+                json_mode=json_output,
+            )
+            raise typer.Exit(1)
+        resolved.append(gran)
+    if not resolved:
+        print_error(
+            f"No granularity selected. Valid: all, {valid_minute}",
+            json_mode=json_output,
+        )
+        raise typer.Exit(1)
+    # Preserve the canonical smallest-first order regardless of input order.
+    return tuple(g for g in MINUTE_CAGG_GRANULARITIES if g in resolved)
+
+
+@caggs_app.command("verify")
+def caggs_verify(
+    ctx: typer.Context,
+    granularity_opt: str = typer.Option(
+        "all",
+        "--granularity",
+        help="Minute cagg(s) to verify: all | 5m,15m,1h,4h (default all).",
+    ),
+    detail: bool = typer.Option(
+        False,
+        "--detail",
+        help="Report per 70-day window instead of the per-year rollup.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
+) -> None:
+    """Verify minute-cagg parity against the raw table (read-only).
+
+    Compares each cagg's SUM(minute_count) to the raw COUNT(*) over 70-day
+    epoch-grid windows and reports per-year (or per-window with --detail)
+    coverage and parity, plus each cagg's chunk count and interval. Exits with
+    a non-zero code if ANY cagg is out of parity, so it doubles as a scriptable
+    detector for the self-hiding under-materialization corruption class.
+
+    Every query runs under an explicit statement_timeout and cancels its
+    server-side backend on interrupt. See the standing rule below.
+    """
+    from manta_trading.market.maintenance.cagg_parity import (
+        WindowParity,
+        compute_parity,
+    )
+
+    settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=json_output)
+        raise typer.Exit(1)
+
+    granularities = _resolve_minute_granularities(
+        granularity_opt, json_output=json_output
+    )
+
+    reports = compute_parity(settings.timescale_db_url, granularities)
+    any_failure = any(not r.in_parity for r in reports)
+
+    if json_output:
+        payload = []
+        for r in reports:
+            if detail:
+                report_rows: list[dict] = [
+                    {
+                        "start": w.start.isoformat(),
+                        "end": w.end.isoformat(),
+                        "raw": w.raw_count,
+                        "cagg": w.cagg_count,
+                        "coverage": round(w.coverage, 4),
+                        "parity": w.parity.value,
+                    }
+                    for w in r.windows
+                ]
+            else:
+                report_rows = [
+                    {
+                        "year": y.year,
+                        "raw": y.raw_count,
+                        "cagg": y.cagg_count,
+                        "coverage": round(y.coverage, 4),
+                        "parity": y.parity.value,
+                    }
+                    for y in r.years
+                ]
+            payload.append({
+                "granularity": r.granularity.value,
+                "view": r.view_name,
+                "raw_total": r.raw_total,
+                "cagg_total": r.cagg_total,
+                "in_parity": r.in_parity,
+                "chunk_count": r.chunk_summary.chunk_count,
+                "chunk_interval": (
+                    str(r.chunk_summary.chunk_interval)
+                    if r.chunk_summary.chunk_interval is not None
+                    else None
+                ),
+                "rows": report_rows,
+            })
+        print_result(payload, json_mode=True)
+        raise typer.Exit(_EXIT_PARITY_FAILURE if any_failure else 0)
+
+    for r in reports:
+        interval = (
+            str(r.chunk_summary.chunk_interval)
+            if r.chunk_summary.chunk_interval is not None
+            else "—"
+        )
+        overall = r.cagg_total / r.raw_total if r.raw_total else 0.0
+        header = (
+            f"{r.granularity.value} ({r.view_name}) — "
+            f"{r.chunk_summary.chunk_count} chunks @ {interval} — "
+            f"overall coverage {overall * 100:.1f}% — "
+            f"{'PARITY' if r.in_parity else 'PARITY FAILURE'}"
+        )
+        print_result(header, json_mode=False)
+
+        if detail:
+            table = make_table(
+                "",
+                [("Window start", ""), ("Raw", ""), ("Cagg", ""),
+                 ("Coverage", ""), ("Parity", "")],
+            )
+            for w in r.windows:
+                table.add_row(
+                    str(w.start)[:10],
+                    f"{w.raw_count:,}",
+                    f"{w.cagg_count:,}",
+                    f"{w.coverage * 100:.1f}%",
+                    "ok" if w.parity is WindowParity.DONE else "FAIL",
+                )
+        else:
+            table = make_table(
+                "",
+                [("Year", ""), ("Raw", ""), ("Cagg", ""),
+                 ("Coverage", ""), ("Parity", "")],
+            )
+            for y in r.years:
+                table.add_row(
+                    str(y.year),
+                    f"{y.raw_count:,}",
+                    f"{y.cagg_count:,}",
+                    f"{y.coverage * 100:.1f}%",
+                    "ok" if y.parity is WindowParity.DONE else "FAIL",
+                )
+        print_result(table, json_mode=False)
+
+    print_result(f"\n{_CAGG_MAINTENANCE_STANDING_RULE}", json_mode=False)
+    if any_failure:
+        print_error(
+            "Parity failure detected — run `mt data caggs repair`.",
+            json_mode=False,
+        )
+    raise typer.Exit(_EXIT_PARITY_FAILURE if any_failure else 0)
+
+
+_EXIT_REPAIR_PREFLIGHT: int = 1
+"""caggs repair exit code when pre-flight refuses (jobs unpaused, wrong
+interval, headroom not attested) or the DB URL is missing."""
+
+_EXIT_REPAIR_FAILED: int = 2
+"""caggs repair exit code when a window rebuild fails mid-sweep."""
+
+_EXIT_REPAIR_INTERRUPTED: int = 130
+"""caggs repair exit code on Ctrl-C (128 + SIGINT); resume by re-running."""
+
+
+@caggs_app.command("repair")
+def caggs_repair(
+    ctx: typer.Context,
+    granularity_opt: str = typer.Option(
+        "all",
+        "--granularity",
+        help="Minute cagg to repair: 5m | 15m | 1h | 4h. A real run repairs "
+        "exactly ONE cagg per invocation ('all' and comma lists are refused "
+        "with the recommended run order); all/multi are allowed with "
+        "--dry-run, which is read-only.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print planned windows and per-window parity states; mutate nothing.",
+    ),
+    assume_headroom_gb: float | None = typer.Option(
+        None,
+        "--assume-headroom-gb",
+        help="Attested free GB on the DB volume (pre-flight cannot read disk "
+        "from SQL; required for a real run).",
+    ),
+) -> None:
+    """Re-materialize under-materialized / re-chunked minute caggs (slice 163).
+
+    For the selected cagg, over 70-day epoch-grid windows oldest→newest: skip
+    windows already at parity, else drop_chunks → refresh_continuous_aggregate
+    (force) → compress. Rebuilds ONLY the windows a restructuring invalidated,
+    so the same command is the standing heal after any raw rechunk.
+
+    ONE CAGG PER RUN: a real repair targets exactly one granularity. The 4h
+    cagg is both a repair target and the daemon coverage-index source, so
+    pre-flight cannot be satisfied for all four caggs at once — repair 4h
+    first (own policies paused), resume its refresh policy and run the
+    catch-up refresh (runbook R2), then repair 1h, 15m, 5m with the 4h cagg
+    back in service. `--dry-run` may still take all/multi (read-only).
+
+    PRE-FLIGHT (refuses, does not warn): the target cagg's refresh policy AND
+    columnstore policy must be paused (job IDs printed if not); the 4h
+    coverage cagg's refresh policy must be RUNNING when the target is any
+    other cagg; migration 044 must be applied (70-day mat interval); disk
+    headroom must be attested via --assume-headroom-gb. Raw-table jobs are
+    never touched; the daemon may keep running.
+
+    AVAILABILITY: during each window's drop→refresh interval, consumers of that
+    cagg see zero coverage for that one 70-day window (seconds-to-minutes).
+    Already-repaired and trailing windows stay served. Run outside market hours
+    for zero serving impact.
+
+    RESUMABILITY: safe to Ctrl-C mid-window — the server-side backend is
+    cancelled and the next run resumes via each window's parity check (state is
+    parity-derived, not transactional).
+
+    STANDING RULE: after ANY raw minute_ohlcv restructuring, run
+    `mt data caggs verify`; if parity fails, run this command.
+
+    \b
+    Exit codes:
+      0    success (or dry run)
+      1    DB URL missing, or pre-flight refused
+      2    a window rebuild failed
+      130  interrupted (Ctrl-C) — re-run to resume
+    """
+    import psycopg as _psycopg
+
+    from manta_trading.market.maintenance.cagg_repair import (
+        REPAIR_RUN_ORDER,
+        RepairError,
+        run_repair,
+    )
+    from manta_trading.market.maintenance.rechunk import PreflightError
+
+    settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=False)
+        raise typer.Exit(_EXIT_REPAIR_PREFLIGHT)
+
+    granularities = _resolve_minute_granularities(granularity_opt, json_output=False)
+
+    if not dry_run and len(granularities) != 1:
+        # An all-cagg (or multi-cagg) real sweep cannot satisfy pre-flight:
+        # the 4h cagg must be paused to repair it but running while any other
+        # cagg repairs (it feeds the daemon coverage index). One cagg per run,
+        # sequenced by the operator.
+        order = " -> ".join(g.value for g in REPAIR_RUN_ORDER)
+        print_error(
+            "A real repair run targets exactly ONE granularity "
+            "(--granularity 5m|15m|1h|4h). Recommended sequence: "
+            f"{order} — repair 4h first, resume its refresh policy and run "
+            "the catch-up refresh (runbook R2), then repair the rest. "
+            "Use --dry-run to inspect the all-cagg plan read-only. "
+            "See user/runbooks/cagg-maintenance-pausing.md",
+            json_mode=False,
+        )
+        raise typer.Exit(_EXIT_REPAIR_PREFLIGHT)
+
+    try:
+        result = run_repair(
+            settings.timescale_db_url,
+            granularities,
+            dry_run=dry_run,
+            assume_headroom_gb=assume_headroom_gb,
+            progress=lambda msg: print(msg, flush=True),
+        )
+    except PreflightError as exc:
+        print_error(f"Pre-flight refused: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_REPAIR_PREFLIGHT) from exc
+    except RepairError as exc:
+        print_error(f"Repair failed: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_REPAIR_FAILED) from exc
+    except KeyboardInterrupt:
+        print_error(
+            "Interrupted — backend cancelled. Re-run `mt data caggs repair` "
+            "to resume (completed windows are skipped via parity).",
+            json_mode=False,
+        )
+        raise typer.Exit(_EXIT_REPAIR_INTERRUPTED) from None
+    except _psycopg.OperationalError as exc:
+        print_error(f"Database error: {exc}", json_mode=False)
+        raise typer.Exit(_EXIT_REPAIR_FAILED) from exc
+
+    mode = "DRY RUN — no changes made" if result.dry_run else "complete"
+    print_result(f"\nCagg repair {mode}.", json_mode=False)
+    if not result.dry_run:
+        # The pre-flight required the target's refresh + columnstore policies
+        # paused; nothing resumes them automatically, and an unresumed
+        # columnstore policy leaves late-sweep chunks uncompressed while an
+        # unresumed refresh policy strands the trailing edge (review F008).
+        print_result(
+            "\nNEXT: resume this cagg's paused refresh and columnstore "
+            "policies (alter_job(<id>, scheduled => true)); if the refresh "
+            "policy was paused longer than its start_offset, run the catch-up "
+            "refresh_continuous_aggregate over the paused span. "
+            "See user/runbooks/cagg-maintenance-pausing.md (R2, R4).",
+            json_mode=False,
+        )
+        print_result(f"\n{_CAGG_MAINTENANCE_STANDING_RULE}", json_mode=False)
 
