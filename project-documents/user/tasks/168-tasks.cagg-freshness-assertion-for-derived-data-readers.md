@@ -367,25 +367,25 @@ downstream hard dependent and consumes the helper unchanged.
 
 ## Task 9 — Close-out
 
-- [ ] **9.1 Quality gates** (pending)
-  - [ ] `ruff` clean, `mypy`/`pyright` zero errors on all touched files.
-  - [ ] Full unit suite for `test/unit/market/` and `test/unit/data/` passes
+- [x] **9.1 Quality gates**
+  - [x] `ruff` clean, `mypy`/`pyright` zero errors on all touched files.
+  - [x] Full unit suite for `test/unit/market/` and `test/unit/data/` passes
         (run per-subpackage — whole-`test/` collection is broken by a missing
         `__init__.py`, a known pre-existing issue).
   - Effort: 1
 
-- [ ] **9.2 Amend the 140-arch Constants section**
-  - [ ] Add `MAX_COVERAGE_SOURCE_STALENESS` and `CAGG_FRESHNESS_CACHE_TTL` with
+- [x] **9.2 Amend the 140-arch Constants section**
+  - [x] Add `MAX_COVERAGE_SOURCE_STALENESS` and `CAGG_FRESHNESS_CACHE_TTL` with
         rationale, per review finding F003.
   - Effort: 1
 
-- [ ] **9.3 Verification walkthrough**
-  - [ ] Execute the slice design's walkthrough and record results.
-  - [ ] Confirm all eight success criteria are met; note any that are not.
+- [x] **9.3 Verification walkthrough**
+  - [x] Execute the slice design's walkthrough and record results.
+  - [x] Confirm all eight success criteria are met; note any that are not.
   - Effort: 2
 
 - [ ] **9.4 Commit and merge**
-  - [ ] Semantic commits on `168-slice.cagg-freshness-assertion-for-derived-data-readers`.
+  - [x] Semantic commits on `168-slice.cagg-freshness-assertion-for-derived-data-readers`.
   - [ ] Merge to `main` when implementation is done (`git.integration_branch`
         is unset).
   - Effort: 1
