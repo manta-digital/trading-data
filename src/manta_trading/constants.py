@@ -18,6 +18,44 @@ DAILY_STALENESS_THRESHOLD: timedelta = timedelta(days=2)
 MINUTE_STALENESS_THRESHOLD: timedelta = timedelta(days=1)
 """A minute-granularity symbol is STALE if last_attempt_ts is older than this."""
 
+MAX_COVERAGE_SOURCE_STALENESS: timedelta = timedelta(days=1)
+"""Absolute ceiling on how far a derived read (continuous aggregate) may lag its
+raw source before the reader refuses to trust it (slice 168).
+
+One ceiling serves both the acquisition path (``build_minute_coverage_index``)
+and slice 167's status path: a derived read older than a full trading day is
+stale for either purpose. Matches ``MINUTE_STALENESS_THRESHOLD``'s convention.
+
+The ceiling is **required**, not belt-and-braces. The staleness threshold is
+``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)`` — without it, the daily
+caggs' 21/90/270-day ``start_offset`` values mean a daily cagg stalled 100 days
+would pass every ``start_offset``-relative check. It is also a full refresh
+cycle above every minute policy's 1-day ``start_offset``, so it never fires on
+a healthy cagg.
+"""
+
+CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT: str = "10s"
+"""PostgreSQL statement_timeout for the ``assert_cagg_fresh`` catalog read and
+the two ``max()`` edge probes (slice 168).
+
+Precedent: ``MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT``. A small multiple of the
+measured probe cost on prod (~0.19 s for the cagg edge, ~0.75 s for the raw
+edge). Both probes are bounded ``max(time)`` index scans, not expression
+aggregates over compressed chunks — this is not the query shape behind the
+2026-07-20 incident — but the timeout discipline applies regardless: on timeout
+the freshness check degrades to a refusal (``PROBE_FAILED``) rather than
+stalling the reader that called it.
+"""
+
+CAGG_FRESHNESS_CACHE_TTL: timedelta = timedelta(seconds=60)
+"""TTL for the process-local ``assert_cagg_fresh`` verdict cache (slice 168 D6).
+
+Two orders of magnitude below ``MAX_COVERAGE_SOURCE_STALENESS``, so a cached
+verdict can never mask a lag the uncached check would catch. Stale verdicts are
+cached on the same terms as fresh ones — the cache never converts a refusal
+into a pass.
+"""
+
 DAILY_HISTORY_MONTHS: int | None = None
 """Maximum history depth for daily bars. None means unbounded (all available)."""
 
@@ -210,6 +248,27 @@ GRANULARITY_SOURCE: dict[Granularity, str] = {
     Granularity.MO1: "daily_monthly_ohlcv",
     Granularity.Q1: "daily_quarterly_ohlcv",
 }
+
+CAGG_BASE_GRANULARITY: dict[Granularity, Granularity] = {
+    Granularity.M1: Granularity.M1,
+    Granularity.M5: Granularity.M1,
+    Granularity.M15: Granularity.M1,
+    Granularity.H1: Granularity.M1,
+    Granularity.H4: Granularity.M1,
+    Granularity.D1: Granularity.D1,
+    Granularity.W1: Granularity.D1,
+    Granularity.MO1: Granularity.D1,
+    Granularity.Q1: Granularity.D1,
+}
+"""The raw hypertable each granularity derives from, as a granularity.
+
+The four minute caggs materialize from ``minute_ohlcv``; the three daily caggs
+from ``daily_ohlcv``. The two base granularities map to themselves, which is how
+callers distinguish "this is a cagg" from "this is the source" without parsing
+view names. Used with GRANULARITY_SOURCE to resolve a cagg view to the raw table
+its freshness is measured against (slice 168) — never infer this from a name
+prefix.
+"""
 
 MINUTE_OHLCV_TABLE: str = GRANULARITY_SOURCE[Granularity.M1]
 """The raw minute hypertable — the source of truth all four minute caggs derive
