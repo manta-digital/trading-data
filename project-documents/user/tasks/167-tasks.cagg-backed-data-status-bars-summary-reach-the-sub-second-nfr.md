@@ -64,6 +64,17 @@ ship a second unguarded cagg consumer.
 - **F004 (misattributed example) → in scope**, task 1.2 (doc correction only).
 - **D5 load test → confirmed in scope** (criterion 6), section 8.
 
+### Task-review findings folded in (167-review.tasks, 2026-07-26)
+
+- **F001 (no commit checkpoints) → fixed.** `**Commit**` checkpoints added after
+  every section, matching the 168 precedent. Commit per task, not batched.
+- **F002 (load test "CI-gated" was hand-waving) → fixed.** The real gate is
+  `MT_RUN_LOAD_TESTS=1` (`test/load/test_146_part1_nfrs.py`); `.github/workflows`
+  does not exist. Task 8.1.4 names the actual mechanism and 8.3 forces an
+  explicit PM call rather than repeating 146's unwired claim.
+- **F003 (doc-comment test asserted but not tasked) → fixed.** Promoted to task
+  4.4; section 7 covers `bars_summary` output, not `COMMENT ON VIEW` content.
+
 ### Constraints carried in
 
 - **No magic strings.** Cagg view names, bucket widths, and refresh offsets are
@@ -108,6 +119,8 @@ ship a second unguarded cagg consumer.
         accessor module, F003 date-normalized equivalence), and restate success
         criterion 2 per F003 so the criterion and D3 no longer contradict.
 
+- [ ] **Commit**: `docs: amend 140-arch data_status spec for cagg-backed bars_summary`
+
 ---
 
 ## 2. Constants and refresh-policy parameters
@@ -142,6 +155,8 @@ ship a second unguarded cagg consumer.
         reintroduce the 1-day bug).
   - [ ] 2.3.2 Assert bucket interval and view names are non-empty and typed as
         the module's other interval constants are.
+
+- [ ] **Commit**: `feat(constants): add coverage cagg names, bucket, and refresh offsets`
 
 ---
 
@@ -181,6 +196,8 @@ ship a second unguarded cagg consumer.
         `SUM(minute_count)` vs `COUNT(*)` choice.
   - [ ] 3.3.4 Never touch a production job from a test (168's precedent).
 
+- [ ] **Commit**: `feat(schema): add coverage continuous aggregates and refresh policies`
+
 ---
 
 ## 4. View rewrite — cagg-backed `bars_summary`
@@ -217,8 +234,17 @@ ship a second unguarded cagg consumer.
         truncation (minute timestamps truncated to 4 h bucket start; daily exact),
         the two-hop cagg-lag bound with the **chosen numeric intervals** from 2.2,
         and that freshness is asserted at the accessor, not in SQL (criterion 4).
-  - [ ] 4.3.4 Success: `COMMENT ON VIEW` is retrievable via `obj_description`;
-        an integration test asserts it is non-empty and names both bounds.
+  - [ ] 4.3.4 Success: `COMMENT ON VIEW` is retrievable via `obj_description`.
+- [ ] **4.4** Integration-test the view doc comment (criterion 4). Effort: 1/5
+  - [ ] 4.4.1 After applying 048 on a scratch DB, read the comment via
+        `obj_description('data_status'::regclass)`.
+  - [ ] 4.4.2 Assert it is non-empty and mentions **both** documented bounds —
+        bucket truncation and cagg lag — and the chosen refresh intervals from
+        2.2. Criterion 4 is otherwise unverifiable; section 7 tests
+        `bars_summary` output, not comment content.
+  - [ ] 4.4.3 Assert against the 2.2 constants, not hard-coded interval literals.
+
+- [ ] **Commit**: `feat(schema): back data_status bars_summary with coverage caggs`
 
 ---
 
@@ -255,6 +281,9 @@ ship a second unguarded cagg consumer.
   - [ ] 5.2.4 Stale verdict → rows still returned **and** marked stale; assert it
         is never silently presented as current.
   - [ ] 5.2.5 Assert no `refresh_continuous_aggregate` is issued on any path.
+
+- [ ] **Commit**: `feat(maintenance): add freshness-guarded data_status accessor`
+
 - [ ] **5.3** Migrate `status_queries.py` onto the accessor. Effort: 2/5
   - [ ] 5.3.1 `fetch_status_rows` and `fetch_all_health_counts` read via
         `status_coverage`, not direct `FROM data_status` SQL.
@@ -285,6 +314,8 @@ ship a second unguarded cagg consumer.
         date-only rendering. 182 must decide how to present that; 167 only
         documents it.
 
+- [ ] **Commit**: `refactor(maintenance): route all data_status readers through guarded accessor`
+
 ---
 
 ## 6. Staleness surfacing in `mt data status`
@@ -303,6 +334,8 @@ ship a second unguarded cagg consumer.
   - [ ] 6.2.1 Fresh → no indicator; table output byte-identical to pre-slice.
   - [ ] 6.2.2 Stale → indicator present in both table and `--json`.
   - [ ] 6.2.3 Column layout unchanged in both cases (criterion 3).
+
+- [ ] **Commit**: `feat(cli): surface stale coverage indicator in mt data status`
 
 ---
 
@@ -326,6 +359,8 @@ ship a second unguarded cagg consumer.
         most the documented bound.
   - [ ] 7.2.2 After a refresh tick, values converge to exact (modulo truncation).
 
+- [ ] **Commit**: `test(schema): date-normalized equivalence for cagg-backed data_status`
+
 ---
 
 ## 8. Load test — the NFR (D5, criterion 6)
@@ -341,10 +376,30 @@ ship a second unguarded cagg consumer.
   - [ ] 8.1.3 Include the accessor's freshness guard in the measured path — the
         guard is part of the read now, so excluding it measures a path that
         doesn't exist.
-  - [ ] 8.1.4 CI-gated (criterion 6).
+  - [ ] 8.1.4 Gate on `MT_RUN_LOAD_TESTS=1` via
+        `@pytest.mark.skipif(os.environ.get("MT_RUN_LOAD_TESTS") != "1", ...)`,
+        matching the existing convention in
+        [test_146_part1_nfrs.py:29](test/load/test_146_part1_nfrs.py#L29). Do
+        not invent a second gating mechanism.
   - [ ] 8.1.5 Success: test fails if `data_status` regresses past 1 s.
 - [ ] **8.2** Confirm the load tier does not run against prod by default.
       Effort: 1/5
+- [ ] **8.3** Make "CI-gated" concrete rather than aspirational (criterion 6,
+      review F002). Effort: 1/5
+  - [ ] 8.3.1 **The repo has no CI config** — `.github/workflows` does not exist.
+        Slice 146's load tests assert "CI must enable" in a docstring and it was
+        never mechanically wired; repeating that leaves criterion 6 as implicit
+        as 146 left it.
+  - [ ] 8.3.2 Document the concrete invocation that satisfies the gate
+        (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`) in the test docstring
+        and the slice's verification section, so the NFR has a runnable check
+        even without CI.
+  - [ ] 8.3.3 **Ask the PM** whether standing up CI is in scope for this slice or
+        a separate chore. If out of scope, record criterion 6 as satisfied by the
+        documented manual invocation and say so explicitly in the design — do not
+        claim CI gating that does not exist.
+
+- [ ] **Commit**: `test(load): assert sub-second full-universe data_status read`
 
 ---
 
@@ -390,6 +445,8 @@ ship a second unguarded cagg consumer.
   - [ ] 9.6.1 Throwaway DB → all migrations → `data_status` returns rows, is
         sub-second, and reports no false staleness on never-refreshed caggs.
 
+- [ ] **Commit**: `docs: record slice 167 prod verification and induced-staleness walkthrough`
+
 ---
 
 ## 10. Close-out
@@ -408,8 +465,13 @@ ship a second unguarded cagg consumer.
 - [ ] **10.6** Check the slice's plan entry in
       `140-slices.data-quality-operations.md`. Effort: 1/5
 
-> Merging the slice branch is a workflow action, not a checklist item — it is
-> deliberately not listed here (PM ruling, slice 168).
+- [ ] **Commit**: `docs: mark slice 167 complete`
+
+> **Commit per task, not batched at the end** (project convention; 168
+> precedent). The `**Commit**` checkpoints above are the intended granularity —
+> each lands a coherent, buildable unit. Merging the slice branch is a workflow
+> action, not a checklist item, and is deliberately not listed (PM ruling,
+> slice 168).
 
 ---
 
@@ -424,7 +486,11 @@ ship a second unguarded cagg consumer.
 4. The view carries a doc comment stating bucket-truncation and cagg-lag bounds
    and the chosen refresh intervals.
 5. Cold-start applies the new migrations cleanly and yields a sub-second view.
-6. A load test asserts full-universe read latency < 1 s and is CI-gated.
+6. A load test asserts full-universe read latency < 1 s, gated on
+   `MT_RUN_LOAD_TESTS=1` per the existing `test/load/` convention. No CI exists
+   in this repo (review F002); whether standing it up is in scope is a PM call
+   at task 8.3.3 — absent CI, the criterion is met by the documented manual
+   invocation, stated honestly rather than claimed as automated.
 7. `assert_cagg_fresh` is called on the coverage caggs via the guarded accessor
    and is **proven to fire by inducing staleness**, including the loose-offset /
    badly-stalled case.
