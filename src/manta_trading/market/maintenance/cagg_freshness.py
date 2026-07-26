@@ -26,6 +26,7 @@ Design invariants (slice 168 D1-D6):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
@@ -35,6 +36,7 @@ import psycopg
 
 from manta_trading.constants import (
     CAGG_BASE_GRANULARITY,
+    CAGG_FRESHNESS_CACHE_TTL,
     CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT,
     GRANULARITY_SOURCE,
     MAX_COVERAGE_SOURCE_STALENESS,
@@ -263,6 +265,66 @@ def _resolve_threshold(start_offset: timedelta | None) -> timedelta:
 def _now() -> datetime:
     """Wall clock, isolated so tests can substitute it via monkeypatch."""
     return datetime.now(timezone.utc)
+
+
+# Process-local verdict cache (D6), keyed by view name only: {view: (at, verdict)}.
+# Not shared across processes and not persisted — a fresh process re-probes.
+_VERDICT_CACHE: dict[str, tuple[datetime, FreshnessVerdict]] = {}
+
+
+def reset_freshness_cache() -> None:
+    """Drop all cached verdicts. For tests and for long-lived processes that
+    need a forced re-probe; not part of the normal read path."""
+    _VERDICT_CACHE.clear()
+
+
+def assert_cagg_fresh(
+    conn: psycopg.Connection[object],
+    view_name: str,
+    *,
+    now: Callable[[], datetime] = _now,
+) -> FreshnessVerdict:
+    """Assert a continuous aggregate is fresh enough to read from.
+
+    The four D1 signals are OR'd; any one refuses. Indeterminate freshness (no
+    refresh policy, a failed probe) is treated as stale — never as a pass (D3).
+    This function never remediates (D4): detecting staleness is a read-path
+    concern, repairing it is runbook R2's.
+
+    Verdicts are memoized per view name for ``CAGG_FRESHNESS_CACHE_TTL``, so a
+    caller that reads several times inside one cycle pays the ~1 s probe cost
+    once. **Stale verdicts cache on exactly the same terms as fresh ones** — the
+    cache can never turn a refusal into a pass. The TTL is two orders of
+    magnitude below ``MAX_COVERAGE_SOURCE_STALENESS``, so a cached verdict
+    cannot mask a lag the uncached check would have caught.
+
+    **Not for maintenance decisions.** ``cagg_repair.preflight()`` remains the
+    uncached, always-probing guard for anything that mutates a cagg; a cached
+    verdict is fine for deciding whether to trust a read, not for deciding
+    whether it is safe to restructure.
+
+    Args:
+        conn:      Open psycopg connection. Every statement this issues is
+                   bounded by ``CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT``.
+        view_name: The cagg view to assert, e.g. ``minute_4hour_ohlcv``.
+        now:       Clock seam; overridden in tests to exercise TTL expiry
+                   without sleeping.
+
+    Returns:
+        A FreshnessVerdict. Callers must check ``is_fresh`` and refuse to use
+        the derived data when it is False.
+
+    Raises:
+        ValueError: ``view_name`` is not a known cagg view (a caller bug).
+    """
+    cached = _VERDICT_CACHE.get(view_name)
+    current_time = now()
+    if cached is not None and current_time - cached[0] < CAGG_FRESHNESS_CACHE_TTL:
+        return cached[1]
+
+    verdict = _evaluate(conn, view_name)
+    _VERDICT_CACHE[view_name] = (current_time, verdict)
+    return verdict
 
 
 def _evaluate(conn: psycopg.Connection[object], view_name: str) -> FreshnessVerdict:

@@ -9,6 +9,7 @@ assertions are on call *order* and bound parameters, not SQL text.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from types import TracebackType
 from typing import Any, Literal
@@ -17,6 +18,7 @@ import psycopg
 import pytest
 
 from manta_trading.constants import (
+    CAGG_FRESHNESS_CACHE_TTL,
     CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT,
     MAX_COVERAGE_SOURCE_STALENESS,
 )
@@ -30,6 +32,8 @@ from manta_trading.market.maintenance.cagg_freshness import (
     _read_refresh_job,
     _resolve_source_table,
     _resolve_threshold,
+    assert_cagg_fresh,
+    reset_freshness_cache,
 )
 
 _VIEW = "minute_4hour_ohlcv"
@@ -317,14 +321,18 @@ class _EvalConnection(_RecordingConnection):
             if job_row
             else None
         )
-        rows: list[Any] = [
+        self._template: list[Any] = [
             catalog,
             (cagg_max,) if cagg_max is not None else None,
             (raw_max,) if raw_max is not None else None,
         ]
-        super().__init__(rows=rows)
+        super().__init__(rows=list(self._template))
         self._raise_on_query = raise_on_query
         self._query_count = 0
+
+    def reload(self) -> None:
+        """Refill the row queue for a second evaluation (TTL-expiry test)."""
+        self._rows[:] = list(self._template)
 
     def cursor(self) -> _RecordingCursor:
         return _RaisingCursor(self)
@@ -433,3 +441,60 @@ class TestEvaluateIndeterminate:
         assert verdict.is_fresh is False
         assert verdict.signals == (StalenessSignal.PROBE_FAILED,)
         assert verdict.lag is None
+
+
+class TestVerdictCache:
+    """Task 6.2 / design criterion 8 — the TTL cache, both directions.
+
+    Asserted by **query count** on a counting fake, never by timing.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self) -> Iterator[None]:
+        reset_freshness_cache()
+        yield
+        reset_freshness_cache()
+
+    @staticmethod
+    def _probe_count(conn: _EvalConnection) -> int:
+        return len([sql for sql in conn.statements if "statement_timeout" not in sql])
+
+    def test_warm_call_issues_no_probe_queries(self) -> None:
+        conn = _EvalConnection()
+        first = assert_cagg_fresh(conn, _VIEW, now=lambda: _NOW)  # type: ignore[arg-type]
+        after_cold = self._probe_count(conn)
+        second = assert_cagg_fresh(conn, _VIEW, now=lambda: _NOW)  # type: ignore[arg-type]
+        assert self._probe_count(conn) == after_cold, (
+            "a warm call must issue zero probe queries"
+        )
+        assert second == first
+
+    def test_cached_stale_verdict_still_refuses(self) -> None:
+        # The cache must never convert a refusal into a pass.
+        conn = _EvalConnection(scheduled=False)
+        first = assert_cagg_fresh(conn, _VIEW, now=lambda: _NOW)  # type: ignore[arg-type]
+        second = assert_cagg_fresh(conn, _VIEW, now=lambda: _NOW)  # type: ignore[arg-type]
+        assert first.is_fresh is False
+        assert second.is_fresh is False
+        assert StalenessSignal.NOT_SCHEDULED in second.signals
+
+    def test_advancing_past_the_ttl_re_probes(self) -> None:
+        conn = _EvalConnection()
+        assert_cagg_fresh(conn, _VIEW, now=lambda: _NOW)  # type: ignore[arg-type]
+        after_cold = self._probe_count(conn)
+        # Refill the fake's row queue for the second evaluation.
+        conn.reload()
+        expired = _NOW + CAGG_FRESHNESS_CACHE_TTL + timedelta(seconds=1)
+        assert_cagg_fresh(conn, _VIEW, now=lambda: expired)  # type: ignore[arg-type]
+        assert self._probe_count(conn) == after_cold * 2, (
+            "an expired entry must trigger a full re-probe"
+        )
+
+    def test_distinct_view_names_do_not_share_an_entry(self) -> None:
+        stale_conn = _EvalConnection(scheduled=False)
+        fresh_conn = _EvalConnection()
+        stale = assert_cagg_fresh(stale_conn, _VIEW, now=lambda: _NOW)  # type: ignore[arg-type]
+        fresh = assert_cagg_fresh(fresh_conn, _DAILY_VIEW, now=lambda: _NOW)  # type: ignore[arg-type]
+        assert stale.is_fresh is False
+        assert fresh.is_fresh is True
+        assert fresh.view_name == _DAILY_VIEW
