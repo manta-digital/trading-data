@@ -352,6 +352,13 @@ _RAW_EDGE = _CAGG_EDGE
 _BUCKET_WIDTH = "04:00:00"
 
 
+class _Unset:
+    """Sentinel distinguishing "argument omitted" from an explicit None."""
+
+
+_UNSET = _Unset()
+
+
 class _EvalConnection(_RecordingConnection):
     """Serves the catalog row, bucket width, then the two edge probes."""
 
@@ -362,7 +369,10 @@ class _EvalConnection(_RecordingConnection):
         start_offset: timedelta | None = timedelta(days=1),
         end_offset: timedelta | None = None,
         last_run_status: str | None = "Success",
-        last_successful_finish: datetime | None = None,
+        # Sentinel, not None: None is a meaningful value here (the cold-start
+        # "policy created but never run" shape), so it must reach the catalog
+        # row rather than being replaced by the default.
+        last_successful_finish: datetime | None | _Unset = _UNSET,
         job_row: bool = True,
         cagg_max: datetime | None = _CAGG_EDGE,
         raw_max: datetime | None = _RAW_EDGE,
@@ -375,7 +385,9 @@ class _EvalConnection(_RecordingConnection):
                 start_offset,
                 end_offset,
                 last_run_status,
-                last_successful_finish if last_successful_finish else _NOW,
+                _NOW
+                if isinstance(last_successful_finish, _Unset)
+                else (last_successful_finish),
             )
             if job_row
             else None
@@ -482,6 +494,34 @@ class TestEvaluateSignals:
 class TestEvaluateIndeterminate:
     """Task 5.2/5.3 — F001 indeterminate handling."""
 
+    def test_never_run_policy_is_not_stale(self) -> None:
+        # Cold start: a policy created moments ago on an already-materialized
+        # cagg reports NULL last_successful_finish and NULL last_run_status
+        # (verified against TimescaleDB 2.23 on 2026-07-26). That is a healthy
+        # new cagg, not a stalled one — signalling on it would refuse reads on
+        # every freshly-built cagg. Actual currency is still covered by the lag
+        # signal, which does not depend on job history.
+        verdict = _evaluate(  # type: ignore[arg-type]
+            _EvalConnection(last_successful_finish=None, last_run_status=None),
+            _VIEW,
+        )
+        assert verdict.is_fresh is True, verdict.detail
+        assert StalenessSignal.LAST_SUCCESS_TOO_OLD not in verdict.signals
+
+    def test_never_run_policy_still_trips_on_lag(self) -> None:
+        # The cold-start exemption must not become a blind spot: a policy that
+        # has never run AND whose cagg is behind is still stale.
+        verdict = _evaluate(  # type: ignore[arg-type]
+            _EvalConnection(
+                last_successful_finish=None,
+                last_run_status=None,
+                cagg_max=_NOW - timedelta(days=4),
+            ),
+            _VIEW,
+        )
+        assert verdict.is_fresh is False
+        assert StalenessSignal.LAG_EXCEEDS_THRESHOLD in verdict.signals
+
     def test_missing_job_row_trips(self) -> None:
         # A cagg with no refresh policy never self-heals.
         verdict = _evaluate(_EvalConnection(job_row=False), _VIEW)  # type: ignore[arg-type]
@@ -551,6 +591,19 @@ class TestVerdictCache:
         assert self._probe_count(conn) == after_cold * 2, (
             "an expired entry must trigger a full re-probe"
         )
+
+    def test_now_seam_reaches_the_staleness_evaluation_not_just_the_cache(
+        self,
+    ) -> None:
+        # The seam must cover ALL time-dependent logic. The policy last
+        # succeeded at _NOW; advancing the injected clock two days past it must
+        # produce LAST_SUCCESS_TOO_OLD, which only happens if `now` reaches
+        # _evaluate rather than governing cache expiry alone.
+        conn = _EvalConnection(last_successful_finish=_NOW)
+        much_later = _NOW + timedelta(days=2)
+        verdict = assert_cagg_fresh(conn, _VIEW, now=lambda: much_later)  # type: ignore[arg-type]
+        assert verdict.is_fresh is False
+        assert StalenessSignal.LAST_SUCCESS_TOO_OLD in verdict.signals
 
     def test_distinct_view_names_do_not_share_an_entry(self) -> None:
         stale_conn = _EvalConnection(scheduled=False)

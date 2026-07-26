@@ -429,8 +429,10 @@ def assert_cagg_fresh(
         conn:      Open psycopg connection. Every statement this issues is
                    bounded by ``CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT``.
         view_name: The cagg view to assert, e.g. ``minute_4hour_ohlcv``.
-        now:       Clock seam; overridden in tests to exercise TTL expiry
-                   without sleeping.
+        now:       Clock seam covering **all** time-dependent logic — both TTL
+                   expiry here and the ``LAST_SUCCESS_TOO_OLD`` comparison in
+                   the evaluation it wraps. Overridden in tests to exercise
+                   expiry and staleness without sleeping.
         source_table: Raw hypertable seam. Production callers omit it and the
                    source is resolved from ``GRANULARITY_SOURCE``; the
                    integration tests pass a scratch table so staleness can be
@@ -448,7 +450,7 @@ def assert_cagg_fresh(
     if cached is not None and current_time - cached[0] < CAGG_FRESHNESS_CACHE_TTL:
         return cached[1]
 
-    verdict = _evaluate(conn, view_name, source_table=source_table)
+    verdict = _evaluate(conn, view_name, source_table=source_table, now=now)
     _VERDICT_CACHE[view_name] = (current_time, verdict)
     return verdict
 
@@ -458,6 +460,7 @@ def _evaluate(
     view_name: str,
     *,
     source_table: str | None = None,
+    now: Callable[[], datetime] = _now,
 ) -> FreshnessVerdict:
     """Uncached freshness evaluation: the four D1 signals, OR'd.
 
@@ -540,7 +543,7 @@ def _evaluate(
     # the edges directly and does not depend on job history.
     if (
         job.last_successful_finish is not None
-        and _now() - job.last_successful_finish > threshold
+        and now() - job.last_successful_finish > threshold
     ):
         signals.append(StalenessSignal.LAST_SUCCESS_TOO_OLD)
 

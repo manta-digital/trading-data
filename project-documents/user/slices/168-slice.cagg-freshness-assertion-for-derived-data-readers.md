@@ -363,6 +363,37 @@ changes in this slice, and each is covered by a test that fails without the fix.
   TTL cache is what keeps this guard inside that budget; 167 consumes the
   helper as-is and does not need its own amortization scheme.
 
+## Code review disposition (20260726)
+
+Review `reviews/168-review.code...md` (z-ai/glm-5.2, CONCERNS) raised three
+findings. Two fixed; one deliberately declined.
+
+- **F001 (concern) — fixed.** `assert_cagg_fresh`'s `now` seam only governed
+  cache TTL; `_evaluate` called the module-level `_now()` directly, so a caller
+  passing a custom clock silently got narrower control than the signature
+  implied. `now` is now threaded into `_evaluate` and used for the
+  `LAST_SUCCESS_TOO_OLD` comparison. Pinned by
+  `test_now_seam_reaches_the_staleness_evaluation_not_just_the_cache`, verified
+  to fail when the pass-through is reverted.
+- **F003 (note) — fixed.** `_EvalConnection` used a falsy check
+  (`x if x else _NOW`), so a test explicitly passing
+  `last_successful_finish=None` could not produce the cold-start shape the
+  production code branches on. Replaced with an explicit `_UNSET` sentinel, and
+  two tests now exercise that path: a never-run policy is fresh, but still trips
+  on lag.
+- **F002 (concern) — declined, deliberately.** The module is 569 lines against
+  the ~300 guideline. Roughly 250 are executable; the balance is docstrings and
+  the four incident write-ups recorded above (`SET LOCAL` under autocommit,
+  `-infinity`, bucket-width cancellation, cold start). The proposed
+  `cagg_probes.py` extraction was evaluated and rejected on scope: it leaves the
+  remaining module at ~320 lines — still over the guideline — while requiring
+  import churn across all 49 unit tests for zero behavior change. The line count
+  here is documentation-driven, not complexity-driven: the module has one job
+  and one public entry point, and the comments it carries are the slice's most
+  durable artifact. **PM decision: file length over guideline is acceptable when
+  the excess is not code complexity.** Revisit only if a second concern lands in
+  this module, or if the executable portion itself grows past the guideline.
+
 ## Notes
 
 - Design rules: journal 20260725 ADR, rule 3 (`start_offset` is a maintenance
