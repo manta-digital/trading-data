@@ -8,6 +8,7 @@ import pytest
 
 from manta_trading.constants import (
     COVERAGE_BUCKET_INTERVAL,
+    COVERAGE_REFRESH_MIN_WINDOW_BUCKETS,
     DAILY_COVERAGE_REFRESH_END_OFFSET,
     DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     DAILY_COVERAGE_REFRESH_START_OFFSET,
@@ -122,11 +123,38 @@ def test_minute_coverage_start_offset_exceeds_parent_refresh_window() -> None:
 def test_daily_coverage_start_offset_covers_revision_window() -> None:
     """``daily_coverage`` reads raw ``daily_ohlcv``, which has no refresh policy.
 
-    The binding constraint is late-arriving and revised daily bars rather than a
-    parent refresh window, so the offset is asserted against the same floor the
-    minute side uses -- both must stay well clear of a trailing-day policy.
+    No parent refresh window to clear, so the binding constraint is the engine's
+    two-bucket minimum (asserted below) plus the daily revision window --
+    provider restatements and adjustment rebasing.
     """
     assert DAILY_COVERAGE_REFRESH_START_OFFSET >= MINUTE_CAGG_REFRESH_START_OFFSET * 7
+
+
+@pytest.mark.parametrize(
+    ("start_offset", "end_offset"),
+    [
+        (MINUTE_COVERAGE_REFRESH_START_OFFSET, MINUTE_COVERAGE_REFRESH_END_OFFSET),
+        (DAILY_COVERAGE_REFRESH_START_OFFSET, DAILY_COVERAGE_REFRESH_END_OFFSET),
+    ],
+)
+def test_coverage_refresh_window_satisfies_timescale_minimum(
+    start_offset: timedelta, end_offset: timedelta
+) -> None:
+    """TimescaleDB rejects a policy whose window spans under two buckets.
+
+    ``add_continuous_aggregate_policy`` raises ``InvalidParameterValue: policy
+    refresh window too small`` unless
+    ``start_offset - end_offset >= 2 * bucket``. A refresh only re-materializes
+    buckets *fully contained* in its window, so a narrower window can slide into
+    a position containing no whole bucket and silently refresh nothing.
+
+    Verified empirically on TimescaleDB 2.21.3 with the 1-year bucket: 730 days
+    rejected, 731 accepted. Asserted here so a change to
+    ``COVERAGE_BUCKET_INTERVAL`` fails at test time rather than at migration
+    time against a live database.
+    """
+    minimum_window = COVERAGE_REFRESH_MIN_WINDOW_BUCKETS * COVERAGE_BUCKET_INTERVAL
+    assert start_offset - end_offset >= minimum_window
 
 
 def test_coverage_start_offsets_exceed_end_offsets() -> None:

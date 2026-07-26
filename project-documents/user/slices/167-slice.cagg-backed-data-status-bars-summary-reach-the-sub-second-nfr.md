@@ -326,35 +326,65 @@ Parent values read from `timescaledb_information.jobs`:
 | | | | | |
 | `daily_ohlcv` compression | 1010 | 12 h | `compress_after` 7 days | |
 
+**A second, larger constraint was discovered at implementation** and it, not the
+parent window, sets the value. TimescaleDB's `add_continuous_aggregate_policy`
+rejects any policy whose window spans fewer than **two bucket widths**:
+
+```
+InvalidParameterValue: policy refresh window too small
+DETAIL: The start and end offsets must cover at least two buckets
+        in the valid time range of type "timestamp with time zone".
+```
+
+The engine requires this because a refresh only re-materializes buckets *fully
+contained* in `[now − start_offset, now − end_offset]`; a partially covered
+bucket at either edge is skipped rather than written with a half-computed
+aggregate. A window narrower than two buckets can slide into a position that
+fully contains nothing, and the policy would silently refresh zero rows forever.
+
+With a 1-year bucket the floor is therefore `2 × 365 d + end_offset` ≈ **731
+days** — measured, not assumed: on TimescaleDB 2.21.3, 730 days is rejected and
+731 accepted. This never bound the pre-167 caggs because each has a bucket far
+smaller than its offsets (4 h bucket / 1 day offset; 3-month bucket / 270-day
+offset). A 1-year bucket is the first one large relative to any sane refresh
+window, which inverts the usual ratio.
+
 Chosen values, as constants in `constants.py` — never restated as literals:
 
 | Coverage cagg | `start_offset` | `end_offset` | `schedule_interval` |
 |---|---|---|---|
-| `minute_coverage` | **30 days** | 4 h | 1 h |
-| `daily_coverage` | **30 days** | 1 h | 1 h |
+| `minute_coverage` | **750 days** | 4 h | 1 h |
+| `daily_coverage` | **750 days** | 1 h | 1 h |
 
-Reasoning, per side:
+750 days clears the 731-day engine floor with ~19 days of margin, so a later
+`end_offset` change does not immediately breach it, and it comfortably clears
+the parent-window floor (1 day) that motivated D4 originally.
 
-- **`minute_coverage`** — `start_offset` must exceed the parent's *entire*
-  refresh window (1 day), not merely equal it, with margin for a parent backfill
-  or repair that rewrites recent history. 30 days is that window plus a wide
-  margin, deliberately generous: the asymmetry of the failure modes decides it.
-  Too-wide costs one 1-year bucket per symbol per refresh; too-narrow strands
-  history permanently, because no scheduled run ever revisits data older than
-  `start_offset` — the exact shape of the ~79% under-materialization 163 had to
-  repair. `end_offset` (4 h) matches the parent's, since refreshing closer to now
-  than the parent has materialized would undercount the trailing edge.
-  `schedule_interval` (1 h) matches the parent's cadence.
-- **`daily_coverage`** — its source is the **raw** `daily_ohlcv`, which has no
-  refresh policy at all, so the binding constraint is not a parent window but
-  late-arriving and revised daily bars (provider restatements, adjustment
-  rebasing). 30 days matches the minute side — one operator-visible number rather
-  than two — and comfortably covers the 7-day compression horizon after which
-  rows are no longer expected to change.
+**750 days is a bound on how far back the policy will look, not work per run.**
+Refresh is driven by TimescaleDB's invalidation tracking, so a run rewrites only
+buckets that actually changed — in steady state, the current year's bucket for
+whichever symbols received new bars, ~1–2 rows per affected symbol. The read
+path is unaffected either way: `bars_summary` still groups ~15k rows.
 
-The D4 constraint is encoded mechanically as a unit test (`start_offset` ≥ parent
-refresh window + margin), so a later edit cannot silently reintroduce the 1-day
-bug.
+`end_offset` on the minute side (4 h) matches the parent's, since refreshing
+closer to now than the parent has materialized would undercount the trailing
+edge. The daily side needs no such wait (raw source), so 1 h simply keeps the
+refresh off the actively-written head. `schedule_interval` (1 h) matches the
+parent's cadence on both.
+
+**Residual hazard, deliberately accepted and recorded.** A bucket older than the
+~2-year window that is rewritten by a deep backfill will not be picked up by the
+scheduled policy. This is the same stranding shape that produced the ~79%
+under-materialization slice 163 repaired — relocated to the ~2-year boundary,
+not eliminated. It cannot be closed by widening `start_offset` indefinitely, and
+it is exactly what `mt data caggs verify` detects and `repair` heals. The
+standing rule from the 2026-07-20 arch amendment applies unchanged: after any
+raw restructuring or deep backfill, run `verify`; if parity fails, run `repair`.
+
+Both constraints are encoded mechanically as unit tests — the parent-window floor
+and the engine's two-bucket minimum (`COVERAGE_REFRESH_MIN_WINDOW_BUCKETS`) — so
+a later edit to the bucket width or the offsets fails at test time rather than at
+migration time against a live database.
 
 ### D5 — Load-test tier (revisiting slice 166 D2's deferral)
 

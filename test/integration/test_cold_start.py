@@ -25,7 +25,11 @@ from urllib.parse import urlparse, urlunparse
 import psycopg
 import pytest
 
-from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL
+from manta_trading.constants import (
+    DAILY_COVERAGE_VIEW,
+    MINUTE_CAGG_CHUNK_INTERVAL,
+    MINUTE_COVERAGE_VIEW,
+)
 from manta_trading.market.schema.migrations.minute import (
     _MINUTE_CAGG_VIEWS,
     MINUTE_MIGRATIONS,
@@ -78,6 +82,9 @@ EXPECTED_CAGGS: tuple[str, ...] = (
     "daily_weekly_ohlcv",
     "daily_monthly_ohlcv",
     "daily_quarterly_ohlcv",
+    # Coverage caggs backing data_status.bars_summary (slice 167, migration 046).
+    MINUTE_COVERAGE_VIEW,
+    DAILY_COVERAGE_VIEW,
 )
 
 

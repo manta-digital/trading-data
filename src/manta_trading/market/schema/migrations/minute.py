@@ -11,6 +11,11 @@ from datetime import date, timedelta
 from typing import Any
 
 from manta_trading.constants import (
+    COVERAGE_BUCKET_INTERVAL,
+    DAILY_COVERAGE_REFRESH_END_OFFSET,
+    DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
+    DAILY_COVERAGE_REFRESH_START_OFFSET,
+    DAILY_COVERAGE_VIEW,
     DAILY_HISTORY_MONTHS,
     DAILY_STALENESS_THRESHOLD,
     GRANULARITY_SOURCE,
@@ -18,6 +23,10 @@ from manta_trading.constants import (
     MINUTE_CAGG_CHUNK_INTERVAL,
     MINUTE_CAGG_COMPRESS_AFTER,
     MINUTE_CAGG_GRANULARITIES,
+    MINUTE_COVERAGE_REFRESH_END_OFFSET,
+    MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
+    MINUTE_COVERAGE_REFRESH_START_OFFSET,
+    MINUTE_COVERAGE_VIEW,
     MINUTE_OHLCV_CHUNK_INTERVAL,
     MINUTE_STALENESS_THRESHOLD,
     TRADING_SESSIONS_EXTENSION_YEARS,
@@ -1723,5 +1732,121 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         ),
         "requires_autocommit": True,
         "python_fn": _setup_minute_cagg_columnstore,
+    },
+    {
+        "id": "046_create_coverage_caggs",
+        "description": (
+            "Create the two coverage continuous aggregates backing "
+            "data_status.bars_summary (slice 167): minute_coverage over the "
+            "minute_4hour_ohlcv cagg (HIERARCHICAL) and daily_coverage over "
+            "raw daily_ohlcv. Both bucket at COVERAGE_BUCKET_INTERVAL (1 year), "
+            "so bars_summary groups ~15k rows instead of scanning 4.4B raw "
+            "minute rows. "
+            "ASYMMETRY, deliberate: minute_coverage's source is a 4-hour cagg, "
+            "so its first_bucket/last_bucket are truncated to the parent's "
+            "4-hour bucket start; daily_coverage reads the raw hypertable, so "
+            "its first_ts/last_ts are EXACT. Slice 167 D3/D7 documents this, "
+            "the view doc comment states it, and the equivalence tests assert "
+            "the stricter condition on the daily branch. "
+            "Each view is a separate execute() call — Timescale forbids "
+            "multiple continuous-aggregate DDL statements in one call."
+        ),
+        # Same constraint as 033/034: one CREATE MATERIALIZED VIEW per
+        # execute(), outside an implicit transaction.
+        "requires_autocommit": True,
+        "python_fn": lambda conn: [
+            conn.execute(sql)
+            for sql in [
+                f"""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS {MINUTE_COVERAGE_VIEW}
+                WITH (timescaledb.continuous) AS
+                SELECT
+                    time_bucket(
+                        {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
+                        time_bucket
+                    ) AS yr_bucket,
+                    symbol,
+                    SUM(minute_count) AS bars,
+                    MIN(time_bucket)  AS first_bucket,
+                    MAX(time_bucket)  AS last_bucket
+                FROM minute_4hour_ohlcv
+                GROUP BY yr_bucket, symbol
+                """,
+                f"""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS {DAILY_COVERAGE_VIEW}
+                WITH (timescaledb.continuous) AS
+                SELECT
+                    time_bucket(
+                        {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
+                        time
+                    ) AS yr_bucket,
+                    symbol,
+                    COUNT(*)  AS bars,
+                    MIN(time) AS first_bucket,
+                    MAX(time) AS last_bucket
+                FROM daily_ohlcv
+                GROUP BY yr_bucket, symbol
+                """,
+            ]
+        ],
+    },
+    {
+        "id": "047_coverage_cagg_refresh_policies",
+        "description": (
+            "Install refresh policies for the two coverage caggs (slice 167 "
+            "D4). Offsets come from constants measured against the parent "
+            "policies on prod, never literals: minute_coverage's start_offset "
+            "must exceed the parent minute_4hour_ohlcv policy's entire refresh "
+            "window (1 day) with margin, because a too-narrow start_offset on "
+            "a hierarchical cagg strands older history permanently — the exact "
+            "failure slice 163 had to repair. Idempotent — policies are added "
+            "inside a DO block that checks for existing jobs first, matching "
+            "035/037."
+        ),
+        "sql": f"""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM timescaledb_information.jobs
+                    WHERE hypertable_name = '{MINUTE_COVERAGE_VIEW}'
+                      AND proc_name = 'policy_refresh_continuous_aggregate'
+                ) THEN
+                    PERFORM add_continuous_aggregate_policy(
+                        '{MINUTE_COVERAGE_VIEW}',
+                        start_offset =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_START_OFFSET
+                            )},
+                        end_offset =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_END_OFFSET
+                            )},
+                        schedule_interval =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM timescaledb_information.jobs
+                    WHERE hypertable_name = '{DAILY_COVERAGE_VIEW}'
+                      AND proc_name = 'policy_refresh_continuous_aggregate'
+                ) THEN
+                    PERFORM add_continuous_aggregate_policy(
+                        '{DAILY_COVERAGE_VIEW}',
+                        start_offset =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_START_OFFSET
+                            )},
+                        end_offset =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_END_OFFSET
+                            )},
+                        schedule_interval =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
+                END IF;
+            END $$;
+        """,
     },
 ]

@@ -189,6 +189,34 @@ for the hierarchical structure (slice 167 D1).
 ``timestamptz`` column takes a fixed-width interval, and bucket boundaries need
 not align to calendar years — the buckets are a grouping device for coverage
 bookkeeping, not a reporting calendar.
+
+**This width sets a hard floor on the refresh policies' ``start_offset``** —
+see ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``. Changing it moves that floor.
+"""
+
+COVERAGE_REFRESH_MIN_WINDOW_BUCKETS: int = 2
+"""TimescaleDB's minimum refresh-window width, in buckets (slice 167 D4).
+
+``add_continuous_aggregate_policy`` rejects a policy unless
+``start_offset - end_offset >= COVERAGE_REFRESH_MIN_WINDOW_BUCKETS * bucket``,
+raising ``InvalidParameterValue: policy refresh window too small``.
+
+The engine requires it because a refresh only re-materializes buckets *fully
+contained* in ``[now - start_offset, now - end_offset]``; a partially covered
+bucket at either edge is skipped rather than written with a half-computed
+aggregate. A window narrower than two buckets can therefore slide into a
+position where it fully contains nothing and the policy silently refreshes zero
+rows. Two buckets guarantees at least one is always wholly inside.
+
+Measured on TimescaleDB 2.21.3 with a 365-day bucket and a 4 h ``end_offset``:
+730 days is rejected, 731 days accepted. Recorded as a constant so the
+constants test asserts the real engine constraint rather than a remembered
+number, and so a future change to ``COVERAGE_BUCKET_INTERVAL`` fails loudly at
+test time instead of at migration time.
+
+This constraint never bound the pre-167 caggs: each has a bucket far smaller
+than its offsets (4 h bucket / 1 day offset; 3-month bucket / 270-day offset).
+A 1-year bucket is the first one large relative to any sane refresh window.
 """
 
 MINUTE_CAGG_REFRESH_START_OFFSET: timedelta = timedelta(days=1)
@@ -202,23 +230,34 @@ asserts the coverage ``start_offset`` against it rather than against a literal.
 Not itself rendered into a migration — migrations 035/037 own those policies.
 """
 
-MINUTE_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=30)
+MINUTE_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=750)
 """``start_offset`` for the ``minute_coverage`` refresh policy (slice 167 D4).
 
-**Measured, not chosen by feel** (prod, 2026-07-26): the parent
-``minute_4hour_ohlcv`` policy (job 1003) runs ``schedule_interval`` 1 h with
-``start_offset`` 1 day and ``end_offset`` 4 h. A hierarchical cagg must
-re-materialize any parent bucket that changed since it last ran, so its
-``start_offset`` must exceed the parent's entire refresh window — 1 day — with
-margin for a parent backfill or repair that rewrites recent history.
+Two constraints bind here, and the engine's is the larger:
 
-30 days is that window plus a wide margin, deliberately generous: a **too-narrow**
-``start_offset`` on a hierarchical cagg is exactly what caused the ~79%
-under-materialization that slice 163 had to repair, and stranded history is
-never revisited by a scheduled run. The cost of over-wide is bounded — one
-1-year bucket per symbol per refresh — while the cost of too-narrow is silent
-permanent corruption. Asserted against the parent value by the slice-167
-constants test.
+1. **Floor from the parent** (measured on prod 2026-07-26): the parent
+   ``minute_4hour_ohlcv`` policy (job 1003) runs ``schedule_interval`` 1 h with
+   ``start_offset`` 1 day, ``end_offset`` 4 h. A hierarchical cagg must
+   re-materialize any parent bucket that changed since it last ran, so its
+   window must exceed the parent's entire refresh window, with margin.
+2. **Floor from TimescaleDB** (the binding one): ``start_offset - end_offset``
+   must be at least ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS`` × the 1-year bucket,
+   i.e. ≥ 731 days here. Measured, not assumed — 730 days is rejected.
+
+750 days satisfies both with a ~19-day margin above the engine floor, so a
+future ``end_offset`` change does not immediately breach it.
+
+This is a bound on how far back the policy will *look*, not work performed per
+run: refresh is driven by TimescaleDB's invalidation tracking, so a run rewrites
+only the buckets that actually changed — in steady state the current year's
+bucket for the symbols that got new bars, ~1-2 rows per affected symbol.
+
+**Residual hazard, deliberately accepted:** a bucket older than the window that
+is rewritten by a deep backfill will not be picked up by the scheduled policy.
+That is the same stranding shape that produced the ~79% under-materialization
+slice 163 repaired, relocated to the ~2-year boundary rather than eliminated.
+It is detected by ``mt data caggs verify`` and healed by ``repair`` — the
+standing rule after any raw restructuring or deep backfill.
 """
 
 MINUTE_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=4)
@@ -237,18 +276,20 @@ the parent produces no new data; less often widens the documented lag bound for
 no benefit.
 """
 
-DAILY_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=30)
+DAILY_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=750)
 """``start_offset`` for the ``daily_coverage`` refresh policy (slice 167 D4).
 
 ``daily_coverage``'s source is the **raw** ``daily_ohlcv`` hypertable, which has
 no refresh policy of its own (measured, prod 2026-07-26 — only a compression
-policy, ``compress_after`` 7 days). So the constraint here is not a parent
-refresh window but late-arriving and revised daily bars: providers restate
-recent history, and adjustment rebasing rewrites it.
+policy, ``compress_after`` 7 days). So there is no parent refresh window to
+clear; the binding constraint is TimescaleDB's two-bucket minimum window (see
+``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``), identical to the minute side because
+the bucket width is the same.
 
-30 days matches the minute side, keeping one operator-visible number rather than
-two, and comfortably covers the 7-day compression horizon after which rows are
-no longer expected to change.
+Matching the minute side at 750 days also keeps one operator-visible number
+rather than two, and covers the revision window that matters for daily bars —
+provider restatements and adjustment rebasing — far beyond the 7-day
+compression horizon after which rows are no longer expected to change.
 """
 
 DAILY_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=1)
