@@ -394,10 +394,12 @@ ship a second unguarded cagg consumer.
         (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`) in the test docstring
         and the slice's verification section, so the NFR has a runnable check
         even without CI.
-  - [ ] 8.3.3 **Ask the PM** whether standing up CI is in scope for this slice or
-        a separate chore. If out of scope, record criterion 6 as satisfied by the
-        documented manual invocation and say so explicitly in the design — do not
-        claim CI gating that does not exist.
+  - [ ] 8.3.3 **Settled (PM, 2026-07-26): CI is out of scope for 167** and is
+        filed as slice **907** (CI Pipeline and Load-Test Gating) in the 900
+        band, which will also retire 146's stale "CI must enable" docstrings.
+        Record criterion 6 as satisfied by the documented manual invocation, and
+        state that plainly in the design — do **not** claim CI gating that does
+        not exist. Reference 907 so the gap is tracked, not forgotten.
 
 - [ ] **Commit**: `test(load): assert sub-second full-universe data_status read`
 
@@ -487,10 +489,11 @@ ship a second unguarded cagg consumer.
    and the chosen refresh intervals.
 5. Cold-start applies the new migrations cleanly and yields a sub-second view.
 6. A load test asserts full-universe read latency < 1 s, gated on
-   `MT_RUN_LOAD_TESTS=1` per the existing `test/load/` convention. No CI exists
-   in this repo (review F002); whether standing it up is in scope is a PM call
-   at task 8.3.3 — absent CI, the criterion is met by the documented manual
-   invocation, stated honestly rather than claimed as automated.
+   `MT_RUN_LOAD_TESTS=1` per the existing `test/load/` convention, and is
+   runnable via the documented invocation. No CI exists in this repo (review
+   F002); standing it up is **out of scope for 167 and filed as slice 907**
+   (PM, 2026-07-26). This criterion is met by the documented manual invocation —
+   stated honestly, not claimed as automated.
 7. `assert_cagg_fresh` is called on the coverage caggs via the guarded accessor
    and is **proven to fire by inducing staleness**, including the loose-offset /
    badly-stalled case.
