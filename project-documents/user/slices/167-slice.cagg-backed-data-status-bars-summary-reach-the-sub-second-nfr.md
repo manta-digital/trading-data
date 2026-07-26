@@ -309,14 +309,52 @@ Full reasoning: journal `20260725` ADR rules 2–4;
 ### D4 — Refresh policy for the coverage caggs
 
 `minute_coverage` and `daily_coverage` each get an
-`add_continuous_aggregate_policy`. Because they are hierarchical (built over
-another cagg), their `start_offset` must be wide enough to re-materialize
-recently-changed parent buckets — the trailing-1-day policy is what caused the
-prerequisite corruption, so the coverage policy's `start_offset` must be chosen
-deliberately (candidate: cover at least the parent's refresh window plus a
-margin) and **must be re-verified against the merge-chunks/cagg-invalidation
-lesson** before any future restructuring of the parent. Exact offsets are a
-task-level decision, recorded here as a constraint, not yet fixed.
+`add_continuous_aggregate_policy`. Because `minute_coverage` is hierarchical
+(built over another cagg), its `start_offset` must be wide enough to
+re-materialize recently-changed parent buckets — the trailing-1-day policy is
+what caused the prerequisite corruption — and **must be re-verified against the
+merge-chunks/cagg-invalidation lesson** before any future restructuring of the
+parent.
+
+**Offsets fixed at task 2.2 (2026-07-26), measured from prod, not estimated.**
+Parent values read from `timescaledb_information.jobs`:
+
+| Parent | Job | `schedule_interval` | `start_offset` | `end_offset` |
+|---|---|---|---|---|
+| `minute_4hour_ohlcv` | 1003 | 1 h | **1 day** | 4 h |
+| `daily_ohlcv` (raw) | — | *no refresh policy* | — | — |
+| | | | | |
+| `daily_ohlcv` compression | 1010 | 12 h | `compress_after` 7 days | |
+
+Chosen values, as constants in `constants.py` — never restated as literals:
+
+| Coverage cagg | `start_offset` | `end_offset` | `schedule_interval` |
+|---|---|---|---|
+| `minute_coverage` | **30 days** | 4 h | 1 h |
+| `daily_coverage` | **30 days** | 1 h | 1 h |
+
+Reasoning, per side:
+
+- **`minute_coverage`** — `start_offset` must exceed the parent's *entire*
+  refresh window (1 day), not merely equal it, with margin for a parent backfill
+  or repair that rewrites recent history. 30 days is that window plus a wide
+  margin, deliberately generous: the asymmetry of the failure modes decides it.
+  Too-wide costs one 1-year bucket per symbol per refresh; too-narrow strands
+  history permanently, because no scheduled run ever revisits data older than
+  `start_offset` — the exact shape of the ~79% under-materialization 163 had to
+  repair. `end_offset` (4 h) matches the parent's, since refreshing closer to now
+  than the parent has materialized would undercount the trailing edge.
+  `schedule_interval` (1 h) matches the parent's cadence.
+- **`daily_coverage`** — its source is the **raw** `daily_ohlcv`, which has no
+  refresh policy at all, so the binding constraint is not a parent window but
+  late-arriving and revised daily bars (provider restatements, adjustment
+  rebasing). 30 days matches the minute side — one operator-visible number rather
+  than two — and comfortably covers the 7-day compression horizon after which
+  rows are no longer expected to change.
+
+The D4 constraint is encoded mechanically as a unit test (`start_offset` ≥ parent
+refresh window + margin), so a later edit cannot silently reintroduce the 1-day
+bug.
 
 ### D5 — Load-test tier (revisiting slice 166 D2's deferral)
 
