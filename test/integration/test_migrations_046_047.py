@@ -31,11 +31,13 @@ from manta_trading.constants import (
     DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     DAILY_COVERAGE_REFRESH_START_OFFSET,
     DAILY_COVERAGE_VIEW,
+    MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_END_OFFSET,
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_START_OFFSET,
     MINUTE_COVERAGE_VIEW,
 )
+from manta_trading.market.schema.migrations.minute import _interval_literal
 
 _COVERAGE_VIEWS = (MINUTE_COVERAGE_VIEW, DAILY_COVERAGE_VIEW)
 
@@ -247,6 +249,59 @@ class TestMigrations046To047:
             for view in _COVERAGE_VIEWS:
                 assert view in caggs
                 assert _policy_count(conn, view) == 1
+
+    def test_048_view_doc_comment_states_both_bounds(
+        self, ephemeral_db: str
+    ) -> None:
+        """Criterion 4: the view must carry a retrievable doc comment.
+
+        Section 7 covers ``bars_summary`` *output*; nothing else verifies the
+        comment's *content*, so assert it here -- and assert against the
+        constants rather than hard-coded interval literals, so a change to the
+        refresh policy that forgets the comment fails.
+        """
+        _apply_migrations(ephemeral_db)
+        with psycopg.connect(ephemeral_db) as conn, conn.cursor() as cur:
+            cur.execute("SELECT obj_description('data_status'::regclass)")
+            row = cur.fetchone()
+
+        assert row is not None
+        comment = row[0]
+        assert comment, "data_status has no doc comment"
+
+        # Both documented bounds are named.
+        assert "BUCKET TRUNCATION" in comment
+        assert "CAGG LAG" in comment
+
+        # The chosen intervals, rendered from the 2.2 constants.
+        for interval in (
+            MINUTE_COVERAGE_REFRESH_START_OFFSET,
+            MINUTE_COVERAGE_REFRESH_END_OFFSET,
+            MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL,
+            DAILY_COVERAGE_REFRESH_START_OFFSET,
+        ):
+            assert _interval_literal(interval) in comment, (
+                f"doc comment omits {_interval_literal(interval)}"
+            )
+
+        # Both coverage views, and the guard contract.
+        assert MINUTE_COVERAGE_VIEW in comment
+        assert DAILY_COVERAGE_VIEW in comment
+        assert "status_coverage" in comment
+
+    def test_048_bars_summary_reads_coverage_caggs_on_a_live_db(
+        self, ephemeral_db: str
+    ) -> None:
+        """The installed view definition must not scan the raw hypertables."""
+        _apply_migrations(ephemeral_db)
+        with psycopg.connect(ephemeral_db) as conn, conn.cursor() as cur:
+            cur.execute("SELECT pg_get_viewdef('data_status'::regclass, true)")
+            row = cur.fetchone()
+
+        assert row is not None
+        definition = str(row[0])
+        assert MINUTE_COVERAGE_VIEW in definition
+        assert DAILY_COVERAGE_VIEW in definition
 
     def test_046_hierarchical_rollup_matches_raw_count(
         self, ephemeral_db: str

@@ -23,6 +23,7 @@ from manta_trading.constants import (
     MINUTE_CAGG_CHUNK_INTERVAL,
     MINUTE_CAGG_COMPRESS_AFTER,
     MINUTE_CAGG_GRANULARITIES,
+    MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_END_OFFSET,
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_START_OFFSET,
@@ -178,7 +179,10 @@ _HISTORY_HORIZON_DISJUNCT = _history_horizon_disjunct()
 
 
 def _build_data_status_view_sql(
-    *, include_daily_branch: bool, include_trading_sessions_cte: bool = False
+    *,
+    include_daily_branch: bool,
+    include_trading_sessions_cte: bool = False,
+    cagg_backed_bars_summary: bool = False,
 ) -> str:
     """Build the data_status view CREATE OR REPLACE statement.
 
@@ -194,8 +198,47 @@ def _build_data_status_view_sql(
     projects ``target_end_ts`` from ``trading_sessions`` via the
     ``exchange_completed_close`` CTE. When False (migrations 021/024),
     ``target_end_ts = NULL`` — the slice-142 stub.
+
+    When ``cagg_backed_bars_summary=True`` (migration 048+, slice 167), the
+    ``bars_summary`` CTE reads the coverage continuous aggregates instead of
+    aggregating the raw hypertables per symbol. Nothing else about the view
+    changes: same CTEs, same joins, same output columns in the same order (D2).
+    The minute branch's timestamps become bucket-truncated as a consequence —
+    documented on the view itself by migration 048's ``COMMENT ON VIEW`` — while
+    the daily branch stays exact, because ``daily_coverage`` reads raw
+    ``daily_ohlcv`` rather than a parent cagg.
     """
-    if include_daily_branch:
+    if cagg_backed_bars_summary:
+        # first_bucket/last_bucket are already per-(symbol, year) extremes, so
+        # the outer MIN/MAX collapse them to per-symbol extremes; SUM(bars)
+        # rolls the per-year counts up the same way.
+        # SUM() over a bigint column yields numeric; cast back to BIGINT so the
+        # bars_stored column keeps the exact type COUNT(*) produced. Without
+        # this, CREATE OR REPLACE VIEW refuses the change outright ("cannot
+        # change data type of view column") -- and the D2 contract would be
+        # broken even if it did not.
+        minute_coverage_branch = (
+            "    SELECT ''minute''::TEXT AS granularity, symbol, "
+            "           MIN(first_bucket)  AS first_bar_ts, "
+            "           MAX(last_bucket)   AS last_bar_ts, "
+            "           SUM(bars)::BIGINT  AS bars_stored "
+            f"    FROM {MINUTE_COVERAGE_VIEW} GROUP BY symbol"
+        )
+        if include_daily_branch:
+            bars_summary_cte = (
+                "bars_summary AS ("
+                "    SELECT ''daily''::TEXT  AS granularity, symbol, "
+                "           MIN(first_bucket)  AS first_bar_ts, "
+                "           MAX(last_bucket)   AS last_bar_ts, "
+                "           SUM(bars)::BIGINT  AS bars_stored "
+                f"    FROM {DAILY_COVERAGE_VIEW} GROUP BY symbol "
+                "    UNION ALL "
+                f"{minute_coverage_branch}"
+                ")"
+            )
+        else:
+            bars_summary_cte = f"bars_summary AS ({minute_coverage_branch})"
+    elif include_daily_branch:
         bars_summary_cte = (
             "bars_summary AS ("
             "    SELECT ''daily''::TEXT  AS granularity, symbol, "
@@ -296,6 +339,61 @@ _DATA_STATUS_VIEW_WITH_DAILY_TS = _build_data_status_view_sql(
 )
 _DATA_STATUS_VIEW_WITHOUT_DAILY_TS = _build_data_status_view_sql(
     include_daily_branch=False, include_trading_sessions_cte=True
+)
+
+def _data_status_doc_comment() -> str:
+    """Render the ``COMMENT ON VIEW data_status`` text for migration 048.
+
+    Built from the coverage constants rather than literals, so the documented
+    bounds cannot drift from the policies actually installed by 047. Criterion 4
+    is verified by reading this back via ``obj_description``.
+
+    Single-quoted for embedding in the migration's DO block, hence the doubled
+    quotes throughout — same escaping convention as the view builder.
+    """
+    minute_lag = _interval_literal(
+        MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL
+        + MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+    )
+    return (
+        "data_status: per-symbol acquisition health. "
+        "bars_summary (first_bar_ts, last_bar_ts, bars_stored) derives from the "
+        f"{MINUTE_COVERAGE_VIEW} and {DAILY_COVERAGE_VIEW} continuous "
+        "aggregates as of slice 167, not from a per-symbol scan of the raw "
+        "hypertables. Two documented bounds apply. "
+        "(1) BUCKET TRUNCATION: minute first_bar_ts/last_bar_ts are truncated "
+        "to the 4-hour parent-cagg bucket start, so they may read up to 4 hours "
+        "earlier than the true first/last bar; daily timestamps are EXACT, "
+        f"because {DAILY_COVERAGE_VIEW} reads raw daily_ohlcv rather than a "
+        "parent cagg. bars_stored is exact on both branches. "
+        "(2) CAGG LAG: coverage trails raw ingest by at most the two-hop "
+        f"refresh interval -- {_interval_literal(MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL)} "
+        f"for the parent 4-hour cagg plus {_interval_literal(MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} "
+        f"for {MINUTE_COVERAGE_VIEW} ({minute_lag} total); "
+        f"{_interval_literal(DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} for "
+        f"{DAILY_COVERAGE_VIEW}, which reads raw and so has one hop. "
+        "Refresh policies use start_offset "
+        f"{_interval_literal(MINUTE_COVERAGE_REFRESH_START_OFFSET)} / end_offset "
+        f"{_interval_literal(MINUTE_COVERAGE_REFRESH_END_OFFSET)} (minute) and "
+        f"{_interval_literal(DAILY_COVERAGE_REFRESH_START_OFFSET)} / "
+        f"{_interval_literal(DAILY_COVERAGE_REFRESH_END_OFFSET)} (daily). "
+        "FRESHNESS IS NOT ASSERTED IN SQL: readers must go through "
+        "data.maintenance.status_coverage, which calls assert_cagg_fresh on "
+        "both coverage caggs and reports staleness to the operator. Querying "
+        "this view directly bypasses that guard."
+    )
+
+
+# Slice 167 rewrite: bars_summary reads the coverage caggs (migration 048)
+_DATA_STATUS_VIEW_WITH_DAILY_COVERAGE = _build_data_status_view_sql(
+    include_daily_branch=True,
+    include_trading_sessions_cte=True,
+    cagg_backed_bars_summary=True,
+)
+_DATA_STATUS_VIEW_WITHOUT_DAILY_COVERAGE = _build_data_status_view_sql(
+    include_daily_branch=False,
+    include_trading_sessions_cte=True,
+    cagg_backed_bars_summary=True,
 )
 
 
@@ -1846,6 +1944,32 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                                 DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
                             )});
                 END IF;
+            END $$;
+        """,
+    },
+    {
+        "id": "048_data_status_cagg_backed",
+        "description": (
+            "Rewrite data_status so bars_summary reads the coverage caggs "
+            "created in 046 instead of scanning raw minute_ohlcv/daily_ohlcv "
+            "per symbol (slice 167). Everything outside the bars_summary CTE "
+            "is byte-identical to the 028 variant — same CTEs, joins, health "
+            "CASE, and output columns in the same order (D2). "
+            "Branches on to_regclass the same way 028 does, so cold-start and "
+            "existing DBs converge on one definition. Also attaches the D3 doc "
+            "comment stating both documented bounds (bucket truncation and "
+            "cagg lag) with the intervals rendered from the constants."
+        ),
+        "sql": f"""
+            DO $$ BEGIN
+                IF to_regclass('public.daily_ohlcv') IS NOT NULL THEN
+                    EXECUTE '{_DATA_STATUS_VIEW_WITH_DAILY_COVERAGE}';
+                ELSE
+                    EXECUTE '{_DATA_STATUS_VIEW_WITHOUT_DAILY_COVERAGE}';
+                END IF;
+
+                EXECUTE 'COMMENT ON VIEW data_status IS '
+                     || quote_literal('{_data_status_doc_comment()}');
             END $$;
         """,
     },

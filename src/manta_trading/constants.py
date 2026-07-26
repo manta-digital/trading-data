@@ -230,6 +230,16 @@ asserts the coverage ``start_offset`` against it rather than against a literal.
 Not itself rendered into a migration — migrations 035/037 own those policies.
 """
 
+MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL: timedelta = timedelta(hours=1)
+"""``schedule_interval`` of the 1h and 4h minute caggs' refresh policies.
+
+Measured on prod 2026-07-26 (jobs 1002/1003). Recorded here as the **parent**
+hop of slice 167's two-hop coverage lag bound: raw ingest → parent cagg →
+coverage cagg. Migration 048's ``COMMENT ON VIEW`` renders the documented bound
+from this constant plus the coverage cadence, so the comment cannot drift from
+the policies actually installed. Migration 035 owns the parent policy itself.
+"""
+
 MINUTE_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=750)
 """``start_offset`` for the ``minute_coverage`` refresh policy (slice 167 D4).
 

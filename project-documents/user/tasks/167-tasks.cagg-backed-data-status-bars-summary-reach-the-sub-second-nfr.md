@@ -8,7 +8,7 @@ dependencies: [166, 163, 168]
 interfaces: [147, 182]
 dateCreated: 20260726
 dateUpdated: 20260726
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Cagg-backed `data_status` bars summary — reach the sub-second NFR
@@ -93,110 +93,118 @@ ship a second unguarded cagg consumer.
 
 ## 1. Documentation corrections (review findings)
 
-- [ ] **1.1** Amend `140-arch.data-quality-operations.md` for the `data_status`
+- [x] **1.1** Amend `140-arch.data-quality-operations.md` for the `data_status`
       source change (review F001). Effort: 1/5
-  - [ ] 1.1.1 Locate the "One status view" section defining `bars_summary` as
+  - [x] 1.1.1 Locate the "One status view" section defining `bars_summary` as
         `MIN(time)`/`MAX(time)`/`COUNT(*)` **from the data table**, and the claim
         "A view, not a table. Always consistent with the underlying data."
-  - [ ] 1.1.2 Add an amendment following the established convention (the
+  - [x] 1.1.2 Add an amendment following the established convention (the
         2026-07-20 `mt data caggs` amendment for slices 154/163 — match its
         heading style and dated format).
-  - [ ] 1.1.3 Amendment states: `bars_summary` derives from coverage caggs as of
+  - [x] 1.1.3 Amendment states: `bars_summary` derives from coverage caggs as of
         slice 167; the view is consistent **within a documented and asserted
         staleness bound**, not unconditionally; timestamps are bucket-truncated.
-  - [ ] 1.1.4 Success: arch no longer describes a view that does not exist; the
+  - [x] 1.1.4 Success: arch no longer describes a view that does not exist; the
         original text is amended, not deleted.
-- [ ] **1.2** Correct D3a's misattributed example in the 167 slice design
+- [x] **1.2** Correct D3a's misattributed example in the 167 slice design
       (review F004). Effort: 1/5
-  - [ ] 1.2.1 D3a cites "the daily caggs, whose offsets run to 21/90/270 days" —
+  - [x] 1.2.1 D3a cites "the daily caggs, whose offsets run to 21/90/270 days" —
         but per D1 the daily branch reads the **new `daily_coverage` cagg**, not
         `daily_weekly`/`daily_monthly`/`daily_quarterly`.
-  - [ ] 1.2.2 Rewrite the example to reference `daily_coverage`'s own offset
+  - [x] 1.2.2 Rewrite the example to reference `daily_coverage`'s own offset
         (chosen in task 2.2). Keep the `min(start_offset, ceiling)` conclusion —
         it is correct and independently codified as
         `MAX_COVERAGE_SOURCE_STALENESS`.
-  - [ ] 1.2.3 Record in the design's decisions the two PM rulings above (F002
+  - [x] 1.2.3 Record in the design's decisions the two PM rulings above (F002
         accessor module, F003 date-normalized equivalence), and restate success
         criterion 2 per F003 so the criterion and D3 no longer contradict.
 
-- [ ] **Commit**: `docs: amend 140-arch data_status spec for cagg-backed bars_summary`
+- [x] **Commit**: `docs: amend 140-arch data_status spec for cagg-backed bars_summary`
 
 ---
 
 ## 2. Constants and refresh-policy parameters
 
-- [ ] **2.1** Add coverage-cagg constants to `constants.py`. Effort: 1/5
-  - [ ] 2.1.1 View names as constants (e.g. `MINUTE_COVERAGE_VIEW`,
+- [x] **2.1** Add coverage-cagg constants to `constants.py`. Effort: 1/5
+  - [x] 2.1.1 View names as constants (e.g. `MINUTE_COVERAGE_VIEW`,
         `DAILY_COVERAGE_VIEW`) — these are passed to `assert_cagg_fresh` and used
         in tests, so they must exist in exactly one place.
-  - [ ] 2.1.2 `COVERAGE_BUCKET_INTERVAL` (1 year) for both coverage caggs.
-  - [ ] 2.1.3 Follow the existing `MINUTE_OHLCV_CHUNK_INTERVAL` declaration style
+  - [x] 2.1.2 `COVERAGE_BUCKET_INTERVAL` (1 year) for both coverage caggs.
+  - [x] 2.1.3 Follow the existing `MINUTE_OHLCV_CHUNK_INTERVAL` declaration style
         and place them with the related cagg constants, not at file end.
-  - [ ] 2.1.4 Success: no coverage view name or bucket width appears as a literal
+  - [x] 2.1.4 Success: no coverage view name or bucket width appears as a literal
         anywhere in `src/`.
-- [ ] **2.2** Choose and justify the coverage refresh-policy offsets (D4).
+- [x] **2.2** Choose and justify the coverage refresh-policy offsets (D4).
       Effort: 2/5
-  - [ ] 2.2.1 Read the parent policies on prod first — `minute_4hour_ohlcv`
+  - [x] 2.2.1 Read the parent policies on prod first — `minute_4hour_ohlcv`
         (`start_offset` 1 day per 168's verified catalog facts) and `daily_ohlcv`'s
         relevant policy. Record actual values; do not assume.
-  - [ ] 2.2.2 `start_offset` for each coverage cagg must be **at least the
+  - [x] 2.2.2 `start_offset` for each coverage cagg must be **at least the
         parent's refresh window plus margin**, so a parent bucket that changes
         after the coverage cagg last ran is still re-materialized. A trailing
         1-day offset on a hierarchical cagg is the exact D4 hazard.
-  - [ ] 2.2.3 Add as constants (`MINUTE_COVERAGE_REFRESH_*`,
+  - [x] 2.2.3 Add as constants (`MINUTE_COVERAGE_REFRESH_*`,
         `DAILY_COVERAGE_REFRESH_*`: start_offset, end_offset, schedule_interval).
-  - [ ] 2.2.4 Write the chosen values and the reasoning into the design's D4,
+  - [x] 2.2.4 Write the chosen values and the reasoning into the design's D4,
         replacing "exact offsets are a task-level decision".
-  - [ ] 2.2.5 Success: each offset traceable to a measured parent value, not a
+  - [x] 2.2.5 Success: each offset traceable to a measured parent value, not a
         round number picked by feel.
-- [ ] **2.3** Unit-test the constants block. Effort: 1/5
-  - [ ] 2.3.1 Assert coverage `start_offset` ≥ parent refresh interval + margin
+    - *Implementation note (2026-07-26): TimescaleDB rejects a refresh policy
+      whose window spans under two bucket widths
+      (`InvalidParameterValue: policy refresh window too small`). With the
+      1-year bucket the measured floor is 731 days (730 rejected, 731 accepted
+      on 2.21.3), so the chosen `start_offset` is **750 days**, not the 30 days
+      the parent-window reasoning alone suggested. Encoded as
+      `COVERAGE_REFRESH_MIN_WINDOW_BUCKETS` and asserted by a unit test. See
+      slice design D4.*
+- [x] **2.3** Unit-test the constants block. Effort: 1/5
+  - [x] 2.3.1 Assert coverage `start_offset` ≥ parent refresh interval + margin
         (encodes the D4 constraint mechanically so a later edit can't silently
         reintroduce the 1-day bug).
-  - [ ] 2.3.2 Assert bucket interval and view names are non-empty and typed as
+  - [x] 2.3.2 Assert bucket interval and view names are non-empty and typed as
         the module's other interval constants are.
 
-- [ ] **Commit**: `feat(constants): add coverage cagg names, bucket, and refresh offsets`
+- [x] **Commit**: `feat(constants): add coverage cagg names, bucket, and refresh offsets`
 
 ---
 
 ## 3. Migration 046 — coverage continuous aggregates
 
-- [ ] **3.1** Add migration `046_create_coverage_caggs`. Effort: 3/5
-  - [ ] 3.1.1 Follow `033_create_minute_caggs` exactly: `requires_autocommit:
+- [x] **3.1** Add migration `046_create_coverage_caggs`. Effort: 3/5
+  - [x] 3.1.1 Follow `033_create_minute_caggs` exactly: `requires_autocommit:
         True`, `python_fn` issuing **one `execute()` per `CREATE MATERIALIZED
         VIEW`** (Timescale rejects multiple cagg DDL statements per call).
-  - [ ] 3.1.2 `minute_coverage` over **`minute_4hour_ohlcv`** (hierarchical):
+  - [x] 3.1.2 `minute_coverage` over **`minute_4hour_ohlcv`** (hierarchical):
         `time_bucket(<COVERAGE_BUCKET_INTERVAL>, time_bucket) AS yr_bucket,
         symbol, SUM(minute_count) AS bars, MIN(time_bucket) AS first_bucket,
         MAX(time_bucket) AS last_bucket GROUP BY yr_bucket, symbol`.
-  - [ ] 3.1.3 `daily_coverage` over **`daily_ohlcv`** (raw, not a cagg):
+  - [x] 3.1.3 `daily_coverage` over **`daily_ohlcv`** (raw, not a cagg):
         analogous, with `COUNT(*) AS bars` and `MIN(time)`/`MAX(time)` — note the
         daily branch reads raw, so its timestamps are **exact, not truncated**.
         Record that asymmetry in the migration description.
-  - [ ] 3.1.4 `CREATE MATERIALIZED VIEW IF NOT EXISTS` for idempotency, matching
+  - [x] 3.1.4 `CREATE MATERIALIZED VIEW IF NOT EXISTS` for idempotency, matching
         033/034.
-  - [ ] 3.1.5 Success: `mt data migrate apply` creates both; both appear in
+  - [x] 3.1.5 Success: `mt data migrate apply` creates both; both appear in
         `timescaledb_information.continuous_aggregates`;
         `minute_coverage` is confirmed hierarchical (parent = `minute_4hour_ohlcv`).
-- [ ] **3.2** Add migration `047_coverage_cagg_refresh_policies`. Effort: 2/5
-  - [ ] 3.2.1 `add_continuous_aggregate_policy` for each coverage cagg using the
+- [x] **3.2** Add migration `047_coverage_cagg_refresh_policies`. Effort: 2/5
+  - [x] 3.2.1 `add_continuous_aggregate_policy` for each coverage cagg using the
         2.2 constants. Follow `035_cagg_refresh_policies`.
-  - [ ] 3.2.2 Idempotent on re-apply (existing policy must not raise) — match how
+  - [x] 3.2.2 Idempotent on re-apply (existing policy must not raise) — match how
         035/037 handle it.
-  - [ ] 3.2.3 Success: both jobs present in `timescaledb_information.jobs`,
+  - [x] 3.2.3 Success: both jobs present in `timescaledb_information.jobs`,
         `scheduled = true`, offsets equal to the constants.
-- [ ] **3.3** Integration-test migrations 046/047 on a scratch DB. Effort: 2/5
-  - [ ] 3.3.1 Apply on a throwaway DB; assert both caggs and both policies exist
+- [x] **3.3** Integration-test migrations 046/047 on a scratch DB. Effort: 2/5
+  - [x] 3.3.1 Apply on a throwaway DB; assert both caggs and both policies exist
         with the expected offsets.
-  - [ ] 3.3.2 Re-apply; assert idempotent (no error, no duplicate policy).
-  - [ ] 3.3.3 Seed a small known raw fixture, refresh through the hierarchy, and
+  - [x] 3.3.2 Re-apply; assert idempotent (no error, no duplicate policy).
+  - [x] 3.3.3 Seed a small known raw fixture, refresh through the hierarchy, and
         assert `SUM(bars)` from `minute_coverage` equals the raw bar count for the
         seeded range — proves the hierarchical rollup arithmetic, catching a wrong
         `SUM(minute_count)` vs `COUNT(*)` choice.
-  - [ ] 3.3.4 Never touch a production job from a test (168's precedent).
+  - [x] 3.3.4 Never touch a production job from a test (168's precedent).
 
-- [ ] **Commit**: `feat(schema): add coverage continuous aggregates and refresh policies`
+- [x] **Commit**: `feat(schema): add coverage continuous aggregates and refresh policies`
 
 ---
 
