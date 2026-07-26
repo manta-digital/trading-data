@@ -433,6 +433,45 @@ INSERT's partial work was discarded and the window rebuilt from scratch.
 
 Projected worst remaining window (117, dense 2026): ~628 s against the 1800 s ceiling.
 
+### Run 2: completed clean
+
+```
+minute_5min_ohlcv: 119 windows — 102 already at parity, 17 rebuilt
+EXIT=0
+```
+
+17 windows in 2.30 h. **The resume independently re-derived that exactly the 102
+pre-timeout windows were complete** — no bookkeeping, no operator input, no flags.
+Final windows landed on projection (118: 490.6 s vs 484 s projected; 119: 26.8 s vs 27 s).
+
+Post-repair: **119 chunks @ 70 days**, 23 of 24 years exact, 2026 short by 1,545 bars
+confined to the open window, **closed-window delta = 0**. All eight jobs resumed
+(`scheduled = t`).
+
+### D7 (complete): cold start verified (criterion 7)
+
+`test_apply_migrations_brings_schema_to_current` **passed** against a real throwaway DB:
+all four minute caggs at `70 days`, `compression_enabled`, one columnstore policy each —
+from migrations alone, repair tool never invoked.
+
+**The assertion was proven live by mutation**: changing the expected value to 99 days
+makes the test fail on `minute_5min_ohlcv`. Worth doing, because the first automated run
+reported `exit=0` while the suite had **skipped** — pytest exits 0 on skips, so "passed"
+and "never ran" are indistinguishable from the exit code alone.
+
+Two traps for anyone re-running it:
+
+- **Nothing in the pytest path loads `.env` into `os.environ`.** `MT_TIMESCALE_TEST_URL`
+  is unset, the suite skips, and an automated runner reports success having verified
+  nothing. Load it explicitly via `dotenv` (see the slice's walkthrough for the command).
+- **Do not `source .env`.** The password contains `$_`, which the shell expands into an
+  empty variable, producing `password authentication failed for user "postgres"`.
+
+Note the cold-start path is *doubly* satisfied: TimescaleDB sizes a new cagg's mat
+hypertable at 10x the source interval, and post-043 `minute_ohlcv` is 7 days → 70 days
+arises automatically, with migration 044 then a verified no-op. The assertion pins the
+outcome regardless of which mechanism produces it.
+
 ### D7 (partial): slice 162 coverage-query regression
 
 Run against the **completed 4h cagg** while the 15m sweep was still in flight — this

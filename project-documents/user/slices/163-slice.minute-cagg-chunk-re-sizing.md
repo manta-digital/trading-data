@@ -340,11 +340,28 @@ re-materialization sweep, compression enablement, and the verify/repair CLI).
 | 4 | All mat hypertables compressed; footprint recorded | **met** | 119/119 compressed per cagg; total **41 GB** (expected ~30–40 GB) |
 | 5 | Repair resumable | **met** | Twice: deliberate 4h kill (resumed at window 7), and an *unplanned* 5m `statement_timeout` failure at window 103/119 — 102 windows survived, no orphaned backend, re-run resumed at 103 |
 | 6 | Jobs resumed with `last_run_status = 'Success'`; daemon uninterrupted | **partial** | All eight resumed and verified `scheduled = t`; daemon ran throughout. Next-scheduled-run status confirmation is next-trading-day work (D6) |
-| 7 | Cold start yields correct intervals + compression from migrations alone | **partial** | Assertions added to the cold-start integration test (mat interval, `compression_enabled`, columnstore policy count). Execution pending — the test was previously a false green, verifying only that caggs *existed* |
+| 7 | Cold start yields correct intervals + compression from migrations alone | **met** | `test_apply_migrations_brings_schema_to_current` **passed** against a real throwaway DB: all four caggs at `70 days` with `compression_enabled` and one columnstore policy each, repair tool never invoked. Assertion proven live by mutation (expected value → 99 days ⇒ test fails) |
 | 8 | 162 coverage query returns complete results | **met** | 22,687,666 symbol-days / 11,625 symbols, `ColumnarScan` plan |
 
-Six of eight met outright. **6** and **7** are complete in substance with a
-time-gated confirmation outstanding, neither of which can be closed the same day.
+Seven of eight met. Only **6** remains open, and only for its time-gated half: all
+eight jobs are resumed and verified `scheduled = t`, but confirming
+`last_run_status = 'Success'` after their next scheduled fire is next-trading-day work.
+
+**Running the cold-start test requires loading `.env` explicitly.** Nothing in the
+pytest path populates `os.environ` from it, so `MT_TIMESCALE_TEST_URL` is unset and the
+suite **skips** — and pytest exits **0** on skips, so an automated runner reports
+success while verifying nothing. Do not `source .env`: the password contains `$_`, which
+the shell expands, producing an authentication failure. Use:
+
+```bash
+uv run python -c "
+from dotenv import load_dotenv; import os, subprocess, sys
+load_dotenv()
+sys.exit(subprocess.call(['python','-m','pytest','test/integration/test_cold_start.py','-q'], env=os.environ))"
+```
+
+Expected: **2 passed, 1 skipped** (the skip is `TestMigration036WithMarketDB`, which
+needs a reachable MarketDB and is unrelated to this slice).
 
 ## Verification Walkthrough (as executed, 2026-07-24/25)
 
