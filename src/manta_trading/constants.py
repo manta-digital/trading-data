@@ -194,6 +194,31 @@ bookkeeping, not a reporting calendar.
 see ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``. Changing it moves that floor.
 """
 
+COVERAGE_SOURCE_TABLE: dict[str, str] = {
+    MINUTE_COVERAGE_VIEW: "minute_ohlcv",
+    DAILY_COVERAGE_VIEW: "daily_ohlcv",
+}
+"""The table each coverage cagg's freshness is measured against (slice 167).
+
+``assert_cagg_fresh`` resolves a view's source from ``GRANULARITY_SOURCE``,
+which maps granularities to *base* hypertables and therefore has no entry for
+the coverage caggs. Rather than widen that map — the coverage caggs are not a
+granularity — this slice supplies the source explicitly through the helper's
+``source_table`` seam, consuming slice 168's helper unchanged.
+
+**Both entries are raw hypertables, including the hierarchical minute one.**
+``minute_coverage`` derives from ``minute_4hour_ohlcv``, so measuring against
+its immediate parent looks more natural — but two things argue for raw. First,
+mechanically: slice 168's ``_raw_max`` probes ``max(time)`` on the source, and
+a cagg's time column is ``time_bucket``, so a cagg source cannot be probed.
+Second, and the reason this is right rather than merely expedient: what an
+operator needs from ``data_status`` is how far coverage trails *reality*, not
+how far it trails an intermediate. Measuring against raw makes the verdict cover
+the whole two-hop chain — exactly the bound migration 048's ``COMMENT ON VIEW``
+documents. A stalled parent would otherwise leave ``minute_coverage`` looking
+fresh while ``data_status`` reported months-old coverage.
+"""
+
 COVERAGE_REFRESH_MIN_WINDOW_BUCKETS: int = 2
 """TimescaleDB's minimum refresh-window width, in buckets (slice 167 D4).
 

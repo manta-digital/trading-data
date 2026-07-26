@@ -1855,6 +1855,11 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         "python_fn": lambda conn: [
             conn.execute(sql)
             for sql in [
+                # The bucket column is named time_bucket, matching all seven
+                # pre-167 caggs. This is load-bearing, not cosmetic: slice 168's
+                # _cagg_max probes max(time_bucket) by name, so a differently
+                # named column makes assert_cagg_fresh fail its probe and report
+                # PROBE_FAILED -- a permanently stale verdict on a healthy cagg.
                 f"""
                 CREATE MATERIALIZED VIEW IF NOT EXISTS {MINUTE_COVERAGE_VIEW}
                 WITH (timescaledb.continuous) AS
@@ -1862,13 +1867,13 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                     time_bucket(
                         {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
                         time_bucket
-                    ) AS yr_bucket,
+                    ) AS time_bucket,
                     symbol,
                     SUM(minute_count) AS bars,
                     MIN(time_bucket)  AS first_bucket,
                     MAX(time_bucket)  AS last_bucket
                 FROM minute_4hour_ohlcv
-                GROUP BY yr_bucket, symbol
+                GROUP BY 1, symbol
                 """,
                 f"""
                 CREATE MATERIALIZED VIEW IF NOT EXISTS {DAILY_COVERAGE_VIEW}
@@ -1877,13 +1882,13 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                     time_bucket(
                         {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
                         time
-                    ) AS yr_bucket,
+                    ) AS time_bucket,
                     symbol,
                     COUNT(*)  AS bars,
                     MIN(time) AS first_bucket,
                     MAX(time) AS last_bucket
                 FROM daily_ohlcv
-                GROUP BY yr_bucket, symbol
+                GROUP BY 1, symbol
                 """,
             ]
         ],
@@ -1970,6 +1975,47 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
 
                 EXECUTE 'COMMENT ON VIEW data_status IS '
                      || quote_literal('{_data_status_doc_comment()}');
+            END $$;
+        """,
+    },
+    {
+        "id": "049_coverage_cagg_bucket_column_rename",
+        "description": (
+            "Rename the coverage caggs' bucket column yr_bucket -> time_bucket "
+            "(slice 167 defect fix). Slice 168's assert_cagg_fresh probes "
+            "max(time_bucket) by column NAME, so a cagg whose bucket column is "
+            "named anything else fails the probe and returns PROBE_FAILED — a "
+            "permanently stale verdict on a perfectly healthy cagg, which "
+            "would make the D3a guard useless exactly where this slice needs "
+            "it. All seven pre-167 caggs already use time_bucket; this aligns "
+            "046's two with that convention. "
+            "Corrective rather than folded into 046 because 046 shipped to "
+            "production before the defect was found, and CREATE MATERIALIZED "
+            "VIEW IF NOT EXISTS will not revise an existing cagg. Cheap: a "
+            "catalog rename, no re-materialization. Idempotent — each rename "
+            "is guarded on the old column still being present. data_status "
+            "does not reference this column (it reads first_bucket/"
+            "last_bucket), so the view needs no rebuild."
+        ),
+        "sql": f"""
+            DO $$
+            DECLARE
+                cov TEXT;
+            BEGIN
+                FOREACH cov IN ARRAY ARRAY[
+                    '{MINUTE_COVERAGE_VIEW}', '{DAILY_COVERAGE_VIEW}'
+                ]
+                LOOP
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = cov AND column_name = 'yr_bucket'
+                    ) THEN
+                        EXECUTE format(
+                            'ALTER MATERIALIZED VIEW %I RENAME COLUMN '
+                            'yr_bucket TO time_bucket', cov
+                        );
+                    END IF;
+                END LOOP;
             END $$;
         """,
     },

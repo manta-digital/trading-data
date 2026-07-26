@@ -149,6 +149,87 @@ def _seed_minute_fixture(url: str) -> None:
         conn.commit()
 
 
+def _seed_daily_fixture(url: str) -> None:
+    """Insert daily bars for the fixture symbol, up to the present.
+
+    Reaches the current day deliberately: the freshness guard measures the raw
+    leading edge, so history that stops years ago would read as genuine lag.
+    """
+    from datetime import datetime as _dt
+
+    today = _dt.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = [
+        (today - timedelta(days=offset), _FIXTURE_SYMBOL, 10.0, 10.0, 10.0, 10.0, 100)
+        for offset in range(30)
+    ]
+    with psycopg.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO daily_ohlcv "
+                "(time, symbol, open, high, low, close, volume) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT DO NOTHING",
+                rows,
+            )
+        conn.commit()
+
+
+def _seed_recent_minute_fixture(url: str) -> None:
+    """Minute bars up to the present, so the minute raw edge is current too."""
+    from datetime import datetime as _dt
+
+    now = _dt.now(tz=UTC).replace(second=0, microsecond=0)
+    rows = [
+        (now - timedelta(minutes=offset), _FIXTURE_SYMBOL, 10.0, 10.0, 10.0, 10.0, 100)
+        for offset in range(120)
+    ]
+    with psycopg.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO minute_ohlcv "
+                "(time, symbol, open, high, low, close, volume) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT DO NOTHING",
+                rows,
+            )
+        conn.commit()
+
+
+def _refresh_recent_hierarchy(url: str) -> None:
+    """Refresh parent then child across a window covering the present.
+
+    The refresh window must span at least two coverage buckets (TimescaleDB's
+    minimum) and reach the raw leading edge, or the coverage cagg trails raw by
+    the whole unrefreshed tail and the guard correctly reports lag.
+    """
+    from datetime import datetime as _dt
+
+    now = _dt.now(tz=UTC)
+    window_start = now - 4 * COVERAGE_BUCKET_INTERVAL
+    window_end = now + COVERAGE_BUCKET_INTERVAL
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute(
+            "CALL refresh_continuous_aggregate('minute_4hour_ohlcv', %s, %s)",
+            (window_start, window_end),
+        )
+        conn.execute(
+            f"CALL refresh_continuous_aggregate('{MINUTE_COVERAGE_VIEW}', %s, %s)",  # noqa: S608
+            (window_start, window_end),
+        )
+
+
+def _refresh_daily_coverage(url: str) -> None:
+    """Refresh daily_coverage across the whole fixture range."""
+    from datetime import datetime as _dt
+
+    now = _dt.now(tz=UTC)
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute(
+            f"CALL refresh_continuous_aggregate('{DAILY_COVERAGE_VIEW}', %s, %s)",  # noqa: S608
+            (now - 4 * COVERAGE_BUCKET_INTERVAL, now + COVERAGE_BUCKET_INTERVAL),
+        )
+
+
 def _refresh_hierarchy(url: str) -> None:
     """Refresh parent then child, each in its own autocommit statement.
 
@@ -302,6 +383,92 @@ class TestMigrations046To047:
         definition = str(row[0])
         assert MINUTE_COVERAGE_VIEW in definition
         assert DAILY_COVERAGE_VIEW in definition
+
+    def test_empty_db_reports_probe_failed_not_a_silent_pass(
+        self, ephemeral_db: str
+    ) -> None:
+        """A totally empty DB has no raw rows to measure against.
+
+        Slice 168 treats an unreadable source as PROBE_FAILED rather than fresh
+        ("fresh-by-default would mean trusting a cagg over a source we could not
+        read"). Asserted here so the distinction from the seeded case below is
+        deliberate and stays that way -- the failure mode to avoid is a silent
+        pass, not this refusal.
+        """
+        from manta_trading.data.maintenance.status_coverage import (
+            check_coverage_freshness,
+        )
+        from manta_trading.market.maintenance.cagg_freshness import (
+            reset_freshness_cache,
+        )
+
+        _apply_migrations(ephemeral_db)
+        reset_freshness_cache()
+
+        with psycopg.connect(ephemeral_db) as conn:
+            freshness = check_coverage_freshness(conn)
+
+        assert freshness.is_stale is True
+
+    def test_cold_start_coverage_is_not_reported_stale(
+        self, ephemeral_db: str
+    ) -> None:
+        """Task 5.4.2 -- the most likely false-positive site in the slice.
+
+        The real cold-start shape: raw data present, coverage caggs freshly
+        created and materialized, refresh policies installed moments ago and so
+        never actually fired (``last_successful_finish`` is NULL). Slice 168's
+        never-run-is-not-stale semantics must distinguish that from a stalled
+        policy -- otherwise every cold start reports stale coverage.
+        """
+        from manta_trading.data.maintenance.status_coverage import (
+            check_coverage_freshness,
+        )
+        from manta_trading.market.maintenance.cagg_freshness import (
+            reset_freshness_cache,
+        )
+
+        _apply_migrations(ephemeral_db)
+        _seed_recent_minute_fixture(ephemeral_db)
+        _seed_daily_fixture(ephemeral_db)
+        _refresh_recent_hierarchy(ephemeral_db)
+        _refresh_daily_coverage(ephemeral_db)
+        reset_freshness_cache()
+
+        with psycopg.connect(ephemeral_db) as conn:
+            freshness = check_coverage_freshness(conn)
+
+        assert not freshness.is_stale, (
+            "cold-start coverage falsely reported stale: "
+            f"{freshness.describe()}"
+        )
+
+    def test_post_flight_reports_coverage_freshness(
+        self, ephemeral_db: str
+    ) -> None:
+        """The migrated cold-start consumer reads through the guarded accessor
+        and surfaces the verdict rather than discarding it."""
+        from psycopg_pool import ConnectionPool
+
+        from manta_trading.data.quality.migrate_cold_start import run_post_flight
+        from manta_trading.market.maintenance.cagg_freshness import (
+            reset_freshness_cache,
+        )
+
+        _apply_migrations(ephemeral_db)
+        _seed_recent_minute_fixture(ephemeral_db)
+        _seed_daily_fixture(ephemeral_db)
+        _refresh_recent_hierarchy(ephemeral_db)
+        _refresh_daily_coverage(ephemeral_db)
+        reset_freshness_cache()
+
+        with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
+            results = run_post_flight(pool)
+
+        assert results["coverage_stale"] is False
+        assert "data_status_count" in results
+        # The EXPLAIN plan capture must survive the migration onto the accessor.
+        assert results["data_status_plan"]
 
     def test_046_hierarchical_rollup_matches_raw_count(
         self, ephemeral_db: str
