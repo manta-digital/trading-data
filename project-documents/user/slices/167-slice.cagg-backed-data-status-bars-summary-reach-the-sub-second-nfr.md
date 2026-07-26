@@ -6,7 +6,7 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [166, 163]
 interfaces: [147, 182]
 dateCreated: 20260720
-dateUpdated: 20260720
+dateUpdated: 20260725
 status: not_started
 ---
 
@@ -27,6 +27,32 @@ bars_stored` per symbol from **continuous aggregates** instead of the raw
 tables, preserving the view's exact column contract so `mt data status` and
 every other consumer is unchanged, and documents the resulting cagg-lag
 staleness bound.
+
+> **Inherited requirement from slice 163 — documenting the staleness bound is not
+> sufficient; this slice must *assert* it.**
+>
+> 163 established that a cagg informing an operational decision is a production
+> input, not an optimization. Its refresh policy can stop — deliberate pause,
+> crashed job, failed policy, out-of-band `alter_job`, restart mid-maintenance —
+> and **resuming it does not heal the gap**, because a policy only reconsiders the
+> last `start_offset` of data. On prod this silently drove a perpetual minute
+> re-pull across ~349 symbols with no error surfaced anywhere; it was caught by the
+> PM noticing chunk counts, not by any check.
+>
+> This slice creates the second cagg-backed read path, so it inherits that failure
+> mode. `bars_summary` must call the shared `assert_cagg_fresh(conn, view_name)`
+> helper (140-plan future-work item, effort 2/5) and surface staleness rather than
+> silently reporting stale coverage as fact. If that helper is not yet built, this
+> slice builds it — 167 must not ship a second unguarded consumer.
+>
+> **`start_offset` alone is the wrong threshold.** It is set for refresh efficiency,
+> not consumer tolerance. `daily_ohlcv`'s caggs — which `bars_summary` also reads —
+> use 21/90/**270**-day offsets, so a policy stalled for three months would pass any
+> check written against `start_offset`. Use
+> `min(start_offset, <absolute ceiling this consumer requires>)`.
+>
+> Full reasoning: journal `20260725` ADR rules 2–4; operational half in
+> `user/runbooks/cagg-maintenance-pausing.md`.
 
 ## Value
 
