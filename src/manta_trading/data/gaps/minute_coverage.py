@@ -27,12 +27,13 @@ from manta_trading.data.gaps.compute_missing_ranges import (
     group_sessions_into_ranges,
 )
 from manta_trading.logging import get_logger
+from manta_trading.market.maintenance.cagg_freshness import assert_cagg_fresh
 
 _logger = get_logger(__name__)
 
 
 def build_minute_coverage_index(
-    conn: "psycopg.Connection[object]",
+    conn: psycopg.Connection[object],
 ) -> dict[str, set[date]] | None:
     """Return {symbol: set[covered_day]} from the coarse minute cagg, or None.
 
@@ -46,11 +47,33 @@ def build_minute_coverage_index(
         conn: Open psycopg connection.
 
     Returns:
-        {symbol: set[covered_day]} on success. None if the query failed
-        (timeout / operational error) — coverage-aware seeding must be
-        skipped for this cycle; never fall back to a full-window seed.
+        {symbol: set[covered_day]} on success. None if the source cagg is stale
+        (slice 168) or the query failed (timeout / operational error) —
+        coverage-aware seeding must be skipped for this cycle; never fall back
+        to a full-window seed.
     """
     cagg = GRANULARITY_SOURCE[Granularity.H4]
+
+    # Slice 168: a paused/failing/crashed refresh policy freezes this cagg's
+    # leading edge while raw minute_ohlcv keeps growing, so every day past the
+    # frozen edge reads as uncovered and gets re-seeded every cycle — silently,
+    # because gap rows land under ON CONFLICT DO NOTHING. Refuse rather than
+    # seed from a derived read we cannot trust. Never auto-remediate (D4) and
+    # never fall back to a full-window seed (that is the 22-year re-seed 162
+    # exists to prevent).
+    verdict = assert_cagg_fresh(conn, cagg)
+    if not verdict.is_fresh:
+        _logger.error(
+            "build_minute_coverage_index: source cagg %s is STALE "
+            "(lag=%s, threshold=%s, signals=%s) — skipping coverage-aware "
+            "seeding this cycle; see runbook R2 to remediate",
+            cagg,
+            verdict.lag,
+            verdict.threshold,
+            [signal.value for signal in verdict.signals],
+        )
+        return None
+
     sql = (
         f"SELECT symbol, date_trunc('day', time_bucket) "  # noqa: S608
         f"FROM {cagg} GROUP BY symbol, date_trunc('day', time_bucket)"
@@ -58,7 +81,8 @@ def build_minute_coverage_index(
     try:
         with conn.cursor() as cur:
             cur.execute(
-                f"SET LOCAL statement_timeout = '{MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT}'"
+                "SET LOCAL statement_timeout = "
+                f"'{MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT}'"
             )
             cur.execute(sql)
             index: dict[str, set[date]] = {}
@@ -87,7 +111,7 @@ def build_minute_coverage_index(
 
 
 def compute_missing_minute_sessions(
-    conn: "psycopg.Connection[object]",
+    conn: psycopg.Connection[object],
     symbol: str,
     coverage_index: dict[str, set[date]],
     from_ts: datetime,

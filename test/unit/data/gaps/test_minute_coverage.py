@@ -7,14 +7,21 @@ the diff/grouping logic with real data.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+import logging
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import psycopg
+import pytest
 
+from manta_trading.constants import GRANULARITY_SOURCE, Granularity
 from manta_trading.data.gaps.minute_coverage import (
     build_minute_coverage_index,
     compute_missing_minute_sessions,
+)
+from manta_trading.market.maintenance.cagg_freshness import (
+    FreshnessVerdict,
+    StalenessSignal,
 )
 
 UTC = timezone.utc
@@ -39,7 +46,44 @@ def _make_index_conn(rows: list[tuple[str, date]]) -> MagicMock:
     return conn
 
 
+def _fresh_verdict(view_name: str = "minute_4hour_ohlcv") -> FreshnessVerdict:
+    return FreshnessVerdict(
+        view_name=view_name,
+        is_fresh=True,
+        signals=(),
+        lag=timedelta(hours=2),
+        threshold=timedelta(days=1),
+        detail="fresh",
+    )
+
+
+def _stale_verdict(view_name: str = "minute_4hour_ohlcv") -> FreshnessVerdict:
+    return FreshnessVerdict(
+        view_name=view_name,
+        is_fresh=False,
+        signals=(
+            StalenessSignal.NOT_SCHEDULED,
+            StalenessSignal.LAG_EXCEEDS_THRESHOLD,
+        ),
+        lag=timedelta(days=4),
+        threshold=timedelta(days=1),
+        detail="stale",
+    )
+
+
 class TestBuildMinuteCoverageIndex:
+    """Slice 168 added a freshness guard ahead of the coverage query, so these
+    slice-162 tests stub it fresh to keep exercising the query path itself.
+    The guard's own behavior is covered by TestCoverageFreshnessGuard below."""
+
+    @pytest.fixture(autouse=True)
+    def _guard_passes(self):
+        with patch(
+            "manta_trading.data.gaps.minute_coverage.assert_cagg_fresh",
+            return_value=_fresh_verdict(),
+        ):
+            yield
+
     def test_groups_rows_by_symbol(self) -> None:
         """date_trunc('day', ...) returns a timestamptz, not a date — psycopg
         hands back datetime rows here, matching production. A prior version
@@ -232,6 +276,14 @@ class TestCoverageIndexIntegration:
     and seeded a single full-history span regardless of real coverage.
     """
 
+    @pytest.fixture(autouse=True)
+    def _guard_passes(self):
+        with patch(
+            "manta_trading.data.gaps.minute_coverage.assert_cagg_fresh",
+            return_value=_fresh_verdict(),
+        ):
+            yield
+
     def test_fully_covered_symbol_from_real_cagg_rows_seeds_nothing(self) -> None:
         sessions = [_dt(2024, 1, 2), _dt(2024, 1, 3), _dt(2024, 1, 4)]
         # Simulates raw psycopg rows from `date_trunc('day', time_bucket)` —
@@ -253,3 +305,75 @@ class TestCoverageIndexIntegration:
             symbol="TSLA",
         )
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Slice 168 — freshness guard wiring (task 7.2)
+# ---------------------------------------------------------------------------
+
+
+class TestCoverageFreshnessGuard:
+    """The guard runs before the coverage query and refuses on a stale cagg."""
+
+    def test_stale_cagg_returns_none_without_running_the_coverage_query(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        conn = _make_index_conn([("AAPL", datetime(2024, 1, 2, tzinfo=UTC))])
+        cur = conn.cursor.return_value
+        with (
+            patch(
+                "manta_trading.data.gaps.minute_coverage.assert_cagg_fresh",
+                return_value=_stale_verdict(),
+            ),
+            caplog.at_level(logging.ERROR),
+        ):
+            result = build_minute_coverage_index(conn)
+
+        assert result is None, "a stale source cagg must not produce an index"
+        executed = " ".join(
+            call.args[0] for call in cur.execute.call_args_list if call.args
+        )
+        assert "GROUP BY" not in executed, (
+            "the coverage query must not run once the guard has tripped"
+        )
+        # The ERROR must name the cagg, the measured lag, and the signals so an
+        # operator can act on it without reading the code.
+        assert "minute_4hour_ohlcv" in caplog.text
+        assert "4 days" in caplog.text
+        assert StalenessSignal.NOT_SCHEDULED.value in caplog.text
+
+    def test_stale_cagg_never_falls_back_to_a_full_window_seed(self) -> None:
+        # None means "index unavailable, skip coverage-aware seeding" — it must
+        # never degrade into an empty dict, which reads as "nothing covered"
+        # and would re-seed 22 years for every symbol.
+        conn = _make_index_conn([])
+        with patch(
+            "manta_trading.data.gaps.minute_coverage.assert_cagg_fresh",
+            return_value=_stale_verdict(),
+        ):
+            assert build_minute_coverage_index(conn) is None
+
+    def test_guard_is_asserted_against_the_h4_cagg(self) -> None:
+        conn = _make_index_conn([])
+        with patch(
+            "manta_trading.data.gaps.minute_coverage.assert_cagg_fresh",
+            return_value=_fresh_verdict(),
+        ) as guard:
+            build_minute_coverage_index(conn)
+        assert guard.call_args.args[1] == GRANULARITY_SOURCE[Granularity.H4]
+
+    def test_fresh_cagg_leaves_existing_behavior_unchanged(self) -> None:
+        rows = [
+            ("AAPL", datetime(2024, 1, 2, tzinfo=UTC)),
+            ("MSFT", datetime(2024, 1, 2, tzinfo=UTC)),
+        ]
+        conn = _make_index_conn(rows)
+        with patch(
+            "manta_trading.data.gaps.minute_coverage.assert_cagg_fresh",
+            return_value=_fresh_verdict(),
+        ):
+            result = build_minute_coverage_index(conn)
+        assert result == {
+            "AAPL": {date(2024, 1, 2)},
+            "MSFT": {date(2024, 1, 2)},
+        }

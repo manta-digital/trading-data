@@ -74,6 +74,9 @@ _JOB_SQL = (
 # TimescaleDB's own spelling of a successful job run in job_stats.
 _STATUS_SUCCESS = "Success"
 
+# Number of columns _JOB_SQL selects; guards the row unpack.
+_JOB_ROW_FIELDS = 5
+
 
 class StalenessSignal(StrEnum):
     """Why a cagg was judged stale. Every dispatch and log site uses these
@@ -177,7 +180,11 @@ def _read_refresh_job(
             "tuple[int, bool, timedelta | None, str | None, datetime | None] | None",
             cur.fetchone(),
         )
-    if row is None:
+    if row is None or len(row) != _JOB_ROW_FIELDS:
+        # No refresh policy for this view. A short row cannot happen against a
+        # real cursor for this fixed SELECT list, but treating it as "no row"
+        # keeps the failure mode a refusal rather than an unpack ValueError
+        # that would escape as a caller-visible crash.
         return None
     job_id, scheduled, start_offset, last_run_status, last_successful_finish = row
     return _JobRow(
