@@ -18,6 +18,31 @@ DAILY_STALENESS_THRESHOLD: timedelta = timedelta(days=2)
 MINUTE_STALENESS_THRESHOLD: timedelta = timedelta(days=1)
 """A minute-granularity symbol is STALE if last_attempt_ts is older than this."""
 
+MAX_COVERAGE_SOURCE_STALENESS: timedelta = timedelta(days=1)
+"""Absolute ceiling on how far a derived read (continuous aggregate) may lag its
+raw source before the reader refuses to trust it (slice 168).
+
+One ceiling serves both the acquisition path (``build_minute_coverage_index``)
+and slice 167's status path: a derived read older than a full trading day is
+stale for either purpose. Matches ``MINUTE_STALENESS_THRESHOLD``'s convention.
+
+The ceiling is **required**, not belt-and-braces. The staleness threshold is
+``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)`` — without it, the daily
+caggs' 21/90/270-day ``start_offset`` values mean a daily cagg stalled 100 days
+would pass every ``start_offset``-relative check. It is also a full refresh
+cycle above every minute policy's 1-day ``start_offset``, so it never fires on
+a healthy cagg.
+"""
+
+CAGG_FRESHNESS_CACHE_TTL: timedelta = timedelta(seconds=60)
+"""TTL for the process-local ``assert_cagg_fresh`` verdict cache (slice 168 D6).
+
+Two orders of magnitude below ``MAX_COVERAGE_SOURCE_STALENESS``, so a cached
+verdict can never mask a lag the uncached check would catch. Stale verdicts are
+cached on the same terms as fresh ones — the cache never converts a refusal
+into a pass.
+"""
+
 DAILY_HISTORY_MONTHS: int | None = None
 """Maximum history depth for daily bars. None means unbounded (all available)."""
 
