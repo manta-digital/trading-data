@@ -3,10 +3,10 @@ docType: slice-design
 slice: cagg-backed-data-status-bars-summary-reach-the-sub-second-nfr
 project: trading-data
 parent: user/architecture/140-slices.data-quality-operations.md
-dependencies: [166, 163]
+dependencies: [166, 163, 168]
 interfaces: [147, 182]
 dateCreated: 20260720
-dateUpdated: 20260720
+dateUpdated: 20260726
 status: not_started
 ---
 
