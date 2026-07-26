@@ -35,11 +35,11 @@ import psycopg
 from manta_trading.constants import (
     GRANULARITY_SOURCE,
     MINUTE_CAGG_CHUNK_INTERVAL,
+    MINUTE_OHLCV_TABLE,
     Granularity,
 )
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.cagg_parity import (
-    MINUTE_CAGG_GRANULARITIES,
     WindowParity,
     _epoch_grid_windows,
     _raw_bounds,
@@ -49,6 +49,20 @@ from manta_trading.market.maintenance.cagg_parity import (
 from manta_trading.market.maintenance.rechunk import PreflightError
 
 logger = get_logger(__name__)
+
+# Recommended operator order for the per-granularity repair runs. The 4h cagg
+# goes FIRST because it is both a repair target and the daemon coverage-index
+# source (pre-flight check 4): repair it while its own policies are paused,
+# resume its refresh policy plus the catch-up refresh (runbook R2), and only
+# then repair the remaining three with the 4h cagg back in service. A combined
+# all-cagg sweep is refused up-front — no static pause configuration satisfies
+# checks 1 and 4 simultaneously for every target.
+REPAIR_RUN_ORDER: tuple[Granularity, ...] = (
+    Granularity.H4,
+    Granularity.H1,
+    Granularity.M15,
+    Granularity.M5,
+)
 
 
 class RepairError(RuntimeError):
@@ -84,8 +98,6 @@ class CaggRepairOutcome:
 _PROC_REFRESH: str = "policy_refresh_continuous_aggregate"
 _PROC_COLUMNSTORE: str = "policy_compression"
 
-# The raw-table columnstore job (e.g. 1009) — asserted untouched by pre-flight.
-_RAW_TABLE: str = "minute_ohlcv"
 
 # The cagg the minute daemon's coverage index reads (slice 162,
 # build_minute_coverage_index). Resolved from GRANULARITY_SOURCE rather than
@@ -227,7 +239,7 @@ def preflight(
     """
     # Guard 5 (assertion): job resolution is scoped to the cagg view; the raw
     # table's own jobs are structurally out of reach of this pre-flight.
-    assert view_name != _RAW_TABLE, (
+    assert view_name != MINUTE_OHLCV_TABLE, (
         "cagg repair pre-flight must never target the raw hypertable"
     )
 
@@ -287,7 +299,7 @@ def _window_parity(
 ) -> tuple[int, int]:
     """Return (raw_count, cagg_count) for one window (parity oracle)."""
     raw_row = conn.execute(
-        f'SELECT COUNT(*) AS n FROM {_RAW_TABLE} '  # noqa: S608 — module constant
+        f'SELECT COUNT(*) AS n FROM {MINUTE_OHLCV_TABLE} '  # noqa: S608 — module constant
         'WHERE "time" >= %s AND "time" < %s',
         (start, end),
     ).fetchone()
@@ -396,7 +408,22 @@ def _repair_one_cagg(
             )
             continue
         started = _now(conn)
-        _rebuild_window(conn, view_name, start, end)
+        try:
+            _rebuild_window(conn, view_name, start, end)
+        except psycopg.OperationalError:
+            # statement_timeout / lost connection: propagate unchanged so
+            # _TimeoutConnection.__exit__ still sees the type it cancels the
+            # backend for, and the CLI reports it as a database error.
+            raise
+        except psycopg.Error as exc:
+            # Any other DB failure (ProgrammingError, InternalError from
+            # drop_chunks/refresh/compress): identify the failing window per
+            # the RepairError contract; the CLI maps this to exit code 2. The
+            # window stays PENDING by parity, so a re-run resumes here.
+            raise RepairError(
+                f"{view_name} window {i}/{len(windows)} "
+                f"{start:%Y-%m-%d}..{end:%Y-%m-%d} rebuild failed: {exc}"
+            ) from exc
         rebuilt += 1
         progress(
             f"{view_name} window {i}/{len(windows)} "
@@ -434,7 +461,7 @@ _REQUIRED_HEADROOM_GB: float = 20.0
 
 def run_repair(
     conninfo: str,
-    granularities: tuple[Granularity, ...] = MINUTE_CAGG_GRANULARITIES,
+    granularities: tuple[Granularity, ...],
     *,
     dry_run: bool = False,
     assume_headroom_gb: float | None = None,
@@ -443,9 +470,16 @@ def run_repair(
 ) -> RepairResult:
     """Repair the given minute caggs by re-materializing PENDING windows.
 
-    Sweeps one cagg at a time in the order given (the CLI passes smallest-first:
-    4h → 1h → 15m → 5m). For each cagg: pre-flight (skipped for dry-run so the
-    plan is inspectable before jobs are paused), then window-by-window
+    Sweeps one cagg at a time in the order given. ``granularities`` has no
+    default: a real (non-dry) repair run targets exactly ONE cagg per
+    invocation — pre-flight checks 1 and 4 cannot both hold across an all-cagg
+    sweep (the 4h cagg is both a repair target and the coverage-index source),
+    so the CLI refuses multi-cagg real runs and the recommended per-run
+    sequence lives in ``REPAIR_RUN_ORDER``. Multi-cagg tuples are valid for
+    ``dry_run`` (read-only, pre-flight skipped so the plan is inspectable
+    before jobs are paused).
+
+    For each cagg: pre-flight (skipped for dry-run), then window-by-window
     parity-check → rebuild. Resumable and Ctrl-C safe by parity, not
     transactionality (see module docstring). Returns per-cagg outcomes.
 
@@ -462,7 +496,7 @@ def run_repair(
     with _TimeoutConnection(conninfo) as ro_conn:
         bounds = _raw_bounds(ro_conn)
     if bounds is None:
-        logger.warning("raw table %s is empty — nothing to repair", _RAW_TABLE)
+        logger.warning("raw table %s is empty — nothing to repair", MINUTE_OHLCV_TABLE)
         for gran in granularities:
             result.per_cagg[gran] = CaggRepairOutcome(
                 granularity=gran,

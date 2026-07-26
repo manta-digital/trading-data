@@ -31,25 +31,15 @@ from psycopg.rows import dict_row
 from manta_trading.constants import (
     GRANULARITY_SOURCE,
     MINUTE_CAGG_CHUNK_INTERVAL,
+    MINUTE_CAGG_GRANULARITIES,
     MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT,
+    MINUTE_OHLCV_TABLE,
     Granularity,
 )
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.rechunk import _window_start
 
 logger = get_logger(__name__)
-
-RAW_TABLE: str = "minute_ohlcv"
-"""The source-of-truth hypertable all four minute caggs derive from."""
-
-# The four minute caggs, in the fixed smallest-first repair order (4h → 1h →
-# 15m → 5m is the sweep order; parity reporting keeps ascending granularity).
-MINUTE_CAGG_GRANULARITIES: tuple[Granularity, ...] = (
-    Granularity.M5,
-    Granularity.M15,
-    Granularity.H1,
-    Granularity.H4,
-)
 
 
 def cagg_view(granularity: Granularity) -> str:
@@ -208,11 +198,19 @@ class _TimeoutConnection:
         conn = psycopg.connect(
             self._conninfo, row_factory=dict_row, autocommit=self._autocommit
         )
-        conn.execute(
-            f"SET statement_timeout = '{MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT}'"
-        )
-        row = conn.execute("SELECT pg_backend_pid() AS pid").fetchone()
-        assert row is not None  # pg_backend_pid always returns one row
+        try:
+            conn.execute(
+                f"SET statement_timeout = "
+                f"'{MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT}'"
+            )
+            row = conn.execute("SELECT pg_backend_pid() AS pid").fetchone()
+            assert row is not None  # pg_backend_pid always returns one row
+        except BaseException:
+            # __exit__ never runs if setup fails before the with-body is
+            # entered — close deterministically instead of leaking to the GC,
+            # then re-raise unchanged.
+            conn.close()
+            raise
         self._pid = int(cast("int", row["pid"]))
         self._conn = conn
         return conn
@@ -249,13 +247,13 @@ def _raw_bounds(
     row = conn.execute(
         "SELECT MIN(range_start) AS lo, MAX(range_end) AS hi "
         "FROM timescaledb_information.chunks WHERE hypertable_name = %s",
-        (RAW_TABLE,),
+        (MINUTE_OHLCV_TABLE,),
     ).fetchone()
     if row is None or row["lo"] is None or row["hi"] is None:
         return None
     lo_chunk, hi_chunk = row["lo"], row["hi"]
     bounds = conn.execute(
-        f'SELECT MIN("time") AS lo, MAX("time") AS hi FROM {RAW_TABLE} '  # noqa: S608 — table is a module constant
+        f'SELECT MIN("time") AS lo, MAX("time") AS hi FROM {MINUTE_OHLCV_TABLE} '  # noqa: S608 — table is a shared constant
         'WHERE "time" >= %s AND "time" < %s',
         (lo_chunk, hi_chunk),
     ).fetchone()
@@ -264,35 +262,42 @@ def _raw_bounds(
     return cast("datetime", bounds["lo"]), cast("datetime", bounds["hi"])
 
 
-def _window_counts(
+def _raw_window_counts(
     conn: psycopg.Connection[dict[str, object]],
-    view_name: str,
     windows: list[tuple[datetime, datetime]],
-) -> list[WindowCounts]:
-    """Compute raw COUNT(*) and cagg SUM(minute_count) for each window."""
-    results: list[WindowCounts] = []
+) -> list[int]:
+    """Raw COUNT(*) per window — cagg-independent, so computed exactly once
+    per verify run and shared across all requested caggs (review F003: the raw
+    side is the expensive scan; re-running it per cagg quadruples the heaviest
+    prod queries for no new information)."""
+    counts: list[int] = []
     for start, end in windows:
         raw_row = conn.execute(
-            f'SELECT COUNT(*) AS n FROM {RAW_TABLE} '  # noqa: S608 — table is a module constant
+            f'SELECT COUNT(*) AS n FROM {MINUTE_OHLCV_TABLE} '  # noqa: S608 — table is a shared constant
             'WHERE "time" >= %s AND "time" < %s',
             (start, end),
         ).fetchone()
         assert raw_row is not None  # COUNT(*) always returns one row
+        counts.append(int(cast("int", raw_row["n"])))
+    return counts
+
+
+def _cagg_window_counts(
+    conn: psycopg.Connection[dict[str, object]],
+    view_name: str,
+    windows: list[tuple[datetime, datetime]],
+) -> list[int]:
+    """Cagg SUM(minute_count) per window for one cagg view."""
+    counts: list[int] = []
+    for start, end in windows:
         cagg_row = conn.execute(
             f"SELECT COALESCE(SUM(minute_count), 0) AS n FROM {view_name} "  # noqa: S608 — view resolved from GRANULARITY_SOURCE
             "WHERE time_bucket >= %s AND time_bucket < %s",
             (start, end),
         ).fetchone()
         assert cagg_row is not None  # SUM(...) always returns one row
-        results.append(
-            WindowCounts(
-                start=start,
-                end=end,
-                raw_count=int(cast("int", raw_row["n"])),
-                cagg_count=int(cast("int", cagg_row["n"])),
-            )
-        )
-    return results
+        counts.append(int(cast("int", cagg_row["n"])))
+    return counts
 
 
 def rollup_by_year(windows: list[WindowCounts]) -> list[YearParity]:
@@ -364,10 +369,12 @@ def compute_parity(
 ) -> list[CaggParityReport]:
     """Compute cagg-vs-raw parity for the given minute caggs (read-only).
 
-    Enumerates the 70-day epoch grid once over the raw table's bounds, then for
-    each cagg computes per-window and per-year counts plus a chunk-shape
-    summary. Every query runs under the maintenance statement_timeout with
-    backend-cancel-on-interrupt (see ``_TimeoutConnection``).
+    Enumerates the 70-day epoch grid once over the raw table's bounds and
+    computes the raw per-window counts **once** — the raw side is
+    cagg-independent, so it is shared across every requested cagg rather than
+    re-scanned per cagg. Then for each cagg computes per-window and per-year
+    counts plus a chunk-shape summary. Every query runs under the maintenance
+    statement_timeout with backend-cancel-on-interrupt (``_TimeoutConnection``).
 
     Returns one report per granularity, in the order given. An empty raw table
     yields reports with empty window/year lists (chunk summary still populated).
@@ -379,10 +386,17 @@ def compute_parity(
             if bounds is not None
             else []
         )
+        raw_counts = _raw_window_counts(conn, windows)
         reports: list[CaggParityReport] = []
         for gran in granularities:
             view_name = cagg_view(gran)
-            window_counts = _window_counts(conn, view_name, windows)
+            cagg_counts = _cagg_window_counts(conn, view_name, windows)
+            window_counts = [
+                WindowCounts(start=start, end=end, raw_count=raw, cagg_count=cagg)
+                for (start, end), raw, cagg in zip(
+                    windows, raw_counts, cagg_counts, strict=True
+                )
+            ]
             reports.append(
                 CaggParityReport(
                     granularity=gran,

@@ -210,3 +210,18 @@ GRANULARITY_SOURCE: dict[Granularity, str] = {
     Granularity.MO1: "daily_monthly_ohlcv",
     Granularity.Q1: "daily_quarterly_ohlcv",
 }
+
+MINUTE_OHLCV_TABLE: str = GRANULARITY_SOURCE[Granularity.M1]
+"""The raw minute hypertable — the source of truth all four minute caggs derive
+from. Derived from GRANULARITY_SOURCE so the name has exactly one definition."""
+
+MINUTE_CAGG_GRANULARITIES: tuple[Granularity, ...] = (
+    Granularity.M5,
+    Granularity.M15,
+    Granularity.H1,
+    Granularity.H4,
+)
+"""The four minute continuous aggregates, in ascending bucket width — the
+canonical order for reporting and for resolving user granularity input. This is
+NOT a repair sweep order; per-granularity repair sequencing is an operator
+decision (see cagg_repair.REPAIR_RUN_ORDER)."""

@@ -17,10 +17,10 @@ from manta_trading.constants import (
     LATE_BAR_GRACE_PERIOD,
     MINUTE_CAGG_CHUNK_INTERVAL,
     MINUTE_CAGG_COMPRESS_AFTER,
+    MINUTE_CAGG_GRANULARITIES,
     MINUTE_OHLCV_CHUNK_INTERVAL,
     MINUTE_STALENESS_THRESHOLD,
     TRADING_SESSIONS_EXTENSION_YEARS,
-    Granularity,
 )
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.quality.fetch_status import FetchStatus
@@ -42,17 +42,11 @@ def _minute_chunk_interval_sql() -> str:
     return f"INTERVAL '{int(MINUTE_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
 
 
-# The four minute continuous aggregates whose mat hypertables migrations 044/045
-# target — resolved from GRANULARITY_SOURCE so the view names cannot drift from
-# the canonical granularity→source mapping (slice 163).
-_MINUTE_CAGG_GRANULARITIES: tuple[Granularity, ...] = (
-    Granularity.M5,
-    Granularity.M15,
-    Granularity.H1,
-    Granularity.H4,
-)
+# The four minute-cagg view names migrations 044/045 target — resolved from the
+# canonical constants so the views cannot drift from the granularity→source
+# mapping (slice 163).
 _MINUTE_CAGG_VIEWS: tuple[str, ...] = tuple(
-    GRANULARITY_SOURCE[g] for g in _MINUTE_CAGG_GRANULARITIES
+    GRANULARITY_SOURCE[g] for g in MINUTE_CAGG_GRANULARITIES
 )
 
 

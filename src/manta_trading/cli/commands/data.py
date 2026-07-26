@@ -3035,16 +3035,16 @@ _EXIT_PARITY_FAILURE: int = 2
 
 def _resolve_minute_granularities(
     granularity_opt: str, *, json_output: bool
-) -> tuple["Granularity", ...]:
+) -> tuple[Granularity, ...]:
     """Resolve a --granularity option to minute-cagg Granularity values.
 
     Accepts ``all`` (the four minute caggs) or a comma-separated subset of
     ``5m,15m,1h,4h``. Daily caggs are out of scope for parity/repair. Exits
     non-zero (via typer) on an unknown or non-minute token.
     """
-    from manta_trading.constants import Granularity
-    from manta_trading.market.maintenance.cagg_parity import (
+    from manta_trading.constants import (
         MINUTE_CAGG_GRANULARITIES,
+        Granularity,
     )
 
     if granularity_opt.strip().lower() == "all":
@@ -3237,7 +3237,10 @@ def caggs_repair(
     granularity_opt: str = typer.Option(
         "all",
         "--granularity",
-        help="Minute cagg(s) to repair: all | 5m,15m,1h,4h (default all).",
+        help="Minute cagg to repair: 5m | 15m | 1h | 4h. A real run repairs "
+        "exactly ONE cagg per invocation ('all' and comma lists are refused "
+        "with the recommended run order); all/multi are allowed with "
+        "--dry-run, which is read-only.",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -3253,16 +3256,24 @@ def caggs_repair(
 ) -> None:
     """Re-materialize under-materialized / re-chunked minute caggs (slice 163).
 
-    For each selected cagg, over 70-day epoch-grid windows oldest→newest: skip
+    For the selected cagg, over 70-day epoch-grid windows oldest→newest: skip
     windows already at parity, else drop_chunks → refresh_continuous_aggregate
     (force) → compress. Rebuilds ONLY the windows a restructuring invalidated,
     so the same command is the standing heal after any raw rechunk.
 
-    PRE-FLIGHT (refuses, does not warn): the cagg's refresh policy AND columnstore
-    policy must be paused (job IDs printed if not); migration 044 must be applied
-    (70-day mat interval); disk headroom must be attested via
-    --assume-headroom-gb. Raw-table jobs are never touched; the daemon may keep
-    running.
+    ONE CAGG PER RUN: a real repair targets exactly one granularity. The 4h
+    cagg is both a repair target and the daemon coverage-index source, so
+    pre-flight cannot be satisfied for all four caggs at once — repair 4h
+    first (own policies paused), resume its refresh policy and run the
+    catch-up refresh (runbook R2), then repair 1h, 15m, 5m with the 4h cagg
+    back in service. `--dry-run` may still take all/multi (read-only).
+
+    PRE-FLIGHT (refuses, does not warn): the target cagg's refresh policy AND
+    columnstore policy must be paused (job IDs printed if not); the 4h
+    coverage cagg's refresh policy must be RUNNING when the target is any
+    other cagg; migration 044 must be applied (70-day mat interval); disk
+    headroom must be attested via --assume-headroom-gb. Raw-table jobs are
+    never touched; the daemon may keep running.
 
     AVAILABILITY: during each window's drop→refresh interval, consumers of that
     cagg see zero coverage for that one 70-day window (seconds-to-minutes).
@@ -3286,6 +3297,7 @@ def caggs_repair(
     import psycopg as _psycopg
 
     from manta_trading.market.maintenance.cagg_repair import (
+        REPAIR_RUN_ORDER,
         RepairError,
         run_repair,
     )
@@ -3297,6 +3309,23 @@ def caggs_repair(
         raise typer.Exit(_EXIT_REPAIR_PREFLIGHT)
 
     granularities = _resolve_minute_granularities(granularity_opt, json_output=False)
+
+    if not dry_run and len(granularities) != 1:
+        # An all-cagg (or multi-cagg) real sweep cannot satisfy pre-flight:
+        # the 4h cagg must be paused to repair it but running while any other
+        # cagg repairs (it feeds the daemon coverage index). One cagg per run,
+        # sequenced by the operator.
+        order = " -> ".join(g.value for g in REPAIR_RUN_ORDER)
+        print_error(
+            "A real repair run targets exactly ONE granularity "
+            "(--granularity 5m|15m|1h|4h). Recommended sequence: "
+            f"{order} — repair 4h first, resume its refresh policy and run "
+            "the catch-up refresh (runbook R2), then repair the rest. "
+            "Use --dry-run to inspect the all-cagg plan read-only. "
+            "See user/runbooks/cagg-maintenance-pausing.md",
+            json_mode=False,
+        )
+        raise typer.Exit(_EXIT_REPAIR_PREFLIGHT)
 
     try:
         result = run_repair(
@@ -3326,5 +3355,17 @@ def caggs_repair(
     mode = "DRY RUN — no changes made" if result.dry_run else "complete"
     print_result(f"\nCagg repair {mode}.", json_mode=False)
     if not result.dry_run:
+        # The pre-flight required the target's refresh + columnstore policies
+        # paused; nothing resumes them automatically, and an unresumed
+        # columnstore policy leaves late-sweep chunks uncompressed while an
+        # unresumed refresh policy strands the trailing edge (review F008).
+        print_result(
+            "\nNEXT: resume this cagg's paused refresh and columnstore "
+            "policies (alter_job(<id>, scheduled => true)); if the refresh "
+            "policy was paused longer than its start_offset, run the catch-up "
+            "refresh_continuous_aggregate over the paused span. "
+            "See user/runbooks/cagg-maintenance-pausing.md (R2, R4).",
+            json_mode=False,
+        )
         print_result(f"\n{_CAGG_MAINTENANCE_STANDING_RULE}", json_mode=False)
 

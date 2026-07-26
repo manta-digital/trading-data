@@ -150,9 +150,15 @@ class TestComputeParityBoundary:
     """compute_parity drives the query helpers; here we stub them to verify
     it maps granularities → reports and threads the window list through."""
 
-    def _patch_helpers(self, *, bounds, window_counts, chunk_summary):
-        # Patch the four DB-touching helpers + the connection wrapper so no real
-        # connection is opened.
+    _W1 = (_utc(2019, 1, 1), _utc(2019, 3, 12))
+    _W2 = (_utc(2019, 3, 12), _utc(2019, 5, 21))
+
+    def _patch_helpers(self, *, bounds, windows, raw_counts, cagg_counts,
+                       chunk_summary):
+        # Patch the DB-touching helpers + the connection wrapper so no real
+        # connection is opened. Raw and cagg counts are stubbed separately —
+        # compute_parity computes the raw side once and zips it against each
+        # cagg's counts (review F003).
         mod = "manta_trading.market.maintenance.cagg_parity"
         cm = MagicMock()
         cm.__enter__ = MagicMock(return_value=MagicMock())
@@ -160,19 +166,22 @@ class TestComputeParityBoundary:
         return (
             patch(f"{mod}._TimeoutConnection", return_value=cm),
             patch(f"{mod}._raw_bounds", return_value=bounds),
-            patch(f"{mod}._window_counts", return_value=window_counts),
+            patch(f"{mod}._epoch_grid_windows", return_value=windows),
+            patch(f"{mod}._raw_window_counts", return_value=raw_counts),
+            patch(f"{mod}._cagg_window_counts", return_value=cagg_counts),
             patch(f"{mod}._chunk_summary", return_value=chunk_summary),
         )
 
     def test_returns_one_report_per_requested_granularity(self) -> None:
-        wc = [WindowCounts(_utc(2019, 1, 1), _utc(2019, 3, 12), 100, 21)]
         cs = CaggChunkSummary("v", 117, _70D)
-        p1, p2, p3, p4 = self._patch_helpers(
+        patches = self._patch_helpers(
             bounds=(_utc(2019, 1, 1), _utc(2019, 2, 1)),
-            window_counts=wc,
+            windows=[self._W1],
+            raw_counts=[100],
+            cagg_counts=[21],
             chunk_summary=cs,
         )
-        with p1, p2, p3, p4:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
             reports = compute_parity(
                 "postgresql://x", (Granularity.H4, Granularity.H1)
             )
@@ -180,31 +189,53 @@ class TestComputeParityBoundary:
         assert reports[0].view_name == "minute_4hour_ohlcv"
         assert reports[1].view_name == "minute_hourly_ohlcv"
 
-    def test_report_aggregates_totals_and_parity(self) -> None:
-        wc = [
-            WindowCounts(_utc(2019, 1, 1), _utc(2019, 3, 12), 100, 21),
-            WindowCounts(_utc(2019, 3, 12), _utc(2019, 5, 21), 200, 200),
-        ]
-        cs = CaggChunkSummary("minute_4hour_ohlcv", 117, _70D)
-        p1, p2, p3, p4 = self._patch_helpers(
-            bounds=(_utc(2019, 1, 1), _utc(2019, 6, 1)),
-            window_counts=wc,
+    def test_raw_counts_computed_once_across_caggs(self) -> None:
+        # Review F003: the raw COUNT(*) sweep is cagg-independent and must run
+        # exactly once per verify, no matter how many caggs are requested.
+        cs = CaggChunkSummary("v", 117, _70D)
+        patches = self._patch_helpers(
+            bounds=(_utc(2019, 1, 1), _utc(2019, 2, 1)),
+            windows=[self._W1],
+            raw_counts=[100],
+            cagg_counts=[21],
             chunk_summary=cs,
         )
-        with p1, p2, p3, p4:
+        with patches[0], patches[1], patches[2], patches[3] as raw_mock, \
+                patches[4] as cagg_mock, patches[5]:
+            compute_parity(
+                "postgresql://x",
+                (Granularity.M5, Granularity.M15, Granularity.H1, Granularity.H4),
+            )
+        assert raw_mock.call_count == 1
+        assert cagg_mock.call_count == 4
+
+    def test_report_aggregates_totals_and_parity(self) -> None:
+        cs = CaggChunkSummary("minute_4hour_ohlcv", 117, _70D)
+        patches = self._patch_helpers(
+            bounds=(_utc(2019, 1, 1), _utc(2019, 6, 1)),
+            windows=[self._W1, self._W2],
+            raw_counts=[100, 200],
+            cagg_counts=[21, 200],
+            chunk_summary=cs,
+        )
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
             reports = compute_parity("postgresql://x", (Granularity.H4,))
         r = reports[0]
         assert r.raw_total == 300
         assert r.cagg_total == 221
         assert r.in_parity is False  # one window PENDING
         assert r.chunk_summary.chunk_count == 117
+        # Window bounds come from the enumerated grid, counts from the zips.
+        assert r.windows[0] == WindowCounts(*self._W1, 100, 21)
+        assert r.windows[1] == WindowCounts(*self._W2, 200, 200)
 
     def test_empty_raw_table_yields_empty_windows(self) -> None:
         cs = CaggChunkSummary("minute_4hour_ohlcv", 0, None)
-        p1, p2, p3, p4 = self._patch_helpers(
-            bounds=None, window_counts=[], chunk_summary=cs
+        patches = self._patch_helpers(
+            bounds=None, windows=[], raw_counts=[], cagg_counts=[],
+            chunk_summary=cs,
         )
-        with p1, p2, p3, p4:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
             reports = compute_parity("postgresql://x", (Granularity.H4,))
         r = reports[0]
         assert r.windows == []

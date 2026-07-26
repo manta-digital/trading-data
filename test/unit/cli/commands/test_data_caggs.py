@@ -512,7 +512,9 @@ class TestCaggsRepair:
                 "manta_trading.market.maintenance.cagg_repair.run_repair",
                 side_effect=RepairError("window 2020-01-01 rebuild failed"),
             ):
-                result = runner.invoke(app, ["data", "caggs", "repair"])
+                result = runner.invoke(
+                    app, ["data", "caggs", "repair", "--granularity", "4h"]
+                )
         assert result.exit_code == _EXIT_REPAIR_FAILED
         assert "Repair failed" in result.output
 
@@ -525,7 +527,9 @@ class TestCaggsRepair:
                 "manta_trading.market.maintenance.cagg_repair.run_repair",
                 side_effect=KeyboardInterrupt(),
             ):
-                result = runner.invoke(app, ["data", "caggs", "repair"])
+                result = runner.invoke(
+                    app, ["data", "caggs", "repair", "--granularity", "4h"]
+                )
         assert result.exit_code == _EXIT_REPAIR_INTERRUPTED
         assert "resume" in result.output.lower()
 
@@ -553,3 +557,74 @@ class TestCaggsRepair:
         assert result.exit_code == 0, result.output
         # Canonical order: 5m,15m,1h,4h → requested {1h,15m} → (15m, 1h).
         assert captured["grans"] == (Granularity.M15, Granularity.H1)
+
+    def test_real_run_refuses_default_all_with_run_order(self):
+        # Review F001: no static pause configuration satisfies pre-flight for
+        # an all-cagg real sweep (the 4h cagg is both target and coverage
+        # source), so a real run must name exactly one granularity. The
+        # refusal happens BEFORE run_repair and carries the recommended order.
+        from manta_trading.cli.commands.data import _EXIT_REPAIR_PREFLIGHT
+
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+            ) as fake_repair:
+                result = runner.invoke(app, ["data", "caggs", "repair"])
+        assert result.exit_code == _EXIT_REPAIR_PREFLIGHT
+        fake_repair.assert_not_called()
+        # Rich wraps long lines; normalize whitespace before matching.
+        flat = " ".join(result.output.split())
+        assert "exactly ONE granularity" in flat
+        assert "4h -> 1h -> 15m -> 5m" in flat
+        assert "cagg-maintenance-pausing" in flat
+
+    def test_real_run_refuses_multi_granularity(self):
+        from manta_trading.cli.commands.data import _EXIT_REPAIR_PREFLIGHT
+
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+            ) as fake_repair:
+                result = runner.invoke(
+                    app, ["data", "caggs", "repair", "--granularity", "1h,15m"]
+                )
+        assert result.exit_code == _EXIT_REPAIR_PREFLIGHT
+        fake_repair.assert_not_called()
+
+    def test_completed_run_prints_resume_reminder(self):
+        # Review F008: pre-flight required the target's refresh + columnstore
+        # policies paused; completion must remind the operator to resume them
+        # (an unresumed columnstore policy leaves late-sweep chunks
+        # uncompressed indefinitely) and point at the catch-up refresh.
+        from manta_trading.market.maintenance.cagg_repair import RepairResult
+
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                return_value=RepairResult(dry_run=False),
+            ):
+                result = runner.invoke(
+                    app, ["data", "caggs", "repair", "--granularity", "4h"]
+                )
+        assert result.exit_code == 0, result.output
+        out = result.output
+        assert "resume" in out.lower()
+        assert "columnstore" in out.lower()
+        assert "cagg-maintenance-pausing" in out
+
+    def test_dry_run_output_omits_resume_reminder(self):
+        # Dry run pauses nothing, so the resume reminder would be noise.
+        from manta_trading.market.maintenance.cagg_repair import RepairResult
+
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                return_value=RepairResult(dry_run=True),
+            ):
+                result = runner.invoke(app, ["data", "caggs", "repair", "--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert "NEXT:" not in result.output

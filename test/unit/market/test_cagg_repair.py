@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import psycopg
 import pytest
 
 from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL, Granularity
 from manta_trading.market.maintenance.cagg_repair import (
     _REQUIRED_HEADROOM_GB,
+    RepairError,
     _rebuild_window,
     _repair_one_cagg,
     preflight,
@@ -363,11 +365,14 @@ class TestSweep:
         # Exactly one drop_chunks (for the second window only).
         assert sum(1 for s in conn.executed if "drop_chunks" in s) == 1
 
-    def test_kill_before_compress_only_recompresses(self):
+    def test_kill_before_compress_skips_window_leaving_compression_to_policy(self):
         # Simulate the "kill after refresh, before compress" crash window: the
         # window is already at parity (refresh committed), so the resume run
-        # sees DONE and does NOT drop/refresh again. Compression is the
-        # columnstore policy's / a later sweep's job; parity alone gates rebuild.
+        # sees DONE and does NOT drop/refresh again — and does NOT compress
+        # either. Compression of such a chunk is the columnstore policy's job,
+        # which is why the CLI's completion message insists the operator resume
+        # the paused policies (review F008): until resumed, this chunk stays
+        # uncompressed. Parity alone gates rebuild.
         conn = _FakeConn(parity_sequence=[(1000, 1000)])
         outcome = _repair_one_cagg(
             conn, Granularity.H4, self._windows(1), dry_run=False, progress=_noop
@@ -398,3 +403,50 @@ class TestRebuildWindow:
         )
         _rebuild_window(conn, _VIEW, _utc(2019), _utc(2019, 3, 12))
         assert sum(1 for s in conn.executed if "compress_chunk" in s) == 2
+
+
+# ---------------------------------------------------------------------------
+# Rebuild-failure wrapping (review F005)
+# ---------------------------------------------------------------------------
+
+
+class TestRebuildFailureWrapping:
+    """A non-operational DB error during a window rebuild must surface as
+    RepairError naming the failing window (the CLI maps it to exit code 2);
+    OperationalError must propagate unwrapped so _TimeoutConnection's
+    backend-cancel path and the CLI's database-error handler still see it."""
+
+    def _one_window(self):
+        base = _utc(2019)
+        return [(base, base + MINUTE_CAGG_CHUNK_INTERVAL)]
+
+    def test_db_error_during_rebuild_raises_repair_error_naming_window(self):
+        class _FailingConn(_FakeConn):
+            def execute(self, sql, params=None):
+                if "drop_chunks" in sql:
+                    raise psycopg.ProgrammingError("cannot drop chunk")
+                return super().execute(sql, params)
+
+        conn = _FailingConn(parity_sequence=[(1000, 208)])
+        with pytest.raises(RepairError) as exc:
+            _repair_one_cagg(
+                conn, Granularity.H4, self._one_window(),
+                dry_run=False, progress=_noop,
+            )
+        msg = str(exc.value)
+        assert _VIEW in msg
+        assert "2019-01-01" in msg  # the failing window is identified
+
+    def test_operational_error_propagates_unwrapped(self):
+        class _TimeoutConn(_FakeConn):
+            def execute(self, sql, params=None):
+                if "refresh_continuous_aggregate" in sql:
+                    raise psycopg.OperationalError("statement timeout")
+                return super().execute(sql, params)
+
+        conn = _TimeoutConn(parity_sequence=[(1000, 208)])
+        with pytest.raises(psycopg.OperationalError):
+            _repair_one_cagg(
+                conn, Granularity.H4, self._one_window(),
+                dry_run=False, progress=_noop,
+            )
