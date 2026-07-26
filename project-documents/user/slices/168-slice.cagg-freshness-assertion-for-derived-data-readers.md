@@ -91,8 +91,16 @@ negative in the naive design: the daily caggs use 21/90/**270**-day offsets, so
 a daily cagg stalled 100 days passes every `start_offset`-relative check. The
 threshold is uselessly loose exactly where staleness hides longest — and
 because 167's `bars_summary` reads the daily caggs, this applies directly to
-the next consumer. The ceiling is a small absolute bound (~1 day for the
-acquisition path); its value belongs in the constants module, not inline.
+the next consumer.
+
+`MAX_COVERAGE_SOURCE_STALENESS = timedelta(days=1)`, defined in the constants
+module, not inline. One ceiling serves both the acquisition path and 167's
+status path: a derived read older than a full trading day is stale for either
+purpose, and a second per-consumer ceiling would be a tuning knob with no
+distinct failure it catches. The value matches the existing
+`MINUTE_STALENESS_THRESHOLD` convention (`timedelta(days=1)`) and is a full
+refresh cycle above every minute policy's `start_offset`, so it never fires on
+a healthy cagg. The 140-arch Constants section is amended when this lands.
 
 ### D3 — Fail-safe by refusing, never by falling back
 
@@ -105,6 +113,24 @@ Never fall back to a full-window seed — that reintroduces the 22-year re-seed
 slice 162 exists to prevent. Prefer failing loudly and doing less work over
 silently doing redundant work; silent redundancy is what made the original bug
 invisible (ADR rule 4).
+
+**Indeterminate freshness is treated as stale.** The helper adds three I/O
+paths, and a guard that cannot prove freshness has not proven freshness. Each
+failure mode trips the guard — same ERROR-and-refuse path as a detected lag,
+with the log naming the cause rather than a lag measurement:
+
+| Failure mode | Handling |
+|---|---|
+| Catalog read returns no job row for the view | Trip. A cagg with no refresh policy is never self-healing — this is the strongest form of the 163 incident, not an exemption. |
+| View name is not a cagg / not in `GRANULARITY_SOURCE` | Raise `ValueError`. A programming error in the caller, not a runtime data condition; it must not be silently absorbed into a refusal. |
+| Probe timeout, connection loss, or any other `psycopg.Error` | Trip. Log the exception at ERROR (`logger.exception`) and return the stale verdict; never propagate into the reader's own error path. |
+
+Every probe runs under an explicit `statement_timeout` (per the standing prod
+query discipline), sized to a small multiple of the measured probe cost so a
+hung catalog or edge query degrades to a refusal rather than stalling the
+caller. Note the raw-edge probe is a bounded `max(time)` index scan, not an
+expression aggregate over compressed chunks — it is not the query shape behind
+the 2026-07-20 incident — but the timeout applies regardless.
 
 ### D4 — Detect and refuse; do not auto-remediate
 
@@ -123,10 +149,40 @@ Probe cost measured on prod: **~0.19 s** for the cagg edge, **~0.75 s** for
 raw, both planning-dominated — negligible against a once-per-cycle index build
 already costing ~23 s.
 
+### D6 — The verdict is cached with a short TTL
+
+~1 s per call is free on the acquisition path (once per daemon cycle against a
+~23 s build) but is the entire budget on the read path. The parent
+architecture's NFR is "view latency stays sub-second at full-universe scope"
+(140-arch:150) — the NFR slice 167 exists to reach, and 167 gates it with a
+CI-enforced load test. An uncached synchronous probe would consume that budget
+by itself and put this guard in direct conflict with its second consumer.
+
+The helper therefore memoizes its verdict per view name for
+`CAGG_FRESHNESS_CACHE_TTL` (constants module; 60 s), returning the cached
+verdict without probing while it is warm. Properties that make this safe:
+
+- **Bounded staleness of the verdict itself.** The TTL is two orders of
+  magnitude below `MAX_COVERAGE_SOURCE_STALENESS`, so a cached verdict can
+  never mask a lag the uncached check would have caught.
+- **Fail-safe direction preserved.** A *stale* verdict is cached on the same
+  terms as a fresh one; the cache never converts a refusal into a pass.
+- **Both consumers benefit without special-casing.** The daemon pays the probe
+  once per cycle as before (its cycle far exceeds the TTL, so it always
+  probes); `bars_summary` pays it at most once per TTL across all symbols in a
+  full-universe view, amortizing to ~0 per read.
+
+Cache state is process-local and keyed by view name only — no connection or
+transaction identity — so it must not be consulted for maintenance decisions.
+This helper is a reader-path guard; 163's `preflight()` remains the
+(uncached, always-probing) maintenance guard.
+
 ## Scope
 
-- `assert_cagg_fresh(conn, view_name)` in a shared maintenance module.
-- `MAX_COVERAGE_SOURCE_STALENESS` in the constants module.
+- `assert_cagg_fresh(conn, view_name)` in a shared maintenance module, with the
+  D6 TTL verdict cache.
+- `MAX_COVERAGE_SOURCE_STALENESS` and `CAGG_FRESHNESS_CACHE_TTL` in the
+  constants module.
 - Wire the first consumer: `build_minute_coverage_index`
   (`src/manta_trading/data/gaps/minute_coverage.py`).
 - Induced-staleness integration test (see success criteria).
@@ -153,6 +209,11 @@ wiring, which is 167's own work using this helper.
    daily cagg without signature change — so 167 consumes it as-is.
 7. Re-running the 163 incident shape (pause job 1003, let raw advance) produces
    a refusal instead of a re-seed.
+8. **The TTL cache is correct in both directions**: a warm call issues no
+   probe queries (pinned by query count, not by timing); a cached *stale*
+   verdict still refuses; the entry expires after
+   `CAGG_FRESHNESS_CACHE_TTL` and re-probes. Repeated calls across a
+   full-universe read amortize to well under the sub-second consumer NFR.
 
 ## Verification walkthrough (draft — refined at Phase 6)
 
@@ -177,8 +238,15 @@ wiring, which is 167's own work using this helper.
   this slice adds a precondition, not a behavior change.
 - **Interfaces: [167]** — 167's D3a requires this guard. Sequencing this slice
   first reduces 167's D3a to "consume the guard; do not ship an unguarded
-  consumer." If this slice has not delivered when 167 starts, 167 must build
-  the helper itself rather than ship unguarded.
+  consumer." **The slice plan is authoritative on sequencing:** 167 lists
+  `dependencies: [166, 163, 168]`, a hard dependency, so 167 does not start
+  until this slice lands. The "167 builds the helper itself" fallback
+  previously carried here and in 167's D3a is removed — under the plan that
+  scenario cannot occur, and keeping it invited a second implementation of a
+  guard whose whole value is being shared.
+- 167's `bars_summary` reads on the sub-second NFR path (140-arch:150). D6's
+  TTL cache is what keeps this guard inside that budget; 167 consumes the
+  helper as-is and does not need its own amortization scheme.
 
 ## Notes
 

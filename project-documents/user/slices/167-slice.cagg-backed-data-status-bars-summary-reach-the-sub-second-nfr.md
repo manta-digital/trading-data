@@ -41,9 +41,10 @@ staleness bound.
 >
 > This slice creates the second cagg-backed read path, so it inherits that failure
 > mode. `bars_summary` must call the shared `assert_cagg_fresh(conn, view_name)`
-> helper (owned by slice 168, sequenced ahead of this slice) and surface staleness rather than
-> silently reporting stale coverage as fact. If that helper is not yet built, this
-> slice builds it — 167 must not ship a second unguarded consumer.
+> helper (owned by slice 168, a hard dependency of this slice) and surface staleness
+> rather than silently reporting stale coverage as fact. 168 lands first, so the
+> helper exists when this slice starts — 167 consumes it and must never ship a
+> second unguarded consumer.
 >
 > **`start_offset` alone is the wrong threshold.** It is set for refresh efficiency,
 > not consumer tolerance. `daily_ohlcv`'s caggs — which `bars_summary` also reads —
@@ -251,10 +252,11 @@ incident.
 **Decision:** `bars_summary` calls a shared
 `assert_cagg_fresh(conn, view_name) -> FreshnessVerdict` before trusting cagg-derived
 coverage. **Slice 168 owns the helper** (promoted from 140-plan future work on
-2026-07-26 and sequenced ahead of this slice), so this slice normally *consumes* it
+2026-07-26) and is a **hard dependency** of this slice, so this slice *consumes* it
 unchanged and adds only the `bars_summary` call site and the operator-facing surfacing
-below. If 168 has not delivered when this slice starts, build the helper here to 168's
-design — **167 must not ship a second unguarded consumer.**
+below — **167 must not ship a second unguarded consumer.** 168's D6 TTL verdict cache
+is what keeps the guard inside this slice's sub-second NFR; no amortization scheme is
+needed here.
 
 Four independent signals, OR'd (none is sufficient alone), from one catalog read of
 `timescaledb_information.jobs` + `job_stats`:
@@ -367,11 +369,10 @@ raw daily_ohlcv ──▶ daily_coverage             │
     and inherits both constraints (D3a). This is a design dependency, not just a
     sequencing one — a reviewer should confirm D3a is satisfied, not merely that
     163 ran.
-  - *Shared artifact:* `assert_cagg_fresh` — delivered by slice 168 (sequenced
-    ahead of this slice) or built here to 168's design if 168 has not landed.
-    If 167 builds it, it belongs in a shared maintenance module, not inlined in
-    the view path, because the minute daemon's coverage index is the other
-    caller.
+  - *Shared artifact:* `assert_cagg_fresh` — delivered by slice 168, a hard
+    dependency of this slice. It lives in a shared maintenance module, not
+    inlined in the view path, because the minute daemon's coverage index is the
+    other caller. 167 consumes it; it does not reimplement it.
 - **Interfaces [147]** — `mt data status` reads `data_status`; contract
   preserved.
 - **Interfaces [182]** — serving API's available-ranges / status surfaces read
