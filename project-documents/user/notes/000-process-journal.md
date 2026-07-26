@@ -93,6 +93,15 @@ deliberate pause, crashed job, failed policy, restart — requires an explicit c
 per-period coverage diff; a universe-wide `max(time)` comparison hides it (ours differed
 by one bucket while 349 symbols were invisible for four days).
 
+**Corollary — `start_offset` alone is the wrong staleness threshold.** It is set for
+refresh *efficiency*, not for how stale a consumer can tolerate its input, and the two
+diverge badly: the daily caggs use 21/90/**270**-day offsets, so a policy stalled for
+three months is "within `start_offset`" and passes any check written against it.
+Simulation of a 100-day daily-cagg stall confirmed the false negative. A consumer's
+freshness bound must be `min(start_offset, <absolute ceiling the consumer requires>)`.
+The looser the policy's offset, the longer staleness hides — so the tiers with the
+weakest natural signal need the tightest explicit bound.
+
 ### 4. Silent-and-harmless is the hardest failure to find
 
 The re-pull loop produced no errors and no corruption — `ON CONFLICT DO NOTHING`

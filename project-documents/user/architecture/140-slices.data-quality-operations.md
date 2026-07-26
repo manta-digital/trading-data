@@ -170,10 +170,48 @@ exists purely as scaffolding for a later slice.
   cause. Runbook R2 covers it by human discipline only, and the failure is silent
   (harmless per-row via `ON CONFLICT DO NOTHING`, so nobody goes looking — the 163
   incident was caught by the PM noticing chunk counts, not by any check).
-  Candidate fix: `build_minute_coverage_index` asserts the cagg's leading edge is within
-  its policy's `start_offset` of raw's, and fails safe (skip coverage-aware seeding, log
-  ERROR) rather than trusting stale data. Note the daily caggs' `start_offset` values run
-  to 21/90/270 days, so a stalled policy there could go unnoticed for months.
+  **Design (validated against prod 2026-07-25 — see below).** Put the assertion in the
+  *reader*, not in maintenance tooling: maintenance is the path we already guard, and the
+  uncovered causes (crashed job, failed policy, out-of-band `alter_job`, restart) never
+  run through it. `build_minute_coverage_index` already has the right shape — it returns
+  `None` on failure and the caller skips coverage-aware seeding — so a freshness check
+  reuses that fail-safe rather than inventing one.
+
+  One catalog read supplies everything needed (`start_offset`, `scheduled`,
+  `last_run_status`, `last_successful_finish` from `timescaledb_information.jobs` +
+  `job_stats`), plus two `max()` probes. Measured on prod: **~0.19 s** for the cagg edge,
+  **~0.75 s** for raw — both planning-dominated, negligible against a once-per-cycle
+  index build that already costs ~23 s.
+
+  Four independent staleness signals, OR'd — no single one is sufficient:
+
+  | Signal | Catches |
+  |---|---|
+  | `raw_max - cagg_max > start_offset` | the actual 163 incident |
+  | `NOT scheduled` | any pause, including out-of-band `alter_job` |
+  | `now() - last_successful_finish > start_offset` | crashed / erroring job that is still `scheduled` |
+  | `last_run_status <> 'Success'` | policy failing on every fire |
+
+  **A ceiling is required in addition to `start_offset`.** Simulation against the four
+  scenarios showed a false negative: a daily cagg stalled 100 days passes every
+  `start_offset`-relative check, because the daily policies' offsets run to 21/90/**270**
+  days — the threshold is uselessly loose exactly where staleness hides longest. Use
+  `min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)` with the ceiling a small absolute
+  bound (~1 day for the acquisition path). This was the failure mode originally flagged
+  as most dangerous, and the naive design does not catch it.
+
+  Fail-safe on trip: log ERROR naming the cagg, the measured lag, and which signals
+  fired, then return `None` — never seed from data known to be stale, and never fall back
+  to a full-window seed. Prefer failing loudly and doing less work over silently doing
+  redundant work, which is what made the original bug invisible (ADR rule 4).
+
+  Deliberately **not** auto-remediating: an automatic catch-up
+  `refresh_continuous_aggregate` from inside the daemon's read path would make a heavy
+  write a side effect of a read. Detect and refuse; leave the catch-up to runbook R2.
+
+  Generalize the helper (`assert_cagg_fresh(conn, view_name)`) rather than inlining it —
+  slice 167's coverage cagg needs the identical guard.
+
   Dependencies: [163]. Effort: 2/5. Design rules: journal 20260725 ADR, rule 3.
 
 1. [ ] **(155) Daemon as a real background service: detached lifecycle + CLI control**~~ — ~~deprecated~~ — Deferred to future work. The foreground `mt data daemon run` with tmux/screen is sufficient for current single-operator use. The OS supervisor decisions (systemd user vs. system unit, env-var injection, daemon_id resolution, log routing) carry more design overhead than the value delivered right now. Moved to initiative 180's future work section; no dependency on this slice before picking it up there.
