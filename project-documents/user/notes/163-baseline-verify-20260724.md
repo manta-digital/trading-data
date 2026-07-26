@@ -535,3 +535,25 @@ here. Projections made from the first N windows of a run drifted repeatedly (15m
 projected 4.08 h → 3.89 h → 3.44 h as blocks accumulated). Use the band for planning,
 quote a range rather than a point, and re-fit from ~15 real windows of the *target*
 granularity before committing to a number.
+
+## D6 — post-resume job status (2026-07-26 00:47 MDT)
+
+All eight paused-then-resumed jobs verified after their next scheduled fire
+(query: `timescaledb_information.jobs` LEFT JOIN `job_stats`, server time
+2026-07-26 00:47:21 MDT):
+
+| Job | Proc | scheduled | last_run_status | last_run_started_at | total_failures |
+|---|---|---|---|---|---|
+| 1002 | refresh | t | Success | 2026-07-25 23:48 | 0 |
+| 1003 | refresh | t | Success | 2026-07-26 00:41 | 0 |
+| 1007 | refresh | t | Success | 2026-07-26 00:45 | 0 |
+| 1008 | refresh | t | Success | 2026-07-26 00:46 | 0 |
+| 1018 | columnstore | t | Success | 2026-07-26 00:15 | 0 |
+| 1019 | columnstore | t | Success | 2026-07-25 13:16 | 0 |
+| 1020 | columnstore | t | Success | 2026-07-26 00:10 | 0 |
+| 1021 | columnstore | t | Success | 2026-07-26 00:10 | 0 |
+
+Every job fired successfully AFTER the 2026-07-25 20:05 resume — the
+job-status half of success criterion 6 is met. Remaining for D6: the
+next-trading-day parity re-verify (first session after the sweeps is
+Mon 2026-07-27; verify after its close + refresh lag).
