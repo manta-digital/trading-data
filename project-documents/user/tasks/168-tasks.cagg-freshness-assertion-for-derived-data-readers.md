@@ -113,6 +113,8 @@ downstream hard dependent and consumes the helper unchanged.
   - Success: tests pass.
   - Effort: 1
 
+- [ ] **Commit**: `feat(maintenance): add cagg freshness verdict type and staleness constants`
+
 ---
 
 ## Task 3 — Catalog read
@@ -153,6 +155,23 @@ downstream hard dependent and consumes the helper unchanged.
   - Success: probes return `datetime | None`; timeout is set on every path.
   - Effort: 2
 
+- [ ] **4.1a Unit-test the probe timeout discipline**
+  - [ ] Assert `_cagg_max` and `_raw_max` each set `statement_timeout` on the
+        cursor **before** executing the probe — on every code path, including
+        the early-return/`None` paths. Use a recording fake that captures the
+        statement order; assert the timeout precedes the `max()` query.
+  - [ ] Assert the timeout value comes from the constant, not an inline literal.
+  - [ ] Assert `view_name` / table name reach the probe through
+        `GRANULARITY_SOURCE` resolution rather than string interpolation of
+        caller input.
+  - Rationale: D3 requires that "a hung catalog or edge query degrades to a
+    refusal rather than stalling the caller." Task 5.3 covers the `except`
+    branch once an error is raised; this covers whether the bound that raises
+    it is actually configured. Missing `statement_timeout` on probe queries is
+    the root-cause class of the 2026-07-20 prod incident.
+  - Success: tests fail if any `SET statement_timeout` is removed.
+  - Effort: 2
+
 - [ ] **4.2 Implement threshold resolution**
   - [ ] `_resolve_threshold(start_offset) -> timedelta` returning
         `min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)`.
@@ -171,6 +190,8 @@ downstream hard dependent and consumes the helper unchanged.
   - [ ] `start_offset is None` → ceiling.
   - Success: tests pass; removing the `min()` breaks the 270-day case.
   - Effort: 2
+
+- [ ] **Commit**: `feat(maintenance): add cagg catalog read, edge probes, and staleness threshold`
 
 ---
 
@@ -211,6 +232,8 @@ downstream hard dependent and consumes the helper unchanged.
   - Success: eight tests pass; each fails if its signal is removed.
   - Effort: 3
 
+- [ ] **Commit**: `feat(maintenance): evaluate cagg freshness signals, fail safe on indeterminate`
+
 ---
 
 ## Task 6 — TTL verdict cache (D6)
@@ -238,6 +261,8 @@ downstream hard dependent and consumes the helper unchanged.
   - Success: four tests pass.
   - Effort: 2
 
+- [ ] **Commit**: `feat(maintenance): cache cagg freshness verdicts with short TTL`
+
 ---
 
 ## Task 7 — Wire the first consumer
@@ -261,6 +286,8 @@ downstream hard dependent and consumes the helper unchanged.
         before).
   - Success: tests pass; the healthy path shows no behavior change.
   - Effort: 2
+
+- [ ] **Commit**: `feat(gaps): guard coverage-index build on cagg freshness`
 
 ---
 
@@ -293,12 +320,48 @@ downstream hard dependent and consumes the helper unchanged.
   - Success: both pass; confirms 167 can consume it as-is.
   - Effort: 2
 
+- [ ] **8.3a Induced-slowness test — the timeout actually fires**
+  - [ ] Force a probe to exceed its `statement_timeout` against the scratch DB
+        (e.g. temporarily set the probe timeout to a very small value, or block
+        the probe with a competing lock / `pg_sleep`).
+  - [ ] Assert the call **returns a stale verdict with `PROBE_FAILED`** within a
+        bounded wall-clock time rather than hanging the caller, and that the
+        backend does not remain running afterward.
+  - Rationale: pairs with 4.1a — that test proves the bound is configured, this
+    proves it converts to a refusal in a live database (D3's stated property).
+  - Success: bounded refusal, no hung caller, no orphaned backend.
+  - Effort: 2
+
 - [ ] **8.4 Healthy-path and probe-cost check (criteria 4, 5)**
   - [ ] Healthy scratch cagg passes with no false positive.
   - [ ] Record probe timings against the ~1 s envelope. A single recorded
         measurement, not a benchmarking harness.
   - Success: no false positive; timings recorded in the task notes.
   - Effort: 2
+
+- [ ] **8.5 Record the load-test deferral (review F003)**
+  - [ ] **No `test/load/` task is added to this slice**, and the omission is a
+        decision, not an oversight. Success criterion 8's closing clause
+        ("repeated calls across a full-universe read amortize to well under the
+        sub-second consumer NFR") describes behavior on a call path this slice
+        does not create: 168's only consumer is
+        `build_minute_coverage_index`, which calls the helper **once per daemon
+        cycle**, where the ~1 s uncached cost is already proven negligible
+        against a ~23 s index build. Full-universe repeated calls only exist
+        once slice 167 wires `bars_summary`.
+  - [ ] Slice 167 owns that coverage: its D5 / success criterion 6 already
+        specifies a CI-gated load test asserting full-universe read latency
+        < 1 s. Duplicating it here would test a call pattern no shipped code in
+        this slice performs.
+  - [ ] What 168 *does* own is the cache mechanism that makes amortization
+        possible — covered by 6.2 (query-count assertions, stale-cached-still-
+        refuses, TTL expiry, per-view isolation).
+  - Rationale: follows the slice-166 D2 precedent of recording *why* no load
+    test was added rather than silently omitting one.
+  - Success: decision recorded; no load-test task in this slice.
+  - Effort: 1
+
+- [ ] **Commit**: `test(maintenance): induced-staleness integration tests for cagg freshness guard`
 
 ---
 
@@ -338,7 +401,11 @@ downstream hard dependent and consumes the helper unchanged.
   Any signature change here is a change to 167's contract.
 - The raw-edge probe is a bounded `max(time)` index scan, not an expression
   aggregate over compressed chunks — it is not the query shape behind the
-  2026-07-20 prod incident. The `statement_timeout` discipline applies anyway.
+  2026-07-20 prod incident. The `statement_timeout` discipline applies anyway,
+  and is verified from both directions: 4.1a proves the bound is configured on
+  every path, 8.3a proves it converts to a refusal in a live database.
+- **Commit per task**, not batched at the end (project convention; slice 162
+  precedent). Checkpoints follow Tasks 2, 4, 5, 6, 7, and 8.
 - Design rules: journal 20260725 ADR, rule 3 (`start_offset` is a maintenance
   budget; long pauses are not self-healing) and rule 4 (silent-and-harmless is
   the hardest failure to find).
