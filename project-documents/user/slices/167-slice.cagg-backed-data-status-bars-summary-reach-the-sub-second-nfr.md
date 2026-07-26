@@ -229,6 +229,66 @@ and the refresh-policy intervals chosen must be documented in the view's doc
 comment** so operators reading `mt data status` understand that a just-fetched
 symbol may show slightly-stale coverage until the next refresh tick.
 
+### D3a — Freshness must be **asserted**, not assumed (inherited from slice 163)
+
+D3's lag bound is `(parent refresh interval) + (coverage refresh interval)`. That
+arithmetic holds **only while the policies actually run**. When a policy stops, the
+bound is silently unbounded — and slice 163 proved on prod that this is not
+hypothetical.
+
+A refresh policy stops for many reasons beyond a deliberate pause: a crashed job, a
+policy erroring on every fire, an `alter_job` issued outside our tooling, a restart
+during maintenance. **Resuming it does not heal the gap**, because a policy only
+reconsiders the last `start_offset` of data; everything older is stranded permanently
+and no scheduled run ever revisits it. In 163 this drove a perpetual minute re-pull
+across ~349 symbols with no error anywhere — found by the PM noticing chunk counts,
+not by any check.
+
+This slice creates the **second** cagg-backed read path and inherits that failure mode
+directly. Documenting the bound (D3) is what 163 already did; it did not prevent the
+incident.
+
+**Decision:** `bars_summary` calls a shared
+`assert_cagg_fresh(conn, view_name) -> FreshnessVerdict` before trusting cagg-derived
+coverage. Build the helper in this slice if the 140-plan future-work item has not
+already delivered it — **167 must not ship a second unguarded consumer.**
+
+Four independent signals, OR'd (none is sufficient alone), from one catalog read of
+`timescaledb_information.jobs` + `job_stats`:
+
+| Signal | Catches |
+|---|---|
+| `raw_max - cagg_max > threshold` | the 163 incident shape |
+| `NOT scheduled` | any pause, including out-of-band `alter_job` |
+| `now() - last_successful_finish > threshold` | crashed job still marked `scheduled` |
+| `last_run_status <> 'Success'` | policy failing on every fire |
+
+**Threshold is `min(start_offset, <absolute ceiling this consumer requires>)` — not
+`start_offset` alone.** `start_offset` is set for refresh efficiency, not consumer
+tolerance, and the two diverge badly: `bars_summary` also reads the **daily** caggs,
+whose offsets run to 21/90/**270** days. A daily cagg stalled three months passes any
+`start_offset`-relative check. This false negative was found by simulating the
+detector before writing it.
+
+**Cost is not a concern** (measured on prod 2026-07-25): ~0.19 s for the cagg
+leading-edge probe, ~0.75 s for the raw probe, both planning-dominated — negligible
+against a view whose whole purpose is sub-second reads, and the probes are per-cagg,
+not per-symbol.
+
+**On trip:** surface staleness rather than silently reporting stale coverage as fact.
+Unlike the daemon's coverage index — which fails safe by skipping work — `data_status`
+is an operator-facing read, so the verdict should be *reported* (a stale-coverage
+indicator plus an ERROR log naming the cagg, measured lag, and which signals fired),
+not silently suppressed. Exact surfacing is a task-level decision; the constraint is
+that a stale cagg must never be presented as current coverage.
+
+**Deliberately not auto-remediating:** an automatic catch-up
+`refresh_continuous_aggregate` inside a read path makes a heavy write a side effect of
+a status query. Detect and report; catch-up stays with runbook R2.
+
+Full reasoning: journal `20260725` ADR rules 2–4;
+`user/runbooks/cagg-maintenance-pausing.md` (R1–R5).
+
 ### D4 — Refresh policy for the coverage caggs
 
 `minute_coverage` and `daily_coverage` each get an
@@ -295,9 +355,19 @@ raw daily_ohlcv ──▶ daily_coverage             │
 ## Cross-slice dependencies and interfaces
 
 - **Depends on [166]** — the raw-table re-chunk that this builds on.
-- **Depends on [163]** — 163 repairs (force-refresh) and re-chunks the minute
-  caggs; 167 cannot back `bars_summary` with a corrupted 4h cagg. 163 is now
-  urgent (§Critical prerequisite).
+- **Depends on [163]** — two distinct dependencies, both binding:
+  - *Data:* 163 repairs (force-refresh) and re-chunks the minute caggs; 167 cannot
+    back `bars_summary` with a corrupted 4h cagg (§Critical prerequisite).
+  - *Design:* 163 established that a cagg informing an operational decision is a
+    production input requiring an asserted freshness contract, and that
+    `start_offset` alone is the wrong threshold. 167 is the second such consumer
+    and inherits both constraints (D3a). This is a design dependency, not just a
+    sequencing one — a reviewer should confirm D3a is satisfied, not merely that
+    163 ran.
+  - *Shared artifact:* `assert_cagg_fresh` — delivered by the 140-plan future-work
+    item or built here, whichever comes first. If 167 builds it, it belongs in a
+    shared maintenance module, not inlined in the view path, because the minute
+    daemon's coverage index is the other caller.
 - **Interfaces [147]** — `mt data status` reads `data_status`; contract
   preserved.
 - **Interfaces [182]** — serving API's available-ranges / status surfaces read
@@ -315,6 +385,15 @@ raw daily_ohlcv ──▶ daily_coverage             │
 5. Cold-start applies the new migrations cleanly and yields a sub-second view
    on a freshly-built DB.
 6. A load test asserts full-universe read latency < 1 s and is CI-gated (D5).
+7. **`assert_cagg_fresh` exists, is called by `bars_summary`, and is proven to
+   fire** (D3a). Verified by *inducing* staleness, not by reading code: pause a
+   coverage cagg's refresh policy on a throwaway DB, advance raw past the
+   threshold, and confirm the read reports stale coverage rather than presenting
+   it as current. Each of the four signals is unit-tested independently —
+   including the case a naive implementation misses: a cagg whose policy has a
+   loose `start_offset` (21/90/270 d on the daily side) but which is stalled far
+   beyond what this consumer tolerates. A test that only asserts the helper is
+   *called* does not satisfy this criterion.
 
 ## Verification walkthrough (draft — refined at Phase 6)
 
