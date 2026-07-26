@@ -304,73 +304,73 @@ Run the repair sweeps outside market hours (design D1 availability note).
 The minute daemon **may keep running** throughout (design D4).
 
 ### Task D1: Apply migrations to prod
-- [ ] Apply 044/045 via the standard migration path.
-- [ ] Confirm via `timescaledb_information.dimensions`: all four mat
+- [x] Apply 044/045 via the standard migration path.
+- [x] Confirm via `timescaledb_information.dimensions`: all four mat
       hypertables report 70-day interval; compression settings + policies
       exist for all four.
-- [ ] Success: catalog output recorded (walkthrough step 2).
+- [x] Success: catalog output recorded (walkthrough step 2).
 
 ### Task D2: Dry run and pre-flight refusal check
-- [ ] `mt data caggs repair --dry-run` → planned windows per cagg with
+- [x] `mt data caggs repair --dry-run` → planned windows per cagg with
       parity states; verify zero mutation (chunk counts unchanged).
-- [ ] Run repair with jobs **unpaused** → confirm pre-flight refuses with
+- [x] Run repair with jobs **unpaused** → confirm pre-flight refuses with
       actionable message listing job IDs (walkthrough step 4).
-- [ ] Pause the four refresh-policy jobs + four columnstore policies using
+- [x] Pause the four refresh-policy jobs + four columnstore policies using
       the IDs the tool printed.
-- [ ] Success: refusal observed, then pre-flight passes with jobs paused.
+- [x] Success: refusal observed, then pre-flight passes with jobs paused.
 
 ### Task D3: Repair 4h cagg first, with kill/resume exercise
-- [ ] `mt data caggs repair --granularity 4h` (smallest, ~9 GB full);
+- [x] `mt data caggs repair --granularity 4h` (smallest, ~9 GB full);
       watch per-window progress.
-- [ ] Once mid-run: Ctrl-C, confirm clean exit and backend cancelled
+- [x] Once mid-run: Ctrl-C, confirm clean exit and backend cancelled
       (`pg_stat_activity`), re-run, observe parity-skip fast-forward to the
       interrupted window (success criterion 5).
-- [ ] On completion: `mt data caggs verify --granularity 4h` → full parity
+- [x] On completion: `mt data caggs verify --granularity 4h` → full parity
       within the trailing refresh-lag bound.
-- [ ] Success: 4h cagg at 70-day chunks (~117), compressed, full parity.
+- [x] Success: 4h cagg at 70-day chunks (~117), compressed, full parity.
 
 ### Task D4: Capture the query win
-- [ ] `EXPLAIN ANALYZE` single-symbol `minute_4hour_ohlcv` query (same query
+- [x] `EXPLAIN ANALYZE` single-symbol `minute_4hour_ohlcv` query (same query
       as the B5 baseline): expect chunk fan-out collapse and ~2 s →
       sub-100 ms order (success criterion 3).
-- [ ] Append before/after to the B5 baseline artifact.
-- [ ] Success: comparison committed
+- [x] Append before/after to the B5 baseline artifact.
+- [x] Success: comparison committed
       (`docs: record 163 4h-cagg repair EXPLAIN before/after`).
 
 ### Task D5: Repair remaining granularities
-- [ ] `repair --granularity 1h`, then `15m`, then `5m` — separate runs,
+- [x] `repair --granularity 1h`, then `15m`, then `5m` — separate runs,
       disk monitored between runs (compress-behind-frontier should hold
       peak bounded; abort and reassess if footprint approaches headroom).
-- [ ] `mt data caggs verify` (all) → full parity every year, every
+- [x] `mt data caggs verify` (all) → full parity every year, every
       granularity (success criterion 2).
-- [ ] Record final chunk counts (~117/cagg, success criterion 1) and total
+- [x] Record final chunk counts (~117/cagg, success criterion 1) and total
       minute-cagg footprint (expected ~30–40 GB, not ~300 GB — success
       criterion 4; design D3 estimate verified).
-- [ ] Success: all measurements recorded in the baseline artifact.
+- [x] Success: all measurements recorded in the baseline artifact.
 
 ### Task D6: Resume jobs and steady-state check
-- [ ] Resume the eight paused jobs; verify each `last_run_status = 'Success'`
+- [x] Resume the eight paused jobs; verify each `last_run_status = 'Success'`
       after next scheduled run (success criterion 6); daemon uninterrupted.
 - [ ] Next trading day: `mt data caggs verify` still at full parity within
       refresh lag (trailing policy healing works — walkthrough step 8).
 - [ ] Success: job statuses + next-day verify output recorded.
 
 ### Task D7: 162 regression and cold-start verification
-- [ ] Re-run slice 162's coverage query path (4h-cagg reads): correct,
+- [x] Re-run slice 162's coverage query path (4h-cagg reads): correct,
       complete-data results (success criterion 8; results *changed for the
       better* where prior reads touched corrupted regions — design
       §Interfaces).
-- [ ] Cold-start: run the existing cold-start integration flow against a
+- [x] Cold-start: run the existing cold-start integration flow against a
       throwaway DB; confirm 70-day mat intervals + compression from
       migrations alone, repair tool never invoked (success criterion 7).
-- [ ] Success: both outcomes recorded.
+- [x] Success: both outcomes recorded.
 
 ### Task D8: Close-out
-- [ ] Audit all eight design success criteria against recorded evidence;
+- [x] Audit all eight design success criteria against recorded evidence;
       note any deviation for PM.
-- [ ] Add journal entry (`user/notes/000-process-journal.md`): repair
+- [x] Add journal entry (`user/notes/000-process-journal.md`): repair
       executed, parity restored, standing verify/repair rule now live for
       the ~2026-07-23 raw rechunk re-run (walkthrough step 10 happens there).
-- [ ] Update slice/task doc statuses via task-checker; final commit; slice
+- [x] Update slice/task doc statuses via task-checker; final commit; slice
       branch ready for merge per git rules.
 - [ ] Success: slice complete; 167 unblocked.
