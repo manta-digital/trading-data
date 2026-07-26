@@ -3,7 +3,7 @@ docType: slice-plan
 parent: user/architecture/140-arch.data-quality-operations.md
 project: trading
 dateCreated: 20260429
-dateUpdated: 20260719
+dateUpdated: 20260725
 status: in-progress
 ---
 
@@ -159,6 +159,22 @@ exists purely as scaffolding for a later slice.
   audit does not solve.
 
 ## Future work
+
+- [ ] **Cagg freshness assertion in coverage-index readers** — closes the open gap
+  from slice 163. A refresh policy only reconsiders the last `start_offset` of data,
+  so any interruption longer than that (deliberate pause, crashed job, failed policy,
+  restart mid-maintenance) leaves a hole that resuming the policy **never heals**.
+  Slice 163's `preflight()` blocks only the specific path it took — repairing one cagg
+  while the coverage-index cagg's refresh is paused. Nothing detects a pause exceeding
+  `start_offset`, verifies the catch-up refresh ran, or notices staleness from any other
+  cause. Runbook R2 covers it by human discipline only, and the failure is silent
+  (harmless per-row via `ON CONFLICT DO NOTHING`, so nobody goes looking — the 163
+  incident was caught by the PM noticing chunk counts, not by any check).
+  Candidate fix: `build_minute_coverage_index` asserts the cagg's leading edge is within
+  its policy's `start_offset` of raw's, and fails safe (skip coverage-aware seeding, log
+  ERROR) rather than trusting stale data. Note the daily caggs' `start_offset` values run
+  to 21/90/270 days, so a stalled policy there could go unnoticed for months.
+  Dependencies: [163]. Effort: 2/5. Design rules: journal 20260725 ADR, rule 3.
 
 1. [ ] **(155) Daemon as a real background service: detached lifecycle + CLI control**~~ — ~~deprecated~~ — Deferred to future work. The foreground `mt data daemon run` with tmux/screen is sufficient for current single-operator use. The OS supervisor decisions (systemd user vs. system unit, env-var injection, daemon_id resolution, log routing) carry more design overhead than the value delivered right now. Moved to initiative 180's future work section; no dependency on this slice before picking it up there.
 
