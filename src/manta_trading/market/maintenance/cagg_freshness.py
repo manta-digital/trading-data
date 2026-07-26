@@ -27,9 +27,11 @@ Design invariants (slice 168 D1-D6):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from typing import TYPE_CHECKING, cast
+from typing import cast
+
+import psycopg
 
 from manta_trading.constants import (
     CAGG_BASE_GRANULARITY,
@@ -39,9 +41,6 @@ from manta_trading.constants import (
     Granularity,
 )
 from manta_trading.logging import get_logger
-
-if TYPE_CHECKING:
-    import psycopg
 
 logger = get_logger(__name__)
 
@@ -259,3 +258,97 @@ def _resolve_threshold(start_offset: timedelta | None) -> timedelta:
     if start_offset is None:
         return MAX_COVERAGE_SOURCE_STALENESS
     return min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)
+
+
+def _now() -> datetime:
+    """Wall clock, isolated so tests can substitute it via monkeypatch."""
+    return datetime.now(timezone.utc)
+
+
+def _evaluate(conn: psycopg.Connection[object], view_name: str) -> FreshnessVerdict:
+    """Uncached freshness evaluation: the four D1 signals, OR'd.
+
+    Every signal that fires is collected, not just the first — a policy can be
+    both paused and lagging, and the operator needs to see both. Any one signal
+    alone is sufficient to refuse.
+
+    Raises:
+        ValueError: ``view_name`` is not a known cagg view (a caller bug, which
+            must not be absorbed into a refusal — F001).
+    """
+    # Resolved before the try: a bad view name is a caller bug and must
+    # propagate as ValueError rather than being reported as staleness.
+    source_table = _resolve_source_table(view_name)
+
+    try:
+        job = _read_refresh_job(conn, view_name)
+        cagg_max = _cagg_max(conn, view_name)
+        raw_max = _raw_max(conn, source_table)
+    except psycopg.Error:
+        # D3/F001: a probe timeout or connection loss leaves freshness
+        # indeterminate, and indeterminate is stale. Trapping is correct here
+        # because the reader's contract is "refuse and skip", not "raise" —
+        # propagating would turn a degraded read into a caller-visible crash.
+        logger.exception(
+            "cagg freshness probe failed for %s — treating as stale", view_name
+        )
+        return FreshnessVerdict(
+            view_name=view_name,
+            is_fresh=False,
+            signals=(StalenessSignal.PROBE_FAILED,),
+            lag=None,
+            threshold=None,
+            detail=f"{view_name}: freshness probe failed (see traceback above)",
+        )
+
+    if job is None:
+        # A cagg with no refresh policy never self-heals — the strongest form of
+        # the 163 incident, not an exemption from it.
+        return FreshnessVerdict(
+            view_name=view_name,
+            is_fresh=False,
+            signals=(StalenessSignal.NO_JOB_ROW,),
+            lag=None,
+            threshold=None,
+            detail=f"{view_name}: no refresh policy found in the job catalog",
+        )
+
+    threshold = _resolve_threshold(job.start_offset)
+    signals: list[StalenessSignal] = []
+
+    lag: timedelta | None = None
+    if raw_max is not None and cagg_max is not None:
+        lag = raw_max - cagg_max
+        if lag > threshold:
+            signals.append(StalenessSignal.LAG_EXCEEDS_THRESHOLD)
+
+    if not job.scheduled:
+        signals.append(StalenessSignal.NOT_SCHEDULED)
+
+    if job.last_successful_finish is None:
+        # Scheduled but never completed once: the same operational hole as a
+        # success that has aged out of the budget.
+        signals.append(StalenessSignal.LAST_SUCCESS_TOO_OLD)
+    elif _now() - job.last_successful_finish > threshold:
+        signals.append(StalenessSignal.LAST_SUCCESS_TOO_OLD)
+
+    if job.last_run_status is not None and job.last_run_status != _STATUS_SUCCESS:
+        signals.append(StalenessSignal.LAST_RUN_FAILED)
+
+    is_fresh = not signals
+    detail = (
+        f"{view_name}: fresh (lag={lag}, threshold={threshold})"
+        if is_fresh
+        else (
+            f"{view_name}: STALE (lag={lag}, threshold={threshold}, "
+            f"job_id={job.job_id}, signals={[s.value for s in signals]})"
+        )
+    )
+    return FreshnessVerdict(
+        view_name=view_name,
+        is_fresh=is_fresh,
+        signals=tuple(signals),
+        lag=lag,
+        threshold=threshold,
+        detail=detail,
+    )

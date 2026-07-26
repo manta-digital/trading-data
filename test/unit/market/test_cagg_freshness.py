@@ -13,16 +13,19 @@ from datetime import datetime, timedelta, timezone
 from types import TracebackType
 from typing import Any, Literal
 
+import psycopg
 import pytest
 
 from manta_trading.constants import (
     CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT,
     MAX_COVERAGE_SOURCE_STALENESS,
 )
+from manta_trading.market.maintenance import cagg_freshness
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
     StalenessSignal,
     _cagg_max,
+    _evaluate,
     _raw_max,
     _read_refresh_job,
     _resolve_source_table,
@@ -276,3 +279,157 @@ class TestResolveThreshold:
             "a 100-day stall must exceed the threshold; removing the "
             "MAX_COVERAGE_SOURCE_STALENESS ceiling breaks this"
         )
+
+
+# --- Task 5: evaluation fixtures -------------------------------------------
+#
+# _evaluate issues exactly three queries in order: catalog read, cagg edge,
+# raw edge. The fake below serves that sequence and can raise on any of them.
+
+_NOW = _utc(2026, 7, 26)
+_CAGG_EDGE = _NOW - timedelta(hours=2)
+_RAW_EDGE = _NOW - timedelta(minutes=30)
+
+
+class _EvalConnection(_RecordingConnection):
+    """Serves the catalog row then the two edge probes, optionally raising."""
+
+    def __init__(
+        self,
+        *,
+        scheduled: bool = True,
+        start_offset: timedelta | None = timedelta(days=1),
+        last_run_status: str | None = "Success",
+        last_successful_finish: datetime | None = None,
+        job_row: bool = True,
+        cagg_max: datetime | None = _CAGG_EDGE,
+        raw_max: datetime | None = _RAW_EDGE,
+        raise_on_query: int | None = None,
+    ) -> None:
+        catalog: Any = (
+            (
+                1003,
+                scheduled,
+                start_offset,
+                last_run_status,
+                last_successful_finish if last_successful_finish else _NOW,
+            )
+            if job_row
+            else None
+        )
+        rows: list[Any] = [
+            catalog,
+            (cagg_max,) if cagg_max is not None else None,
+            (raw_max,) if raw_max is not None else None,
+        ]
+        super().__init__(rows=rows)
+        self._raise_on_query = raise_on_query
+        self._query_count = 0
+
+    def cursor(self) -> _RecordingCursor:
+        return _RaisingCursor(self)
+
+
+class _RaisingCursor(_RecordingCursor):
+    """Counts non-timeout statements; raises psycopg.OperationalError on the
+    configured one, which is how a probe timeout arrives in practice."""
+
+    def __init__(self, conn: _EvalConnection) -> None:
+        super().__init__(conn.log, conn._rows)
+        self._conn = conn
+
+    def execute(self, sql: str, params: object = None) -> None:
+        super().execute(sql, params)
+        if "statement_timeout" in sql:
+            return
+        self._conn._query_count += 1
+        if self._conn._query_count == self._conn._raise_on_query:
+            raise psycopg.OperationalError("canceling statement due to timeout")
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Freeze _evaluate's wall clock so LAST_SUCCESS_TOO_OLD is deterministic."""
+    monkeypatch.setattr(cagg_freshness, "_now", lambda: _NOW)
+
+
+class TestEvaluateSignals:
+    """Task 5.3 — each D1 signal in isolation, the other three healthy."""
+
+    def test_healthy_cagg_is_fresh(self) -> None:
+        # Criterion 4: no false positive on a healthy cagg.
+        verdict = _evaluate(_EvalConnection(), _VIEW)  # type: ignore[arg-type]
+        assert verdict.is_fresh is True
+        assert verdict.signals == ()
+        assert verdict.lag == _RAW_EDGE - _CAGG_EDGE
+
+    def test_lag_exceeding_threshold_trips(self) -> None:
+        # Raw ran four days past the cagg edge — the 163 incident's lag shape.
+        verdict = _evaluate(  # type: ignore[arg-type]
+            _EvalConnection(cagg_max=_NOW - timedelta(days=4)), _VIEW
+        )
+        assert verdict.is_fresh is False
+        assert StalenessSignal.LAG_EXCEEDS_THRESHOLD in verdict.signals
+
+    def test_paused_policy_trips(self) -> None:
+        # The exact 163 incident: job 1003 left scheduled=false.
+        verdict = _evaluate(_EvalConnection(scheduled=False), _VIEW)  # type: ignore[arg-type]
+        assert verdict.is_fresh is False
+        assert StalenessSignal.NOT_SCHEDULED in verdict.signals
+
+    def test_stale_last_success_trips(self) -> None:
+        verdict = _evaluate(  # type: ignore[arg-type]
+            _EvalConnection(last_successful_finish=_NOW - timedelta(days=5)), _VIEW
+        )
+        assert verdict.is_fresh is False
+        assert StalenessSignal.LAST_SUCCESS_TOO_OLD in verdict.signals
+
+    def test_failing_last_run_trips(self) -> None:
+        # Scheduled and firing, but failing every time — a scheduled-only check
+        # reports this as healthy.
+        verdict = _evaluate(_EvalConnection(last_run_status="Failed"), _VIEW)  # type: ignore[arg-type]
+        assert verdict.is_fresh is False
+        assert StalenessSignal.LAST_RUN_FAILED in verdict.signals
+
+    def test_every_signal_that_fired_is_collected(self) -> None:
+        verdict = _evaluate(  # type: ignore[arg-type]
+            _EvalConnection(
+                scheduled=False,
+                last_run_status="Failed",
+                cagg_max=_NOW - timedelta(days=4),
+                last_successful_finish=_NOW - timedelta(days=5),
+            ),
+            _VIEW,
+        )
+        assert set(verdict.signals) == {
+            StalenessSignal.LAG_EXCEEDS_THRESHOLD,
+            StalenessSignal.NOT_SCHEDULED,
+            StalenessSignal.LAST_SUCCESS_TOO_OLD,
+            StalenessSignal.LAST_RUN_FAILED,
+        }
+
+
+class TestEvaluateIndeterminate:
+    """Task 5.2/5.3 — F001 indeterminate handling."""
+
+    def test_missing_job_row_trips(self) -> None:
+        # A cagg with no refresh policy never self-heals.
+        verdict = _evaluate(_EvalConnection(job_row=False), _VIEW)  # type: ignore[arg-type]
+        assert verdict.is_fresh is False
+        assert verdict.signals == (StalenessSignal.NO_JOB_ROW,)
+
+    def test_non_cagg_view_name_raises_valueerror(self) -> None:
+        # A caller bug must not be absorbed into a staleness refusal.
+        with pytest.raises(ValueError, match="not a known continuous aggregate"):
+            _evaluate(_EvalConnection(), "not_a_cagg")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("failing_query", [1, 2, 3])
+    def test_probe_error_trips_with_probe_failed(self, failing_query: int) -> None:
+        # Whichever of the three queries raises, the verdict is a refusal and
+        # the error never propagates into the reader's own error path.
+        verdict = _evaluate(  # type: ignore[arg-type]
+            _EvalConnection(raise_on_query=failing_query), _VIEW
+        )
+        assert verdict.is_fresh is False
+        assert verdict.signals == (StalenessSignal.PROBE_FAILED,)
+        assert verdict.lag is None
