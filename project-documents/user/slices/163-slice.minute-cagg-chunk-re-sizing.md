@@ -338,7 +338,7 @@ re-materialization sweep, compression enablement, and the verify/repair CLI).
 | 2 | Full parity every year/granularity, within lag bound | **met** | 23 of 24 years digit-for-digit exact per cagg; 2026 shortfall confined to the open window with closed-window delta `0` (R5) |
 | 3 | 4h single-symbol query ~2 s → sub-100 ms | **met** | ~5.2 s → **~95 ms**; plan nodes 12,721 → 238 |
 | 4 | All mat hypertables compressed; footprint recorded | **met** | 119/119 compressed per cagg; total **41 GB** (expected ~30–40 GB) |
-| 5 | Repair resumable | **met** | Killed 4h mid-sweep: no orphaned backend; re-run resumed at window 7 |
+| 5 | Repair resumable | **met** | Twice: deliberate 4h kill (resumed at window 7), and an *unplanned* 5m `statement_timeout` failure at window 103/119 — 102 windows survived, no orphaned backend, re-run resumed at 103 |
 | 6 | Jobs resumed with `last_run_status = 'Success'`; daemon uninterrupted | **partial** | All eight resumed and verified `scheduled = t`; daemon ran throughout. Next-scheduled-run status confirmation is next-trading-day work (D6) |
 | 7 | Cold start yields correct intervals + compression from migrations alone | **partial** | Assertions added to the cold-start integration test (mat interval, `compression_enabled`, columnstore policy count). Execution pending — the test was previously a false green, verifying only that caggs *existed* |
 | 8 | 162 coverage query returns complete results | **met** | 22,687,666 symbol-days / 11,625 symbols, `ColumnarScan` plan |
@@ -393,13 +393,38 @@ Environment notes that cost time if unknown:
    | 4h | 119 (113 rebuilt) | ~50 min | 119, compressed |
    | 1h | 119/119 | ~1h 22m | 119, compressed |
    | 15m | 119/119 | 3.36 h | 119, compressed |
-   | 5m | 119/119 | ~6 h | 119, compressed |
+   | 5m | 119/119 (over two runs — see below) | 4.27 h + resume | 119, compressed |
 
    Total minute-cagg footprint: **41 GB** (design expected ~30–40 GB).
 
-   Per-window cost scales with raw volume (4h: 17 s → 62 s; 1h: 59 s → 181 s). Any
-   ETA extrapolated from the early sparse years under-estimates by ~30%; scale the
-   whole curve.
+   Per-window cost scales with raw volume **and** bucket density
+   (4h: 17 s → 62 s; 1h: 59 s → 181 s; 5m: 44 s → 385 s+). Any ETA extrapolated from
+   the early sparse years under-estimates substantially; scale the whole curve.
+
+   **The 5m sweep hit our own `statement_timeout` at window 103/119** — a single
+   windowed `refresh_continuous_aggregate` exceeded the 300 s
+   `MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT` and the refresh `INSERT` was cancelled:
+
+   ```
+   Error: canceling statement due to statement timeout
+   CONTEXT: INSERT INTO _materialized_hypertable_3 SELECT * FROM _partial_view_3 ...
+   ```
+
+   Per-window cost had climbed 268.8 s → 287.5 s → 305.7 s as the sweep reached the
+   dense 2023 windows. 300 s had been sized from the 4h cagg (17–62 s/window) and
+   survived 1h (max 181 s) and 15m (max ~200 s) — the ceiling was never re-checked
+   against the finest granularity over the densest years. Raised to **1800 s**;
+   the very next window ran 385.1 s, so the sweep would have failed a second time
+   without the change.
+
+   **Recovery required no special handling** — the failure exercised three safety
+   properties at once: 102 completed windows survived, the backend-cancel-on-interrupt
+   path left **no orphaned backend**, and re-running skipped straight to window 103.
+   This is stronger evidence for criterion 5 than the deliberate D3 kill test, because
+   it was unplanned.
+
+   **Rule:** before a sweep, check the projected worst-case *single window* against
+   `statement_timeout`, not just the projected total against the clock.
 
 8. **Resume jobs; steady state.** All eight jobs back to `scheduled = t`.
 
