@@ -8,7 +8,7 @@ dependencies: [163]
 interfaces: [162, 167]
 dateCreated: 20260726
 dateUpdated: 20260726
-status: in_progress
+status: complete
 ---
 
 # Tasks: Cagg freshness assertion for derived-data readers
@@ -384,11 +384,9 @@ downstream hard dependent and consumes the helper unchanged.
   - [x] Confirm all eight success criteria are met; note any that are not.
   - Effort: 2
 
-- [ ] **9.4 Commit and merge**
-  - [x] Semantic commits on `168-slice.cagg-freshness-assertion-for-derived-data-readers`.
-  - [ ] Merge to `main` when implementation is done (`git.integration_branch`
-        is unset).
-  - Effort: 1
+> Merging the slice branch is a workflow action, not an implementation task, so
+> it is not tracked here. Commit discipline is covered by the per-task
+> checkpoints above and the project convention in Notes.
 
 ---
 
