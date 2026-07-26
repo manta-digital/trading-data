@@ -34,6 +34,19 @@ cycle above every minute policy's 1-day ``start_offset``, so it never fires on
 a healthy cagg.
 """
 
+CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT: str = "10s"
+"""PostgreSQL statement_timeout for the ``assert_cagg_fresh`` catalog read and
+the two ``max()`` edge probes (slice 168).
+
+Precedent: ``MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT``. A small multiple of the
+measured probe cost on prod (~0.19 s for the cagg edge, ~0.75 s for the raw
+edge). Both probes are bounded ``max(time)`` index scans, not expression
+aggregates over compressed chunks — this is not the query shape behind the
+2026-07-20 incident — but the timeout discipline applies regardless: on timeout
+the freshness check degrades to a refusal (``PROBE_FAILED``) rather than
+stalling the reader that called it.
+"""
+
 CAGG_FRESHNESS_CACHE_TTL: timedelta = timedelta(seconds=60)
 """TTL for the process-local ``assert_cagg_fresh`` verdict cache (slice 168 D6).
 
@@ -235,6 +248,27 @@ GRANULARITY_SOURCE: dict[Granularity, str] = {
     Granularity.MO1: "daily_monthly_ohlcv",
     Granularity.Q1: "daily_quarterly_ohlcv",
 }
+
+CAGG_BASE_GRANULARITY: dict[Granularity, Granularity] = {
+    Granularity.M1: Granularity.M1,
+    Granularity.M5: Granularity.M1,
+    Granularity.M15: Granularity.M1,
+    Granularity.H1: Granularity.M1,
+    Granularity.H4: Granularity.M1,
+    Granularity.D1: Granularity.D1,
+    Granularity.W1: Granularity.D1,
+    Granularity.MO1: Granularity.D1,
+    Granularity.Q1: Granularity.D1,
+}
+"""The raw hypertable each granularity derives from, as a granularity.
+
+The four minute caggs materialize from ``minute_ohlcv``; the three daily caggs
+from ``daily_ohlcv``. The two base granularities map to themselves, which is how
+callers distinguish "this is a cagg" from "this is the source" without parsing
+view names. Used with GRANULARITY_SOURCE to resolve a cagg view to the raw table
+its freshness is measured against (slice 168) — never infer this from a name
+prefix.
+"""
 
 MINUTE_OHLCV_TABLE: str = GRANULARITY_SOURCE[Granularity.M1]
 """The raw minute hypertable — the source of truth all four minute caggs derive
