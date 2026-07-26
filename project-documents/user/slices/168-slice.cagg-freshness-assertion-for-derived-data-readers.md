@@ -215,19 +215,134 @@ wiring, which is 167's own work using this helper.
    `CAGG_FRESHNESS_CACHE_TTL` and re-probes. Repeated calls across a
    full-universe read amortize to well under the sub-second consumer NFR.
 
-## Verification walkthrough (draft — refined at Phase 6)
+## Verification walkthrough (executed 2026-07-26)
 
-1. Stand up a throwaway DB via the cold-start path; confirm caggs and policies
-   exist.
-2. Baseline: run the coverage-index build; confirm it succeeds and seeds
-   normally.
-3. Induce staleness per criterion 1; confirm refusal, log content, and that no
-   gap rows were written.
-4. Trip each remaining signal in isolation (criterion 2).
-5. Remove the ceiling; confirm the daily-cagg regression test fails
-   (criterion 3).
-6. Restore; confirm the healthy path is unaffected (criterion 4).
-7. Record probe timings on prod against the measured envelope (criterion 5).
+Every step below was run at Phase 6 and its actual output recorded. Reproducible
+by an external agent with `MT_TIMESCALE_DB_URL` set.
+
+**Isolation note.** The draft said "throwaway DB". The shipped mechanism is the
+`test_rechunk_driver.py` precedent instead: a **scratch hypertable with its own
+cagg and its own refresh policy**, built and dropped per test against
+`MT_TIMESCALE_DB_URL`. There is no separate test URL in use, and criterion 1
+requires pausing a refresh policy — so the tests pause the *scratch* policy and
+never touch a production job. `assert_cagg_fresh` grew a keyword-only
+`source_table` seam for exactly this (production callers omit it and resolve
+through `GRANULARITY_SOURCE`).
+
+```bash
+export PGCONNECT_TIMEOUT=10
+export MT_TIMESCALE_DB_URL=$(grep MT_TIMESCALE_DB_URL .env | sed 's/^[^=]*=//' | tr -d '"')
+```
+
+`.env` values are double-quoted; without `tr -d '"'` psql silently falls back to
+the local socket.
+
+### 1-4, 6. Induced staleness, each signal, healthy path
+
+```bash
+uv run pytest test/integration/test_cagg_freshness.py -q
+```
+
+**Actual: `11 passed in 4.69s`.** Covers criterion 1 (pause the scratch policy,
+advance raw past `start_offset`, assert refusal), criterion 2 (each signal in
+isolation), criterion 4 (healthy scratch cagg passes), criterion 6 (minute-shaped
+and daily-shaped caggs through one unchanged signature), and 8.3a (an
+over-timeout probe returns a bounded `PROBE_FAILED` with no orphaned backend).
+
+Unit-level signal isolation and cache behavior:
+
+```bash
+uv run pytest test/unit/market/test_cagg_freshness.py -q     # 46 passed
+uv run pytest test/unit/data/gaps/test_minute_coverage.py -q # 15 passed
+```
+
+### 5. The ceiling regression actually fails when the ceiling is removed
+
+Replace `min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)` with `start_offset`
+in `_resolve_threshold`, then:
+
+```bash
+uv run pytest test/unit/market/test_cagg_freshness.py -q -k "270 or ceiling or min_of_offset"
+```
+
+**Actual: `5 failed, 3 passed`**, including
+`test_daily_cagg_stalled_100_days_is_stale_despite_270_day_offset`. Restore with
+`git checkout src/manta_trading/market/maintenance/cagg_freshness.py`;
+`46 passed` again.
+
+### 7. Probe cost and no false positives on production caggs
+
+```bash
+uv run python -c "
+import os, psycopg, time
+from manta_trading.market.maintenance.cagg_freshness import _evaluate
+views = ['minute_5min_ohlcv','minute_15min_ohlcv','minute_hourly_ohlcv','minute_4hour_ohlcv',
+         'daily_weekly_ohlcv','daily_monthly_ohlcv','daily_quarterly_ohlcv']
+with psycopg.connect(os.environ['MT_TIMESCALE_DB_URL'], autocommit=True) as conn:
+    for v in views:
+        t = time.monotonic(); verdict = _evaluate(conn, v); el = time.monotonic() - t
+        print(f'{v:26} fresh={verdict.is_fresh} lag={verdict.lag} thr={verdict.threshold} {el:.2f}s')
+"
+```
+
+**Actual (2026-07-26):**
+
+| cagg | fresh | lag | threshold | probe |
+|---|---|---|---|---|
+| `minute_5min_ohlcv` | True | 0:00:00 | 1d 0:05:00 | 0.95s |
+| `minute_15min_ohlcv` | True | 0:00:00 | 1d 0:15:00 | 0.48s |
+| `minute_hourly_ohlcv` | True | 0:00:00 | 1d 1:00:00 | 0.40s |
+| `minute_4hour_ohlcv` | True | 0:00:00 | 1d 4:00:00 | 0.37s |
+| `daily_weekly_ohlcv` | True | 0:00:00 | 8d | 2.14s |
+| `daily_monthly_ohlcv` | True | 31d | 31d | 1.14s |
+| `daily_quarterly_ohlcv` | True | 0:00:00 | 91d | 1.10s |
+
+All seven fresh — no false positive (criterion 4). Probe cost 0.37-2.14 s, within
+the ~1 s envelope for the minute caggs that this slice's only consumer reads
+(criterion 5); the daily caggs are slower but are read once per call by 167, not
+by the daemon.
+
+**Caveat for 167:** `daily_monthly_ohlcv` passes at lag 31d against a 31d
+threshold — zero margin. This is structural (its policy's `end_offset` is 30
+days, so the current month is deliberately unmaterialized), not a defect, but it
+is the one cagg where a genuine stall takes longest to surface via the lag
+signal. The other three signals still cover it.
+
+## Corrections discovered during implementation
+
+Four findings from the induced-staleness tests changed the design. All are code
+changes in this slice, and each is covered by a test that fails without the fix.
+
+1. **Bucket width must be cancelled, not budgeted for.** Comparing raw
+   `max(time)` to cagg `max(time_bucket)` reports the bucket width itself as
+   lag, because `time_bucket` is the bucket *start*. Measured on prod before the
+   fix: `daily_weekly` 4d, `daily_monthly` 42d, `daily_quarterly` 72d — all
+   healthy, all tripping the 1-day ceiling, which would have broken 167. The raw
+   edge is now bucketed to the cagg's own grid in SQL (`time_bucket(%s::interval,
+   max(time))`), so the structural offset cancels and D2's threshold stays
+   `min(start_offset, ceiling)` as designed. Bound as a parameter so
+   variable-width `1 mon` / `3 mons` buckets align via PostgreSQL rather than
+   Python interval arithmetic. `end_offset` **is** added to the threshold — that
+   is data a policy deliberately declines to materialize.
+2. **`SET LOCAL statement_timeout` is a no-op under autocommit.** Each statement
+   is its own transaction, so the setting is discarded before the next statement
+   runs. Verified on PG 17.7: `SET LOCAL` then `SHOW` returns `0`, and a
+   `pg_sleep(2)` under a 100 ms `SET LOCAL` runs to completion. Every probe was
+   therefore unbounded — the exact failure D3 exists to prevent, and invisible to
+   task 4.1a, which only asserted the statement was *issued*. Now plain `SET`,
+   restored to `DEFAULT` after probing. Test 8.3a pins the live behavior.
+3. **`last_successful_finish` is `-infinity` for a never-run policy**, which
+   psycopg cannot load into a `datetime` — it raises `DataError` mid-fetch, which
+   would surface as `PROBE_FAILED` and refuse reads on every freshly-created
+   cagg. Normalized to NULL in SQL.
+4. **A never-run policy is not stale.** A policy created moments ago on an
+   already-materialized cagg reports NULL `last_successful_finish` and NULL
+   `last_run_status` — the cold-start shape every new cagg passes through.
+   Signalling on it would refuse reads on healthy new caggs; the lag signal
+   covers actual currency without depending on job history. Conversely, an
+   **unmeasurable** edge now refuses rather than passing: an empty raw table
+   yields `PROBE_FAILED`, and a cagg with no rows against a populated raw table
+   yields `LAG_EXCEEDS_THRESHOLD` (maximal lag, not absent lag).
 
 ## Cross-slice dependencies and interfaces
 

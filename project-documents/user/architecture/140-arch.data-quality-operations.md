@@ -1068,6 +1068,40 @@ MAX_GAP_STALENESS     = 5 minutes   -- backtests trigger an
                                     -- prior gap-state write is older
                                     -- than this
 
+-- Cagg freshness assertion for derived-data readers (slice 168).
+MAX_COVERAGE_SOURCE_STALENESS = 1 day
+    -- Ceiling on how far a continuous aggregate may lag its raw source
+    -- before a reader refuses to trust it. REQUIRED, not belt-and-braces:
+    -- the staleness budget is min(start_offset, this) + end_offset, and
+    -- without the ceiling the daily caggs' 21/90/270-day start_offsets
+    -- would let a daily cagg stalled 100 days pass every
+    -- start_offset-relative check. One ceiling serves both the acquisition
+    -- path (build_minute_coverage_index) and 167's status path. Matches
+    -- MINUTE_STALENESS_THRESHOLD's convention and sits a full refresh cycle
+    -- above every minute policy's 1-day start_offset, so it never fires on
+    -- a healthy cagg.
+    --
+    -- Bucket width is NOT part of the budget. The raw edge is bucketed to
+    -- the cagg's own grid before comparison, so the structural offset
+    -- cancels exactly. Measured on prod 2026-07-26 before that fix, healthy
+    -- caggs read as 4d / 42d / 72d "behind" purely from bucket width.
+
+CAGG_FRESHNESS_CACHE_TTL = 60 seconds
+    -- TTL for the process-local assert_cagg_fresh verdict cache (D6). Two
+    -- orders of magnitude below MAX_COVERAGE_SOURCE_STALENESS, so a cached
+    -- verdict can never mask a lag the uncached check would catch. Stale
+    -- verdicts cache on the same terms as fresh ones — the cache never
+    -- converts a refusal into a pass. Not for maintenance decisions:
+    -- cagg_repair.preflight() stays uncached and always probes.
+
+CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT = 10s
+    -- statement_timeout for the freshness catalog read and the two max()
+    -- edge probes. A small multiple of measured cost (0.37-2.14 s/cagg on
+    -- prod). Plain SET, never SET LOCAL: under autocommit each statement is
+    -- its own transaction, so SET LOCAL is discarded and the timeout would
+    -- silently stay 0 (unlimited). On timeout the check degrades to a
+    -- refusal (PROBE_FAILED) rather than stalling the reader.
+
 EODHD_DAILY_QUOTA           = 100_000  -- credits/day rolling cap
 EODHD_PER_MINUTE_BURST      = 1_000    -- credits/min short-window ceiling
 EODHD_INTRADAY_CALL_COST    = 5        -- credits per /intraday call
