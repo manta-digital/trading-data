@@ -97,6 +97,35 @@ data_status AS
 
 A view, not a table. Always consistent with the underlying data.
 
+*(Architecture amendment, 2026-07-26 — slice 167.)* The three bar-coverage
+fields above — `first_bar_ts`, `last_bar_ts`, `bars_stored` — are **no longer
+computed from the data table**. As of slice 167 they derive from two
+continuous aggregates, `minute_coverage` (hierarchical, over
+`minute_4hour_ohlcv`) and `daily_coverage` (over raw `daily_ohlcv`). The
+per-symbol `MIN`/`MAX`/`COUNT` over 4.4B raw minute rows was the residual
+cost that kept the full-universe read at 7.8 s against a sub-second NFR; no
+chunk tuning removes a full per-symbol aggregate at that scale. Every other
+field — `bars_expected`, `gap_count`, `last_attempt_ts`,
+`last_attempt_outcome`, `health` — is unchanged, as is the output column
+contract.
+
+Two consequences amend the "always consistent" claim above:
+
+- **Consistency is bounded, not unconditional.** The view is consistent with
+  the underlying data only within a documented and asserted staleness bound
+  (the two-hop cagg refresh lag). Freshness is asserted in Python at the
+  guarded accessor `data/maintenance/status_coverage.py` via slice 168's
+  `assert_cagg_fresh`, not in SQL; a stale verdict is *reported* to the
+  operator rather than raised or silently presented as current. Every Python
+  reader of `data_status` must go through that accessor.
+- **Minute timestamps are bucket-truncated.** `first_bar_ts` / `last_bar_ts`
+  on the minute branch are truncated to their 4-hour bucket start, so they
+  may be up to 4 h earlier than the true first/last bar. The daily branch
+  reads raw `daily_ohlcv`, so daily timestamps remain exact. `bars_stored` is
+  exact on both branches. The CLI renders dates only, so the coarsening is
+  not user-visible there; slice 182's API, at full precision, must decide how
+  to present it.
+
 #### Performance pattern
 
 Naive per-row computation of `most_recent_completed_session_close_utc(exchange)`

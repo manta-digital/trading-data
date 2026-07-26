@@ -7,7 +7,7 @@ dependencies: [166, 163, 168]
 interfaces: [147, 182]
 dateCreated: 20260720
 dateUpdated: 20260726
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: Cagg-backed `data_status` bars summary — reach the sub-second NFR
@@ -270,10 +270,22 @@ Four independent signals, OR'd (none is sufficient alone), from one catalog read
 
 **Threshold is `min(start_offset, <absolute ceiling this consumer requires>)` — not
 `start_offset` alone.** `start_offset` is set for refresh efficiency, not consumer
-tolerance, and the two diverge badly: `bars_summary` also reads the **daily** caggs,
-whose offsets run to 21/90/**270** days. A daily cagg stalled three months passes any
-`start_offset`-relative check. This false negative was found by simulating the
+tolerance, and the two diverge badly. The divergence is structural here, not incidental:
+per D4 both coverage caggs are **hierarchical or wide-bucketed**, so their
+`start_offset` must be deliberately generous — wide enough to re-materialize
+recently-changed parent buckets, since a trailing-1-day offset is precisely what caused
+the prerequisite corruption. `daily_coverage`'s own `start_offset` (chosen in task 2.2)
+is therefore far looser than any tolerance an operator reading `data_status` would
+accept. A coverage cagg stalled for weeks still passes an `start_offset`-relative check
+while reporting stale coverage as fact. This false negative was found by simulating the
 detector before writing it.
+
+*(Correction, 2026-07-26 — review F004.)* An earlier draft of this paragraph cited
+"the daily caggs, whose offsets run to 21/90/**270** days" as the example. That
+misattributed the hazard: per D1 the daily branch reads the new `daily_coverage` cagg,
+not `daily_weekly`/`daily_monthly`/`daily_quarterly`, so those offsets are not on this
+read path. The conclusion is unchanged and independently codified as
+`MAX_COVERAGE_SOURCE_STALENESS`.
 
 **Cost is not a concern** (measured on prod 2026-07-25): ~0.19 s for the cagg
 leading-edge probe, ~0.75 s for the raw probe, both planning-dominated — negligible
@@ -318,6 +330,40 @@ realistic-scale fixture (or a gated prod-shaped tier), so the NFR has
 regression coverage. Functional equivalence (output identical to raw-scan
 modulo the documented lag bound) is covered by integration tests, not the load
 tier.
+
+### D6 — Guard placement: a single guarded accessor (PM ruling, 2026-07-26)
+
+*(Resolves design-review F002, which found "the guard lives in `bars_summary`"
+under-specified.)* `assert_cagg_fresh` is a Python helper; `bars_summary` is a SQL
+CTE inside a view definition, so the guard cannot literally live "in" it. Placing
+the call at each read site instead would make D3a aspirational — the next reader
+added (notably slice 182's serving API) silently becomes an unguarded consumer,
+which is exactly what this slice promises not to ship.
+
+**Decision:** a new module `data/maintenance/status_coverage.py` is the **single
+guarded door** to `data_status`. It asserts freshness on both coverage caggs, then
+returns rows **plus** the verdicts so callers can surface staleness; it neither
+swallows a stale verdict nor raises, per D3a's report-don't-skip behavior. Both
+existing readers — `status_queries.py` and `migrate_cold_start.py` — are migrated
+onto it **in this slice**, and the constraint is made enforceable rather than
+documented: no `FROM data_status` may remain outside that module, proven by grep.
+Slice 182 is contractually required to use it (see Cross-slice dependencies).
+
+### D7 — Equivalence is date-normalized, not literal (PM ruling, 2026-07-26)
+
+*(Resolves design-review F003, which found criterion 2's "identical" in direct
+contradiction with D3's documented bucket truncation.)* Minute-side bucket
+truncation is a **permanent** delta across all history, not a trailing-edge
+effect, so a literal row-by-row equality assertion would fail on every symbol —
+the criterion as originally written was unsatisfiable.
+
+**Decision:** equivalence means date-normalized timestamps equal, `bars_stored`
+**exactly** equal, and raw−cagg timestamp delta < 4 h on the minute branch. The
+daily branch reads raw `daily_ohlcv`, so its timestamps must match **exactly** —
+asserted separately, or a real daily regression would hide inside the minute-side
+tolerance. This tests the actual user-visible contract, since the CLI renders
+date-only (`_fmt_date`, `%Y-%m-%d`). Criterion 2 is restated accordingly, and the
+equivalence test carries a comment stating why literal equality is *not* used.
 
 ## Data flow
 
@@ -376,29 +422,46 @@ raw daily_ohlcv ──▶ daily_coverage             │
 - **Interfaces [147]** — `mt data status` reads `data_status`; contract
   preserved.
 - **Interfaces [182]** — serving API's available-ranges / status surfaces read
-  the same view; contract preserved.
+  the same view; contract preserved. **Contractually required (D6):** 182 must
+  read through `data/maintenance/status_coverage.py`, not `FROM data_status`
+  directly, so the freshness guard is not bypassed. Note also that the API may
+  expose timestamps at full precision, where the up-to-4 h minute-side
+  coarsening (D3/D7) becomes visible — unlike the CLI's date-only rendering.
+  How to present that is 182's decision; 167 only documents it.
 
 ## Success criteria
 
 1. Full-universe `data_status` read is **sub-second** on prod `trading` DB.
-2. `data_status` output is **identical** to the current raw-scan version for
-   all settled history, and differs only within the documented cagg-lag bound
-   for the trailing edge.
+2. Output is **equivalent** to the raw-scan version under the date-normalized
+   definition (review F003, ruled below): for settled history,
+   `date(first_bar_ts)` and `date(last_bar_ts)` equal, `bars_stored` **exactly**
+   equal, minute-side timestamp delta < 4 h, daily-side timestamps exact; the
+   trailing edge differs only within the documented cagg-lag bound.
 3. `mt data status` output shape (columns, formatting) is **unchanged**.
 4. The view carries a doc comment stating the bucket-truncation and cagg-lag
    bounds and the chosen refresh intervals (D3).
 5. Cold-start applies the new migrations cleanly and yields a sub-second view
    on a freshly-built DB.
-6. A load test asserts full-universe read latency < 1 s and is CI-gated (D5).
-7. **`assert_cagg_fresh` exists, is called by `bars_summary`, and is proven to
-   fire** (D3a). Verified by *inducing* staleness, not by reading code: pause a
-   coverage cagg's refresh policy on a throwaway DB, advance raw past the
-   threshold, and confirm the read reports stale coverage rather than presenting
-   it as current. Each of the four signals is unit-tested independently —
-   including the case a naive implementation misses: a cagg whose policy has a
-   loose `start_offset` (21/90/270 d on the daily side) but which is stalled far
-   beyond what this consumer tolerates. A test that only asserts the helper is
-   *called* does not satisfy this criterion.
+6. A load test asserts full-universe read latency < 1 s, gated on
+   `MT_RUN_LOAD_TESTS=1` per the existing `test/load/` convention, and is
+   runnable via the documented invocation
+   (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`). **This repo has no CI**
+   (review F002 — `.github/workflows` does not exist); standing one up is out of
+   scope for 167 and filed as **slice 907** (CI Pipeline and Load-Test Gating),
+   which will also retire slice 146's stale "CI must enable" docstrings. This
+   criterion is met by the documented manual invocation, stated honestly rather
+   than claimed as automated (PM, 2026-07-26).
+7. **`assert_cagg_fresh` is called on the coverage caggs via the guarded
+   accessor, and is proven to fire** (D3a). Verified by *inducing* staleness,
+   not by reading code: pause a coverage cagg's refresh policy on a throwaway
+   DB, advance raw past the threshold, and confirm the read reports stale
+   coverage rather than presenting it as current. Each of the four signals is
+   covered independently — including the case a naive implementation misses: a
+   coverage cagg whose policy carries a deliberately loose `start_offset` (per
+   D4) but which is stalled far beyond what this consumer tolerates. A test that
+   only asserts the helper is *called* does not satisfy this criterion.
+8. Every Python reader of `data_status` goes through `status_coverage`; no
+   second unguarded consumer ships (review F002).
 
 ## Verification walkthrough (draft — refined at Phase 6)
 
