@@ -461,21 +461,21 @@ ship a second unguarded cagg consumer.
 
 ## 10. Close-out
 
-- [ ] **10.1** Full test suite per-subpackage (whole-`test/` collection is broken
+- [x] **10.1** Full test suite per-subpackage (whole-`test/` collection is broken
       by a missing `__init__.py`). Baseline on `main` is 2 pre-existing failures
       (`test_daily.py`, `test_outcomes.py`) + 12 live-DB errors
       (`test_equity_universe.py`) — this slice must not add to it. Effort: 1/5
-- [ ] **10.2** `ruff` clean on touched files only — never lint
+- [x] **10.2** `ruff` clean on touched files only — never lint
       `test/integration/` wholesale (~865 pre-existing errors). Effort: 1/5
-- [ ] **10.3** CHANGELOG entry. Effort: 1/5
-- [ ] **10.4** Update the 140 arch Constants section with the new coverage
+- [x] **10.3** CHANGELOG entry. Effort: 1/5
+- [x] **10.4** Update the 140 arch Constants section with the new coverage
       constants (matching how 168 amended it). Effort: 1/5
-- [ ] **10.5** Record verification results (timings, row counts, induced-staleness
+- [x] **10.5** Record verification results (timings, row counts, induced-staleness
       outcome) in the slice design; set `status: complete`. Effort: 1/5
-- [ ] **10.6** Check the slice's plan entry in
+- [x] **10.6** Check the slice's plan entry in
       `140-slices.data-quality-operations.md`. Effort: 1/5
 
-- [ ] **Commit**: `docs: mark slice 167 complete`
+- [x] **Commit**: `docs: mark slice 167 complete`
 
 > **Commit per task, not batched at the end** (project convention; 168
 > precedent). The `**Commit**` checkpoints above are the intended granularity —
