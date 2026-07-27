@@ -564,3 +564,23 @@ raw daily_ohlcv ──▶ daily_coverage             │
 6. **Lag bound honesty:** fetch new bars for a symbol, immediately read
    `data_status`, confirm coverage understates by at most the documented bound
    and converges after the next refresh tick.
+
+## Verification record (Phase 6, in progress)
+
+- **Criterion 6 / section 8 (2026-07-27):**
+  `test/load/test_167_data_status_nfr.py` added. Gate:
+  `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/` with `MT_TIMESCALE_TEST_URL`
+  exported — the manual invocation that satisfies criterion 6 until slice 907
+  wires CI. Fixture is prod-shaped per 8.1.2: 12,000 symbols (prod universe is
+  11,625) × 10 year-buckets, so each coverage cagg materializes ~120k rows —
+  the row count that drives the view's read cost; `data_gaps`/attempt tables
+  left empty (never the slow term). Measured on the throwaway DB: **median
+  0.744 s** over 3 runs (0.742/0.795/0.744) for the full-universe guarded
+  read — 24,000 rows through `fetch_status_rows_with_freshness` with the
+  freshness cache reset before each run, so the guard probe is inside every
+  measured sample (8.1.3). Prod remains faster (~200 ms over 11,625 symbols,
+  measured 2026-07-24). Mutation-checked: lowering the threshold fails the
+  test with the samples printed; a planted `MT_TIMESCALE_DB_URL` env read in
+  `test/load/` fails the 8.2 enforcement test. The load tier reads only
+  `MT_TIMESCALE_TEST_URL` and an ephemeral database (8.2); `ephemeral_db`
+  moved to `test/conftest.py` so both integration and load tiers share it.
