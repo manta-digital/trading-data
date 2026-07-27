@@ -210,140 +210,140 @@ ship a second unguarded cagg consumer.
 
 ## 4. View rewrite — cagg-backed `bars_summary`
 
-- [ ] **4.1** Extend `_build_data_status_view_sql` with a cagg-backed variant.
+- [x] **4.1** Extend `_build_data_status_view_sql` with a cagg-backed variant.
       Effort: 3/5
-  - [ ] 4.1.1 Add a flag (e.g. `cagg_backed_bars_summary: bool = False`) rather
+  - [x] 4.1.1 Add a flag (e.g. `cagg_backed_bars_summary: bool = False`) rather
         than duplicating the SQL string — the builder already carries
         `include_daily_branch` / `include_trading_sessions_cte` this way.
-  - [ ] 4.1.2 Minute branch: `SELECT 'minute', symbol, MIN(first_bucket),
+  - [x] 4.1.2 Minute branch: `SELECT 'minute', symbol, MIN(first_bucket),
         MAX(last_bucket), SUM(bars) FROM minute_coverage GROUP BY symbol`.
-  - [ ] 4.1.3 Daily branch: analogous over `daily_coverage`.
-  - [ ] 4.1.4 **Everything else verbatim** — `symbols_x_granularity`,
+  - [x] 4.1.3 Daily branch: analogous over `daily_coverage`.
+  - [x] 4.1.4 **Everything else verbatim** — `symbols_x_granularity`,
         `gap_counts`, `exchange_completed_close`, the `health` CASE, all joins,
         all output columns in the same order. The doubled-quote (`''`) escaping
         convention of the existing builder must be preserved.
-  - [ ] 4.1.5 Add module-level rendered constants for the new variant alongside
+  - [x] 4.1.5 Add module-level rendered constants for the new variant alongside
         `_DATA_STATUS_VIEW_WITH_DAILY_TS` etc.
-  - [ ] 4.1.6 Success: generated SQL differs from the current variant **only**
+  - [x] 4.1.6 Success: generated SQL differs from the current variant **only**
         inside the `bars_summary` CTE (diff the two strings to prove it).
-- [ ] **4.2** Unit-test the builder. Effort: 2/5
-  - [ ] 4.2.1 Assert the cagg-backed variant references `minute_coverage` /
+- [x] **4.2** Unit-test the builder. Effort: 2/5
+  - [x] 4.2.1 Assert the cagg-backed variant references `minute_coverage` /
         `daily_coverage` and does **not** reference `minute_ohlcv` /
         `daily_ohlcv` in its `bars_summary`.
-  - [ ] 4.2.2 Assert the output column list and order are byte-identical between
+  - [x] 4.2.2 Assert the output column list and order are byte-identical between
         raw and cagg-backed variants (the D2 contract, mechanically pinned).
-  - [ ] 4.2.3 Assert the non-`bars_summary` CTEs are unchanged.
-  - [ ] 4.2.4 Assert view names come from constants, not literals.
-- [ ] **4.3** Add migration `048_data_status_cagg_backed`. Effort: 2/5
-  - [ ] 4.3.1 `CREATE OR REPLACE VIEW data_status` with the new variant.
-  - [ ] 4.3.2 Re-use the migration-021 `to_regclass` DO-block branching so
+  - [x] 4.2.3 Assert the non-`bars_summary` CTEs are unchanged.
+  - [x] 4.2.4 Assert view names come from constants, not literals.
+- [x] **4.3** Add migration `048_data_status_cagg_backed`. Effort: 2/5
+  - [x] 4.3.1 `CREATE OR REPLACE VIEW data_status` with the new variant.
+  - [x] 4.3.2 Re-use the migration-021 `to_regclass` DO-block branching so
         cold-start and existing DBs converge on the same definition.
-  - [ ] 4.3.3 Add the D3 doc comment via `COMMENT ON VIEW data_status`: bucket
+  - [x] 4.3.3 Add the D3 doc comment via `COMMENT ON VIEW data_status`: bucket
         truncation (minute timestamps truncated to 4 h bucket start; daily exact),
         the two-hop cagg-lag bound with the **chosen numeric intervals** from 2.2,
         and that freshness is asserted at the accessor, not in SQL (criterion 4).
-  - [ ] 4.3.4 Success: `COMMENT ON VIEW` is retrievable via `obj_description`.
-- [ ] **4.4** Integration-test the view doc comment (criterion 4). Effort: 1/5
-  - [ ] 4.4.1 After applying 048 on a scratch DB, read the comment via
+  - [x] 4.3.4 Success: `COMMENT ON VIEW` is retrievable via `obj_description`.
+- [x] **4.4** Integration-test the view doc comment (criterion 4). Effort: 1/5
+  - [x] 4.4.1 After applying 048 on a scratch DB, read the comment via
         `obj_description('data_status'::regclass)`.
-  - [ ] 4.4.2 Assert it is non-empty and mentions **both** documented bounds —
+  - [x] 4.4.2 Assert it is non-empty and mentions **both** documented bounds —
         bucket truncation and cagg lag — and the chosen refresh intervals from
         2.2. Criterion 4 is otherwise unverifiable; section 7 tests
         `bars_summary` output, not comment content.
-  - [ ] 4.4.3 Assert against the 2.2 constants, not hard-coded interval literals.
+  - [x] 4.4.3 Assert against the 2.2 constants, not hard-coded interval literals.
 
-- [ ] **Commit**: `feat(schema): back data_status bars_summary with coverage caggs`
+- [x] **Commit**: `feat(schema): back data_status bars_summary with coverage caggs`
 
 ---
 
 ## 5. Guarded accessor — the single door to `data_status` (review F002)
 
-- [ ] **5.1** Create `data/maintenance/status_coverage.py`. Effort: 3/5
-  - [ ] 5.1.1 Public accessor(s) wrapping reads of `data_status`; every Python
+- [x] **5.1** Create `data/maintenance/status_coverage.py`. Effort: 3/5
+  - [x] 5.1.1 Public accessor(s) wrapping reads of `data_status`; every Python
         reader goes through this module.
-  - [ ] 5.1.2 Call `assert_cagg_fresh(conn, MINUTE_COVERAGE_VIEW)` and
+  - [x] 5.1.2 Call `assert_cagg_fresh(conn, MINUTE_COVERAGE_VIEW)` and
         `assert_cagg_fresh(conn, DAILY_COVERAGE_VIEW)` before returning rows.
         **Consume 168's helper unchanged** — do not reimplement, do not copy its
         signal logic.
-  - [ ] 5.1.3 Return the rows **plus** the freshness verdicts, so callers can
+  - [x] 5.1.3 Return the rows **plus** the freshness verdicts, so callers can
         surface staleness. Do not swallow a stale verdict and do not raise —
         `data_status` is operator-facing, so it **reports** (D3a on-trip
         behavior), unlike the daemon's coverage index which skips work.
-  - [ ] 5.1.4 On trip, log at ERROR naming the cagg, measured lag, and which
+  - [x] 5.1.4 On trip, log at ERROR naming the cagg, measured lag, and which
         signals fired (D3a).
-  - [ ] 5.1.5 Threshold is `min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)` —
+  - [x] 5.1.5 Threshold is `min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)` —
         supplied by 168's helper; verify this slice passes whatever ceiling
         argument the helper expects rather than re-deriving it.
-  - [ ] 5.1.6 **Do not auto-remediate.** No `refresh_continuous_aggregate` in a
+  - [x] 5.1.6 **Do not auto-remediate.** No `refresh_continuous_aggregate` in a
         read path; catch-up stays with runbook R2.
-  - [ ] 5.1.7 Success: 168's TTL verdict cache keeps repeat reads inside the NFR;
+  - [x] 5.1.7 Success: 168's TTL verdict cache keeps repeat reads inside the NFR;
         no amortization scheme is added here.
-- [ ] **5.2** Unit-test the accessor. Effort: 3/5
-  - [ ] 5.2.1 Fresh verdict → rows returned, no ERROR log.
-  - [ ] 5.2.2 Each of the four D3a signals independently produces a stale verdict
+- [x] **5.2** Unit-test the accessor. Effort: 3/5
+  - [x] 5.2.1 Fresh verdict → rows returned, no ERROR log.
+  - [x] 5.2.2 Each of the four D3a signals independently produces a stale verdict
         that reaches the caller (fake/stub the helper; the signals themselves are
         168's tests — here assert **propagation**, not re-derivation).
-  - [ ] 5.2.3 Explicitly cover the case a naive implementation misses: a cagg with
+  - [x] 5.2.3 Explicitly cover the case a naive implementation misses: a cagg with
         a loose `start_offset` that is stalled far beyond this consumer's ceiling
         must still trip (criterion 7).
-  - [ ] 5.2.4 Stale verdict → rows still returned **and** marked stale; assert it
+  - [x] 5.2.4 Stale verdict → rows still returned **and** marked stale; assert it
         is never silently presented as current.
-  - [ ] 5.2.5 Assert no `refresh_continuous_aggregate` is issued on any path.
+  - [x] 5.2.5 Assert no `refresh_continuous_aggregate` is issued on any path.
 
-- [ ] **Commit**: `feat(maintenance): add freshness-guarded data_status accessor`
+- [x] **Commit**: `feat(maintenance): add freshness-guarded data_status accessor`
 
-- [ ] **5.3** Migrate `status_queries.py` onto the accessor. Effort: 2/5
-  - [ ] 5.3.1 `fetch_status_rows` and `fetch_all_health_counts` read via
+- [x] **5.3** Migrate `status_queries.py` onto the accessor. Effort: 2/5
+  - [x] 5.3.1 `fetch_status_rows` and `fetch_all_health_counts` read via
         `status_coverage`, not direct `FROM data_status` SQL.
-  - [ ] 5.3.2 Preserve the existing filter behavior (symbol / health /
+  - [x] 5.3.2 Preserve the existing filter behavior (symbol / health /
         granularity as AND conditions, single parameterized query) and the
         `StatusRow`/`GapRow` row-factory contract — no manual column indexing.
-  - [ ] 5.3.3 Success: no `FROM data_status` string remains outside
+  - [x] 5.3.3 Success: no `FROM data_status` string remains outside
         `status_coverage.py`; grep proves it.
-- [ ] **5.4** Migrate `migrate_cold_start.py` verification onto the accessor.
+- [x] **5.4** Migrate `migrate_cold_start.py` verification onto the accessor.
       Effort: 1/5
-  - [ ] 5.4.1 Replace the direct `SELECT COUNT(*) FROM data_status` at
+  - [x] 5.4.1 Replace the direct `SELECT COUNT(*) FROM data_status` at
         [migrate_cold_start.py:300](src/manta_trading/data/quality/migrate_cold_start.py#L300).
-  - [ ] 5.4.2 Cold-start runs against a freshly-built DB where coverage caggs are
+  - [x] 5.4.2 Cold-start runs against a freshly-built DB where coverage caggs are
         legitimately empty/never-refreshed — confirm 168's cold-start semantics
         (never-run ≠ stale) make this pass, and test it. This is the most likely
         false-positive site in the slice.
-  - [ ] 5.4.3 Leave the `EXPLAIN` plan capture intact.
-- [ ] **5.5** Test the migrated consumers. Effort: 2/5
-  - [ ] 5.5.1 `status_queries` tests pass unchanged in behavior (filters, shape).
-  - [ ] 5.5.2 Cold-start verification passes on an empty-cagg DB without a false
+  - [x] 5.4.3 Leave the `EXPLAIN` plan capture intact.
+- [x] **5.5** Test the migrated consumers. Effort: 2/5
+  - [x] 5.5.1 `status_queries` tests pass unchanged in behavior (filters, shape).
+  - [x] 5.5.2 Cold-start verification passes on an empty-cagg DB without a false
         stale report.
-- [ ] **5.6** Record the slice-182 contract. Effort: 1/5
-  - [ ] 5.6.1 State in the 167 design (and the accessor's module docstring) that
+- [x] **5.6** Record the slice-182 contract. Effort: 1/5
+  - [x] 5.6.1 State in the 167 design (and the accessor's module docstring) that
         **any** reader of `data_status` — including 182's serving API — must go
         through `status_coverage`, and why (F002; no second unguarded consumer).
-  - [ ] 5.6.2 Note for 182: the API may expose timestamps at full precision,
+  - [x] 5.6.2 Note for 182: the API may expose timestamps at full precision,
         where the up-to-4 h minute-side coarsening is visible, unlike the CLI's
         date-only rendering. 182 must decide how to present that; 167 only
         documents it.
 
-- [ ] **Commit**: `refactor(maintenance): route all data_status readers through guarded accessor`
+- [x] **Commit**: `refactor(maintenance): route all data_status readers through guarded accessor`
 
 ---
 
 ## 6. Staleness surfacing in `mt data status`
 
-- [ ] **6.1** Surface a stale-coverage indicator in the CLI. Effort: 2/5
-  - [ ] 6.1.1 Render an operator-visible indicator when a verdict is stale,
+- [x] **6.1** Surface a stale-coverage indicator in the CLI. Effort: 2/5
+  - [x] 6.1.1 Render an operator-visible indicator when a verdict is stale,
         naming the cagg and measured lag.
-  - [ ] 6.1.2 **Must not change the column contract** (D2 / criterion 3) — no new
+  - [x] 6.1.2 **Must not change the column contract** (D2 / criterion 3) — no new
         column in the table. Use a footer/banner alongside the existing health
         counts.
-  - [ ] 6.1.3 Honor `--json`: the staleness signal must be machine-readable
+  - [x] 6.1.3 Honor `--json`: the staleness signal must be machine-readable
         there, as a sibling of the rows, not injected into row objects.
-  - [ ] 6.1.4 Health classification is untouched — nothing in `gap_count` /
+  - [x] 6.1.4 Health classification is untouched — nothing in `gap_count` /
         `has_retry_exhausted` / `last_attempt_ts` logic reads `bars_summary`.
-- [ ] **6.2** Test the surfacing. Effort: 2/5
-  - [ ] 6.2.1 Fresh → no indicator; table output byte-identical to pre-slice.
-  - [ ] 6.2.2 Stale → indicator present in both table and `--json`.
-  - [ ] 6.2.3 Column layout unchanged in both cases (criterion 3).
+- [x] **6.2** Test the surfacing. Effort: 2/5
+  - [x] 6.2.1 Fresh → no indicator; table output byte-identical to pre-slice.
+  - [x] 6.2.2 Stale → indicator present in both table and `--json`.
+  - [x] 6.2.3 Column layout unchanged in both cases (criterion 3).
 
-- [ ] **Commit**: `feat(cli): surface stale coverage indicator in mt data status`
+- [x] **Commit**: `feat(cli): surface stale coverage indicator in mt data status`
 
 ---
 
