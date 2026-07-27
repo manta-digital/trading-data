@@ -5,7 +5,7 @@ parent: user/slices/163-slice.minute-cagg-chunk-re-sizing.md
 relatedSlices: [162, 163, 166, 167]
 host: <db_host>
 dateCreated: 20260725
-dateUpdated: 20260725
+dateUpdated: 20260726
 status: ready
 ---
 
@@ -76,6 +76,39 @@ SELECT alter_job(<columnstore_job_id>, scheduled => true);
 
 CALL refresh_continuous_aggregate('<cagg_view>', '<pause_start - 1d>', '<now + 1d>');
 ```
+
+#### R2a — Coverage caggs (`minute_coverage`, `daily_coverage`): the template above FAILS
+
+The slice-167 coverage caggs use **365-day buckets**, and TimescaleDB rejects any manual
+refresh whose window spans less than two bucket widths (measured on 2.21.3: 730 days
+rejected, 731 accepted — same rule that forced the 750-day policy `start_offset`).
+The pause-window template above is therefore guaranteed to fail on them with
+`refresh window too small`. Calendar-aligned windows do **not** satisfy the rule either.
+
+Use NULL bounds instead — a full refresh of these caggs is cheap (~40 s measured on prod
+for the complete 22-year history at creation; incremental re-refresh is faster):
+
+```sql
+CALL refresh_continuous_aggregate('minute_coverage', NULL, NULL);
+CALL refresh_continuous_aggregate('daily_coverage',  NULL, NULL);
+```
+
+**Order matters for `minute_coverage`.** It is hierarchical over `minute_4hour_ohlcv`;
+refreshing the child alone rolls up whatever the parent currently holds (measured: with
+an unmaterialized parent it yields **0 bars**, silently). If the 4h cagg itself may be
+behind — which it is after any pause this runbook covers — refresh it first:
+
+```sql
+CALL refresh_continuous_aggregate('minute_4hour_ohlcv', '<pause_start - 1d>', '<now + 1d>');
+CALL refresh_continuous_aggregate('minute_coverage', NULL, NULL);
+```
+
+`daily_coverage` reads raw `daily_ohlcv` directly; it has no parent-order concern.
+
+Note: the coverage caggs are **not** addressable via `mt data caggs refresh` (its
+granularity tokens cover only the 163-era caggs) — use psql as above. `mt data caggs
+verify` does list them (policy state, last run), though its `lag` column is blank for
+them; the `mt data status` stale-coverage banner reports their lag directly.
 
 ### R3 — Verify the coverage hole is actually closed
 

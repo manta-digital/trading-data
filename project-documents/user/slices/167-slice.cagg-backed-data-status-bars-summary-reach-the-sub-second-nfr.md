@@ -497,6 +497,21 @@ raw daily_ohlcv ──▶ daily_coverage             │
   coarsening (D3/D7) becomes visible — unlike the CLI's date-only rendering.
   How to present that is 182's decision; 167 only documents it.
 
+## Follow-ups filed during implementation (2026-07-26)
+
+- **`mt data caggs refresh` cannot target the coverage caggs.** Its
+  `_ALL_CAGG_VIEWS` token list covers only the 163-era caggs. Not a defect in
+  this slice's surface — the documented remediation for stale coverage is psql
+  per runbook R2 (now amended with R2a for the wide-bucket window rule and
+  parent-before-child order) — but if the coverage caggs are ever added to that
+  command, the token/window design must account for: (a) the 2-bucket minimum
+  manual-refresh window (731 d), which makes the command's `--start`/`--end`
+  semantics fail on them; (b) refresh order derived from the cagg hierarchy
+  (`minute_4hour_ohlcv` before `minute_coverage`), not list position.
+  Relatedly, `mt data caggs verify` lists them but shows a blank `lag` column
+  (no `_CAGG_SOURCE_TABLE` entry); the `mt data status` banner reports their
+  lag, so detection is not blocked.
+
 ## Success criteria
 
 1. Full-universe `data_status` read is **sub-second** on prod `trading` DB.
