@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [166, 163, 168]
 interfaces: [147, 182]
 dateCreated: 20260720
-dateUpdated: 20260726
-status: in_progress
+dateUpdated: 20260727
+status: complete
 ---
 
 # Slice Design: Cagg-backed `data_status` bars summary — reach the sub-second NFR
@@ -584,7 +584,7 @@ Filed during section-9 verification (2026-07-27):
    `data_status`, confirm coverage understates by at most the documented bound
    and converges after the next refresh tick.
 
-## Verification record (Phase 6, in progress)
+## Verification record (Phase 6, complete)
 
 - **Criterion 6 / section 8 (2026-07-27):**
   `test/load/test_167_data_status_nfr.py` added. Gate:
@@ -629,3 +629,42 @@ Filed during section-9 verification (2026-07-27):
   stale; empty-registry cold start returns 0 rows without error
   (`test_cold_start.py`); cold-built 12k-symbol DB reads sub-second
   (section 8).
+
+- **Section 10 close-out (2026-07-27):** suite run per-tier (whole-`test/`
+  collection is still broken by a missing `__init__.py`). Unit:
+  1,520 passed, 3 failed, 35 errors — all pre-existing and none introduced
+  here. The 3 failures are `test_daily.py` + `test_outcomes.py` (the
+  documented `main` baseline) and `test_cli_data.py`, whose "`minute` must
+  not appear in `data --help`" assertion has been stale since slice 166
+  added `mt data rechunk` (verified: the help string is present on `main`).
+  The 35 errors are the three live-DB/DNS files (`test_equity_universe.py`,
+  `test_data_universes.py`, `test_tracking.py`), all failing to resolve the
+  `<db-host>` placeholder. Integration: 30 passed, 6 failed — news/lists
+  tests with no intersection with this slice's diff; `test_cli_lists.py`
+  expects a `priority1` list absent from the untouched
+  `config/symbol-lists.yaml`. All 24 `ephemeral_db` consumers pass, so the
+  `test/conftest.py` move is regression-free. Performance tier: 6 skipped
+  (gated).
+
+  Two **real defects** were found and fixed rather than deferred:
+  1. `test_cagg_freshness.py` froze the wall clock by monkeypatching
+     `cagg_freshness._now`, but `_evaluate` binds `_now` as a **default
+     argument value at import time**, so the patch rebound the module
+     attribute without touching the captured default. The freeze was a
+     silent no-op; `LAST_SUCCESS_TOO_OLD` evaluated against the real clock
+     and began firing spuriously once the fixture's `_NOW` (2026-07-26)
+     aged past the 1-day threshold — i.e. the suite broke at midnight, on a
+     file this slice does not otherwise touch. Fixed by passing the clock
+     explicitly through a `_frozen_evaluate` helper; mutation-verified by
+     moving `_NOW` to 2020, after which all 49 still pass.
+  2. `test_schema_migrations.py::test_migration_count` still asserted 48;
+     this slice adds `046`–`049`. Updated to 52.
+
+  `ruff` on the slice's touched files is at or below the `main` baseline
+  for every file: `minute.py` 23 (two E501s introduced in the migration-048
+  view doc comment were rewrapped away; rendered SQL text unchanged, all 19
+  view-SQL tests pass), `status_table.py` 2 (was 3), `test_status_table.py`
+  3, `test/integration/conftest.py` 6 — all pre-existing. New files
+  (`test/conftest.py`, the load test) and the edited
+  `test_cagg_freshness.py` are clean. `data.py`'s 95 findings remain owned
+  by slice 905.
