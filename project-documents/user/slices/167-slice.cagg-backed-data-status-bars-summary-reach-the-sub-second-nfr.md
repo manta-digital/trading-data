@@ -512,6 +512,25 @@ raw daily_ohlcv ──▶ daily_coverage             │
   (no `_CAGG_SOURCE_TABLE` entry); the `mt data status` banner reports their
   lag, so detection is not blocked.
 
+Filed during section-9 verification (2026-07-27):
+
+- **`daily_ohlcv` is over-chunked: 3,364 chunks for 34M rows (~10k rows/chunk)**
+  — the same disease slice 166 cured on `minute_ohlcv` (25,256 → 1,203). The
+  measured symptom here: `max(time)` *executes* in 7 ms but takes 1.1–2.1 s
+  wall because query *planning* walks the chunk catalog; this taxes every
+  planned query against the table, and it is why the freshness guard's daily
+  probe is the slowest term in the operator path (see verification record).
+  Fix is a 166-style rechunk — its own slice, not a 167 patch. Needs a plan
+  entry before scheduling (no-standalone-slices).
+- **`alter_job(scheduled =>)` fails on hierarchical cagg policies** — cannot
+  pause/resume `minute_coverage`'s refresh policy; runbook amended with R2b
+  (job-catalog UPDATE route, verified on a throwaway DB).
+- **`mt data status` full-universe wall time is dominated by Rich rendering**
+  (~20 s for 63k rows client-side, at any view speed; pre-existing, unchanged
+  by this slice). If the CLI is ever expected to be interactive at full
+  universe, it needs pagination or a summary-first default — CLI design work,
+  out of 167's scope.
+
 ## Success criteria
 
 1. Full-universe `data_status` read is **sub-second** on prod `trading` DB.
@@ -584,3 +603,29 @@ raw daily_ohlcv ──▶ daily_coverage             │
   `test/load/` fails the 8.2 enforcement test. The load tier reads only
   `MT_TIMESCALE_TEST_URL` and an ephemeral database (8.2); `ephemeral_db`
   moved to `test/conftest.py` so both integration and load tiers share it.
+
+- **Section 9 (2026-07-27):** full evidence log in
+  `user/notes/167-prod-verify-20260727.md`. Summary: **9.1** 4h cagg sum
+  4,412,419,648 vs 2026-07-24 raw baseline 4,405,379,285 — ahead, not behind;
+  gate passed. **9.2** parity EXACT on both sides (`minute_coverage` SUM =
+  4h sum to the digit; `daily_coverage` SUM = raw daily count 34,223,492);
+  102,770 / 151,784 coverage rows. **9.3 / criterion 1 met**: view read
+  170 ms (count) / 364 ms (full 63,224-row SELECT, EXPLAIN-verified) vs the
+  7.8 s baseline — ~20× headroom. Operator-path decomposition (9.3.2/9.3.3):
+  accessor end-to-end ~2.5 s steady, split ~0.36 s view + ~1.2 s wire/parse
+  of 63k rows + ~1.3–2.8 s guard probes, of which the `daily_ohlcv`
+  `max(time)` probe is 1.1–2.1 s **planning** (3,364 chunks; execution 7 ms)
+  — filed as the daily-rechunk follow-up above; the 60 s verdict-cache TTL
+  covers repeat reads as designed. **9.4** contract unchanged: main-worktree
+  vs slice-branch captures of `mt data status` (full + `--symbol AAPL`)
+  differ only in time-volatile relative ages. **9.5 / criterion 7 proven by
+  induction**, 13/13 steps on a throwaway DB: all four D1 signals fired
+  independently and exactly (`NOT_SCHEDULED`, `LAG_EXCEEDS_THRESHOLD` with
+  lag 5840 d against the ceiling-capped 1 d 4 h threshold — the D4 case,
+  `LAST_RUN_FAILED`, `LAST_SUCCESS_TOO_OLD`), rows returned during every
+  stale verdict (D3a), banner + `--json is_stale` observed firing and
+  clearing through real CLI subprocesses. **9.6 / criterion 5**: never-run
+  policies read fresh after materialization; unmaterialized caggs honestly
+  stale; empty-registry cold start returns 0 rows without error
+  (`test_cold_start.py`); cold-built 12k-symbol DB reads sub-second
+  (section 8).

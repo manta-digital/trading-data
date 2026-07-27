@@ -105,6 +105,29 @@ CALL refresh_continuous_aggregate('minute_coverage', NULL, NULL);
 
 `daily_coverage` reads raw `daily_ohlcv` directly; it has no parent-order concern.
 
+#### R2b — `alter_job` cannot pause or resume `minute_coverage`'s refresh policy
+
+`SELECT alter_job(<job>, scheduled => false)` — the pause mechanism used throughout this
+runbook — **fails outright on the refresh policy of a hierarchical cagg** with
+`multiple refresh policies are not supported for hierarchical continuous aggregates`
+(TimescaleDB re-validates policy config on every `alter_job`; measured 2026-07-27 on
+2.21.3, literal and bound-parameter forms alike). Of the coverage caggs this affects
+only `minute_coverage` (hierarchical over the 4h cagg); `daily_coverage`'s policy
+alters normally.
+
+If `minute_coverage`'s policy must be paused or resumed, go through the job catalog —
+this is the same column `timescaledb_information.jobs.scheduled` (and therefore the
+slice-167 freshness guard) reads:
+
+```sql
+UPDATE _timescaledb_config.bgw_job SET scheduled = false WHERE id = <refresh_job_id>;
+-- ... maintenance ...
+UPDATE _timescaledb_config.bgw_job SET scheduled = true  WHERE id = <refresh_job_id>;
+```
+
+Then apply R2a's NULL-bounds catch-up as usual. Verified on a throwaway DB: the catalog
+update round-trips cleanly and the guard reports `NOT_SCHEDULED` while paused.
+
 Note: the coverage caggs are **not** addressable via `mt data caggs refresh` (its
 granularity tokens cover only the 163-era caggs) — use psql as above. `mt data caggs
 verify` does list them (policy state, last run), though its `lag` column is blank for
