@@ -373,43 +373,43 @@ ship a second unguarded cagg consumer.
 
 ## 8. Load test — the NFR (D5, criterion 6)
 
-- [ ] **8.1** Add `test/load/` NFR test for full-universe `data_status`.
+- [x] **8.1** Add `test/load/` NFR test for full-universe `data_status`.
       Effort: 3/5
-  - [ ] 8.1.1 Assert full-universe read latency **< 1 s**. Latency assertion, not
+  - [x] 8.1.1 Assert full-universe read latency **< 1 s**. Latency assertion, not
         functional correctness (python rules: load tier).
-  - [ ] 8.1.2 Realistic-scale fixture or a gated prod-shaped tier — a 10-symbol
+  - [x] 8.1.2 Realistic-scale fixture or a gated prod-shaped tier — a 10-symbol
         fixture proves nothing about a 5,871-symbol read. If full scale is
         impractical in CI, gate on a prod-shaped tier and **say so in the test
         docstring**; do not silently shrink the fixture and keep the assertion.
-  - [ ] 8.1.3 Include the accessor's freshness guard in the measured path — the
+  - [x] 8.1.3 Include the accessor's freshness guard in the measured path — the
         guard is part of the read now, so excluding it measures a path that
         doesn't exist.
-  - [ ] 8.1.4 Gate on `MT_RUN_LOAD_TESTS=1` via
+  - [x] 8.1.4 Gate on `MT_RUN_LOAD_TESTS=1` via
         `@pytest.mark.skipif(os.environ.get("MT_RUN_LOAD_TESTS") != "1", ...)`,
         matching the existing convention in
         [test_146_part1_nfrs.py:29](test/load/test_146_part1_nfrs.py#L29). Do
         not invent a second gating mechanism.
-  - [ ] 8.1.5 Success: test fails if `data_status` regresses past 1 s.
-- [ ] **8.2** Confirm the load tier does not run against prod by default.
+  - [x] 8.1.5 Success: test fails if `data_status` regresses past 1 s.
+- [x] **8.2** Confirm the load tier does not run against prod by default.
       Effort: 1/5
-- [ ] **8.3** Make "CI-gated" concrete rather than aspirational (criterion 6,
+- [x] **8.3** Make "CI-gated" concrete rather than aspirational (criterion 6,
       review F002). Effort: 1/5
-  - [ ] 8.3.1 **The repo has no CI config** — `.github/workflows` does not exist.
+  - [x] 8.3.1 **The repo has no CI config** — `.github/workflows` does not exist.
         Slice 146's load tests assert "CI must enable" in a docstring and it was
         never mechanically wired; repeating that leaves criterion 6 as implicit
         as 146 left it.
-  - [ ] 8.3.2 Document the concrete invocation that satisfies the gate
+  - [x] 8.3.2 Document the concrete invocation that satisfies the gate
         (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`) in the test docstring
         and the slice's verification section, so the NFR has a runnable check
         even without CI.
-  - [ ] 8.3.3 **Settled (PM, 2026-07-26): CI is out of scope for 167** and is
+  - [x] 8.3.3 **Settled (PM, 2026-07-26): CI is out of scope for 167** and is
         filed as slice **907** (CI Pipeline and Load-Test Gating) in the 900
         band, which will also retire 146's stale "CI must enable" docstrings.
         Record criterion 6 as satisfied by the documented manual invocation, and
         state that plainly in the design — do **not** claim CI gating that does
         not exist. Reference 907 so the gap is tracked, not forgotten.
 
-- [ ] **Commit**: `test(load): assert sub-second full-universe data_status read`
+- [x] **Commit**: `test(load): assert sub-second full-universe data_status read`
 
 ---
 
