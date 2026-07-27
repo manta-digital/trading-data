@@ -22,6 +22,7 @@ from manta_trading.constants import (
     CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT,
     MAX_COVERAGE_SOURCE_STALENESS,
 )
+from manta_trading.market.maintenance import cagg_freshness
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
     StalenessSignal,
@@ -429,11 +430,11 @@ class _RaisingCursor(_RecordingCursor):
 def _frozen_evaluate(conn: Any, view_name: str) -> FreshnessVerdict:
     """Evaluate with the wall clock frozen at _NOW.
 
-    The clock must be passed explicitly: ``_evaluate`` binds ``_now`` as a
-    default argument value at import time, so monkeypatching the module
-    attribute rebinds the name without touching the captured default — a
-    silent no-op that let LAST_SUCCESS_TOO_OLD fire off the real clock once
-    _NOW aged past the threshold.
+    Injects the clock explicitly rather than patching the module attribute:
+    the dependency is visible at the call site and cannot be defeated by a
+    future refactor of how the seam is resolved. ``TestClockSeam`` separately
+    pins that monkeypatching ``_now`` also works, since the docstring on
+    ``_now`` promises it.
     """
     return _evaluate(conn, view_name, now=lambda: _NOW)
 
@@ -548,6 +549,57 @@ class TestEvaluateIndeterminate:
         assert verdict.is_fresh is False
         assert verdict.signals == (StalenessSignal.PROBE_FAILED,)
         assert verdict.lag is None
+
+
+class TestClockSeam:
+    """The ``now`` seam must be resolvable at call time, not bound at import.
+
+    Regression guard. Both functions originally defaulted ``now`` to the
+    module-level ``_now`` function object, which Python evaluates **once, at
+    import time**. ``monkeypatch.setattr(cagg_freshness, "_now", ...)`` — the
+    substitution ``_now``'s own docstring advertises — rebound the module
+    attribute while the captured default kept pointing at the original. The
+    freeze silently did nothing, so LAST_SUCCESS_TOO_OLD kept comparing
+    against the real clock and began firing spuriously the moment the
+    fixture's _NOW aged past the threshold: a suite that broke on a calendar
+    boundary rather than on a code change.
+
+    These assert the substitution works, so a future refactor that
+    reintroduces an import-time default fails here instead of at midnight.
+    """
+
+    def test_monkeypatching_now_freezes_evaluate(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # _NOW is the fixture's healthy "last success" instant. Patch the
+        # module attribute only — no explicit now= — and a cagg that succeeded
+        # at _NOW must read fresh no matter what the real clock says.
+        monkeypatch.setattr(cagg_freshness, "_now", lambda: _NOW)
+        verdict = _evaluate(_EvalConnection(), _VIEW)  # type: ignore[arg-type]
+        assert verdict.is_fresh is True
+        assert StalenessSignal.LAST_SUCCESS_TOO_OLD not in verdict.signals
+
+    def test_monkeypatching_now_is_observed_by_evaluate(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The converse, so the test above cannot pass by the patch being
+        # ignored: advance the patched clock far past the threshold and the
+        # same healthy fixture must now trip LAST_SUCCESS_TOO_OLD.
+        monkeypatch.setattr(cagg_freshness, "_now", lambda: _NOW + timedelta(days=30))
+        verdict = _evaluate(_EvalConnection(), _VIEW)  # type: ignore[arg-type]
+        assert verdict.is_fresh is False
+        assert StalenessSignal.LAST_SUCCESS_TOO_OLD in verdict.signals
+
+    def test_monkeypatching_now_is_observed_by_assert_cagg_fresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The public entry point takes the same seam and must resolve it the
+        # same way; it is the one production readers call.
+        reset_freshness_cache()
+        monkeypatch.setattr(cagg_freshness, "_now", lambda: _NOW + timedelta(days=30))
+        verdict = assert_cagg_fresh(_EvalConnection(), _VIEW)  # type: ignore[arg-type]
+        assert verdict.is_fresh is False
+        assert StalenessSignal.LAST_SUCCESS_TOO_OLD in verdict.signals
 
 
 class TestVerdictCache:

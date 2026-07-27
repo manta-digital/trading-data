@@ -384,8 +384,22 @@ def _resolve_threshold(
 
 
 def _now() -> datetime:
-    """Wall clock, isolated so tests can substitute it via monkeypatch."""
+    """Wall clock, isolated so tests can substitute it via monkeypatch.
+
+    Callers taking a ``now`` seam must default it to ``None`` and resolve it
+    through :func:`_resolve_clock` rather than binding ``_now`` as a default
+    argument value. A default argument is evaluated once at import time, so
+    ``monkeypatch.setattr(cagg_freshness, "_now", ...)`` would rebind the
+    module attribute while the captured default kept pointing at the original
+    function — a freeze that silently does nothing and lets time-dependent
+    signals fire off the real clock.
+    """
     return datetime.now(timezone.utc)
+
+
+def _resolve_clock(now: Callable[[], datetime] | None) -> Callable[[], datetime]:
+    """Resolve a clock seam at call time so monkeypatching ``_now`` works."""
+    return _now if now is None else now
 
 
 # Process-local verdict cache (D6), keyed by view name only: {view: (at, verdict)}.
@@ -403,7 +417,7 @@ def assert_cagg_fresh(
     conn: psycopg.Connection[object],
     view_name: str,
     *,
-    now: Callable[[], datetime] = _now,
+    now: Callable[[], datetime] | None = None,
     source_table: str | None = None,
 ) -> FreshnessVerdict:
     """Assert a continuous aggregate is fresh enough to read from.
@@ -445,12 +459,13 @@ def assert_cagg_fresh(
     Raises:
         ValueError: ``view_name`` is not a known cagg view (a caller bug).
     """
+    clock = _resolve_clock(now)
     cached = _VERDICT_CACHE.get(view_name)
-    current_time = now()
+    current_time = clock()
     if cached is not None and current_time - cached[0] < CAGG_FRESHNESS_CACHE_TTL:
         return cached[1]
 
-    verdict = _evaluate(conn, view_name, source_table=source_table, now=now)
+    verdict = _evaluate(conn, view_name, source_table=source_table, now=clock)
     _VERDICT_CACHE[view_name] = (current_time, verdict)
     return verdict
 
@@ -460,7 +475,7 @@ def _evaluate(
     view_name: str,
     *,
     source_table: str | None = None,
-    now: Callable[[], datetime] = _now,
+    now: Callable[[], datetime] | None = None,
 ) -> FreshnessVerdict:
     """Uncached freshness evaluation: the four D1 signals, OR'd.
 
@@ -543,7 +558,7 @@ def _evaluate(
     # the edges directly and does not depend on job history.
     if (
         job.last_successful_finish is not None
-        and now() - job.last_successful_finish > threshold
+        and _resolve_clock(now)() - job.last_successful_finish > threshold
     ):
         signals.append(StalenessSignal.LAST_SUCCESS_TOO_OLD)
 
