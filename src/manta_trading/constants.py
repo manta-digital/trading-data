@@ -160,6 +160,189 @@ head, where the trailing refresh still rewrites rows. 7 days mirrors the raw
 never restate as a literal.
 """
 
+MINUTE_COVERAGE_VIEW: str = "minute_coverage"
+"""Name of the hierarchical coverage continuous aggregate over
+``minute_4hour_ohlcv`` (slice 167).
+
+Single source of truth: passed to ``assert_cagg_fresh``, rendered into
+migrations 046/047/048, and referenced by tests. Never restate as a literal.
+"""
+
+DAILY_COVERAGE_VIEW: str = "daily_coverage"
+"""Name of the coverage continuous aggregate over raw ``daily_ohlcv`` (slice 167).
+
+Unlike ``MINUTE_COVERAGE_VIEW`` this one is **not** hierarchical — its source is
+the raw hypertable — so the timestamps it yields are exact rather than truncated
+to a parent bucket. See slice 167 D3/D7.
+"""
+
+COVERAGE_BUCKET_INTERVAL: timedelta = timedelta(days=365)
+"""``time_bucket`` width for both coverage continuous aggregates (slice 167).
+
+One year. Sized so ``bars_summary`` groups ~15k rows (~5,871 symbols × ~22 years
+of history) instead of the 4.4-billion-row raw scan that held the full-universe
+``data_status`` read at 7.8 s. Grouping at this size is sub-millisecond
+*regardless of the parent cagg's chunk count*, which is the durability argument
+for the hierarchical structure (slice 167 D1).
+
+``timedelta`` rather than a calendar year: TimescaleDB's ``time_bucket`` on a
+``timestamptz`` column takes a fixed-width interval, and bucket boundaries need
+not align to calendar years — the buckets are a grouping device for coverage
+bookkeeping, not a reporting calendar.
+
+**This width sets a hard floor on the refresh policies' ``start_offset``** —
+see ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``. Changing it moves that floor.
+"""
+
+COVERAGE_SOURCE_TABLE: dict[str, str] = {
+    MINUTE_COVERAGE_VIEW: "minute_ohlcv",
+    DAILY_COVERAGE_VIEW: "daily_ohlcv",
+}
+"""The table each coverage cagg's freshness is measured against (slice 167).
+
+``assert_cagg_fresh`` resolves a view's source from ``GRANULARITY_SOURCE``,
+which maps granularities to *base* hypertables and therefore has no entry for
+the coverage caggs. Rather than widen that map — the coverage caggs are not a
+granularity — this slice supplies the source explicitly through the helper's
+``source_table`` seam, consuming slice 168's helper unchanged.
+
+**Both entries are raw hypertables, including the hierarchical minute one.**
+``minute_coverage`` derives from ``minute_4hour_ohlcv``, so measuring against
+its immediate parent looks more natural — but two things argue for raw. First,
+mechanically: slice 168's ``_raw_max`` probes ``max(time)`` on the source, and
+a cagg's time column is ``time_bucket``, so a cagg source cannot be probed.
+Second, and the reason this is right rather than merely expedient: what an
+operator needs from ``data_status`` is how far coverage trails *reality*, not
+how far it trails an intermediate. Measuring against raw makes the verdict cover
+the whole two-hop chain — exactly the bound migration 048's ``COMMENT ON VIEW``
+documents. A stalled parent would otherwise leave ``minute_coverage`` looking
+fresh while ``data_status`` reported months-old coverage.
+"""
+
+COVERAGE_REFRESH_MIN_WINDOW_BUCKETS: int = 2
+"""TimescaleDB's minimum refresh-window width, in buckets (slice 167 D4).
+
+``add_continuous_aggregate_policy`` rejects a policy unless
+``start_offset - end_offset >= COVERAGE_REFRESH_MIN_WINDOW_BUCKETS * bucket``,
+raising ``InvalidParameterValue: policy refresh window too small``.
+
+The engine requires it because a refresh only re-materializes buckets *fully
+contained* in ``[now - start_offset, now - end_offset]``; a partially covered
+bucket at either edge is skipped rather than written with a half-computed
+aggregate. A window narrower than two buckets can therefore slide into a
+position where it fully contains nothing and the policy silently refreshes zero
+rows. Two buckets guarantees at least one is always wholly inside.
+
+Measured on TimescaleDB 2.21.3 with a 365-day bucket and a 4 h ``end_offset``:
+730 days is rejected, 731 days accepted. Recorded as a constant so the
+constants test asserts the real engine constraint rather than a remembered
+number, and so a future change to ``COVERAGE_BUCKET_INTERVAL`` fails loudly at
+test time instead of at migration time.
+
+This constraint never bound the pre-167 caggs: each has a bucket far smaller
+than its offsets (4 h bucket / 1 day offset; 3-month bucket / 270-day offset).
+A 1-year bucket is the first one large relative to any sane refresh window.
+"""
+
+MINUTE_CAGG_REFRESH_START_OFFSET: timedelta = timedelta(days=1)
+"""``start_offset`` of the four minute caggs' own refresh policies.
+
+Measured on prod 2026-07-26 (jobs 1002/1003/1007/1008 — all four carry the same
+1-day value). Recorded here as the **parent** window that slice 167's
+hierarchical coverage policy must exceed; ``MINUTE_CAGG_COMPRESS_AFTER``'s
+docstring already depends on this number, and the slice-167 constants test
+asserts the coverage ``start_offset`` against it rather than against a literal.
+Not itself rendered into a migration — migrations 035/037 own those policies.
+"""
+
+MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL: timedelta = timedelta(hours=1)
+"""``schedule_interval`` of the 1h and 4h minute caggs' refresh policies.
+
+Measured on prod 2026-07-26 (jobs 1002/1003). Recorded here as the **parent**
+hop of slice 167's two-hop coverage lag bound: raw ingest → parent cagg →
+coverage cagg. Migration 048's ``COMMENT ON VIEW`` renders the documented bound
+from this constant plus the coverage cadence, so the comment cannot drift from
+the policies actually installed. Migration 035 owns the parent policy itself.
+"""
+
+MINUTE_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=750)
+"""``start_offset`` for the ``minute_coverage`` refresh policy (slice 167 D4).
+
+Two constraints bind here, and the engine's is the larger:
+
+1. **Floor from the parent** (measured on prod 2026-07-26): the parent
+   ``minute_4hour_ohlcv`` policy (job 1003) runs ``schedule_interval`` 1 h with
+   ``start_offset`` 1 day, ``end_offset`` 4 h. A hierarchical cagg must
+   re-materialize any parent bucket that changed since it last ran, so its
+   window must exceed the parent's entire refresh window, with margin.
+2. **Floor from TimescaleDB** (the binding one): ``start_offset - end_offset``
+   must be at least ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS`` × the 1-year bucket,
+   i.e. ≥ 731 days here. Measured, not assumed — 730 days is rejected.
+
+750 days satisfies both with a ~19-day margin above the engine floor, so a
+future ``end_offset`` change does not immediately breach it.
+
+This is a bound on how far back the policy will *look*, not work performed per
+run: refresh is driven by TimescaleDB's invalidation tracking, so a run rewrites
+only the buckets that actually changed — in steady state the current year's
+bucket for the symbols that got new bars, ~1-2 rows per affected symbol.
+
+**Residual hazard, deliberately accepted:** a bucket older than the window that
+is rewritten by a deep backfill will not be picked up by the scheduled policy.
+That is the same stranding shape that produced the ~79% under-materialization
+slice 163 repaired, relocated to the ~2-year boundary rather than eliminated.
+It is detected by ``mt data caggs verify`` and healed by ``repair`` — the
+standing rule after any raw restructuring or deep backfill.
+"""
+
+MINUTE_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=4)
+"""``end_offset`` for the ``minute_coverage`` refresh policy (slice 167 D4).
+
+Matches the parent 4h cagg's own ``end_offset`` (measured: 4 h). Refreshing
+closer to now than the parent itself materializes would read buckets the parent
+has not yet filled, producing coverage that undercounts the trailing edge.
+"""
+
+MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL: timedelta = timedelta(hours=1)
+"""``schedule_interval`` for the ``minute_coverage`` refresh policy (slice 167 D4).
+
+Matches the parent's 1 h cadence (measured, job 1003). Refreshing more often than
+the parent produces no new data; less often widens the documented lag bound for
+no benefit.
+"""
+
+DAILY_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=750)
+"""``start_offset`` for the ``daily_coverage`` refresh policy (slice 167 D4).
+
+``daily_coverage``'s source is the **raw** ``daily_ohlcv`` hypertable, which has
+no refresh policy of its own (measured, prod 2026-07-26 — only a compression
+policy, ``compress_after`` 7 days). So there is no parent refresh window to
+clear; the binding constraint is TimescaleDB's two-bucket minimum window (see
+``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``), identical to the minute side because
+the bucket width is the same.
+
+Matching the minute side at 750 days also keeps one operator-visible number
+rather than two, and covers the revision window that matters for daily bars —
+provider restatements and adjustment rebasing — far beyond the 7-day
+compression horizon after which rows are no longer expected to change.
+"""
+
+DAILY_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=1)
+"""``end_offset`` for the ``daily_coverage`` refresh policy (slice 167 D4).
+
+The raw source has no materialization lag to wait on, so this need only keep the
+refresh off the actively-written head. 1 h is the smallest of the existing
+minute-side end offsets and is well inside daily bars' once-per-session cadence.
+"""
+
+DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL: timedelta = timedelta(hours=1)
+"""``schedule_interval`` for the ``daily_coverage`` refresh policy (slice 167 D4).
+
+Matches the minute coverage cadence. Daily bars land once per session, so this is
+far more often than strictly required; the refresh is cheap (one 1-year bucket
+per symbol) and a uniform cadence keeps the documented lag bound uniform.
+"""
+
 MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT: str = "1800s"
 """PostgreSQL statement_timeout for the ``mt data caggs verify``/``repair``
 prod parity and sweep queries (slice 163).

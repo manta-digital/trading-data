@@ -6,6 +6,16 @@ No magic string column names — StatusRow/GapRow field names are the reference.
 fetch_all_health_counts uses a lightweight GROUP BY query rather than
 fetching all rows and counting in Python, to avoid materializing 114k+ rows
 just for the footer aggregate.
+
+**Every read of ``data_status`` here goes through
+``data.maintenance.status_coverage`` (slice 167 D6)**, so the coverage caggs
+behind ``bars_summary`` are freshness-asserted on the same connection, on every
+read. Do not add a direct ``FROM data_status`` query to this module — the
+slice-167 tests assert by grep that none exists outside the accessor. Each
+fetch has a ``*_with_freshness`` form returning the verdict for callers that
+surface staleness, and a thin wrapper for those that do not; the guard runs in
+both cases. ``data_gaps`` is a plain table, not cagg-derived, so
+``fetch_symbol_gaps`` is deliberately unguarded.
 """
 
 from __future__ import annotations
@@ -13,6 +23,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from manta_trading.cli.rendering.status_table import GapRow, StatusRow
+from manta_trading.data.maintenance.status_coverage import (
+    DATA_STATUS_RELATION,
+    CoverageFreshness,
+    query_data_status,
+)
 from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
@@ -21,14 +36,19 @@ if TYPE_CHECKING:
 _logger = get_logger(__name__)
 
 
-def fetch_status_rows(
-    conn: "psycopg.Connection[Any]",
+def fetch_status_rows_with_freshness(
+    conn: psycopg.Connection[Any],
     *,
     symbol: str | None,
     health_filter: list[str] | None,
     granularity: str | None = None,
-) -> list[StatusRow]:
-    """Query data_status view with optional filters.
+) -> tuple[list[StatusRow], CoverageFreshness]:
+    """Query data_status with optional filters, plus its coverage freshness.
+
+    Reads through ``status_coverage`` — the single guarded door (slice 167 D6) —
+    so the returned rows always arrive with a verdict describing how current the
+    coverage behind them is. Callers that surface staleness to an operator want
+    this; ``fetch_status_rows`` wraps it for those that do not.
 
     Applies WHERE clauses for symbol, health, and granularity as AND conditions
     in a single parameterized query.
@@ -63,15 +83,40 @@ def fetch_status_rows(
             last_attempt_outcome,
             target_end_ts,
             effective_start
-        FROM data_status
+        FROM {DATA_STATUS_RELATION}
         {where_clause}
         ORDER BY symbol, granularity
     """
 
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params)
-        rows = cur.fetchall()
+    rows, freshness = query_data_status(conn, sql, params, row_factory=dict_row)
 
+    return _to_status_rows(rows), freshness
+
+
+def fetch_status_rows(
+    conn: psycopg.Connection[Any],
+    *,
+    symbol: str | None,
+    health_filter: list[str] | None,
+    granularity: str | None = None,
+) -> list[StatusRow]:
+    """Query data_status view with optional filters.
+
+    Thin wrapper over ``fetch_status_rows_with_freshness`` for callers that do
+    not surface staleness. The guard still runs — a stale cagg is logged at
+    ERROR by the accessor either way; only the verdict is discarded here.
+    """
+    rows, _ = fetch_status_rows_with_freshness(
+        conn,
+        symbol=symbol,
+        health_filter=health_filter,
+        granularity=granularity,
+    )
+    return rows
+
+
+def _to_status_rows(rows: list[Any]) -> list[StatusRow]:
+    """Map dict rows to StatusRow. Field names are the reference — no indexing."""
     return [
         StatusRow(
             symbol=r["symbol"],
@@ -91,7 +136,7 @@ def fetch_status_rows(
 
 
 def fetch_symbol_gaps(
-    conn: "psycopg.Connection[Any]",
+    conn: psycopg.Connection[Any],
     symbol: str,
 ) -> list[GapRow]:
     """Return all data_gaps rows for a symbol, ordered by gap_start ASC."""
@@ -122,19 +167,33 @@ def fetch_symbol_gaps(
     ]
 
 
-def fetch_all_health_counts(
-    conn: "psycopg.Connection[Any]",
-) -> dict[str, int]:
-    """Return a dict of {health: count} over the full unfiltered data_status view.
+def fetch_all_health_counts_with_freshness(
+    conn: psycopg.Connection[Any],
+) -> tuple[dict[str, int], CoverageFreshness]:
+    """Health counts over the full unfiltered view, plus coverage freshness.
 
-    Uses a single GROUP BY query (cheaper than fetching all rows in Python).
+    Reads through the guarded accessor (slice 167 D6). Uses a single GROUP BY
+    query (cheaper than fetching all rows in Python).
     """
     from psycopg.rows import dict_row
 
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            "SELECT health, COUNT(*)::int AS cnt FROM data_status GROUP BY health"
-        )
-        rows = cur.fetchall()
+    rows, freshness = query_data_status(
+        conn,
+        f"SELECT health, COUNT(*)::int AS cnt FROM {DATA_STATUS_RELATION} "
+        "GROUP BY health",
+        row_factory=dict_row,
+    )
 
-    return {r["health"]: r["cnt"] for r in rows}
+    return {r["health"]: r["cnt"] for r in rows}, freshness
+
+
+def fetch_all_health_counts(
+    conn: psycopg.Connection[Any],
+) -> dict[str, int]:
+    """Return a dict of {health: count} over the full unfiltered data_status view.
+
+    Thin wrapper over ``fetch_all_health_counts_with_freshness``; the guard runs
+    regardless, only the verdict is discarded.
+    """
+    counts, _ = fetch_all_health_counts_with_freshness(conn)
+    return counts

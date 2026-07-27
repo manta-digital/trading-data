@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [166, 163, 168]
 interfaces: [147, 182]
 dateCreated: 20260720
-dateUpdated: 20260726
-status: not_started
+dateUpdated: 20260727
+status: complete
 ---
 
 # Slice Design: Cagg-backed `data_status` bars summary — reach the sub-second NFR
@@ -270,10 +270,22 @@ Four independent signals, OR'd (none is sufficient alone), from one catalog read
 
 **Threshold is `min(start_offset, <absolute ceiling this consumer requires>)` — not
 `start_offset` alone.** `start_offset` is set for refresh efficiency, not consumer
-tolerance, and the two diverge badly: `bars_summary` also reads the **daily** caggs,
-whose offsets run to 21/90/**270** days. A daily cagg stalled three months passes any
-`start_offset`-relative check. This false negative was found by simulating the
+tolerance, and the two diverge badly. The divergence is structural here, not incidental:
+per D4 both coverage caggs are **hierarchical or wide-bucketed**, so their
+`start_offset` must be deliberately generous — wide enough to re-materialize
+recently-changed parent buckets, since a trailing-1-day offset is precisely what caused
+the prerequisite corruption. `daily_coverage`'s own `start_offset` (chosen in task 2.2)
+is therefore far looser than any tolerance an operator reading `data_status` would
+accept. A coverage cagg stalled for weeks still passes an `start_offset`-relative check
+while reporting stale coverage as fact. This false negative was found by simulating the
 detector before writing it.
+
+*(Correction, 2026-07-26 — review F004.)* An earlier draft of this paragraph cited
+"the daily caggs, whose offsets run to 21/90/**270** days" as the example. That
+misattributed the hazard: per D1 the daily branch reads the new `daily_coverage` cagg,
+not `daily_weekly`/`daily_monthly`/`daily_quarterly`, so those offsets are not on this
+read path. The conclusion is unchanged and independently codified as
+`MAX_COVERAGE_SOURCE_STALENESS`.
 
 **Cost is not a concern** (measured on prod 2026-07-25): ~0.19 s for the cagg
 leading-edge probe, ~0.75 s for the raw probe, both planning-dominated — negligible
@@ -297,14 +309,82 @@ Full reasoning: journal `20260725` ADR rules 2–4;
 ### D4 — Refresh policy for the coverage caggs
 
 `minute_coverage` and `daily_coverage` each get an
-`add_continuous_aggregate_policy`. Because they are hierarchical (built over
-another cagg), their `start_offset` must be wide enough to re-materialize
-recently-changed parent buckets — the trailing-1-day policy is what caused the
-prerequisite corruption, so the coverage policy's `start_offset` must be chosen
-deliberately (candidate: cover at least the parent's refresh window plus a
-margin) and **must be re-verified against the merge-chunks/cagg-invalidation
-lesson** before any future restructuring of the parent. Exact offsets are a
-task-level decision, recorded here as a constraint, not yet fixed.
+`add_continuous_aggregate_policy`. Because `minute_coverage` is hierarchical
+(built over another cagg), its `start_offset` must be wide enough to
+re-materialize recently-changed parent buckets — the trailing-1-day policy is
+what caused the prerequisite corruption — and **must be re-verified against the
+merge-chunks/cagg-invalidation lesson** before any future restructuring of the
+parent.
+
+**Offsets fixed at task 2.2 (2026-07-26), measured from prod, not estimated.**
+Parent values read from `timescaledb_information.jobs`:
+
+| Parent | Job | `schedule_interval` | `start_offset` | `end_offset` |
+|---|---|---|---|---|
+| `minute_4hour_ohlcv` | 1003 | 1 h | **1 day** | 4 h |
+| `daily_ohlcv` (raw) | — | *no refresh policy* | — | — |
+| | | | | |
+| `daily_ohlcv` compression | 1010 | 12 h | `compress_after` 7 days | |
+
+**A second, larger constraint was discovered at implementation** and it, not the
+parent window, sets the value. TimescaleDB's `add_continuous_aggregate_policy`
+rejects any policy whose window spans fewer than **two bucket widths**:
+
+```
+InvalidParameterValue: policy refresh window too small
+DETAIL: The start and end offsets must cover at least two buckets
+        in the valid time range of type "timestamp with time zone".
+```
+
+The engine requires this because a refresh only re-materializes buckets *fully
+contained* in `[now − start_offset, now − end_offset]`; a partially covered
+bucket at either edge is skipped rather than written with a half-computed
+aggregate. A window narrower than two buckets can slide into a position that
+fully contains nothing, and the policy would silently refresh zero rows forever.
+
+With a 1-year bucket the floor is therefore `2 × 365 d + end_offset` ≈ **731
+days** — measured, not assumed: on TimescaleDB 2.21.3, 730 days is rejected and
+731 accepted. This never bound the pre-167 caggs because each has a bucket far
+smaller than its offsets (4 h bucket / 1 day offset; 3-month bucket / 270-day
+offset). A 1-year bucket is the first one large relative to any sane refresh
+window, which inverts the usual ratio.
+
+Chosen values, as constants in `constants.py` — never restated as literals:
+
+| Coverage cagg | `start_offset` | `end_offset` | `schedule_interval` |
+|---|---|---|---|
+| `minute_coverage` | **750 days** | 4 h | 1 h |
+| `daily_coverage` | **750 days** | 1 h | 1 h |
+
+750 days clears the 731-day engine floor with ~19 days of margin, so a later
+`end_offset` change does not immediately breach it, and it comfortably clears
+the parent-window floor (1 day) that motivated D4 originally.
+
+**750 days is a bound on how far back the policy will look, not work per run.**
+Refresh is driven by TimescaleDB's invalidation tracking, so a run rewrites only
+buckets that actually changed — in steady state, the current year's bucket for
+whichever symbols received new bars, ~1–2 rows per affected symbol. The read
+path is unaffected either way: `bars_summary` still groups ~15k rows.
+
+`end_offset` on the minute side (4 h) matches the parent's, since refreshing
+closer to now than the parent has materialized would undercount the trailing
+edge. The daily side needs no such wait (raw source), so 1 h simply keeps the
+refresh off the actively-written head. `schedule_interval` (1 h) matches the
+parent's cadence on both.
+
+**Residual hazard, deliberately accepted and recorded.** A bucket older than the
+~2-year window that is rewritten by a deep backfill will not be picked up by the
+scheduled policy. This is the same stranding shape that produced the ~79%
+under-materialization slice 163 repaired — relocated to the ~2-year boundary,
+not eliminated. It cannot be closed by widening `start_offset` indefinitely, and
+it is exactly what `mt data caggs verify` detects and `repair` heals. The
+standing rule from the 2026-07-20 arch amendment applies unchanged: after any
+raw restructuring or deep backfill, run `verify`; if parity fails, run `repair`.
+
+Both constraints are encoded mechanically as unit tests — the parent-window floor
+and the engine's two-bucket minimum (`COVERAGE_REFRESH_MIN_WINDOW_BUCKETS`) — so
+a later edit to the bucket width or the offsets fails at test time rather than at
+migration time against a live database.
 
 ### D5 — Load-test tier (revisiting slice 166 D2's deferral)
 
@@ -318,6 +398,40 @@ realistic-scale fixture (or a gated prod-shaped tier), so the NFR has
 regression coverage. Functional equivalence (output identical to raw-scan
 modulo the documented lag bound) is covered by integration tests, not the load
 tier.
+
+### D6 — Guard placement: a single guarded accessor (PM ruling, 2026-07-26)
+
+*(Resolves design-review F002, which found "the guard lives in `bars_summary`"
+under-specified.)* `assert_cagg_fresh` is a Python helper; `bars_summary` is a SQL
+CTE inside a view definition, so the guard cannot literally live "in" it. Placing
+the call at each read site instead would make D3a aspirational — the next reader
+added (notably slice 182's serving API) silently becomes an unguarded consumer,
+which is exactly what this slice promises not to ship.
+
+**Decision:** a new module `data/maintenance/status_coverage.py` is the **single
+guarded door** to `data_status`. It asserts freshness on both coverage caggs, then
+returns rows **plus** the verdicts so callers can surface staleness; it neither
+swallows a stale verdict nor raises, per D3a's report-don't-skip behavior. Both
+existing readers — `status_queries.py` and `migrate_cold_start.py` — are migrated
+onto it **in this slice**, and the constraint is made enforceable rather than
+documented: no `FROM data_status` may remain outside that module, proven by grep.
+Slice 182 is contractually required to use it (see Cross-slice dependencies).
+
+### D7 — Equivalence is date-normalized, not literal (PM ruling, 2026-07-26)
+
+*(Resolves design-review F003, which found criterion 2's "identical" in direct
+contradiction with D3's documented bucket truncation.)* Minute-side bucket
+truncation is a **permanent** delta across all history, not a trailing-edge
+effect, so a literal row-by-row equality assertion would fail on every symbol —
+the criterion as originally written was unsatisfiable.
+
+**Decision:** equivalence means date-normalized timestamps equal, `bars_stored`
+**exactly** equal, and raw−cagg timestamp delta < 4 h on the minute branch. The
+daily branch reads raw `daily_ohlcv`, so its timestamps must match **exactly** —
+asserted separately, or a real daily regression would hide inside the minute-side
+tolerance. This tests the actual user-visible contract, since the CLI renders
+date-only (`_fmt_date`, `%Y-%m-%d`). Criterion 2 is restated accordingly, and the
+equivalence test carries a comment stating why literal equality is *not* used.
 
 ## Data flow
 
@@ -376,29 +490,80 @@ raw daily_ohlcv ──▶ daily_coverage             │
 - **Interfaces [147]** — `mt data status` reads `data_status`; contract
   preserved.
 - **Interfaces [182]** — serving API's available-ranges / status surfaces read
-  the same view; contract preserved.
+  the same view; contract preserved. **Contractually required (D6):** 182 must
+  read through `data/maintenance/status_coverage.py`, not `FROM data_status`
+  directly, so the freshness guard is not bypassed. Note also that the API may
+  expose timestamps at full precision, where the up-to-4 h minute-side
+  coarsening (D3/D7) becomes visible — unlike the CLI's date-only rendering.
+  How to present that is 182's decision; 167 only documents it.
+
+## Follow-ups filed during implementation (2026-07-26)
+
+- **`mt data caggs refresh` cannot target the coverage caggs.** Its
+  `_ALL_CAGG_VIEWS` token list covers only the 163-era caggs. Not a defect in
+  this slice's surface — the documented remediation for stale coverage is psql
+  per runbook R2 (now amended with R2a for the wide-bucket window rule and
+  parent-before-child order) — but if the coverage caggs are ever added to that
+  command, the token/window design must account for: (a) the 2-bucket minimum
+  manual-refresh window (731 d), which makes the command's `--start`/`--end`
+  semantics fail on them; (b) refresh order derived from the cagg hierarchy
+  (`minute_4hour_ohlcv` before `minute_coverage`), not list position.
+  Relatedly, `mt data caggs verify` lists them but shows a blank `lag` column
+  (no `_CAGG_SOURCE_TABLE` entry); the `mt data status` banner reports their
+  lag, so detection is not blocked.
+
+Filed during section-9 verification (2026-07-27):
+
+- **`daily_ohlcv` is over-chunked: 3,364 chunks for 34M rows (~10k rows/chunk)**
+  — the same disease slice 166 cured on `minute_ohlcv` (25,256 → 1,203). The
+  measured symptom here: `max(time)` *executes* in 7 ms but takes 1.1–2.1 s
+  wall because query *planning* walks the chunk catalog; this taxes every
+  planned query against the table, and it is why the freshness guard's daily
+  probe is the slowest term in the operator path (see verification record).
+  Fix is a 166-style rechunk — its own slice, not a 167 patch. Needs a plan
+  entry before scheduling (no-standalone-slices).
+- **`alter_job(scheduled =>)` fails on hierarchical cagg policies** — cannot
+  pause/resume `minute_coverage`'s refresh policy; runbook amended with R2b
+  (job-catalog UPDATE route, verified on a throwaway DB).
+- **`mt data status` full-universe wall time is dominated by Rich rendering**
+  (~20 s for 63k rows client-side, at any view speed; pre-existing, unchanged
+  by this slice). If the CLI is ever expected to be interactive at full
+  universe, it needs pagination or a summary-first default — CLI design work,
+  out of 167's scope.
 
 ## Success criteria
 
 1. Full-universe `data_status` read is **sub-second** on prod `trading` DB.
-2. `data_status` output is **identical** to the current raw-scan version for
-   all settled history, and differs only within the documented cagg-lag bound
-   for the trailing edge.
+2. Output is **equivalent** to the raw-scan version under the date-normalized
+   definition (review F003, ruled below): for settled history,
+   `date(first_bar_ts)` and `date(last_bar_ts)` equal, `bars_stored` **exactly**
+   equal, minute-side timestamp delta < 4 h, daily-side timestamps exact; the
+   trailing edge differs only within the documented cagg-lag bound.
 3. `mt data status` output shape (columns, formatting) is **unchanged**.
 4. The view carries a doc comment stating the bucket-truncation and cagg-lag
    bounds and the chosen refresh intervals (D3).
 5. Cold-start applies the new migrations cleanly and yields a sub-second view
    on a freshly-built DB.
-6. A load test asserts full-universe read latency < 1 s and is CI-gated (D5).
-7. **`assert_cagg_fresh` exists, is called by `bars_summary`, and is proven to
-   fire** (D3a). Verified by *inducing* staleness, not by reading code: pause a
-   coverage cagg's refresh policy on a throwaway DB, advance raw past the
-   threshold, and confirm the read reports stale coverage rather than presenting
-   it as current. Each of the four signals is unit-tested independently —
-   including the case a naive implementation misses: a cagg whose policy has a
-   loose `start_offset` (21/90/270 d on the daily side) but which is stalled far
-   beyond what this consumer tolerates. A test that only asserts the helper is
-   *called* does not satisfy this criterion.
+6. A load test asserts full-universe read latency < 1 s, gated on
+   `MT_RUN_LOAD_TESTS=1` per the existing `test/load/` convention, and is
+   runnable via the documented invocation
+   (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`). **This repo has no CI**
+   (review F002 — `.github/workflows` does not exist); standing one up is out of
+   scope for 167 and filed as **slice 907** (CI Pipeline and Load-Test Gating),
+   which will also retire slice 146's stale "CI must enable" docstrings. This
+   criterion is met by the documented manual invocation, stated honestly rather
+   than claimed as automated (PM, 2026-07-26).
+7. **`assert_cagg_fresh` is called on the coverage caggs via the guarded
+   accessor, and is proven to fire** (D3a). Verified by *inducing* staleness,
+   not by reading code: pause a coverage cagg's refresh policy on a throwaway
+   DB, advance raw past the threshold, and confirm the read reports stale
+   coverage rather than presenting it as current. Each of the four signals is
+   covered independently — including the case a naive implementation misses: a
+   coverage cagg whose policy carries a deliberately loose `start_offset` (per
+   D4) but which is stalled far beyond what this consumer tolerates. A test that
+   only asserts the helper is *called* does not satisfy this criterion.
+8. Every Python reader of `data_status` goes through `status_coverage`; no
+   second unguarded consumer ships (review F002).
 
 ## Verification walkthrough (draft — refined at Phase 6)
 
@@ -418,3 +583,88 @@ raw daily_ohlcv ──▶ daily_coverage             │
 6. **Lag bound honesty:** fetch new bars for a symbol, immediately read
    `data_status`, confirm coverage understates by at most the documented bound
    and converges after the next refresh tick.
+
+## Verification record (Phase 6, complete)
+
+- **Criterion 6 / section 8 (2026-07-27):**
+  `test/load/test_167_data_status_nfr.py` added. Gate:
+  `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/` with `MT_TIMESCALE_TEST_URL`
+  exported — the manual invocation that satisfies criterion 6 until slice 907
+  wires CI. Fixture is prod-shaped per 8.1.2: 12,000 symbols (prod universe is
+  11,625) × 10 year-buckets, so each coverage cagg materializes ~120k rows —
+  the row count that drives the view's read cost; `data_gaps`/attempt tables
+  left empty (never the slow term). Measured on the throwaway DB: **median
+  0.744 s** over 3 runs (0.742/0.795/0.744) for the full-universe guarded
+  read — 24,000 rows through `fetch_status_rows_with_freshness` with the
+  freshness cache reset before each run, so the guard probe is inside every
+  measured sample (8.1.3). Prod remains faster (~200 ms over 11,625 symbols,
+  measured 2026-07-24). Mutation-checked: lowering the threshold fails the
+  test with the samples printed; a planted `MT_TIMESCALE_DB_URL` env read in
+  `test/load/` fails the 8.2 enforcement test. The load tier reads only
+  `MT_TIMESCALE_TEST_URL` and an ephemeral database (8.2); `ephemeral_db`
+  moved to `test/conftest.py` so both integration and load tiers share it.
+
+- **Section 9 (2026-07-27):** full evidence log in
+  `user/notes/167-prod-verify-20260727.md`. Summary: **9.1** 4h cagg sum
+  4,412,419,648 vs 2026-07-24 raw baseline 4,405,379,285 — ahead, not behind;
+  gate passed. **9.2** parity EXACT on both sides (`minute_coverage` SUM =
+  4h sum to the digit; `daily_coverage` SUM = raw daily count 34,223,492);
+  102,770 / 151,784 coverage rows. **9.3 / criterion 1 met**: view read
+  170 ms (count) / 364 ms (full 63,224-row SELECT, EXPLAIN-verified) vs the
+  7.8 s baseline — ~20× headroom. Operator-path decomposition (9.3.2/9.3.3):
+  accessor end-to-end ~2.5 s steady, split ~0.36 s view + ~1.2 s wire/parse
+  of 63k rows + ~1.3–2.8 s guard probes, of which the `daily_ohlcv`
+  `max(time)` probe is 1.1–2.1 s **planning** (3,364 chunks; execution 7 ms)
+  — filed as the daily-rechunk follow-up above; the 60 s verdict-cache TTL
+  covers repeat reads as designed. **9.4** contract unchanged: main-worktree
+  vs slice-branch captures of `mt data status` (full + `--symbol AAPL`)
+  differ only in time-volatile relative ages. **9.5 / criterion 7 proven by
+  induction**, 13/13 steps on a throwaway DB: all four D1 signals fired
+  independently and exactly (`NOT_SCHEDULED`, `LAG_EXCEEDS_THRESHOLD` with
+  lag 5840 d against the ceiling-capped 1 d 4 h threshold — the D4 case,
+  `LAST_RUN_FAILED`, `LAST_SUCCESS_TOO_OLD`), rows returned during every
+  stale verdict (D3a), banner + `--json is_stale` observed firing and
+  clearing through real CLI subprocesses. **9.6 / criterion 5**: never-run
+  policies read fresh after materialization; unmaterialized caggs honestly
+  stale; empty-registry cold start returns 0 rows without error
+  (`test_cold_start.py`); cold-built 12k-symbol DB reads sub-second
+  (section 8).
+
+- **Section 10 close-out (2026-07-27):** suite run per-tier (whole-`test/`
+  collection is still broken by a missing `__init__.py`). Unit:
+  1,520 passed, 3 failed, 35 errors — all pre-existing and none introduced
+  here. The 3 failures are `test_daily.py` + `test_outcomes.py` (the
+  documented `main` baseline) and `test_cli_data.py`, whose "`minute` must
+  not appear in `data --help`" assertion has been stale since slice 166
+  added `mt data rechunk` (verified: the help string is present on `main`).
+  The 35 errors are the three live-DB/DNS files (`test_equity_universe.py`,
+  `test_data_universes.py`, `test_tracking.py`), all failing to resolve the
+  `<db-host>` placeholder. Integration: 30 passed, 6 failed — news/lists
+  tests with no intersection with this slice's diff; `test_cli_lists.py`
+  expects a `priority1` list absent from the untouched
+  `config/symbol-lists.yaml`. All 24 `ephemeral_db` consumers pass, so the
+  `test/conftest.py` move is regression-free. Performance tier: 6 skipped
+  (gated).
+
+  Two **real defects** were found and fixed rather than deferred:
+  1. `test_cagg_freshness.py` froze the wall clock by monkeypatching
+     `cagg_freshness._now`, but `_evaluate` binds `_now` as a **default
+     argument value at import time**, so the patch rebound the module
+     attribute without touching the captured default. The freeze was a
+     silent no-op; `LAST_SUCCESS_TOO_OLD` evaluated against the real clock
+     and began firing spuriously once the fixture's `_NOW` (2026-07-26)
+     aged past the 1-day threshold — i.e. the suite broke at midnight, on a
+     file this slice does not otherwise touch. Fixed by passing the clock
+     explicitly through a `_frozen_evaluate` helper; mutation-verified by
+     moving `_NOW` to 2020, after which all 49 still pass.
+  2. `test_schema_migrations.py::test_migration_count` still asserted 48;
+     this slice adds `046`–`049`. Updated to 52.
+
+  `ruff` on the slice's touched files is at or below the `main` baseline
+  for every file: `minute.py` 23 (two E501s introduced in the migration-048
+  view doc comment were rewrapped away; rendered SQL text unchanged, all 19
+  view-SQL tests pass), `status_table.py` 2 (was 3), `test_status_table.py`
+  3, `test/integration/conftest.py` 6 — all pre-existing. New files
+  (`test/conftest.py`, the load test) and the edited
+  `test_cagg_freshness.py` are clean. `data.py`'s 95 findings remain owned
+  by slice 905.

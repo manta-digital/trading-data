@@ -11,6 +11,11 @@ from datetime import date, timedelta
 from typing import Any
 
 from manta_trading.constants import (
+    COVERAGE_BUCKET_INTERVAL,
+    DAILY_COVERAGE_REFRESH_END_OFFSET,
+    DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
+    DAILY_COVERAGE_REFRESH_START_OFFSET,
+    DAILY_COVERAGE_VIEW,
     DAILY_HISTORY_MONTHS,
     DAILY_STALENESS_THRESHOLD,
     GRANULARITY_SOURCE,
@@ -18,6 +23,11 @@ from manta_trading.constants import (
     MINUTE_CAGG_CHUNK_INTERVAL,
     MINUTE_CAGG_COMPRESS_AFTER,
     MINUTE_CAGG_GRANULARITIES,
+    MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL,
+    MINUTE_COVERAGE_REFRESH_END_OFFSET,
+    MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
+    MINUTE_COVERAGE_REFRESH_START_OFFSET,
+    MINUTE_COVERAGE_VIEW,
     MINUTE_OHLCV_CHUNK_INTERVAL,
     MINUTE_STALENESS_THRESHOLD,
     TRADING_SESSIONS_EXTENSION_YEARS,
@@ -169,7 +179,10 @@ _HISTORY_HORIZON_DISJUNCT = _history_horizon_disjunct()
 
 
 def _build_data_status_view_sql(
-    *, include_daily_branch: bool, include_trading_sessions_cte: bool = False
+    *,
+    include_daily_branch: bool,
+    include_trading_sessions_cte: bool = False,
+    cagg_backed_bars_summary: bool = False,
 ) -> str:
     """Build the data_status view CREATE OR REPLACE statement.
 
@@ -185,8 +198,47 @@ def _build_data_status_view_sql(
     projects ``target_end_ts`` from ``trading_sessions`` via the
     ``exchange_completed_close`` CTE. When False (migrations 021/024),
     ``target_end_ts = NULL`` — the slice-142 stub.
+
+    When ``cagg_backed_bars_summary=True`` (migration 048+, slice 167), the
+    ``bars_summary`` CTE reads the coverage continuous aggregates instead of
+    aggregating the raw hypertables per symbol. Nothing else about the view
+    changes: same CTEs, same joins, same output columns in the same order (D2).
+    The minute branch's timestamps become bucket-truncated as a consequence —
+    documented on the view itself by migration 048's ``COMMENT ON VIEW`` — while
+    the daily branch stays exact, because ``daily_coverage`` reads raw
+    ``daily_ohlcv`` rather than a parent cagg.
     """
-    if include_daily_branch:
+    if cagg_backed_bars_summary:
+        # first_bucket/last_bucket are already per-(symbol, year) extremes, so
+        # the outer MIN/MAX collapse them to per-symbol extremes; SUM(bars)
+        # rolls the per-year counts up the same way.
+        # SUM() over a bigint column yields numeric; cast back to BIGINT so the
+        # bars_stored column keeps the exact type COUNT(*) produced. Without
+        # this, CREATE OR REPLACE VIEW refuses the change outright ("cannot
+        # change data type of view column") -- and the D2 contract would be
+        # broken even if it did not.
+        minute_coverage_branch = (
+            "    SELECT ''minute''::TEXT AS granularity, symbol, "
+            "           MIN(first_bucket)  AS first_bar_ts, "
+            "           MAX(last_bucket)   AS last_bar_ts, "
+            "           SUM(bars)::BIGINT  AS bars_stored "
+            f"    FROM {MINUTE_COVERAGE_VIEW} GROUP BY symbol"
+        )
+        if include_daily_branch:
+            bars_summary_cte = (
+                "bars_summary AS ("
+                "    SELECT ''daily''::TEXT  AS granularity, symbol, "
+                "           MIN(first_bucket)  AS first_bar_ts, "
+                "           MAX(last_bucket)   AS last_bar_ts, "
+                "           SUM(bars)::BIGINT  AS bars_stored "
+                f"    FROM {DAILY_COVERAGE_VIEW} GROUP BY symbol "
+                "    UNION ALL "
+                f"{minute_coverage_branch}"
+                ")"
+            )
+        else:
+            bars_summary_cte = f"bars_summary AS ({minute_coverage_branch})"
+    elif include_daily_branch:
         bars_summary_cte = (
             "bars_summary AS ("
             "    SELECT ''daily''::TEXT  AS granularity, symbol, "
@@ -287,6 +339,63 @@ _DATA_STATUS_VIEW_WITH_DAILY_TS = _build_data_status_view_sql(
 )
 _DATA_STATUS_VIEW_WITHOUT_DAILY_TS = _build_data_status_view_sql(
     include_daily_branch=False, include_trading_sessions_cte=True
+)
+
+def _data_status_doc_comment() -> str:
+    """Render the ``COMMENT ON VIEW data_status`` text for migration 048.
+
+    Built from the coverage constants rather than literals, so the documented
+    bounds cannot drift from the policies actually installed by 047. Criterion 4
+    is verified by reading this back via ``obj_description``.
+
+    Single-quoted for embedding in the migration's DO block, hence the doubled
+    quotes throughout — same escaping convention as the view builder.
+    """
+    minute_lag = _interval_literal(
+        MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL
+        + MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+    )
+    return (
+        "data_status: per-symbol acquisition health. "
+        "bars_summary (first_bar_ts, last_bar_ts, bars_stored) derives from the "
+        f"{MINUTE_COVERAGE_VIEW} and {DAILY_COVERAGE_VIEW} continuous "
+        "aggregates as of slice 167, not from a per-symbol scan of the raw "
+        "hypertables. Two documented bounds apply. "
+        "(1) BUCKET TRUNCATION: minute first_bar_ts/last_bar_ts are truncated "
+        "to the 4-hour parent-cagg bucket start, so they may read up to 4 hours "
+        "earlier than the true first/last bar; daily timestamps are EXACT, "
+        f"because {DAILY_COVERAGE_VIEW} reads raw daily_ohlcv rather than a "
+        "parent cagg. bars_stored is exact on both branches. "
+        "(2) CAGG LAG: coverage trails raw ingest by at most the two-hop "
+        "refresh interval -- "
+        f"{_interval_literal(MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL)} "
+        "for the parent 4-hour cagg plus "
+        f"{_interval_literal(MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} "
+        f"for {MINUTE_COVERAGE_VIEW} ({minute_lag} total); "
+        f"{_interval_literal(DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} for "
+        f"{DAILY_COVERAGE_VIEW}, which reads raw and so has one hop. "
+        "Refresh policies use start_offset "
+        f"{_interval_literal(MINUTE_COVERAGE_REFRESH_START_OFFSET)} / end_offset "
+        f"{_interval_literal(MINUTE_COVERAGE_REFRESH_END_OFFSET)} (minute) and "
+        f"{_interval_literal(DAILY_COVERAGE_REFRESH_START_OFFSET)} / "
+        f"{_interval_literal(DAILY_COVERAGE_REFRESH_END_OFFSET)} (daily). "
+        "FRESHNESS IS NOT ASSERTED IN SQL: readers must go through "
+        "data.maintenance.status_coverage, which calls assert_cagg_fresh on "
+        "both coverage caggs and reports staleness to the operator. Querying "
+        "this view directly bypasses that guard."
+    )
+
+
+# Slice 167 rewrite: bars_summary reads the coverage caggs (migration 048)
+_DATA_STATUS_VIEW_WITH_DAILY_COVERAGE = _build_data_status_view_sql(
+    include_daily_branch=True,
+    include_trading_sessions_cte=True,
+    cagg_backed_bars_summary=True,
+)
+_DATA_STATUS_VIEW_WITHOUT_DAILY_COVERAGE = _build_data_status_view_sql(
+    include_daily_branch=False,
+    include_trading_sessions_cte=True,
+    cagg_backed_bars_summary=True,
 )
 
 
@@ -1723,5 +1832,193 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         ),
         "requires_autocommit": True,
         "python_fn": _setup_minute_cagg_columnstore,
+    },
+    {
+        "id": "046_create_coverage_caggs",
+        "description": (
+            "Create the two coverage continuous aggregates backing "
+            "data_status.bars_summary (slice 167): minute_coverage over the "
+            "minute_4hour_ohlcv cagg (HIERARCHICAL) and daily_coverage over "
+            "raw daily_ohlcv. Both bucket at COVERAGE_BUCKET_INTERVAL (1 year), "
+            "so bars_summary groups ~15k rows instead of scanning 4.4B raw "
+            "minute rows. "
+            "ASYMMETRY, deliberate: minute_coverage's source is a 4-hour cagg, "
+            "so its first_bucket/last_bucket are truncated to the parent's "
+            "4-hour bucket start; daily_coverage reads the raw hypertable, so "
+            "its first_ts/last_ts are EXACT. Slice 167 D3/D7 documents this, "
+            "the view doc comment states it, and the equivalence tests assert "
+            "the stricter condition on the daily branch. "
+            "Each view is a separate execute() call — Timescale forbids "
+            "multiple continuous-aggregate DDL statements in one call."
+        ),
+        # Same constraint as 033/034: one CREATE MATERIALIZED VIEW per
+        # execute(), outside an implicit transaction.
+        "requires_autocommit": True,
+        "python_fn": lambda conn: [
+            conn.execute(sql)
+            for sql in [
+                # The bucket column is named time_bucket, matching all seven
+                # pre-167 caggs. This is load-bearing, not cosmetic: slice 168's
+                # _cagg_max probes max(time_bucket) by name, so a differently
+                # named column makes assert_cagg_fresh fail its probe and report
+                # PROBE_FAILED -- a permanently stale verdict on a healthy cagg.
+                f"""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS {MINUTE_COVERAGE_VIEW}
+                WITH (timescaledb.continuous) AS
+                SELECT
+                    time_bucket(
+                        {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
+                        time_bucket
+                    ) AS time_bucket,
+                    symbol,
+                    SUM(minute_count) AS bars,
+                    MIN(time_bucket)  AS first_bucket,
+                    MAX(time_bucket)  AS last_bucket
+                FROM minute_4hour_ohlcv
+                GROUP BY 1, symbol
+                """,
+                f"""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS {DAILY_COVERAGE_VIEW}
+                WITH (timescaledb.continuous) AS
+                SELECT
+                    time_bucket(
+                        {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
+                        time
+                    ) AS time_bucket,
+                    symbol,
+                    COUNT(*)  AS bars,
+                    MIN(time) AS first_bucket,
+                    MAX(time) AS last_bucket
+                FROM daily_ohlcv
+                GROUP BY 1, symbol
+                """,
+            ]
+        ],
+    },
+    {
+        "id": "047_coverage_cagg_refresh_policies",
+        "description": (
+            "Install refresh policies for the two coverage caggs (slice 167 "
+            "D4). Offsets come from constants measured against the parent "
+            "policies on prod, never literals: minute_coverage's start_offset "
+            "must exceed the parent minute_4hour_ohlcv policy's entire refresh "
+            "window (1 day) with margin, because a too-narrow start_offset on "
+            "a hierarchical cagg strands older history permanently — the exact "
+            "failure slice 163 had to repair. Idempotent — policies are added "
+            "inside a DO block that checks for existing jobs first, matching "
+            "035/037."
+        ),
+        "sql": f"""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM timescaledb_information.jobs
+                    WHERE hypertable_name = '{MINUTE_COVERAGE_VIEW}'
+                      AND proc_name = 'policy_refresh_continuous_aggregate'
+                ) THEN
+                    PERFORM add_continuous_aggregate_policy(
+                        '{MINUTE_COVERAGE_VIEW}',
+                        start_offset =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_START_OFFSET
+                            )},
+                        end_offset =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_END_OFFSET
+                            )},
+                        schedule_interval =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM timescaledb_information.jobs
+                    WHERE hypertable_name = '{DAILY_COVERAGE_VIEW}'
+                      AND proc_name = 'policy_refresh_continuous_aggregate'
+                ) THEN
+                    PERFORM add_continuous_aggregate_policy(
+                        '{DAILY_COVERAGE_VIEW}',
+                        start_offset =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_START_OFFSET
+                            )},
+                        end_offset =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_END_OFFSET
+                            )},
+                        schedule_interval =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
+                END IF;
+            END $$;
+        """,
+    },
+    {
+        "id": "048_data_status_cagg_backed",
+        "description": (
+            "Rewrite data_status so bars_summary reads the coverage caggs "
+            "created in 046 instead of scanning raw minute_ohlcv/daily_ohlcv "
+            "per symbol (slice 167). Everything outside the bars_summary CTE "
+            "is byte-identical to the 028 variant — same CTEs, joins, health "
+            "CASE, and output columns in the same order (D2). "
+            "Branches on to_regclass the same way 028 does, so cold-start and "
+            "existing DBs converge on one definition. Also attaches the D3 doc "
+            "comment stating both documented bounds (bucket truncation and "
+            "cagg lag) with the intervals rendered from the constants."
+        ),
+        "sql": f"""
+            DO $$ BEGIN
+                IF to_regclass('public.daily_ohlcv') IS NOT NULL THEN
+                    EXECUTE '{_DATA_STATUS_VIEW_WITH_DAILY_COVERAGE}';
+                ELSE
+                    EXECUTE '{_DATA_STATUS_VIEW_WITHOUT_DAILY_COVERAGE}';
+                END IF;
+
+                EXECUTE 'COMMENT ON VIEW data_status IS '
+                     || quote_literal('{_data_status_doc_comment()}');
+            END $$;
+        """,
+    },
+    {
+        "id": "049_coverage_cagg_bucket_column_rename",
+        "description": (
+            "Rename the coverage caggs' bucket column yr_bucket -> time_bucket "
+            "(slice 167 defect fix). Slice 168's assert_cagg_fresh probes "
+            "max(time_bucket) by column NAME, so a cagg whose bucket column is "
+            "named anything else fails the probe and returns PROBE_FAILED — a "
+            "permanently stale verdict on a perfectly healthy cagg, which "
+            "would make the D3a guard useless exactly where this slice needs "
+            "it. All seven pre-167 caggs already use time_bucket; this aligns "
+            "046's two with that convention. "
+            "Corrective rather than folded into 046 because 046 shipped to "
+            "production before the defect was found, and CREATE MATERIALIZED "
+            "VIEW IF NOT EXISTS will not revise an existing cagg. Cheap: a "
+            "catalog rename, no re-materialization. Idempotent — each rename "
+            "is guarded on the old column still being present. data_status "
+            "does not reference this column (it reads first_bucket/"
+            "last_bucket), so the view needs no rebuild."
+        ),
+        "sql": f"""
+            DO $$
+            DECLARE
+                cov TEXT;
+            BEGIN
+                FOREACH cov IN ARRAY ARRAY[
+                    '{MINUTE_COVERAGE_VIEW}', '{DAILY_COVERAGE_VIEW}'
+                ]
+                LOOP
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = cov AND column_name = 'yr_bucket'
+                    ) THEN
+                        EXECUTE format(
+                            'ALTER MATERIALIZED VIEW %I RENAME COLUMN '
+                            'yr_bucket TO time_bucket', cov
+                        );
+                    END IF;
+                END LOOP;
+            END $$;
+        """,
     },
 ]

@@ -1,4 +1,8 @@
-"""Shared fixtures for integration tests."""
+"""Shared fixtures for integration tests.
+
+The ``ephemeral_db`` fixture lives in ``test/conftest.py`` (shared with the
+load tier); only integration-specific fixtures belong here.
+"""
 
 from __future__ import annotations
 

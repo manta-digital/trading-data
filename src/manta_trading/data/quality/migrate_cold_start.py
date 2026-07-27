@@ -13,6 +13,10 @@ import httpx
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from manta_trading.data.maintenance.status_coverage import (
+    DATA_STATUS_RELATION,
+    query_data_status,
+)
 from manta_trading.logging import get_logger
 from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
 from manta_trading.market.schema.runner import apply_migrations
@@ -292,20 +296,31 @@ def run_post_flight(pool: ConnectionPool) -> dict[str, object]:
     """
     results: dict[str, object] = {}
     with pool.connection() as conn:
+        # data_status is cagg-derived (slice 167), so its count goes through the
+        # guarded accessor. On a cold start the coverage caggs are legitimately
+        # never-refreshed rather than stale; slice 168's never-run semantics
+        # distinguish the two, so this must not report false staleness here.
+        status_rows, freshness = query_data_status(
+            conn, f"SELECT COUNT(*) FROM {DATA_STATUS_RELATION}"
+        )
+        results["data_status_count"] = (
+            int(status_rows[0][0]) if status_rows else 0
+        )
+        results["coverage_stale"] = freshness.is_stale
+        results["coverage_freshness"] = freshness.describe()
+
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM data_gaps")
             row = cur.fetchone()
             results["data_gaps_count"] = int(row[0]) if row else 0
 
-            cur.execute("SELECT COUNT(*) FROM data_status")
-            row = cur.fetchone()
-            results["data_status_count"] = int(row[0]) if row else 0
-
             cur.execute("SELECT COUNT(*) FROM instruments")
             row = cur.fetchone()
             results["instruments_count"] = int(row[0]) if row else 0
 
-            cur.execute("EXPLAIN SELECT * FROM data_status LIMIT 1")
+            # EXPLAIN, not a read of the data — deliberately left outside the
+            # guard: it inspects the plan shape and returns no coverage rows.
+            cur.execute(f"EXPLAIN SELECT * FROM {DATA_STATUS_RELATION} LIMIT 1")
             plan_lines = [str(r[0]) for r in cur.fetchall()]
             results["data_status_plan"] = plan_lines
             results["plan_has_function_scan"] = any(

@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260725
+dateUpdated: 20260726
 status: in_progress
 ---
 
@@ -19,6 +19,116 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260726 — A guard is not deployed until it has been *observed firing*: slice 167 shipped a freshness check to prod that could never pass, plus three constraints TimescaleDB imposes on wide-bucket caggs
+
+**Context:** Slice 167 replaces `data_status.bars_summary`'s per-symbol scan of raw
+`minute_ohlcv` with two coverage caggs, and its central safety property (D3a, inherited
+from the 163 incident) is that every read asserts cagg freshness via slice 168's
+`assert_cagg_fresh`. Migrations 046–048 were applied to production after the migration
+tests passed. The guard itself had never been executed end-to-end against a real database.
+
+It could not have worked. `assert_cagg_fresh` probes a cagg's leading edge with
+`max(time_bucket)` — **by column name**. The new coverage caggs named their bucket column
+`yr_bucket`, so every probe raised `UndefinedColumn`, which the helper correctly maps to
+`PROBE_FAILED`, which is by design a *stale* verdict. The result on production: a guard
+that reported the caggs permanently stale, on caggs that were in fact perfectly healthy —
+the precise inversion of the property the slice exists to deliver. It surfaced only when a
+cold-start test exercised the guard for real rather than against a stub, and was fixed by
+migration 049 (a catalog-only column rename, ~0.1 s, no re-materialization).
+
+A second defect of the same family was found in the same pass: `minute_coverage`'s
+freshness source had been set to its *parent cagg* `minute_4hour_ohlcv`. That is wrong
+twice — `_raw_max` probes `max(time)`, which only a raw hypertable has, and measuring
+against an intermediate would let a stalled parent leave the coverage cagg looking fresh
+while `data_status` served months-old coverage.
+
+**Decision:**
+
+1. **A guard, assertion, or refusal path is not "delivered" until a test has watched it
+   both pass and fire against a real database.** Migrations applying cleanly is evidence
+   about migrations, not about the invariant they exist to enable. This extends the
+   20260725 "test rendered output, not inputs" rule from values to *control flow*: the
+   asserted-input analogue for a guard is "the code that calls it ran without raising."
+2. **Deploy order for a slice whose value is a safety property: exercise the property
+   locally, then deploy.** Prod application is not the cheap step it appears to be when
+   the thing being validated is the guard rather than the schema.
+3. **Any consumer of a by-name probe inherits a naming contract.** Where a helper resolves
+   columns, tables, or jobs by literal name, a new object that helper will inspect must
+   adopt the existing convention. All seven pre-167 caggs used `time_bucket`; the two new
+   ones diverged for local readability and broke the contract silently. Prefer the
+   convention over the clearer local name.
+4. **Freshness is measured against raw, not against an intermediate**, for any derived
+   object in a multi-hop chain. The verdict must cover the whole chain to reality, which
+   is also the bound the consumer documents.
+
+**Rationale:** The failure mode is the one this journal keeps rediscovering under
+different disguises — *silent, self-hiding, and invisible to its own checks* (20260719
+background jobs, 20260725 re-pull loop, 20260725 rendered SQL). What makes this instance
+worth its own entry is that the broken thing **was the detector**. Every prior entry
+assumed a guard, once written, would report honestly; here the guard's failure mode was
+indistinguishable from the condition it watches for, and it defaulted to the safe-looking
+answer ("stale"), which on an operator-facing read is a permanent false alarm rather than
+an outage. A guard that cries wolf constantly is functionally equivalent to no guard,
+because it trains the operator to ignore it.
+
+The near-miss is worth naming: had the coverage caggs been genuinely stale at any point
+before the defect was found, the guard would have reported it correctly *by accident*, and
+the bug would have survived indefinitely behind a plausible-looking verdict.
+
+### Three TimescaleDB constraints on wide-bucket caggs (measured, 2.21.3 / 2.23.0)
+
+Recorded because all three were discovered at implementation, not design, and each
+invalidated a decision the slice design had already fixed:
+
+- **A refresh policy's window must span ≥ 2 bucket widths.**
+  `add_continuous_aggregate_policy` rejects anything narrower with
+  `InvalidParameterValue: policy refresh window too small`. A refresh only re-materializes
+  buckets *fully contained* in `[now − start_offset, now − end_offset]`; a narrower window
+  can slide into a position containing no whole bucket and silently refresh nothing.
+  With a 1-year bucket the floor is `2 × 365 d + end_offset` — measured exactly: **730 days
+  rejected, 731 accepted**. This never bound the pre-167 caggs because each has a bucket far
+  *smaller* than its offsets (4 h bucket / 1 day offset; 3-month bucket / 270-day offset).
+  A wide bucket inverts that ratio, and the D4 reasoning — "cover the parent's refresh
+  window plus margin," which suggested ~30 days — is simply unreachable.
+- **The same two-bucket rule applies to manual `refresh_continuous_aggregate`**, and
+  calendar-aligned windows do not satisfy it: a one-calendar-year window does not contain a
+  whole 365-day bucket, because fixed-width buckets do not align to calendar years.
+- **`CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` materializes on creation**
+  unless `WITH NO DATA` is given. Migration 046's 40 seconds was not "creating two caggs" —
+  it was backfilling 22 years of coverage for 11,625 symbols. Cheap here only because the
+  hierarchical source is the small 4h cagg; the same statement over a raw source would be a
+  very different operation applied unannounced to production.
+
+**Corollary on scale claims (reinforces 20260720):** the 4h cagg's row count was asserted
+in-session as ~1.2 B, a figure carried over from the discredited set the 20260720 entry
+explicitly retired. Simple arithmetic refutes it — a 4-hour bucket admits at most ~2–3 rows
+per symbol per trading day, so the cagg is orders of magnitude below raw. The real leverage
+is smaller still and only known by measuring: **`minute_coverage` is 102,770 rows**
+(11,625 symbols × ~9 year-buckets), which is why grouping it is sub-millisecond. A number
+recorded as "wrong" in this journal is not thereby unavailable to a future reader — it must
+be re-measured, never recalled.
+
+**Outcome on production:** guard verified firing correctly post-049 (`fresh=True`,
+`lag=0:00:00` against real thresholds on both caggs); `data_status` full-universe read
+**7.8 s → 198 ms**; coverage parity exact on both branches (`minute_coverage`
+`SUM(bars)` = 4,412,419,648 matching the 4h cagg; `daily_coverage` = 34,223,492 matching raw
+`daily_ohlcv`).
+
+**Follow-ups:**
+
+- Migration 049 is the corrective rename; 046 carries an inline comment stating that the
+  `time_bucket` name is load-bearing, not cosmetic, so it is not "tidied" later.
+- `COVERAGE_SOURCE_TABLE` (constants.py) documents why both coverage caggs measure against
+  raw hypertables despite one being hierarchical.
+- `COVERAGE_REFRESH_MIN_WINDOW_BUCKETS` encodes the two-bucket rule as a unit-tested
+  constraint, so a future change to `COVERAGE_BUCKET_INTERVAL` fails at test time rather
+  than at migration time against a live database.
+- **Open:** slice 167's task 9.5 (prove the guard fires by *inducing* staleness on a
+  throwaway DB) is now the load-bearing verification for this entry's rule 1 — reading code
+  or asserting the helper is merely *called* does not satisfy it.
+- Slice 182 must read through `data/maintenance/status_coverage.py`; the enforcement is a
+  grep asserting no `FROM data_status` survives outside that module.
 
 ## 20260725 — ADR: design rules for the next storage tier (tick), derived from what minute cost us
 

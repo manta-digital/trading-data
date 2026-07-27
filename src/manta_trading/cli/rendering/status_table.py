@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from datetime import date, datetime, timezone
-from enum import StrEnum
+from datetime import date, datetime, timedelta, timezone
+from enum import Enum, StrEnum
 from typing import Any
 
 from rich.console import RenderableType
@@ -17,7 +17,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from manta_trading.data.maintenance.auto_extend import AutoExtendResult
-
+from manta_trading.data.maintenance.status_coverage import CoverageFreshness
 
 # ---------------------------------------------------------------------------
 # Health and fetch-status constants
@@ -91,6 +91,13 @@ class StatusReport:
     gaps: list[GapRow]
     auto_extend: AutoExtendResult | None
     summary: dict[str, int]
+    coverage: CoverageFreshness | None = None
+    """Freshness of the caggs behind ``bars_summary`` (slice 167 D6).
+
+    Defaulted to None so callers that do not read ``data_status`` through the
+    guarded accessor still construct a valid report; None renders as no banner
+    and a null JSON key, never as "fresh".
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +262,45 @@ def render_status_detail(report: StatusReport) -> list[RenderableType]:
     return renderables
 
 
+COVERAGE_STALE_LABEL = "OUT OF DATE"
+"""Operator-facing wording for stale coverage.
+
+Deliberately *not* the word "STALE": ``HealthStatus.STALE`` is a per-symbol
+health value that appears in the same output (rows and footer) meaning
+something entirely different — one symbol's data is behind, versus the whole
+coverage cagg being behind. Two senses of one word on one screen is the kind of
+ambiguity that costs an operator real time during an incident.
+
+This is a display label only. Nothing branches on it; ``CoverageFreshness
+.is_stale`` is the logical signal.
+"""
+
+
+def render_coverage_notice(coverage: CoverageFreshness | None) -> str | None:
+    """Return an out-of-date-coverage warning, or None when fresh/unknown.
+
+    Deliberately a banner rather than a column: the ``data_status`` column
+    contract is fixed (slice 167 D2), and freshness describes the whole
+    ``bars_summary`` CTE rather than any single row.
+
+    Rendered *above* the tables by the caller. Out-of-date coverage understates
+    bar counts and last_bar timestamps — and ``health`` is derived from those
+    same numbers — so an operator has to see this before reading the values it
+    qualifies, not after scrolling past them.
+    """
+    if coverage is None or not coverage.is_stale:
+        return None
+    stale_names = ", ".join(v.view_name for v in coverage.stale_verdicts)
+    return (
+        f"[yellow]Warning:[/yellow] coverage is {COVERAGE_STALE_LABEL} "
+        f"({stale_names}). bars, first_bar and last_bar may understate reality, "
+        "and health is derived from them; gap and attempt columns are "
+        "unaffected.\n"
+        f"  {coverage.describe()}\n"
+        "  Coverage catch-up is runbook R2; `mt data caggs verify` for detail."
+    )
+
+
 def render_auto_extend_notice(result: AutoExtendResult) -> str | None:
     """Return a notice string when triggered or on error; None if no-op."""
     if result.error is not None:
@@ -287,6 +333,12 @@ def _json_default(obj: Any) -> Any:
         return obj.isoformat()
     if isinstance(obj, date):
         return obj.isoformat()
+    # Coverage freshness (slice 167) carries lag/threshold as timedelta and
+    # signals as StalenessSignal; both reach here via the nested dataclass.
+    if isinstance(obj, timedelta):
+        return obj.total_seconds()
+    if isinstance(obj, Enum):
+        return obj.value
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
@@ -295,6 +347,14 @@ def status_report_to_json(report: StatusReport) -> str:
 
     Dates/datetimes → ISO-8601 strings; None → JSON null.
     auto_extend.error is included as a field when present.
+
+    ``coverage`` is a sibling of ``rows``, never a per-row field — the column
+    contract is fixed (slice 167 D2) and freshness is a property of the whole
+    result. ``is_stale`` is emitted explicitly because it is a property rather
+    than a field, so ``asdict`` would otherwise drop it and force consumers to
+    re-derive staleness by scanning verdicts.
     """
     d = dataclasses.asdict(report)
+    if report.coverage is not None:
+        d["coverage"]["is_stale"] = report.coverage.is_stale
     return json.dumps(d, default=_json_default, indent=2)
