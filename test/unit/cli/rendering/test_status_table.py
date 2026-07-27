@@ -16,12 +16,18 @@ from manta_trading.cli.rendering.status_table import (
     StatusRow,
     _humanize_ts,
     render_auto_extend_notice,
+    render_coverage_notice,
     render_status_detail,
     render_status_footer,
     render_status_summary,
     status_report_to_json,
 )
 from manta_trading.data.maintenance.auto_extend import AutoExtendResult
+from manta_trading.data.maintenance.status_coverage import CoverageFreshness
+from manta_trading.market.maintenance.cagg_freshness import (
+    FreshnessVerdict,
+    StalenessSignal,
+)
 
 _NOW = datetime.now(timezone.utc)
 _TODAY = date.today()
@@ -312,3 +318,133 @@ def test_auto_extend_notice_noop() -> None:
     ae = AutoExtendResult(triggered=False, error=None)
     notice = render_auto_extend_notice(ae)
     assert notice is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage freshness notice + JSON (slice 167 section 6)
+# ---------------------------------------------------------------------------
+
+
+def make_verdict(
+    view_name: str = "minute_coverage",
+    *,
+    is_fresh: bool = True,
+    signal: StalenessSignal = StalenessSignal.LAG_EXCEEDS_THRESHOLD,
+    lag: timedelta | None = None,
+) -> FreshnessVerdict:
+    return FreshnessVerdict(
+        view_name=view_name,
+        is_fresh=is_fresh,
+        signals=() if is_fresh else (signal,),
+        lag=lag if lag is not None else timedelta(0),
+        threshold=timedelta(days=1),
+        detail="test verdict",
+    )
+
+
+def test_coverage_notice_none_when_unknown() -> None:
+    """No guard result must never render as a reassuring 'fresh'."""
+    assert render_coverage_notice(None) is None
+
+
+def test_coverage_notice_none_when_fresh() -> None:
+    coverage = CoverageFreshness(
+        verdicts=(make_verdict("minute_coverage"), make_verdict("daily_coverage"))
+    )
+    assert render_coverage_notice(coverage) is None
+
+
+def test_coverage_notice_names_only_stale_cagg() -> None:
+    coverage = CoverageFreshness(
+        verdicts=(
+            make_verdict("minute_coverage", is_fresh=False, lag=timedelta(days=3)),
+            make_verdict("daily_coverage"),
+        )
+    )
+    notice = render_coverage_notice(coverage)
+    assert notice is not None
+    assert "STALE" in notice
+    assert "minute_coverage" in notice
+    # The healthy cagg must not be implicated in the warning.
+    assert "daily_coverage" not in notice
+
+
+def test_coverage_notice_reports_signal_and_remediation() -> None:
+    coverage = CoverageFreshness(
+        verdicts=(
+            make_verdict(
+                "daily_coverage",
+                is_fresh=False,
+                signal=StalenessSignal.NOT_SCHEDULED,
+                lag=timedelta(days=9),
+            ),
+        )
+    )
+    notice = render_coverage_notice(coverage)
+    assert notice is not None
+    assert StalenessSignal.NOT_SCHEDULED.value in notice
+    # Points at the runbook rather than offering to remediate on a read path.
+    assert "R2" in notice
+
+
+def test_coverage_notice_scopes_the_claim_to_affected_columns() -> None:
+    """Stale coverage affects bars_summary only; gap/attempt columns are raw."""
+    coverage = CoverageFreshness(
+        verdicts=(make_verdict("minute_coverage", is_fresh=False),)
+    )
+    notice = render_coverage_notice(coverage)
+    assert notice is not None
+    assert "bars" in notice
+    assert "unaffected" in notice
+
+
+def test_json_coverage_is_sibling_of_rows_not_a_column() -> None:
+    """D2: the column contract is fixed — freshness must not enter a row."""
+    coverage = CoverageFreshness(
+        verdicts=(make_verdict("minute_coverage", is_fresh=False),)
+    )
+    report = make_report()
+    report.coverage = coverage
+    payload = json.loads(status_report_to_json(report))
+
+    assert payload["coverage"]["is_stale"] is True
+    for row in payload["rows"]:
+        assert "coverage" not in row
+        assert "is_stale" not in row
+
+
+def test_json_coverage_serializes_timedelta_and_enum() -> None:
+    """lag/threshold are timedelta and signals are StrEnum; neither is JSON-native."""
+    coverage = CoverageFreshness(
+        verdicts=(
+            make_verdict(
+                "minute_coverage",
+                is_fresh=False,
+                signal=StalenessSignal.NOT_SCHEDULED,
+                lag=timedelta(hours=6),
+            ),
+        )
+    )
+    report = make_report()
+    report.coverage = coverage
+    verdict = json.loads(status_report_to_json(report))["coverage"]["verdicts"][0]
+
+    assert verdict["lag"] == timedelta(hours=6).total_seconds()
+    assert verdict["threshold"] == timedelta(days=1).total_seconds()
+    assert verdict["signals"] == [StalenessSignal.NOT_SCHEDULED.value]
+
+
+def test_json_coverage_null_when_absent() -> None:
+    payload = json.loads(status_report_to_json(make_report()))
+    assert payload["coverage"] is None
+
+
+def test_json_coverage_is_stale_false_when_fresh() -> None:
+    report = make_report()
+    report.coverage = CoverageFreshness(verdicts=(make_verdict("minute_coverage"),))
+    assert json.loads(status_report_to_json(report))["coverage"]["is_stale"] is False
+
+
+def test_status_report_coverage_defaults_to_none() -> None:
+    """Callers predating the guard still construct a valid report."""
+    assert make_report().coverage is None

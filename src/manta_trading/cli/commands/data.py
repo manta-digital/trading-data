@@ -709,6 +709,7 @@ def data_status(
         HealthStatus,
         StatusReport,
         render_auto_extend_notice,
+        render_coverage_notice,
         render_status_detail,
         render_status_footer,
         render_status_summary,
@@ -716,8 +717,9 @@ def data_status(
     )
     from manta_trading.data.maintenance.auto_extend import maybe_extend_trading_sessions
     from manta_trading.data.maintenance.status_queries import (
-        fetch_all_health_counts,
+        fetch_all_health_counts_with_freshness,
         fetch_status_rows,
+        fetch_status_rows_with_freshness,
         fetch_symbol_gaps,
     )
 
@@ -760,25 +762,41 @@ def data_status(
     auto_result = maybe_extend_trading_sessions(_conn_factory, bypass_gate=True)
 
     with _conn_factory() as conn:
-        status_rows = fetch_status_rows(
+        # Freshness comes from the row fetch; the health-count fetch re-asserts
+        # against slice 168's TTL verdict cache, so one guard result describes
+        # both and the second probe stays cheap.
+        status_rows, coverage = fetch_status_rows_with_freshness(
             conn,
             symbol=symbol,
             health_filter=health_filter,
             granularity=granularity_filter,
         )
-        health_counts = fetch_all_health_counts(conn)
+        health_counts, _ = fetch_all_health_counts_with_freshness(conn)
         gaps = fetch_symbol_gaps(conn, symbol) if symbol else []
 
 
-    # Empty-universe path.
-    if not status_rows and symbol is None:
-        msg = "No instruments found. Run `mt data instruments rebuild` to populate the registry."
+    # A no-row result is exactly when a stale-coverage verdict matters most: it
+    # may be *why* the rows look absent. Both empty paths carry it rather than
+    # reporting "no data" as though it were established fact.
+    def _emit_empty(msg: str, **extra: object) -> None:
         if json_output:
             import json as _json
-            import sys
-            print(_json.dumps({"message": msg}))
-        else:
-            print_result(msg, json_mode=False)
+
+            payload: dict[str, object] = {"message": msg, **extra}
+            if coverage is not None:
+                payload["coverage_stale"] = coverage.is_stale
+            print(_json.dumps(payload))
+            return
+        notice = render_coverage_notice(coverage)
+        if notice:
+            Console().print(notice)
+        print_result(msg, json_mode=False)
+
+    # Empty-universe path.
+    if not status_rows and symbol is None:
+        _emit_empty(
+            "No instruments found. Run `mt data instruments rebuild` to populate the registry."
+        )
         raise typer.Exit(0)
 
     # Unknown symbol / no-match path.
@@ -800,11 +818,7 @@ def data_status(
                 f"No data_status row for {symbol}. "
                 "Is the symbol in the instruments registry?"
             )
-        if json_output:
-            import json as _json
-            print(_json.dumps({"message": msg, "symbol": symbol}))
-        else:
-            print_result(msg, json_mode=False)
+        _emit_empty(msg, symbol=symbol)
         raise typer.Exit(0)
 
     report = StatusReport(
@@ -814,6 +828,7 @@ def data_status(
         gaps=gaps,
         auto_extend=auto_result,
         summary=health_counts,
+        coverage=coverage,
     )
 
     if json_output:
@@ -821,6 +836,14 @@ def data_status(
         return
 
     console = Console()
+
+    # Above the tables, not in the footer: stale coverage understates the very
+    # numbers below it, so it has to be read before them. Reports, never
+    # refuses (slice 167 D3a) — exit code stays 0.
+    coverage_notice = render_coverage_notice(coverage)
+    if coverage_notice:
+        console.print(coverage_notice)
+
     if symbol:
         for renderable in render_status_detail(report):
             console.print(renderable)
