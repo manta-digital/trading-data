@@ -167,7 +167,8 @@ class TestMigrationsListIntegrity:
         assert filtered == sorted(filtered)
 
     def test_migration_count(self):
-        assert len(MIGRATIONS) == 48
+        # 048 -> 052 with the slice 167 coverage caggs (046-049).
+        assert len(MIGRATIONS) == 52
 
 
 # ---------------------------------------------------------------------------

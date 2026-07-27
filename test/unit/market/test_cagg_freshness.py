@@ -22,7 +22,6 @@ from manta_trading.constants import (
     CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT,
     MAX_COVERAGE_SOURCE_STALENESS,
 )
-from manta_trading.market.maintenance import cagg_freshness
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
     StalenessSignal,
@@ -427,10 +426,16 @@ class _RaisingCursor(_RecordingCursor):
             raise psycopg.OperationalError("canceling statement due to timeout")
 
 
-@pytest.fixture(autouse=True)
-def _frozen_clock(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Freeze _evaluate's wall clock so LAST_SUCCESS_TOO_OLD is deterministic."""
-    monkeypatch.setattr(cagg_freshness, "_now", lambda: _NOW)
+def _frozen_evaluate(conn: Any, view_name: str) -> FreshnessVerdict:
+    """Evaluate with the wall clock frozen at _NOW.
+
+    The clock must be passed explicitly: ``_evaluate`` binds ``_now`` as a
+    default argument value at import time, so monkeypatching the module
+    attribute rebinds the name without touching the captured default — a
+    silent no-op that let LAST_SUCCESS_TOO_OLD fire off the real clock once
+    _NOW aged past the threshold.
+    """
+    return _evaluate(conn, view_name, now=lambda: _NOW)
 
 
 class TestEvaluateSignals:
@@ -438,7 +443,7 @@ class TestEvaluateSignals:
 
     def test_healthy_cagg_is_fresh(self) -> None:
         # Criterion 4: no false positive on a healthy cagg.
-        verdict = _evaluate(_EvalConnection(), _VIEW)  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(_EvalConnection(), _VIEW)  # type: ignore[arg-type]
         assert verdict.is_fresh is True
         assert verdict.signals == ()
         # Both edges are bucket starts, so a healthy cagg has zero lag — the
@@ -447,7 +452,7 @@ class TestEvaluateSignals:
 
     def test_lag_exceeding_threshold_trips(self) -> None:
         # Raw ran four days past the cagg edge — the 163 incident's lag shape.
-        verdict = _evaluate(  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(  # type: ignore[arg-type]
             _EvalConnection(cagg_max=_NOW - timedelta(days=4)), _VIEW
         )
         assert verdict.is_fresh is False
@@ -455,12 +460,12 @@ class TestEvaluateSignals:
 
     def test_paused_policy_trips(self) -> None:
         # The exact 163 incident: job 1003 left scheduled=false.
-        verdict = _evaluate(_EvalConnection(scheduled=False), _VIEW)  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(_EvalConnection(scheduled=False), _VIEW)  # type: ignore[arg-type]
         assert verdict.is_fresh is False
         assert StalenessSignal.NOT_SCHEDULED in verdict.signals
 
     def test_stale_last_success_trips(self) -> None:
-        verdict = _evaluate(  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(  # type: ignore[arg-type]
             _EvalConnection(last_successful_finish=_NOW - timedelta(days=5)), _VIEW
         )
         assert verdict.is_fresh is False
@@ -469,12 +474,12 @@ class TestEvaluateSignals:
     def test_failing_last_run_trips(self) -> None:
         # Scheduled and firing, but failing every time — a scheduled-only check
         # reports this as healthy.
-        verdict = _evaluate(_EvalConnection(last_run_status="Failed"), _VIEW)  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(_EvalConnection(last_run_status="Failed"), _VIEW)  # type: ignore[arg-type]
         assert verdict.is_fresh is False
         assert StalenessSignal.LAST_RUN_FAILED in verdict.signals
 
     def test_every_signal_that_fired_is_collected(self) -> None:
-        verdict = _evaluate(  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(  # type: ignore[arg-type]
             _EvalConnection(
                 scheduled=False,
                 last_run_status="Failed",
@@ -501,7 +506,7 @@ class TestEvaluateIndeterminate:
         # new cagg, not a stalled one — signalling on it would refuse reads on
         # every freshly-built cagg. Actual currency is still covered by the lag
         # signal, which does not depend on job history.
-        verdict = _evaluate(  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(  # type: ignore[arg-type]
             _EvalConnection(last_successful_finish=None, last_run_status=None),
             _VIEW,
         )
@@ -511,7 +516,7 @@ class TestEvaluateIndeterminate:
     def test_never_run_policy_still_trips_on_lag(self) -> None:
         # The cold-start exemption must not become a blind spot: a policy that
         # has never run AND whose cagg is behind is still stale.
-        verdict = _evaluate(  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(  # type: ignore[arg-type]
             _EvalConnection(
                 last_successful_finish=None,
                 last_run_status=None,
@@ -524,20 +529,20 @@ class TestEvaluateIndeterminate:
 
     def test_missing_job_row_trips(self) -> None:
         # A cagg with no refresh policy never self-heals.
-        verdict = _evaluate(_EvalConnection(job_row=False), _VIEW)  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(_EvalConnection(job_row=False), _VIEW)  # type: ignore[arg-type]
         assert verdict.is_fresh is False
         assert verdict.signals == (StalenessSignal.NO_JOB_ROW,)
 
     def test_non_cagg_view_name_raises_valueerror(self) -> None:
         # A caller bug must not be absorbed into a staleness refusal.
         with pytest.raises(ValueError, match="not a known continuous aggregate"):
-            _evaluate(_EvalConnection(), "not_a_cagg")  # type: ignore[arg-type]
+            _frozen_evaluate(_EvalConnection(), "not_a_cagg")  # type: ignore[arg-type]
 
     @pytest.mark.parametrize("failing_query", [1, 2, 3, 4])
     def test_probe_error_trips_with_probe_failed(self, failing_query: int) -> None:
         # Whichever of the three queries raises, the verdict is a refusal and
         # the error never propagates into the reader's own error path.
-        verdict = _evaluate(  # type: ignore[arg-type]
+        verdict = _frozen_evaluate(  # type: ignore[arg-type]
             _EvalConnection(raise_on_query=failing_query), _VIEW
         )
         assert verdict.is_fresh is False
