@@ -420,42 +420,42 @@ ship a second unguarded cagg consumer.
 > Long runs need `run_in_background` (Bash tool caps at 2 min; macOS has no
 > `timeout`). One statement per `psql -c` where autocommit is required.
 
-- [ ] **9.1** Confirm the 163 prerequisite still holds. Effort: 1/5
-  - [ ] 9.1.1 `SUM(minute_count)` over `minute_4hour_ohlcv` matches the raw count
+- [x] **9.1** Confirm the 163 prerequisite still holds. Effort: 1/5
+  - [x] 9.1.1 `SUM(minute_count)` over `minute_4hour_ohlcv` matches the raw count
         within the lag bound — **not ~21%**. Raw authoritative count is
         4,405,379,285.
-  - [ ] 9.1.2 If it does not match, STOP and report — the slice's premise is void.
-- [ ] **9.2** Apply migrations 046–048 to prod and materialize. Effort: 3/5
-  - [ ] 9.2.1 Apply; expect the initial coverage materialization to be the long
+  - [x] 9.1.2 If it does not match, STOP and report — the slice's premise is void.
+- [x] **9.2** Apply migrations 046–048 to prod and materialize. Effort: 3/5
+  - [x] 9.2.1 Apply; expect the initial coverage materialization to be the long
         step — background it.
-  - [ ] 9.2.2 Verify `minute_coverage` row count is in the expected ~15k range
+  - [x] 9.2.2 Verify `minute_coverage` row count is in the expected ~15k range
         (~5,871 symbols × ~22 years). An order-of-magnitude miss means the bucket
         or GROUP BY is wrong.
-  - [ ] 9.2.3 Verify `SUM(bars)` parity against raw within the lag bound.
-- [ ] **9.3** Measure the NFR on prod. Effort: 2/5
-  - [ ] 9.3.1 `\timing on`; `SELECT count(*) FROM data_status;` and a full
+  - [x] 9.2.3 Verify `SUM(bars)` parity against raw within the lag bound.
+- [x] **9.3** Measure the NFR on prod. Effort: 2/5
+  - [x] 9.3.1 `\timing on`; `SELECT count(*) FROM data_status;` and a full
         `SELECT *`. Record vs the 7.8 s baseline (criterion 1).
-  - [ ] 9.3.2 Measure through `mt data status` (accessor + guard included), not
+  - [x] 9.3.2 Measure through `mt data status` (accessor + guard included), not
         raw SQL alone — that is the operator-facing path.
-  - [ ] 9.3.3 If not sub-second, capture `EXPLAIN (ANALYZE, BUFFERS)` before any
+  - [x] 9.3.3 If not sub-second, capture `EXPLAIN (ANALYZE, BUFFERS)` before any
         fix. Diagnose from the plan; do not stack speculative changes.
-- [ ] **9.4** Contract-unchanged check. Effort: 1/5
-  - [ ] 9.4.1 `mt data status` and `mt data status --symbol AAPL` render an
+- [x] **9.4** Contract-unchanged check. Effort: 1/5
+  - [x] 9.4.1 `mt data status` and `mt data status --symbol AAPL` render an
         identical column layout to a pre-slice capture (diff captures).
-- [ ] **9.5** Prove the guard fires by **inducing** staleness (criterion 7).
+- [x] **9.5** Prove the guard fires by **inducing** staleness (criterion 7).
       Effort: 3/5
-  - [ ] 9.5.1 On a **throwaway DB, never prod**: pause a coverage cagg's refresh
+  - [x] 9.5.1 On a **throwaway DB, never prod**: pause a coverage cagg's refresh
         policy, advance raw past the threshold, read, and confirm stale coverage
         is reported rather than presented as current.
-  - [ ] 9.5.2 Reading code or asserting the helper is merely *called* does **not**
+  - [x] 9.5.2 Reading code or asserting the helper is merely *called* does **not**
         satisfy criterion 7.
-  - [ ] 9.5.3 Record the induced-staleness walkthrough in a note under
+  - [x] 9.5.3 Record the induced-staleness walkthrough in a note under
         `user/notes/`.
-- [ ] **9.6** Cold-start verification (criterion 5). Effort: 2/5
-  - [ ] 9.6.1 Throwaway DB → all migrations → `data_status` returns rows, is
+- [x] **9.6** Cold-start verification (criterion 5). Effort: 2/5
+  - [x] 9.6.1 Throwaway DB → all migrations → `data_status` returns rows, is
         sub-second, and reports no false staleness on never-refreshed caggs.
 
-- [ ] **Commit**: `docs: record slice 167 prod verification and induced-staleness walkthrough`
+- [x] **Commit**: `docs: record slice 167 prod verification and induced-staleness walkthrough`
 
 ---
 
