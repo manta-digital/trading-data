@@ -349,25 +349,25 @@ ship a second unguarded cagg consumer.
 
 ## 7. Equivalence verification (review F003 — date-normalized)
 
-- [ ] **7.1** Integration test: cagg-backed vs raw-scan equivalence. Effort: 3/5
-  - [ ] 7.1.1 Build both view variants against the same seeded DB.
-  - [ ] 7.1.2 Assert per symbol/granularity, for settled history:
+- [x] **7.1** Integration test: cagg-backed vs raw-scan equivalence. Effort: 3/5
+  - [x] 7.1.1 Build both view variants against the same seeded DB.
+  - [x] 7.1.2 Assert per symbol/granularity, for settled history:
         `date(first_bar_ts)` and `date(last_bar_ts)` equal; `bars_stored`
         **exactly** equal; raw−cagg timestamp delta < 4 h.
-  - [ ] 7.1.3 Cover covered, partially-covered, and **empty** symbols — the empty
+  - [x] 7.1.3 Cover covered, partially-covered, and **empty** symbols — the empty
         case must still yield `bars_stored = 0` via the LEFT JOIN + COALESCE, not
         a dropped row.
-  - [ ] 7.1.4 Daily branch reads raw `daily_ohlcv`, so its timestamps must match
+  - [x] 7.1.4 Daily branch reads raw `daily_ohlcv`, so its timestamps must match
         **exactly** (no truncation allowance) — assert the stricter condition
         there, or a real daily regression hides behind the minute-side tolerance.
-  - [ ] 7.1.5 Success: the test encodes the F003 definition; a literal-equality
+  - [x] 7.1.5 Success: the test encodes the F003 definition; a literal-equality
         assertion is explicitly *not* used, with a comment saying why.
-- [ ] **7.2** Test trailing-edge lag honesty. Effort: 2/5
-  - [ ] 7.2.1 Insert new raw bars, read before refresh: coverage understates by at
+- [x] **7.2** Test trailing-edge lag honesty. Effort: 2/5
+  - [x] 7.2.1 Insert new raw bars, read before refresh: coverage understates by at
         most the documented bound.
-  - [ ] 7.2.2 After a refresh tick, values converge to exact (modulo truncation).
+  - [x] 7.2.2 After a refresh tick, values converge to exact (modulo truncation).
 
-- [ ] **Commit**: `test(schema): date-normalized equivalence for cagg-backed data_status`
+- [x] **Commit**: `test(schema): date-normalized equivalence for cagg-backed data_status`
 
 ---
 
