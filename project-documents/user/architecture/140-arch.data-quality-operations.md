@@ -1097,6 +1097,66 @@ MAX_GAP_STALENESS     = 5 minutes   -- backtests trigger an
                                     -- prior gap-state write is older
                                     -- than this
 
+-- Cagg-backed data_status coverage (slice 167).
+MINUTE_COVERAGE_VIEW = "minute_coverage"
+DAILY_COVERAGE_VIEW  = "daily_coverage"
+    -- The two continuous aggregates the `data_status` view reads instead
+    -- of scanning raw. minute_coverage is hierarchical (derives from
+    -- minute_4hour_ohlcv); daily_coverage reads raw daily_ohlcv directly,
+    -- which is why daily timestamps in `data_status` stay exact while
+    -- minute first/last are truncated to the 4-hour parent bucket start.
+
+COVERAGE_BUCKET_INTERVAL = 365 days
+    -- time_bucket width for both coverage caggs. Sized so bars_summary
+    -- groups ~15k rows rather than scanning 4.4 billion raw rows, which is
+    -- what held the full-universe data_status read at 7.8 s. Grouping at
+    -- this size is sub-millisecond *regardless of the parent cagg's chunk
+    -- count* — the durability argument for the hierarchical structure.
+    -- A timedelta, not a calendar year: time_bucket takes a fixed-width
+    -- interval and these buckets are a bookkeeping device, not a reporting
+    -- calendar. This width sets a hard floor on the refresh policies'
+    -- start_offset (see COVERAGE_REFRESH_MIN_WINDOW_BUCKETS).
+
+COVERAGE_SOURCE_TABLE = {minute_coverage: minute_ohlcv,
+                         daily_coverage:  daily_ohlcv}
+    -- The table each coverage cagg's freshness is measured against, supplied
+    -- to slice 168's assert_cagg_fresh through its source_table seam.
+    -- GRANULARITY_SOURCE maps granularities to base hypertables and has no
+    -- entry for these caggs; the coverage caggs are not a granularity, so
+    -- the seam is used rather than widening that map.
+    -- Both entries are RAW hypertables, including the hierarchical minute
+    -- one. Mechanically, _raw_max probes max(time) and a cagg's time column
+    -- is time_bucket, so a cagg source cannot be probed. Substantively, an
+    -- operator needs to know how far coverage trails *reality*, not an
+    -- intermediate — measuring against raw makes the verdict cover the whole
+    -- two-hop chain. A stalled parent would otherwise leave minute_coverage
+    -- looking fresh while data_status reported months-old coverage.
+
+COVERAGE_REFRESH_MIN_WINDOW_BUCKETS = 2
+    -- TimescaleDB rejects a policy unless
+    -- start_offset - end_offset >= this * bucket ("policy refresh window
+    -- too small"). A refresh only re-materializes buckets *fully contained*
+    -- in the window, so a narrower window can slide into a position that
+    -- fully contains nothing and silently refresh zero rows. Measured on
+    -- TimescaleDB 2.21.3 with a 365-day bucket and 4 h end_offset: 730 days
+    -- rejected, 731 accepted. A constant so the constants test asserts the
+    -- real engine constraint, and so changing COVERAGE_BUCKET_INTERVAL fails
+    -- at test time rather than at migration time.
+
+MINUTE_COVERAGE_REFRESH_START_OFFSET = 750 days   -- >= 2 buckets (731d floor)
+MINUTE_COVERAGE_REFRESH_END_OFFSET   = 4 hours    -- one parent bucket
+MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL = 1 hour
+DAILY_COVERAGE_REFRESH_START_OFFSET  = 750 days
+DAILY_COVERAGE_REFRESH_END_OFFSET    = 1 hour
+DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL  = 1 hour
+    -- Refresh policies for the two coverage caggs (migration 047). The
+    -- start_offsets sit just above the 731-day two-bucket floor. Coverage
+    -- therefore trails raw ingest by at most the two-hop refresh interval on
+    -- the minute side (parent 4-hour cagg + minute_coverage) and one hop on
+    -- the daily side; migration 048's COMMENT ON VIEW states these bounds on
+    -- the view itself. Note the loose 750-day start_offset is exactly why
+    -- MAX_COVERAGE_SOURCE_STALENESS below must cap the staleness budget.
+
 -- Cagg freshness assertion for derived-data readers (slice 168).
 MAX_COVERAGE_SOURCE_STALENESS = 1 day
     -- Ceiling on how far a continuous aggregate may lag its raw source
