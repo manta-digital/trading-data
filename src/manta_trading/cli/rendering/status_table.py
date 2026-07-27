@@ -262,24 +262,40 @@ def render_status_detail(report: StatusReport) -> list[RenderableType]:
     return renderables
 
 
+COVERAGE_STALE_LABEL = "OUT OF DATE"
+"""Operator-facing wording for stale coverage.
+
+Deliberately *not* the word "STALE": ``HealthStatus.STALE`` is a per-symbol
+health value that appears in the same output (rows and footer) meaning
+something entirely different — one symbol's data is behind, versus the whole
+coverage cagg being behind. Two senses of one word on one screen is the kind of
+ambiguity that costs an operator real time during an incident.
+
+This is a display label only. Nothing branches on it; ``CoverageFreshness
+.is_stale`` is the logical signal.
+"""
+
+
 def render_coverage_notice(coverage: CoverageFreshness | None) -> str | None:
-    """Return a stale-coverage warning, or None when coverage is fresh/unknown.
+    """Return an out-of-date-coverage warning, or None when fresh/unknown.
 
     Deliberately a banner rather than a column: the ``data_status`` column
     contract is fixed (slice 167 D2), and freshness describes the whole
     ``bars_summary`` CTE rather than any single row.
 
-    Rendered *above* the tables by the caller. Stale coverage understates bar
-    counts and last_bar timestamps, so an operator has to see it before reading
-    the numbers, not after scrolling past them.
+    Rendered *above* the tables by the caller. Out-of-date coverage understates
+    bar counts and last_bar timestamps — and ``health`` is derived from those
+    same numbers — so an operator has to see this before reading the values it
+    qualifies, not after scrolling past them.
     """
     if coverage is None or not coverage.is_stale:
         return None
     stale_names = ", ".join(v.view_name for v in coverage.stale_verdicts)
     return (
-        f"[yellow]Warning:[/yellow] coverage is STALE ({stale_names}). "
-        "bars, first_bar and last_bar may understate reality; gap and attempt "
-        "columns are unaffected.\n"
+        f"[yellow]Warning:[/yellow] coverage is {COVERAGE_STALE_LABEL} "
+        f"({stale_names}). bars, first_bar and last_bar may understate reality, "
+        "and health is derived from them; gap and attempt columns are "
+        "unaffected.\n"
         f"  {coverage.describe()}\n"
         "  Coverage catch-up is runbook R2; `mt data caggs verify` for detail."
     )

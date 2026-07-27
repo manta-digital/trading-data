@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from manta_trading.cli.rendering.status_table import (
+    COVERAGE_STALE_LABEL,
     GapRow,
     HealthStatus,
     StatusReport,
@@ -363,7 +364,9 @@ def test_coverage_notice_names_only_stale_cagg() -> None:
     )
     notice = render_coverage_notice(coverage)
     assert notice is not None
-    assert "STALE" in notice
+    assert COVERAGE_STALE_LABEL in notice
+    # Must not reuse the HealthStatus.STALE wording — different concept.
+    assert "STALE" not in notice
     assert "minute_coverage" in notice
     # The healthy cagg must not be implicated in the warning.
     assert "daily_coverage" not in notice

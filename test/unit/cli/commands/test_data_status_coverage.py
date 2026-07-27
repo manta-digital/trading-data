@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
+from manta_trading.cli.rendering.status_table import COVERAGE_STALE_LABEL
 from manta_trading.data.maintenance.status_coverage import CoverageFreshness
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
@@ -111,7 +112,7 @@ class TestStaleCoverageBanner:
         with _mocked_status(stale=True):
             result = runner.invoke(app, ["data", "status"])
         assert result.exit_code == 0
-        assert "STALE" in result.stdout
+        assert COVERAGE_STALE_LABEL in result.stdout
         assert "minute_coverage" in result.stdout
 
     def test_no_banner_when_coverage_fresh(self):
@@ -132,14 +133,31 @@ class TestStaleCoverageBanner:
         """Stale coverage understates the numbers below it, so it reads first."""
         with _mocked_status(stale=True):
             result = runner.invoke(app, ["data", "status"])
-        assert result.stdout.index("STALE") < result.stdout.index("Data Status")
+        banner = result.stdout.index(COVERAGE_STALE_LABEL)
+        assert banner < result.stdout.index("Data Status")
+
+    def test_banner_wording_does_not_collide_with_health_stale(self):
+        """`HealthStatus.STALE` appears in the same output meaning something else.
+
+        The footer always prints a `STALE: n` health count, so a banner using
+        the same word would leave two senses of "stale" on one screen — and
+        would make a naive `"STALE" in stdout` assertion pass vacuously.
+        """
+        with _mocked_status(stale=True):
+            result = runner.invoke(app, ["data", "status"])
+        banner_line = next(
+            line for line in result.stdout.splitlines() if COVERAGE_STALE_LABEL in line
+        )
+        assert "STALE" not in banner_line
+        # The health-value wording is an established contract; it stays put.
+        assert "STALE:" in result.stdout
 
     def test_banner_shown_on_empty_universe(self):
         """A no-row result is when a stale verdict matters most."""
         with _mocked_status(stale=True, rows=[]):
             result = runner.invoke(app, ["data", "status"])
         assert result.exit_code == 0
-        assert "STALE" in result.stdout
+        assert COVERAGE_STALE_LABEL in result.stdout
         assert "No instruments found" in result.stdout
 
 
