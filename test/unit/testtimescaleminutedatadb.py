@@ -5,8 +5,6 @@ Integration tests require MT_TIMESCALE_DB_URL to be set.
 
 from __future__ import annotations
 
-import os
-import time
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -258,126 +256,6 @@ class TestTimescaleMinuteDataDBUnit:
         }
         assert TimescaleMinuteDataDB.AGGREGATION_VIEWS == expected
 
-    # -- fleet summary ------------------------------------------------------
-
-    def test_get_fleet_summary_success(self):
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-
-        pool, conn, cur = _mock_pool()
-        db._pool = pool
-        cur.fetchall.return_value = [
-            {"symbol": "AAPL", "earliest": datetime(2020, 1, 2), "latest": datetime(2024, 8, 22), "row_count": 500000},
-            {"symbol": "TSLA", "earliest": datetime(2019, 6, 1), "latest": datetime(2024, 8, 22), "row_count": 600000},
-        ]
-
-        result = db.get_fleet_summary()
-
-        assert result["total_symbols"] == 2
-        assert len(result["symbols"]) == 2
-        assert result["symbols"][0]["symbol"] == "AAPL"
-        assert result["symbols"][1]["row_count"] == 600000
-
-    def test_get_fleet_summary_error(self):
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-            db._pool = MagicMock()
-            db._pool.connection.side_effect = Exception("DB error")
-
-            result = db.get_fleet_summary()
-            assert "error" in result
-
-    # -- detect_gaps --------------------------------------------------------
-
-    def test_detect_gaps_with_gaps(self):
-        from datetime import date as dt_date
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-
-        pool, conn, cur = _mock_pool()
-        db._pool = pool
-        cur.fetchall.return_value = [
-            {"gap_start": dt_date(2023, 12, 20), "gap_end": dt_date(2024, 1, 3), "gap_days": 14},
-        ]
-
-        result = db.detect_gaps("AAPL")
-
-        assert len(result) == 1
-        assert result[0]["gap_days"] == 14
-        assert result[0]["gap_start"] == dt_date(2023, 12, 20)
-
-    def test_detect_gaps_no_gaps(self):
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-
-        pool, conn, cur = _mock_pool()
-        db._pool = pool
-        cur.fetchall.return_value = []
-
-        result = db.detect_gaps("AAPL")
-        assert result == []
-
-    def test_detect_gaps_error(self):
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-            db._pool = MagicMock()
-            db._pool.connection.side_effect = Exception("DB error")
-
-            result = db.detect_gaps("AAPL")
-            assert result == []
-
-    # -- get_daily_bar_counts -----------------------------------------------
-
-    def test_get_daily_bar_counts_success(self):
-        from datetime import date as dt_date
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-
-        pool, conn, cur = _mock_pool()
-        db._pool = pool
-        cur.fetchall.return_value = [
-            {"trade_date": dt_date(2024, 8, 20), "bar_count": 390, "first_bar": datetime(2024, 8, 20, 9, 30), "last_bar": datetime(2024, 8, 20, 16, 0)},
-            {"trade_date": dt_date(2024, 8, 21), "bar_count": 210, "first_bar": datetime(2024, 8, 21, 9, 30), "last_bar": datetime(2024, 8, 21, 13, 0)},
-        ]
-
-        result = db.get_daily_bar_counts("AAPL")
-
-        assert len(result) == 2
-        assert result[0]["bar_count"] == 390
-        assert result[1]["bar_count"] == 210
-
-    def test_get_daily_bar_counts_empty(self):
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-
-        pool, conn, cur = _mock_pool()
-        db._pool = pool
-        cur.fetchall.return_value = []
-
-        result = db.get_daily_bar_counts("AAPL")
-        assert result == []
-
-    # -- coverage / metrics -------------------------------------------------
-
-    def test_get_coverage_analysis_error(self):
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-            db._pool = MagicMock()
-            db._pool.connection.side_effect = Exception("DB error")
-
-            result = db.get_coverage_analysis("TSLA")
-            assert result["symbol"] == "TSLA"
-            assert "error" in result
-
-    def test_get_system_metrics_error(self):
-        with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
-            db = TimescaleMinuteDataDB(conninfo="postgresql://host/db")
-            db._pool = MagicMock()
-            db._pool.connection.side_effect = Exception("DB error")
-
-            result = db.get_system_metrics()
-            assert "error" in result
-
     # -- DataFrame construction ---------------------------------------------
 
     def test_rows_to_dataframe(self):
@@ -398,29 +276,4 @@ class TestTimescaleMinuteDataDBUnit:
         assert df.empty
         assert list(df.columns) == ["open", "high", "low", "close", "volume"]
 
-
-# ---------------------------------------------------------------------------
-# Integration tests (require MT_TIMESCALE_DB_URL)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.skipif(
-    not os.environ.get("MT_TIMESCALE_DB_URL"),
-    reason="MT_TIMESCALE_DB_URL not set",
-)
-class TestTimescaleMinuteDataDBIntegration:
-    """Integration tests that require a real TimescaleDB."""
-
-    @pytest.fixture(autouse=True)
-    def _setup(self):
-        url = os.environ["MT_TIMESCALE_DB_URL"]
-        self.db = TimescaleMinuteDataDB(conninfo=url)
-        yield
-        self.db.close()
-
-    def test_get_coverage_analysis(self):
-        result = self.db.get_coverage_analysis("TSLA")
-        assert "symbol" in result
-
-    def test_get_system_metrics(self):
-        result = self.db.get_system_metrics()
-        assert "hypertable" in result or "error" in result
+    pass

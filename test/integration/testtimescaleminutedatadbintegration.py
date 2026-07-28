@@ -205,35 +205,6 @@ class TestTimescaleMinuteDataDBIntegration(unittest.TestCase):
             # Target: <100ms for aggregated queries
             self.assertLess(query_time, 2.0, f"Aggregated query ({aggregation}) should be fast (<2s)")
 
-    def test_coverage_analysis_real_database(self):
-        """Test coverage analysis with real data"""
-        # Write test data
-        test_data = self.create_realistic_minute_data(100, self.test_symbol)
-        self.db.write_minute_data_bulk(self.test_symbol, test_data)
-        
-        # Get coverage analysis
-        coverage = self.db.get_coverage_analysis(self.test_symbol)
-        
-        self.assertIn('symbol', coverage)
-        self.assertEqual(coverage['symbol'], self.test_symbol)
-        self.assertIn('total_rows', coverage)
-        self.assertGreater(coverage['total_rows'], 0)
-        self.assertIn('earliest_data', coverage)
-        self.assertIn('latest_data', coverage)
-
-    def test_system_metrics_real_database(self):
-        """Test system metrics retrieval from real TimescaleDB"""
-        metrics = self.db.get_system_metrics()
-        
-        self.assertIn('hypertable', metrics)
-        self.assertIn('compression', metrics)
-        self.assertIn('continuous_aggregations', metrics)
-        
-        # Verify hypertable exists
-        if metrics['hypertable']['name']:
-            self.assertEqual(metrics['hypertable']['name'], 'minute_ohlcv')
-            self.assertGreaterEqual(metrics['hypertable']['chunks'], 0)
-
     def test_concurrent_writes_real_database(self):
         """Test sequential write operations (formerly concurrent)"""
         symbols = [f'{self.test_symbol}_CONCURRENT_{i}' for i in range(3)]

@@ -128,7 +128,7 @@ class IMinuteDataProvider(Protocol):
     Protocol defining the interface for minute data providers.
 
     All minute data providers must implement this interface to ensure compatibility
-    with the HistoricalMinuteService. Using Protocol enables duck typing - any class
+    with minute data acquisition. Using Protocol enables duck typing - any class
     implementing these methods will be considered compatible.
 
     Provider Responsibilities:
