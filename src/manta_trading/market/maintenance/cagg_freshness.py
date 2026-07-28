@@ -33,6 +33,7 @@ from enum import StrEnum
 from typing import cast
 
 import psycopg
+from psycopg import sql
 
 from manta_trading.constants import (
     CAGG_BASE_GRANULARITY,
@@ -182,21 +183,53 @@ def _set_probe_timeout(cur: psycopg.Cursor[object]) -> None:
 
     Called before *every* probe — including the paths that early-return — so no
     query this module issues can run unbounded. ``_restore_probe_timeout``
-    returns the session setting afterwards so the reader's own much larger
+    puts the caller's own setting back afterwards so the reader's much larger
     budget is not clamped to the probe's.
+
     """
     cur.execute(f"SET statement_timeout = '{CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT}'")
 
 
-def _restore_probe_timeout(conn: psycopg.Connection[object]) -> None:
-    """Return statement_timeout to the session default after probing.
+def _read_statement_timeout(conn: psycopg.Connection[object]) -> str | None:
+    """The session's current ``statement_timeout``, for later restoration.
+
+    Read rather than assumed: a caller that set its own session-level timeout
+    before invoking the guard must get *that* value back, not the
+    postgresql.conf default (review F002). Returns None when it cannot be
+    read, in which case the restore falls back to ``DEFAULT`` — the previous
+    behavior, and no worse than it.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SHOW statement_timeout")
+            row = cast("tuple[str] | None", cur.fetchone())
+        return row[0] if row is not None else None
+    except psycopg.Error:
+        # Never let bookkeeping turn a readable cagg into a refusal; the probes
+        # below will surface a genuinely broken connection on their own.
+        logger.exception("failed to read statement_timeout before freshness probe")
+        return None
+
+
+def _restore_probe_timeout(
+    conn: psycopg.Connection[object], prior: str | None = None
+) -> None:
+    """Put ``statement_timeout`` back the way the caller had it.
+
+    ``prior`` is the value ``_set_probe_timeout`` observed. Restoring to
+    ``DEFAULT`` instead would silently discard a session-level timeout the
+    caller had set before calling the guard — today no reader does, but the
+    guard sits on a read path where one plausibly would (review F002).
 
     Best-effort: the verdict is already decided by the time this runs, and a
     failure here must not turn a completed evaluation into an exception.
     """
     try:
         with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = DEFAULT")
+            if prior is None:
+                cur.execute("SET statement_timeout = DEFAULT")
+            else:
+                cur.execute(f"SET statement_timeout = '{prior}'")
     except psycopg.Error:
         # The connection is already broken (this runs after a probe failure in
         # the failure path); the caller's next statement will surface it.
@@ -297,8 +330,12 @@ def _raw_max(
         return _max_probe(conn, source_table, "time")
     with conn.cursor() as cur:
         _set_probe_timeout(cur)
+        # source_table is composed as an identifier, not interpolated: it is
+        # reachable from the public assert_cagg_fresh seam (review F001).
         cur.execute(
-            f"SELECT time_bucket(%s::interval, max(time)) FROM {source_table}",  # noqa: S608
+            sql.SQL(
+                "SELECT time_bucket(%s::interval, max(time)) FROM {relation}"
+            ).format(relation=sql.Identifier(source_table)),
             (bucket_width,),
         )
         row = cast("tuple[datetime | None] | None", cur.fetchone())
@@ -312,14 +349,22 @@ def _max_probe(
 ) -> datetime | None:
     """One bounded ``max()`` edge probe.
 
-    ``relation`` is never caller input: it arrives already resolved through
-    ``GRANULARITY_SOURCE`` (see ``_resolve_source_table``), so the identifier
-    cannot be attacker-controlled. Identifiers cannot be bound parameters in
-    PostgreSQL, which is why this is interpolated rather than passed as %s.
+    Identifiers cannot be bound parameters in PostgreSQL, so ``relation`` and
+    ``column`` are composed with ``psycopg.sql.Identifier``, which quotes and
+    escapes them. Production callers pass values resolved through
+    ``GRANULARITY_SOURCE``/``COVERAGE_SOURCE_TABLE``, but ``source_table`` is a
+    public parameter on ``assert_cagg_fresh``, so the safety cannot rest on
+    every caller being well-behaved (review F001): composing the identifier
+    makes a hostile value a lookup failure rather than injected SQL.
     """
     with conn.cursor() as cur:
         _set_probe_timeout(cur)
-        cur.execute(f"SELECT max({column}) FROM {relation}")  # noqa: S608
+        cur.execute(
+            sql.SQL("SELECT max({column}) FROM {relation}").format(
+                column=sql.Identifier(column),
+                relation=sql.Identifier(relation),
+            )
+        )
         row = cast("tuple[datetime | None] | None", cur.fetchone())
     if row is None:
         return None
@@ -491,13 +536,17 @@ def _evaluate(
     # propagate as ValueError rather than being reported as staleness.
     resolved_source = source_table or _resolve_source_table(view_name)
 
+    # Read once, before any probe overwrites it, so both restore paths put back
+    # the caller's own setting rather than the server default (review F002).
+    prior_timeout = _read_statement_timeout(conn)
+
     try:
         job = _read_refresh_job(conn, view_name)
         bucket_width = _bucket_width(conn, view_name)
         cagg_max = _cagg_max(conn, view_name)
         raw_max = _raw_max(conn, resolved_source, bucket_width)
     except psycopg.Error:
-        _restore_probe_timeout(conn)
+        _restore_probe_timeout(conn, prior_timeout)
         # D3/F001: a probe timeout or connection loss leaves freshness
         # indeterminate, and indeterminate is stale. Trapping is correct here
         # because the reader's contract is "refuse and skip", not "raise" —
@@ -514,7 +563,7 @@ def _evaluate(
             detail=f"{view_name}: freshness probe failed (see traceback above)",
         )
 
-    _restore_probe_timeout(conn)
+    _restore_probe_timeout(conn, prior_timeout)
 
     if job is None:
         # A cagg with no refresh policy never self-heals — the strongest form of

@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from types import TracebackType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import psycopg
 import pytest
@@ -32,6 +32,7 @@ from manta_trading.market.maintenance.cagg_freshness import (
     _read_refresh_job,
     _resolve_source_table,
     _resolve_threshold,
+    _restore_probe_timeout,
     assert_cagg_fresh,
     reset_freshness_cache,
 )
@@ -45,12 +46,32 @@ def _utc(year: int, month: int = 1, day: int = 1) -> datetime:
     return datetime(year, month, day, tzinfo=timezone.utc)
 
 
-class _RecordingCursor:
-    """Cursor fake that records (sql, params) in execution order."""
+def _render_sql(query: object) -> str:
+    """Render a psycopg ``sql.Composed``/``sql.SQL`` to text, connectionless.
 
-    def __init__(self, log: list[tuple[str, object]], rows: list[Any]) -> None:
+    Identifier-composed probes quote their identifiers, so the rendered text
+    reads ``FROM "minute_ohlcv"`` rather than ``FROM minute_ohlcv``; assertions
+    on relation names accommodate that by matching the quoted form.
+    """
+    return cast("Any", query).as_string(None)
+
+
+class _RecordingCursor:
+    """Cursor fake that records (sql, params) in execution order.
+
+    ``SHOW statement_timeout`` is answered from the connection's tracked GUC
+    rather than from the scripted row queue: it is bookkeeping the module does
+    around the probes, not one of the probes a test is scripting, and letting
+    it consume a queued row would silently shift every subsequent fetch.
+    """
+
+    def __init__(
+        self, log: list[tuple[str, object]], rows: list[Any], conn: _RecordingConnection
+    ) -> None:
         self._log = log
         self._rows = rows
+        self._conn = conn
+        self._show_pending = False
 
     def __enter__(self) -> _RecordingCursor:
         return self
@@ -63,22 +84,38 @@ class _RecordingCursor:
     ) -> Literal[False]:
         return False
 
-    def execute(self, sql: str, params: object = None) -> None:
-        self._log.append((sql, params))
+    def execute(self, query: object, params: object = None) -> None:
+        # Identifier-composed probes arrive as psycopg sql.Composed, not str
+        # (review F001). Render to text so assertions on SQL content — and the
+        # bookkeeping below — work uniformly across both forms.
+        text = query if isinstance(query, str) else _render_sql(query)
+        self._log.append((text, params))
+        normalized = text.strip().lower()
+        self._show_pending = normalized == "show statement_timeout"
+        if normalized.startswith("set statement_timeout"):
+            self._conn.statement_timeout = text.split("=", 1)[1].strip().strip("'")
 
     def fetchone(self) -> Any:
+        if self._show_pending:
+            self._show_pending = False
+            return (self._conn.statement_timeout,)
         return self._rows.pop(0) if self._rows else None
 
 
 class _RecordingConnection:
     """Connection fake handing out cursors that share one execution log."""
 
+    # The session GUC the module reads before probing and restores after.
+    # A caller-set value, so the default is deliberately not the probe timeout.
+    _INITIAL_STATEMENT_TIMEOUT = "0"
+
     def __init__(self, rows: list[Any] | None = None) -> None:
         self.log: list[tuple[str, object]] = []
         self._rows = rows if rows is not None else []
+        self.statement_timeout = self._INITIAL_STATEMENT_TIMEOUT
 
     def cursor(self) -> _RecordingCursor:
-        return _RecordingCursor(self.log, self._rows)
+        return _RecordingCursor(self.log, self._rows, self)
 
     @property
     def statements(self) -> list[str]:
@@ -415,12 +452,13 @@ class _RaisingCursor(_RecordingCursor):
     configured one, which is how a probe timeout arrives in practice."""
 
     def __init__(self, conn: _EvalConnection) -> None:
-        super().__init__(conn.log, conn._rows)
+        super().__init__(conn.log, conn._rows, conn)
         self._conn = conn
 
-    def execute(self, sql: str, params: object = None) -> None:
-        super().execute(sql, params)
-        if "statement_timeout" in sql:
+    def execute(self, query: object, params: object = None) -> None:
+        super().execute(query, params)
+        text = query if isinstance(query, str) else _render_sql(query)
+        if "statement_timeout" in text:
             return
         self._conn._query_count += 1
         if self._conn._query_count == self._conn._raise_on_query:
@@ -549,6 +587,49 @@ class TestEvaluateIndeterminate:
         assert verdict.is_fresh is False
         assert verdict.signals == (StalenessSignal.PROBE_FAILED,)
         assert verdict.lag is None
+
+
+class TestStatementTimeoutRestoration:
+    """Review F002 — the guard must put the caller's own timeout back.
+
+    ``_set_probe_timeout`` uses a plain session-scoped ``SET`` (correct: under
+    autocommit ``SET LOCAL`` is discarded and every probe would run unbounded).
+    The restore therefore has to undo it, and restoring to ``DEFAULT`` silently
+    discards a session-level ``statement_timeout`` the caller had set before
+    calling the guard. No reader does that today, but the guard sits on a read
+    path where one plausibly would.
+    """
+
+    def test_callers_timeout_is_restored_not_reset_to_default(self) -> None:
+        conn = _EvalConnection()
+        conn.statement_timeout = "60s"
+
+        _frozen_evaluate(conn, _VIEW)  # type: ignore[arg-type]
+
+        assert conn.statement_timeout == "60s"
+        # And the probes really did run under the probe bound, not the caller's.
+        assert any(
+            f"SET statement_timeout = '{CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT}'" == sql
+            for sql in conn.statements
+        )
+
+    def test_callers_timeout_is_restored_on_the_probe_failure_path(self) -> None:
+        # The failure path has its own restore call; a probe timeout must not
+        # leave the caller's session clamped to the probe's 10s bound.
+        conn = _EvalConnection(raise_on_query=2)
+        conn.statement_timeout = "60s"
+
+        verdict = _frozen_evaluate(conn, _VIEW)  # type: ignore[arg-type]
+
+        assert verdict.signals == (StalenessSignal.PROBE_FAILED,)
+        assert conn.statement_timeout == "60s"
+
+    def test_restore_falls_back_to_default_when_prior_is_unknown(self) -> None:
+        # If the pre-probe read cannot answer, restoring to DEFAULT is the old
+        # behavior and no worse than it.
+        conn = _RecordingConnection(rows=[])
+        _restore_probe_timeout(conn, None)  # type: ignore[arg-type]
+        assert ("SET statement_timeout = DEFAULT", None) in conn.log
 
 
 class TestClockSeam:

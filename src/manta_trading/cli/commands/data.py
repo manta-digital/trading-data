@@ -784,7 +784,10 @@ def data_status(
 
             payload: dict[str, object] = {"message": msg, **extra}
             if coverage is not None:
-                payload["coverage_stale"] = coverage.is_stale
+                # Nested, matching status_report_to_json's shape: a consumer
+                # reads coverage.is_stale on both the empty and populated
+                # paths rather than two spellings of one signal (review F003).
+                payload["coverage"] = {"is_stale": coverage.is_stale}
             print(_json.dumps(payload))
             return
         notice = render_coverage_notice(coverage)

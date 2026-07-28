@@ -189,4 +189,18 @@ class TestStaleCoverageJson:
         with _mocked_status(stale=True, rows=[]):
             result = runner.invoke(app, ["data", "status", "--json"])
         payload = json.loads(result.stdout)
-        assert payload["coverage_stale"] is True
+        # Same nesting as the populated path (review F003): one spelling of the
+        # signal, so a consumer reads coverage.is_stale regardless of row count.
+        assert payload["coverage"]["is_stale"] is True
+        assert "coverage_stale" not in payload
+
+    def test_json_coverage_shape_matches_between_empty_and_populated(self):
+        # The divergence F003 caught was two shapes for one concept; pin that
+        # they agree rather than trusting each path's own test in isolation.
+        with _mocked_status(stale=True, rows=[]):
+            empty = json.loads(runner.invoke(app, ["data", "status", "--json"]).stdout)
+        with _mocked_status(stale=True):
+            populated = json.loads(
+                runner.invoke(app, ["data", "status", "--json"]).stdout
+            )
+        assert empty["coverage"]["is_stale"] == populated["coverage"]["is_stale"]
