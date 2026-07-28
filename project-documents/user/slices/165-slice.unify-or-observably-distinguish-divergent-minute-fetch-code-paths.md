@@ -6,7 +6,7 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [162]
 interfaces: []
 dateCreated: 20260727
-dateUpdated: 20260727
+dateUpdated: 20260728
 status: not_started
 reviewFindings: [F001, F002, F003]
 ---
@@ -134,7 +134,11 @@ plus doc updates. No new modules.
   keyword-only parameter, threaded into every log call already present in
   these functions (no new log call sites, existing ones gain the field).
 - `_do_daily_symbol` / `_process_daily_symbol` (`daily.py`): same `via`
-  threading for consistency; no algorithmic change.
+  threading for consistency; no algorithmic change. `run_daily_refetch`
+  calls `_do_daily_symbol` directly (mirroring `run_minute_refetch`'s
+  direct call to `_do_minute_symbol`) and must pass `via="refetch"` at
+  that call site — `via` has no default, so this call site requires an
+  explicit update, not just the two named functions above.
 
 ### Data Flow
 

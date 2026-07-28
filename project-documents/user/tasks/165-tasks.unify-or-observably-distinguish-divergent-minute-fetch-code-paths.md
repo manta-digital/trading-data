@@ -6,8 +6,9 @@ lld: user/slices/165-slice.unify-or-observably-distinguish-divergent-minute-fetc
 dependencies: [162]
 projectState: Slice 162 (coverage-aware minute gap-seeding), 163 (cagg re-chunking), 166 (minute_ohlcv rechunk), 167 (cagg-backed data_status), 168 (cagg freshness assertion) all complete and merged to main. run_minute_refetch (mt data pull 1m) still uses the pre-162 legacy full-window single-span seed; run_minute_cycle (mt data daemon run --minute) uses slice 162's coverage-aware seeding. No via marker exists in minute/daily daemon logs today.
 dateCreated: 20260727
-dateUpdated: 20260727
+dateUpdated: 20260728
 status: not_started
+reviewFindings: [F001, F002, F003, F004]
 ---
 
 # Tasks: Unify or Observably Distinguish Divergent Minute-Fetch Code Paths
@@ -69,20 +70,31 @@ unstarted entry).
         the same way as 1.1
   - [ ] `run_daily_cycle` passes `via="cycle"` when calling
         `_process_daily_symbol`
+  - [ ] `run_daily_refetch` calls `_do_daily_symbol` directly (not through
+        `_process_daily_symbol`, mirroring how `run_minute_refetch` calls
+        `_do_minute_symbol` directly) — update this call site to pass
+        `via="refetch"`. `via` has no default, so leaving this call site
+        unmodified breaks every `mt data pull 1d` invocation with a missing
+        required argument
   - [ ] Success: `grep -n "via" src/manta_trading/data/acquisition/daemon/daily.py`
-        mirrors the pattern established in 1.1; no behavior change beyond
-        the added log field
+        mirrors the pattern established in 1.1, and shows `via="refetch"` at
+        the `run_daily_refetch` → `_do_daily_symbol` call site specifically;
+        no behavior change beyond the added log field
 
 - [ ] **1.3 Test `via` marker presence**
   - [ ] In `test/unit/data/acquisition/daemon/test_minute.py`, add or extend
         a test asserting `_do_minute_symbol` accepts and forwards `via` (e.g.
         capture the mocked `_logger` calls and assert `via="cycle"` or
         `via="refetch"` appears in at least one call's args, per the existing
-        test style in that file — see the `TestForceResetTerminalAndWindow`
-        class at line 262 for the mocking pattern used for `_do_minute_symbol`
+        test style in that file — see the `TestDoMinuteSymbolExtensions`
+        class at line 261 for the mocking pattern used for `_do_minute_symbol`
         callers)
   - [ ] In `test/unit/data/acquisition/daemon/test_daily.py`, add the
-        equivalent assertion for `_do_daily_symbol`
+        equivalent assertion for `_do_daily_symbol`, plus a test on
+        `TestRunDailyRefetch` (mocks `_do_daily_symbol` per its existing
+        pattern) asserting `run_daily_refetch` passes `via="refetch"` in its
+        call — this is the assertion that catches the missing-argument
+        defect a mock-based `_do_daily_symbol` test alone cannot catch
   - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon/test_minute.py test/unit/data/acquisition/daemon/test_daily.py -q`
         passes, including the new `via` assertions
 
@@ -202,10 +214,16 @@ unstarted entry).
   - [ ] Run `mt data pull 1m --symbol <TEST_SYMBOL> -v` and
         `mt data daemon run --minute --symbols <TEST_SYMBOL> -v` against
         `trading_test` with verbose/JSON logging enabled
-  - [ ] Confirm log output contains `via=refetch` for the first invocation
-        and `via=cycle` for the second
-  - [ ] Success: both markers observed exactly as specified in the slice
-        design's Verification Walkthrough step 3
+  - [ ] Also run `mt data pull 1d --symbol <TEST_SYMBOL> -v` against
+        `trading_test` — this exercises `run_daily_refetch` → `_do_daily_symbol`
+        directly and is the only task in this file that actually invokes that
+        call path end-to-end (Phase 1's tests mock `_do_daily_symbol`, so a
+        missing/misordered argument there would not surface until this step)
+  - [ ] Confirm log output contains `via=refetch` for both `pull` invocations
+        (minute and daily) and `via=cycle` for the `daemon run` invocation
+  - [ ] Success: all three markers observed exactly as specified in the
+        slice design's Verification Walkthrough step 3; `mt data pull 1d`
+        completes without a `TypeError` or other exception
 
 - [ ] **4.4 Delegate task/design checklist close-out**
   - [ ] Delegate to the `task-checker` agent: confirm all checkboxes in this
