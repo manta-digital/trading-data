@@ -47,62 +47,62 @@ unstarted entry).
 
 ### Phase 1: `via` Log Marker Threading
 
-- [ ] **1.1 Add `via` parameter to minute daemon functions**
-  - [ ] In `src/manta_trading/data/acquisition/daemon/minute.py`, add a
+- [x] **1.1 Add `via` parameter to minute daemon functions**
+  - [x] In `src/manta_trading/data/acquisition/daemon/minute.py`, add a
         keyword-only `via: str` parameter to `_do_minute_symbol` and
         `_process_minute_symbol`
-  - [ ] Thread `via` into every existing `_logger.info` / `_logger.warning` /
+  - [x] Thread `via` into every existing `_logger.info` / `_logger.warning` /
         `_logger.error` / `_logger.exception` call currently inside these two
         functions (append `via=%s` to the format string and `via` to the
         args tuple — do not change existing message wording beyond adding
         the field)
-  - [ ] `_process_minute_symbol`'s internal call to `_do_minute_symbol`
+  - [x] `_process_minute_symbol`'s internal call to `_do_minute_symbol`
         (minute.py:215-221) must forward `via=via` — `via` has no default,
         so an unforwarded call breaks immediately with a missing required
         argument
-  - [ ] `run_minute_cycle` passes `via="cycle"` when calling
+  - [x] `run_minute_cycle` passes `via="cycle"` when calling
         `_process_minute_symbol`
-  - [ ] Success: `grep -n "via" src/manta_trading/data/acquisition/daemon/minute.py`
+  - [x] Success: `grep -n "via" src/manta_trading/data/acquisition/daemon/minute.py`
         shows the parameter declared on both functions and present in every
         log call site that existed before this task; `via` is not used in
         any conditional or branch
 
-- [ ] **1.2 Add `via` parameter to daily daemon functions**
-  - [ ] In `src/manta_trading/data/acquisition/daemon/daily.py`, add the
+- [x] **1.2 Add `via` parameter to daily daemon functions**
+  - [x] In `src/manta_trading/data/acquisition/daemon/daily.py`, add the
         same keyword-only `via: str` parameter to `_do_daily_symbol` and
         `_process_daily_symbol`, threaded into their existing log calls
         the same way as 1.1
-  - [ ] `_process_daily_symbol`'s internal call to `_do_daily_symbol`
+  - [x] `_process_daily_symbol`'s internal call to `_do_daily_symbol`
         (daily.py:306) must forward `via=via` — same missing-argument
         failure mode as the minute side if left unmodified
-  - [ ] `run_daily_cycle` passes `via="cycle"` when calling
+  - [x] `run_daily_cycle` passes `via="cycle"` when calling
         `_process_daily_symbol`
-  - [ ] `run_daily_refetch` calls `_do_daily_symbol` directly (not through
+  - [x] `run_daily_refetch` calls `_do_daily_symbol` directly (not through
         `_process_daily_symbol`, mirroring how `run_minute_refetch` calls
         `_do_minute_symbol` directly) — update this call site to pass
         `via="refetch"`. `via` has no default, so leaving this call site
         unmodified breaks every `mt data pull 1d` invocation with a missing
         required argument
-  - [ ] Success: `grep -n "via" src/manta_trading/data/acquisition/daemon/daily.py`
+  - [x] Success: `grep -n "via" src/manta_trading/data/acquisition/daemon/daily.py`
         mirrors the pattern established in 1.1, and shows `via="refetch"` at
         the `run_daily_refetch` → `_do_daily_symbol` call site specifically;
         no behavior change beyond the added log field
 
-- [ ] **1.3 Test `via` marker presence**
-  - [ ] In `test/unit/data/acquisition/daemon/test_minute.py`, add or extend
+- [x] **1.3 Test `via` marker presence**
+  - [x] In `test/unit/data/acquisition/daemon/test_minute.py`, add or extend
         a test asserting `_do_minute_symbol` accepts and forwards `via` (e.g.
         capture the mocked `_logger` calls and assert `via="cycle"` or
         `via="refetch"` appears in at least one call's args, per the existing
         test style in that file — see the `TestDoMinuteSymbolExtensions`
         class at line 261 for the mocking pattern used for `_do_minute_symbol`
         callers)
-  - [ ] In `test/unit/data/acquisition/daemon/test_daily.py`, add the
+  - [x] In `test/unit/data/acquisition/daemon/test_daily.py`, add the
         equivalent assertion for `_do_daily_symbol`, plus a test on
         `TestRunDailyRefetch` (mocks `_do_daily_symbol` per its existing
         pattern) asserting `run_daily_refetch` passes `via="refetch"` in its
         call — this is the assertion that catches the missing-argument
         defect a mock-based `_do_daily_symbol` test alone cannot catch
-  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon/test_minute.py test/unit/data/acquisition/daemon/test_daily.py -q`
+  - [x] Success: `uv run pytest test/unit/data/acquisition/daemon/test_minute.py test/unit/data/acquisition/daemon/test_daily.py -q`
         passes, including the new `via` assertions
 
 **Commit**: `refactor: add via log marker to minute/daily daemon paths`
