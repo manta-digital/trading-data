@@ -8,7 +8,7 @@ projectState: Slice 162 (coverage-aware minute gap-seeding), 163 (cagg re-chunki
 dateCreated: 20260727
 dateUpdated: 20260728
 status: not_started
-reviewFindings: [F001, F002, F003, F004]
+reviewFindings: [F001, F002, F003, F004, F005]
 ---
 
 # Tasks: Unify or Observably Distinguish Divergent Minute-Fetch Code Paths
@@ -56,6 +56,10 @@ unstarted entry).
         functions (append `via=%s` to the format string and `via` to the
         args tuple — do not change existing message wording beyond adding
         the field)
+  - [ ] `_process_minute_symbol`'s internal call to `_do_minute_symbol`
+        (minute.py:215-221) must forward `via=via` — `via` has no default,
+        so an unforwarded call breaks immediately with a missing required
+        argument
   - [ ] `run_minute_cycle` passes `via="cycle"` when calling
         `_process_minute_symbol`
   - [ ] Success: `grep -n "via" src/manta_trading/data/acquisition/daemon/minute.py`
@@ -68,6 +72,9 @@ unstarted entry).
         same keyword-only `via: str` parameter to `_do_daily_symbol` and
         `_process_daily_symbol`, threaded into their existing log calls
         the same way as 1.1
+  - [ ] `_process_daily_symbol`'s internal call to `_do_daily_symbol`
+        (daily.py:306) must forward `via=via` — same missing-argument
+        failure mode as the minute side if left unmodified
   - [ ] `run_daily_cycle` passes `via="cycle"` when calling
         `_process_daily_symbol`
   - [ ] `run_daily_refetch` calls `_do_daily_symbol` directly (not through
@@ -154,6 +161,19 @@ unstarted entry).
         `mt data daemon run --minute --symbols <TEST_SYMBOL> -v` would
         produce from the same starting state (per slice design Verification
         Walkthrough step 1)
+
+- [ ] **2.4 Integration verification of `force_reset_terminal` DB-level reset**
+  - [ ] Using `MT_TIMESCALE_TEST_URL`, seed a `data_gaps` row for a test
+        symbol with `status=RETRY_EXHAUSTED`
+  - [ ] Run `uv run mt data pull 1m --symbol <TEST_SYMBOL> -v` against
+        `trading_test`
+  - [ ] Confirm the seeded row is reset and re-attempted (not skipped) —
+        this is the DB-level check for slice design Verification Walkthrough
+        step 2; task 2.2's `test_force_reset_terminal_always_true` only
+        confirms the boolean is passed through at the unit level, not that
+        the reset actually happens against real data
+  - [ ] Success: post-run `data_gaps` state for the seeded row shows it was
+        reset and re-attempted, matching Verification Walkthrough step 2
 
 **Commit**: `fix: unify run_minute_refetch onto coverage-aware seeding`
 
