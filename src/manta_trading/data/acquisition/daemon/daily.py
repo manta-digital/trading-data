@@ -131,7 +131,9 @@ def run_daily_cycle(
                             len(symbol_list) - report.total,
                         )
                         break
-                    outcome = _process_daily_symbol(sym, pool=pool, http=http, settings=settings)
+                    outcome = _process_daily_symbol(
+                        sym, pool=pool, http=http, settings=settings, via="cycle"
+                    )
                     report.symbol_outcomes[sym] = str(outcome)
                     if outcome == LastAttemptOutcome.SUCCESS:
                         report.success_count += 1
@@ -301,30 +303,42 @@ def _process_daily_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
+    via: str,
 ) -> LastAttemptOutcome:
     try:
-        return _do_daily_symbol(symbol, pool=pool, http=http, settings=settings)
+        return _do_daily_symbol(
+            symbol, pool=pool, http=http, settings=settings, via=via
+        )
     except ProviderResponseError as exc:
         # Unexpected 4xx from EODHD — skip this symbol rather than crashing
         # the cycle. Log at ERROR so it surfaces for investigation.
-        _logger.error("ProviderResponseError for %s daily — skipping: %s", symbol, exc)
+        _logger.error(
+            "ProviderResponseError for %s daily — skipping: %s via=%s",
+            symbol,
+            exc,
+            via,
+        )
         return LastAttemptOutcome.TRANSIENT_FAILURE
     except psycopg.errors.LockNotAvailable:
-        _logger.warning("Advisory lock timeout for %s daily — skipping", symbol)
+        _logger.warning(
+            "Advisory lock timeout for %s daily — skipping via=%s", symbol, via
+        )
         return LastAttemptOutcome.TRANSIENT_FAILURE
     except PoolTimeout:
         _logger.warning(
-            "DB pool timeout for %s daily — DB unreachable, skipping", symbol
+            "DB pool timeout for %s daily — DB unreachable, skipping via=%s",
+            symbol,
+            via,
         )
         return LastAttemptOutcome.TRANSIENT_FAILURE
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         _logger.warning(
-            "HTTP transient failure for %s daily (retries exhausted): %s",
-            symbol, exc,
+            "HTTP transient failure for %s daily (retries exhausted): %s via=%s",
+            symbol, exc, via,
         )
         return LastAttemptOutcome.TRANSIENT_FAILURE
     except Exception:
-        _logger.exception("Transient failure for %s daily", symbol)
+        _logger.exception("Transient failure for %s daily via=%s", symbol, via)
         return LastAttemptOutcome.TRANSIENT_FAILURE
 
 
@@ -334,6 +348,7 @@ def _do_daily_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
+    via: str,
     force_reset_terminal: bool = False,
     window: tuple[date, date] | None = None,
 ) -> LastAttemptOutcome:
@@ -341,7 +356,9 @@ def _do_daily_symbol(
         target_end = _last_completed_session(conn, symbol)
     if target_end is None:
         # No trading sessions available — can't determine window; skip symbol.
-        _logger.warning("No trading sessions found for %s — skipping", symbol)
+        _logger.warning(
+            "No trading sessions found for %s — skipping via=%s", symbol, via
+        )
         return LastAttemptOutcome.TRANSIENT_FAILURE
 
     if window is not None:
@@ -430,6 +447,7 @@ def run_daily_refetch(
                 settings=settings,
                 force_reset_terminal=True,
                 window=window,
+                via="refetch",
             )
             report.symbol_outcomes[symbol] = str(outcome)
             if outcome == LastAttemptOutcome.SUCCESS:

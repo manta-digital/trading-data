@@ -376,6 +376,7 @@ class TestDoMinuteSymbolExtensions:
                 pool=pool,
                 http=http,
                 settings=_FakeSettings(),
+                via="cycle",
                 force_reset_terminal=force_reset_terminal,
                 window=window,
                 coverage_index=coverage_index,
@@ -469,6 +470,56 @@ class TestDoMinuteSymbolExtensions:
         mock_coalesce.assert_called_once()
 
 
+class TestViaMarkerThreading:
+    """Tests for the via=refetch|cycle log marker added in slice 165."""
+
+    def test_process_minute_symbol_forwards_via_to_do_minute_symbol(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import (
+            _process_minute_symbol,
+        )
+
+        mock_do = MagicMock(
+            return_value=(LastAttemptOutcome.SUCCESS, None, None, 0, 0)
+        )
+        with patch(
+            "manta_trading.data.acquisition.daemon.minute._do_minute_symbol",
+            mock_do,
+        ):
+            _process_minute_symbol(
+                "AAPL",
+                pool=MagicMock(),
+                http=MagicMock(),
+                settings=_FakeSettings(),
+                via="cycle",
+            )
+        assert mock_do.call_args.kwargs["via"] == "cycle"
+
+    def test_process_minute_symbol_error_path_logs_via(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import (
+            _process_minute_symbol,
+        )
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._do_minute_symbol",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._logger"
+            ) as mock_logger,
+        ):
+            outcome, *_ = _process_minute_symbol(
+                "AAPL",
+                pool=MagicMock(),
+                http=MagicMock(),
+                settings=_FakeSettings(),
+                via="refetch",
+            )
+        assert outcome == LastAttemptOutcome.TRANSIENT_FAILURE
+        logged_args = mock_logger.exception.call_args.args
+        assert "refetch" in logged_args
+
+
 # ---------------------------------------------------------------------------
 # T9: run_minute_refetch tests
 # ---------------------------------------------------------------------------
@@ -557,6 +608,11 @@ class TestRunMinuteRefetch:
         report, _ = self._run_refetch(outcome=LastAttemptOutcome.SUCCESS)
         assert report.success_count == 1
         assert report.total == 1
+
+    def test_via_refetch_passed_to_do_minute_symbol(self) -> None:
+        _, mock_do = self._run_refetch()
+        call_kwargs = mock_do.call_args.kwargs
+        assert call_kwargs["via"] == "refetch"
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +705,7 @@ class TestHasAnyGapsRefireRegression:
                 pool=pool,
                 http=http,
                 settings=_FakeSettings(),
+                via="cycle",
                 window=(date(2024, 6, 10), date(2024, 6, 12)),
                 coverage_index=coverage_index,
             )

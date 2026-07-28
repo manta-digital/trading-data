@@ -170,6 +170,7 @@ def run_minute_cycle(
                     http=http,
                     settings=settings,
                     coverage_index=coverage_index,
+                    via="cycle",
                 )
                 report.symbol_outcomes[sym] = str(outcome)
                 if outcome == LastAttemptOutcome.SUCCESS:
@@ -209,6 +210,7 @@ def _process_minute_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
+    via: str,
     coverage_index: dict[str, set[date]] | None = None,
 ) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     try:
@@ -218,29 +220,40 @@ def _process_minute_symbol(
             http=http,
             settings=settings,
             coverage_index=coverage_index,
+            via=via,
         )
     except ProviderResponseError as exc:
         # Non-404 4xx from EODHD — unexpected but skip this symbol rather than
         # crashing the entire cycle. Log at ERROR so it surfaces for investigation.
-        _logger.error("ProviderResponseError for %s minute — skipping: %s", symbol, exc)
+        _logger.error(
+            "ProviderResponseError for %s minute — skipping: %s via=%s",
+            symbol,
+            exc,
+            via,
+        )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except psycopg.errors.LockNotAvailable:
-        _logger.warning("Advisory lock timeout for %s minute — skipping", symbol)
+        _logger.warning(
+            "Advisory lock timeout for %s minute — skipping via=%s", symbol, via
+        )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except PoolTimeout:
         _logger.warning(
-            "DB pool timeout for %s minute — DB unreachable, skipping", symbol
+            "DB pool timeout for %s minute — DB unreachable, skipping via=%s",
+            symbol,
+            via,
         )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         _logger.warning(
-            "HTTP transient failure for %s minute (retries exhausted): %s",
+            "HTTP transient failure for %s minute (retries exhausted): %s via=%s",
             symbol,
             exc,
+            via,
         )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except Exception:
-        _logger.exception("Transient failure for %s minute", symbol)
+        _logger.exception("Transient failure for %s minute via=%s", symbol, via)
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
 
 
@@ -250,6 +263,7 @@ def _do_minute_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
+    via: str,
     force_reset_terminal: bool = False,
     window: tuple[date, date] | None = None,
     coverage_index: dict[str, set[date]] | None = None,
@@ -493,6 +507,7 @@ def run_minute_refetch(
                 settings=settings,
                 force_reset_terminal=True,
                 window=window,
+                via="refetch",
             )
             report.symbol_outcomes[symbol] = str(outcome)
             if outcome == LastAttemptOutcome.SUCCESS:

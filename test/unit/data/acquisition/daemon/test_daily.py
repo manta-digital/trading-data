@@ -231,6 +231,7 @@ class TestDoDailySymbolExtensions:
                 pool=pool,
                 http=http,
                 settings=settings,
+                via="cycle",
                 force_reset_terminal=force_reset_terminal,
                 window=window,
             )
@@ -264,6 +265,54 @@ class TestDoDailySymbolExtensions:
     def test_coalesce_not_called_inside_do_daily_symbol(self) -> None:
         _, _, mock_coalesce = self._run_do_daily()
         mock_coalesce.assert_not_called()
+
+
+class TestViaMarkerThreading:
+    """Tests for the via=refetch|cycle log marker added in slice 165."""
+
+    def test_process_daily_symbol_forwards_via_to_do_daily_symbol(self) -> None:
+        from manta_trading.data.acquisition.daemon.daily import (
+            _process_daily_symbol,
+        )
+
+        mock_do = MagicMock(return_value=LastAttemptOutcome.SUCCESS)
+        with patch(
+            "manta_trading.data.acquisition.daemon.daily._do_daily_symbol",
+            mock_do,
+        ):
+            _process_daily_symbol(
+                "AAPL",
+                pool=MagicMock(),
+                http=MagicMock(),
+                settings=_FakeSettings(),
+                via="cycle",
+            )
+        assert mock_do.call_args.kwargs["via"] == "cycle"
+
+    def test_process_daily_symbol_error_path_logs_via(self) -> None:
+        from manta_trading.data.acquisition.daemon.daily import (
+            _process_daily_symbol,
+        )
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.daily._do_daily_symbol",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.daily._logger"
+            ) as mock_logger,
+        ):
+            outcome = _process_daily_symbol(
+                "AAPL",
+                pool=MagicMock(),
+                http=MagicMock(),
+                settings=_FakeSettings(),
+                via="refetch",
+            )
+        assert outcome == LastAttemptOutcome.TRANSIENT_FAILURE
+        logged_args = mock_logger.exception.call_args.args
+        assert "refetch" in logged_args
 
 
 class TestRunDailyRefetch:
@@ -336,3 +385,11 @@ class TestRunDailyRefetch:
         report, _, _ = self._run_refetch(outcome=LastAttemptOutcome.SUCCESS)
         assert report.success_count == 1
         assert report.total == 1
+
+    def test_via_refetch_passed_to_do_daily_symbol(self) -> None:
+        """Catches the missing-argument defect a mock-based _do_daily_symbol
+        test alone cannot: asserts run_daily_refetch's real call site passes
+        via="refetch", not just that _do_daily_symbol itself accepts it."""
+        _, mock_do, _ = self._run_refetch()
+        call_kwargs = mock_do.call_args.kwargs
+        assert call_kwargs["via"] == "refetch"
