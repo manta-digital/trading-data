@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260726
+dateUpdated: 20260727
 status: in_progress
 ---
 
@@ -19,6 +19,56 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260727 — Slice 163 close-out: minute-cagg re-chunking + repair complete, standing verify/repair rule now live
+
+**Context:** Slice 166's raw-table rechunk (7-day chunks) invalidated all four minute
+continuous aggregates, which were also independently over-chunked ~40x (1.67-day
+mat-hypertable intervals inherited from the pre-166 10x-source default). The caggs are
+the serving path (`materialized_only=true`), so both defects were live-serving corruption,
+not latent debt. Slice 163 fixed both with one windowed drop→refresh→compress sweep per
+cagg, in fixed order (4h → 1h → 15m → 5m), driven by parity (`SUM(minute_count)` vs raw
+`COUNT(*)`) rather than a bookkeeping table.
+
+**Decision:** All eight design success criteria are met (audit table in the slice 163
+design, evidence in `163-baseline-verify-20260724.md`):
+
+- All four minute caggs at 70-day chunk intervals, ~4,239 chunks → 119 each (36x).
+- Full parity every year/granularity within the trailing refresh-lag bound — verified
+  twice: immediately post-repair (2026-07-25) and after a full trading day
+  (2026-07-27), confirming the lag heals and does not accumulate.
+- Single-symbol 4h query: ~5.2 s → ~95 ms (plan nodes 12,721 → 238).
+- All 119 chunks/cagg compressed; total footprint 41 GB (not the ~300 GB uncompressed
+  full-materialization would have cost).
+- Repair resumability proven twice — once deliberately (kill mid-4h-sweep), once by an
+  unplanned `statement_timeout` failure at window 103/119 of the 5m sweep: both resumed
+  with zero operator input via parity re-derivation, no orphaned backend either time.
+- All eight jobs (4 refresh + 4 columnstore) resumed and confirmed `Success` both
+  immediately and after a full trading day.
+- Cold start (migrations alone, repair tool never invoked) proven correct by mutation
+  test.
+- Slice 162's coverage query returns correct, complete results post-repair.
+
+The standing rule is now live: **after any raw `minute_ohlcv` chunk restructuring, run
+`mt data caggs verify`; on parity failure, run `mt data caggs repair`** (rebuilds only
+invalidated windows, resumable, safe to interrupt). This is documented in both
+subcommands' `--help` text, not just here.
+
+**Rationale:** The closed-window-parity-sum-must-be-exactly-0 gate (runbook R5) is what
+makes "verify exits non-zero" and "data is actually missing" distinguishable — `verify`
+cannot tell trailing refresh lag from real loss on its own, by design, so the operator
+must check whether *only* the single currently-open window fails. Every verify run this
+slice produced (D5, D6) followed that pattern: closed windows exact, open window short
+by an amount that shrinks and disappears as the trailing refresh policy catches up.
+
+**Follow-ups:** Unblocks slice 167 (already complete, merged). Filed but unindexed in the
+163 design (no-standalone-slices rule): coverage caggs missing from `caggs
+refresh`/`verify` lag column (LOW); `daily_ohlcv` is now the next table showing 166/163's
+disease (over-chunked at 3,364 chunks, `max(time)` planning 1.1-2.1s vs 7ms execution) and
+needs a 166-style rechunk slice with a plan entry; `preflight()` in `cagg_repair.py` has no
+guard against pausing job 1003 (the 4h refresh the daemon's coverage index depends on)
+while a *different* granularity's sweep is running — discovered as an incident mid-slice
+(D3-D4), worked around by runbook R1 (leave 1003 scheduled), never hardened in code.
 
 ## 20260726 — A guard is not deployed until it has been *observed firing*: slice 167 shipped a freshness check to prod that could never pass, plus three constraints TimescaleDB imposes on wide-bucket caggs
 

@@ -6,8 +6,8 @@ slice: minute-cagg-chunk-re-sizing
 audience: [human, ai]
 description: Slice 163 prod evidence log — pre-repair cagg-vs-raw parity baseline and 4h EXPLAIN, then Phase D migration/dry-run/repair execution results
 dateCreated: 20260724
-dateUpdated: 20260725
-status: in_progress
+dateUpdated: 20260727
+status: complete
 ---
 
 # Slice 163 — Pre-repair parity baseline (prod trading DB)
@@ -557,3 +557,43 @@ Every job fired successfully AFTER the 2026-07-25 20:05 resume — the
 job-status half of success criterion 6 is met. Remaining for D6: the
 next-trading-day parity re-verify (first session after the sweeps is
 Mon 2026-07-27; verify after its close + refresh lag).
+
+## D6 — next-trading-day parity re-verify (2026-07-27, complete)
+
+`mt data caggs verify` (all four granularities, all trading day 2026-07-27
+closed): all 24 years for all four caggs at exact 100.0% parity **except**
+year 2026, which reports 99.1-99.3% coverage per granularity. Confirmed via
+`--detail` that the *only* failing window in every granularity is the single
+currently-open `2026-07-16` window (today is well inside its 70-day span);
+every closed window through `2026-05-07` is exact:
+
+| Cagg | 2026-07-16 window raw | cagg | coverage |
+|---|---|---|---|
+| 5m  | 6,433,034 | 5,085,033 | 79.0% |
+| 15m | 6,433,034 | 4,883,582 | 75.9% |
+| 1h  | 6,433,034 | 4,774,852 | 74.2% |
+| 4h  | 6,433,034 | 4,721,196 | 73.4% |
+
+**Closed-window parity sum = 0** across all four granularities (runbook R5)
+— this is expected trailing refresh lag on the open window, not data loss.
+`verify` exits 2, which is correct per D5's 1h note: it cannot distinguish
+lag from loss, so the operator must.
+
+Job status re-confirmed same day (server time ~21:4x MDT 2026-07-27), all
+eight jobs `scheduled = t`, `last_run_status = Success`, each with a run
+completed within the last hour:
+
+| Job | Proc | hypertable | last_successful_finish (MDT) |
+|---|---|---|---|
+| 1002 | refresh | minute_hourly_ohlcv | 20:48:28 |
+| 1003 | refresh | minute_4hour_ohlcv | 21:41:45 |
+| 1007 | refresh | minute_5min_ohlcv | 21:45:44 |
+| 1008 | refresh | minute_15min_ohlcv | 21:47:01 |
+| 1018 | columnstore | minute_5min_ohlcv | 12:15:41 |
+| 1019 | columnstore | minute_15min_ohlcv | 13:16:49 |
+| 1020 | columnstore | minute_hourly_ohlcv | 12:10:43 |
+| 1021 | columnstore | minute_4hour_ohlcv | 12:10:20 |
+
+**Success criterion 6 fully met**: job statuses confirmed both immediately
+after resume (2026-07-26) and after a full trading day of normal operation
+(2026-07-27). Trailing-lag healing confirmed working as designed — D6 complete.

@@ -14,7 +14,7 @@ projectState: >
   17.7 on prod trading DB (192.168.1.144).
 dateCreated: 20260721
 dateUpdated: 20260725
-status: not_started
+status: complete
 ---
 
 ## Context Summary
@@ -351,9 +351,9 @@ The minute daemon **may keep running** throughout (design D4).
 ### Task D6: Resume jobs and steady-state check
 - [x] Resume the eight paused jobs; verify each `last_run_status = 'Success'`
       after next scheduled run (success criterion 6); daemon uninterrupted.
-- [ ] Next trading day: `mt data caggs verify` still at full parity within
+- [x] Next trading day: `mt data caggs verify` still at full parity within
       refresh lag (trailing policy healing works — walkthrough step 8).
-- [ ] Success: job statuses + next-day verify output recorded.
+- [x] Success: job statuses + next-day verify output recorded.
 
 ### Task D7: 162 regression and cold-start verification
 - [x] Re-run slice 162's coverage query path (4h-cagg reads): correct,
@@ -373,4 +373,4 @@ The minute daemon **may keep running** throughout (design D4).
       the ~2026-07-23 raw rechunk re-run (walkthrough step 10 happens there).
 - [x] Update slice/task doc statuses via task-checker; final commit; slice
       branch ready for merge per git rules.
-- [ ] Success: slice complete; 167 unblocked.
+- [x] Success: slice complete; 167 unblocked.

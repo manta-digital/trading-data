@@ -7,8 +7,8 @@ dependencies: [152, 166]
 interfaces: [162, 164, 167, 182]
 tools: [timescaledb]
 dateCreated: 20260720
-dateUpdated: 20260725
-status: in_progress
+dateUpdated: 20260727
+status: complete
 ---
 
 # Slice Design: Minute-cagg chunk re-sizing + full re-materialization repair
@@ -339,13 +339,12 @@ re-materialization sweep, compression enablement, and the verify/repair CLI).
 | 3 | 4h single-symbol query ~2 s → sub-100 ms | **met** | ~5.2 s → **~95 ms**; plan nodes 12,721 → 238 |
 | 4 | All mat hypertables compressed; footprint recorded | **met** | 119/119 compressed per cagg; total **41 GB** (expected ~30–40 GB) |
 | 5 | Repair resumable | **met** | Twice: deliberate 4h kill (resumed at window 7), and an *unplanned* 5m `statement_timeout` failure at window 103/119 — 102 windows survived, no orphaned backend, re-run resumed at 103 |
-| 6 | Jobs resumed with `last_run_status = 'Success'`; daemon uninterrupted | **partial** | All eight resumed and verified `scheduled = t`; daemon ran throughout. Next-scheduled-run status confirmation is next-trading-day work (D6) |
+| 6 | Jobs resumed with `last_run_status = 'Success'`; daemon uninterrupted | **met** | All eight resumed and verified `scheduled = t` on 2026-07-26; re-confirmed `last_run_status = 'Success'` after a full trading day (2026-07-27) with `mt data caggs verify` showing closed-window parity sum = 0 for all four granularities. Daemon ran throughout |
 | 7 | Cold start yields correct intervals + compression from migrations alone | **met** | `test_apply_migrations_brings_schema_to_current` **passed** against a real throwaway DB: all four caggs at `70 days` with `compression_enabled` and one columnstore policy each, repair tool never invoked. Assertion proven live by mutation (expected value → 99 days ⇒ test fails) |
 | 8 | 162 coverage query returns complete results | **met** | 22,687,666 symbol-days / 11,625 symbols, `ColumnarScan` plan |
 
-Seven of eight met. Only **6** remains open, and only for its time-gated half: all
-eight jobs are resumed and verified `scheduled = t`, but confirming
-`last_run_status = 'Success'` after their next scheduled fire is next-trading-day work.
+All eight success criteria met (2026-07-27). Full evidence in
+`project-documents/user/notes/163-baseline-verify-20260724.md`.
 
 **Running the cold-start test requires loading `.env` explicitly.** Nothing in the
 pytest path populates `os.environ` from it, so `MT_TIMESCALE_TEST_URL` is unset and the
