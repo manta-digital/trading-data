@@ -8,7 +8,7 @@ dependencies: [166, 163, 168]
 interfaces: [147, 182]
 dateCreated: 20260726
 dateUpdated: 20260726
-status: in_progress
+status: complete
 ---
 
 # Tasks: Cagg-backed `data_status` bars summary — reach the sub-second NFR
