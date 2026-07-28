@@ -8,6 +8,7 @@ interfaces: []
 dateCreated: 20260727
 dateUpdated: 20260727
 status: not_started
+reviewFindings: [F001, F002, F003]
 ---
 
 # Slice Design: Unify or Observably Distinguish Divergent Minute-Fetch Code Paths
@@ -258,10 +259,23 @@ behavior of an existing operator command to match its sibling.
 
 - Slice 162's `build_minute_coverage_index` / `compute_missing_minute_sessions`
   — consumed identically to how `run_minute_cycle` already consumes them.
-  If the coverage index build fails (`build_minute_coverage_index` returns
-  `None`), `run_minute_refetch` falls back to the same legacy single-span
-  behavior `run_minute_cycle` falls back to today — this is the existing,
-  intentional fail-safe (slice 162), not new behavior introduced here.
+  `build_minute_coverage_index` fails safe by design (slice 162/168): a
+  `statement_timeout`, other operational/connection error mid-scan, or a
+  stale source cagg (slice 168's `assert_cagg_fresh` guard) are all caught
+  *inside* `build_minute_coverage_index` and logged at ERROR there — none
+  of them propagate as an exception. The function returns `None` in every
+  one of those cases, never raises. `run_minute_refetch` does not need to
+  (and does not) enumerate these failure modes itself, for the same reason
+  `run_minute_cycle` doesn't today: the contract is "returns `None` on any
+  operational failure," not "raises specific exceptions the caller must
+  catch." On `None`, `run_minute_refetch` falls back to the same legacy
+  single-span behavior `run_minute_cycle` falls back to today — existing,
+  intentional fail-safe behavior (slice 162), not new behavior introduced
+  by this slice. No new failure surface is introduced: `run_minute_refetch`
+  already opens `pool.connection()` blocks for other purposes earlier in
+  the function (e.g. `_resolve_minute_history_start`), under the same pool
+  and the same `PoolTimeout`/`LockNotAvailable` handling
+  `_process_minute_symbol` already has.
 
 ## Success Criteria
 
