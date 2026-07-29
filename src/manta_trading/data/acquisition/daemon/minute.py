@@ -41,6 +41,7 @@ from manta_trading.data.gaps import (
 )
 from manta_trading.data.gaps.minute_coverage import (
     build_minute_coverage_index,
+    build_symbol_minute_coverage,
     compute_missing_minute_sessions,
 )
 from manta_trading.data.locking import advisory_lock
@@ -289,6 +290,17 @@ def _do_minute_symbol(
         history_start = default_history_start
         target_end = now_midnight
 
+    # Happy-path via marker (slice 165): without this line a successful fetch
+    # emits nothing carrying via=, and log output could not identify which
+    # entry point drove it — the exact ambiguity this slice exists to close.
+    _logger.info(
+        "minute fetch: %s window=[%s → %s] via=%s",
+        symbol,
+        history_start.date(),
+        target_end.date(),
+        via,
+    )
+
     last_outcome = LastAttemptOutcome.SUCCESS
     first_chunk_end: datetime | None = None
     first_chunk_outcome: LastAttemptOutcome | None = None
@@ -499,6 +511,18 @@ def run_minute_refetch(
             else:
                 resolved_to = to_date
 
+            # Per-symbol coverage (slice 165 amendment): a single-symbol
+            # command must not pay the universe-wide scan run_minute_cycle
+            # amortizes across ~11.6k symbols.
+            with pool.connection() as conn:
+                coverage_index = build_symbol_minute_coverage(conn, symbol)
+            if coverage_index is None:
+                _logger.error(
+                    "run_minute_refetch: coverage unavailable for %s — "
+                    "seeding will use legacy single-span fallback via=refetch",
+                    symbol,
+                )
+
             window = (resolved_from, resolved_to)
             outcome, _, __, ___, ____ = _do_minute_symbol(
                 symbol,
@@ -507,6 +531,7 @@ def run_minute_refetch(
                 settings=settings,
                 force_reset_terminal=True,
                 window=window,
+                coverage_index=coverage_index,
                 via="refetch",
             )
             report.symbol_outcomes[symbol] = str(outcome)

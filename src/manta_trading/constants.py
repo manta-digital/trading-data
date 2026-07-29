@@ -116,14 +116,24 @@ as transient_failure and retried on the next cycle rather than blocking
 indefinitely.
 """
 
-MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT: str = "30s"
-"""PostgreSQL statement_timeout for the universe-wide minute coverage-index
-query (slice 162 ``build_minute_coverage_index``).
+MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT: str = "90s"
+"""PostgreSQL statement_timeout for the minute coverage queries
+(slice 162 ``build_minute_coverage_index``, slice 165
+``build_symbol_minute_coverage``).
 
-A small multiple of the measured ~3s full-universe scan of the
-``minute_4hour_ohlcv`` cagg. On timeout the coverage index build fails safe:
-coverage-aware seeding is skipped for that cycle rather than falling back to
-the old full-window `[history_start, today]` seed.
+Originally 30s, "a small multiple of the measured ~3s" universe scan of the
+``minute_4hour_ohlcv`` cagg (slice-162 prep, 2.4M symbol-day pairs). Raised
+to 90s in slice 165: the 2026-07-28 audit
+(``user/reference/prod-scale-and-coverage-scan-baseline.md``) measured
+18.46s at 22.7M pairs — 9.4x backfill growth, not a regression — with a
+converging plateau of ~25-35s at full backfill (history bounded at 2004,
+universe ~11.6k symbols), plus concurrent-daemon-load variance. 90s is
+permanent headroom for the plateau; a day-grain coverage cagg (issue #3)
+is the long-term replacement if scan latency ever matters.
+
+On timeout the coverage build fails safe: coverage-aware seeding is skipped
+for that cycle rather than falling back to the old full-window
+`[history_start, today]` seed.
 """
 
 MINUTE_SEED_PROGRESS_LOG_INTERVAL: int = 250

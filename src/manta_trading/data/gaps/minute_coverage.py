@@ -110,6 +110,78 @@ def build_minute_coverage_index(
         return None
 
 
+def build_symbol_minute_coverage(
+    conn: psycopg.Connection[object],
+    symbol: str,
+) -> dict[str, set[date]] | None:
+    """Return {symbol: set[covered_day]} for ONE symbol, or None.
+
+    Per-symbol sibling of ``build_minute_coverage_index`` (slice 165): same
+    source cagg, staleness guard, timeout envelope, and fail-safe contract,
+    filtered to a single symbol so single-shot operator commands
+    (``run_minute_refetch``) never pay the universe-wide scan. Returns the
+    same shape as the universe builder so consumers
+    (``compute_missing_minute_sessions``) work unchanged.
+
+    Args:
+        conn:   Open psycopg connection.
+        symbol: Instrument ticker.
+
+    Returns:
+        {symbol: set[covered_day]} on success (the set may be empty if the
+        symbol has no minute coverage). None if the source cagg is stale
+        (slice 168) or the query failed (timeout / operational error) —
+        coverage-aware seeding must be skipped; never fall back to a
+        full-window seed on the caller's own initiative.
+    """
+    cagg = GRANULARITY_SOURCE[Granularity.H4]
+
+    verdict = assert_cagg_fresh(conn, cagg)
+    if not verdict.is_fresh:
+        _logger.error(
+            "build_symbol_minute_coverage: source cagg %s is STALE "
+            "(lag=%s, threshold=%s, signals=%s) — skipping coverage-aware "
+            "seeding for %s; see runbook R2 to remediate",
+            cagg,
+            verdict.lag,
+            verdict.threshold,
+            [signal.value for signal in verdict.signals],
+            symbol,
+        )
+        return None
+
+    sql = (
+        f"SELECT date_trunc('day', time_bucket) "  # noqa: S608
+        f"FROM {cagg} WHERE symbol = %s "
+        f"GROUP BY date_trunc('day', time_bucket)"
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SET LOCAL statement_timeout = "
+                f"'{MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT}'"
+            )
+            cur.execute(sql, (symbol,))
+            days: set[date] = set()
+            rows = cast("list[tuple[datetime | date]]", cur.fetchall())
+            for (covered_day,) in rows:
+                # Same normalization as the universe builder: date_trunc
+                # returns a timestamptz, not a date.
+                days.add(
+                    covered_day.date()
+                    if isinstance(covered_day, datetime)
+                    else covered_day
+                )
+            return {symbol: days}
+    except psycopg.OperationalError:
+        _logger.exception(
+            "build_symbol_minute_coverage: query failed for %s (timeout or "
+            "operational error) — skipping coverage-aware seeding",
+            symbol,
+        )
+        return None
+
+
 def compute_missing_minute_sessions(
     conn: psycopg.Connection[object],
     symbol: str,

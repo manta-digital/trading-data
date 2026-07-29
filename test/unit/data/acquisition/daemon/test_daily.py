@@ -266,6 +266,19 @@ class TestDoDailySymbolExtensions:
         _, _, mock_coalesce = self._run_do_daily()
         mock_coalesce.assert_not_called()
 
+    def test_happy_path_logs_via_marker(self) -> None:
+        """slice 165: mirrors the minute-side assertion — a successful daily
+        fetch must emit at least one log line carrying via=."""
+        with patch(
+            "manta_trading.data.acquisition.daemon.daily._logger"
+        ) as mock_logger:
+            self._run_do_daily()
+        via_calls = [
+            call for call in mock_logger.info.call_args_list
+            if "cycle" in call.args
+        ]
+        assert via_calls, "no INFO line carried via='cycle' on the happy path"
+
 
 class TestViaMarkerThreading:
     """Tests for the via=refetch|cycle log marker added in slice 165."""

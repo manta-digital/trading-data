@@ -369,6 +369,16 @@ def _do_daily_symbol(
     else:
         target_start = datetime(DAILY_HISTORY_FLOOR.year, DAILY_HISTORY_FLOOR.month, DAILY_HISTORY_FLOOR.day, tzinfo=_UTC)
 
+    # Happy-path via marker (slice 165) — mirrors _do_minute_symbol; without
+    # it a successful daily fetch emits no line identifying its entry point.
+    _logger.info(
+        "daily fetch: %s window=[%s → %s] via=%s",
+        symbol,
+        target_start.date(),
+        target_end.date(),
+        via,
+    )
+
     url = (
         f"{_EODHD_BASE}/eod/{_normalise(symbol)}"
         f"?api_token={settings.eodhd_api_key}&fmt=json"

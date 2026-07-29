@@ -17,6 +17,7 @@ import pytest
 from manta_trading.constants import GRANULARITY_SOURCE, Granularity
 from manta_trading.data.gaps.minute_coverage import (
     build_minute_coverage_index,
+    build_symbol_minute_coverage,
     compute_missing_minute_sessions,
 )
 from manta_trading.market.maintenance.cagg_freshness import (
@@ -148,6 +149,88 @@ class TestBuildMinuteCoverageIndex:
             call.args[0] for call in cur.execute.call_args_list if call.args
         )
         assert "minute_4hour_ohlcv" in executed_sql
+
+
+# ---------------------------------------------------------------------------
+# build_symbol_minute_coverage (slice 165)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSymbolMinuteCoverage:
+    """Per-symbol sibling of build_minute_coverage_index (slice 165): same
+    guard/timeout/fail-safe contract, single-symbol scope. Rows from the
+    per-symbol query are one-tuples (day only — symbol is the filter)."""
+
+    @pytest.fixture(autouse=True)
+    def _guard_passes(self):
+        with patch(
+            "manta_trading.data.gaps.minute_coverage.assert_cagg_fresh",
+            return_value=_fresh_verdict(),
+        ):
+            yield
+
+    def _make_conn(self, rows: list[tuple]) -> MagicMock:
+        return _make_index_conn(rows)
+
+    def test_returns_single_symbol_days_normalized_to_date(self) -> None:
+        """date_trunc rows arrive as datetimes; values must normalize to
+        plain dates or compute_missing_minute_sessions never matches."""
+        rows = [
+            (datetime(2024, 1, 2, tzinfo=UTC),),
+            (datetime(2024, 1, 3, tzinfo=UTC),),
+        ]
+        conn = self._make_conn(rows)
+        result = build_symbol_minute_coverage(conn, "AAPL")
+        assert result == {"AAPL": {date(2024, 1, 2), date(2024, 1, 3)}}
+        for day in result["AAPL"]:
+            assert type(day) is date
+
+    def test_no_coverage_returns_empty_set_not_none(self) -> None:
+        conn = self._make_conn([])
+        result = build_symbol_minute_coverage(conn, "AAPL")
+        assert result == {"AAPL": set()}
+        assert result is not None
+
+    def test_query_timeout_returns_none(self) -> None:
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__ = MagicMock(return_value=cur)
+        cur.__exit__ = MagicMock(return_value=False)
+
+        def _execute(sql: str, *params) -> None:
+            if "GROUP BY" in sql:
+                raise psycopg.errors.QueryCanceled("statement timeout")
+
+        cur.execute = MagicMock(side_effect=_execute)
+        conn.cursor = MagicMock(return_value=cur)
+
+        result = build_symbol_minute_coverage(conn, "AAPL")
+        assert result is None
+
+    def test_stale_cagg_returns_none_without_running_query(self) -> None:
+        conn = self._make_conn([(datetime(2024, 1, 2, tzinfo=UTC),)])
+        cur = conn.cursor.return_value
+        with patch(
+            "manta_trading.data.gaps.minute_coverage.assert_cagg_fresh",
+            return_value=_stale_verdict(),
+        ):
+            result = build_symbol_minute_coverage(conn, "AAPL")
+        assert result is None
+        cur.execute.assert_not_called()
+
+    def test_symbol_passed_as_parameter_not_interpolated(self) -> None:
+        conn = self._make_conn([])
+        cur = conn.cursor.return_value
+        build_symbol_minute_coverage(conn, "AAPL")
+        query_calls = [
+            call for call in cur.execute.call_args_list
+            if call.args and "GROUP BY" in call.args[0]
+        ]
+        assert len(query_calls) == 1
+        sql, params = query_calls[0].args
+        assert "AAPL" not in sql
+        assert params == ("AAPL",)
+        assert "minute_4hour_ohlcv" in sql
 
 
 # ---------------------------------------------------------------------------

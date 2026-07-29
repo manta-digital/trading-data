@@ -158,7 +158,14 @@ plus doc updates. No new modules.
   is `WHERE symbol = %s` (parameterized) and single-symbol output.
 - `_do_minute_symbol` / `_process_minute_symbol`: gains a `via: str`
   keyword-only parameter, threaded into every log call already present in
-  these functions (no new log call sites, existing ones gain the field).
+  these functions, **plus one new INFO line at fetch start**
+  (`"minute fetch: %s window=[%s → %s] via=%s"`). *(Amended 2026-07-28:
+  the original "no new log call sites" wording contradicted the success
+  criterion — `_do_minute_symbol` had zero pre-existing log calls, so a
+  successful fetch would have emitted nothing carrying `via=` and the
+  happy path would have remained unidentifiable from logs, which is the
+  precise defect this slice closes. One entry-INFO line per
+  `_do_*_symbol` resolves it; daily gets the mirror line.)*
 - `_do_daily_symbol` / `_process_daily_symbol` (`daily.py`): same `via`
   threading for consistency; no algorithmic change. `run_daily_refetch`
   calls `_do_daily_symbol` directly (mirroring `run_minute_refetch`'s
