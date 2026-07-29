@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed (latest, slice 165)
+## [0.5.0] - 2026-07-28
+
+### Fixed (slice 165)
 - **`mt data pull 1m --symbol X` is now safe for routine backfill/repair — it seeds coverage-aware, exactly like the daemon** — previously it always fell back to the legacy full-window `[history_start, today]` single-span seed, which could silently re-seed decades of already-present data and burn provider credits; this caused two independent production-verification mistakes during slice 162 and an interim "use `daemon run`, not `pull 1m`" operator workaround (`user/reference/minute-fetch-code-paths.md`, now superseded). `pull 1m` builds a per-symbol coverage index (`WHERE symbol = X` against the 4h cagg — near-instant, no universe scan) and seeds only genuinely-missing sessions. Verified against production: a window containing the 2025-01-09 market-closure hole produced a gap row confined to that single session, not the window span, and `force_reset_terminal` (clearing `PROVIDER_HOLE`/`RETRY_EXHAUSTED` rows) still works unchanged as an orthogonal flag.
 - **Every minute/daily fetch now logs which entry point drove it** — a `via=refetch|cycle` field on an entry INFO line (`minute fetch: ADP window=[…] via=refetch`) and on all warning/error lines, so log output alone identifies the code path; nothing observable distinguished them before.
 - **The daemon's universe coverage scan no longer times out at current data scale** — the 30s statement timeout was calibrated when the scan produced 2.4M symbol-day pairs (slice 162); continuous backfill grew that 9.4× to 22.7M and the measured end-to-end build is now 152s (row transfer dominates — `statement_timeout` counts streaming, not just aggregation). The timeout is now 300s, sized from measurement with plateau headroom; growth converges, so this holds. Long-term restructuring options are tracked in issue #3, and the full audit lives in `user/reference/prod-scale-and-coverage-scan-baseline.md`.
