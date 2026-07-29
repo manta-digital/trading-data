@@ -4,10 +4,10 @@ slice: unify-or-observably-distinguish-divergent-minute-fetch-code-paths
 project: trading-data
 lld: user/slices/165-slice.unify-or-observably-distinguish-divergent-minute-fetch-code-paths.md
 dependencies: [162]
-projectState: Slice 162 (coverage-aware minute gap-seeding), 163 (cagg re-chunking), 166 (minute_ohlcv rechunk), 167 (cagg-backed data_status), 168 (cagg freshness assertion) all complete and merged to main. run_minute_refetch (mt data pull 1m) still uses the pre-162 legacy full-window single-span seed; run_minute_cycle (mt data daemon run --minute) uses slice 162's coverage-aware seeding. No via marker exists in minute/daily daemon logs today.
+projectState: Slice 162 (coverage-aware minute gap-seeding), 163 (cagg re-chunking), 166 (minute_ohlcv rechunk), 167 (cagg-backed data_status), 168 (cagg freshness assertion) all complete and merged to main. run_minute_refetch (mt data pull 1m) still uses the pre-162 legacy full-window single-span seed; run_minute_cycle (mt data daemon run --minute) uses slice 162's coverage-aware seeding. No via marker exists in minute/daily daemon logs today. [Slice 165 delivered 2026-07-28: paths unified.]
 dateCreated: 20260727
 dateUpdated: 20260728
-status: not_started
+status: complete
 reviewFindings: [F001, F002, F003, F004, F005]
 ---
 
@@ -197,80 +197,80 @@ unstarted entry).
 
 ### Phase 3: Documentation Corrections
 
-- [ ] **3.1 Correct slice 162's Verification Walkthrough**
-  - [ ] In `project-documents/user/slices/162-slice.coverage-aware-minute-gap-seeding.md`,
+- [x] **3.1 Correct slice 162's Verification Walkthrough**
+  - [x] In `project-documents/user/slices/162-slice.coverage-aware-minute-gap-seeding.md`,
         locate the "CLI correction (found during Phase 6, 2026-07-17)" note
         in the Verification Walkthrough section
-  - [ ] Replace the note with the settled, permanent form: state plainly
+  - [x] Replace the note with the settled, permanent form: state plainly
         that `mt data daemon run --minute --symbols <SYM>` is the correct
         invocation, and remove the caveat about `mt data pull 1m` "silently
         routing through a different, non-coverage-aware code path" — this is
         no longer true after slice 165's fix (Phase 2 above)
-  - [ ] Add a one-line cross-reference to slice 165 noting the divergence
+  - [x] Add a one-line cross-reference to slice 165 noting the divergence
         was resolved there
-  - [ ] Bump `dateUpdated` in the 162 design's frontmatter to the date this
+  - [x] Bump `dateUpdated` in the 162 design's frontmatter to the date this
         task is completed
-  - [ ] Success: the 162 walkthrough reads correctly for a reader with no
+  - [x] Success: the 162 walkthrough reads correctly for a reader with no
         knowledge of the historical defect; no stale claims remain
 
-- [ ] **3.2 Supersede the interim reference doc**
-  - [ ] In `project-documents/user/reference/minute-fetch-code-paths.md`,
+- [x] **3.2 Supersede the interim reference doc**
+  - [x] In `project-documents/user/reference/minute-fetch-code-paths.md`,
         change frontmatter `status: draft` to `status: superseded`
-  - [ ] Add a note at the top of the document (below frontmatter) stating
+  - [x] Add a note at the top of the document (below frontmatter) stating
         the two paths were unified by slice 165 and this document is
         retained only as the historical record of the defect — do not
         delete the file or its content otherwise
-  - [ ] Success: `grep -n "status:" project-documents/user/reference/minute-fetch-code-paths.md`
+  - [x] Success: `grep -n "status:" project-documents/user/reference/minute-fetch-code-paths.md`
         shows `status: superseded`; document content otherwise unchanged
 
-- [ ] **3.3 Update slice plan entry 25 (165) if needed**
-  - [ ] Re-read `project-documents/user/architecture/140-slices.data-quality-operations.md`
+- [x] **3.3 Update slice plan entry 25 (165) if needed**
+  - [x] Re-read `project-documents/user/architecture/140-slices.data-quality-operations.md`
         entry 25 (slice 165) — confirm the existing scope description still
         matches what was actually delivered; no rewrite needed unless
         implementation diverged from the design during Phase 1/2 above
-  - [ ] Success: plan entry accurately reflects delivered behavior (checkbox
+  - [x] Success: plan entry accurately reflects delivered behavior (checkbox
         update happens in Phase 4 close-out, not this task)
 
 **Commit**: `docs: correct slice 162 walkthrough, supersede minute-fetch-code-paths reference`
 
 ### Phase 4: Full Verification and Close-Out
 
-- [ ] **4.1 Full unit test pass**
-  - [ ] Run `uv run pytest test/unit/data/acquisition/daemon/test_minute.py test/unit/data/acquisition/daemon/test_daily.py -q`
-  - [ ] Success: all tests pass, including the new/updated tests from
+- [x] **4.1 Full unit test pass**
+  - [x] Run `uv run pytest test/unit/data/acquisition/daemon/test_minute.py test/unit/data/acquisition/daemon/test_daily.py -q`
+  - [x] Success: all tests pass, including the new/updated tests from
         Phase 1 and Phase 2
 
-- [ ] **4.2 Static analysis**
-  - [ ] Run `ruff check` and `uv run --extra dev mypy` (pyright is not
+- [x] **4.2 Static analysis**
+  - [x] Run `ruff check` and `uv run --extra dev mypy` (pyright is not
         installed in this environment per standing note) against
         `src/manta_trading/data/acquisition/daemon/minute.py` and
         `src/manta_trading/data/acquisition/daemon/daily.py`
-  - [ ] Success: zero errors on both touched files, at or below `main`
+  - [x] Success: zero errors on both touched files, at or below `main`
         baseline for pre-existing warnings
 
-- [ ] **4.3 End-to-end log marker confirmation**
-  - [ ] Run `mt data pull 1m --symbol <TEST_SYMBOL> -v` and
+- [x] **4.3 End-to-end log marker confirmation**
+  - [x] Run `mt data pull 1m --symbol <TEST_SYMBOL> -v` and
         `mt data daemon run --minute --symbols <TEST_SYMBOL> -v` against
         `trading_test` with verbose/JSON logging enabled
-  - [ ] Also run `mt data pull 1d --symbol <TEST_SYMBOL> -v` against
+  - [x] Also run `mt data pull 1d --symbol <TEST_SYMBOL> -v` against
         `trading_test` — this exercises `run_daily_refetch` → `_do_daily_symbol`
         directly and is the only task in this file that actually invokes that
         call path end-to-end (Phase 1's tests mock `_do_daily_symbol`, so a
         missing/misordered argument there would not surface until this step)
-  - [ ] Confirm log output contains `via=refetch` for both `pull` invocations
+  - [x] Confirm log output contains `via=refetch` for both `pull` invocations
         (minute and daily) and `via=cycle` for the `daemon run` invocation
-  - [ ] Success: all three markers observed exactly as specified in the
+  - [x] Success: all three markers observed exactly as specified in the
         slice design's Verification Walkthrough step 3; `mt data pull 1d`
         completes without a `TypeError` or other exception
 
-- [ ] **4.4 Delegate task/design checklist close-out**
-  - [ ] Delegate to the `task-checker` agent: confirm all checkboxes in this
+- [x] **4.4 Delegate task/design checklist close-out**
+  - [x] Delegate to the `task-checker` agent: confirm all checkboxes in this
         task file are checked and set frontmatter `status: complete`
-  - [ ] Update `project-documents/user/slices/165-slice.unify-or-observably-distinguish-divergent-minute-fetch-code-paths.md`
+  - [x] Update `project-documents/user/slices/165-slice.unify-or-observably-distinguish-divergent-minute-fetch-code-paths.md`
         frontmatter `status: complete`
-  - [ ] Update slice plan entry 25 in `140-slices.data-quality-operations.md`
+  - [x] Update slice plan entry 25 in `140-slices.data-quality-operations.md`
         to `[x]`
-  - [ ] Success: task file, slice design, and plan entry all reflect
+  - [x] Success: task file, slice design, and plan entry all reflect
         completion; `git log` shows all four Phase commits present on the
         branch before merge
 
