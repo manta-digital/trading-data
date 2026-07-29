@@ -6,7 +6,7 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [145, 146]
 interfaces: [163, 164, 182]
 dateCreated: 20260716
-dateUpdated: 20260717
+dateUpdated: 20260728
 status: complete
 ---
 
@@ -455,16 +455,16 @@ the regression test pins.
 > cannot `SELECT` OHLCV/gap tables. Production DB is `<db-host>:5432/trading`.
 > **Do not restart the production minute daemon until this slice lands.**
 >
-> **CLI correction (found during Phase 6, 2026-07-17):** the commands below
-> use `mt data daemon run --minute --symbols <SYM>`, **not**
-> `mt data pull --granularity minute --symbols <SYM>` (an earlier draft of
-> this walkthrough specified the latter, which does not exist as written —
-> `pull` takes a positional `1d`/`1m` argument, not a `--granularity` flag —
-> and even corrected to `mt data pull 1m --symbol <SYM>` it silently routes
-> through `run_minute_refetch`, a different, non-coverage-aware code path,
-> rather than `run_minute_cycle` — see
-> `user/reference/minute-fetch-code-paths.md` and slice 165, filed to fix
-> this divergence).
+> **CLI note (settled 2026-07-28):** the commands below use
+> `mt data daemon run --minute --symbols <SYM>`. (`pull` takes a positional
+> `1d`/`1m` argument — `mt data pull 1m --symbol <SYM>` — there is no
+> `--granularity` flag.) Since slice 165 unified the paths, `mt data pull 1m`
+> seeds via the same coverage-aware algorithm as the daemon (per-symbol
+> coverage index), so either entry point is safe for these checks, and every
+> fetch logs a `via=refetch|cycle` marker identifying which ran. The
+> historical divergence that once made `pull 1m` dangerous here was resolved
+> by slice 165; the defect record is
+> `user/reference/minute-fetch-code-paths.md` (superseded).
 
 **1. Unit tests pass:**
 ```bash
@@ -480,8 +480,9 @@ SELECT symbol, date_trunc('day', time_bucket)
 FROM minute_4hour_ohlcv
 GROUP BY symbol, date_trunc('day', time_bucket);
 ```
-Expected: single Finalize HashAggregate over a parallel Gather, ~3s total (not
-minutes). This is the query `build_minute_coverage_index` issues.
+Expected: single Finalize HashAggregate over a parallel Gather — seconds,
+not minutes; the absolute time scales with backfill progress (see the dated
+captures below). This is the query `build_minute_coverage_index` issues.
 
 Captured (2026-07-17, production `trading`): Finalize HashAggregate,
 `rows=2425433`, Gather with 13 workers launched, `Buffers: shared hit=64245`
@@ -490,6 +491,13 @@ Captured (2026-07-17, production `trading`): Finalize HashAggregate,
 `count(DISTINCT symbol)` / `count(*)` over `minute_4hour_ohlcv` — record the
 two numbers precisely (an earlier capture attempt returned an ambiguous
 pasted value; re-run and label each column explicitly before trusting it).
+
+**Updated 2026-07-28 (slice 165):** same query now returns `rows=22687901`
+in ~18.5s — 9.4× output growth from continuous backfill since the capture
+above, runtime scaling sub-linearly; growth, not regression. The statement
+timeout was raised 30s → 90s accordingly, and `run_minute_refetch` uses a
+per-symbol variant instead of this universe scan. Current authoritative
+baseline: `user/reference/prod-scale-and-coverage-scan-baseline.md`.
 
 **3. Fully-covered symbol seeds nothing.** Pick a symbol known to be fully
 backfilled (operator confirms via a bounded count). Delete its minute gap rows,
