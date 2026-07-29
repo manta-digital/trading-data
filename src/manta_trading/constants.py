@@ -116,20 +116,26 @@ as transient_failure and retried on the next cycle rather than blocking
 indefinitely.
 """
 
-MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT: str = "90s"
+MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT: str = "300s"
 """PostgreSQL statement_timeout for the minute coverage queries
 (slice 162 ``build_minute_coverage_index``, slice 165
 ``build_symbol_minute_coverage``).
 
 Originally 30s, "a small multiple of the measured ~3s" universe scan of the
-``minute_4hour_ohlcv`` cagg (slice-162 prep, 2.4M symbol-day pairs). Raised
-to 90s in slice 165: the 2026-07-28 audit
-(``user/reference/prod-scale-and-coverage-scan-baseline.md``) measured
-18.46s at 22.7M pairs — 9.4x backfill growth, not a regression — with a
-converging plateau of ~25-35s at full backfill (history bounded at 2004,
-universe ~11.6k symbols), plus concurrent-daemon-load variance. 90s is
-permanent headroom for the plateau; a day-grain coverage cagg (issue #3)
-is the long-term replacement if scan latency ever matters.
+``minute_4hour_ohlcv`` cagg (slice-162 prep, 2.4M symbol-day pairs). Set to
+300s in slice 165 from an end-to-end measurement, not a server-side one:
+``statement_timeout`` keeps counting while the server STREAMS rows to the
+client, and the universe build transfers every (symbol, day) pair. At the
+2026-07-28 audit (``user/reference/prod-scale-and-coverage-scan-baseline.md``)
+the server-side aggregation alone is ~18s, but the full app path —
+aggregation + streaming 22,687,901 rows + psycopg parsing — measured
+152.2s (9.4x pair growth from backfill since slice 162; growth, not
+regression). 300s covers the measured cost plus the converging plateau
+(~1.5x more pairs at full backfill; history bounded at 2004, universe
+~11.6k symbols) and load variance. Transfer dominating aggregation is the
+key sizing input — a day-grain coverage cagg (issue #3) fixes the
+aggregation but NOT the transfer, so per-symbol reads or a compact
+(array_agg) wire format are the long-term fixes if this cost ever matters.
 
 On timeout the coverage build fails safe: coverage-aware seeding is skipped
 for that cycle rather than falling back to the old full-window

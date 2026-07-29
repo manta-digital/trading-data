@@ -120,9 +120,12 @@ unstarted entry).
         `build_minute_coverage_index`, query filtered `WHERE symbol = %s`
         (parameterized — symbol must never be interpolated into SQL)
   - [x] In `constants.py`, change `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT`
-        from `"30s"` to `"90s"` and update its docstring rationale to cite
-        `user/reference/prod-scale-and-coverage-scan-baseline.md` (scan is
-        18.46s at 22.7M pairs, plateau ~25–35s — 90s is converged headroom)
+        from `"30s"` to `"300s"` and update its docstring rationale to cite
+        `user/reference/prod-scale-and-coverage-scan-baseline.md`
+        *(corrected from an initial 90s during Phase 6: statement_timeout
+        also counts row streaming; measured end-to-end universe build is
+        152.2s — aggregation ~18s + 22.7M-row transfer/parse — so 90s
+        failed in prod at 91.2s; 300s is measured cost + plateau headroom)*
   - [x] In `run_minute_refetch` (`minute.py`), add a `pool.connection()`
         block calling `build_symbol_minute_coverage(conn, symbol)` and pass
         the result as `coverage_index` into the existing

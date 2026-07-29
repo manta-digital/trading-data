@@ -92,15 +92,19 @@ the open-ended risk the plan entry flagged.
 5. Retire `user/reference/minute-fetch-code-paths.md` — mark it superseded
    by this slice once both paths seed identically; its operator-guidance
    table's premise (avoid `pull 1m`) is no longer true.
-6. Raise `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` from `30s` to `90s`
+6. Raise `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` from `30s` to `300s`
    (`constants.py`, one line). The 30s value was calibrated against slice
-   162's measured ~3.05s / 2.4M-pair scan; the 2026-07-28 audit
-   (`user/reference/prod-scale-and-coverage-scan-baseline.md`) measured
-   18.46s / 22.7M pairs (9.4× backfill growth, not a regression) with a
-   projected plateau of ~25–35s at full backfill — 90s covers the plateau
-   plus concurrent-daemon-load variance permanently, because growth
-   converges (history bounded at 2004, universe ~11.6k symbols).
-   *(Added 2026-07-28.)*
+   162's measured ~3.05s / 2.4M-pair server-side scan. During Phase 6 this
+   was corrected twice: a first bump to 90s (sized from the 18.46s
+   server-side aggregation measured in the 2026-07-28 audit) still failed
+   in production at 91.2s, exposing that `statement_timeout` also counts
+   the row-streaming phase — the universe build transfers all 22.7M
+   (symbol, day) pairs to the client, and the measured END-TO-END app path
+   is 152.2s (aggregation ~18s; transfer + psycopg parsing dominate). 300s
+   covers the measured cost, the converging plateau (~1.5× more pairs at
+   full backfill), and load variance. Transfer-dominates is also recorded
+   on issue #3: a day-grain cagg fixes aggregation but not transfer.
+   *(Added 2026-07-28; corrected same day after end-to-end measurement.)*
 
 **Out of scope:**
 - Merging `run_minute_refetch` and `run_minute_cycle` into a single
@@ -246,9 +250,11 @@ cheaper still. Unification is preserved semantically: both paths seed via
 coverage — they differ only in how much of the universe they index, which
 matches their scopes (12k-symbol cycle vs 1-symbol refetch).
 
-Companion change: `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` 30s → 90s for
-the daemon's universe scan (scope item 6). The longer-term day-grain
-coverage cagg is filed as GitHub issue #3 — explicitly out of scope here.
+Companion change: `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` 30s → 300s for
+the daemon's universe scan (scope item 6 — see there for why the first
+90s attempt was wrong: statement_timeout counts row streaming, and the
+measured end-to-end build is 152.2s). The longer-term day-grain coverage
+cagg is filed as GitHub issue #3 — explicitly out of scope here.
 
 ### Audit Findings (scope item 2)
 
@@ -382,40 +388,70 @@ behavior of an existing operator command to match its sibling.
 
 ### Verification Walkthrough
 
-1. **Confirm the defect no longer reproduces** — pick a symbol with a
-   known partial history gap (or seed one on `trading_test`). Before
-   this slice's fix, `mt data pull 1m --symbol X` would seed a single
-   `[history_start, target_end]` gap row. After:
-   ```bash
-   uv run mt data pull 1m --symbol X -v
-   ```
-   Inspect `data_gaps` for that symbol/window — expect gap rows matching
-   only the genuinely-missing sessions, same shape as what
-   `mt data daemon run --minute --symbols X -v` would produce for the
-   same starting state.
+*(As executed 2026-07-28 against production `trading` — `trading_test` is
+unrepresentative and must not be used for these checks: its minute "caggs"
+are plain views, so every coverage path falls back; see
+`user/reference/prod-scale-and-coverage-scan-baseline.md`. `pull` writes
+are additive-only; PM approved prod use for this verification.)*
 
-2. **Confirm `force_reset_terminal` still works** — seed a `RETRY_EXHAUSTED`
-   row for a test symbol, then run `mt data pull 1m --symbol X`. Confirm
-   the row is reset and re-attempted (existing behavior, unchanged).
-
-3. **Confirm log markers** — run both paths with `-v` and grep the output
-   (or `MT_LOG_FORMAT=json` output) for `via=`:
+1. **Confirm the defect no longer reproduces** — use a symbol whose only
+   hole in a bounded window is a known provider hole, so the seeded row
+   survives for inspection:
    ```bash
-   uv run mt data pull 1m --symbol X -v 2>&1 | grep via=refetch
-   uv run mt data daemon run --minute --symbols X -v 2>&1 | grep via=cycle
+   uv run mt data pull 1m --symbol ADP --start 2025-01-08 --end 2025-01-10 -v
    ```
-   Both should match.
+   Verified 2026-07-28: the only `data_gaps` row afterward is
+   `[2025-01-09 07:30 → 2025-01-09 07:30] PROVIDER_HOLE` — confined to the
+   single genuinely-missing session (2025-01-09, the market-closure day).
+   The legacy single-span seed would instead have left rows spanning
+   `[2025-01-08 → 2025-01-10]`. Corroborated with GLNDW
+   (`--start 2026-07-06 --end 2026-07-25`): exactly the missing sessions
+   (07-21 → 07-23, 79 bars) were fetched; covered days were not re-seeded;
+   an out-of-window stale UNKNOWN row was left untouched.
+
+2. **Confirm `force_reset_terminal` still works** — the same ADP run:
+   its pre-existing terminal row (`PROVIDER_HOLE`, `last_attempt_ts`
+   2026-07-20) was reset and re-attempted — `last_attempt_ts` advanced to
+   the run time, then the row was re-marked `PROVIDER_HOLE` when EODHD
+   returned nothing (deterministic: the market was closed that day). Do
+   NOT seed synthetic terminal rows into production; use an existing one:
+   ```sql
+   SELECT symbol, gap_start::date FROM data_gaps
+   WHERE granularity='minute' AND fetch_status IN ('RETRY_EXHAUSTED','PROVIDER_HOLE')
+   ORDER BY (gap_end - gap_start) ASC LIMIT 10;  -- e.g. the 2025-01-09 holes
+   ```
+
+3. **Confirm log markers** — every fetch now emits an entry INFO line
+   (added this slice; without it a successful fetch carried no `via=`):
+   ```bash
+   uv run mt data pull 1m --symbol <SYM> -v 2>&1 | grep "via=refetch"
+   uv run mt data pull 1d --symbol <SYM> --start <d1> --end <d2> -v 2>&1 | grep "via=refetch"
+   uv run mt data daemon run --minute --symbols <SYM> -v 2>&1 | grep "via=cycle"
+   ```
+   Verified 2026-07-28, observed lines:
+   `minute fetch: ADP window=[2025-01-08 → 2025-01-10] via=refetch`,
+   `daily fetch: ADP window=[2025-01-06 → 2025-01-14] via=refetch`
+   (no `TypeError` — the `run_daily_refetch` → `_do_daily_symbol` direct
+   call site carries `via` correctly),
+   `minute fetch: GLNDW window=[2026-04-28 → 2026-07-29] via=cycle`.
+   Caveat: the daemon path builds the universe-wide coverage index first —
+   ~152s end-to-end at current scale (timeout 300s); the `pull 1m`
+   per-symbol build is near-instant.
 
 4. **Confirm docs updated** — `user/slices/162-slice.coverage-aware-minute-gap-seeding.md`'s
-   Verification Walkthrough uses the corrected command with no caveat
-   about divergent code paths; `user/reference/minute-fetch-code-paths.md`
-   frontmatter shows `status: superseded`.
+   walkthrough carries the settled CLI note (no divergent-path caveat) and
+   a dated 2026-07-28 scan-baseline update;
+   `user/reference/minute-fetch-code-paths.md` frontmatter shows
+   `status: superseded` with a pointer note to this slice.
 
 5. **Run unit tests:**
    ```bash
-   uv run pytest test/unit/data/acquisition/daemon/test_minute.py test/unit/data/acquisition/daemon/test_daily.py -q
+   uv run pytest test/unit/data/gaps/test_minute_coverage.py test/unit/data/acquisition/daemon/ -q
    ```
-   Expected: all green, including updated `TestRunMinuteRefetch` assertions.
+   Verified 2026-07-28: 134 passed, 1 failed — the failure is
+   `test_daily.py::TestRunDailyCycleFailurePaths::test_4xx_non_429_propagates`,
+   which fails identically on `main` (pre-existing, unrelated to this
+   slice; confirmed via `git stash` bisection).
 
 ## Implementation Notes
 
@@ -436,5 +472,7 @@ behavior of an existing operator command to match its sibling.
   timeout exposure. No caching/sharing across invocations is introduced —
   each `pull 1m` call is independent, matching current semantics.
 - The daemon's universe scan is unchanged in shape but its timeout rises
-  30s → 90s (scope item 6) so the converging backfill growth cannot push
-  the once-per-cycle build into permanent fail-safe fallback.
+  30s → 300s (scope item 6; sized from the measured 152.2s end-to-end
+  build — aggregation + 22.7M-row transfer — not the 18s server-side
+  aggregation alone) so the converging backfill growth cannot push the
+  once-per-cycle build into permanent fail-safe fallback.

@@ -83,32 +83,45 @@ and (slice 165) once per `mt data pull 1m` invocation.
 | When | Runtime | Output pairs | Context |
 |---|---:|---:|---|
 | slice-162 prep (~2026-07-15) | ~3.05 s | 2,425,433 | recorded in 162 design §"Measured on the production DB" |
-| 2026-07-28 (this audit) | 18.46 s | 22,687,901 | standalone, daemon concurrently active |
-| 2026-07-28 07:09 | >30 s (timed out) | — | inside `mt data pull 1m`, daemon mid-cycle |
+| 2026-07-28 (this audit) | 18.46 s | 22,687,901 | **server-side aggregation only** (`COUNT(*)` wrapper via psql) |
+| 2026-07-28 (this audit) | **152.2 s** | 22,687,901 | **end-to-end app path**: aggregation + streaming all rows to psycopg + Python dict build |
+| 2026-07-28 07:09 | >30 s (timed out) | — | inside `mt data pull 1m`, pre-165 timeout |
+| 2026-07-28 18:18 | >90 s (timed out at 91.2 s) | — | daemon path after a first 90s timeout bump — see below |
 
 **This is NOT a regression.** Output cardinality grew 9.4× (2.4M → 22.7M
 symbol-day pairs) because the minute backfill has been filling decades of
-history continuously since slice 162 shipped. Runtime grew ~6× — sub-linear
-in the group count. The hash-aggregate's output cardinality is the inherent
-cost driver. The 30s timeout was calibrated against the 2.4M-pair era and the
-data has since consumed the headroom.
+history continuously since slice 162 shipped. The hash-aggregate's output
+cardinality drives both the server cost AND — the larger term — the wire
+transfer.
 
-**Trajectory:** as backfill continues toward full-universe 2004+ history,
-the scan will exceed 30s routinely (it already does under concurrent daemon
-load) and eventually permanently. When the build times out, both the daemon
-cycle and (post-165) `pull 1m` fall back safely per the slice 162 fail-safe
-(ERROR log, `None` index, no coverage-aware seeding that cycle). Fail-safe
-is correct but means coverage-aware seeding silently stops happening.
+**Sizing trap (learned the hard way, same day):** `statement_timeout`
+counts until the server finishes *sending* rows, not just computing them.
+A `COUNT(*)`-wrapped benchmark (18.46s) measures aggregation only; the real
+`build_minute_coverage_index` call transfers every pair and measured
+**152.2s end-to-end**. A first timeout bump to 90s — sized from the 18.46s
+number — failed in production at 91.2s. Timeout values for this query must
+be sized from the end-to-end measurement. Slice 165 set
+`MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT = 300s` (measured 152.2s + plateau
+~1.5× pair growth + load variance).
 
-**Follow-up options (not yet decided, needs a slice/plan entry):**
-1. Raise `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` (buys time, doesn't scale).
-2. Add a **day-grain** coverage cagg over `minute_4hour_ohlcv` (the missing
-   grain between 4h and year) and read the index from it.
-3. For single-symbol paths (`run_minute_refetch`), use a per-symbol day-grain
-   query instead of the universe-wide index. Slice 162 measured per-symbol at
-   ~2.0s when the cagg had ~140 tiny chunks per scan; after the 163 rechunk
-   (119 chunks total) it should be substantially cheaper. Rejected in 162 for
-   the 12k-symbol daemon loop; never evaluated for the 1-symbol operator path.
+**Trajectory:** growth converges (history bounded at 2004, universe ~11.6k
+symbols; post-backfill growth ≈ 11.6k pairs/day). Plateau estimate ~30–40M
+pairs → ~200–270s end-to-end; 300s covers it. On timeout, both the daemon
+cycle and `pull 1m` fall back safely per the slice 162 fail-safe (ERROR
+log, `None` index, no coverage-aware seeding that cycle) — safe but means
+coverage-aware seeding silently stops happening.
+
+**Follow-up options (issue #3 tracks this):**
+1. ~~Raise the timeout~~ — done in slice 165 (30s → 300s, measured-based).
+2. Day-grain coverage cagg over `minute_4hour_ohlcv`: fixes the aggregation
+   term but **NOT the transfer term**, which dominates (134 of 152 s). Only
+   worth doing combined with (3) or (4).
+3. Per-symbol day-grain reads (slice 165 added `build_symbol_minute_coverage`
+   for `run_minute_refetch`; the daemon loop could adopt the same shape —
+   162's ~2.0s/symbol rejection predates the 163 rechunk and is stale).
+4. Compact wire format for the universe build (e.g.
+   `array_agg(DISTINCT ...::date) GROUP BY symbol` → 11.6k rows with binary
+   date arrays instead of 22.7M rows) — attacks the transfer term directly.
 
 ## trading_test is NOT representative — do not infer from it
 
