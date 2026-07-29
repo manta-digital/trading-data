@@ -56,10 +56,19 @@ the open-ended risk the plan entry flagged.
 ## Technical Scope
 
 **In scope:**
-1. Unify `run_minute_refetch` to build a `coverage_index` (same call as
-   `run_minute_cycle`: `build_minute_coverage_index(conn)`) and pass it
-   into `_do_minute_symbol`, so its seed goes through
-   `compute_missing_minute_sessions` like the daemon path. `force_reset_terminal`
+1. Unify `run_minute_refetch` onto coverage-aware seeding: build a
+   **single-symbol** coverage index via a new
+   `build_symbol_minute_coverage(conn, symbol)` in
+   `data/gaps/minute_coverage.py` — identical query shape, staleness guard
+   (`assert_cagg_fresh`, slice 168), timeout envelope, and fail-safe
+   return-`None` contract as `build_minute_coverage_index`, but filtered
+   `WHERE symbol = %s` — and pass the result into `_do_minute_symbol`, so
+   its seed goes through `compute_missing_minute_sessions` exactly like the
+   daemon path. Same return shape (`{symbol: set[date]}` for the one
+   symbol), so `_do_minute_symbol` and `compute_missing_minute_sessions`
+   need no changes. *(Amended 2026-07-28 — see Technical Decisions
+   §Amendment; the original design reused the universe-wide index here.)*
+   `force_reset_terminal`
    stays `True` by default for `run_minute_refetch` (unchanged operator
    semantics: still resets `PROVIDER_HOLE`/`RETRY_EXHAUSTED` before
    re-attempting) — but reset and seeding-algorithm are now independent:
@@ -83,6 +92,15 @@ the open-ended risk the plan entry flagged.
 5. Retire `user/reference/minute-fetch-code-paths.md` — mark it superseded
    by this slice once both paths seed identically; its operator-guidance
    table's premise (avoid `pull 1m`) is no longer true.
+6. Raise `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` from `30s` to `90s`
+   (`constants.py`, one line). The 30s value was calibrated against slice
+   162's measured ~3.05s / 2.4M-pair scan; the 2026-07-28 audit
+   (`user/reference/prod-scale-and-coverage-scan-baseline.md`) measured
+   18.46s / 22.7M pairs (9.4× backfill growth, not a regression) with a
+   projected plateau of ~25–35s at full backfill — 90s covers the plateau
+   plus concurrent-daemon-load variance permanently, because growth
+   converges (history bounded at 2004, universe ~11.6k symbols).
+   *(Added 2026-07-28.)*
 
 **Out of scope:**
 - Merging `run_minute_refetch` and `run_minute_cycle` into a single
@@ -126,10 +144,18 @@ All changes are within `src/manta_trading/data/acquisition/daemon/minute.py`
 and `src/manta_trading/data/acquisition/daemon/daily.py` (log marker only),
 plus doc updates. No new modules.
 
-- `run_minute_refetch` (`minute.py`): gains a coverage-index build step
-  identical in shape to `run_minute_cycle`'s (one extra `pool.connection()`
-  block calling `build_minute_coverage_index`), then passes it to
+- `run_minute_refetch` (`minute.py`): gains a coverage-index build step —
+  one extra `pool.connection()` block calling the new single-symbol
+  `build_symbol_minute_coverage(conn, symbol)` — then passes the result to
   `_do_minute_symbol` alongside the existing `force_reset_terminal=True`.
+  *(Amended 2026-07-28: was `build_minute_coverage_index`, the universe-wide
+  scan `run_minute_cycle` uses.)*
+- `build_symbol_minute_coverage` (`data/gaps/minute_coverage.py`, new):
+  per-symbol sibling of `build_minute_coverage_index`. Same
+  `assert_cagg_fresh` guard, same `SET LOCAL statement_timeout`
+  (`MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT`), same catch-log-return-`None`
+  fail-safe, same `{symbol: set[date]}` return shape — the only difference
+  is `WHERE symbol = %s` (parameterized) and single-symbol output.
 - `_do_minute_symbol` / `_process_minute_symbol`: gains a `via: str`
   keyword-only parameter, threaded into every log call already present in
   these functions (no new log call sites, existing ones gain the field).
@@ -151,8 +177,8 @@ run_minute_refetch → _do_minute_symbol(coverage_index=None, force_reset_termin
 
 After:
 ```
-run_minute_refetch → build_minute_coverage_index(conn) → _do_minute_symbol(
-    coverage_index=<index>, force_reset_terminal=True, via="refetch")
+run_minute_refetch → build_symbol_minute_coverage(conn, symbol) → _do_minute_symbol(
+    coverage_index=<{symbol: days}>, force_reset_terminal=True, via="refetch")
   → _needs_seed=True (force_reset_terminal still forces re-seed)
   → precomputed_ranges = compute_missing_minute_sessions(...) → coverage-aware ranges
   → update_data_gaps(precomputed_ranges=<ranges>, force_reset_terminal=True)
@@ -165,11 +191,13 @@ existing coverage_index build/pass-through).
 ### State Management
 
 No new persistent state. `coverage_index` remains a per-invocation,
-in-memory `dict[str, set[date]]` built fresh each call — `run_minute_refetch`
-building its own index (rather than sharing one across a batch) is
-correct because it is a single-symbol command; the ~3s universe-wide
-grouped-scan cost (measured in slice 162) is paid once per invocation,
-which is acceptable for an operator command run interactively.
+in-memory `dict[str, set[date]]` built fresh each call. For
+`run_minute_refetch` the dict contains exactly one symbol's covered days
+(a few thousand entries), built by a `WHERE symbol = %s` query — the
+universe-wide scan (18.46s / 22.7M pairs at the 2026-07-28 audit, and a
+multi-GB Python dict) is never paid by the single-symbol operator command.
+`run_minute_cycle` continues to build the universe index once per cycle,
+where the cost is amortized across ~11.6k symbols.
 
 ## Technical Decisions
 
@@ -186,6 +214,34 @@ which is acceptable for an operator command run interactively.
   (`force_reset_terminal` at step 2, `precomputed_ranges` at step 4 — two
   separate steps, already orthogonal in the implementation the callers
   just weren't exercising correctly).
+
+### Amendment (2026-07-28): per-symbol coverage query for refetch
+
+The original design reused the universe-wide `build_minute_coverage_index`
+in `run_minute_refetch`, justified by slice 162's measured ~3s scan cost as
+"acceptable interactive latency." During Phase 6 verification that premise
+was found stale: the scan now runs 18.46s / 22.7M (symbol, day) pairs —
+9.4× output growth from continuous backfill since 162, not a regression —
+and exceeded the 30s `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` when run
+while the daemon was mid-cycle, which forced `run_minute_refetch` into the
+legacy single-span fallback: the exact behavior this slice exists to
+eliminate, merely logged instead of silent. Full audit:
+`user/reference/prod-scale-and-coverage-scan-baseline.md`.
+
+Resolution: `run_minute_refetch` builds a **single-symbol** coverage index
+(`build_symbol_minute_coverage`, `WHERE symbol = %s` against the same 4h
+cagg). Slice 162 measured the per-symbol shape at ~2.0s and rejected it
+solely because 2s × 12k symbols was untenable *for the daemon loop*; that
+rejection never applied to a one-symbol operator command, and post-163
+rechunk (119 well-sized chunks vs ~140 tiny ones per scan then) it is
+cheaper still. Unification is preserved semantically: both paths seed via
+`compute_missing_minute_sessions` over the same cagg-derived day-grain
+coverage — they differ only in how much of the universe they index, which
+matches their scopes (12k-symbol cycle vs 1-symbol refetch).
+
+Companion change: `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` 30s → 90s for
+the daemon's universe scan (scope item 6). The longer-term day-grain
+coverage cagg is filed as GitHub issue #3 — explicitly out of scope here.
 
 ### Audit Findings (scope item 2)
 
@@ -234,8 +290,9 @@ This is a refactor of existing runtime code paths, not a data migration.
 - **Source:** `run_minute_refetch` seeds via `precomputed_ranges=None`
   (legacy single-span fallback in `update_data_gaps`).
 - **Destination:** `run_minute_refetch` seeds via `precomputed_ranges`
-  computed from a freshly-built coverage index, identical in shape to
-  `run_minute_cycle`.
+  computed from a freshly-built single-symbol coverage index
+  (`build_symbol_minute_coverage`) — same day-grain cagg source and same
+  `compute_missing_minute_sessions` diff as `run_minute_cycle`.
 - **Consumers to update:** none outside `minute.py` — `run_minute_refetch`'s
   signature (`symbol`, `from_date`, `to_date`) is unchanged; its only
   caller (`_pull_fetch_inner` in `cli/commands/data.py`) requires no edit.
@@ -261,8 +318,11 @@ behavior of an existing operator command to match its sibling.
 
 ### Consumes from Other Slices
 
-- Slice 162's `build_minute_coverage_index` / `compute_missing_minute_sessions`
-  — consumed identically to how `run_minute_cycle` already consumes them.
+- Slice 162's `compute_missing_minute_sessions` — consumed identically to
+  how `run_minute_cycle` already consumes it. The new
+  `build_symbol_minute_coverage` (this slice) is a per-symbol sibling of
+  162's `build_minute_coverage_index` and adopts its contract verbatim —
+  same staleness guard, same timeout, same fail-safe described below.
   `build_minute_coverage_index` fails safe by design (slice 162/168): a
   `statement_timeout`, other operational/connection error mid-scan, or a
   stale source cagg (slice 168's `assert_cagg_fresh` guard) are all caught
@@ -305,7 +365,8 @@ behavior of an existing operator command to match its sibling.
 
 ### Technical Requirements
 - No new modules; changes confined to `minute.py`, `daily.py` (log marker
-  only), and the two doc updates.
+  only), `minute_coverage.py` (new `build_symbol_minute_coverage`
+  function), `constants.py` (timeout value only), and the two doc updates.
 - `ruff` and `mypy`/`pyright` clean on touched files, at or below `main`
   baseline.
 - Existing unit test suites for `minute.py`/`daily.py` daemon paths pass;
@@ -361,10 +422,12 @@ behavior of an existing operator command to match its sibling.
 
 ### Special Considerations
 
-- `run_minute_refetch`'s coverage index build adds one extra ~3s grouped
-  scan (`build_minute_coverage_index`, per slice 162's measured cost) to
-  every single-symbol `pull 1m` invocation. This is an acceptable
-  operator-command latency cost (interactive command, not a hot path) and
-  is the same cost `daemon run --minute --symbols X` already pays per
-  cycle. No caching/sharing across invocations is introduced — each
-  `pull 1m` call is independent, matching current semantics.
+- `run_minute_refetch`'s coverage build adds one per-symbol grouped scan
+  (`build_symbol_minute_coverage`, expected low single-digit seconds; slice
+  162 measured ~2.0s pre-163-rechunk) to every single-symbol `pull 1m`
+  invocation — acceptable interactive latency with no universe-scan
+  timeout exposure. No caching/sharing across invocations is introduced —
+  each `pull 1m` call is independent, matching current semantics.
+- The daemon's universe scan is unchanged in shape but its timeout rises
+  30s → 90s (scope item 6) so the converging backfill growth cannot push
+  the once-per-cycle build into permanent fail-safe fallback.

@@ -109,70 +109,85 @@ unstarted entry).
 
 ### Phase 2: Unify `run_minute_refetch` onto Coverage-Aware Seeding
 
-- [ ] **2.1 Build and pass coverage index in `run_minute_refetch`**
-  - [ ] In `src/manta_trading/data/acquisition/daemon/minute.py`, inside
-        `run_minute_refetch`, add a `pool.connection()` block that calls
-        `build_minute_coverage_index(conn)` — same call shape as the one
-        already present in `run_minute_cycle` (around line 148-149)
-  - [ ] Pass the resulting `coverage_index` into the existing
-        `_do_minute_symbol(...)` call in `run_minute_refetch`, alongside the
-        unchanged `force_reset_terminal=True` and `window=window` arguments
-  - [ ] Pass `via="refetch"` in the same call
+- [ ] **2.1 Per-symbol coverage builder + wire into `run_minute_refetch`**
+      *(Amended 2026-07-28 per design §Amendment — was: reuse the
+      universe-wide `build_minute_coverage_index`.)*
+  - [ ] In `src/manta_trading/data/gaps/minute_coverage.py`, add
+        `build_symbol_minute_coverage(conn, symbol) -> dict[str, set[date]] | None`:
+        same `assert_cagg_fresh` guard, same
+        `SET LOCAL statement_timeout = MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT`,
+        same catch-log-return-`None` fail-safe as
+        `build_minute_coverage_index`, query filtered `WHERE symbol = %s`
+        (parameterized — symbol must never be interpolated into SQL)
+  - [ ] In `constants.py`, change `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT`
+        from `"30s"` to `"90s"` and update its docstring rationale to cite
+        `user/reference/prod-scale-and-coverage-scan-baseline.md` (scan is
+        18.46s at 22.7M pairs, plateau ~25–35s — 90s is converged headroom)
+  - [ ] In `run_minute_refetch` (`minute.py`), add a `pool.connection()`
+        block calling `build_symbol_minute_coverage(conn, symbol)` and pass
+        the result as `coverage_index` into the existing
+        `_do_minute_symbol(...)` call, alongside the unchanged
+        `force_reset_terminal=True`, `window=window`, and `via="refetch"`
   - [ ] Do not change `run_minute_refetch`'s public signature
         (`symbol`, `from_date`, `to_date`) — no caller update required
-  - [ ] Success: `run_minute_refetch` builds a coverage index exactly once
-        per invocation and forwards it to `_do_minute_symbol`; `ruff` and
-        `mypy`/`pyright` clean on `minute.py`
+  - [ ] Success: `run_minute_refetch` builds a single-symbol coverage index
+        exactly once per invocation and forwards it to `_do_minute_symbol`;
+        it never calls the universe-wide `build_minute_coverage_index`;
+        `ruff` and `mypy` clean on all touched files
 
-- [ ] **2.2 Update `TestRunMinuteRefetch` unit tests for coverage-aware seeding**
-  - [ ] In `test/unit/data/acquisition/daemon/test_minute.py`, locate the
-        `TestRunMinuteRefetch` class (T9, around line 478)
-  - [ ] Update or add a test asserting `run_minute_refetch` builds a coverage
-        index (mock `build_minute_coverage_index` and assert it was called)
-        and that the built index is forwarded to `_do_minute_symbol` as
-        `coverage_index` — mirror the equivalent assertion pattern already
-        used for `run_minute_cycle` in the T7/T8 classes (see
-        `test_coverage_index_present_passes_precomputed_ranges_not_span`
-        around line 428 for the pattern to mirror at the `_do_minute_symbol`
-        level; at the `run_minute_refetch` level, assert the index-building
-        call itself happens and its result is forwarded)
-  - [ ] Confirm `test_force_reset_terminal_always_true` (line 551) is
-        unchanged and still passes — `force_reset_terminal=True` remains the
-        default for `run_minute_refetch`
-  - [ ] Remove or update any test that previously asserted (implicitly, by
-        omission) `coverage_index=None` was passed from `run_minute_refetch`
-  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon/test_minute.py -q`
-        passes; test coverage confirms `run_minute_refetch` now seeds
-        coverage-aware, not full-window
+- [ ] **2.2 Unit tests for `build_symbol_minute_coverage` and `TestRunMinuteRefetch`**
+      *(Amended 2026-07-28 to match design §Amendment.)*
+  - [ ] In `test/unit/data/gaps/test_minute_coverage.py`, add tests for
+        `build_symbol_minute_coverage` mirroring the existing
+        `build_minute_coverage_index` tests: returns `{symbol: set[date]}`
+        (datetime rows normalized to `date`), returns `None` on
+        `QueryCanceled`/operational error, returns `None` when
+        `assert_cagg_fresh` reports stale, and the SQL is parameterized
+        (symbol passed as a query parameter, not interpolated)
+  - [ ] In `test/unit/data/acquisition/daemon/test_minute.py`
+        (`TestRunMinuteRefetch`, T9), mock `build_symbol_minute_coverage`
+        and assert it is called exactly once with the requested symbol, and
+        that its result is forwarded to `_do_minute_symbol` as
+        `coverage_index`
+  - [ ] Confirm `test_force_reset_terminal_always_true` is unchanged and
+        still passes — `force_reset_terminal=True` remains the default for
+        `run_minute_refetch`
+  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon/test_minute.py test/unit/data/gaps/test_minute_coverage.py -q`
+        passes; coverage confirms `run_minute_refetch` seeds coverage-aware
+        via the per-symbol builder, not full-window and not the universe scan
 
-- [ ] **2.3 Integration verification against `trading_test`**
-  - [ ] Using `MT_TIMESCALE_TEST_URL` (exported manually per the standing
-        environment trap — `uv run` does not auto-export `.env`), seed a
-        test symbol on `trading_test` with a partially-covered minute
-        history (bars present for some sessions in a window, missing for
-        others)
-  - [ ] Run `uv run mt data pull 1m --symbol <TEST_SYMBOL> -v` against
-        `trading_test` and inspect the resulting `data_gaps` rows for that
-        symbol
-  - [ ] Confirm the seeded gap rows match only the genuinely-missing
-        sessions in the window — not a single `[history_start, target_end]`
-        span
-  - [ ] Success: gap-row shape after the fix matches what
-        `mt data daemon run --minute --symbols <TEST_SYMBOL> -v` would
-        produce from the same starting state (per slice design Verification
-        Walkthrough step 1)
+- [ ] **2.3 Integration verification against production `trading`**
+      *(Re-targeted 2026-07-28: `trading_test` is unrepresentative — plain
+      views instead of caggs, so every coverage path falls back; PM ruling
+      recorded in `user/reference/prod-scale-and-coverage-scan-baseline.md`.
+      `pull 1m` writes are additive-only and PM-approved for this check.)*
+  - [ ] Pick a prod symbol with genuinely-partial minute coverage (backfill
+        in progress makes these plentiful — inspect `data_gaps` for a
+        symbol with UNKNOWN gaps, or use `build_symbol_minute_coverage`'s
+        query manually to find missing sessions)
+  - [ ] Run `uv run mt data pull 1m --symbol <SYMBOL> -v` with
+        `MT_TIMESCALE_DB_URL` (prod) and inspect the resulting `data_gaps`
+        rows for that symbol
+  - [ ] Confirm seeded gap rows match only the genuinely-missing sessions
+        in the window — not a single `[history_start, target_end]` span —
+        and the log shows no coverage-index ERROR/fallback
+  - [ ] Success: gap-row shape matches what the daemon path would produce
+        from the same starting state (design Verification Walkthrough
+        step 1); `via=refetch` present in log output
 
 - [ ] **2.4 Integration verification of `force_reset_terminal` DB-level reset**
-  - [ ] Using `MT_TIMESCALE_TEST_URL`, seed a `data_gaps` row for a test
-        symbol with `status=RETRY_EXHAUSTED`
-  - [ ] Run `uv run mt data pull 1m --symbol <TEST_SYMBOL> -v` against
-        `trading_test`
-  - [ ] Confirm the seeded row is reset and re-attempted (not skipped) —
-        this is the DB-level check for slice design Verification Walkthrough
-        step 2; task 2.2's `test_force_reset_terminal_always_true` only
-        confirms the boolean is passed through at the unit level, not that
-        the reset actually happens against real data
-  - [ ] Success: post-run `data_gaps` state for the seeded row shows it was
+      *(Re-targeted 2026-07-28 to prod; use an EXISTING terminal row — do
+      not seed synthetic rows into production `data_gaps`.)*
+  - [ ] Find a prod symbol that already has a `RETRY_EXHAUSTED` or
+        `PROVIDER_HOLE` `data_gaps` row within a bounded window (SELECT
+        with `statement_timeout` per prod query discipline)
+  - [ ] Run `uv run mt data pull 1m --symbol <SYMBOL> -v` (optionally with
+        `--from/--to` bounding the terminal row's window)
+  - [ ] Confirm the terminal row is reset and re-attempted (not skipped) —
+        the DB-level check for design Verification Walkthrough step 2;
+        task 2.2's `test_force_reset_terminal_always_true` only confirms
+        the boolean at the unit level
+  - [ ] Success: post-run `data_gaps` state shows the terminal row was
         reset and re-attempted, matching Verification Walkthrough step 2
 
 **Commit**: `fix: unify run_minute_refetch onto coverage-aware seeding`
