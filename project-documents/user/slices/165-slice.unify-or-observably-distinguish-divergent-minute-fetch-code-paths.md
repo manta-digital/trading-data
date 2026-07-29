@@ -214,12 +214,14 @@ where the cost is amortized across ~11.6k symbols.
 
 ### Patterns and Conventions
 
-- `via` is a plain `str` parameter with two call-site literals (`"refetch"`,
-  `"cycle"`), not a project-wide enum — it is a log-field discriminator
-  local to two callers in one module pair, not a value compared in
-  conditionals or dispatched on. This does not conflict with the
-  project's "no magic strings" rule, which targets logic dispatch;
-  nothing branches on `via`.
+- `via` is `FetchEntryPoint(StrEnum)` (`constants.py`: `CYCLE`/`REFETCH`),
+  matching the in-file `DailyMode` precedent. *(Superseded 2026-07-28 by
+  code review F002: the design originally argued a plain `str` was
+  acceptable because nothing branches on `via` — the review correctly
+  countered that the Python rules require `StrEnum` for constants/choices
+  regardless of dispatch, and that an enum makes a typo'd call site a type
+  error instead of a silently wrong log field.)* Still purely a log-field
+  discriminator: nothing branches on it.
 - `force_reset_terminal` and coverage-aware seeding are now independent
   axes, matching how `update_data_gaps` already models them internally
   (`force_reset_terminal` at step 2, `precomputed_ranges` at step 4 — two
@@ -255,6 +257,16 @@ the daemon's universe scan (scope item 6 — see there for why the first
 90s attempt was wrong: statement_timeout counts row streaming, and the
 measured end-to-end build is 152.2s). The longer-term day-grain coverage
 cagg is filed as GitHub issue #3 — explicitly out of scope here.
+
+### Code review disposition (2026-07-28)
+
+Code review (`reviews/165-review.code...md`, claude-sonnet-5, CONCERNS):
+F001 (DRY — coverage builders duplicated the guard/timeout/fail-safe
+envelope) fixed via the shared `_run_coverage_query` /
+`_normalize_covered_day` helpers; F002 (bare-`str` `via`) fixed via
+`FetchEntryPoint(StrEnum)` — see Patterns and Conventions above; F005
+(note) already addressed by the timeout constant's docstring. Full
+disposition recorded in the review doc.
 
 ### Audit Findings (scope item 2)
 

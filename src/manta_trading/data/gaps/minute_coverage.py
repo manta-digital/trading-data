@@ -32,82 +32,121 @@ from manta_trading.market.maintenance.cagg_freshness import assert_cagg_fresh
 _logger = get_logger(__name__)
 
 
-def build_minute_coverage_index(
-    conn: psycopg.Connection[object],
-) -> dict[str, set[date]] | None:
-    """Return {symbol: set[covered_day]} from the coarse minute cagg, or None.
+def _normalize_covered_day(covered_day: datetime | date) -> date:
+    """date_trunc('day', ...) returns a timestamp/timestamptz, not a date —
+    normalize so membership checks against ``session.date()`` (a plain date)
+    actually match. A datetime key silently never matches a date lookup."""
+    return covered_day.date() if isinstance(covered_day, datetime) else covered_day
 
-    One grouped query over the whole universe, run once per daemon cycle
-    before the per-symbol seed loop. Fails safe: on a statement timeout or
-    other operational error mid-scan, logs at ERROR and returns None rather
-    than raising — the caller must treat None as "index unavailable this
-    cycle" (distinct from an empty dict, which means "no symbol covered").
+
+def _run_coverage_query(
+    conn: psycopg.Connection[object],
+    sql: str,
+    params: tuple[object, ...] | None,
+    *,
+    caller: str,
+    scope: str,
+) -> list[tuple[object, ...]] | None:
+    """Shared envelope for the minute-coverage queries (code review 165 F001):
+    the slice-168 staleness guard, statement timeout, and fail-safe error
+    handling live in exactly one place for both builders.
+
+    Slice 168 rationale for the guard: a paused/failing/crashed refresh policy
+    freezes the source cagg's leading edge while raw minute_ohlcv keeps
+    growing, so every day past the frozen edge reads as uncovered and gets
+    re-seeded every cycle — silently, because gap rows land under ON CONFLICT
+    DO NOTHING. Refuse rather than seed from a derived read we cannot trust.
+    Never auto-remediate (D4) and never fall back to a full-window seed (that
+    is the 22-year re-seed slice 162 exists to prevent).
 
     Args:
-        conn: Open psycopg connection.
+        conn:   Open psycopg connection.
+        sql:    Coverage query text (cagg name already composed by the caller
+                from ``GRANULARITY_SOURCE`` — a constant, never user input).
+        params: Bind parameters, or None for a parameterless query.
+        caller: Public function name, for log attribution.
+        scope:  Human phrase for what is being skipped on failure
+                (e.g. "this cycle", "for AAPL").
 
     Returns:
-        {symbol: set[covered_day]} on success. None if the source cagg is stale
-        (slice 168) or the query failed (timeout / operational error) —
-        coverage-aware seeding must be skipped for this cycle; never fall back
-        to a full-window seed.
+        Raw fetched rows on success. None when the source cagg is stale
+        (slice 168) or the query failed (timeout / operational error) — the
+        caller must treat None as "coverage unavailable" and must never fall
+        back to a full-window seed on its own initiative.
     """
     cagg = GRANULARITY_SOURCE[Granularity.H4]
 
-    # Slice 168: a paused/failing/crashed refresh policy freezes this cagg's
-    # leading edge while raw minute_ohlcv keeps growing, so every day past the
-    # frozen edge reads as uncovered and gets re-seeded every cycle — silently,
-    # because gap rows land under ON CONFLICT DO NOTHING. Refuse rather than
-    # seed from a derived read we cannot trust. Never auto-remediate (D4) and
-    # never fall back to a full-window seed (that is the 22-year re-seed 162
-    # exists to prevent).
     verdict = assert_cagg_fresh(conn, cagg)
     if not verdict.is_fresh:
         _logger.error(
-            "build_minute_coverage_index: source cagg %s is STALE "
-            "(lag=%s, threshold=%s, signals=%s) — skipping coverage-aware "
-            "seeding this cycle; see runbook R2 to remediate",
+            "%s: source cagg %s is STALE (lag=%s, threshold=%s, signals=%s) "
+            "— skipping coverage-aware seeding %s; see runbook R2 to remediate",
+            caller,
             cagg,
             verdict.lag,
             verdict.threshold,
             [signal.value for signal in verdict.signals],
+            scope,
         )
         return None
 
-    sql = (
-        f"SELECT symbol, date_trunc('day', time_bucket) "  # noqa: S608
-        f"FROM {cagg} GROUP BY symbol, date_trunc('day', time_bucket)"
-    )
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "SET LOCAL statement_timeout = "
                 f"'{MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT}'"
             )
-            cur.execute(sql)
-            index: dict[str, set[date]] = {}
-            # fetchall() on a Connection[object] is untyped; annotate the row so
-            # the normalization below is actually type-checked.  The date_trunc
-            # column arrives as datetime, and a mismatch here is invisible at
-            # runtime (a datetime key simply never matches a date lookup).
-            rows = cast("list[tuple[str, datetime | date]]", cur.fetchall())
-            for symbol, covered_day in rows:
-                # date_trunc('day', ...) returns a timestamp/timestamptz, not a
-                # date — normalize so membership checks against session.date()
-                # (a plain date) actually match.
-                day = (
-                    covered_day.date()
-                    if isinstance(covered_day, datetime)
-                    else covered_day
-                )
-                index.setdefault(symbol, set()).add(day)
-            return index
+            if params is None:
+                cur.execute(sql)
+            else:
+                cur.execute(sql, params)
+            return cast("list[tuple[object, ...]]", cur.fetchall())
     except psycopg.OperationalError:
         _logger.exception(
-            "build_minute_coverage_index: query failed (timeout or operational "
-            "error) — skipping coverage-aware seeding this cycle"
+            "%s: query failed (timeout or operational error) — "
+            "skipping coverage-aware seeding %s",
+            caller,
+            scope,
         )
         return None
+
+
+def build_minute_coverage_index(
+    conn: psycopg.Connection[object],
+) -> dict[str, set[date]] | None:
+    """Return {symbol: set[covered_day]} from the coarse minute cagg, or None.
+
+    One grouped query over the whole universe, run once per daemon cycle
+    before the per-symbol seed loop. Fails safe: on a stale source cagg or a
+    statement timeout / operational error mid-scan, logs at ERROR and returns
+    None rather than raising — the caller must treat None as "index
+    unavailable this cycle" (distinct from an empty dict, which means "no
+    symbol covered"). Guard/timeout/error handling shared with
+    ``build_symbol_minute_coverage`` via ``_run_coverage_query``.
+
+    Args:
+        conn: Open psycopg connection.
+
+    Returns:
+        {symbol: set[covered_day]} on success, else None (see above).
+    """
+    cagg = GRANULARITY_SOURCE[Granularity.H4]
+    sql = (
+        f"SELECT symbol, date_trunc('day', time_bucket) "  # noqa: S608
+        f"FROM {cagg} GROUP BY symbol, date_trunc('day', time_bucket)"
+    )
+    raw = _run_coverage_query(
+        conn, sql, None, caller="build_minute_coverage_index", scope="this cycle"
+    )
+    if raw is None:
+        return None
+    # fetchall() on a Connection[object] is untyped; annotate the row so the
+    # normalization is actually type-checked.
+    rows = cast("list[tuple[str, datetime | date]]", raw)
+    index: dict[str, set[date]] = {}
+    for symbol, covered_day in rows:
+        index.setdefault(symbol, set()).add(_normalize_covered_day(covered_day))
+    return index
 
 
 def build_symbol_minute_coverage(
@@ -117,69 +156,38 @@ def build_symbol_minute_coverage(
     """Return {symbol: set[covered_day]} for ONE symbol, or None.
 
     Per-symbol sibling of ``build_minute_coverage_index`` (slice 165): same
-    source cagg, staleness guard, timeout envelope, and fail-safe contract,
-    filtered to a single symbol so single-shot operator commands
-    (``run_minute_refetch``) never pay the universe-wide scan. Returns the
-    same shape as the universe builder so consumers
+    source cagg and the same guard/timeout/fail-safe envelope (shared via
+    ``_run_coverage_query``), filtered to a single symbol so single-shot
+    operator commands (``run_minute_refetch``) never pay the universe-wide
+    scan. Returns the same shape as the universe builder so consumers
     (``compute_missing_minute_sessions``) work unchanged.
 
     Args:
         conn:   Open psycopg connection.
-        symbol: Instrument ticker.
+        symbol: Instrument ticker (bound as a query parameter, never
+                interpolated).
 
     Returns:
         {symbol: set[covered_day]} on success (the set may be empty if the
-        symbol has no minute coverage). None if the source cagg is stale
-        (slice 168) or the query failed (timeout / operational error) —
-        coverage-aware seeding must be skipped; never fall back to a
-        full-window seed on the caller's own initiative.
+        symbol has no minute coverage), else None (see universe builder).
     """
     cagg = GRANULARITY_SOURCE[Granularity.H4]
-
-    verdict = assert_cagg_fresh(conn, cagg)
-    if not verdict.is_fresh:
-        _logger.error(
-            "build_symbol_minute_coverage: source cagg %s is STALE "
-            "(lag=%s, threshold=%s, signals=%s) — skipping coverage-aware "
-            "seeding for %s; see runbook R2 to remediate",
-            cagg,
-            verdict.lag,
-            verdict.threshold,
-            [signal.value for signal in verdict.signals],
-            symbol,
-        )
-        return None
-
     sql = (
         f"SELECT date_trunc('day', time_bucket) "  # noqa: S608
         f"FROM {cagg} WHERE symbol = %s "
         f"GROUP BY date_trunc('day', time_bucket)"
     )
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SET LOCAL statement_timeout = "
-                f"'{MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT}'"
-            )
-            cur.execute(sql, (symbol,))
-            days: set[date] = set()
-            rows = cast("list[tuple[datetime | date]]", cur.fetchall())
-            for (covered_day,) in rows:
-                # Same normalization as the universe builder: date_trunc
-                # returns a timestamptz, not a date.
-                days.add(
-                    covered_day.date()
-                    if isinstance(covered_day, datetime)
-                    else covered_day
-                )
-            return {symbol: days}
-    except psycopg.OperationalError:
-        _logger.exception(
-            "build_symbol_minute_coverage: query failed for %s (timeout or "
-            "operational error) — skipping coverage-aware seeding",
-            symbol,
-        )
+    raw = _run_coverage_query(
+        conn,
+        sql,
+        (symbol,),
+        caller="build_symbol_minute_coverage",
+        scope=f"for {symbol}",
+    )
+    if raw is None:
         return None
+    rows = cast("list[tuple[datetime | date]]", raw)
+    return {symbol: {_normalize_covered_day(day) for (day,) in rows}}
 
 
 def compute_missing_minute_sessions(

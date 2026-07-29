@@ -422,6 +422,23 @@ class DailyMode(StrEnum):
     members are caught up (no UNKNOWN gaps)."""
 
 
+class FetchEntryPoint(StrEnum):
+    """Which entry point drove a daemon fetch — the `via=` log marker (slice 165).
+
+    A log-field discriminator only: nothing branches on it. StrEnum rather
+    than bare str so the two valid values live in one place and a typo'd
+    call site is a type error, not a silently wrong log field
+    (code review 165 F002; same pattern as DailyMode above).
+    """
+
+    CYCLE = "cycle"
+    """Long-running daemon cycle (`run_minute_cycle` / `run_daily_cycle`)."""
+
+    REFETCH = "refetch"
+    """Single-shot operator command (`run_minute_refetch` / `run_daily_refetch`,
+    i.e. `mt data pull 1m|1d`)."""
+
+
 class Granularity(StrEnum):
     """Canonical granularity tokens for OHLCV data requests."""
 

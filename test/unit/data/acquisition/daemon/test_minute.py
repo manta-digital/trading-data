@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from manta_trading.constants import FetchEntryPoint
 from manta_trading.data.acquisition.daemon.minute import (
     _do_minute_symbol,
     run_minute_cycle,
@@ -376,7 +377,7 @@ class TestDoMinuteSymbolExtensions:
                 pool=pool,
                 http=http,
                 settings=_FakeSettings(),
-                via="cycle",
+                via=FetchEntryPoint.CYCLE,
                 force_reset_terminal=force_reset_terminal,
                 window=window,
                 coverage_index=coverage_index,
@@ -504,7 +505,7 @@ class TestViaMarkerThreading:
                 pool=MagicMock(),
                 http=MagicMock(),
                 settings=_FakeSettings(),
-                via="cycle",
+                via=FetchEntryPoint.CYCLE,
             )
         assert mock_do.call_args.kwargs["via"] == "cycle"
 
@@ -527,7 +528,7 @@ class TestViaMarkerThreading:
                 pool=MagicMock(),
                 http=MagicMock(),
                 settings=_FakeSettings(),
-                via="refetch",
+                via=FetchEntryPoint.REFETCH,
             )
         assert outcome == LastAttemptOutcome.TRANSIENT_FAILURE
         logged_args = mock_logger.exception.call_args.args
@@ -745,7 +746,7 @@ class TestHasAnyGapsRefireRegression:
                 pool=pool,
                 http=http,
                 settings=_FakeSettings(),
-                via="cycle",
+                via=FetchEntryPoint.CYCLE,
                 window=(date(2024, 6, 10), date(2024, 6, 12)),
                 coverage_index=coverage_index,
             )

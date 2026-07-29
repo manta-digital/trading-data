@@ -13,7 +13,12 @@ from psycopg_pool import ConnectionPool, PoolTimeout
 
 from manta_trading.api.eodhd_sync import eodhd_get
 from manta_trading.config import Settings
-from manta_trading.constants import DAEMON_LOCK_TIMEOUT, DAILY_HISTORY_FLOOR, DailyMode
+from manta_trading.constants import (
+    DAEMON_LOCK_TIMEOUT,
+    DAILY_HISTORY_FLOOR,
+    DailyMode,
+    FetchEntryPoint,
+)
 from manta_trading.data.acquisition.quota import CallType
 from manta_trading.data.acquisition.outcomes import (
     ProviderResponseError,
@@ -132,7 +137,11 @@ def run_daily_cycle(
                         )
                         break
                     outcome = _process_daily_symbol(
-                        sym, pool=pool, http=http, settings=settings, via="cycle"
+                        sym,
+                        pool=pool,
+                        http=http,
+                        settings=settings,
+                        via=FetchEntryPoint.CYCLE,
                     )
                     report.symbol_outcomes[sym] = str(outcome)
                     if outcome == LastAttemptOutcome.SUCCESS:
@@ -303,7 +312,7 @@ def _process_daily_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
-    via: str,
+    via: FetchEntryPoint,
 ) -> LastAttemptOutcome:
     try:
         return _do_daily_symbol(
@@ -348,7 +357,7 @@ def _do_daily_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
-    via: str,
+    via: FetchEntryPoint,
     force_reset_terminal: bool = False,
     window: tuple[date, date] | None = None,
 ) -> LastAttemptOutcome:
@@ -457,7 +466,7 @@ def run_daily_refetch(
                 settings=settings,
                 force_reset_terminal=True,
                 window=window,
-                via="refetch",
+                via=FetchEntryPoint.REFETCH,
             )
             report.symbol_outcomes[symbol] = str(outcome)
             if outcome == LastAttemptOutcome.SUCCESS:

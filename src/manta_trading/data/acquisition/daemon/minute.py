@@ -17,6 +17,7 @@ from manta_trading.constants import (
     EODHD_INTRADAY_HORIZON,
     MAX_RETRY_COUNT,
     MINUTE_SEED_PROGRESS_LOG_INTERVAL,
+    FetchEntryPoint,
 )
 from manta_trading.data.acquisition.quota import CallType
 from manta_trading.data.acquisition.daemon.daily import (
@@ -171,7 +172,7 @@ def run_minute_cycle(
                     http=http,
                     settings=settings,
                     coverage_index=coverage_index,
-                    via="cycle",
+                    via=FetchEntryPoint.CYCLE,
                 )
                 report.symbol_outcomes[sym] = str(outcome)
                 if outcome == LastAttemptOutcome.SUCCESS:
@@ -211,7 +212,7 @@ def _process_minute_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
-    via: str,
+    via: FetchEntryPoint,
     coverage_index: dict[str, set[date]] | None = None,
 ) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     try:
@@ -264,7 +265,7 @@ def _do_minute_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
-    via: str,
+    via: FetchEntryPoint,
     force_reset_terminal: bool = False,
     window: tuple[date, date] | None = None,
     coverage_index: dict[str, set[date]] | None = None,
@@ -532,7 +533,7 @@ def run_minute_refetch(
                 force_reset_terminal=True,
                 window=window,
                 coverage_index=coverage_index,
-                via="refetch",
+                via=FetchEntryPoint.REFETCH,
             )
             report.symbol_outcomes[symbol] = str(outcome)
             if outcome == LastAttemptOutcome.SUCCESS:
