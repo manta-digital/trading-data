@@ -17,6 +17,7 @@ from manta_trading.constants import (
     EODHD_INTRADAY_HORIZON,
     MAX_RETRY_COUNT,
     MINUTE_SEED_PROGRESS_LOG_INTERVAL,
+    FetchEntryPoint,
 )
 from manta_trading.data.acquisition.quota import CallType
 from manta_trading.data.acquisition.daemon.daily import (
@@ -41,6 +42,7 @@ from manta_trading.data.gaps import (
 )
 from manta_trading.data.gaps.minute_coverage import (
     build_minute_coverage_index,
+    build_symbol_minute_coverage,
     compute_missing_minute_sessions,
 )
 from manta_trading.data.locking import advisory_lock
@@ -170,6 +172,7 @@ def run_minute_cycle(
                     http=http,
                     settings=settings,
                     coverage_index=coverage_index,
+                    via=FetchEntryPoint.CYCLE,
                 )
                 report.symbol_outcomes[sym] = str(outcome)
                 if outcome == LastAttemptOutcome.SUCCESS:
@@ -209,6 +212,7 @@ def _process_minute_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
+    via: FetchEntryPoint,
     coverage_index: dict[str, set[date]] | None = None,
 ) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     try:
@@ -218,29 +222,40 @@ def _process_minute_symbol(
             http=http,
             settings=settings,
             coverage_index=coverage_index,
+            via=via,
         )
     except ProviderResponseError as exc:
         # Non-404 4xx from EODHD — unexpected but skip this symbol rather than
         # crashing the entire cycle. Log at ERROR so it surfaces for investigation.
-        _logger.error("ProviderResponseError for %s minute — skipping: %s", symbol, exc)
+        _logger.error(
+            "ProviderResponseError for %s minute — skipping: %s via=%s",
+            symbol,
+            exc,
+            via,
+        )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except psycopg.errors.LockNotAvailable:
-        _logger.warning("Advisory lock timeout for %s minute — skipping", symbol)
+        _logger.warning(
+            "Advisory lock timeout for %s minute — skipping via=%s", symbol, via
+        )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except PoolTimeout:
         _logger.warning(
-            "DB pool timeout for %s minute — DB unreachable, skipping", symbol
+            "DB pool timeout for %s minute — DB unreachable, skipping via=%s",
+            symbol,
+            via,
         )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         _logger.warning(
-            "HTTP transient failure for %s minute (retries exhausted): %s",
+            "HTTP transient failure for %s minute (retries exhausted): %s via=%s",
             symbol,
             exc,
+            via,
         )
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
     except Exception:
-        _logger.exception("Transient failure for %s minute", symbol)
+        _logger.exception("Transient failure for %s minute via=%s", symbol, via)
         return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
 
 
@@ -250,6 +265,7 @@ def _do_minute_symbol(
     pool: ConnectionPool,
     http: httpx.Client,
     settings: Settings,
+    via: FetchEntryPoint,
     force_reset_terminal: bool = False,
     window: tuple[date, date] | None = None,
     coverage_index: dict[str, set[date]] | None = None,
@@ -274,6 +290,17 @@ def _do_minute_symbol(
     else:
         history_start = default_history_start
         target_end = now_midnight
+
+    # Happy-path via marker (slice 165): without this line a successful fetch
+    # emits nothing carrying via=, and log output could not identify which
+    # entry point drove it — the exact ambiguity this slice exists to close.
+    _logger.info(
+        "minute fetch: %s window=[%s → %s] via=%s",
+        symbol,
+        history_start.date(),
+        target_end.date(),
+        via,
+    )
 
     last_outcome = LastAttemptOutcome.SUCCESS
     first_chunk_end: datetime | None = None
@@ -485,6 +512,18 @@ def run_minute_refetch(
             else:
                 resolved_to = to_date
 
+            # Per-symbol coverage (slice 165 amendment): a single-symbol
+            # command must not pay the universe-wide scan run_minute_cycle
+            # amortizes across ~11.6k symbols.
+            with pool.connection() as conn:
+                coverage_index = build_symbol_minute_coverage(conn, symbol)
+            if coverage_index is None:
+                _logger.error(
+                    "run_minute_refetch: coverage unavailable for %s — "
+                    "seeding will use legacy single-span fallback via=refetch",
+                    symbol,
+                )
+
             window = (resolved_from, resolved_to)
             outcome, _, __, ___, ____ = _do_minute_symbol(
                 symbol,
@@ -493,6 +532,8 @@ def run_minute_refetch(
                 settings=settings,
                 force_reset_terminal=True,
                 window=window,
+                coverage_index=coverage_index,
+                via=FetchEntryPoint.REFETCH,
             )
             report.symbol_outcomes[symbol] = str(outcome)
             if outcome == LastAttemptOutcome.SUCCESS:

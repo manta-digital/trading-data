@@ -116,14 +116,30 @@ as transient_failure and retried on the next cycle rather than blocking
 indefinitely.
 """
 
-MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT: str = "30s"
-"""PostgreSQL statement_timeout for the universe-wide minute coverage-index
-query (slice 162 ``build_minute_coverage_index``).
+MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT: str = "300s"
+"""PostgreSQL statement_timeout for the minute coverage queries
+(slice 162 ``build_minute_coverage_index``, slice 165
+``build_symbol_minute_coverage``).
 
-A small multiple of the measured ~3s full-universe scan of the
-``minute_4hour_ohlcv`` cagg. On timeout the coverage index build fails safe:
-coverage-aware seeding is skipped for that cycle rather than falling back to
-the old full-window `[history_start, today]` seed.
+Originally 30s, "a small multiple of the measured ~3s" universe scan of the
+``minute_4hour_ohlcv`` cagg (slice-162 prep, 2.4M symbol-day pairs). Set to
+300s in slice 165 from an end-to-end measurement, not a server-side one:
+``statement_timeout`` keeps counting while the server STREAMS rows to the
+client, and the universe build transfers every (symbol, day) pair. At the
+2026-07-28 audit (``user/reference/prod-scale-and-coverage-scan-baseline.md``)
+the server-side aggregation alone is ~18s, but the full app path —
+aggregation + streaming 22,687,901 rows + psycopg parsing — measured
+152.2s (9.4x pair growth from backfill since slice 162; growth, not
+regression). 300s covers the measured cost plus the converging plateau
+(~1.5x more pairs at full backfill; history bounded at 2004, universe
+~11.6k symbols) and load variance. Transfer dominating aggregation is the
+key sizing input — a day-grain coverage cagg (issue #3) fixes the
+aggregation but NOT the transfer, so per-symbol reads or a compact
+(array_agg) wire format are the long-term fixes if this cost ever matters.
+
+On timeout the coverage build fails safe: coverage-aware seeding is skipped
+for that cycle rather than falling back to the old full-window
+`[history_start, today]` seed.
 """
 
 MINUTE_SEED_PROGRESS_LOG_INTERVAL: int = 250
@@ -404,6 +420,23 @@ class DailyMode(StrEnum):
     STEADY_STATE = "STEADY_STATE"
     """One /eod-bulk-last-day call for the full exchange: used when all scope
     members are caught up (no UNKNOWN gaps)."""
+
+
+class FetchEntryPoint(StrEnum):
+    """Which entry point drove a daemon fetch — the `via=` log marker (slice 165).
+
+    A log-field discriminator only: nothing branches on it. StrEnum rather
+    than bare str so the two valid values live in one place and a typo'd
+    call site is a type error, not a silently wrong log field
+    (code review 165 F002; same pattern as DailyMode above).
+    """
+
+    CYCLE = "cycle"
+    """Long-running daemon cycle (`run_minute_cycle` / `run_daily_cycle`)."""
+
+    REFETCH = "refetch"
+    """Single-shot operator command (`run_minute_refetch` / `run_daily_refetch`,
+    i.e. `mt data pull 1m|1d`)."""
 
 
 class Granularity(StrEnum):

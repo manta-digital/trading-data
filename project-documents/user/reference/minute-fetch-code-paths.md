@@ -2,11 +2,20 @@
 docType: reference
 project: trading
 dateCreated: 20260717
-dateUpdated: 20260717
-status: draft
+dateUpdated: 20260728
+status: superseded
 ---
 
 # Minute Fetch: Two Divergent Code Paths (Operator Reference)
+
+> **SUPERSEDED (2026-07-28, slice 165):** the two paths were unified —
+> `mt data pull 1m` now seeds via the same coverage-aware algorithm as the
+> daemon (per-symbol coverage index, `build_symbol_minute_coverage`), and
+> every fetch logs a `via=refetch|cycle` marker identifying its entry point.
+> The operator guidance below ("use daemon run, not pull 1m") no longer
+> applies. This document is retained only as the historical record of the
+> defect. See
+> `user/slices/165-slice.unify-or-observably-distinguish-divergent-minute-fetch-code-paths.md`.
 
 ## Purpose
 

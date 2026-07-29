@@ -7,7 +7,7 @@ dependencies: [162]
 interfaces: []
 dateCreated: 20260727
 dateUpdated: 20260728
-status: not_started
+status: complete
 reviewFindings: [F001, F002, F003]
 ---
 
@@ -56,10 +56,19 @@ the open-ended risk the plan entry flagged.
 ## Technical Scope
 
 **In scope:**
-1. Unify `run_minute_refetch` to build a `coverage_index` (same call as
-   `run_minute_cycle`: `build_minute_coverage_index(conn)`) and pass it
-   into `_do_minute_symbol`, so its seed goes through
-   `compute_missing_minute_sessions` like the daemon path. `force_reset_terminal`
+1. Unify `run_minute_refetch` onto coverage-aware seeding: build a
+   **single-symbol** coverage index via a new
+   `build_symbol_minute_coverage(conn, symbol)` in
+   `data/gaps/minute_coverage.py` — identical query shape, staleness guard
+   (`assert_cagg_fresh`, slice 168), timeout envelope, and fail-safe
+   return-`None` contract as `build_minute_coverage_index`, but filtered
+   `WHERE symbol = %s` — and pass the result into `_do_minute_symbol`, so
+   its seed goes through `compute_missing_minute_sessions` exactly like the
+   daemon path. Same return shape (`{symbol: set[date]}` for the one
+   symbol), so `_do_minute_symbol` and `compute_missing_minute_sessions`
+   need no changes. *(Amended 2026-07-28 — see Technical Decisions
+   §Amendment; the original design reused the universe-wide index here.)*
+   `force_reset_terminal`
    stays `True` by default for `run_minute_refetch` (unchanged operator
    semantics: still resets `PROVIDER_HOLE`/`RETRY_EXHAUSTED` before
    re-attempting) — but reset and seeding-algorithm are now independent:
@@ -83,6 +92,19 @@ the open-ended risk the plan entry flagged.
 5. Retire `user/reference/minute-fetch-code-paths.md` — mark it superseded
    by this slice once both paths seed identically; its operator-guidance
    table's premise (avoid `pull 1m`) is no longer true.
+6. Raise `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` from `30s` to `300s`
+   (`constants.py`, one line). The 30s value was calibrated against slice
+   162's measured ~3.05s / 2.4M-pair server-side scan. During Phase 6 this
+   was corrected twice: a first bump to 90s (sized from the 18.46s
+   server-side aggregation measured in the 2026-07-28 audit) still failed
+   in production at 91.2s, exposing that `statement_timeout` also counts
+   the row-streaming phase — the universe build transfers all 22.7M
+   (symbol, day) pairs to the client, and the measured END-TO-END app path
+   is 152.2s (aggregation ~18s; transfer + psycopg parsing dominate). 300s
+   covers the measured cost, the converging plateau (~1.5× more pairs at
+   full backfill), and load variance. Transfer-dominates is also recorded
+   on issue #3: a day-grain cagg fixes aggregation but not transfer.
+   *(Added 2026-07-28; corrected same day after end-to-end measurement.)*
 
 **Out of scope:**
 - Merging `run_minute_refetch` and `run_minute_cycle` into a single
@@ -126,13 +148,28 @@ All changes are within `src/manta_trading/data/acquisition/daemon/minute.py`
 and `src/manta_trading/data/acquisition/daemon/daily.py` (log marker only),
 plus doc updates. No new modules.
 
-- `run_minute_refetch` (`minute.py`): gains a coverage-index build step
-  identical in shape to `run_minute_cycle`'s (one extra `pool.connection()`
-  block calling `build_minute_coverage_index`), then passes it to
+- `run_minute_refetch` (`minute.py`): gains a coverage-index build step —
+  one extra `pool.connection()` block calling the new single-symbol
+  `build_symbol_minute_coverage(conn, symbol)` — then passes the result to
   `_do_minute_symbol` alongside the existing `force_reset_terminal=True`.
+  *(Amended 2026-07-28: was `build_minute_coverage_index`, the universe-wide
+  scan `run_minute_cycle` uses.)*
+- `build_symbol_minute_coverage` (`data/gaps/minute_coverage.py`, new):
+  per-symbol sibling of `build_minute_coverage_index`. Same
+  `assert_cagg_fresh` guard, same `SET LOCAL statement_timeout`
+  (`MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT`), same catch-log-return-`None`
+  fail-safe, same `{symbol: set[date]}` return shape — the only difference
+  is `WHERE symbol = %s` (parameterized) and single-symbol output.
 - `_do_minute_symbol` / `_process_minute_symbol`: gains a `via: str`
   keyword-only parameter, threaded into every log call already present in
-  these functions (no new log call sites, existing ones gain the field).
+  these functions, **plus one new INFO line at fetch start**
+  (`"minute fetch: %s window=[%s → %s] via=%s"`). *(Amended 2026-07-28:
+  the original "no new log call sites" wording contradicted the success
+  criterion — `_do_minute_symbol` had zero pre-existing log calls, so a
+  successful fetch would have emitted nothing carrying `via=` and the
+  happy path would have remained unidentifiable from logs, which is the
+  precise defect this slice closes. One entry-INFO line per
+  `_do_*_symbol` resolves it; daily gets the mirror line.)*
 - `_do_daily_symbol` / `_process_daily_symbol` (`daily.py`): same `via`
   threading for consistency; no algorithmic change. `run_daily_refetch`
   calls `_do_daily_symbol` directly (mirroring `run_minute_refetch`'s
@@ -151,8 +188,8 @@ run_minute_refetch → _do_minute_symbol(coverage_index=None, force_reset_termin
 
 After:
 ```
-run_minute_refetch → build_minute_coverage_index(conn) → _do_minute_symbol(
-    coverage_index=<index>, force_reset_terminal=True, via="refetch")
+run_minute_refetch → build_symbol_minute_coverage(conn, symbol) → _do_minute_symbol(
+    coverage_index=<{symbol: days}>, force_reset_terminal=True, via="refetch")
   → _needs_seed=True (force_reset_terminal still forces re-seed)
   → precomputed_ranges = compute_missing_minute_sessions(...) → coverage-aware ranges
   → update_data_gaps(precomputed_ranges=<ranges>, force_reset_terminal=True)
@@ -165,27 +202,71 @@ existing coverage_index build/pass-through).
 ### State Management
 
 No new persistent state. `coverage_index` remains a per-invocation,
-in-memory `dict[str, set[date]]` built fresh each call — `run_minute_refetch`
-building its own index (rather than sharing one across a batch) is
-correct because it is a single-symbol command; the ~3s universe-wide
-grouped-scan cost (measured in slice 162) is paid once per invocation,
-which is acceptable for an operator command run interactively.
+in-memory `dict[str, set[date]]` built fresh each call. For
+`run_minute_refetch` the dict contains exactly one symbol's covered days
+(a few thousand entries), built by a `WHERE symbol = %s` query — the
+universe-wide scan (18.46s / 22.7M pairs at the 2026-07-28 audit, and a
+multi-GB Python dict) is never paid by the single-symbol operator command.
+`run_minute_cycle` continues to build the universe index once per cycle,
+where the cost is amortized across ~11.6k symbols.
 
 ## Technical Decisions
 
 ### Patterns and Conventions
 
-- `via` is a plain `str` parameter with two call-site literals (`"refetch"`,
-  `"cycle"`), not a project-wide enum — it is a log-field discriminator
-  local to two callers in one module pair, not a value compared in
-  conditionals or dispatched on. This does not conflict with the
-  project's "no magic strings" rule, which targets logic dispatch;
-  nothing branches on `via`.
+- `via` is `FetchEntryPoint(StrEnum)` (`constants.py`: `CYCLE`/`REFETCH`),
+  matching the in-file `DailyMode` precedent. *(Superseded 2026-07-28 by
+  code review F002: the design originally argued a plain `str` was
+  acceptable because nothing branches on `via` — the review correctly
+  countered that the Python rules require `StrEnum` for constants/choices
+  regardless of dispatch, and that an enum makes a typo'd call site a type
+  error instead of a silently wrong log field.)* Still purely a log-field
+  discriminator: nothing branches on it.
 - `force_reset_terminal` and coverage-aware seeding are now independent
   axes, matching how `update_data_gaps` already models them internally
   (`force_reset_terminal` at step 2, `precomputed_ranges` at step 4 — two
   separate steps, already orthogonal in the implementation the callers
   just weren't exercising correctly).
+
+### Amendment (2026-07-28): per-symbol coverage query for refetch
+
+The original design reused the universe-wide `build_minute_coverage_index`
+in `run_minute_refetch`, justified by slice 162's measured ~3s scan cost as
+"acceptable interactive latency." During Phase 6 verification that premise
+was found stale: the scan now runs 18.46s / 22.7M (symbol, day) pairs —
+9.4× output growth from continuous backfill since 162, not a regression —
+and exceeded the 30s `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` when run
+while the daemon was mid-cycle, which forced `run_minute_refetch` into the
+legacy single-span fallback: the exact behavior this slice exists to
+eliminate, merely logged instead of silent. Full audit:
+`user/reference/prod-scale-and-coverage-scan-baseline.md`.
+
+Resolution: `run_minute_refetch` builds a **single-symbol** coverage index
+(`build_symbol_minute_coverage`, `WHERE symbol = %s` against the same 4h
+cagg). Slice 162 measured the per-symbol shape at ~2.0s and rejected it
+solely because 2s × 12k symbols was untenable *for the daemon loop*; that
+rejection never applied to a one-symbol operator command, and post-163
+rechunk (119 well-sized chunks vs ~140 tiny ones per scan then) it is
+cheaper still. Unification is preserved semantically: both paths seed via
+`compute_missing_minute_sessions` over the same cagg-derived day-grain
+coverage — they differ only in how much of the universe they index, which
+matches their scopes (12k-symbol cycle vs 1-symbol refetch).
+
+Companion change: `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT` 30s → 300s for
+the daemon's universe scan (scope item 6 — see there for why the first
+90s attempt was wrong: statement_timeout counts row streaming, and the
+measured end-to-end build is 152.2s). The longer-term day-grain coverage
+cagg is filed as GitHub issue #3 — explicitly out of scope here.
+
+### Code review disposition (2026-07-28)
+
+Code review (`reviews/165-review.code...md`, claude-sonnet-5, CONCERNS):
+F001 (DRY — coverage builders duplicated the guard/timeout/fail-safe
+envelope) fixed via the shared `_run_coverage_query` /
+`_normalize_covered_day` helpers; F002 (bare-`str` `via`) fixed via
+`FetchEntryPoint(StrEnum)` — see Patterns and Conventions above; F005
+(note) already addressed by the timeout constant's docstring. Full
+disposition recorded in the review doc.
 
 ### Audit Findings (scope item 2)
 
@@ -234,8 +315,9 @@ This is a refactor of existing runtime code paths, not a data migration.
 - **Source:** `run_minute_refetch` seeds via `precomputed_ranges=None`
   (legacy single-span fallback in `update_data_gaps`).
 - **Destination:** `run_minute_refetch` seeds via `precomputed_ranges`
-  computed from a freshly-built coverage index, identical in shape to
-  `run_minute_cycle`.
+  computed from a freshly-built single-symbol coverage index
+  (`build_symbol_minute_coverage`) — same day-grain cagg source and same
+  `compute_missing_minute_sessions` diff as `run_minute_cycle`.
 - **Consumers to update:** none outside `minute.py` — `run_minute_refetch`'s
   signature (`symbol`, `from_date`, `to_date`) is unchanged; its only
   caller (`_pull_fetch_inner` in `cli/commands/data.py`) requires no edit.
@@ -261,8 +343,11 @@ behavior of an existing operator command to match its sibling.
 
 ### Consumes from Other Slices
 
-- Slice 162's `build_minute_coverage_index` / `compute_missing_minute_sessions`
-  — consumed identically to how `run_minute_cycle` already consumes them.
+- Slice 162's `compute_missing_minute_sessions` — consumed identically to
+  how `run_minute_cycle` already consumes it. The new
+  `build_symbol_minute_coverage` (this slice) is a per-symbol sibling of
+  162's `build_minute_coverage_index` and adopts its contract verbatim —
+  same staleness guard, same timeout, same fail-safe described below.
   `build_minute_coverage_index` fails safe by design (slice 162/168): a
   `statement_timeout`, other operational/connection error mid-scan, or a
   stale source cagg (slice 168's `assert_cagg_fresh` guard) are all caught
@@ -305,7 +390,8 @@ behavior of an existing operator command to match its sibling.
 
 ### Technical Requirements
 - No new modules; changes confined to `minute.py`, `daily.py` (log marker
-  only), and the two doc updates.
+  only), `minute_coverage.py` (new `build_symbol_minute_coverage`
+  function), `constants.py` (timeout value only), and the two doc updates.
 - `ruff` and `mypy`/`pyright` clean on touched files, at or below `main`
   baseline.
 - Existing unit test suites for `minute.py`/`daily.py` daemon paths pass;
@@ -314,40 +400,70 @@ behavior of an existing operator command to match its sibling.
 
 ### Verification Walkthrough
 
-1. **Confirm the defect no longer reproduces** — pick a symbol with a
-   known partial history gap (or seed one on `trading_test`). Before
-   this slice's fix, `mt data pull 1m --symbol X` would seed a single
-   `[history_start, target_end]` gap row. After:
-   ```bash
-   uv run mt data pull 1m --symbol X -v
-   ```
-   Inspect `data_gaps` for that symbol/window — expect gap rows matching
-   only the genuinely-missing sessions, same shape as what
-   `mt data daemon run --minute --symbols X -v` would produce for the
-   same starting state.
+*(As executed 2026-07-28 against production `trading` — `trading_test` is
+unrepresentative and must not be used for these checks: its minute "caggs"
+are plain views, so every coverage path falls back; see
+`user/reference/prod-scale-and-coverage-scan-baseline.md`. `pull` writes
+are additive-only; PM approved prod use for this verification.)*
 
-2. **Confirm `force_reset_terminal` still works** — seed a `RETRY_EXHAUSTED`
-   row for a test symbol, then run `mt data pull 1m --symbol X`. Confirm
-   the row is reset and re-attempted (existing behavior, unchanged).
-
-3. **Confirm log markers** — run both paths with `-v` and grep the output
-   (or `MT_LOG_FORMAT=json` output) for `via=`:
+1. **Confirm the defect no longer reproduces** — use a symbol whose only
+   hole in a bounded window is a known provider hole, so the seeded row
+   survives for inspection:
    ```bash
-   uv run mt data pull 1m --symbol X -v 2>&1 | grep via=refetch
-   uv run mt data daemon run --minute --symbols X -v 2>&1 | grep via=cycle
+   uv run mt data pull 1m --symbol ADP --start 2025-01-08 --end 2025-01-10 -v
    ```
-   Both should match.
+   Verified 2026-07-28: the only `data_gaps` row afterward is
+   `[2025-01-09 07:30 → 2025-01-09 07:30] PROVIDER_HOLE` — confined to the
+   single genuinely-missing session (2025-01-09, the market-closure day).
+   The legacy single-span seed would instead have left rows spanning
+   `[2025-01-08 → 2025-01-10]`. Corroborated with GLNDW
+   (`--start 2026-07-06 --end 2026-07-25`): exactly the missing sessions
+   (07-21 → 07-23, 79 bars) were fetched; covered days were not re-seeded;
+   an out-of-window stale UNKNOWN row was left untouched.
+
+2. **Confirm `force_reset_terminal` still works** — the same ADP run:
+   its pre-existing terminal row (`PROVIDER_HOLE`, `last_attempt_ts`
+   2026-07-20) was reset and re-attempted — `last_attempt_ts` advanced to
+   the run time, then the row was re-marked `PROVIDER_HOLE` when EODHD
+   returned nothing (deterministic: the market was closed that day). Do
+   NOT seed synthetic terminal rows into production; use an existing one:
+   ```sql
+   SELECT symbol, gap_start::date FROM data_gaps
+   WHERE granularity='minute' AND fetch_status IN ('RETRY_EXHAUSTED','PROVIDER_HOLE')
+   ORDER BY (gap_end - gap_start) ASC LIMIT 10;  -- e.g. the 2025-01-09 holes
+   ```
+
+3. **Confirm log markers** — every fetch now emits an entry INFO line
+   (added this slice; without it a successful fetch carried no `via=`):
+   ```bash
+   uv run mt data pull 1m --symbol <SYM> -v 2>&1 | grep "via=refetch"
+   uv run mt data pull 1d --symbol <SYM> --start <d1> --end <d2> -v 2>&1 | grep "via=refetch"
+   uv run mt data daemon run --minute --symbols <SYM> -v 2>&1 | grep "via=cycle"
+   ```
+   Verified 2026-07-28, observed lines:
+   `minute fetch: ADP window=[2025-01-08 → 2025-01-10] via=refetch`,
+   `daily fetch: ADP window=[2025-01-06 → 2025-01-14] via=refetch`
+   (no `TypeError` — the `run_daily_refetch` → `_do_daily_symbol` direct
+   call site carries `via` correctly),
+   `minute fetch: GLNDW window=[2026-04-28 → 2026-07-29] via=cycle`.
+   Caveat: the daemon path builds the universe-wide coverage index first —
+   ~152s end-to-end at current scale (timeout 300s); the `pull 1m`
+   per-symbol build is near-instant.
 
 4. **Confirm docs updated** — `user/slices/162-slice.coverage-aware-minute-gap-seeding.md`'s
-   Verification Walkthrough uses the corrected command with no caveat
-   about divergent code paths; `user/reference/minute-fetch-code-paths.md`
-   frontmatter shows `status: superseded`.
+   walkthrough carries the settled CLI note (no divergent-path caveat) and
+   a dated 2026-07-28 scan-baseline update;
+   `user/reference/minute-fetch-code-paths.md` frontmatter shows
+   `status: superseded` with a pointer note to this slice.
 
 5. **Run unit tests:**
    ```bash
-   uv run pytest test/unit/data/acquisition/daemon/test_minute.py test/unit/data/acquisition/daemon/test_daily.py -q
+   uv run pytest test/unit/data/gaps/test_minute_coverage.py test/unit/data/acquisition/daemon/ -q
    ```
-   Expected: all green, including updated `TestRunMinuteRefetch` assertions.
+   Verified 2026-07-28: 134 passed, 1 failed — the failure is
+   `test_daily.py::TestRunDailyCycleFailurePaths::test_4xx_non_429_propagates`,
+   which fails identically on `main` (pre-existing, unrelated to this
+   slice; confirmed via `git stash` bisection).
 
 ## Implementation Notes
 
@@ -361,10 +477,14 @@ behavior of an existing operator command to match its sibling.
 
 ### Special Considerations
 
-- `run_minute_refetch`'s coverage index build adds one extra ~3s grouped
-  scan (`build_minute_coverage_index`, per slice 162's measured cost) to
-  every single-symbol `pull 1m` invocation. This is an acceptable
-  operator-command latency cost (interactive command, not a hot path) and
-  is the same cost `daemon run --minute --symbols X` already pays per
-  cycle. No caching/sharing across invocations is introduced — each
-  `pull 1m` call is independent, matching current semantics.
+- `run_minute_refetch`'s coverage build adds one per-symbol grouped scan
+  (`build_symbol_minute_coverage`, expected low single-digit seconds; slice
+  162 measured ~2.0s pre-163-rechunk) to every single-symbol `pull 1m`
+  invocation — acceptable interactive latency with no universe-scan
+  timeout exposure. No caching/sharing across invocations is introduced —
+  each `pull 1m` call is independent, matching current semantics.
+- The daemon's universe scan is unchanged in shape but its timeout rises
+  30s → 300s (scope item 6; sized from the measured 152.2s end-to-end
+  build — aggregation + 22.7M-row transfer — not the 18s server-side
+  aggregation alone) so the converging backfill growth cannot push the
+  once-per-cycle build into permanent fail-safe fallback.

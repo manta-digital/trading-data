@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from manta_trading.constants import FetchEntryPoint
 from manta_trading.data.acquisition.daemon.minute import (
     _do_minute_symbol,
     run_minute_cycle,
@@ -376,6 +377,7 @@ class TestDoMinuteSymbolExtensions:
                 pool=pool,
                 http=http,
                 settings=_FakeSettings(),
+                via=FetchEntryPoint.CYCLE,
                 force_reset_terminal=force_reset_terminal,
                 window=window,
                 coverage_index=coverage_index,
@@ -468,6 +470,70 @@ class TestDoMinuteSymbolExtensions:
         _, _, mock_coalesce, _ = self._run_do_minute(force_reset_terminal=True)
         mock_coalesce.assert_called_once()
 
+    def test_happy_path_logs_via_marker(self) -> None:
+        """slice 165: a SUCCESSFUL fetch must emit at least one log line
+        carrying via= — error-path-only markers leave the happy path
+        unidentifiable, the exact ambiguity the slice exists to close."""
+        with patch(
+            "manta_trading.data.acquisition.daemon.minute._logger"
+        ) as mock_logger:
+            self._run_do_minute()
+        via_calls = [
+            call for call in mock_logger.info.call_args_list
+            if "cycle" in call.args
+        ]
+        assert via_calls, "no INFO line carried via='cycle' on the happy path"
+
+
+class TestViaMarkerThreading:
+    """Tests for the via=refetch|cycle log marker added in slice 165."""
+
+    def test_process_minute_symbol_forwards_via_to_do_minute_symbol(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import (
+            _process_minute_symbol,
+        )
+
+        mock_do = MagicMock(
+            return_value=(LastAttemptOutcome.SUCCESS, None, None, 0, 0)
+        )
+        with patch(
+            "manta_trading.data.acquisition.daemon.minute._do_minute_symbol",
+            mock_do,
+        ):
+            _process_minute_symbol(
+                "AAPL",
+                pool=MagicMock(),
+                http=MagicMock(),
+                settings=_FakeSettings(),
+                via=FetchEntryPoint.CYCLE,
+            )
+        assert mock_do.call_args.kwargs["via"] == "cycle"
+
+    def test_process_minute_symbol_error_path_logs_via(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import (
+            _process_minute_symbol,
+        )
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._do_minute_symbol",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._logger"
+            ) as mock_logger,
+        ):
+            outcome, *_ = _process_minute_symbol(
+                "AAPL",
+                pool=MagicMock(),
+                http=MagicMock(),
+                settings=_FakeSettings(),
+                via=FetchEntryPoint.REFETCH,
+            )
+        assert outcome == LastAttemptOutcome.TRANSIENT_FAILURE
+        logged_args = mock_logger.exception.call_args.args
+        assert "refetch" in logged_args
+
 
 # ---------------------------------------------------------------------------
 # T9: run_minute_refetch tests
@@ -483,12 +549,18 @@ class TestRunMinuteRefetch:
         from_date: date | None = None,
         to_date: date | None = None,
         outcome: LastAttemptOutcome = LastAttemptOutcome.SUCCESS,
+        coverage_index: dict | None = None,
     ) -> tuple:
         mock_do_minute = MagicMock(return_value=(outcome, None, None, 0, 0))
         # The resolver returns 2010-01-01 (later than the EODHD horizon) so
         # tests can assert the per-symbol floor flows through.
         mock_resolve = MagicMock(return_value=datetime(2010, 1, 1, tzinfo=timezone.utc))
         mock_last_session = MagicMock(return_value=_dt(2024, 12, 31))
+        mock_build_coverage = MagicMock(
+            return_value=coverage_index
+            if coverage_index is not None
+            else {symbol: set()}
+        )
 
         conn = MagicMock()
         txn = MagicMock()
@@ -516,6 +588,10 @@ class TestRunMinuteRefetch:
                 "manta_trading.data.acquisition.daemon.minute._last_completed_session",
                 mock_last_session,
             ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.build_symbol_minute_coverage",
+                mock_build_coverage,
+            ),
             patch("manta_trading.data.acquisition.daemon.minute.httpx.Client"),
             patch(
                 "manta_trading.data.acquisition.daemon.minute.ConnectionPool"
@@ -525,18 +601,18 @@ class TestRunMinuteRefetch:
             mock_pool_cls.return_value.__exit__ = MagicMock(return_value=False)
             report = run_minute_refetch(symbol, from_date=from_date, to_date=to_date)
 
-        return report, mock_do_minute
+        return report, mock_do_minute, mock_build_coverage
 
     def test_from_date_none_uses_resolved_floor(self) -> None:
         """from_date=None → resolved_from = _resolve_minute_history_start()."""
-        _, mock_do = self._run_refetch(from_date=None)
+        _, mock_do, _ = self._run_refetch(from_date=None)
         call_kwargs = mock_do.call_args.kwargs
         window_from = call_kwargs["window"][0]
         # Resolver mock returns 2010-01-01.
         assert window_from == date(2010, 1, 1)
 
     def test_to_date_none_resolves_to_last_completed_session(self) -> None:
-        _, mock_do = self._run_refetch(to_date=None)
+        _, mock_do, _ = self._run_refetch(to_date=None)
         call_kwargs = mock_do.call_args.kwargs
         window_to = call_kwargs["window"][1]
         assert window_to == date(2024, 12, 31)
@@ -544,19 +620,40 @@ class TestRunMinuteRefetch:
     def test_explicit_window_passed_through(self) -> None:
         fd = date(2024, 6, 1)
         td = date(2024, 9, 30)
-        _, mock_do = self._run_refetch(from_date=fd, to_date=td)
+        _, mock_do, _ = self._run_refetch(from_date=fd, to_date=td)
         call_kwargs = mock_do.call_args.kwargs
         assert call_kwargs["window"] == (fd, td)
 
     def test_force_reset_terminal_always_true(self) -> None:
-        _, mock_do = self._run_refetch()
+        _, mock_do, _ = self._run_refetch()
         call_kwargs = mock_do.call_args.kwargs
         assert call_kwargs["force_reset_terminal"] is True
 
     def test_success_outcome_increments_success_count(self) -> None:
-        report, _ = self._run_refetch(outcome=LastAttemptOutcome.SUCCESS)
+        report, _, _ = self._run_refetch(outcome=LastAttemptOutcome.SUCCESS)
         assert report.success_count == 1
         assert report.total == 1
+
+    def test_via_refetch_passed_to_do_minute_symbol(self) -> None:
+        _, mock_do, _ = self._run_refetch()
+        call_kwargs = mock_do.call_args.kwargs
+        assert call_kwargs["via"] == "refetch"
+
+    def test_builds_symbol_coverage_and_forwards_to_do_minute_symbol(self) -> None:
+        """slice 165: run_minute_refetch must build a per-symbol coverage
+        index and pass it through — same seeding algorithm as the daemon,
+        scoped to the one requested symbol (design §Amendment 2026-07-28)."""
+        index = {"AAPL": {date(2024, 1, 1)}}
+        _, mock_do, mock_build_coverage = self._run_refetch(coverage_index=index)
+        mock_build_coverage.assert_called_once()
+        # Called with (conn, symbol) — the requested symbol, positionally.
+        assert mock_build_coverage.call_args.args[1] == "AAPL"
+        call_kwargs = mock_do.call_args.kwargs
+        assert call_kwargs["coverage_index"] == index
+
+    def test_coverage_built_exactly_once_per_invocation(self) -> None:
+        _, _, mock_build_coverage = self._run_refetch()
+        assert mock_build_coverage.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +746,7 @@ class TestHasAnyGapsRefireRegression:
                 pool=pool,
                 http=http,
                 settings=_FakeSettings(),
+                via=FetchEntryPoint.CYCLE,
                 window=(date(2024, 6, 10), date(2024, 6, 12)),
                 coverage_index=coverage_index,
             )
