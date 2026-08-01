@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-01
+
+### Fixed (slice 908)
+- **A clean `uv tool install manta-trading-data` crashed immediately on import — `v0.6.0` never actually worked for a new install.** `pyproject.toml` declared `requires-python = ">=3.10,<3.13"`, but the codebase uses `enum.StrEnum` throughout, which does not exist before Python 3.11. `uv tool install` resolves against the declared lower bound in a fresh environment, picked Python 3.10, and every invocation of `mt` failed with `ImportError: cannot import name 'StrEnum' from 'enum'`. The floor is now `>=3.12,<3.13`, matching the project's actual target Python version. `v0.6.0` cannot be corrected in place — a published PyPI version is immutable — so it should be treated as broken; install `0.6.1` or later.
+
 ## [0.6.0] - 2026-08-01
 
 ### Changed (slice 908)
