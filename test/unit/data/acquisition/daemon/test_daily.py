@@ -14,7 +14,6 @@ from manta_trading.data.acquisition.daemon.daily import (
     run_daily_cycle,
     run_daily_refetch,
 )
-from manta_trading.data.acquisition.outcomes import ProviderResponseError
 from manta_trading.data.acquisition.quota import QuotaBucket
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 
@@ -185,9 +184,17 @@ class TestRunDailyCycleFailurePaths:
         report = self._run_single(_mock_response(200, error_body=True))
         assert report.transient_failure_count == 1
 
-    def test_4xx_non_429_propagates(self) -> None:
-        with pytest.raises(ProviderResponseError):
-            self._run_single(_mock_response(404))
+    def test_404_recorded_as_empty(self) -> None:
+        """EODHD uses 404 to mean no intraday data for the range; not an error."""
+        report = self._run_single(_mock_response(404))
+        assert report.empty_count == 1
+
+    def test_4xx_non_429_non_404_recorded_as_transient_failure(self) -> None:
+        """_process_daily_symbol catches ProviderResponseError per-symbol so one
+        bad symbol doesn't crash the whole cycle — it never propagates out of
+        run_daily_cycle."""
+        report = self._run_single(_mock_response(400))
+        assert report.transient_failure_count == 1
 
 
 class TestDoDailySymbolExtensions:

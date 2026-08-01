@@ -6,6 +6,7 @@ import json
 from datetime import date as dt_date
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
@@ -48,12 +49,17 @@ class TestDataHelp:
         for cmd in ("get", "pull", "caggs"):
             assert cmd in result.output
 
-    def test_data_help_does_not_show_deleted_commands(self):
-        result = runner.invoke(app, ["data", "--help"])
-        assert result.exit_code == 0
-        assert "daily" not in result.output
-        assert "minute" not in result.output
-        assert "refetch" not in result.output
+    @pytest.mark.parametrize("cmd", ["daily", "minute", "refetch"])
+    def test_deleted_commands_are_not_invocable(self, cmd):
+        """These were removed as top-level subcommands (slice 152 consolidation).
+
+        Checking help *text* for the bare word is too broad: legitimate
+        commands (e.g. ``rechunk``) mention "minute_ohlcv" in their
+        descriptions. Invoking the deleted name is the precise check.
+        """
+        result = runner.invoke(app, ["data", cmd, "--help"])
+        assert result.exit_code != 0
+        assert "No such command" in result.output
 
 
 class TestMtHelpShowsData:
