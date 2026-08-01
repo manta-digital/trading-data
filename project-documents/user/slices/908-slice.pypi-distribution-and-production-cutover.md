@@ -71,9 +71,19 @@ rather than renaming imports in a module about to be split.
 [cli/app.py:36](../../../src/manta_trading/cli/app.py) calls
 `importlib.metadata.version("manta-trading")`. A distribution-name literal in
 code fails *silently* on rename — `PackageNotFoundError` is already caught
-there, so `mt --version` would report a fallback rather than error. It moves to
-a single named constant in `constants.py`, referenced everywhere, per the
-project rule that a value used in lookups is defined once.
+there and the fallback is the literal `"dev"`, so `mt --version` would report
+`dev` rather than error. It moves to a single named constant in `constants.py`,
+referenced everywhere, per the project rule that a value used in lookups is
+defined once.
+
+The constant alone does not close the failure mode, only relocates it: if the
+constant itself is wrong (typo, incomplete replacement), an *installed* package
+still reports `dev`. `"dev"` is retained — it is an obviously-placeholder value,
+which the project rules permit, and it is the correct answer for a genuine
+source checkout — but the except branch gains a `logger.warning` naming the
+distribution string that was looked up. That distinguishes "not installed"
+(expected, in development) from "installed but the constant is wrong" (a bug),
+which the bare fallback cannot.
 
 ### D3 — Trusted publishing (OIDC), publish job only
 
@@ -142,6 +152,58 @@ The workflow's TestPyPI step carries `continue-on-error: true` and
 needing its own pending publisher; if that is not configured, the step fails
 harmlessly and the real publish proceeds.
 
+### D10 — Config paths do not follow the rename
+
+The architecture's Config Layer mandates user config at
+`~/.config/manta-trading/config.toml` and project config at
+`.manta-trading.toml`, both currently hard-coded literals at
+[config/manager.py:18,23](../../../src/manta_trading/config/manager.py).
+**Neither path changes** — not in this slice, and not in 911.
+
+Rationale: these paths are keyed to the *product* identity, which is the `mt`
+CLI, not to the distribution name or the import package. They hold user data.
+Moving them would silently orphan existing config on .144 and on every
+developer machine, and the only benefit would be cosmetic consistency with a
+distribution name users rarely type. A config path that changes underneath an
+upgrade is precisely the silent-fallback failure the architecture's explicit-
+failure principle exists to prevent, and this slice's whole purpose is to make
+upgrading safe.
+
+They are, however, the same class of defect D2 fixes: bare literals used for
+lookups. They move to named constants alongside the distribution-name constant,
+so that the decoupling from the distribution name is *stated* rather than
+coincidental, and so a future rename cannot drag them along by accident.
+Slice 911 inherits this constraint explicitly.
+
+(Note: production reads settings from `/etc/manta-trading.env` via the systemd
+`EnvironmentFile`, not from `config.toml`, so the cutover itself is unlikely to
+touch these paths. That is a reason the risk is low, not a reason to leave the
+decision unstated.)
+
+### D11 — Publish failure modes and their recovery
+
+"Irreversible per version" describes the content-error case only. The
+infrastructure failures differ and are handled differently:
+
+- **OIDC claim rejected** (an `environment:` key added later, workflow renamed,
+  repo moved). The publish step fails loudly, nothing is uploaded, no version
+  is consumed. Recovery: realign the workflow with the publisher config and
+  re-tag. This is the failure mode D3's "no `environment:` key" constraint
+  exists to prevent.
+- **Name collision.** A pending publisher does not reserve the name, so
+  `manta-trading-data` could in principle be claimed between the 2026-08-01
+  availability check and the first push. The publish fails, the pending
+  publisher is invalidated, and a *different* name must be chosen — the
+  distribution-name constant from D2 is what makes that a one-line change.
+  No design step may assume the name is held before the first successful upload.
+- **Registry outage or interrupted upload.** No version is consumed unless the
+  upload completed. Recovery is a re-run of the same tag; `skip-existing`
+  covers a partially-completed retry. A version that *did* land can never be
+  replaced — recovery there is a new patch version, never a re-upload.
+- **Workflow does not fire** (tag pattern mismatch, Actions disabled). The
+  silent case, and the reason success criterion 2 checks `gh release list`
+  rather than trusting the tag: a tag with no release is the visible signal.
+
 ## Scope
 
 **In:**
@@ -151,6 +213,8 @@ harmlessly and the real publish proceeds.
 - `.github/workflows/ci.yml` — publish job only, tag-gated, `id-token: write`
 - First published release (0.6.0) via tag push; GitHub Releases for 0.5.0 and
   0.6.0, bodies from CHANGELOG
+- Config paths (`~/.config/manta-trading/config.toml`, `.manta-trading.toml`)
+  lifted from literals to constants, values unchanged (D10)
 - Both systemd unit templates rewritten to invoke the tool-installed `mt` with
   no `WorkingDirectory` coupling; the absolute path is determined against the
   real service user during implementation, not assumed
@@ -196,6 +260,28 @@ harmlessly and the real publish proceeds.
   invoking user's home; the systemd units run as `$MANTA_TRADING_SERVICE_USER`.
   Install and unit file must agree, verified on the host rather than assumed.
 
+## Design review disposition (20260801)
+
+Review: `user/reviews/908-review.slice.pypi-distribution-and-production-cutover.md`,
+minimax/minimax-m3, verdict CONCERNS. All three findings verified against the
+source before disposition; none were accepted on assertion.
+
+- **F001 (concern) — config paths unaddressed.** Valid and the only real gap.
+  Confirmed: `config/manager.py:18,23` hard-code both paths, and the
+  architecture's Config Layer section mandates them. Resolved by **D10**, which
+  takes the reviewer's reading (a) — paths stay, decoupled by decision rather
+  than by accident — and additionally converts them to constants, since they are
+  the same magic-string class D2 addresses.
+- **F002 (note) — publish failure modes.** Valid. Resolved by **D11**, which
+  separates the four infrastructure modes from the content-error case and pins
+  which of them consume a version number. The name-collision case changed the
+  design: no step may assume the name is held pre-upload.
+- **F003 (note) — `dev` fallback masks a wrong constant.** Confirmed at
+  `cli/app.py:36-38`. Resolved in **D2**: `"dev"` is retained as a legitimate
+  obviously-placeholder value for source checkouts, with a `logger.warning`
+  distinguishing "not installed" from "constant is wrong."
+- **F004, F005, F006 (pass).** No action.
+
 ## Cross-slice dependencies and interfaces
 
 - **[904]** — depends on; established the packaging metadata this extends.
@@ -205,7 +291,8 @@ harmlessly and the real publish proceeds.
   will consume the distribution-name constant from D2.
 - **[910]** — the enforced version of D8. May land before this slice, which
   would put the confirmation gate in place before the first real upgrade.
-- **[911]** — completes the rename decided in D1.
+- **[911]** — completes the rename decided in D1, and inherits D10: the import
+  rename must not move the config paths either.
 
 ## Notes
 
