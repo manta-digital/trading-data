@@ -1,13 +1,33 @@
 # manta-trading
 
 Data acquisition, storage, and serving for equities. CLI-first, EODHD-backed,
-TimescaleDB storage. Python package `manta-trading`, CLI entry point `mt`.
+TimescaleDB storage. PyPI distribution `manta-trading-data`, import package
+`manta_trading`, CLI entry point `mt`.
 
 ---
 
 ## Installation
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+```sh
+uv tool install manta-trading-data
+```
+
+`mt --help` should work immediately — no clone, no virtualenv activation. To
+upgrade later:
+
+```sh
+uv tool install --upgrade manta-trading-data
+```
+
+The package is published on PyPI as **`manta-trading-data`**, but the Python
+import package is still `manta_trading` (`import manta_trading`) and the CLI
+command is still `mt` — only the install/upgrade name changed.
+
+### Development setup
+
+To work on the code itself, use a source checkout instead:
 
 ```sh
 git clone https://github.com/manta-digital/trading-data
@@ -17,7 +37,8 @@ source .venv/bin/activate   # macOS / Linux
 # .venv\Scripts\activate    # Windows
 ```
 
-`mt --help` should work after activation.
+`mt --version` reports `dev` in a source checkout (no installed distribution
+metadata to read); a `uv tool install` reports the real published version.
 
 ---
 
