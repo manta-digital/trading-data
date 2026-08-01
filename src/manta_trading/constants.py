@@ -8,6 +8,15 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from enum import StrEnum
+from typing import Final
+
+DISTRIBUTION_NAME: Final[str] = "manta-trading-data"
+"""PyPI distribution name for this package (slice 908).
+
+This is the *distribution* name only — the import package is
+``manta_trading`` (renamed by slice 911) and the config paths (see
+``config/manager.py``) deliberately do not track it (slice 908 D8).
+"""
 
 MAX_RETRY_COUNT: int = 5
 """Maximum number of fetch retries before a gap is marked RETRY_EXHAUSTED."""

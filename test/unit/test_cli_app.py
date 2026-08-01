@@ -1,8 +1,12 @@
 """Tests for the root Typer CLI app."""
 
+import importlib.metadata
+import logging
+
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
+from manta_trading.constants import DISTRIBUTION_NAME
 
 runner = CliRunner()
 
@@ -34,6 +38,33 @@ class TestVersion:
         output = result.output.strip()
         version_part = output.replace("mt version ", "")
         assert version_part == "dev" or "." in version_part
+
+    def test_version_reports_resolved_distribution_metadata(self, monkeypatch):
+        monkeypatch.setattr(
+            importlib.metadata,
+            "version",
+            lambda name: "1.2.3" if name == DISTRIBUTION_NAME else "wrong-name",
+        )
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "mt version 1.2.3" in result.output
+
+    def test_version_falls_back_to_dev_and_warns_on_missing_metadata(
+        self, monkeypatch, caplog
+    ):
+        def _raise_not_found(name: str) -> str:
+            raise importlib.metadata.PackageNotFoundError(name)
+
+        monkeypatch.setattr(importlib.metadata, "version", _raise_not_found)
+        with caplog.at_level(logging.WARNING, logger="manta_trading.cli.app"):
+            result = runner.invoke(app, ["--version"])
+
+        assert result.exit_code == 0
+        assert "mt version dev" in result.output
+        assert any(
+            record.levelname == "WARNING" and DISTRIBUTION_NAME in record.getMessage()
+            for record in caplog.records
+        )
 
 
 class TestStatusSubApp:
