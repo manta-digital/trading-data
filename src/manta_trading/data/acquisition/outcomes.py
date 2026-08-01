@@ -60,7 +60,8 @@ def classify_outcome(
         A LastAttemptOutcome enum value.
 
     Raises:
-        ProviderResponseError: For HTTP 4xx responses (other than 429).
+        ProviderResponseError: For HTTP 4xx responses (other than 429 and 404;
+                               404 is classified as EMPTY, see below).
         ValueError:            If response.status_code is not a recognized
                                HTTP status class.
     """

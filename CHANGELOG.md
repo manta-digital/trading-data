@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-01
+
+### Changed (slice 908)
+- **This is the first version published to PyPI, and it is published under a new name: `manta-trading-data`, not `manta-trading`.** `manta-trading` was already reserved on PyPI as a placeholder for a future, unrelated product, so this package needed its own name. Install it with `uv tool install manta-trading-data`; upgrade with `uv tool install --upgrade manta-trading-data`. A source checkout (`git clone` + `uv sync`) still works exactly as before and remains the recommended setup for development.
+- **`mt --version` now reports the version PyPI has installed, instead of always printing `dev`** — the version lookup previously checked for a distribution named `manta-trading`, which has never been published, so every install (including source checkouts) reported `dev` regardless of the actual code version. It now checks the published name and reports the real installed version; a source checkout with no installed distribution metadata still correctly reports `dev`.
+- **Nothing else changes.** The import package is still `manta_trading` (`import manta_trading`, `from manta_trading... import ...`), the `mt` command name is unchanged, and config file locations (`~/.config/manta-trading/config.toml`, `.manta-trading.toml`) are unchanged.
+
 ## [0.5.0] - 2026-07-28
 
 ### Fixed (slice 165)

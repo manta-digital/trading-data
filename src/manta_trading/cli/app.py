@@ -12,7 +12,10 @@ from manta_trading.cli.commands.provider import provider_app
 from manta_trading.cli.commands.serve import serve
 from manta_trading.cli.commands.status import status_app
 from manta_trading.config import Settings
-from manta_trading.logging import setup_logging
+from manta_trading.constants import DISTRIBUTION_NAME
+from manta_trading.logging import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 app = typer.Typer(
     name="mt",
@@ -33,8 +36,13 @@ app.command(name="serve")(serve)
 def _version_callback(value: bool) -> None:
     if value:
         try:
-            version = importlib.metadata.version("manta-trading")
+            version = importlib.metadata.version(DISTRIBUTION_NAME)
         except importlib.metadata.PackageNotFoundError:
+            logger.warning(
+                "No installed distribution metadata found for %r; "
+                "reporting version as 'dev'.",
+                DISTRIBUTION_NAME,
+            )
             version = "dev"
         typer.echo(f"mt version {version}")
         raise typer.Exit()

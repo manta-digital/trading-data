@@ -85,12 +85,16 @@ class TestClassifyOutcome:
     def test_200_non_list_body_is_transient(self) -> None:
         assert self._call(_resp(200, {"data": []})) == LastAttemptOutcome.TRANSIENT_FAILURE
 
-    # --- 4xx other than 429 raises ---
+    # --- 4xx other than 429 and 404 raises ---
 
-    @pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+    @pytest.mark.parametrize("status", [400, 401, 403, 422])
     def test_4xx_non_429_raises_provider_error(self, status: int) -> None:
         with pytest.raises(ProviderResponseError):
             self._call(_resp(status))
+
+    def test_http_404_is_empty(self) -> None:
+        """EODHD uses 404 to mean no intraday data for the symbol/range."""
+        assert self._call(_resp(404)) == LastAttemptOutcome.EMPTY
 
     # --- body-shape classification ---
 
