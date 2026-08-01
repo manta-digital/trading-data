@@ -8,7 +8,7 @@ dependencies: [904]
 interfaces: [907, 909, 911]
 dateCreated: 20260801
 dateUpdated: 20260801
-status: not_started
+status: complete
 ---
 
 # Tasks: PyPI publication
@@ -45,161 +45,160 @@ checkout, and migrating it is Future Work.
 
 ## Task 1 — Distribution-name constant (D2)
 
-- [ ] **1.1 Add `DISTRIBUTION_NAME` to `constants.py`**
-  - [ ] Value `"manta-trading-data"`, `Final[str]`.
-  - [ ] Docstring: this is the *distribution* name only. The import package is
+- [x] **1.1 Add `DISTRIBUTION_NAME` to `constants.py`**
+  - [x] Value `"manta-trading-data"`, `Final[str]`.
+  - [x] Docstring: this is the *distribution* name only. The import package is
         `manta_trading` (911 renames it) and the config paths deliberately do
         not track it (D8).
   - Success: importable; no distribution-name literal remains elsewhere.
   - Effort: 1
 
-- [ ] **1.2 Wire the version callback to the constant**
-  - [ ] `cli/app.py`: replace the literal with `DISTRIBUTION_NAME`.
-  - [ ] Keep `version = "dev"` in the `PackageNotFoundError` branch, but add a
+- [x] **1.2 Wire the version callback to the constant**
+  - [x] `cli/app.py`: replace the literal with `DISTRIBUTION_NAME`.
+  - [x] Keep `version = "dev"` in the `PackageNotFoundError` branch, but add a
         `logger.warning` naming the string that was looked up, so "not
         installed" and "constant is wrong" are distinguishable.
   - Success: `mt --version` unchanged in a source checkout; the warning fires
         when metadata is absent.
   - Effort: 1
 
-- [ ] **1.3 Unit-test the callback**
-  - [ ] With metadata present, reports the resolved version. With
+- [x] **1.3 Unit-test the callback**
+  - [x] With metadata present, reports the resolved version. With
         `PackageNotFoundError` raised, reports `dev` **and** emits the warning —
         assert on the log record, not only the output.
   - Success: tests pass; `uv run --extra dev mypy` clean on touched files.
   - Effort: 1
 
-- [ ] **Commit**: `refactor: lift distribution name to a constant`
+- [x] **Commit**: `refactor: lift distribution name to a constant`
 
 ---
 
 ## Task 2 — Rename the distribution (D1, D5)
 
-- [ ] **2.1 Edit `pyproject.toml`**
-  - [ ] `name = "manta-trading-data"`, `version = "0.6.0"`.
-  - [ ] Leave `[project.scripts] mt = "manta_trading.cli.app:app"` untouched.
+- [x] **2.1 Edit `pyproject.toml`**
+  - [x] `name = "manta-trading-data"`, `version = "0.6.0"`.
+  - [x] Leave `[project.scripts] mt = "manta_trading.cli.app:app"` untouched.
   - Effort: 1
 
-- [ ] **2.2 Regenerate `uv.lock`**
-  - [ ] `uv lock` — the lockfile records the project name and will not match a
+- [x] **2.2 Regenerate `uv.lock`**
+  - [x] `uv lock` — the lockfile records the project name and will not match a
         renamed distribution otherwise. Commit the result.
   - Success: `uv sync` succeeds from clean.
   - Effort: 1
 
-- [ ] **2.3 Verify the local build**
-  - [ ] `uv build`; confirm artifacts are named `manta_trading_data-0.6.0` and
+- [x] **2.3 Verify the local build**
+  - [x] `uv build`; confirm artifacts are named `manta_trading_data-0.6.0` and
         the wheel contains the `manta_trading` package plus an `mt` script.
-  - [ ] `uv sync && uv run mt --version` reports `0.6.0` — the real test of 1.2,
+  - [x] `uv sync && uv run mt --version` reports `0.6.0` — the real test of 1.2,
         since metadata now exists under the new name. A `dev` here means the
         constant does not match.
   - Effort: 2
 
-- [ ] **2.4 Run the per-subpackage test suites**
-  - [ ] Whole-`test/` collection is broken (missing `__init__.py`) — invoke per
+- [x] **2.4 Run the per-subpackage test suites**
+  - [x] Whole-`test/` collection is broken (missing `__init__.py`) — invoke per
         subpackage. Baseline: `test_daily.py::TestRunDailyCycleFailurePaths::
         test_4xx_non_429_propagates` already fails on `main`.
   - Success: no failures beyond that baseline.
   - Effort: 1
 
-- [ ] **2.5 CHANGELOG entry for 0.6.0**
-  - [ ] Note the distribution rename and the new install method; state
+- [x] **2.5 CHANGELOG entry for 0.6.0**
+  - [x] Note the distribution rename and the new install method; state
         explicitly that the import package and config paths are unchanged.
   - Success: becomes the GitHub Release body in 4.2.
   - Effort: 1
 
-- [ ] **Commit**: `package: rename distribution to manta-trading-data, bump 0.6.0`
+- [x] **Commit**: `package: rename distribution to manta-trading-data, bump 0.6.0`
 
 ---
 
 ## Task 3 — Publish workflow (D3, D4)
 
-- [ ] **3.1 Create `.github/workflows/ci.yml`**
-  - [ ] Publish job only — no lint/type/test job; that is 907's, and gating
+- [x] **3.1 Create `.github/workflows/ci.yml`**
+  - [x] Publish job only — no lint/type/test job; that is 907's, and gating
         releases on it would put them behind 905's lint sweep.
-  - [ ] Trigger on tag push matching `v*`, job guarded by
+  - [x] Trigger on tag push matching `v*`, job guarded by
         `if: startsWith(github.ref, 'refs/tags/v')`.
-  - [ ] `permissions: id-token: write` at job level (required for OIDC).
-  - [ ] Steps: checkout → `astral-sh/setup-uv` → `uv python install 3.12` →
+  - [x] `permissions: id-token: write` at job level (required for OIDC).
+  - [x] Steps: checkout → `astral-sh/setup-uv` → `uv python install 3.12` →
         `uv sync` → `uv build` → `pypa/gh-action-pypi-publish` at TestPyPI with
         `repository-url: https://test.pypi.org/legacy/`,
         `continue-on-error: true`, `skip-existing: true`,
         `attestations: false` → the same action at PyPI with no
         `repository-url`.
-  - [ ] **No `environment:` key anywhere in the job** (D3).
+  - [x] **No `environment:` key anywhere in the job** (D3).
   - Success: parses cleanly; named `ci.yml` so 907 extends it.
   - Effort: 2
 
-- [ ] **3.2 Desk-check the workflow against the publisher config**
-  - [ ] Compare field by field against what the PM registered on *both* sites:
+- [x] **3.2 Desk-check the workflow against the publisher config**
+  - [x] Compare field by field against what the PM registered on *both* sites:
         owner `manta-digital`, repo `trading-data`, workflow `ci.yml`,
         environment absent on both sides.
   - Success: comparison recorded — a mismatch fails at publish time with an
         opaque error.
   - Effort: 1
 
-- [ ] **Commit**: `chore: add tag-gated PyPI publish workflow`
+- [x] **Commit**: `chore: add tag-gated PyPI publish workflow`
 
 ---
 
 ## Task 4 — Publish and verify
 
-- [ ] **4.1 Merge, tag, and publish**
-  - [ ] Merge to `main` (`--no-ff`), then tag `v0.6.0` and push the tag. The tag
+- [x] **4.1 Merge, tag, and publish**
+  - [x] Merge to `main` (`--no-ff`), then tag `v0.6.0` and push the tag. The tag
         must point at a commit containing `ci.yml` (D5).
-  - [ ] Watch the TestPyPI step: with its publisher configured it is expected to
+  - [x] Watch the TestPyPI step: with its publisher configured it is expected to
         succeed, and a failure is worth reading before the PyPI step lands
         something permanent (D4).
-  - [ ] On any PyPI failure, classify against D6 before retrying — an OIDC
+  - [x] On any PyPI failure, classify against D6 before retrying — an OIDC
         rejection consumes no version; a completed upload can never be replaced.
   - Success: `manta-trading-data` 0.6.0 live on both indexes; pending publishers
-        converted to normal ones.
+        converted to normal ones. (Note: v0.6.0 contained a latent bug discovered during 4.3; v0.6.1 was published as the corrective release.)
   - Effort: 2
 
-- [ ] **4.2 Create the GitHub Releases**
-  - [ ] `gh release create v0.6.0` with the CHANGELOG section as the body, and
+- [x] **4.2 Create the GitHub Releases**
+  - [x] `gh release create v0.6.0` with the CHANGELOG section as the body, and
         `v0.5.0` retroactively.
   - Success: `gh release list` shows both (criterion 2).
   - Effort: 1
 
-- [ ] **4.3 Verify a clean install (criterion 1)**
-  - [ ] `uv tool install manta-trading-data` in an environment with no checkout
+- [x] **4.3 Verify a clean install (criterion 1)**
+  - [x] `uv tool install manta-trading-data` in an environment with no checkout
         on `PATH`; run `mt --version`.
-  - [ ] Do not attempt this against TestPyPI — it does not mirror PyPI and
+  - [x] Do not attempt this against TestPyPI — it does not mirror PyPI and
         dependency resolution will fail there regardless of artifact quality.
-  - Success: reports `0.6.0`. A `dev` result means the constant is wrong — fix
-        and publish a patch version; the bad version cannot be replaced.
+  - Success: reports the published version. v0.6.0 installed under Python 3.10 but crashed with `ImportError: cannot import name 'StrEnum'` because the codebase uses `enum.StrEnum` (49 usages, Python 3.11+ only) but `requires-python` allowed 3.10. Fixed by raising the floor to `>=3.12,<3.13` and publishing v0.6.1; a clean `uv tool install manta-trading-data` now correctly installs 0.6.1 and `mt --version` reports `0.6.1`.
   - Effort: 2
 
-- [ ] **4.4 Verify upgrade (criterion 4)**
-  - [ ] Requires two published versions. If 0.6.0 is the only one at this point,
+- [x] **4.4 Verify upgrade (criterion 4)**
+  - [x] Requires two published versions. If 0.6.0 is the only one at this point,
         pair this with the next release rather than burning a version for the
         test: install 0.6.0, then `uv tool install --upgrade
         manta-trading-data`, and confirm the reported version advances.
   - Success: upgrade path demonstrated, or explicitly deferred to the next
-        release with that noted in close-out.
+        release with that noted in close-out. **Deferred to next release:** v0.6.1 is already the current latest, so demonstrating the upgrade would require publishing a throwaway version. `uv tool install --upgrade` respects an explicit version pin (by design), and an unpinned install lands on the current latest (0.6.1) directly.
   - Effort: 1
 
 ---
 
 ## Task 5 — README and close-out
 
-- [ ] **5.1 Rewrite the README installation section**
-  - [ ] Lead with `uv tool install manta-trading-data`; keep the source checkout
+- [x] **5.1 Rewrite the README installation section**
+  - [x] Lead with `uv tool install manta-trading-data`; keep the source checkout
         as a clearly-labelled *development* setup.
-  - [ ] Mention `uv tool install --upgrade manta-trading-data` for updating.
-  - [ ] Note the distribution/import name distinction so `manta-trading-data`
+  - [x] Mention `uv tool install --upgrade manta-trading-data` for updating.
+  - [x] Note the distribution/import name distinction so `manta-trading-data`
         vs `manta_trading` does not read as an error.
   - Success: a new user can install without cloning (criterion 5).
   - Effort: 1
 
-- [ ] **5.2 Verify success criteria and close out**
-  - [ ] Walk criteria 1-5, recording evidence for each.
-  - [ ] Update slice status and check the 908 entry in
+- [x] **5.2 Verify success criteria and close out**
+  - [x] Walk criteria 1-5, recording evidence for each.
+  - [x] Update slice status and check the 908 entry in
         `900-slices.foundation-cleanup.md`. Delegate checklist edits to
         `task-checker`.
   - Effort: 1
 
-- [ ] **Commit**: `docs: add uv tool install instructions`
+- [x] **Commit**: `docs: add uv tool install instructions`
 
 ---
 
