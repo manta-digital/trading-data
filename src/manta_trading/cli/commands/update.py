@@ -46,6 +46,9 @@ class InstallMethod(StrEnum):
 _UV_TOOL_SEGMENTS: Final[tuple[str, str]] = ("uv", "tools")
 _PIPX_SEGMENTS: Final[tuple[str, str]] = ("pipx", "venvs")
 
+# uv writes this receipt at the root of every tool environment (sys.prefix).
+_UV_TOOL_RECEIPT: Final[str] = "uv-receipt.toml"
+
 # Only the uv-tool path is auto-runnable; every other method gets guidance.
 _UPGRADE_COMMANDS: Final[dict[InstallMethod, list[str]]] = {
     InstallMethod.UV_TOOL: [
@@ -116,10 +119,23 @@ def _contains_segments(parts: tuple[str, ...], pair: tuple[str, str]) -> bool:
     return any(parts[i : i + 2] == pair for i in range(len(parts) - 1))
 
 
+def _is_uv_tool_environment() -> bool:
+    """True when this interpreter lives in a uv tool environment.
+
+    uv writes ``uv-receipt.toml`` at the root of every tool environment
+    (``sys.prefix``). Unlike the installation path, the receipt survives a
+    relocated ``UV_TOOL_DIR`` — measured against uv 0.11.2 (2026-08-02), where
+    path-segment matching alone misclassified a relocated tool install as pip.
+    """
+    return (Path(sys.prefix) / _UV_TOOL_RECEIPT).is_file()
+
+
 def detect_install_method() -> InstallMethod:
     """Classify how this copy of ``mt`` was installed. Never raises, no I/O."""
     if _is_editable_or_source():
         return InstallMethod.EDITABLE_OR_SOURCE
+    if _is_uv_tool_environment():
+        return InstallMethod.UV_TOOL
 
     parts = Path(sys.executable).resolve().parts
     if _contains_segments(parts, _UV_TOOL_SEGMENTS):

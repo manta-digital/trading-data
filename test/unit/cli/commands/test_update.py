@@ -79,6 +79,18 @@ def _install_distribution(
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_uv_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Point ``sys.prefix`` at a receipt-free directory by default.
+
+    Keeps detection tests independent of how the *test runner* itself was
+    installed; the uv-tool test opts back in by writing the receipt.
+    """
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    monkeypatch.setattr(update_mod.sys, "prefix", str(prefix))
+
+
 def _missing_distribution(monkeypatch: pytest.MonkeyPatch) -> None:
     def _raise(name: str) -> Any:
         raise importlib.metadata.PackageNotFoundError(name)
@@ -112,6 +124,19 @@ def test_detect_uv_tool_path(monkeypatch: pytest.MonkeyPatch) -> None:
         "executable",
         f"/home/dev/.local/share/uv/tools/{DISTRIBUTION_NAME}/bin/python",
     )
+    assert detect_install_method() is InstallMethod.UV_TOOL
+
+
+def test_detect_uv_receipt_beats_relocated_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A relocated UV_TOOL_DIR has no uv/tools segments — the receipt wins."""
+    _install_distribution(monkeypatch, None)
+    prefix = tmp_path / "relocated" / DISTRIBUTION_NAME
+    prefix.mkdir(parents=True)
+    (prefix / "uv-receipt.toml").write_text("[tool]\n", encoding="utf-8")
+    monkeypatch.setattr(update_mod.sys, "prefix", str(prefix))
+    monkeypatch.setattr(update_mod.sys, "executable", str(prefix / "bin/python"))
     assert detect_install_method() is InstallMethod.UV_TOOL
 
 
