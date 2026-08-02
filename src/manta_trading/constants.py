@@ -18,6 +18,41 @@ This is the *distribution* name only — the import package is
 ``config/manager.py``) deliberately do not track it (slice 908 D8).
 """
 
+# -- Self-update (`mt update`, slice 909) -------------------------------------
+
+PYPI_JSON_URL_TEMPLATE: Final[str] = "https://pypi.org/pypi/{name}/json"
+"""PyPI JSON API endpoint template for a distribution (slice 909 D2).
+
+Format with ``name=DISTRIBUTION_NAME``. ``info.version`` in the response is
+the latest *non-yanked* release, which is exactly what ``mt update`` offers.
+"""
+
+REGISTRY_TIMEOUT: Final[float] = 10.0
+"""Seconds allowed for the PyPI registry query (slice 909 D2).
+
+Mirrors the 10 s budget of the ported ``cf update`` implementation. On expiry
+``fetch_latest_version`` returns ``None`` rather than raising.
+"""
+
+UPGRADE_TIMEOUT: Final[float] = 600.0
+"""Seconds allowed for the ``uv tool install --upgrade`` subprocess (909 D5).
+
+A cold-cache clean install of this distribution measured 7.25 s wall
+(2026-08-02, full dependency download plus venv build), so 600 s is ~80x the
+measured cost: room for slow links and future wheel growth while still
+bounding a genuine hang on the unattended ``--yes`` path.
+"""
+
+UPDATE_MIGRATE_PROBE_TIMEOUT: Final[float] = 30.0
+"""Seconds allowed for the post-upgrade migration-status probe (909 D6).
+
+Three timed runs of ``mt data migrate status --json`` against production
+mid-backfill (2026-08-02) measured 0.58 / 1.93 / 6.90 s wall, so 30 s is ~4x
+the worst sample. Its primary job is bounding an *unreachable* database
+(libpq's default ``connect_timeout`` is unlimited); firing early costs only
+the generic pointer line, never a wrong count.
+"""
+
 MAX_RETRY_COUNT: int = 5
 """Maximum number of fetch retries before a gap is marked RETRY_EXHAUSTED."""
 
