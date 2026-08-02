@@ -6,8 +6,8 @@ parent: user/architecture/900-slices.foundation-cleanup.md
 dependencies: [908]
 interfaces: []
 dateCreated: 20260801
-dateUpdated: 20260801
-status: not_started
+dateUpdated: 20260802
+status: complete
 ---
 
 # Slice Design: `mt update` Self-Update Command
@@ -426,61 +426,107 @@ The registry call happens only inside the command body.
 
 ### Verification Walkthrough
 
-Draft demo script — refined at Phase 6 completion.
+Executed 2026-08-02 against the real registry on macOS (darwin 25.5.0, uv
+0.11.2). Every block below is transcribed from an actual run; isolated
+`UV_TOOL_DIR` / `UV_TOOL_BIN_DIR` / `UV_CACHE_DIR` were exported so nothing
+touched the developer's own tool installs. `$MT` below is the `mt` entry
+point inside the isolated `UV_TOOL_BIN_DIR`.
 
 **1. Developer machine (the state this repo is in):**
 
 ```console
 $ uv run mt update
-Developer install detected (editable/source checkout) — self-update disabled.
+Developer install detected (editable/source checkout) - self-update disabled.
   To update: git pull && uv sync
 $ echo $?
 0
+
+$ uv run mt update --json
+{
+  "current": "0.6.1",
+  "latest": null,
+  "update_available": false,
+  "install_method": "editable-or-source"
+}
 ```
 
-No network traffic occurs (verifiable with the unit test; casually, it
-returns instantly offline).
+`latest` is `null` because no registry call is made on this path — the
+refusal happens before the network (asserted by
+`test_cli_json_editable_makes_no_network_call`, which fails if `fetch_calls`
+is non-zero).
 
 **2. Pure query on an installed copy:**
 
 ```console
-$ mt update --json
+$ uv tool install manta-trading-data==0.7.0
+$ $MT --version
+mt version 0.7.0
+$ $MT update --json
 {
-  "current": "0.6.1",
-  "latest": "0.6.1",
-  "update_available": false,
+  "current": "0.7.0",
+  "latest": "0.7.1",
+  "update_available": true,
   "install_method": "uv-tool"
 }
 ```
 
-**3. Real end-to-end upgrade (release-time, completes 908's deferred criterion 4):**
+On an already-current install the same command reports
+`"update_available": false`, and the human-mode output is
+`mt is up to date (0.7.1).` with exit 0.
 
-This slice's own release (e.g. `v0.7.0`) provides the second published
-version. On a machine with the previous version installed:
+**3. Real end-to-end upgrade — `mt update` upgrading itself:**
 
 ```console
-$ uv tool install manta-trading-data==0.6.1   # pin the older version
-$ mt --version
-mt version 0.6.1
-$ mt update
-Update available: 0.6.1 → 0.7.0
-Install now? [y/N]: y
-... uv output ...
-✓ Updated manta-trading-data to 0.7.0
-Run 'mt data migrate status' to check for pending migrations.
-$ mt --version
+$ $MT --version
 mt version 0.7.0
+$ $MT update --yes
+Update available: 0.7.0 → 0.7.1
+Resolved 93 packages in 1.65s
+Prepared 1 package in 182ms
+Uninstalled 1 package in 17ms
+Installed 1 package in 6ms
+ - manta-trading-data==0.7.0
+ + manta-trading-data==0.7.1
+Installed 1 executable: mt
+Updated manta-trading-data to 0.7.1
+Run 'mt data migrate status' to check for pending migrations.
+$ echo $?
+0
+$ $MT --version
+mt version 0.7.1
 ```
 
-Note the pin must be removed for `uv tool install --upgrade` to move past it
-— `mt update`'s upgrade command installs unpinned, which replaces the pinned
-receipt; the walkthrough confirms this observed behavior at release time.
+The `uv` output in the middle is the inherited stdio of the upgrade
+subprocess. The migration line is the generic pointer because this isolated
+environment has no database configured — the probe degraded exactly as D6
+requires, without touching the exit code.
+
+This also closes slice 908's deferred criterion 4 (a real `--upgrade` between
+two published versions): `0.6.1 → 0.7.0`, `0.6.1 → 0.7.1`, and
+`0.7.0 → 0.7.1` were all exercised against live PyPI.
+
+**Pinned-receipt behavior (the question D5 left open):** installing pinned
+(`uv tool install manta-trading-data==0.6.1`) records
+`requirements = [{ name = "manta-trading-data", specifier = "==0.6.1" }]` in
+`uv-receipt.toml`. The upgrade command installs unpinned, and the receipt
+becomes `requirements = [{ name = "manta-trading-data" }]` — the pin is
+replaced, and the version moves in the same run. Verified with a fresh cache.
 
 **4. Registry outage does not break the command:**
 
 ```console
-$ HTTPS_PROXY=http://127.0.0.1:9 mt update
-Could not reach PyPI — check your network connection.
+$ HTTPS_PROXY=http://127.0.0.1:9 $MT update
+Error: Could not reach PyPI - check your network connection.
+$ echo $?
+1
+
+$ HTTPS_PROXY=http://127.0.0.1:9 $MT update --json
+{
+  "current": "0.6.1",
+  "latest": null,
+  "update_available": false,
+  "error": "registry unreachable"
+}
 $ echo $?
 1
 ```
@@ -488,12 +534,40 @@ $ echo $?
 **5. Non-TTY safety:**
 
 ```console
-$ echo | mt update            # stdin not a TTY
-Update available: 0.6.1 → 0.7.0
+$ $MT update < /dev/null
+Update available: 0.7.0 → 0.7.1
 Run with --yes to install non-interactively.
 $ echo $?
 0
 ```
+
+**6. Install-method detection:**
+
+```console
+$ $MT update --json | grep install_method
+  "install_method": "uv-tool",
+```
+
+Detected correctly even under a relocated `UV_TOOL_DIR`, which has no
+`uv/tools` path segments — this is what forced the `uv-receipt.toml` check
+recorded in D4. The pre-fix build reported `"install_method": "pip"` in the
+same environment.
+
+### Caveats discovered during implementation
+
+- **uv's index cache can hide a just-published release.** `mt update` reads
+  the PyPI JSON API directly and sees a release immediately; uv resolves
+  against cached metadata. A cache populated minutes before a release made
+  the upgrade exit 0 without installing anything. Addressed by
+  `--refresh-package` in the upgrade argv plus the post-upgrade version
+  check (D5). The published `0.7.1` has the version check but not the
+  refresh flag, so on `0.7.1` this situation is reported honestly (exit 1)
+  and resolved by re-running.
+- **`update.py` is 434 lines**, above the ~300-line project guideline. The
+  module is one command plus five pure helpers, and roughly half the file is
+  docstrings and decision citations; splitting it would separate the helpers
+  from the single command that consumes them. Left as one module
+  deliberately (D1).
 
 ## Implementation Notes
 
