@@ -12,7 +12,7 @@ projectState: >
   design reviewed (PASS, F006 addressed in design).
 dateCreated: 20260802
 dateUpdated: 20260802
-status: in_progress
+status: complete
 ---
 
 # Tasks: `mt update` Self-Update Command
@@ -224,44 +224,44 @@ subprocesses.
 
 ## Task 4 — Documentation
 
-- [ ] **4.1 README "Updating" section**
-  - [ ] After the install section: `mt update` as the primary path, the
+- [x] **4.1 README "Updating" section**
+  - [x] After the install section: `mt update` as the primary path, the
         manual `uv tool install --upgrade manta-trading-data` equivalent,
         and one line on the developer-install refusal (`git pull && uv sync`).
-  - [ ] CHANGELOG entry under the next version.
-  - [ ] Commit: `docs: add updating instructions for mt update`
+  - [x] CHANGELOG entry under the next version.
+  - [x] Commit: `docs: add updating instructions for mt update`
   - Effort: 1
 
 ## Task 5 — Release and end-to-end verification
 
-- [ ] **5.1 Merge and release**
-  - [ ] Merge the slice branch into `main` (`--no-ff`) with tests green.
-  - [ ] Bump version to `0.7.0` in `pyproject.toml`; `uv lock`; finalize
+- [x] **5.1 Merge and release**
+  - [x] Merge the slice branch into `main` (`--no-ff`) with tests green.
+  - [x] Bump version to `0.7.0` in `pyproject.toml`; `uv lock`; finalize
         CHANGELOG; commit `package: bump version to 0.7.0`.
-  - [ ] Tag `v0.7.0`, push; confirm the CI publish workflow succeeds and
+  - [x] Tag `v0.7.0`, push; confirm the CI publish workflow succeeds and
         0.7.0 is live on PyPI; `gh release create v0.7.0`.
   - Success: `https://pypi.org/pypi/manta-trading-data/json` reports
     `info.version == "0.7.0"`.
   - Effort: 2
 
-- [ ] **5.2 Real end-to-end upgrade (walkthrough step 3; closes 908
+- [x] **5.2 Real end-to-end upgrade (walkthrough step 3; closes 908
       deferred criterion 4)**
-  - [ ] In a clean environment (isolated `UV_TOOL_DIR`/`UV_CACHE_DIR`):
+  - [x] In a clean environment (isolated `UV_TOOL_DIR`/`UV_CACHE_DIR`):
         `uv tool install manta-trading-data==0.6.1`, verify
         `mt --version` → 0.6.1.
-  - [ ] `mt update --json` → `current: 0.6.1`, `latest: 0.7.0`,
+  - [x] `mt update --json` → `current: 0.6.1`, `latest: 0.7.0`,
         `update_available: true`, `install_method: "uv-tool"`.
-  - [ ] `mt update --yes` → upgrade runs; `mt --version` → 0.7.0.
-  - [ ] Record the observed pinned-receipt behavior (does the unpinned
+  - [x] `mt update --yes` → upgrade runs; `mt --version` → 0.7.0.
+  - [x] Record the observed pinned-receipt behavior (does the unpinned
         install replace the `==0.6.1` pin?) in the walkthrough — the design
         flags this as confirm-at-release-time.
   - Success: real 0.6.1 → 0.7.0 upgrade demonstrated and captured in the
     walkthrough.
   - Effort: 2
 
-- [ ] **5.3 Close out**
-  - [ ] Refine the LLD Verification Walkthrough with actual observed output;
+- [x] **5.3 Close out**
+  - [x] Refine the LLD Verification Walkthrough with actual observed output;
         set slice and tasks frontmatter status; check the plan entry
         (delegate checklist updates to task-checker).
-  - [ ] Commit: `docs: close out slice 909`
+  - [x] Commit: `docs: close out slice 909`
   - Effort: 1
