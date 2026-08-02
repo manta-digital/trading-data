@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (slice 909)
+- **`mt update` — check for and install a newer release without leaving the tool.** It asks PyPI what the latest published version is, compares it with the version you are running, and — if you installed with `uv tool install` — upgrades in place after asking for confirmation. `mt update --yes` skips the prompt for scripted use; `mt update --json` is a pure query that reports `current`, `latest`, `update_available`, and `install_method` and changes nothing. When stdin is not a terminal and `--yes` was not passed, it reports what an update would do and takes no action.
+- **On pipx and pip installs, `mt update` prints the correct upgrade command for your environment rather than running it**, and in a development (editable/source) checkout it refuses with `git pull && uv sync` — without making any network call.
+- **After a successful upgrade, `mt update` reports how many database migrations are pending** so a code upgrade never silently leaves the schema behind. This check runs against the newly installed version and is strictly best-effort: a database that is down, unconfigured, or absent prints a generic "run `mt data migrate status`" pointer and cannot fail the update.
+- Registry problems are reported as one clean line, never a traceback: an unreachable PyPI, a non-200 response, or a malformed reply produces `Could not reach PyPI — check your network connection.` and exit code 1. No command other than `mt update` ever contacts PyPI, and `mt --help` still works offline.
+
 ## [0.6.1] - 2026-08-01
 
 ### Fixed (slice 908)

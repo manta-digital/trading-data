@@ -14,16 +14,30 @@ Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 uv tool install manta-trading-data
 ```
 
-`mt --help` should work immediately — no clone, no virtualenv activation. To
-upgrade later:
+`mt --help` should work immediately — no clone, no virtualenv activation.
+
+The package is published on PyPI as **`manta-trading-data`**, but the Python
+import package is still `manta_trading` (`import manta_trading`) and the CLI
+command is still `mt` — only the install/upgrade name changed.
+
+### Updating
+
+```sh
+mt update          # check PyPI and install a newer release (prompts first)
+mt update --yes    # non-interactive: install without prompting
+mt update --json   # pure query: report versions, change nothing
+```
+
+`mt update` upgrades `uv tool` installs itself; on pipx or pip installs it
+prints the right command for your environment instead of running it. The
+equivalent manual command is always:
 
 ```sh
 uv tool install --upgrade manta-trading-data
 ```
 
-The package is published on PyPI as **`manta-trading-data`**, but the Python
-import package is still `manta_trading` (`import manta_trading`) and the CLI
-command is still `mt` — only the install/upgrade name changed.
+In a development (editable/source) checkout `mt update` refuses and points you
+at `git pull && uv sync` — it makes no network call there.
 
 ### Development setup
 

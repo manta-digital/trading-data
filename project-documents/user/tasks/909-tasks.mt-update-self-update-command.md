@@ -12,7 +12,7 @@ projectState: >
   design reviewed (PASS, F006 addressed in design).
 dateCreated: 20260802
 dateUpdated: 20260802
-status: not_started
+status: in_progress
 ---
 
 # Tasks: `mt update` Self-Update Command
@@ -47,28 +47,28 @@ Work on `909-slice.mt-update-self-update-command`, created from `main`.
 
 ## Task 1 — Dependency and constants
 
-- [ ] **1.1 Declare `packaging` as a direct dependency (D3)**
-  - [ ] Add `packaging>=24.0` to `[project] dependencies` in `pyproject.toml`.
-  - [ ] `uv lock` regenerates cleanly; `uv sync` succeeds.
+- [x] **1.1 Declare `packaging` as a direct dependency (D3)**
+  - [x] Add `packaging>=24.0` to `[project] dependencies` in `pyproject.toml`.
+  - [x] `uv lock` regenerates cleanly; `uv sync` succeeds.
   - Success: `uv run python -c "import packaging.version"` works and
     `packaging` appears in `[project] dependencies`, not only transitively.
   - Effort: 1
 
-- [ ] **1.2 Add update constants to `constants.py` (D2, D5, D6)**
-  - [ ] `PYPI_JSON_URL_TEMPLATE: Final[str] = "https://pypi.org/pypi/{name}/json"`
-  - [ ] `REGISTRY_TIMEOUT: Final[float] = 10.0` — seconds; mirrors `cf update`.
-  - [ ] `UPGRADE_TIMEOUT: Final[float] = 600.0` — ~80x the measured 7.25 s
+- [x] **1.2 Add update constants to `constants.py` (D2, D5, D6)**
+  - [x] `PYPI_JSON_URL_TEMPLATE: Final[str] = "https://pypi.org/pypi/{name}/json"`
+  - [x] `REGISTRY_TIMEOUT: Final[float] = 10.0` — seconds; mirrors `cf update`.
+  - [x] `UPGRADE_TIMEOUT: Final[float] = 600.0` — ~80x the measured 7.25 s
         cold-cache clean install (2026-08-02); bounds a hung download/build.
-  - [ ] `UPDATE_MIGRATE_PROBE_TIMEOUT: Final[float] = 30.0` — ~4x the worst
+  - [x] `UPDATE_MIGRATE_PROBE_TIMEOUT: Final[float] = 30.0` — ~4x the worst
         of three measured probe runs (0.58/1.93/6.90 s, prod mid-backfill).
-  - [ ] Each carries a docstring citing its measurement/rationale per the
+  - [x] Each carries a docstring citing its measurement/rationale per the
         existing `constants.py` convention.
   - Success: constants importable; no timeout or URL literal appears in
     `update.py` when Task 2 lands.
   - Effort: 1
 
-- [ ] **1.3 Commit checkpoint**
-  - [ ] `chore: add packaging dependency and mt update constants`
+- [x] **1.3 Commit checkpoint**
+  - [x] `chore: add packaging dependency and mt update constants`
   - Effort: 1
 
 ## Task 2 — Pure helpers in `cli/commands/update.py`
@@ -78,12 +78,12 @@ printing (D1). Tests live in `test/unit/cli/commands/test_update.py` and use
 `monkeypatch` only — no new test dependencies, no network, no real
 subprocesses.
 
-- [ ] **2.1 `InstallMethod` enum and `detect_install_method()` (D4)**
-  - [ ] `class InstallMethod(StrEnum)`: `UV_TOOL = "uv-tool"`,
+- [x] **2.1 `InstallMethod` enum and `detect_install_method()` (D4)**
+  - [x] `class InstallMethod(StrEnum)`: `UV_TOOL = "uv-tool"`,
         `PIPX = "pipx"`, `PIP = "pip"`,
         `EDITABLE_OR_SOURCE = "editable-or-source"`. Lives in `update.py`
         (single consuming module; values surface in `--json` output).
-  - [ ] Detection order, first match wins:
+  - [x] Detection order, first match wins:
     1. `EDITABLE_OR_SOURCE` — `importlib.metadata.version(DISTRIBUTION_NAME)`
        raises `PackageNotFoundError`, or the distribution's
        `direct_url.json` has `dir_info.editable: true` (PEP 660).
@@ -94,19 +94,19 @@ subprocesses.
   - Success: function returns the enum, touches no network, raises nothing.
   - Effort: 2
 
-- [ ] **2.2 Tests for `detect_install_method`**
-  - [ ] One test per branch: metadata missing → `EDITABLE_OR_SOURCE`;
+- [x] **2.2 Tests for `detect_install_method`**
+  - [x] One test per branch: metadata missing → `EDITABLE_OR_SOURCE`;
         editable `direct_url.json` → `EDITABLE_OR_SOURCE`; uv-tools path →
         `UV_TOOL`; pipx path → `PIPX`; plain venv path → `PIP`.
-  - [ ] Paths injected by monkeypatching `sys.executable` and the metadata
+  - [x] Paths injected by monkeypatching `sys.executable` and the metadata
         lookup — no real environments constructed.
   - Success: all branches covered and green.
   - Effort: 2
 
-- [ ] **2.3 `fetch_latest_version() -> str | None` (D2)**
-  - [ ] `httpx.get(PYPI_JSON_URL_TEMPLATE.format(name=DISTRIBUTION_NAME),
+- [x] **2.3 `fetch_latest_version() -> str | None` (D2)**
+  - [x] `httpx.get(PYPI_JSON_URL_TEMPLATE.format(name=DISTRIBUTION_NAME),
         timeout=REGISTRY_TIMEOUT)`, read `info.version`.
-  - [ ] Returns `None` on any failure. Enumerated excepts only —
+  - [x] Returns `None` on any failure. Enumerated excepts only —
         `httpx.HTTPError`, `ValueError`, `KeyError`, `TypeError` — with a
         comment citing D2's "return nothing rather than raise" mandate. No
         bare `except Exception`.
@@ -114,56 +114,56 @@ subprocesses.
     timeout, non-200, malformed JSON, missing/mistyped key.
   - Effort: 1
 
-- [ ] **2.4 Tests for `fetch_latest_version`**
-  - [ ] Success case (mocked 200 with `info.version`).
-  - [ ] Failure cases, one test each: connect timeout (`httpx.TimeoutException`),
+- [x] **2.4 Tests for `fetch_latest_version`**
+  - [x] Success case (mocked 200 with `info.version`).
+  - [x] Failure cases, one test each: connect timeout (`httpx.TimeoutException`),
         non-200 status, invalid JSON body, missing `info.version`,
         `info.version` not a string. All must return `None`, never raise.
   - Success: all six green with httpx mocked via `monkeypatch`.
   - Effort: 2
 
-- [ ] **2.5 `upgrade_command(method) -> list[str] | None` (D5)**
-  - [ ] `UV_TOOL` → `["uv", "tool", "install", "--upgrade", DISTRIBUTION_NAME]`;
+- [x] **2.5 `upgrade_command(method) -> list[str] | None` (D5)**
+  - [x] `UV_TOOL` → `["uv", "tool", "install", "--upgrade", DISTRIBUTION_NAME]`;
         all other methods → `None`. Fixed argv, no shell, no interpolation of
         registry data (Special Considerations).
-  - [ ] The pipx/pip guidance strings the command prints live beside this
+  - [x] The pipx/pip guidance strings the command prints live beside this
         mapping — one definition site for all method-dispatched values.
   - Success: mapping matches the D5 table exactly.
   - Effort: 1
 
-- [ ] **2.6 Tests for `upgrade_command`**
-  - [ ] One assertion per `InstallMethod` value; `UV_TOOL` argv asserted
+- [x] **2.6 Tests for `upgrade_command`**
+  - [x] One assertion per `InstallMethod` value; `UV_TOOL` argv asserted
         element-by-element against `DISTRIBUTION_NAME`.
   - Effort: 1
 
-- [ ] **2.7 `report_pending_migrations() -> int | None` (D6)**
-  - [ ] Runs `mt data migrate status --json` via `subprocess.run` with
+- [x] **2.7 `report_pending_migrations() -> int | None` (D6)**
+  - [x] Runs `mt data migrate status --json` via `subprocess.run` with
         `timeout=UPDATE_MIGRATE_PROBE_TIMEOUT`, captured output.
-  - [ ] Binary resolution: prefer the `mt` entry point adjacent to
+  - [x] Binary resolution: prefer the `mt` entry point adjacent to
         `sys.executable`'s environment; fall back to bare `"mt"` from PATH.
-  - [ ] Returns `len(pending)` on a clean parse with `"connected": true`;
+  - [x] Returns `len(pending)` on a clean parse with `"connected": true`;
         `None` on non-zero exit, `TimeoutExpired`, unparseable output, or
         `"connected": false`. Never raises; never imports the DB layer.
   - Success: no psycopg/DB import appears in `update.py` (grep-verifiable).
   - Effort: 2
 
-- [ ] **2.8 Tests for `report_pending_migrations`**
-  - [ ] Success: mocked subprocess emitting valid JSON with 2 pending → 2.
-  - [ ] Degradations, one test each: non-zero exit, `TimeoutExpired`,
+- [x] **2.8 Tests for `report_pending_migrations`**
+  - [x] Success: mocked subprocess emitting valid JSON with 2 pending → 2.
+  - [x] Degradations, one test each: non-zero exit, `TimeoutExpired`,
         garbage stdout, `"connected": false` → all `None`.
   - Success: all green with subprocess mocked.
   - Effort: 2
 
-- [ ] **2.9 Commit checkpoint**
-  - [ ] `feat: add mt update pure helpers (fetch, detect, upgrade-map, probe)`
+- [x] **2.9 Commit checkpoint**
+  - [x] `feat: add mt update pure helpers (fetch, detect, upgrade-map, probe)`
   - Effort: 1
 
 ## Task 3 — The `mt update` command and registration
 
-- [ ] **3.1 Implement the typer command (D1, flow steps 1–8)**
-  - [ ] Options: `--json` (D7), `--yes`. Output via `print_result` /
+- [x] **3.1 Implement the typer command (D1, flow steps 1–8)**
+  - [x] Options: `--json` (D7), `--yes`. Output via `print_result` /
         `print_error` (`cli/output.py`).
-  - [ ] Order per the Data Flow diagram: detect → (refuse editable/source,
+  - [x] Order per the Data Flow diagram: detect → (refuse editable/source,
         exit 0, no network) → fetch (None → message, exit 1) → compare with
         `packaging.version.Version` → `--json` short-circuit → up-to-date
         (exit 0) → confirm gate (`--yes` / `typer.confirm` on TTY / non-TTY
@@ -171,55 +171,55 @@ subprocesses.
         (run UV_TOOL argv with `timeout=UPGRADE_TIMEOUT`, stdio inherited;
         `None` → print guidance, exit 0) → on success,
         `report_pending_migrations` (count line or generic pointer).
-  - [ ] `shutil.which("uv")` miss → degrade to printing the command (D5).
-  - [ ] `TimeoutExpired` from the upgrade → report, name the manual command,
+  - [x] `shutil.which("uv")` miss → degrade to printing the command (D5).
+  - [x] `TimeoutExpired` from the upgrade → report, name the manual command,
         exit 1. Non-zero upgrade exit → exit 1.
-  - [ ] Exit codes exactly per the D8 table.
+  - [x] Exit codes exactly per the D8 table.
   - Success: every branch in the Data Flow diagram is reachable in code and
     none is silently merged with another.
   - Effort: 3
 
-- [ ] **3.2 Register in `cli/app.py` (D9)**
-  - [ ] `app.command(name="update")(update)` alongside `serve`.
-  - [ ] Module import stays cheap: no network, DB, or heavy imports at
+- [x] **3.2 Register in `cli/app.py` (D9)**
+  - [x] `app.command(name="update")(update)` alongside `serve`.
+  - [x] Module import stays cheap: no network, DB, or heavy imports at
         module level of `update.py`.
   - Success: `mt update` appears in `mt --help`; `mt --help` runs offline
     with no registry traffic (D9 / success criterion 9).
   - Effort: 1
 
-- [ ] **3.3 Behavior-matrix tests via `typer.testing.CliRunner`**
+- [x] **3.3 Behavior-matrix tests via `typer.testing.CliRunner`**
 
   With helpers already unit-tested, these mock at the helper boundary and
   assert orchestration: output, exit code, and which side effects occurred.
-  - [ ] Up-to-date → "up to date" message, exit 0, no prompt, no subprocess.
-  - [ ] Update available + TTY confirm accepted → upgrade argv invoked,
+  - [x] Up-to-date → "up to date" message, exit 0, no prompt, no subprocess.
+  - [x] Update available + TTY confirm accepted → upgrade argv invoked,
         success message, probe invoked.
-  - [ ] Update available + TTY declined → exit 0, no subprocess.
-  - [ ] `--yes` → no prompt, upgrade invoked.
-  - [ ] Non-TTY without `--yes` → report + "run with --yes", exit 0, no
+  - [x] Update available + TTY declined → exit 0, no subprocess.
+  - [x] `--yes` → no prompt, upgrade invoked.
+  - [x] Non-TTY without `--yes` → report + "run with --yes", exit 0, no
         subprocess.
-  - [ ] `--json` purity (success criterion 4): documented four-key object,
+  - [x] `--json` purity (success criterion 4): documented four-key object,
         exit 0, and the mocked subprocess layer records **zero** calls even
         with `--yes` also passed; editable/source variant emits
         `latest: null` with no network call; registry-failure variant emits
         `error` key and exits 1.
-  - [ ] Editable/source (human mode) → developer guidance, exit 0, no
+  - [x] Editable/source (human mode) → developer guidance, exit 0, no
         network call recorded.
-  - [ ] PIPX and PIP → correct printed command, exit 0, no subprocess.
-  - [ ] `uv` missing from PATH → printed command, exit 0.
-  - [ ] Registry unreachable (human mode) → one-line message, exit 1, no
+  - [x] PIPX and PIP → correct printed command, exit 0, no subprocess.
+  - [x] `uv` missing from PATH → printed command, exit 0.
+  - [x] Registry unreachable (human mode) → one-line message, exit 1, no
         traceback in output.
-  - [ ] Upgrade subprocess non-zero → exit 1.
-  - [ ] Upgrade `TimeoutExpired` → timeout reported, manual command named,
+  - [x] Upgrade subprocess non-zero → exit 1.
+  - [x] Upgrade `TimeoutExpired` → timeout reported, manual command named,
         exit 1.
-  - [ ] Probe degradation → generic pointer line printed, update still
+  - [x] Probe degradation → generic pointer line printed, update still
         exits 0 (success criterion 8).
   - Success: full matrix green.
   - Effort: 3
 
-- [ ] **3.4 Static checks and commit checkpoint**
-  - [ ] `uv run --extra dev mypy` and ruff clean on all touched files.
-  - [ ] `feat: add mt update self-update command`
+- [x] **3.4 Static checks and commit checkpoint**
+  - [x] `uv run --extra dev mypy` and ruff clean on all touched files.
+  - [x] `feat: add mt update self-update command`
   - Effort: 1
 
 ## Task 4 — Documentation

@@ -202,11 +202,19 @@ and distribution metadata:
    editable install, i.e. `uv sync` / `pip install -e`). This is the state
    every developer machine is in today; the command refuses before any
    network call and prints the developer path (`git pull && uv sync`).
-2. **UV_TOOL** — the resolved interpreter path contains the path segments
-   `uv/tools/` (uv's tool environments live at
-   `~/.local/share/uv/tools/<dist>/` on Linux/macOS; the `uv/tools` segment
-   pair is stable across platforms and honored under `UV_TOOL_DIR`-style
-   relocations in practice).
+2. **UV_TOOL** — primary signal: `sys.prefix` contains a `uv-receipt.toml`
+   file. uv writes this receipt at the root of every tool environment, so it
+   is location-independent. Fallback: the resolved interpreter path contains
+   the adjacent path segments `uv/tools` (uv's default tool root is
+   `~/.local/share/uv/tools/<dist>/` on Linux/macOS).
+
+   **Corrected during implementation (Phase 6, 2026-08-02).** The original
+   design used path segments alone and asserted they were "honored under
+   `UV_TOOL_DIR`-style relocations in practice". Measurement disproved this:
+   a real `uv tool install` (uv 0.11.2) into a relocated `UV_TOOL_DIR` yields
+   an interpreter path with no `uv/tools` segments, and the command reported
+   `install_method: "pip"` — printing a pip command instead of auto-upgrading.
+   The receipt check fixes it; the segment check is retained as a fallback.
 3. **PIPX** — resolved path contains `pipx/venvs`.
 4. **PIP** — everything else (plain venv or `pip install --user`).
 

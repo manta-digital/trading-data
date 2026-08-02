@@ -8,6 +8,7 @@ interfaces: []
 dateCreated: 20260726
 dateUpdated: 20260726
 status: not_started
+review: none
 ---
 
 # Slice Design: `mt data` CLI module decomposition
