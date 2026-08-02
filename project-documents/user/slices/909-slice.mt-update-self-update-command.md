@@ -237,24 +237,37 @@ values and their mapped commands live in one place (`upgrade_command`).
 | `PIP` | `None` | print `pip install --upgrade manta-trading-data` (with a note to run it in the owning environment); exit 0 |
 | `EDITABLE_OR_SOURCE` | `None` | refuse before network (step 1 of the flow) |
 
-**`@latest` and post-upgrade verification — corrected during implementation
-(Phase 6, 2026-08-02).** The release-time end-to-end run found that plain
-`uv tool install --upgrade manta-trading-data` against a *pinned* install
-(`uv tool install manta-trading-data==0.6.1`) exits 0 having only rewritten
-the receipt's requirement — the installed version stays at 0.6.1, and only a
-second invocation upgrades (uv 0.11.2). The command would therefore have
-printed "Updated … to 0.7.0" while `mt --version` still reported 0.6.1. Two
-changes close this:
+**Cache refresh and post-upgrade verification — added during implementation
+(Phase 6, 2026-08-02).** The release-time end-to-end run hit a silent no-op:
+`mt update` correctly reported `Update available: 0.6.1 → 0.7.0`, ran the
+upgrade, and the subprocess exited 0 with the installed version still 0.6.1.
 
-1. The argv targets `{DISTRIBUTION_NAME}@latest`, which upgrades a pinned
-   install in a single run (measured: `0.6.1` → `0.7.0`, one invocation) and
-   is still a no-op on an already-current install.
+Root cause (isolated by controlled re-runs, uv 0.11.2): **stale index
+metadata in uv's cache**, not the version pin. This command reads the PyPI
+JSON API directly and therefore sees a release the moment it lands, while uv
+resolves against its cached index; a cache populated shortly before a release
+makes uv conclude there is nothing newer. With a fresh cache, plain
+`uv tool install --upgrade manta-trading-data` upgrades even a pinned install
+(`==0.6.1`) in a single run — verified. The first (wrong) reading of the
+symptom blamed the pin; the controlled test disproved it.
+
+Two changes close this:
+
+1. The argv is
+   `uv tool install --upgrade --refresh-package manta-trading-data manta-trading-data@latest`.
+   `--refresh-package` forces uv to revalidate this one package's metadata,
+   which addresses the observed cause directly; `@latest` states the intent
+   explicitly regardless of any recorded version constraint. Verified: a
+   pinned `0.6.1` install moves to `0.7.1` in one run, and the same command is
+   a no-op on an already-current install.
 2. After a zero-exit upgrade, the command runs the on-disk binary's
    `mt --version` (bounded by `UPDATE_VERSION_PROBE_TIMEOUT`, measured at
    0.42/0.45/0.44 s) and compares it with the version it just claimed to
-   install. A mismatch is reported as a failure with the manual command and
-   exits 1; an unparseable or failing probe leaves the success message with
-   its "run `mt --version` to confirm" line rather than inventing a failure.
+   install. This is cause-agnostic — whatever makes an upgrade a no-op, the
+   command cannot claim success. A mismatch is reported as a failure with the
+   manual command and exits 1; an unparseable or failing probe leaves the
+   success message with its "run `mt --version` to confirm" line rather than
+   inventing a failure.
 
 Before running the UV_TOOL command, `shutil.which("uv")` is checked; if `uv`
 is somehow absent from PATH, degrade to printing the command (same treatment

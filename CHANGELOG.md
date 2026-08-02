@@ -16,10 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (slice 909)
+- **`mt update` no longer skips an upgrade because uv's cache has not noticed the release yet.** `mt update` asks PyPI directly and sees a new version immediately, but the `uv` command it runs resolves against cached index metadata — so if your cache was populated shortly before a release, the upgrade would run, succeed, and change nothing. It now refreshes this package's metadata as part of the upgrade. (Introduced in `0.7.1`, the version check added there reports this situation honestly rather than claiming a false success, so `0.7.1` never lies about it — it just may need a second run.)
+
 ## [0.7.1] - 2026-08-02
 
 ### Fixed (slice 909)
-- **`mt update` could report a successful upgrade that never happened.** If you originally installed a pinned version (`uv tool install manta-trading-data==0.6.1`), the upgrade command it ran only cleared the pin on its first invocation and left the old version installed — so `mt update` printed "Updated manta-trading-data to 0.7.0" while `mt --version` still said `0.6.1`. The upgrade now targets `manta-trading-data@latest`, which moves a pinned install in one run, and after upgrading, `mt update` re-reads the version from the installed binary and reports a failure (exit 1) if it did not actually move. Affects `0.7.0`; upgrade from a pinned `0.7.0` install may still need the command run twice, or run `uv tool install --upgrade manta-trading-data@latest` directly.
+- **`mt update` could report a successful upgrade that never happened.** After upgrading, it now re-reads the version from the installed binary and, if the version did not actually move, reports that plainly and exits 1 instead of printing "Updated manta-trading-data to X". Observed on the `0.7.0` release: `mt update` correctly announced `0.6.1 → 0.7.0`, the upgrade exited successfully, and `mt --version` still reported `0.6.1`.
 
 ## [0.7.0] - 2026-08-02
 

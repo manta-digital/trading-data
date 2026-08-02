@@ -224,12 +224,14 @@ def test_fetch_mistyped_version_returns_none(
 
 
 def test_upgrade_command_uv_tool_argv() -> None:
-    """``@latest`` is load-bearing — without it a pinned install no-ops."""
+    """``--refresh-package`` is load-bearing — a stale index cache no-ops."""
     assert upgrade_command(InstallMethod.UV_TOOL) == [
         "uv",
         "tool",
         "install",
         "--upgrade",
+        "--refresh-package",
+        DISTRIBUTION_NAME,
         f"{DISTRIBUTION_NAME}@latest",
     ]
 
@@ -463,9 +465,7 @@ def test_cli_confirm_accepted_upgrades_and_probes(harness: _Harness) -> None:
     result = _invoke()
     assert result.exit_code == 0, result.output
     assert harness.prompts == 1
-    assert harness.upgrade_runs == [
-        ["uv", "tool", "install", "--upgrade", f"{DISTRIBUTION_NAME}@latest"]
-    ]
+    assert harness.upgrade_runs == [upgrade_command(InstallMethod.UV_TOOL)]
     assert len(harness.version_runs) == 1
     assert len(harness.probe_runs) == 1
     flat = _flat(result)
@@ -571,7 +571,7 @@ def test_cli_missing_uv_degrades_to_printing(harness: _Harness) -> None:
     harness.uv_on_path = None
     result = _invoke("--yes")
     assert result.exit_code == 0, result.output
-    assert f"uv tool install --upgrade {DISTRIBUTION_NAME}" in _flat(result)
+    assert update_mod.MANUAL_UPGRADE_COMMAND[InstallMethod.UV_TOOL] in _flat(result)
     assert harness.runs == []
 
 
@@ -598,7 +598,7 @@ def test_cli_upgrade_timeout(harness: _Harness) -> None:
     assert result.exit_code == 1
     flat = _flat(result)
     assert "timed out" in flat
-    assert f"uv tool install --upgrade {DISTRIBUTION_NAME}" in flat
+    assert update_mod.MANUAL_UPGRADE_COMMAND[InstallMethod.UV_TOOL] in flat
     assert harness.probe_runs == []
 
 
@@ -616,7 +616,7 @@ def test_cli_upgrade_that_did_not_move_the_version_fails(harness: _Harness) -> N
     assert result.exit_code == 1
     flat = _flat(result)
     assert "still 0.6.1" in flat
-    assert f"uv tool install --upgrade {DISTRIBUTION_NAME}@latest" in flat
+    assert update_mod.MANUAL_UPGRADE_COMMAND[InstallMethod.UV_TOOL] in flat
     assert harness.probe_runs == []
 
 

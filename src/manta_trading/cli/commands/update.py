@@ -50,26 +50,36 @@ _PIPX_SEGMENTS: Final[tuple[str, str]] = ("pipx", "venvs")
 # uv writes this receipt at the root of every tool environment (sys.prefix).
 _UV_TOOL_RECEIPT: Final[str] = "uv-receipt.toml"
 
-# ``@latest`` is required, not cosmetic: on a pinned install (installed as
-# `name==x.y.z`) plain `uv tool install --upgrade name` only rewrites the
-# receipt's requirement and leaves the old version in place, so the first run
-# is a silent no-op. Measured against uv 0.11.2, 2026-08-02 (D5).
+# ``@latest`` asks for the newest release explicitly, ignoring any version
+# constraint recorded by the original install.
 _UPGRADE_TARGET: Final[str] = f"{DISTRIBUTION_NAME}@latest"
 
 # Only the uv-tool path is auto-runnable; every other method gets guidance.
+#
+# ``--refresh-package`` is load-bearing, not defensive. uv resolves against
+# cached index metadata, while this command reads the PyPI JSON API directly:
+# a cache populated shortly before a release makes uv see no new version at
+# all, so the upgrade exits 0 having done nothing right after we told the user
+# an update was available. Observed 2026-08-02 (uv 0.11.2) during the 909
+# release; forcing a metadata refresh for this one package fixes it (D5).
 _UPGRADE_COMMANDS: Final[dict[InstallMethod, list[str]]] = {
     InstallMethod.UV_TOOL: [
         "uv",
         "tool",
         "install",
         "--upgrade",
+        "--refresh-package",
+        DISTRIBUTION_NAME,
         _UPGRADE_TARGET,
     ],
 }
 
 # Single definition site for the command text shown per install method (D5).
 MANUAL_UPGRADE_COMMAND: Final[dict[InstallMethod, str]] = {
-    InstallMethod.UV_TOOL: f"uv tool install --upgrade {_UPGRADE_TARGET}",
+    InstallMethod.UV_TOOL: (
+        f"uv tool install --upgrade --refresh-package {DISTRIBUTION_NAME} "
+        f"{_UPGRADE_TARGET}"
+    ),
     InstallMethod.PIPX: f"pipx upgrade {DISTRIBUTION_NAME}",
     InstallMethod.PIP: f"pip install --upgrade {DISTRIBUTION_NAME}",
     InstallMethod.EDITABLE_OR_SOURCE: "git pull && uv sync",
