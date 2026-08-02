@@ -20,7 +20,10 @@ an installed user still has no in-tool way to discover or apply one:
 slice adds `mt update` — query PyPI for the latest published version, compare
 against the running version, detect how the tool was installed, and shell out
 to the matching upgrade command. The shape is ported from the proven
-`cf update` (~187 lines, `context-forge/packages/cli/src/commands/update.ts`).
+`cf update` (~187 lines, `context-forge/packages/cli/src/commands/update.ts`)
+— chosen over the architecture's usual Squadron reference because Squadron has
+no self-update command; `cf update` is the ecosystem's production-proven
+implementation of exactly this shape (review 909 F008).
 
 ## Value
 
@@ -124,6 +127,7 @@ mt update
   │      non-TTY, no --yes ──► report "run with --yes"; exit 0 (no action taken)
   │
   ├─ 7. method == UV_TOOL ──► subprocess: uv tool install --upgrade manta-trading-data
+  │      (bounded by UPGRADE_TIMEOUT; TimeoutExpired ──► report + manual command; exit 1)
   │      method == PIPX/PIP ──► print the correct command for the user; exit 0
   │
   └─ 8. on successful upgrade: report_pending_migrations()
@@ -231,6 +235,21 @@ as PIPX/PIP) rather than failing. A non-zero exit from the upgrade subprocess
 is reported as a failure with the subprocess's own output visible (stdio is
 inherited) and exits non-zero.
 
+**The upgrade subprocess is itself bounded** (review 909 F006): it involves a
+second network roundtrip (download), dependency resolution, and an install
+step, any of which can hang on a black-holed mirror — and on the `--yes`
+automation path no human is watching to Ctrl-C. A dedicated
+`UPGRADE_TIMEOUT: Final[float] = 600.0` constant (same `constants.py` pattern
+as the other two timeouts) is passed to `subprocess.run(timeout=...)`. Sized
+from measurement: a cold-cache `uv tool install manta-trading-data` into a
+clean environment measured 7.25 s wall (2026-08-02, full dependency download
++ venv build), so 600 s is ~80x the measured cost — room for slow links and
+future wheel growth while still bounding a genuine hang. On
+`subprocess.TimeoutExpired` (the child is killed by `subprocess.run`), the
+command reports the timeout, names the manual command to run
+(`uv tool install --upgrade manta-trading-data` — safe to re-run; uv installs
+are idempotent), and exits non-zero.
+
 ### D6 — Post-upgrade migration report: subprocess to the new binary, never a DB connection
 
 The slice plan requires both "never touch the database" and "report the
@@ -304,6 +323,7 @@ subprocess layer records zero calls).
 | Editable/source refusal, pipx/pip guidance printed, declined prompt, non-TTY report | 0 (informational — expected states, not errors) |
 | Registry unreachable | 1 (query could not be answered; clean message, no traceback) |
 | Upgrade subprocess failed | 1 |
+| Upgrade subprocess timed out (`UPGRADE_TIMEOUT`) | 1 (child killed; manual command named) |
 
 ### D9 — No startup cost
 
@@ -359,8 +379,9 @@ The registry call happens only inside the command body.
   upgrade argv) defined once — no scattered literals.
 - Unit tests cover: up-to-date, update-available, unreachable-registry
   (timeout, non-200, malformed JSON, missing key), each `InstallMethod`
-  branch (upgrade call mocked), `--json` purity, `--yes`/TTY/non-TTY matrix,
-  migration-probe success and each degradation path.
+  branch (upgrade call mocked), upgrade-subprocess `TimeoutExpired` (reported,
+  exit 1), `--json` purity, `--yes`/TTY/non-TTY matrix, migration-probe
+  success and each degradation path.
 - mypy and ruff clean on all touched files.
 
 ### Verification Walkthrough
