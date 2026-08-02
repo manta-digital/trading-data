@@ -43,6 +43,15 @@ measured cost: room for slow links and future wheel growth while still
 bounding a genuine hang on the unattended ``--yes`` path.
 """
 
+UPDATE_VERSION_PROBE_TIMEOUT: Final[float] = 10.0
+"""Seconds allowed for the post-upgrade ``mt --version`` probe (909 D5).
+
+Three timed runs of ``mt --version`` from a uv tool install measured
+0.42 / 0.45 / 0.44 s wall (2026-08-02) — CLI import cost only, no network and
+no database — so 10 s is ~20x the measured cost. On expiry the update reports
+success without a verified version rather than failing.
+"""
+
 UPDATE_MIGRATE_PROBE_TIMEOUT: Final[float] = 30.0
 """Seconds allowed for the post-upgrade migration-status probe (909 D6).
 

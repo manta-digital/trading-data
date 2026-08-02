@@ -29,6 +29,7 @@ from manta_trading.constants import (
     PYPI_JSON_URL_TEMPLATE,
     REGISTRY_TIMEOUT,
     UPDATE_MIGRATE_PROBE_TIMEOUT,
+    UPDATE_VERSION_PROBE_TIMEOUT,
     UPGRADE_TIMEOUT,
 )
 
@@ -49,6 +50,12 @@ _PIPX_SEGMENTS: Final[tuple[str, str]] = ("pipx", "venvs")
 # uv writes this receipt at the root of every tool environment (sys.prefix).
 _UV_TOOL_RECEIPT: Final[str] = "uv-receipt.toml"
 
+# ``@latest`` is required, not cosmetic: on a pinned install (installed as
+# `name==x.y.z`) plain `uv tool install --upgrade name` only rewrites the
+# receipt's requirement and leaves the old version in place, so the first run
+# is a silent no-op. Measured against uv 0.11.2, 2026-08-02 (D5).
+_UPGRADE_TARGET: Final[str] = f"{DISTRIBUTION_NAME}@latest"
+
 # Only the uv-tool path is auto-runnable; every other method gets guidance.
 _UPGRADE_COMMANDS: Final[dict[InstallMethod, list[str]]] = {
     InstallMethod.UV_TOOL: [
@@ -56,13 +63,13 @@ _UPGRADE_COMMANDS: Final[dict[InstallMethod, list[str]]] = {
         "tool",
         "install",
         "--upgrade",
-        DISTRIBUTION_NAME,
+        _UPGRADE_TARGET,
     ],
 }
 
 # Single definition site for the command text shown per install method (D5).
 MANUAL_UPGRADE_COMMAND: Final[dict[InstallMethod, str]] = {
-    InstallMethod.UV_TOOL: f"uv tool install --upgrade {DISTRIBUTION_NAME}",
+    InstallMethod.UV_TOOL: f"uv tool install --upgrade {_UPGRADE_TARGET}",
     InstallMethod.PIPX: f"pipx upgrade {DISTRIBUTION_NAME}",
     InstallMethod.PIP: f"pip install --upgrade {DISTRIBUTION_NAME}",
     InstallMethod.EDITABLE_OR_SOURCE: "git pull && uv sync",
@@ -190,6 +197,32 @@ def _resolve_mt_binary() -> str:
     if candidate.exists():
         return str(candidate)
     return "mt"
+
+
+def installed_version() -> str | None:
+    """Version reported by the ``mt`` binary on disk, or ``None`` if unknown.
+
+    Run after an upgrade to confirm the new code is actually in place — the
+    upgrade subprocess exiting 0 is not by itself proof that the version
+    moved (D5). Best-effort: an unparseable or failing probe leaves the
+    outcome unverified rather than asserting a failure.
+    """
+    try:
+        completed = subprocess.run(
+            [_resolve_mt_binary(), "--version"],
+            capture_output=True,
+            text=True,
+            timeout=UPDATE_VERSION_PROBE_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # Missing binary or probe timeout — leave the version unverified.
+        return None
+
+    if completed.returncode != 0:
+        return None
+    tokens = completed.stdout.split()
+    return tokens[-1] if tokens else None
 
 
 def report_pending_migrations() -> int | None:
@@ -364,8 +397,19 @@ def update(
         )
         raise typer.Exit(1)
 
+    # The subprocess exiting 0 does not prove the version moved (D5).
+    verified = installed_version()
+    if verified is not None and verified != latest:
+        print_error(
+            f"Upgrade reported success but {DISTRIBUTION_NAME} is still "
+            f"{verified}. Run manually: {MANUAL_UPGRADE_COMMAND[method]}",
+            json_mode=False,
+        )
+        raise typer.Exit(1)
+
     print_result(f"Updated {DISTRIBUTION_NAME} to {latest}", json_mode=False)
-    print_result("Run 'mt --version' to confirm.", json_mode=False)
+    if verified is None:
+        print_result("Run 'mt --version' to confirm.", json_mode=False)
 
     # 8. Best-effort migration report — cannot change the exit code (D6).
     pending = report_pending_migrations()

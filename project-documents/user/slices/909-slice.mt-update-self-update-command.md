@@ -232,10 +232,29 @@ values and their mapped commands live in one place (`upgrade_command`).
 
 | Method | Returns | Command behavior |
 |---|---|---|
-| `UV_TOOL` | `["uv", "tool", "install", "--upgrade", DISTRIBUTION_NAME]` | run via `subprocess.run` (no shell), stdio inherited |
+| `UV_TOOL` | `["uv", "tool", "install", "--upgrade", f"{DISTRIBUTION_NAME}@latest"]` | run via `subprocess.run` (no shell), stdio inherited |
 | `PIPX` | `None` | print `pipx upgrade manta-trading-data`; exit 0 |
 | `PIP` | `None` | print `pip install --upgrade manta-trading-data` (with a note to run it in the owning environment); exit 0 |
 | `EDITABLE_OR_SOURCE` | `None` | refuse before network (step 1 of the flow) |
+
+**`@latest` and post-upgrade verification — corrected during implementation
+(Phase 6, 2026-08-02).** The release-time end-to-end run found that plain
+`uv tool install --upgrade manta-trading-data` against a *pinned* install
+(`uv tool install manta-trading-data==0.6.1`) exits 0 having only rewritten
+the receipt's requirement — the installed version stays at 0.6.1, and only a
+second invocation upgrades (uv 0.11.2). The command would therefore have
+printed "Updated … to 0.7.0" while `mt --version` still reported 0.6.1. Two
+changes close this:
+
+1. The argv targets `{DISTRIBUTION_NAME}@latest`, which upgrades a pinned
+   install in a single run (measured: `0.6.1` → `0.7.0`, one invocation) and
+   is still a no-op on an already-current install.
+2. After a zero-exit upgrade, the command runs the on-disk binary's
+   `mt --version` (bounded by `UPDATE_VERSION_PROBE_TIMEOUT`, measured at
+   0.42/0.45/0.44 s) and compares it with the version it just claimed to
+   install. A mismatch is reported as a failure with the manual command and
+   exits 1; an unparseable or failing probe leaves the success message with
+   its "run `mt --version` to confirm" line rather than inventing a failure.
 
 Before running the UV_TOOL command, `shutil.which("uv")` is checked; if `uv`
 is somehow absent from PATH, degrade to printing the command (same treatment

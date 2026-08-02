@@ -33,8 +33,12 @@ prints the right command for your environment instead of running it. The
 equivalent manual command is always:
 
 ```sh
-uv tool install --upgrade manta-trading-data
+uv tool install --upgrade manta-trading-data@latest
 ```
+
+(The `@latest` suffix matters if you originally installed a pinned version —
+without it, the first run only clears the pin and leaves the old version in
+place.)
 
 In a development (editable/source) checkout `mt update` refuses and points you
 at `git pull && uv sync` — it makes no network call there.

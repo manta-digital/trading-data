@@ -24,6 +24,7 @@ from manta_trading.cli.commands.update import (
     InstallMethod,
     detect_install_method,
     fetch_latest_version,
+    installed_version,
     report_pending_migrations,
     upgrade_command,
 )
@@ -223,12 +224,13 @@ def test_fetch_mistyped_version_returns_none(
 
 
 def test_upgrade_command_uv_tool_argv() -> None:
+    """``@latest`` is load-bearing — without it a pinned install no-ops."""
     assert upgrade_command(InstallMethod.UV_TOOL) == [
         "uv",
         "tool",
         "install",
         "--upgrade",
-        DISTRIBUTION_NAME,
+        f"{DISTRIBUTION_NAME}@latest",
     ]
 
 
@@ -249,12 +251,21 @@ def test_every_install_method_has_manual_command() -> None:
 # -- report_pending_migrations (2.7 / 2.8) ------------------------------------
 
 
-def _patch_run(monkeypatch: pytest.MonkeyPatch, result: Any) -> list[list[str]]:
+def _patch_run(
+    monkeypatch: pytest.MonkeyPatch,
+    result: Any,
+    expected_timeout: float | None = None,
+) -> list[list[str]]:
     calls: list[list[str]] = []
+    timeout = (
+        update_mod.UPDATE_MIGRATE_PROBE_TIMEOUT
+        if expected_timeout is None
+        else expected_timeout
+    )
 
     def _run(argv: list[str], **kwargs: Any) -> Any:
         calls.append(argv)
-        assert kwargs["timeout"] == update_mod.UPDATE_MIGRATE_PROBE_TIMEOUT
+        assert kwargs["timeout"] == timeout
         if isinstance(result, Exception):
             raise result
         return result
@@ -307,6 +318,40 @@ def test_probe_missing_binary_returns_none(monkeypatch: pytest.MonkeyPatch) -> N
     assert report_pending_migrations() is None
 
 
+# -- installed_version (post-upgrade verification, D5) ------------------------
+
+
+def _patch_version_run(monkeypatch: pytest.MonkeyPatch, result: Any) -> list[list[str]]:
+    return _patch_run(monkeypatch, result, update_mod.UPDATE_VERSION_PROBE_TIMEOUT)
+
+
+def test_installed_version_parses_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_version_run(monkeypatch, _FakeCompleted(0, "mt version 0.7.0\n"))
+    assert installed_version() == "0.7.0"
+    assert calls[0][1:] == ["--version"]
+
+
+def test_installed_version_non_zero_exit_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_version_run(monkeypatch, _FakeCompleted(1, ""))
+    assert installed_version() is None
+
+
+def test_installed_version_empty_output_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_version_run(monkeypatch, _FakeCompleted(0, "   \n"))
+    assert installed_version() is None
+
+
+def test_installed_version_timeout_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_version_run(monkeypatch, subprocess.TimeoutExpired(cmd="mt", timeout=10.0))
+    assert installed_version() is None
+
+
 def test_update_module_never_imports_db_layer() -> None:
     """D6: the update path must be structurally incapable of a DB call."""
     source = update_mod.__file__
@@ -335,17 +380,22 @@ class _Harness:
         self.probe_result: Any = _FakeCompleted(
             0, json.dumps({"connected": True, "applied": [], "pending": []})
         )
+        self.version_result: Any = _FakeCompleted(0, "mt version 0.7.0\n")
         self.runs: list[list[str]] = []
         self.fetch_calls = 0
         self.prompts = 0
 
     @property
     def upgrade_runs(self) -> list[list[str]]:
-        return [argv for argv in self.runs if "migrate" not in argv]
+        return [argv for argv in self.runs if argv[0] == "uv"]
 
     @property
     def probe_runs(self) -> list[list[str]]:
         return [argv for argv in self.runs if "migrate" in argv]
+
+    @property
+    def version_runs(self) -> list[list[str]]:
+        return [argv for argv in self.runs if argv[-1] == "--version"]
 
 
 @pytest.fixture
@@ -362,7 +412,12 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Harness]:
 
     def _run(argv: list[str], **kwargs: Any) -> Any:
         state.runs.append(list(argv))
-        result = state.probe_result if "migrate" in argv else state.upgrade_result
+        if "migrate" in argv:
+            result = state.probe_result
+        elif argv[-1] == "--version":
+            result = state.version_result
+        else:
+            result = state.upgrade_result
         if isinstance(result, Exception):
             raise result
         return result
@@ -409,8 +464,9 @@ def test_cli_confirm_accepted_upgrades_and_probes(harness: _Harness) -> None:
     assert result.exit_code == 0, result.output
     assert harness.prompts == 1
     assert harness.upgrade_runs == [
-        ["uv", "tool", "install", "--upgrade", DISTRIBUTION_NAME]
+        ["uv", "tool", "install", "--upgrade", f"{DISTRIBUTION_NAME}@latest"]
     ]
+    assert len(harness.version_runs) == 1
     assert len(harness.probe_runs) == 1
     flat = _flat(result)
     assert f"Updated {DISTRIBUTION_NAME} to 0.7.0" in flat
@@ -551,3 +607,23 @@ def test_cli_probe_degradation_still_exits_zero(harness: _Harness) -> None:
     result = _invoke("--yes")
     assert result.exit_code == 0, result.output
     assert update_mod.MIGRATION_POINTER in _flat(result)
+
+
+def test_cli_upgrade_that_did_not_move_the_version_fails(harness: _Harness) -> None:
+    """A no-op upgrade must not be reported as success (D5)."""
+    harness.version_result = _FakeCompleted(0, "mt version 0.6.1\n")
+    result = _invoke("--yes")
+    assert result.exit_code == 1
+    flat = _flat(result)
+    assert "still 0.6.1" in flat
+    assert f"uv tool install --upgrade {DISTRIBUTION_NAME}@latest" in flat
+    assert harness.probe_runs == []
+
+
+def test_cli_unverifiable_version_still_succeeds(harness: _Harness) -> None:
+    harness.version_result = _FakeCompleted(1, "")
+    result = _invoke("--yes")
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert f"Updated {DISTRIBUTION_NAME} to 0.7.0" in flat
+    assert "Run 'mt --version' to confirm." in flat
