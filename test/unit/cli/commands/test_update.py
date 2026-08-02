@@ -9,11 +9,16 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import subprocess
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from typer.testing import CliRunner
 
+from manta_trading.cli.app import app
 from manta_trading.cli.commands import update as update_mod
 from manta_trading.cli.commands.update import (
     InstallMethod,
@@ -281,6 +286,243 @@ def test_update_module_never_imports_db_layer() -> None:
     """D6: the update path must be structurally incapable of a DB call."""
     source = update_mod.__file__
     assert source is not None
-    text = open(source, encoding="utf-8").read()
+    text = Path(source).read_text(encoding="utf-8")
     for forbidden in ("psycopg", "TimescaleMinuteDataDB", "manta_trading.data"):
         assert forbidden not in text
+
+
+# -- Behavior matrix through the CLI (3.3) ------------------------------------
+
+runner = CliRunner()
+
+
+class _Harness:
+    """Records every side effect the `mt update` command can perform."""
+
+    def __init__(self) -> None:
+        self.method = InstallMethod.UV_TOOL
+        self.current = "0.6.1"
+        self.latest: str | None = "0.7.0"
+        self.interactive = False
+        self.confirm_answer = True
+        self.uv_on_path: str | None = "/usr/bin/uv"
+        self.upgrade_result: Any = _FakeCompleted(0, "")
+        self.probe_result: Any = _FakeCompleted(
+            0, json.dumps({"connected": True, "applied": [], "pending": []})
+        )
+        self.runs: list[list[str]] = []
+        self.fetch_calls = 0
+        self.prompts = 0
+
+    @property
+    def upgrade_runs(self) -> list[list[str]]:
+        return [argv for argv in self.runs if "migrate" not in argv]
+
+    @property
+    def probe_runs(self) -> list[list[str]]:
+        return [argv for argv in self.runs if "migrate" in argv]
+
+
+@pytest.fixture
+def harness(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Harness]:
+    state = _Harness()
+
+    def _fetch() -> str | None:
+        state.fetch_calls += 1
+        return state.latest
+
+    def _confirm(prompt: str) -> bool:
+        state.prompts += 1
+        return state.confirm_answer
+
+    def _run(argv: list[str], **kwargs: Any) -> Any:
+        state.runs.append(list(argv))
+        result = state.probe_result if "migrate" in argv else state.upgrade_result
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(update_mod, "detect_install_method", lambda: state.method)
+    monkeypatch.setattr(update_mod, "_current_version", lambda: state.current)
+    monkeypatch.setattr(update_mod, "fetch_latest_version", _fetch)
+    monkeypatch.setattr(update_mod, "_is_interactive", lambda: state.interactive)
+    monkeypatch.setattr(update_mod.typer, "confirm", _confirm)
+    monkeypatch.setattr(update_mod.shutil, "which", lambda name: state.uv_on_path)
+    monkeypatch.setattr(update_mod.subprocess, "run", _run)
+
+    with (
+        patch("manta_trading.cli.app.Settings", return_value=MagicMock()),
+        patch("manta_trading.cli.app.setup_logging"),
+    ):
+        yield state
+
+
+def _invoke(*args: str) -> Any:
+    return runner.invoke(app, ["update", *args])
+
+
+def _flat(result: Any) -> str:
+    """Output with Rich's line wrapping collapsed to single spaces."""
+    return " ".join(result.output.split())
+
+
+def test_cli_up_to_date(harness: _Harness) -> None:
+    harness.latest = harness.current
+    result = _invoke()
+    assert result.exit_code == 0, result.output
+    assert "up to date" in _flat(result)
+    assert harness.prompts == 0
+    assert harness.runs == []
+
+
+def test_cli_confirm_accepted_upgrades_and_probes(harness: _Harness) -> None:
+    harness.interactive = True
+    harness.probe_result = _FakeCompleted(
+        0, json.dumps({"connected": True, "applied": [], "pending": [{"id": "002"}]})
+    )
+    result = _invoke()
+    assert result.exit_code == 0, result.output
+    assert harness.prompts == 1
+    assert harness.upgrade_runs == [
+        ["uv", "tool", "install", "--upgrade", DISTRIBUTION_NAME]
+    ]
+    assert len(harness.probe_runs) == 1
+    flat = _flat(result)
+    assert f"Updated {DISTRIBUTION_NAME} to 0.7.0" in flat
+    assert "1 migration(s) pending" in flat
+
+
+def test_cli_confirm_declined_does_nothing(harness: _Harness) -> None:
+    harness.interactive = True
+    harness.confirm_answer = False
+    result = _invoke()
+    assert result.exit_code == 0, result.output
+    assert harness.prompts == 1
+    assert harness.runs == []
+
+
+def test_cli_yes_skips_prompt(harness: _Harness) -> None:
+    harness.interactive = True
+    result = _invoke("--yes")
+    assert result.exit_code == 0, result.output
+    assert harness.prompts == 0
+    assert len(harness.upgrade_runs) == 1
+
+
+def test_cli_non_tty_without_yes_reports_only(harness: _Harness) -> None:
+    result = _invoke()
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "Update available: 0.6.1 → 0.7.0" in flat
+    assert "--yes" in flat
+    assert harness.prompts == 0
+    assert harness.runs == []
+
+
+def test_cli_json_is_a_pure_query(harness: _Harness) -> None:
+    harness.interactive = True
+    result = _invoke("--json", "--yes")
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "current": "0.6.1",
+        "latest": "0.7.0",
+        "update_available": True,
+        "install_method": "uv-tool",
+    }
+    assert harness.runs == []
+    assert harness.prompts == 0
+
+
+def test_cli_json_editable_makes_no_network_call(harness: _Harness) -> None:
+    harness.method = InstallMethod.EDITABLE_OR_SOURCE
+    result = _invoke("--json")
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "current": "0.6.1",
+        "latest": None,
+        "update_available": False,
+        "install_method": "editable-or-source",
+    }
+    assert harness.fetch_calls == 0
+
+
+def test_cli_json_registry_failure(harness: _Harness) -> None:
+    harness.latest = None
+    result = _invoke("--json")
+    assert result.exit_code == 1
+    assert json.loads(result.output) == {
+        "current": "0.6.1",
+        "latest": None,
+        "update_available": False,
+        "error": "registry unreachable",
+    }
+
+
+def test_cli_editable_human_mode(harness: _Harness) -> None:
+    harness.method = InstallMethod.EDITABLE_OR_SOURCE
+    result = _invoke()
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "Developer install detected" in flat
+    assert "git pull && uv sync" in flat
+    assert harness.fetch_calls == 0
+    assert harness.runs == []
+
+
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [
+        (InstallMethod.PIPX, f"pipx upgrade {DISTRIBUTION_NAME}"),
+        (InstallMethod.PIP, f"pip install --upgrade {DISTRIBUTION_NAME}"),
+    ],
+)
+def test_cli_pipx_and_pip_print_without_running(
+    harness: _Harness, method: InstallMethod, expected: str
+) -> None:
+    harness.method = method
+    result = _invoke("--yes")
+    assert result.exit_code == 0, result.output
+    assert expected in _flat(result)
+    assert harness.runs == []
+
+
+def test_cli_missing_uv_degrades_to_printing(harness: _Harness) -> None:
+    harness.uv_on_path = None
+    result = _invoke("--yes")
+    assert result.exit_code == 0, result.output
+    assert f"uv tool install --upgrade {DISTRIBUTION_NAME}" in _flat(result)
+    assert harness.runs == []
+
+
+def test_cli_registry_unreachable_human_mode(harness: _Harness) -> None:
+    harness.latest = None
+    result = _invoke()
+    assert result.exit_code == 1
+    flat = _flat(result)
+    assert "Could not reach PyPI" in flat
+    assert "Traceback" not in flat
+
+
+def test_cli_upgrade_non_zero_exit(harness: _Harness) -> None:
+    harness.upgrade_result = _FakeCompleted(2, "")
+    result = _invoke("--yes")
+    assert result.exit_code == 1
+    assert "Upgrade failed (exit 2)" in _flat(result)
+    assert harness.probe_runs == []
+
+
+def test_cli_upgrade_timeout(harness: _Harness) -> None:
+    harness.upgrade_result = subprocess.TimeoutExpired(cmd="uv", timeout=600.0)
+    result = _invoke("--yes")
+    assert result.exit_code == 1
+    flat = _flat(result)
+    assert "timed out" in flat
+    assert f"uv tool install --upgrade {DISTRIBUTION_NAME}" in flat
+    assert harness.probe_runs == []
+
+
+def test_cli_probe_degradation_still_exits_zero(harness: _Harness) -> None:
+    harness.probe_result = _FakeCompleted(1, "")
+    result = _invoke("--yes")
+    assert result.exit_code == 0, result.output
+    assert update_mod.MIGRATION_POINTER in _flat(result)

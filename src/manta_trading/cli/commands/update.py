@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import shutil
 import subprocess
 import sys
 from enum import StrEnum
@@ -19,12 +20,16 @@ from pathlib import Path
 from typing import Final
 
 import httpx
+import typer
+from packaging.version import Version
 
+from manta_trading.cli.output import print_error, print_result
 from manta_trading.constants import (
     DISTRIBUTION_NAME,
     PYPI_JSON_URL_TEMPLATE,
     REGISTRY_TIMEOUT,
     UPDATE_MIGRATE_PROBE_TIMEOUT,
+    UPGRADE_TIMEOUT,
 )
 
 
@@ -60,8 +65,18 @@ MANUAL_UPGRADE_COMMAND: Final[dict[InstallMethod, str]] = {
     InstallMethod.EDITABLE_OR_SOURCE: "git pull && uv sync",
 }
 
+# Extra guidance shown alongside the manual command, where it is needed.
+_UPGRADE_NOTE: Final[dict[InstallMethod, str]] = {
+    InstallMethod.PIP: "Run it in the environment that owns mt.",
+}
+
 MIGRATION_POINTER: Final[str] = (
     "Run 'mt data migrate status' to check for pending migrations."
+)
+
+REGISTRY_UNREACHABLE_ERROR: Final[str] = "registry unreachable"
+REGISTRY_UNREACHABLE_MESSAGE: Final[str] = (
+    "Could not reach PyPI — check your network connection."
 )
 
 
@@ -195,3 +210,155 @@ def report_pending_migrations() -> int | None:
     if not isinstance(pending, list):
         return None
     return len(pending)
+
+
+# -- The command (D1, D7, D8) -------------------------------------------------
+
+
+def _current_version() -> str:
+    """Installed version of this distribution, or ``"dev"`` without metadata.
+
+    Missing metadata is classified as ``EDITABLE_OR_SOURCE`` by
+    :func:`detect_install_method`, so every path that *compares* versions has
+    a real version string by the time it runs (D3).
+    """
+    try:
+        return importlib.metadata.version(DISTRIBUTION_NAME)
+    except importlib.metadata.PackageNotFoundError:
+        return "dev"
+
+
+def _is_interactive() -> bool:
+    """True when stdin is a TTY, i.e. a human can answer a prompt."""
+    return sys.stdin.isatty()
+
+
+def _print_manual_command(method: InstallMethod) -> None:
+    print_result(f"To update, run: {MANUAL_UPGRADE_COMMAND[method]}", json_mode=False)
+    note = _UPGRADE_NOTE.get(method)
+    if note:
+        print_result(f"  {note}", json_mode=False)
+
+
+def update(
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Install the update without prompting.",
+    ),
+) -> None:
+    """Check PyPI for a newer release of mt and install it."""
+    method = detect_install_method()
+    current = _current_version()
+
+    # 1. Developer installs refuse before any network call (D4).
+    if method is InstallMethod.EDITABLE_OR_SOURCE:
+        if json_output:
+            print_result(
+                {
+                    "current": current,
+                    "latest": None,
+                    "update_available": False,
+                    "install_method": method.value,
+                },
+                json_mode=True,
+            )
+            return
+        print_result(
+            "Developer install detected (editable/source checkout) — "
+            "self-update disabled.",
+            json_mode=False,
+        )
+        print_result(f"  To update: {MANUAL_UPGRADE_COMMAND[method]}", json_mode=False)
+        return
+
+    # 2. Registry query — never raises, returns None on any failure (D2).
+    latest = fetch_latest_version()
+    if latest is None:
+        if json_output:
+            print_result(
+                {
+                    "current": current,
+                    "latest": None,
+                    "update_available": False,
+                    "error": REGISTRY_UNREACHABLE_ERROR,
+                },
+                json_mode=True,
+            )
+        else:
+            print_error(REGISTRY_UNREACHABLE_MESSAGE, json_mode=False)
+        raise typer.Exit(1)
+
+    # 3. PEP 440 comparison (D3).
+    update_available = Version(latest) > Version(current)
+
+    # 4. --json is a pure query: no prompt, no subprocess, no probe (D7).
+    if json_output:
+        print_result(
+            {
+                "current": current,
+                "latest": latest,
+                "update_available": update_available,
+                "install_method": method.value,
+            },
+            json_mode=True,
+        )
+        return
+
+    # 5. Already current.
+    if not update_available:
+        print_result(f"mt is up to date ({current}).", json_mode=False)
+        return
+
+    print_result(f"Update available: {current} → {latest}", json_mode=False)
+
+    # 6. Confirmation gate.
+    if not yes:
+        if not _is_interactive():
+            print_result(
+                "Run with --yes to install non-interactively.", json_mode=False
+            )
+            return
+        if not typer.confirm("Install now?"):
+            return
+
+    # 7. Only the uv-tool path is auto-run; everything else prints (D5).
+    command = upgrade_command(method)
+    if command is None or shutil.which(command[0]) is None:
+        _print_manual_command(method)
+        return
+
+    try:
+        completed = subprocess.run(command, timeout=UPGRADE_TIMEOUT, check=False)
+    except subprocess.TimeoutExpired:
+        print_error(
+            f"Upgrade timed out after {UPGRADE_TIMEOUT:.0f}s and was killed. "
+            f"Run manually: {MANUAL_UPGRADE_COMMAND[method]}",
+            json_mode=False,
+        )
+        raise typer.Exit(1) from None
+
+    if completed.returncode != 0:
+        print_error(
+            f"Upgrade failed (exit {completed.returncode}). "
+            f"Run manually: {MANUAL_UPGRADE_COMMAND[method]}",
+            json_mode=False,
+        )
+        raise typer.Exit(1)
+
+    print_result(f"Updated {DISTRIBUTION_NAME} to {latest}", json_mode=False)
+    print_result("Run 'mt --version' to confirm.", json_mode=False)
+
+    # 8. Best-effort migration report — cannot change the exit code (D6).
+    pending = report_pending_migrations()
+    if pending is None:
+        print_result(MIGRATION_POINTER, json_mode=False)
+    elif pending > 0:
+        print_result(
+            f"{pending} migration(s) pending — run 'mt data migrate status'.",
+            json_mode=False,
+        )
+    else:
+        print_result("No pending migrations.", json_mode=False)

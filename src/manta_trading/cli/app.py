@@ -11,6 +11,7 @@ from manta_trading.cli.commands.data import data_app
 from manta_trading.cli.commands.provider import provider_app
 from manta_trading.cli.commands.serve import serve
 from manta_trading.cli.commands.status import status_app
+from manta_trading.cli.commands.update import update
 from manta_trading.config import Settings
 from manta_trading.constants import DISTRIBUTION_NAME
 from manta_trading.logging import get_logger, setup_logging
@@ -28,6 +29,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(data_app, name="data")
 app.add_typer(provider_app, name="provider")
 app.command(name="serve")(serve)
+app.command(name="update")(update)
 
 
 # -- Version callback ---------------------------------------------------------
