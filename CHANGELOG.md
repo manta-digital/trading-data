@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-08-02
+
 ### Fixed (slice 909)
 - **`mt update` no longer skips an upgrade because uv's cache has not noticed the release yet.** `mt update` asks PyPI directly and sees a new version immediately, but the `uv` command it runs resolves against cached index metadata — so if your cache was populated shortly before a release, the upgrade would run, succeed, and change nothing. It now refreshes this package's metadata as part of the upgrade. (Introduced in `0.7.1`, the version check added there reports this situation honestly rather than claiming a false success, so `0.7.1` never lies about it — it just may need a second run.)
 
