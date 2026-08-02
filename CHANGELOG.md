@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-02
+
 ### Added (slice 909)
 - **`mt update` — check for and install a newer release without leaving the tool.** It asks PyPI what the latest published version is, compares it with the version you are running, and — if you installed with `uv tool install` — upgrades in place after asking for confirmation. `mt update --yes` skips the prompt for scripted use; `mt update --json` is a pure query that reports `current`, `latest`, `update_available`, and `install_method` and changes nothing. When stdin is not a terminal and `--yes` was not passed, it reports what an update would do and takes no action.
 - **On pipx and pip installs, `mt update` prints the correct upgrade command for your environment rather than running it**, and in a development (editable/source) checkout it refuses with `git pull && uv sync` — without making any network call.
