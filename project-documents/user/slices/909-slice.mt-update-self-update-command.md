@@ -245,6 +245,15 @@ appropriate — DB probes can be slower; a dedicated
 `UPDATE_MIGRATE_PROBE_TIMEOUT: Final[float] = 30.0` constant) and parse
 `len(pending)` from its JSON output.
 
+The 30 s value is sized from measurement, not estimate: three timed runs of
+`mt data migrate status --json` against prod mid-backfill (2026-08-02)
+measured 0.58 s / 1.93 s / 6.90 s wall — sub-second warm, with the outlier
+being connect/load variance. 30 s is ~4x the observed worst sample and ~15x
+the median. The timeout's primary job is bounding the *unreachable*-DB case
+(libpq's default `connect_timeout` is unlimited; a black-holed host hangs for
+75 s+ of TCP retries), and firing on a legitimately slow probe costs only the
+generic pointer line instead of a count — never a wrong result.
+
 This is deliberately a subprocess rather than an in-process
 `list_migration_state()` call, for two reasons:
 
