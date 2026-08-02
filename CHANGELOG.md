@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-02
+
 ### Fixed (slice 909)
 - **`mt update` could report a successful upgrade that never happened.** If you originally installed a pinned version (`uv tool install manta-trading-data==0.6.1`), the upgrade command it ran only cleared the pin on its first invocation and left the old version installed — so `mt update` printed "Updated manta-trading-data to 0.7.0" while `mt --version` still said `0.6.1`. The upgrade now targets `manta-trading-data@latest`, which moves a pinned install in one run, and after upgrading, `mt update` re-reads the version from the installed binary and reports a failure (exit 1) if it did not actually move. Affects `0.7.0`; upgrade from a pinned `0.7.0` install may still need the command run twice, or run `uv tool install --upgrade manta-trading-data@latest` directly.
 

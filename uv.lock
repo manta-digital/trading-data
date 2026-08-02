@@ -523,7 +523,7 @@ wheels = [
 
 [[package]]
 name = "manta-trading-data"
-version = "0.7.0"
+version = "0.7.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
