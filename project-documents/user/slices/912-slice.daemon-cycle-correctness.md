@@ -242,13 +242,29 @@ until the gate opens (via the existing `sleep_until_next_due_event`, whose
 `NO_ACTIONABLE_WORK`. `--stop-when-done` then means what it says: exit when
 there is no work, not when there is no *cycle*.
 
-This is bounded, not open-ended: the daily gate opens at a fixed time each day
-and the minute gate opens within a minute, so the wait is at most the distance
-to `DAILY_CYCLE_START_OFFSET`. The cost is that a daily-only scoped run started
-at 00:13 blocks ~17 minutes instead of returning instantly. That is the correct
-behavior for a command whose purpose is to fetch data, and SIGINT remains
-responsive throughout, but it is a change in what an operator sees and is
-called out here rather than buried.
+The wait is bounded and narrow. It occurs **only** in the 00:00–00:30 UTC
+window: outside it a fresh process has `last_daily_cycle_end_utc = None`, so
+under D2 the cycle is due immediately and there is no wait at all. It occurs
+**only** for `--daily` without `--minute`, since the minute gate opens within a
+minute. And unscoped full-universe runs are unaffected — they already default to
+`terminate_when_drained = False` and already sleep. Worst case is therefore a
+30-minute block, for a daily-only scoped run launched at 00:00 UTC.
+
+Two consequences follow, and both are requirements, not caveats:
+
+- **The wait must announce itself.** On entering it, log at INFO naming the
+  reason and the due time — e.g. `runner: no cycle due until 00:30 UTC —
+  waiting (27m) because --stop-when-done`. A silent multi-minute wait is
+  indistinguishable from a hang, and replacing a misleading exit message with a
+  silent stall would trade one observability defect for another.
+- **Ctrl-C latency during the wait is up to `cap_seconds` (60 s), not
+  instant.** The signal handler sets `_should_exit` and returns without raising,
+  so under PEP 475 `time.sleep` resumes for its remaining time; the loop only
+  observes the flag at the top of the next iteration. This is exactly what
+  `sleep_until_next_due_event`'s `cap_seconds` exists to bound, per its own
+  docstring, and it is pre-existing behavior — but D5 is what makes an operator
+  likely to encounter it interactively, so it must be stated in the operator
+  documentation for `--stop-when-done` rather than discovered.
 
 ### D6 — Scope members with no resolvable calendar are counted, not dropped
 
@@ -316,7 +332,8 @@ different statement from "scope drained" and must read that way in the log.
 3. With no actionable work in scope, the loop does not busy-poll: at most one
    work-list query per `DAILY_CYCLE_RETRY_INTERVAL`, and zero provider calls.
 4. `--stop-when-done` with a cadence gate closed sleeps until the gate opens and
-   then runs, rather than exiting (D5).
+   then runs, rather than exiting (D5), and logs at INFO on entering the wait
+   naming the reason and the due time.
 5. `--stop-when-done` with a genuinely drained scope exits reporting
    `NO_ACTIONABLE_WORK`, and the message distinguishes it from `NOTHING_DUE`,
    which names the next due time.
