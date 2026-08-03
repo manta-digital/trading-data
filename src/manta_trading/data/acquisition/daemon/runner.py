@@ -30,9 +30,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from enum import StrEnum
+
 from manta_trading.constants import (
     DAILY_CYCLE_RETRY_INTERVAL,
     DAILY_CYCLE_START_OFFSET,
+    CycleGranularity,
 )
 from manta_trading.data.acquisition.quota import CallType, QuotaBucket
 from manta_trading.logging import get_logger
@@ -109,6 +112,28 @@ class RunnerConfig:
         if isinstance(self.scope, tuple):
             return list(self.scope)
         raise TypeError(f"Unexpected scope type: {type(self.scope).__name__}")
+
+
+class RunnerIdleReason(StrEnum):
+    """Why an iteration of the main loop did no work (912 D4).
+
+    The loop previously tracked this as a bare ``did_anything`` boolean, which
+    conflated two states the operator needs told apart: a cadence gate that has
+    not opened yet, and a scope with genuinely nothing left to do. Only the
+    second deserves to be reported as drained.
+    """
+
+    NOTHING_DUE = "nothing_due"
+    """No cadence gate was open. Transient — work may well remain."""
+
+    NO_ACTIONABLE_WORK = "no_actionable_work"
+    """A cycle ran and derived an empty work list.
+
+    Reachable only for daily-only scopes. ``run_minute_cycle`` returns EMPTY for
+    a symbol with no actionable gap, indistinguishable from "fetched and got
+    nothing", so the minute path publishes no drained signal and this slice
+    deliberately does not add one.
+    """
 
 
 @dataclass
@@ -317,6 +342,8 @@ class Runner:
         self._sleep = sleep
         self._state = RunnerState()
         self._should_exit: bool = False
+        # The D5 wait announces itself once on entry, not once per 60s tick.
+        self._announced_wait: bool = False
 
     # T19 — SIGTERM/SIGINT handling
     def _install_signal_handlers(
@@ -380,6 +407,79 @@ class Runner:
             QUOTA_BUCKET_VAR.reset(token)
             self._restore_signal_handlers(prev_term, prev_int)
 
+    def _awaiting_first_cycle(self, granularities: frozenset[str]) -> bool:
+        """True while a configured granularity has not yet completed a cycle.
+
+        Sleeping past a closed gate is only worthwhile while some granularity
+        has never run — the one case where waiting produces a pass that has not
+        happened. Once every configured granularity has run, a closed gate is a
+        cadence limiter and waiting merely repeats work (912 D5).
+
+        Without this qualifier ``mt data daemon run --minute --list <name>``
+        never terminates: ``--list`` implies ``--stop-when-done``, minute's gate
+        closes one minute after its first pass, and minute can never report
+        NO_ACTIONABLE_WORK — so the loop would sleep and re-run the same scope
+        forever. Each stamp goes from None to set exactly once and never back,
+        which bounds the wait to at most one per granularity per process without
+        any counter to keep in sync.
+        """
+        return (
+            CycleGranularity.DAILY in granularities
+            and self._state.last_daily_cycle_end_utc is None
+        ) or (
+            CycleGranularity.MINUTE in granularities
+            and self._state.last_minute_cycle_end_utc is None
+        )
+
+    def _exit_or_wait(
+        self, reason: RunnerIdleReason, granularities: frozenset[str]
+    ) -> bool:
+        """Report an idle iteration; return True if the loop should exit.
+
+        Splits the two states the old ``did_anything`` boolean conflated, and
+        reports which one actually held (912 D4).
+        """
+        if not self._config.terminate_when_drained:
+            return False
+
+        if reason is RunnerIdleReason.NO_ACTIONABLE_WORK:
+            _logger.info(
+                "runner: no actionable work in scope — exiting because "
+                "--stop-when-done"
+            )
+            return True
+
+        # NOTHING_DUE: a gate that has not opened is not a drained scope.
+        if self._awaiting_first_cycle(granularities):
+            if not self._announced_wait:
+                _logger.info(
+                    "runner: no cycle due yet (next due %s) — waiting rather "
+                    "than exiting, because --stop-when-done means no work "
+                    "remains, not no cycle is due. Interrupt latency during "
+                    "this wait is up to 60s.",
+                    self._next_due_description(granularities),
+                )
+                self._announced_wait = True
+            return False
+
+        _logger.info(
+            "runner: no cycle due and every configured granularity has run — "
+            "exiting because --stop-when-done"
+        )
+        return True
+
+    def _next_due_description(self, granularities: frozenset[str]) -> str:
+        """Human-readable next due time, for the wait message."""
+        if (
+            CycleGranularity.DAILY in granularities
+            and self._state.last_daily_cycle_end_utc is None
+        ):
+            today = _utc_today(self._clock())
+            midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
+            due = midnight + DAILY_CYCLE_START_OFFSET
+            return f"daily at {due:%H:%M} UTC"
+        return "minute within 1m"
+
     def _loop(self) -> int:
         symbols_arg = self._config.explicit_symbols()
         granularities = self._config.granularities
@@ -390,6 +490,9 @@ class Runner:
 
             now = self._clock()
             did_anything = False
+            # Set when a cycle ran but derived no work; distinguishes a drained
+            # scope from a gate that simply has not opened (912 D4).
+            drained = False
 
             # CA update (once per UTC day)
             try:
@@ -404,12 +507,23 @@ class Runner:
                 return 0
 
             # Daily cycle
-            if "daily" in granularities and daily_cycle_due(self._state, now):
+            if CycleGranularity.DAILY in granularities and daily_cycle_due(
+                self._state, now
+            ):
                 _logger.info("runner: starting daily cycle")
                 try:
-                    self._run_daily_cycle(
+                    daily_report = self._run_daily_cycle(
                         symbols=symbols_arg,
                         should_continue=self._should_continue,
+                    )
+                    # A cycle that derived no work reports it, so the runner
+                    # never has to re-derive the work list to classify its idle
+                    # reason. `is True` rather than bool(): an injected
+                    # MagicMock auto-creates the attribute as a truthy mock,
+                    # which would spuriously read as a drained scope. Only a
+                    # real True counts.
+                    drained = (
+                        getattr(daily_report, "nothing_actionable", False) is True
                     )
                 except Exception:
                     _logger.exception("runner: run_daily_cycle raised")
@@ -425,7 +539,9 @@ class Runner:
                 return 0
 
             # Minute cycle
-            if "minute" in granularities and minute_cycle_due(self._state, now):
+            if CycleGranularity.MINUTE in granularities and minute_cycle_due(
+                self._state, now
+            ):
                 _logger.info("runner: starting minute cycle")
                 self._state.last_minute_cycle_start_utc = now
                 try:
@@ -437,15 +553,22 @@ class Runner:
                     _logger.exception("runner: run_minute_cycle raised")
                 self._state.last_minute_cycle_end_utc = self._clock()
                 did_anything = True
+                # Minute never reports drained (912 D4): a symbol with no
+                # actionable gap comes back EMPTY, which is indistinguishable
+                # from a fetch that returned nothing. Any minute cycle running
+                # therefore means the loop cannot claim the scope is drained.
+                drained = False
 
             # Idle hooks (e.g., auto-extend trading_sessions horizon).
             self._run_idle_hooks()
 
-            if not did_anything:
-                if self._config.terminate_when_drained:
-                    _logger.info(
-                        "runner: scope drained and terminate_when_drained=True — exiting"
-                    )
+            if not did_anything or drained:
+                reason = (
+                    RunnerIdleReason.NO_ACTIONABLE_WORK
+                    if drained
+                    else RunnerIdleReason.NOTHING_DUE
+                )
+                if self._exit_or_wait(reason, granularities):
                     return 0
                 sleep_until_next_due_event(
                     self._state, self._clock(), self._sleep

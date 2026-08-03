@@ -268,56 +268,56 @@ end. This is the commit that closes issue #7's substance.
 
 ## Task 4 — Honest idle reporting (D4, D5)
 
-- [ ] **4.1 Add `RunnerIdleReason` `StrEnum` to `runner.py`**
-  - [ ] Members: `NOTHING_DUE`, `NO_ACTIONABLE_WORK`.
+- [x] **4.1 Add `RunnerIdleReason` `StrEnum` to `runner.py`**
+  - [x] Members: `NOTHING_DUE`, `NO_ACTIONABLE_WORK`.
   - Effort: 1
 
-- [ ] **4.2 Replace `did_anything` with a tracked reason in `_loop`, with its tests**
-  - [ ] An iteration that runs any cycle doing work clears the reason.
-  - [ ] An iteration where a cycle ran and reported `nothing_actionable` sets
+- [x] **4.2 Replace `did_anything` with a tracked reason in `_loop`, with its tests**
+  - [x] An iteration that runs any cycle doing work clears the reason.
+  - [x] An iteration where a cycle ran and reported `nothing_actionable` sets
         `NO_ACTIONABLE_WORK`.
-  - [ ] An iteration where no gate opened sets `NOTHING_DUE`.
-  - [ ] **Minute never reports drained** (D4, corrected 20260803).
+  - [x] An iteration where no gate opened sets `NOTHING_DUE`.
+  - [x] **Minute never reports drained** (D4, corrected 20260803).
         `run_minute_cycle` returns `EMPTY` for a symbol with no actionable gap,
         which is indistinguishable from "fetched, got nothing", so
         `nothing_actionable` stays `False` on every minute report. Do **not**
         add a drained signal to the minute path. Consequence:
         `NO_ACTIONABLE_WORK` is reachable only for daily-only scopes, and
         minute-inclusive scopes behave exactly as they do today.
-  - [ ] **Tests (written here):** one case per reason, plus a minute-inclusive
+  - [x] **Tests (written here):** one case per reason, plus a minute-inclusive
         case asserting the reason never resolves to `NO_ACTIONABLE_WORK` even
         when daily is drained — this pins the non-regression and will fail
         loudly if someone later gives minute a drained signal without revisiting
         D4.
   - Effort: 2
 
-- [ ] **4.3 Report the reason on the `terminate_when_drained` path, with its tests**
-  - [ ] `NO_ACTIONABLE_WORK` → `runner: no actionable work in scope — exiting
+- [x] **4.3 Report the reason on the `terminate_when_drained` path, with its tests**
+  - [x] `NO_ACTIONABLE_WORK` → `runner: no actionable work in scope — exiting
         because --stop-when-done`, including the un-actionable count when
         non-zero, which is a materially different statement from "drained".
-  - [ ] Message text derives from the enum member; do not branch on strings.
-  - [ ] **Tests (written here):** assert on the enum member reaching the exit
+  - [x] Message text derives from the enum member; do not branch on strings.
+  - [x] **Tests (written here):** assert on the enum member reaching the exit
         path, plus a caplog assertion for the substring carrying the
         distinction. Do not assert full message strings.
   - Effort: 1
 
-- [ ] **4.4 Sleep through a closed cadence gate instead of exiting (D5), with its tests**
-  - [ ] When `terminate_when_drained` and the reason is `NOTHING_DUE`, call
+- [x] **4.4 Sleep through a closed cadence gate instead of exiting (D5), with its tests**
+  - [x] When `terminate_when_drained` and the reason is `NOTHING_DUE`, call
         `sleep_until_next_due_event` and continue rather than returning —
         **but only while some configured granularity has never run a cycle in
         this process** (`last_daily_cycle_end_utc is None` or
         `last_minute_cycle_end_utc is None`, for granularities in scope).
         Otherwise exit as today.
-  - [ ] This qualifier is mandatory, not an optimization. Without it
+  - [x] This qualifier is mandatory, not an optimization. Without it
         `mt data daemon run --minute --list <name>` — where `--list` implies
         `--stop-when-done` — never terminates: minute can never report
         `NO_ACTIONABLE_WORK` (D4), so the loop would sleep and re-run the same
         scope forever. Verify against the invocation table in D5 before
         checking this off.
-  - [ ] On entering the wait, log once at INFO naming the reason and the due
+  - [x] On entering the wait, log once at INFO naming the reason and the due
         time — e.g. `runner: no cycle due until 00:30 UTC — waiting (27m)
         because --stop-when-done`. Log on entry only, not once per 60 s tick.
-  - [ ] **Verification of the condition — exhaustive, not sampled.**
+  - [x] **Verification of the condition — exhaustive, not sampled.**
         `_awaiting_first_cycle()` is a pure function of three inputs: the
         configured granularity set and the two nullable end-stamps. The input
         space is finite, so enumerate all eight reachable combinations with
@@ -340,19 +340,19 @@ end. This is the commit that closes issue #7's substance.
         minute cannot stay unstamped once its branch has run. Assert it anyway;
         the predicate must be correct on its own terms, not by relying on the
         loop's ordering.
-  - [ ] **Wiring tests (written here):** an exhaustive predicate test cannot
+  - [x] **Wiring tests (written here):** an exhaustive predicate test cannot
         catch a correct predicate called in the wrong place, so also assert at
         the loop level that the wait is entered rather than exited; that the
         INFO message names the due time; and that the message is emitted once
         across several sleep ticks, not per tick.
-  - [ ] **Regression guard:** the `--minute --list X` case gets an explicit test
+  - [x] **Regression guard:** the `--minute --list X` case gets an explicit test
         timeout so that if the qualifier is ever removed, the suite reports a
         failure rather than hanging. A hang in CI reads as infrastructure
         flakiness; a timeout failure names the cause.
   - Effort: 2
 
-- [ ] **4.5 Document the Ctrl-C latency on `--stop-when-done`**
-  - [ ] The flag's CLI help text notes the command may wait for the next due
+- [x] **4.5 Document the Ctrl-C latency on `--stop-when-done`**
+  - [x] The flag's CLI help text notes the command may wait for the next due
         cycle, and that interrupt latency during that wait is up to 60 s
         (PEP 475: the handler sets a flag without raising, so `time.sleep`
         resumes; `cap_seconds` bounds it).

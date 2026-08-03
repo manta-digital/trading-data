@@ -1132,8 +1132,12 @@ def daemon_run(
         None,
         "--stop-when-done/--forever",
         help=(
-            "Exit when the scope is drained. Default: True when --symbols/--list given, "
-            "False otherwise."
+            "Exit when the scope has no actionable work. Default: True when "
+            "--symbols/--list given, False otherwise. If a cycle is not due yet "
+            "(e.g. daily before 00:30 UTC) and that granularity has not run "
+            "this process, the command waits for it rather than exiting — "
+            "'done' means no work remains, not that no cycle is due. "
+            "Interrupt latency during that wait is up to 60s."
         ),
     ),
     config: Path | None = typer.Option(
