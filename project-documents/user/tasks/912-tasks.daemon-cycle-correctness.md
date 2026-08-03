@@ -477,7 +477,7 @@ gates, and the loop's idle-reason handling are the shipping implementations.
         semantics kept, cadence made operator-tunable.
   - Effort: 1
 
-- [ ] **6.1b Re-run local gates after the review fixes**
+- [x] **6.1b Re-run local gates after the review fixes**
   - [x] Per-file, per-rule ruff comparison against the branch point — the
         totals-only method used the first time masked a swap (review F006).
         daily.py, cli/commands/data.py and runner.py each sit one violation
@@ -489,22 +489,22 @@ gates, and the loop's idle-reason handling are the shipping implementations.
         live-DB errors as the baseline.
   - Effort: 1
 
-- [ ] **6.4 Integrate**
-  - [ ] Merge `912-slice.daemon-cycle-correctness` into
+- [x] **6.4 Integrate**
+  - [x] Merge `912-slice.daemon-cycle-correctness` into
         `trading-data-maintenance`. Confirm the target immediately before
         merging — merging a 9xx slice to `main` is wrong (see Branch above).
-  - [ ] Do not delete the branch.
-  - [ ] Update the slice plan entry and slice/task frontmatter to `complete`.
+  - [x] Do not delete the branch.
+  - [x] Update the slice plan entry and slice/task frontmatter to `complete`.
   - Effort: 1
 
-- [ ] **6.5 Close the issues**
-  - [ ] Close #7 and #6 with a comment naming the slice and the commits, and
+- [x] **6.5 Close the issues**
+  - [x] Close #7 and #6 with a comment naming the slice and the commits, and
         stating what changed for an operator: the daemon now retries an
         interrupted daily pass within the same UTC day, and `--stop-when-done`
         no longer claims completion when it merely hit a closed gate.
-  - [ ] Note in both comments that the fix is on `trading-data-maintenance` and
+  - [x] Note in both comments that the fix is on `trading-data-maintenance` and
         reaches .144 only on the next promotion to `main` — closing an issue
         must not imply prod is fixed when it is not.
-  - [ ] Do **not** close #4 — 912 reports calendar-less instruments, it does not
+  - [x] Do **not** close #4 — 912 reports calendar-less instruments, it does not
         fix them. Add a comment on #4 noting that 912 now surfaces the count.
   - Effort: 1
