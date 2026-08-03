@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-08-02
+
+### Fixed (slice 909, code review)
+- **`mt update` told pipx users to run `pip`.** Install-method detection resolved the interpreter path before inspecting it, and in every virtualenv `bin/python` is a symlink to the base interpreter — so the `pipx/venvs` and `uv/tools` markers in the path were thrown away before they could be matched. A pipx install was therefore classified as a plain pip install and offered `pip install --upgrade manta-trading-data`, which is the wrong command to run inside a pipx-managed environment. Detection now inspects the unresolved paths and recognises pipx's own `pipx_metadata.json` marker, so pipx installs are identified correctly regardless of where `PIPX_HOME` points. Affects `0.7.0`–`0.7.2`. uv tool installs were unaffected in practice.
+- **A malformed version from PyPI could produce a traceback.** `mt update` validated that `info.version` was a non-empty string but not that it was a real version number, so a non-PEP-440 value reached the comparison step and raised. It is now validated at the point of fetch and treated like any other unusable registry response: a clean "could not reach PyPI" message and exit 1.
+
+### Changed
+- Failure paths in `mt update` now emit debug-level detail identifying *which* failure occurred (registry unreachable vs. malformed response, probe timeout vs. no database), so a support report can distinguish them. User-facing output is unchanged.
+
 ## [0.7.2] - 2026-08-02
 
 ### Fixed (slice 909)
