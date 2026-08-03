@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from manta_trading.constants import DAILY_CYCLE_RETRY_INTERVAL
 from manta_trading.data.acquisition.daily.provider import DailyProviderName
 from manta_trading.data.historical_minute.provider import MinuteProviderName
+
+_MINUTES_PER_DAY = 24 * 60
 
 ENV_FILE = ".env"
 
@@ -53,6 +57,24 @@ class Settings(BaseSettings):
     # The free/$30-tier limit is 100K calls/day; override via env when on a
     # different plan.
     eodhd_daily_limit: int = 100_000
+
+    # How soon after a daily cycle ends the daemon may start another (912).
+    # Operator-tunable because the right value is an empirical trade, not a
+    # derivable one: short enough that an interrupted pass resumes promptly,
+    # long enough that a provider outage does not re-issue the 100-credit bulk
+    # EOD call on every tick for the rest of the day. Bounded below by 1 (zero
+    # would busy-loop) and above by one day (beyond that the cadence gate stops
+    # reopening within the pass it is meant to retry).
+    daily_cycle_retry_minutes: int = Field(
+        default=int(DAILY_CYCLE_RETRY_INTERVAL.total_seconds() // 60),
+        gt=0,
+        le=_MINUTES_PER_DAY,
+    )
+
+    @property
+    def daily_cycle_retry_interval(self) -> timedelta:
+        """The retry cadence as the runner consumes it."""
+        return timedelta(minutes=self.daily_cycle_retry_minutes)
 
     # Database
     market_db_url: str | None = None

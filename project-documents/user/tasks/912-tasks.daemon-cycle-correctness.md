@@ -89,9 +89,9 @@ scope.
 
 ## Task 1 — Constants: split the double-duty grace period (D3)
 
-- [ ] **1.1 Add `DAILY_CYCLE_START_OFFSET` to `constants.py`**
-  - [ ] `DAILY_CYCLE_START_OFFSET: timedelta = timedelta(minutes=30)`
-  - [ ] Docstring states its actual role: how long after **UTC midnight** the
+- [x] **1.1 Add `DAILY_CYCLE_START_OFFSET` to `constants.py`**
+  - [x] `DAILY_CYCLE_START_OFFSET: timedelta = timedelta(minutes=30)`
+  - [x] Docstring states its actual role: how long after **UTC midnight** the
         daemon waits for the provider's late bars before starting a daily pass.
         Note explicitly that it is not a session-close offset and that its
         equality with `LATE_BAR_GRACE_PERIOD` is coincidental.
@@ -99,19 +99,27 @@ scope.
     keeps its session-close docstring unchanged.
   - Effort: 1
 
-- [ ] **1.2 Add `DAILY_CYCLE_RETRY_INTERVAL` to `constants.py`**
-  - [ ] `DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=15)`
-  - [ ] Docstring states it is a busy-loop guard — how soon an interrupted daily
+- [x] **1.2 Add `DAILY_CYCLE_RETRY_INTERVAL` to `constants.py`**
+  - [x] `DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=15)`
+        → **now 30 minutes** (PM decision at the code review, F002), and now a
+        *default* rather than a fixed value: `MT_DAILY_CYCLE_RETRY_MINUTES` and
+        `--daily-retry-minutes` override it.
+  - [x] Docstring states it is a busy-loop guard — how soon an interrupted daily
         pass may resume within the same UTC day — and explicitly **not** a
         statement about how often daily data changes. Record the sizing
-        rationale: ~94 no-op ticks/day worst case, each a small-table read.
+        rationale: ~47 no-op ticks/day worst case, each a small-table read.
+  - [x] Docstring and `test_constants.py` both flag that all three cadence
+        constants now carry the same duration, and the test asserts they are
+        distinct objects so aliasing them fails rather than silently coupling
+        three different clocks.
   - Effort: 1
 
-- [ ] **1.3 Move `runner.py` onto the new offset**
-  - [ ] Replace all three `LATE_BAR_GRACE_PERIOD` uses — `daily_cycle_due`
+- [x] **1.3 Move `runner.py` onto the new offset**
+  - [x] Replace all three `LATE_BAR_GRACE_PERIOD` uses — `daily_cycle_due`
         (:135), `ca_update_due` (:170), `sleep_until_next_due_event` (:202) —
-        with `DAILY_CYCLE_START_OFFSET`.
-  - [ ] Remove the `LATE_BAR_GRACE_PERIOD` import from `runner.py`.
+        with `DAILY_CYCLE_START_OFFSET`. The `daily_cycle_due` docstring
+        referenced it by name too; updated in step.
+  - [x] Remove the `LATE_BAR_GRACE_PERIOD` import from `runner.py`.
   - Success: two greps, both of which must hold.
     1. `grep -rn LATE_BAR_GRACE_PERIOD src/manta_trading/data/` returns
        **nothing** — the daemon no longer references it at all.
@@ -123,10 +131,10 @@ scope.
     under `src/manta_trading/market/`, not `src/manta_trading/data/`.
   - Effort: 1
 
-- [ ] **1.4 Assert both constants independently in `test_constants.py`**
-  - [ ] Existing `LATE_BAR_GRACE_PERIOD == timedelta(minutes=30)` assertion
+- [x] **1.4 Assert both constants independently in `test_constants.py`**
+  - [x] Existing `LATE_BAR_GRACE_PERIOD == timedelta(minutes=30)` assertion
         stays; add the same for both new constants.
-  - [ ] Add a comment at the assertions noting the values are independent, so a
+  - [x] Add a comment at the assertions noting the values are independent, so a
         future tuning of one does not get "fixed" by copying the other.
   - Success: `uv run --extra dev pytest test/unit/test_constants.py` passes.
   - Effort: 1
@@ -137,11 +145,11 @@ scope.
 
 ## Task 2 — Derive the daily work list (D1, D6)
 
-- [ ] **2.1 Add `pending_daily_symbols()` to `daily.py`, with its tests**
-  - [ ] Signature: `(conn, symbol_list: list[str], pass_boundary: datetime) -> DailyWorkList`
+- [x] **2.1 Add `pending_daily_symbols()` to `daily.py`, with its tests**
+  - [x] Signature: `(conn, symbol_list: list[str], pass_boundary: datetime) -> DailyWorkList`
         where `DailyWorkList` is a small frozen dataclass carrying
         `pending: list[str]` and `unactionable_no_calendar: list[str]`.
-  - [ ] One parameterized SQL statement over `instruments` LEFT JOIN
+  - [x] One parameterized SQL statement over `instruments` LEFT JOIN
         `acquisition_state` (`granularity = 'daily'`, `provider = 'eodhd'`),
         classifying each scope member:
         - **un-actionable** if no `trading_sessions` row exists for the
@@ -151,34 +159,34 @@ scope.
         - **done** if `last_attempt_ts >= pass_boundary`;
         - **pending** otherwise (including `last_attempt_ts IS NULL` and
           missing `acquisition_state` rows — never call `.date()` on `None`).
-  - [ ] Preserve the caller's ordering for `pending` (`iter_active_instruments`
+  - [x] Preserve the caller's ordering for `pending` (`iter_active_instruments`
         already orders `most_stale_first`); do not re-sort.
-  - [ ] **Tests (written here):** against a mock connection, one case per
+  - [x] **Tests (written here):** against a mock connection, one case per
         branch — attempted-after-boundary, attempted-before-boundary, NULL
         `last_attempt_ts`, absent `acquisition_state` row, no calendar — plus an
         ordering-preservation case.
   - Success: those tests pass.
   - Effort: 3
 
-- [ ] **2.2 Extend `CycleReport` with the un-actionable count and a drained flag**
-  - [ ] `unactionable_no_calendar: int = 0`
-  - [ ] `nothing_actionable: bool = False` — set when the derived pending set is
+- [x] **2.2 Extend `CycleReport` with the un-actionable count and a drained flag**
+  - [x] `unactionable_no_calendar: int = 0`
+  - [x] `nothing_actionable: bool = False` — set when the derived pending set is
         empty, so the runner can classify the idle reason without re-deriving it
         (D4). Default `False` keeps `run_minute_cycle`'s use of `CycleReport`
         unchanged.
   - Success: `run_minute_cycle` compiles and its existing tests pass untouched.
   - Effort: 1
 
-- [ ] **2.3 Wire the work list into `run_daily_cycle`, with its tests**
-  - [ ] After `symbol_list` is resolved (`daily.py:103-112`), compute the pass
+- [x] **2.3 Wire the work list into `run_daily_cycle`, with its tests**
+  - [x] After `symbol_list` is resolved (`daily.py:103-112`), compute the pass
         boundary as today's UTC midnight + `DAILY_CYCLE_START_OFFSET` and call
         `pending_daily_symbols`.
-  - [ ] If `pending` is empty: set `nothing_actionable = True`, log at INFO with
+  - [x] If `pending` is empty: set `nothing_actionable = True`, log at INFO with
         the scope size and the un-actionable count, and **return before any
         provider call** — including before `_select_daily_mode`.
-  - [ ] Otherwise pass `pending` (not `symbol_list`) to `_select_daily_mode` and
+  - [x] Otherwise pass `pending` (not `symbol_list`) to `_select_daily_mode` and
         to both the STEADY_STATE and BACKFILL loops.
-  - [ ] **Tests (written here):** (a) every symbol stamped at/after the boundary
+  - [x] **Tests (written here):** (a) every symbol stamped at/after the boundary
         → zero HTTP requests, asserted with a mock `httpx.Client` whose every
         method fails the test if called, and `nothing_actionable is True`;
         (b) a partially-stamped scope → only the unstamped symbols reach
@@ -186,20 +194,20 @@ scope.
   - Success: those tests pass.
   - Effort: 3
 
-- [ ] **2.4 Report un-actionable symbols once per cycle, never per symbol**
-  - [ ] Log at WARNING with the count and a pointer to issue #4 — not 906
+- [x] **2.4 Report un-actionable symbols once per cycle, never per symbol**
+  - [x] Log at WARNING with the count and a pointer to issue #4 — not 906
         individual lines. Include up to a handful of example symbols for
         diagnosis.
-  - [ ] Leave `_run_steady_state_cycle`'s existing per-symbol
+  - [x] Leave `_run_steady_state_cycle`'s existing per-symbol
         `target_end is None` branch (`daily.py:261-267`) in place as a
         belt-and-braces guard; it should now be unreachable for scope members,
         since 2.1 excludes them upstream.
-  - [ ] **Test (written here):** a scope of N calendar-less symbols produces
+  - [x] **Test (written here):** a scope of N calendar-less symbols produces
         exactly one WARNING record (caplog), not N.
   - Effort: 1
 
-- [ ] **2.5 Check downstream consumers of `report.total`**
-  - [ ] `report.total` now counts pending symbols, not full scope. Audit the
+- [x] **2.5 Check downstream consumers of `report.total`**
+  - [x] `report.total` now counts pending symbols, not full scope. Audit the
         `-v` progress output and any `mt data daemon` rendering that derives a
         denominator from it, and correct anything that would now display
         "processed 3 of 3" for a 5,900-symbol universe.
@@ -214,20 +222,20 @@ changed, so the daemon still gates on the old timer.
 
 ## Task 3 — Demote the day-timer to a cadence guard (D2)
 
-- [ ] **3.1 Rename the `RunnerState` field**
-  - [ ] `last_daily_cycle_start_utc` → `last_daily_cycle_end_utc`. Update the
+- [x] **3.1 Rename the `RunnerState` field**
+  - [x] `last_daily_cycle_start_utc` → `last_daily_cycle_end_utc`. Update the
         dataclass docstring; the rename is load-bearing, not cosmetic.
   - Effort: 1
 
-- [ ] **3.2 Rewrite `daily_cycle_due` as a pure cadence predicate, with its tests**
-  - [ ] Returns `False` before today's `midnight + DAILY_CYCLE_START_OFFSET`.
-  - [ ] Returns `True` when `last_daily_cycle_end_utc is None`.
-  - [ ] Otherwise `True` iff `now - last_daily_cycle_end_utc >= DAILY_CYCLE_RETRY_INTERVAL`.
-  - [ ] Rewrite the docstring to state the division of responsibility in the
+- [x] **3.2 Rewrite `daily_cycle_due` as a pure cadence predicate, with its tests**
+  - [x] Returns `False` before today's `midnight + DAILY_CYCLE_START_OFFSET`.
+  - [x] Returns `True` when `last_daily_cycle_end_utc is None`.
+  - [x] Otherwise `True` iff `now - last_daily_cycle_end_utc >= DAILY_CYCLE_RETRY_INTERVAL`.
+  - [x] Rewrite the docstring to state the division of responsibility in the
         same terms `minute_cycle_due` uses: whether any scope member has
         actionable daily work is determined inside `run_daily_cycle` itself; the
         runner gates on cadence so it does not busy-loop.
-  - [ ] **Tests (written here):** rewrite
+  - [x] **Tests (written here):** rewrite
         `test_daily_cycle_due_false_when_last_cycle_was_today` and
         `test_daily_cycle_due_true_after_utc_day_rollover`, which encode the old
         once-per-day semantics, to the cadence semantics; add a
@@ -237,25 +245,25 @@ changed, so the daemon still gates on the old timer.
     tests pass.
   - Effort: 2
 
-- [ ] **3.3 Stamp completion, not start, in `_loop`**
-  - [ ] Delete the pre-`try` assignment at `runner.py:355`.
-  - [ ] Assign `self._state.last_daily_cycle_end_utc = self._clock()` after the
+- [x] **3.3 Stamp completion, not start, in `_loop`**
+  - [x] Delete the pre-`try` assignment at `runner.py:355`.
+  - [x] Assign `self._state.last_daily_cycle_end_utc = self._clock()` after the
         `try/except` around `_run_daily_cycle`, matching the minute branch at
         `runner.py:379`. It is stamped on the exception path too — a cycle that
         raised still consumed its cadence slot, and retrying it instantly would
         busy-loop against a persistent failure.
-  - [ ] **Test (written here):** a `run_daily_cycle` that raises still advances
+  - [x] **Test (written here):** a `run_daily_cycle` that raises still advances
         `last_daily_cycle_end_utc`, and the loop does not immediately re-enter
         the daily branch.
   - Effort: 1
 
-- [ ] **3.4 Update `sleep_until_next_due_event`, with its tests**
-  - [ ] The next daily wake is now `last_daily_cycle_end_utc +
+- [x] **3.4 Update `sleep_until_next_due_event`, with its tests**
+  - [x] The next daily wake is now `last_daily_cycle_end_utc +
         DAILY_CYCLE_RETRY_INTERVAL` when a cycle has ended today and the day's
         offset has passed, else the day's start boundary (tomorrow's if today's
         has passed and no retry is pending).
-  - [ ] Keep `cap_seconds=60` and its SIGTERM-latency rationale untouched.
-  - [ ] **Tests (written here):** `test_sleep_caps_at_60s` still passes
+  - [x] Keep `cap_seconds=60` and its SIGTERM-latency rationale untouched.
+  - [x] **Tests (written here):** `test_sleep_caps_at_60s` still passes
         unmodified; add a case asserting the retry-interval wake is chosen over
         the next-day boundary when a cycle ended earlier today.
   - Effort: 2
@@ -267,45 +275,91 @@ end. This is the commit that closes issue #7's substance.
 
 ## Task 4 — Honest idle reporting (D4, D5)
 
-- [ ] **4.1 Add `RunnerIdleReason` `StrEnum` to `runner.py`**
-  - [ ] Members: `NOTHING_DUE`, `NO_ACTIONABLE_WORK`.
+- [x] **4.1 Add `RunnerIdleReason` `StrEnum` to `runner.py`**
+  - [x] Members: `NOTHING_DUE`, `NO_ACTIONABLE_WORK`.
   - Effort: 1
 
-- [ ] **4.2 Replace `did_anything` with a tracked reason in `_loop`, with its tests**
-  - [ ] An iteration that runs any cycle doing work clears the reason.
-  - [ ] An iteration where a cycle ran and reported `nothing_actionable` sets
+- [x] **4.2 Replace `did_anything` with a tracked reason in `_loop`, with its tests**
+  - [x] An iteration that runs any cycle doing work clears the reason.
+  - [x] An iteration where a cycle ran and reported `nothing_actionable` sets
         `NO_ACTIONABLE_WORK`.
-  - [ ] An iteration where no gate opened sets `NOTHING_DUE`.
-  - [ ] Where both apply across granularities, `NO_ACTIONABLE_WORK` wins only if
-        every configured granularity is drained; otherwise `NOTHING_DUE`.
-  - [ ] **Tests (written here):** one case per reason, plus the mixed-granularity
-        case where daily is drained but minute is merely not due — which must
-        resolve to `NOTHING_DUE`.
+  - [x] An iteration where no gate opened sets `NOTHING_DUE`.
+  - [x] **Minute never reports drained** (D4, corrected 20260803).
+        `run_minute_cycle` returns `EMPTY` for a symbol with no actionable gap,
+        which is indistinguishable from "fetched, got nothing", so
+        `nothing_actionable` stays `False` on every minute report. Do **not**
+        add a drained signal to the minute path. Consequence:
+        `NO_ACTIONABLE_WORK` is reachable only for daily-only scopes, and
+        minute-inclusive scopes behave exactly as they do today.
+  - [x] **Tests (written here):** one case per reason, plus a minute-inclusive
+        case asserting the reason never resolves to `NO_ACTIONABLE_WORK` even
+        when daily is drained — this pins the non-regression and will fail
+        loudly if someone later gives minute a drained signal without revisiting
+        D4.
   - Effort: 2
 
-- [ ] **4.3 Report the reason on the `terminate_when_drained` path, with its tests**
-  - [ ] `NO_ACTIONABLE_WORK` → `runner: no actionable work in scope — exiting
+- [x] **4.3 Report the reason on the `terminate_when_drained` path, with its tests**
+  - [x] `NO_ACTIONABLE_WORK` → `runner: no actionable work in scope — exiting
         because --stop-when-done`, including the un-actionable count when
         non-zero, which is a materially different statement from "drained".
-  - [ ] Message text derives from the enum member; do not branch on strings.
-  - [ ] **Tests (written here):** assert on the enum member reaching the exit
+  - [x] Message text derives from the enum member; do not branch on strings.
+  - [x] **Tests (written here):** assert on the enum member reaching the exit
         path, plus a caplog assertion for the substring carrying the
         distinction. Do not assert full message strings.
   - Effort: 1
 
-- [ ] **4.4 Sleep through a closed cadence gate instead of exiting (D5), with its tests**
-  - [ ] When `terminate_when_drained` and the reason is `NOTHING_DUE`, call
-        `sleep_until_next_due_event` and continue rather than returning.
-  - [ ] On entering the wait, log once at INFO naming the reason and the due
+- [x] **4.4 Sleep through a closed cadence gate instead of exiting (D5), with its tests**
+  - [x] When `terminate_when_drained` and the reason is `NOTHING_DUE`, call
+        `sleep_until_next_due_event` and continue rather than returning —
+        **but only while some configured granularity has never run a cycle in
+        this process** (`last_daily_cycle_end_utc is None` or
+        `last_minute_cycle_end_utc is None`, for granularities in scope).
+        Otherwise exit as today.
+  - [x] This qualifier is mandatory, not an optimization. Without it
+        `mt data daemon run --minute --list <name>` — where `--list` implies
+        `--stop-when-done` — never terminates: minute can never report
+        `NO_ACTIONABLE_WORK` (D4), so the loop would sleep and re-run the same
+        scope forever. Verify against the invocation table in D5 before
+        checking this off.
+  - [x] On entering the wait, log once at INFO naming the reason and the due
         time — e.g. `runner: no cycle due until 00:30 UTC — waiting (27m)
         because --stop-when-done`. Log on entry only, not once per 60 s tick.
-  - [ ] **Tests (written here):** the wait is entered rather than exited; the
-        INFO message names the due time; the message is emitted once across
-        several sleep ticks, not per tick.
+  - [x] **Verification of the condition — exhaustive, not sampled.**
+        `_awaiting_first_cycle()` is a pure function of three inputs: the
+        configured granularity set and the two nullable end-stamps. The input
+        space is finite, so enumerate all eight reachable combinations with
+        `@pytest.mark.parametrize` and assert the expected verdict for each:
+
+        | granularities | daily stamp | minute stamp | expected |
+        | --- | --- | --- | --- |
+        | `{daily}` | `None` | — | `True` |
+        | `{daily}` | set | — | `False` |
+        | `{minute}` | — | `None` | `True` |
+        | `{minute}` | — | set | `False` |
+        | `{daily, minute}` | `None` | `None` | `True` |
+        | `{daily, minute}` | `None` | set | `True` |
+        | `{daily, minute}` | set | `None` | `True` |
+        | `{daily, minute}` | set | set | `False` |
+
+        Note the `(set, None)` row is defensive rather than reachable in
+        practice — minute is due immediately when its stamp is `None`, and the
+        stamp is written right after the try/except at `runner.py:379`, so
+        minute cannot stay unstamped once its branch has run. Assert it anyway;
+        the predicate must be correct on its own terms, not by relying on the
+        loop's ordering.
+  - [x] **Wiring tests (written here):** an exhaustive predicate test cannot
+        catch a correct predicate called in the wrong place, so also assert at
+        the loop level that the wait is entered rather than exited; that the
+        INFO message names the due time; and that the message is emitted once
+        across several sleep ticks, not per tick.
+  - [x] **Regression guard:** the `--minute --list X` case gets an explicit test
+        timeout so that if the qualifier is ever removed, the suite reports a
+        failure rather than hanging. A hang in CI reads as infrastructure
+        flakiness; a timeout failure names the cause.
   - Effort: 2
 
-- [ ] **4.5 Document the Ctrl-C latency on `--stop-when-done`**
-  - [ ] The flag's CLI help text notes the command may wait for the next due
+- [x] **4.5 Document the Ctrl-C latency on `--stop-when-done`**
+  - [x] The flag's CLI help text notes the command may wait for the next due
         cycle, and that interrupt latency during that wait is up to 60 s
         (PEP 475: the handler sets a flag without raising, so `time.sleep`
         resumes; `cap_seconds` bounds it).
@@ -321,30 +375,66 @@ end. This is the commit that closes issue #7's substance.
 These span more than one task's work and could not be written earlier. Every
 single-unit assertion already lives with its implementation above.
 
-- [ ] **5.1 Interrupted pass resumes at the unreached symbols, through the runner**
-  - [ ] Drive the full `Runner` loop with an injected clock and a
+The simulation harness these share is `_harness.py` in the daemon test package,
+with its injected fixtures in `conftest.py`. Only the I/O boundary is faked —
+the SQL round trip and the provider call. The work-list derivation, both cadence
+gates, and the loop's idle-reason handling are the shipping implementations.
+
+- [x] **5.1 Interrupted pass resumes at the unreached symbols, through the runner**
+  - [x] Drive the full `Runner` loop with an injected clock and a
         `run_daily_cycle` that processes N of M symbols and then reports
         `should_continue() is False`; on the next tick within the same UTC day,
         assert the cycle receives exactly the M−N unreached symbols, in order.
-  - [ ] This is success criterion 1 and the reason the slice exists — it must
+        → `test_daily_resume_behavior.py`. Two interruptions are covered
+        because they fail differently: a crash mid-pass (same process, retried
+        one cadence interval later) and SIGTERM followed by a restart, which is
+        the incident actually observed on prod.
+  - [x] This is success criterion 1 and the reason the slice exists — it must
         fail against `main`'s behavior. Verify that it does before moving on.
+        → Verified against the real pre-912 `Runner` at commit `643e639` (the
+        branch point, used rather than `main`'s moving tip so the proof is
+        reproducible). Both defects reproduced: one cycle in a simulated hour
+        with four symbols never fetched, and a restart handed the full scope.
+        Recorded in `notes/912-main-behavior-proof.md`.
   - Effort: 2
 
-- [ ] **5.2 No busy-poll when nothing is actionable**
-  - [ ] With a frozen clock advanced in steps across several hours, assert at
+- [x] **5.2 No busy-poll when nothing is actionable**
+  - [x] With a frozen clock advanced in steps across several hours, assert at
         most one work-list derivation per `DAILY_CYCLE_RETRY_INTERVAL` and zero
-        provider calls.
+        provider calls. → Four simulated hours. The sleep budget is bounded as
+        well as the cycle count, so a busy-poll fails an assertion instead of
+        hanging until the suite timeout.
   - Effort: 2
 
-- [ ] **5.3 `--stop-when-done` sleeps through a closed gate, then runs, then exits**
-  - [ ] Clock at 00:13 UTC, daily-only scope, `terminate_when_drained=True`:
+- [x] **5.3 `--stop-when-done` sleeps through a closed gate, then runs, then exits**
+  - [x] Clock at 00:13 UTC, daily-only scope, `terminate_when_drained=True`:
         assert the runner sleeps rather than returning, that the cycle runs once
         the injected clock passes 00:30, and that the loop then exits reporting
         `NO_ACTIONABLE_WORK` — the full sequence, not just the wait.
+        → `test_stop_when_done_invocations.py`. **Deviation:** which idle reason
+        ends the run depends on what the cycle finds at 00:30, and this bullet
+        named only one of the two. A scope with work exits via "every configured
+        granularity has run"; only a pass already complete for the day exits
+        reporting `NO_ACTIONABLE_WORK`. Both are asserted, parameterized.
   - Effort: 2
 
-- [ ] **5.4 A scope of only calendar-less symbols terminates**
-  - [ ] Reports `NO_ACTIONABLE_WORK` with a non-zero un-actionable count, exits
+- [x] **5.4 Every invocation in D5's table behaves as tabulated**
+  - [x] Parameterize over the five rows of the D5 invocation table, asserting
+        for each whether the runner waits and whether it exits. The wait is
+        detected by the announcement the D5 branch alone emits, so an ordinary
+        between-cycle sleep cannot be mistaken for it.
+  - [x] The row that matters most: `--minute --list X` must run exactly one
+        minute cycle and then **exit**. Give this case a real timeout so a
+        regression fails as a test failure rather than a hung suite — it is the
+        PM's routine minute-fetch invocation and the one D5 nearly broke.
+  - [x] `--minute` with no scope must not enter the D5 branch at all
+        (`terminate_when_drained` is `False`). → The table's terminate column is
+        derived by the CLI's own rule rather than written by hand, so a change
+        to that rule moves the table with it.
+  - Effort: 2
+
+- [x] **5.5 A scope of only calendar-less symbols terminates**
+  - [x] Reports `NO_ACTIONABLE_WORK` with a non-zero un-actionable count, exits
         under `--stop-when-done`, and does not loop or issue provider calls.
   - Effort: 1
 
@@ -352,12 +442,18 @@ single-unit assertion already lives with its implementation above.
 
 ## Task 6 — Gates, verification, integration, and closure
 
-- [ ] **6.1 Local gates**
-  - [ ] `uv run --extra dev ruff check src/ test/` — no new violations.
-  - [ ] `uv run --extra dev mypy` — no new errors in touched files (the
-        repo-wide baseline is slice 905's to clear, not this slice's).
-  - [ ] `uv run --extra dev pytest test/unit/data/acquisition/daemon/ test/unit/test_constants.py`
-        passes.
+- [x] **6.1 Local gates**
+  - [x] `uv run --extra dev ruff check src/ test/` — no new violations. 1812
+        errors, identical to the branch point (`643e639`) measured in a detached
+        worktree, so the slice contributes none of them.
+  - [x] `uv run --extra dev mypy` — no new errors in touched files (the
+        repo-wide baseline is slice 905's to clear, not this slice's). 93 errors
+        in 19 files at both HEAD and the branch point; `constants.py`,
+        `daemon/runner.py`, and `daemon/daily.py` are at zero, and
+        `cli/commands/data.py` holds at its pre-existing 15.
+  - [x] `uv run --extra dev pytest test/unit/data/acquisition/daemon/ test/unit/test_constants.py`
+        passes. 198 passed. Full unit suite: 1639 passed, 10 skipped, 35 errors
+        — the same 35 live-DB errors as the baseline, no regressions.
   - Effort: 1
 
 - [ ] **6.2 Prod verification on .144 (success criterion 12)**
@@ -372,9 +468,25 @@ single-unit assertion already lives with its implementation above.
   - [ ] Record in `project-documents/user/notes/912-prod-verify-<date>.md`.
   - Effort: 2
 
-- [ ] **6.3 Code review**
-  - [ ] `sq review code 912` — PM selects the model. Disposition findings in the
-        slice document before integration.
+- [x] **6.3 Code review**
+  - [x] `sq review code 912` — PM selects the model. Disposition findings in the
+        slice document before integration. → Verdict CONCERNS; all six concerns
+        confirmed against the code and fixed, both cheap notes fixed, F009
+        deferred to pair with 6.2. See "Code review disposition (20260803)" in
+        the slice document. F002 needed a PM decision and got one: retry
+        semantics kept, cadence made operator-tunable.
+  - Effort: 1
+
+- [ ] **6.1b Re-run local gates after the review fixes**
+  - [x] Per-file, per-rule ruff comparison against the branch point — the
+        totals-only method used the first time masked a swap (review F006).
+        daily.py, cli/commands/data.py and runner.py each sit one violation
+        *better* than the branch point; `cadence.py` and every new test file are
+        clean.
+  - [x] `uv run --extra dev mypy` — 93 errors in 19 files, unchanged from the
+        branch point; the daemon and config modules contribute none.
+  - [x] `uv run --extra dev pytest test/unit` — 1658 passed, 10 skipped, same 35
+        live-DB errors as the baseline.
   - Effort: 1
 
 - [ ] **6.4 Integrate**

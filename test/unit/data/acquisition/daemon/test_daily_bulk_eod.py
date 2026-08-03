@@ -9,6 +9,7 @@ import pytest
 
 from manta_trading.constants import DailyMode
 from manta_trading.data.acquisition.daemon.daily import (
+    DailyWorkList,
     _select_daily_mode,
     _run_steady_state_cycle,
     run_daily_cycle,
@@ -17,6 +18,17 @@ from manta_trading.data.acquisition.quota import QuotaBucket
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 
 _UTC = timezone.utc
+
+
+def _all_pending(_conn, symbol_list, _boundary) -> DailyWorkList:
+    """Stand-in for the slice 912 work-list derivation: everything is pending.
+
+    These tests assert mode dispatch (bulk vs per-symbol), not which symbols
+    are outstanding. Derivation is covered in ``test_pending_daily_symbols.py``.
+    """
+    return DailyWorkList(
+        pending=list(symbol_list), unactionable_no_calendar=[], unknown_symbols=[]
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -105,6 +117,10 @@ class TestRunDailyCycleModeDispatch:
             patch("manta_trading.data.acquisition.daemon.daily.Settings", return_value=settings),
             patch("manta_trading.data.acquisition.daemon.daily.ConnectionPool", return_value=pool_mock),
             patch(
+                "manta_trading.data.acquisition.daemon.daily.pending_daily_symbols",
+                _all_pending,
+            ),
+            patch(
                 "manta_trading.data.acquisition.daemon.daily._select_daily_mode",
                 return_value=DailyMode.STEADY_STATE,
             ),
@@ -145,6 +161,10 @@ class TestRunDailyCycleModeDispatch:
             patch("manta_trading.data.acquisition.daemon.daily.Settings", return_value=settings),
             patch("manta_trading.data.acquisition.daemon.daily.ConnectionPool", return_value=pool_mock),
             patch(
+                "manta_trading.data.acquisition.daemon.daily.pending_daily_symbols",
+                _all_pending,
+            ),
+            patch(
                 "manta_trading.data.acquisition.daemon.daily._select_daily_mode",
                 return_value=DailyMode.BACKFILL,
             ),
@@ -182,6 +202,10 @@ class TestRunDailyCycleModeDispatch:
         with (
             patch("manta_trading.data.acquisition.daemon.daily.Settings", return_value=settings),
             patch("manta_trading.data.acquisition.daemon.daily.ConnectionPool", return_value=pool_mock),
+            patch(
+                "manta_trading.data.acquisition.daemon.daily.pending_daily_symbols",
+                _all_pending,
+            ),
             patch(
                 "manta_trading.data.acquisition.daemon.daily._select_daily_mode",
                 return_value=DailyMode.BACKFILL,

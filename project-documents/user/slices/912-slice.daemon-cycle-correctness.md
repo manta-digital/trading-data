@@ -172,10 +172,16 @@ pass retries within the same UTC day without the loop spinning, not to express
 any policy about how often daily data changes.
 
 The retry interval must be long enough that a work-list query per tick is
-negligible and short enough that an interruption is recovered promptly.
-**15 minutes**, giving at most ~94 no-op ticks per day, each one small-table
-read. It is a constant precisely so it can be tuned without hunting for a
-literal.
+negligible and short enough that an interruption is recovered promptly. Shipped
+at 15 minutes and **raised to 30 after the code review** (F002): each retry
+during a provider outage re-issues the bulk EOD call, and observed catch-up once
+the provider recovers is under two hours, so a faster poll bought no recovery
+speed the fetch did not already bound. A fully-drained scope now costs ~47 no-op
+ticks per day, each one a small-table read with no provider call.
+
+It is also no longer only a constant: `MT_DAILY_CYCLE_RETRY_MINUTES` and
+`--daily-retry-minutes` override the default, because the right value is
+empirical and belongs to whoever is watching the daemon, not to this document.
 
 The field rename is not cosmetic: keeping the name `..._start_utc` while
 stamping at the end is exactly the kind of drift that produced this bug.
@@ -221,9 +227,25 @@ runner: no actionable work in scope — exiting because --stop-when-done
 ```
 
 `run_daily_cycle` already returns a report; it gains the fact that it found
-nothing actionable so the runner can classify without re-deriving. The minute
-path is not changed — `run_minute_cycle`'s "no actionable gaps" outcome is
-already internal, and widening it is out of scope.
+nothing actionable so the runner can classify without re-deriving.
+
+**Minute never reports drained, and that is deliberate** (corrected during
+implementation — see below). `run_minute_cycle` iterates every scope symbol
+every cycle and returns `EMPTY` for a symbol with no actionable gap
+([minute.py:160-187](../../../src/manta_trading/data/acquisition/daemon/minute.py)),
+which is indistinguishable from "fetched and got no data." There is no drained
+signal to read, and adding one would mean changing the minute path this slice
+exists to copy, not to modify.
+
+Therefore `nothing_actionable` is always `False` on a minute report, and
+`NO_ACTIONABLE_WORK` is reachable **only for daily-only scopes**. For any
+minute-inclusive scope the runner reports `NOTHING_DUE` or nothing at all,
+exactly as today: `did_anything` is currently set whenever a cycle *ran* rather
+than when it did work, and the minute gate opens every minute, so
+`terminate_when_drained` never fires for those scopes in the first place. This
+is why the reported #6 incident was a `--daily` run. Preserving that is a
+non-regression, not a compromise; giving minute a real drained signal is
+follow-on work for the initiative that owns it.
 
 ### D5 — A `--stop-when-done` run satisfies a cadence gate by sleeping, not by exiting
 
@@ -237,19 +259,48 @@ having fetched nothing — the reported incident. With D4 the message would at
 least be honest, but the run still does no work when the user plainly asked for
 data.
 
-Under D5, when the only reason for idling is `NOTHING_DUE`, the loop sleeps
-until the gate opens (via the existing `sleep_until_next_due_event`, whose
-`cap_seconds` already bounds SIGTERM latency) and exits only on
-`NO_ACTIONABLE_WORK`. `--stop-when-done` then means what it says: exit when
+Under D5, when the reason is `NOTHING_DUE`, the loop sleeps until the gate opens
+(via the existing `sleep_until_next_due_event`, whose `cap_seconds` already
+bounds SIGTERM latency) rather than exiting — **but only when some configured
+granularity has not yet run a cycle in this process**, i.e. its
+`last_*_cycle_end_utc` is still `None`. Otherwise it exits as it does today.
+
+That qualifier is load-bearing, not a refinement (corrected during
+implementation — see Corrections). Without it, `mt data daemon run --minute
+--list <name>` never terminates. Today that run does exactly one pass and
+exits: iteration 1 runs the cycle because `last_minute_cycle_end_utc is None`,
+iteration 2 finds the one-minute gate closed and takes the terminate branch.
+An unqualified D5 would sleep at iteration 2, re-run the identical scope, sleep
+again — forever, because minute publishes no drained signal (D4) and so can
+never reach `NO_ACTIONABLE_WORK`.
+
+The qualifier expresses the actual principle: sleeping is worth it only when
+waiting makes a *new* kind of progress possible. A closed daily start-offset
+gate at 00:13 means the day's first pass has not happened and the data is not
+published yet — worth 17 minutes. A closed minute cadence gate means a pass over
+that exact scope just finished — waiting only repeats it. Because a granularity's
+end-stamp is `None` only before its first cycle, this permits at most one wait
+per granularity per process, which is what bounds the whole behavior. `--stop-when-done` then means what it says: exit when
 there is no work, not when there is no *cycle*.
 
 The wait is bounded and narrow. It occurs **only** in the 00:00–00:30 UTC
 window: outside it a fresh process has `last_daily_cycle_end_utc = None`, so
 under D2 the cycle is due immediately and there is no wait at all. It occurs
-**only** for `--daily` without `--minute`, since the minute gate opens within a
-minute. And unscoped full-universe runs are unaffected — they already default to
-`terminate_when_drained = False` and already sleep. Worst case is therefore a
-30-minute block, for a daily-only scoped run launched at 00:00 UTC.
+**only** when `daily` is in the granularity set, since a minute gate is never
+closed before minute's first pass. And unscoped runs are unaffected — they
+already default to `terminate_when_drained = False` and already sleep. Worst
+case is therefore a 30-minute block, for a scoped run including `--daily`
+launched at 00:00 UTC.
+
+Concretely, against the flag combinations in use:
+
+| Invocation | `terminate_when_drained` | Change |
+| --- | --- | --- |
+| `--minute` (no scope) | `False` | None — D5 branch unreachable |
+| `--minute --list X` / `--symbols` | `True` | None — minute's end-stamp is set after its first pass, so the qualifier blocks the wait and it exits after one pass as today |
+| `--daily --list X` at 00:13 UTC | `True` | Waits to 00:30, runs, then exits — the #6 fix |
+| `--daily --list X` at 14:00 UTC | `True` | None — daily is due immediately |
+| `--daily --minute --list X` at 00:13 | `True` | Minute runs first; waits to 00:30 for daily's first pass, then exits |
 
 Two consequences follow, and both are requirements, not caveats:
 
@@ -426,6 +477,198 @@ All four addressed in the task breakdown.
   before merging rather than relying on a prose note read days earlier.
 - **F001-F004 — PASS** on criteria coverage, task sequencing, correctly leaving
   #4 out of closure, and no spurious load-test requirement.
+
+## Work-list SQL verified against production data (20260803)
+
+Run by the PM in DataGrip during Task 2, before any of this reached a daemon.
+The unit tests drive a mock cursor, so this is the only evidence the statement
+itself is correct.
+
+- **Unknown symbols surface, not vanish.** A scope containing a bogus symbol
+  returned it with `has_calendar = false` rather than dropping it. Dropping is
+  the failure D6 exists to prevent.
+- **906 unactionable across the active universe** — matching GitHub issue #4's
+  count exactly, arrived at independently. The calendar join is right; had it
+  been over- or under-matching, this number would have moved.
+- **Zero pending, 11,976 done** — consistent with a full daily pass having
+  completed after 00:30 UTC that day. This is precisely the drained state D4
+  reports as `NO_ACTIONABLE_WORK`.
+- **12,882 instrument rows, 12,882 distinct symbols.** The scope is the registry
+  size; there is no duplication today. See the fan-out correction below for why
+  the query does not rely on that remaining true.
+
+## Corrections discovered during implementation
+
+- **The work-list join could fan out on `instruments.symbol` (found 20260803
+  while reconciling the verification row counts).** `instruments` has primary
+  key `instrument_id` and its UNIQUE constraint on `canonical_id`; `symbol`
+  carries only a non-unique index. Joining scope straight to `instruments`
+  would emit one row per instrument row per symbol, which would fetch a symbol
+  repeatedly within a single pass and — where one row resolves a calendar and
+  another does not — place the same symbol in *both* buckets, contradicting the
+  disjointness `DailyWorkList` promises. Corrected to aggregate with
+  `GROUP BY i.symbol` and `bool_or`, matching `_last_completed_session`'s
+  equally permissive `MAX` over the same join; the two must agree or the work
+  list would hand the cycle a symbol it then declines to fetch. Verification
+  showed no duplicates today, so this was latent rather than active — but the
+  schema permits them, and a symbol that delists and re-lists produces exactly
+  that shape.
+
+- **D5 would have made `mt data daemon run --minute --list <name>` never
+  terminate (found 20260803, PM question during Task 1).** D5 originally slept
+  through any `NOTHING_DUE`. For a minute-only scoped run — the PM's routine
+  minute-fetch invocation, where `--list` implies `--stop-when-done` — the
+  closed gate at iteration 2 is a one-minute cadence limiter, not a
+  wait-for-data gate. Sleeping through it re-runs the identical scope forever,
+  since D4 establishes minute can never report `NO_ACTIONABLE_WORK`. D5 now
+  sleeps only while some configured granularity has never run a cycle in this
+  process (`last_*_cycle_end_utc is None`), which permits at most one wait per
+  granularity per process and leaves every minute-only invocation behaving
+  exactly as it does today. This is the defect the slice came closest to
+  shipping: it would have converted a routine operator command into a hang.
+
+- **D4's cross-granularity drain rule was unevaluable (found during Task 1,
+  20260803).** As originally written, D4 said `NO_ACTIONABLE_WORK` wins "only if
+  every configured granularity is drained." The minute path publishes no such
+  signal, so the runner could not evaluate the condition for any
+  minute-inclusive scope. D4 now states the resolution explicitly: minute never
+  reports drained, `NO_ACTIONABLE_WORK` is reachable only for daily-only scopes,
+  and minute-inclusive behavior is unchanged from today. No minute code is
+  touched, which was the point of the constraint the original wording violated.
+
+## Code review disposition (20260803)
+
+Verdict CONCERNS: six concerns, three notes, two passes. Every concern was
+confirmed against the code before being acted on; nothing was accepted on the
+reviewer's description alone. F010 and F011 are PASS findings requiring no
+action.
+
+| ID | Verdict | Disposition |
+|----|---------|-------------|
+| F001 | Confirmed | Fixed — `_run_steady_state_cycle` populates the caller's report |
+| F002 | Confirmed, split | (a) fixed; (b) PM decision — retry semantics kept, cadence made configurable |
+| F003 | Confirmed | Fixed — production reads the contract; the mocks were the defect |
+| F004 | Confirmed | Fixed — new `daemon/cadence.py`, five copies collapsed to one |
+| F005 | Confirmed | Fixed — write sites and config type converted to the enum |
+| F006 | Confirmed | Fixed — and it exposed a hole in the 6.1 gate method |
+| F007 | Accepted | Fixed — aggregate bounded to scope |
+| F008 | Accepted (PM) | Fixed — unknown symbols get their own bucket and message |
+| F009 | Deferred | Needs a database; see below |
+
+### F001 — the STEADY_STATE path discarded the un-actionable counts
+
+Confirmed by reading: `run_daily_cycle` set the counts, then rebound `report` to
+`_run_steady_state_cycle`'s return value, which constructed a fresh
+`CycleReport`. BACKFILL mutated in place and kept them, so the two modes
+disagreed and the mode that lost the data is the production one.
+`_run_steady_state_cycle` now takes the caller's report and populates it, which
+removes the divergence rather than patching one side of it.
+
+### F002 — an unstampable symbol makes the work list non-terminating
+
+The finding is two problems, and they resolve differently.
+
+**(a) A precision mismatch in the work-list SQL — fixed.**
+`calendars_with_sessions` had no time bound while `_last_completed_session`
+requires `session_open_utc < NOW()`. A calendar holding only future sessions
+therefore satisfied the work list and failed the cycle: pending, skipped, never
+stamped, pending again next tick. The SQL docstring asserted the two agreed,
+which was simply wrong. Both now apply the same bound. This was the only
+*permanent* unstampable condition, and it was a defect in this slice's own code.
+
+**(b) Repeated transient failure — semantics kept, cadence made configurable.**
+Every remaining no-stamp path is transient: the bulk call raising (whole scope),
+advisory-lock timeout, unexpected exception, or any raise before
+`update_data_gaps` on the BACKFILL path. Stamping those would have been the
+wrong fix, and was rejected on analysis: D1 declines to stamp transient failures
+precisely so the daemon self-heals within the day, and stamping them would mean
+a five-minute provider blip at 00:30 defers the whole scope to tomorrow — a
+worse regression than the credit spend.
+
+The real exposure is rate, not retry. Corrected arithmetic, since the first pass
+at it undercounted: `bucket.consume` sits *inside* `eodhd_get`'s retry loop, so
+a timeout-style outage costs up to `MAX_RETRY_COUNT + 1` × 100 = 600 credits per
+tick, not 100. At 94 ticks/day that is ~56,400 credits against a 100,000 daily
+quota — enough that the QuotaBucket would throttle and starve the minute
+pipeline. Not every mode loops: a 5xx returns a response, the bulk body fails to
+parse, and every symbol is stamped EMPTY instead, which is a different problem
+this slice does not introduce but does make terminal.
+
+Set against that, the old code lost the entire daily pass when an outage
+straddled 00:30, because the gate had closed until the next day. The extra
+credits buy same-day recovery; that is the trade the slice exists to make.
+
+PM decision: keep D1's retry semantics, and make the cadence operator-tunable
+rather than guessing a number now. `DAILY_CYCLE_RETRY_INTERVAL` remains the
+single definition site and the shipped default; `MT_DAILY_CYCLE_RETRY_MINUTES`
+and `--daily-retry-minutes` override it, validated to `1..1440`. The two runner
+predicates take it as a defaulted keyword argument, so they stay pure.
+
+The PM then set the default to **30 minutes**, halving every figure above:
+~47 ticks/day, and a full-day timeout-style outage bounded at ~28,200 credits
+rather than ~56,400. The reasoning is the empirical one — catch-up after a
+provider recovers is observed under two hours, so the fetch bounds recovery, not
+the poll. Anything faster spends credits to arrive at the same time.
+
+This puts `DAILY_CYCLE_RETRY_INTERVAL`, `DAILY_CYCLE_START_OFFSET`, and
+`LATE_BAR_GRACE_PERIOD` all at 30 minutes — which is exactly the state in which
+collapsing them into one constant starts to look like a tidy-up. It would not
+be: they are a retry cadence, a start gate, and a session-close offset, on three
+different clocks. `test_constants.py` asserts each independently *and* asserts
+they are distinct objects, so aliasing one to another fails a test rather than
+silently coupling two unrelated knobs.
+
+### F003 — production code shaped around a test double
+
+Accepted in full. `getattr(..., "nothing_actionable", False) is True` existed
+only to survive under-specified mocks, at the cost of degrading a rename into a
+silently absent drained signal. Production now reads
+`daily_report.nothing_actionable` straight off the contract, and the mocks that
+motivated the guard return real `CycleReport`s.
+
+### F004 — five copies of "today's UTC midnight + offset"
+
+Accepted. The docstring promised the gate and the work list could never
+disagree, but promised it about a copy. `daemon/cadence.py` now holds
+`utc_day_start` and `daily_pass_boundary`; `runner.py`'s four sites and
+`daily.py` call it. A test asserts the gate and the boundary agree at the
+instant itself, which is the property the copies could not guarantee.
+
+### F005 — the enum governed reads but not writes
+
+Accepted. The protection is only real if the token the query reads is the token
+the cycle wrote. `daily.py` gains `_DAILY_GRANULARITY`, derived from the enum
+once and used at every `update_data_gaps`, `advisory_lock`,
+`iter_active_instruments`, and SQL site; the `_select_daily_mode` literal is now
+a parameter; `CA_UPDATE_SENTINEL_GRANULARITY` derives from the enum;
+`RunnerConfig.granularities` is typed `frozenset[CycleGranularity]` and defaults
+to `frozenset(CycleGranularity)`; the CLI builds the set from enum members.
+
+### F006 — a lint regression, and a hole in the gate that missed it
+
+Confirmed, and it invalidates part of the Task 6.1 result as originally
+recorded. The repo-wide ruff **total** was 1812 at both HEAD and the branch
+point — but runner.py had *lost* an E501 and *gained* this I001, so the totals
+matched by coincidence. Comparing totals cannot detect a swap. The gate is now
+run per-file and per-rule; on that basis daily.py and cli/commands/data.py are
+each one E501 better than the branch point, runner.py is one better, and the new
+`cadence.py` is clean.
+
+### F007 / F008 — accepted as described
+
+The aggregate is bounded to the requested scope, and symbols absent from
+`instruments` are reported in their own bucket with their own warning, so a
+mistyped `--symbols` is no longer attributed to issue #4.
+
+### F009 — no load-tier coverage for the new cadence
+
+Deferred, not dismissed. The finding is correct that the unit-tier simulation
+bounds tick count but cannot bound query cost or credit spend. The existing 146
+load tests skip without a database, so adding a load assertion here would land
+un-executed in this environment and prove nothing. It is better paired with the
+6.2 prod verification, where the query can be measured at real scope size
+against .144. Raise as a follow-up in the maintenance band rather than shipping
+an unrunnable test.
 
 ## Notes
 

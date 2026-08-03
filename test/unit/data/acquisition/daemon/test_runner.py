@@ -7,7 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from manta_trading.constants import LATE_BAR_GRACE_PERIOD
+from manta_trading.constants import (
+    DAILY_CYCLE_RETRY_INTERVAL,
+    DAILY_CYCLE_START_OFFSET,
+)
+from manta_trading.data.acquisition.daemon.daily import CycleReport
 from manta_trading.data.acquisition.daemon.runner import (
     QUOTA_BUCKET_VAR,
     Runner,
@@ -38,34 +42,61 @@ def _bucket() -> QuotaBucket:
 # ---------------------------------------------------------------------------
 
 
-def test_daily_cycle_due_false_before_grace():
-    state = RunnerState(last_daily_cycle_start_utc=None)
-    # Right at midnight UTC, no grace yet.
+def test_daily_cycle_due_false_before_start_offset():
+    state = RunnerState(last_daily_cycle_end_utc=None)
+    # Right at midnight UTC, before the provider has published late bars.
     midnight = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     assert daily_cycle_due(state, midnight) is False
 
 
-def test_daily_cycle_due_true_after_grace_with_no_history():
-    state = RunnerState(last_daily_cycle_start_utc=None)
-    after_grace = datetime.now(UTC).replace(
+def test_daily_cycle_due_true_after_start_offset_with_no_history():
+    state = RunnerState(last_daily_cycle_end_utc=None)
+    after_offset = datetime.now(UTC).replace(
         hour=0, minute=0, second=0, microsecond=0
-    ) + LATE_BAR_GRACE_PERIOD + timedelta(seconds=1)
-    assert daily_cycle_due(state, after_grace) is True
+    ) + DAILY_CYCLE_START_OFFSET + timedelta(seconds=1)
+    assert daily_cycle_due(state, after_offset) is True
 
 
-def test_daily_cycle_due_false_when_last_cycle_was_today():
-    today_after_grace = datetime.now(UTC).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ) + LATE_BAR_GRACE_PERIOD + timedelta(seconds=1)
-    state = RunnerState(last_daily_cycle_start_utc=today_after_grace)
-    assert daily_cycle_due(state, today_after_grace + timedelta(hours=1)) is False
+def test_daily_cycle_due_false_within_retry_interval():
+    """Cadence guard: a cycle that just ended does not immediately re-run.
+
+    Replaces the old once-per-UTC-day gate (912 D2). The question is no longer
+    "has today's pass happened" — an interrupted pass has happened and still
+    has work — but "has enough time passed to try again".
+    """
+    end = datetime.now(UTC).replace(hour=2, minute=0, second=0, microsecond=0)
+    state = RunnerState(last_daily_cycle_end_utc=end)
+    assert daily_cycle_due(state, end + DAILY_CYCLE_RETRY_INTERVAL / 2) is False
+
+
+def test_daily_cycle_due_true_after_retry_interval_same_day():
+    """The defect the slice exists to fix: same-day retry after an interruption.
+
+    Under the old predicate this returned False for the rest of the UTC day, so
+    a pass that died partway through the alphabet was never retried.
+    """
+    end = datetime.now(UTC).replace(hour=2, minute=0, second=0, microsecond=0)
+    state = RunnerState(last_daily_cycle_end_utc=end)
+    later = end + DAILY_CYCLE_RETRY_INTERVAL + timedelta(seconds=1)
+    assert daily_cycle_due(state, later) is True
 
 
 def test_daily_cycle_due_true_after_utc_day_rollover():
     today = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
-    yesterday_cycle = today - timedelta(days=1)
-    state = RunnerState(last_daily_cycle_start_utc=yesterday_cycle)
+    state = RunnerState(last_daily_cycle_end_utc=today - timedelta(days=1))
     assert daily_cycle_due(state, today) is True
+
+
+def test_daily_cycle_due_false_before_offset_even_when_retry_elapsed():
+    """The start offset outranks the retry interval.
+
+    Just after midnight, a cycle that ended hours ago has long since satisfied
+    the retry interval — but the provider has not published the completed
+    session yet, so the pass must still wait.
+    """
+    midnight = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    state = RunnerState(last_daily_cycle_end_utc=midnight - timedelta(hours=6))
+    assert daily_cycle_due(state, midnight + timedelta(minutes=5)) is False
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +145,7 @@ def test_ca_update_due_false_before_grace():
 def test_ca_update_due_true_when_row_missing():
     after_grace = datetime.now(UTC).replace(
         hour=0, minute=0, second=0, microsecond=0
-    ) + LATE_BAR_GRACE_PERIOD + timedelta(seconds=1)
+    ) + DAILY_CYCLE_START_OFFSET + timedelta(seconds=1)
     conn = _conn_returning_row(None)
     assert ca_update_due(conn, after_grace) is True
 
@@ -122,7 +153,7 @@ def test_ca_update_due_true_when_row_missing():
 def test_ca_update_due_true_when_last_attempt_ts_is_null():
     after_grace = datetime.now(UTC).replace(
         hour=0, minute=0, second=0, microsecond=0
-    ) + LATE_BAR_GRACE_PERIOD + timedelta(seconds=1)
+    ) + DAILY_CYCLE_START_OFFSET + timedelta(seconds=1)
     conn = _conn_returning_row((None,))
     # MUST NOT call .date() on None.
     assert ca_update_due(conn, after_grace) is True
@@ -159,6 +190,44 @@ def test_sleep_caps_at_60s():
     assert sleeps and 0.0 <= sleeps[0] <= 60.0
 
 
+def test_sleep_targets_retry_interval_not_tomorrow():
+    """After a cycle ends, the next wake is one retry interval away (912 D2).
+
+    Sleeping to tomorrow's start offset would strand an interrupted pass for the
+    rest of the day — the defect this slice removes. The cap makes the observed
+    sleep 60 s, so the assertion is that we did *not* sleep zero and did not
+    treat the day as finished.
+    """
+    now = _today_at(4, 0)
+    state = RunnerState(last_daily_cycle_end_utc=now - timedelta(minutes=1))
+    sleeps: list[float] = []
+    sleep_until_next_due_event(state, now, sleeps.append, cap_seconds=60.0)
+    # Next daily wake is 14 minutes out, so the capped sleep is the full 60 s —
+    # not the ~20 hours a next-day target would have produced (also capped, so
+    # the distinguishing check is the uncapped math below).
+    assert sleeps[0] == 60.0
+
+    # Uncapped, the wait must be the retry interval remainder, not ~20 hours.
+    sleeps.clear()
+    sleep_until_next_due_event(state, now, sleeps.append, cap_seconds=86_400.0)
+    expected = (DAILY_CYCLE_RETRY_INTERVAL - timedelta(minutes=1)).total_seconds()
+    assert sleeps[0] == pytest.approx(expected, abs=1.0)
+
+
+def test_sleep_does_not_crash_when_everything_is_already_due():
+    """An empty set of future events means wait zero, never cap_seconds.
+
+    Under the old code the daily candidate was always tomorrow's offset and so
+    always positive; under D2 it can be `now`, which previously would have left
+    `min()` with nothing to consume.
+    """
+    now = _today_at(12, 0)
+    state = RunnerState(last_daily_cycle_end_utc=None)
+    sleeps: list[float] = []
+    sleep_until_next_due_event(state, now, sleeps.append, cap_seconds=60.0)
+    assert sleeps == [0.0]
+
+
 # ---------------------------------------------------------------------------
 # Runner main loop
 # ---------------------------------------------------------------------------
@@ -183,8 +252,12 @@ def _make_runner(
     clock_at: datetime | None = None,
 ) -> tuple[Runner, MagicMock, MagicMock, MagicMock]:
     bucket = _bucket()
-    daily_func = daily_func or MagicMock()
-    minute_func = minute_func or MagicMock()
+    # A real CycleReport, not a bare MagicMock: the loop reads
+    # `report.nothing_actionable` straight off the contract, and a mock would
+    # auto-create it as a truthy attribute — silently reporting every scope as
+    # drained (912 review F003).
+    daily_func = daily_func or MagicMock(return_value=CycleReport())
+    minute_func = minute_func or MagicMock(return_value=CycleReport())
     ca_func = ca_func or MagicMock()
     # Simulate ca_update_due returning False so the loop doesn't try
     # to call ca_func; tests opt in by reaching past the grace period.
@@ -225,6 +298,49 @@ def test_runner_terminates_when_drained_after_one_pass():
     assert code == 0
     assert daily_func.call_count == 1
     assert minute_func.call_count == 0
+
+
+def test_runner_stamps_cycle_end_not_start():
+    """The stamp lands after the cycle, and reflects completion time (912 D2).
+
+    Under the old code the stamp was written *before* the try block, so a cycle
+    that died partway had already marked the day done.
+    """
+    at = _today_at(12, 0)
+    observed: list[datetime | None] = []
+
+    def _record_state_during_cycle(**_kwargs):
+        # Mid-cycle the stamp must still be unset: nothing has completed.
+        observed.append(runner._state.last_daily_cycle_end_utc)
+        return CycleReport()
+
+    runner, _daily, _minute, _ca = _make_runner(
+        clock_at=at,
+        granularities=frozenset({"daily"}),
+        daily_func=MagicMock(side_effect=_record_state_during_cycle),
+    )
+    runner.start()
+
+    assert observed == [None], "stamp was written before the cycle ran"
+    assert runner._state.last_daily_cycle_end_utc == at
+
+
+def test_runner_stamps_cycle_end_even_when_cycle_raises():
+    """A cycle that raised still consumed its cadence slot.
+
+    Not stamping would busy-loop against a persistent failure. No work is lost:
+    remaining symbols are re-derived from acquisition_state on the next tick.
+    """
+    at = _today_at(12, 0)
+    runner, _daily, _minute, _ca = _make_runner(
+        clock_at=at,
+        granularities=frozenset({"daily"}),
+        daily_func=MagicMock(side_effect=RuntimeError("cycle blew up")),
+    )
+    code = runner.start()
+
+    assert code == 0, "a raising cycle must not crash the daemon"
+    assert runner._state.last_daily_cycle_end_utc == at
 
 
 def test_runner_max_credits_exhausted_exits():
