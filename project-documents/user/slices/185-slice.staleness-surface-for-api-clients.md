@@ -215,6 +215,19 @@ response bounded without inventing a new default policy; a client that wants
 everything passes `?all=true` (matching `--all`), same tradeoff the CLI
 already made and documented (`render_status_footer`'s advisory line).
 
+**Handler is `async def` (resolves review F003).** `status.py` makes two
+blocking DB calls per request (`fetch_status_rows_with_freshness`,
+`fetch_all_health_counts_with_freshness`) — more DB work than `health.py`'s
+single `SELECT 1`, which is why `health()` can stay a sync handler (D6) but
+`status.py` cannot follow that precedent. `get_status` is `async def`, and
+both calls are dispatched via `asyncio.gather(loop.run_in_executor(...),
+loop.run_in_executor(...))`, identical in shape to `symbols.py`'s
+`get_symbol`, which already runs its two DB fetches (`_fetch_minute_range`,
+`_fetch_daily_range`) concurrently the same way. This follows the majority
+`async def` + `run_in_executor` pattern this codebase uses for any route with
+real DB work (`bars.py`, `symbols.py`), reserving the sync-handler exception
+for the one route cheap enough not to need it.
+
 ### D2 — Response shape: `StatusResponse`, no pagination, bounded by the same filter defaults as the CLI
 
 ```python
@@ -379,6 +392,25 @@ adds at most one extra ~0.2–2s probe per (view, 60s-window) — not per reques
 (both are already `run_in_executor`-wrapped blocking calls), so it does not
 serialize behind the data fetch.
 
+**NFR restatement (resolves review F004).** 180-arch states no formal bars
+latency NFR (unlike 140-arch's explicit sub-second `data_status` target); the
+API's only stated latency posture is qualitative — "single-user local network
+tool," DB query latency "acceptable... without caching." Given that, this
+slice sets an explicit budget rather than leaving the concern open: **on a
+cache-hit (the steady-state case, any request to the same granularity within
+60s of a prior one), the freshness check adds no measurable latency** — a
+process-local dict lookup, not a DB round trip. **On a cache-miss, added
+latency is bounded by the single slowest probe this slice issues, not by the
+sum of the two `gather` branches** (they run concurrently), and per 167's
+measured probe range (~0.19s–2.1s, the high end specific to a
+pre-rechunk `daily_ohlcv` catalog-planning cost, not the minute caggs this
+slice's granularities mostly hit) should not exceed **+2.5s** over the
+existing bars baseline in the worst case. If implementation measurement on the
+actual bars-serving caggs (`minute_5min_ohlcv` etc., not `daily_ohlcv`) shows
+worse, that is new information for task breakdown to act on — e.g. a load-test
+assertion — not a defect in this estimate, which is deliberately upper-bounded
+by the worst measured case in the codebase today.
+
 **`run_in_executor` requirement (project Python rules):** `get_bars` is
 `async def`; `assert_cagg_fresh` issues blocking psycopg calls. Per the
 project's async-correctness rule, it is wrapped in `run_in_executor` exactly
@@ -394,6 +426,80 @@ event loop.
 `db: Annotated[psycopg.Connection, Depends(get_db)]` to `get_bars`, reusing
 the existing pooled-connection dependency already used by `health.py` and
 `symbols.py` — no new connection-management code.
+
+### D9 — Failure modes on the new I/O paths (resolves review F001)
+
+Three new I/O call sites are added: `status.py`'s two `status_queries` calls,
+`health.py`'s `check_coverage_freshness` call, and `bars.py`'s
+`assert_cagg_fresh` call. Each is addressed explicitly rather than left to
+inherited behavior:
+
+**Freshness probes never raise on I/O failure.** Every statement
+`cagg_freshness.py` issues is bounded by `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT`
+(10s, existing constant) via `_set_probe_timeout`, and `_evaluate` wraps all
+four probe calls in `try/except psycopg.Error`, converting a timeout,
+connection drop, or any other DB error into a `PROBE_FAILED` signal — a
+`FreshnessVerdict` with `is_fresh=False`, not an exception (168 D3:
+"indeterminate freshness is stale"). This is existing, unchanged behavior;
+`check_coverage_freshness` and the new bars-side `assert_cagg_fresh` call both
+inherit it directly. Neither can hang past 10s per probe, and neither can
+raise from a probe failure — a stale verdict is the worst case, not a crash.
+
+**The one exception this slice's new code can propagate is a genuine data-query
+failure** — `status_coverage.query_data_status`'s actual `cur.execute(sql,
+params)` against `data_status` (not the freshness probe, which already ran and
+returned by that point). This is unguarded by design in the existing 167 code
+(`query_data_status` does not wrap its own query execution), and this slice
+does not add a try/except around it either: it propagates to the existing
+global `@app.exception_handler(Exception)` registered in `app.py` (slice 184),
+which logs the full traceback at ERROR and returns a sanitized `500`. This is
+the same contract `bars.py` and `symbols.py` already rely on for their own DB
+calls (184's design doc: *"Existing route audit: `bars.py` and `symbols.py`
+let DB errors propagate as unhandled exceptions today. The new 500 handler
+catches them uniformly — no per-route changes needed."*). `status.py` follows
+the identical pattern; no new exception handling is introduced.
+
+**`asyncio.gather` in bars (D7) does not need `return_exceptions=True`.**
+Given the probe-never-raises guarantee above, the only way the freshness task
+in `gather` can raise is `assert_cagg_fresh`'s `ValueError` for an unrecognized
+`view_name` — which cannot occur here, since the argument is always
+`GRANULARITY_SOURCE[granularity]` for a `granularity` already validated by
+FastAPI's `Granularity` enum binding, i.e. always a known key. Practically,
+the freshness branch of `gather` cannot raise in production; if it somehow did
+(a genuine code bug, not an I/O condition), default `gather` semantics
+(propagate, cancel the sibling task) are correct — the same global 500 handler
+catches it, and failing the whole request is the right behavior for a bug in
+this slice's own code, as opposed to a DB hiccup, which never reaches this
+path per the guarantee above.
+
+### D10 — Explicit `bars.py` / `responses.py` ownership boundary with slice 186 (resolves review F002)
+
+Both this slice and 186 touch `bars.py` and `responses.py`, and 186 was not
+designed yet at the time this doc was written, so the boundary is stated here
+rather than left implicit:
+
+| File / region | Owned by 185 | Owned by 186 |
+|---|---|---|
+| `app.py::_configure_connection` (pool `statement_timeout`, `work_mem`) | — | Yes — different file/function entirely, no overlap |
+| `get_bars`'s dependency list | Adds `db: Depends(get_db)` (D8) | — |
+| `get_bars` body, freshness branch | Adds the `is_cagg` check, `asyncio.gather` freshness probe (D7) | — |
+| `get_bars` body, range/pagination enforcement | — | Adds range-cap/pagination policy and the 404-vs-empty-window contract decision (186's plan entry, item 3) |
+| `models/responses.py::BarsResponse` | Adds `is_stale: bool` field | — |
+| OpenAPI `version` field, `openapi.json` artifact | — | Yes (186's plan entry, item 2/4) |
+
+Both slices touch the *same function* (`get_bars`) but in different, additive
+regions — 185's changes are the connection dependency and a new branch before
+the response is built; 186's are the range/pagination checks on the
+`start`/`end`/`granularity` inputs, logically upstream of both. No field or
+line is claimed by both.
+
+**Sequencing consequence:** since 185 is being implemented first (PM
+decision, this session), 186's task breakdown must diff against 185's landed
+`bars.py`/`responses.py`, not the pre-185 version — its `is_stale` field and
+`db` dependency should be treated as already present, not something 186
+reintroduces or conflicts with. If 186 implementation starts from a worktree
+branched before 185 merges, it must rebase onto 185's landed state before
+touching `bars.py`.
 
 ## Cross-Slice Dependencies and Interfaces
 
