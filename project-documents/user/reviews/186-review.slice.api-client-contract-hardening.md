@@ -15,57 +15,57 @@ findings:
     severity: pass
     category: uncategorized
     summary: "D6 unified error body advances the arch's stated consistency goal"
-    location: 186-slice.api-client-contract-hardening.md#D6 — One error-body shape for every error this codebase raises
+    location: '186-slice.api-client-contract-hardening.md#D6 — One error-body shape for every error this codebase raises'
   - id: F002
     severity: pass
     category: uncategorized
     summary: "No-pagination stance preserved"
-    location: 186-slice.api-client-contract-hardening.md#D4 — Bars range cap: pre-query admission check, `422`, no pagination
+    location: '186-slice.api-client-contract-hardening.md#D4 — Bars range cap: pre-query admission check, `422`, no pagination'
   - id: F003
     severity: pass
     category: uncategorized
     summary: "Auth/CORS posture matches arch, recorded as a decision rather than omission"
-    location: 186-slice.api-client-contract-hardening.md#D8 — Auth and CORS posture: recorded decision, no change
+    location: '186-slice.api-client-contract-hardening.md#D8 — Auth and CORS posture: recorded decision, no change'
   - id: F004
     severity: pass
     category: uncategorized
     summary: "Breaking contract changes are explicitly flagged"
-    location: 186-slice.api-client-contract-hardening.md#Risks
+    location: '186-slice.api-client-contract-hardening.md#Risks'
   - id: F005
     severity: note
     category: uncategorized
     summary: "Code-location path drift between arch and slice (inherited from 184/185)"
-    location: 186-slice.api-client-contract-hardening.md (Technical Scope) vs 180-arch.data-serving.md#Code Location
+    location: '186-slice.api-client-contract-hardening.md (Technical Scope) vs 180-arch.data-serving.md#Code Location'
   - id: F006
     severity: note
     category: uncategorized
     summary: "New `MT_API_*` settings partially exceed \"no new connection config\" boundary"
-    location: 186-slice.api-client-contract-hardening.md#D9 — The two policy ceilings are operator-settable
+    location: '186-slice.api-client-contract-hardening.md#D9 — The two policy ceilings are operator-settable'
   - id: F007
     severity: concern
     category: scope-creep
     summary: "D4 range cap contradicts the architecture's \"trust callers\" stance"
-    location: 186-slice.api-client-contract-hardening.md#D4 — Bars range cap: pre-query admission check, `422`, no pagination
+    location: '186-slice.api-client-contract-hardening.md#D4 — Bars range cap: pre-query admission check, `422`, no pagination'
   - id: F008
     severity: concern
     category: scope-creep
     summary: "D5 contract change contradicts the architecture's documented 404 semantics"
-    location: 186-slice.api-client-contract-hardening.md#D5 — `404` means "unknown symbol"; an empty window is `200`
+    location: '186-slice.api-client-contract-hardening.md#D5 — `404` means "unknown symbol"; an empty window is `200`'
   - id: F009
     severity: concern
     category: layer-boundary
     summary: "D5 instrument-existence lookup in the route violates the thin-wrapper design principle"
-    location: 186-slice.api-client-contract-hardening.md#D5 — `404` means "unknown symbol"; an empty window is `200`
+    location: '186-slice.api-client-contract-hardening.md#D5 — `404` means "unknown symbol"; an empty window is `200`'
   - id: F010
     severity: concern
     category: error-handling
     summary: "New DB I/O path introduced by D5 has no enumerated failure modes or handling strategy"
-    location: 186-slice.api-client-contract-hardening.md#D5 — `404` means "unknown symbol"; an empty window is `200`
+    location: '186-slice.api-client-contract-hardening.md#D5 — `404` means "unknown symbol"; an empty window is `200`'
   - id: F011
     severity: concern
     category: layer-boundary
     summary: "D1 session-settings plumbing touches a layer boundary the arch declares out of scope"
-    location: 186-slice.api-client-contract-hardening.md#D1 — Session settings reach all three pools, via a plumbed argument
+    location: '186-slice.api-client-contract-hardening.md#D1 — Session settings reach all three pools, via a plumbed argument'
 ---
 
 # Review: slice — slice 186
