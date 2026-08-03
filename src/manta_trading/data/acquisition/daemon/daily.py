@@ -105,20 +105,45 @@ _PENDING_DAILY_SYMBOLS_SQL = """
     ),
     calendars_with_sessions AS (
         SELECT DISTINCT calendar_id FROM trading_sessions
+    ),
+    symbol_calendar AS (
+        SELECT i.symbol,
+               bool_or(cw.calendar_id IS NOT NULL) AS has_calendar
+          FROM instruments i
+          LEFT JOIN calendars_with_sessions cw
+                 ON cw.calendar_id = i.trading_calendar_id
+         GROUP BY i.symbol
     )
     SELECT s.symbol,
-           (cw.calendar_id IS NOT NULL) AS has_calendar,
+           COALESCE(sc.has_calendar, false) AS has_calendar,
            a.last_attempt_ts
       FROM scope s
-      LEFT JOIN instruments i
-             ON i.symbol = s.symbol
-      LEFT JOIN calendars_with_sessions cw
-             ON cw.calendar_id = i.trading_calendar_id
+      LEFT JOIN symbol_calendar sc
+             ON sc.symbol = s.symbol
       LEFT JOIN acquisition_state a
              ON a.symbol = s.symbol
             AND a.granularity = %(granularity)s
             AND a.provider = %(provider)s
      ORDER BY s.ord
+"""
+"""Exactly one row per scope entry, by construction.
+
+``instruments.symbol`` is **not unique** — the primary key is
+``instrument_id``, ``canonical_id`` carries the UNIQUE constraint, and symbol
+has only a non-unique index. Joining scope directly to ``instruments`` would
+therefore emit one row per instrument row per symbol, which would put a symbol
+into ``pending`` more than once (fetched repeatedly in a single pass) and could
+put the same symbol into *both* buckets when one of its rows resolves a
+calendar and another does not.
+
+``symbol_calendar`` collapses that with ``GROUP BY i.symbol``, and ``bool_or``
+makes a symbol actionable if *any* of its instrument rows resolves a calendar.
+That matches ``_last_completed_session``, which aggregates with ``MAX`` over the
+same join and so is already permissive in exactly this way — the two must agree,
+or the work list would hand the cycle a symbol it then refuses to fetch.
+
+``acquisition_state`` cannot fan out: ``(symbol, granularity, provider)`` is its
+primary key.
 """
 
 

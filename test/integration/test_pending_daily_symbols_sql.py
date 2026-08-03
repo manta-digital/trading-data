@@ -97,6 +97,38 @@ def test_ordering_survives_the_round_trip(conn):
     )
 
 
+def test_no_fan_out_on_duplicate_instrument_rows(conn):
+    """One row out per scope entry, even when a symbol has several instrument rows.
+
+    ``instruments.symbol`` is not unique (PK is ``instrument_id``; UNIQUE is on
+    ``canonical_id``). A naive join to ``instruments`` would emit one row per
+    instrument row, which would fetch a symbol repeatedly in one pass and could
+    place it in both buckets at once. Only a real query can catch this — a mock
+    replays whatever rows the test wrote.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT symbol FROM instruments
+             GROUP BY symbol HAVING count(*) > 1
+             LIMIT 5
+            """
+        )
+        duplicated = [row[0] for row in cur.fetchall()]
+
+    if not duplicated:
+        pytest.skip("no symbol has multiple instrument rows in this database")
+
+    result = pending_daily_symbols(
+        conn, duplicated, daily_pass_boundary(datetime.now(UTC))
+    )
+    returned = result.pending + result.unactionable_no_calendar
+    assert len(returned) == len(set(returned)), "a symbol was returned more than once"
+    assert sorted(returned) == sorted(duplicated), (
+        "scope size changed through the query"
+    )
+
+
 def test_future_boundary_marks_everything_pending(conn):
     """With a boundary in the future, nothing can have been attempted yet."""
     with conn.cursor() as cur:
