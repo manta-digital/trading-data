@@ -228,6 +228,41 @@ loop.run_in_executor(...))`, identical in shape to `symbols.py`'s
 real DB work (`bars.py`, `symbols.py`), reserving the sync-handler exception
 for the one route cheap enough not to need it.
 
+### D1b — `?health=` present but empty is a 422, not a silent empty result (resolves code-review F001)
+
+The task breakdown flagged invalid-`health` handling as the one client-visible
+contract detail D1 left open, and settled on 422. Implementation and the
+sonnet-5 code review surfaced a third case the CLI never meaningfully hits:
+`health` present but naming nothing — `?health=`, `?health=,,`, `?health=%20`.
+
+As first implemented these produced `health_filter=[]`, which reaches SQL as
+`health = ANY('{}')` and matches **no rows**: a `200` with `rows: []`,
+indistinguishable from a filter that legitimately matched nothing. The likely
+cause of an empty value is an unset client-side template (`?health={filter}`),
+so the plausible-looking empty answer is the worst of the three options.
+
+**Decision: 422**, with a message naming all three ways out (omit for the
+default, `all=true` for no filter, or name valid values). Rejected
+alternatives: passing `[]` through (the silent-empty-result case above), and
+treating it as omitted (a silent fallback that ignores what the client sent —
+exactly what the project's "never use silent fallback values" rule prohibits).
+
+Two deliberate consequences:
+
+- **This diverges from `mt data status`**, where `--health ""` yields the same
+  empty filter and returns zero rows. Success Criterion 3's "filter identically
+  to the equivalent flags" covers the *value* cases (`?health=OK`, `?all=true`,
+  `?granularity=daily`), all of which still match. An empty value is a typing
+  accident on a CLI and a templating accident over HTTP; only the latter is
+  worth a diagnostic. The CLI is not changed — Success Criterion 7 holds.
+- **Leniency is preserved where it belongs.** Whitespace and case are still
+  normalized (`?health= ok , gaps ` → `['OK', 'GAPS']`), per the project's
+  "prefer lenient parsing" rule. Rejecting an *empty* value is not strictness
+  about formatting; it is refusing to guess at intent.
+
+`?all=true&health=` remains a `200` with no filter, since `all` is documented
+as overriding `health` — the empty value is never consulted.
+
 ### D2 — Response shape: `StatusResponse`, no pagination, bounded by the same filter defaults as the CLI
 
 ```python
@@ -691,7 +726,7 @@ and will differ on re-run.
    Observed: `scope: symbol`, `count: 2` — `SPY daily OK` and
    `SPY minute FAILED` — in 0.22s.
 
-   Two contract details from D1/D5 verified at the same time:
+   Contract details from D1/D1b/D5 verified at the same time:
    ```bash
    curl -s -o /dev/null -w "%{http_code}\n" \
      "http://127.0.0.1:8100/api/v1/status?symbol=NOSUCHSYM"      # → 200 (D5)
@@ -699,6 +734,19 @@ and will differ on re-run.
      "http://127.0.0.1:8100/api/v1/status?symbol=SPY&health=BOGUS"
    # → 422 {"detail":"Invalid health values: BOGUS. Valid: FAILED, GAPS, OK, STALE"}
    ```
+
+   The full `health` matrix (D1b), verified via `TestClient` with the fetch
+   layer patched — parsing is pure, so it needs no DB:
+
+   | Query | Status | `health_filter` forwarded |
+   |---|---|---|
+   | *(omitted)* | 200 | `['GAPS', 'STALE', 'FAILED']` |
+   | `?health=OK,GAPS` | 200 | `['OK', 'GAPS']` |
+   | `?health= ok , gaps ` | 200 | `['OK', 'GAPS']` |
+   | `?all=true` | 200 | `None` |
+   | `?all=true&health=` | 200 | `None` |
+   | `?health=` / `?health=,,` / `?health=%20` | **422** | *not called* |
+   | `?health=BOGUS` | 422 | *not called* |
 
 4. **Health, freshness field:**
    ```bash

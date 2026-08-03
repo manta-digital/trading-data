@@ -29,6 +29,9 @@ from manta_trading.data.maintenance.status_queries import (
 
 router = APIRouter()
 
+_VALID_HEALTH: tuple[str, ...] = tuple(member.value for member in HealthStatus)
+"""Every accepted ``health`` token, derived from the enum rather than restated."""
+
 _DEFAULT_HEALTH_FILTER: tuple[str, ...] = tuple(
     member.value for member in HealthStatus if member is not HealthStatus.OK
 )
@@ -46,10 +49,15 @@ def _resolve_health_filter(health: str | None, *, all_rows: bool) -> list[str] |
     an omitted ``health`` falls back to the CLI's non-``OK`` default.
 
     Raises:
-        HTTPException: 422 when a token is not a ``HealthStatus`` value. 422 is
-            the same status FastAPI already returns for an invalid
-            ``granularity`` on the bars route, so one malformed-query contract
-            covers both.
+        HTTPException: 422 when ``health`` is present but names no valid value —
+            either because a token is not a ``HealthStatus`` value, or because
+            it is empty. 422 matches the status FastAPI already returns for an
+            invalid ``granularity`` on the bars route. Only the *status*
+            matches: FastAPI's native validation body is a list of structured
+            error objects under ``detail``, while these are a plain string. This
+            API already varies its error bodies (slice 184's handler emits
+            ``{"error": ...}`` for 404), so a uniform error-body contract is a
+            separate decision this route cannot make on its own.
     """
     if all_rows:
         return None
@@ -57,14 +65,31 @@ def _resolve_health_filter(health: str | None, *, all_rows: bool) -> list[str] |
         return list(_DEFAULT_HEALTH_FILTER)
 
     tokens = [token.strip().upper() for token in health.split(",") if token.strip()]
-    valid = {member.value for member in HealthStatus}
-    invalid = [token for token in tokens if token not in valid]
+    if not tokens:
+        # `?health=`, `?health=,,`, `?health=%20` — present but naming nothing.
+        # Not treated as "omitted": falling back to the default would silently
+        # ignore what the client sent. Not passed through either: an empty
+        # `ANY()` array matches no rows, so the client would get a 200 with an
+        # empty result indistinguishable from "your filter matched nothing".
+        # An unset `?health={filter}` template is the likely cause, and it
+        # deserves a diagnostic rather than a plausible-looking empty answer.
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Query parameter 'health' was provided but empty. Omit it for "
+                f"the default ({', '.join(_DEFAULT_HEALTH_FILTER)}), pass "
+                "'all=true' for no filter, or name one or more of: "
+                f"{', '.join(sorted(_VALID_HEALTH))}"
+            ),
+        )
+
+    invalid = [token for token in tokens if token not in _VALID_HEALTH]
     if invalid:
         raise HTTPException(
             status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"Invalid health values: {', '.join(invalid)}. "
-                f"Valid: {', '.join(sorted(valid))}"
+                f"Valid: {', '.join(sorted(_VALID_HEALTH))}"
             ),
         )
     return tokens

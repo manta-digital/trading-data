@@ -253,6 +253,31 @@ class TestStatusRoute:
         assert response.status_code == 422
         assert "BOGUS" in response.text
 
+    @pytest.mark.parametrize("query", ["?health=", "?health=,,", "?health=%20"])
+    def test_empty_health_returns_422_not_zero_rows(
+        self, test_app: FastAPI, query: str
+    ) -> None:
+        """`health` present but naming nothing must not silently match no rows.
+
+        An empty `ANY()` array filters everything out, so passing it through
+        would return a 200 with `rows: []` — indistinguishable from a filter
+        that legitimately matched nothing. The likely cause is an unset
+        `?health={filter}` template, which deserves a diagnostic.
+        """
+        with _mocked_fetches() as (fetch_rows, _):
+            response = TestClient(test_app).get(f"/api/v1/status{query}")
+        assert response.status_code == 422
+        assert "empty" in response.text
+        assert not fetch_rows.called
+
+    def test_empty_health_is_not_treated_as_omitted(self, test_app: FastAPI) -> None:
+        """Falling back to the default would silently ignore what was sent."""
+        with _mocked_fetches():
+            empty = TestClient(test_app).get("/api/v1/status?health=")
+            omitted = TestClient(test_app).get("/api/v1/status")
+        assert empty.status_code == 422
+        assert omitted.status_code == 200
+
     def test_granularity_is_forwarded(self, test_app: FastAPI) -> None:
         with _mocked_fetches() as (fetch_rows, _):
             response = TestClient(test_app).get("/api/v1/status?granularity=daily")
