@@ -833,7 +833,7 @@ and will differ on re-run.
    to pause and no verdict to induce. Consequence: the stale path on all three
    surfaces is verified in unit tests (which inject stale `FreshnessVerdict`s
    at the `assert_cagg_fresh`/`check_coverage_freshness` boundary) but **not**
-   end to end against a real stalled cagg. Filed as future work item 3 on
+   end to end against a real stalled cagg. Filed as future work item 4 on
    `user/architecture/180-slices.data-serving-api.md` — a representative
    disposable test DB with real caggs and policies over a small data subset.
    Re-run this step once that exists.

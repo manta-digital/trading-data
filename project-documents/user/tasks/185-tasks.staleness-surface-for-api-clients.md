@@ -375,7 +375,7 @@ status: complete
 **Induced-staleness verification (Walkthrough step 7) — disposable test DB only,
 never prod — NOT RUN (2026-08-03, PM decision).** No suitable DB exists: prod is
 off-limits for pausing a refresh policy, and `trading_test` is ruled out (plain
-views, not caggs — nothing to pause). Filed as future work item 3 on
+views, not caggs — nothing to pause). Filed as future work item 4 on
 `user/architecture/180-slices.data-serving-api.md`. Deliberately **not** a
 checklist item: this slice cannot complete it, and a permanently-unchecked box
 would hold the whole slice at `in_progress` forever. Re-open it as a task in
@@ -386,7 +386,7 @@ whichever slice builds that DB.
         caggs
   - [x] Effort: 3
 
-  **Deferred work, carried to future work item 3 (not checklist items — this
+  **Deferred work, carried to future work item 4 (not checklist items — this
   slice cannot complete them, so they are recorded as prose rather than left as
   permanently-unchecked boxes):**
 
