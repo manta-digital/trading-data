@@ -317,9 +317,38 @@ end. This is the commit that closes issue #7's substance.
   - [ ] On entering the wait, log once at INFO naming the reason and the due
         time — e.g. `runner: no cycle due until 00:30 UTC — waiting (27m)
         because --stop-when-done`. Log on entry only, not once per 60 s tick.
-  - [ ] **Tests (written here):** the wait is entered rather than exited; the
-        INFO message names the due time; the message is emitted once across
-        several sleep ticks, not per tick.
+  - [ ] **Verification of the condition — exhaustive, not sampled.**
+        `_awaiting_first_cycle()` is a pure function of three inputs: the
+        configured granularity set and the two nullable end-stamps. The input
+        space is finite, so enumerate all eight reachable combinations with
+        `@pytest.mark.parametrize` and assert the expected verdict for each:
+
+        | granularities | daily stamp | minute stamp | expected |
+        | --- | --- | --- | --- |
+        | `{daily}` | `None` | — | `True` |
+        | `{daily}` | set | — | `False` |
+        | `{minute}` | — | `None` | `True` |
+        | `{minute}` | — | set | `False` |
+        | `{daily, minute}` | `None` | `None` | `True` |
+        | `{daily, minute}` | `None` | set | `True` |
+        | `{daily, minute}` | set | `None` | `True` |
+        | `{daily, minute}` | set | set | `False` |
+
+        Note the `(set, None)` row is defensive rather than reachable in
+        practice — minute is due immediately when its stamp is `None`, and the
+        stamp is written right after the try/except at `runner.py:379`, so
+        minute cannot stay unstamped once its branch has run. Assert it anyway;
+        the predicate must be correct on its own terms, not by relying on the
+        loop's ordering.
+  - [ ] **Wiring tests (written here):** an exhaustive predicate test cannot
+        catch a correct predicate called in the wrong place, so also assert at
+        the loop level that the wait is entered rather than exited; that the
+        INFO message names the due time; and that the message is emitted once
+        across several sleep ticks, not per tick.
+  - [ ] **Regression guard:** the `--minute --list X` case gets an explicit test
+        timeout so that if the qualifier is ever removed, the suite reports a
+        failure rather than hanging. A hang in CI reads as infrastructure
+        flakiness; a timeout failure names the cause.
   - Effort: 2
 
 - [ ] **4.5 Document the Ctrl-C latency on `--stop-when-done`**
