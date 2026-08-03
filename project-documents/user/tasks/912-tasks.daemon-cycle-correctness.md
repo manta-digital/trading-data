@@ -138,11 +138,11 @@ scope.
 
 ## Task 2 — Derive the daily work list (D1, D6)
 
-- [ ] **2.1 Add `pending_daily_symbols()` to `daily.py`, with its tests**
-  - [ ] Signature: `(conn, symbol_list: list[str], pass_boundary: datetime) -> DailyWorkList`
+- [x] **2.1 Add `pending_daily_symbols()` to `daily.py`, with its tests**
+  - [x] Signature: `(conn, symbol_list: list[str], pass_boundary: datetime) -> DailyWorkList`
         where `DailyWorkList` is a small frozen dataclass carrying
         `pending: list[str]` and `unactionable_no_calendar: list[str]`.
-  - [ ] One parameterized SQL statement over `instruments` LEFT JOIN
+  - [x] One parameterized SQL statement over `instruments` LEFT JOIN
         `acquisition_state` (`granularity = 'daily'`, `provider = 'eodhd'`),
         classifying each scope member:
         - **un-actionable** if no `trading_sessions` row exists for the
@@ -152,34 +152,34 @@ scope.
         - **done** if `last_attempt_ts >= pass_boundary`;
         - **pending** otherwise (including `last_attempt_ts IS NULL` and
           missing `acquisition_state` rows — never call `.date()` on `None`).
-  - [ ] Preserve the caller's ordering for `pending` (`iter_active_instruments`
+  - [x] Preserve the caller's ordering for `pending` (`iter_active_instruments`
         already orders `most_stale_first`); do not re-sort.
-  - [ ] **Tests (written here):** against a mock connection, one case per
+  - [x] **Tests (written here):** against a mock connection, one case per
         branch — attempted-after-boundary, attempted-before-boundary, NULL
         `last_attempt_ts`, absent `acquisition_state` row, no calendar — plus an
         ordering-preservation case.
   - Success: those tests pass.
   - Effort: 3
 
-- [ ] **2.2 Extend `CycleReport` with the un-actionable count and a drained flag**
-  - [ ] `unactionable_no_calendar: int = 0`
-  - [ ] `nothing_actionable: bool = False` — set when the derived pending set is
+- [x] **2.2 Extend `CycleReport` with the un-actionable count and a drained flag**
+  - [x] `unactionable_no_calendar: int = 0`
+  - [x] `nothing_actionable: bool = False` — set when the derived pending set is
         empty, so the runner can classify the idle reason without re-deriving it
         (D4). Default `False` keeps `run_minute_cycle`'s use of `CycleReport`
         unchanged.
   - Success: `run_minute_cycle` compiles and its existing tests pass untouched.
   - Effort: 1
 
-- [ ] **2.3 Wire the work list into `run_daily_cycle`, with its tests**
-  - [ ] After `symbol_list` is resolved (`daily.py:103-112`), compute the pass
+- [x] **2.3 Wire the work list into `run_daily_cycle`, with its tests**
+  - [x] After `symbol_list` is resolved (`daily.py:103-112`), compute the pass
         boundary as today's UTC midnight + `DAILY_CYCLE_START_OFFSET` and call
         `pending_daily_symbols`.
-  - [ ] If `pending` is empty: set `nothing_actionable = True`, log at INFO with
+  - [x] If `pending` is empty: set `nothing_actionable = True`, log at INFO with
         the scope size and the un-actionable count, and **return before any
         provider call** — including before `_select_daily_mode`.
-  - [ ] Otherwise pass `pending` (not `symbol_list`) to `_select_daily_mode` and
+  - [x] Otherwise pass `pending` (not `symbol_list`) to `_select_daily_mode` and
         to both the STEADY_STATE and BACKFILL loops.
-  - [ ] **Tests (written here):** (a) every symbol stamped at/after the boundary
+  - [x] **Tests (written here):** (a) every symbol stamped at/after the boundary
         → zero HTTP requests, asserted with a mock `httpx.Client` whose every
         method fails the test if called, and `nothing_actionable is True`;
         (b) a partially-stamped scope → only the unstamped symbols reach
@@ -187,20 +187,20 @@ scope.
   - Success: those tests pass.
   - Effort: 3
 
-- [ ] **2.4 Report un-actionable symbols once per cycle, never per symbol**
-  - [ ] Log at WARNING with the count and a pointer to issue #4 — not 906
+- [x] **2.4 Report un-actionable symbols once per cycle, never per symbol**
+  - [x] Log at WARNING with the count and a pointer to issue #4 — not 906
         individual lines. Include up to a handful of example symbols for
         diagnosis.
-  - [ ] Leave `_run_steady_state_cycle`'s existing per-symbol
+  - [x] Leave `_run_steady_state_cycle`'s existing per-symbol
         `target_end is None` branch (`daily.py:261-267`) in place as a
         belt-and-braces guard; it should now be unreachable for scope members,
         since 2.1 excludes them upstream.
-  - [ ] **Test (written here):** a scope of N calendar-less symbols produces
+  - [x] **Test (written here):** a scope of N calendar-less symbols produces
         exactly one WARNING record (caplog), not N.
   - Effort: 1
 
-- [ ] **2.5 Check downstream consumers of `report.total`**
-  - [ ] `report.total` now counts pending symbols, not full scope. Audit the
+- [x] **2.5 Check downstream consumers of `report.total`**
+  - [x] `report.total` now counts pending symbols, not full scope. Audit the
         `-v` progress output and any `mt data daemon` rendering that derives a
         denominator from it, and correct anything that would now display
         "processed 3 of 3" for a 5,900-symbol universe.

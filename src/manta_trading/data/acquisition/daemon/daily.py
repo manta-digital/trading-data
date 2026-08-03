@@ -15,10 +15,13 @@ from manta_trading.api.eodhd_sync import eodhd_get
 from manta_trading.config import Settings
 from manta_trading.constants import (
     DAEMON_LOCK_TIMEOUT,
+    DAILY_CYCLE_START_OFFSET,
     DAILY_HISTORY_FLOOR,
+    CycleGranularity,
     DailyMode,
     FetchEntryPoint,
 )
+from manta_trading.providers.types import ProviderType
 from manta_trading.data.acquisition.quota import CallType
 from manta_trading.data.acquisition.outcomes import (
     ProviderResponseError,
@@ -50,6 +53,22 @@ class CycleReport:
     wall_clock_seconds: float = 0.0
     symbol_outcomes: dict[str, str] = field(default_factory=dict)
 
+    unactionable_no_calendar: int = 0
+    """Scope members excluded because their calendar resolves to no trading
+    sessions (912 D6). Counted so the daemon can say what it could not act on
+    instead of silently dropping it; see GitHub issue #4."""
+
+    nothing_actionable: bool = False
+    """True when the cycle derived an empty work list and made no provider
+    call. Lets the runner distinguish a drained scope from a closed cadence
+    gate without re-deriving the work list (912 D4).
+
+    **Always False on a minute report.** ``run_minute_cycle`` returns EMPTY for
+    a symbol with no actionable gap, which is indistinguishable from "fetched
+    and got nothing", so the minute path publishes no drained signal and this
+    slice deliberately does not add one. Consequently the runner can only reach
+    NO_ACTIONABLE_WORK for daily-only scopes."""
+
     @property
     def total(self) -> int:
         return (
@@ -58,6 +77,122 @@ class CycleReport:
             + self.empty_count
             + self.transient_failure_count
         )
+
+
+@dataclass(frozen=True)
+class DailyWorkList:
+    """Scope members split by what a daily cycle can actually do with them.
+
+    Slice 912 D1/D6. ``pending`` and ``unactionable_no_calendar`` are disjoint,
+    and together with the symbols already attempted in this pass they partition
+    the requested scope.
+    """
+
+    pending: list[str]
+    """Symbols not yet attempted in the current pass, in the caller's order."""
+
+    unactionable_no_calendar: list[str]
+    """Symbols whose calendar resolves to no trading sessions, so no fetch
+    window can be computed for them. Excluded from ``pending`` deliberately:
+    leaving them there would make the work list non-terminating, re-triggering
+    the billable bulk EOD call on every cadence tick. Reported, not retried —
+    fixing them is GitHub issue #4's job, not this slice's."""
+
+
+_PENDING_DAILY_SYMBOLS_SQL = """
+    WITH scope(symbol, ord) AS (
+        SELECT * FROM unnest(%(symbols)s::text[]) WITH ORDINALITY
+    ),
+    calendars_with_sessions AS (
+        SELECT DISTINCT calendar_id FROM trading_sessions
+    )
+    SELECT s.symbol,
+           (cw.calendar_id IS NOT NULL) AS has_calendar,
+           a.last_attempt_ts
+      FROM scope s
+      LEFT JOIN instruments i
+             ON i.symbol = s.symbol
+      LEFT JOIN calendars_with_sessions cw
+             ON cw.calendar_id = i.trading_calendar_id
+      LEFT JOIN acquisition_state a
+             ON a.symbol = s.symbol
+            AND a.granularity = %(granularity)s
+            AND a.provider = %(provider)s
+     ORDER BY s.ord
+"""
+
+
+def pending_daily_symbols(
+    conn: psycopg.Connection,
+    symbol_list: list[str],
+    pass_boundary: datetime,
+) -> DailyWorkList:
+    """Derive which scope members still need a daily fetch in the current pass.
+
+    This is the slice 912 D1 replacement for the runner's in-memory
+    once-per-day timer. Remaining work is *derived* from durable per-symbol
+    state rather than tracked, so an interrupted pass resumes at exactly the
+    symbols it never reached, and a process restart changes nothing.
+
+    The signal is ``acquisition_state.last_attempt_ts``, which
+    ``update_data_gaps`` already writes on both the STEADY_STATE and BACKFILL
+    paths. A symbol legitimately carrying no bar for the session is stamped
+    ``empty`` and drops out, which is what makes the derived list terminate —
+    see D1 for why coverage-versus-session was rejected in its favour.
+
+    Args:
+        conn:          Open psycopg connection.
+        symbol_list:   Requested scope, in the caller's preferred processing
+                       order (``iter_active_instruments`` yields
+                       ``most_stale_first``). Order is preserved in the result.
+        pass_boundary: Start of the current daily pass — today's UTC midnight
+                       plus ``DAILY_CYCLE_START_OFFSET``. A symbol stamped at
+                       or after this instant has already been attempted in this
+                       pass; one stamped before it (or never) has not.
+
+    Returns:
+        A :class:`DailyWorkList`. An empty ``pending`` means the pass is
+        complete for this scope, and the caller must make no provider call.
+    """
+    if not symbol_list:
+        return DailyWorkList(pending=[], unactionable_no_calendar=[])
+
+    with conn.cursor() as cur:
+        cur.execute(
+            _PENDING_DAILY_SYMBOLS_SQL,
+            {
+                "symbols": list(symbol_list),
+                "granularity": str(CycleGranularity.DAILY),
+                "provider": str(ProviderType.EODHD),
+            },
+        )
+        rows = cur.fetchall()
+
+    pending: list[str] = []
+    unactionable: list[str] = []
+    for symbol, has_calendar, last_attempt_ts in rows:
+        if not has_calendar:
+            unactionable.append(symbol)
+        elif last_attempt_ts is not None and last_attempt_ts >= pass_boundary:
+            continue  # already attempted in this pass
+        else:
+            pending.append(symbol)
+
+    return DailyWorkList(pending=pending, unactionable_no_calendar=unactionable)
+
+
+def daily_pass_boundary(now: datetime) -> datetime:
+    """Return the start instant of the daily pass covering ``now``.
+
+    Today's UTC midnight plus ``DAILY_CYCLE_START_OFFSET`` — the same
+    expression the runner's cadence gate uses, so "the pass has started" and
+    "attempted in this pass" can never disagree (912 D1).
+    """
+    utc_now = now.astimezone(_UTC)
+    midnight = datetime(
+        utc_now.year, utc_now.month, utc_now.day, tzinfo=_UTC
+    )
+    return midnight + DAILY_CYCLE_START_OFFSET
 
 
 def run_daily_cycle(
@@ -111,11 +246,58 @@ def run_daily_cycle(
                         )
                     ]
 
-            # Determine mode: STEADY_STATE iff all symbols are caught up.
+            # Derive remaining work from durable per-symbol state (912 D1).
+            # An interrupted pass resumes here at exactly the symbols it never
+            # reached; a restart changes nothing, because nothing is tracked.
+            with pool.connection() as conn:
+                work = pending_daily_symbols(
+                    conn, symbol_list, daily_pass_boundary(t0)
+                )
+
+            scope_size = len(symbol_list)
+            # From here on, `symbol_list` is the *pending* set: every downstream
+            # loop, count, and remaining-work message should describe work still
+            # to do, not the full scope. `scope_size` keeps the original for
+            # logging.
+            symbol_list = work.pending
+
+            report.unactionable_no_calendar = len(work.unactionable_no_calendar)
+            if work.unactionable_no_calendar:
+                # One line per cycle, never one per symbol (912 D6): ~906
+                # instruments are in this state on prod, and per-symbol warnings
+                # are precisely how the condition stayed invisible.
+                _logger.warning(
+                    "run_daily_cycle: %d of %d scope symbols have no trading "
+                    "calendar and cannot be fetched (e.g. %s) — see issue #4",
+                    len(work.unactionable_no_calendar),
+                    scope_size,
+                    ", ".join(work.unactionable_no_calendar[:5]),
+                )
+
+            if not symbol_list:
+                report.nothing_actionable = True
+                report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
+                _logger.info(
+                    "run_daily_cycle: no actionable work — %d scope symbols "
+                    "all attempted this pass or unactionable (%d no calendar); "
+                    "no provider call made",
+                    scope_size,
+                    len(work.unactionable_no_calendar),
+                )
+                return report
+
+            # Determine mode: STEADY_STATE iff all pending symbols are caught up.
             with pool.connection() as conn:
                 mode = _select_daily_mode(conn, symbol_list)
 
-            _logger.info("run_daily_cycle: mode=%s scope=%d symbols", mode, len(symbol_list))
+            _logger.info(
+                "run_daily_cycle: mode=%s scope=%d symbols "
+                "(%d pending, %d unactionable)",
+                mode,
+                scope_size,
+                len(symbol_list),
+                len(work.unactionable_no_calendar),
+            )
 
             if mode == DailyMode.STEADY_STATE:
                 report = _run_steady_state_cycle(

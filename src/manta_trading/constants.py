@@ -527,8 +527,31 @@ class FetchEntryPoint(StrEnum):
     i.e. `mt data pull 1m|1d`)."""
 
 
+class CycleGranularity(StrEnum):
+    """Granularity tokens for daemon cycles and acquisition bookkeeping.
+
+    These are the values stored in ``data_gaps.granularity`` and
+    ``acquisition_state.granularity``, and the members of the runner's
+    ``RunnerConfig.granularities`` set.
+
+    **Not interchangeable with :class:`Granularity`**, which carries OHLCV
+    *request* tokens (``"1d"``, ``"1m"``) for the query layer. The two
+    vocabularies overlap conceptually and share nothing textually; conflating
+    them produces a silent no-match rather than an error. Introduced by slice
+    912 because these values were previously bare literals at every comparison
+    site, which the project's single-definition-site rule forbids.
+    """
+
+    DAILY = "daily"
+    MINUTE = "minute"
+
+
 class Granularity(StrEnum):
-    """Canonical granularity tokens for OHLCV data requests."""
+    """Canonical granularity tokens for OHLCV data requests.
+
+    See :class:`CycleGranularity` for the daemon/bookkeeping vocabulary; these
+    are request tokens and the two are not interchangeable.
+    """
 
     M1 = "1m"
     M5 = "5m"

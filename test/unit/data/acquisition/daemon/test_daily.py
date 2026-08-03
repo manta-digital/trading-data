@@ -10,6 +10,7 @@ import pytest
 from manta_trading.constants import FetchEntryPoint
 from manta_trading.data.acquisition.daemon.daily import (
     CycleReport,
+    DailyWorkList,
     _do_daily_symbol,
     run_daily_cycle,
     run_daily_refetch,
@@ -64,6 +65,17 @@ class _FakeSettings:
     market_db_url = None  # MarketDB removed in slice 152
 
 
+def _all_pending(_conn, symbol_list, _boundary) -> DailyWorkList:
+    """Stand-in for the slice 912 work-list derivation: everything is pending.
+
+    These tests exercise outcome classification, not work-list derivation —
+    derivation has its own suite in ``test_pending_daily_symbols.py``. Without
+    this the mocked cursor returns no rows, the cycle correctly concludes there
+    is nothing to do, and every assertion here fails for an unrelated reason.
+    """
+    return DailyWorkList(pending=list(symbol_list), unactionable_no_calendar=[])
+
+
 class TestRunDailyCycleHappyPath:
     def _run(
         self,
@@ -78,6 +90,7 @@ class TestRunDailyCycleHappyPath:
             patch("manta_trading.data.acquisition.daemon.daily.ConnectionPool") as mock_pool_cls,
             patch("manta_trading.data.acquisition.daemon.daily.httpx.Client") as mock_http_cls,
             patch("manta_trading.data.acquisition.daemon.daily._last_completed_session", return_value=_dt(2024, 12, 31)),
+            patch("manta_trading.data.acquisition.daemon.daily.pending_daily_symbols", _all_pending),
             patch("manta_trading.data.acquisition.daemon.daily.classify_outcome", return_value=outcome),
             patch("manta_trading.data.acquisition.daemon.daily.outcome_to_fetch_status", return_value=None),
             patch("manta_trading.data.acquisition.daemon.daily.update_data_gaps", mock_update_gaps),
@@ -139,6 +152,7 @@ class TestRunDailyCycleFailurePaths:
             patch("manta_trading.data.acquisition.daemon.daily.ConnectionPool") as mock_pool_cls,
             patch("manta_trading.data.acquisition.daemon.daily.httpx.Client") as mock_http_cls,
             patch("manta_trading.data.acquisition.daemon.daily._last_completed_session", return_value=_dt(2024, 12, 31)),
+            patch("manta_trading.data.acquisition.daemon.daily.pending_daily_symbols", _all_pending),
             patch("manta_trading.data.acquisition.daemon.daily.update_data_gaps", mock_update_gaps),
             patch("manta_trading.data.acquisition.daemon.daily._insert_daily_bars"),
             patch("manta_trading.data.acquisition.daemon.daily._update_first_data_date"),
@@ -224,6 +238,7 @@ class TestDoDailySymbolExtensions:
 
         with (
             patch("manta_trading.data.acquisition.daemon.daily._last_completed_session", return_value=_dt(2024, 12, 31)),
+            patch("manta_trading.data.acquisition.daemon.daily.pending_daily_symbols", _all_pending),
             patch("manta_trading.data.acquisition.daemon.daily.classify_outcome", return_value=outcome),
             patch("manta_trading.data.acquisition.daemon.daily.outcome_to_fetch_status", return_value=None),
             patch("manta_trading.data.acquisition.daemon.daily.update_data_gaps", mock_update_gaps),
