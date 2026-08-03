@@ -1,0 +1,15 @@
+[Unit]
+Description=manta-trading daily acquisition
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/source/repos/manta/trading-data
+Environment=UV_FROZEN=1
+ExecStart=/usr/local/bin/uv run --frozen mt data daemon run --daily
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+WantedBy=default.target
