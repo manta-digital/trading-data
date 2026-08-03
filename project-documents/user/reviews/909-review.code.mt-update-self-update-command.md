@@ -4,7 +4,7 @@ layer: project
 reviewType: code
 slice: mt-update-self-update-command
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 sourceDocument: project-documents/user/slices/909-slice.mt-update-self-update-command.md
 aiModel: claude-opus-5
 status: complete
@@ -192,5 +192,5 @@ failure occurred. `get_logger` is import-safe and adds no startup cost (D9).
 
 ### Shipped where
 
-`0.7.0`–`0.7.2` on PyPI all carry F001. The fixes above are on `main` awaiting
-a `0.7.3` release.
+`0.7.0`–`0.7.2` on PyPI all carry F001. The fixes above shipped in `0.7.3`
+(tag `v0.7.3`), published on PyPI.
