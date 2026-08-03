@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 from rich.console import Console
@@ -208,9 +208,25 @@ def test_detail_renders_both_granularities() -> None:
 
 
 def test_gap_table_ordering() -> None:
-    """Gaps with out-of-order gap_start rendered in ascending order."""
-    late = make_gap_row(gap_start=_NOW - timedelta(days=1))
-    early = make_gap_row(gap_start=_NOW - timedelta(days=10))
+    """Gaps with out-of-order gap_start rendered in ascending order.
+
+    Fixed timestamps, not ``_NOW``-relative ones: the default
+    ``last_attempt_ts`` is ``_NOW - 2h``, which lands on the same calendar
+    date as ``_NOW - 1 day`` whenever the run happens between 00:00 and
+    01:59 UTC. The position search below then matched that column instead of
+    the gap it was looking for, failing for two hours every day.
+    """
+    anchor = datetime(2026, 3, 15, 12, 0, tzinfo=UTC)
+    late = make_gap_row(
+        gap_start=anchor - timedelta(days=1),
+        gap_end=anchor,
+        last_attempt_ts=anchor,
+    )
+    early = make_gap_row(
+        gap_start=anchor - timedelta(days=10),
+        gap_end=anchor - timedelta(days=9),
+        last_attempt_ts=anchor,
+    )
     report = make_report(gaps=[late, early], symbol="SPY")
     renderables = render_status_detail(report)
 
@@ -221,8 +237,9 @@ def test_gap_table_ordering() -> None:
     output = cap.get()
 
     # Both gaps appear; order check via index
-    pos_early = output.find(str((_NOW - timedelta(days=10)).strftime("%Y-%m-%d")))
-    pos_late = output.find(str((_NOW - timedelta(days=1)).strftime("%Y-%m-%d")))
+    pos_early = output.find((anchor - timedelta(days=10)).strftime("%Y-%m-%d"))
+    pos_late = output.find((anchor - timedelta(days=1)).strftime("%Y-%m-%d"))
+    assert pos_early != -1 and pos_late != -1, output
     assert pos_early < pos_late, "earlier gap_start must appear before later one"
 
 

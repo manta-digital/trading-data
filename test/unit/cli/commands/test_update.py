@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -81,11 +82,11 @@ def _install_distribution(
 
 
 @pytest.fixture(autouse=True)
-def _no_uv_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Point ``sys.prefix`` at a receipt-free directory by default.
+def _no_installer_markers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Point ``sys.prefix`` at a marker-free directory by default.
 
     Keeps detection tests independent of how the *test runner* itself was
-    installed; the uv-tool test opts back in by writing the receipt.
+    installed; marker tests opt back in by writing the file they need.
     """
     prefix = tmp_path / "prefix"
     prefix.mkdir()
@@ -141,6 +142,55 @@ def test_detect_uv_receipt_beats_relocated_path(
     assert detect_install_method() is InstallMethod.UV_TOOL
 
 
+def _real_venv_layout(root: Path, name: str) -> Path:
+    """Build a venv layout whose ``bin/python`` is a symlink, as uv/pipx do."""
+    env = root / name
+    (env / "bin").mkdir(parents=True)
+    interpreter = env / "bin" / "python"
+    interpreter.symlink_to(sys.executable)
+    return env
+
+
+@pytest.mark.parametrize(
+    ("layout", "expected"),
+    [
+        (f"uv/tools/{DISTRIBUTION_NAME}", InstallMethod.UV_TOOL),
+        (f"pipx/venvs/{DISTRIBUTION_NAME}", InstallMethod.PIPX),
+    ],
+)
+def test_detect_survives_symlinked_interpreter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    layout: str,
+    expected: InstallMethod,
+) -> None:
+    """Regression, review 909 F001.
+
+    Real venvs symlink ``bin/python`` to the base interpreter, so resolving
+    the path discards the installer segments and everything degrades to PIP.
+    Synthetic non-existent paths never exercised this; this fixture does.
+    """
+    _install_distribution(monkeypatch, None)
+    env = _real_venv_layout(tmp_path, layout)
+    monkeypatch.setattr(update_mod.sys, "prefix", str(env))
+    monkeypatch.setattr(update_mod.sys, "executable", str(env / "bin" / "python"))
+    assert Path(env / "bin" / "python").resolve() != env / "bin" / "python"
+    assert detect_install_method() is expected
+
+
+def test_detect_pipx_marker_beats_relocated_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """pipx writes pipx_metadata.json at sys.prefix (verified: pipx 1.16.5)."""
+    _install_distribution(monkeypatch, None)
+    prefix = tmp_path / "relocated" / DISTRIBUTION_NAME
+    prefix.mkdir(parents=True)
+    (prefix / "pipx_metadata.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(update_mod.sys, "prefix", str(prefix))
+    monkeypatch.setattr(update_mod.sys, "executable", str(prefix / "bin/python"))
+    assert detect_install_method() is InstallMethod.PIPX
+
+
 def test_detect_pipx_path(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_distribution(monkeypatch, None)
     monkeypatch.setattr(
@@ -190,7 +240,7 @@ def test_fetch_success(monkeypatch: pytest.MonkeyPatch) -> None:
     recorded = _patch_get(monkeypatch, _FakeResponse({"info": {"version": "0.7.0"}}))
     assert fetch_latest_version() == "0.7.0"
     assert recorded["url"] == f"https://pypi.org/pypi/{DISTRIBUTION_NAME}/json"
-    assert recorded["kwargs"]["timeout"] == update_mod.REGISTRY_TIMEOUT
+    assert recorded["kwargs"]["timeout"] == update_mod.PYPI_REGISTRY_TIMEOUT
 
 
 def test_fetch_timeout_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,6 +260,20 @@ def test_fetch_invalid_json_returns_none(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_fetch_missing_key_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_get(monkeypatch, _FakeResponse({"info": {}}))
+    assert fetch_latest_version() is None
+
+
+def test_fetch_non_pep440_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-PEP-440 string must not reach Version() at comparison time."""
+    _patch_get(monkeypatch, _FakeResponse({"info": {"version": "not-a-version"}}))
+    assert fetch_latest_version() is None
+
+
+def test_fetch_markup_bearing_version_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rich markup from the registry never reaches the console."""
+    _patch_get(monkeypatch, _FakeResponse({"info": {"version": "1.0[bold red]"}}))
     assert fetch_latest_version() is None
 
 

@@ -27,11 +27,14 @@ from manta_trading.cli.output import print_error, print_result
 from manta_trading.constants import (
     DISTRIBUTION_NAME,
     PYPI_JSON_URL_TEMPLATE,
-    REGISTRY_TIMEOUT,
+    PYPI_REGISTRY_TIMEOUT,
     UPDATE_MIGRATE_PROBE_TIMEOUT,
     UPDATE_VERSION_PROBE_TIMEOUT,
     UPGRADE_TIMEOUT,
 )
+from manta_trading.logging import get_logger
+
+_logger = get_logger(__name__)
 
 
 class InstallMethod(StrEnum):
@@ -44,11 +47,18 @@ class InstallMethod(StrEnum):
 
 
 # Adjacent path-segment pairs identifying managed tool environments (D4).
+# Matched against UNRESOLVED paths: in every venv layout `bin/python` is a
+# symlink to the base interpreter, so resolving first discards exactly the
+# segments being matched (review 909 F001).
 _UV_TOOL_SEGMENTS: Final[tuple[str, str]] = ("uv", "tools")
 _PIPX_SEGMENTS: Final[tuple[str, str]] = ("pipx", "venvs")
 
-# uv writes this receipt at the root of every tool environment (sys.prefix).
+# Marker files each installer writes at the root of its managed environment
+# (``sys.prefix``). Location-independent, unlike the path segments above:
+# they survive a relocated UV_TOOL_DIR / PIPX_HOME. Verified against
+# uv 0.11.2 and pipx 1.16.5 (2026-08-02).
 _UV_TOOL_RECEIPT: Final[str] = "uv-receipt.toml"
+_PIPX_RECEIPT: Final[str] = "pipx_metadata.json"
 
 # ``@latest`` asks for the newest release explicitly, ignoring any version
 # constraint recorded by the original install.
@@ -136,25 +146,36 @@ def _contains_segments(parts: tuple[str, ...], pair: tuple[str, str]) -> bool:
     return any(parts[i : i + 2] == pair for i in range(len(parts) - 1))
 
 
-def _is_uv_tool_environment() -> bool:
-    """True when this interpreter lives in a uv tool environment.
+def _has_marker(filename: str) -> bool:
+    """True when *filename* exists at the root of this environment."""
+    return (Path(sys.prefix) / filename).is_file()
 
-    uv writes ``uv-receipt.toml`` at the root of every tool environment
-    (``sys.prefix``). Unlike the installation path, the receipt survives a
-    relocated ``UV_TOOL_DIR`` — measured against uv 0.11.2 (2026-08-02), where
-    path-segment matching alone misclassified a relocated tool install as pip.
+
+def _environment_parts() -> tuple[str, ...]:
+    """Unresolved path segments identifying this environment.
+
+    Both the environment root and the interpreter path are inspected, and
+    neither is resolved: a venv's ``bin/python`` is a symlink to the base
+    interpreter, so ``.resolve()`` returns the *interpreter's* location and
+    discards the installer-specific segments entirely (review 909 F001).
     """
-    return (Path(sys.prefix) / _UV_TOOL_RECEIPT).is_file()
+    return Path(sys.prefix).parts + Path(sys.executable).parts
 
 
 def detect_install_method() -> InstallMethod:
-    """Classify how this copy of ``mt`` was installed. Never raises, no I/O."""
+    """Classify how this copy of ``mt`` was installed. Never raises, no I/O.
+
+    Marker files first (location-independent), path segments as a fallback
+    for layouts that predate them.
+    """
     if _is_editable_or_source():
         return InstallMethod.EDITABLE_OR_SOURCE
-    if _is_uv_tool_environment():
+    if _has_marker(_UV_TOOL_RECEIPT):
         return InstallMethod.UV_TOOL
+    if _has_marker(_PIPX_RECEIPT):
+        return InstallMethod.PIPX
 
-    parts = Path(sys.executable).resolve().parts
+    parts = _environment_parts()
     if _contains_segments(parts, _UV_TOOL_SEGMENTS):
         return InstallMethod.UV_TOOL
     if _contains_segments(parts, _PIPX_SEGMENTS):
@@ -174,14 +195,21 @@ def fetch_latest_version() -> str | None:
     """
     url = PYPI_JSON_URL_TEMPLATE.format(name=DISTRIBUTION_NAME)
     try:
-        response = httpx.get(url, timeout=REGISTRY_TIMEOUT)
+        response = httpx.get(url, timeout=PYPI_REGISTRY_TIMEOUT)
         response.raise_for_status()
         version = response.json()["info"]["version"]
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        if not isinstance(version, str) or not version:
+            raise TypeError("info.version is not a non-empty string")
+        # Parse here so the caller can compare without a guard: InvalidVersion
+        # subclasses ValueError, so a non-PEP-440 string is caught below rather
+        # than escaping as a traceback at comparison time (review 909 F002).
+        # This also keeps registry-supplied text out of Rich markup — a valid
+        # PEP 440 version cannot contain markup characters.
+        Version(version)
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        _logger.debug("PyPI version lookup failed: %s: %s", type(exc).__name__, exc)
         return None
 
-    if not isinstance(version, str) or not version:
-        return None
     return version
 
 
@@ -202,8 +230,13 @@ def upgrade_command(method: InstallMethod) -> list[str] | None:
 
 
 def _resolve_mt_binary() -> str:
-    """Prefer the ``mt`` entry point beside this interpreter; else bare ``mt``."""
-    candidate = Path(sys.executable).resolve().parent / "mt"
+    """Prefer the ``mt`` entry point beside this interpreter; else bare ``mt``.
+
+    Unresolved for the same reason detection is: resolving lands in the *base*
+    interpreter's bin directory, where no ``mt`` exists, so the preference
+    never fired (review 909 F003).
+    """
+    candidate = Path(sys.executable).parent / "mt"
     if candidate.exists():
         return str(candidate)
     return "mt"
@@ -225,14 +258,19 @@ def installed_version() -> str | None:
             timeout=UPDATE_VERSION_PROBE_TIMEOUT,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
         # Missing binary or probe timeout — leave the version unverified.
+        _logger.debug("version probe failed: %s: %s", type(exc).__name__, exc)
         return None
 
     if completed.returncode != 0:
+        _logger.debug("version probe exited %d", completed.returncode)
         return None
     tokens = completed.stdout.split()
-    return tokens[-1] if tokens else None
+    if not tokens:
+        _logger.debug("version probe produced no output")
+        return None
+    return tokens[-1]
 
 
 def report_pending_migrations() -> int | None:
@@ -251,22 +289,27 @@ def report_pending_migrations() -> int | None:
             timeout=UPDATE_MIGRATE_PROBE_TIMEOUT,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
         # Missing binary or probe timeout — informational only, degrade.
+        _logger.debug("migration probe failed: %s: %s", type(exc).__name__, exc)
         return None
 
     if completed.returncode != 0:
+        _logger.debug("migration probe exited %d", completed.returncode)
         return None
 
     try:
         payload = json.loads(completed.stdout)
-    except ValueError:
+    except ValueError as exc:
+        _logger.debug("migration probe output was not JSON: %s", exc)
         return None
 
     if not isinstance(payload, dict) or payload.get("connected") is not True:
+        _logger.debug("migration probe reported no database connection")
         return None
     pending = payload.get("pending")
     if not isinstance(pending, list):
+        _logger.debug("migration probe payload had no 'pending' list")
         return None
     return len(pending)
 

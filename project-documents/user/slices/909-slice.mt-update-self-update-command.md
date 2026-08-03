@@ -151,7 +151,7 @@ under the 300-line file guideline.
 Constants (in `constants.py`, per the single-definition rule):
 
 - `PYPI_JSON_URL_TEMPLATE: Final[str] = "https://pypi.org/pypi/{name}/json"`
-- `REGISTRY_TIMEOUT: Final[float] = 10.0` — seconds; mirrors `cf update`'s
+- `PYPI_REGISTRY_TIMEOUT: Final[float] = 10.0` — seconds; mirrors `cf update`'s
   10 s budget.
 
 `fetch_latest_version` returns `None` on **any** failure — connect/read
@@ -208,13 +208,28 @@ and distribution metadata:
    the adjacent path segments `uv/tools` (uv's default tool root is
    `~/.local/share/uv/tools/<dist>/` on Linux/macOS).
 
-   **Corrected during implementation (Phase 6, 2026-08-02).** The original
-   design used path segments alone and asserted they were "honored under
-   `UV_TOOL_DIR`-style relocations in practice". Measurement disproved this:
-   a real `uv tool install` (uv 0.11.2) into a relocated `UV_TOOL_DIR` yields
-   an interpreter path with no `uv/tools` segments, and the command reported
-   `install_method: "pip"` — printing a pip command instead of auto-upgrading.
-   The receipt check fixes it; the segment check is retained as a fallback.
+   **Corrected twice during implementation (Phase 6, 2026-08-02).** The
+   original design matched path segments against `Path(sys.executable)
+   .resolve()`. The first correction added the `uv-receipt.toml` check after
+   a relocated `UV_TOOL_DIR` was misclassified as pip — but attributed the
+   failure to the relocation, which was the wrong root cause.
+
+   Code review F001 found the real one: **a venv's `bin/python` is a symlink
+   to the base interpreter**, so `.resolve()` returns the interpreter's own
+   location and discards the installer segments in *every* layout, default
+   locations included. Verified:
+   `~/.local/share/uv/tools/copier/bin/python` →
+   `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12`. The
+   uv receipt check had masked the symptom for uv while leaving pipx broken —
+   a real pipx 1.16.5 install of `0.7.1` reports `install_method: "pip"` and
+   tells the user to run `pip install --upgrade` inside a pipx-managed venv.
+
+   Resolved by matching **unresolved** `sys.prefix` + `sys.executable`
+   segments, and by adding pipx's own marker file `pipx_metadata.json` at
+   `sys.prefix` — symmetric with the uv receipt and equally robust to a
+   relocated `PIPX_HOME`. Both markers verified against real installs
+   (uv 0.11.2, pipx 1.16.5). Regression test builds a genuine venv layout
+   with a symlinked `bin/python`; the pre-fix algorithm fails it.
 3. **PIPX** — resolved path contains `pipx/venvs`.
 4. **PIP** — everything else (plain venv or `pip install --user`).
 
@@ -299,7 +314,7 @@ pending-migration count". Resolved: after a successful upgrade, run
 mt data migrate status --json
 ```
 
-as a subprocess (bounded timeout, `REGISTRY_TIMEOUT` reused is *not*
+as a subprocess (bounded timeout, `PYPI_REGISTRY_TIMEOUT` reused is *not*
 appropriate — DB probes can be slower; a dedicated
 `UPDATE_MIGRATE_PROBE_TIMEOUT: Final[float] = 30.0` constant) and parse
 `len(pending)` from its JSON output.

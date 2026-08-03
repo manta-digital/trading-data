@@ -27,8 +27,11 @@ Format with ``name=DISTRIBUTION_NAME``. ``info.version`` in the response is
 the latest *non-yanked* release, which is exactly what ``mt update`` offers.
 """
 
-REGISTRY_TIMEOUT: Final[float] = 10.0
+PYPI_REGISTRY_TIMEOUT: Final[float] = 10.0
 """Seconds allowed for the PyPI registry query (slice 909 D2).
+
+Named for the package index specifically — "registry" alone is ambiguous in
+this codebase, which also has a provider registry (review 909 F005).
 
 Mirrors the 10 s budget of the ported ``cf update`` implementation. On expiry
 ``fetch_latest_version`` returns ``None`` rather than raising.
