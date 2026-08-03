@@ -427,6 +427,49 @@ event loop.
 the existing pooled-connection dependency already used by `health.py` and
 `symbols.py` — no new connection-management code.
 
+### D8a — Implementation amendment: `bars.py` depends on the *pool*, not a checked-out connection
+
+**Recorded 2026-08-03, after the code review.** D8 specifies adding
+`db: Annotated[psycopg.Connection, Depends(get_db)]` to `get_bars`. That was
+implemented as written and is **wrong**: FastAPI resolves `get_db` for the whole
+request, and `get_db` holds a pooled connection for as long as the route runs.
+So every bars request checked out one of the pool's 8 connections for its entire
+duration — including `1m`/`1d`, which issue no probe and never touch it. Bars
+requests are the slowest endpoint (measured 2–4s on a 5-year daily range), so
+this converted a previously pool-free endpoint into the pool's heaviest consumer.
+
+Measured on prod 2026-08-03, `/api/v1/health` latency while N bars requests
+(`granularity=1d`, which never uses the connection) ran concurrently:
+
+| Concurrent bars requests | `/health` latency |
+|---|---|
+| 0 | 0.010s |
+| 4 | 0.009s |
+| 7 | 0.009s |
+| **8** (= `max_size`) | **1.83s** |
+| 10 | 2.35s |
+| 16 | (not measured pre-fix) |
+
+The cliff at exactly `max_size=8` identifies pool exhaustion rather than
+DB-side contention. Every other endpoint depends on `get_db`, so a burst of
+bars traffic could stall all of them.
+
+**Fix:** `get_bars` now depends on the new `deps.get_db_pool`, which returns
+`app.state.db_pool` without checking anything out, and the checkout is scoped to
+the probe itself inside `_probe_freshness` (`with pool.connection() as conn:`).
+A raw-granularity request now checks out **no** connection at all; a cagg
+granularity checks out exactly one, for the probe's duration only. Re-measured
+after the fix: `/health` stays at 0.009s under 8 and 16 concurrent bars
+requests. Two unit tests pin the behavior
+(`test_raw_granularity_checks_out_no_connection`,
+`test_cagg_granularity_checks_out_exactly_one_connection`).
+
+`get_db` itself is unchanged and still correct for `health`/`status`/`symbols`/
+`gaps`, which use their connection for essentially their whole runtime; its
+docstring now warns about the whole-request hold. Pool *sizing* remains slice
+186's call (D10) — this amendment removes an artificial consumer rather than
+tuning the pool.
+
 ### D9 — Failure modes on the new I/O paths (resolves review F001)
 
 Three new I/O call sites are added: `status.py`'s two `status_queries` calls,
@@ -662,7 +705,25 @@ and will differ on re-run.
    curl -s http://127.0.0.1:8100/api/v1/health
    ```
    Expect `{"status":"ok","db":"ok","coverage":"ok"}` on a healthy DB.
-   Observed exactly that, in 0.008s.
+   Observed exactly that, in 0.008s — but **only because step 2 had already
+   warmed the coverage verdict cache**. Measured separately on a fresh server
+   process, warming the pool first (via `/api/v1/symbols?search=SPY`, 0.15s) so
+   the number isolates the probe:
+
+   | `/api/v1/health` | Latency |
+   |---|---|
+   | Cold verdict cache (first call in a process, or first after the 60s TTL) | **3.19s** |
+   | Warm verdict cache | 0.010s |
+
+   Pre-185 this endpoint was a bare `SELECT 1`. D6 chose two coverage probes
+   over seven bar-cagg probes specifically to keep the liveness endpoint cheap;
+   the two probes still cost ~3.2s cold, above the ~0.19–2.1s per-probe range
+   167 measured and above the +2.5s budget D7 set for bars. Consequences a
+   monitoring configuration has to account for: any liveness probe timeout
+   below ~4s will trip on a cold cache, and a poller running slower than the
+   60s TTL pays 3.2s on **every** call. Flagged to the PM as new information
+   (design's own D7 language) — not a defect, but the D6 cost argument is
+   weaker in practice than on paper.
 
 5. **Bars, staleness field on a cagg-served granularity:**
    ```bash

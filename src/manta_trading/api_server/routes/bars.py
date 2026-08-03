@@ -10,8 +10,9 @@ import msgpack
 import orjson
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from psycopg_pool import ConnectionPool
 
-from manta_trading.api_server.deps import get_daily_db, get_db, get_minute_db
+from manta_trading.api_server.deps import get_daily_db, get_db_pool, get_minute_db
 from manta_trading.api_server.models.responses import BarsResponse
 from manta_trading.constants import (
     CAGG_BASE_GRANULARITY,
@@ -47,7 +48,7 @@ async def get_bars(
     end: date,
     minute_db: Annotated[TimescaleMinuteDataDB, Depends(get_minute_db)],
     daily_db: Annotated[TimescaleDailyDataDB, Depends(get_daily_db)],
-    db: Annotated[psycopg.Connection[Any], Depends(get_db)],
+    pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     adjusted: bool = True,
     fmt: Annotated[Literal["json", "msgpack"], Query(alias="format")] = "json",
 ) -> Response:
@@ -81,10 +82,16 @@ async def get_bars(
         )
 
     def _probe_freshness() -> FreshnessVerdict:
+        # The connection is checked out here, not for the whole request: this
+        # is the only work in get_bars that needs one, and for M1/D1 this
+        # function never runs at all. Holding one across the full request let
+        # 8 concurrent bars requests exhaust the pool and stall /health.
+        #
         # No source_table override: the helper resolves the raw table itself
         # from GRANULARITY_SOURCE/CAGG_BASE_GRANULARITY — the seam it was built
         # for. Probes never raise on I/O failure; they return a stale verdict.
-        return assert_cagg_fresh(db, GRANULARITY_SOURCE[granularity])
+        with pool.connection() as conn:
+            return assert_cagg_fresh(conn, GRANULARITY_SOURCE[granularity])
 
     fetch_bars = _fetch_minute if granularity in _MINUTE_GRAINS else _fetch_daily
 

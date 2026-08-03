@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import msgpack
@@ -16,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from manta_trading.api_server.app import create_app
-from manta_trading.api_server.deps import get_db
+from manta_trading.api_server.deps import get_db_pool
 from manta_trading.api_server.models.responses import BarsResponse
 from manta_trading.constants import GRANULARITY_SOURCE, Granularity
 from manta_trading.market.maintenance.cagg_freshness import (
@@ -53,8 +52,13 @@ def _make_ohlcv_df(n: int) -> pd.DataFrame:
     )
 
 
-def _stub_db() -> Iterator[psycopg.Connection[Any]]:
-    yield MagicMock(spec=psycopg.Connection)
+def _stub_pool() -> MagicMock:
+    """A pool whose ``connection()`` context manager yields a mock connection."""
+    pool = MagicMock(name="stub_pool")
+    pool.connection.return_value.__enter__.return_value = MagicMock(
+        spec=psycopg.Connection
+    )
+    return pool
 
 
 def _verdict(view_name: str, *, is_fresh: bool) -> FreshnessVerdict:
@@ -82,14 +86,14 @@ def _mocked_probe(*, is_fresh: bool) -> Iterator[MagicMock]:
 def test_app() -> FastAPI:
     """Build a fresh app with DB state mocked; lifespan is not entered.
 
-    ``get_db`` is overridden explicitly so no test depends on the sentinel
+    ``get_db_pool`` is overridden explicitly so no test depends on the sentinel
     pool MagicMock happening to resolve.
     """
     app = create_app()
     app.state.db_pool = MagicMock(name="sentinel_pool")
     app.state.minute_db = MagicMock(spec=TimescaleMinuteDataDB)
     app.state.daily_db = MagicMock(spec=TimescaleDailyDataDB)
-    app.dependency_overrides[get_db] = _stub_db
+    app.dependency_overrides[get_db_pool] = _stub_pool
     return app
 
 
@@ -254,6 +258,38 @@ class TestBarsStaleness:
         assert response.status_code == 200
         assert response.json()["is_stale"] is False
         assert not probe.called
+
+    def test_raw_granularity_checks_out_no_connection(self, test_app: FastAPI) -> None:
+        """The pool is size 8; a request that never probes must not hold a slot.
+
+        Regression guard: an earlier revision took ``Depends(get_db)`` on
+        ``get_bars``, so every bars request held a pooled connection for its
+        full duration even at ``1d``, where none is used. Eight concurrent bars
+        requests then exhausted the pool and stalled ``/health`` (measured:
+        0.010s → 4.03s).
+        """
+        test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(2)
+        pool = _stub_pool()
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        with _mocked_probe(is_fresh=True):
+            response = TestClient(test_app).get(
+                "/api/v1/bars/SPY?granularity=1d&start=2024-01-01&end=2024-01-03"
+            )
+        assert response.status_code == 200
+        assert not pool.connection.called
+
+    def test_cagg_granularity_checks_out_exactly_one_connection(
+        self, test_app: FastAPI
+    ) -> None:
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
+        pool = _stub_pool()
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        with _mocked_probe(is_fresh=True):
+            response = TestClient(test_app).get(
+                "/api/v1/bars/SPY?granularity=5m&start=2024-01-01&end=2024-01-03"
+            )
+        assert response.status_code == 200
+        assert pool.connection.call_count == 1
 
     def test_msgpack_carries_is_stale(self, test_app: FastAPI) -> None:
         test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
