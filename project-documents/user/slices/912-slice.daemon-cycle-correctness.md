@@ -4,7 +4,7 @@ slice: daemon-cycle-correctness
 project: trading-data
 parent: user/architecture/900-slices.foundation-cleanup.md
 dependencies: []
-interfaces: [145, 154, 168]
+interfaces: [145, 154]
 dateCreated: 20260803
 dateUpdated: 20260803
 status: not-started
@@ -88,8 +88,9 @@ None. Both defects are self-contained in the daemon runner and the daily cycle.
 - **154** — the `mt data daemon run` CLI surface, including the
   `--stop-when-done` / `terminate_when_drained` default
   ([data.py:1181-1185](../../../src/manta_trading/cli/commands/data.py)).
-- **168** — the `assert_cagg_fresh` precedent for fail-safe reads of derived
-  data. Consulted for D1's rejected alternative; not called by this slice.
+Slice 168's `assert_cagg_fresh` is discussed in D1 as the guard the rejected
+coverage-based alternative would have required. It is not an interface this
+slice consumes and is deliberately absent from the list above.
 
 ## Technical decisions
 
@@ -360,6 +361,36 @@ different statement from "scope drained" and must read that way in the log.
     it within the same UTC day, and confirm from `acquisition_state` that it
     resumes at the unreached symbols rather than re-running the alphabet.
     Recorded in `project-documents/user/notes/`.
+
+## Slice review disposition (20260803)
+
+Reviewed by `minimax/minimax-m3`; verdict CONCERNS, four PASS findings and two
+concerns, both about placement rather than technical content
+([912-review.slice.daemon-cycle-correctness.md](../reviews/912-review.slice.daemon-cycle-correctness.md)).
+
+- **F005 — slice scope exceeds the parent architecture's stated scope.**
+  Accepted and resolved in the architecture, not in the slice. The reviewer's
+  point was exact: the "maintenance band" justification existed only inside this
+  slice and was invisible in the document that defines the band, so nothing
+  distinguished a sanctioned maintenance slice from scope creep. The PM's
+  2026-08-03 decision that 900-999 is the maintenance band is now recorded in
+  [900-arch.foundation-cleanup.md](../architecture/900-arch.foundation-cleanup.md)
+  §Overview, with two constraints — corrective rather than additive, and
+  honoring rather than rewriting the originating initiative's contracts — that
+  this slice satisfies: it fixes specified-and-wrong behavior, and it consumes
+  slice 145's `update_data_gaps` contract without redefining it.
+- **F006 — dependency direction requires acquisition-layer interfaces.**
+  Same root cause, same resolution: the architecture's "900 precedes 100-180"
+  statement is now scoped to the foundation slices, since a maintenance slice by
+  construction comes after the work it corrects. The finding's secondary point
+  was actionable and taken — slice 168 is consulted only as the precedent for
+  D1's *rejected* alternative and has been dropped from the interfaces list.
+- **F001-F004 — PASS** on the enum-over-boolean idle reason (D4), the failure
+  modes and bounded Ctrl-C latency of the new wait path (D5), the constant split
+  (D3), and structured logging.
+
+No technical finding was raised against D1, which was the decision most at risk
+of being read as non-compliance with issue #7's literal proposal.
 
 ## Notes
 

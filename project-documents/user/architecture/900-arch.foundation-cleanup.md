@@ -7,7 +7,7 @@ component: foundation-cleanup
 relatedSlices: []
 riskLevel: low
 dateCreated: 20260327
-dateUpdated: 20260328
+dateUpdated: 20260803
 status: in-progress
 ---
 
@@ -18,6 +18,15 @@ status: in-progress
 This initiative establishes the cross-cutting project infrastructure that all other initiatives depend on: a modern CLI framework, centralized configuration, structured logging, provider registry, and cleanup of deprecated code paths. It transforms the project from a collection of scripts with ad-hoc argparse into a properly structured, discoverable CLI application.
 
 **Scope**: CLI framework, configuration system, logging, provider registry, deprecated code removal, and project packaging. This is infrastructure work — it produces the foundation that initiatives 100-180 build upon.
+
+**Scope extension — the maintenance band (PM, 2026-08-03)**: 900-999 is also the project's **maintenance band**, and this document is the architecture that band answers to. Once initiatives 100-180 have shipped and their bands are complete, defects found in delivered code have no live band to land in; reopening a closed initiative to host a bug fix is worse than hosting it here. Maintenance slices in this band may therefore touch **any** layer of the codebase, including acquisition, data-quality, and serving modules that a different initiative originally delivered.
+
+Two constraints keep that from becoming a licence to do feature work under a maintenance label:
+
+- **Corrective, not additive.** A maintenance slice fixes behavior that is already specified and already wrong — a defect, a mis-scoped constant, a misleading operator surface. New capability belongs to the initiative that owns the layer, even when the code sits in a file this band has previously touched.
+- **The originating initiative's contracts are honored, not rewritten.** A maintenance slice consumes the interfaces its target layer already publishes (e.g. slice 145's `update_data_gaps`-as-single-writer rule) and may depend on them freely. It does not redefine them. A fix that requires changing a contract is escalated to the owning initiative rather than absorbed here.
+
+The dependency-direction statement below — that 900 is a prerequisite for 100-180 — describes the **foundation** slices (900-909ish), which genuinely precede everything. It does not describe maintenance slices, which by construction come after the work they correct and depend on it.
 
 **Motivation**: The current codebase has a functional but ad-hoc CLI (raw argparse with if/elif dispatch), mixed logging (print + loguru), no centralized config, and deprecated code still in the import path. Every future initiative will need CLI commands, configuration, and logging. Building this foundation first prevents each initiative from solving these problems independently.
 
