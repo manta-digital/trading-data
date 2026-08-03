@@ -221,9 +221,25 @@ runner: no actionable work in scope — exiting because --stop-when-done
 ```
 
 `run_daily_cycle` already returns a report; it gains the fact that it found
-nothing actionable so the runner can classify without re-deriving. The minute
-path is not changed — `run_minute_cycle`'s "no actionable gaps" outcome is
-already internal, and widening it is out of scope.
+nothing actionable so the runner can classify without re-deriving.
+
+**Minute never reports drained, and that is deliberate** (corrected during
+implementation — see below). `run_minute_cycle` iterates every scope symbol
+every cycle and returns `EMPTY` for a symbol with no actionable gap
+([minute.py:160-187](../../../src/manta_trading/data/acquisition/daemon/minute.py)),
+which is indistinguishable from "fetched and got no data." There is no drained
+signal to read, and adding one would mean changing the minute path this slice
+exists to copy, not to modify.
+
+Therefore `nothing_actionable` is always `False` on a minute report, and
+`NO_ACTIONABLE_WORK` is reachable **only for daily-only scopes**. For any
+minute-inclusive scope the runner reports `NOTHING_DUE` or nothing at all,
+exactly as today: `did_anything` is currently set whenever a cycle *ran* rather
+than when it did work, and the minute gate opens every minute, so
+`terminate_when_drained` never fires for those scopes in the first place. This
+is why the reported #6 incident was a `--daily` run. Preserving that is a
+non-regression, not a compromise; giving minute a real drained signal is
+follow-on work for the initiative that owns it.
 
 ### D5 — A `--stop-when-done` run satisfies a cadence gate by sleeping, not by exiting
 
@@ -426,6 +442,17 @@ All four addressed in the task breakdown.
   before merging rather than relying on a prose note read days earlier.
 - **F001-F004 — PASS** on criteria coverage, task sequencing, correctly leaving
   #4 out of closure, and no spurious load-test requirement.
+
+## Corrections discovered during implementation
+
+- **D4's cross-granularity drain rule was unevaluable (found during Task 1,
+  20260803).** As originally written, D4 said `NO_ACTIONABLE_WORK` wins "only if
+  every configured granularity is drained." The minute path publishes no such
+  signal, so the runner could not evaluate the condition for any
+  minute-inclusive scope. D4 now states the resolution explicitly: minute never
+  reports drained, `NO_ACTIONABLE_WORK` is reachable only for daily-only scopes,
+  and minute-inclusive behavior is unchanged from today. No minute code is
+  touched, which was the point of the constraint the original wording violated.
 
 ## Notes
 

@@ -277,11 +277,18 @@ end. This is the commit that closes issue #7's substance.
   - [ ] An iteration where a cycle ran and reported `nothing_actionable` sets
         `NO_ACTIONABLE_WORK`.
   - [ ] An iteration where no gate opened sets `NOTHING_DUE`.
-  - [ ] Where both apply across granularities, `NO_ACTIONABLE_WORK` wins only if
-        every configured granularity is drained; otherwise `NOTHING_DUE`.
-  - [ ] **Tests (written here):** one case per reason, plus the mixed-granularity
-        case where daily is drained but minute is merely not due — which must
-        resolve to `NOTHING_DUE`.
+  - [ ] **Minute never reports drained** (D4, corrected 20260803).
+        `run_minute_cycle` returns `EMPTY` for a symbol with no actionable gap,
+        which is indistinguishable from "fetched, got nothing", so
+        `nothing_actionable` stays `False` on every minute report. Do **not**
+        add a drained signal to the minute path. Consequence:
+        `NO_ACTIONABLE_WORK` is reachable only for daily-only scopes, and
+        minute-inclusive scopes behave exactly as they do today.
+  - [ ] **Tests (written here):** one case per reason, plus a minute-inclusive
+        case asserting the reason never resolves to `NO_ACTIONABLE_WORK` even
+        when daily is drained — this pins the non-regression and will fail
+        loudly if someone later gives minute a drained signal without revisiting
+        D4.
   - Effort: 2
 
 - [ ] **4.3 Report the reason on the `terminate_when_drained` path, with its tests**
@@ -344,7 +351,15 @@ single-unit assertion already lives with its implementation above.
         `NO_ACTIONABLE_WORK` — the full sequence, not just the wait.
   - Effort: 2
 
-- [ ] **5.4 A scope of only calendar-less symbols terminates**
+- [ ] **5.4 Minute-only `--stop-when-done` is not broken by D5**
+  - [ ] D5 changes minute-only scoped runs too: today such a run exits if the
+        minute gate is closed; under D5 it sleeps up to ~1 minute and then runs.
+        Assert the run completes rather than hanging, and that it exits once a
+        cycle has run — the wait is bounded by the one-minute minute cadence,
+        not by the daily offset.
+  - Effort: 1
+
+- [ ] **5.5 A scope of only calendar-less symbols terminates**
   - [ ] Reports `NO_ACTIONABLE_WORK` with a non-zero un-actionable count, exits
         under `--stop-when-done`, and does not loop or issue provider calls.
   - Effort: 1
