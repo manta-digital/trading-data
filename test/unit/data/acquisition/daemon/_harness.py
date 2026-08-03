@@ -83,9 +83,15 @@ class FakeAcquisitionState:
     ``ORDER BY s.ord``.
     """
 
-    def __init__(self, *, no_calendar: Iterable[str] = ()) -> None:
+    def __init__(
+        self,
+        *,
+        no_calendar: Iterable[str] = (),
+        unknown: Iterable[str] = (),
+    ) -> None:
         self._attempts: dict[str, datetime] = {}
         self._no_calendar = frozenset(no_calendar)
+        self._unknown = frozenset(unknown)
 
     def stamp(self, symbol: str, when: datetime) -> None:
         """Record an attempt, as ``update_data_gaps`` does after a fetch."""
@@ -100,11 +106,16 @@ class FakeAcquisitionState:
 
     def connection(self) -> MagicMock:
         """A connection answering the work-list query against this state."""
-        captured: dict[str, list[tuple[str, bool, datetime | None]]] = {}
+        captured: dict[str, list[tuple[str, bool, bool, datetime | None]]] = {}
 
         def _execute(_sql: str, params: dict[str, Any]) -> None:
             captured["rows"] = [
-                (symbol, symbol not in self._no_calendar, self._attempts.get(symbol))
+                (
+                    symbol,
+                    symbol not in self._unknown,
+                    symbol not in self._no_calendar,
+                    self._attempts.get(symbol),
+                )
                 for symbol in params["symbols"]
             ]
 
@@ -166,10 +177,11 @@ class RecordingDailyCycle:
             self.store.connection(), scope, daily_pass_boundary(self.clock())
         )
         self.pending_seen.append(list(work.pending))
-        self.unactionable_seen.append(len(work.unactionable_no_calendar))
+        self.unactionable_seen.append(len(work.unactionable))
 
         report = CycleReport(
-            unactionable_no_calendar=len(work.unactionable_no_calendar)
+            unactionable_no_calendar=len(work.unactionable_no_calendar),
+            unknown_symbols=len(work.unknown_symbols),
         )
         if not work.pending:
             report.nothing_actionable = True

@@ -26,7 +26,9 @@ def _all_pending(_conn, symbol_list, _boundary) -> DailyWorkList:
     These tests assert mode dispatch (bulk vs per-symbol), not which symbols
     are outstanding. Derivation is covered in ``test_pending_daily_symbols.py``.
     """
-    return DailyWorkList(pending=list(symbol_list), unactionable_no_calendar=[])
+    return DailyWorkList(
+        pending=list(symbol_list), unactionable_no_calendar=[], unknown_symbols=[]
+    )
 
 
 @pytest.fixture(autouse=True)

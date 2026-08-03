@@ -461,9 +461,25 @@ gates, and the loop's idle-reason handling are the shipping implementations.
   - [ ] Record in `project-documents/user/notes/912-prod-verify-<date>.md`.
   - Effort: 2
 
-- [ ] **6.3 Code review**
-  - [ ] `sq review code 912` — PM selects the model. Disposition findings in the
-        slice document before integration.
+- [x] **6.3 Code review**
+  - [x] `sq review code 912` — PM selects the model. Disposition findings in the
+        slice document before integration. → Verdict CONCERNS; all six concerns
+        confirmed against the code and fixed, both cheap notes fixed, F009
+        deferred to pair with 6.2. See "Code review disposition (20260803)" in
+        the slice document. F002 needed a PM decision and got one: retry
+        semantics kept, cadence made operator-tunable.
+  - Effort: 1
+
+- [ ] **6.1b Re-run local gates after the review fixes**
+  - [x] Per-file, per-rule ruff comparison against the branch point — the
+        totals-only method used the first time masked a swap (review F006).
+        daily.py, cli/commands/data.py and runner.py each sit one violation
+        *better* than the branch point; `cadence.py` and every new test file are
+        clean.
+  - [x] `uv run --extra dev mypy` — 93 errors in 19 files, unchanged from the
+        branch point; the daemon and config modules contribute none.
+  - [x] `uv run --extra dev pytest test/unit` — 1658 passed, 10 skipped, same 35
+        live-DB errors as the baseline.
   - Effort: 1
 
 - [ ] **6.4 Integrate**

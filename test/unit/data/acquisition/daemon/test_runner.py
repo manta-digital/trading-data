@@ -11,6 +11,7 @@ from manta_trading.constants import (
     DAILY_CYCLE_RETRY_INTERVAL,
     DAILY_CYCLE_START_OFFSET,
 )
+from manta_trading.data.acquisition.daemon.daily import CycleReport
 from manta_trading.data.acquisition.daemon.runner import (
     QUOTA_BUCKET_VAR,
     Runner,
@@ -251,8 +252,12 @@ def _make_runner(
     clock_at: datetime | None = None,
 ) -> tuple[Runner, MagicMock, MagicMock, MagicMock]:
     bucket = _bucket()
-    daily_func = daily_func or MagicMock()
-    minute_func = minute_func or MagicMock()
+    # A real CycleReport, not a bare MagicMock: the loop reads
+    # `report.nothing_actionable` straight off the contract, and a mock would
+    # auto-create it as a truthy attribute — silently reporting every scope as
+    # drained (912 review F003).
+    daily_func = daily_func or MagicMock(return_value=CycleReport())
+    minute_func = minute_func or MagicMock(return_value=CycleReport())
     ca_func = ca_func or MagicMock()
     # Simulate ca_update_due returning False so the loop doesn't try
     # to call ca_func; tests opt in by reaching past the grace period.
@@ -307,6 +312,7 @@ def test_runner_stamps_cycle_end_not_start():
     def _record_state_during_cycle(**_kwargs):
         # Mid-cycle the stamp must still be unset: nothing has completed.
         observed.append(runner._state.last_daily_cycle_end_utc)
+        return CycleReport()
 
     runner, _daily, _minute, _ca = _make_runner(
         clock_at=at,

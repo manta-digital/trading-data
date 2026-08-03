@@ -15,13 +15,13 @@ from manta_trading.api.eodhd_sync import eodhd_get
 from manta_trading.config import Settings
 from manta_trading.constants import (
     DAEMON_LOCK_TIMEOUT,
-    DAILY_CYCLE_START_OFFSET,
     DAILY_HISTORY_FLOOR,
     CycleGranularity,
     DailyMode,
     FetchEntryPoint,
 )
 from manta_trading.providers.types import ProviderType
+from manta_trading.data.acquisition.daemon.cadence import daily_pass_boundary
 from manta_trading.data.acquisition.quota import CallType
 from manta_trading.data.acquisition.outcomes import (
     ProviderResponseError,
@@ -41,6 +41,16 @@ _UTC = timezone.utc
 _EODHD_BASE = "https://eodhd.com/api"
 _REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
 
+_DAILY_GRANULARITY: str = str(CycleGranularity.DAILY)
+"""The granularity token this module writes and reads, as the DB stores it.
+
+Derived from the enum rather than re-typed as a literal at each call site: the
+work-list query reads back exactly what ``update_data_gaps`` and
+``advisory_lock`` write here, and a mismatch produces a silent no-match — an
+empty ``pending`` list, i.e. a daemon that quietly does nothing (912 review
+F005). psycopg is handed the plain ``str`` because parameter adaptation is by
+exact type."""
+
 
 @dataclass
 class CycleReport:
@@ -54,9 +64,14 @@ class CycleReport:
     symbol_outcomes: dict[str, str] = field(default_factory=dict)
 
     unactionable_no_calendar: int = 0
-    """Scope members excluded because their calendar resolves to no trading
-    sessions (912 D6). Counted so the daemon can say what it could not act on
-    instead of silently dropping it; see GitHub issue #4."""
+    """Scope members excluded because their calendar resolves to no completed
+    trading session (912 D6). Counted so the daemon can say what it could not
+    act on instead of silently dropping it; see GitHub issue #4."""
+
+    unknown_symbols: int = 0
+    """Scope members with no ``instruments`` row (912 review F008). Separate
+    from the count above because it means the request was wrong, not the
+    reference data."""
 
     nothing_actionable: bool = False
     """True when the cycle derived an empty work list and made no provider
@@ -83,20 +98,36 @@ class CycleReport:
 class DailyWorkList:
     """Scope members split by what a daily cycle can actually do with them.
 
-    Slice 912 D1/D6. ``pending`` and ``unactionable_no_calendar`` are disjoint,
-    and together with the symbols already attempted in this pass they partition
-    the requested scope.
+    Slice 912 D1/D6. The three buckets are mutually disjoint, and together with
+    the symbols already attempted in this pass they partition the requested
+    scope. Nothing is dropped: a scope member the cycle cannot act on is
+    reported rather than silently omitted.
     """
 
     pending: list[str]
     """Symbols not yet attempted in the current pass, in the caller's order."""
 
     unactionable_no_calendar: list[str]
-    """Symbols whose calendar resolves to no trading sessions, so no fetch
-    window can be computed for them. Excluded from ``pending`` deliberately:
-    leaving them there would make the work list non-terminating, re-triggering
-    the billable bulk EOD call on every cadence tick. Reported, not retried —
-    fixing them is GitHub issue #4's job, not this slice's."""
+    """Symbols whose calendar resolves to no completed trading session, so no
+    fetch window can be computed for them. Excluded from ``pending``
+    deliberately: leaving them there would make the work list non-terminating,
+    re-triggering the billable bulk EOD call on every cadence tick. Reported,
+    not retried — fixing them is GitHub issue #4's job, not this slice's."""
+
+    unknown_symbols: list[str]
+    """Scope members with no ``instruments`` row at all.
+
+    Also unactionable, but for an entirely different reason, and kept separate
+    so the operator is told which one they have (912 review F008). A typo'd
+    ``--symbols AAPLL`` is a mistake in the invocation; reporting it as a
+    missing trading calendar points at issue #4, which has nothing to do with
+    it. Counted rather than dropped either way — silently ignoring a requested
+    symbol is how a scope quietly stops covering what the operator asked for."""
+
+    @property
+    def unactionable(self) -> list[str]:
+        """Every scope member the cycle cannot act on, whatever the reason."""
+        return self.unactionable_no_calendar + self.unknown_symbols
 
 
 _PENDING_DAILY_SYMBOLS_SQL = """
@@ -104,7 +135,9 @@ _PENDING_DAILY_SYMBOLS_SQL = """
         SELECT * FROM unnest(%(symbols)s::text[]) WITH ORDINALITY
     ),
     calendars_with_sessions AS (
-        SELECT DISTINCT calendar_id FROM trading_sessions
+        SELECT DISTINCT calendar_id
+          FROM trading_sessions
+         WHERE session_open_utc < NOW()
     ),
     symbol_calendar AS (
         SELECT i.symbol,
@@ -112,9 +145,11 @@ _PENDING_DAILY_SYMBOLS_SQL = """
           FROM instruments i
           LEFT JOIN calendars_with_sessions cw
                  ON cw.calendar_id = i.trading_calendar_id
+         WHERE i.symbol = ANY(%(symbols)s::text[])
          GROUP BY i.symbol
     )
     SELECT s.symbol,
+           sc.symbol IS NOT NULL AS is_known,
            COALESCE(sc.has_calendar, false) AS has_calendar,
            a.last_attempt_ts
       FROM scope s
@@ -138,9 +173,20 @@ calendar and another does not.
 
 ``symbol_calendar`` collapses that with ``GROUP BY i.symbol``, and ``bool_or``
 makes a symbol actionable if *any* of its instrument rows resolves a calendar.
-That matches ``_last_completed_session``, which aggregates with ``MAX`` over the
-same join and so is already permissive in exactly this way — the two must agree,
-or the work list would hand the cycle a symbol it then refuses to fetch.
+
+``session_open_utc < NOW()`` is what makes ``has_calendar`` mean the same thing
+as ``_last_completed_session``, which applies that same bound. Without it a
+calendar holding only *future* sessions satisfies this query and fails that
+one, so the symbol lands in ``pending``, gets skipped by the cycle for want of
+a fetch window, is never stamped, and returns to ``pending`` on the next
+cadence tick — a work list that cannot terminate, re-issuing the billable bulk
+EOD call every tick (912 review F002). The two must agree, and now do by
+construction rather than by coincidence.
+
+``WHERE i.symbol = ANY(...)`` bounds the aggregate to the requested scope.
+Without it a ``--symbols AAPL`` invocation grouped the entire instrument
+universe before the scope restriction was applied by the join, ~94 times a day
+under the new cadence (912 review F007).
 
 ``acquisition_state`` cannot fan out: ``(symbol, granularity, provider)`` is its
 primary key.
@@ -180,44 +226,39 @@ def pending_daily_symbols(
         complete for this scope, and the caller must make no provider call.
     """
     if not symbol_list:
-        return DailyWorkList(pending=[], unactionable_no_calendar=[])
+        return DailyWorkList(
+            pending=[], unactionable_no_calendar=[], unknown_symbols=[]
+        )
 
     with conn.cursor() as cur:
         cur.execute(
             _PENDING_DAILY_SYMBOLS_SQL,
             {
                 "symbols": list(symbol_list),
-                "granularity": str(CycleGranularity.DAILY),
+                "granularity": _DAILY_GRANULARITY,
                 "provider": str(ProviderType.EODHD),
             },
         )
         rows = cur.fetchall()
 
     pending: list[str] = []
-    unactionable: list[str] = []
-    for symbol, has_calendar, last_attempt_ts in rows:
-        if not has_calendar:
-            unactionable.append(symbol)
+    no_calendar: list[str] = []
+    unknown: list[str] = []
+    for symbol, is_known, has_calendar, last_attempt_ts in rows:
+        if not is_known:
+            unknown.append(symbol)
+        elif not has_calendar:
+            no_calendar.append(symbol)
         elif last_attempt_ts is not None and last_attempt_ts >= pass_boundary:
             continue  # already attempted in this pass
         else:
             pending.append(symbol)
 
-    return DailyWorkList(pending=pending, unactionable_no_calendar=unactionable)
-
-
-def daily_pass_boundary(now: datetime) -> datetime:
-    """Return the start instant of the daily pass covering ``now``.
-
-    Today's UTC midnight plus ``DAILY_CYCLE_START_OFFSET`` — the same
-    expression the runner's cadence gate uses, so "the pass has started" and
-    "attempted in this pass" can never disagree (912 D1).
-    """
-    utc_now = now.astimezone(_UTC)
-    midnight = datetime(
-        utc_now.year, utc_now.month, utc_now.day, tzinfo=_UTC
+    return DailyWorkList(
+        pending=pending,
+        unactionable_no_calendar=no_calendar,
+        unknown_symbols=unknown,
     )
-    return midnight + DAILY_CYCLE_START_OFFSET
 
 
 def run_daily_cycle(
@@ -267,7 +308,7 @@ def run_daily_cycle(
                     symbol_list = [
                         row.symbol
                         for row in iter_active_instruments(
-                            conn, ordering="most_stale_first", granularity="daily"
+                            conn, ordering="most_stale_first", granularity=_DAILY_GRANULARITY
                         )
                     ]
 
@@ -287,16 +328,29 @@ def run_daily_cycle(
             symbol_list = work.pending
 
             report.unactionable_no_calendar = len(work.unactionable_no_calendar)
+            report.unknown_symbols = len(work.unknown_symbols)
+            # One line per cycle each, never one per symbol (912 D6): ~906
+            # instruments are in this state on prod, and per-symbol warnings are
+            # precisely how the condition stayed invisible. The two causes get
+            # their own message because they need different actions from the
+            # operator (912 review F008).
             if work.unactionable_no_calendar:
-                # One line per cycle, never one per symbol (912 D6): ~906
-                # instruments are in this state on prod, and per-symbol warnings
-                # are precisely how the condition stayed invisible.
                 _logger.warning(
-                    "run_daily_cycle: %d of %d scope symbols have no trading "
-                    "calendar and cannot be fetched (e.g. %s) — see issue #4",
+                    "run_daily_cycle: %d of %d scope symbols have no completed "
+                    "trading session on their calendar and cannot be fetched "
+                    "(e.g. %s) — see issue #4",
                     len(work.unactionable_no_calendar),
                     scope_size,
                     ", ".join(work.unactionable_no_calendar[:5]),
+                )
+            if work.unknown_symbols:
+                _logger.warning(
+                    "run_daily_cycle: %d of %d requested symbols are not in "
+                    "`instruments` and were skipped (e.g. %s) — check the "
+                    "symbol list or seed the universe; unrelated to issue #4",
+                    len(work.unknown_symbols),
+                    scope_size,
+                    ", ".join(work.unknown_symbols[:5]),
                 )
 
             if not symbol_list:
@@ -304,10 +358,11 @@ def run_daily_cycle(
                 report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
                 _logger.info(
                     "run_daily_cycle: no actionable work — %d scope symbols "
-                    "all attempted this pass or unactionable (%d no calendar); "
-                    "no provider call made",
+                    "all attempted this pass or unactionable (%d no calendar, "
+                    "%d unknown); no provider call made",
                     scope_size,
                     len(work.unactionable_no_calendar),
+                    len(work.unknown_symbols),
                 )
                 return report
 
@@ -325,7 +380,12 @@ def run_daily_cycle(
             )
 
             if mode == DailyMode.STEADY_STATE:
-                report = _run_steady_state_cycle(
+                # Mutates the caller's report rather than returning a new one:
+                # rebinding here discarded the un-actionable counts set above,
+                # while the BACKFILL branch below preserved them, so the two
+                # modes disagreed on what a report contained (912 review F001).
+                _run_steady_state_cycle(
+                    report=report,
                     symbol_list=symbol_list,
                     pool=pool,
                     http=http,
@@ -383,9 +443,9 @@ def _select_daily_mode(conn: psycopg.Connection, symbol_list: list[str]) -> Dail
         # Any UNKNOWN gaps → backfill.
         cur.execute(
             "SELECT COUNT(*) FROM data_gaps "
-            "WHERE granularity = 'daily' AND symbol = ANY(%s) "
+            "WHERE granularity = %s AND symbol = ANY(%s) "
             "AND fetch_status = 'UNKNOWN'",
-            (symbol_list,),
+            (_DAILY_GRANULARITY, symbol_list),
         )
         row = cur.fetchone()
         if row and int(row[0]) > 0:
@@ -408,6 +468,7 @@ def _select_daily_mode(conn: psycopg.Connection, symbol_list: list[str]) -> Dail
 
 def _run_steady_state_cycle(
     *,
+    report: CycleReport,
     symbol_list: list[str],
     pool: ConnectionPool,
     http: httpx.Client,
@@ -415,9 +476,12 @@ def _run_steady_state_cycle(
     should_continue: Callable[[], bool] | None,
     t0: datetime,
 ) -> CycleReport:
-    """Fetch one bulk /eod-bulk-last-day/US call and route bars to each symbol."""
-    report = CycleReport()
+    """Fetch one bulk /eod-bulk-last-day/US call and route bars to each symbol.
 
+    Populates ``report`` in place and returns it, so counts the caller already
+    set (the un-actionable buckets) survive. Returning a fresh report here is
+    what dropped them (912 review F001).
+    """
     if should_continue is not None and not should_continue():
         return report
 
@@ -481,13 +545,16 @@ def _run_steady_state_cycle(
 
             with pool.connection() as conn:
                 with conn.transaction():
-                    with advisory_lock(conn, sym, "daily", timeout=DAEMON_LOCK_TIMEOUT):
+                    with advisory_lock(
+                            conn, sym, _DAILY_GRANULARITY,
+                            timeout=DAEMON_LOCK_TIMEOUT,
+                        ):
                         if sym_bars:
                             _insert_daily_bars(conn, sym, sym_bars)
                             _update_first_data_date(conn, sym, sym_bars)
                             _update_delisted_date_if_needed(conn, sym, sym_bars)
                         update_data_gaps(
-                            conn, sym, "daily", target_start, target_end,
+                            conn, sym, _DAILY_GRANULARITY, target_start, target_end,
                             fetch_status, force_reset_terminal=False, outcome=outcome,
                         )
 
@@ -612,14 +679,16 @@ def _do_daily_symbol(
 
     with pool.connection() as conn:
         with conn.transaction():
-            with advisory_lock(conn, symbol, "daily", timeout=DAEMON_LOCK_TIMEOUT):
+            with advisory_lock(
+                conn, symbol, _DAILY_GRANULARITY, timeout=DAEMON_LOCK_TIMEOUT
+            ):
                 if bars:
                     _insert_daily_bars(conn, symbol, bars)
                     _update_first_data_date(conn, symbol, bars)
                     _update_delisted_date_if_needed(conn, symbol, bars)
 
                 update_data_gaps(
-                    conn, symbol, "daily", target_start, target_end,
+                    conn, symbol, _DAILY_GRANULARITY, target_start, target_end,
                     fetch_status, force_reset_terminal=force_reset_terminal, outcome=outcome,
                 )
 
@@ -689,7 +758,7 @@ def run_daily_refetch(
             # so the normal daemon cycle (which calls _do_daily_symbol directly) is unchanged.
             with pool.connection() as conn:
                 with conn.transaction():
-                    coalesce_data_gaps(conn, symbol, "daily")
+                    coalesce_data_gaps(conn, symbol, _DAILY_GRANULARITY)
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report

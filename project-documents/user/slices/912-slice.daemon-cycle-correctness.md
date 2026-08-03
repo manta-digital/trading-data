@@ -530,6 +530,129 @@ itself is correct.
   and minute-inclusive behavior is unchanged from today. No minute code is
   touched, which was the point of the constraint the original wording violated.
 
+## Code review disposition (20260803)
+
+Verdict CONCERNS: six concerns, three notes, two passes. Every concern was
+confirmed against the code before being acted on; nothing was accepted on the
+reviewer's description alone. F010 and F011 are PASS findings requiring no
+action.
+
+| ID | Verdict | Disposition |
+|----|---------|-------------|
+| F001 | Confirmed | Fixed — `_run_steady_state_cycle` populates the caller's report |
+| F002 | Confirmed, split | (a) fixed; (b) PM decision — retry semantics kept, cadence made configurable |
+| F003 | Confirmed | Fixed — production reads the contract; the mocks were the defect |
+| F004 | Confirmed | Fixed — new `daemon/cadence.py`, five copies collapsed to one |
+| F005 | Confirmed | Fixed — write sites and config type converted to the enum |
+| F006 | Confirmed | Fixed — and it exposed a hole in the 6.1 gate method |
+| F007 | Accepted | Fixed — aggregate bounded to scope |
+| F008 | Accepted (PM) | Fixed — unknown symbols get their own bucket and message |
+| F009 | Deferred | Needs a database; see below |
+
+### F001 — the STEADY_STATE path discarded the un-actionable counts
+
+Confirmed by reading: `run_daily_cycle` set the counts, then rebound `report` to
+`_run_steady_state_cycle`'s return value, which constructed a fresh
+`CycleReport`. BACKFILL mutated in place and kept them, so the two modes
+disagreed and the mode that lost the data is the production one.
+`_run_steady_state_cycle` now takes the caller's report and populates it, which
+removes the divergence rather than patching one side of it.
+
+### F002 — an unstampable symbol makes the work list non-terminating
+
+The finding is two problems, and they resolve differently.
+
+**(a) A precision mismatch in the work-list SQL — fixed.**
+`calendars_with_sessions` had no time bound while `_last_completed_session`
+requires `session_open_utc < NOW()`. A calendar holding only future sessions
+therefore satisfied the work list and failed the cycle: pending, skipped, never
+stamped, pending again next tick. The SQL docstring asserted the two agreed,
+which was simply wrong. Both now apply the same bound. This was the only
+*permanent* unstampable condition, and it was a defect in this slice's own code.
+
+**(b) Repeated transient failure — semantics kept, cadence made configurable.**
+Every remaining no-stamp path is transient: the bulk call raising (whole scope),
+advisory-lock timeout, unexpected exception, or any raise before
+`update_data_gaps` on the BACKFILL path. Stamping those would have been the
+wrong fix, and was rejected on analysis: D1 declines to stamp transient failures
+precisely so the daemon self-heals within the day, and stamping them would mean
+a five-minute provider blip at 00:30 defers the whole scope to tomorrow — a
+worse regression than the credit spend.
+
+The real exposure is rate, not retry. Corrected arithmetic, since the first pass
+at it undercounted: `bucket.consume` sits *inside* `eodhd_get`'s retry loop, so
+a timeout-style outage costs up to `MAX_RETRY_COUNT + 1` × 100 = 600 credits per
+tick, not 100. At 94 ticks/day that is ~56,400 credits against a 100,000 daily
+quota — enough that the QuotaBucket would throttle and starve the minute
+pipeline. Not every mode loops: a 5xx returns a response, the bulk body fails to
+parse, and every symbol is stamped EMPTY instead, which is a different problem
+this slice does not introduce but does make terminal.
+
+Set against that, the old code lost the entire daily pass when an outage
+straddled 00:30, because the gate had closed until the next day. The extra
+credits buy same-day recovery; that is the trade the slice exists to make.
+
+PM decision: keep D1's retry semantics, and make the cadence operator-tunable
+rather than guessing a number now. `DAILY_CYCLE_RETRY_INTERVAL` remains the
+single definition site and the shipped default; `MT_DAILY_CYCLE_RETRY_MINUTES`
+and `--daily-retry-minutes` override it, validated to `1..1440`. The two runner
+predicates take it as a defaulted keyword argument, so they stay pure. This lets
+15-minutes-versus-two-hours be settled empirically on .144 instead of by
+argument, which matters because the observed catch-up after an outage is under
+two hours — polling faster than that buys nothing.
+
+### F003 — production code shaped around a test double
+
+Accepted in full. `getattr(..., "nothing_actionable", False) is True` existed
+only to survive under-specified mocks, at the cost of degrading a rename into a
+silently absent drained signal. Production now reads
+`daily_report.nothing_actionable` straight off the contract, and the mocks that
+motivated the guard return real `CycleReport`s.
+
+### F004 — five copies of "today's UTC midnight + offset"
+
+Accepted. The docstring promised the gate and the work list could never
+disagree, but promised it about a copy. `daemon/cadence.py` now holds
+`utc_day_start` and `daily_pass_boundary`; `runner.py`'s four sites and
+`daily.py` call it. A test asserts the gate and the boundary agree at the
+instant itself, which is the property the copies could not guarantee.
+
+### F005 — the enum governed reads but not writes
+
+Accepted. The protection is only real if the token the query reads is the token
+the cycle wrote. `daily.py` gains `_DAILY_GRANULARITY`, derived from the enum
+once and used at every `update_data_gaps`, `advisory_lock`,
+`iter_active_instruments`, and SQL site; the `_select_daily_mode` literal is now
+a parameter; `CA_UPDATE_SENTINEL_GRANULARITY` derives from the enum;
+`RunnerConfig.granularities` is typed `frozenset[CycleGranularity]` and defaults
+to `frozenset(CycleGranularity)`; the CLI builds the set from enum members.
+
+### F006 — a lint regression, and a hole in the gate that missed it
+
+Confirmed, and it invalidates part of the Task 6.1 result as originally
+recorded. The repo-wide ruff **total** was 1812 at both HEAD and the branch
+point — but runner.py had *lost* an E501 and *gained* this I001, so the totals
+matched by coincidence. Comparing totals cannot detect a swap. The gate is now
+run per-file and per-rule; on that basis daily.py and cli/commands/data.py are
+each one E501 better than the branch point, runner.py is one better, and the new
+`cadence.py` is clean.
+
+### F007 / F008 — accepted as described
+
+The aggregate is bounded to the requested scope, and symbols absent from
+`instruments` are reported in their own bucket with their own warning, so a
+mistyped `--symbols` is no longer attributed to issue #4.
+
+### F009 — no load-tier coverage for the new cadence
+
+Deferred, not dismissed. The finding is correct that the unit-tier simulation
+bounds tick count but cannot bound query cost or credit spend. The existing 146
+load tests skip without a database, so adding a load assertion here would land
+un-executed in this environment and prove nothing. It is better paired with the
+6.2 prod verification, where the query can be measured at real scope size
+against .144. Raise as a follow-up in the maintenance band rather than shipping
+an unrunnable test.
+
 ## Notes
 
 - The plan entry designates 912 as the maintenance band's home for daemon-cycle

@@ -78,9 +78,15 @@ def _pool_mock() -> MagicMock:
     return pool
 
 
-def _work(pending: list[str], unactionable: list[str] | None = None):
+def _work(
+    pending: list[str],
+    unactionable: list[str] | None = None,
+    unknown: list[str] | None = None,
+):
     return lambda *_a, **_k: DailyWorkList(
-        pending=list(pending), unactionable_no_calendar=list(unactionable or [])
+        pending=list(pending),
+        unactionable_no_calendar=list(unactionable or []),
+        unknown_symbols=list(unknown or []),
     )
 
 
@@ -192,7 +198,9 @@ def test_pass_boundary_is_derived_from_cycle_start():
 
     def _capture(_conn, symbol_list, boundary):
         captured["boundary"] = boundary
-        return DailyWorkList(pending=[], unactionable_no_calendar=[])
+        return DailyWorkList(
+            pending=[], unactionable_no_calendar=[], unknown_symbols=[]
+        )
 
     with (
         patch(f"{_MOD}.Settings", return_value=_FakeSettings()),

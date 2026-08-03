@@ -28,15 +28,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any
-
 from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 
 from manta_trading.constants import (
     DAILY_CYCLE_RETRY_INTERVAL,
-    DAILY_CYCLE_START_OFFSET,
     CycleGranularity,
 )
+from manta_trading.data.acquisition.daemon.cadence import daily_pass_boundary
 from manta_trading.data.acquisition.quota import CallType, QuotaBucket
 from manta_trading.logging import get_logger
 
@@ -53,7 +52,10 @@ CA_UPDATE_SENTINEL_SYMBOL: str = "__bulk_ca__"
 """Sentinel symbol whose acquisition_state row stores the once-per-UTC-day
 CA-update gate timestamp (Decision G)."""
 
-CA_UPDATE_SENTINEL_GRANULARITY: str = "daily"
+CA_UPDATE_SENTINEL_GRANULARITY: str = str(CycleGranularity.DAILY)
+"""Derived from the enum, not re-typed (912 review F005): this value is a SQL
+parameter, and a token that drifts from what the sentinel row was written with
+silently matches nothing — which reads as "CA update never ran"."""
 
 QUOTA_BUCKET_VAR: contextvars.ContextVar[QuotaBucket | None] = (
     contextvars.ContextVar("manta_quota_bucket", default=None)
@@ -85,7 +87,7 @@ class RunnerConfig:
     tickers. The cycle functions accept ``symbols=None`` for the active
     universe and ``symbols=[...]`` otherwise.
 
-    ``granularities``: subset of ``{"daily", "minute"}``.
+    ``granularities``: subset of :class:`CycleGranularity`.
 
     ``max_credits``: hard ceiling on rolling-24h spend; the runner exits
     when ``bucket.spent_today() >= max_credits``. ``None`` = unlimited.
@@ -94,14 +96,21 @@ class RunnerConfig:
     iteration in which no cycle was due. Default for ``--symbols`` /
     ``--list NAME`` invocations; the operator opts back into
     --forever for steady-state.
+
+    ``daily_retry_interval``: how soon after a daily cycle ends the next may
+    start. Operator-tunable via ``MT_DAILY_CYCLE_RETRY_MINUTES`` because the
+    right value is an empirical trade — short enough that an interrupted pass
+    resumes promptly, long enough that a provider outage does not re-issue the
+    100-credit bulk EOD call ~94 times a day (912 review F002).
     """
 
     scope: str | tuple[str, ...] = SCOPE_ALL_ACTIVE
-    granularities: frozenset[str] = field(
-        default_factory=lambda: frozenset({"daily", "minute"})
+    granularities: frozenset[CycleGranularity] = field(
+        default_factory=lambda: frozenset(CycleGranularity)
     )
     max_credits: int | None = None
     terminate_when_drained: bool = False
+    daily_retry_interval: timedelta = DAILY_CYCLE_RETRY_INTERVAL
 
     def is_explicit_scope(self) -> bool:
         return self.scope != SCOPE_ALL_ACTIVE
@@ -162,7 +171,12 @@ def _utc_today(now: datetime) -> date:
     return now.astimezone(_UTC).date()
 
 
-def daily_cycle_due(state: RunnerState, now: datetime) -> bool:
+def daily_cycle_due(
+    state: RunnerState,
+    now: datetime,
+    *,
+    retry_interval: timedelta = DAILY_CYCLE_RETRY_INTERVAL,
+) -> bool:
     """True iff the daily pass has started for the day and cadence permits a run.
 
     A pure cadence predicate (912 D2). Whether any scope member has actionable
@@ -173,24 +187,26 @@ def daily_cycle_due(state: RunnerState, now: datetime) -> bool:
 
     Two gates, both cadence:
 
-    1. Nothing runs before ``00:00 + DAILY_CYCLE_START_OFFSET``, giving the
+    1. Nothing runs before :func:`daily_pass_boundary`, giving the
        provider time to publish the completed session's late bars.
-    2. After a cycle ends, the next may not start for
-       ``DAILY_CYCLE_RETRY_INTERVAL``. This is what lets an interrupted pass
-       resume within the same UTC day — the defect that motivated the slice —
-       without the loop spinning when nothing is actionable.
+    2. After a cycle ends, the next may not start for ``retry_interval``. This
+       is what lets an interrupted pass resume within the same UTC day — the
+       defect that motivated the slice — without the loop spinning when nothing
+       is actionable.
 
     Deliberately contains no UTC-day comparison. "Has today's pass already
     happened" is not a question this predicate answers, or should: an
     interrupted pass *has* happened and still has work left.
+
+    ``retry_interval`` is a parameter rather than a module constant read so the
+    operator can tune the cadence without the predicate losing its purity; the
+    default preserves the shipped behavior.
     """
-    today = _utc_today(now)
-    midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
-    if now < midnight + DAILY_CYCLE_START_OFFSET:
+    if now < daily_pass_boundary(now):
         return False
     if state.last_daily_cycle_end_utc is None:
         return True
-    return now - state.last_daily_cycle_end_utc >= DAILY_CYCLE_RETRY_INTERVAL
+    return now - state.last_daily_cycle_end_utc >= retry_interval
 
 
 def minute_cycle_due(state: RunnerState, now: datetime) -> bool:
@@ -220,8 +236,7 @@ def ca_update_due(
     daily). NEVER calls ``.date()`` on None.
     """
     today = _utc_today(now)
-    midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
-    if now < midnight + DAILY_CYCLE_START_OFFSET:
+    if now < daily_pass_boundary(now):
         return False
 
     with conn.cursor() as cur:
@@ -244,6 +259,7 @@ def sleep_until_next_due_event(
     sleep: Callable[[float], None] = time.sleep,
     *,
     cap_seconds: float = 60.0,
+    retry_interval: timedelta = DAILY_CYCLE_RETRY_INTERVAL,
 ) -> None:
     """Sleep until the soonest-due event, capped at ``cap_seconds``.
 
@@ -257,9 +273,7 @@ def sleep_until_next_due_event(
     reintroduce the very defect this slice removes — an interrupted pass
     stranded until the next day.
     """
-    today = _utc_today(now)
-    midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
-    todays_start = midnight + DAILY_CYCLE_START_OFFSET
+    todays_start = daily_pass_boundary(now)
 
     if now < todays_start:
         # Today's pass has not opened yet.
@@ -271,7 +285,7 @@ def sleep_until_next_due_event(
         # A cycle ran; the next is due one retry interval after it ended, or
         # at tomorrow's offset if that interval already elapsed today.
         next_daily_start = max(
-            state.last_daily_cycle_end_utc + DAILY_CYCLE_RETRY_INTERVAL, now
+            state.last_daily_cycle_end_utc + retry_interval, now
         )
 
     candidates: list[float] = []
@@ -407,7 +421,9 @@ class Runner:
             QUOTA_BUCKET_VAR.reset(token)
             self._restore_signal_handlers(prev_term, prev_int)
 
-    def _awaiting_first_cycle(self, granularities: frozenset[str]) -> bool:
+    def _awaiting_first_cycle(
+        self, granularities: frozenset[CycleGranularity]
+    ) -> bool:
         """True while a configured granularity has not yet completed a cycle.
 
         Sleeping past a closed gate is only worthwhile while some granularity
@@ -432,7 +448,9 @@ class Runner:
         )
 
     def _exit_or_wait(
-        self, reason: RunnerIdleReason, granularities: frozenset[str]
+        self,
+        reason: RunnerIdleReason,
+        granularities: frozenset[CycleGranularity],
     ) -> bool:
         """Report an idle iteration; return True if the loop should exit.
 
@@ -468,15 +486,15 @@ class Runner:
         )
         return True
 
-    def _next_due_description(self, granularities: frozenset[str]) -> str:
+    def _next_due_description(
+        self, granularities: frozenset[CycleGranularity]
+    ) -> str:
         """Human-readable next due time, for the wait message."""
         if (
             CycleGranularity.DAILY in granularities
             and self._state.last_daily_cycle_end_utc is None
         ):
-            today = _utc_today(self._clock())
-            midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
-            due = midnight + DAILY_CYCLE_START_OFFSET
+            due = daily_pass_boundary(self._clock())
             return f"daily at {due:%H:%M} UTC"
         return "minute within 1m"
 
@@ -508,7 +526,7 @@ class Runner:
 
             # Daily cycle
             if CycleGranularity.DAILY in granularities and daily_cycle_due(
-                self._state, now
+                self._state, now, retry_interval=self._config.daily_retry_interval
             ):
                 _logger.info("runner: starting daily cycle")
                 try:
@@ -518,13 +536,11 @@ class Runner:
                     )
                     # A cycle that derived no work reports it, so the runner
                     # never has to re-derive the work list to classify its idle
-                    # reason. `is True` rather than bool(): an injected
-                    # MagicMock auto-creates the attribute as a truthy mock,
-                    # which would spuriously read as a drained scope. Only a
-                    # real True counts.
-                    drained = (
-                        getattr(daily_report, "nothing_actionable", False) is True
-                    )
+                    # reason. Read straight off the contract: `run_daily_cycle`
+                    # returns a CycleReport, and defending against mocks that
+                    # do not would mean a rename degrades to a silently absent
+                    # drained signal (912 review F003).
+                    drained = daily_report.nothing_actionable
                 except Exception:
                     _logger.exception("runner: run_daily_cycle raised")
                 # Stamp the END, never the start (912 D2), and stamp it on the
@@ -571,7 +587,10 @@ class Runner:
                 if self._exit_or_wait(reason, granularities):
                     return 0
                 sleep_until_next_due_event(
-                    self._state, self._clock(), self._sleep
+                    self._state,
+                    self._clock(),
+                    self._sleep,
+                    retry_interval=self._config.daily_retry_interval,
                 )
 
 

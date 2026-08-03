@@ -51,24 +51,25 @@ def test_sql_executes_and_returns_a_partition(conn):
 
     result = pending_daily_symbols(conn, scope, daily_pass_boundary(datetime.now(UTC)))
 
-    buckets = set(result.pending) | set(result.unactionable_no_calendar)
-    assert buckets <= set(scope), "returned a symbol that was not in scope"
-    assert not (
-        set(result.pending) & set(result.unactionable_no_calendar)
-    ), "a symbol landed in both buckets"
+    returned = result.pending + result.unactionable
+    assert set(returned) <= set(scope), "returned a symbol that was not in scope"
+    assert len(returned) == len(set(returned)), "a symbol landed in two buckets"
 
 
-def test_unknown_symbol_is_unactionable_not_dropped(conn):
-    """A symbol absent from `instruments` has no calendar, so it is reported.
+def test_unknown_symbol_is_reported_as_unknown_not_as_missing_calendar(conn):
+    """A symbol absent from `instruments` is reported, in its own bucket.
 
     It must not vanish: a scope member the cycle cannot act on is counted (D6),
     never silently discarded — that silent-drop behavior is what made GitHub
-    issue #4's 906 instruments invisible for so long.
+    issue #4's 906 instruments invisible for so long. Nor may it be blamed on
+    a missing trading calendar, which would point an operator who mistyped
+    `--symbols` at issue #4 instead of at their own argument (review F008).
     """
     result = pending_daily_symbols(
         conn, ["__NO_SUCH_SYMBOL__"], daily_pass_boundary(datetime.now(UTC))
     )
-    assert result.unactionable_no_calendar == ["__NO_SUCH_SYMBOL__"]
+    assert result.unknown_symbols == ["__NO_SUCH_SYMBOL__"]
+    assert result.unactionable_no_calendar == []
     assert result.pending == []
 
 
@@ -122,7 +123,7 @@ def test_no_fan_out_on_duplicate_instrument_rows(conn):
     result = pending_daily_symbols(
         conn, duplicated, daily_pass_boundary(datetime.now(UTC))
     )
-    returned = result.pending + result.unactionable_no_calendar
+    returned = result.pending + result.unactionable
     assert len(returned) == len(set(returned)), "a symbol was returned more than once"
     assert sorted(returned) == sorted(duplicated), (
         "scope size changed through the query"
@@ -140,4 +141,40 @@ def test_future_boundary_marks_everything_pending(conn):
 
     far_future = datetime.now(UTC) + timedelta(days=365)
     result = pending_daily_symbols(conn, scope, far_future)
-    assert set(result.pending) | set(result.unactionable_no_calendar) == set(scope)
+    assert set(result.pending) | set(result.unactionable) == set(scope)
+
+
+def test_symbol_with_only_future_sessions_is_not_left_pending(conn):
+    """A calendar holding no *completed* session must not yield pending work.
+
+    ``_last_completed_session`` bounds sessions with ``session_open_utc < NOW()``.
+    If this query does not, such a symbol is pending, is then skipped by the
+    cycle for want of a fetch window, is never stamped, and comes back pending on
+    every cadence tick — each one re-issuing the 100-credit bulk EOD call for the
+    rest of the day (review F002). Only a real query can prove the two agree.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT i.symbol
+              FROM instruments i
+              JOIN trading_sessions ts ON ts.calendar_id = i.trading_calendar_id
+             GROUP BY i.symbol
+            HAVING max(ts.session_open_utc) >= NOW()
+               AND min(ts.session_open_utc) >= NOW()
+             LIMIT 5
+            """
+        )
+        future_only = [row[0] for row in cur.fetchall()]
+
+    if not future_only:
+        pytest.skip("no symbol has a future-only calendar in this database")
+
+    result = pending_daily_symbols(
+        conn, future_only, daily_pass_boundary(datetime.now(UTC))
+    )
+    assert result.pending == [], (
+        "a symbol with no completed session was queued for a fetch the cycle "
+        "cannot perform — the work list cannot terminate"
+    )
+    assert set(result.unactionable_no_calendar) == set(future_only)

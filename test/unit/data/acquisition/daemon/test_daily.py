@@ -73,7 +73,9 @@ def _all_pending(_conn, symbol_list, _boundary) -> DailyWorkList:
     this the mocked cursor returns no rows, the cycle correctly concludes there
     is nothing to do, and every assertion here fails for an unrelated reason.
     """
-    return DailyWorkList(pending=list(symbol_list), unactionable_no_calendar=[])
+    return DailyWorkList(
+        pending=list(symbol_list), unactionable_no_calendar=[], unknown_symbols=[]
+    )
 
 
 class TestRunDailyCycleHappyPath:
