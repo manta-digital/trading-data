@@ -196,6 +196,17 @@ that one a start gate, the third a session-close offset. Nothing may collapse
 them, and ``test_constants.py`` asserts each independently for that reason.
 """
 
+RUNNER_WAIT_PROGRESS_INTERVAL: timedelta = timedelta(minutes=5)
+"""How often the runner restates that it is deliberately waiting on a gate.
+
+A `--stop-when-done` run that meets a closed cadence gate sleeps rather than
+exiting (912 D5). Announcing that once and then falling silent for up to half an
+hour is indistinguishable from a hang to whoever is watching, so the wait
+repeats at this interval with the remaining time. Long enough not to be noise at
+the 60s sleep cap; short enough that silence never outlasts an operator's
+patience.
+"""
+
 MAX_GAP_STALENESS: timedelta = timedelta(minutes=5)
 """Maximum age of a data_gaps row before the gap is considered stale metadata."""
 

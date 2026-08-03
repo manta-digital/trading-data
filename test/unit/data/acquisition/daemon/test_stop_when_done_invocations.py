@@ -19,7 +19,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from manta_trading.constants import DAILY_CYCLE_START_OFFSET, CycleGranularity
+from manta_trading.constants import (
+    DAILY_CYCLE_START_OFFSET,
+    RUNNER_WAIT_PROGRESS_INTERVAL,
+    CycleGranularity,
+)
 from manta_trading.data.acquisition.daemon.daily import CycleReport
 from manta_trading.data.acquisition.daemon.runner import (
     SCOPE_ALL_ACTIVE,
@@ -48,14 +52,20 @@ WAIT_ANNOUNCEMENT = "no cycle due yet"
 qualified wait apart from the loop's ordinary between-cycle sleep."""
 
 
-def _terminate_when_drained(scope: str | tuple[str, ...]) -> bool:
-    """The CLI's rule, mirrored: a scope flag implies --stop-when-done.
+def _terminate_when_drained(
+    scope: str | tuple[str, ...], explicit: bool | None = None
+) -> bool:
+    """The CLI's rule, mirrored.
 
-    ``mt data daemon run`` derives this at ``cli/commands/data.py:1187`` as
-    ``symbols_list is not None``. Asserting the table against the derived value
-    rather than a hand-written one keeps the table honest about which
-    invocations actually reach the D5 branch.
+    ``mt data daemon run`` resolves this at ``cli/commands/data.py:1186-1189``:
+    an explicit ``--stop-when-done`` / ``--forever`` wins, and otherwise a scope
+    flag implies it. Asserting the table against the derived value rather than a
+    hand-written one keeps it honest about which invocations reach the D5
+    branch — and the explicit form is what production actually uses, with no
+    scope flag at all.
     """
+    if explicit is not None:
+        return explicit
     return scope != SCOPE_ALL_ACTIVE
 
 
@@ -68,12 +78,15 @@ def _build(
     minute,
     sleep,
     ca_update_done,
+    explicit_stop_when_done: bool | None = None,
 ) -> Runner:
     return Runner(
         config=RunnerConfig(
             scope=scope,
             granularities=granularities,
-            terminate_when_drained=_terminate_when_drained(scope),
+            terminate_when_drained=_terminate_when_drained(
+                scope, explicit_stop_when_done
+            ),
         ),
         bucket=QuotaBucket(now=lambda: 0.0, sleep=lambda _s: None),
         conn_factory=ca_update_done(clock),
@@ -172,6 +185,11 @@ class _Invocation:
     """None where the minute cadence legitimately fires repeatedly while the
     loop waits on the daily gate; an exact bound everywhere it does not."""
 
+    explicit_stop_when_done: bool | None = None
+    """None means the CLI derives it from the scope; True/False is the operator
+    passing --stop-when-done / --forever explicitly. Production passes it
+    explicitly with no scope flag, which no other row covers."""
+
 
 TABLE = [
     _Invocation(
@@ -227,6 +245,38 @@ TABLE = [
         max_minute_cycles=0,
     ),
     _Invocation(
+        # The production daily invocation on .144: no scope flag, but
+        # --stop-when-done given explicitly. The table's other rows derive
+        # terminate_when_drained from the scope, so this combination was
+        # unrepresented until it was found in the deploy runbook.
+        label="--daily --stop-when-done (unscoped, prod)",
+        granularities=DAILY,
+        scope=SCOPE_ALL_ACTIVE,
+        explicit_stop_when_done=True,
+        at_hour=0,
+        at_minute=13,
+        expect_terminates=True,
+        expect_d5_wait=True,
+        expect_daily_cycles=1,
+        min_minute_cycles=0,
+        max_minute_cycles=0,
+    ),
+    _Invocation(
+        # The production minute invocation on .144. Must do exactly one pass
+        # and exit — the failure mode an unqualified D5 wait would have caused.
+        label="--minute --stop-when-done (unscoped, prod)",
+        granularities=MINUTE,
+        scope=SCOPE_ALL_ACTIVE,
+        explicit_stop_when_done=True,
+        at_hour=12,
+        at_minute=0,
+        expect_terminates=True,
+        expect_d5_wait=False,
+        expect_daily_cycles=0,
+        min_minute_cycles=1,
+        max_minute_cycles=1,
+    ),
+    _Invocation(
         label="--daily --minute --list X at 00:13",
         granularities=BOTH,
         scope=SYMBOLS,
@@ -262,6 +312,7 @@ def test_d5_invocation_table(row, today_at, ca_update_done, caplog):
         minute=minute,
         sleep=sleep,
         ca_update_done=ca_update_done,
+        explicit_stop_when_done=row.explicit_stop_when_done,
     )
 
     with caplog.at_level(logging.INFO):
@@ -279,7 +330,60 @@ def test_d5_invocation_table(row, today_at, ca_update_done, caplog):
         assert minute.call_count <= row.max_minute_cycles
 
 
-def test_scope_flag_is_what_arms_the_stop_when_done_path():
+def test_stop_when_done_resolution_matches_the_cli():
     """The table's terminate column is derived, not asserted by hand."""
+    # Derived from scope when the operator says nothing.
     assert _terminate_when_drained(SCOPE_ALL_ACTIVE) is False
     assert _terminate_when_drained(SYMBOLS) is True
+    # An explicit flag wins over the scope-derived default, in both directions.
+    # The first of these is the production invocation: unscoped, but drained.
+    assert _terminate_when_drained(SCOPE_ALL_ACTIVE, True) is True
+    assert _terminate_when_drained(SYMBOLS, False) is False
+
+
+# ---------------------------------------------------------------------------
+# The wait is a heartbeat, not a single line followed by silence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.timeout(10)
+def test_wait_reports_progress_while_it_waits(today_at, ca_update_done, caplog):
+    """A silent half-hour wait is indistinguishable from a hung process.
+
+    The first line explains why the runner is not exiting; that part must stay
+    exactly once. But the wait for the daily gate can last thirty minutes, and
+    an operator watching a terminal needs evidence it is still alive, so the
+    wait restates itself with the remaining time on a slow heartbeat.
+    """
+    clock = AdvancingClock(today_at(0, 13))
+    gate_opens = today_at(0, 0) + DAILY_CYCLE_START_OFFSET
+    cycle = RecordingDailyCycle(store=FakeAcquisitionState(), clock=clock)
+
+    runner = _build(
+        clock=clock,
+        granularities=DAILY,
+        scope=SCOPE_ALL_ACTIVE,
+        daily=cycle,
+        minute=MagicMock(return_value=CycleReport()),
+        sleep=clock.sleep_until(today_at(2, 0)),
+        ca_update_done=ca_update_done,
+        explicit_stop_when_done=True,
+    )
+
+    with caplog.at_level(logging.INFO):
+        assert runner.start() == 0
+
+    messages = [r.getMessage() for r in caplog.records]
+    openings = [m for m in messages if WAIT_ANNOUNCEMENT in m]
+    progress = [m for m in messages if "still waiting" in m]
+
+    assert len(openings) == 1, "the explanatory line must not repeat"
+    assert progress, "waited in silence — indistinguishable from a hang"
+
+    # The wait spans gate_opens - 00:13; at one heartbeat per interval it can
+    # produce no more than that many lines, and must produce at least one.
+    waited = gate_opens - today_at(0, 13)
+    max_beats = int(waited / RUNNER_WAIT_PROGRESS_INTERVAL) + 1
+    assert len(progress) <= max_beats, f"{len(progress)} beats is spam, not a heartbeat"
+    assert any("remaining" in m for m in progress), "no countdown in the heartbeat"
+    assert cycle.ran_at, "waited but never ran the cycle"

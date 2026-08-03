@@ -177,7 +177,13 @@ def test_closed_gate_before_first_cycle_waits_rather_than_exiting(caplog):
 
 
 def test_wait_is_announced_once_not_per_tick(caplog):
-    """A silent multi-minute wait reads as a hang; a per-tick one is spam."""
+    """A per-tick announcement is spam; the explanatory line appears once.
+
+    The clock is frozen here, so this pins the *explanatory* line only. The
+    slow heartbeat that keeps a long wait from looking like a hang is exercised
+    against an advancing clock in
+    ``test_stop_when_done_invocations.py::test_wait_reports_progress_while_it_waits``.
+    """
     at = _today_at(0, 13)
     slept: list[float] = []
     runner = _runner(

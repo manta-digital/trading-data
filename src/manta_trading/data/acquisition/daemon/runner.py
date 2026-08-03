@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 from manta_trading.constants import (
     DAILY_CYCLE_RETRY_INTERVAL,
+    RUNNER_WAIT_PROGRESS_INTERVAL,
     CycleGranularity,
 )
 from manta_trading.data.acquisition.daemon.cadence import daily_pass_boundary
@@ -357,8 +358,9 @@ class Runner:
         self._sleep = sleep
         self._state = RunnerState()
         self._should_exit: bool = False
-        # The D5 wait announces itself once on entry, not once per 60s tick.
-        self._announced_wait: bool = False
+        # When the D5 wait was last reported. None until the wait begins; the
+        # wait then repeats on a heartbeat rather than falling silent.
+        self._wait_announced_at: datetime | None = None
 
     # T19 — SIGTERM/SIGINT handling
     def _install_signal_handlers(
@@ -470,15 +472,7 @@ class Runner:
 
         # NOTHING_DUE: a gate that has not opened is not a drained scope.
         if self._awaiting_first_cycle(granularities):
-            if not self._announced_wait:
-                _logger.info(
-                    "runner: no cycle due yet (next due %s) — waiting rather "
-                    "than exiting, because --stop-when-done means no work "
-                    "remains, not no cycle is due. Interrupt latency during "
-                    "this wait is up to 60s.",
-                    self._next_due_description(granularities),
-                )
-                self._announced_wait = True
+            self._log_wait_progress(granularities)
             return False
 
         _logger.info(
@@ -486,6 +480,64 @@ class Runner:
             "exiting because --stop-when-done"
         )
         return True
+
+    def _log_wait_progress(
+        self, granularities: frozenset[CycleGranularity]
+    ) -> None:
+        """Say the runner is waiting, then keep saying so while it waits.
+
+        The first line explains *why* it is not exiting, since that is the
+        surprising part. After that, silence is the problem: a wait for the
+        daily gate can last half an hour, and an operator watching a terminal
+        cannot tell a deliberate wait from a hung process. Subsequent lines
+        restate the remaining time at ``RUNNER_WAIT_PROGRESS_INTERVAL``, which
+        is far longer than the 60s sleep cap so this is a heartbeat, not spam.
+        """
+        now = self._clock()
+        if self._wait_announced_at is None:
+            _logger.info(
+                "runner: no cycle due yet (next due %s) — waiting rather "
+                "than exiting, because --stop-when-done means no work "
+                "remains, not no cycle is due. Interrupt latency during "
+                "this wait is up to 60s.",
+                self._next_due_description(granularities),
+            )
+            self._wait_announced_at = now
+            return
+
+        if now - self._wait_announced_at < RUNNER_WAIT_PROGRESS_INTERVAL:
+            return
+
+        due_at = self._next_due_at(granularities)
+        if due_at is None:
+            _logger.info(
+                "runner: still waiting — next cycle due %s",
+                self._next_due_description(granularities),
+            )
+        else:
+            remaining_minutes = max(0, int((due_at - now).total_seconds() // 60))
+            _logger.info(
+                "runner: still waiting for %s — about %dm remaining",
+                self._next_due_description(granularities),
+                remaining_minutes,
+            )
+        self._wait_announced_at = now
+
+    def _next_due_at(
+        self, granularities: frozenset[CycleGranularity]
+    ) -> datetime | None:
+        """The instant the awaited gate opens, when that is knowable.
+
+        Only the daily gate has a fixed opening time; the minute gate is
+        relative to the previous cycle, so there is nothing useful to count
+        down to and this returns None.
+        """
+        if (
+            CycleGranularity.DAILY in granularities
+            and self._state.last_daily_cycle_end_utc is None
+        ):
+            return daily_pass_boundary(self._clock())
+        return None
 
     def _next_due_description(
         self, granularities: frozenset[CycleGranularity]
