@@ -11,7 +11,7 @@ projectState: >
   `mt data status`. No API surface currently exposes staleness.
 dateCreated: 20260803
 dateUpdated: 20260803
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -372,23 +372,31 @@ status: in_progress
   - [x] Success: all six steps produce the documented response shapes
   - [x] Effort: 2
 
-- [ ] Induced-staleness verification (Walkthrough step 7) — **disposable test DB
-      only, never prod** — **NOT RUN (2026-08-03, PM decision).** No suitable DB
-      exists: prod is off-limits for pausing a refresh policy, and `trading_test`
-      is ruled out (plain views, not caggs — nothing to pause). Filed as future
-      work item 3 on `user/architecture/180-slices.data-serving-api.md`.
-      Re-open this task once that DB exists.
+**Induced-staleness verification (Walkthrough step 7) — disposable test DB only,
+never prod — NOT RUN (2026-08-03, PM decision).** No suitable DB exists: prod is
+off-limits for pausing a refresh policy, and `trading_test` is ruled out (plain
+views, not caggs — nothing to pause). Filed as future work item 3 on
+`user/architecture/180-slices.data-serving-api.md`. Deliberately **not** a
+checklist item: this slice cannot complete it, and a permanently-unchecked box
+would hold the whole slice at `in_progress` forever. Re-open it as a task in
+whichever slice builds that DB.
   - [x] Confirm with the Project Manager which DB to use before starting; if no
         disposable DB with representative caggs is available, record the step as
         not run rather than substituting `trading_test`, whose views are not
         caggs
-  - [ ] Follow `user/runbooks/cagg-maintenance-pausing.md` to pause the relevant
-        refresh policy, then re-run walkthrough steps 2, 4, and 5
-  - [ ] Confirm all three surfaces report stale **and still return rows**
-  - [ ] Resume the policy; confirm all three report fresh again after the 60s
-        TTL window elapses
-  - [ ] Success: staleness is observably surfaced end-to-end, not just in mocks
   - [x] Effort: 3
+
+  **Deferred work, carried to future work item 3 (not checklist items — this
+  slice cannot complete them, so they are recorded as prose rather than left as
+  permanently-unchecked boxes):**
+
+  1. Follow `user/runbooks/cagg-maintenance-pausing.md` to pause the relevant
+     refresh policy, then re-run walkthrough steps 2, 4, and 5.
+  2. Confirm all three surfaces report stale **and still return rows**.
+  3. Resume the policy; confirm all three report fresh again after the 60s TTL
+     window elapses.
+  4. Success condition: staleness is observably surfaced end-to-end, not just
+     in mocks.
 
 ---
 
