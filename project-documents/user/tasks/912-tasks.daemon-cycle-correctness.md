@@ -368,41 +368,66 @@ end. This is the commit that closes issue #7's substance.
 These span more than one task's work and could not be written earlier. Every
 single-unit assertion already lives with its implementation above.
 
-- [ ] **5.1 Interrupted pass resumes at the unreached symbols, through the runner**
-  - [ ] Drive the full `Runner` loop with an injected clock and a
+The simulation harness these share is `_harness.py` in the daemon test package,
+with its injected fixtures in `conftest.py`. Only the I/O boundary is faked —
+the SQL round trip and the provider call. The work-list derivation, both cadence
+gates, and the loop's idle-reason handling are the shipping implementations.
+
+- [x] **5.1 Interrupted pass resumes at the unreached symbols, through the runner**
+  - [x] Drive the full `Runner` loop with an injected clock and a
         `run_daily_cycle` that processes N of M symbols and then reports
         `should_continue() is False`; on the next tick within the same UTC day,
         assert the cycle receives exactly the M−N unreached symbols, in order.
-  - [ ] This is success criterion 1 and the reason the slice exists — it must
+        → `test_daily_resume_behavior.py`. Two interruptions are covered
+        because they fail differently: a crash mid-pass (same process, retried
+        one cadence interval later) and SIGTERM followed by a restart, which is
+        the incident actually observed on prod.
+  - [x] This is success criterion 1 and the reason the slice exists — it must
         fail against `main`'s behavior. Verify that it does before moving on.
+        → Verified against the real pre-912 `Runner` at commit `643e639` (the
+        branch point, used rather than `main`'s moving tip so the proof is
+        reproducible). Both defects reproduced: one cycle in a simulated hour
+        with four symbols never fetched, and a restart handed the full scope.
+        Recorded in `notes/912-main-behavior-proof.md`.
   - Effort: 2
 
-- [ ] **5.2 No busy-poll when nothing is actionable**
-  - [ ] With a frozen clock advanced in steps across several hours, assert at
+- [x] **5.2 No busy-poll when nothing is actionable**
+  - [x] With a frozen clock advanced in steps across several hours, assert at
         most one work-list derivation per `DAILY_CYCLE_RETRY_INTERVAL` and zero
-        provider calls.
+        provider calls. → Four simulated hours. The sleep budget is bounded as
+        well as the cycle count, so a busy-poll fails an assertion instead of
+        hanging until the suite timeout.
   - Effort: 2
 
-- [ ] **5.3 `--stop-when-done` sleeps through a closed gate, then runs, then exits**
-  - [ ] Clock at 00:13 UTC, daily-only scope, `terminate_when_drained=True`:
+- [x] **5.3 `--stop-when-done` sleeps through a closed gate, then runs, then exits**
+  - [x] Clock at 00:13 UTC, daily-only scope, `terminate_when_drained=True`:
         assert the runner sleeps rather than returning, that the cycle runs once
         the injected clock passes 00:30, and that the loop then exits reporting
         `NO_ACTIONABLE_WORK` — the full sequence, not just the wait.
+        → `test_stop_when_done_invocations.py`. **Deviation:** which idle reason
+        ends the run depends on what the cycle finds at 00:30, and this bullet
+        named only one of the two. A scope with work exits via "every configured
+        granularity has run"; only a pass already complete for the day exits
+        reporting `NO_ACTIONABLE_WORK`. Both are asserted, parameterized.
   - Effort: 2
 
-- [ ] **5.4 Every invocation in D5's table behaves as tabulated**
-  - [ ] Parameterize over the five rows of the D5 invocation table, asserting
-        for each whether the runner waits and whether it exits.
-  - [ ] The row that matters most: `--minute --list X` must run exactly one
+- [x] **5.4 Every invocation in D5's table behaves as tabulated**
+  - [x] Parameterize over the five rows of the D5 invocation table, asserting
+        for each whether the runner waits and whether it exits. The wait is
+        detected by the announcement the D5 branch alone emits, so an ordinary
+        between-cycle sleep cannot be mistaken for it.
+  - [x] The row that matters most: `--minute --list X` must run exactly one
         minute cycle and then **exit**. Give this case a real timeout so a
         regression fails as a test failure rather than a hung suite — it is the
         PM's routine minute-fetch invocation and the one D5 nearly broke.
-  - [ ] `--minute` with no scope must not enter the D5 branch at all
-        (`terminate_when_drained` is `False`).
+  - [x] `--minute` with no scope must not enter the D5 branch at all
+        (`terminate_when_drained` is `False`). → The table's terminate column is
+        derived by the CLI's own rule rather than written by hand, so a change
+        to that rule moves the table with it.
   - Effort: 2
 
-- [ ] **5.5 A scope of only calendar-less symbols terminates**
-  - [ ] Reports `NO_ACTIONABLE_WORK` with a non-zero un-actionable count, exits
+- [x] **5.5 A scope of only calendar-less symbols terminates**
+  - [x] Reports `NO_ACTIONABLE_WORK` with a non-zero un-actionable count, exits
         under `--stop-when-done`, and does not loop or issue provider calls.
   - Effort: 1
 
