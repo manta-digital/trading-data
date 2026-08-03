@@ -101,7 +101,8 @@ class RunnerConfig:
     start. Operator-tunable via ``MT_DAILY_CYCLE_RETRY_MINUTES`` because the
     right value is an empirical trade — short enough that an interrupted pass
     resumes promptly, long enough that a provider outage does not re-issue the
-    100-credit bulk EOD call ~94 times a day (912 review F002).
+    100-credit bulk EOD call on every tick for the rest of the day (912
+    review F002).
     """
 
     scope: str | tuple[str, ...] = SCOPE_ALL_ACTIVE

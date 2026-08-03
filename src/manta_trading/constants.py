@@ -163,12 +163,13 @@ not from any session close — the two are different clocks, and a symbol's
 session close has no fixed relationship to UTC midnight.
 
 Split out from ``LATE_BAR_GRACE_PERIOD`` in slice 912 (D3), which the daemon
-previously borrowed. The two values are equal today; that is coincidence and
-nothing may rely on it. Tuning one must not drag the other along.
+previously borrowed. It also equals ``DAILY_CYCLE_RETRY_INTERVAL`` as of the
+912 review. All three values are equal today; that is coincidence and nothing
+may rely on it. Tuning one must not drag the others along.
 """
 
-DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=15)
-"""Minimum spacing between daily-cycle attempts — a busy-loop guard only.
+DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=30)
+"""Default spacing between daily-cycle attempts — a busy-loop guard only.
 
 Slice 912 (D2) moved the "is there daily work?" question out of the runner's
 timer and into ``run_daily_cycle``, which derives it from
@@ -176,8 +177,23 @@ timer and into ``run_daily_cycle``, which derives it from
 gate; it needs only to avoid spinning. This constant is that guard, and it is
 NOT a statement about how often daily data changes.
 
-Sized so an interrupted pass resumes promptly while a fully-drained scope costs
-~94 no-op ticks per day, each one a small-table read with no provider call.
+Only the **default**: the operator overrides it with
+``MT_DAILY_CYCLE_RETRY_MINUTES`` or ``--daily-retry-minutes``. It is tunable
+because the right value is empirical, not derivable — a shorter interval
+resumes an interrupted pass sooner, while a longer one spends fewer credits
+when the provider is failing, since each retry re-issues the bulk EOD call and
+``eodhd_get`` consumes the bucket once per retry attempt.
+
+Raised from 15 to 30 minutes after the slice 912 code review (F002): observed
+catch-up once a provider recovers is under two hours, so polling every 15
+minutes bought no recovery speed the fetch itself did not already bound, while
+doubling the worst-case outage spend. A fully-drained scope now costs ~47 no-op
+ticks per day, each a small-table read with no provider call.
+
+Equal to ``DAILY_CYCLE_START_OFFSET`` and ``LATE_BAR_GRACE_PERIOD`` today. All
+three are coincidences of value, not of meaning — this one is a retry cadence,
+that one a start gate, the third a session-close offset. Nothing may collapse
+them, and ``test_constants.py`` asserts each independently for that reason.
 """
 
 MAX_GAP_STALENESS: timedelta = timedelta(minutes=5)

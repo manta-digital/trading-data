@@ -267,14 +267,21 @@ def test_settings_rejects_out_of_range_retry_minutes(minutes, monkeypatch):
 
 
 def test_configured_interval_governs_the_gate():
-    """A longer interval holds the gate shut where the default would open it."""
+    """A longer interval holds the gate shut where the default would open it.
+
+    Both instants are derived from ``DAILY_CYCLE_RETRY_INTERVAL`` rather than
+    written as literals: this test previously hard-coded the default's duration
+    and broke the moment the PM tuned it, which is the failure mode the
+    single-definition-site rule exists to prevent.
+    """
     ended = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
     state = RunnerState(last_daily_cycle_end_utc=ended)
-    at = datetime(2026, 8, 3, 12, 20, tzinfo=UTC)
+    at = ended + DAILY_CYCLE_RETRY_INTERVAL
 
-    assert daily_cycle_due(state, at) is True, "default 15m should have elapsed"
+    assert daily_cycle_due(state, at) is True, "the default should have elapsed"
     assert (
-        daily_cycle_due(state, at, retry_interval=timedelta(hours=2)) is False
+        daily_cycle_due(state, at, retry_interval=DAILY_CYCLE_RETRY_INTERVAL * 4)
+        is False
     ), "the configured interval must govern, not the module constant"
 
 

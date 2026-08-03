@@ -64,10 +64,12 @@ def test_late_bar_grace_period_type_and_value() -> None:
 # The three assertions below are deliberately independent (slice 912 D3).
 # LATE_BAR_GRACE_PERIOD is an offset from session_close_utc; the two
 # DAILY_CYCLE_* constants govern the daemon's daily-pass gating and are offsets
-# from UTC midnight and from the previous cycle's end respectively. The first
-# two carry the same duration today by coincidence — if you are here because
-# tuning one broke another's test, the fix is to update only the constant you
-# meant to change, never to re-copy the value across.
+# from UTC midnight and from the previous cycle's end respectively. As of the
+# 912 code review all three carry the same duration — which is precisely when
+# collapsing them starts to look reasonable and is exactly when it is most
+# wrong. If you are here because tuning one broke another's test, the fix is to
+# update only the constant you meant to change, never to re-copy the value
+# across and never to define one in terms of another.
 
 
 def test_daily_cycle_start_offset_type_and_value() -> None:
@@ -77,7 +79,25 @@ def test_daily_cycle_start_offset_type_and_value() -> None:
 
 def test_daily_cycle_retry_interval_type_and_value() -> None:
     assert isinstance(DAILY_CYCLE_RETRY_INTERVAL, timedelta)
-    assert DAILY_CYCLE_RETRY_INTERVAL == timedelta(minutes=15)
+    assert DAILY_CYCLE_RETRY_INTERVAL == timedelta(minutes=30)
+
+
+def test_cadence_constants_are_separately_defined() -> None:
+    """Equal values must not become a shared definition.
+
+    Asserting distinct identity is not pedantry here: the three are equal today,
+    so a future edit that aliases one to another would pass every value
+    assertion above while silently coupling a retry cadence to a session-close
+    offset. Tuning either would then drag the other along.
+    """
+    values = [
+        LATE_BAR_GRACE_PERIOD,
+        DAILY_CYCLE_START_OFFSET,
+        DAILY_CYCLE_RETRY_INTERVAL,
+    ]
+    assert len({id(v) for v in values}) == len(values), (
+        "cadence constants share an object — they were aliased, not co-tuned"
+    )
 
 
 def test_max_gap_staleness_type_and_value() -> None:

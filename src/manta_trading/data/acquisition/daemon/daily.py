@@ -185,7 +185,7 @@ construction rather than by coincidence.
 
 ``WHERE i.symbol = ANY(...)`` bounds the aggregate to the requested scope.
 Without it a ``--symbols AAPL`` invocation grouped the entire instrument
-universe before the scope restriction was applied by the join, ~94 times a day
+universe before the scope restriction was applied by the join, on every tick
 under the new cadence (912 review F007).
 
 ``acquisition_state`` cannot fan out: ``(symbol, granularity, provider)`` is its

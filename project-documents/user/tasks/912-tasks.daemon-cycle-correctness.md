@@ -101,10 +101,17 @@ scope.
 
 - [x] **1.2 Add `DAILY_CYCLE_RETRY_INTERVAL` to `constants.py`**
   - [x] `DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=15)`
+        → **now 30 minutes** (PM decision at the code review, F002), and now a
+        *default* rather than a fixed value: `MT_DAILY_CYCLE_RETRY_MINUTES` and
+        `--daily-retry-minutes` override it.
   - [x] Docstring states it is a busy-loop guard — how soon an interrupted daily
         pass may resume within the same UTC day — and explicitly **not** a
         statement about how often daily data changes. Record the sizing
-        rationale: ~94 no-op ticks/day worst case, each a small-table read.
+        rationale: ~47 no-op ticks/day worst case, each a small-table read.
+  - [x] Docstring and `test_constants.py` both flag that all three cadence
+        constants now carry the same duration, and the test asserts they are
+        distinct objects so aliasing them fails rather than silently coupling
+        three different clocks.
   - Effort: 1
 
 - [x] **1.3 Move `runner.py` onto the new offset**

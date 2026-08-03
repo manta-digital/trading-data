@@ -172,10 +172,16 @@ pass retries within the same UTC day without the loop spinning, not to express
 any policy about how often daily data changes.
 
 The retry interval must be long enough that a work-list query per tick is
-negligible and short enough that an interruption is recovered promptly.
-**15 minutes**, giving at most ~94 no-op ticks per day, each one small-table
-read. It is a constant precisely so it can be tuned without hunting for a
-literal.
+negligible and short enough that an interruption is recovered promptly. Shipped
+at 15 minutes and **raised to 30 after the code review** (F002): each retry
+during a provider outage re-issues the bulk EOD call, and observed catch-up once
+the provider recovers is under two hours, so a faster poll bought no recovery
+speed the fetch did not already bound. A fully-drained scope now costs ~47 no-op
+ticks per day, each one a small-table read with no provider call.
+
+It is also no longer only a constant: `MT_DAILY_CYCLE_RETRY_MINUTES` and
+`--daily-retry-minutes` override the default, because the right value is
+empirical and belongs to whoever is watching the daemon, not to this document.
 
 The field rename is not cosmetic: keeping the name `..._start_utc` while
 stamping at the end is exactly the kind of drift that produced this bug.
@@ -596,10 +602,21 @@ PM decision: keep D1's retry semantics, and make the cadence operator-tunable
 rather than guessing a number now. `DAILY_CYCLE_RETRY_INTERVAL` remains the
 single definition site and the shipped default; `MT_DAILY_CYCLE_RETRY_MINUTES`
 and `--daily-retry-minutes` override it, validated to `1..1440`. The two runner
-predicates take it as a defaulted keyword argument, so they stay pure. This lets
-15-minutes-versus-two-hours be settled empirically on .144 instead of by
-argument, which matters because the observed catch-up after an outage is under
-two hours — polling faster than that buys nothing.
+predicates take it as a defaulted keyword argument, so they stay pure.
+
+The PM then set the default to **30 minutes**, halving every figure above:
+~47 ticks/day, and a full-day timeout-style outage bounded at ~28,200 credits
+rather than ~56,400. The reasoning is the empirical one — catch-up after a
+provider recovers is observed under two hours, so the fetch bounds recovery, not
+the poll. Anything faster spends credits to arrive at the same time.
+
+This puts `DAILY_CYCLE_RETRY_INTERVAL`, `DAILY_CYCLE_START_OFFSET`, and
+`LATE_BAR_GRACE_PERIOD` all at 30 minutes — which is exactly the state in which
+collapsing them into one constant starts to look like a tidy-up. It would not
+be: they are a retry cadence, a start gate, and a session-close offset, on three
+different clocks. `test_constants.py` asserts each independently *and* asserts
+they are distinct objects, so aliasing one to another fails a test rather than
+silently coupling two unrelated knobs.
 
 ### F003 — production code shaped around a test double
 
