@@ -49,11 +49,18 @@ All decisions referenced below (D1–D6) are in the LLD.
 
 ### Branch
 
-Work on `912-slice.daemon-cycle-correctness`, created from
-`trading-data-maintenance` — **not** from `main`. The Phase 0–5 planning commits
-for this slice (`1c096d5`, `39998f9`, `2dc2021`) live on the worktree branch, so
-a branch forked from `main` would not contain its own design. Confirm the
-eventual merge target with the PM before integrating.
+Work on `912-slice.daemon-cycle-correctness`, forked from **and merged back
+into** `trading-data-maintenance` — not `main`. Confirmed by the PM 2026-08-03:
+the maintenance worktree's branch is the 900-band integration target, and the
+Phase 0–5 planning commits for this slice (`1c096d5`, `39998f9`, `2dc2021`) live
+there, so a branch forked from `main` would not contain its own design.
+
+Note that `cf config get git.integration_branch` is unset, which nominally makes
+the target `main`. Setting it is **not** the fix: the key is project-level, so
+pointing it at `trading-data-maintenance` would also redirect the default
+worktree's 100-799 slices, which do merge to `main`. Promoting
+`trading-data-maintenance` to `main` is a PM-only action outside this slice's
+scope.
 
 ---
 
