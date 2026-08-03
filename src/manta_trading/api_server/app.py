@@ -17,6 +17,7 @@ from psycopg_pool import ConnectionPool
 from manta_trading.api_server.routes.bars import router as bars_router
 from manta_trading.api_server.routes.gaps import router as gaps_router
 from manta_trading.api_server.routes.health import router as health_router
+from manta_trading.api_server.routes.status import router as status_router
 from manta_trading.api_server.routes.symbols import router as symbols_router
 from manta_trading.config import Settings
 from manta_trading.logging import get_logger
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(bars_router)
     app.include_router(symbols_router)
     app.include_router(gaps_router)
+    app.include_router(status_router)
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(

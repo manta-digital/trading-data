@@ -7,7 +7,7 @@ dependencies: [167, 168]
 interfaces: [187]
 dateCreated: 20260803
 dateUpdated: 20260803
-status: not_started
+status: complete
 effort: 2
 ---
 
@@ -228,6 +228,41 @@ loop.run_in_executor(...))`, identical in shape to `symbols.py`'s
 real DB work (`bars.py`, `symbols.py`), reserving the sync-handler exception
 for the one route cheap enough not to need it.
 
+### D1b — `?health=` present but empty is a 422, not a silent empty result (resolves code-review F001)
+
+The task breakdown flagged invalid-`health` handling as the one client-visible
+contract detail D1 left open, and settled on 422. Implementation and the
+sonnet-5 code review surfaced a third case the CLI never meaningfully hits:
+`health` present but naming nothing — `?health=`, `?health=,,`, `?health=%20`.
+
+As first implemented these produced `health_filter=[]`, which reaches SQL as
+`health = ANY('{}')` and matches **no rows**: a `200` with `rows: []`,
+indistinguishable from a filter that legitimately matched nothing. The likely
+cause of an empty value is an unset client-side template (`?health={filter}`),
+so the plausible-looking empty answer is the worst of the three options.
+
+**Decision: 422**, with a message naming all three ways out (omit for the
+default, `all=true` for no filter, or name valid values). Rejected
+alternatives: passing `[]` through (the silent-empty-result case above), and
+treating it as omitted (a silent fallback that ignores what the client sent —
+exactly what the project's "never use silent fallback values" rule prohibits).
+
+Two deliberate consequences:
+
+- **This diverges from `mt data status`**, where `--health ""` yields the same
+  empty filter and returns zero rows. Success Criterion 3's "filter identically
+  to the equivalent flags" covers the *value* cases (`?health=OK`, `?all=true`,
+  `?granularity=daily`), all of which still match. An empty value is a typing
+  accident on a CLI and a templating accident over HTTP; only the latter is
+  worth a diagnostic. The CLI is not changed — Success Criterion 7 holds.
+- **Leniency is preserved where it belongs.** Whitespace and case are still
+  normalized (`?health= ok , gaps ` → `['OK', 'GAPS']`), per the project's
+  "prefer lenient parsing" rule. Rejecting an *empty* value is not strictness
+  about formatting; it is refusing to guess at intent.
+
+`?all=true&health=` remains a `200` with no filter, since `all` is documented
+as overriding `health` — the empty value is never consulted.
+
 ### D2 — Response shape: `StatusResponse`, no pagination, bounded by the same filter defaults as the CLI
 
 ```python
@@ -427,6 +462,49 @@ event loop.
 the existing pooled-connection dependency already used by `health.py` and
 `symbols.py` — no new connection-management code.
 
+### D8a — Implementation amendment: `bars.py` depends on the *pool*, not a checked-out connection
+
+**Recorded 2026-08-03, after the code review.** D8 specifies adding
+`db: Annotated[psycopg.Connection, Depends(get_db)]` to `get_bars`. That was
+implemented as written and is **wrong**: FastAPI resolves `get_db` for the whole
+request, and `get_db` holds a pooled connection for as long as the route runs.
+So every bars request checked out one of the pool's 8 connections for its entire
+duration — including `1m`/`1d`, which issue no probe and never touch it. Bars
+requests are the slowest endpoint (measured 2–4s on a 5-year daily range), so
+this converted a previously pool-free endpoint into the pool's heaviest consumer.
+
+Measured on prod 2026-08-03, `/api/v1/health` latency while N bars requests
+(`granularity=1d`, which never uses the connection) ran concurrently:
+
+| Concurrent bars requests | `/health` latency |
+|---|---|
+| 0 | 0.010s |
+| 4 | 0.009s |
+| 7 | 0.009s |
+| **8** (= `max_size`) | **1.83s** |
+| 10 | 2.35s |
+| 16 | (not measured pre-fix) |
+
+The cliff at exactly `max_size=8` identifies pool exhaustion rather than
+DB-side contention. Every other endpoint depends on `get_db`, so a burst of
+bars traffic could stall all of them.
+
+**Fix:** `get_bars` now depends on the new `deps.get_db_pool`, which returns
+`app.state.db_pool` without checking anything out, and the checkout is scoped to
+the probe itself inside `_probe_freshness` (`with pool.connection() as conn:`).
+A raw-granularity request now checks out **no** connection at all; a cagg
+granularity checks out exactly one, for the probe's duration only. Re-measured
+after the fix: `/health` stays at 0.009s under 8 and 16 concurrent bars
+requests. Two unit tests pin the behavior
+(`test_raw_granularity_checks_out_no_connection`,
+`test_cagg_granularity_checks_out_exactly_one_connection`).
+
+`get_db` itself is unchanged and still correct for `health`/`status`/`symbols`/
+`gaps`, which use their connection for essentially their whole runtime; its
+docstring now warns about the whole-request hold. Pool *sizing* remains slice
+186's call (D10) — this amendment removes an artificial consumer rather than
+tuning the pool.
+
 ### D9 — Failure modes on the new I/O paths (resolves review F001)
 
 Three new I/O call sites are added: `status.py`'s two `status_queries` calls,
@@ -471,6 +549,44 @@ the freshness branch of `gather` cannot raise in production; if it somehow did
 catches it, and failing the whole request is the right behavior for a bug in
 this slice's own code, as opposed to a DB hiccup, which never reaches this
 path per the guarantee above.
+
+### D1a — Implementation amendment: `status.py`'s two DB calls run sequentially, not gathered
+
+**Recorded 2026-08-03 during implementation. This is the slice's only deviation
+from D1–D10.** D1 specifies that `get_status` dispatch
+`fetch_status_rows_with_freshness` and `fetch_all_health_counts_with_freshness`
+concurrently via `asyncio.gather(loop.run_in_executor(...), ...)`, by analogy
+with `symbols.py::get_symbol`. The handler stays `async def` and both calls
+still run off the event loop in an executor, but they run **in order inside a
+single `run_in_executor`**. The analogy to `symbols.py` does not hold, for two
+reasons found by reading the code rather than by measurement:
+
+1. **The concurrency is not real.** `symbols.py` and `status.py` both issue
+   their two calls on the *same* pooled connection, and `psycopg.Cursor.execute`
+   holds `self._conn.lock` for the duration of every statement (verified in
+   psycopg 3's source). Two executor threads on one connection therefore
+   serialize at the driver, so `gather` buys no parallelism here. (`bars.py`'s
+   `gather` in D7 is unaffected and stays as designed — its two branches use
+   *different* connections: the pooled `db` for the probe and the
+   `minute_db`/`daily_db` instances for the data fetch.)
+2. **It introduces a session-state race.** Both calls pass through
+   `check_coverage_freshness` → `assert_cagg_fresh`, which on a cache miss does
+   `SHOW statement_timeout` → `SET statement_timeout = '10s'` → restore, on the
+   caller's connection (168's `_read_statement_timeout`/`_set_probe_timeout`/
+   `_restore_probe_timeout`). Concurrently on one connection these interleave:
+   the second thread can read the *probe's* 10s as the "prior" value and restore
+   that instead of the pool's configured 300s, leaving a pooled connection
+   clamped to 10s for every later request that checks it out.
+
+Sequential execution also preserves an amortization the CLI documents and
+relies on (`cli/commands/data.py`, the comment above its own two calls): the row
+fetch warms slice 168's TTL verdict cache, so the health-count fetch's guard is
+a dict lookup rather than a second cold probe. Gathering them would have both
+threads probe cold simultaneously, doubling the probe work.
+
+No other decision changed. The handler's `async def` shape, the response
+contract, the filter semantics, and the no-try/except posture (D9) are as
+designed.
 
 ### D10 — Explicit `bars.py` / `responses.py` ownership boundary with slice 186 (resolves review F002)
 
@@ -564,43 +680,140 @@ touching `bars.py`.
 
 **Prerequisites:** `MT_TIMESCALE_DB_URL` set; server not running.
 
+**Executed 2026-08-03** against production `trading` @ 192.168.1.144 (PM-approved;
+steps 1–6 are read-only and issue the same `data_status` reads and
+`assert_cagg_fresh` probes `mt data status` already performs). Steps 1–6 and 8
+passed as written. Step 7 was **not run** — see the note under it. Observed
+outputs below are from that run; row counts and health totals are point-in-time
+and will differ on re-run.
+
 1. **Start the server:**
    ```bash
-   uv run mt serve
+   uv run mt serve --host 127.0.0.1 --port 8100
    ```
+   The walkthrough binds loopback explicitly; `mt serve`'s default is
+   `0.0.0.0:8100`, which is unnecessary exposure for a verification run.
+   Startup is complete when the log reads `Application startup complete.`
 
 2. **Status, full registry (default filter — non-OK only):**
    ```bash
-   curl -s http://localhost:8100/api/v1/status | python3 -m json.tool | head -30
+   curl -s http://127.0.0.1:8100/api/v1/status | python3 -m json.tool | head -30
    ```
    Expect `coverage.verdicts` with 2 entries, `coverage.is_stale: false` on a
-   healthy DB, `summary` with all four health keys.
+   healthy DB, `summary` with all four health keys. Observed:
+
+   ```
+   scope: all | symbol: None | count: 51915
+   summary: {'FAILED': 1822, 'GAPS': 558, 'STALE': 49535, 'OK': 11309}
+   coverage.is_stale: False | verdicts: 2
+      minute_coverage is_fresh=True lag_s=0.0 thr_s=100800.0
+      daily_coverage  is_fresh=True lag_s=0.0 thr_s=90000.0
+   ```
+
+   **Caveat — default response size.** The CLI-matching default filter
+   (non-`OK` rows) returned 51,915 rows against the production registry, so
+   "bounded by the same filter defaults as the CLI" (D2) bounds the *filter*,
+   not the payload. This is the documented no-pagination policy (180-arch,
+   Range Policy), not a defect, but a client polling `/status` should pass
+   `?symbol=` or `?health=` rather than relying on the default to stay small.
+   Piping through `head -30` matters here.
 
 3. **Status, single symbol:**
    ```bash
-   curl -s "http://localhost:8100/api/v1/status?symbol=SPY&all=true"
+   curl -s "http://127.0.0.1:8100/api/v1/status?symbol=SPY&all=true"
    ```
    Expect `scope: "symbol"`, `rows` containing SPY's daily and minute rows.
+   Observed: `scope: symbol`, `count: 2` — `SPY daily OK` and
+   `SPY minute FAILED` — in 0.22s.
+
+   Contract details from D1/D1b/D5 verified at the same time:
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" \
+     "http://127.0.0.1:8100/api/v1/status?symbol=NOSUCHSYM"      # → 200 (D5)
+   curl -s -w "\n%{http_code}\n" \
+     "http://127.0.0.1:8100/api/v1/status?symbol=SPY&health=BOGUS"
+   # → 422 {"detail":"Invalid health values: BOGUS. Valid: FAILED, GAPS, OK, STALE"}
+   ```
+
+   The full `health` matrix (D1b), verified via `TestClient` with the fetch
+   layer patched — parsing is pure, so it needs no DB:
+
+   | Query | Status | `health_filter` forwarded |
+   |---|---|---|
+   | *(omitted)* | 200 | `['GAPS', 'STALE', 'FAILED']` |
+   | `?health=OK,GAPS` | 200 | `['OK', 'GAPS']` |
+   | `?health= ok , gaps ` | 200 | `['OK', 'GAPS']` |
+   | `?all=true` | 200 | `None` |
+   | `?all=true&health=` | 200 | `None` |
+   | `?health=` / `?health=,,` / `?health=%20` | **422** | *not called* |
+   | `?health=BOGUS` | 422 | *not called* |
 
 4. **Health, freshness field:**
    ```bash
-   curl -s http://localhost:8100/api/v1/health
+   curl -s http://127.0.0.1:8100/api/v1/health
    ```
    Expect `{"status":"ok","db":"ok","coverage":"ok"}` on a healthy DB.
+   Observed exactly that, in 0.008s — but **only because step 2 had already
+   warmed the coverage verdict cache**. Measured separately on a fresh server
+   process, warming the pool first (via `/api/v1/symbols?search=SPY`, 0.15s) so
+   the number isolates the probe:
+
+   | `/api/v1/health` | Latency |
+   |---|---|
+   | Cold verdict cache (first call in a process, or first after the 60s TTL) | **3.19s** |
+   | Warm verdict cache | 0.010s |
+
+   Pre-185 this endpoint was a bare `SELECT 1`. D6 chose two coverage probes
+   over seven bar-cagg probes specifically to keep the liveness endpoint cheap;
+   the two probes still cost ~3.2s cold, above the ~0.19–2.1s per-probe range
+   167 measured and above the +2.5s budget D7 set for bars. Consequences a
+   monitoring configuration has to account for: any liveness probe timeout
+   below ~4s will trip on a cold cache, and a poller running slower than the
+   60s TTL pays 3.2s on **every** call.
+
+   **Accepted (PM, 2026-08-03).** Not a defect and not a regression in anything
+   that currently exists — `/health` is read by humans and lightweight monitors
+   on a single-user LAN tool. **Operational requirement: set liveness-probe
+   timeouts to ≥5s.** The structural fix (refresh the verdicts on a background
+   schedule, or at minimum seed the cache during lifespan startup, so no request
+   pays a cold probe) is filed as
+   [issue #8](https://github.com/manta-digital/trading-data/issues/8) and needs
+   a plan entry before implementation. It becomes materially more important if
+   `/health` ever backs an automated restart policy, where a 3.2s cold response
+   against a sub-4s timeout would cause restart loops exactly at boot.
 
 5. **Bars, staleness field on a cagg-served granularity:**
    ```bash
-   curl -s "http://localhost:8100/api/v1/bars/SPY?granularity=5m&start=2024-01-01&end=2024-01-31" \
+   curl -s "http://127.0.0.1:8100/api/v1/bars/SPY?granularity=5m&start=2024-01-01&end=2024-01-31" \
      | python3 -c "import sys,json; d=json.load(sys.stdin); print('is_stale:', d['is_stale'])"
    ```
-   Expect `is_stale: False` on a healthy DB.
+   Expect `is_stale: False` on a healthy DB. Observed `is_stale: False`,
+   `count: 3744`.
+
+   **Measured cold-cache cost against the D7 budget (≤ +2.5s).** Cold miss is
+   the first request for a given view in a fresh server process; warm is a
+   repeat inside the 60s TTL window:
+
+   | Granularity | Probe? | Cold | Warm | Probe cost |
+   |---|---|---|---|---|
+   | `5m` (`minute_5min_ohlcv`) | yes | 0.399s | 0.130s | ~0.27s |
+   | `1mo` (`daily_monthly_ohlcv`) | yes | 1.327s | 0.052s | ~1.28s |
+   | `1d` (raw `daily_ohlcv`) | no | 3.876s | 2.090s | n/a |
+
+   Both probed granularities land inside the budget, the daily-family one
+   (measured against raw `daily_ohlcv`, the expensive case 167 clocked at
+   ~2.1s) with ~1.2s of headroom. No escalation to the PM was required. Note
+   the `1d` row: it issues **no** probe yet is the slowest of the three in both
+   states — that variance is the `daily_ohlcv` data fetch, and it predates this
+   slice. Do not read it as freshness-probe cost.
 
 6. **Bars, raw granularity never probes:**
    ```bash
-   curl -s "http://localhost:8100/api/v1/bars/SPY?granularity=1d&start=2024-01-01&end=2024-01-31" \
+   curl -s "http://127.0.0.1:8100/api/v1/bars/SPY?granularity=1d&start=2024-01-01&end=2024-01-31" \
      | python3 -c "import sys,json; d=json.load(sys.stdin); print('is_stale:', d['is_stale'])"
    ```
-   Expect `is_stale: False` unconditionally.
+   Expect `is_stale: False` unconditionally. Observed `is_stale: False` for
+   both `1d` (`count: 21`) and `1m`.
 
 7. **Induced staleness (per `user/runbooks/cagg-maintenance-pausing.md`), on a
    disposable test DB — not prod:**
@@ -614,11 +827,28 @@ touching `bars.py`.
    - Resume the policy; confirm all three surfaces report fresh again after
      the 60s TTL window elapses.
 
+   **NOT RUN (2026-08-03, PM decision).** No suitable database exists: prod is
+   off-limits for pausing a refresh policy, and `trading_test` is unsuitable
+   because its views are plain views rather than caggs, so there is no policy
+   to pause and no verdict to induce. Consequence: the stale path on all three
+   surfaces is verified in unit tests (which inject stale `FreshnessVerdict`s
+   at the `assert_cagg_fresh`/`check_coverage_freshness` boundary) but **not**
+   end to end against a real stalled cagg. Filed as future work item 4 on
+   `user/architecture/180-slices.data-serving-api.md` — a representative
+   disposable test DB with real caggs and policies over a small data subset.
+   Re-run this step once that exists.
+
 8. **Unit tests:**
    ```bash
-   uv run pytest test/unit/api_server/ -v
+   uv run pytest test/unit/api_server/ -q
    ```
-   Expect all existing tests plus new `test_status.py` cases to pass.
+   Expect all existing tests plus new `test_status.py` cases to pass. Observed:
+   55 passed (30 pre-slice + 25 added). Full `uv run pytest test/unit -q`:
+   1603 passed, 10 skipped, 35 errors — every error is a pre-existing
+   `psycopg.OperationalError: failed to resolve host '<db-host>'` in
+   DB-requiring tests under `test/unit/universe/` and
+   `test/unit/cli/commands/test_data_universes.py`, unrelated to this slice
+   and present on `main`.
 
 ## Risk Assessment
 

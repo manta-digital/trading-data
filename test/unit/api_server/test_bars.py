@@ -2,21 +2,30 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, call
+import contextlib
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import msgpack
 import pandas as pd
+import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from manta_trading.api_server.app import create_app
-from manta_trading.api_server.deps import get_daily_db, get_minute_db
-from manta_trading.api_server.models.responses import BarRecord, BarsResponse
-from manta_trading.constants import Granularity
+from manta_trading.api_server.deps import get_db_pool
+from manta_trading.api_server.models.responses import BarsResponse
+from manta_trading.constants import GRANULARITY_SOURCE, Granularity
+from manta_trading.market.maintenance.cagg_freshness import (
+    FreshnessVerdict,
+    StalenessSignal,
+)
 from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
 from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
+
+_BARS_MODULE = "manta_trading.api_server.routes.bars"
 
 
 def _make_ohlcv_df(n: int) -> pd.DataFrame:
@@ -43,34 +52,73 @@ def _make_ohlcv_df(n: int) -> pd.DataFrame:
     )
 
 
+def _stub_pool() -> MagicMock:
+    """A pool whose ``connection()`` context manager yields a mock connection."""
+    pool = MagicMock(name="stub_pool")
+    pool.connection.return_value.__enter__.return_value = MagicMock(
+        spec=psycopg.Connection
+    )
+    return pool
+
+
+def _verdict(view_name: str, *, is_fresh: bool) -> FreshnessVerdict:
+    return FreshnessVerdict(
+        view_name=view_name,
+        is_fresh=is_fresh,
+        signals=() if is_fresh else (StalenessSignal.NOT_SCHEDULED,),
+        lag=timedelta(0) if is_fresh else timedelta(days=4),
+        threshold=timedelta(days=1),
+        detail="test verdict",
+    )
+
+
+@contextlib.contextmanager
+def _mocked_probe(*, is_fresh: bool) -> Iterator[MagicMock]:
+    """Patch ``assert_cagg_fresh`` at the bars module's import site."""
+    with patch(
+        f"{_BARS_MODULE}.assert_cagg_fresh",
+        side_effect=lambda _conn, view_name: _verdict(view_name, is_fresh=is_fresh),
+    ) as probe:
+        yield probe
+
+
 @pytest.fixture
 def test_app() -> FastAPI:
-    """Build a fresh app with DB state mocked; lifespan is not entered."""
+    """Build a fresh app with DB state mocked; lifespan is not entered.
+
+    ``get_db_pool`` is overridden explicitly so no test depends on the sentinel
+    pool MagicMock happening to resolve.
+    """
     app = create_app()
     app.state.db_pool = MagicMock(name="sentinel_pool")
     app.state.minute_db = MagicMock(spec=TimescaleMinuteDataDB)
     app.state.daily_db = MagicMock(spec=TimescaleDailyDataDB)
+    app.dependency_overrides[get_db_pool] = _stub_pool
     return app
 
 
 def test_from_dataframe_count() -> None:
     df = _make_ohlcv_df(3)
-    result = BarsResponse.from_dataframe("SPY", Granularity.D1, True, df)
+    result = BarsResponse.from_dataframe(
+        "SPY", Granularity.D1, True, df, is_stale=False
+    )
     assert result.count == 3
     assert len(result.bars) == 3
     assert result.symbol == "SPY"
     assert result.granularity == "1d"
+    assert result.is_stale is False
 
 
 def test_from_dataframe_field_types() -> None:
     df = _make_ohlcv_df(2)
-    result = BarsResponse.from_dataframe("SPY", Granularity.D1, True, df)
+    result = BarsResponse.from_dataframe("SPY", Granularity.D1, True, df, is_stale=True)
     bar = result.bars[0]
     assert isinstance(bar.volume, int)
     assert isinstance(bar.open, float)
     assert isinstance(bar.timestamp, datetime)
     assert bar.timestamp.tzinfo is not None
-    assert bar.timestamp.tzinfo == timezone.utc
+    assert bar.timestamp.tzinfo == UTC
+    assert result.is_stale is True
 
 
 # --- Route tests ---
@@ -104,7 +152,7 @@ def test_minute_routing_and_datetime_conversion(test_app: FastAPI) -> None:
     assert not test_app.state.daily_db.get_daily_data.called
     _args, kwargs = test_app.state.minute_db.get_minute_data.call_args
     start_time = kwargs.get("start_time") if "start_time" in kwargs else _args[1]
-    assert start_time == datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    assert start_time == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
 
 
 def test_msgpack_format(test_app: FastAPI) -> None:
@@ -149,3 +197,107 @@ def test_adjusted_false_forwarded(test_app: FastAPI) -> None:
     _args, kwargs = test_app.state.daily_db.get_daily_data.call_args
     adjusted = kwargs.get("adjusted") if "adjusted" in kwargs else _args[4]
     assert adjusted is False
+
+
+# --- Staleness (slice 185 D7) ---
+
+
+class TestBarsStaleness:
+    def test_cagg_granularity_fresh(self, test_app: FastAPI) -> None:
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(3)
+        with _mocked_probe(is_fresh=True) as probe:
+            response = TestClient(test_app).get(
+                "/api/v1/bars/SPY?granularity=5m&start=2024-01-01&end=2024-01-03"
+            )
+        assert response.status_code == 200
+        assert response.json()["is_stale"] is False
+        probe.assert_called_once()
+        assert probe.call_args.args[1] == GRANULARITY_SOURCE[Granularity.M5]
+
+    def test_cagg_granularity_stale_still_returns_bars(self, test_app: FastAPI) -> None:
+        """Report, don't refuse: a stale cagg is still a 200 with its rows."""
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(3)
+        with _mocked_probe(is_fresh=False):
+            response = TestClient(test_app).get(
+                "/api/v1/bars/SPY?granularity=5m&start=2024-01-01&end=2024-01-03"
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["is_stale"] is True
+        assert body["count"] == 3
+
+    def test_daily_family_cagg_resolves_through_granularity_source(
+        self, test_app: FastAPI
+    ) -> None:
+        test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(2)
+        with _mocked_probe(is_fresh=True) as probe:
+            response = TestClient(test_app).get(
+                "/api/v1/bars/SPY?granularity=1mo&start=2024-01-01&end=2024-06-01"
+            )
+        assert response.status_code == 200
+        assert probe.call_args.args[1] == GRANULARITY_SOURCE[Granularity.MO1]
+
+    @pytest.mark.parametrize(
+        ("granularity", "db_attr", "method"),
+        [
+            ("1m", "minute_db", "get_minute_data"),
+            ("1d", "daily_db", "get_daily_data"),
+        ],
+    )
+    def test_raw_granularities_are_never_probed(
+        self, test_app: FastAPI, granularity: str, db_attr: str, method: str
+    ) -> None:
+        getattr(getattr(test_app.state, db_attr), method).return_value = _make_ohlcv_df(
+            2
+        )
+        with _mocked_probe(is_fresh=False) as probe:
+            response = TestClient(test_app).get(
+                f"/api/v1/bars/SPY?granularity={granularity}"
+                "&start=2024-01-01&end=2024-01-03"
+            )
+        assert response.status_code == 200
+        assert response.json()["is_stale"] is False
+        assert not probe.called
+
+    def test_raw_granularity_checks_out_no_connection(self, test_app: FastAPI) -> None:
+        """The pool is size 8; a request that never probes must not hold a slot.
+
+        Regression guard: an earlier revision took ``Depends(get_db)`` on
+        ``get_bars``, so every bars request held a pooled connection for its
+        full duration even at ``1d``, where none is used. Eight concurrent bars
+        requests then exhausted the pool and stalled ``/health`` (measured:
+        0.010s → 4.03s).
+        """
+        test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(2)
+        pool = _stub_pool()
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        with _mocked_probe(is_fresh=True):
+            response = TestClient(test_app).get(
+                "/api/v1/bars/SPY?granularity=1d&start=2024-01-01&end=2024-01-03"
+            )
+        assert response.status_code == 200
+        assert not pool.connection.called
+
+    def test_cagg_granularity_checks_out_exactly_one_connection(
+        self, test_app: FastAPI
+    ) -> None:
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
+        pool = _stub_pool()
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        with _mocked_probe(is_fresh=True):
+            response = TestClient(test_app).get(
+                "/api/v1/bars/SPY?granularity=5m&start=2024-01-01&end=2024-01-03"
+            )
+        assert response.status_code == 200
+        assert pool.connection.call_count == 1
+
+    def test_msgpack_carries_is_stale(self, test_app: FastAPI) -> None:
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
+        with _mocked_probe(is_fresh=False):
+            response = TestClient(test_app).get(
+                "/api/v1/bars/SPY?granularity=5m"
+                "&start=2024-01-01&end=2024-01-03&format=msgpack"
+            )
+        assert response.status_code == 200
+        data = msgpack.unpackb(response.content, raw=False)
+        assert data["is_stale"] is True
