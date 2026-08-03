@@ -26,6 +26,15 @@ class HealthResponse(BaseModel):
 
     status: Literal["ok"]
     db: Literal["ok", "error"]
+    coverage: Literal["ok", "stale"] | None = None
+    """Freshness of the two ``data_status`` coverage caggs (slice 185 D6).
+
+    Populated only when ``db == "ok"`` — on a DB outage "stale" would be
+    meaningless noise on top of a real failure. ``exclude_none=True``
+    serialization keeps the key absent in that case, so no existing client
+    contract changes.
+    """
+
     detail: str | None = None
 
 
