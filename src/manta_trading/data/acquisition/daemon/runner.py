@@ -30,7 +30,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from manta_trading.constants import DAILY_CYCLE_START_OFFSET
+from manta_trading.constants import (
+    DAILY_CYCLE_RETRY_INTERVAL,
+    DAILY_CYCLE_START_OFFSET,
+)
 from manta_trading.data.acquisition.quota import CallType, QuotaBucket
 from manta_trading.logging import get_logger
 
@@ -110,9 +113,17 @@ class RunnerConfig:
 
 @dataclass
 class RunnerState:
-    """Mutable cycle-timing accounting; cleared at process start."""
+    """Mutable cycle-timing accounting; cleared at process start.
 
-    last_daily_cycle_start_utc: datetime | None = None
+    Every field records a cycle *end*, deliberately (912 D2). The daily field
+    previously recorded a start and was stamped before the cycle ran, so a pass
+    that died partway had already marked the UTC day complete and was never
+    retried. Nothing here may record a start again: this state is a busy-loop
+    guard, and correctness — whether work remains — is derived from
+    ``acquisition_state`` inside the cycle, never from these timestamps.
+    """
+
+    last_daily_cycle_end_utc: datetime | None = None
     last_minute_cycle_start_utc: datetime | None = None
     last_minute_cycle_end_utc: datetime | None = None
 
@@ -127,16 +138,34 @@ def _utc_today(now: datetime) -> date:
 
 
 def daily_cycle_due(state: RunnerState, now: datetime) -> bool:
-    """True iff a daily cycle has not started yet on the current UTC day
-    AND the current UTC time is past ``00:00 + DAILY_CYCLE_START_OFFSET``.
+    """True iff the daily pass has started for the day and cadence permits a run.
+
+    A pure cadence predicate (912 D2). Whether any scope member has actionable
+    daily work is determined inside ``run_daily_cycle`` itself, derived from
+    ``acquisition_state``; the runner just gates on cadence so it doesn't
+    busy-loop. This mirrors ``minute_cycle_due`` exactly, and is the division of
+    responsibility the minute path has always had.
+
+    Two gates, both cadence:
+
+    1. Nothing runs before ``00:00 + DAILY_CYCLE_START_OFFSET``, giving the
+       provider time to publish the completed session's late bars.
+    2. After a cycle ends, the next may not start for
+       ``DAILY_CYCLE_RETRY_INTERVAL``. This is what lets an interrupted pass
+       resume within the same UTC day — the defect that motivated the slice —
+       without the loop spinning when nothing is actionable.
+
+    Deliberately contains no UTC-day comparison. "Has today's pass already
+    happened" is not a question this predicate answers, or should: an
+    interrupted pass *has* happened and still has work left.
     """
     today = _utc_today(now)
     midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
     if now < midnight + DAILY_CYCLE_START_OFFSET:
         return False
-    if state.last_daily_cycle_start_utc is None:
+    if state.last_daily_cycle_end_utc is None:
         return True
-    return state.last_daily_cycle_start_utc.astimezone(_UTC).date() < today
+    return now - state.last_daily_cycle_end_utc >= DAILY_CYCLE_RETRY_INTERVAL
 
 
 def minute_cycle_due(state: RunnerState, now: datetime) -> bool:
@@ -196,10 +225,29 @@ def sleep_until_next_due_event(
     The cap exists so SIGTERM has bounded latency: at worst a SIGTERM
     arriving immediately after a sleep starts must wait ``cap_seconds``
     before the loop checks ``should_exit`` again.
+
+    The daily candidate must agree with ``daily_cycle_due`` (912 D2), which now
+    gates on a retry interval rather than once per UTC day. Sleeping to
+    tomorrow's start offset when a retry is due in fifteen minutes would
+    reintroduce the very defect this slice removes — an interrupted pass
+    stranded until the next day.
     """
     today = _utc_today(now)
     midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
-    next_daily_start = midnight + DAILY_CYCLE_START_OFFSET + timedelta(days=1)
+    todays_start = midnight + DAILY_CYCLE_START_OFFSET
+
+    if now < todays_start:
+        # Today's pass has not opened yet.
+        next_daily_start = todays_start
+    elif state.last_daily_cycle_end_utc is None:
+        # Past the offset with no cycle yet — due now; don't sleep past it.
+        next_daily_start = now
+    else:
+        # A cycle ran; the next is due one retry interval after it ended, or
+        # at tomorrow's offset if that interval already elapsed today.
+        next_daily_start = max(
+            state.last_daily_cycle_end_utc + DAILY_CYCLE_RETRY_INTERVAL, now
+        )
 
     candidates: list[float] = []
     if state.last_minute_cycle_end_utc is not None:
@@ -207,7 +255,13 @@ def sleep_until_next_due_event(
         candidates.append((next_minute - now).total_seconds())
     candidates.append((next_daily_start - now).total_seconds())
 
-    wait = min(c for c in candidates if c > 0) if candidates else cap_seconds
+    # Only future events are worth waiting for. Previously the daily candidate
+    # was always tomorrow's offset and so always positive; under D2 it can be
+    # `now`, which would leave nothing to take a min over. An empty set means
+    # everything is already due, so the correct wait is zero — never
+    # cap_seconds, which would sleep straight past a due cycle.
+    upcoming = [c for c in candidates if c > 0]
+    wait = min(upcoming) if upcoming else 0.0
     sleep(min(max(wait, 0.0), cap_seconds))
 
 
@@ -352,7 +406,6 @@ class Runner:
             # Daily cycle
             if "daily" in granularities and daily_cycle_due(self._state, now):
                 _logger.info("runner: starting daily cycle")
-                self._state.last_daily_cycle_start_utc = now
                 try:
                     self._run_daily_cycle(
                         symbols=symbols_arg,
@@ -360,6 +413,12 @@ class Runner:
                     )
                 except Exception:
                     _logger.exception("runner: run_daily_cycle raised")
+                # Stamp the END, never the start (912 D2), and stamp it on the
+                # exception path too: a cycle that raised still consumed its
+                # cadence slot, and retrying instantly would busy-loop against
+                # a persistent failure. Remaining work is not lost by this —
+                # it is re-derived from acquisition_state on the next tick.
+                self._state.last_daily_cycle_end_utc = self._clock()
                 did_anything = True
 
             if self._check_should_exit():

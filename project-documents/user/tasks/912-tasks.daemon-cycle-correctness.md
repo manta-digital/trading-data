@@ -215,20 +215,20 @@ changed, so the daemon still gates on the old timer.
 
 ## Task 3 — Demote the day-timer to a cadence guard (D2)
 
-- [ ] **3.1 Rename the `RunnerState` field**
-  - [ ] `last_daily_cycle_start_utc` → `last_daily_cycle_end_utc`. Update the
+- [x] **3.1 Rename the `RunnerState` field**
+  - [x] `last_daily_cycle_start_utc` → `last_daily_cycle_end_utc`. Update the
         dataclass docstring; the rename is load-bearing, not cosmetic.
   - Effort: 1
 
-- [ ] **3.2 Rewrite `daily_cycle_due` as a pure cadence predicate, with its tests**
-  - [ ] Returns `False` before today's `midnight + DAILY_CYCLE_START_OFFSET`.
-  - [ ] Returns `True` when `last_daily_cycle_end_utc is None`.
-  - [ ] Otherwise `True` iff `now - last_daily_cycle_end_utc >= DAILY_CYCLE_RETRY_INTERVAL`.
-  - [ ] Rewrite the docstring to state the division of responsibility in the
+- [x] **3.2 Rewrite `daily_cycle_due` as a pure cadence predicate, with its tests**
+  - [x] Returns `False` before today's `midnight + DAILY_CYCLE_START_OFFSET`.
+  - [x] Returns `True` when `last_daily_cycle_end_utc is None`.
+  - [x] Otherwise `True` iff `now - last_daily_cycle_end_utc >= DAILY_CYCLE_RETRY_INTERVAL`.
+  - [x] Rewrite the docstring to state the division of responsibility in the
         same terms `minute_cycle_due` uses: whether any scope member has
         actionable daily work is determined inside `run_daily_cycle` itself; the
         runner gates on cadence so it does not busy-loop.
-  - [ ] **Tests (written here):** rewrite
+  - [x] **Tests (written here):** rewrite
         `test_daily_cycle_due_false_when_last_cycle_was_today` and
         `test_daily_cycle_due_true_after_utc_day_rollover`, which encode the old
         once-per-day semantics, to the cadence semantics; add a
@@ -238,25 +238,25 @@ changed, so the daemon still gates on the old timer.
     tests pass.
   - Effort: 2
 
-- [ ] **3.3 Stamp completion, not start, in `_loop`**
-  - [ ] Delete the pre-`try` assignment at `runner.py:355`.
-  - [ ] Assign `self._state.last_daily_cycle_end_utc = self._clock()` after the
+- [x] **3.3 Stamp completion, not start, in `_loop`**
+  - [x] Delete the pre-`try` assignment at `runner.py:355`.
+  - [x] Assign `self._state.last_daily_cycle_end_utc = self._clock()` after the
         `try/except` around `_run_daily_cycle`, matching the minute branch at
         `runner.py:379`. It is stamped on the exception path too — a cycle that
         raised still consumed its cadence slot, and retrying it instantly would
         busy-loop against a persistent failure.
-  - [ ] **Test (written here):** a `run_daily_cycle` that raises still advances
+  - [x] **Test (written here):** a `run_daily_cycle` that raises still advances
         `last_daily_cycle_end_utc`, and the loop does not immediately re-enter
         the daily branch.
   - Effort: 1
 
-- [ ] **3.4 Update `sleep_until_next_due_event`, with its tests**
-  - [ ] The next daily wake is now `last_daily_cycle_end_utc +
+- [x] **3.4 Update `sleep_until_next_due_event`, with its tests**
+  - [x] The next daily wake is now `last_daily_cycle_end_utc +
         DAILY_CYCLE_RETRY_INTERVAL` when a cycle has ended today and the day's
         offset has passed, else the day's start boundary (tomorrow's if today's
         has passed and no retry is pending).
-  - [ ] Keep `cap_seconds=60` and its SIGTERM-latency rationale untouched.
-  - [ ] **Tests (written here):** `test_sleep_caps_at_60s` still passes
+  - [x] Keep `cap_seconds=60` and its SIGTERM-latency rationale untouched.
+  - [x] **Tests (written here):** `test_sleep_caps_at_60s` still passes
         unmodified; add a case asserting the retry-interval wake is chosen over
         the next-day boundary when a cycle ended earlier today.
   - Effort: 2
