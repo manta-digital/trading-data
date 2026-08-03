@@ -435,12 +435,18 @@ gates, and the loop's idle-reason handling are the shipping implementations.
 
 ## Task 6 — Gates, verification, integration, and closure
 
-- [ ] **6.1 Local gates**
-  - [ ] `uv run --extra dev ruff check src/ test/` — no new violations.
-  - [ ] `uv run --extra dev mypy` — no new errors in touched files (the
-        repo-wide baseline is slice 905's to clear, not this slice's).
-  - [ ] `uv run --extra dev pytest test/unit/data/acquisition/daemon/ test/unit/test_constants.py`
-        passes.
+- [x] **6.1 Local gates**
+  - [x] `uv run --extra dev ruff check src/ test/` — no new violations. 1812
+        errors, identical to the branch point (`643e639`) measured in a detached
+        worktree, so the slice contributes none of them.
+  - [x] `uv run --extra dev mypy` — no new errors in touched files (the
+        repo-wide baseline is slice 905's to clear, not this slice's). 93 errors
+        in 19 files at both HEAD and the branch point; `constants.py`,
+        `daemon/runner.py`, and `daemon/daily.py` are at zero, and
+        `cli/commands/data.py` holds at its pre-existing 15.
+  - [x] `uv run --extra dev pytest test/unit/data/acquisition/daemon/ test/unit/test_constants.py`
+        passes. 198 passed. Full unit suite: 1639 passed, 10 skipped, 35 errors
+        — the same 35 live-DB errors as the baseline, no regressions.
   - Effort: 1
 
 - [ ] **6.2 Prod verification on .144 (success criterion 12)**
