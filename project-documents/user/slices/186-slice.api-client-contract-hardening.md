@@ -46,7 +46,11 @@ bulk-analytics DB classes.
 **Included:**
 
 - `src/manta_trading/constants.py` — new named constants: API session settings,
-  bars range-cap ceiling and its derivation inputs.
+  bars range-cap ceiling and its derivation inputs (the **defaults**, with their
+  derivations documented).
+- `src/manta_trading/config/__init__.py` — two operator-overridable settings,
+  `MT_API_MAX_BARS_PER_REQUEST` and `MT_API_STATEMENT_TIMEOUT`, each defaulting
+  to the constant above it (D9).
 - `src/manta_trading/version.py` (new, ~10 lines) — `package_version()` helper,
   shared by the CLI and the API.
 - `src/manta_trading/market/timescale_minute_db.py`,
@@ -127,8 +131,10 @@ buys nothing.
 163/166/167: bars `1d` over five years measured 2–4 s (185), a cold `/health`
 coverage probe 3.19 s, the freshness probe is independently capped at
 `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` (10 s). With D4's range cap admitting
-at most ~50 k bars, 20 s is a comfortable multiple of the worst legitimate
-request and still fails fast enough to be a real limit. The freshness guard's
+at most ~75 k bars, 20 s is a comfortable multiple of the worst legitimate
+request and still fails fast enough to be a real limit. It is operator-settable
+(D9) — the two knobs interact, so raising the cap without room in the timeout
+would trade a fast `422` for a slow `500`. The freshness guard's
 save/restore (168) reads the session value and puts it back, so under this
 change it restores 20 s instead of 300 s — correct, and the probe's own 10 s
 still nests inside.
@@ -142,7 +148,7 @@ asserted.
 query*, not per connection, so 512 MB × 26 connections understates the ceiling
 rather than overstating it. 512 MB was chosen for bulk COPY and universe-wide
 aggregation; a single-symbol windowed read sorts a bounded row set. 64 MB is
-still ample for a 50 k-row sort and cuts the worst case by 8×.
+still ample for a 75 k-row sort and cuts the worst case by 8×.
 
 ### D2 — Pool sizing is not changed here
 
@@ -202,7 +208,7 @@ the window contains is the failure mode this project's rules exist to prevent.
 INTRADAY_MINUTES_PER_TRADING_DAY: int = 960
 GRANULARITY_BAR_MINUTES: dict[Granularity, int] = {M1: 1, M5: 5, M15: 15, H1: 60, H4: 240}
 TRADING_DAYS_PER_CALENDAR_DAY: float = 252 / 365
-API_MAX_BARS_PER_REQUEST: int = 50_000
+API_MAX_BARS_PER_REQUEST: int = 75_000  # default; override via MT_API_MAX_BARS_PER_REQUEST (D9)
 
 BARS_PER_TRADING_DAY: dict[Granularity, float] = {
     **{g: INTRADAY_MINUTES_PER_TRADING_DAY / m for g, m in GRANULARITY_BAR_MINUTES.items()},
@@ -218,25 +224,26 @@ returned 960 `1m` bars that day (a full dense session), SPY 724 (sparse
 minutes), SPY 187 `5m` bars against a 192-bucket ceiling. The dense case is the
 one a cap must survive, so 960 is the right input.
 
-Resulting maximum spans at a 50 k ceiling (derived in code; approximate here):
+Resulting maximum spans at the 75 k default (derived in code; approximate here):
 
 | Granularity | bars / trading day | max span |
 |---|---|---|
-| `1m` | 960 | ~75 days (~2.5 months) |
-| `5m` | 192 | ~377 days (~1 year) |
-| `15m` | 64 | ~1,131 days (~3 years) |
-| `1h` | 16 | ~4,500 days (~12 years) |
-| `4h` | 4 | ~18,100 days |
-| `1d` and coarser | ≤ 1 | ~72,400 days and up — never binds |
+| `1m` | 960 | ~113 days (~3.7 months) |
+| `5m` | 192 | ~565 days (~1.5 years) |
+| `15m` | 64 | ~1,697 days (~4.6 years) |
+| `1h` | 16 | ~6,790 days (~18 years) |
+| `4h` | 4 | ~27,150 days |
+| `1d` and coarser | ≤ 1 | ~108,600 days and up — never binds |
 
 The cap therefore binds `1m`, `5m`, and `15m` and is invisible everywhere else.
 
-**Note for the client team:** at the approved 50 k ceiling, `1m` is limited to
-~75 days, not the ~6 months quoted when the policy was chosen — that figure
-assumed a 390-minute regular session before the extended-hours coverage was
-measured. `API_MAX_BARS_PER_REQUEST` is one constant: 100 k gives `1m` ~150 days
-at ~12 MB JSON / ~5 MB msgpack per response. Raising it is a one-line change if
-the UI needs longer minute windows.
+**How 75 k was chosen.** The policy was approved at 50 k on the assumption of a
+390-minute regular session, which would have given `1m` ~6 months. The measured
+960-bar day cuts that to ~75 days. 75 k is the agreed compromise (PM,
+2026-08-03): `1m` reaches ~113 days — comfortably more than a single call needs
+for a 3-month chart — at roughly 8–10 MB JSON / 3.5–4 MB msgpack for a worst-case
+dense response. D9 makes it an operator setting, so this number is a starting
+point rather than a commitment.
 
 **Semantics.** The check is a request-admission policy on the *window*, not a
 promise about `count` — a sparse symbol over an admitted span returns far fewer
@@ -342,6 +349,46 @@ beyond the LAN (port forward, tunnel, VPS move); or any second user whose access
 should differ from the first. Any one of those makes auth a prerequisite, not an
 enhancement.
 
+### D9 — The two policy ceilings are operator-settable
+
+A bar ceiling and a statement timeout are exactly the values that get tuned
+after real client traffic arrives. As module constants they would require a code
+change and a release to move, which is the wrong shape for a policy knob — and
+the project rule on centralizing defaults at the config level says so directly.
+
+**Decision:** the default and its derivation stay in `constants.py`; `Settings`
+adds a field per knob that defaults to that constant; all consuming code reads
+`Settings`.
+
+```python
+# manta_trading/config/__init__.py
+api_max_bars_per_request: int = API_MAX_BARS_PER_REQUEST   # MT_API_MAX_BARS_PER_REQUEST
+api_statement_timeout: str = API_SERVING_SESSION.statement_timeout  # MT_API_STATEMENT_TIMEOUT
+```
+
+One definition of the number, one place to override it, and `pydantic-settings`
+validates the override at load time (`MT_API_MAX_BARS_PER_REQUEST=lots` fails at
+startup rather than at the first request). Precedent: `eodhd_daily_limit`.
+
+**Scope of the knobs:**
+
+- `MT_API_MAX_BARS_PER_REQUEST` — default 75,000. The `422` message computes the
+  maximum span from the live value, so an override never produces a message that
+  contradicts the enforced limit.
+- `MT_API_STATEMENT_TIMEOUT` — default `20s`, applied to all three API pools.
+
+**Not settable:** `work_mem`, the derivation inputs
+(`INTRADAY_MINUTES_PER_TRADING_DAY`, `GRANULARITY_BAR_MINUTES`,
+`TRADING_DAYS_PER_CALENDAR_DAY`), and the pool sizes. The derivation inputs are
+*measurements of the data*, not policy — an operator overriding them would be
+falsifying the estimate, not tuning it. `work_mem` and pool sizing can adopt the
+same pattern later if a reason appears; adding knobs nobody has asked to turn is
+the complexity the guidelines warn about.
+
+**Read once at startup**, not per request: `Settings()` is instantiated in the
+lifespan hook and the resolved values are held on `app.state`. Changing an
+override requires a server restart — the same contract as `MT_TIMESCALE_DB_URL`.
+
 ---
 
 ## API Specification — changed surfaces
@@ -354,7 +401,7 @@ New rejections, all `422` with `{"error": "..."}`:
 
 ```json
 {
-  "error": "requested range spans ~2,145,000 1m bars; the maximum is 50,000 (about 75 days). Narrow the window or request a coarser granularity."
+  "error": "requested range spans ~2,145,000 1m bars; the maximum is 75,000 (about 113 days). Narrow the window or request a coarser granularity."
 }
 ```
 
@@ -416,16 +463,20 @@ writing) instead of `0.1.0`.
 4. A `1m` request spanning more than the derived maximum returns `422` with a
    message naming the estimate, the ceiling, and the maximum span — and issues
    no DB query (assertable via a mock pool).
-5. A request with `start > end` returns `422`.
-6. A known symbol with an empty window returns `200` with `count: 0` and a
+5. `MT_API_MAX_BARS_PER_REQUEST=1000` makes a previously-admitted request return
+   `422` with a message naming 1,000 and the correspondingly shorter span; an
+   invalid override fails at startup rather than at the first request. Same for
+   `MT_API_STATEMENT_TIMEOUT`, observable in `pg_settings`.
+6. A request with `start > end` returns `422`.
+7. A known symbol with an empty window returns `200` with `count: 0` and a
    populated `is_stale`; an unknown symbol still returns `404`.
-7. Every error body produced by this codebase has an `"error"` key; FastAPI
+8. Every error body produced by this codebase has an `"error"` key; FastAPI
    validation errors keep `"detail"` and that exception is documented.
-8. `docs/api/openapi.json` is committed, matches the served schema modulo
+9. `docs/api/openapi.json` is committed, matches the served schema modulo
    `info.version`, and is linked from the README.
-9. The auth/CORS posture and its reversal conditions are recorded in this
-   document (D8) — no code change.
-10. `uv run --extra dev mypy src/manta_trading/api_server/` and `ruff` are clean
+10. The auth/CORS posture and its reversal conditions are recorded in this
+    document (D8) — no code change.
+11. `uv run --extra dev mypy src/manta_trading/api_server/` and `ruff` are clean
     on touched files; `test/unit/api_server/` passes.
 
 ---
@@ -484,24 +535,38 @@ Expected: identical versions, neither `0.1.0`.
 curl -s -w "\nHTTP %{http_code} %{time_total}s\n" \
   "http://localhost:8100/api/v1/bars/SPY?granularity=1m&start=2004-01-01&end=2026-01-01"
 ```
-Expected: `HTTP 422`, sub-10 ms, body `{"error": "requested range spans ~… 1m bars; the maximum is 50,000 (about 75 days)…"}`.
+Expected: `HTTP 422`, sub-10 ms, body `{"error": "requested range spans ~… 1m bars; the maximum is 75,000 (about 113 days)…"}`.
 
 **6. Cap admits the boundary**
 ```bash
-curl -s -o /dev/null -w "HTTP %{http_code}\n" \
-  "http://localhost:8100/api/v1/bars/AAPL?granularity=1m&start=2024-04-01&end=2024-06-14"
+curl -s "http://localhost:8100/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20" \
+  -o /tmp/bars.json -w "HTTP %{http_code}  %{time_total}s  %{size_download} bytes\n"
+python3 -c "import json;print('count:', json.load(open('/tmp/bars.json'))['count'])"
 ```
-Expected: `HTTP 200` (75-day span, dense symbol — the case the constant was
-sized against). Record the actual `count` and payload size.
+Expected: `HTTP 200` (112-day span, dense symbol — the case the ceiling was
+sized against). Record `count`, elapsed time, and payload size; the payload
+should land near the ~8–10 MB estimate in D4.
 
-**7. Reversed range**
+**7. Ceiling is operator-settable (D9)**
+```bash
+# Restart the server with a low override, then repeat the boundary request:
+MT_API_MAX_BARS_PER_REQUEST=1000 uv run mt serve --port 8101 &
+curl -s -w "\nHTTP %{http_code}\n" \
+  "http://localhost:8101/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20"
+# Invalid override must fail at startup, not at first request:
+MT_API_MAX_BARS_PER_REQUEST=lots uv run mt serve --port 8102
+```
+Expected: `HTTP 422` naming 1,000 and a ~1.5-day maximum span; the invalid
+override exits with a pydantic validation error before the server binds.
+
+**8. Reversed range**
 ```bash
 curl -s -w "\nHTTP %{http_code}\n" \
   "http://localhost:8100/api/v1/bars/SPY?granularity=1d&start=2024-06-30&end=2024-06-01"
 ```
 Expected: `HTTP 422`, `{"error": "start (2024-06-30) is after end (2024-06-01)."}`
 
-**8. Empty window vs unknown symbol**
+**9. Empty window vs unknown symbol**
 ```bash
 # Known symbol, a weekend:
 curl -s -w "\nHTTP %{http_code}\n" \
@@ -513,14 +578,14 @@ curl -s -w "\nHTTP %{http_code}\n" \
 Expected: `HTTP 200` with `"count":0,"bars":[]` and an `is_stale` field; then
 `HTTP 404` with `{"error": "..."}`.
 
-**9. Unified error bodies**
+**10. Unified error bodies**
 ```bash
 curl -s "http://localhost:8100/api/v1/status?health="          # 422, {"error": …}
 curl -s "http://localhost:8100/api/v1/bars/XYZZYQ?granularity=1d&start=2024-06-03&end=2024-06-07"  # 404, {"error": …}
 curl -s "http://localhost:8100/api/v1/bars/SPY?granularity=bogus&start=2024-06-03&end=2024-06-07"  # 422, {"detail": [...]} — documented exception
 ```
 
-**10. Schema artifact matches the server**
+**11. Schema artifact matches the server**
 ```bash
 uv run python scripts/dump_openapi.py --check
 curl -s http://localhost:8100/openapi.json | python3 -m json.tool > /tmp/served.json
@@ -532,14 +597,14 @@ print('schemas match:', a==b)"
 ```
 Expected: `schemas match: True`.
 
-**11. CLI and daemon unaffected**
+**12. CLI and daemon unaffected**
 ```bash
 uv run mt data status --symbol SPY
 ```
 Expected: unchanged output; the DB classes still default to 300 s / 512 MB
 outside the API process (assert in a unit test as well as here).
 
-**12. Test suite**
+**13. Test suite**
 ```bash
 uv run pytest test/unit/api_server/ -q
 uv run --extra dev mypy src/manta_trading/api_server/
@@ -554,7 +619,13 @@ Expected: all pass; mypy clean on touched files.
   as "no data" or parsing `detail` from a status-route error will need a change.
   Mitigation: both ship in one release with the regenerated schema, a CHANGELOG
   entry, and a README note — not trickled out.
-- **The `1m` cap is tighter than the client team was told** (~75 days, not
-  ~6 months) because extended-hours coverage was measured after the policy was
-  chosen. Mitigation: D4 flags it explicitly, and the ceiling is a single
-  constant.
+- **The `1m` cap is tighter than the ~6 months implied when the policy was
+  chosen** — ~113 days at the agreed 75 k ceiling, because extended-hours
+  coverage (960 bars/day, not 390) was measured afterwards. Mitigation: D4 states
+  the measurement and D9 makes the ceiling an env override, so the client team
+  can be moved without a release.
+- **A raised ceiling can outrun the statement timeout.** The two knobs are
+  independent settings but not independent behaviors: a large
+  `MT_API_MAX_BARS_PER_REQUEST` with the default `20s` converts a fast, explicit
+  `422` into a slow `500`. Mitigation: D9 says so, and the tuning path is to move
+  both together after measuring.
