@@ -253,19 +253,48 @@ having fetched nothing — the reported incident. With D4 the message would at
 least be honest, but the run still does no work when the user plainly asked for
 data.
 
-Under D5, when the only reason for idling is `NOTHING_DUE`, the loop sleeps
-until the gate opens (via the existing `sleep_until_next_due_event`, whose
-`cap_seconds` already bounds SIGTERM latency) and exits only on
-`NO_ACTIONABLE_WORK`. `--stop-when-done` then means what it says: exit when
+Under D5, when the reason is `NOTHING_DUE`, the loop sleeps until the gate opens
+(via the existing `sleep_until_next_due_event`, whose `cap_seconds` already
+bounds SIGTERM latency) rather than exiting — **but only when some configured
+granularity has not yet run a cycle in this process**, i.e. its
+`last_*_cycle_end_utc` is still `None`. Otherwise it exits as it does today.
+
+That qualifier is load-bearing, not a refinement (corrected during
+implementation — see Corrections). Without it, `mt data daemon run --minute
+--list <name>` never terminates. Today that run does exactly one pass and
+exits: iteration 1 runs the cycle because `last_minute_cycle_end_utc is None`,
+iteration 2 finds the one-minute gate closed and takes the terminate branch.
+An unqualified D5 would sleep at iteration 2, re-run the identical scope, sleep
+again — forever, because minute publishes no drained signal (D4) and so can
+never reach `NO_ACTIONABLE_WORK`.
+
+The qualifier expresses the actual principle: sleeping is worth it only when
+waiting makes a *new* kind of progress possible. A closed daily start-offset
+gate at 00:13 means the day's first pass has not happened and the data is not
+published yet — worth 17 minutes. A closed minute cadence gate means a pass over
+that exact scope just finished — waiting only repeats it. Because a granularity's
+end-stamp is `None` only before its first cycle, this permits at most one wait
+per granularity per process, which is what bounds the whole behavior. `--stop-when-done` then means what it says: exit when
 there is no work, not when there is no *cycle*.
 
 The wait is bounded and narrow. It occurs **only** in the 00:00–00:30 UTC
 window: outside it a fresh process has `last_daily_cycle_end_utc = None`, so
 under D2 the cycle is due immediately and there is no wait at all. It occurs
-**only** for `--daily` without `--minute`, since the minute gate opens within a
-minute. And unscoped full-universe runs are unaffected — they already default to
-`terminate_when_drained = False` and already sleep. Worst case is therefore a
-30-minute block, for a daily-only scoped run launched at 00:00 UTC.
+**only** when `daily` is in the granularity set, since a minute gate is never
+closed before minute's first pass. And unscoped runs are unaffected — they
+already default to `terminate_when_drained = False` and already sleep. Worst
+case is therefore a 30-minute block, for a scoped run including `--daily`
+launched at 00:00 UTC.
+
+Concretely, against the flag combinations in use:
+
+| Invocation | `terminate_when_drained` | Change |
+| --- | --- | --- |
+| `--minute` (no scope) | `False` | None — D5 branch unreachable |
+| `--minute --list X` / `--symbols` | `True` | None — minute's end-stamp is set after its first pass, so the qualifier blocks the wait and it exits after one pass as today |
+| `--daily --list X` at 00:13 UTC | `True` | Waits to 00:30, runs, then exits — the #6 fix |
+| `--daily --list X` at 14:00 UTC | `True` | None — daily is due immediately |
+| `--daily --minute --list X` at 00:13 | `True` | Minute runs first; waits to 00:30 for daily's first pass, then exits |
 
 Two consequences follow, and both are requirements, not caveats:
 
@@ -444,6 +473,19 @@ All four addressed in the task breakdown.
   #4 out of closure, and no spurious load-test requirement.
 
 ## Corrections discovered during implementation
+
+- **D5 would have made `mt data daemon run --minute --list <name>` never
+  terminate (found 20260803, PM question during Task 1).** D5 originally slept
+  through any `NOTHING_DUE`. For a minute-only scoped run — the PM's routine
+  minute-fetch invocation, where `--list` implies `--stop-when-done` — the
+  closed gate at iteration 2 is a one-minute cadence limiter, not a
+  wait-for-data gate. Sleeping through it re-runs the identical scope forever,
+  since D4 establishes minute can never report `NO_ACTIONABLE_WORK`. D5 now
+  sleeps only while some configured granularity has never run a cycle in this
+  process (`last_*_cycle_end_utc is None`), which permits at most one wait per
+  granularity per process and leaves every minute-only invocation behaving
+  exactly as it does today. This is the defect the slice came closest to
+  shipping: it would have converted a routine operator command into a hang.
 
 - **D4's cross-granularity drain rule was unevaluable (found during Task 1,
   20260803).** As originally written, D4 said `NO_ACTIONABLE_WORK` wins "only if

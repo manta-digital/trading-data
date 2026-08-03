@@ -303,7 +303,17 @@ end. This is the commit that closes issue #7's substance.
 
 - [ ] **4.4 Sleep through a closed cadence gate instead of exiting (D5), with its tests**
   - [ ] When `terminate_when_drained` and the reason is `NOTHING_DUE`, call
-        `sleep_until_next_due_event` and continue rather than returning.
+        `sleep_until_next_due_event` and continue rather than returning —
+        **but only while some configured granularity has never run a cycle in
+        this process** (`last_daily_cycle_end_utc is None` or
+        `last_minute_cycle_end_utc is None`, for granularities in scope).
+        Otherwise exit as today.
+  - [ ] This qualifier is mandatory, not an optimization. Without it
+        `mt data daemon run --minute --list <name>` — where `--list` implies
+        `--stop-when-done` — never terminates: minute can never report
+        `NO_ACTIONABLE_WORK` (D4), so the loop would sleep and re-run the same
+        scope forever. Verify against the invocation table in D5 before
+        checking this off.
   - [ ] On entering the wait, log once at INFO naming the reason and the due
         time — e.g. `runner: no cycle due until 00:30 UTC — waiting (27m)
         because --stop-when-done`. Log on entry only, not once per 60 s tick.
@@ -351,13 +361,16 @@ single-unit assertion already lives with its implementation above.
         `NO_ACTIONABLE_WORK` — the full sequence, not just the wait.
   - Effort: 2
 
-- [ ] **5.4 Minute-only `--stop-when-done` is not broken by D5**
-  - [ ] D5 changes minute-only scoped runs too: today such a run exits if the
-        minute gate is closed; under D5 it sleeps up to ~1 minute and then runs.
-        Assert the run completes rather than hanging, and that it exits once a
-        cycle has run — the wait is bounded by the one-minute minute cadence,
-        not by the daily offset.
-  - Effort: 1
+- [ ] **5.4 Every invocation in D5's table behaves as tabulated**
+  - [ ] Parameterize over the five rows of the D5 invocation table, asserting
+        for each whether the runner waits and whether it exits.
+  - [ ] The row that matters most: `--minute --list X` must run exactly one
+        minute cycle and then **exit**. Give this case a real timeout so a
+        regression fails as a test failure rather than a hung suite — it is the
+        PM's routine minute-fetch invocation and the one D5 nearly broke.
+  - [ ] `--minute` with no scope must not enter the D5 branch at all
+        (`terminate_when_drained` is `False`).
+  - Effort: 2
 
 - [ ] **5.5 A scope of only calendar-less symbols terminates**
   - [ ] Reports `NO_ACTIONABLE_WORK` with a non-zero un-actionable count, exits
