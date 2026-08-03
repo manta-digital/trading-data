@@ -146,7 +146,39 @@ maintenance command — never restate the value as a literal elsewhere.
 """
 
 LATE_BAR_GRACE_PERIOD: timedelta = timedelta(minutes=30)
-"""Grace period after session_close_utc before a day is considered completed."""
+"""Grace period after session_close_utc before a day is considered completed.
+
+Used by the ``data_status`` view and migration 043. This is a *session-close*
+offset. It is NOT the daemon's daily-pass start gate — see
+``DAILY_CYCLE_START_OFFSET``, which the daemon uses and which happens to carry
+the same duration today (slice 912 D3).
+"""
+
+DAILY_CYCLE_START_OFFSET: timedelta = timedelta(minutes=30)
+"""How long after UTC midnight the daemon waits before starting a daily pass.
+
+The wait exists so the provider has published its late bars for the completed
+session before the cycle asks for them. This is an offset from **UTC midnight**,
+not from any session close — the two are different clocks, and a symbol's
+session close has no fixed relationship to UTC midnight.
+
+Split out from ``LATE_BAR_GRACE_PERIOD`` in slice 912 (D3), which the daemon
+previously borrowed. The two values are equal today; that is coincidence and
+nothing may rely on it. Tuning one must not drag the other along.
+"""
+
+DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=15)
+"""Minimum spacing between daily-cycle attempts — a busy-loop guard only.
+
+Slice 912 (D2) moved the "is there daily work?" question out of the runner's
+timer and into ``run_daily_cycle``, which derives it from
+``acquisition_state``. The runner therefore no longer needs a once-per-day
+gate; it needs only to avoid spinning. This constant is that guard, and it is
+NOT a statement about how often daily data changes.
+
+Sized so an interrupted pass resumes promptly while a fully-drained scope costs
+~94 no-op ticks per day, each one a small-table read with no provider call.
+"""
 
 MAX_GAP_STALENESS: timedelta = timedelta(minutes=5)
 """Maximum age of a data_gaps row before the gap is considered stale metadata."""

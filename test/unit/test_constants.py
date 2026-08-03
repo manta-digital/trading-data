@@ -13,6 +13,8 @@ from manta_trading.constants import (
     DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     DAILY_COVERAGE_REFRESH_START_OFFSET,
     DAILY_COVERAGE_VIEW,
+    DAILY_CYCLE_RETRY_INTERVAL,
+    DAILY_CYCLE_START_OFFSET,
     DAILY_HISTORY_MONTHS,
     DAILY_STALENESS_THRESHOLD,
     EODHD_INTRADAY_HORIZON,
@@ -57,6 +59,25 @@ def test_eodhd_intraday_horizon_type_and_value() -> None:
 def test_late_bar_grace_period_type_and_value() -> None:
     assert isinstance(LATE_BAR_GRACE_PERIOD, timedelta)
     assert LATE_BAR_GRACE_PERIOD == timedelta(minutes=30)
+
+
+# The three assertions below are deliberately independent (slice 912 D3).
+# LATE_BAR_GRACE_PERIOD is an offset from session_close_utc; the two
+# DAILY_CYCLE_* constants govern the daemon's daily-pass gating and are offsets
+# from UTC midnight and from the previous cycle's end respectively. The first
+# two carry the same duration today by coincidence — if you are here because
+# tuning one broke another's test, the fix is to update only the constant you
+# meant to change, never to re-copy the value across.
+
+
+def test_daily_cycle_start_offset_type_and_value() -> None:
+    assert isinstance(DAILY_CYCLE_START_OFFSET, timedelta)
+    assert DAILY_CYCLE_START_OFFSET == timedelta(minutes=30)
+
+
+def test_daily_cycle_retry_interval_type_and_value() -> None:
+    assert isinstance(DAILY_CYCLE_RETRY_INTERVAL, timedelta)
+    assert DAILY_CYCLE_RETRY_INTERVAL == timedelta(minutes=15)
 
 
 def test_max_gap_staleness_type_and_value() -> None:

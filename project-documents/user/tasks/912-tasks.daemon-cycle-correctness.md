@@ -89,9 +89,9 @@ scope.
 
 ## Task 1 — Constants: split the double-duty grace period (D3)
 
-- [ ] **1.1 Add `DAILY_CYCLE_START_OFFSET` to `constants.py`**
-  - [ ] `DAILY_CYCLE_START_OFFSET: timedelta = timedelta(minutes=30)`
-  - [ ] Docstring states its actual role: how long after **UTC midnight** the
+- [x] **1.1 Add `DAILY_CYCLE_START_OFFSET` to `constants.py`**
+  - [x] `DAILY_CYCLE_START_OFFSET: timedelta = timedelta(minutes=30)`
+  - [x] Docstring states its actual role: how long after **UTC midnight** the
         daemon waits for the provider's late bars before starting a daily pass.
         Note explicitly that it is not a session-close offset and that its
         equality with `LATE_BAR_GRACE_PERIOD` is coincidental.
@@ -99,19 +99,20 @@ scope.
     keeps its session-close docstring unchanged.
   - Effort: 1
 
-- [ ] **1.2 Add `DAILY_CYCLE_RETRY_INTERVAL` to `constants.py`**
-  - [ ] `DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=15)`
-  - [ ] Docstring states it is a busy-loop guard — how soon an interrupted daily
+- [x] **1.2 Add `DAILY_CYCLE_RETRY_INTERVAL` to `constants.py`**
+  - [x] `DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=15)`
+  - [x] Docstring states it is a busy-loop guard — how soon an interrupted daily
         pass may resume within the same UTC day — and explicitly **not** a
         statement about how often daily data changes. Record the sizing
         rationale: ~94 no-op ticks/day worst case, each a small-table read.
   - Effort: 1
 
-- [ ] **1.3 Move `runner.py` onto the new offset**
-  - [ ] Replace all three `LATE_BAR_GRACE_PERIOD` uses — `daily_cycle_due`
+- [x] **1.3 Move `runner.py` onto the new offset**
+  - [x] Replace all three `LATE_BAR_GRACE_PERIOD` uses — `daily_cycle_due`
         (:135), `ca_update_due` (:170), `sleep_until_next_due_event` (:202) —
-        with `DAILY_CYCLE_START_OFFSET`.
-  - [ ] Remove the `LATE_BAR_GRACE_PERIOD` import from `runner.py`.
+        with `DAILY_CYCLE_START_OFFSET`. The `daily_cycle_due` docstring
+        referenced it by name too; updated in step.
+  - [x] Remove the `LATE_BAR_GRACE_PERIOD` import from `runner.py`.
   - Success: two greps, both of which must hold.
     1. `grep -rn LATE_BAR_GRACE_PERIOD src/manta_trading/data/` returns
        **nothing** — the daemon no longer references it at all.
@@ -123,10 +124,10 @@ scope.
     under `src/manta_trading/market/`, not `src/manta_trading/data/`.
   - Effort: 1
 
-- [ ] **1.4 Assert both constants independently in `test_constants.py`**
-  - [ ] Existing `LATE_BAR_GRACE_PERIOD == timedelta(minutes=30)` assertion
+- [x] **1.4 Assert both constants independently in `test_constants.py`**
+  - [x] Existing `LATE_BAR_GRACE_PERIOD == timedelta(minutes=30)` assertion
         stays; add the same for both new constants.
-  - [ ] Add a comment at the assertions noting the values are independent, so a
+  - [x] Add a comment at the assertions noting the values are independent, so a
         future tuning of one does not get "fixed" by copying the other.
   - Success: `uv run --extra dev pytest test/unit/test_constants.py` passes.
   - Effort: 1

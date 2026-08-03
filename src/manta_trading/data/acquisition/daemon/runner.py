@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from manta_trading.constants import LATE_BAR_GRACE_PERIOD
+from manta_trading.constants import DAILY_CYCLE_START_OFFSET
 from manta_trading.data.acquisition.quota import CallType, QuotaBucket
 from manta_trading.logging import get_logger
 
@@ -128,11 +128,11 @@ def _utc_today(now: datetime) -> date:
 
 def daily_cycle_due(state: RunnerState, now: datetime) -> bool:
     """True iff a daily cycle has not started yet on the current UTC day
-    AND the current UTC time is past ``00:00 + LATE_BAR_GRACE_PERIOD``.
+    AND the current UTC time is past ``00:00 + DAILY_CYCLE_START_OFFSET``.
     """
     today = _utc_today(now)
     midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
-    if now < midnight + LATE_BAR_GRACE_PERIOD:
+    if now < midnight + DAILY_CYCLE_START_OFFSET:
         return False
     if state.last_daily_cycle_start_utc is None:
         return True
@@ -167,7 +167,7 @@ def ca_update_due(
     """
     today = _utc_today(now)
     midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
-    if now < midnight + LATE_BAR_GRACE_PERIOD:
+    if now < midnight + DAILY_CYCLE_START_OFFSET:
         return False
 
     with conn.cursor() as cur:
@@ -199,7 +199,7 @@ def sleep_until_next_due_event(
     """
     today = _utc_today(now)
     midnight = datetime(today.year, today.month, today.day, tzinfo=_UTC)
-    next_daily_start = midnight + LATE_BAR_GRACE_PERIOD + timedelta(days=1)
+    next_daily_start = midnight + DAILY_CYCLE_START_OFFSET + timedelta(days=1)
 
     candidates: list[float] = []
     if state.last_minute_cycle_end_utc is not None:
