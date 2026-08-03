@@ -4,7 +4,7 @@ parent: user/architecture/140-arch.data-quality-operations.md
 project: trading
 dateCreated: 20260429
 dateUpdated: 20260727
-status: in-progress
+status: complete
 ---
 
 # Slice Plan: Data Quality and Operations
