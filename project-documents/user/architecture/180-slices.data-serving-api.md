@@ -41,6 +41,7 @@ Each slice delivers a testable, operator-visible capability. The server does not
 
 1. [ ] **Supervised process launcher**: systemd unit(s) for the data acquisition daemon and API server on .144 (Ubuntu 24.04). Decisions to resolve before picking this up: user vs. system unit, env-var injection mechanism, daemon_id resolution, log routing (journald vs. file). The Python worker already handles SIGTERM cleanly; this is purely ops infrastructure. No longer depends on a prior slice — design from scratch when the time is right.
 2. [ ] **Response caching** (Redis or in-memory): defer until profiling identifies a bottleneck. At current data volumes and single-user access patterns, DB query latency is acceptable without caching.
+3. [ ] **Representative disposable test DB**: a database with real cagg definitions and refresh policies over a small symbol/date subset — enough to induce and observe staleness end to end, without duplicating the ~4.4B-row production dataset. Surfaced by slice 185, whose induced-staleness verification (walkthrough step 7) could not run: prod is off-limits for pausing a refresh policy, and `trading_test` is unsuitable because its views are plain views, not caggs. Blocks end-to-end verification for 185 and any later slice that needs to exercise a stale-cagg path against something other than mocks. Decisions to resolve: how the caggs and policies are provisioned (migration replay vs. dump/restore of definitions only), which symbols and date span constitute "representative", and whether it lives on .144 or a local instance.
 
 ## Notes
 

@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (slice 185)
+- **API clients can now tell "market closed" from "the data pipeline stalled".** Until now a stale continuous aggregate looked identical to a quiet market — a `200 OK` with the same or slightly fewer bars, and a passing health check — even while `mt data status` was already showing an OUT OF DATE banner. Three additive surfaces close that gap, all reusing the freshness machinery `mt data status` already relies on:
+  - **`GET /api/v1/status`** (new) returns the same `data_status` health rows the CLI shows, plus a `coverage` block carrying one freshness verdict per coverage aggregate. Filters mirror the CLI flags exactly: `?symbol=`, `?health=OK,GAPS,STALE,FAILED`, `?granularity=daily|minute`, and `?all=true`. Defaults match too — non-`OK` rows only. A symbol with no matching rows is a `200` with `rows: []`, not a `404`.
+  - **`GET /api/v1/health`** gains a `coverage` field (`"ok"` / `"stale"`), a cheap pipeline-liveness signal. It is omitted entirely when the database itself is unreachable, so an outage does not get reported as staleness.
+  - **`GET /api/v1/bars/{symbol}`** gains `is_stale` on every response, in both JSON and msgpack. For the seven aggregate-served granularities (`5m`/`15m`/`1h`/`4h`/`1w`/`1mo`/`1q`) it is probed against the exact view that served the request; `1m` and `1d` read raw tables, so they are never probed and always report `false`.
+
+  Stale data is still returned, never withheld — the fields report the condition and leave the decision to the client. Measured cost on production: no measurable latency in steady state (verdicts are cached for 60s process-wide), and ~0.3s–1.3s on a cold cache, within the 2.5s budget the design set.
+
+- No existing response field changed shape or meaning, and `mt data status` is byte-for-byte unchanged — this slice only adds callers.
+
 ## [0.7.3] - 2026-08-02
 
 ### Fixed (slice 909, code review)
