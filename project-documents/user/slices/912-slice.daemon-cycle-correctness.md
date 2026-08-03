@@ -392,6 +392,41 @@ concerns, both about placement rather than technical content
 No technical finding was raised against D1, which was the decision most at risk
 of being read as non-compliance with issue #7's literal proposal.
 
+## Task review disposition (20260803)
+
+Reviewed by `minimax/minimax-m3`; verdict CONCERNS, four PASS findings, three
+concerns and a note
+([912-review.tasks.daemon-cycle-correctness.md](../reviews/912-review.tasks.daemon-cycle-correctness.md)).
+All four addressed in the task breakdown.
+
+- **F005 — tests batched at the end, violating test-with-implementation.**
+  Accepted; the finding was correct and the diagnosis exact — seven subtasks
+  ended with a *description* of an assertion rather than the assertion. Tests
+  now live in the subtask that implements the behavior they cover. Task 5 was
+  reduced to the four genuinely cross-cutting cases that span multiple tasks and
+  cannot be written earlier.
+- **F006 — Task 1.3's success criterion self-contradictory.** Accepted as a
+  wording defect; rejected as a contradiction. The reviewer's premise — that the
+  migration and `data_status` uses live under `src/manta_trading/data/` — is
+  false: they are in `market/schema/migrations/minute.py`, so both clauses can
+  hold simultaneously. The criterion nonetheless invited that reading, and is
+  now two explicitly-stated greps with the reason they are consistent.
+- **F007 — commit cadence unspecified given production reach.** The ask is
+  accepted; its premise came from an error in this slice's own task metadata,
+  now corrected. `projectState` claimed every change here reaches production on
+  the next restart. It does not: .144 runs from a checkout tracking `main`, and
+  912 merges to `trading-data-maintenance`, so nothing reaches prod until the PM
+  promotes that branch. A commit-cadence section and per-task checkpoints were
+  added anyway — for bisectability, which is the real benefit — and Task 6.2 is
+  now explicitly blocked on promotion so it cannot be checked off from local
+  testing, with Task 6.5 requiring the issue-closure comments to say the same.
+- **F008 — branch note is information, not a tracked task.** Accepted. Merge
+  target is now confirmed (PM, 2026-08-03: `trading-data-maintenance`), and
+  integration is a tracked Task 6.4 that re-confirms the target immediately
+  before merging rather than relying on a prose note read days earlier.
+- **F001-F004 — PASS** on criteria coverage, task sequencing, correctly leaving
+  #4 out of closure, and no spurious load-test requirement.
+
 ## Notes
 
 - The plan entry designates 912 as the maintenance band's home for daemon-cycle
