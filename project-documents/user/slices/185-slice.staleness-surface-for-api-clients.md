@@ -769,9 +769,18 @@ and will differ on re-run.
    167 measured and above the +2.5s budget D7 set for bars. Consequences a
    monitoring configuration has to account for: any liveness probe timeout
    below ~4s will trip on a cold cache, and a poller running slower than the
-   60s TTL pays 3.2s on **every** call. Flagged to the PM as new information
-   (design's own D7 language) — not a defect, but the D6 cost argument is
-   weaker in practice than on paper.
+   60s TTL pays 3.2s on **every** call.
+
+   **Accepted (PM, 2026-08-03).** Not a defect and not a regression in anything
+   that currently exists — `/health` is read by humans and lightweight monitors
+   on a single-user LAN tool. **Operational requirement: set liveness-probe
+   timeouts to ≥5s.** The structural fix (refresh the verdicts on a background
+   schedule, or at minimum seed the cache during lifespan startup, so no request
+   pays a cold probe) is filed as
+   [issue #8](https://github.com/manta-digital/trading-data/issues/8) and needs
+   a plan entry before implementation. It becomes materially more important if
+   `/health` ever backs an automated restart policy, where a 3.2s cold response
+   against a sub-4s timeout would cause restart loops exactly at boot.
 
 5. **Bars, staleness field on a cagg-served granularity:**
    ```bash
