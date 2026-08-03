@@ -58,7 +58,7 @@ bulk-analytics DB classes.
   defaults preserve today's behavior exactly.
 - `src/manta_trading/api_server/app.py` — API-sized session settings on all
   three pools; OpenAPI `version` from package metadata; unified error-body
-  handling.
+  handling; `QueryCanceled` → `504` handler.
 - `src/manta_trading/api_server/routes/bars.py` — range admission check,
   `start > end` rejection, empty-window contract change.
 - `src/manta_trading/api_server/routes/status.py` — its two `422`s emit the
@@ -389,6 +389,57 @@ the complexity the guidelines warn about.
 lifespan hook and the resolved values are held on `app.state`. Changing an
 override requires a server restart — the same contract as `MT_TIMESCALE_DB_URL`.
 
+### D10 — A cancelled query is `504`, not `500`
+
+D4's cap makes an over-large request fail in microseconds with an actionable
+message. The path *past* the cap has no such courtesy: a request that is
+admitted but exceeds `statement_timeout` gets cancelled by Postgres, psycopg
+raises `QueryCanceled`, nothing catches it, and 184's global `Exception` handler
+returns `500 {"error": "internal server error"}` — after the full timeout spent
+holding a connection, blocking an executor thread, and decompressing chunks that
+get thrown away. The client waits 20 s to learn nothing.
+
+**Decision:** register a handler for `psycopg.errors.QueryCanceled` in
+`create_app()`, returning `504` with the same shape of guidance the fast path
+gives:
+
+```json
+{ "error": "query exceeded the server's 20s budget; narrow the requested range or use a coarser granularity" }
+```
+
+The budget in the message is read from the configured value (D9), not written as
+a literal — an operator who raises `MT_API_STATEMENT_TIMEOUT` must not get a
+message quoting 20 s.
+
+**Why a global handler, not a `try/except` in `bars.py`.** Every route issues a
+DB query and every one of them can be cancelled; a per-route clause would be the
+same code four times and would silently omit whichever route is added next. This
+is a documented process-boundary handler, registered beside the `HTTPException`
+and `Exception` handlers it sits between.
+
+**Why 504.** The API is a gateway to TimescaleDB and the upstream leg is what
+exceeded its budget — `504 Gateway Timeout` says that. `500` is wrong (this is
+not an unexpected server fault), and `408` is wrong (the *client* did not time
+out sending its request). A client can retry a `504` with a narrower window and
+reasonably expect success, which is the distinction that matters to a caller.
+
+**Scope and interactions:**
+
+- Ordering: the `QueryCanceled` handler is strictly narrower than the `Exception`
+  handler and takes precedence; every non-cancellation error still returns `500`
+  with the sanitized body. This narrows 185 D9's "genuine query failures
+  propagate to the global 500" — cancellation now splits off; everything else is
+  unchanged.
+- Freshness probes cannot reach this handler. `cagg_freshness` catches
+  `psycopg.Error` internally and converts a timeout into a stale verdict (168 D3,
+  185 D9), so a `504` always means a **data** query was cancelled.
+- Logged at WARNING with method, path, and query string — a handled,
+  operator-actionable condition, not an unexpected fault. It is a signal that
+  the ceiling and the timeout are out of step, so it needs to be visible without
+  masquerading as a crash.
+- `504` is declared in the routes' OpenAPI `responses` so it appears in the
+  committed artifact (D7).
+
 ---
 
 ## API Specification — changed surfaces
@@ -414,6 +465,13 @@ New success case (known symbol, empty window):
 ```json
 { "symbol": "SPY", "granularity": "1m", "adjusted": true,
   "count": 0, "bars": [], "is_stale": false }
+```
+
+New failure case — a query cancelled by `statement_timeout` (D10), on any
+endpoint:
+
+```
+504 { "error": "query exceeded the server's 20s budget; narrow the requested range or use a coarser granularity" }
 ```
 
 Unchanged: `404 {"error": "..."}` for an unknown symbol; msgpack encoding of the
@@ -470,13 +528,16 @@ writing) instead of `0.1.0`.
 6. A request with `start > end` returns `422`.
 7. A known symbol with an empty window returns `200` with `count: 0` and a
    populated `is_stale`; an unknown symbol still returns `404`.
-8. Every error body produced by this codebase has an `"error"` key; FastAPI
+8. A query cancelled by `statement_timeout` returns `504` with a message quoting
+   the *configured* budget, on every endpoint — not `500`; a non-cancellation DB
+   error still returns `500`.
+9. Every error body produced by this codebase has an `"error"` key; FastAPI
    validation errors keep `"detail"` and that exception is documented.
-9. `docs/api/openapi.json` is committed, matches the served schema modulo
-   `info.version`, and is linked from the README.
-10. The auth/CORS posture and its reversal conditions are recorded in this
+10. `docs/api/openapi.json` is committed, matches the served schema modulo
+    `info.version`, is linked from the README, and declares the `504`.
+11. The auth/CORS posture and its reversal conditions are recorded in this
     document (D8) — no code change.
-11. `uv run --extra dev mypy src/manta_trading/api_server/` and `ruff` are clean
+12. `uv run --extra dev mypy src/manta_trading/api_server/` and `ruff` are clean
     on touched files; `test/unit/api_server/` passes.
 
 ---
@@ -547,17 +608,31 @@ Expected: `HTTP 200` (112-day span, dense symbol — the case the ceiling was
 sized against). Record `count`, elapsed time, and payload size; the payload
 should land near the ~8–10 MB estimate in D4.
 
-**7. Ceiling is operator-settable (D9)**
+**7. Knobs are operator-settable (D9), and cancellation maps to 504 (D10)**
 ```bash
-# Restart the server with a low override, then repeat the boundary request:
+# (a) Low bar ceiling — the fast path:
 MT_API_MAX_BARS_PER_REQUEST=1000 uv run mt serve --port 8101 &
-curl -s -w "\nHTTP %{http_code}\n" \
+curl -s -w "\nHTTP %{http_code} %{time_total}s\n" \
   "http://localhost:8101/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20"
-# Invalid override must fail at startup, not at first request:
-MT_API_MAX_BARS_PER_REQUEST=lots uv run mt serve --port 8102
+
+# (b) Low statement timeout, ceiling left alone — the same request is now
+#     admitted and then cancelled mid-query:
+MT_API_STATEMENT_TIMEOUT=100ms uv run mt serve --port 8102 &
+curl -s -w "\nHTTP %{http_code} %{time_total}s\n" \
+  "http://localhost:8102/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20"
+
+# (c) Invalid override must fail at startup, not at first request:
+MT_API_MAX_BARS_PER_REQUEST=lots uv run mt serve --port 8103
 ```
-Expected: `HTTP 422` naming 1,000 and a ~1.5-day maximum span; the invalid
-override exits with a pydantic validation error before the server binds.
+Expected: (a) `HTTP 422` in milliseconds, naming 1,000 and a ~1.5-day maximum
+span. (b) `HTTP 504` with `{"error": "query exceeded the server's 100ms budget; …"}`
+— note the message quotes the *configured* budget, not a literal 20s — and a
+WARNING in the server log naming the path. (c) exits with a pydantic validation
+error before the server binds.
+
+This is also the induction for D10 that needs no prod interference: shrinking
+the budget is equivalent to enlarging the query, and it exercises the real
+`QueryCanceled` path rather than a mock.
 
 **8. Reversed range**
 ```bash
@@ -626,6 +701,9 @@ Expected: all pass; mypy clean on touched files.
   can be moved without a release.
 - **A raised ceiling can outrun the statement timeout.** The two knobs are
   independent settings but not independent behaviors: a large
-  `MT_API_MAX_BARS_PER_REQUEST` with the default `20s` converts a fast, explicit
-  `422` into a slow `500`. Mitigation: D9 says so, and the tuning path is to move
-  both together after measuring.
+  `MT_API_MAX_BARS_PER_REQUEST` with the default `20s` moves a request off the
+  fast `422` path and onto the timeout path. Mitigation: D10 makes that landing
+  a `504` with the same actionable guidance rather than an opaque `500`, D9 says
+  the knobs move together, and the tuning path is to measure first. The residual
+  risk is cost, not confusion — a `504` still costs the full budget in held
+  connection and executor time, which is what the cap exists to avoid.
