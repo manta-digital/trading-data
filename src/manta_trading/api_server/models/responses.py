@@ -55,6 +55,7 @@ class BarsResponse(BaseModel):
     symbol: str
     granularity: str
     adjusted: bool
+    is_stale: bool
     count: int
     bars: list[BarRecord]
 
@@ -65,11 +66,17 @@ class BarsResponse(BaseModel):
         granularity: Granularity,
         adjusted: bool,
         df: pd.DataFrame,
+        *,
+        is_stale: bool,
     ) -> BarsResponse:
         """Build a ``BarsResponse`` from a DB result DataFrame.
 
         The DataFrame index must be a ``DatetimeIndex``; columns must
         include ``open``, ``high``, ``low``, ``close``, and ``volume``.
+
+        ``is_stale`` is keyword-only and has no default: staleness is a fact
+        about the serving cagg that the caller must establish (slice 185 D7),
+        never something that silently defaults to "fresh".
         """
         bars = [
             BarRecord(
@@ -86,6 +93,7 @@ class BarsResponse(BaseModel):
             symbol=symbol,
             granularity=str(granularity),
             adjusted=adjusted,
+            is_stale=is_stale,
             count=len(bars),
             bars=bars,
         )
