@@ -472,7 +472,41 @@ All four addressed in the task breakdown.
 - **F001-F004 — PASS** on criteria coverage, task sequencing, correctly leaving
   #4 out of closure, and no spurious load-test requirement.
 
+## Work-list SQL verified against production data (20260803)
+
+Run by the PM in DataGrip during Task 2, before any of this reached a daemon.
+The unit tests drive a mock cursor, so this is the only evidence the statement
+itself is correct.
+
+- **Unknown symbols surface, not vanish.** A scope containing a bogus symbol
+  returned it with `has_calendar = false` rather than dropping it. Dropping is
+  the failure D6 exists to prevent.
+- **906 unactionable across the active universe** — matching GitHub issue #4's
+  count exactly, arrived at independently. The calendar join is right; had it
+  been over- or under-matching, this number would have moved.
+- **Zero pending, 11,976 done** — consistent with a full daily pass having
+  completed after 00:30 UTC that day. This is precisely the drained state D4
+  reports as `NO_ACTIONABLE_WORK`.
+- **12,882 instrument rows, 12,882 distinct symbols.** The scope is the registry
+  size; there is no duplication today. See the fan-out correction below for why
+  the query does not rely on that remaining true.
+
 ## Corrections discovered during implementation
+
+- **The work-list join could fan out on `instruments.symbol` (found 20260803
+  while reconciling the verification row counts).** `instruments` has primary
+  key `instrument_id` and its UNIQUE constraint on `canonical_id`; `symbol`
+  carries only a non-unique index. Joining scope straight to `instruments`
+  would emit one row per instrument row per symbol, which would fetch a symbol
+  repeatedly within a single pass and — where one row resolves a calendar and
+  another does not — place the same symbol in *both* buckets, contradicting the
+  disjointness `DailyWorkList` promises. Corrected to aggregate with
+  `GROUP BY i.symbol` and `bool_or`, matching `_last_completed_session`'s
+  equally permissive `MAX` over the same join; the two must agree or the work
+  list would hand the cycle a symbol it then declines to fetch. Verification
+  showed no duplicates today, so this was latent rather than active — but the
+  schema permits them, and a symbol that delists and re-lists produces exactly
+  that shape.
 
 - **D5 would have made `mt data daemon run --minute --list <name>` never
   terminate (found 20260803, PM question during Task 1).** D5 originally slept
