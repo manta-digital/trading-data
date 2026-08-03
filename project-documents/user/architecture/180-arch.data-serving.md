@@ -6,11 +6,11 @@ parent: 001-initiative-plan_trading.md
 dependencies:
   - 100-arch_data-storage.md
   - 140-arch_data-quality-operations.md
-relatedSlices: []
+relatedSlices: [181, 182, 183, 184, 185, 186, 187]
 riskLevel: low
 archIndex: 180
 dateCreated: 20260512
-dateUpdated: 20260513
+dateUpdated: 20260803
 status: in-progress
 ---
 
@@ -159,7 +159,7 @@ Returns server status and database connectivity. Standard liveness check.
 - **Framework**: FastAPI (new dependency). Async support for concurrent requests. Automatic OpenAPI docs. Pydantic for request/response models.
 - **ASGI server**: Uvicorn (new dependency). Single worker is fine for single-user local network use.
 - **CORS**: Permissive for local network. trading-ui runs on a different port (Vite dev server on 5173 or similar), so CORS must allow the origin.
-- **Database connection**: Same psycopg3 connection pool the CLI uses. The API shares the existing `Settings` and database configuration — no new connection config. Existing DB methods are synchronous; the API will use `asyncio.get_event_loop().run_in_executor(None, ...)` to call them from async route handlers. This is appropriate for single-user local network use; migrate to `AsyncConnection` only if profiling shows contention.
+- **Database connection**: the API shares the existing `Settings` and the same `MT_TIMESCALE_DB_URL` the CLI uses — no new *connection* config (no separate credentials, host, or database). **Corrected by slice 186 (D1, D11):** "same pool" was never true as built. The API process opens **three** independent psycopg3 pools — its own (`app.state.db_pool`, for health/status/symbols/gaps and the freshness probe) plus the class-owned pools inside `TimescaleMinuteDataDB` and `TimescaleDailyDataDB`, which serve the bars path. Slice 186 gives all three serving-sized session settings (`statement_timeout`, `work_mem`) via an optional constructor argument whose defaults preserve CLI and daemon behavior. Consolidating to a single shared pool is the better end state and is deferred to slice 187, which builds the load-test tier that can size it. Two API *policy* settings are added (`MT_API_MAX_BARS_PER_REQUEST`, `MT_API_STATEMENT_TIMEOUT`); both default to constants in `constants.py`. Existing DB methods are synchronous; the API will use `asyncio.get_event_loop().run_in_executor(None, ...)` to call them from async route handlers. This is appropriate for single-user local network use; migrate to `AsyncConnection` only if profiling shows contention.
 - **Serialization**: orjson (new dependency) for fast JSON serialization. Optional msgpack via the `msgpack` library (new dependency) for large bar responses — reduces payload ~40-60% vs JSON for minute data over weeks. The TypeScript client must use a compatible msgpack decoder (e.g. `@msgpack/msgpack`) when requesting this format.
 - **New pyproject.toml additions**: `fastapi`, `uvicorn[standard]`, `orjson`, `msgpack`.
 
@@ -176,20 +176,25 @@ One new Typer command. Starts Uvicorn with the FastAPI app. That's it.
 
 ## Code Location
 
+The package is `api_server/`, not `api/` as this document originally specified. The name was forced, not drifted: `src/manta_trading/api/` already exists and holds the **outbound** provider HTTP clients (EODHD, Finnhub), which predate the server. Landed layout (181–185), with `status.py` added by 185 and `queries.py` by 186:
+
 ```
-src/manta_trading/api/
+src/manta_trading/api_server/
     __init__.py
-    app.py              # FastAPI app instance, CORS, lifespan (DB pool)
+    app.py              # FastAPI app instance, CORS, lifespan (DB pool), exception handlers
     routes/
         bars.py         # GET /api/v1/bars/{symbol}
         symbols.py      # GET /api/v1/symbols, GET /api/v1/symbols/{symbol}
         gaps.py         # GET /api/v1/gaps/{symbol}
         health.py       # GET /api/v1/health
+        status.py       # GET /api/v1/status                    (slice 185)
     models/
-        requests.py     # Pydantic models for query params
         responses.py    # Pydantic models for response shapes
-    deps.py             # Dependency injection (DB connection)
+    queries.py          # Shared route-level SQL (symbol_exists) (slice 186)
+    deps.py             # Dependency injection (pool, connection, DB instances)
 ```
+
+`models/requests.py` was never needed — query params are declared inline on the route signatures and validated by FastAPI.
 
 The route handlers are thin. Example for bars:
 
@@ -231,15 +236,18 @@ The async/sync bridge (`run_in_executor`) is the chosen approach. Existing DB me
 
 FastAPI exception handlers, registered in `app.py`:
 
-- **404** — symbol not found in instruments table, or no data in requested range.
-- **422** — invalid query params (FastAPI/Pydantic raises this automatically for type errors).
+- **404** — symbol not found in the instruments table. **Revised by slice 186 (D5):** an empty result for a *known* symbol is `200` with `count: 0`, not `404` — a weekend must not be indistinguishable from a typo.
+- **422** — invalid query params (FastAPI/Pydantic raises this automatically for type errors); also, per slice 186 (D4), a window exceeding the range cap or a `start` after its `end`.
 - **500** — unhandled DB error. Error detail is logged server-side but response body returns a sanitized message only — no SQL leaks to clients.
+- **504** — added by slice 186 (D10): the DB cancelled a query on `statement_timeout`. Distinguished from `500` because it is not a server fault and a narrower window is a reasonable retry.
 
-All error responses use a consistent shape: `{"error": "<message>"}`.
+All error responses raised by this codebase use a consistent shape: `{"error": "<message>"}`. The one deliberate exception is FastAPI's own `RequestValidationError` body (`{"detail": [{"loc": …, "msg": …}]}`), kept native because it carries per-field structure a flattened string would lose (slice 186 D6).
 
 ## Range Policy
 
-No server-side pagination. The API trusts callers to request bounded ranges. A full year of 1-minute data for one symbol is ~98k bars (~6 MB JSON, ~2.5 MB msgpack) — acceptable for a single-user local network tool. If the UI requests an unreasonable range, the DB query will be slow and the response large; that is a UI concern, not an API concern at this scale.
+**Revised by slice 186 (2026-08-03).** No server-side pagination — that decision stands. But "the API trusts callers to request bounded ranges… a UI concern, not an API concern," as originally written here, did not survive contact with the measured data: the store carries extended-hours minute bars (08:00–23:59 UTC, up to 960 `1m` bars per symbol-day, not the 390 a regular session implies), and an unbounded request serializes millions of rows through a single executor thread on a host shared with the acquisition daemon.
+
+The API now applies a **pre-query admission cap**: estimated bars for the requested window are computed from the request alone and rejected with `422` above a configurable ceiling (`MT_API_MAX_BARS_PER_REQUEST`, default 75,000 — ~113 days of `1m`, ~1.5 years of `5m`; never binds at `1d` or coarser). No DB work is done for a rejected request, and no response is ever silently truncated. See slice 186 D4 and D9.
 
 ## What This Does NOT Include
 

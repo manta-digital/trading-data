@@ -283,6 +283,36 @@ because the market was closed."
 This is a **breaking change** to the 182 contract. It ships with the regenerated
 `openapi.json`, a CHANGELOG entry, and a README note.
 
+**Addendum — where the lookup lives (resolves review F009).** The review reads
+the arch's thin-wrapper rule as requiring a `symbol_exists()` method on the DB
+classes. Rejected: `TimescaleMinuteDataDB`/`TimescaleDailyDataDB` are OHLCV
+readers, `instruments` is not their table, and 183/184 already established that
+instrument and gap SQL lives in the route layer (`symbols.py::_INSTRUMENT_SQL`,
+`gaps.py`'s four SQL constants). Hanging an instruments query off an OHLCV class
+would be the layering violation, not the fix.
+
+What the finding does correctly identify is **duplication** — `symbols.py`
+already owns that seek. Resolution: extract it once as
+`api_server/queries.py::symbol_exists(conn, symbol) -> bool`, called from
+`bars.py`. `symbols.py`'s fuller `SELECT` stays where it is (same table,
+different result), but "does this symbol exist" gets exactly one definition.
+
+**Addendum — failure modes on the new I/O path (resolves review F010).**
+Enumerated here per 185 D9's precedent, because this path *decides a status
+code* and a swallowed error would silently flip `404` and `200`:
+
+- Cancelled by `statement_timeout` → `psycopg.errors.QueryCanceled` → D10's
+  handler → `504`.
+- Any other `psycopg.Error` → the global `Exception` handler → sanitized `500`.
+- **Never caught locally, and never defaulted.** Neither "assume it exists"
+  (`200`) nor "assume it doesn't" (`404`) is acceptable: a failed lookup means
+  the server does not know which is true, and asserting either would be a silent
+  fallback of exactly the kind this project's rules forbid. `504`/`500` are
+  retryable and assert nothing about the symbol.
+- Pool: the checkout is scoped to the lookup (185 D8a), released before
+  serialization. The empty path holds at most one connection, for one indexed
+  seek, and the non-empty path still holds none.
+
 ### D6 — One error-body shape for every error this codebase raises
 
 Three shapes are in circulation: `{"error": …}` (404/500 handlers, 184),
@@ -439,6 +469,39 @@ reasonably expect success, which is the distinction that matters to a caller.
   masquerading as a crash.
 - `504` is declared in the routes' OpenAPI `responses` so it appears in the
   committed artifact (D7).
+
+### D11 — The architecture document is updated in this slice (resolves review F005–F008, F011)
+
+Four review findings share one root cause: `180-arch.data-serving.md` has not
+been touched since 2026-05-13, and 181–186 have moved past it. The findings are
+correct on the facts — each quotes the arch accurately — but three of them are
+mislabeled as scope creep. The slice-plan entry for 186 commissions the range
+cap ("decide and implement the bars range-cap/pagination policy") and the 404
+revision ("confirm-or-revise the 404-on-empty-window contract") in those words,
+and the PM approved both. The problem is not that this slice exceeded its
+mandate; it is that executing the mandate leaves the parent document wrong.
+
+**Decision: update `180-arch.data-serving.md` as part of this slice**, rather
+than leave the design as the only record. Five corrections:
+
+| Arch section | Was | Becomes |
+|---|---|---|
+| Code Location | `src/manta_trading/api/` | `src/manta_trading/api_server/` — the name was **forced**, not drifted: `src/manta_trading/api/` is the outbound provider-client package (EODHD, Finnhub) and predates the server (F005) |
+| Range Policy | "trusts callers to request bounded ranges… a UI concern, not an API concern" | superseded by D4's admission cap and D9's setting (F007) |
+| Error Handling | "404 — symbol not found **or** no data in requested range" | D5's split, plus the new `422` (D4) and `504` (D10) (F008) |
+| Technical Stack | "shares the existing Settings… no new connection config" | the two `MT_API_*` policy settings (F006), and D1's serving-sized session values |
+| Technical Stack | implies one shared pool, `TimescaleMinuteDataDB(db)` | three independent pools, as built (F011) |
+
+**On F011's alternative** — restructure the data-access layer to expose one
+shared pool the API configures once, instead of plumbing settings into two
+classes. It is the better end state and it is recorded as such, but not here:
+it changes the constructor contract for every CLI and daemon consumer of both
+classes, and it is the same decision as pool *sizing*, which D2 defers to 187
+on the grounds that no measurement exists yet to direct it. Doing the invasive
+version blind, in a slice whose purpose is client-contract hardening, would be
+the wrong order. D1's optional argument with behavior-preserving defaults is the
+contained step; 187 owns the consolidation question with load-test numbers in
+hand.
 
 ---
 
