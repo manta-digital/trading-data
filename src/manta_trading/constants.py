@@ -146,7 +146,55 @@ maintenance command — never restate the value as a literal elsewhere.
 """
 
 LATE_BAR_GRACE_PERIOD: timedelta = timedelta(minutes=30)
-"""Grace period after session_close_utc before a day is considered completed."""
+"""Grace period after session_close_utc before a day is considered completed.
+
+Used by the ``data_status`` view and migration 043. This is a *session-close*
+offset. It is NOT the daemon's daily-pass start gate — see
+``DAILY_CYCLE_START_OFFSET``, which the daemon uses and which happens to carry
+the same duration today (slice 912 D3).
+"""
+
+DAILY_CYCLE_START_OFFSET: timedelta = timedelta(minutes=30)
+"""How long after UTC midnight the daemon waits before starting a daily pass.
+
+The wait exists so the provider has published its late bars for the completed
+session before the cycle asks for them. This is an offset from **UTC midnight**,
+not from any session close — the two are different clocks, and a symbol's
+session close has no fixed relationship to UTC midnight.
+
+Split out from ``LATE_BAR_GRACE_PERIOD`` in slice 912 (D3), which the daemon
+previously borrowed. It also equals ``DAILY_CYCLE_RETRY_INTERVAL`` as of the
+912 review. All three values are equal today; that is coincidence and nothing
+may rely on it. Tuning one must not drag the others along.
+"""
+
+DAILY_CYCLE_RETRY_INTERVAL: timedelta = timedelta(minutes=30)
+"""Default spacing between daily-cycle attempts — a busy-loop guard only.
+
+Slice 912 (D2) moved the "is there daily work?" question out of the runner's
+timer and into ``run_daily_cycle``, which derives it from
+``acquisition_state``. The runner therefore no longer needs a once-per-day
+gate; it needs only to avoid spinning. This constant is that guard, and it is
+NOT a statement about how often daily data changes.
+
+Only the **default**: the operator overrides it with
+``MT_DAILY_CYCLE_RETRY_MINUTES`` or ``--daily-retry-minutes``. It is tunable
+because the right value is empirical, not derivable — a shorter interval
+resumes an interrupted pass sooner, while a longer one spends fewer credits
+when the provider is failing, since each retry re-issues the bulk EOD call and
+``eodhd_get`` consumes the bucket once per retry attempt.
+
+Raised from 15 to 30 minutes after the slice 912 code review (F002): observed
+catch-up once a provider recovers is under two hours, so polling every 15
+minutes bought no recovery speed the fetch itself did not already bound, while
+doubling the worst-case outage spend. A fully-drained scope now costs ~47 no-op
+ticks per day, each a small-table read with no provider call.
+
+Equal to ``DAILY_CYCLE_START_OFFSET`` and ``LATE_BAR_GRACE_PERIOD`` today. All
+three are coincidences of value, not of meaning — this one is a retry cadence,
+that one a start gate, the third a session-close offset. Nothing may collapse
+them, and ``test_constants.py`` asserts each independently for that reason.
+"""
 
 MAX_GAP_STALENESS: timedelta = timedelta(minutes=5)
 """Maximum age of a data_gaps row before the gap is considered stale metadata."""
@@ -495,8 +543,31 @@ class FetchEntryPoint(StrEnum):
     i.e. `mt data pull 1m|1d`)."""
 
 
+class CycleGranularity(StrEnum):
+    """Granularity tokens for daemon cycles and acquisition bookkeeping.
+
+    These are the values stored in ``data_gaps.granularity`` and
+    ``acquisition_state.granularity``, and the members of the runner's
+    ``RunnerConfig.granularities`` set.
+
+    **Not interchangeable with :class:`Granularity`**, which carries OHLCV
+    *request* tokens (``"1d"``, ``"1m"``) for the query layer. The two
+    vocabularies overlap conceptually and share nothing textually; conflating
+    them produces a silent no-match rather than an error. Introduced by slice
+    912 because these values were previously bare literals at every comparison
+    site, which the project's single-definition-site rule forbids.
+    """
+
+    DAILY = "daily"
+    MINUTE = "minute"
+
+
 class Granularity(StrEnum):
-    """Canonical granularity tokens for OHLCV data requests."""
+    """Canonical granularity tokens for OHLCV data requests.
+
+    See :class:`CycleGranularity` for the daemon/bookkeeping vocabulary; these
+    are request tokens and the two are not interchangeable.
+    """
 
     M1 = "1m"
     M5 = "5m"

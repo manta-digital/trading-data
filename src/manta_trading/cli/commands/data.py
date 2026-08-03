@@ -1128,12 +1128,26 @@ def daemon_run(
     max_credits: int | None = typer.Option(
         None, "--max-credits", help="Exit after spending this many credits."
     ),
+    daily_retry_minutes: int | None = typer.Option(
+        None,
+        "--daily-retry-minutes",
+        help=(
+            "How soon after a daily cycle ends the next may start. Lower "
+            "resumes an interrupted pass sooner; higher costs fewer credits "
+            "when the provider is failing, since each retry re-issues the bulk "
+            "EOD call. Default: MT_DAILY_CYCLE_RETRY_MINUTES."
+        ),
+    ),
     stop_when_done: bool | None = typer.Option(
         None,
         "--stop-when-done/--forever",
         help=(
-            "Exit when the scope is drained. Default: True when --symbols/--list given, "
-            "False otherwise."
+            "Exit when the scope has no actionable work. Default: True when "
+            "--symbols/--list given, False otherwise. If a cycle is not due yet "
+            "(e.g. daily before 00:30 UTC) and that granularity has not run "
+            "this process, the command waits for it rather than exiting — "
+            "'done' means no work remains, not that no cycle is due. "
+            "Interrupt latency during that wait is up to 60s."
         ),
     ),
     config: Path | None = typer.Option(
@@ -1153,7 +1167,9 @@ def daemon_run(
     Use Ctrl-C or SIGTERM to exit cleanly.
     """
     import sys
+    from datetime import timedelta
 
+    from manta_trading.constants import CycleGranularity
     from manta_trading.data.acquisition.daemon.runner import (
         SCOPE_ALL_ACTIVE,
         Runner,
@@ -1186,19 +1202,31 @@ def daemon_run(
 
     # If neither --daily nor --minute given, run both. If one is given, run only that.
     if not daily and not minute:
-        granularities: set[str] = {"daily", "minute"}
+        granularities: set[CycleGranularity] = set(CycleGranularity)
     else:
         granularities = set()
         if daily:
-            granularities.add("daily")
+            granularities.add(CycleGranularity.DAILY)
         if minute:
-            granularities.add("minute")
+            granularities.add(CycleGranularity.MINUTE)
+
+    if daily_retry_minutes is not None and not 0 < daily_retry_minutes <= 24 * 60:
+        print_error(
+            "--daily-retry-minutes must be between 1 and 1440.", json_mode=False
+        )
+        raise typer.Exit(1)
+    retry_interval = (
+        timedelta(minutes=daily_retry_minutes)
+        if daily_retry_minutes is not None
+        else settings.daily_cycle_retry_interval
+    )
 
     config_obj = RunnerConfig(
         scope=tuple(symbols_list) if symbols_list is not None else SCOPE_ALL_ACTIVE,
         granularities=frozenset(granularities),
         max_credits=max_credits,
         terminate_when_drained=terminate_when_drained,
+        daily_retry_interval=retry_interval,
     )
 
     if not settings.timescale_db_url:
