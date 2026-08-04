@@ -325,6 +325,12 @@ clients retain the per-field detail:
 | `500` | An unexpected server fault. The body is sanitized. |
 | `504` | The database cancelled the query at the statement timeout. Narrow the range or use a coarser granularity. |
 
+#### Date windows are inclusive at both ends
+
+`start` and `end` are both inclusive, at every granularity: `start=2024-06-10&end=2024-06-14`
+returns Monday through Friday, and `start=2024-06-10&end=2024-06-10` returns that
+whole day. Timestamps are UTC, and the store covers 08:00–23:59 UTC.
+
 #### Empty windows are `200`, not `404`
 
 A known symbol with no bars in the requested window returns `200` with

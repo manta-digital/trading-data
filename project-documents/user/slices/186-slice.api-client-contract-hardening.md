@@ -598,6 +598,59 @@ including ones spanning AAPL's 2020 4-for-1 split and its 1998 history.
 private to the read path and no caller persists or compares the id — slice 152
 dropped the `last_adjusted_ca_snapshot_id` column that once did.
 
+### D13 — `end` is inclusive at every granularity (PM, 2026-08-04)
+
+Found by walkthrough step 9, fixed after the slice merged, on the PM's
+direction. Recorded here rather than deferred because it is the same contract
+surface D4 and D5 govern, and because leaving it would have made both of them
+describe behavior the API did not have.
+
+**The defect.** `end` was inclusive at daily grain and **exclusive** at minute
+grain. The daily path passes dates straight to a `time <= %s` predicate and gets
+inclusivity for free; the minute path converts to a timestamp first, and
+converting `end` to *midnight* cut the last day off every request. Measured on
+prod, SPY 2024-06-10 → 06-14:
+
+| Granularity | Before | After |
+|---|---|---|
+| `1d` | 5 bars, last 06-14 | unchanged |
+| `1m` | 2,975 bars, last **06-13 23:59** | 3,764 bars, last 06-14 23:59 |
+| `5m` | — | 926 bars, last 06-14 23:55 |
+| `4h` | — | 20 buckets, last 06-14 20:00 |
+
+A five-day request returned four days — 789 bars, ~21 %, dropped with nothing in
+the response to say so. This is precisely the failure mode D4 names when it
+rejects post-query truncation: "silently returning fewer bars than the window
+contains is the failure mode this project's rules exist to prevent." It reached
+that conclusion about the *cap* and then shipped it in the *window*.
+
+`start == end` returned `count: 0` at every minute granularity, and D5's
+`404`→`200` split had just turned that from a visibly wrong `404` into a
+plausible-looking empty `200` — the worse of the two, because a client will not
+retry it. That is how the defect surfaced.
+
+**Fix.** One helper: `end` converts to `time.max` (23:59:59.999999 UTC) instead
+of `time.min`. `start` is unchanged. Not a redefinition of `end` — `end` already
+meant "inclusive" everywhere it was documented and at every daily granularity;
+the minute path was the outlier. Verified on prod: the missing day returns, a
+single-day request yields 724 `1m` / 187 `5m` bars for SPY — the same two
+figures D4's original measurement recorded, which is an independent check that
+the window is now the full day D4 assumed when it sized the cap.
+
+The range-cap estimator needed no change: `_estimate_bars` already computed
+`(end - start).days + 1`, i.e. an inclusive window, so before this fix the cap
+was admitting against a window one day larger than the query actually read.
+
+Both grains are now pinned by tests (`test_minute_window_end_is_inclusive`,
+`test_daily_window_end_is_passed_through_unconverted`, and a parametrized
+single-day test across all five minute granularities) so they cannot drift apart
+again.
+
+**Not changed: `gaps.py`.** It has the same `_date_to_utc_datetime` helper, but
+its predicate is an overlap test (`gap_start < end AND gap_end > start`), not a
+range read, so the bound means something different there. It is worth a look
+under its own heading rather than a same-shaped edit made on momentum.
+
 ---
 
 ## API Specification — changed surfaces
@@ -891,13 +944,11 @@ HTTP 404
 A weekend is a `200`; an unknown symbol is a `404`. Note `is_stale` is present
 on the empty body, which is the point of D5.
 
-**Caveat found here, not a regression:** for minute granularities `start == end`
-returns `count: 0`, because the route converts both dates to midnight UTC and
-the window is zero-width. That predates this slice (the date→datetime conversion
-is from 182), but D5 changes how it *looks*: it used to surface as a misleading
-`404` and now surfaces as an empty `200`. Neither is right. Use
-`start=D&end=D+1` for a single minute-grain day. Recorded for a follow-up slice;
-not fixed here because it changes the meaning of `end` on every granularity.
+**Defect found here — fixed 2026-08-04, see D13.** For minute granularities
+`start == end` returned `count: 0`, because the route converted both dates to
+midnight UTC. Investigating it showed the problem was larger than a same-day
+edge case: `end` was inclusive at daily grain and exclusive at minute grain, so
+every minute request silently lost its last day. Now inclusive at both.
 
 **10. Unified error bodies**
 ```bash

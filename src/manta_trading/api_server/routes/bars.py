@@ -48,8 +48,22 @@ _MINUTE_GRAINS: frozenset[Granularity] = frozenset(
 )
 
 
-def _date_to_utc_datetime(d: date) -> datetime:
+def _window_start_utc(d: date) -> datetime:
+    """Midnight UTC on ``d`` — the inclusive lower bound of the window."""
     return datetime.combine(d, time.min, tzinfo=UTC)
+
+
+def _window_end_utc(d: date) -> datetime:
+    """Last instant of ``d`` in UTC — the inclusive upper bound of the window.
+
+    ``end`` is inclusive at every granularity. The daily path gets this for
+    free by passing dates straight to a ``time <= %s`` predicate; the minute
+    path converts to a timestamp first, and converting ``end`` to *midnight*
+    made the bound effectively exclusive — a Mon–Fri ``1m`` request returned
+    Mon–Thu, silently, with nothing in the response to say so. Measured on prod
+    2026-08-04: 2,975 bars ending 06-13 23:59 for a window ending 06-14.
+    """
+    return datetime.combine(d, time.max, tzinfo=UTC)
 
 
 def _bars_per_calendar_day(granularity: Granularity) -> float:
@@ -148,8 +162,8 @@ async def get_bars(
         agg = None if granularity == Granularity.M1 else granularity
         return minute_db.get_minute_data(
             symbol,
-            _date_to_utc_datetime(start),
-            _date_to_utc_datetime(end),
+            _window_start_utc(start),
+            _window_end_utc(end),
             agg,
             adjusted=adjusted,
         )

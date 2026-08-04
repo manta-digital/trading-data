@@ -174,6 +174,55 @@ def test_minute_routing_and_datetime_conversion(test_app: FastAPI) -> None:
     assert start_time == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
 
 
+def test_minute_window_end_is_inclusive(test_app: FastAPI) -> None:
+    """``end`` covers the whole day at minute grain, as it does at daily grain.
+
+    Converting ``end`` to midnight made the bound effectively exclusive, so a
+    Mon-Fri ``1m`` request silently returned Mon-Thu — 2,975 bars ending
+    06-13 23:59 for a window ending 06-14 (measured on prod 2026-08-04). Nothing
+    in the response marked the truncation, which is the failure mode D4 rejects
+    post-query truncation to avoid.
+    """
+    test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
+    TestClient(test_app).get(
+        "/api/v1/bars/SPY?granularity=1m&start=2024-06-10&end=2024-06-14"
+    )
+    args, kwargs = test_app.state.minute_db.get_minute_data.call_args
+    end_time = kwargs.get("end_time") if "end_time" in kwargs else args[2]
+    assert end_time == datetime(2024, 6, 14, 23, 59, 59, 999999, tzinfo=UTC)
+    assert end_time.date() == date(2024, 6, 14)
+
+
+def test_daily_window_end_is_passed_through_unconverted(test_app: FastAPI) -> None:
+    """The daily path hands dates to a ``time <= %s`` predicate, which is
+    already inclusive. Pinned so the two grains cannot drift apart again."""
+    test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(2)
+    TestClient(test_app).get(
+        "/api/v1/bars/SPY?granularity=1d&start=2024-06-10&end=2024-06-14"
+    )
+    args, kwargs = test_app.state.daily_db.get_daily_data.call_args
+    assert (kwargs.get("end") if "end" in kwargs else args[2]) == date(2024, 6, 14)
+
+
+@pytest.mark.parametrize("granularity", ["1m", "5m", "15m", "1h", "4h"])
+def test_single_day_minute_window_is_not_empty(
+    test_app: FastAPI, granularity: str
+) -> None:
+    """``start == end`` is one whole day, not a zero-width instant.
+
+    This returned ``count: 0`` at every minute grain before the fix — and after
+    slice 186's D5 that surfaced as a plausible-looking empty ``200``.
+    """
+    test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
+    with _mocked_probe(is_fresh=True):
+        response = _request(test_app, granularity, date(2024, 6, 10), date(2024, 6, 10))
+    assert response.status_code == 200
+    args, kwargs = test_app.state.minute_db.get_minute_data.call_args
+    start_time = kwargs.get("start_time") if "start_time" in kwargs else args[1]
+    end_time = kwargs.get("end_time") if "end_time" in kwargs else args[2]
+    assert end_time - start_time >= timedelta(hours=23, minutes=59)
+
+
 def test_msgpack_format(test_app: FastAPI) -> None:
     test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(2)
     client = TestClient(test_app)
