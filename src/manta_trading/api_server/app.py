@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from functools import partial
 from typing import Any
 
 import psycopg
@@ -55,14 +56,25 @@ def make_configure_connection(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(
+    app: FastAPI, db_url: str | None = None
+) -> AsyncIterator[None]:
     """Open and close the shared ``ConnectionPool`` over the app lifetime.
 
     Reads ``Settings().timescale_db_url`` at startup. Raises
     ``RuntimeError`` if the URL is not set — no silent fallback.
+
+    ``db_url`` overrides that lookup when supplied (187 D9). It exists for the
+    load tier, which must point the API at an ephemeral database and cannot do
+    so through the environment: ``test_load_tier_never_references_prod_db_url``
+    fails any load-test line that reads ``MT_TIMESCALE_DB_URL``. An explicit
+    parameter is the seam; an environment side channel would defeat that rule
+    rather than satisfy it. ``None`` means "read ``Settings()``", which is every
+    production path, unchanged.
     """
     settings = Settings()
-    if not settings.timescale_db_url:
+    resolved_url = db_url or settings.timescale_db_url
+    if not resolved_url:
         raise RuntimeError(
             "MT_TIMESCALE_DB_URL is required for the API server"
         )
@@ -81,7 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     pool = await loop.run_in_executor(
         None,
         lambda: ConnectionPool(
-            str(settings.timescale_db_url),
+            str(resolved_url),
             min_size=2,
             max_size=8,
             max_lifetime=3600.0,
@@ -90,7 +102,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.db_pool = pool
     _logger.info("API server connection pool opened")
-    conninfo = str(settings.timescale_db_url)
+    conninfo = str(resolved_url)
     # All three pools get the same session budget (186 D1): the bars path runs
     # on the two class-owned pools, not on app.state.db_pool.
     app.state.minute_db = TimescaleMinuteDataDB(conninfo, session=session)
@@ -109,13 +121,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _logger.info("API server connection pool closed")
 
 
-def create_app() -> FastAPI:
-    """Build a configured FastAPI application."""
+def create_app(db_url: str | None = None) -> FastAPI:
+    """Build a configured FastAPI application.
+
+    Args:
+        db_url: Database URL for the connection pool. ``None`` — every
+            production path — reads ``Settings().timescale_db_url`` exactly as
+            before. The load tier passes an ephemeral database explicitly
+            (187 D9); see ``lifespan`` for why this is a parameter and not an
+            environment variable.
+    """
     app = FastAPI(
         title="Manta Trading API",
         description="Data serving API for OHLCV bars, symbol metadata, and gap status.",
         version=package_version(),
-        lifespan=lifespan,
+        # Bound rather than passed through app.state: the pool must be opened
+        # before the first request, and app.state is not populated until
+        # lifespan itself runs.
+        lifespan=partial(lifespan, db_url=db_url),
     )
     app.add_middleware(
         CORSMiddleware,

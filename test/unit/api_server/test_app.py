@@ -219,3 +219,88 @@ def test_missing_db_url_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
         TestClient(app),
     ):
         pass
+
+
+# --- create_app(db_url=...) seam (slice 187 D9) ------------------------------
+
+_SEAM_URL = "postgresql://seam:pass@localhost:5432/ephemeral"
+
+
+def _start_with(app: Any) -> Any:
+    """Enter ``app``'s lifespan with the pool constructors patched out.
+
+    Returns the patched ``ConnectionPool`` class so a test can read the conninfo
+    the pool was actually built with — which is the only thing that proves which
+    URL won.
+    """
+    from fastapi.testclient import TestClient
+
+    with (
+        patch(f"{_APP_MODULE}.ConnectionPool") as pool_cls,
+        patch(f"{_APP_MODULE}.TimescaleMinuteDataDB") as minute_cls,
+        patch(f"{_APP_MODULE}.TimescaleDailyDataDB") as daily_cls,
+    ):
+        with TestClient(app):
+            pass
+        return pool_cls, minute_cls, daily_cls
+
+
+def test_db_url_argument_overrides_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The seam the load tier needs: an explicit URL beats the environment.
+
+    Asserted against a *different* MT_TIMESCALE_DB_URL rather than an unset one,
+    so a seam that silently ignored its argument would fail here.
+    """
+    monkeypatch.setenv("MT_TIMESCALE_DB_URL", _DB_URL)
+    pool_cls, minute_cls, daily_cls = _start_with(create_app(db_url=_SEAM_URL))
+
+    assert pool_cls.call_args.args[0] == _SEAM_URL
+    # All three pools, not just app.state.db_pool — the bars path runs on the
+    # two class-owned ones, and a load test pointing two of three at production
+    # would be worse than no seam at all.
+    assert minute_cls.call_args.args[0] == _SEAM_URL
+    assert daily_cls.call_args.args[0] == _SEAM_URL
+
+
+def test_no_argument_is_behaviour_identical_to_today(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``create_app()`` must read Settings exactly as it did before the seam."""
+    monkeypatch.setenv("MT_TIMESCALE_DB_URL", _DB_URL)
+    pool_cls, minute_cls, daily_cls = _start_with(create_app())
+
+    assert pool_cls.call_args.args[0] == _DB_URL
+    assert minute_cls.call_args.args[0] == _DB_URL
+    assert daily_cls.call_args.args[0] == _DB_URL
+
+
+def test_missing_db_url_still_fails_loudly_with_the_seam_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The no-URL path is unchanged: the seam added an override, not a fallback.
+
+    Distinct from ``test_missing_db_url_fails_loudly`` above, which pins the
+    same behavior for the pre-seam call shape. Both must hold — an empty
+    ``db_url`` must not become a silent read of Settings *or* a silent start.
+    """
+    monkeypatch.setenv("MT_TIMESCALE_DB_URL", "")
+    from fastapi.testclient import TestClient
+
+    with (
+        patch(f"{_APP_MODULE}.ConnectionPool", MagicMock()),
+        pytest.raises(RuntimeError, match="MT_TIMESCALE_DB_URL"),
+        TestClient(create_app(db_url=None)),
+    ):
+        pass
+
+
+def test_explicit_url_starts_without_any_settings_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The load tier's actual requirement (D9): the app starts from the seam
+    alone, with MT_TIMESCALE_DB_URL unset, so no load-test line ever needs to
+    read the production variable."""
+    monkeypatch.setenv("MT_TIMESCALE_DB_URL", "")
+    pool_cls, _minute_cls, _daily_cls = _start_with(create_app(db_url=_SEAM_URL))
+
+    assert pool_cls.call_args.args[0] == _SEAM_URL
