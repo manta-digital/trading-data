@@ -180,3 +180,80 @@ The load test module's docstring is thorough about gating (`MT_RUN_LOAD_TESTS=1`
 ---
 
 **Overall assessment:** The slice is well-implemented with thorough documentation, comprehensive test coverage, and clear design rationale. The concerns are minor: typing inconsistency between `[Any]` and `[object]`, a couple of style/best-practice items (default-argument lambda, hard-coded fake credentials, test mock that's now dead code), and one design question about the `psycopg.Error` handling in `_content_edge_lag`. None are blockers; all are addressable in a follow-up.
+
+---
+
+## Response (Phase 6, 2026-08-04)
+
+Addressed in commit `c68cdba`. Six of eight concerns fixed; two rejected with
+evidence below.
+
+### Fixed
+
+**F003 — accepted, and it was a real defect, not a style question.** The
+reviewer identified the substantive gap correctly: if the generic probes
+succeed and the *content* probe then fails, the old code returned `None`, the
+caller read that as "unmeasurable", and the verdict reported **fresh on a check
+that never ran**. That is precisely the vacuous verdict this slice exists to
+eliminate, reintroduced through the error path, and 168 D3's rule
+("indeterminate is stale") says it must refuse. `_content_edge_lag` now returns
+`(lag, probe_failed)` and the caller raises a new
+`StalenessSignal.CONTENT_EDGE_PROBE_FAILED`. Returning a flag rather than
+overloading `None` matters because the two `None` cases are opposite verdicts:
+an empty table is *not* staleness, a failed probe *is*. Both are now pinned by
+tests.
+
+**F002 — accepted, for a different reason than the one given.** Ruff does not
+flag this (`B006` covers mutable defaults; a lambda is not one), and the
+closure-allocation argument is negligible. The real problem is that
+`cagg_freshness._now` documents this exact pattern as unsafe: a default
+argument is evaluated once at import, so `monkeypatch.setattr(module, "_now",
+...)` rebinds the attribute while the captured default keeps pointing at the
+original — a freeze that silently does nothing. My code had that shape. Now
+`now: ... | None = None` resolving to a module-level `_utcnow` at call time,
+matching the sibling module's mandated pattern, with a test that fails if the
+default-argument form is restored.
+
+**F005, F006, F008 — accepted as written.** The bucketing cursor takes its
+edges as constructor arguments instead of reaching through `_wide` for private
+attributes; `_SEAM_URL` matches the placeholder-credential convention
+`_DB_URL` already uses in the same file; `bucket_width` is no longer restated
+in the `detail` string now that it is a first-class field on the verdict.
+
+**F007 — comment added.** The reviewer said the implementation is fine and
+asked only for the *why proxy, not substitute* reasoning to be explicit. It now
+records that `TestClient` owns the event loop, so a substitute loop's future is
+never awaited and the request hangs until pytest-timeout kills it — which is
+what happened while writing the test.
+
+### Rejected
+
+**F001 — factually incorrect.** The finding states that `symbol_exists` and
+"the project convention" use `psycopg.Connection[object]`, and recommends
+standardizing on it. All **14** `Connection` annotations in `api_server/` use
+`[Any]`, including `symbol_exists` at `queries.py:22`. `[object]` is the
+convention in `data/` and `market/`; `[Any]` is the convention in
+`api_server/`. The new functions are in `api_server/` and match its
+convention exactly — adopting the recommendation would make this the only
+inconsistent module in the package.
+
+**F004 — the premise is wrong.** The finding says "the route uses `get_db`
+which expects a `psycopg.Connection`, not a pool" and that the `db_pool` mock
+"is not actually accessed by the route". `deps.get_db` reads
+`request.app.state.db_pool` and checks a connection out of it
+(`deps.py:27-29`). The mock is unused in *this file* only because every test
+overrides `get_db`, and it predates this slice (183's fixture). Removing it
+would make the fixture silently depend on that override always being present:
+a future test that omits it would fail with a bare `AttributeError` from
+starlette's `State` rather than on its own assertion. Kept, with a comment
+recording why.
+
+### Verification after the changes
+
+`test/unit` — **1855 passed, 0 failed** (three tests added by this response).
+mypy clean on all 14 touched source files; ruff clean on every file this slice
+authored or modified. The 35 remaining errors are DB-fixture tests in
+`test_tracking.py`, `test_equity_universe.py`, and `test_data_universes.py` —
+files this slice does not touch — which cannot reach PostgreSQL on `.144`
+while it is down. `test/integration` (18 tests) collects and type-checks
+cleanly; it needs a re-run once that host is back.
