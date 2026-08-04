@@ -270,6 +270,15 @@ status: not_started
   - [ ] Unknown symbol, empty frame → `404` with `{"error": ...}`
   - [ ] The lookup runs **only** when the frame is empty — assert it is not
         called on a non-empty response
+  - [ ] Parametrized over **all nine** granularities, assert a non-empty
+        response leaves the API pool's checkout count unchanged by this slice
+        (review F012): `1m`/`1d` check out **zero** connections, the seven
+        cagg-served granularities check out **exactly one** (the 185 freshness
+        probe — that checkout is correct and must not be asserted away). This
+        pins the claim that D5 adds no connection to the hot path; 185's
+        `test_raw_granularity_checks_out_no_connection` and
+        `test_cagg_granularity_checks_out_exactly_one_connection` are the
+        starting point — extend them rather than writing parallel tests
   - [ ] Lookup raising `psycopg.errors.QueryCanceled` → `504` (needs Task 10;
         write the test now and mark it `xfail` until then, or sequence this
         assertion into Task 10's test)
@@ -323,6 +332,13 @@ status: not_started
         hardcoded `20s` would fail)
   - [ ] A route raising a different `psycopg.Error` → still `500` with the
         sanitized body
+  - [ ] **A cancelled freshness probe must NOT produce a `504`** (review F011).
+        Make `assert_cagg_fresh`'s probe raise `QueryCanceled` internally and
+        assert `/health` returns `200` with `coverage: "stale"`, and a bars
+        request returns `200` with `is_stale: true`. This pins D10's
+        load-bearing claim that a `504` always means a *data* query was
+        cancelled — without it, `504` could mean "coverage probe timed out",
+        for which "narrow the requested range" is useless advice
   - [ ] The `504` appears in `create_app().openapi()` for all four routes
   - [ ] Success: tests pass
   - [ ] Effort: 2
@@ -387,9 +403,17 @@ status: not_started
         induce a real `QueryCanceled` → `504`
   - [ ] Steps 8–12: reversed range, empty vs unknown symbol, error bodies,
         schema artifact, CLI unaffected
-  - [ ] Rewrite the walkthrough in the design with actual commands, observed
-        output, and any caveats found
-  - [ ] Success: every step passes or its deviation is recorded in the design
+  - [ ] Rewrite the design's **Verification Walkthrough section only** with the
+        actual commands run, the observed output, and any caveats found. This is
+        mandated, not optional: Phase 4 creates the walkthrough as "the draft
+        walkthrough that will be refined when Phase 6 (Implementation) is
+        complete," and slice 185 set the precedent (review F010). Bounded to
+        that one section — do **not** revise decisions D1–D11 here. The single
+        exception is the two measurements D1 and D4 explicitly ask for
+        (statement timeout, payload size), which are recorded in place
+  - [ ] Success: every step passes or its deviation is recorded in the design;
+        no section other than the walkthrough (plus those two measurements) is
+        edited
   - [ ] Effort: 3
 
 - [ ] Confirm the architecture document still matches what was built
