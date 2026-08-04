@@ -376,6 +376,43 @@ than its offsets (4 h bucket / 1 day offset; 3-month bucket / 270-day offset).
 A 1-year bucket is the first one large relative to any sane refresh window.
 """
 
+COVERAGE_CONTENT_STALENESS: timedelta = timedelta(days=1, hours=4)
+"""How far a coverage cagg's **content edge** may trail its raw source before
+``check_coverage_freshness`` reports it stale (slice 187 D6).
+
+Distinct from ``MAX_COVERAGE_SOURCE_STALENESS``, which the generic guard applies
+to *bucket* lag — ``time_bucket(width, max(time))`` on raw versus
+``max(time_bucket)`` on the cagg. Both sides of that comparison are bucket
+starts, so no lag smaller than one bucket width is observable (see
+``cagg_freshness._raw_max``). With ``COVERAGE_BUCKET_INTERVAL`` at 365 days the
+generic check is vacuous for these two views: prod returned ``is_fresh=True,
+lag=0`` over a 52-day staleness on 2026-08-04.
+
+This threshold is applied to a different measurement — ``max(last_bucket)`` on
+the cagg against ``max(time)`` on its source, with **no** bucket alignment.
+``last_bucket`` is a content timestamp rather than a bucket start, so the lag it
+yields is real rather than structural, and a one-year bucket cannot cancel it.
+
+Derivation, so the value is arithmetic and not a guess:
+
+    MAX_COVERAGE_SOURCE_STALENESS  (1 day)
+  + max(end_offset) over both coverage refresh policies  (4 h)
+  = 1 day 4 h
+
+``end_offset`` is added because a policy deliberately declines to materialize
+the most recent ``end_offset`` of data — that much lag is configured, not stale.
+The **larger** of the two policies' offsets is used so one threshold serves both
+views without firing on a healthy one. Measured on prod ``trading`` 2026-08-04,
+jobs 1107/1108: ``minute_coverage`` end_offset 4 h, ``daily_coverage`` 1 h (both
+``start_offset`` 750 days).
+
+This is a **detection** fix, not a policy tightening: the budget is the same one
+the bucket check nominally applies, and it stays the same size — what changes is
+that the measurement it judges can actually see the lag. Once slice 169 repairs
+the refresh, this value can be revisited independently of the bucket threshold,
+which is the reason it is a separate constant rather than a reuse.
+"""
+
 MINUTE_CAGG_REFRESH_START_OFFSET: timedelta = timedelta(days=1)
 """``start_offset`` of the four minute caggs' own refresh policies.
 

@@ -146,6 +146,13 @@ class FreshnessVerdict:
         threshold: The resolved ``min(start_offset, ceiling)`` the lag was
                    judged against, or None when it could not be resolved.
         detail:    Human-readable summary for the ERROR log.
+        bucket_width: The cagg's bucket width as a PostgreSQL interval string,
+                   or None when it was not reached (an early return) or the
+                   view is not a cagg. Exposed because it *is* the resolution
+                   limit of ``lag`` — see ``_raw_max``: no lag smaller than one
+                   bucket width is observable, so a caller judging a wide-bucket
+                   cagg needs this to know what the verdict cannot tell it
+                   (slice 187 D6).
     """
 
     view_name: str
@@ -154,6 +161,7 @@ class FreshnessVerdict:
     lag: timedelta | None
     threshold: timedelta | None
     detail: str
+    bucket_width: str | None = None
 
 
 @dataclass(frozen=True)
@@ -325,6 +333,31 @@ def _raw_max(
     without any Python-side interval arithmetic. When it is None (the source
     table is not a cagg's base, or the width could not be read) the probe
     degrades to a plain ``max(time)``.
+
+    **The detection floor this creates, stated explicitly (slice 187 D6).**
+    Bucketing the raw edge onto the cagg's own grid means both sides of the lag
+    comparison are bucket *starts*, so **no lag smaller than one bucket width
+    can ever be observed** — a cagg whose newest materialized bucket is the same
+    bucket the raw edge falls into always reports ``lag=0``, however far behind
+    inside that bucket it actually is. That is correct and deliberate for narrow
+    buckets (the 4 h, 1 day, and 3 month caggs this was built for), where one
+    bucket is well inside the staleness budget.
+
+    It is **vacuous** for a cagg whose bucket is wide relative to its threshold.
+    ``minute_coverage`` and ``daily_coverage`` bucket at
+    ``COVERAGE_BUCKET_INTERVAL`` (365 days) against a threshold near one day: on
+    prod 2026-08-04 both returned ``is_fresh=True, lag=0`` while
+    ``daily_coverage``'s content was 52 days behind raw. The generic guard has
+    no general way to see inside a bucket, so the fix does not live here — it
+    lives in the coverage-specific layer, which has a content timestamp
+    (``last_bucket``) to compare instead of a bucket start. See
+    ``status_coverage.check_coverage_freshness`` and
+    ``StalenessSignal.CONTENT_EDGE_TOO_OLD``.
+
+    ``FreshnessVerdict.bucket_width`` carries this width to callers so the floor
+    is inspectable rather than implicit, and
+    ``test_cagg_freshness``'s detection-floor test pins it: it fails if this
+    alignment step is changed without acknowledging the consequence.
     """
     if bucket_width is None:
         return _max_probe(conn, source_table, "time")
@@ -575,6 +608,7 @@ def _evaluate(
             lag=None,
             threshold=None,
             detail=f"{view_name}: no refresh policy found in the job catalog",
+            bucket_width=bucket_width,
         )
 
     threshold = _resolve_threshold(job.start_offset, job.end_offset)
@@ -630,4 +664,5 @@ def _evaluate(
         lag=lag,
         threshold=threshold,
         detail=detail,
+        bucket_width=bucket_width,
     )

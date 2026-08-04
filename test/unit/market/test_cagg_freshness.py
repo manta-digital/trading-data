@@ -751,3 +751,140 @@ class TestVerdictCache:
         assert stale.is_fresh is False
         assert fresh.is_fresh is True
         assert fresh.view_name == _DAILY_VIEW
+
+
+_YEAR_BUCKET = "365 days"
+"""``COVERAGE_BUCKET_INTERVAL`` as the catalog spells it — the width that makes
+the generic guard's detection floor vacuous for the coverage caggs."""
+
+_EPOCH = _utc(2000, 1, 1)
+"""Bucket-grid origin. ``time_bucket`` on a fixed-width interval measures from
+the PostgreSQL epoch; any fixed origin reproduces the aliasing this test is
+about, and a stated one keeps the arithmetic below checkable by hand."""
+
+
+def _align(moment: datetime, width: timedelta) -> datetime:
+    """Floor ``moment`` onto a fixed-width bucket grid.
+
+    Stands in for PostgreSQL's ``time_bucket``. Fixed-width only, which is all
+    ``COVERAGE_BUCKET_INTERVAL`` needs — month/quarter widths are the reason
+    the production code buckets in SQL rather than in Python.
+    """
+    elapsed = moment - _EPOCH
+    return _EPOCH + (elapsed // width) * width
+
+
+class _WideBucketConnection(_RecordingConnection):
+    """A wide-bucket cagg whose raw edge is bucketed *by the fake*, the way the
+    database would do it.
+
+    This is the point of the fixture. ``_EvalConnection`` hands back an
+    already-aligned ``raw_max``, so a test built on it would still report
+    ``lag=0`` with the alignment step deleted and would prove nothing. Here the
+    fake inspects the probe SQL: when ``_raw_max`` asks for
+    ``time_bucket(...)`` it gets the floored edge, and when it asks for a plain
+    ``max(time)`` it gets the true one. Removing the alignment therefore changes
+    what this fixture returns, which is what makes the assertions below load
+    bearing (slice 187 D6, task 3).
+    """
+
+    def __init__(self, *, raw_edge: datetime, cagg_edge: datetime) -> None:
+        self._raw_edge = raw_edge
+        self._cagg_edge = cagg_edge
+        super().__init__(rows=[])
+
+    def cursor(self) -> _RecordingCursor:
+        return _BucketingCursor(self)
+
+
+class _BucketingCursor(_RecordingCursor):
+    """Answers each probe from the SQL it was handed rather than from a queue."""
+
+    def __init__(self, conn: _WideBucketConnection) -> None:
+        super().__init__(conn.log, conn._rows, conn)
+        self._wide = conn
+        self._answer: Any = None
+
+    def execute(self, query: object, params: object = None) -> None:
+        super().execute(query, params)
+        text = (query if isinstance(query, str) else _render_sql(query)).lower()
+        if "statement_timeout" in text:
+            return
+        if "timescaledb_information.jobs" in text:
+            # Healthy policy: scheduled, succeeding, no offsets in play. Every
+            # non-lag signal must stay silent so the assertions below are about
+            # the lag measurement alone.
+            self._answer = (1107, True, timedelta(days=750), None, "Success", _NOW)
+        elif "bucket_function" in text or "continuous_agg" in text:
+            self._answer = (_YEAR_BUCKET,)
+        elif "max(" in text and "time_bucket(" in text:
+            # _raw_max WITH alignment: the database floors the raw edge onto the
+            # cagg's grid before returning it.
+            self._answer = (_align(self._wide._raw_edge, timedelta(days=365)),)
+        elif '"minute_coverage"' in text or "time_bucket" in text:
+            # _cagg_max: the cagg's own materialized edge, already a bucket start.
+            self._answer = (self._wide._cagg_edge,)
+        else:
+            # _raw_max WITHOUT alignment (plain max(time)) — the shape the probe
+            # degrades to if the bucketing step is removed.
+            self._answer = (self._wide._raw_edge,)
+
+    def fetchone(self) -> Any:
+        if self._show_pending:
+            return super().fetchone()
+        return self._answer
+
+
+class TestDetectionFloor:
+    """Slice 187 D6 / task 3 — the generic guard cannot see inside one bucket.
+
+    **A passing test here means the limitation is present and expected.** It
+    does not mean the coverage caggs are fresh; on prod they are not. The
+    content-edge check in ``status_coverage`` is what catches that, and it
+    exists precisely because these assertions hold.
+
+    The floor is a *boundary*, not a blanket refusal to report lag, so both
+    sides of it are asserted: sub-bucket lag is invisible, supra-bucket lag is
+    caught. A test asserting only the first would also pass against a guard
+    that never reports anything.
+    """
+
+    _VIEW_NAME = "minute_coverage"
+    _SOURCE = "minute_ohlcv"
+
+    def _verdict(self, lag: timedelta) -> FreshnessVerdict:
+        """Evaluate a wide-bucket cagg whose raw edge leads its own edge by
+        ``lag``, with both edges inside the same year where ``lag`` is small."""
+        cagg_edge = _align(_NOW, timedelta(days=365))
+        conn = _WideBucketConnection(raw_edge=cagg_edge + lag, cagg_edge=cagg_edge)
+        return _evaluate(
+            conn,  # type: ignore[arg-type]
+            self._VIEW_NAME,
+            source_table=self._SOURCE,
+            now=lambda: _NOW,
+        )
+
+    def test_lag_inside_one_bucket_is_invisible_to_the_generic_guard(self) -> None:
+        # 52 days is the real prod figure for daily_coverage on 2026-08-04, and
+        # it is nowhere near the 365-day bucket, so bucketing cancels it whole.
+        verdict = self._verdict(timedelta(days=52))
+        assert verdict.is_fresh is True, (
+            "expected the documented detection floor: a 52-day lag inside a "
+            "365-day bucket must report fresh. If this now fails, _raw_max's "
+            "bucket alignment changed — see slice 187 D6 before 'fixing' it."
+        )
+        assert verdict.lag == timedelta(0)
+        assert StalenessSignal.LAG_EXCEEDS_THRESHOLD not in verdict.signals
+
+    def test_lag_exceeding_one_bucket_is_still_caught(self) -> None:
+        # The floor is a boundary. Push the raw edge into the next bucket and
+        # the same guard reports the staleness it just missed.
+        verdict = self._verdict(timedelta(days=400))
+        assert verdict.is_fresh is False
+        assert StalenessSignal.LAG_EXCEEDS_THRESHOLD in verdict.signals
+        assert verdict.lag is not None and verdict.lag >= timedelta(days=365)
+
+    def test_verdict_exposes_the_bucket_width_that_sets_the_floor(self) -> None:
+        # The floor is inspectable rather than implicit: a caller holding the
+        # verdict can see the resolution limit of the lag it carries.
+        assert self._verdict(timedelta(days=52)).bucket_width == _YEAR_BUCKET
