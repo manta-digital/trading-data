@@ -56,9 +56,11 @@ def symbol_exists(conn: psycopg.Connection[Any], symbol: str) -> bool:
 # CycleGranularity(...) below.
 
 _UNIVERSE_EDGES_SQL = f"""
-    SELECT %s AS family, MAX(last_bucket)::date FROM {MINUTE_COVERAGE_VIEW}
+    SELECT %s AS family, MAX(last_bucket AT TIME ZONE 'UTC')::date
+    FROM {MINUTE_COVERAGE_VIEW}
     UNION ALL
-    SELECT %s, MAX(last_bucket)::date FROM {DAILY_COVERAGE_VIEW}
+    SELECT %s, MAX(last_bucket AT TIME ZONE 'UTC')::date
+    FROM {DAILY_COVERAGE_VIEW}
 """  # noqa: S608 — view names are module constants, not caller input.
 """Universe-wide leading edge each coverage cagg has materialized (D3).
 
@@ -70,16 +72,27 @@ steady state, 60.9 ms cold.
 
 _SYMBOL_COVERAGE_SQL = f"""
     SELECT %s AS family,
-           MIN(first_bucket)::date, MAX(last_bucket)::date
+           MIN(first_bucket AT TIME ZONE 'UTC')::date,
+           MAX(last_bucket  AT TIME ZONE 'UTC')::date
     FROM {MINUTE_COVERAGE_VIEW} WHERE symbol = %s
     UNION ALL
-    SELECT %s, MIN(first_bucket)::date, MAX(last_bucket)::date
+    SELECT %s,
+           MIN(first_bucket AT TIME ZONE 'UTC')::date,
+           MAX(last_bucket  AT TIME ZONE 'UTC')::date
     FROM {DAILY_COVERAGE_VIEW}  WHERE symbol = %s
 """  # noqa: S608 — view names are module constants, not caller input.
 """Per-symbol coverage floor, both families in one round trip (D2 statement B).
 
 Reads the caggs, so it is bounded by construction — there is no chunk-exclusion
 question. Measured 7-12 ms including for symbols absent from a cagg.
+
+The ``AT TIME ZONE 'UTC'`` casts extend D8's rule to this statement and the
+universe-edge one above. D2 writes both as a bare ``::date``, which is correct
+only while the session is UTC: ``daily_coverage.first_bucket`` is an exact
+``MIN(time)``, so a bar at midnight UTC renders as the *previous* day under a
+negative-offset session. Caught by ``test_symbol_ranges_sql`` running against a
+test database whose session timezone is not UTC — exactly the dependency D8
+removes from the head probe, and it applies identically here.
 """
 
 _SYMBOL_HEAD_SQL = """
