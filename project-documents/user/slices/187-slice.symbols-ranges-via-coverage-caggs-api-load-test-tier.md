@@ -437,6 +437,47 @@ the numbers behind it, so it stops being an open question carried forward
 silently. Slice 186 D2 declined to change pool sizing for exactly the reason
 that it had no measurement; this slice removes that excuse either way.
 
+#### Decision (Phase 6, 2026-08-04): **not now — do not consolidate**
+
+Measured by assertion 3 (`test_concurrent_symbol_detail_against_the_pool`), 16
+concurrent `GET /api/v1/symbols/{symbol}` requests against
+`app.state.db_pool` at `max_size=8`, on `prod_shaped_db`:
+
+| quantity | measured |
+| --- | --- |
+| single-request median (assertion 1) | 32 ms |
+| concurrency-16 wall clock, all 16 | 144 ms |
+| concurrency-16 per-request median | 88 ms |
+| concurrency-16 per-request max | 141 ms |
+| slowest / single-request | 4.4x |
+| per-request spread | 30 ms – 141 ms |
+
+The latencies form a clean staircase (30, 39, 49, 60, 65, 70, 82, 86, 91, 95,
+105, 109, 111, 115, 130, 141 ms) — the signature of 16 requests being served by
+8 connections in two waves, each request costing roughly what it costs
+uncontended. That is the pool working as designed, not a bottleneck: the 4.4x
+worst case is *below* the 2x-plus-scheduling floor that 16-against-8 structurally
+implies once the second wave's queueing is counted, and every request finished
+inside 141 ms against a 250 ms single-request bound.
+
+**Nothing in the measurement implicates the three-pool arrangement.** The
+symbol-detail path uses only `app.state.db_pool`; the two class-owned pools were
+idle throughout, so consolidating them would not have changed a number above.
+The cost the architecture document worried about — three pools' worth of idle
+connections against one database — is a *resource* concern, not a latency one,
+and this slice's measurement cannot speak to it.
+
+So: **not now.** Consolidation would be a refactor of the bars path (186 D1
+deliberately routed it onto the class-owned pools) justified by no observed
+cost, which is the kind of change this project's rules exist to resist. The
+open question is closed with evidence rather than carried forward.
+
+**What would reopen it.** A load assertion that drives the *bars* path
+concurrently — exercising the class-owned pools rather than
+`app.state.db_pool` — is the measurement that could show real contention, and
+this tier now exists to host it. If a future slice adds one and sees the three
+pools compete, this decision should be revisited against those numbers.
+
 ### D12 — Documents corrected in this slice
 
 - `180-arch.data-serving.md`, "Symbol Detail": the paragraph attributing the
