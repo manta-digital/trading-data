@@ -553,7 +553,7 @@ action.
 | F006 | Confirmed | Fixed — and it exposed a hole in the 6.1 gate method |
 | F007 | Accepted | Fixed — aggregate bounded to scope |
 | F008 | Accepted (PM) | Fixed — unknown symbols get their own bucket and message |
-| F009 | Deferred | Needs a database; see below |
+| F009 | Rejected | Load-test rule applied out of context; see below |
 
 ### F001 — the STEADY_STATE path discarded the un-actionable counts
 
@@ -662,13 +662,34 @@ mistyped `--symbols` is no longer attributed to issue #4.
 
 ### F009 — no load-tier coverage for the new cadence
 
-Deferred, not dismissed. The finding is correct that the unit-tier simulation
-bounds tick count but cannot bound query cost or credit spend. The existing 146
-load tests skip without a database, so adding a load assertion here would land
-un-executed in this environment and prove nothing. It is better paired with the
-6.2 prod verification, where the query can be measured at real scope size
-against .144. Raise as a follow-up in the maintenance band rather than shipping
-an unrunnable test.
+**Rejected** (revised 20260803 — initially deferred, which was wrong on both
+counts).
+
+The load-test rule exists for the minute pipeline: real concurrency, real
+throughput, billions of rows. The daily cadence is one small work-list query and
+one HTTP call per cycle. The finding pattern-matches the rule onto code it was
+not written for, and each candidate assertion fails on its own terms:
+
+- **Credit ceiling** — `QuotaBucket` already enforces the real limit. A test
+  asserting a credits/day figure encodes today's arithmetic and breaks whenever
+  the interval is tuned. A change-detector, not a bug-catcher.
+- **Tick ceiling** — already covered by
+  `test_no_busy_poll_when_nothing_is_actionable`.
+- **Query latency at scale** — the only real question, but `trading_test` is
+  documented as unrepresentative, so it would skip locally and be meaningful
+  only against production. Running a load test against production to learn what
+  production already shows is backwards. The 6.2 verification exercised the
+  query at full scope (12,882 symbols) with no latency issue.
+
+There is also a scope point that outranks all of the above: with
+`--stop-when-done`, the daemon exits after one pass, so nothing runs between
+invocations and the per-cycle costs this finding wants bounded are incurred once
+per manual invocation. The cadence only becomes a rate at all under forever
+mode, which production does not run today — see GitHub issue #9. If that
+changes, revisit the query-latency assertion and nothing else.
+
+Recorded as rejected rather than deferred so it does not resurface later as
+untracked debt.
 
 ## Notes
 
