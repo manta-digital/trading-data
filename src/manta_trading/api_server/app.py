@@ -23,6 +23,7 @@ from manta_trading.config import Settings
 from manta_trading.logging import get_logger
 from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
 from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
+from manta_trading.version import package_version
 
 _logger = get_logger(__name__)
 
@@ -84,7 +85,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Manta Trading API",
         description="Data serving API for OHLCV bars, symbol metadata, and gap status.",
-        version="0.1.0",
+        version=package_version(),
         lifespan=lifespan,
     )
     app.add_middleware(

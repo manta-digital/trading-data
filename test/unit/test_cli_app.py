@@ -56,7 +56,9 @@ class TestVersion:
             raise importlib.metadata.PackageNotFoundError(name)
 
         monkeypatch.setattr(importlib.metadata, "version", _raise_not_found)
-        with caplog.at_level(logging.WARNING, logger="manta_trading.cli.app"):
+        # The resolution moved to manta_trading.version in slice 186 (D3);
+        # the CLI callback now delegates rather than owning the try/except.
+        with caplog.at_level(logging.WARNING, logger="manta_trading.version"):
             result = runner.invoke(app, ["--version"])
 
         assert result.exit_code == 0
