@@ -290,58 +290,58 @@ status: in_progress
 
 ## Task 9 — Unified error bodies
 
-- [ ] Widen the `HTTPException` handler in `create_app` (D6)
-  - [ ] Every `HTTPException` returns `{"error": str(exc.detail)}`, not just
+- [x] Widen the `HTTPException` handler in `create_app` (D6)
+  - [x] Every `HTTPException` returns `{"error": str(exc.detail)}`, not just
         `404`; the existing `Exception` handler is unchanged
-  - [ ] `status.py` needs **no** change — its two `422`s raise `HTTPException`
+  - [x] `status.py` needs **no** change — its two `422`s raise `HTTPException`
         and inherit the new body. Verify this rather than editing the route
-  - [ ] Update the status route docstring if it still describes a `detail` body
-  - [ ] Success: no route module constructs an error body of its own
-  - [ ] Effort: 1
+  - [x] Update the status route docstring if it still describes a `detail` body
+  - [x] Success: no route module constructs an error body of its own
+  - [x] Effort: 1
 
-- [ ] Test all three shapes
-  - [ ] `404` from bars → `{"error": ...}`
-  - [ ] `422` from `?health=` on the status route → `{"error": ...}`
-  - [ ] `422` from an invalid `granularity` (FastAPI validation) → still
+- [x] Test all three shapes
+  - [x] `404` from bars → `{"error": ...}`
+  - [x] `422` from `?health=` on the status route → `{"error": ...}`
+  - [x] `422` from an invalid `granularity` (FastAPI validation) → still
         `{"detail": [...]}` — the documented exception, asserted deliberately
         so a future change cannot silently unify it
-  - [ ] Success: tests pass
-  - [ ] Effort: 2
+  - [x] Success: tests pass
+  - [x] Effort: 2
 
 ---
 
 ## Task 10 — Cancelled queries return `504`
 
-- [ ] Register the `QueryCanceled` handler in `create_app` (D10)
-  - [ ] Handler for `psycopg.errors.QueryCanceled` returning `504` with
+- [x] Register the `QueryCanceled` handler in `create_app` (D10)
+  - [x] Handler for `psycopg.errors.QueryCanceled` returning `504` with
         `{"error": "query exceeded the server's <configured> budget; narrow the
         requested range or use a coarser granularity"}`
-  - [ ] The budget string comes from the resolved setting on `app.state`, never
+  - [x] The budget string comes from the resolved setting on `app.state`, never
         a literal `20s`
-  - [ ] Log at WARNING with method, path, and query string — handled and
+  - [x] Log at WARNING with method, path, and query string — handled and
         operator-actionable, not a crash
-  - [ ] Declare `504` in the `responses=` of the bars, status, symbols, and gaps
+  - [x] Declare `504` in the `responses=` of the bars, status, symbols, and gaps
         routes so it lands in the committed schema
-  - [ ] Success: the handler is narrower than, and takes precedence over, the
+  - [x] Success: the handler is narrower than, and takes precedence over, the
         global `Exception` handler
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Test the mapping
-  - [ ] A route whose DB call raises `QueryCanceled` → `504`, and the message
+- [x] Test the mapping
+  - [x] A route whose DB call raises `QueryCanceled` → `504`, and the message
         quotes the configured budget (test with a non-default value so a
         hardcoded `20s` would fail)
-  - [ ] A route raising a different `psycopg.Error` → still `500` with the
+  - [x] A route raising a different `psycopg.Error` → still `500` with the
         sanitized body
-  - [ ] **A cancelled freshness probe must NOT produce a `504`** (review F011).
+  - [x] **A cancelled freshness probe must NOT produce a `504`** (review F011).
         Make `assert_cagg_fresh`'s probe raise `QueryCanceled` internally and
         assert `/health` returns `200` with `coverage: "stale"`, and a bars
         request returns `200` with `is_stale: true`. This pins D10's
         load-bearing claim that a `504` always means a *data* query was
         cancelled — without it, `504` could mean "coverage probe timed out",
         for which "narrow the requested range" is useless advice
-  - [ ] The `504` appears in `create_app().openapi()` for all four routes
-  - [ ] Success: tests pass
-  - [ ] Effort: 2
+  - [x] The `504` appears in `create_app().openapi()` for all four routes
+  - [x] Success: tests pass
+  - [x] Effort: 2
 
 ---
 

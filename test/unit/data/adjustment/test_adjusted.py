@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -12,8 +12,12 @@ import pytest
 
 from manta_trading.data.adjustment import adjusted
 from manta_trading.data.adjustment._adjusted import _load_snapshot
-from manta_trading.data.adjustment.k_factor import CaSnapshot, Dividend, Split, compute_snapshot_id
-
+from manta_trading.data.adjustment.k_factor import (
+    CaSnapshot,
+    Dividend,
+    Split,
+    compute_snapshot_id,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -22,7 +26,7 @@ from manta_trading.data.adjustment.k_factor import CaSnapshot, Dividend, Split, 
 def _make_df(dates: list[date]) -> pd.DataFrame:
     """Build a synthetic OHLCV DataFrame with UTC DatetimeIndex."""
     timestamps = [
-        datetime(d.year, d.month, d.day, 14, 30, tzinfo=timezone.utc)
+        datetime(d.year, d.month, d.day, 14, 30, tzinfo=UTC)
         for d in dates
     ]
     return pd.DataFrame(
@@ -176,6 +180,109 @@ def test_does_not_mutate_input() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _load_snapshot: window filter and query count (slice 186)
+# ---------------------------------------------------------------------------
+
+
+def _snapshot_cursor(
+    splits_rows: list[tuple] | None = None,
+    dividend_rows: list[tuple] | None = None,
+    prev_close_rows: list[tuple] | None = None,
+) -> tuple[MagicMock, MagicMock]:
+    """A connection whose cursor answers the loader's queries in order."""
+    cursor = MagicMock()
+    cursor.fetchall.side_effect = [
+        splits_rows or [],
+        dividend_rows or [],
+        prev_close_rows or [],
+    ]
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    return conn, cursor
+
+
+def test_load_snapshot_filters_actions_to_the_window() -> None:
+    """Only actions after the earliest bar date can change a bar in the frame.
+
+    Without this bound a three-month request loaded a symbol's whole dividend
+    history — ~94 rows for AAPL, going back to the 1980s.
+    """
+    conn, cursor = _snapshot_cursor()
+    _load_snapshot("AAPL", date(2024, 3, 1), conn)
+
+    splits_sql, splits_params = cursor.execute.call_args_list[0].args
+    dividends_sql, dividend_params = cursor.execute.call_args_list[1].args
+    assert "ex_date > %s" in splits_sql
+    assert "ex_date > %s" in dividends_sql
+    assert splits_params == ("AAPL", date(2024, 3, 1))
+    assert dividend_params == ("AAPL", date(2024, 3, 1))
+
+
+def test_load_snapshot_has_no_upper_bound_on_ex_date() -> None:
+    """Actions *after* the window rebase old prices onto the current basis;
+    excluding them would silently return unadjusted values."""
+    conn, cursor = _snapshot_cursor()
+    _load_snapshot("AAPL", date(2024, 3, 1), conn)
+
+    for call in cursor.execute.call_args_list[:2]:
+        assert "ex_date <" not in call.args[0]
+
+
+def _ts(d: date) -> datetime:
+    return datetime(d.year, d.month, d.day, tzinfo=UTC)
+
+
+def test_prev_closes_are_fetched_in_one_statement() -> None:
+    """The loop this replaces issued one query per dividend, and each query
+    cost ~1.8s in *planning* against a thousands-of-chunks hypertable — ~92s
+    for AAPL. One statement, one plan.
+    """
+    dividend_rows = [
+        ("AAPL", date(2024, 5, 10), Decimal("0.25"), "USD"),
+        ("AAPL", date(2024, 8, 12), Decimal("0.25"), "USD"),
+    ]
+    close_rows = [
+        (_ts(date(2024, 5, 8)), Decimal("182.40")),
+        (_ts(date(2024, 5, 9)), Decimal("184.57")),
+        (_ts(date(2024, 8, 9)), Decimal("216.24")),
+    ]
+    conn, cursor = _snapshot_cursor(
+        dividend_rows=dividend_rows, prev_close_rows=close_rows
+    )
+    snapshot = _load_snapshot("AAPL", date(2024, 3, 1), conn)
+
+    # splits + dividends + one closes query = 3, not 2 + len(dividends)
+    assert cursor.execute.call_count == 3
+    closes_sql, closes_params = cursor.execute.call_args_list[2].args
+    assert "ORDER BY time" in closes_sql
+    assert closes_params == ("AAPL", date(2024, 8, 12))
+    # The close on the most recent trading day strictly before each ex-date.
+    assert snapshot.prev_closes == {
+        date(2024, 5, 10): Decimal("184.57"),
+        date(2024, 8, 12): Decimal("216.24"),
+    }
+
+
+def test_ex_date_before_all_closes_is_omitted_not_guessed() -> None:
+    """``adjusted`` raises KeyError on a missing prev_close; inventing one
+    would adjust by a wrong factor and never be noticed."""
+    dividend_rows = [("AAPL", date(1990, 1, 5), Decimal("0.10"), "USD")]
+    close_rows = [(_ts(date(2024, 5, 8)), Decimal("182.40"))]
+    conn, _cursor = _snapshot_cursor(
+        dividend_rows=dividend_rows, prev_close_rows=close_rows
+    )
+    snapshot = _load_snapshot("AAPL", date(1989, 1, 1), conn)
+    assert snapshot.prev_closes == {}
+
+
+def test_no_prev_close_query_when_there_are_no_dividends() -> None:
+    conn, cursor = _snapshot_cursor()
+    snapshot = _load_snapshot("AAPL", date(2024, 3, 1), conn)
+    assert cursor.execute.call_count == 2
+    assert snapshot.prev_closes == {}
+
+
+# ---------------------------------------------------------------------------
 # Integration test
 # ---------------------------------------------------------------------------
 
@@ -185,10 +292,9 @@ _DB_URL = os.getenv("MT_TIMESCALE_DB_URL")
 @pytest.mark.skipif(not _DB_URL, reason="MT_TIMESCALE_DB_URL not set")
 def test_aapl_split_integration() -> None:
     """AAPL 4-for-1 split on 2020-08-31: adjusted close on 2020-08-28 ≈ raw / 4."""
-    import psycopg
 
-    from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
     from manta_trading.constants import Granularity
+    from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
 
     db = TimescaleDailyDataDB(_DB_URL)  # type: ignore[arg-type]
     try:

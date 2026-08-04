@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 
 import pandas as pd
+import psycopg
 from psycopg_pool import ConnectionPool
 
 from manta_trading.constants import DB_BULK_SESSION, DbSessionSettings, Granularity
@@ -334,6 +335,17 @@ class TimescaleMinuteDataDB:
 
             return df
 
+        except psycopg.errors.QueryCanceled:
+            # A cancelled query is not "no data" — it is "we do not know".
+            # Returning an empty frame here made a statement_timeout
+            # indistinguishable from a closed market: the serving API turned it
+            # into 200 {"count": 0} for a known symbol (measured 2026-08-03,
+            # slice 186 walkthrough step 7b). Re-raised so the API's handler can
+            # map it to 504 and the caller learns to narrow the range.
+            _logger.warning(
+                "TimescaleDB query cancelled for %s (statement_timeout)", symbol
+            )
+            raise
         except Exception as e:
             _logger.error("TimescaleDB query failed for %s: %s", symbol, e)
             return pd.DataFrame()
