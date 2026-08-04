@@ -294,7 +294,12 @@ API endpoints:
 - `GET /api/v1/symbols?search=<prefix>` — list instruments
 - `GET /api/v1/symbols/{symbol}` — instrument detail + available data ranges
 - `GET /api/v1/status?symbol=…&health=…&granularity=…&all=true` — per-symbol
-  data-health rows, a whole-registry health summary, and coverage freshness
+  data-health rows, a whole-registry health summary, and coverage freshness.
+  **`rows` defaults to unhealthy entries only** (`GAPS`, `STALE`, `FAILED`),
+  matching `mt data status`; pass `all=true` for everything or `health=OK` for
+  healthy rows. A healthy symbol therefore returns `count: 0` by default — that
+  means "nothing wrong", not "no such symbol". `summary` is always the full
+  unfiltered whole-registry breakdown, whatever `rows` was filtered to.
 - `GET /api/v1/gaps/{symbol}?granularity=1m` — data gap listing
 - `GET /docs` — Swagger UI
 

@@ -89,10 +89,40 @@ differ, and the second defect is often not the one being searched for.
 `test/integration/test_gaps_window_sql.py` executes the real predicate over all
 filter combinations, including granularity-plus-one-bound. The unit tests in
 `test_gaps.py` that assert SQL *text* were left in place — they catch route-wiring
-regressions cheaply — but they are explicitly not the guarantee. **Open:** no other
-endpoint was audited for the defect-2 pattern (optional parameter reaching a comparison
-as `NULL`); `symbols.py` and `status.py` take optional filters and deserve the same look
-this entry says should have happened the first time.
+regressions cheaply — but they are explicitly not the guarantee.
+
+**Audit of the remaining endpoints (2026-08-04, closing this entry's open item).**
+`symbols.py` and `status.py` were checked for the defect-2 pattern — both by reading and
+by probing prod with every filter combination and reconciling counts against direct SQL.
+**Neither has it**, and the reason each is safe is worth recording, because the two use
+different correct patterns:
+
+- `symbols.py` branches on `search is not None` and selects a query with no bound at all
+  when absent. An absent filter contributes no predicate — safe by construction.
+- `status_queries.fetch_status_rows_with_freshness` builds its `WHERE` dynamically,
+  appending a condition *only* for filters that are present. Same property, reached by
+  composition rather than branching, and it scales to N filters where the `if` ladder that
+  broke `gaps` does not. This is the pattern to copy.
+
+Counts reconciled exactly in every case (`/symbols` 31,612 = `count(*) FROM instruments`;
+`?search=AAP` 12 = `ILIKE 'AAP%'`; SPY's status rows daily/OK + minute/FAILED matching the
+view row-for-row under every filter combination), and `summary` stayed full-universe
+(63,224) regardless of `rows` filtering, as documented.
+
+Two contract observations, neither a defect:
+
+- **`/status` defaults to unhealthy rows only.** A healthy symbol returns `count: 0`,
+  which reads as "no such symbol" to a caller who does not know the default. Correct and
+  intentional (it mirrors `mt data status`), but it was undocumented — README now states
+  it. Same *shape* of surprise as the gaps bug — a filter combination returning zero for a
+  reason invisible in the response — which is why it is recorded next to it.
+- **Empty-string filters are handled inconsistently across endpoints.** `?health=` is a
+  deliberate `422` (status.py reasons explicitly that an unset `?health={filter}` template
+  must not silently fall back), while `?search=` is treated as "match everything" and
+  returns all 31,612 instruments. An unset `?search={q}` template therefore hits exactly
+  the failure the other route guards against. Left as-is pending a decision: "empty prefix
+  matches all" is a defensible reading, and unlike the gaps defect the current behavior is
+  not wrong, only unlike its sibling.
 
 ## 20260727 — Slice 163 close-out: minute-cagg re-chunking + repair complete, standing verify/repair rule now live
 
