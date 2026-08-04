@@ -90,7 +90,14 @@ class Settings(BaseSettings):
     api_max_bars_per_request: int = Field(
         default=API_MAX_BARS_PER_REQUEST, gt=0
     )
-    api_statement_timeout: str = API_SERVING_SESSION.statement_timeout
+    # Pattern-constrained because the value is interpolated into a SET
+    # statement (Postgres does not accept a bind parameter there). Validating
+    # the shape at load time is what keeps that interpolation safe, and it
+    # turns a typo into a startup error instead of a per-connection failure.
+    api_statement_timeout: str = Field(
+        default=API_SERVING_SESSION.statement_timeout,
+        pattern=r"^\d+(us|ms|s|min|h|d)?$",
+    )
 
     # Database
     market_db_url: str | None = None
