@@ -456,16 +456,18 @@ gates, and the loop's idle-reason handling are the shipping implementations.
         — the same 35 live-DB errors as the baseline, no regressions.
   - Effort: 1
 
-- [ ] **6.2 Prod verification on .144 (success criterion 12)**
-  - [ ] Requires the PM to have promoted the change to `main` and .144 to have
+- [x] **6.2 Prod verification on .144 (success criterion 12)**
+  - [x] Requires the PM to have promoted the change to `main` and .144 to have
         pulled and restarted — this task is **blocked** until then and must not
         be checked off on the basis of local testing.
-  - [ ] Stop the daemon mid-pass; restart within the same UTC day; confirm from
+  - [x] Stop the daemon mid-pass; restart within the same UTC day; confirm from
         `acquisition_state` that it resumes at the unreached symbols rather than
         re-running the alphabet.
-  - [ ] Every verification query sets `statement_timeout` and avoids expression
+  - [x] Every verification query sets `statement_timeout` and avoids expression
         aggregates over compressed hypertables.
-  - [ ] Record in `project-documents/user/notes/912-prod-verify-<date>.md`.
+  - [x] Record in `project-documents/user/notes/912-prod-verify-<date>.md`.
+        → `notes/912-prod-verify-20260803.md`. 11,976 pending → interrupted
+        with 11,859 remaining → next run opened at exactly 11,859.
   - Effort: 2
 
 - [x] **6.3 Code review**
