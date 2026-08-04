@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260727
+dateUpdated: 20260804
 status: in_progress
 ---
 
@@ -19,6 +19,80 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260804 — A partially-applied filter returns zero, and zero is a plausible answer: three window-bound defects on the serving API, none of which any test could see
+
+**Context:** Slice 186 hardened the bars contract, including changing an empty window
+from `404` to `200 count: 0` (D5). Running the verification walkthrough against prod
+surfaced that a single-day minute request returned `count: 0`. Investigating that
+one-line oddity uncovered three defects across two endpoints, all in how an optional or
+converted date bound reaches SQL, and all invisible to a green test suite:
+
+1. **`bars`: `end` was inclusive at daily grain and exclusive at minute grain.** The
+   daily path passes dates to a closed predicate; the minute path converted `end` to
+   *midnight*, so every minute request silently dropped its last day. A Mon–Fri `1m`
+   request returned Mon–Thu — 2,975 bars ending 06-13 23:59 for a window ending 06-14.
+2. **`gaps`: a one-sided window returned zero gaps, always.** `has_window` was true when
+   *either* bound was supplied, so a one-sided request ran the two-sided query with the
+   other bound as `NULL`; `gap_start < NULL` is `NULL`, never true. `?start=1990-01-01`
+   on a symbol with 31 known gaps returned `count: 0`.
+3. **`gaps`: the same `end`-at-midnight boundary**, excluding any gap beginning on the
+   last requested day.
+
+**Decision:**
+
+1. **A filter that cannot be applied must fail, not narrow.** Defect 2's shape is an
+   optional parameter reaching SQL as `NULL` inside a comparison, where SQL's three-valued
+   logic converts "unknown bound" into "matches nothing". Either express an absent bound as
+   an explicitly unbounded value (`COALESCE(%s, 'infinity')`) or refuse the request — never
+   let it pass through a comparison operator. The gaps route now uses one statement whose
+   every optional filter is null-tolerant, replacing four hand-written variants selected by
+   an `if` ladder. The ladder *was* the bug: four query shapes and three optional inputs
+   is eight combinations, of which it handled six.
+2. **An endpoint whose job is reporting problems must never report "none" on a failed or
+   partial query.** A silent empty list from `gaps` is worse than an error: gaps are the
+   data-integrity signal, so `count: 0` reads as "healthy" to exactly the monitoring client
+   most likely to call it with a one-sided window. Rank the severity of a wrong answer by
+   what the caller will *do* with it, not by how wrong it is.
+3. **Boundary semantics belong to the parameter, not to the code path.** `start`/`end`
+   now mean the same thing on every granularity and every endpoint — inclusive of the whole
+   day — even though the mechanism differs (`time.max` against a closed predicate in `bars`,
+   next-midnight against a half-open overlap in `gaps`). Where two paths implement one
+   documented parameter, pin both with tests in the same file so they cannot drift.
+
+**Rationale:** All three defects share the property this journal keeps rediscovering —
+*silent, self-hiding, invisible to its own checks* — but with a new twist worth naming:
+**the tests were green and would have stayed green forever.** `test_gaps.py` mocks the
+cursor and asserts on the *SQL text* (`assert "gap_start <" in sql`), so Postgres never
+evaluated the predicate and the `NULL` annihilation could not appear. This is precisely
+the 20260725 rule ("test rendered output, not inputs") applied to a `WHERE` clause: the
+rendered artifact is what the *database* does with the SQL, and asserting the string is
+asserting one side of the transformation. The corrective is an integration test that
+seeds real rows and executes the real statement; it was checked against the pre-fix query
+shapes to confirm it fails on them, because a regression test never seen failing is a
+guess.
+
+The second-order lesson is about *how the defects were found*, and it is a process
+failure worth recording. Defect 1 was noticed and fixed. The `gaps` route shares the same
+`_date_to_utc_datetime` helper, and it was inspected and set aside with the reasoning
+"the predicate is an overlap test, so the bound means something different there" — which
+is **true, and was the wrong conclusion**. The boundary behavior did differ; that
+difference was treated as evidence of no problem rather than as a reason to check. Sitting
+beside it was the far more serious defect 2, which had nothing to do with the shared
+helper and would have been found by any direct look. **A plausible reason why a sibling
+differs is not evidence that the sibling is correct.** When a defect is found in one
+consumer of a shared helper, every other consumer gets looked at — the mechanism may
+differ, and the second defect is often not the one being searched for.
+
+**Follow-ups:** Fixed on `main` post-186-merge; recorded as D13 in the 186 slice design
+(bars) and in this entry (gaps). New integration test
+`test/integration/test_gaps_window_sql.py` executes the real predicate over all
+filter combinations, including granularity-plus-one-bound. The unit tests in
+`test_gaps.py` that assert SQL *text* were left in place — they catch route-wiring
+regressions cheaply — but they are explicitly not the guarantee. **Open:** no other
+endpoint was audited for the defect-2 pattern (optional parameter reaching a comparison
+as `NULL`); `symbols.py` and `status.py` take optional filters and deserve the same look
+this entry says should have happened the first time.
 
 ## 20260727 — Slice 163 close-out: minute-cagg re-chunking + repair complete, standing verify/repair rule now live
 

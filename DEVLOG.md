@@ -2,13 +2,20 @@
 docType: devlog
 project: trading
 dateCreated: 20260411
-dateUpdated: 20260503
+dateUpdated: 20260804
 ---
 
 # Development Log
 
 A lightweight, append-only record of development activity. Newest entries first.
 Format: `## YYYYMMDD` followed by brief notes (1-3 lines per session). Written from implementor perspective (class names, design decisions, test counts). For user-visible changes see CHANGELOG.md.
+
+---
+
+## 20260804
+
+**Post-186 window-bound fixes** — `bars` and `gaps` date semantics.
+`bars.py`: split `_date_to_utc_datetime` into `_window_start_utc` (`time.min`) and `_window_end_utc` (`time.max`), so `end` is inclusive at minute grain as it already was at daily grain — the minute path fed `time <= midnight(end)` and silently dropped the last day of every request (SPY Mon–Fri `1m`: 2,975 bars ending 06-13 23:59 → 3,764 ending 06-14 23:59). `gaps.py`: collapsed `_ALL_GAPS_SQL`/`_GRAN_GAPS_SQL`/`_WINDOWED_GAPS_SQL`/`_WINDOWED_GRAN_GAPS_SQL` and the `has_window` `if` ladder into one `_GAPS_SQL` whose optional filters are null-tolerant (`%s::text IS NULL OR granularity = %s`, `COALESCE(%s::timestamptz, ±'infinity')`); the ladder routed a one-sided window into the two-sided query with the other bound as `NULL`, and `gap_start < NULL` never matches, so `?start=` or `?end=` alone returned `count: 0` for every symbol. `_window_end_utc` there is next-midnight rather than `time.max` because the predicate is half-open (`gap_start < %s`) rather than closed. New `test/integration/test_gaps_window_sql.py` (7 tests) seeds real `data_gaps` rows and executes the real statement across all filter combinations — the existing unit tests mock the cursor and assert SQL *text*, so they could not observe the `NULL` annihilation; the new tests were replayed against the pre-fix query shapes to confirm they fail on them. `data_gaps.fetch_status` accepts only `FAILED_RETRYABLE`/`PROVIDER_HOLE`/`RETRY_EXHAUSTED`/`UNKNOWN` (not `PENDING`). 7 unit tests added for the bars bound. Suite 1,804 → 1,811. Reasoning recorded in `000-process-journal.md` 20260804.
 
 ---
 

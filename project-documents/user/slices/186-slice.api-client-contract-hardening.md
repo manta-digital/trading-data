@@ -646,10 +646,14 @@ Both grains are now pinned by tests (`test_minute_window_end_is_inclusive`,
 single-day test across all five minute granularities) so they cannot drift apart
 again.
 
-**Not changed: `gaps.py`.** It has the same `_date_to_utc_datetime` helper, but
-its predicate is an overlap test (`gap_start < end AND gap_end > start`), not a
-range read, so the bound means something different there. It is worth a look
-under its own heading rather than a same-shaped edit made on momentum.
+**`gaps.py` — deferred here, then fixed (2026-08-04).** It was set aside on the
+reasoning that its predicate is an overlap test rather than a range read, so the
+bound means something different. That was true and was the wrong conclusion: it
+did have the same `end`-at-midnight defect, and sitting beside it was a worse
+one — a one-sided window ran the two-bound query with the other bound as `NULL`,
+so `?start=` or `?end=` alone returned zero gaps for every symbol. Both fixed;
+see the 2026-08-04 process-journal entry, which records the finding and the
+"a plausible reason a sibling differs is not evidence it is correct" rule.
 
 ---
 
