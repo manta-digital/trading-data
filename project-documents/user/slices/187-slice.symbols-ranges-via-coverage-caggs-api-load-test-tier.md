@@ -4,7 +4,7 @@ slice: symbols-ranges-via-coverage-caggs-api-load-test-tier
 project: trading-data
 parent: user/architecture/180-slices.data-serving-api.md
 dependencies: [167, 185, 186]
-interfaces: [907]
+interfaces: [169, 907]
 dateCreated: 20260804
 dateUpdated: 20260804
 status: not_started
