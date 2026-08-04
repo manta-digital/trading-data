@@ -9,8 +9,8 @@ dependencies:
 relatedReference: user/reference/data-correctness-architecture.md
 archIndex: 140
 dateCreated: 20260429
-dateUpdated: 20260717
-status: complete
+dateUpdated: 20260804
+status: in-progress
 ---
 
 # Data Quality & Operations Architecture
