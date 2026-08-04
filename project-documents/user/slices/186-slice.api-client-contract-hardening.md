@@ -7,7 +7,7 @@ dependencies: [184, 185]
 interfaces: [187]
 dateCreated: 20260803
 dateUpdated: 20260803
-status: not_started
+status: complete
 effort: 2
 ---
 
@@ -144,6 +144,23 @@ exceeds 8 s (40 % of the budget), the constant is raised and the measurement
 recorded in this document** — the value is derived from measurement, not
 asserted.
 
+**Measured at Phase 6 close (prod `trading`, 2026-08-03).** 20 s stands; no
+change to the constant.
+
+| Call | Elapsed |
+|---|---|
+| `bars/AAPL?granularity=1m` over 112 days (the ceiling boundary, dense symbol) | **5.21 s** |
+| `bars/AAPL?granularity=5m` over 5 months | 3.90 s |
+| `bars/SPY?granularity=1d` over 7 years | 3.61 s |
+| `status` (whole registry) | 1.39 s |
+| `health` | 0.008 s |
+
+The worst legitimate call is 26 % of the budget, inside the 40 % trigger. These
+are the numbers **after** D12's fix; before it the same `1m` call took 95 s. See
+D12 — that measurement also showed `statement_timeout` does not bound a
+*request*, only a statement, which is why the 8 s criterion had to be checked
+against a symbol with corporate actions rather than SPY.
+
 **Why 64 MB.** `work_mem` is allocated *per sort/hash/materialize node per
 query*, not per connection, so 512 MB × 26 connections understates the ceiling
 rather than overstating it. 512 MB was chosen for bulk COPY and universe-wide
@@ -244,6 +261,16 @@ The cap therefore binds `1m`, `5m`, and `15m` and is invisible everywhere else.
 for a 3-month chart — at roughly 8–10 MB JSON / 3.5–4 MB msgpack for a worst-case
 dense response. D9 makes it an operator setting, so this number is a starting
 point rather than a commitment.
+
+**Payload measured at Phase 6 close** (prod, AAPL `1m`, 2024-03-01 → 2024-06-20,
+a 112-day dense window at the ceiling boundary): **72,852 bars**, **11.58 MB
+JSON**, **7.53 MB msgpack**. Both estimates above were low — JSON by ~20 %,
+msgpack by ~2×. The msgpack estimate assumed a compactness the current
+serialization does not deliver (`model_dump()` with `default=str` writes
+timestamps as strings, not as a packed numeric type). The ceiling is unchanged:
+11.6 MB is still a reasonable single-response cap, and the correction is
+recorded here rather than acted on. Anyone revisiting the ceiling should use the
+measured 11.58 MB / 75 k ≈ **155 bytes per bar of JSON**, not the estimate.
 
 **Semantics.** The check is a request-admission policy on the *window*, not a
 promise about `count` — a sparse symbol over an admitted span returns far fewer
@@ -503,6 +530,74 @@ the wrong order. D1's optional argument with behavior-preserving defaults is the
 contained step; 187 owns the consolidation question with load-test numbers in
 hand.
 
+### D12 — Two defects the walkthrough surfaced, fixed in this slice (PM, 2026-08-03)
+
+Both were found running the walkthrough against prod at Phase 6 close. Neither
+is in code this slice set out to change, and both were put to the PM before any
+fix; the PM directed that both be fixed in 186 rather than deferred.
+
+**D12a — a cancelled minute query reported "no data".**
+`TimescaleMinuteDataDB.get_minute_data` wrapped its whole body in
+`except Exception: return pd.DataFrame()`. A query cancelled by
+`statement_timeout` therefore became an *empty frame* — and D5 turns an empty
+frame for a known symbol into `200 {"count": 0}`. Reproduced with
+`MT_API_STATEMENT_TIMEOUT=100ms`: the server logged
+`ERROR … canceling statement due to statement timeout` and answered `200`.
+
+This made D5's failure-mode enumeration and D10's "a `504` always means a data
+query was cancelled" **false for the five minute granularities** — exactly the
+ones D4's cap binds. It is also the silent-fallback pattern the project rules
+forbid: an empty frame asserts "the market was closed" about a query that never
+finished. Note D5 did not *create* the bug; before 186 the same cancellation
+produced a misleading `404`. It made it worse, because `200 count: 0` is the
+one answer a client will not retry.
+
+**Fix:** re-raise `psycopg.errors.QueryCanceled` ahead of the blanket handler,
+logged at WARNING. Every other failure keeps the previous log-and-return-empty
+behavior — the CLI and daemon depend on it, and narrowing that is not this
+slice's business. The daily class needed no change; it never swallowed.
+
+**D12b — adjusted-on-read cost ~92 s per request, unbounded by any timeout.**
+Step 3's 8 s headroom check passes on SPY and fails by 10× on AAPL. Profiled to
+`data/adjustment/_adjusted.py::_load_snapshot`, which loaded a symbol's entire
+corporate-action history regardless of the requested window and then issued one
+`SELECT close … ORDER BY time DESC LIMIT 1` **per dividend** — ~94 statements
+for AAPL. `EXPLAIN (ANALYZE, BUFFERS)` on one of them: **planning 1,846 ms,
+execution 110 ms**, 97,585 planning buffers. `daily_ohlcv` spans thousands of
+chunks, so the planner rebuilt a MergeAppend across all of them every time. The
+cost was ~99 % planning, and it was *span-independent* — 93 s at 56 days and 95 s
+at 112 days — so no bar ceiling could have bounded it.
+
+**The load-bearing consequence for D1 and D10:** `statement_timeout` bounds a
+*statement*, not a *request*. No single one of those 94 statements came close to
+20 s, so a 95-second request completed with `200`. Any future reasoning that
+treats the timeout as a latency ceiling is wrong.
+
+**Fix:** two changes, both in `_load_snapshot`. Bound the snapshot to actions
+with `ex_date > ` the earliest bar date — sound because `compute_k_factor` uses
+only actions strictly after a bar's date, so an earlier action cannot change any
+value in the frame. There is deliberately **no upper bound**: actions after the
+window are what rebase old prices onto the current basis. Then replace the
+per-dividend loop with one indexed range scan of daily closes plus a bisect in
+Python.
+
+A `CROSS JOIN LATERAL` over the ex-dates was tried first and **rejected on
+measurement**: it re-plans into a generic multi-row join that was slower than
+the loop for a symbol with many dividends (cancelled at the 20 s budget for AAPL
+over a 2014 window). One plan over a bounded row set beats one clever plan.
+
+**Correctness evidence.** The filter changes which actions load, so equivalence
+was established differentially rather than assumed: the new loader and a
+verbatim reconstruction of the old one were run on the same connection (same
+session timezone — a first attempt across two connections produced a spurious
+6.6e-03 difference from the `date → timestamptz` cast) over six windows,
+including ones spanning AAPL's 2020 4-for-1 split and its 1998 history.
+**Bit-identical on all six**, at 92 s → 1.8–3.3 s.
+
+`snapshot_id` becomes window-scoped as a result. Safe: `_load_snapshot` is
+private to the read path and no caller persists or compares the id — slice 152
+dropped the `last_adjusted_ca_snapshot_id` column that once did.
+
 ---
 
 ## API Specification — changed surfaces
@@ -605,71 +700,133 @@ writing) instead of `0.1.0`.
 
 ---
 
-## Verification Walkthrough (draft — refined at Phase 6 close)
+## Verification Walkthrough (executed 2026-08-03, prod `trading`)
 
-**Prerequisites:** `MT_TIMESCALE_DB_URL` pointed at prod `trading`; server not
-running.
+Every command below was run against prod at Phase 6 close and the output shown
+is what was observed, not what was expected. Two steps changed materially from
+the Phase 4 draft and are marked **[revised]**; two findings are recorded as
+D12. An external agent should be able to re-run this section as written.
+
+**Prerequisites:** `MT_TIMESCALE_DB_URL` pointed at prod `trading` (resolved
+from `.env`); nothing listening on 8100–8103. Timings are from a Mac client on
+the same LAN as the DB host; absolute numbers will vary, the ratios should not.
 
 **1. Start the server**
 ```bash
 uv run mt serve --port 8100
 ```
-Wait for `Application startup complete.`
-
-**2. Session settings on all three pools**
-```bash
-uv run python - <<'PY'
-from manta_trading.config import Settings
-import psycopg
-with psycopg.connect(str(Settings().timescale_db_url)) as c:
-    c.execute("SET statement_timeout='15s'")
-    for row in c.execute("""
-        SELECT application_name, setting FROM pg_settings, pg_stat_activity
-        WHERE name='statement_timeout' AND state='idle'
-    """).fetchall()[:10]:
-        print(row)
-PY
+Observed, on the startup line this slice added:
 ```
-Better signal: issue one request per family first (`/health`, `/bars/SPY?granularity=1d…`,
-`/bars/SPY?granularity=5m…`) so all three pools have live connections, then read
-`statement_timeout` / `work_mem` from each backend. Expected: `20s` / `64MB` on
-every backend owned by the API process.
+Minute and daily DB instances initialized (work_mem=64MB, statement_timeout=20s, max_bars=75000)
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8100
+```
 
-**3. Timeout headroom (feeds success criterion 2)**
+**2. Session settings on all three pools — [revised]**
+
+The draft proposed reading `statement_timeout` per backend out of
+`pg_stat_activity`. **That cannot work:** Postgres exposes no view of another
+backend's GUCs — `pg_settings` always reports the *querying* session's values,
+so the draft's query returns the same number regardless of what the API set.
+
+Verified behaviorally instead, which is stronger: run a server with a budget so
+small that any real query trips it, then hit one endpoint per pool and confirm
+each returns `504`. This exercises the pool's `configure` hook end to end rather
+than inspecting a setting.
+
+```bash
+MT_API_STATEMENT_TIMEOUT=100ms uv run mt serve --port 8102 &
+
+# app.state.db_pool  (status route, via get_db)
+curl -s -o /dev/null -w "status  HTTP %{http_code}\n" \
+  "http://localhost:8102/api/v1/status"
+# TimescaleDailyDataDB._pool
+curl -s -o /dev/null -w "daily   HTTP %{http_code}\n" \
+  "http://localhost:8102/api/v1/bars/SPY?granularity=1d&start=2004-01-01&end=2026-01-01"
+# TimescaleMinuteDataDB._pool
+curl -s -o /dev/null -w "minute  HTTP %{http_code}\n" \
+  "http://localhost:8102/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20"
+```
+Observed — all three pools carry the configured budget:
+```
+status  HTTP 504
+daily   HTTP 504
+minute  HTTP 504
+```
+with matching server log lines naming the path and the `100ms` budget. This is
+the direct evidence for D1: before this slice the two class-owned pools ran at
+300 s and only the first of these three would have been cancelled.
+
+`work_mem` is not operator-settable and has no behavioral probe; it is asserted
+in `test/unit/market/test_db_session_settings.py` against the SQL each pool's
+`configure` hook emits, including the default-construction regression guard that
+CLI and daemon still get `512MB`/`300s`.
+
+**3. Timeout headroom (feeds success criterion 2) — [revised]**
+
+The draft's symbol list was SPY-only, which **passes while hiding a 10× miss**:
+the adjusted-on-read path costs nothing for a symbol with no corporate actions
+and dominated every request for one that has them (D12b). Use a symbol with
+dividends and splits.
+
 ```bash
 for u in \
+  "bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20" \
+  "bars/AAPL?granularity=5m&start=2024-01-01&end=2024-06-01" \
   "bars/SPY?granularity=1d&start=2019-01-01&end=2026-01-01" \
-  "bars/SPY?granularity=1m&start=2024-01-01&end=2024-03-01" \
   "status" "health"; do
-  echo -n "$u  "; curl -s -o /dev/null -w "%{time_total}s\n" "http://localhost:8100/api/v1/$u"
+  printf "%-56s " "$u"
+  curl -s -o /dev/null -w "HTTP %{http_code}  %{time_total}s  %{size_download}B\n" \
+    "http://localhost:8100/api/v1/$u"
 done
 ```
-Expected: all under 8 s. Record the numbers in D1; raise
-`API_SERVING_SESSION.statement_timeout` if any is over.
+Observed:
+```
+bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20 HTTP 200  5.213544s  11579251B
+bars/AAPL?granularity=5m&start=2024-01-01&end=2024-06-01 HTTP 200  3.897558s   3220792B
+bars/SPY?granularity=1d&start=2019-01-01&end=2026-01-01  HTTP 200  3.614258s    203811B
+status                                                   HTTP 200  1.391383s  13555105B
+health                                                   HTTP 200  0.007513s        41B
+```
+Worst legitimate call 5.21 s = 26 % of the 20 s budget, inside the 40 % trigger.
+**`API_SERVING_SESSION.statement_timeout` stays at 20 s**; the numbers are
+recorded in D1. The first run of this step measured 95 s for the `1m` call — see
+D12b for the defect and its fix.
 
 **4. OpenAPI version**
 ```bash
-curl -s http://localhost:8100/openapi.json | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])"
+curl -s http://localhost:8100/openapi.json \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])"
 uv run mt --version
 ```
-Expected: identical versions, neither `0.1.0`.
+Observed: `0.7.4` and `mt version 0.7.4` — identical, neither `0.1.0`.
 
 **5. Range cap rejects, and costs nothing**
 ```bash
 curl -s -w "\nHTTP %{http_code} %{time_total}s\n" \
   "http://localhost:8100/api/v1/bars/SPY?granularity=1m&start=2004-01-01&end=2026-01-01"
 ```
-Expected: `HTTP 422`, sub-10 ms, body `{"error": "requested range spans ~… 1m bars; the maximum is 75,000 (about 113 days)…"}`.
+Observed:
+```
+{"error":"requested range spans about 5,326,880 1m bars, over the 75,000 bar limit; at 1m request at most 113 days per call, or use a coarser granularity"}
+HTTP 422 0.001479s
+```
+1.5 ms confirms no DB work precedes the check. The 113-day figure matches D4's
+table and is computed from the live ceiling, not written as a literal.
 
 **6. Cap admits the boundary**
 ```bash
 curl -s "http://localhost:8100/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20" \
   -o /tmp/bars.json -w "HTTP %{http_code}  %{time_total}s  %{size_download} bytes\n"
 python3 -c "import json;print('count:', json.load(open('/tmp/bars.json'))['count'])"
+curl -s "http://localhost:8100/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20&format=msgpack" \
+  -o /dev/null -w "msgpack %{size_download} bytes\n"
 ```
-Expected: `HTTP 200` (112-day span, dense symbol — the case the ceiling was
-sized against). Record `count`, elapsed time, and payload size; the payload
-should land near the ~8–10 MB estimate in D4.
+Observed: `HTTP 200  3.876545s  11579251 bytes`, `count: 72852`, msgpack
+`7525228 bytes`. A 112-day dense window lands just under the 75,000 ceiling, as
+D4 intended. Both payload estimates in D4 were low; the measurement is recorded
+there. **Caveat for a re-runner:** this is the single most expensive legitimate
+request the API accepts — ~155 bytes of JSON per bar.
 
 **7. Knobs are operator-settable (D9), and cancellation maps to 504 (D10)**
 ```bash
@@ -678,8 +835,7 @@ MT_API_MAX_BARS_PER_REQUEST=1000 uv run mt serve --port 8101 &
 curl -s -w "\nHTTP %{http_code} %{time_total}s\n" \
   "http://localhost:8101/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20"
 
-# (b) Low statement timeout, ceiling left alone — the same request is now
-#     admitted and then cancelled mid-query:
+# (b) Low statement timeout — the same request is admitted, then cancelled:
 MT_API_STATEMENT_TIMEOUT=100ms uv run mt serve --port 8102 &
 curl -s -w "\nHTTP %{http_code} %{time_total}s\n" \
   "http://localhost:8102/api/v1/bars/AAPL?granularity=1m&start=2024-03-01&end=2024-06-20"
@@ -687,13 +843,26 @@ curl -s -w "\nHTTP %{http_code} %{time_total}s\n" \
 # (c) Invalid override must fail at startup, not at first request:
 MT_API_MAX_BARS_PER_REQUEST=lots uv run mt serve --port 8103
 ```
-Expected: (a) `HTTP 422` in milliseconds, naming 1,000 and a ~1.5-day maximum
-span. (b) `HTTP 504` with `{"error": "query exceeded the server's 100ms budget; …"}`
-— note the message quotes the *configured* budget, not a literal 20s — and a
-WARNING in the server log naming the path. (c) exits with a pydantic validation
-error before the server binds.
+Observed (a) — the message quotes the override, and the span with it:
+```
+{"error":"requested range spans about 74,233 1m bars, over the 1,000 bar limit; at 1m request at most 1 days per call, or use a coarser granularity"}
+HTTP 422 0.003293s
+```
+Observed (b):
+```
+{"error":"query exceeded the server's 100ms budget; narrow the requested range or use a coarser granularity"}
+HTTP 504 0.369352s
+```
+with `WARNING … Query cancelled at the 100ms statement_timeout on GET
+/api/v1/bars/AAPL?granularity=1m&…` in the log. The budget is the configured
+one, not a literal `20s`. **On the first run this returned `200 {"count": 0}`**
+— the D12a defect; the `504` above is after the fix.
 
-This is also the induction for D10 that needs no prod interference: shrinking
+Observed (c): exits before binding with
+`ValidationError: 1 validation error for Settings / api_max_bars_per_request /
+Input should be a valid integer, unable to parse string as an integer`.
+
+This remains the induction for D10 that needs no prod interference: shrinking
 the budget is equivalent to enlarging the query, and it exercises the real
 `QueryCanceled` path rather than a mock.
 
@@ -702,52 +871,84 @@ the budget is equivalent to enlarging the query, and it exercises the real
 curl -s -w "\nHTTP %{http_code}\n" \
   "http://localhost:8100/api/v1/bars/SPY?granularity=1d&start=2024-06-30&end=2024-06-01"
 ```
-Expected: `HTTP 422`, `{"error": "start (2024-06-30) is after end (2024-06-01)."}`
+Observed: `{"error":"start (2024-06-30) is after end (2024-06-01); the requested
+range is empty"}`, `HTTP 422` in 1.0 ms.
 
 **9. Empty window vs unknown symbol**
 ```bash
-# Known symbol, a weekend:
 curl -s -w "\nHTTP %{http_code}\n" \
   "http://localhost:8100/api/v1/bars/SPY?granularity=1d&start=2024-06-08&end=2024-06-09"
-# Unknown symbol:
 curl -s -w "\nHTTP %{http_code}\n" \
   "http://localhost:8100/api/v1/bars/XYZZYQ?granularity=1d&start=2024-06-03&end=2024-06-07"
 ```
-Expected: `HTTP 200` with `"count":0,"bars":[]` and an `is_stale` field; then
-`HTTP 404` with `{"error": "..."}`.
+Observed:
+```
+{"symbol":"SPY","granularity":"1d","adjusted":true,"is_stale":false,"count":0,"bars":[]}
+HTTP 200
+{"error":"Symbol 'XYZZYQ' not found"}
+HTTP 404
+```
+A weekend is a `200`; an unknown symbol is a `404`. Note `is_stale` is present
+on the empty body, which is the point of D5.
+
+**Caveat found here, not a regression:** for minute granularities `start == end`
+returns `count: 0`, because the route converts both dates to midnight UTC and
+the window is zero-width. That predates this slice (the date→datetime conversion
+is from 182), but D5 changes how it *looks*: it used to surface as a misleading
+`404` and now surfaces as an empty `200`. Neither is right. Use
+`start=D&end=D+1` for a single minute-grain day. Recorded for a follow-up slice;
+not fixed here because it changes the meaning of `end` on every granularity.
 
 **10. Unified error bodies**
 ```bash
-curl -s "http://localhost:8100/api/v1/status?health="          # 422, {"error": …}
-curl -s "http://localhost:8100/api/v1/bars/XYZZYQ?granularity=1d&start=2024-06-03&end=2024-06-07"  # 404, {"error": …}
-curl -s "http://localhost:8100/api/v1/bars/SPY?granularity=bogus&start=2024-06-03&end=2024-06-07"  # 422, {"detail": [...]} — documented exception
+curl -s -w " <- HTTP %{http_code}\n" "http://localhost:8100/api/v1/status?health="
+curl -s -w " <- HTTP %{http_code}\n" \
+  "http://localhost:8100/api/v1/bars/SPY?granularity=bogus&start=2024-06-03&end=2024-06-07"
+```
+Observed — the route-raised 422 is unified, the FastAPI validation 422 keeps its
+native shape, exactly as D6 specifies:
+```
+{"error":"Query parameter 'health' was provided but empty. Omit it for the default (GAPS, STALE, FAILED), pass 'all=true' for no filter, or name one or more of: FAILED, GAPS, OK, STALE"} <- HTTP 422
+{"detail":[{"type":"enum","loc":["query","granularity"],"msg":"Input should be '1m', '5m', '15m', '1h', '4h', '1d', '1w', '1mo' or '1q'","input":"bogus","ctx":{...}}]} <- HTTP 422
 ```
 
 **11. Schema artifact matches the server**
 ```bash
 uv run python scripts/dump_openapi.py --check
-curl -s http://localhost:8100/openapi.json | python3 -m json.tool > /tmp/served.json
+curl -s http://localhost:8100/openapi.json > /tmp/served.json
 python3 -c "
 import json
 a=json.load(open('docs/api/openapi.json')); b=json.load(open('/tmp/served.json'))
 a['info'].pop('version'); b['info'].pop('version')
 print('schemas match:', a==b)"
 ```
-Expected: `schemas match: True`.
+Observed: `docs/api/openapi.json is up to date` and `schemas match: True`.
+The drift test's sensitivity was checked separately by adding a parameter to
+`get_bars` and confirming `test_committed_artifact_matches_the_app_ignoring_version`
+fails, then reverting.
 
 **12. CLI and daemon unaffected**
 ```bash
 uv run mt data status --symbol SPY
 ```
-Expected: unchanged output; the DB classes still default to 300 s / 512 MB
-outside the API process (assert in a unit test as well as here).
+Observed: unchanged output, ending `OK: 10958  GAPS: 946  STALE: 49535  FAILED: 1785`.
+The DB classes still default to 300 s / 512 MB outside the API process; that is
+also asserted without a database in
+`test_db_session_settings.py::test_default_construction_emits_the_bulk_values`,
+which is the assertion that would fail if a future change let the serving budget
+leak into a backfill.
 
-**13. Test suite**
+**13. Test suite and static analysis**
 ```bash
-uv run pytest test/unit/api_server/ -q
+uv run pytest test/unit -q
 uv run --extra dev mypy src/manta_trading/api_server/
 ```
-Expected: all pass; mypy clean on touched files.
+Observed: `1803 passed, 10 skipped, 35 errors` — the 35 are the pre-existing
+DB-host collection errors present on `main` before this slice (baseline at
+Task 1: `1693 passed, 10 skipped, 35 errors`), so this slice added 110 tests and
+no failures. mypy: `Success: no issues found in 12 source files`. `ruff` is clean
+on every file this slice touched; the pre-existing findings in `test_gaps.py`
+and `test_symbols.py` were left alone.
 
 ---
 
