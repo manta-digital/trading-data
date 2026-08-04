@@ -6,8 +6,8 @@ parent: user/architecture/180-slices.data-serving-api.md
 dependencies: [184, 185]
 interfaces: [187]
 dateCreated: 20260803
-dateUpdated: 20260803
-status: in_progress
+dateUpdated: 20260804
+status: complete
 effort: 2
 ---
 

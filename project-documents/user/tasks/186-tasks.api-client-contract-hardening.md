@@ -12,8 +12,8 @@ projectState: >
   limits, no version wiring, three error-body shapes in circulation, and the
   API process opens three independent connection pools at 300s/512MB.
 dateCreated: 20260803
-dateUpdated: 20260803
-status: in_progress
+dateUpdated: 20260804
+status: complete
 ---
 
 ## Context Summary
@@ -437,10 +437,10 @@ status: in_progress
   - [x] Success: suite green, static analysis clean on touched files
   - [x] Effort: 1
 
-- [ ] Commit and merge
-  - [ ] Semantic commits throughout; mark tasks complete via `task-checker`
-  - [ ] `cf check` clean before merge
-  - [ ] Merge to `main` with `--no-ff` and the message
+- [x] Commit and merge
+  - [x] Semantic commits throughout; mark tasks complete via `task-checker`
+  - [x] `cf check` clean before merge
+  - [x] Merge to `main` with `--no-ff` and the message
         `Merge slice 186: API client-contract hardening`
-  - [ ] Success: `main` green, `cf check` clean post-merge, branch left in place
+  - [x] Success: `main` green, `cf check` clean post-merge, branch left in place
   - [ ] Effort: 1
