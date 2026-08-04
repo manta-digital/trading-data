@@ -7,7 +7,11 @@ from datetime import date, timedelta
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from manta_trading.constants import DAILY_CYCLE_RETRY_INTERVAL
+from manta_trading.constants import (
+    API_MAX_BARS_PER_REQUEST,
+    API_SERVING_SESSION,
+    DAILY_CYCLE_RETRY_INTERVAL,
+)
 from manta_trading.data.acquisition.daily.provider import DailyProviderName
 from manta_trading.data.historical_minute.provider import MinuteProviderName
 
@@ -75,6 +79,18 @@ class Settings(BaseSettings):
     def daily_cycle_retry_interval(self) -> timedelta:
         """The retry cadence as the runner consumes it."""
         return timedelta(minutes=self.daily_cycle_retry_minutes)
+
+    # Serving-API policy ceilings (slice 186 D9). Both defaults live in
+    # constants.py — one definition of the number and its derivation — and are
+    # referenced, not restated, here. Env names follow the MT_ prefix:
+    # MT_API_MAX_BARS_PER_REQUEST and MT_API_STATEMENT_TIMEOUT. They are read
+    # once in the API lifespan hook, so changing one requires a restart, the
+    # same contract as MT_TIMESCALE_DB_URL. work_mem, the estimator's
+    # derivation inputs, and the pool sizes are deliberately not settable.
+    api_max_bars_per_request: int = Field(
+        default=API_MAX_BARS_PER_REQUEST, gt=0
+    )
+    api_statement_timeout: str = API_SERVING_SESSION.statement_timeout
 
     # Database
     market_db_url: str | None = None

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from manta_trading.config import ENV_FILE, Settings
+from manta_trading.constants import API_MAX_BARS_PER_REQUEST, API_SERVING_SESSION
 
 
 class TestSettingsDefaults:
@@ -148,3 +150,45 @@ class TestSettingsEnvFileConstant:
 
     def test_env_file_constant(self) -> None:
         assert ENV_FILE == ".env"
+
+
+class TestApiPolicySettings:
+    """Slice 186 D9 — the two serving-API ceilings are operator-settable."""
+
+    def test_defaults_come_from_constants(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("MT_API_MAX_BARS_PER_REQUEST", raising=False)
+        monkeypatch.delenv("MT_API_STATEMENT_TIMEOUT", raising=False)
+        s = Settings(_env_file=None)
+        assert s.api_max_bars_per_request == API_MAX_BARS_PER_REQUEST
+        assert s.api_max_bars_per_request == 75_000
+        assert s.api_statement_timeout == API_SERVING_SESSION.statement_timeout
+
+    def test_max_bars_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "1000")
+        assert Settings(_env_file=None).api_max_bars_per_request == 1000
+
+    def test_statement_timeout_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MT_API_STATEMENT_TIMEOUT", "5s")
+        assert Settings(_env_file=None).api_statement_timeout == "5s"
+
+    def test_non_integer_max_bars_fails_at_load(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The failure must be at Settings() construction — i.e. at server
+        startup — not at the first request that reads the ceiling."""
+        monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "lots")
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+    def test_non_positive_max_bars_fails_at_load(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A zero or negative ceiling would reject every request; catching it
+        at load is the difference between a startup error and an outage."""
+        monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "0")
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
