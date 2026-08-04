@@ -347,63 +347,63 @@ status: in_progress
 
 ## Task 11 — Committed OpenAPI artifact
 
-- [ ] Add `scripts/dump_openapi.py` (D7)
-  - [ ] Writes `create_app().openapi()` to `docs/api/openapi.json`, stable key
+- [x] Add `scripts/dump_openapi.py` (D7)
+  - [x] Writes `create_app().openapi()` to `docs/api/openapi.json`, stable key
         order, trailing newline
-  - [ ] `--check` mode compares instead of writing and exits non-zero on drift
-  - [ ] Note in the module docstring that schema generation does not enter the
+  - [x] `--check` mode compares instead of writing and exits non-zero on drift
+  - [x] Note in the module docstring that schema generation does not enter the
         lifespan, so no database is required
-  - [ ] Success: `uv run python scripts/dump_openapi.py` writes the file with
+  - [x] Success: `uv run python scripts/dump_openapi.py` writes the file with
         no DB configured
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Commit the artifact and its drift test
-  - [ ] Generate and commit `docs/api/openapi.json`
-  - [ ] `test/unit/api_server/test_openapi_artifact.py`: committed document
+- [x] Commit the artifact and its drift test
+  - [x] Generate and commit `docs/api/openapi.json`
+  - [x] `test/unit/api_server/test_openapi_artifact.py`: committed document
         equals generated **ignoring `info.version`**; generated `info.version`
         equals `package_version()`
-  - [ ] Success: both assertions pass; a deliberate route-signature edit makes
+  - [x] Success: both assertions pass; a deliberate route-signature edit makes
         the first fail
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
 ---
 
 ## Task 12 — README and CHANGELOG
 
-- [ ] Update the README API section
-  - [ ] Endpoint list gains the `/api/v1/status` entry (landed in 185 but never
+- [x] Update the README API section
+  - [x] Endpoint list gains the `/api/v1/status` entry (landed in 185 but never
         documented) and notes `is_stale` on bars responses
-  - [ ] New subsection: error shapes (`{"error": ...}` plus the documented
+  - [x] New subsection: error shapes (`{"error": ...}` plus the documented
         FastAPI validation exception), the range cap and its per-granularity
         effect, the `404` vs empty-`200` split, and `504`
-  - [ ] Document `MT_API_MAX_BARS_PER_REQUEST` and `MT_API_STATEMENT_TIMEOUT`
+  - [x] Document `MT_API_MAX_BARS_PER_REQUEST` and `MT_API_STATEMENT_TIMEOUT`
         with their defaults, and link `docs/api/openapi.json`
-  - [ ] Success: a client dev can learn the contract from the README alone
-  - [ ] Effort: 2
+  - [x] Success: a client dev can learn the contract from the README alone
+  - [x] Effort: 2
 
-- [ ] Add the CHANGELOG entry under `[Unreleased]`
-  - [ ] Both breaking changes called out as breaking (D5, D6)
-  - [ ] Success: entry names the version-metadata fix, the cap, `504`, and the
+- [x] Add the CHANGELOG entry under `[Unreleased]`
+  - [x] Both breaking changes called out as breaking (D5, D6)
+  - [x] Success: entry names the version-metadata fix, the cap, `504`, and the
         two settings
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
 ---
 
 ## Task 13 — Prod verification and the D1 measurement
 
-- [ ] Run the design's Verification Walkthrough against prod `trading`
-  - [ ] Steps 1–2: server starts; all three pools show `20s`/`64MB`
-  - [ ] Step 3: measure the four slowest legitimate calls. **If any exceeds 8 s,
+- [x] Run the design's Verification Walkthrough against prod `trading`
+  - [x] Steps 1–2: server starts; all three pools show `20s`/`64MB`
+  - [x] Step 3: measure the four slowest legitimate calls. **If any exceeds 8 s,
         raise `API_SERVING_SESSION.statement_timeout` and record the numbers in
         design D1** — the constant is derived from this measurement, not asserted
-  - [ ] Step 6: a 112-day dense `1m` request — record `count`, elapsed time, and
+  - [x] Step 6: a 112-day dense `1m` request — record `count`, elapsed time, and
         payload size; compare against D4's ~8–10 MB estimate and correct the
         design if it is off
-  - [ ] Step 7: both overrides, including `MT_API_STATEMENT_TIMEOUT=100ms` to
+  - [x] Step 7: both overrides, including `MT_API_STATEMENT_TIMEOUT=100ms` to
         induce a real `QueryCanceled` → `504`
-  - [ ] Steps 8–12: reversed range, empty vs unknown symbol, error bodies,
+  - [x] Steps 8–12: reversed range, empty vs unknown symbol, error bodies,
         schema artifact, CLI unaffected
-  - [ ] Rewrite the design's **Verification Walkthrough section only** with the
+  - [x] Rewrite the design's **Verification Walkthrough section only** with the
         actual commands run, the observed output, and any caveats found. This is
         mandated, not optional: Phase 4 creates the walkthrough as "the draft
         walkthrough that will be refined when Phase 6 (Implementation) is
@@ -411,31 +411,31 @@ status: in_progress
         that one section — do **not** revise decisions D1–D11 here. The single
         exception is the two measurements D1 and D4 explicitly ask for
         (statement timeout, payload size), which are recorded in place
-  - [ ] Success: every step passes or its deviation is recorded in the design;
+  - [x] Success: every step passes or its deviation is recorded in the design;
         no section other than the walkthrough (plus those two measurements) is
         edited
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] Confirm the architecture document still matches what was built
-  - [ ] Re-read the five sections D11 corrected in `180-arch.data-serving.md`
+- [x] Confirm the architecture document still matches what was built
+  - [x] Re-read the five sections D11 corrected in `180-arch.data-serving.md`
         (already committed in Phase 4) against the landed code
-  - [ ] Success: no correction needed, or the correction is committed
-  - [ ] Effort: 1
+  - [x] Success: no correction needed, or the correction is committed
+  - [x] Effort: 1
 
 ---
 
 ## Task 14 — Close-out
 
-- [ ] Full verification
-  - [ ] `uv run pytest test/unit -q` — compare pass count and error list against
+- [x] Full verification
+  - [x] `uv run pytest test/unit -q` — compare pass count and error list against
         the Task 1 baseline; the 35 pre-existing DB-host errors are expected
-  - [ ] `uv run --extra dev mypy src/manta_trading/api_server/` clean; `ruff`
+  - [x] `uv run --extra dev mypy src/manta_trading/api_server/` clean; `ruff`
         clean on every touched file (pre-existing errors in untouched files
         stay untouched)
-  - [ ] Regenerate `docs/api/openapi.json` as the final step so it reflects the
+  - [x] Regenerate `docs/api/openapi.json` as the final step so it reflects the
         merged state
-  - [ ] Success: suite green, static analysis clean on touched files
-  - [ ] Effort: 1
+  - [x] Success: suite green, static analysis clean on touched files
+  - [x] Effort: 1
 
 - [ ] Commit and merge
   - [ ] Semantic commits throughout; mark tasks complete via `task-checker`
