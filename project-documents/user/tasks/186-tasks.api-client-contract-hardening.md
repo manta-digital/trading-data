@@ -443,4 +443,4 @@ status: complete
   - [x] Merge to `main` with `--no-ff` and the message
         `Merge slice 186: API client-contract hardening`
   - [x] Success: `main` green, `cf check` clean post-merge, branch left in place
-  - [ ] Effort: 1
+  - [x] Effort: 1
