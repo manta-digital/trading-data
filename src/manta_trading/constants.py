@@ -6,6 +6,7 @@ grace periods used by the data acquisition and quality pipelines.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import StrEnum
 from typing import Final
@@ -638,3 +639,108 @@ MINUTE_CAGG_GRANULARITIES: tuple[Granularity, ...] = (
 canonical order for reporting and for resolving user granularity input. This is
 NOT a repair sweep order; per-granularity repair sequencing is an operator
 decision (see cagg_repair.REPAIR_RUN_ORDER)."""
+
+
+@dataclass(frozen=True)
+class DbSessionSettings:
+    """Per-connection session settings applied by a pool's ``configure`` hook.
+
+    Only the two values that differ between workload shapes are carried here;
+    every other ``SET`` a DB class issues is a property of that class, not of
+    the workload, and is deliberately not parameterized (slice 186 D1).
+    """
+
+    work_mem: str
+    statement_timeout: str
+
+
+DB_BULK_SESSION: Final[DbSessionSettings] = DbSessionSettings(
+    work_mem="512MB", statement_timeout="300s"
+)
+"""Session settings for bulk and analytics paths — CLI, daemon, backfills.
+
+These are the values every DB class has used since slice 152; naming them
+changes nothing. They remain the default for every consumer that does not ask
+for something else, which is what keeps the API's tighter budget (see
+:data:`API_SERVING_SESSION`) from leaking into a COPY or a universe-wide scan.
+"""
+
+API_SERVING_SESSION: Final[DbSessionSettings] = DbSessionSettings(
+    work_mem="64MB", statement_timeout="20s"
+)
+"""Session settings for the serving API's three connection pools (186 D1).
+
+``statement_timeout`` 20s: every serving read path is sub-second to a few
+seconds after slices 163/166/167 — bars ``1d`` over five years measured 2–4 s,
+a cold ``/health`` coverage probe 3.19 s — and
+:data:`API_MAX_BARS_PER_REQUEST` bounds the largest admitted request. 20 s is a
+comfortable multiple of the worst legitimate call and still fails fast enough
+to be a real limit. Operator-settable via ``MT_API_STATEMENT_TIMEOUT``.
+
+``work_mem`` 64MB: allocated *per sort/hash/materialize node per query*, not
+per connection, so the 512 MB bulk value understates rather than overstates its
+ceiling across 26 pooled connections. 512 MB was chosen for bulk COPY and
+universe-wide aggregation; a single-symbol windowed read sorts a bounded row
+set, for which 64 MB is ample. Not operator-settable (D9).
+"""
+
+API_MAX_BARS_PER_REQUEST: Final[int] = 75_000
+"""Default ceiling on the *estimated* bars a single bars request may span (D4).
+
+Enforced before any database work by the admission check in
+``api_server/routes/bars.py``; the estimate is computed from the request window
+alone, so a rejected request costs one comparison. A worst-case dense response
+at this ceiling is roughly 8–10 MB JSON / 3.5–4 MB msgpack.
+
+75,000 is the agreed compromise (PM, 2026-08-03): it puts ``1m`` at ~113 days —
+more than a single call needs for a three-month chart — while leaving ``5m``
+and coarser effectively unbounded for normal use. Operator-settable via
+``MT_API_MAX_BARS_PER_REQUEST``; this is a policy starting point, not a
+commitment.
+"""
+
+INTRADAY_MINUTES_PER_TRADING_DAY: Final[int] = 960
+"""Minutes of intraday coverage in a dense trading day, measured (not assumed).
+
+Queried on prod ``trading`` 2026-08-03 for 2024-06-10: the store covers
+**08:00–23:59 UTC** (16 h — EODHD US intraday includes extended hours). AAPL
+returned 960 ``1m`` bars that day, SPY 724 (sparse minutes), SPY 187 ``5m``
+bars against a 192-bucket ceiling. The dense case is the one an admission cap
+must survive, so 960 is the input — deliberately **not** the 390-minute regular
+session, which would understate a real request by 2.5x.
+"""
+
+GRANULARITY_BAR_MINUTES: Final[dict[Granularity, int]] = {
+    Granularity.M1: 1,
+    Granularity.M5: 5,
+    Granularity.M15: 15,
+    Granularity.H1: 60,
+    Granularity.H4: 240,
+}
+"""Bucket width in minutes for the five intraday granularities.
+
+Daily and coarser grains are excluded on purpose: their bar counts do not
+derive from a minute width. See :data:`BARS_PER_TRADING_DAY`.
+"""
+
+TRADING_DAYS_PER_CALENDAR_DAY: Final[float] = 252 / 365
+"""US equity trading days per calendar day — the span estimator's conversion."""
+
+BARS_PER_TRADING_DAY: Final[dict[Granularity, float]] = {
+    **{
+        granularity: INTRADAY_MINUTES_PER_TRADING_DAY / minutes
+        for granularity, minutes in GRANULARITY_BAR_MINUTES.items()
+    },
+    Granularity.D1: 1.0,
+    Granularity.W1: 1 / 5,
+    Granularity.MO1: 1 / 21,
+    Granularity.Q1: 1 / 63,
+}
+"""Bars a dense symbol produces per trading day, for every granularity.
+
+Intraday values are **derived** from
+:data:`INTRADAY_MINUTES_PER_TRADING_DAY` / :data:`GRANULARITY_BAR_MINUTES`, so
+correcting the measurement corrects every span limit at once. Daily and coarser
+values are the calendar's own ratios. No per-granularity maximum span is
+written anywhere — it is computed from this table and the live ceiling.
+"""

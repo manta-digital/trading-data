@@ -253,6 +253,21 @@ class TestStatusRoute:
         assert response.status_code == 422
         assert "BOGUS" in response.text
 
+    @pytest.mark.parametrize("query", ["?health=", "?health=BOGUS"])
+    def test_route_raised_422s_use_the_unified_error_body(
+        self, test_app: FastAPI, query: str
+    ) -> None:
+        """Slice 186 D6 — this route raises ``HTTPException``, so it inherits
+        ``{"error": ...}`` from the app handler and constructs no body itself.
+        Before 186 these emitted ``{"detail": "<string>"}``, a third shape.
+        """
+        with _mocked_fetches():
+            response = TestClient(test_app).get(f"/api/v1/status{query}")
+        assert response.status_code == 422
+        body = response.json()
+        assert set(body) == {"error"}
+        assert isinstance(body["error"], str)
+
     @pytest.mark.parametrize("query", ["?health=", "?health=,,", "?health=%20"])
     def test_empty_health_returns_422_not_zero_rows(
         self, test_app: FastAPI, query: str

@@ -11,7 +11,12 @@ from datetime import date
 import pandas as pd
 from psycopg_pool import ConnectionPool
 
-from manta_trading.constants import GRANULARITY_SOURCE, Granularity
+from manta_trading.constants import (
+    DB_BULK_SESSION,
+    GRANULARITY_SOURCE,
+    DbSessionSettings,
+    Granularity,
+)
 from manta_trading.data.adjustment import adjusted as adjusted_fn
 from manta_trading.logging import get_logger
 
@@ -24,23 +29,33 @@ _MINUTE_GRAINS = {Granularity.M1, Granularity.M5, Granularity.M15, Granularity.H
 class TimescaleDailyDataDB:
     """Read daily and coarser OHLCV bars from TimescaleDB."""
 
-    def __init__(self, conninfo: str) -> None:
+    def __init__(
+        self, conninfo: str, *, session: DbSessionSettings = DB_BULK_SESSION
+    ) -> None:
         """Initialize TimescaleDB connection pool.
 
         Args:
             conninfo: PostgreSQL connection string.
+            session: Per-connection ``work_mem`` and ``statement_timeout``.
+                Defaults to the bulk/analytics values every CLI and daemon
+                caller has always used; the serving API passes
+                ``API_SERVING_SESSION`` (slice 186 D1).
         """
         self.conninfo = conninfo
+        self._session = session
         self._pool: ConnectionPool | None = None
         self._init_pool()
 
-    @staticmethod
-    def _configure_connection(conn) -> None:  # type: ignore[no-untyped-def]
-        """Configure session parameters for TimescaleDB performance."""
+    def _configure_connection(self, conn) -> None:  # type: ignore[no-untyped-def]
+        """Configure session parameters for TimescaleDB performance.
+
+        An instance method, not a static one: the two workload-dependent
+        values come from ``self._session`` (slice 186 D1).
+        """
         conn.autocommit = True
         conn.execute("SET timezone = 'UTC'")
-        conn.execute("SET work_mem = '512MB'")
-        conn.execute("SET statement_timeout = '300s'")
+        conn.execute(f"SET work_mem = '{self._session.work_mem}'")
+        conn.execute(f"SET statement_timeout = '{self._session.statement_timeout}'")
         conn.autocommit = False
 
     def _init_pool(self) -> None:

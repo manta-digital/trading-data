@@ -10,13 +10,25 @@ import msgpack
 import orjson
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import status as http_status
 from psycopg_pool import ConnectionPool
 
-from manta_trading.api_server.deps import get_daily_db, get_db_pool, get_minute_db
-from manta_trading.api_server.models.responses import BarsResponse
+from manta_trading.api_server.deps import (
+    get_daily_db,
+    get_db_pool,
+    get_max_bars,
+    get_minute_db,
+)
+from manta_trading.api_server.models.responses import (
+    GATEWAY_TIMEOUT_RESPONSE,
+    BarsResponse,
+)
+from manta_trading.api_server.queries import symbol_exists
 from manta_trading.constants import (
+    BARS_PER_TRADING_DAY,
     CAGG_BASE_GRANULARITY,
     GRANULARITY_SOURCE,
+    TRADING_DAYS_PER_CALENDAR_DAY,
     Granularity,
 )
 from manta_trading.market.maintenance.cagg_freshness import (
@@ -40,7 +52,70 @@ def _date_to_utc_datetime(d: date) -> datetime:
     return datetime.combine(d, time.min, tzinfo=UTC)
 
 
-@router.get("/api/v1/bars/{symbol}", response_class=Response)
+def _bars_per_calendar_day(granularity: Granularity) -> float:
+    """Bars a dense symbol yields per calendar day at this granularity."""
+    return BARS_PER_TRADING_DAY[granularity] * TRADING_DAYS_PER_CALENDAR_DAY
+
+
+def _estimate_bars(granularity: Granularity, start: date, end: date) -> float:
+    """Estimate the bars an inclusive ``[start, end]`` window could contain.
+
+    Computed from the request alone — no database work — so a rejection costs
+    one comparison (186 D4). It is an admission policy on the *window*, not a
+    promise about ``count``: a sparse symbol over an admitted span returns far
+    fewer bars.
+    """
+    span_days = (end - start).days + 1
+    return span_days * _bars_per_calendar_day(granularity)
+
+
+def _max_span_days(granularity: Granularity, ceiling: int) -> int:
+    """Largest inclusive window this granularity can request under ``ceiling``.
+
+    Derived from the live ceiling so an operator override never yields a
+    message that contradicts the limit actually enforced.
+    """
+    return int(ceiling / _bars_per_calendar_day(granularity))
+
+
+def _admit_range(
+    granularity: Granularity, start: date, end: date, ceiling: int
+) -> None:
+    """Reject a window that cannot be served, before any DB work (186 D4).
+
+    Raises:
+        HTTPException: 422 for a reversed range, and 422 when the estimated bar
+            count exceeds ``ceiling``. Both messages carry what the caller needs
+            to fix the request; neither number is a literal.
+    """
+    if start > end:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"start ({start.isoformat()}) is after end ({end.isoformat()}); "
+                "the requested range is empty"
+            ),
+        )
+
+    estimate = _estimate_bars(granularity, start, end)
+    if estimate > ceiling:
+        max_days = _max_span_days(granularity, ceiling)
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"requested range spans about {estimate:,.0f} {granularity.value} "
+                f"bars, over the {ceiling:,} bar limit; at {granularity.value} "
+                f"request at most {max_days:,} days per call, or use a coarser "
+                "granularity"
+            ),
+        )
+
+
+@router.get(
+    "/api/v1/bars/{symbol}",
+    response_class=Response,
+    responses=GATEWAY_TIMEOUT_RESPONSE,
+)
 async def get_bars(
     symbol: str,
     granularity: Granularity,
@@ -49,6 +124,7 @@ async def get_bars(
     minute_db: Annotated[TimescaleMinuteDataDB, Depends(get_minute_db)],
     daily_db: Annotated[TimescaleDailyDataDB, Depends(get_daily_db)],
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
+    max_bars: Annotated[int, Depends(get_max_bars)],
     adjusted: bool = True,
     fmt: Annotated[Literal["json", "msgpack"], Query(alias="format")] = "json",
 ) -> Response:
@@ -57,7 +133,13 @@ async def get_bars(
     For a cagg-served granularity the response carries ``is_stale``, probed
     against the exact view the bars came from (slice 185 D7). ``M1``/``D1`` read
     raw hypertables, so no probe is issued and ``is_stale`` is always ``False``.
+
+    Windows are admitted before any database work (186 D4): a reversed range or
+    one whose estimated bar count exceeds the configured ceiling is a ``422``,
+    not a slow ``500``.
     """
+    _admit_range(granularity, start, end, max_bars)
+
     loop = asyncio.get_running_loop()
 
     def _fetch_minute() -> pd.DataFrame:
@@ -109,10 +191,19 @@ async def get_bars(
         df = await loop.run_in_executor(None, fetch_bars)
 
     if df.empty:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Symbol '{symbol}' not found or no data in range",
-        )
+        # 404 means "unknown symbol", nothing else (186 D5). A weekend and a
+        # typo used to be indistinguishable. The lookup runs only here, so a
+        # normal response pays nothing for it, and the checkout is scoped to
+        # the query (185 D8a) rather than held across serialization.
+        def _symbol_is_known() -> bool:
+            with pool.connection() as conn:
+                return symbol_exists(conn, symbol)
+
+        if not await loop.run_in_executor(None, _symbol_is_known):
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Symbol '{symbol}' not found",
+            )
 
     response = BarsResponse.from_dataframe(
         symbol,

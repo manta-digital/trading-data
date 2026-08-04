@@ -10,10 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from manta_trading.api_server.deps import get_db
 from manta_trading.api_server.models.responses import (
+    GATEWAY_TIMEOUT_RESPONSE,
     AvailableRange,
     SymbolDetail,
-    SymbolSummary,
     SymbolsResponse,
+    SymbolSummary,
 )
 from manta_trading.constants import Granularity
 
@@ -69,7 +70,7 @@ _DAILY_RANGE_SQL = """
 """
 
 
-@router.get("/api/v1/symbols")
+@router.get("/api/v1/symbols", responses=GATEWAY_TIMEOUT_RESPONSE)
 async def list_symbols(
     search: str | None = None,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)] = None,  # type: ignore[assignment]
@@ -98,7 +99,7 @@ async def list_symbols(
     return SymbolsResponse(symbols=symbols, count=len(symbols))
 
 
-@router.get("/api/v1/symbols/{symbol}")
+@router.get("/api/v1/symbols/{symbol}", responses=GATEWAY_TIMEOUT_RESPONSE)
 async def get_symbol(
     symbol: str,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)] = None,  # type: ignore[assignment]

@@ -12,8 +12,8 @@ projectState: >
   limits, no version wiring, three error-body shapes in circulation, and the
   API process opens three independent connection pools at 300s/512MB.
 dateCreated: 20260803
-dateUpdated: 20260803
-status: not_started
+dateUpdated: 20260804
+status: complete
 ---
 
 ## Context Summary
@@ -43,234 +43,234 @@ status: not_started
 
 ## Task 1 — Branch setup and grounding read
 
-- [ ] Create the slice branch and confirm the starting state
-  - [ ] Confirm `cf config get git.integration_branch` is empty; target is `main`
-  - [ ] From a clean tree on `main`, run
+- [x] Create the slice branch and confirm the starting state
+  - [x] Confirm `cf config get git.integration_branch` is empty; target is `main`
+  - [x] From a clean tree on `main`, run
         `git checkout -b 186-slice.api-client-contract-hardening main`
-  - [ ] Read design D1, D4, D5, D9, D10 in full
-  - [ ] Read `api_server/app.py`, `deps.py`, `routes/bars.py`, and the
+  - [x] Read design D1, D4, D5, D9, D10 in full
+  - [x] Read `api_server/app.py`, `deps.py`, `routes/bars.py`, and the
         `_configure_connection` + `_init_pool` methods of
         `market/timescale_minute_db.py` and `market/timescale_daily_db.py` —
         these five files are where nearly all of this slice lands
-  - [ ] Success: `uv run pytest test/unit/api_server/ -q` passes; record the
+  - [x] Success: `uv run pytest test/unit/api_server/ -q` passes; record the
         baseline test count for later comparison
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
 ---
 
 ## Task 2 — Session-settings and range-cap constants
 
-- [ ] Add the session-settings type and its two instances to `constants.py` (D1)
-  - [ ] `DbSessionSettings` — frozen dataclass, fields `work_mem: str` and
+- [x] Add the session-settings type and its two instances to `constants.py` (D1)
+  - [x] `DbSessionSettings` — frozen dataclass, fields `work_mem: str` and
         `statement_timeout: str`
-  - [ ] `DB_BULK_SESSION = DbSessionSettings("512MB", "300s")` — today's values,
+  - [x] `DB_BULK_SESSION = DbSessionSettings("512MB", "300s")` — today's values,
         now named; docstring says these are for bulk/analytics paths (CLI,
         daemon) and are the defaults every existing consumer keeps
-  - [ ] `API_SERVING_SESSION = DbSessionSettings("64MB", "20s")` — docstring
+  - [x] `API_SERVING_SESSION = DbSessionSettings("64MB", "20s")` — docstring
         records the derivation from D1 (measured serving latencies; `work_mem`
         is per sort/hash node, not per connection)
-  - [ ] Success: both importable; no existing constant renamed or removed
-  - [ ] Effort: 1
+  - [x] Success: both importable; no existing constant renamed or removed
+  - [x] Effort: 1
 
-- [ ] Add the range-cap constants and derivation inputs (D4)
-  - [ ] `API_MAX_BARS_PER_REQUEST: int = 75_000` — docstring records the 75k
+- [x] Add the range-cap constants and derivation inputs (D4)
+  - [x] `API_MAX_BARS_PER_REQUEST: int = 75_000` — docstring records the 75k
         compromise and the payload estimate (~8–10 MB JSON / 3.5–4 MB msgpack)
-  - [ ] `INTRADAY_MINUTES_PER_TRADING_DAY: int = 960` — docstring records the
+  - [x] `INTRADAY_MINUTES_PER_TRADING_DAY: int = 960` — docstring records the
         measurement it comes from: prod, 2026-08-03, coverage 08:00–23:59 UTC,
         AAPL 960 `1m` bars on 2024-06-10. **Not** the 390-minute regular session
-  - [ ] `GRANULARITY_BAR_MINUTES: dict[Granularity, int]` — the five intraday
+  - [x] `GRANULARITY_BAR_MINUTES: dict[Granularity, int]` — the five intraday
         granularities only
-  - [ ] `TRADING_DAYS_PER_CALENDAR_DAY: float = 252 / 365`
-  - [ ] `BARS_PER_TRADING_DAY: dict[Granularity, float]` — **derived** from
+  - [x] `TRADING_DAYS_PER_CALENDAR_DAY: float = 252 / 365`
+  - [x] `BARS_PER_TRADING_DAY: dict[Granularity, float]` — **derived** from
         `INTRADAY_MINUTES_PER_TRADING_DAY / GRANULARITY_BAR_MINUTES` for
         intraday, plus literal `D1: 1.0, W1: 1/5, MO1: 1/21, Q1: 1/63`
-  - [ ] Success: every `Granularity` member has a `BARS_PER_TRADING_DAY` entry;
+  - [x] Success: every `Granularity` member has a `BARS_PER_TRADING_DAY` entry;
         no per-granularity max span is written as a literal anywhere
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Test the constants (`test/unit/test_constants.py` or the existing module)
-  - [ ] Parametrized test: `BARS_PER_TRADING_DAY` is complete over
+- [x] Test the constants (`test/unit/test_constants.py` or the existing module)
+  - [x] Parametrized test: `BARS_PER_TRADING_DAY` is complete over
         `Granularity` and every value is positive
-  - [ ] Assert the derived intraday values equal 960/192/64/16/4 for
+  - [x] Assert the derived intraday values equal 960/192/64/16/4 for
         `1m/5m/15m/1h/4h` — this pins the derivation, not the literals
-  - [ ] Success: tests pass; `ruff` and `mypy` clean on `constants.py`
-  - [ ] Effort: 1
+  - [x] Success: tests pass; `ruff` and `mypy` clean on `constants.py`
+  - [x] Effort: 1
 
 ---
 
 ## Task 3 — Operator-settable policy knobs
 
-- [ ] Add the two settings to `config/__init__.py` (D9)
-  - [ ] `api_max_bars_per_request: int = API_MAX_BARS_PER_REQUEST`
-  - [ ] `api_statement_timeout: str = API_SERVING_SESSION.statement_timeout`
-  - [ ] Comment records that the defaults live in `constants.py` (one
+- [x] Add the two settings to `config/__init__.py` (D9)
+  - [x] `api_max_bars_per_request: int = API_MAX_BARS_PER_REQUEST`
+  - [x] `api_statement_timeout: str = API_SERVING_SESSION.statement_timeout`
+  - [x] Comment records that the defaults live in `constants.py` (one
         definition) and that env names are `MT_API_MAX_BARS_PER_REQUEST` and
         `MT_API_STATEMENT_TIMEOUT` via the existing `MT_` prefix
-  - [ ] Success: `Settings().api_max_bars_per_request == 75_000` with no env set
-  - [ ] Effort: 1
+  - [x] Success: `Settings().api_max_bars_per_request == 75_000` with no env set
+  - [x] Effort: 1
 
-- [ ] Test the overrides (`test/unit/test_config.py` or equivalent)
-  - [ ] `monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "1000")` →
+- [x] Test the overrides (`test/unit/test_config.py` or equivalent)
+  - [x] `monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "1000")` →
         `Settings().api_max_bars_per_request == 1000`
-  - [ ] A non-integer override raises `pydantic.ValidationError` at
+  - [x] A non-integer override raises `pydantic.ValidationError` at
         `Settings()` construction — assert this explicitly; the failure must be
         at load, not at first request
-  - [ ] `MT_API_STATEMENT_TIMEOUT` override is picked up as a string
-  - [ ] Success: tests pass
-  - [ ] Effort: 1
+  - [x] `MT_API_STATEMENT_TIMEOUT` override is picked up as a string
+  - [x] Success: tests pass
+  - [x] Effort: 1
 
 ---
 
 ## Task 4 — Single source for the package version
 
-- [ ] Add `src/manta_trading/version.py` with `package_version() -> str` (D3)
-  - [ ] Body is the existing logic from `cli/app.py:41-49`: try
+- [x] Add `src/manta_trading/version.py` with `package_version() -> str` (D3)
+  - [x] Body is the existing logic from `cli/app.py:41-49`: try
         `importlib.metadata.version(DISTRIBUTION_NAME)`, on
         `PackageNotFoundError` log a warning and return `"dev"`
-  - [ ] Success: module has no imports from `cli` or `api_server` (leaf module)
-  - [ ] Effort: 1
+  - [x] Success: module has no imports from `cli` or `api_server` (leaf module)
+  - [x] Effort: 1
 
-- [ ] Wire both consumers
-  - [ ] `cli/app.py::_version_callback` calls `package_version()`; its inline
+- [x] Wire both consumers
+  - [x] `cli/app.py::_version_callback` calls `package_version()`; its inline
         try/except is deleted, not duplicated
-  - [ ] `api_server/app.py::create_app` passes `version=package_version()` in
+  - [x] `api_server/app.py::create_app` passes `version=package_version()` in
         place of the hardcoded `"0.1.0"`
-  - [ ] Success: `uv run mt --version` and `GET /openapi.json` report the same
+  - [x] Success: `uv run mt --version` and `GET /openapi.json` report the same
         non-`0.1.0` string
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] Test (`test/unit/test_version.py`, plus one api_server assertion)
-  - [ ] Patch `importlib.metadata.version` to raise `PackageNotFoundError` →
+- [x] Test (`test/unit/test_version.py`, plus one api_server assertion)
+  - [x] Patch `importlib.metadata.version` to raise `PackageNotFoundError` →
         `package_version() == "dev"` and a warning is logged
-  - [ ] `create_app().openapi()["info"]["version"] == package_version()`
-  - [ ] Success: tests pass
-  - [ ] Effort: 1
+  - [x] `create_app().openapi()["info"]["version"] == package_version()`
+  - [x] Success: tests pass
+  - [x] Effort: 1
 
 ---
 
 ## Task 5 — Plumb session settings into the two DB classes
 
-- [ ] `TimescaleMinuteDataDB` accepts an optional session argument (D1)
-  - [ ] `__init__(self, conninfo: str, *, session: DbSessionSettings = DB_BULK_SESSION)`
-  - [ ] `_configure_connection` is currently a `@staticmethod` and cannot see
+- [x] `TimescaleMinuteDataDB` accepts an optional session argument (D1)
+  - [x] `__init__(self, conninfo: str, *, session: DbSessionSettings = DB_BULK_SESSION)`
+  - [x] `_configure_connection` is currently a `@staticmethod` and cannot see
         the instance — convert it to an instance method (or bind a closure at
         pool creation) so `configure=` uses this instance's session values
-  - [ ] `work_mem` and `statement_timeout` come from `session`; the class's
+  - [x] `work_mem` and `statement_timeout` come from `session`; the class's
         other SETs (`timezone`, `max_parallel_workers_per_gather`,
         `enable_partitionwise_aggregate`) are unchanged and **not**
         parameterized
-  - [ ] Success: `TimescaleMinuteDataDB(conninfo)` issues exactly the same SQL
+  - [x] Success: `TimescaleMinuteDataDB(conninfo)` issues exactly the same SQL
         it does today
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Same change for `TimescaleDailyDataDB`
-  - [ ] Identical signature and mechanism; this class has no extra SETs
-  - [ ] Success: default construction is behavior-identical to today
-  - [ ] Effort: 1
+- [x] Same change for `TimescaleDailyDataDB`
+  - [x] Identical signature and mechanism; this class has no extra SETs
+  - [x] Success: default construction is behavior-identical to today
+  - [x] Effort: 1
 
-- [ ] Test both classes without a live DB
-  - [ ] Build a fake connection object recording `execute()` calls and an
+- [x] Test both classes without a live DB
+  - [x] Build a fake connection object recording `execute()` calls and an
         `autocommit` attribute; invoke the bound configure callable directly
-  - [ ] Default construction emits `SET work_mem = '512MB'` and
+  - [x] Default construction emits `SET work_mem = '512MB'` and
         `SET statement_timeout = '300s'` — this is the CLI/daemon regression
         guard and is the most important assertion in this task
-  - [ ] Construction with `API_SERVING_SESSION` emits `'64MB'` / `'20s'`
-  - [ ] Minute class still emits its two extra SETs in both cases
-  - [ ] Success: tests pass; no test requires a database
-  - [ ] Effort: 2
+  - [x] Construction with `API_SERVING_SESSION` emits `'64MB'` / `'20s'`
+  - [x] Minute class still emits its two extra SETs in both cases
+  - [x] Success: tests pass; no test requires a database
+  - [x] Effort: 2
 
 ---
 
 ## Task 6 — API lifespan uses the serving session and resolves settings once
 
-- [ ] Update `api_server/app.py` lifespan and pool configuration (D1, D9)
-  - [ ] `_configure_connection` uses `API_SERVING_SESSION.work_mem` and the
+- [x] Update `api_server/app.py` lifespan and pool configuration (D1, D9)
+  - [x] `_configure_connection` uses `API_SERVING_SESSION.work_mem` and the
         configured `statement_timeout` — no literal `'512MB'` or `'300s'`
         remains in `app.py`
-  - [ ] Construct the two DB instances with the same session values so all
+  - [x] Construct the two DB instances with the same session values so all
         three pools match
-  - [ ] Resolve `Settings()` **once** in the lifespan and store the two policy
+  - [x] Resolve `Settings()` **once** in the lifespan and store the two policy
         values on `app.state` (D9: read at startup, not per request)
-  - [ ] Success: a request that touches each pool shows `20s`/`64MB` on every
+  - [x] Success: a request that touches each pool shows `20s`/`64MB` on every
         backend the API owns
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Add a `deps` accessor for the bar ceiling
-  - [ ] `get_max_bars(request) -> int` returning the value stored on
+- [x] Add a `deps` accessor for the bar ceiling
+  - [x] `get_max_bars(request) -> int` returning the value stored on
         `app.state`; docstring notes it is resolved at startup
-  - [ ] Success: importable from `deps.py` alongside `get_db_pool`
-  - [ ] Effort: 1
+  - [x] Success: importable from `deps.py` alongside `get_db_pool`
+  - [x] Effort: 1
 
-- [ ] Test the wiring
-  - [ ] With a fake pool, assert the configure callable emits the API values
-  - [ ] `MT_API_STATEMENT_TIMEOUT=5s` is reflected in what the configure
+- [x] Test the wiring
+  - [x] With a fake pool, assert the configure callable emits the API values
+  - [x] `MT_API_STATEMENT_TIMEOUT=5s` is reflected in what the configure
         callable emits — proves the setting reaches the pool, not just `Settings`
-  - [ ] Success: tests pass
-  - [ ] Effort: 2
+  - [x] Success: tests pass
+  - [x] Effort: 2
 
 ---
 
 ## Task 7 — Range admission cap in `bars.py`
 
-- [ ] Add the estimator and the two rejections (D4)
-  - [ ] `_estimate_bars(granularity, start, end) -> float` and
+- [x] Add the estimator and the two rejections (D4)
+  - [x] `_estimate_bars(granularity, start, end) -> float` and
         `_max_span_days(granularity, ceiling) -> int`, both module-level in
         `bars.py`, both derived from the Task 2 constants
-  - [ ] In `get_bars`, **before** any executor dispatch: `start > end` → `422`;
+  - [x] In `get_bars`, **before** any executor dispatch: `start > end` → `422`;
         estimate over ceiling → `422`
-  - [ ] The over-range message names the estimate, the ceiling, and the maximum
+  - [x] The over-range message names the estimate, the ceiling, and the maximum
         span for that granularity, computed from the live ceiling (never a
         literal `75,000` or `113`)
-  - [ ] Ceiling comes from the `get_max_bars` dependency (Task 6)
-  - [ ] Success: `bars.py` stays under ~200 lines; no DB call precedes either
+  - [x] Ceiling comes from the `get_max_bars` dependency (Task 6)
+  - [x] Success: `bars.py` stays under ~200 lines; no DB call precedes either
         check
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] Test the cap (`test/unit/api_server/test_bars.py`)
-  - [ ] A 20-year `1m` request returns `422` with `{"error": ...}` naming the
+- [x] Test the cap (`test/unit/api_server/test_bars.py`)
+  - [x] A 20-year `1m` request returns `422` with `{"error": ...}` naming the
         ceiling and span
-  - [ ] **The rejected request checks out no connection** — assert with a pool
+  - [x] **The rejected request checks out no connection** — assert with a pool
         whose `.connection()` raises if called. This is the point of the
         decision, not a side effect
-  - [ ] A request one day inside the boundary is admitted; one day outside is
+  - [x] A request one day inside the boundary is admitted; one day outside is
         rejected (parametrized over `1m`, `5m`, `15m`)
-  - [ ] `1d` over 20 years is admitted — the cap never binds at daily grain
-  - [ ] `start > end` returns `422` with the reversed-range message
-  - [ ] With `MT_API_MAX_BARS_PER_REQUEST=1000`, a previously-admitted request
+  - [x] `1d` over 20 years is admitted — the cap never binds at daily grain
+  - [x] `start > end` returns `422` with the reversed-range message
+  - [x] With `MT_API_MAX_BARS_PER_REQUEST=1000`, a previously-admitted request
         is rejected and the message quotes 1,000
-  - [ ] Success: tests pass; no live DB
-  - [ ] Effort: 3
+  - [x] Success: tests pass; no live DB
+  - [x] Effort: 3
 
 ---
 
 ## Task 8 — Empty-window contract and the shared symbol lookup
 
-- [ ] Add `api_server/queries.py` with `symbol_exists` (D5 addendum, F009)
-  - [ ] `_SYMBOL_EXISTS_SQL` — primary-key seek on `instruments`
-  - [ ] `symbol_exists(conn, symbol) -> bool`; no try/except — failures
+- [x] Add `api_server/queries.py` with `symbol_exists` (D5 addendum, F009)
+  - [x] `_SYMBOL_EXISTS_SQL` — primary-key seek on `instruments`
+  - [x] `symbol_exists(conn, symbol) -> bool`; no try/except — failures
         propagate to the global handlers by design
-  - [ ] Success: one definition of the existence check in the codebase;
+  - [x] Success: one definition of the existence check in the codebase;
         `symbols.py`'s fuller `SELECT` is left alone
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] Change the empty-frame branch in `bars.py` (D5)
-  - [ ] On an empty frame, check out a connection from the pool **scoped to the
+- [x] Change the empty-frame branch in `bars.py` (D5)
+  - [x] On an empty frame, check out a connection from the pool **scoped to the
         lookup** (185 D8a pattern) and call `symbol_exists`
-  - [ ] Unknown → `404`; known → `200` with `count: 0`, `bars: []`, and the
+  - [x] Unknown → `404`; known → `200` with `count: 0`, `bars: []`, and the
         already-computed `is_stale`
-  - [ ] Confirm `BarsResponse.from_dataframe` handles an empty frame — it
+  - [x] Confirm `BarsResponse.from_dataframe` handles an empty frame — it
         iterates rows and touches no columns, so it should need no change;
         prove that with a test rather than assuming it
-  - [ ] Success: the non-empty path still checks out no connection for raw
+  - [x] Success: the non-empty path still checks out no connection for raw
         granularities
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Test the contract split
-  - [ ] Known symbol, empty frame → `200`, `count: 0`, `is_stale` present
-  - [ ] Unknown symbol, empty frame → `404` with `{"error": ...}`
-  - [ ] The lookup runs **only** when the frame is empty — assert it is not
+- [x] Test the contract split
+  - [x] Known symbol, empty frame → `200`, `count: 0`, `is_stale` present
+  - [x] Unknown symbol, empty frame → `404` with `{"error": ...}`
+  - [x] The lookup runs **only** when the frame is empty — assert it is not
         called on a non-empty response
-  - [ ] Parametrized over **all nine** granularities, assert a non-empty
+  - [x] Parametrized over **all nine** granularities, assert a non-empty
         response leaves the API pool's checkout count unchanged by this slice
         (review F012): `1m`/`1d` check out **zero** connections, the seven
         cagg-served granularities check out **exactly one** (the 185 freshness
@@ -279,131 +279,131 @@ status: not_started
         `test_raw_granularity_checks_out_no_connection` and
         `test_cagg_granularity_checks_out_exactly_one_connection` are the
         starting point — extend them rather than writing parallel tests
-  - [ ] Lookup raising `psycopg.errors.QueryCanceled` → `504` (needs Task 10;
+  - [x] Lookup raising `psycopg.errors.QueryCanceled` → `504` (needs Task 10;
         write the test now and mark it `xfail` until then, or sequence this
         assertion into Task 10's test)
-  - [ ] Lookup raising another `psycopg.Error` → `500`, never `200` or `404`
-  - [ ] Success: tests pass; no test asserts a default-on-failure behavior
-  - [ ] Effort: 3
+  - [x] Lookup raising another `psycopg.Error` → `500`, never `200` or `404`
+  - [x] Success: tests pass; no test asserts a default-on-failure behavior
+  - [x] Effort: 3
 
 ---
 
 ## Task 9 — Unified error bodies
 
-- [ ] Widen the `HTTPException` handler in `create_app` (D6)
-  - [ ] Every `HTTPException` returns `{"error": str(exc.detail)}`, not just
+- [x] Widen the `HTTPException` handler in `create_app` (D6)
+  - [x] Every `HTTPException` returns `{"error": str(exc.detail)}`, not just
         `404`; the existing `Exception` handler is unchanged
-  - [ ] `status.py` needs **no** change — its two `422`s raise `HTTPException`
+  - [x] `status.py` needs **no** change — its two `422`s raise `HTTPException`
         and inherit the new body. Verify this rather than editing the route
-  - [ ] Update the status route docstring if it still describes a `detail` body
-  - [ ] Success: no route module constructs an error body of its own
-  - [ ] Effort: 1
+  - [x] Update the status route docstring if it still describes a `detail` body
+  - [x] Success: no route module constructs an error body of its own
+  - [x] Effort: 1
 
-- [ ] Test all three shapes
-  - [ ] `404` from bars → `{"error": ...}`
-  - [ ] `422` from `?health=` on the status route → `{"error": ...}`
-  - [ ] `422` from an invalid `granularity` (FastAPI validation) → still
+- [x] Test all three shapes
+  - [x] `404` from bars → `{"error": ...}`
+  - [x] `422` from `?health=` on the status route → `{"error": ...}`
+  - [x] `422` from an invalid `granularity` (FastAPI validation) → still
         `{"detail": [...]}` — the documented exception, asserted deliberately
         so a future change cannot silently unify it
-  - [ ] Success: tests pass
-  - [ ] Effort: 2
+  - [x] Success: tests pass
+  - [x] Effort: 2
 
 ---
 
 ## Task 10 — Cancelled queries return `504`
 
-- [ ] Register the `QueryCanceled` handler in `create_app` (D10)
-  - [ ] Handler for `psycopg.errors.QueryCanceled` returning `504` with
+- [x] Register the `QueryCanceled` handler in `create_app` (D10)
+  - [x] Handler for `psycopg.errors.QueryCanceled` returning `504` with
         `{"error": "query exceeded the server's <configured> budget; narrow the
         requested range or use a coarser granularity"}`
-  - [ ] The budget string comes from the resolved setting on `app.state`, never
+  - [x] The budget string comes from the resolved setting on `app.state`, never
         a literal `20s`
-  - [ ] Log at WARNING with method, path, and query string — handled and
+  - [x] Log at WARNING with method, path, and query string — handled and
         operator-actionable, not a crash
-  - [ ] Declare `504` in the `responses=` of the bars, status, symbols, and gaps
+  - [x] Declare `504` in the `responses=` of the bars, status, symbols, and gaps
         routes so it lands in the committed schema
-  - [ ] Success: the handler is narrower than, and takes precedence over, the
+  - [x] Success: the handler is narrower than, and takes precedence over, the
         global `Exception` handler
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Test the mapping
-  - [ ] A route whose DB call raises `QueryCanceled` → `504`, and the message
+- [x] Test the mapping
+  - [x] A route whose DB call raises `QueryCanceled` → `504`, and the message
         quotes the configured budget (test with a non-default value so a
         hardcoded `20s` would fail)
-  - [ ] A route raising a different `psycopg.Error` → still `500` with the
+  - [x] A route raising a different `psycopg.Error` → still `500` with the
         sanitized body
-  - [ ] **A cancelled freshness probe must NOT produce a `504`** (review F011).
+  - [x] **A cancelled freshness probe must NOT produce a `504`** (review F011).
         Make `assert_cagg_fresh`'s probe raise `QueryCanceled` internally and
         assert `/health` returns `200` with `coverage: "stale"`, and a bars
         request returns `200` with `is_stale: true`. This pins D10's
         load-bearing claim that a `504` always means a *data* query was
         cancelled — without it, `504` could mean "coverage probe timed out",
         for which "narrow the requested range" is useless advice
-  - [ ] The `504` appears in `create_app().openapi()` for all four routes
-  - [ ] Success: tests pass
-  - [ ] Effort: 2
+  - [x] The `504` appears in `create_app().openapi()` for all four routes
+  - [x] Success: tests pass
+  - [x] Effort: 2
 
 ---
 
 ## Task 11 — Committed OpenAPI artifact
 
-- [ ] Add `scripts/dump_openapi.py` (D7)
-  - [ ] Writes `create_app().openapi()` to `docs/api/openapi.json`, stable key
+- [x] Add `scripts/dump_openapi.py` (D7)
+  - [x] Writes `create_app().openapi()` to `docs/api/openapi.json`, stable key
         order, trailing newline
-  - [ ] `--check` mode compares instead of writing and exits non-zero on drift
-  - [ ] Note in the module docstring that schema generation does not enter the
+  - [x] `--check` mode compares instead of writing and exits non-zero on drift
+  - [x] Note in the module docstring that schema generation does not enter the
         lifespan, so no database is required
-  - [ ] Success: `uv run python scripts/dump_openapi.py` writes the file with
+  - [x] Success: `uv run python scripts/dump_openapi.py` writes the file with
         no DB configured
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Commit the artifact and its drift test
-  - [ ] Generate and commit `docs/api/openapi.json`
-  - [ ] `test/unit/api_server/test_openapi_artifact.py`: committed document
+- [x] Commit the artifact and its drift test
+  - [x] Generate and commit `docs/api/openapi.json`
+  - [x] `test/unit/api_server/test_openapi_artifact.py`: committed document
         equals generated **ignoring `info.version`**; generated `info.version`
         equals `package_version()`
-  - [ ] Success: both assertions pass; a deliberate route-signature edit makes
+  - [x] Success: both assertions pass; a deliberate route-signature edit makes
         the first fail
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
 ---
 
 ## Task 12 — README and CHANGELOG
 
-- [ ] Update the README API section
-  - [ ] Endpoint list gains the `/api/v1/status` entry (landed in 185 but never
+- [x] Update the README API section
+  - [x] Endpoint list gains the `/api/v1/status` entry (landed in 185 but never
         documented) and notes `is_stale` on bars responses
-  - [ ] New subsection: error shapes (`{"error": ...}` plus the documented
+  - [x] New subsection: error shapes (`{"error": ...}` plus the documented
         FastAPI validation exception), the range cap and its per-granularity
         effect, the `404` vs empty-`200` split, and `504`
-  - [ ] Document `MT_API_MAX_BARS_PER_REQUEST` and `MT_API_STATEMENT_TIMEOUT`
+  - [x] Document `MT_API_MAX_BARS_PER_REQUEST` and `MT_API_STATEMENT_TIMEOUT`
         with their defaults, and link `docs/api/openapi.json`
-  - [ ] Success: a client dev can learn the contract from the README alone
-  - [ ] Effort: 2
+  - [x] Success: a client dev can learn the contract from the README alone
+  - [x] Effort: 2
 
-- [ ] Add the CHANGELOG entry under `[Unreleased]`
-  - [ ] Both breaking changes called out as breaking (D5, D6)
-  - [ ] Success: entry names the version-metadata fix, the cap, `504`, and the
+- [x] Add the CHANGELOG entry under `[Unreleased]`
+  - [x] Both breaking changes called out as breaking (D5, D6)
+  - [x] Success: entry names the version-metadata fix, the cap, `504`, and the
         two settings
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
 ---
 
 ## Task 13 — Prod verification and the D1 measurement
 
-- [ ] Run the design's Verification Walkthrough against prod `trading`
-  - [ ] Steps 1–2: server starts; all three pools show `20s`/`64MB`
-  - [ ] Step 3: measure the four slowest legitimate calls. **If any exceeds 8 s,
+- [x] Run the design's Verification Walkthrough against prod `trading`
+  - [x] Steps 1–2: server starts; all three pools show `20s`/`64MB`
+  - [x] Step 3: measure the four slowest legitimate calls. **If any exceeds 8 s,
         raise `API_SERVING_SESSION.statement_timeout` and record the numbers in
         design D1** — the constant is derived from this measurement, not asserted
-  - [ ] Step 6: a 112-day dense `1m` request — record `count`, elapsed time, and
+  - [x] Step 6: a 112-day dense `1m` request — record `count`, elapsed time, and
         payload size; compare against D4's ~8–10 MB estimate and correct the
         design if it is off
-  - [ ] Step 7: both overrides, including `MT_API_STATEMENT_TIMEOUT=100ms` to
+  - [x] Step 7: both overrides, including `MT_API_STATEMENT_TIMEOUT=100ms` to
         induce a real `QueryCanceled` → `504`
-  - [ ] Steps 8–12: reversed range, empty vs unknown symbol, error bodies,
+  - [x] Steps 8–12: reversed range, empty vs unknown symbol, error bodies,
         schema artifact, CLI unaffected
-  - [ ] Rewrite the design's **Verification Walkthrough section only** with the
+  - [x] Rewrite the design's **Verification Walkthrough section only** with the
         actual commands run, the observed output, and any caveats found. This is
         mandated, not optional: Phase 4 creates the walkthrough as "the draft
         walkthrough that will be refined when Phase 6 (Implementation) is
@@ -411,36 +411,36 @@ status: not_started
         that one section — do **not** revise decisions D1–D11 here. The single
         exception is the two measurements D1 and D4 explicitly ask for
         (statement timeout, payload size), which are recorded in place
-  - [ ] Success: every step passes or its deviation is recorded in the design;
+  - [x] Success: every step passes or its deviation is recorded in the design;
         no section other than the walkthrough (plus those two measurements) is
         edited
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] Confirm the architecture document still matches what was built
-  - [ ] Re-read the five sections D11 corrected in `180-arch.data-serving.md`
+- [x] Confirm the architecture document still matches what was built
+  - [x] Re-read the five sections D11 corrected in `180-arch.data-serving.md`
         (already committed in Phase 4) against the landed code
-  - [ ] Success: no correction needed, or the correction is committed
-  - [ ] Effort: 1
+  - [x] Success: no correction needed, or the correction is committed
+  - [x] Effort: 1
 
 ---
 
 ## Task 14 — Close-out
 
-- [ ] Full verification
-  - [ ] `uv run pytest test/unit -q` — compare pass count and error list against
+- [x] Full verification
+  - [x] `uv run pytest test/unit -q` — compare pass count and error list against
         the Task 1 baseline; the 35 pre-existing DB-host errors are expected
-  - [ ] `uv run --extra dev mypy src/manta_trading/api_server/` clean; `ruff`
+  - [x] `uv run --extra dev mypy src/manta_trading/api_server/` clean; `ruff`
         clean on every touched file (pre-existing errors in untouched files
         stay untouched)
-  - [ ] Regenerate `docs/api/openapi.json` as the final step so it reflects the
+  - [x] Regenerate `docs/api/openapi.json` as the final step so it reflects the
         merged state
-  - [ ] Success: suite green, static analysis clean on touched files
-  - [ ] Effort: 1
+  - [x] Success: suite green, static analysis clean on touched files
+  - [x] Effort: 1
 
-- [ ] Commit and merge
-  - [ ] Semantic commits throughout; mark tasks complete via `task-checker`
-  - [ ] `cf check` clean before merge
-  - [ ] Merge to `main` with `--no-ff` and the message
+- [x] Commit and merge
+  - [x] Semantic commits throughout; mark tasks complete via `task-checker`
+  - [x] `cf check` clean before merge
+  - [x] Merge to `main` with `--no-ff` and the message
         `Merge slice 186: API client-contract hardening`
-  - [ ] Success: `main` green, `cf check` clean post-merge, branch left in place
-  - [ ] Effort: 1
+  - [x] Success: `main` green, `cf check` clean post-merge, branch left in place
+  - [x] Effort: 1

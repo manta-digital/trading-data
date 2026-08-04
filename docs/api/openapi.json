@@ -1,0 +1,1066 @@
+{
+  "components": {
+    "schemas": {
+      "AvailableRange": {
+        "description": "Date range over which data is available for a granularity group.",
+        "properties": {
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "AvailableRange",
+        "type": "object"
+      },
+      "CoverageStatus": {
+        "description": "Freshness of the caggs behind ``data_status``, one per ``COVERAGE_VIEWS``.",
+        "properties": {
+          "is_stale": {
+            "title": "Is Stale",
+            "type": "boolean"
+          },
+          "verdicts": {
+            "items": {
+              "$ref": "#/components/schemas/CoverageVerdict"
+            },
+            "title": "Verdicts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "is_stale",
+          "verdicts"
+        ],
+        "title": "CoverageStatus",
+        "type": "object"
+      },
+      "CoverageVerdict": {
+        "description": "One coverage cagg's freshness verdict, serialized (slice 185 D2).\n\nThe wire form of ``cagg_freshness.FreshnessVerdict``: ``timedelta`` fields\nbecome float seconds and ``StalenessSignal`` members become their string\nvalues. Nothing is recomputed here \u2014 this is a projection.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "is_fresh": {
+            "title": "Is Fresh",
+            "type": "boolean"
+          },
+          "lag_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lag Seconds"
+          },
+          "signals": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
+          "threshold_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold Seconds"
+          },
+          "view_name": {
+            "title": "View Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_name",
+          "is_fresh",
+          "signals",
+          "lag_seconds",
+          "threshold_seconds",
+          "detail"
+        ],
+        "title": "CoverageVerdict",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "The uniform error body for every error this codebase raises (186 D6).\n\nFastAPI's own ``RequestValidationError`` is the one documented exception:\nit keeps its native ``detail`` list, which carries per-field ``loc``/``msg``\nthat a flattened string would lose.",
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "GapRecord": {
+        "description": "A single row from the ``data_gaps`` table.",
+        "properties": {
+          "attempt_count": {
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "fetch_status": {
+            "title": "Fetch Status",
+            "type": "string"
+          },
+          "gap_end": {
+            "format": "date-time",
+            "title": "Gap End",
+            "type": "string"
+          },
+          "gap_start": {
+            "format": "date-time",
+            "title": "Gap Start",
+            "type": "string"
+          },
+          "granularity": {
+            "title": "Granularity",
+            "type": "string"
+          },
+          "last_attempt_ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt Ts"
+          }
+        },
+        "required": [
+          "gap_start",
+          "gap_end",
+          "granularity",
+          "fetch_status",
+          "attempt_count",
+          "last_attempt_ts"
+        ],
+        "title": "GapRecord",
+        "type": "object"
+      },
+      "GapsResponse": {
+        "description": "Response body for ``GET /api/v1/gaps/{symbol}``.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/GapRecord"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "count",
+          "gaps"
+        ],
+        "title": "GapsResponse",
+        "type": "object"
+      },
+      "Granularity": {
+        "description": "Canonical granularity tokens for OHLCV data requests.\n\nSee :class:`CycleGranularity` for the daemon/bookkeeping vocabulary; these\nare request tokens and the two are not interchangeable.",
+        "enum": [
+          "1m",
+          "5m",
+          "15m",
+          "1h",
+          "4h",
+          "1d",
+          "1w",
+          "1mo",
+          "1q"
+        ],
+        "title": "Granularity",
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Response body for ``GET /api/v1/health``.\n\nHTTP status is always 200 \u2014 callers distinguish a healthy DB from a\nfailing one via the ``db`` field, not the HTTP status code.",
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "stale"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "db": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Db",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "db"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "StatusResponse": {
+        "description": "Response body for ``GET /api/v1/status`` (slice 185 D2).\n\n``summary`` is always the full-universe health-count breakdown, unfiltered\nby ``symbol``/``health`` \u2014 it answers \"how healthy is the whole registry\",\nindependent of what ``rows`` happens to show.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageStatus"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/StatusRowRecord"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scope": {
+            "enum": [
+              "symbol",
+              "all"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Summary",
+            "type": "object"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          }
+        },
+        "required": [
+          "scope",
+          "symbol",
+          "count",
+          "rows",
+          "summary",
+          "coverage"
+        ],
+        "title": "StatusResponse",
+        "type": "object"
+      },
+      "StatusRowRecord": {
+        "description": "One ``data_status`` row \u2014 the wire form of ``StatusRow``.",
+        "properties": {
+          "bars_stored": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bars Stored"
+          },
+          "effective_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Start"
+          },
+          "first_bar_ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Bar Ts"
+          },
+          "gap_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Count"
+          },
+          "granularity": {
+            "title": "Granularity",
+            "type": "string"
+          },
+          "health": {
+            "title": "Health",
+            "type": "string"
+          },
+          "last_attempt_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt Outcome"
+          },
+          "last_attempt_ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt Ts"
+          },
+          "last_bar_ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Bar Ts"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target_end_ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target End Ts"
+          }
+        },
+        "required": [
+          "symbol",
+          "granularity",
+          "health",
+          "bars_stored",
+          "first_bar_ts",
+          "last_bar_ts",
+          "gap_count",
+          "last_attempt_ts",
+          "last_attempt_outcome",
+          "target_end_ts",
+          "effective_start"
+        ],
+        "title": "StatusRowRecord",
+        "type": "object"
+      },
+      "SymbolDetail": {
+        "description": "Full instrument metadata plus available data ranges.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "asset_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Class"
+          },
+          "available": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AvailableRange"
+            },
+            "title": "Available",
+            "type": "object"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "required": [
+          "symbol",
+          "exchange",
+          "type",
+          "asset_class",
+          "active",
+          "available"
+        ],
+        "title": "SymbolDetail",
+        "type": "object"
+      },
+      "SymbolSummary": {
+        "description": "Condensed instrument metadata for list responses.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "asset_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Class"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "required": [
+          "symbol",
+          "exchange",
+          "type",
+          "asset_class",
+          "active"
+        ],
+        "title": "SymbolSummary",
+        "type": "object"
+      },
+      "SymbolsResponse": {
+        "description": "Response body for ``GET /api/v1/symbols``.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "symbols": {
+            "items": {
+              "$ref": "#/components/schemas/SymbolSummary"
+            },
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols",
+          "count"
+        ],
+        "title": "SymbolsResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Data serving API for OHLCV bars, symbol metadata, and gap status.",
+    "title": "Manta Trading API",
+    "version": "0.7.4"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/bars/{symbol}": {
+      "get": {
+        "description": "Return OHLCV bars for ``symbol`` over the requested date range.\n\nFor a cagg-served granularity the response carries ``is_stale``, probed\nagainst the exact view the bars came from (slice 185 D7). ``M1``/``D1`` read\nraw hypertables, so no probe is issued and ``is_stale`` is always ``False``.\n\nWindows are admitted before any database work (186 D4): a reversed range or\none whose estimated bar count exceeds the configured ceiling is a ``422``,\nnot a slow ``500``.",
+        "operationId": "get_bars_api_v1_bars__symbol__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "granularity",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Granularity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "adjusted",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Adjusted",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Bars"
+      }
+    },
+    "/api/v1/gaps/{symbol}": {
+      "get": {
+        "description": "Return data gaps for ``symbol``, filtered by granularity and date window.",
+        "operationId": "get_gaps_api_v1_gaps__symbol__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Granularity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Granularity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Gaps"
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Liveness/readiness probe.\n\nReturns HTTP 200 in both healthy and DB-error cases \u2014 callers\ndistinguish DB state via the ``db`` field of the response body.\n\n``coverage`` is a coarse pipeline-health signal: exactly the two coverage\ncaggs behind ``data_status`` (slice 185 D6), not a probe of all seven\nbar-serving caggs. Per-granularity truth belongs to the bars endpoint's own\n``is_stale`` field.\n\nDeliberately a **sync** handler: FastAPI runs sync routes in a worker\nthread, so the blocking freshness probe needs no ``run_in_executor``.",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/v1/status": {
+      "get": {
+        "description": "Return ``data_status`` health rows plus coverage-cagg freshness.\n\nAn unknown or non-matching ``symbol`` is a 200 with ``rows: []`` (D5) \u2014\n``scope`` still reports ``\"symbol\"`` so a client can tell \"filtered scope,\nnothing matched\" from \"whole registry\".\n\nDB failures are not caught here (D9): the freshness probes never raise (a\nfailed probe is a stale verdict), and a genuine ``data_status`` query\nfailure propagates to the global 500 handler in ``app.py``.",
+        "operationId": "get_status_api_v1_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Symbol"
+            }
+          },
+          {
+            "in": "query",
+            "name": "health",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Health"
+            }
+          },
+          {
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "daily",
+                    "minute"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Granularity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "all",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "All",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Status"
+      }
+    },
+    "/api/v1/symbols": {
+      "get": {
+        "description": "Return instruments matching an optional prefix search.",
+        "operationId": "list_symbols_api_v1_symbols_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SymbolsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "List Symbols"
+      }
+    },
+    "/api/v1/symbols/{symbol}": {
+      "get": {
+        "description": "Return full metadata and available data ranges for a single symbol.",
+        "operationId": "get_symbol_api_v1_symbols__symbol__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SymbolDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Symbol"
+      }
+    }
+  }
+}

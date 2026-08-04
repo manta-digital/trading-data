@@ -239,7 +239,7 @@ FastAPI exception handlers, registered in `app.py`:
 - **404** — symbol not found in the instruments table. **Revised by slice 186 (D5):** an empty result for a *known* symbol is `200` with `count: 0`, not `404` — a weekend must not be indistinguishable from a typo.
 - **422** — invalid query params (FastAPI/Pydantic raises this automatically for type errors); also, per slice 186 (D4), a window exceeding the range cap or a `start` after its `end`.
 - **500** — unhandled DB error. Error detail is logged server-side but response body returns a sanitized message only — no SQL leaks to clients.
-- **504** — added by slice 186 (D10): the DB cancelled a query on `statement_timeout`. Distinguished from `500` because it is not a server fault and a narrower window is a reasonable retry.
+- **504** — added by slice 186 (D10): the DB cancelled a query on `statement_timeout`. Distinguished from `500` because it is not a server fault and a narrower window is a reasonable retry. **`statement_timeout` bounds a statement, not a request** — a route that issues many statements can exceed the budget many times over without any of them being cancelled. Slice 186 D12b measured a 95-second request under a 20-second budget for exactly this reason. Request-level latency is not enforced anywhere; treat the timeout as a guard against one runaway scan, not as a latency ceiling.
 
 All error responses raised by this codebase use a consistent shape: `{"error": "<message>"}`. The one deliberate exception is FastAPI's own `RequestValidationError` body (`{"detail": [{"loc": …, "msg": …}]}`), kept native because it carries per-field structure a flattened string would lose (slice 186 D6).
 
