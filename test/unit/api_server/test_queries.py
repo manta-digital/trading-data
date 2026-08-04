@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import psycopg
 import pytest
 
+from manta_trading.api_server import queries
 from manta_trading.api_server.queries import (
     _DAILY_HEAD_ONLY_SQL,
     _MINUTE_HEAD_ONLY_SQL,
@@ -312,6 +313,33 @@ class TestUniverseEdgeCache:
         edges = cache.get(conn, now=self._clock(_T0))
         assert set(edges) == {_MINUTE, _DAILY}
         assert conn.execute.call_count == 1
+
+    def test_module_clock_is_resolved_at_call_time_not_import_time(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Monkeypatching the module clock must actually reach the cache.
+
+        A ``now=_utcnow`` *default argument* would be evaluated once at import,
+        so this patch would rebind the module attribute while the captured
+        default kept pointing at the original — a freeze that silently does
+        nothing and lets TTL expiry run off the real clock. Same failure mode
+        ``cagg_freshness._now`` documents; this pins that we avoided it.
+        """
+        conn = _rows_conn([(_MINUTE.value, _EDGE_MINUTE), (_DAILY.value, _EDGE_DAILY)])
+        cache = UniverseEdgeCache()
+
+        monkeypatch.setattr(queries, "_utcnow", lambda: _T0)
+        cache.get(conn)
+        cache.get(conn)
+        assert conn.execute.call_count == 1, "frozen clock must keep the entry warm"
+
+        # Advance the patched clock past the TTL: a re-probe proves the seam is
+        # live rather than captured.
+        monkeypatch.setattr(
+            queries, "_utcnow", lambda: _T0 + CAGG_FRESHNESS_CACHE_TTL * 2
+        )
+        cache.get(conn)
+        assert conn.execute.call_count == 2
 
     def test_clear_forces_a_refetch(self) -> None:
         conn = _rows_conn([(_MINUTE.value, _EDGE_MINUTE), (_DAILY.value, _EDGE_DAILY)])

@@ -128,8 +128,9 @@ class TestContentEdgeFresh:
         _refresh_daily_coverage(coverage_db)
 
         with psycopg.connect(coverage_db) as conn:
-            lag = _content_edge_lag(conn, DAILY_COVERAGE_VIEW)
+            lag, probe_failed = _content_edge_lag(conn, DAILY_COVERAGE_VIEW)
 
+        assert probe_failed is False
         assert lag == timedelta(0), (
             "a freshly refreshed cagg's last_bucket must equal its source's "
             f"max(time); measured {lag}"
@@ -205,11 +206,12 @@ class TestContentEdgeStale:
         raw_edge = self._make_stale(coverage_db)
 
         with psycopg.connect(coverage_db) as conn:
-            lag = _content_edge_lag(conn, DAILY_COVERAGE_VIEW)
+            lag, probe_failed = _content_edge_lag(conn, DAILY_COVERAGE_VIEW)
             cagg_edge = conn.execute(
                 f"SELECT max(last_bucket) FROM {DAILY_COVERAGE_VIEW}"  # noqa: S608
             ).fetchone()
 
+        assert probe_failed is False
         assert cagg_edge is not None and cagg_edge[0] is not None
         assert lag == raw_edge - cagg_edge[0]
 

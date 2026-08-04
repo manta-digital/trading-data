@@ -126,7 +126,7 @@ class TestStalenessSignal:
     """The enum is the dispatch vocabulary; adding a member without test
     coverage should break the suite."""
 
-    def test_has_exactly_the_seven_expected_members(self) -> None:
+    def test_has_exactly_the_eight_expected_members(self) -> None:
         assert {member.value for member in StalenessSignal} == {
             "LAG_EXCEEDS_THRESHOLD",
             "NOT_SCHEDULED",
@@ -134,9 +134,10 @@ class TestStalenessSignal:
             "LAST_RUN_FAILED",
             "NO_JOB_ROW",
             "PROBE_FAILED",
-            # Slice 187 D6. Raised by the coverage-specific check only; the
-            # generic evaluation below must never emit it.
+            # Slice 187 D6. Both are raised by the coverage-specific check
+            # only; the generic evaluation below must never emit either.
             "CONTENT_EDGE_TOO_OLD",
+            "CONTENT_EDGE_PROBE_FAILED",
         }
 
     def test_generic_evaluation_never_emits_the_coverage_content_signal(self) -> None:
@@ -801,20 +802,29 @@ class _WideBucketConnection(_RecordingConnection):
     """
 
     def __init__(self, *, raw_edge: datetime, cagg_edge: datetime) -> None:
-        self._raw_edge = raw_edge
-        self._cagg_edge = cagg_edge
+        # Public: the cursor is handed these directly rather than reaching back
+        # through the connection for private attributes (review F005).
+        self.raw_edge = raw_edge
+        self.cagg_edge = cagg_edge
         super().__init__(rows=[])
 
     def cursor(self) -> _RecordingCursor:
-        return _BucketingCursor(self)
+        return _BucketingCursor(self, raw_edge=self.raw_edge, cagg_edge=self.cagg_edge)
 
 
 class _BucketingCursor(_RecordingCursor):
     """Answers each probe from the SQL it was handed rather than from a queue."""
 
-    def __init__(self, conn: _WideBucketConnection) -> None:
+    def __init__(
+        self,
+        conn: _WideBucketConnection,
+        *,
+        raw_edge: datetime,
+        cagg_edge: datetime,
+    ) -> None:
         super().__init__(conn.log, conn._rows, conn)
-        self._wide = conn
+        self._raw_edge = raw_edge
+        self._cagg_edge = cagg_edge
         self._answer: Any = None
 
     def execute(self, query: object, params: object = None) -> None:
@@ -832,14 +842,14 @@ class _BucketingCursor(_RecordingCursor):
         elif "max(" in text and "time_bucket(" in text:
             # _raw_max WITH alignment: the database floors the raw edge onto the
             # cagg's grid before returning it.
-            self._answer = (_align(self._wide._raw_edge, timedelta(days=365)),)
+            self._answer = (_align(self._raw_edge, timedelta(days=365)),)
         elif '"minute_coverage"' in text or "time_bucket" in text:
             # _cagg_max: the cagg's own materialized edge, already a bucket start.
-            self._answer = (self._wide._cagg_edge,)
+            self._answer = (self._cagg_edge,)
         else:
             # _raw_max WITHOUT alignment (plain max(time)) — the shape the probe
             # degrades to if the bucketing step is removed.
-            self._answer = (self._wide._raw_edge,)
+            self._answer = (self._raw_edge,)
 
     def fetchone(self) -> Any:
         if self._show_pending:

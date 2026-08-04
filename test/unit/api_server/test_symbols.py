@@ -79,6 +79,10 @@ def test_available_range_fields() -> None:
 def test_app() -> FastAPI:
     """Fresh app with DB pool mocked; lifespan is not entered."""
     app = create_app()
+    # Unused while every test below overrides get_db, but deliberately kept
+    # (review F004): get_db *does* read app.state.db_pool, so without this a
+    # future test that skips the override fails with a bare AttributeError from
+    # starlette's State rather than on its own assertion.
     app.state.db_pool = MagicMock(name="sentinel_pool")
     # Lifespan is what normally puts this on app.state (187 D3). A real cache
     # rather than a mock: the route's merge depends on the edges it returns, so
@@ -286,9 +290,17 @@ def test_ranges_are_read_in_one_executor_dispatch(test_app: FastAPI) -> None:
         """Proxy that records each executor dispatch and delegates everything
         else to the real running loop.
 
-        A proxy rather than a substitute loop: TestClient owns the event loop,
-        so the awaited future must come from *that* loop or the await never
-        completes.
+        **Why a proxy and not a substitute loop.** ``TestClient`` creates and
+        owns the event loop the handler runs on, so the future returned by
+        ``run_in_executor`` must come from *that* loop — a loop constructed here
+        would never be the one awaiting, and the request hangs until the
+        pytest-timeout kills it (observed while writing this test). Delegating
+        every other attribute keeps the object a real loop in all respects
+        except the one call this test counts.
+
+        ``__getattr__`` fires only for attributes missing on the proxy, so a
+        genuinely absent loop attribute still raises ``AttributeError`` from the
+        underlying loop, unchanged (review F007).
         """
 
         def __init__(self, loop: Any) -> None:

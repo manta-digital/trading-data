@@ -159,6 +159,16 @@ def fetch_universe_edges(
     return edges
 
 
+def _utcnow() -> datetime:
+    """Wall clock, isolated so tests can substitute it via monkeypatch.
+
+    Callers taking a ``now`` seam must default it to ``None`` and resolve it
+    here at call time rather than binding this function as a default argument
+    value — see ``UniverseEdgeCache.get`` and ``cagg_freshness._now`` for why.
+    """
+    return datetime.now(UTC)
+
+
 class UniverseEdgeCache:
     """TTL cache for the universe-wide coverage edges (D3).
 
@@ -190,16 +200,24 @@ class UniverseEdgeCache:
         self,
         conn: psycopg.Connection[Any],
         *,
-        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        now: Callable[[], datetime] | None = None,
     ) -> dict[CycleGranularity, date | None]:
         """Return the cached edges, refreshing them if the TTL has expired.
 
         Args:
             conn: Connection used only on a miss.
-            now:  Clock seam, so expiry is testable without sleeping.
+            now:  Clock seam, so expiry is testable without sleeping. Defaults
+                  to ``None`` and resolves to :func:`_utcnow` at call time —
+                  **not** to a default argument value. A default is evaluated
+                  once at import, so ``monkeypatch.setattr(queries, "_utcnow",
+                  ...)`` would rebind the module attribute while the captured
+                  default kept pointing at the original, a freeze that silently
+                  does nothing. Same rule, and the same reason, as
+                  ``cagg_freshness._now``.
         """
+        clock = _utcnow if now is None else now
         with self._lock:
-            current = now()
+            current = clock()
             if (
                 self._edges is not None
                 and self._fetched_at is not None

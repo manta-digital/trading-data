@@ -338,10 +338,15 @@ class TestContentEdgeCheck:
 
     @staticmethod
     def _with_lag(
-        monkeypatch: pytest.MonkeyPatch, lag: timedelta | None
+        monkeypatch: pytest.MonkeyPatch,
+        lag: timedelta | None,
+        *,
+        probe_failed: bool = False,
     ) -> None:
         monkeypatch.setattr(
-            status_coverage, "_content_edge_lag", lambda _conn, _view: lag
+            status_coverage,
+            "_content_edge_lag",
+            lambda _conn, _view: (lag, probe_failed),
         )
 
     def test_lag_beyond_the_threshold_fires_the_signal(
@@ -391,6 +396,34 @@ class TestContentEdgeCheck:
         assert StalenessSignal.NOT_SCHEDULED in result.signals
         assert StalenessSignal.CONTENT_EDGE_TOO_OLD in result.signals
 
+    def test_content_probe_failure_makes_the_verdict_stale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Review F003 — the case that would otherwise report fresh silently.
+
+        The generic probes succeeded, so nothing else in the verdict records
+        that this check was attempted. Returning "no lag" would report fresh on
+        a check that never ran: the vacuous verdict this slice exists to
+        eliminate, reintroduced through the error path.
+        """
+        self._with_lag(monkeypatch, None, probe_failed=True)
+        result = status_coverage._apply_content_edge_check(
+            _CONN, _fresh(self._VIEW)
+        )
+        assert result.is_fresh is False
+        assert StalenessSignal.CONTENT_EDGE_PROBE_FAILED in result.signals
+        assert StalenessSignal.CONTENT_EDGE_TOO_OLD not in result.signals
+
+    def test_content_probe_failure_is_distinct_from_a_measured_zero_lag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A measured lag of None (empty table) is NOT staleness; a failed probe
+        # is. Same `lag is None`, opposite verdicts — which is exactly why the
+        # helper returns a flag rather than overloading None.
+        self._with_lag(monkeypatch, None, probe_failed=False)
+        verdict = _fresh(self._VIEW)
+        assert status_coverage._apply_content_edge_check(_CONN, verdict) is verdict
+
     def test_probe_failed_verdict_skips_the_content_check(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -399,7 +432,7 @@ class TestContentEdgeCheck:
         # strongest grounds (168 D3). Regression guard: without this skip, the
         # health route's cancelled-probe path computes a lag from a connection
         # that just failed.
-        def _must_not_probe(_conn: Any, _view: str) -> timedelta:
+        def _must_not_probe(_conn: Any, _view: str) -> tuple[timedelta, bool]:
             raise AssertionError("content-edge probe ran after PROBE_FAILED")
 
         monkeypatch.setattr(status_coverage, "_content_edge_lag", _must_not_probe)

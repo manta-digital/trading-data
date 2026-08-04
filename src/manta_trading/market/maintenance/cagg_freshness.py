@@ -144,6 +144,15 @@ class StalenessSignal(StrEnum):
     unaligned comparison meaningful for them and unavailable in general.
     """
 
+    CONTENT_EDGE_PROBE_FAILED = "CONTENT_EDGE_PROBE_FAILED"
+    """The content-edge probe raised while the generic probes succeeded.
+
+    Distinct from ``PROBE_FAILED``, which covers the generic evaluation's own
+    reads. Without a separate signal this case is invisible: the generic verdict
+    would stand and report fresh on a check that never ran. Indeterminate is
+    stale (168 D3), so it refuses like any other signal.
+    """
+
 
 @dataclass(frozen=True)
 class FreshnessVerdict:

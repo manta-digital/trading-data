@@ -223,7 +223,15 @@ def test_missing_db_url_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # --- create_app(db_url=...) seam (slice 187 D9) ------------------------------
 
-_SEAM_URL = "postgresql://seam:pass@localhost:5432/ephemeral"
+_SEAM_URL = "postgresql://user:pass@localhost:5432/seam_target"
+"""A second obviously-fake URL, distinct from ``_DB_URL`` above.
+
+Placeholder credentials matching that constant's convention — no connection is
+ever opened with either (``ConnectionPool`` is patched out in every test that
+uses them). Distinctness is the load-bearing property: the seam tests assert
+which of the two URLs reached the pool, so two different *values* are required
+and two different *credentials* are not.
+"""
 
 
 def _start_with(app: Any) -> Any:

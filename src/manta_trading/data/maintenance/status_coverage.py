@@ -103,7 +103,7 @@ meaningful here and is not available to the generic guard.
 
 def _content_edge_lag(
     conn: psycopg.Connection[Any], view_name: str
-) -> timedelta | None:
+) -> tuple[timedelta | None, bool]:
     """How far ``view_name``'s content trails its source, or None if unmeasurable.
 
     Two bounded ``max()`` probes on the connection the caller already holds,
@@ -117,32 +117,35 @@ def _content_edge_lag(
     raw content timestamps, so the difference is the real lag.
 
     Returns:
-        The lag, or None when either side is empty (nothing ingested, or the
-        cagg has never materialized) — an absence of data is not staleness, and
-        the generic evaluation already signals the cagg-empty case.
+        ``(lag, probe_failed)``. ``lag`` is None when either side is empty
+        (nothing ingested, or the cagg has never materialized) — an absence of
+        data is not staleness, and the generic evaluation already signals the
+        cagg-empty case. ``probe_failed`` is True when the probe raised, which
+        the caller must treat as stale (168 D3) rather than as "no lag".
     """
     prior_timeout = _read_statement_timeout(conn)
     try:
         cagg_edge = _max_probe(conn, view_name, CONTENT_EDGE_COLUMN)
         source_edge = _max_probe(conn, COVERAGE_SOURCE_TABLE[view_name], "time")
     except psycopg.Error:
-        # Indeterminate, and indeterminate is stale (168 D3) — but the generic
-        # evaluation that ran first already carries PROBE_FAILED for a broken
-        # connection, so this returns None rather than inventing a second
-        # verdict. Logged because a probe that fails here and not there would
-        # otherwise be invisible.
+        # Indeterminate freshness is stale (168 D3), and this is the case where
+        # that rule bites hardest: the generic probes *succeeded*, so nothing
+        # else in the verdict knows this check was attempted. Returning "no lag"
+        # here would report fresh on a check that never ran — the vacuous
+        # verdict this whole slice exists to eliminate, reintroduced through the
+        # error path. The caller raises CONTENT_EDGE_PROBE_FAILED instead.
         _logger.exception(
-            "content-edge probe failed for %s — leaving the generic verdict "
-            "to stand",
+            "content-edge probe failed for %s — reporting stale, freshness is "
+            "indeterminate",
             view_name,
         )
-        return None
+        return None, True
     finally:
         _restore_probe_timeout(conn, prior_timeout)
 
     if cagg_edge is None or source_edge is None:
-        return None
-    return source_edge - cagg_edge
+        return None, False
+    return source_edge - cagg_edge, False
 
 
 def _apply_content_edge_check(
@@ -156,18 +159,40 @@ def _apply_content_edge_check(
     though the generic bucket check reported fresh, which on production today is
     every time (D5/D6).
 
-    **Except after a failed probe.** ``PROBE_FAILED`` means the generic
-    evaluation could not read the connection at all — it timed out or the
-    connection is broken. Two more probes down the same connection would at best
-    repeat the failure and at worst report a lag derived from a half-broken
-    read, and the verdict is already stale on the strongest possible grounds
-    (168 D3: indeterminate is stale). Nothing is gained by adding a second
-    reason, so the verdict is returned untouched.
+    **Skipped after a generic probe failure.** ``PROBE_FAILED`` means the
+    generic evaluation could not read the connection at all. Two more probes
+    down the same connection would at best repeat the failure and at worst
+    report a lag derived from a half-broken read, and the verdict is already
+    stale on the strongest possible grounds (168 D3). Nothing is gained by
+    adding a second reason, so the verdict is returned untouched.
+
+    **When *this* probe fails but the generic ones did not**, the verdict gains
+    ``CONTENT_EDGE_PROBE_FAILED`` and goes stale. That case is the reason the
+    signal exists: nothing else in the verdict would record that the check was
+    attempted, so a silent return would report fresh on a check that never ran
+    — the vacuous verdict this slice exists to eliminate, reintroduced through
+    the error path (review F003).
     """
     if StalenessSignal.PROBE_FAILED in verdict.signals:
         return verdict
 
-    lag = _content_edge_lag(conn, verdict.view_name)
+    lag, probe_failed = _content_edge_lag(conn, verdict.view_name)
+
+    if probe_failed:
+        # The generic probes succeeded, so without this the verdict would report
+        # fresh on a check that never ran (168 D3: indeterminate is stale).
+        signals = (*verdict.signals, StalenessSignal.CONTENT_EDGE_PROBE_FAILED)
+        return replace(
+            verdict,
+            is_fresh=False,
+            signals=signals,
+            detail=(
+                f"{verdict.view_name}: STALE (content-edge probe failed; "
+                f"freshness is indeterminate, see traceback above) "
+                f"signals={[s.value for s in signals]}"
+            ),
+        )
+
     if lag is None or lag <= COVERAGE_CONTENT_STALENESS:
         return verdict
 
@@ -181,14 +206,16 @@ def _apply_content_edge_check(
         # CONTENT_EDGE_TOO_OLD would read as a contradiction to an operator.
         lag=lag,
         threshold=COVERAGE_CONTENT_STALENESS,
+        # bucket_width is deliberately not restated here — it is a first-class
+        # field on the verdict, so a caller that wants it formats it itself
+        # rather than parsing it back out of a string (review F008).
         detail=(
             f"{verdict.view_name}: STALE (content lag={lag}, "
             f"threshold={COVERAGE_CONTENT_STALENESS}, "
             f"signals={[s.value for s in signals]}) — "
             f"max({CONTENT_EDGE_COLUMN}) trails "
-            f"max(time) on {COVERAGE_SOURCE_TABLE[verdict.view_name]}; the "
-            f"bucket-lag check cannot see this (bucket_width="
-            f"{verdict.bucket_width})"
+            f"max(time) on {COVERAGE_SOURCE_TABLE[verdict.view_name]}, which "
+            f"the bucket-lag check cannot see"
         ),
     )
 
