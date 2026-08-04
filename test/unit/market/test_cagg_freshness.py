@@ -126,7 +126,7 @@ class TestStalenessSignal:
     """The enum is the dispatch vocabulary; adding a member without test
     coverage should break the suite."""
 
-    def test_has_exactly_the_six_expected_members(self) -> None:
+    def test_has_exactly_the_seven_expected_members(self) -> None:
         assert {member.value for member in StalenessSignal} == {
             "LAG_EXCEEDS_THRESHOLD",
             "NOT_SCHEDULED",
@@ -134,7 +134,19 @@ class TestStalenessSignal:
             "LAST_RUN_FAILED",
             "NO_JOB_ROW",
             "PROBE_FAILED",
+            # Slice 187 D6. Raised by the coverage-specific check only; the
+            # generic evaluation below must never emit it.
+            "CONTENT_EDGE_TOO_OLD",
         }
+
+    def test_generic_evaluation_never_emits_the_coverage_content_signal(self) -> None:
+        # The signal's contract is that it comes from check_coverage_freshness.
+        # If _evaluate ever learns to raise it, the two layers' responsibilities
+        # have blurred and the detection-floor documentation stops being true.
+        verdict = _frozen_evaluate(  # type: ignore[arg-type]
+            _EvalConnection(cagg_max=_NOW - timedelta(days=400)), _VIEW
+        )
+        assert StalenessSignal.CONTENT_EDGE_TOO_OLD not in verdict.signals
 
     def test_members_are_strings(self) -> None:
         # StrEnum so log formatting and comparison never need .value juggling.

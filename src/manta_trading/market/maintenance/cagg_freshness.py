@@ -131,6 +131,19 @@ class StalenessSignal(StrEnum):
     """A catalog read or edge probe raised (timeout, connection loss). Freshness
     is indeterminate, and indeterminate is stale (D3)."""
 
+    CONTENT_EDGE_TOO_OLD = "CONTENT_EDGE_TOO_OLD"
+    """The cagg's ``max(last_bucket)`` trails its source's ``max(time)`` by more
+    than ``COVERAGE_CONTENT_STALENESS`` (slice 187 D6).
+
+    Fires **only** from ``status_coverage.check_coverage_freshness``, never from
+    the generic ``_evaluate`` above. It measures content lag with no bucket
+    alignment, which is exactly what ``LAG_EXCEEDS_THRESHOLD`` structurally
+    cannot see for a wide-bucket cagg (see ``_raw_max``'s detection floor).
+    ``minute_coverage``/``daily_coverage`` carry a ``last_bucket`` column that is
+    a content timestamp rather than a bucket start, which is what makes the
+    unaligned comparison meaningful for them and unavailable in general.
+    """
+
 
 @dataclass(frozen=True)
 class FreshnessVerdict:
@@ -497,6 +510,10 @@ def assert_cagg_fresh(
     *,
     now: Callable[[], datetime] | None = None,
     source_table: str | None = None,
+    augment: Callable[
+        [psycopg.Connection[object], FreshnessVerdict], FreshnessVerdict
+    ]
+    | None = None,
 ) -> FreshnessVerdict:
     """Assert a continuous aggregate is fresh enough to read from.
 
@@ -529,6 +546,16 @@ def assert_cagg_fresh(
                    source is resolved from ``GRANULARITY_SOURCE``; the
                    integration tests pass a scratch table so staleness can be
                    induced without touching a production cagg or its policy.
+        augment:   Optional post-evaluation hook, ``(conn, verdict) -> verdict``,
+                   for a caller that can measure something this generic guard
+                   cannot. It runs **only on a cache miss**, so whatever it
+                   probes is cached on exactly the same terms as the rest of the
+                   verdict and repeat reads stay inside the NFR — the reason it
+                   is a seam here rather than a wrapper around the call.
+                   ``status_coverage`` uses it for the content-edge check the
+                   one-bucket detection floor makes invisible (187 D6). It must
+                   only ever *add* staleness: a hook that flips ``is_fresh`` to
+                   True would defeat D3, and nothing in this module re-checks it.
 
     Returns:
         A FreshnessVerdict. Callers must check ``is_fresh`` and refuse to use
@@ -544,6 +571,8 @@ def assert_cagg_fresh(
         return cached[1]
 
     verdict = _evaluate(conn, view_name, source_table=source_table, now=clock)
+    if augment is not None:
+        verdict = augment(conn, verdict)
     _VERDICT_CACHE[view_name] = (current_time, verdict)
     return verdict
 
