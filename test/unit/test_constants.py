@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import date, timedelta
 
 import pytest
 
 from manta_trading.constants import (
+    API_MAX_BARS_PER_REQUEST,
+    API_SERVING_SESSION,
+    BARS_PER_TRADING_DAY,
     COVERAGE_BUCKET_INTERVAL,
     COVERAGE_REFRESH_MIN_WINDOW_BUCKETS,
     DAILY_COVERAGE_REFRESH_END_OFFSET,
@@ -17,7 +21,10 @@ from manta_trading.constants import (
     DAILY_CYCLE_START_OFFSET,
     DAILY_HISTORY_MONTHS,
     DAILY_STALENESS_THRESHOLD,
+    DB_BULK_SESSION,
     EODHD_INTRADAY_HORIZON,
+    GRANULARITY_BAR_MINUTES,
+    INTRADAY_MINUTES_PER_TRADING_DAY,
     LATE_BAR_GRACE_PERIOD,
     MAX_GAP_STALENESS,
     MAX_RETRY_COUNT,
@@ -27,6 +34,8 @@ from manta_trading.constants import (
     MINUTE_COVERAGE_REFRESH_START_OFFSET,
     MINUTE_COVERAGE_VIEW,
     MINUTE_STALENESS_THRESHOLD,
+    TRADING_DAYS_PER_CALENDAR_DAY,
+    Granularity,
 )
 
 
@@ -203,3 +212,79 @@ def test_coverage_start_offsets_exceed_end_offsets() -> None:
     policy describes an empty or inverted range."""
     assert MINUTE_COVERAGE_REFRESH_START_OFFSET > MINUTE_COVERAGE_REFRESH_END_OFFSET
     assert DAILY_COVERAGE_REFRESH_START_OFFSET > DAILY_COVERAGE_REFRESH_END_OFFSET
+
+
+# --- Slice 186: session settings and range-cap derivation inputs -------------
+
+
+def test_bulk_session_holds_the_historical_values() -> None:
+    """The named bulk defaults must equal what every DB class used before 186.
+
+    If this drifts, the CLI and daemon silently change behavior.
+    """
+    assert DB_BULK_SESSION.work_mem == "512MB"
+    assert DB_BULK_SESSION.statement_timeout == "300s"
+
+
+def test_api_serving_session_is_tighter_than_bulk() -> None:
+    assert API_SERVING_SESSION.work_mem == "64MB"
+    assert API_SERVING_SESSION.statement_timeout == "20s"
+    assert API_SERVING_SESSION != DB_BULK_SESSION
+
+
+def test_db_session_settings_is_frozen() -> None:
+    """Session settings are shared module-level constants; mutation would leak
+    across every pool that holds a reference."""
+    with pytest.raises(FrozenInstanceError):
+        API_SERVING_SESSION.work_mem = "1GB"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("granularity", list(Granularity))
+def test_bars_per_trading_day_covers_every_granularity(
+    granularity: Granularity,
+) -> None:
+    """A granularity missing from this table would make the admission cap
+    (D4) raise a KeyError on a request FastAPI already validated."""
+    assert granularity in BARS_PER_TRADING_DAY
+    assert BARS_PER_TRADING_DAY[granularity] > 0
+
+
+@pytest.mark.parametrize(
+    ("granularity", "expected"),
+    [
+        (Granularity.M1, 960.0),
+        (Granularity.M5, 192.0),
+        (Granularity.M15, 64.0),
+        (Granularity.H1, 16.0),
+        (Granularity.H4, 4.0),
+    ],
+)
+def test_intraday_bars_per_day_are_derived_not_literal(
+    granularity: Granularity, expected: float
+) -> None:
+    """Pins the derivation, not the numbers: these follow from the measured
+    960-minute trading day divided by each bucket width. Correcting the
+    measurement must move all five together."""
+    assert BARS_PER_TRADING_DAY[granularity] == expected
+    assert (
+        BARS_PER_TRADING_DAY[granularity]
+        == INTRADAY_MINUTES_PER_TRADING_DAY / GRANULARITY_BAR_MINUTES[granularity]
+    )
+
+
+def test_granularity_bar_minutes_covers_only_intraday() -> None:
+    """Daily and coarser grains have no minute bucket width; including them
+    would make the intraday derivation produce nonsense."""
+    assert set(GRANULARITY_BAR_MINUTES) == {
+        Granularity.M1,
+        Granularity.M5,
+        Granularity.M15,
+        Granularity.H1,
+        Granularity.H4,
+    }
+
+
+def test_range_cap_inputs_are_sane() -> None:
+    assert API_MAX_BARS_PER_REQUEST == 75_000
+    assert INTRADAY_MINUTES_PER_TRADING_DAY == 960
+    assert 0 < TRADING_DAYS_PER_CALENDAR_DAY < 1
