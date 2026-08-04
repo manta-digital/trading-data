@@ -73,6 +73,8 @@ Copy `.env_sample` to `.env` and fill in the values.
 | `MT_MINUTE_PROVIDER` | No | Minute data provider (default: `eodhd`) |
 | `MT_DAILY_PROVIDER` | No | Daily data provider (default: `eodhd`) |
 | `MT_EODHD_DAILY_LIMIT` | No | Daily API credit cap (default: `100000`) |
+| `MT_API_MAX_BARS_PER_REQUEST` | No | Serving-API bars-per-request ceiling (default: `75000`) |
+| `MT_API_STATEMENT_TIMEOUT` | No | Serving-API `statement_timeout` (default: `20s`) |
 
 ---
 
@@ -284,12 +286,88 @@ mt serve --reload
 ```
 
 API endpoints:
-- `GET /api/v1/health` — liveness check
-- `GET /api/v1/bars/{symbol}?granularity=1d&start=…&end=…&adjusted=true` — OHLCV bars
+- `GET /api/v1/health` — liveness check, plus a coarse `coverage` freshness signal
+- `GET /api/v1/bars/{symbol}?granularity=1d&start=…&end=…&adjusted=true` — OHLCV bars.
+  Responses carry `is_stale`: `true` means the continuous aggregate serving this
+  granularity is behind its source, so the bars may be incomplete. Raw grains
+  (`1m`, `1d`) are never stale by construction.
 - `GET /api/v1/symbols?search=<prefix>` — list instruments
 - `GET /api/v1/symbols/{symbol}` — instrument detail + available data ranges
+- `GET /api/v1/status?symbol=…&health=…&granularity=…&all=true` — per-symbol
+  data-health rows, a whole-registry health summary, and coverage freshness
 - `GET /api/v1/gaps/{symbol}?granularity=1m` — data gap listing
 - `GET /docs` — Swagger UI
+
+The full schema is committed at [`docs/api/openapi.json`](docs/api/openapi.json)
+and regenerated with `uv run python scripts/dump_openapi.py` (no database
+required).
+
+#### Error shapes
+
+Every error this server raises has the same body:
+
+```json
+{ "error": "<message>" }
+```
+
+The one deliberate exception is FastAPI's own request-validation failure — an
+unparseable date, an unknown `granularity` — which keeps its native body so
+clients retain the per-field detail:
+
+```json
+{ "detail": [ { "loc": ["query", "granularity"], "msg": "…", "type": "…" } ] }
+```
+
+| Status | Meaning |
+|---|---|
+| `404` | The symbol is not in `instruments`. **Only** that. |
+| `422` | The request is malformed, the range is reversed, or the window exceeds the bar ceiling. |
+| `500` | An unexpected server fault. The body is sanitized. |
+| `504` | The database cancelled the query at the statement timeout. Narrow the range or use a coarser granularity. |
+
+#### Empty windows are `200`, not `404`
+
+A known symbol with no bars in the requested window returns `200` with
+`count: 0` and `bars: []` — a weekend, a holiday, or a pre-listing date is not
+an error. `is_stale` is still populated, so "no bars *and* the aggregate is
+stale" is distinguishable from "no bars because the market was closed". A `404`
+now means exactly one thing: the symbol is unknown.
+
+#### Range cap
+
+A bars request is admitted or rejected **before any database work**, from an
+estimate computed from the window alone: `span_days × bars_per_trading_day ×
+(252/365)`. Exceeding `MT_API_MAX_BARS_PER_REQUEST` (default 75,000) is a `422`
+whose message names the estimate, the ceiling, and the maximum span for that
+granularity. There is no pagination and no silent truncation.
+
+Because the store covers extended hours (08:00–23:59 UTC, ~960 one-minute bars
+on a dense day), the cap binds only at intraday grains:
+
+| Granularity | Max span per request (at 75,000) |
+|---|---|
+| `1m` | ~113 days |
+| `5m` | ~565 days |
+| `15m` | ~1,697 days |
+| `1h` and coarser | effectively unbounded |
+
+For bulk history beyond these spans, query TimescaleDB directly rather than
+paging over HTTP.
+
+#### Server settings
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Bars-per-request ceiling used by the range cap. |
+| `MT_API_STATEMENT_TIMEOUT` | `20s` | Per-connection `statement_timeout` on all three pools the API opens. A query that exceeds it becomes a `504`. |
+
+Both are read once at startup; changing either requires a server restart. Note
+they interact — raising the bar ceiling without also raising the timeout trades
+a fast `422` for a slow `504`.
+
+The API is unauthenticated and CORS-open by design: it is read-only and bound to
+a LAN host. Exposing it beyond the LAN, or adding any route that writes, makes
+authentication a prerequisite.
 
 ---
 

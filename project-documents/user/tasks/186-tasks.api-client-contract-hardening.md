@@ -150,127 +150,127 @@ status: in_progress
 
 ## Task 5 — Plumb session settings into the two DB classes
 
-- [ ] `TimescaleMinuteDataDB` accepts an optional session argument (D1)
-  - [ ] `__init__(self, conninfo: str, *, session: DbSessionSettings = DB_BULK_SESSION)`
-  - [ ] `_configure_connection` is currently a `@staticmethod` and cannot see
+- [x] `TimescaleMinuteDataDB` accepts an optional session argument (D1)
+  - [x] `__init__(self, conninfo: str, *, session: DbSessionSettings = DB_BULK_SESSION)`
+  - [x] `_configure_connection` is currently a `@staticmethod` and cannot see
         the instance — convert it to an instance method (or bind a closure at
         pool creation) so `configure=` uses this instance's session values
-  - [ ] `work_mem` and `statement_timeout` come from `session`; the class's
+  - [x] `work_mem` and `statement_timeout` come from `session`; the class's
         other SETs (`timezone`, `max_parallel_workers_per_gather`,
         `enable_partitionwise_aggregate`) are unchanged and **not**
         parameterized
-  - [ ] Success: `TimescaleMinuteDataDB(conninfo)` issues exactly the same SQL
+  - [x] Success: `TimescaleMinuteDataDB(conninfo)` issues exactly the same SQL
         it does today
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Same change for `TimescaleDailyDataDB`
-  - [ ] Identical signature and mechanism; this class has no extra SETs
-  - [ ] Success: default construction is behavior-identical to today
-  - [ ] Effort: 1
+- [x] Same change for `TimescaleDailyDataDB`
+  - [x] Identical signature and mechanism; this class has no extra SETs
+  - [x] Success: default construction is behavior-identical to today
+  - [x] Effort: 1
 
-- [ ] Test both classes without a live DB
-  - [ ] Build a fake connection object recording `execute()` calls and an
+- [x] Test both classes without a live DB
+  - [x] Build a fake connection object recording `execute()` calls and an
         `autocommit` attribute; invoke the bound configure callable directly
-  - [ ] Default construction emits `SET work_mem = '512MB'` and
+  - [x] Default construction emits `SET work_mem = '512MB'` and
         `SET statement_timeout = '300s'` — this is the CLI/daemon regression
         guard and is the most important assertion in this task
-  - [ ] Construction with `API_SERVING_SESSION` emits `'64MB'` / `'20s'`
-  - [ ] Minute class still emits its two extra SETs in both cases
-  - [ ] Success: tests pass; no test requires a database
-  - [ ] Effort: 2
+  - [x] Construction with `API_SERVING_SESSION` emits `'64MB'` / `'20s'`
+  - [x] Minute class still emits its two extra SETs in both cases
+  - [x] Success: tests pass; no test requires a database
+  - [x] Effort: 2
 
 ---
 
 ## Task 6 — API lifespan uses the serving session and resolves settings once
 
-- [ ] Update `api_server/app.py` lifespan and pool configuration (D1, D9)
-  - [ ] `_configure_connection` uses `API_SERVING_SESSION.work_mem` and the
+- [x] Update `api_server/app.py` lifespan and pool configuration (D1, D9)
+  - [x] `_configure_connection` uses `API_SERVING_SESSION.work_mem` and the
         configured `statement_timeout` — no literal `'512MB'` or `'300s'`
         remains in `app.py`
-  - [ ] Construct the two DB instances with the same session values so all
+  - [x] Construct the two DB instances with the same session values so all
         three pools match
-  - [ ] Resolve `Settings()` **once** in the lifespan and store the two policy
+  - [x] Resolve `Settings()` **once** in the lifespan and store the two policy
         values on `app.state` (D9: read at startup, not per request)
-  - [ ] Success: a request that touches each pool shows `20s`/`64MB` on every
+  - [x] Success: a request that touches each pool shows `20s`/`64MB` on every
         backend the API owns
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Add a `deps` accessor for the bar ceiling
-  - [ ] `get_max_bars(request) -> int` returning the value stored on
+- [x] Add a `deps` accessor for the bar ceiling
+  - [x] `get_max_bars(request) -> int` returning the value stored on
         `app.state`; docstring notes it is resolved at startup
-  - [ ] Success: importable from `deps.py` alongside `get_db_pool`
-  - [ ] Effort: 1
+  - [x] Success: importable from `deps.py` alongside `get_db_pool`
+  - [x] Effort: 1
 
-- [ ] Test the wiring
-  - [ ] With a fake pool, assert the configure callable emits the API values
-  - [ ] `MT_API_STATEMENT_TIMEOUT=5s` is reflected in what the configure
+- [x] Test the wiring
+  - [x] With a fake pool, assert the configure callable emits the API values
+  - [x] `MT_API_STATEMENT_TIMEOUT=5s` is reflected in what the configure
         callable emits — proves the setting reaches the pool, not just `Settings`
-  - [ ] Success: tests pass
-  - [ ] Effort: 2
+  - [x] Success: tests pass
+  - [x] Effort: 2
 
 ---
 
 ## Task 7 — Range admission cap in `bars.py`
 
-- [ ] Add the estimator and the two rejections (D4)
-  - [ ] `_estimate_bars(granularity, start, end) -> float` and
+- [x] Add the estimator and the two rejections (D4)
+  - [x] `_estimate_bars(granularity, start, end) -> float` and
         `_max_span_days(granularity, ceiling) -> int`, both module-level in
         `bars.py`, both derived from the Task 2 constants
-  - [ ] In `get_bars`, **before** any executor dispatch: `start > end` → `422`;
+  - [x] In `get_bars`, **before** any executor dispatch: `start > end` → `422`;
         estimate over ceiling → `422`
-  - [ ] The over-range message names the estimate, the ceiling, and the maximum
+  - [x] The over-range message names the estimate, the ceiling, and the maximum
         span for that granularity, computed from the live ceiling (never a
         literal `75,000` or `113`)
-  - [ ] Ceiling comes from the `get_max_bars` dependency (Task 6)
-  - [ ] Success: `bars.py` stays under ~200 lines; no DB call precedes either
+  - [x] Ceiling comes from the `get_max_bars` dependency (Task 6)
+  - [x] Success: `bars.py` stays under ~200 lines; no DB call precedes either
         check
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] Test the cap (`test/unit/api_server/test_bars.py`)
-  - [ ] A 20-year `1m` request returns `422` with `{"error": ...}` naming the
+- [x] Test the cap (`test/unit/api_server/test_bars.py`)
+  - [x] A 20-year `1m` request returns `422` with `{"error": ...}` naming the
         ceiling and span
-  - [ ] **The rejected request checks out no connection** — assert with a pool
+  - [x] **The rejected request checks out no connection** — assert with a pool
         whose `.connection()` raises if called. This is the point of the
         decision, not a side effect
-  - [ ] A request one day inside the boundary is admitted; one day outside is
+  - [x] A request one day inside the boundary is admitted; one day outside is
         rejected (parametrized over `1m`, `5m`, `15m`)
-  - [ ] `1d` over 20 years is admitted — the cap never binds at daily grain
-  - [ ] `start > end` returns `422` with the reversed-range message
-  - [ ] With `MT_API_MAX_BARS_PER_REQUEST=1000`, a previously-admitted request
+  - [x] `1d` over 20 years is admitted — the cap never binds at daily grain
+  - [x] `start > end` returns `422` with the reversed-range message
+  - [x] With `MT_API_MAX_BARS_PER_REQUEST=1000`, a previously-admitted request
         is rejected and the message quotes 1,000
-  - [ ] Success: tests pass; no live DB
-  - [ ] Effort: 3
+  - [x] Success: tests pass; no live DB
+  - [x] Effort: 3
 
 ---
 
 ## Task 8 — Empty-window contract and the shared symbol lookup
 
-- [ ] Add `api_server/queries.py` with `symbol_exists` (D5 addendum, F009)
-  - [ ] `_SYMBOL_EXISTS_SQL` — primary-key seek on `instruments`
-  - [ ] `symbol_exists(conn, symbol) -> bool`; no try/except — failures
+- [x] Add `api_server/queries.py` with `symbol_exists` (D5 addendum, F009)
+  - [x] `_SYMBOL_EXISTS_SQL` — primary-key seek on `instruments`
+  - [x] `symbol_exists(conn, symbol) -> bool`; no try/except — failures
         propagate to the global handlers by design
-  - [ ] Success: one definition of the existence check in the codebase;
+  - [x] Success: one definition of the existence check in the codebase;
         `symbols.py`'s fuller `SELECT` is left alone
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] Change the empty-frame branch in `bars.py` (D5)
-  - [ ] On an empty frame, check out a connection from the pool **scoped to the
+- [x] Change the empty-frame branch in `bars.py` (D5)
+  - [x] On an empty frame, check out a connection from the pool **scoped to the
         lookup** (185 D8a pattern) and call `symbol_exists`
-  - [ ] Unknown → `404`; known → `200` with `count: 0`, `bars: []`, and the
+  - [x] Unknown → `404`; known → `200` with `count: 0`, `bars: []`, and the
         already-computed `is_stale`
-  - [ ] Confirm `BarsResponse.from_dataframe` handles an empty frame — it
+  - [x] Confirm `BarsResponse.from_dataframe` handles an empty frame — it
         iterates rows and touches no columns, so it should need no change;
         prove that with a test rather than assuming it
-  - [ ] Success: the non-empty path still checks out no connection for raw
+  - [x] Success: the non-empty path still checks out no connection for raw
         granularities
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Test the contract split
-  - [ ] Known symbol, empty frame → `200`, `count: 0`, `is_stale` present
-  - [ ] Unknown symbol, empty frame → `404` with `{"error": ...}`
-  - [ ] The lookup runs **only** when the frame is empty — assert it is not
+- [x] Test the contract split
+  - [x] Known symbol, empty frame → `200`, `count: 0`, `is_stale` present
+  - [x] Unknown symbol, empty frame → `404` with `{"error": ...}`
+  - [x] The lookup runs **only** when the frame is empty — assert it is not
         called on a non-empty response
-  - [ ] Parametrized over **all nine** granularities, assert a non-empty
+  - [x] Parametrized over **all nine** granularities, assert a non-empty
         response leaves the API pool's checkout count unchanged by this slice
         (review F012): `1m`/`1d` check out **zero** connections, the seven
         cagg-served granularities check out **exactly one** (the 185 freshness
@@ -279,12 +279,12 @@ status: in_progress
         `test_raw_granularity_checks_out_no_connection` and
         `test_cagg_granularity_checks_out_exactly_one_connection` are the
         starting point — extend them rather than writing parallel tests
-  - [ ] Lookup raising `psycopg.errors.QueryCanceled` → `504` (needs Task 10;
+  - [x] Lookup raising `psycopg.errors.QueryCanceled` → `504` (needs Task 10;
         write the test now and mark it `xfail` until then, or sequence this
         assertion into Task 10's test)
-  - [ ] Lookup raising another `psycopg.Error` → `500`, never `200` or `404`
-  - [ ] Success: tests pass; no test asserts a default-on-failure behavior
-  - [ ] Effort: 3
+  - [x] Lookup raising another `psycopg.Error` → `500`, never `200` or `404`
+  - [x] Success: tests pass; no test asserts a default-on-failure behavior
+  - [x] Effort: 3
 
 ---
 
