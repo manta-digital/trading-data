@@ -116,13 +116,23 @@ Two contract observations, neither a defect:
   intentional (it mirrors `mt data status`), but it was undocumented — README now states
   it. Same *shape* of surprise as the gaps bug — a filter combination returning zero for a
   reason invisible in the response — which is why it is recorded next to it.
-- **Empty-string filters are handled inconsistently across endpoints.** `?health=` is a
-  deliberate `422` (status.py reasons explicitly that an unset `?health={filter}` template
-  must not silently fall back), while `?search=` is treated as "match everything" and
-  returns all 31,612 instruments. An unset `?search={q}` template therefore hits exactly
-  the failure the other route guards against. Left as-is pending a decision: "empty prefix
-  matches all" is a defensible reading, and unlike the gaps defect the current behavior is
-  not wrong, only unlike its sibling.
+- **Empty-string filters behave differently across endpoints, and both are correct.**
+  `?health=` is a deliberate `422`; `?search=` matches everything. That looks inconsistent
+  and was first recorded here as such — wrongly, from comparing surface behavior without
+  checking whether the underlying cases were analogous. **The rule that covers both:
+  reject an empty value only when it would mean something different from omitting it.**
+  For `search`, omitted and empty both mean "no prefix restriction" and return the
+  identical set (verified: 31,612 either way), so there is nothing to disambiguate and an
+  error would reject an unambiguous request. For `health`, omitted means the non-OK
+  default while empty means neither that nor "everything" — and an empty `ANY()` array
+  matches zero rows — so empty is ambiguous between two wrong answers and must be refused.
+
+  The second test is **how the wrong answer fails.** The worry about `?search=` was an
+  unset `?search={q}` template returning the whole registry; but 31,612 rows is
+  self-announcing, and a caller notices immediately. `?health=`'s bad outcomes — zero rows,
+  or a silently substituted default — are plausible-looking, which is what lets them
+  survive, exactly as the gaps defect did. **A filter that fails loudly does not need a
+  guard; one that fails quietly does.** Decision: no change to either endpoint.
 
 ## 20260727 — Slice 163 close-out: minute-cagg re-chunking + repair complete, standing verify/repair rule now live
 
