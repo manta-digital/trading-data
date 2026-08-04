@@ -17,6 +17,7 @@ from fastapi import status as http_status
 
 from manta_trading.api_server.deps import get_db
 from manta_trading.api_server.models.responses import (
+    GATEWAY_TIMEOUT_RESPONSE,
     CoverageStatus,
     StatusResponse,
     StatusRowRecord,
@@ -95,7 +96,7 @@ def _resolve_health_filter(health: str | None, *, all_rows: bool) -> list[str] |
     return tokens
 
 
-@router.get("/api/v1/status")
+@router.get("/api/v1/status", responses=GATEWAY_TIMEOUT_RESPONSE)
 async def get_status(
     db: Annotated[psycopg.Connection[Any], Depends(get_db)],
     symbol: str | None = None,

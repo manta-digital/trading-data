@@ -148,6 +148,47 @@ def create_app() -> FastAPI:
             headers=exc.headers,
         )
 
+    @app.exception_handler(psycopg.errors.QueryCanceled)
+    async def _query_canceled_handler(
+        request: Request, exc: psycopg.errors.QueryCanceled
+    ) -> JSONResponse:
+        """Map a statement-timeout cancellation to ``504`` (186 D10).
+
+        A process-boundary handler by design: every route issues a DB query and
+        every one can be cancelled, so a per-route ``try/except`` would be the
+        same clause four times and would omit whichever route is added next.
+        It is strictly narrower than the ``Exception`` handler below and takes
+        precedence, so every non-cancellation fault still returns a sanitized
+        ``500``.
+
+        Freshness probes cannot reach here — ``cagg_freshness`` catches
+        ``psycopg.Error`` internally and converts a timeout into a stale
+        verdict (168 D3, 185 D9) — so a ``504`` always means a *data* query was
+        cancelled, which is what makes "narrow the range" actionable advice.
+
+        Logged at WARNING, not ERROR: this is a handled, operator-actionable
+        signal that the bar ceiling and the timeout are out of step, and it
+        must be visible without masquerading as a crash.
+        """
+        budget = request.app.state.statement_timeout
+        _logger.warning(
+            "Query cancelled at the %s statement_timeout on %s %s%s: %s",
+            budget,
+            request.method,
+            request.url.path,
+            f"?{request.url.query}" if request.url.query else "",
+            exc,
+        )
+        return JSONResponse(
+            status_code=504,
+            content={
+                "error": (
+                    f"query exceeded the server's {budget} budget; narrow the "
+                    "requested range or use a coarser granularity"
+                )
+            },
+        )
+
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(
         request: Request, exc: Exception

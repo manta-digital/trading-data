@@ -181,6 +181,7 @@ def test_fastapi_validation_body_stays_native() -> None:
     app.state.db_pool = MagicMock()
     app.state.minute_db = MagicMock()
     app.state.daily_db = MagicMock()
+    app.state.max_bars_per_request = 75_000
     response = TestClient(app).get(
         "/api/v1/bars/SPY?granularity=bad&start=2024-01-01&end=2024-01-03"
     )

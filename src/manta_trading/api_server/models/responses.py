@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
@@ -252,3 +252,28 @@ class StatusResponse(BaseModel):
     rows: list[StatusRowRecord]
     summary: dict[str, int]
     coverage: CoverageStatus
+
+
+class ErrorResponse(BaseModel):
+    """The uniform error body for every error this codebase raises (186 D6).
+
+    FastAPI's own ``RequestValidationError`` is the one documented exception:
+    it keeps its native ``detail`` list, which carries per-field ``loc``/``msg``
+    that a flattened string would lose.
+    """
+
+    error: str
+
+
+GATEWAY_TIMEOUT_RESPONSE: dict[int | str, dict[str, Any]] = {
+    504: {
+        "model": ErrorResponse,
+        "description": (
+            "The database cancelled the query at the server's statement "
+            "timeout. Narrow the requested range or use a coarser granularity."
+        ),
+    }
+}
+"""Declared on every data route so ``504`` (186 D10) appears in the committed
+schema. Defined once — a per-route literal would drift the moment a route is
+added."""

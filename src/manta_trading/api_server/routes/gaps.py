@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from typing import Annotated, Any
 
 import psycopg
 from fastapi import APIRouter, Depends
 
 from manta_trading.api_server.deps import get_db
-from manta_trading.api_server.models.responses import GapRecord, GapsResponse
+from manta_trading.api_server.models.responses import (
+    GATEWAY_TIMEOUT_RESPONSE,
+    GapRecord,
+    GapsResponse,
+)
 from manta_trading.constants import Granularity
 
 router = APIRouter()
@@ -60,10 +64,10 @@ _WINDOWED_GRAN_GAPS_SQL = """
 
 
 def _date_to_utc_datetime(d: date) -> datetime:
-    return datetime.combine(d, time.min, tzinfo=timezone.utc)
+    return datetime.combine(d, time.min, tzinfo=UTC)
 
 
-@router.get("/api/v1/gaps/{symbol}")
+@router.get("/api/v1/gaps/{symbol}", responses=GATEWAY_TIMEOUT_RESPONSE)
 async def get_gaps(
     symbol: str,
     granularity: Granularity | None = None,
@@ -71,9 +75,11 @@ async def get_gaps(
     end: date | None = None,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)] = None,  # type: ignore[assignment]
 ) -> GapsResponse:
-    """Return data gaps for ``symbol``, optionally filtered by granularity and date window."""
+    """Return data gaps for ``symbol``, filtered by granularity and date window."""
     loop = asyncio.get_running_loop()
-    db_gran: str | None = _DB_GRANULARITY[granularity] if granularity is not None else None
+    db_gran: str | None = (
+        _DB_GRANULARITY[granularity] if granularity is not None else None
+    )
 
     def _query() -> list[GapRecord]:
         has_window = start is not None or end is not None

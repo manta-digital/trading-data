@@ -19,7 +19,10 @@ from manta_trading.api_server.deps import (
     get_max_bars,
     get_minute_db,
 )
-from manta_trading.api_server.models.responses import BarsResponse
+from manta_trading.api_server.models.responses import (
+    GATEWAY_TIMEOUT_RESPONSE,
+    BarsResponse,
+)
 from manta_trading.constants import (
     BARS_PER_TRADING_DAY,
     CAGG_BASE_GRANULARITY,
@@ -107,7 +110,11 @@ def _admit_range(
         )
 
 
-@router.get("/api/v1/bars/{symbol}", response_class=Response)
+@router.get(
+    "/api/v1/bars/{symbol}",
+    response_class=Response,
+    responses=GATEWAY_TIMEOUT_RESPONSE,
+)
 async def get_bars(
     symbol: str,
     granularity: Granularity,
