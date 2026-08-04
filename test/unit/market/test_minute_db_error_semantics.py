@@ -49,6 +49,29 @@ def test_cancelled_query_propagates(caplog: pytest.LogCaptureFixture) -> None:
     assert any("cancelled" in r.getMessage().lower() for r in caplog.records)
 
 
+def test_daily_class_does_not_swallow_a_cancellation() -> None:
+    """The daily class has no blanket handler and must keep it that way.
+
+    ``get_minute_data`` needed an explicit re-raise; ``get_daily_data`` has
+    nothing to re-raise past. Asserted rather than assumed (review F002),
+    because the two classes are edited independently and only one of them
+    carries a visible reminder.
+    """
+    from manta_trading.constants import Granularity
+    from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
+
+    with patch.object(TimescaleDailyDataDB, "_init_pool"):
+        db = TimescaleDailyDataDB("postgresql://localhost/nonexistent")
+    pool = MagicMock()
+    pool.connection.side_effect = psycopg.errors.QueryCanceled("statement timeout")
+    db._pool = pool
+
+    with pytest.raises(psycopg.errors.QueryCanceled):
+        db.get_daily_data(
+            "AAPL", _START.date(), _END.date(), Granularity.D1, adjusted=False
+        )
+
+
 @pytest.mark.parametrize(
     "error",
     [

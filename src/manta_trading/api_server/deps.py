@@ -51,15 +51,6 @@ def get_max_bars(request: Request) -> int:
     return request.app.state.max_bars_per_request  # type: ignore[no-any-return]
 
 
-def get_statement_timeout(request: Request) -> str:
-    """Return the configured per-connection statement timeout (186 D9).
-
-    Used by the ``504`` handler so its message quotes the budget actually in
-    force rather than the default.
-    """
-    return request.app.state.statement_timeout  # type: ignore[no-any-return]
-
-
 def get_minute_db(request: Request) -> TimescaleMinuteDataDB:
     """Return the shared ``TimescaleMinuteDataDB`` instance from app state."""
     return request.app.state.minute_db  # type: ignore[no-any-return]
