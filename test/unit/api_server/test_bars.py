@@ -69,6 +69,14 @@ def _stub_pool() -> MagicMock:
     return pool
 
 
+def _pool_where_symbol(exists: bool) -> MagicMock:
+    """A pool whose connection answers ``symbol_exists`` with ``exists``."""
+    pool = _stub_pool()
+    conn = pool.connection.return_value.__enter__.return_value
+    conn.execute.return_value.fetchone.return_value = (1,) if exists else None
+    return pool
+
+
 def _verdict(view_name: str, *, is_fresh: bool) -> FreshnessVerdict:
     return FreshnessVerdict(
         view_name=view_name,
@@ -178,11 +186,14 @@ def test_msgpack_format(test_app: FastAPI) -> None:
     assert data["count"] == 2
 
 
-def test_empty_result_returns_404(test_app: FastAPI) -> None:
+def test_unknown_symbol_returns_404(test_app: FastAPI) -> None:
+    """Slice 186 D5 narrowed this: 404 now means the symbol is unknown, not
+    "unknown symbol *or* empty window"."""
     test_app.state.daily_db.get_daily_data.return_value = pd.DataFrame()
+    test_app.dependency_overrides[get_db_pool] = lambda: _pool_where_symbol(False)
     client = TestClient(test_app)
     response = client.get(
-        "/api/v1/bars/SPY?granularity=1d&start=2024-01-01&end=2024-01-03"
+        "/api/v1/bars/ZZZZ?granularity=1d&start=2024-01-01&end=2024-01-03"
     )
     assert response.status_code == 404
     body = response.json()
@@ -435,3 +446,133 @@ class TestRangeAdmission:
 
         assert rejected.status_code == 422
         assert admitted.status_code == 200
+
+
+# --- Empty window vs unknown symbol (slice 186 D5) --------------------------
+
+
+class TestEmptyWindowContract:
+    def test_known_symbol_empty_window_is_a_200(self, test_app: FastAPI) -> None:
+        """A weekend is not a typo. Before 186 both were a 404."""
+        test_app.state.daily_db.get_daily_data.return_value = pd.DataFrame()
+        test_app.dependency_overrides[get_db_pool] = lambda: _pool_where_symbol(True)
+        response = _request(test_app, "1d", date(2024, 1, 6), date(2024, 1, 7))
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 0
+        assert body["bars"] == []
+        assert body["symbol"] == "SPY"
+
+    def test_empty_response_still_carries_is_stale(self, test_app: FastAPI) -> None:
+        """"No bars *and* the cagg is stale" is exactly the case a client needs
+        to tell apart from "no bars because the market was closed"."""
+        test_app.state.minute_db.get_minute_data.return_value = pd.DataFrame()
+        test_app.dependency_overrides[get_db_pool] = lambda: _pool_where_symbol(True)
+        with _mocked_probe(is_fresh=False):
+            response = _request(test_app, "5m", date(2024, 1, 6), date(2024, 1, 7))
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 0
+        assert body["is_stale"] is True
+
+    def test_from_dataframe_handles_an_empty_frame(self) -> None:
+        """Proved rather than assumed: it iterates rows and touches no columns,
+        so a frame with no columns at all is fine."""
+        response = BarsResponse.from_dataframe(
+            "SPY", Granularity.D1, True, pd.DataFrame(), is_stale=False
+        )
+        assert response.count == 0
+        assert response.bars == []
+
+    def test_unknown_symbol_empty_window_is_a_404(self, test_app: FastAPI) -> None:
+        test_app.state.daily_db.get_daily_data.return_value = pd.DataFrame()
+        test_app.dependency_overrides[get_db_pool] = lambda: _pool_where_symbol(False)
+        response = TestClient(test_app).get(
+            "/api/v1/bars/ZZZZ?granularity=1d&start=2024-01-01&end=2024-01-03"
+        )
+        assert response.status_code == 404
+        assert set(response.json()) == {"error"}
+        assert "ZZZZ" in response.json()["error"]
+
+    def test_lookup_runs_only_on_the_empty_path(self, test_app: FastAPI) -> None:
+        test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(3)
+        pool = _pool_where_symbol(True)
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        with patch(f"{_BARS_MODULE}.symbol_exists") as lookup:
+            response = _request(test_app, "1d", date(2024, 1, 1), date(2024, 1, 3))
+        assert response.status_code == 200
+        assert not lookup.called
+
+    @pytest.mark.parametrize(
+        ("granularity", "expected_checkouts"),
+        [
+            (Granularity.M1, 0),
+            (Granularity.D1, 0),
+            (Granularity.M5, 1),
+            (Granularity.M15, 1),
+            (Granularity.H1, 1),
+            (Granularity.H4, 1),
+            (Granularity.W1, 1),
+            (Granularity.MO1, 1),
+            (Granularity.Q1, 1),
+        ],
+    )
+    def test_non_empty_response_checkout_count_is_unchanged_by_this_slice(
+        self, test_app: FastAPI, granularity: Granularity, expected_checkouts: int
+    ) -> None:
+        """Review F012, over all nine granularities.
+
+        The two raw grains check out nothing; the seven cagg-served grains check
+        out exactly one — the 185 freshness probe, which is correct and must not
+        be asserted away. D5's lookup adds no connection to the hot path.
+        """
+        for db_attr in ("minute_db", "daily_db"):
+            mock_db = getattr(test_app.state, db_attr)
+            method = "get_minute_data" if db_attr == "minute_db" else "get_daily_data"
+            getattr(mock_db, method).return_value = _make_ohlcv_df(2)
+
+        pool = _pool_where_symbol(True)
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        with _mocked_probe(is_fresh=True):
+            response = _request(
+                test_app, granularity.value, date(2024, 1, 1), date(2024, 1, 3)
+            )
+        assert response.status_code == 200
+        assert pool.connection.call_count == expected_checkouts
+
+    def test_empty_path_holds_at_most_one_connection(self, test_app: FastAPI) -> None:
+        """The lookup's checkout is scoped to the query (185 D8a), released
+        before serialization."""
+        test_app.state.daily_db.get_daily_data.return_value = pd.DataFrame()
+        pool = _pool_where_symbol(True)
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        response = _request(test_app, "1d", date(2024, 1, 6), date(2024, 1, 7))
+        assert response.status_code == 200
+        assert pool.connection.call_count == 1
+
+    def test_cancelled_lookup_is_a_504_not_a_verdict(self, test_app: FastAPI) -> None:
+        """A failed lookup means the server does not know whether the symbol
+        exists. Defaulting to either 200 or 404 would assert something false."""
+        test_app.state.daily_db.get_daily_data.return_value = pd.DataFrame()
+        test_app.dependency_overrides[get_db_pool] = lambda: _stub_pool()
+        with patch(
+            f"{_BARS_MODULE}.symbol_exists",
+            side_effect=psycopg.errors.QueryCanceled("timeout"),
+        ):
+            response = TestClient(test_app, raise_server_exceptions=False).get(
+                "/api/v1/bars/SPY?granularity=1d&start=2024-01-06&end=2024-01-07"
+            )
+        assert response.status_code == 504
+
+    def test_failed_lookup_is_a_500_not_a_verdict(self, test_app: FastAPI) -> None:
+        test_app.state.daily_db.get_daily_data.return_value = pd.DataFrame()
+        test_app.dependency_overrides[get_db_pool] = lambda: _stub_pool()
+        with patch(
+            f"{_BARS_MODULE}.symbol_exists",
+            side_effect=psycopg.OperationalError("connection lost"),
+        ):
+            response = TestClient(test_app, raise_server_exceptions=False).get(
+                "/api/v1/bars/SPY?granularity=1d&start=2024-01-06&end=2024-01-07"
+            )
+        assert response.status_code == 500
+        assert response.json() == {"error": "internal server error"}

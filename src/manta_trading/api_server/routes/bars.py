@@ -23,6 +23,7 @@ from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
     BarsResponse,
 )
+from manta_trading.api_server.queries import symbol_exists
 from manta_trading.constants import (
     BARS_PER_TRADING_DAY,
     CAGG_BASE_GRANULARITY,
@@ -190,10 +191,19 @@ async def get_bars(
         df = await loop.run_in_executor(None, fetch_bars)
 
     if df.empty:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Symbol '{symbol}' not found or no data in range",
-        )
+        # 404 means "unknown symbol", nothing else (186 D5). A weekend and a
+        # typo used to be indistinguishable. The lookup runs only here, so a
+        # normal response pays nothing for it, and the checkout is scoped to
+        # the query (185 D8a) rather than held across serialization.
+        def _symbol_is_known() -> bool:
+            with pool.connection() as conn:
+                return symbol_exists(conn, symbol)
+
+        if not await loop.run_in_executor(None, _symbol_is_known):
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Symbol '{symbol}' not found",
+            )
 
     response = BarsResponse.from_dataframe(
         symbol,
