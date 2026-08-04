@@ -133,6 +133,78 @@ def test_no_bulk_literals_remain_in_the_api_module() -> None:
     assert "300s" not in source
 
 
+# --- Error-body contract (slice 186 D6) -------------------------------------
+
+
+def _error_app() -> Any:
+    """An app with two routes that raise the two HTTPException shapes."""
+    from fastapi import HTTPException
+
+    app = create_app()
+
+    @app.get("/_test/not-found")
+    async def _not_found() -> None:
+        raise HTTPException(status_code=404, detail="Symbol 'ZZZZ' not found")
+
+    @app.get("/_test/unprocessable")
+    async def _unprocessable() -> None:
+        raise HTTPException(status_code=422, detail="bad range")
+
+    return app
+
+
+@pytest.mark.parametrize(
+    ("path", "status_code", "message"),
+    [
+        ("/_test/not-found", 404, "Symbol 'ZZZZ' not found"),
+        ("/_test/unprocessable", 422, "bad range"),
+    ],
+)
+def test_http_exceptions_all_render_as_error(
+    path: str, status_code: int, message: str
+) -> None:
+    """D6 widened the handler past its 404-only special case; a 422 used to
+    fall through to FastAPI's ``{"detail": ...}``."""
+    from fastapi.testclient import TestClient
+
+    response = TestClient(_error_app()).get(path)
+    assert response.status_code == status_code
+    assert response.json() == {"error": message}
+
+
+def test_fastapi_validation_body_stays_native() -> None:
+    """The one documented exception to D6, asserted deliberately: a future
+    change must not silently flatten ``loc``/``msg`` into a string."""
+    from fastapi.testclient import TestClient
+
+    app = create_app()
+    app.state.db_pool = MagicMock()
+    app.state.minute_db = MagicMock()
+    app.state.daily_db = MagicMock()
+    response = TestClient(app).get(
+        "/api/v1/bars/SPY?granularity=bad&start=2024-01-01&end=2024-01-03"
+    )
+    assert response.status_code == 422
+    body = response.json()
+    assert "detail" in body
+    assert isinstance(body["detail"], list)
+    assert "error" not in body
+
+
+def test_unhandled_exception_body_is_sanitized() -> None:
+    from fastapi.testclient import TestClient
+
+    app = create_app()
+
+    @app.get("/_test/boom")
+    async def _boom() -> None:
+        raise RuntimeError("connection string postgresql://user:pass@host/db")
+
+    response = TestClient(app, raise_server_exceptions=False).get("/_test/boom")
+    assert response.status_code == 500
+    assert response.json() == {"error": "internal server error"}
+
+
 def test_missing_db_url_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
     """No silent fallback: the server refuses to start without a URL."""
     monkeypatch.setenv("MT_TIMESCALE_DB_URL", "")

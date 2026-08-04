@@ -54,10 +54,10 @@ def _resolve_health_filter(health: str | None, *, all_rows: bool) -> list[str] |
             it is empty. 422 matches the status FastAPI already returns for an
             invalid ``granularity`` on the bars route. Only the *status*
             matches: FastAPI's native validation body is a list of structured
-            error objects under ``detail``, while these are a plain string. This
-            API already varies its error bodies (slice 184's handler emits
-            ``{"error": ...}`` for 404), so a uniform error-body contract is a
-            separate decision this route cannot make on its own.
+            error objects under ``detail``, while these are a plain string.
+            Slice 186 D6 settled the shape — every ``HTTPException`` this
+            codebase raises is rendered as ``{"error": "<message>"}`` by the
+            app-level handler, so this route constructs no body of its own.
     """
     if all_rows:
         return None

@@ -9,7 +9,6 @@ from typing import Any
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exception_handlers import http_exception_handler as _default_http_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg_pool import ConnectionPool
@@ -132,11 +131,22 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(
-        request: Request, exc: HTTPException
+        _request: Request, exc: HTTPException
     ) -> JSONResponse:
-        if exc.status_code == 404:
-            return JSONResponse(status_code=404, content={"error": str(exc.detail)})
-        return await _default_http_handler(request, exc)  # type: ignore[return-value]
+        """Emit one error shape for every error this codebase raises (186 D6).
+
+        Widened from 404-only: the status route's 422s and the bars route's
+        range rejections inherit it without constructing bodies of their own.
+        FastAPI's ``RequestValidationError`` is handled separately and keeps its
+        native ``detail`` list — it carries per-field ``loc``/``msg`` a
+        flattened string would lose. That exception is documented in the README
+        and asserted in the test suite so it cannot be unified by accident.
+        """
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": str(exc.detail)},
+            headers=exc.headers,
+        )
 
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(
