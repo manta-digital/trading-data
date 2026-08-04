@@ -7,12 +7,15 @@ OHLCV DB classes are not the place for it — ``instruments`` is not their table
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
 import psycopg
 
 from manta_trading.constants import (
+    CAGG_FRESHNESS_CACHE_TTL,
     DAILY_COVERAGE_VIEW,
     MINUTE_COVERAGE_VIEW,
     CycleGranularity,
@@ -141,6 +144,67 @@ def fetch_universe_edges(
     for family, edge in rows:
         edges[CycleGranularity(family)] = edge
     return edges
+
+
+class UniverseEdgeCache:
+    """TTL cache for the universe-wide coverage edges (D3).
+
+    The edges cost ~32 ms steady state (60.9 ms cold) and are identical for
+    every symbol, so paying for them per request would dominate a read the rest
+    of which is ~20 ms. One instance lives on ``app.state``; ``deps.get_universe_edges``
+    is the accessor routes use.
+
+    **TTL is ``CAGG_FRESHNESS_CACHE_TTL``, reused deliberately.** The coverage
+    refresh policies fire hourly, so a 60 s window cannot mask an edge movement,
+    and this is already the project's answer to "how long may a cagg-derived
+    fact be cached" (168 D6). A second constant for the same 60 s policy would
+    be two things to keep in step.
+
+    **Thread safety is required, not defensive.** The route reads this from a
+    worker thread inside ``run_in_executor``, so concurrent requests touch it
+    from several threads at once. The lock is held across the fetch so a cold
+    cache under concurrency issues exactly one query rather than one per waiting
+    thread — the fetch is ~32 ms and the alternative is a thundering herd
+    against a pool of 8.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._edges: dict[CycleGranularity, date | None] | None = None
+        self._fetched_at: datetime | None = None
+
+    def get(
+        self,
+        conn: psycopg.Connection[Any],
+        *,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> dict[CycleGranularity, date | None]:
+        """Return the cached edges, refreshing them if the TTL has expired.
+
+        Args:
+            conn: Connection used only on a miss.
+            now:  Clock seam, so expiry is testable without sleeping.
+        """
+        with self._lock:
+            current = now()
+            if (
+                self._edges is not None
+                and self._fetched_at is not None
+                and current - self._fetched_at < CAGG_FRESHNESS_CACHE_TTL
+            ):
+                return self._edges
+
+            edges = fetch_universe_edges(conn)
+            self._edges = edges
+            self._fetched_at = current
+            return edges
+
+    def clear(self) -> None:
+        """Drop the cached value. For tests and for the load tier, which resets
+        it between measured runs so a cold read is actually cold."""
+        with self._lock:
+            self._edges = None
+            self._fetched_at = None
 
 
 def fetch_symbol_coverage(

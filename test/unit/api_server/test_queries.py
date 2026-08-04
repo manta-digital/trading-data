@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+import threading
+import time
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock
 
 import psycopg
@@ -13,6 +16,7 @@ from manta_trading.api_server.queries import (
     _MINUTE_HEAD_ONLY_SQL,
     _SYMBOL_EXISTS_SQL,
     _SYMBOL_HEAD_SQL,
+    UniverseEdgeCache,
     _as_bound,
     fetch_symbol_coverage,
     fetch_symbol_head,
@@ -20,7 +24,10 @@ from manta_trading.api_server.queries import (
     merge_available_ranges,
     symbol_exists,
 )
-from manta_trading.constants import CycleGranularity
+from manta_trading.constants import CAGG_FRESHNESS_CACHE_TTL, CycleGranularity
+
+_T0 = datetime(2026, 8, 4, 12, 0, tzinfo=UTC)
+"""Fixed clock origin for the cache tests — TTL expiry without sleeping."""
 
 
 def _conn(fetchone_result: object) -> MagicMock:
@@ -262,3 +269,88 @@ class TestFetchSymbolHead:
             for branch in sql.split("UNION ALL"):
                 assert "WHERE" in branch.upper()
                 assert "time_bucket > %s" in branch or "time > %s" in branch
+
+
+class TestUniverseEdgeCache:
+    """Slice 187 D3 — the edges are identical per symbol and cost ~32 ms, so
+    they are read once per TTL window rather than once per request."""
+
+    @staticmethod
+    def _clock(moment: datetime) -> Callable[[], datetime]:
+        return lambda: moment
+
+    def test_cold_call_queries_and_returns_the_value(self) -> None:
+        conn = _rows_conn([(_MINUTE.value, _EDGE_MINUTE), (_DAILY.value, _EDGE_DAILY)])
+        cache = UniverseEdgeCache()
+        edges = cache.get(conn, now=self._clock(_T0))
+        assert edges == {_MINUTE: _EDGE_MINUTE, _DAILY: _EDGE_DAILY}
+        assert conn.execute.call_count == 1
+
+    def test_warm_call_inside_the_ttl_issues_no_query(self) -> None:
+        conn = _rows_conn([(_MINUTE.value, _EDGE_MINUTE), (_DAILY.value, _EDGE_DAILY)])
+        cache = UniverseEdgeCache()
+        cache.get(conn, now=self._clock(_T0))
+        edges = cache.get(
+            conn, now=self._clock(_T0 + CAGG_FRESHNESS_CACHE_TTL - timedelta(seconds=1))
+        )
+        assert conn.execute.call_count == 1, "a warm read must not re-query"
+        assert edges == {_MINUTE: _EDGE_MINUTE, _DAILY: _EDGE_DAILY}
+
+    def test_call_after_expiry_requeries(self) -> None:
+        conn = _rows_conn([(_MINUTE.value, _EDGE_MINUTE), (_DAILY.value, _EDGE_DAILY)])
+        cache = UniverseEdgeCache()
+        cache.get(conn, now=self._clock(_T0))
+        cache.get(
+            conn, now=self._clock(_T0 + CAGG_FRESHNESS_CACHE_TTL + timedelta(seconds=1))
+        )
+        assert conn.execute.call_count == 2
+
+    def test_one_query_populates_both_families(self) -> None:
+        # A cache miss must cost one fetch, not one per family.
+        conn = _rows_conn([(_MINUTE.value, _EDGE_MINUTE), (_DAILY.value, _EDGE_DAILY)])
+        cache = UniverseEdgeCache()
+        edges = cache.get(conn, now=self._clock(_T0))
+        assert set(edges) == {_MINUTE, _DAILY}
+        assert conn.execute.call_count == 1
+
+    def test_clear_forces_a_refetch(self) -> None:
+        conn = _rows_conn([(_MINUTE.value, _EDGE_MINUTE), (_DAILY.value, _EDGE_DAILY)])
+        cache = UniverseEdgeCache()
+        cache.get(conn, now=self._clock(_T0))
+        cache.clear()
+        cache.get(conn, now=self._clock(_T0))
+        assert conn.execute.call_count == 2
+
+    def test_concurrent_cold_reads_issue_exactly_one_query(self) -> None:
+        """The route reads this from executor threads, so a cold cache under
+        concurrency must not become a thundering herd against a pool of 8."""
+        conn = _rows_conn([(_MINUTE.value, _EDGE_MINUTE), (_DAILY.value, _EDGE_DAILY)])
+        # Make the fetch slow enough that every thread is inside get() at once
+        # if the lock is not held across it.
+        original = conn.execute
+
+        def _slow(*args: object, **kwargs: object) -> object:
+            time.sleep(0.05)
+            return original(*args, **kwargs)
+
+        conn.execute = _slow  # type: ignore[method-assign]
+
+        cache = UniverseEdgeCache()
+        results: list[dict[CycleGranularity, date | None]] = []
+        threads = [
+            threading.Thread(
+                target=lambda: results.append(cache.get(conn, now=self._clock(_T0)))
+            )
+            for _ in range(8)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(results) == 8
+        assert all(r == {_MINUTE: _EDGE_MINUTE, _DAILY: _EDGE_DAILY} for r in results)
+        assert original.call_count == 1, (
+            "a cold cache under concurrency must issue one query, not one per "
+            f"waiting thread; got {original.call_count}"
+        )

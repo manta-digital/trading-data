@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg_pool import ConnectionPool
 
+from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.api_server.routes.bars import router as bars_router
 from manta_trading.api_server.routes.gaps import router as gaps_router
 from manta_trading.api_server.routes.health import router as health_router
@@ -101,6 +102,11 @@ async def lifespan(
         ),
     )
     app.state.db_pool = pool
+    # D3: the universe-wide coverage edges bound the symbol-detail head probe.
+    # Identical for every symbol and ~32 ms to read, so they are cached here
+    # rather than paid per request. One instance per app, so a test app and the
+    # production app never share a cached edge.
+    app.state.universe_edges = UniverseEdgeCache()
     _logger.info("API server connection pool opened")
     conninfo = str(resolved_url)
     # All three pools get the same session budget (186 D1): the bars path runs
