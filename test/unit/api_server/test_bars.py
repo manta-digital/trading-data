@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import msgpack
@@ -17,7 +18,14 @@ from fastapi.testclient import TestClient
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.deps import get_db_pool
 from manta_trading.api_server.models.responses import BarsResponse
-from manta_trading.constants import GRANULARITY_SOURCE, Granularity
+from manta_trading.constants import (
+    API_MAX_BARS_PER_REQUEST,
+    API_SERVING_SESSION,
+    BARS_PER_TRADING_DAY,
+    GRANULARITY_SOURCE,
+    TRADING_DAYS_PER_CALENDAR_DAY,
+    Granularity,
+)
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
     StalenessSignal,
@@ -87,12 +95,15 @@ def test_app() -> FastAPI:
     """Build a fresh app with DB state mocked; lifespan is not entered.
 
     ``get_db_pool`` is overridden explicitly so no test depends on the sentinel
-    pool MagicMock happening to resolve.
+    pool MagicMock happening to resolve. The policy values the lifespan would
+    normally resolve (186 D9) are set here for the same reason.
     """
     app = create_app()
     app.state.db_pool = MagicMock(name="sentinel_pool")
     app.state.minute_db = MagicMock(spec=TimescaleMinuteDataDB)
     app.state.daily_db = MagicMock(spec=TimescaleDailyDataDB)
+    app.state.max_bars_per_request = API_MAX_BARS_PER_REQUEST
+    app.state.statement_timeout = API_SERVING_SESSION.statement_timeout
     app.dependency_overrides[get_db_pool] = _stub_pool
     return app
 
@@ -301,3 +312,126 @@ class TestBarsStaleness:
         assert response.status_code == 200
         data = msgpack.unpackb(response.content, raw=False)
         assert data["is_stale"] is True
+
+
+# --- Range admission cap (slice 186 D4) -------------------------------------
+
+
+def _exploding_pool() -> MagicMock:
+    """A pool that fails loudly if any connection is checked out."""
+    pool = MagicMock(name="exploding_pool")
+    pool.connection.side_effect = AssertionError(
+        "a rejected request must not check out a connection"
+    )
+    return pool
+
+
+def _span_for(granularity: Granularity, ceiling: int) -> int:
+    """The maximum admissible inclusive span in days, computed as the route does."""
+    per_day = BARS_PER_TRADING_DAY[granularity] * TRADING_DAYS_PER_CALENDAR_DAY
+    return int(ceiling / per_day)
+
+
+def _request(
+    test_app: FastAPI, granularity: str, start: date, end: date
+) -> Any:
+    return TestClient(test_app).get(
+        f"/api/v1/bars/SPY?granularity={granularity}"
+        f"&start={start.isoformat()}&end={end.isoformat()}"
+    )
+
+
+class TestRangeAdmission:
+    def test_twenty_year_minute_request_is_rejected(self, test_app: FastAPI) -> None:
+        response = _request(test_app, "1m", date(2004, 1, 1), date(2024, 1, 1))
+        assert response.status_code == 422
+        body = response.json()
+        assert set(body) == {"error"}
+        assert "75,000" in body["error"]
+        assert "113 days" in body["error"]
+
+    def test_rejected_request_checks_out_no_connection(
+        self, test_app: FastAPI
+    ) -> None:
+        """The point of the decision, not a side effect: a request that cannot
+        be served must cost one comparison, not a pooled connection and an
+        executor thread."""
+        pool = _exploding_pool()
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        response = _request(test_app, "1m", date(2004, 1, 1), date(2024, 1, 1))
+        assert response.status_code == 422
+        assert not test_app.state.minute_db.get_minute_data.called
+        assert not test_app.state.daily_db.get_daily_data.called
+
+    @pytest.mark.parametrize(
+        "granularity", [Granularity.M1, Granularity.M5, Granularity.M15]
+    )
+    def test_boundary_is_exact(
+        self, test_app: FastAPI, granularity: Granularity
+    ) -> None:
+        """One day inside the limit is admitted; one day outside is rejected."""
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(1)
+        max_days = _span_for(granularity, API_MAX_BARS_PER_REQUEST)
+        start = date(2024, 1, 1)
+
+        with _mocked_probe(is_fresh=True):
+            inside = _request(
+                test_app,
+                granularity.value,
+                start,
+                start + timedelta(days=max_days - 1),
+            )
+            outside = _request(
+                test_app, granularity.value, start, start + timedelta(days=max_days)
+            )
+        assert inside.status_code == 200
+        assert outside.status_code == 422
+
+    def test_daily_grain_is_never_capped(self, test_app: FastAPI) -> None:
+        """At ``1d`` and coarser the cap is invisible — 20 years is ~5,000 bars."""
+        test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(2)
+        response = _request(test_app, "1d", date(2004, 1, 1), date(2024, 1, 1))
+        assert response.status_code == 200
+
+    def test_reversed_range_is_rejected(self, test_app: FastAPI) -> None:
+        """Before 186 this returned an empty frame and a misleading 404."""
+        pool = _exploding_pool()
+        test_app.dependency_overrides[get_db_pool] = lambda: pool
+        response = _request(test_app, "1d", date(2024, 3, 1), date(2024, 1, 1))
+        assert response.status_code == 422
+        error = response.json()["error"]
+        assert "2024-03-01" in error
+        assert "2024-01-01" in error
+        assert not test_app.state.daily_db.get_daily_data.called
+
+    def test_same_day_range_is_admitted(self, test_app: FastAPI) -> None:
+        """start == end is one day, not zero — the window is inclusive."""
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(1)
+        response = _request(test_app, "1m", date(2024, 6, 10), date(2024, 6, 10))
+        assert response.status_code == 200
+
+    def test_message_quotes_the_configured_ceiling(self, test_app: FastAPI) -> None:
+        """An override must not produce a message contradicting the enforced
+        limit — both the ceiling and the span are computed from the live value.
+        """
+        test_app.state.max_bars_per_request = 1_000
+        response = _request(test_app, "1m", date(2024, 1, 1), date(2024, 3, 1))
+        assert response.status_code == 422
+        error = response.json()["error"]
+        assert "1,000 bar limit" in error
+        assert "75,000" not in error
+        assert f"{_span_for(Granularity.M1, 1_000):,} days" in error
+
+    def test_ceiling_comes_from_app_state_not_a_literal(
+        self, test_app: FastAPI
+    ) -> None:
+        """A raised ceiling admits what the default rejects."""
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(1)
+        window = (date(2024, 1, 1), date(2024, 12, 31))
+
+        rejected = _request(test_app, "1m", *window)
+        test_app.state.max_bars_per_request = 10_000_000
+        admitted = _request(test_app, "1m", *window)
+
+        assert rejected.status_code == 422
+        assert admitted.status_code == 200
