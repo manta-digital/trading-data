@@ -13,7 +13,7 @@ projectState: >
   API process opens three independent connection pools at 300s/512MB.
 dateCreated: 20260803
 dateUpdated: 20260803
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -43,108 +43,108 @@ status: not_started
 
 ## Task 1 — Branch setup and grounding read
 
-- [ ] Create the slice branch and confirm the starting state
-  - [ ] Confirm `cf config get git.integration_branch` is empty; target is `main`
-  - [ ] From a clean tree on `main`, run
+- [x] Create the slice branch and confirm the starting state
+  - [x] Confirm `cf config get git.integration_branch` is empty; target is `main`
+  - [x] From a clean tree on `main`, run
         `git checkout -b 186-slice.api-client-contract-hardening main`
-  - [ ] Read design D1, D4, D5, D9, D10 in full
-  - [ ] Read `api_server/app.py`, `deps.py`, `routes/bars.py`, and the
+  - [x] Read design D1, D4, D5, D9, D10 in full
+  - [x] Read `api_server/app.py`, `deps.py`, `routes/bars.py`, and the
         `_configure_connection` + `_init_pool` methods of
         `market/timescale_minute_db.py` and `market/timescale_daily_db.py` —
         these five files are where nearly all of this slice lands
-  - [ ] Success: `uv run pytest test/unit/api_server/ -q` passes; record the
+  - [x] Success: `uv run pytest test/unit/api_server/ -q` passes; record the
         baseline test count for later comparison
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
 ---
 
 ## Task 2 — Session-settings and range-cap constants
 
-- [ ] Add the session-settings type and its two instances to `constants.py` (D1)
-  - [ ] `DbSessionSettings` — frozen dataclass, fields `work_mem: str` and
+- [x] Add the session-settings type and its two instances to `constants.py` (D1)
+  - [x] `DbSessionSettings` — frozen dataclass, fields `work_mem: str` and
         `statement_timeout: str`
-  - [ ] `DB_BULK_SESSION = DbSessionSettings("512MB", "300s")` — today's values,
+  - [x] `DB_BULK_SESSION = DbSessionSettings("512MB", "300s")` — today's values,
         now named; docstring says these are for bulk/analytics paths (CLI,
         daemon) and are the defaults every existing consumer keeps
-  - [ ] `API_SERVING_SESSION = DbSessionSettings("64MB", "20s")` — docstring
+  - [x] `API_SERVING_SESSION = DbSessionSettings("64MB", "20s")` — docstring
         records the derivation from D1 (measured serving latencies; `work_mem`
         is per sort/hash node, not per connection)
-  - [ ] Success: both importable; no existing constant renamed or removed
-  - [ ] Effort: 1
+  - [x] Success: both importable; no existing constant renamed or removed
+  - [x] Effort: 1
 
-- [ ] Add the range-cap constants and derivation inputs (D4)
-  - [ ] `API_MAX_BARS_PER_REQUEST: int = 75_000` — docstring records the 75k
+- [x] Add the range-cap constants and derivation inputs (D4)
+  - [x] `API_MAX_BARS_PER_REQUEST: int = 75_000` — docstring records the 75k
         compromise and the payload estimate (~8–10 MB JSON / 3.5–4 MB msgpack)
-  - [ ] `INTRADAY_MINUTES_PER_TRADING_DAY: int = 960` — docstring records the
+  - [x] `INTRADAY_MINUTES_PER_TRADING_DAY: int = 960` — docstring records the
         measurement it comes from: prod, 2026-08-03, coverage 08:00–23:59 UTC,
         AAPL 960 `1m` bars on 2024-06-10. **Not** the 390-minute regular session
-  - [ ] `GRANULARITY_BAR_MINUTES: dict[Granularity, int]` — the five intraday
+  - [x] `GRANULARITY_BAR_MINUTES: dict[Granularity, int]` — the five intraday
         granularities only
-  - [ ] `TRADING_DAYS_PER_CALENDAR_DAY: float = 252 / 365`
-  - [ ] `BARS_PER_TRADING_DAY: dict[Granularity, float]` — **derived** from
+  - [x] `TRADING_DAYS_PER_CALENDAR_DAY: float = 252 / 365`
+  - [x] `BARS_PER_TRADING_DAY: dict[Granularity, float]` — **derived** from
         `INTRADAY_MINUTES_PER_TRADING_DAY / GRANULARITY_BAR_MINUTES` for
         intraday, plus literal `D1: 1.0, W1: 1/5, MO1: 1/21, Q1: 1/63`
-  - [ ] Success: every `Granularity` member has a `BARS_PER_TRADING_DAY` entry;
+  - [x] Success: every `Granularity` member has a `BARS_PER_TRADING_DAY` entry;
         no per-granularity max span is written as a literal anywhere
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] Test the constants (`test/unit/test_constants.py` or the existing module)
-  - [ ] Parametrized test: `BARS_PER_TRADING_DAY` is complete over
+- [x] Test the constants (`test/unit/test_constants.py` or the existing module)
+  - [x] Parametrized test: `BARS_PER_TRADING_DAY` is complete over
         `Granularity` and every value is positive
-  - [ ] Assert the derived intraday values equal 960/192/64/16/4 for
+  - [x] Assert the derived intraday values equal 960/192/64/16/4 for
         `1m/5m/15m/1h/4h` — this pins the derivation, not the literals
-  - [ ] Success: tests pass; `ruff` and `mypy` clean on `constants.py`
-  - [ ] Effort: 1
+  - [x] Success: tests pass; `ruff` and `mypy` clean on `constants.py`
+  - [x] Effort: 1
 
 ---
 
 ## Task 3 — Operator-settable policy knobs
 
-- [ ] Add the two settings to `config/__init__.py` (D9)
-  - [ ] `api_max_bars_per_request: int = API_MAX_BARS_PER_REQUEST`
-  - [ ] `api_statement_timeout: str = API_SERVING_SESSION.statement_timeout`
-  - [ ] Comment records that the defaults live in `constants.py` (one
+- [x] Add the two settings to `config/__init__.py` (D9)
+  - [x] `api_max_bars_per_request: int = API_MAX_BARS_PER_REQUEST`
+  - [x] `api_statement_timeout: str = API_SERVING_SESSION.statement_timeout`
+  - [x] Comment records that the defaults live in `constants.py` (one
         definition) and that env names are `MT_API_MAX_BARS_PER_REQUEST` and
         `MT_API_STATEMENT_TIMEOUT` via the existing `MT_` prefix
-  - [ ] Success: `Settings().api_max_bars_per_request == 75_000` with no env set
-  - [ ] Effort: 1
+  - [x] Success: `Settings().api_max_bars_per_request == 75_000` with no env set
+  - [x] Effort: 1
 
-- [ ] Test the overrides (`test/unit/test_config.py` or equivalent)
-  - [ ] `monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "1000")` →
+- [x] Test the overrides (`test/unit/test_config.py` or equivalent)
+  - [x] `monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "1000")` →
         `Settings().api_max_bars_per_request == 1000`
-  - [ ] A non-integer override raises `pydantic.ValidationError` at
+  - [x] A non-integer override raises `pydantic.ValidationError` at
         `Settings()` construction — assert this explicitly; the failure must be
         at load, not at first request
-  - [ ] `MT_API_STATEMENT_TIMEOUT` override is picked up as a string
-  - [ ] Success: tests pass
-  - [ ] Effort: 1
+  - [x] `MT_API_STATEMENT_TIMEOUT` override is picked up as a string
+  - [x] Success: tests pass
+  - [x] Effort: 1
 
 ---
 
 ## Task 4 — Single source for the package version
 
-- [ ] Add `src/manta_trading/version.py` with `package_version() -> str` (D3)
-  - [ ] Body is the existing logic from `cli/app.py:41-49`: try
+- [x] Add `src/manta_trading/version.py` with `package_version() -> str` (D3)
+  - [x] Body is the existing logic from `cli/app.py:41-49`: try
         `importlib.metadata.version(DISTRIBUTION_NAME)`, on
         `PackageNotFoundError` log a warning and return `"dev"`
-  - [ ] Success: module has no imports from `cli` or `api_server` (leaf module)
-  - [ ] Effort: 1
+  - [x] Success: module has no imports from `cli` or `api_server` (leaf module)
+  - [x] Effort: 1
 
-- [ ] Wire both consumers
-  - [ ] `cli/app.py::_version_callback` calls `package_version()`; its inline
+- [x] Wire both consumers
+  - [x] `cli/app.py::_version_callback` calls `package_version()`; its inline
         try/except is deleted, not duplicated
-  - [ ] `api_server/app.py::create_app` passes `version=package_version()` in
+  - [x] `api_server/app.py::create_app` passes `version=package_version()` in
         place of the hardcoded `"0.1.0"`
-  - [ ] Success: `uv run mt --version` and `GET /openapi.json` report the same
+  - [x] Success: `uv run mt --version` and `GET /openapi.json` report the same
         non-`0.1.0` string
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] Test (`test/unit/test_version.py`, plus one api_server assertion)
-  - [ ] Patch `importlib.metadata.version` to raise `PackageNotFoundError` →
+- [x] Test (`test/unit/test_version.py`, plus one api_server assertion)
+  - [x] Patch `importlib.metadata.version` to raise `PackageNotFoundError` →
         `package_version() == "dev"` and a warning is logged
-  - [ ] `create_app().openapi()["info"]["version"] == package_version()`
-  - [ ] Success: tests pass
-  - [ ] Effort: 1
+  - [x] `create_app().openapi()["info"]["version"] == package_version()`
+  - [x] Success: tests pass
+  - [x] Effort: 1
 
 ---
 
