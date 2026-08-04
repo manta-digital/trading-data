@@ -257,14 +257,14 @@ status: complete
         entry so a future regression names the specific case that broke
   - [x] Effort: 2
 
-- [ ] Test the three fetch functions against a fixture DB
-  - [ ] `test/unit/api_server/test_symbols.py` (or a new `test_queries.py`):
+- [x] Test the three fetch functions against a fixture DB
+  - [x] `test/unit/api_server/test_symbols.py` (or a new `test_queries.py`):
         seed a small ephemeral DB with coverage rows and raw bars covering the
         four D2 cases plus a symbol present in neither cagg
-  - [ ] Assert each fetch function's SQL shape produces the expected merged
+  - [x] Assert each fetch function's SQL shape produces the expected merged
         result via `merge_available_ranges` — this is the seam Task 9 will call
-  - [ ] Success: tests pass against the project's ephemeral-DB fixture
-  - [ ] Effort: 2
+  - [x] Success: tests pass against the project's ephemeral-DB fixture
+  - [x] Effort: 2
 
 ---
 
