@@ -6,8 +6,17 @@ Route behavior lives in the per-route modules; this module covers what
 
 from __future__ import annotations
 
-from manta_trading.api_server.app import create_app
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from manta_trading.api_server.app import create_app, make_configure_connection
+from manta_trading.constants import API_SERVING_SESSION, DbSessionSettings
 from manta_trading.version import package_version
+
+_APP_MODULE = "manta_trading.api_server.app"
+_DB_URL = "postgresql://user:pass@localhost:5432/nonexistent"
 
 
 def test_openapi_version_comes_from_package_metadata() -> None:
@@ -19,3 +28,121 @@ def test_openapi_version_comes_from_package_metadata() -> None:
     info = create_app().openapi()["info"]
     assert info["version"] == package_version()
     assert info["version"] != "0.1.0"
+
+
+# --- Lifespan wiring (slice 186 D1, D9) -------------------------------------
+
+
+class RecordingConnection:
+    """Records the SET statements a pool ``configure`` hook issues."""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+        self.autocommit = False
+
+    def execute(self, statement: str) -> None:
+        self.statements.append(statement)
+
+
+def _emitted(session: DbSessionSettings) -> list[str]:
+    conn = RecordingConnection()
+    make_configure_connection(session)(conn)  # type: ignore[arg-type]
+    return conn.statements
+
+
+@pytest.fixture
+def started_app(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Enter the real lifespan with every pool constructor patched out.
+
+    Yields ``(app, pool_cls, minute_cls, daily_cls)`` so a test can inspect
+    both what was stored on ``app.state`` and what each pool was built with.
+    """
+
+    def _start(**env: str) -> tuple[Any, Any, Any, Any]:
+        monkeypatch.setenv("MT_TIMESCALE_DB_URL", _DB_URL)
+        for key in ("MT_API_MAX_BARS_PER_REQUEST", "MT_API_STATEMENT_TIMEOUT"):
+            monkeypatch.delenv(key, raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+
+        app = create_app()
+        with (
+            patch(f"{_APP_MODULE}.ConnectionPool") as pool_cls,
+            patch(f"{_APP_MODULE}.TimescaleMinuteDataDB") as minute_cls,
+            patch(f"{_APP_MODULE}.TimescaleDailyDataDB") as daily_cls,
+        ):
+            from fastapi.testclient import TestClient
+
+            with TestClient(app):
+                pass
+        return app, pool_cls, minute_cls, daily_cls
+
+    return _start
+
+
+def test_lifespan_gives_all_three_pools_the_serving_session(started_app: Any) -> None:
+    """D1's whole point: the bars path runs on the two class-owned pools, so
+    configuring only ``app.state.db_pool`` would leave bars at 300s/512MB."""
+    _app, pool_cls, minute_cls, daily_cls = started_app()
+
+    assert _emitted(minute_cls.call_args.kwargs["session"]) == _emitted(
+        API_SERVING_SESSION
+    )
+    assert daily_cls.call_args.kwargs["session"] == minute_cls.call_args.kwargs[
+        "session"
+    ]
+
+    conn = RecordingConnection()
+    pool_cls.call_args.kwargs["configure"](conn)
+    assert "SET work_mem = '64MB'" in conn.statements
+    assert "SET statement_timeout = '20s'" in conn.statements
+
+
+def test_statement_timeout_override_reaches_the_pools(started_app: Any) -> None:
+    """Proves the setting reaches the connection, not merely ``Settings``."""
+    _app, pool_cls, minute_cls, daily_cls = started_app(
+        MT_API_STATEMENT_TIMEOUT="5s"
+    )
+
+    conn = RecordingConnection()
+    pool_cls.call_args.kwargs["configure"](conn)
+    assert "SET statement_timeout = '5s'" in conn.statements
+    for cls in (minute_cls, daily_cls):
+        assert cls.call_args.kwargs["session"].statement_timeout == "5s"
+        # work_mem is not operator-settable (D9) and must not move with it.
+        assert cls.call_args.kwargs["session"].work_mem == "64MB"
+
+
+def test_policy_values_are_resolved_once_onto_app_state(started_app: Any) -> None:
+    app, _pool_cls, _minute_cls, _daily_cls = started_app(
+        MT_API_MAX_BARS_PER_REQUEST="1234", MT_API_STATEMENT_TIMEOUT="7s"
+    )
+    assert app.state.max_bars_per_request == 1234
+    assert app.state.statement_timeout == "7s"
+
+
+def test_no_bulk_literals_remain_in_the_api_module() -> None:
+    """A literal 512MB/300s in app.py would silently reinstate the bulk budget
+    on whichever pool it configured."""
+    import inspect
+
+    from manta_trading.api_server import app as app_module
+
+    source = inspect.getsource(app_module)
+    assert "512MB" not in source
+    assert "300s" not in source
+
+
+def test_missing_db_url_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No silent fallback: the server refuses to start without a URL."""
+    monkeypatch.setenv("MT_TIMESCALE_DB_URL", "")
+    app = create_app()
+
+    from fastapi.testclient import TestClient
+
+    with (
+        patch(f"{_APP_MODULE}.ConnectionPool", MagicMock()),
+        pytest.raises(RuntimeError, match="MT_TIMESCALE_DB_URL"),
+        TestClient(app),
+    ):
+        pass

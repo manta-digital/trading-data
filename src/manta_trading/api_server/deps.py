@@ -41,6 +41,25 @@ def get_db_pool(request: Request) -> ConnectionPool[psycopg.Connection[Any]]:
     return request.app.state.db_pool  # type: ignore[no-any-return]
 
 
+def get_max_bars(request: Request) -> int:
+    """Return the configured ceiling on estimated bars per request (186 D9).
+
+    Resolved from ``MT_API_MAX_BARS_PER_REQUEST`` once in the lifespan hook and
+    held on ``app.state``; this reads that value rather than re-instantiating
+    ``Settings`` per request. Changing the override requires a restart.
+    """
+    return request.app.state.max_bars_per_request  # type: ignore[no-any-return]
+
+
+def get_statement_timeout(request: Request) -> str:
+    """Return the configured per-connection statement timeout (186 D9).
+
+    Used by the ``504`` handler so its message quotes the budget actually in
+    force rather than the default.
+    """
+    return request.app.state.statement_timeout  # type: ignore[no-any-return]
+
+
 def get_minute_db(request: Request) -> TimescaleMinuteDataDB:
     """Return the shared ``TimescaleMinuteDataDB`` instance from app state."""
     return request.app.state.minute_db  # type: ignore[no-any-return]
