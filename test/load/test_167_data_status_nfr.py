@@ -36,11 +36,12 @@ from __future__ import annotations
 import os
 import statistics
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
 import pytest
+
+from .conftest import SYMBOL_COUNT
 
 pytestmark = [
     pytest.mark.skipif(
@@ -54,104 +55,18 @@ pytestmark = [
 _NFR_SECONDS = 1.0
 """D5 / success criterion 6: full-universe data_status read under one second."""
 
-_SYMBOL_COUNT = 12_000
-"""At least the production universe (11,625 symbols as of 2026-07)."""
+_SYMBOL_COUNT = SYMBOL_COUNT
+"""The fixture's symbol count, imported rather than restated (187 D10).
 
-_YEAR_COUNT = 10
-_FIRST_YEAR = 2010
+``prod_shaped_db`` moved to ``conftest.py`` when slice 187 added a second
+consumer; the row-count assertion below must track whatever that fixture
+actually seeds, so a local literal here would be a second definition site free
+to drift.
+"""
 
 _MEASURED_RUNS = 3
 """Median of three keeps one network hiccup from failing a real sub-second
 read, while a genuine regression past the NFR fails all three."""
-
-
-def _symbol(i: int) -> str:
-    return f"ZZLD{i:05d}"
-
-
-def _seed_prod_shape(url: str) -> None:
-    """COPY instruments plus one minute and one daily bar per symbol-year.
-
-    All symbols share the same per-year timestamps, so the raw rows land in a
-    handful of hypertable chunks while the coverage caggs still materialize
-    the full symbols x years row count that drives the view's read cost.
-    """
-    minute_ts = [
-        datetime(_FIRST_YEAR + y, 3, 1, 14, 31, tzinfo=UTC)
-        for y in range(_YEAR_COUNT)
-    ]
-    daily_ts = [
-        datetime(_FIRST_YEAR + y, 3, 1, 0, 0, tzinfo=UTC)
-        for y in range(_YEAR_COUNT)
-    ]
-
-    with psycopg.connect(url) as conn:
-        with conn.cursor() as cur:
-            with cur.copy(
-                "COPY instruments "
-                "(canonical_id, symbol, asset_class, venue, "
-                " trading_calendar_id, delisted_at_eodhd, "
-                " eodhd_type, eodhd_exchange) FROM STDIN"
-            ) as copy:
-                for i in range(_SYMBOL_COUNT):
-                    sym = _symbol(i)
-                    copy.write_row(
-                        (f"EQ:{sym}", sym, "equity", "US", "NYSE", False,
-                         "Common Stock", "US")
-                    )
-
-            for table, stamps in (
-                ("minute_ohlcv", minute_ts),
-                ("daily_ohlcv", daily_ts),
-            ):
-                with cur.copy(
-                    f"COPY {table} "
-                    "(time, symbol, open, high, low, close, volume) FROM STDIN"
-                ) as copy:
-                    for i in range(_SYMBOL_COUNT):
-                        sym = _symbol(i)
-                        for ts in stamps:
-                            copy.write_row((ts, sym, 10.0, 10.0, 10.0, 10.0, 100))
-        conn.commit()
-
-
-def _refresh_coverage(url: str) -> None:
-    """Materialize the coverage caggs over the full seeded history.
-
-    NULL bounds (runbook R2a): an explicit window under two 365-day buckets is
-    rejected by the engine, and full history is what the fixture needs anyway.
-    Parent before child — refreshing ``minute_coverage`` over an
-    unmaterialized 4-hour cagg rolls up nothing (measured in slice 167 s7).
-    """
-    from manta_trading.constants import (
-        DAILY_COVERAGE_VIEW,
-        GRANULARITY_SOURCE,
-        MINUTE_COVERAGE_VIEW,
-        Granularity,
-    )
-
-    with psycopg.connect(url, autocommit=True) as conn:
-        for view in (
-            GRANULARITY_SOURCE[Granularity.H4],
-            MINUTE_COVERAGE_VIEW,
-            DAILY_COVERAGE_VIEW,
-        ):
-            conn.execute(f"CALL refresh_continuous_aggregate('{view}', NULL, NULL)")
-
-
-@pytest.fixture()
-def prod_shaped_db(ephemeral_db: str) -> str:
-    from psycopg_pool import ConnectionPool
-
-    from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
-    from manta_trading.market.schema.runner import apply_migrations
-
-    with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
-        apply_migrations(pool, MINUTE_MIGRATIONS)
-
-    _seed_prod_shape(ephemeral_db)
-    _refresh_coverage(ephemeral_db)
-    return ephemeral_db
 
 
 def test_full_universe_data_status_under_one_second(prod_shaped_db: str) -> None:
