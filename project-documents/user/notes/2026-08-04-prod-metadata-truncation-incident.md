@@ -3,7 +3,7 @@ docType: incident-note
 project: trading-data
 dateCreated: 20260804
 dateUpdated: 20260804
-status: open
+status: restore-executed — see "Restore execution record" at bottom
 severity: high
 ---
 
@@ -151,8 +151,15 @@ Continuous aggregates absent:
 Surviving caggs: `minute_5min_ohlcv`, `daily_coverage`.
 
 `universe_members` is 0 rows but retains its **original** relfilenode — emptied
-by a plain `DELETE` at some *other* time, by something else. **Unexplained; worth
-a separate look.**
+by a plain `DELETE` at some *other* time, by something else. ~~Unexplained~~
+**RESOLVED (2026-08-04, same day):** unit-tier fixtures
+(`test/unit/universe/test_tracking.py`, `data/test_equity_universe.py`,
+`cli/commands/test_data_universes.py`) run `DELETE FROM universe_members WHERE
+universe_name = 'sp500'` against `MT_TIMESCALE_DB_URL`. Prod held only sp500
+rows, so the scoped DELETE emptied the table without changing its relfilenode —
+during the same session's `pytest test/unit` run, which reported 1855 green.
+All three fixtures now run on ephemeral databases; see the guardrails scoping
+note.
 
 ---
 

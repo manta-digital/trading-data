@@ -20,6 +20,69 @@ file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
 
+## 20260804 — Restore executed; the ledger is not the catalog; the "unit" label is not a property; a per-line guard cannot see a multiline read
+
+**Context:** Same-day continuation of the truncation incident below. The restore was
+executed on production, and executing it surfaced four defects in the day-old restore
+tooling plus the answer to the incident note's open question about `universe_members`.
+
+**Decision / what was done:**
+
+1. **Restore path taken:** the three missing minute caggs were pre-created `WITH NO
+   DATA` (plus explicit 70-day mat intervals), so `mt data restore run` replayed
+   033–036 without ever materializing over the 4.4 B-row raw table in one statement —
+   the operation suspected of the original OOM. Materialization went through
+   `mt data caggs repair` (windowed, compressed, resumable, slice-163-proven), 4h
+   first with only its own jobs paused (R1), R5 closed-window gate exactly 0 before
+   resuming (R2/R4), `minute_coverage` recreated afterwards in parent-first order
+   (R2a): 102,770 rows, bars-vs-4h parity 0. Reference data: instruments rebuilt from
+   EODHD (32,151), splits/dividends copied from MarketDB then bulk-topped-up
+   per-day through yesterday, sp500 universe re-imported.
+2. **The migration ledger and the catalog are different truths, and replay only heals
+   the ledger.** Objects dropped while their creating migration is still ledgered are
+   invisible to replay: `minute_coverage` (046), the minute caggs' columnstore config
+   (045), its refresh policy (047). Each needed its idempotent DDL applied directly —
+   which their IF-NOT-EXISTS/DO-block style made safe. Any future restore-by-replay
+   tool must diff the *catalog* against expectations, not just the ledger.
+3. **A by-name expectations list is itself a probe, and it drifted twice.** `restore
+   assess` expected `minute_1hour_ohlcv` — a view that never existed (real:
+   `minute_hourly_ohlcv`) — and omitted the three daily rollups, so it reported a
+   phantom as missing forever while migration 034's real losses were invisible. The
+   damage list came from the catalog query, not the tool. Same class as the 20260726
+   `yr_bucket` lesson: a name-based check is only as honest as its name list.
+4. **The `universe_members` mystery is solved, and it indicts the unit tier.** Three
+   `test/unit` fixtures run `DELETE FROM universe_members WHERE universe_name='sp500'`
+   against `MT_TIMESCALE_DB_URL`. Production held only sp500 rows, so the scoped
+   DELETE emptied the table while preserving its relfilenode — during the same
+   session's `pytest test/unit` run that reported **1855 passed**. "Unit tier" is a
+   directory name, not a property; nothing stops a file under `test/unit/` from
+   opening a database connection.
+5. **A per-line guard cannot see a multiline read.** All three offenders read the
+   variable as `os.environ.get(\n    "MT_TIMESCALE_DB_URL", ...)` — needle and
+   env-read marker on different lines, invisible to the load-tier guard's line scan.
+   The shared predicate (`test/_prod_url_guard.py`) is now a DOTALL regex, and both
+   unit and integration tiers carry shrink-only ratchet guards (new readers fail;
+   stale allowlist entries fail; lists can only shrink to zero). All mutating
+   fixtures (three universe DELETEs, `test_state`'s acquisition_state writes,
+   `instruments_clean_db`) now run on `migrated_db`/`ephemeral_db` — they cannot name
+   a shared database. Verified: 1856/0 with **zero** DB variables in the environment.
+6. **Two smaller instances of the incident's own defect class surfaced in the
+   tooling:** migration 036 skipped silently on prod because it reads
+   `MT_MARKET_DB_URL` from `os.environ`, which the CLI never populates from `.env`
+   (settings vs environ: two sources of truth); and `register_instrument` turned out
+   to have no production callers and cannot satisfy migration 016's NOT NULL — its
+   tests only ever passed against a database *already rolled back* by the destructive
+   fixture in the same session. Green that depends on another test's side effect is
+   the quietest possible false green.
+
+**Follow-ups:** deterministic/rules split in
+`user/notes/2026-08-04-prod-db-guardrails-scoping.md`; CLAUDE.md gained a Database
+Safety section. **Open, needs PM:** prod URL connects as `postgres` superuser — the
+role-separation proposal (DML-only `trading_app`, separate maintenance URL) is the
+strongest remaining deterministic layer and is deliberately not executed without a
+privilege inventory. `register_instrument` (dead API) needs a removal decision.
+Daemon restart pending full cagg verification.
+
 ## 20260804 — A test fixture truncated production: the guard that saved the load tier had no counterpart in the integration tier, and "the suite passed here before" is not evidence about a different tier
 
 **Context:** While closing out slice 187, the integration tier was run through a scratchpad

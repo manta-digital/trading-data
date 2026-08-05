@@ -66,7 +66,23 @@ sessions that genuinely need it. (Journal 20260720 already requires
 journal decision 2 (20260804): a destructive-by-design fixture must be unable
 to *name* a shared database. Implemented alongside this note.
 
-**2b. Integration-tier prod-URL guard — as a ratchet, not a mirror.** The load
+**2a′. The unit tier had the same hole, and it explains the incident note's
+open question.** Fixtures in `test/unit/universe/test_tracking.py`,
+`test/unit/data/test_equity_universe.py` and
+`test/unit/cli/commands/test_data_universes.py` ran `DELETE FROM
+universe_members` (sp500-scoped) against `MT_TIMESCALE_DB_URL`. Production
+`universe_members` held only sp500 rows, so the scoped DELETE emptied the
+table while leaving its relfilenode original — precisely the "unexplained,
+separate event" in the incident note — and `pytest test/unit` reported 1855
+green while doing it. All three, plus `test_state.py`'s prod
+`acquisition_state` writes, now run on `migrated_db` (ephemeral). Two
+generalizations worth keeping: **"unit tier" is a label, not a property** —
+nothing stops a file under `test/unit/` from opening a DB connection; and the
+load-tier guard's per-line scan **cannot see multiline reads**
+(`os.environ.get(\n "VAR")`), which is the shape all three offenders used —
+the shared predicate in `test/_prod_url_guard.py` is multiline-aware.
+
+**2b. Per-tier prod-URL guard — as a ratchet, not a mirror.** The load
 tier's guard bans all reads of the prod variable; the integration tier cannot
 copy that verbatim because ~25 of its files read `MT_TIMESCALE_DB_URL` today,
 most deliberately (read-only checks against real data). The deterministic form
