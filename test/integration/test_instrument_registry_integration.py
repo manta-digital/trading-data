@@ -1,11 +1,14 @@
 """
 Integration tests for InstrumentRegistry against a real TimescaleDB instance.
 
-All tests skip when MT_TIMESCALE_DB_URL is not set.
+Runs on a throwaway database (``ephemeral_db`` + migrations); all tests skip
+when MT_TIMESCALE_TEST_URL is not set. Since 2026-08-04 this file must not
+read MT_TIMESCALE_DB_URL — it previously registered TEST.* rows into whatever
+that URL pointed at, production included.
 
 Run with:
-    MT_TIMESCALE_DB_URL=postgresql://... uv run pytest \
-        test/integration/test_instrument_registry_integration.py -v
+    MT_TIMESCALE_TEST_URL=postgresql://postgres:pw@host:5432/postgres \
+        uv run pytest test/integration/test_instrument_registry_integration.py -v
 """
 
 from __future__ import annotations
@@ -14,7 +17,6 @@ import os
 import uuid
 from datetime import date, timedelta
 
-import psycopg
 import pytest
 
 from manta_trading.data.base.instrument_registry import Instrument, InstrumentRegistry
@@ -24,10 +26,9 @@ from manta_trading.providers.types import ProviderType
 # Skip guard
 # ---------------------------------------------------------------------------
 
-TIMESCALE_URL = os.environ.get("MT_TIMESCALE_DB_URL", "")
 skip_no_db = pytest.mark.skipif(
-    not TIMESCALE_URL,
-    reason="MT_TIMESCALE_DB_URL not set — skipping integration tests",
+    not os.environ.get("MT_TIMESCALE_TEST_URL"),
+    reason="MT_TIMESCALE_TEST_URL not set — skipping integration tests",
 )
 
 
@@ -41,27 +42,19 @@ def _unique_id() -> str:
 
 
 @pytest.fixture()
-def registry():
-    """Yield a connected InstrumentRegistry; close after test."""
-    reg = InstrumentRegistry(conninfo=TIMESCALE_URL)
+def registry(instruments_clean_db):
+    """Yield an InstrumentRegistry on a throwaway DB at pre-141 schema.
+
+    Pre-141 deliberately: ``register_instrument`` predates slice 141, has no
+    production callers, and cannot satisfy the NOT NULL constraints migration
+    016 added (it never writes ``eodhd_type``). On the current schema every
+    call raises NotNullViolation — these tests only ever passed against a
+    database in the pre-141 state. No cleanup fixture needed: the database is
+    dropped after each test.
+    """
+    reg = InstrumentRegistry(conninfo=instruments_clean_db)
     yield reg
     reg.close()
-
-
-@pytest.fixture(autouse=True)
-def cleanup_test_rows():
-    """Delete any instruments whose canonical_id starts with 'TEST.' after each test."""
-    yield
-    if not TIMESCALE_URL:
-        return
-    with psycopg.connect(TIMESCALE_URL) as conn:
-        conn.execute(
-            "DELETE FROM provider_symbol_mapping WHERE instrument_id IN "
-            "(SELECT instrument_id FROM instruments WHERE canonical_id LIKE 'TEST.%')"
-        )
-        conn.execute(
-            "DELETE FROM instruments WHERE canonical_id LIKE 'TEST.%'"
-        )
 
 
 # ---------------------------------------------------------------------------
