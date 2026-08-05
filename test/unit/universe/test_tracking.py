@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date, timedelta
 
 import psycopg
@@ -17,10 +16,6 @@ from manta_trading.data.universe.tracking import (
     parse_sp500_csv,
 )
 
-_DB_URL = os.environ.get(
-    "MT_TIMESCALE_DB_URL",
-    "postgresql://postgres:<password>@<db-host>:5432/trading_test",
-)
 _UNIVERSE = "sp500"
 _D0 = date(2024, 1, 2)
 _D1 = date(2024, 1, 3)
@@ -28,13 +23,16 @@ _D2 = date(2024, 1, 10)
 
 
 @pytest.fixture()
-def conn():
-    with psycopg.connect(_DB_URL) as c:
-        c.execute("DELETE FROM universe_members WHERE universe_name = 'sp500'")
-        c.commit()
+def conn(migrated_db):
+    """Connection to a fresh throwaway database.
+
+    Previously this fixture DELETEd sp500 rows on whatever
+    MT_TIMESCALE_DB_URL pointed at — one of the fixtures that emptied
+    production universe_members on 2026-08-04. Nothing to clean now: the
+    database is created for the test and dropped after it.
+    """
+    with psycopg.connect(migrated_db) as c:
         yield c
-        c.execute("DELETE FROM universe_members WHERE universe_name = 'sp500'")
-        c.commit()
 
 
 # ---------------------------------------------------------------------------

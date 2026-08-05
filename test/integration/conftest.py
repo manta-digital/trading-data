@@ -17,21 +17,9 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from psycopg_pool import ConnectionPool
 
-from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
-from manta_trading.market.schema.runner import apply_migrations
-
-
-@pytest.fixture()
-def migrated_db(ephemeral_db: str) -> str:
-    """Ephemeral database with the full migration chain applied.
-
-    Skips (via ``ephemeral_db``) when ``MT_TIMESCALE_TEST_URL`` is unset.
-    """
-    with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
-        apply_migrations(pool, MINUTE_MIGRATIONS)
-    return ephemeral_db
+# ``migrated_db`` (ephemeral DB + full migration chain) lives in
+# ``test/conftest.py`` so the unit tier's DB-backed tests share it.
 
 
 @pytest.fixture()

@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date
 
 import psycopg
 import pytest
 
 from manta_trading.data.equity_universe import UniverseQueryError, equity_universe
-
-_DB_URL = os.environ.get(
-    "MT_TIMESCALE_DB_URL",
-    "postgresql://postgres:<password>@<db-host>:5432/trading_test",
-)
 
 # Test date anchors
 _D_PAST = date(2020, 1, 2)   # listing date for most fixtures
@@ -33,37 +27,15 @@ _SYM_NONMEMBER = "TSTNMB"         # active but NOT in universe_members
 
 
 @pytest.fixture()
-def conn():
-    """Open a connection and clean up test fixtures before and after each test."""
-    _TEST_SYMS = [
-        _SYM_ACTIVE, _SYM_DELISTED_AFTER, _SYM_DELISTED_BEFORE,
-        _SYM_FALLBACK, _SYM_NO_DATE, _SYM_MEMBER, _SYM_NONMEMBER,
-    ]
+def conn(migrated_db):
+    """Connection to a fresh throwaway database.
 
-    with psycopg.connect(_DB_URL) as c:
-        # Cleanup before test
-        c.execute(
-            "DELETE FROM universe_members WHERE universe_name = %s",
-            (_TEST_UNIVERSE,),
-        )
-        c.execute(
-            "DELETE FROM instruments WHERE symbol = ANY(%s)",
-            (_TEST_SYMS,),
-        )
-        c.commit()
+    Previously connected to MT_TIMESCALE_DB_URL and deleted/inserted rows
+    there (2026-08-04 incident class). Nothing to clean now: the database is
+    created for the test and dropped after it.
+    """
+    with psycopg.connect(migrated_db) as c:
         yield c
-        # Cleanup after test — rollback any aborted transaction first
-        if c.info.transaction_status.name != "IDLE":
-            c.rollback()
-        c.execute(
-            "DELETE FROM universe_members WHERE universe_name = %s",
-            (_TEST_UNIVERSE,),
-        )
-        c.execute(
-            "DELETE FROM instruments WHERE symbol = ANY(%s)",
-            (_TEST_SYMS,),
-        )
-        c.commit()
 
 
 def _insert_instrument(

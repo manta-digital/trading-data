@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -16,10 +15,10 @@ from manta_trading.cli.app import app
 
 runner = CliRunner()
 
-_DB_URL = os.environ.get(
-    "MT_TIMESCALE_DB_URL",
-    "postgresql://postgres:<password>@<db-host>:5432/trading_test",
-)
+# Set per-test by the autouse fixture below — always an ephemeral database.
+# This file previously read MT_TIMESCALE_DB_URL and its sp500 DELETE fixture
+# is one of the three that emptied production universe_members on 2026-08-04.
+_DB_URL: str | None = None
 _TODAY = date.today()
 _YESTERDAY = _TODAY - timedelta(days=1)
 
@@ -35,12 +34,13 @@ _SAMPLE_CSV = (
 # ---------------------------------------------------------------------------
 
 
-def _settings(
-    *,
-    timescale_url: str | None = _DB_URL,
-) -> MagicMock:
+_UNSET = object()
+
+
+def _settings(*, timescale_url: object = _UNSET) -> MagicMock:
     s = MagicMock()
-    s.timescale_db_url = timescale_url
+    # Resolved at call time, not def time: _DB_URL is per-test.
+    s.timescale_db_url = _DB_URL if timescale_url is _UNSET else timescale_url
     return s
 
 
@@ -54,14 +54,16 @@ def _patch_app(settings: MagicMock):
 
 
 @pytest.fixture(autouse=True)
-def clean_sp500():
-    with psycopg.connect(_DB_URL) as conn:
-        conn.execute("DELETE FROM universe_members WHERE universe_name = 'sp500'")
-        conn.commit()
+def _use_ephemeral_db(migrated_db):
+    """Point every test at a fresh throwaway database.
+
+    Replaces the old ``clean_sp500`` DELETE fixture: nothing to clean when the
+    database did not exist before the test and is dropped after it.
+    """
+    global _DB_URL
+    _DB_URL = migrated_db
     yield
-    with psycopg.connect(_DB_URL) as conn:
-        conn.execute("DELETE FROM universe_members WHERE universe_name = 'sp500'")
-        conn.commit()
+    _DB_URL = None
 
 
 def _seed(symbols: list[str], added: date = _TODAY, removed: date | None = None) -> None:

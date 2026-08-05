@@ -307,26 +307,18 @@ class TestCoveragePackageGone:
 
 
 @pytest.fixture
-def timescale_db_url_acq() -> str:
-    url = os.environ.get("MT_TIMESCALE_DB_URL")
-    if not url:
-        pytest.skip("MT_TIMESCALE_DB_URL not set — skipping integration tests")
-    return url
+def acq_repo(migrated_db: str):
+    """Repository on a fresh throwaway database.
 
-
-@pytest.fixture
-def acq_repo(timescale_db_url_acq: str):
+    Previously wrote test_provider rows into whatever MT_TIMESCALE_DB_URL
+    pointed at (2026-08-04 incident class). No cleanup DELETE needed: the
+    database is created for the test and dropped after it.
+    """
     from psycopg_pool import ConnectionPool
 
-    pool = ConnectionPool(timescale_db_url_acq, min_size=1, max_size=2)
+    pool = ConnectionPool(migrated_db, min_size=1, max_size=2)
     repo = AcquisitionStateRepository(pool)
     yield repo
-    # Cleanup: remove any rows inserted by these tests
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM acquisition_state WHERE provider = 'test_provider'"
-            )
     pool.close()
 
 

@@ -54,6 +54,24 @@ def ephemeral_db() -> Iterator[str]:
             admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
 
 
+@pytest.fixture()
+def migrated_db(ephemeral_db: str) -> str:
+    """Ephemeral database with the full migration chain applied.
+
+    The standard base for any test that needs real schema and may write:
+    it can only name a database that did not exist before the test. Skips
+    (via ``ephemeral_db``) when ``MT_TIMESCALE_TEST_URL`` is unset.
+    """
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+    from manta_trading.market.schema.runner import apply_migrations
+
+    with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
+        apply_migrations(pool, MINUTE_MIGRATIONS)
+    return ephemeral_db
+
+
 @pytest.fixture
 def market_db_url() -> str:
     """PostgreSQL connection URL for the market (daily OHLCV) database.
