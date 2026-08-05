@@ -1,10 +1,13 @@
 ---
-description: SQL coding standards for PostgreSQL, pgvector, and TimescaleDB. Use when writing queries, migrations, schema definitions, or database functions. Covers naming, indexing, query optimization, and extension-specific patterns.
+description: SQL coding standards for PostgreSQL, pgvector, and TimescaleDB. Use when writing queries, migrations, schema definitions, database functions, or any code that connects to a database — including test fixtures and runners. Covers naming, indexing, query optimization, extension-specific patterns, and production-database protection.
 paths: 
   - "**/*.sql"
   - "**/*.psql"
-  - "**/migrations/*.sql"
+  - "**/migrations/**"
   - "**/schema.sql"
+  - "**/test/**/*.py"
+  - "**/tests/**/*.py"
+  - "**/conftest.py"
 ---
 
 ### SQL and PostgreSQL Development Rules
