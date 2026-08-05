@@ -223,10 +223,16 @@ Treat the URL change as a **stopgap flag, not a solution.**
    target DB name is `trading` (or matches a configured prod list).
 4. Revoke DDL/TRUNCATE rights from the app role on prod; give tests a role that
    cannot truncate.
-5. **Backups.** PM flagged this as critical priority. Note the caveat: backups
-   would not have *prevented* this, and restore-from-backup was never needed
-   because the bars survived. Both matter; the fixture guard is the one that
-   stops recurrence.
+5. **Backups.** A backup exists but is "not as current or well maintained as I
+   would like" (PM, 2026-08-04); improving it is a stated priority. Caveats so
+   it is prioritised for the right reason: a backup would **not have prevented**
+   this, and restore-from-backup was never the recovery path — the bars survived
+   and everything lost is re-derivable from EODHD or from the bars. What a
+   current backup buys is (a) cheaper recovery of `instruments`/`splits`/
+   `dividends` than re-syncing, and (b) a known floor if a future truncation
+   reaches something **not** re-derivable. **Action: enumerate which tables
+   cannot be rebuilt from providers or raw bars, and let that list drive backup
+   currency** — not this incident's blast radius, which happened to be benign.
 6. Server sizing: `work_mem=512MB`, `max_parallel_workers_per_gather=16`,
    `shared_buffers=32GB` on 128 GB. `work_mem` is per *node* per *worker*, so
    one query can claim tens of GB. The API pool clamps itself to 64 MB

@@ -20,6 +20,107 @@ file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
 
+## 20260804 — A test fixture truncated production: the guard that saved the load tier had no counterpart in the integration tier, and "the suite passed here before" is not evidence about a different tier
+
+**Context:** While closing out slice 187, the integration tier was run through a scratchpad
+runner that loaded `.env` with `dotenv` and injected every variable into the child
+environment — a workaround for the `$_`-in-password trap that makes `source .env` unusable.
+That injected `MT_TIMESCALE_DB_URL` (production) alongside the intended
+`MT_TIMESCALE_TEST_URL`. `test/integration/conftest.py` reads the production variable
+directly, and its `instruments_clean_db` fixture then ran, against prod `trading`:
+
+```sql
+TRUNCATE TABLE provider_symbol_mapping, instruments RESTART IDENTITY CASCADE;
+DELETE FROM schema_migrations WHERE migration_id IN ('015_…','016_…','017_…');
+```
+
+The fixture calls `_reset()` before *and* after each test, so it fired repeatedly. The
+`CASCADE` rewrote six tables via FKs to `instruments`; the ledger deletion is why
+migrations 033–036 went missing, taking `minute_15min_ohlcv`, `minute_1hour_ohlcv`,
+`minute_4hour_ohlcv`, and `minute_coverage` with them. **No bar data was lost** —
+`minute_ohlcv` (4,415,312,550 rows) and `daily_ohlcv` retain their original relfilenodes.
+
+**Decision:**
+
+1. **Audit a tier's fixtures before running it; inject only the variables that tier needs,
+   never a whole `.env`.** The runner was built to solve a credential-parsing problem and
+   solved it by widening scope — it handed a destructive fixture production credentials it
+   would not otherwise have had.
+2. **A destructive-by-design fixture belongs on an ephemeral database, not on any shared
+   or long-lived one.** Repointing its URL is *not* accepted as the fix: the natural
+   candidate (`MT_TIMESCALE_TEST_URL`) points at the `postgres` admin database, which has
+   no such schema, so the fixture would truncate tables that do not exist there. The
+   correct shape is `ephemeral_db`, which cannot name a shared database at all.
+3. **Every tier that can write gets a mechanical prod-URL guard.** The load tier has had
+   `test_load_tier_never_references_prod_db_url` since slice 167 — it globs every `*.py` in
+   the tier and fails any line reading the production variable. That guard is the entire
+   reason the load tier was safe while running the same session. The integration tier had
+   no equivalent, and its absence was invisible.
+
+**Rationale:** The failure this journal keeps rediscovering is *silent and self-hiding*;
+this instance adds a different edge — **the safety property existed and was known to work,
+and its absence one directory over was never noticed.** Slice 187 itself leaned on that
+load-tier guard in its own design (D9: `create_app(db_url=…)` exists precisely so the load
+tier never needs the prod variable). Reasoning about one tier's safety was allowed to
+stand in for the other's, because both are "tests" and tests are assumed read-only. **The
+absence of a guard is not evidence of safety** — it is usually evidence that nobody has
+asked the question there yet.
+
+The diagnostic technique is worth keeping. `relfilenode` grouping proves what was
+rewritten, because the value changes only on `TRUNCATE`/`VACUUM FULL`/`CLUSTER`/recreate:
+every survivor sat at ~721,xxx while all six damaged tables landed in one contiguous
+~315,522,0xx block — a single operation, not a gradual drift. `reltuples = -1` marks a
+relation never analyzed since its rewrite, and `n_tup_ins = 0, n_tup_del = 0` on a 40 kB
+`instruments` distinguishes *truncated-and-never-refilled* from *rows deleted*. That
+evidence also **excluded** the concurrent OOM crash as the cause: an out-of-memory kill
+rolls back uncommitted work, it cannot drop objects or change relfilenodes. Ruled out the
+same way: migration replay (newest ledger entry was nine days old), `migrate_cold_start`
+(it truncates exactly the tables that *survived*), and slice 187's own code (read-only).
+
+A corollary on blast radius: `TRUNCATE … CASCADE` names two tables and destroyed six. The
+FK graph, not the statement, defines what a truncation touches — and no one reading that
+fixture would enumerate `splits`, `dividends`, `data_gaps`, and `trading_sessions` from the
+two names in the SQL.
+
+**Follow-ups:**
+
+- Full incident record with all evidence, the exact restore sequence, and open questions:
+  `user/notes/2026-08-04-prod-metadata-truncation-incident.md`.
+- Restore tooling written and committed but **not executed**: `mt data restore assess`
+  (read-only) and `mt data restore run [--dry-run]`
+  (`data/quality/restore_metadata.py`). It never deletes — every step is an upsert or an
+  `IF NOT EXISTS` DDL replay — takes its pool from the caller rather than reading the
+  environment, and raises `RestoreRefused` when the preserved tables are empty, so it
+  cannot be aimed at the wrong database. Data steps follow as ordinary commands:
+  `mt data instruments rebuild`, `mt data ca update`, `mt data universes refresh`;
+  `data_gaps` self-heals on the daemon's next cycle.
+- **`test/integration/conftest.py` is deliberately left unfixed** so it is not mistaken for
+  safe. An in-progress URL change was reverted for the reason in decision 2.
+- **Before recreating the caggs:** materializing over 4.4 B rows under `work_mem = 512MB`
+  × `max_parallel_workers_per_gather = 16` on a 128 GB host is a credible explanation for
+  the 104 GB peak that OOM'd the box. `work_mem` is charged *per node per worker*; the API
+  pool clamps itself to 64 MB (186 D1) but CLI and daemon sessions inherit the global
+  default. Lower both before the cagg step.
+- **Unexplained, separate event:** `universe_members` is empty but retains its *original*
+  relfilenode — emptied by a plain `DELETE` at some other time, by something else.
+- Slice 187 is complete and verified but **unmerged**; its integration and load re-runs are
+  blocked until the fixture question is settled. `test/unit` was last green at 1855/0.
+- Hardening candidates beyond the immediate fix (PM has scoped going further): an
+  integration-tier enforcement test mirroring the load tier's; moving the fixture onto
+  `ephemeral_db`; a guard refusing destructive DDL/DML when the target database name
+  matches a configured production list; revoking TRUNCATE/DDL from the role tests use.
+- **Backups exist but are neither current nor well maintained** (PM, 2026-08-04), and
+  improving them is a stated priority. Two honest caveats so the priority is set for the
+  right reason: **a backup would not have prevented this**, and restore-from-backup was
+  never the recovery path here — the bars survived, and everything lost was re-derivable
+  from EODHD or from the bars themselves. What a *current* backup would have bought is
+  cheaper recovery of `instruments`/`splits`/`dividends` than re-syncing them, and a known
+  floor if the truncation had reached a table that is **not** re-derivable. That is the
+  real exposure worth sizing: enumerate which tables could not be rebuilt from providers
+  or from raw bars, and let backup currency be driven by that list rather than by this
+  incident's blast radius. The fixture guard is what stops recurrence; the backup is what
+  bounds the next unrelated event.
+
 ## 20260804 — A partially-applied filter returns zero, and zero is a plausible answer: three window-bound defects on the serving API, none of which any test could see
 
 **Context:** Slice 186 hardened the bars contract, including changing an empty window
