@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260804
+dateUpdated: 20260805
 status: in_progress
 ---
 
@@ -19,6 +19,85 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260805 — A "surviving" cagg was a corrupt husk that OOM-killed the cluster twice: presence in the catalog is not health, refreshing it was the bomb, and the fix was drop-recreate, not more memory
+
+**Context:** Final step of the 2026-08-04 incident restore. Three minute caggs were
+recreated fresh (`WITH NO DATA` + windowed force-refresh sweeps) and rebuilt flawlessly —
+119 windows each at 20–35 s/window, closed-window parity exactly 0. `minute_5min_ohlcv`,
+listed by the incident assessment as a *survivor*, was left for last. Attempting to
+materialize it OOM-killed the PostgreSQL cluster twice (97.4 G and 95.9 G peaks on a
+128 G host; `systemd` `Result: oom-kill`, killed PID = the
+`refresh_continuous_aggregate` backend both times).
+
+**What "survivor" actually meant.** The assessment checked catalog *presence*, and the
+view existed. Nobody had checked *content*: the cagg held **0 rows**, and its
+materialization-hypertable id (248) sits immediately before the ids of the three caggs
+recreated on 2026-08-04 (249–251) — i.e. the original 5m cagg (mat 18) had been destroyed
+in the incident like its siblings, and this object was a **replacement created
+mid-incident, its creation-time materialization interrupted by the incident-day OOM.**
+It carried 4 materialization-invalidation entries where every healthy sibling carries 2.
+
+**The elimination chain (each step cheap, each conclusive):**
+
+1. 70-day windowed force-refresh (the proven repair path) → ~96 G, OOM. Hypothesis:
+   window too large at 5-minute density.
+2. Session caps `work_mem=64MB`, `max_parallel_workers_per_gather=4` (verified applied
+   via `SHOW` on the same connection string) → identical balloon. Conclusion: the
+   allocation is inside TimescaleDB's materialization machinery; **`work_mem` does not
+   govern it.**
+3. **14-day** window, plain refresh → identical balloon on ~1.5 M rows of sparse 2004
+   data. Conclusion: cost does not scale with the requested window. Server log showed
+   `no valid batches produced … falling back to single batch processing` — with
+   full-range `[-inf,+inf]` invalidation entries the non-forced path processes the
+   *whole dirty range*, ignoring the window bounds.
+4. 14-day window, `force => true` → still ballooned. Conclusion: not the refresh mode
+   either — **the object itself is pathological.**
+5. Drop (after verifying 0 rows — nothing to lose) and recreate `WITH NO DATA`, 70-day
+   interval, refresh policy *then* columnstore policy (TimescaleDB enforces that
+   order), fresh invalidation log = 1 entry. The refresh that had run 12+ minutes and
+   ~50 G on the old object completed in **9 seconds** on the new one. Root cause proven
+   by construction.
+
+**Decision / rules:**
+
+1. **After an incident, a derived object is verified by parity, never by catalog
+   presence.** "The view exists" and "the view is healthy" are unrelated claims; this
+   one was empty AND poisonous. The restore assessment now carries this lesson next to
+   its name-list lesson (20260804).
+2. **A derived object created or interrupted during an incident is presumed damaged.
+   For an empty cagg, drop-recreate is strictly cheaper and safer than diagnosing or
+   repairing in place** — the definition lives in a migration; the object holds nothing.
+   Hours were spent treating symptoms (window size, memory caps, refresh mode) of an
+   object whose replacement cost 30 seconds.
+3. **`pg_cancel_backend` beats the OOM killer, and a watchdog makes that deterministic.**
+   Cancelling the ballooning refresh released ~60 G instantly and cleanly; the OOM killer
+   took the whole cluster down twice. Any bulk materialization now runs alongside a
+   watchdog that cancels refresh backends when `MemAvailable` crosses a floor — a
+   cancelled statement instead of a dead postmaster. Standing host recommendation
+   (needs root): `vm.overcommit_memory=2`, the standard Postgres hardening that turns
+   runaway allocation into a statement-level malloc failure.
+4. **TimescaleDB refresh semantics worth pinning:** a plain (non-force)
+   `refresh_continuous_aggregate` against a cagg whose invalidation log spans
+   `[-inf,+inf]` may fall back to single-batch processing of the entire dirty range —
+   the requested window does not bound the work. For bulk rebuilds, use `force => true`
+   with explicit windows; reserve plain refresh for policy-shaped trailing windows.
+5. **Background workers do not log their database.** The crash logs showed
+   `Refresh Continuous Aggregate Policy [1011]/[1012]` touching `mat_18`/`mat_19` and
+   they were chased as hidden legacy jobs in `trading`; they are `trading_test`'s
+   ordinary policies (that DB shares the cluster). A cross-database red herring cost a
+   diagnostic cycle — when a bgw log line names an object you cannot find, check the
+   *other* databases before inferring catalog corruption.
+6. Two OOM-kill restarts left the cluster recoverable both times (WAL replay + fsync,
+   ~1–2 min); `Restart=no` on `postgresql@` means it stays down until manually started —
+   worth knowing before reading "no response" as a third crash.
+
+**Follow-ups:** 5m rebuild running to completion via 14-day force sub-windows with
+per-70-day-window parity gates and compress-behind-frontier (driver pattern worth
+keeping for any future from-zero cagg build over a large source); final verification
+(caggs verify, restore assess, all-jobs check) closes the restore. Generalized,
+project-agnostic distillation of this incident family added to `.claude/rules/sql.md`
+(2026-08-05) for future database projects.
 
 ## 20260804 — Restore executed; the ledger is not the catalog; the "unit" label is not a property; a per-line guard cannot see a multiline read
 
