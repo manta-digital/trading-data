@@ -9,6 +9,7 @@ import psycopg
 from fastapi import Request
 from psycopg_pool import ConnectionPool
 
+from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
 from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
 
@@ -49,6 +50,18 @@ def get_max_bars(request: Request) -> int:
     ``Settings`` per request. Changing the override requires a restart.
     """
     return request.app.state.max_bars_per_request  # type: ignore[no-any-return]
+
+
+def get_universe_edges(request: Request) -> UniverseEdgeCache:
+    """Return the shared universe-edge cache (187 D3).
+
+    Same shape as :func:`get_max_bars`: a thin read of a value the lifespan hook
+    put on ``app.state``, so route modules never touch ``app.state`` directly.
+    The cache is returned rather than the edges themselves because populating it
+    needs a connection, and the route already holds one inside its executor
+    call — resolving the edges here would mean a second checkout.
+    """
+    return request.app.state.universe_edges  # type: ignore[no-any-return]
 
 
 def get_minute_db(request: Request) -> TimescaleMinuteDataDB:

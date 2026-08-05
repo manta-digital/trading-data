@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from manta_trading.constants import (
+    COVERAGE_CONTENT_STALENESS,
     COVERAGE_SOURCE_TABLE,
     DAILY_COVERAGE_VIEW,
     MINUTE_COVERAGE_VIEW,
@@ -318,3 +319,122 @@ class TestCoverageFreshnessDataclass:
         assert len(freshness.stale_verdicts) == len(COVERAGE_VIEWS)
         for view in COVERAGE_VIEWS:
             assert view in described
+
+
+_CONN = cast("Any", object())
+"""Connection placeholder. Every test below patches ``_content_edge_lag``, which
+is the only thing that would touch it, so no database is reachable from here."""
+
+
+class TestContentEdgeCheck:
+    """Slice 187 D6 — the verdict transformation, in isolation from the probes.
+
+    The probes themselves are integration-tested against real caggs
+    (``test/integration/test_coverage_content_edge.py``); what is asserted here
+    is what the check does with a measured lag, which is pure logic.
+    """
+
+    _VIEW = DAILY_COVERAGE_VIEW
+
+    @staticmethod
+    def _with_lag(
+        monkeypatch: pytest.MonkeyPatch,
+        lag: timedelta | None,
+        *,
+        probe_failed: bool = False,
+    ) -> None:
+        monkeypatch.setattr(
+            status_coverage,
+            "_content_edge_lag",
+            lambda _conn, _view: (lag, probe_failed),
+        )
+
+    def test_lag_beyond_the_threshold_fires_the_signal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._with_lag(monkeypatch, COVERAGE_CONTENT_STALENESS + timedelta(days=51))
+        result = status_coverage._apply_content_edge_check(
+            _CONN, _fresh(self._VIEW)
+        )
+        assert result.is_fresh is False
+        assert StalenessSignal.CONTENT_EDGE_TOO_OLD in result.signals
+        assert result.threshold == COVERAGE_CONTENT_STALENESS
+
+    def test_lag_within_the_threshold_leaves_the_verdict_untouched(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A configured end_offset is not staleness — the threshold already
+        # budgets for it, so a fresh verdict must survive unchanged.
+        self._with_lag(monkeypatch, COVERAGE_CONTENT_STALENESS - timedelta(hours=1))
+        verdict = _fresh(self._VIEW)
+        assert status_coverage._apply_content_edge_check(_CONN, verdict) is verdict
+
+    def test_exactly_the_threshold_does_not_fire(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Boundary: the comparison is `>`, so the budget is inclusive.
+        self._with_lag(monkeypatch, COVERAGE_CONTENT_STALENESS)
+        verdict = _fresh(self._VIEW)
+        assert status_coverage._apply_content_edge_check(_CONN, verdict) is verdict
+
+    def test_unmeasurable_lag_leaves_the_verdict_untouched(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An empty source or cagg is an absence of data, not staleness.
+        self._with_lag(monkeypatch, None)
+        verdict = _fresh(self._VIEW)
+        assert status_coverage._apply_content_edge_check(_CONN, verdict) is verdict
+
+    def test_signal_is_appended_to_existing_ones_not_replacing_them(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Collect-all-signals: an operator needs every reason at once.
+        self._with_lag(monkeypatch, COVERAGE_CONTENT_STALENESS + timedelta(days=10))
+        result = status_coverage._apply_content_edge_check(
+            _CONN, _stale(self._VIEW, StalenessSignal.NOT_SCHEDULED)
+        )
+        assert StalenessSignal.NOT_SCHEDULED in result.signals
+        assert StalenessSignal.CONTENT_EDGE_TOO_OLD in result.signals
+
+    def test_content_probe_failure_makes_the_verdict_stale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Review F003 — the case that would otherwise report fresh silently.
+
+        The generic probes succeeded, so nothing else in the verdict records
+        that this check was attempted. Returning "no lag" would report fresh on
+        a check that never ran: the vacuous verdict this slice exists to
+        eliminate, reintroduced through the error path.
+        """
+        self._with_lag(monkeypatch, None, probe_failed=True)
+        result = status_coverage._apply_content_edge_check(
+            _CONN, _fresh(self._VIEW)
+        )
+        assert result.is_fresh is False
+        assert StalenessSignal.CONTENT_EDGE_PROBE_FAILED in result.signals
+        assert StalenessSignal.CONTENT_EDGE_TOO_OLD not in result.signals
+
+    def test_content_probe_failure_is_distinct_from_a_measured_zero_lag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A measured lag of None (empty table) is NOT staleness; a failed probe
+        # is. Same `lag is None`, opposite verdicts — which is exactly why the
+        # helper returns a flag rather than overloading None.
+        self._with_lag(monkeypatch, None, probe_failed=False)
+        verdict = _fresh(self._VIEW)
+        assert status_coverage._apply_content_edge_check(_CONN, verdict) is verdict
+
+    def test_probe_failed_verdict_skips_the_content_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The generic evaluation could not read the connection at all. Probing
+        # it twice more cannot help, and the verdict is already stale on the
+        # strongest grounds (168 D3). Regression guard: without this skip, the
+        # health route's cancelled-probe path computes a lag from a connection
+        # that just failed.
+        def _must_not_probe(_conn: Any, _view: str) -> tuple[timedelta, bool]:
+            raise AssertionError("content-edge probe ran after PROBE_FAILED")
+
+        monkeypatch.setattr(status_coverage, "_content_edge_lag", _must_not_probe)
+        verdict = _stale(self._VIEW, StalenessSignal.PROBE_FAILED, lag=None)
+        assert status_coverage._apply_content_edge_check(_CONN, verdict) is verdict

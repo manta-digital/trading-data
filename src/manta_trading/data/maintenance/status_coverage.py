@@ -27,10 +27,14 @@ side effect. Catch-up stays with runbook R2.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, replace
+from datetime import timedelta
+from typing import Any
+
+import psycopg
 
 from manta_trading.constants import (
+    COVERAGE_CONTENT_STALENESS,
     COVERAGE_SOURCE_TABLE,
     DAILY_COVERAGE_VIEW,
     MINUTE_COVERAGE_VIEW,
@@ -38,11 +42,12 @@ from manta_trading.constants import (
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
+    StalenessSignal,
+    _max_probe,
+    _read_statement_timeout,
+    _restore_probe_timeout,
     assert_cagg_fresh,
 )
-
-if TYPE_CHECKING:
-    import psycopg
 
 _logger = get_logger(__name__)
 
@@ -85,21 +90,163 @@ class CoverageFreshness:
         )
 
 
+CONTENT_EDGE_COLUMN = "last_bucket"
+"""The coverage caggs' content timestamp — the column the content-edge check
+compares (slice 187 D6).
+
+Not a bucket start. ``minute_coverage``/``daily_coverage`` aggregate
+``max(time)`` into ``last_bucket``, so it tracks actual data rather than the
+grid, which is precisely why an unaligned comparison against the source is
+meaningful here and is not available to the generic guard.
+"""
+
+
+def _content_edge_lag(
+    conn: psycopg.Connection[Any], view_name: str
+) -> tuple[timedelta | None, bool]:
+    """How far ``view_name``'s content trails its source, or None if unmeasurable.
+
+    Two bounded ``max()`` probes on the connection the caller already holds,
+    reusing slice 168's ``_max_probe`` so the statement-timeout discipline is
+    shared rather than restated — every statement this issues is capped at
+    ``CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT``, and the caller's own setting is
+    restored afterwards.
+
+    **No bucket alignment**, which is the entire point: aligning is what makes
+    the generic check blind here (``cagg_freshness._raw_max``). Both values are
+    raw content timestamps, so the difference is the real lag.
+
+    Returns:
+        ``(lag, probe_failed)``. ``lag`` is None when either side is empty
+        (nothing ingested, or the cagg has never materialized) — an absence of
+        data is not staleness, and the generic evaluation already signals the
+        cagg-empty case. ``probe_failed`` is True when the probe raised, which
+        the caller must treat as stale (168 D3) rather than as "no lag".
+    """
+    prior_timeout = _read_statement_timeout(conn)
+    try:
+        cagg_edge = _max_probe(conn, view_name, CONTENT_EDGE_COLUMN)
+        source_edge = _max_probe(conn, COVERAGE_SOURCE_TABLE[view_name], "time")
+    except psycopg.Error:
+        # Indeterminate freshness is stale (168 D3), and this is the case where
+        # that rule bites hardest: the generic probes *succeeded*, so nothing
+        # else in the verdict knows this check was attempted. Returning "no lag"
+        # here would report fresh on a check that never ran — the vacuous
+        # verdict this whole slice exists to eliminate, reintroduced through the
+        # error path. The caller raises CONTENT_EDGE_PROBE_FAILED instead.
+        _logger.exception(
+            "content-edge probe failed for %s — reporting stale, freshness is "
+            "indeterminate",
+            view_name,
+        )
+        return None, True
+    finally:
+        _restore_probe_timeout(conn, prior_timeout)
+
+    if cagg_edge is None or source_edge is None:
+        return None, False
+    return source_edge - cagg_edge, False
+
+
+def _apply_content_edge_check(
+    conn: psycopg.Connection[Any], verdict: FreshnessVerdict
+) -> FreshnessVerdict:
+    """Return ``verdict`` with ``CONTENT_EDGE_TOO_OLD`` appended if it fires.
+
+    A cagg that is already stale for another reason still gets the check, so the
+    operator sees every reason at once — the same "collect all signals" rule
+    ``_evaluate`` follows. ``is_fresh`` becomes False when this signal fires even
+    though the generic bucket check reported fresh, which on production today is
+    every time (D5/D6).
+
+    **Skipped after a generic probe failure.** ``PROBE_FAILED`` means the
+    generic evaluation could not read the connection at all. Two more probes
+    down the same connection would at best repeat the failure and at worst
+    report a lag derived from a half-broken read, and the verdict is already
+    stale on the strongest possible grounds (168 D3). Nothing is gained by
+    adding a second reason, so the verdict is returned untouched.
+
+    **When *this* probe fails but the generic ones did not**, the verdict gains
+    ``CONTENT_EDGE_PROBE_FAILED`` and goes stale. That case is the reason the
+    signal exists: nothing else in the verdict would record that the check was
+    attempted, so a silent return would report fresh on a check that never ran
+    — the vacuous verdict this slice exists to eliminate, reintroduced through
+    the error path (review F003).
+    """
+    if StalenessSignal.PROBE_FAILED in verdict.signals:
+        return verdict
+
+    lag, probe_failed = _content_edge_lag(conn, verdict.view_name)
+
+    if probe_failed:
+        # The generic probes succeeded, so without this the verdict would report
+        # fresh on a check that never ran (168 D3: indeterminate is stale).
+        signals = (*verdict.signals, StalenessSignal.CONTENT_EDGE_PROBE_FAILED)
+        return replace(
+            verdict,
+            is_fresh=False,
+            signals=signals,
+            detail=(
+                f"{verdict.view_name}: STALE (content-edge probe failed; "
+                f"freshness is indeterminate, see traceback above) "
+                f"signals={[s.value for s in signals]}"
+            ),
+        )
+
+    if lag is None or lag <= COVERAGE_CONTENT_STALENESS:
+        return verdict
+
+    signals = (*verdict.signals, StalenessSignal.CONTENT_EDGE_TOO_OLD)
+    return replace(
+        verdict,
+        is_fresh=False,
+        signals=signals,
+        # The content lag replaces the bucket lag in the reported verdict: it is
+        # the larger and the true one, and reporting lag=0 next to
+        # CONTENT_EDGE_TOO_OLD would read as a contradiction to an operator.
+        lag=lag,
+        threshold=COVERAGE_CONTENT_STALENESS,
+        # bucket_width is deliberately not restated here — it is a first-class
+        # field on the verdict, so a caller that wants it formats it itself
+        # rather than parsing it back out of a string (review F008).
+        detail=(
+            f"{verdict.view_name}: STALE (content lag={lag}, "
+            f"threshold={COVERAGE_CONTENT_STALENESS}, "
+            f"signals={[s.value for s in signals]}) — "
+            f"max({CONTENT_EDGE_COLUMN}) trails "
+            f"max(time) on {COVERAGE_SOURCE_TABLE[verdict.view_name]}, which "
+            f"the bucket-lag check cannot see"
+        ),
+    )
+
+
 def check_coverage_freshness(
     conn: psycopg.Connection[Any],
     **kwargs: Any,
 ) -> CoverageFreshness:
     """Assert freshness on both coverage caggs backing ``data_status``.
 
-    Consumes slice 168's ``assert_cagg_fresh`` unchanged, including its TTL
-    verdict cache — which is what keeps repeat reads inside the sub-second NFR.
-    The threshold (``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)``) is
-    resolved by that helper; this module does not re-derive it.
+    Consumes slice 168's ``assert_cagg_fresh``, including its TTL verdict cache
+    — which is what keeps repeat reads inside the sub-second NFR. The threshold
+    (``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)``) is resolved by that
+    helper; this module does not re-derive it.
 
     Each coverage cagg's source table is supplied explicitly because the helper
     resolves sources from ``GRANULARITY_SOURCE``, which has no entry for the
     coverage caggs (they are not a granularity). See ``COVERAGE_SOURCE_TABLE``
     for why the hierarchical minute cagg is measured against its parent.
+
+    **The content-edge check (187 D6)** is passed as the helper's ``augment``
+    hook rather than applied to the returned verdict. That places it inside the
+    existing TTL cache — one probe pair per view per TTL window, not one per
+    call — and adds no second cache layer. Applying it outside would either
+    probe on every cached read or require this module to memoize the result
+    itself.
+
+    On production this makes both views report stale until slice 169 repairs the
+    refresh policies. That is the correct report of the actual state (167 D3a:
+    report, don't refuse) and nothing starts failing, but it is a visible change
+    to ``mt data status``, ``/api/v1/health``, and ``/api/v1/status``.
 
     Args:
         conn:   Open psycopg connection.
@@ -114,6 +261,7 @@ def check_coverage_freshness(
             conn,
             view_name,
             source_table=COVERAGE_SOURCE_TABLE[view_name],
+            augment=_apply_content_edge_check,
             **kwargs,
         )
         for view_name in COVERAGE_VIEWS

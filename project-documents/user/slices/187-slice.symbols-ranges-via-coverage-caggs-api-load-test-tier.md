@@ -7,7 +7,7 @@ dependencies: [167, 185, 186]
 interfaces: [169, 907]
 dateCreated: 20260804
 dateUpdated: 20260804
-status: not_started
+status: complete
 effort: 3
 ---
 
@@ -437,6 +437,47 @@ the numbers behind it, so it stops being an open question carried forward
 silently. Slice 186 D2 declined to change pool sizing for exactly the reason
 that it had no measurement; this slice removes that excuse either way.
 
+#### Decision (Phase 6, 2026-08-04): **not now — do not consolidate**
+
+Measured by assertion 3 (`test_concurrent_symbol_detail_against_the_pool`), 16
+concurrent `GET /api/v1/symbols/{symbol}` requests against
+`app.state.db_pool` at `max_size=8`, on `prod_shaped_db`:
+
+| quantity | measured |
+| --- | --- |
+| single-request median (assertion 1) | 32 ms |
+| concurrency-16 wall clock, all 16 | 144 ms |
+| concurrency-16 per-request median | 88 ms |
+| concurrency-16 per-request max | 141 ms |
+| slowest / single-request | 4.4x |
+| per-request spread | 30 ms – 141 ms |
+
+The latencies form a clean staircase (30, 39, 49, 60, 65, 70, 82, 86, 91, 95,
+105, 109, 111, 115, 130, 141 ms) — the signature of 16 requests being served by
+8 connections in two waves, each request costing roughly what it costs
+uncontended. That is the pool working as designed, not a bottleneck: the 4.4x
+worst case is *below* the 2x-plus-scheduling floor that 16-against-8 structurally
+implies once the second wave's queueing is counted, and every request finished
+inside 141 ms against a 250 ms single-request bound.
+
+**Nothing in the measurement implicates the three-pool arrangement.** The
+symbol-detail path uses only `app.state.db_pool`; the two class-owned pools were
+idle throughout, so consolidating them would not have changed a number above.
+The cost the architecture document worried about — three pools' worth of idle
+connections against one database — is a *resource* concern, not a latency one,
+and this slice's measurement cannot speak to it.
+
+So: **not now.** Consolidation would be a refactor of the bars path (186 D1
+deliberately routed it onto the class-owned pools) justified by no observed
+cost, which is the kind of change this project's rules exist to resist. The
+open question is closed with evidence rather than carried forward.
+
+**What would reopen it.** A load assertion that drives the *bars* path
+concurrently — exercising the class-owned pools rather than
+`app.state.db_pool` — is the measurement that could show real contention, and
+this tier now exists to host it. If a future slice adds one and sees the three
+pools compete, this decision should be revisited against those numbers.
+
 ### D12 — Documents corrected in this slice
 
 - `180-arch.data-serving.md`, "Symbol Detail": the paragraph attributing the
@@ -506,55 +547,169 @@ data as a consequence of D6.
 9. Full suite green, mypy clean on touched packages, ruff clean, `cf check`
    clean; `docs/api/openapi.json` regenerated and the drift test passing.
 
-## Verification Walkthrough (draft)
+## Verification Walkthrough
 
-To be executed against prod `trading` at Phase 6 close and refined then. Every
-ad-hoc query sets `statement_timeout` explicitly.
+Executed against prod `trading` on **2026-08-04** at Phase 6 close. Every ad-hoc
+query set `statement_timeout` explicitly (project rule). All statements below
+are read-only; nothing in this slice writes to production.
 
-**1 — Before/after latency on the changed endpoint.** With the server running,
-time `GET /api/v1/symbols/SPY`, `/AAPL`, `/F`, and one delisted symbol, five
-calls each, against the pre-slice figures in D1. Expect ~25 ms warm against
-2.7–4.0 s. Report medians, not best-of.
+Two environment notes for anyone re-running this. `.env` must be loaded with a
+real parser, not `source` — the DB password contains `$_`, which the shell
+mangles. And the test tiers need `MT_TIMESCALE_TEST_URL` exported, or the
+DB-backed tests skip (`ephemeral_db`) rather than fail, which reads as a pass.
 
-**2 — The read is actually bounded.** `EXPLAIN (ANALYZE, BUFFERS)` each of the
-three statements from D2 with production parameters; confirm planning time in
-single-digit ms and chunk exclusion in the plan. This is the criterion-1
-evidence — a fast read of the wrong thing would satisfy step 1 alone.
+**1 — Before/after latency on the changed endpoint.** Merged read versus the
+pre-187 lazy `MIN/MAX`, five calls each, medians (not best-of), warm connection:
 
-**3 — Value equivalence at scale.** Run the merged read and the lazy `MIN/MAX`
-for a 20+ symbol sample covering dense (SPY, AAPL), sparse, delisted, minute-only,
-daily-only, and no-data instruments; diff both families at date grain. This is
-criterion 2; any difference must be explained, not tolerated.
+| symbol | new median | old median | speedup |
+| --- | --- | --- | --- |
+| SPY | 17.9 ms | 2,650.1 ms | 148x |
+| AAPL | 16.1 ms | 2,662.7 ms | 165x |
+| F | 11.6 ms | 140.0 ms | 12x |
+| AABA (delisted) | 11.6 ms | 166.1 ms | 14x |
 
-**4 — Quantify the D3 residual window.** Across the same sample, compute each
-symbol's own coverage end against the universe edge and check whether any raw
-bar falls in between. Report the count and the largest discrepancy. If it is not
-negligible, the D3 trade needs revisiting before close, not after.
+Through the full API path (`GET /api/v1/symbols/{symbol}`, ASGI, executor
+bridge, pool) the figure is 16–35 ms. Both are comfortably under D2's ~25 ms
+projection and the load tier's 250 ms bound.
+
+**2 — The read is actually bounded.** `EXPLAIN (ANALYZE, BUFFERS)` on each of
+the three statements with production parameters:
+
+| statement | planning | execution |
+| --- | --- | --- |
+| A — universe edges | 3.1 ms | 48.9 ms |
+| B — per-symbol coverage | 6.4 ms | 1.7 ms |
+| C — bounded head probe | 3.0 ms | 0.2 ms |
+
+Single-digit-ms planning on all three (criterion 1). Statement C's plan is a
+plain `Append` over 8 chunks — pruning happens at *plan* time, not startup.
+
+> **A defect this step caught, and the reason the step exists.** The first run
+> showed statement C planning in **3,023 ms** while still reporting "Chunks
+> excluded during startup: 3363" and a fast execution time. Step 1 alone would
+> have looked acceptable; the plan is what exposed it. Cause: the coverage edge
+> was bound as a `datetime.date`, and `timestamptz > date` resolves through a
+> timezone-dependent conversion the planner cannot use for chunk exclusion.
+> Binding the identical instant as an aware `datetime` gives 7 ms — same rows,
+> different plan. Fixed by `queries._as_bound`; pinned by
+> `test_bound_is_timestamptz_typed_not_a_date`.
+
+**3 — Value equivalence at scale (criterion 2).** Merged read versus lazy
+`MIN/MAX`, both families, date grain, across a **28 distinct-symbol** sample
+covering dense (SPY, AAPL, MSFT, IBM, GE, F, T, KO, XOM, JPM), delisted
+(MAACU, MAAQ, MAAX, …), daily-only (KIM-P-N, KIM-PN), and no-data (PAAC, PABK,
+PACE, …) instruments:
+
+```
+matched: 28/28
+```
+
+**Zero differences.** Note `KIM-P-N` and `KIM-PN` report `end = 2026-08-03`
+against a `daily_coverage` edge of 2026-06-12 — the head probe supplying a
+leading edge coverage does not have, on live data, which is the whole mechanism.
+
+**4 — The D3 residual window is empty.** Across the sample, symbols whose own
+coverage end trails the universe edge were identified and the gap between them
+searched for raw bars:
+
+```
+symbols with coverage end < universe edge : 3   (31-day gap each)
+symbols with raw bars inside the gap      : 0
+largest gap among affected symbols        : 0 days
+```
+
+**No symbol has a single bar in the window**, so the D3 trade costs nothing
+observable today and the documented fallback (per-symbol bounding for recent
+coverage ends) is **not** implemented — it would be a branch on the read path
+justified by no measurement. This is the load-bearing check that made it safe to
+ship D3; re-run it if the coverage repair (169) changes the edge structure.
 
 **5 — The freshness fix reports the truth.** `check_coverage_freshness` against
-prod must return stale with `CONTENT_EDGE_TOO_OLD` and a lag matching the
-observed 52 days. Then `mt data status`, `GET /api/v1/health`, and
-`GET /api/v1/status` must all reflect it — and `GET /api/v1/symbols/SPY` must
-still return the correct 2026-08-03 daily edge, demonstrating D2's independence
-from the verdict.
+prod:
 
-**6 — The detection floor is pinned.** Run the new generic-guard test and show
-it failing when `_raw_max`'s alignment is removed, then passing when restored.
-A guard test that passes both ways proves nothing.
+```
+is_stale: True
+  minute_coverage  fresh=False lag=4 days, 1:30:00  threshold=1 day, 4:00:00  bucket_width=8760:00:00
+    signals=['CONTENT_EDGE_TOO_OLD']
+  daily_coverage   fresh=False lag=52 days, 0:00:00 threshold=1 day, 4:00:00  bucket_width=8760:00:00
+    signals=['CONTENT_EDGE_TOO_OLD']
+```
 
-**7 — Load tier.** `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/` end to end.
-Record each assertion's measured median and the bound derived from it. Confirm
-assertion 2 (bars at the ceiling) measures *request* latency by showing the
-measured wall clock exceeding the configured `statement_timeout` without a
-`504` — the 186 D12b shape, now visible.
+The 52-day and 4-day lags match D5's evidence exactly, and `bucket_width` of
+8760 h (365 days) is visible in the verdict, which is why the generic check
+reported `lag=0`. All operator surfaces now reflect it:
 
-**8 — Concurrency and the pool decision.** Report assertion 3's per-request
-latencies at concurrency 16 against a pool of 8, and record the D11 decision
-with those numbers.
+| surface | before | after |
+| --- | --- | --- |
+| `GET /api/v1/health` → `coverage` | `ok` | `stale` |
+| `GET /api/v1/status` → `coverage.is_stale` | `false` | `true` |
+| `mt data status` | no banner | "Warning: coverage is OUT OF DATE (minute_coverage, daily_coverage)" |
 
-**9 — Contract unchanged.** `GET /api/v1/symbols/SPY` response body diffed
-against a pre-slice capture: identical apart from the values D2 corrects.
-`docs/api/openapi.json` drift test green.
+And, on the same connection at the same moment:
+
+```
+symbols/SPY status   : 200
+symbols/SPY available: {'start': '1993-01-29', 'end': '2026-08-03'}
+```
+
+**That is D2's independence from the verdict, demonstrated on production.**
+Coverage is 52 days stale and reported as such, and the endpoint still returns
+the true current edge. This state persists until slice 169 lands; it is the
+correct report of the actual condition, not a regression.
+
+**6 — The detection floor is pinned.** `_raw_max`'s bucket-alignment step was
+removed by hand and the guard test re-run:
+
+```
+FAILED test_lag_inside_one_bucket_is_invisible_to_the_generic_guard
+AssertionError: expected the documented detection floor: a 52-day lag inside a
+365-day bucket must report fresh. If this now fails, _raw_max's bucket
+alignment changed — see slice 187 D6 before 'fixing' it.
+```
+
+Restored, all three assertions pass. The test fails in exactly one direction and
+names the reason, so it cannot pass both ways.
+
+**7 — Load tier.** `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/` — **13
+passed** (this slice's 6, slice 167's 2, slice 146's 5):
+
+| assertion | measured | bound | derivation |
+| --- | --- | --- | --- |
+| 1 — symbol detail | median 32 ms | 250 ms | ~8x headroom over measured; 10x the prod figure |
+| 2 — bars at ceiling | 2.891 s | 15 s | ~5x headroom; a fixture-dense 113-day `1m` window |
+| 3 — concurrency 16 | max 141 ms | 1.5 s | 6x the single-request bound |
+| 4 — status | median 999 ms | 1.5 s | 167's sub-second DB NFR + serialization headroom |
+
+Every bound is above its measurement by a stated factor rather than invented.
+Assertion 2 returns `200`, never `504`: the request is admitted at the ceiling
+and served, demonstrating that `statement_timeout` bounds statements and not
+requests (186 D12b). The bounds are left at their provisional values — each has
+enough headroom that fixture-host variation will not make them flap, and they
+guard the *shape* of the code rather than predicting production latency (D10).
+
+**8 — Concurrency and the pool decision.** Assertion 3, 16 concurrent
+symbol-detail requests against `max_size=8`:
+
+```
+wall=0.144s  median=0.088s  max=0.141s
+per-request: 0.030 0.039 0.049 0.060 0.065 0.070 0.082 0.086
+             0.091 0.095 0.105 0.109 0.111 0.115 0.130 0.141
+```
+
+A clean two-wave staircase — 8 connections serving 16 requests, each costing
+about what it costs uncontended. The D11 decision (**not now**, with these
+numbers) is recorded in D11 above.
+
+**9 — Contract unchanged.** `uv run python scripts/dump_openapi.py` produced
+**no diff** to the committed `docs/api/openapi.json`, and
+`test_openapi_artifact.py` passes. The response shape, the 404 contract, and
+the omit-empty-family rule are all untouched; only the values D2 corrects
+changed.
+
+> The route's docstring is deliberately kept free of decision references:
+> FastAPI publishes it as the route's public `description`, so an explanatory
+> docstring would have produced exactly the OpenAPI diff D2 says should not
+> exist. The rationale lives in a comment instead.
 
 ## Risks
 

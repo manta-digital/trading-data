@@ -292,7 +292,9 @@ API endpoints:
   granularity is behind its source, so the bars may be incomplete. Raw grains
   (`1m`, `1d`) are never stale by construction.
 - `GET /api/v1/symbols?search=<prefix>` — list instruments
-- `GET /api/v1/symbols/{symbol}` — instrument detail + available data ranges
+- `GET /api/v1/symbols/{symbol}` — instrument detail + available data ranges.
+  See [`available` semantics](#available-semantics) below for what the reported
+  range does and does not guarantee.
 - `GET /api/v1/status?symbol=…&health=…&granularity=…&all=true` — per-symbol
   data-health rows, a whole-registry health summary, and coverage freshness.
   **`rows` defaults to unhealthy entries only** (`GAPS`, `STALE`, `FAILED`),
@@ -306,6 +308,37 @@ API endpoints:
 The full schema is committed at [`docs/api/openapi.json`](docs/api/openapi.json)
 and regenerated with `uv run python scripts/dump_openapi.py` (no database
 required).
+
+#### `available` semantics
+
+`GET /api/v1/symbols/{symbol}` reports one `{start, end}` per granularity. The
+two ends are computed differently and carry different guarantees, which matters
+if you use them to decide what to request:
+
+- **`end` is exact.** It comes from a direct probe of the bar tables, bounded so
+  it stays fast, and it reflects data written right up to the moment of the
+  request. If a bar exists, `end` includes it.
+- **`start` is as of the last coverage materialization.** It comes from the
+  coverage continuous aggregates, which a background policy refreshes. Deep
+  history *backfilled after* the relevant coverage bucket was last materialized
+  will not move `start` until that bucket is rebuilt — so `start` can be later
+  than the true first bar, never earlier. There is no cheap exact answer here:
+  probing below the coverage floor costs 0.4–1.4 s per symbol on production
+  (measured), because the bound excludes chunks *after* the start, which for a
+  symbol with deep history is almost none of them.
+
+Both ends are UTC dates. A granularity with no data is omitted entirely — an
+empty `available` means "no bars for this symbol", not "unknown symbol" (an
+unknown symbol is a `404`).
+
+**One documented gap.** The leading-edge probe is bounded by a universe-wide
+coverage edge rather than each symbol's own. A bar could in principle be missed
+if it falls between an individual symbol's coverage end and that universe edge
+*and* was written after coverage last materialized. Measured across a 28-symbol
+sample on production 2026-08-04 — dense, delisted, daily-only, and no-data
+instruments — the merged answer was **identical to a direct `MIN/MAX` scan for
+every symbol**, and no symbol had a single raw bar inside that window. The gap
+closes on its own when the coverage refresh repair lands.
 
 #### Error shapes
 
