@@ -13,7 +13,8 @@ not, and no enforcement test covered ``test/integration/`` the way
 ``instruments``, ``provider_symbol_mapping``, ``data_gaps``,
 ``trading_sessions``, ``splits``, ``dividends``. Dropping migrations 033-036
 from the ledger is why the minute cagg hierarchy
-(``minute_15min_ohlcv``/``minute_1hour_ohlcv``/``minute_4hour_ohlcv``) and
+(``minute_15min_ohlcv``/``minute_hourly_ohlcv``/``minute_4hour_ohlcv``), the
+daily rollups (``daily_weekly/monthly/quarterly_ohlcv``, migration 034) and
 ``minute_coverage`` are absent. **No bar data was touched**: ``minute_ohlcv``
 (4.4B rows) and ``daily_ohlcv`` retain their original relfilenodes and full
 history. Everything lost is derivable from EODHD or from the bars themselves,
@@ -175,13 +176,22 @@ def assess(conn: psycopg.Connection[Any]) -> Assessment:
             "SELECT user_view_name FROM _timescaledb_catalog.continuous_agg"
         )
     }
+    # Names must match the catalog exactly (the hourly cagg is
+    # minute_hourly_ohlcv, not minute_1hour_ohlcv — the 2026-08-04 incident
+    # note used the wrong name and this module inherited it, reporting a view
+    # that never existed as permanently missing). The daily rollups are listed
+    # too: migration 034 was also deleted by the incident and their absence
+    # was invisible while this list omitted them.
     expected_caggs = (
         "minute_5min_ohlcv",
         "minute_15min_ohlcv",
-        "minute_1hour_ohlcv",
+        "minute_hourly_ohlcv",
         "minute_4hour_ohlcv",
         "minute_coverage",
         "daily_coverage",
+        "daily_weekly_ohlcv",
+        "daily_monthly_ohlcv",
+        "daily_quarterly_ohlcv",
     )
 
     return Assessment(
@@ -212,8 +222,13 @@ def replay_missing_migrations(pool: ConnectionPool[Any]) -> list[str]:
     absent views are created.
 
     This is the step that rebuilds ``minute_15min_ohlcv``,
-    ``minute_1hour_ohlcv``, ``minute_4hour_ohlcv``, and — through 046, if it too
-    is missing — ``minute_coverage``.
+    ``minute_hourly_ohlcv``, ``minute_4hour_ohlcv``, and the daily rollups.
+    NOTE the ledger boundary observed during the 2026-08-04 restore: replay
+    only covers migrations *absent from the ledger*. Objects dropped while
+    their creating migration is still recorded (``minute_coverage`` via 046,
+    the minute caggs' columnstore config via 045, its refresh policy via 047)
+    are NOT recreated by this step and need their idempotent DDL applied
+    directly.
 
     Returns:
         The migration ids applied, in order.
