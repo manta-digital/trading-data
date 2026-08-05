@@ -37,6 +37,12 @@ calendars_app = typer.Typer(
     no_args_is_help=True,
 )
 
+restore_app = typer.Typer(
+    name="restore",
+    help="Recover metadata truncated by the 2026-08-04 incident.",
+    no_args_is_help=True,
+)
+
 migrate_app = typer.Typer(
     name="migrate",
     help="Schema migration commands.",
@@ -77,6 +83,7 @@ data_app.add_typer(lists_app, name="lists")
 data_app.add_typer(ca_app, name="ca")
 data_app.add_typer(caggs_app, name="caggs")
 data_app.add_typer(universes_app, name="universes")
+data_app.add_typer(restore_app, name="restore")
 
 
 _DEFAULT_LISTS_CONFIG: Path = Path("config/symbol-lists.yaml")
@@ -470,6 +477,120 @@ def instruments_rebuild(
     print_result(table, json_mode=False)
     if dry_run:
         print_result(f"\n[dry-run] would_process: {summary.get('would_process', 0)}", json_mode=False)
+
+
+@restore_app.command("assess")
+def restore_assess(
+    ctx: typer.Context,
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON summary"),
+) -> None:
+    """Report metadata damage from the 2026-08-04 truncation. Read-only.
+
+    Issues no writes. Run this before ``mt data restore run`` and after, to
+    confirm what changed.
+    """
+    import psycopg
+
+    from manta_trading.data.quality.restore_metadata import assess
+
+    settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured", json_mode=json_output)
+        raise typer.Exit(1)
+
+    with psycopg.connect(
+        str(settings.timescale_db_url), autocommit=True, connect_timeout=15
+    ) as conn:
+        conn.execute("SET statement_timeout = '120s'")
+        state = assess(conn)
+
+    if json_output:
+        print_result(
+            {
+                "bars_intact": state.bars_intact,
+                "needs_restore": state.needs_restore,
+                "missing_migrations": state.missing_migrations,
+                "missing_caggs": state.missing_caggs,
+                "tables": {s.name: s.rows for s in state.preserved + state.truncated},
+            },
+            json_mode=True,
+        )
+        return
+
+    print_result(state.describe(), json_mode=False)
+    if not state.bars_intact:
+        print_error(
+            "preserved tables are EMPTY — this is not the damaged database",
+            json_mode=False,
+        )
+        raise typer.Exit(1)
+    print_result(
+        f"\nbars_intact={state.bars_intact}  needs_restore={state.needs_restore}",
+        json_mode=False,
+    )
+
+
+@restore_app.command("run")
+def restore_run(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Assess and report without writing"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON summary"),
+) -> None:
+    """Replay the migrations the incident removed, recreating missing caggs.
+
+    Never deletes: every step is an upsert or an ``IF NOT EXISTS`` DDL replay,
+    so this is safe to re-run and safe to interrupt. Refuses outright if the
+    preserved tables are empty, which would mean the URL points somewhere other
+    than the damaged database.
+
+    Data steps that follow this one are ordinary commands, run in this order:
+
+      1. ``mt data instruments rebuild``   (repopulates instruments)
+      2. ``mt data ca update``             (splits + dividends)
+      3. ``mt data universes refresh``     (index membership)
+
+    ``data_gaps`` needs no step — the daemon reseeds it on its next cycle.
+    """
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.data.quality.restore_metadata import (
+        RestoreRefused,
+        restore,
+    )
+
+    settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured", json_mode=json_output)
+        raise typer.Exit(1)
+
+    try:
+        with ConnectionPool(
+            str(settings.timescale_db_url), min_size=1, max_size=2
+        ) as pool:
+            summary = restore(pool, dry_run=dry_run)
+    except RestoreRefused as exc:
+        print_error(str(exc), json_mode=json_output)
+        raise typer.Exit(1) from exc
+
+    if json_output:
+        print_result(summary, json_mode=True)
+        return
+
+    print_result(str(summary["assessment"]), json_mode=False)
+    if dry_run:
+        print_result("\n[dry-run] no writes issued", json_mode=False)
+        return
+    print_result(f"\nsteps: {summary['steps']}", json_mode=False)
+    print_result(f"\n--- after ---\n{summary['after']}", json_mode=False)
+    print_result(
+        "\nNext, in order:\n"
+        "  mt data instruments rebuild\n"
+        "  mt data ca update\n"
+        "  mt data universes refresh",
+        json_mode=False,
+    )
 
 
 @instruments_app.command("populate-delisted-dates")
