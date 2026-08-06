@@ -192,6 +192,13 @@ mt data universes refresh         # index membership
 
 `data_gaps` needs no step — the daemon reseeds it on its next cycle.
 
+> **Addendum (2026-08-06):** "needs no step" was true for data correctness but
+> not for daemon liveness. The emptied `data_gaps` removed the short-circuit
+> that had always hidden a latent unbounded query in `_select_daily_mode`, and
+> the first post-restore daemon start wedged permanently before seeding
+> anything. Root cause, fix, and follow-up slices: journal entry 20260806 in
+> `000-process-journal.md`.
+
 **Caution:** recreating `minute_4hour_ohlcv` etc. triggers materialization over
 4.4 B rows. That is expensive and, given `work_mem=512MB` × 16 parallel
 workers, is plausibly what OOM'd the box. **Consider lowering `work_mem` and
