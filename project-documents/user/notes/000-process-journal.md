@@ -92,12 +92,17 @@ It carried 4 materialization-invalidation entries where every healthy sibling ca
    ~1–2 min); `Restart=no` on `postgresql@` means it stays down until manually started —
    worth knowing before reading "no response" as a third crash.
 
-**Follow-ups:** 5m rebuild running to completion via 14-day force sub-windows with
-per-70-day-window parity gates and compress-behind-frontier (driver pattern worth
-keeping for any future from-zero cagg build over a large source); final verification
-(caggs verify, restore assess, all-jobs check) closes the restore. Generalized,
-project-agnostic distillation of this incident family added to `.claude/rules/sql.md`
-(2026-08-05) for future database projects.
+**Outcome (2026-08-05, closing the restore):** 5m rebuild completed via 14-day force
+sub-windows with per-70-day-window parity gates and compress-behind-frontier — all
+119 windows PARITY OK, total `minute_count` = 4,415,312,550 (exact raw match), zero
+watchdog events, all chunks compressed. `mt data caggs verify` exit 0 at 100.0% for
+every year on all granularities; R4 clean (no unscheduled jobs); `restore assess`
+shows every restorable table populated (`provider_symbol_mapping` and `data_gaps`
+intentionally empty — the first self-heals at acquisition time, the second reseeds on
+the daemon's first cycle). The sub-window driver pattern is worth keeping for any
+future from-zero cagg build over a large source. Generalized, project-agnostic
+distillation of this incident family added to the `sql.md`/`testing.md`/`python.md`
+rule packs (2026-08-05) for future database projects.
 
 ## 20260804 — Restore executed; the ledger is not the catalog; the "unit" label is not a property; a per-line guard cannot see a multiline read
 
