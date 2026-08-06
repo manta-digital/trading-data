@@ -4,7 +4,7 @@ parent: user/architecture/180-arch.data-serving.md
 project: trading
 dateCreated: 20260513
 dateUpdated: 20260804
-status: in_progress
+status: complete
 ---
 
 # Slice Plan: Data Serving API
