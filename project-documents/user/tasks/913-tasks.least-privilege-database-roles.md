@@ -137,9 +137,22 @@ before any credential is switched.
   - [ ] The fixture must respect the existing prod-URL guards: it must NOT read
         `MT_TIMESCALE_DB_URL`. Follow the pattern in
         [test/conftest.py](../../../test/conftest.py)
-  - [ ] Skip cleanly when the role or database is unavailable
-  - [ ] Success: fixture imports and skips (not errors) with no DB configured;
-        both static ratchet guards still pass
+  - [ ] Skip cleanly when the database is **not configured** — skip on absent
+        configuration only, never on an exception from the connection or from
+        `SET ROLE` itself
+  - [ ] `SET ROLE trading_app` is authorized against `session_user`, so it
+        succeeds only while the test credential is `postgres` or a member of
+        `trading_app`. A non-member raises `InsufficientPrivilege: permission
+        denied to set role` (measured). That error must **propagate as a
+        failure** — a broad except-to-skip here would turn the entire negative
+        suite green while asserting nothing, which is the one outcome this
+        slice cannot tolerate
+  - [ ] If the test tier ever runs as a non-superuser, fix it by granting
+        membership (`GRANT trading_app TO <test_role>`), not by widening the
+        skip
+  - [ ] Success: fixture skips (not errors) with no DB configured; with a DB
+        configured but role membership missing, the suite **fails loudly**
+        rather than skipping; both static ratchet guards still pass
   - [ ] Effort: 3
 
 - [ ] **2.2 Assert the three incident statements are denied**
