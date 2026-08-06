@@ -8,36 +8,8 @@
 - Never use silent fallback values. Fail explicitly with errors or obviously-placeholder values.
 - Never use cheap hacks or well-known anti-patterns.
 - Never include credentials, API keys, or secrets in source code or comments. Load from environment variables; ensure .env is in .gitignore. Raise an issue if violations are found.
+- Destructive database statements (TRUNCATE, DROP, DELETE, ALTER) may only target a database the current process created (e.g. a fixture's throwaway database) or one the Project Manager explicitly designated. Tests never read the production database URL variable. Full rules: `sql.md` ("Production Database Protection") in the modular rules directory.
 - When debugging a failure, get the actual error message before attempting any fix. Never apply more than one speculative fix without first obtaining concrete evidence (logs, error text, stack trace) that diagnoses the root cause. If you cannot get the evidence yourself, ask the Project Manager for it.
-
-## Database Safety
-
-Written after the 2026-08-04 incident (a test fixture handed production
-credentials truncated six prod tables). Deterministic guards exist in layers
-(see `user/notes/2026-08-04-prod-db-guardrails-scoping.md`); these rules cover
-what the guards cannot see.
-
-- Tests never read `MT_TIMESCALE_DB_URL`. Test code uses `MT_TIMESCALE_TEST_URL`
-  and the `ephemeral_db` fixture. A fixture that issues TRUNCATE/DROP/ALTER/
-  DELETE may only target a database it created itself.
-- Never inject a whole `.env` into a child process. Pass an explicit list of
-  named variables — a runner built to fix a parsing problem must not widen
-  credential scope as a side effect.
-- Before running any test tier for the first time in a session, read its
-  conftest and fixtures for which URL they connect to and what they mutate.
-  The absence of a guard is not evidence of safety.
-- Ad-hoc production queries run under `SET statement_timeout` sized to intent
-  (seconds for probes). After any client-side timeout, `pg_cancel_backend` the
-  server-side backend before running anything else.
-- Destructive or maintenance tooling (restore, rechunk, repair) takes its DB
-  URL from an explicit caller argument — never from ambient environment inside
-  the tool (`data/quality/restore_metadata.py` is the template).
-- `TRUNCATE ... CASCADE` destroys the FK closure, not the named tables. Before
-  any CASCADE against a shared database, enumerate the closure.
-- One value, one source: `os.environ` and pydantic settings are different
-  sources of truth. Code that reads configuration must use the settings object,
-  not raw `os.environ` (migration 036 skipped silently on prod because of this
-  split).
 
 ## Code Structure
 
@@ -93,7 +65,7 @@ hallucination trap.
 - Project guides: `project-documents/ai-project-guide/project-guides/`
 - Tool guides: `project-documents/ai-project-guide/tool-guides/`
 - Modular rules for specific technologies may exist in 
-  `project-guides/rules/`.
+  `project-documents/ai-project-guide/project-guides/rules/`.
 
 ## Document Conventions
 
