@@ -20,7 +20,7 @@ projectState: >
   PM approval before starting.
 dateCreated: 20260806
 dateUpdated: 20260806
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Least-Privilege Database Roles — Make Credential Leaks Non-Destructive
@@ -65,63 +65,63 @@ approval — do not begin it as a continuation of Section 4.
 
 ## Section 1 — Provisioning artifact
 
-- [ ] **1.1 Create the role-provisioning SQL artifact**
-  - [ ] Create `scripts/sql/provision_roles.sql`
-  - [ ] Guard role creation in a `DO` block testing `pg_roles` so a second run
+- [x] **1.1 Create the role-provisioning SQL artifact**
+  - [x] Create `scripts/provision_roles.sql`
+  - [x] Guard role creation in a `DO` block testing `pg_roles` so a second run
         does not error on the already-existing `trading_app`
-  - [ ] Create `trading_migrate` if absent; `GRANT postgres TO trading_migrate`
+  - [x] Create `trading_migrate` if absent; `GRANT postgres TO trading_migrate`
         so it inherits ownership rights without per-object `ALTER ... OWNER`
-  - [ ] Do NOT set passwords in the artifact. Add a header comment stating that
+  - [x] Do NOT set passwords in the artifact. Add a header comment stating that
         passwords are set out-of-band and never committed
-  - [ ] Success: file exists, is pure SQL, contains no credentials, and contains
+  - [x] Success: file exists, is pure SQL, contains no credentials, and contains
         no `ALTER ... OWNER` statement
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **1.2 Grant the application role its read surface**
-  - [ ] `GRANT USAGE ON SCHEMA public TO trading_app`
-  - [ ] `GRANT SELECT ON ALL TABLES IN SCHEMA public TO trading_app`
-  - [ ] Grant `SELECT` on all 9 continuous aggregates by name: `daily_coverage`,
+- [x] **1.2 Grant the application role its read surface**
+  - [x] `GRANT USAGE ON SCHEMA public TO trading_app`
+  - [x] `GRANT SELECT ON ALL TABLES IN SCHEMA public TO trading_app`
+  - [x] Grant `SELECT` on all 9 continuous aggregates by name: `daily_coverage`,
         `minute_coverage`, `daily_weekly_ohlcv`, `daily_monthly_ohlcv`,
         `daily_quarterly_ohlcv`, `minute_5min_ohlcv`, `minute_15min_ohlcv`,
         `minute_hourly_ohlcv`, `minute_4hour_ohlcv`
-  - [ ] Note in a comment: caggs are views and are NOT covered by `ALL TABLES IN
+  - [x] Note in a comment: caggs are views and are NOT covered by `ALL TABLES IN
         SCHEMA public`, which is why they are enumerated
-  - [ ] Success: as `trading_app`, `SELECT count(*)` succeeds on every
+  - [x] Success: as `trading_app`, `SELECT count(*)` succeeds on every
         application table and on all 9 caggs
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **1.3 Grant the application role its write surface**
-  - [ ] `GRANT INSERT, UPDATE, DELETE` on exactly: `minute_ohlcv`, `daily_ohlcv`,
+- [x] **1.3 Grant the application role its write surface**
+  - [x] `GRANT INSERT, UPDATE, DELETE` on exactly: `minute_ohlcv`, `daily_ohlcv`,
         `data_gaps`, `acquisition_state`, `daemon_heartbeat`, `trading_sessions`,
         `instruments`, `provider_symbol_mapping`, `universe_members`, `splits`,
         `dividends`, `backfill_state`, `trading_calendars`, `trading_holidays`
-  - [ ] Grant `SELECT` only on `schema_migrations` — no INSERT/UPDATE/DELETE
-  - [ ] `GRANT TEMPORARY ON DATABASE trading TO trading_app` (D2 — required by
+  - [x] Grant `SELECT` only on `schema_migrations` — no INSERT/UPDATE/DELETE
+  - [x] `GRANT TEMPORARY ON DATABASE trading TO trading_app` (D2 — required by
         the COPY path)
-  - [ ] Grant `USAGE` on all sequences in `public` (identity/serial columns need
+  - [x] Grant `USAGE` on all sequences in `public` (identity/serial columns need
         it for INSERT)
-  - [ ] Do NOT grant `TRUNCATE` on any table
-  - [ ] Success: the 14 write tables accept DML as `trading_app`;
+  - [x] Do NOT grant `TRUNCATE` on any table
+  - [x] Success: the 14 write tables accept DML as `trading_app`;
         `schema_migrations` rejects it
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **1.4 Add default privileges for future tables**
-  - [ ] `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT
+- [x] **1.4 Add default privileges for future tables**
+  - [x] `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT
         SELECT, INSERT, UPDATE, DELETE ON TABLES TO trading_app`
-  - [ ] Repeat the same for `FOR ROLE trading_migrate` — default privileges are
+  - [x] Repeat the same for `FOR ROLE trading_migrate` — default privileges are
         scoped to the creating role, so a migration run as `trading_migrate`
         would otherwise produce tables the app role cannot read
-  - [ ] Add matching default privileges for sequences (`USAGE`)
-  - [ ] Success: a table created by either role in `public` is immediately
+  - [x] Add matching default privileges for sequences (`USAGE`)
+  - [x] Success: a table created by either role in `public` is immediately
         readable and writable by `trading_app` with no manual grant
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **1.5 Apply the artifact to production and prove idempotency**
-  - [ ] Run against `trading` on .144 using the superuser credential
-  - [ ] Run it a **second** consecutive time
-  - [ ] Success: both runs exit 0 under `psql -v ON_ERROR_STOP=1`; the second run
+- [x] **1.5 Apply the artifact to production and prove idempotency**
+  - [x] Run against `trading` on .144 using the superuser credential
+  - [x] Run it a **second** consecutive time
+  - [x] Success: both runs exit 0 under `psql -v ON_ERROR_STOP=1`; the second run
         produces no error
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
 ---
 
@@ -151,23 +151,23 @@ role prod depends on, while `GRANT ... ON TABLE` does not. The test must
 therefore provision **test-local role names**, never `trading_app` /
 `trading_migrate` themselves.
 
-- [ ] **2.1 Parameterize `provision_roles.sql` on database and role names**
-  - [ ] Replace the two hardcoded `GRANT ... ON DATABASE trading` references
+- [x] **2.1 Parameterize `provision_roles.sql` on database and role names**
+  - [x] Replace the two hardcoded `GRANT ... ON DATABASE trading` references
         (currently lines 62 and 114) with `:DBNAME`, which psql already
         substitutes — it printed `trading` correctly on both prod runs, so no
         new argument is needed for the production invocation
-  - [ ] Parameterize the two role names via psql variables with defaults, so
+  - [x] Parameterize the two role names via psql variables with defaults, so
         production applies unchanged (`trading_app` / `trading_migrate`) while
         a test run can pass throwaway names
-  - [ ] Rationale: one artifact stays the single source of truth. A fixture
+  - [x] Rationale: one artifact stays the single source of truth. A fixture
         that applied its *own* derived grant set could pass while the real
         artifact is wrong — precisely the class of false confidence this slice
         exists to remove
-  - [ ] Re-apply to prod and re-confirm idempotency after the edit (two
+  - [x] Re-apply to prod and re-confirm idempotency after the edit (two
         consecutive runs, `ON_ERROR_STOP=1`, both exit 0)
-  - [ ] Success: the artifact applies unchanged to `trading`; the same file
+  - [x] Success: the artifact applies unchanged to `trading`; the same file
         applies to an ephemeral database under different role names
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
 - [ ] **2.2 Add the ephemeral role-privilege fixture**
   - [ ] Build on the existing `migrated_db` fixture

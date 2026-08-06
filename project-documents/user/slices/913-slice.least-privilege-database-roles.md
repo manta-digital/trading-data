@@ -146,7 +146,7 @@ the 52 minute migrations take that path.
 
 ### D6 — Grants as an idempotent, re-runnable artifact
 
-A single reviewable SQL artifact (`scripts/sql/provision_roles.sql`) that is safe
+A single reviewable SQL artifact (`scripts/provision_roles.sql`) that is safe
 to run repeatedly and covers **future** tables via `ALTER DEFAULT PRIVILEGES FOR
 ROLE postgres IN SCHEMA public`. Without default privileges, the next migration
 that creates a table silently produces one the application role cannot read.
@@ -246,8 +246,8 @@ Draft — to be refined at Phase 6 completion. Run from the repo root.
 **1. Provision and prove idempotency.**
 
 ```bash
-psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/provision_roles.sql
-psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/provision_roles.sql
+psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
+psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
 ```
 
 Both runs exit 0. The second proves re-runnability.
