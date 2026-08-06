@@ -14,11 +14,13 @@ from manta_trading.api.eodhd_sync import eodhd_get
 from manta_trading.config import Settings
 from manta_trading.constants import (
     DAEMON_LOCK_TIMEOUT,
+    DB_BULK_SESSION,
     EODHD_INTRADAY_HORIZON,
     MAX_RETRY_COUNT,
     MINUTE_SEED_PROGRESS_LOG_INTERVAL,
     FetchEntryPoint,
 )
+from manta_trading.market.db_session import make_configure_connection
 from manta_trading.data.acquisition.quota import CallType
 from manta_trading.data.acquisition.daemon.daily import (
     CycleReport,
@@ -134,7 +136,12 @@ def run_minute_cycle(
     if not settings.eodhd_api_key:
         raise RuntimeError("MT_EODHD_API_KEY is not set")
 
-    with ConnectionPool(settings.timescale_db_url, min_size=1, max_size=4) as pool:
+    with ConnectionPool(
+        settings.timescale_db_url,
+        min_size=1,
+        max_size=4,
+        configure=make_configure_connection(DB_BULK_SESSION),
+    ) as pool:
         with httpx.Client(timeout=_REQUEST_TIMEOUT) as http:
             if symbols is not None:
                 symbol_list = symbols
@@ -489,7 +496,12 @@ def run_minute_refetch(
     if not settings.eodhd_api_key:
         raise RuntimeError("MT_EODHD_API_KEY is not set")
 
-    with ConnectionPool(settings.timescale_db_url, min_size=1, max_size=2) as pool:
+    with ConnectionPool(
+        settings.timescale_db_url,
+        min_size=1,
+        max_size=2,
+        configure=make_configure_connection(DB_BULK_SESSION),
+    ) as pool:
         with httpx.Client(timeout=_REQUEST_TIMEOUT) as http:
             with pool.connection() as conn:
                 history_floor = _resolve_minute_history_start(

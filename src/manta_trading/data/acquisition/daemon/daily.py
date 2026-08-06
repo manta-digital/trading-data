@@ -16,10 +16,12 @@ from manta_trading.config import Settings
 from manta_trading.constants import (
     DAEMON_LOCK_TIMEOUT,
     DAILY_HISTORY_FLOOR,
+    DB_BULK_SESSION,
     CycleGranularity,
     DailyMode,
     FetchEntryPoint,
 )
+from manta_trading.market.db_session import make_configure_connection
 from manta_trading.providers.types import ProviderType
 from manta_trading.data.acquisition.daemon.cadence import daily_pass_boundary
 from manta_trading.data.acquisition.quota import CallType
@@ -50,6 +52,17 @@ work-list query reads back exactly what ``update_data_gaps`` and
 empty ``pending`` list, i.e. a daemon that quietly does nothing (912 review
 F005). psycopg is handed the plain ``str`` because parameter adaptation is by
 exact type."""
+
+_WARM_OUTCOMES: tuple[LastAttemptOutcome, ...] = (
+    LastAttemptOutcome.SUCCESS,
+    LastAttemptOutcome.PARTIAL,
+)
+"""Outcomes proving the last recorded fetch attempt wrote bars for a symbol.
+
+``_select_daily_mode`` treats a pending symbol as warm only when its
+``acquisition_state`` row carries one of these; EMPTY and TRANSIENT_FAILURE
+(and no row at all) read as cold. Defined once so the mode query and its
+tests cannot drift apart."""
 
 
 @dataclass
@@ -299,7 +312,12 @@ def run_daily_cycle(
     if not settings.eodhd_api_key:
         raise RuntimeError("MT_EODHD_API_KEY is not set")
 
-    with ConnectionPool(settings.timescale_db_url, min_size=1, max_size=4) as pool:
+    with ConnectionPool(
+        settings.timescale_db_url,
+        min_size=1,
+        max_size=4,
+        configure=make_configure_connection(DB_BULK_SESSION),
+    ) as pool:
         with httpx.Client(timeout=_REQUEST_TIMEOUT) as http:
             if symbols is not None:
                 symbol_list = symbols
@@ -431,10 +449,28 @@ def _select_daily_mode(conn: psycopg.Connection, symbol_list: list[str]) -> Dail
 
     BACKFILL is selected if any symbol has:
     - UNKNOWN gap rows (gaps to fetch), OR
-    - zero rows in daily_ohlcv (never fetched — no gaps seeded yet either)
+    - no recorded fetch attempt that wrote bars (cold symbol).
 
     A symbol with only terminal gaps (PROVIDER_HOLE / RETRY_EXHAUSTED) but
     no bars is cold and needs a per-symbol /eod attempt, not a bulk call.
+
+    Cold detection reads ``acquisition_state`` (an anti-join against
+    ``_WARM_OUTCOMES``), never the raw ``daily_ohlcv`` hypertable. The
+    previous shape — ``COUNT(DISTINCT symbol)`` over ``daily_ohlcv`` with a
+    ~31k-element ``ANY`` — could not finish *planning* against the table's
+    3,371 chunks and, with no ``statement_timeout``, wedged the daemon for
+    15+ hours the first time an emptied ``data_gaps`` let it run at full
+    scale (journal 20260806). ``acquisition_state`` is a small plain table
+    keyed on ``(symbol, granularity, provider)``, so this stays bounded
+    regardless of hypertable chunk count — including after ``daily_ohlcv``
+    is rechunked.
+
+    The proxy shifts semantics slightly: "has bars in daily_ohlcv" becomes
+    "last recorded attempt wrote bars". A symbol whose last attempt was
+    EMPTY or TRANSIENT_FAILURE now reads as cold, which errs toward
+    BACKFILL — the conservative direction (a spurious BACKFILL costs
+    per-symbol calls; a spurious STEADY_STATE would silently strand cold
+    symbols behind the bulk call).
     """
     if not symbol_list:
         return DailyMode.STEADY_STATE
@@ -451,16 +487,28 @@ def _select_daily_mode(conn: psycopg.Connection, symbol_list: list[str]) -> Dail
         if row and int(row[0]) > 0:
             return DailyMode.BACKFILL
 
-        # Any symbol with zero bars → backfill (cold symbol).
+        # Any pending symbol with no warm acquisition on record → backfill.
         cur.execute(
-            "SELECT COUNT(DISTINCT symbol) FROM daily_ohlcv "
-            "WHERE symbol = ANY(%s)",
-            (symbol_list,),
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM unnest(%s::text[]) AS pending(symbol) "
+            "  WHERE NOT EXISTS ("
+            "    SELECT 1 FROM acquisition_state a "
+            "    WHERE a.symbol = pending.symbol "
+            "      AND a.granularity = %s "
+            "      AND a.last_attempt_outcome = ANY(%s) "
+            "  )"
+            ")",
+            (
+                symbol_list,
+                _DAILY_GRANULARITY,
+                [str(outcome) for outcome in _WARM_OUTCOMES],
+            ),
         )
         row = cur.fetchone()
-        symbols_with_bars = int(row[0]) if row else 0
+        # A missing row is indeterminate; indeterminate reads as cold.
+        any_cold = bool(row[0]) if row else True
 
-    if symbols_with_bars < len(symbol_list):
+    if any_cold:
         return DailyMode.BACKFILL
 
     return DailyMode.STEADY_STATE
@@ -721,7 +769,12 @@ def run_daily_refetch(
     if not settings.eodhd_api_key:
         raise RuntimeError("MT_EODHD_API_KEY is not set")
 
-    with ConnectionPool(settings.timescale_db_url, min_size=1, max_size=2) as pool:
+    with ConnectionPool(
+        settings.timescale_db_url,
+        min_size=1,
+        max_size=2,
+        configure=make_configure_connection(DB_BULK_SESSION),
+    ) as pool:
         with httpx.Client(timeout=_REQUEST_TIMEOUT) as http:
             # Resolve from_date default from instruments.first_data_date.
             if from_date is None:

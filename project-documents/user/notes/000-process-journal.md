@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260805
+dateUpdated: 20260806
 status: in_progress
 ---
 
@@ -19,6 +19,78 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260806 — The daemon wedged forever at startup: an incident-emptied table un-short-circuited a query that cannot even be planned, and no session had a statement_timeout
+
+**Context:** First daemon start after the 2026-08-04 incident restore
+(`mt data daemon run --daily --stop-when-done`). After the routine warning
+"880 of 32075 scope symbols have no completed trading session", nothing — no
+mode log line, no `acquisition_state` progress — for 14.5 hours until operator
+Ctrl-C. The Ctrl-C did not take: the client process survived it, and its
+server-side backend kept running the same statement (15.5 h when found and
+cancelled), with a columnstore compression policy job lock-blocked behind it
+for 13.5 h that cleared the instant the statement was cancelled — the sql.md
+rule that client death never cancels the backend, observed live.
+
+**Root cause (evidence-verified):** between that warning and the next log line
+only `_select_daily_mode` runs. Its first query — count of UNKNOWN `data_gaps`
+rows — had returned nonzero on every prior start (BACKFILL short-circuit), so
+its second query had never run at production scale. The incident emptied
+`data_gaps`; "empty by design, the daemon reseeds" was true for correctness
+but routed *every* start into query 2: `SELECT COUNT(DISTINCT symbol) FROM
+daily_ohlcv WHERE symbol = ANY(<~31k array>)` against the known over-chunked
+hypertable (3,371 chunks; diagnosed 20260727 as the next table with 166/163's
+disease, never filed as a slice). Measured: `EXPLAIN` (plan-only) of that
+query cannot finish in 120 s — planning alone is unbounded — and the daemon's
+pools set no `statement_timeout` (global is 0), so the statement simply never
+returned. Every element of journal 20260720 decisions 3/4 (no time predicate,
+metadata-hostile aggregate, no statement_timeout) was violated by a query that
+had been latent since slice 154.
+
+**Decision (three parts, in order):**
+
+1. **Mode selection reads acquisition metadata, never the raw hypertable.**
+   Query 2 is now an anti-join: "does any pending symbol lack an
+   `acquisition_state` row whose `last_attempt_outcome` is SUCCESS/PARTIAL"
+   (`_WARM_OUTCOMES`, defined once). Bounded by a ~31k-element unnest probed
+   against a small plain table, unaffected by hypertable chunk count, and
+   still correct after the rechunk. The semantic shift — "has bars" becomes
+   "last recorded attempt wrote bars" — errs toward BACKFILL, the safe
+   direction. `daily_coverage` was evaluated first (per rule 20260725/2,
+   with `assert_cagg_fresh`) and **rejected on measured prod state**: slice
+   169's head-bucket defect has its content frozen at 2026-06-11 (~8 weeks
+   behind raw) with 12,040 of ~32k symbols — the coverage-specific freshness
+   check would rightly refuse it (loud startup failure, daemon still down),
+   while the generic guard cannot see year-bucket content lag and would have
+   silently pinned the daemon in BACKFILL forever. Worse, the freshness
+   probe's own `MAX(time)` on `daily_ohlcv` exceeds 30 s today (same chunk
+   pathology), so any daily-sourced cagg reads as PROBE_FAILED-stale until
+   the rechunk lands.
+2. **Every daemon pool now installs the slice 186 D1 session contract.** The
+   four `ConnectionPool` sites in `daemon/daily.py` and `daemon/minute.py`
+   take `configure=make_configure_connection(DB_BULK_SESSION)` (UTC,
+   work_mem, statement_timeout 300 s). The hook was hoisted from
+   `api_server/app.py` to `market/db_session.py` so the daemon does not
+   import the serving layer. A future planner pathology now fails loudly in
+   minutes instead of wedging silently for a day.
+3. **The `daily_ohlcv` rechunk is filed as slice 170** (it was diagnosed
+   20260727 but never scheduled; slice 166 rechunked `minute_ohlcv` only).
+   See the 140-slices entry for scope and the ordering note with slice 169.
+
+**Rationale:** the mode question is about acquisition state, so ask the
+acquisition-state table — deriving it from bar presence forced the planner
+over a hypertable to answer a metadata question. Timeouts are the daemon's
+guard against the *next* latent query shape, not just this one. And a
+"harmless empty table" assumption after an incident deserves suspicion: the
+emptiness was itself the routing change that exposed the latent query.
+
+**Follow-ups:** slice 170 filed (rechunk); slice 169 unchanged (coverage-cagg
+head-bucket repair — its rematerialization should run *after* 170's rechunk,
+same fold logic as 163/167). Integration tests execute the real rendered mode
+query on an ephemeral migrated DB including the exact post-incident shape
+(both tables empty); the original hang itself is not reproducible there — it
+needs thousands of chunks — which is noted in the test module docstring.
+Cross-referenced from the 2026-08-04 incident note.
 
 ## 20260805 — A "surviving" cagg was a corrupt husk that OOM-killed the cluster twice: presence in the catalog is not health, refreshing it was the bomb, and the fix was drop-recreate, not more memory
 
@@ -92,12 +164,17 @@ It carried 4 materialization-invalidation entries where every healthy sibling ca
    ~1–2 min); `Restart=no` on `postgresql@` means it stays down until manually started —
    worth knowing before reading "no response" as a third crash.
 
-**Follow-ups:** 5m rebuild running to completion via 14-day force sub-windows with
-per-70-day-window parity gates and compress-behind-frontier (driver pattern worth
-keeping for any future from-zero cagg build over a large source); final verification
-(caggs verify, restore assess, all-jobs check) closes the restore. Generalized,
-project-agnostic distillation of this incident family added to `.claude/rules/sql.md`
-(2026-08-05) for future database projects.
+**Outcome (2026-08-05, closing the restore):** 5m rebuild completed via 14-day force
+sub-windows with per-70-day-window parity gates and compress-behind-frontier — all
+119 windows PARITY OK, total `minute_count` = 4,415,312,550 (exact raw match), zero
+watchdog events, all chunks compressed. `mt data caggs verify` exit 0 at 100.0% for
+every year on all granularities; R4 clean (no unscheduled jobs); `restore assess`
+shows every restorable table populated (`provider_symbol_mapping` and `data_gaps`
+intentionally empty — the first self-heals at acquisition time, the second reseeds on
+the daemon's first cycle). The sub-window driver pattern is worth keeping for any
+future from-zero cagg build over a large source. Generalized, project-agnostic
+distillation of this incident family added to the `sql.md`/`testing.md`/`python.md`
+rule packs (2026-08-05) for future database projects.
 
 ## 20260804 — Restore executed; the ledger is not the catalog; the "unit" label is not a property; a per-line guard cannot see a multiline read
 

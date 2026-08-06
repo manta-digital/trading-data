@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Any
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
@@ -23,37 +22,14 @@ from manta_trading.api_server.routes.symbols import router as symbols_router
 from manta_trading.config import Settings
 from manta_trading.constants import API_SERVING_SESSION, DbSessionSettings
 from manta_trading.logging import get_logger
+from manta_trading.market.db_session import make_configure_connection
 from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
 from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
 from manta_trading.version import package_version
 
 _logger = get_logger(__name__)
 
-
-def make_configure_connection(
-    session: DbSessionSettings,
-) -> Callable[[psycopg.Connection[Any]], None]:
-    """Build the pool ``configure`` hook for a given session budget.
-
-    Mirrors ``TimescaleMinuteDataDB._configure_connection`` but trimmed to the
-    settings needed by the API server (UTC tz, work_mem, statement_timeout).
-    Autocommit is toggled so ``SET`` does not leave the connection in INTRANS
-    state.
-
-    A factory rather than a module function because ``statement_timeout`` is
-    operator-settable (186 D9) and must be resolved from ``Settings`` at
-    startup — the same value the two DB pools are constructed with, so all
-    three pools the API owns agree.
-    """
-
-    def configure(conn: psycopg.Connection[Any]) -> None:
-        conn.autocommit = True
-        conn.execute("SET timezone = 'UTC'")
-        conn.execute(f"SET work_mem = '{session.work_mem}'")
-        conn.execute(f"SET statement_timeout = '{session.statement_timeout}'")
-        conn.autocommit = False
-
-    return configure
+__all__ = ["create_app", "lifespan", "make_configure_connection"]
 
 
 @asynccontextmanager
