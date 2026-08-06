@@ -241,29 +241,89 @@ are untouched.
 
 ## Verification Walkthrough
 
-Draft — to be refined at Phase 6 completion. Run from the repo root.
+Steps 1, 2, and 2a are **verified as run** (20260806); the rest remain draft
+until their sections land. Run from the repo root.
 
-**1. Provision and prove idempotency.**
+**1. Provision and prove idempotency.** Verified on prod `trading` (.144):
 
 ```bash
 psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
 psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
 ```
 
-Both runs exit 0. The second proves re-runnability.
+Both runs exit 0; the second proves re-runnability. Expected output ends with:
 
-**2. Prove the incident cannot recur.** With `$APP_URL` as the application
-credential:
-
-```bash
-psql "$APP_URL" -c "TRUNCATE instruments"
-psql "$APP_URL" -c "DROP TABLE daemon_heartbeat"
-psql "$APP_URL" -c "DELETE FROM schema_migrations"
+```
+Provisioning least-privilege roles on database: trading
+  application role: trading_app
+  maintenance role: trading_migrate
+Done. Passwords, if not already set, must be applied out-of-band.
 ```
 
-Each must print `ERROR: permission denied` (or `must be owner`) and exit
-non-zero. This is the demo: the exact statement that destroyed production in
-August now fails.
+The second run additionally emits `NOTICE: role "trading_migrate" has already
+been granted membership in role "postgres"`. A `NOTICE` is informational — the
+run still exits 0 under `ON_ERROR_STOP=1`.
+
+The artifact takes no extra arguments for production because `app_role` /
+`migrate_role` default to the production names. A test target overrides them:
+
+```bash
+psql "$URL" -v app_role=t913_app_x -v migrate_role=t913_mig_x \
+     -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
+```
+
+**2. Prove the incident cannot recur — automated, on an ephemeral database.**
+
+```bash
+python - <<'EOF'
+import sys, subprocess; sys.path.insert(0, "scripts")
+from pathlib import Path
+from run_tests import build_env, load_dotenv_values
+env = build_env("integration", load_dotenv_values(Path(".env")))
+sys.exit(subprocess.run([sys.executable, "-m", "pytest",
+    "test/integration/data/test_role_privileges.py", "-v", "--no-header"],
+    env=env).returncode)
+EOF
+```
+
+Expected: `30 passed` (~5 min — each test rebuilds a database through 52
+migrations). Includes the three incident statements (`TRUNCATE instruments`,
+`DROP TABLE daemon_heartbeat`, `DELETE FROM schema_migrations`) all denied.
+
+> **Do not run these statements against `trading`.** `DROP TABLE` requires an
+> `ACCESS EXCLUSIVE` lock, so even inside a rolled-back transaction it queues
+> behind live readers and then blocks every reader and writer of that table.
+> An earlier revision of this walkthrough did exactly that and hung (D8).
+>
+> Invoking pytest directly rather than through `scripts/run_tests.py` is
+> deliberate: that runner always passes the tier directory, so a file path
+> becomes an *additional* target and the whole tier runs. The snippet above
+> reuses the runner's `build_env`, which is what carries the safety property —
+> the prod URL is dropped from the child environment and only
+> `MT_TIMESCALE_TEST_URL` is allowlisted in.
+
+**2a. Confirm prod's live privilege surface — manual, read-only.** The suite in
+step 2 proves the *artifact* is correct; it never connects to production, so it
+cannot prove prod's live state matches. This check closes that gap and uses only
+non-blocking statements — `UPDATE ... WHERE false` takes no exclusive lock, and
+PostgreSQL checks privileges before column validity, so a role holding UPDATE
+fails on `cannot assign to system column "ctid"` while one without it fails on
+`permission denied`.
+
+Verified 20260806 as `trading_app` against `trading`:
+
+| Check | Result |
+|---|---|
+| `TRUNCATE instruments` | `permission denied for table instruments` |
+| `DROP TABLE daemon_heartbeat` | `must be owner of table daemon_heartbeat` |
+| `DELETE FROM schema_migrations` | `permission denied for table schema_migrations` |
+| `SELECT` on all 9 continuous aggregates | 9/9 readable |
+| `UPDATE` privilege on the 14 write tables | held on all |
+| `CREATE TEMP TABLE` | permitted (D2 — the COPY hot path) |
+| Grant rows for `trading_app` | 38,691 |
+
+This is a manual step, deliberately **not** part of CI: CI must never hold
+production credentials, which is the rule whose violation caused the incident.
 
 **3. Prove the application role still works.** There is no `--url` CLI option —
 every command resolves `settings.timescale_db_url`, so credentials are switched

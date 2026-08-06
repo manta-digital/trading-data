@@ -169,51 +169,51 @@ therefore provision **test-local role names**, never `trading_app` /
         applies to an ephemeral database under different role names
   - [x] Effort: 2
 
-- [ ] **2.2 Add the ephemeral role-privilege fixture**
-  - [ ] Build on the existing `migrated_db` fixture
+- [x] **2.2 Add the ephemeral role-privilege fixture**
+  - [x] Build on the existing `migrated_db` fixture
         ([test/conftest.py](../../../test/conftest.py)) so the test database
         has real schema and is one the fixture created itself
-  - [ ] Apply the parameterized artifact to that database using **uniquely
+  - [x] Apply the parameterized artifact to that database using **uniquely
         named** roles (e.g. suffixed with the same UUID fragment as the
         database). Never `trading_app` / `trading_migrate` — those are shared
         cluster objects that prod is using
-  - [ ] Drop the test roles on teardown; `DROP ROLE` fails while grants remain,
+  - [x] Drop the test roles on teardown; `DROP ROLE` fails while grants remain,
         so revoke or drop the owned objects first
-  - [ ] Must NOT read `MT_TIMESCALE_DB_URL` — derive everything from
+  - [x] Must NOT read `MT_TIMESCALE_DB_URL` — derive everything from
         `MT_TIMESCALE_TEST_URL`, keeping the file outside the ratchet allowlist
-  - [ ] Skip only when the database is **not configured**; never swallow an
+  - [x] Skip only when the database is **not configured**; never swallow an
         exception from the connection, from role provisioning, or from
         `SET ROLE`. A broad except-to-skip would turn the whole suite green
         while asserting nothing — the one outcome this slice cannot tolerate
-  - [ ] Success: fixture skips (not errors) with no DB configured; creates and
+  - [x] Success: fixture skips (not errors) with no DB configured; creates and
         cleans up its own roles; leaves no residue in `pg_roles`; both static
         ratchet guards still pass
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] **2.3 Assert the three incident statements are denied**
-  - [ ] Assert `TRUNCATE instruments` raises `InsufficientPrivilege`
-  - [ ] Assert `DROP TABLE daemon_heartbeat` raises an error (`must be owner`)
-  - [ ] Assert `DELETE FROM schema_migrations` raises `InsufficientPrivilege`
-  - [ ] Safe to assert DROP here precisely because the target is a database the
+- [x] **2.3 Assert the three incident statements are denied**
+  - [x] Assert `TRUNCATE instruments` raises `InsufficientPrivilege`
+  - [x] Assert `DROP TABLE daemon_heartbeat` raises an error (`must be owner`)
+  - [x] Assert `DELETE FROM schema_migrations` raises `InsufficientPrivilege`
+  - [x] Safe to assert DROP here precisely because the target is a database the
         fixture created — no live reader can be blocked
-  - [ ] Set `lock_timeout` on the session anyway, so a future change that
+  - [x] Set `lock_timeout` on the session anyway, so a future change that
         reintroduces contention fails fast instead of hanging a suite
-  - [ ] Success: all three pass against the ephemeral database; each failure
+  - [x] Success: all three pass against the ephemeral database; each failure
         message names the statement that was wrongly permitted
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **2.4 Assert the positive surface still works**
-  - [ ] Assert `SELECT` succeeds on every application table
-  - [ ] Assert `INSERT`/`UPDATE`/`DELETE` succeed on a representative write
+- [x] **2.4 Assert the positive surface still works**
+  - [x] Assert `SELECT` succeeds on every application table
+  - [x] Assert `INSERT`/`UPDATE`/`DELETE` succeed on a representative write
         table (rolled back)
-  - [ ] Assert temp-table creation succeeds (D2 — guards the COPY hot path)
-  - [ ] Cagg assertions depend on which aggregates the migration chain creates
+  - [x] Assert temp-table creation succeeds (D2 — guards the COPY hot path)
+  - [x] Cagg assertions depend on which aggregates the migration chain creates
         in a fresh database. Assert against the caggs actually present rather
         than the prod list of 9 — a hardcoded count would be brittle. If none
         are materialized, note it and rely on the prod verification in 2.5
-  - [ ] Success: all assertions pass; a missing grant fails with a message
+  - [x] Success: all assertions pass; a missing grant fails with a message
         naming the object
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
 - [ ] **2.5 Record the one-time production privilege verification**
   - [ ] The ephemeral suite proves the *artifact* is correct. It cannot prove
