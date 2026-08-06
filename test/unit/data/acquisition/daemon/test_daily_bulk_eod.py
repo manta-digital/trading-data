@@ -46,16 +46,18 @@ def _quota_bucket_in_context():
 # ---------------------------------------------------------------------------
 
 
-def _make_conn(unknown_gap_count: int, symbols_with_bars: int) -> MagicMock:
+def _make_conn(unknown_gap_count: int, any_cold: bool) -> MagicMock:
     """Return a mock connection for _select_daily_mode.
 
     First fetchone → unknown gap count.
-    Second fetchone → count of distinct symbols with bars.
+    Second fetchone → the anti-join EXISTS result: True when some pending
+    symbol has no warm acquisition_state row. The real rendered query runs
+    against a real database in ``test_daily_mode_selection_sql.py``.
     """
     cur = MagicMock()
     cur.__enter__ = MagicMock(return_value=cur)
     cur.__exit__ = MagicMock(return_value=False)
-    cur.fetchone.side_effect = [(unknown_gap_count,), (symbols_with_bars,)]
+    cur.fetchone.side_effect = [(unknown_gap_count,), (any_cold,)]
     conn = MagicMock()
     conn.cursor.return_value = cur
     return conn
@@ -63,24 +65,24 @@ def _make_conn(unknown_gap_count: int, symbols_with_bars: int) -> MagicMock:
 
 class TestSelectDailyMode:
     def test_all_caught_up_with_bars_returns_steady_state(self):
-        # 0 UNKNOWN gaps, all 2 symbols have bars → STEADY_STATE
-        conn = _make_conn(unknown_gap_count=0, symbols_with_bars=2)
+        # 0 UNKNOWN gaps, every symbol has a warm attempt → STEADY_STATE
+        conn = _make_conn(unknown_gap_count=0, any_cold=False)
         mode = _select_daily_mode(conn, ["AAPL", "MSFT"])
         assert mode == DailyMode.STEADY_STATE
 
     def test_unknown_gaps_returns_backfill(self):
-        conn = _make_conn(unknown_gap_count=3, symbols_with_bars=2)
+        conn = _make_conn(unknown_gap_count=3, any_cold=False)
         mode = _select_daily_mode(conn, ["AAPL", "MSFT"])
         assert mode == DailyMode.BACKFILL
 
     def test_cold_symbol_no_bars_returns_backfill(self):
-        # 0 UNKNOWN gaps but only 1 of 2 symbols has bars → BACKFILL
-        conn = _make_conn(unknown_gap_count=0, symbols_with_bars=1)
+        # 0 UNKNOWN gaps but some symbol has no warm attempt → BACKFILL
+        conn = _make_conn(unknown_gap_count=0, any_cold=True)
         mode = _select_daily_mode(conn, ["AAPL", "MSFT"])
         assert mode == DailyMode.BACKFILL
 
     def test_empty_symbol_list_returns_steady_state(self):
-        conn = _make_conn(unknown_gap_count=0, symbols_with_bars=0)
+        conn = _make_conn(unknown_gap_count=0, any_cold=True)
         mode = _select_daily_mode(conn, [])
         assert mode == DailyMode.STEADY_STATE
 
