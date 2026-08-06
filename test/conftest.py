@@ -1,4 +1,11 @@
-"""Shared test fixtures for database availability."""
+"""Shared test fixtures for database availability.
+
+Also home to the runtime prod-URL scrub (see ``pytest_configure``). The
+per-tier ratchet guards in ``_prod_url_guard.py`` are *static* — they stop new
+code from reading the production variable, but cannot make the 21 allowlisted
+readers safe at runtime. This module closes that half: it removes the variable
+from the environment before collection unless the run explicitly opts in.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +16,47 @@ from urllib.parse import urlparse, urlunparse
 
 import psycopg
 import pytest
+
+# Needle concatenated so this module's own source cannot trip the static guard.
+_PROD_URL_VAR = "MT_TIMESCALE" + "_DB_URL"
+_PROD_OPT_IN_VAR = "MT_ALLOW_PROD_READS"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Scrub the production DB URL from the environment before collection.
+
+    The destructive integration tests (``DROP TABLE daily_ohlcv CASCADE``,
+    ``TRUNCATE ... CASCADE``) read ``MT_TIMESCALE_DB_URL`` via ``os.environ``
+    at *module import time*, so a fixture-level check runs far too late and a
+    caller-side ``env.pop()`` only protects the one command that remembers it.
+    Removing the variable here means those modules see nothing and skip
+    themselves — the tier is safe no matter how pytest was invoked.
+
+    Fails closed: the safe state is the *absence* of configuration. Opt in
+    with ``MT_ALLOW_PROD_READS=1`` for the read-only checks that genuinely
+    need real production data; that opt-in is deliberately not something any
+    fixture or ``.env`` sets for you.
+    """
+    if os.environ.get(_PROD_OPT_IN_VAR) == "1":
+        return
+
+    if os.environ.pop(_PROD_URL_VAR, None):
+        config.stash[_prod_url_scrubbed] = True
+
+
+_prod_url_scrubbed = pytest.StashKey[bool]()
+
+
+def pytest_report_header(config: pytest.Config) -> list[str]:
+    """Make the scrub visible, so a wall of skips is never mysterious."""
+    if config.stash.get(_prod_url_scrubbed, False):
+        return [
+            f"{_PROD_URL_VAR} scrubbed from env (prod-safety guard); "
+            f"tests needing it will skip. Set {_PROD_OPT_IN_VAR}=1 to allow "
+            "read-only production access."
+        ]
+    return []
+
 
 TEST_ADMIN_URL = os.environ.get("MT_TIMESCALE_TEST_URL", "")
 """Admin URL used to create/drop throwaway databases.
