@@ -231,10 +231,13 @@ Each must print `ERROR: permission denied` (or `must be owner`) and exit
 non-zero. This is the demo: the exact statement that destroyed production in
 August now fails.
 
-**3. Prove the application role still works.**
+**3. Prove the application role still works.** There is no `--url` CLI option —
+every command resolves `settings.timescale_db_url`, so credentials are switched
+by overriding the environment variable for the invocation:
 
 ```bash
-mt data status --url "$APP_URL"
+export MT_TIMESCALE_DB_URL="$APP_URL"
+mt data status
 mt data caggs status
 mt data get SPY --start 2026-07-01 --end 2026-08-01
 ```
@@ -253,9 +256,13 @@ mt data pull SPY --timeframe minute --start <recent> --end <recent>
 **5. Prove the split.** Migration under each credential:
 
 ```bash
-mt data migrate apply          # maintenance URL -> succeeds / no-ops cleanly
+mt data migrate apply          # maintenance URL set -> succeeds / no-ops cleanly
 MT_TIMESCALE_MAINTENANCE_URL="$APP_URL" mt data migrate apply   # -> permission denied
 ```
+
+The second form deliberately points the *maintenance* key at the application
+credential: it proves the DDL path fails on privilege rather than on which key
+it read, which is the property that matters after cutover.
 
 **6. Prove no silent fallback.**
 
