@@ -130,52 +130,104 @@ approval — do not begin it as a continuation of Section 4.
 These are the tests that make the protection non-regressible. They must exist
 before any credential is switched.
 
-- [ ] **2.1 Add test infrastructure for role-privilege assertions**
-  - [ ] Add a fixture supplying an application-role connection. Derive it by
-        connecting as the existing test/admin credential and issuing `SET ROLE
-        trading_app` — this needs no new password and no new env var
-  - [ ] The fixture must respect the existing prod-URL guards: it must NOT read
-        `MT_TIMESCALE_DB_URL`. Follow the pattern in
-        [test/conftest.py](../../../test/conftest.py)
-  - [ ] Skip cleanly when the database is **not configured** — skip on absent
-        configuration only, never on an exception from the connection or from
-        `SET ROLE` itself
-  - [ ] `SET ROLE trading_app` is authorized against `session_user`, so it
-        succeeds only while the test credential is `postgres` or a member of
-        `trading_app`. A non-member raises `InsufficientPrivilege: permission
-        denied to set role` (measured). That error must **propagate as a
-        failure** — a broad except-to-skip here would turn the entire negative
-        suite green while asserting nothing, which is the one outcome this
-        slice cannot tolerate
-  - [ ] If the test tier ever runs as a non-superuser, fix it by granting
-        membership (`GRANT trading_app TO <test_role>`), not by widening the
-        skip
-  - [ ] Success: fixture skips (not errors) with no DB configured; with a DB
-        configured but role membership missing, the suite **fails loudly**
-        rather than skipping; both static ratchet guards still pass
+### Redesigned 20260806 — tests target an ephemeral database, never `trading`
+
+The original Section 2 pointed these tests at the production `trading`
+database. That was wrong, and a first implementation attempt proved it
+concretely: `DROP TABLE daemon_heartbeat` requires an `ACCESS EXCLUSIVE` lock,
+so even inside a rolled-back transaction it queues behind live readers and
+blocks every subsequent reader and writer of that table until it resolves. The
+run hung in that lock queue and had to be killed. Rolling back protects data;
+it does not protect availability.
+
+This also violated the `sql.md` rule the slice exists to enforce: *"A fixture
+that issues TRUNCATE/DROP/ALTER/DELETE may only target a database it created."*
+
+**Constraint that shapes the redesign — roles are cluster-wide, grants are
+per-database.** `pg_authid` is a shared catalog (verified), and the ephemeral
+test database lives on the *same cluster* as prod. So `CREATE ROLE`,
+`GRANT postgres TO trading_migrate`, and any `ALTER ROLE` reach across into the
+role prod depends on, while `GRANT ... ON TABLE` does not. The test must
+therefore provision **test-local role names**, never `trading_app` /
+`trading_migrate` themselves.
+
+- [ ] **2.1 Parameterize `provision_roles.sql` on database and role names**
+  - [ ] Replace the two hardcoded `GRANT ... ON DATABASE trading` references
+        (currently lines 62 and 114) with `:DBNAME`, which psql already
+        substitutes — it printed `trading` correctly on both prod runs, so no
+        new argument is needed for the production invocation
+  - [ ] Parameterize the two role names via psql variables with defaults, so
+        production applies unchanged (`trading_app` / `trading_migrate`) while
+        a test run can pass throwaway names
+  - [ ] Rationale: one artifact stays the single source of truth. A fixture
+        that applied its *own* derived grant set could pass while the real
+        artifact is wrong — precisely the class of false confidence this slice
+        exists to remove
+  - [ ] Re-apply to prod and re-confirm idempotency after the edit (two
+        consecutive runs, `ON_ERROR_STOP=1`, both exit 0)
+  - [ ] Success: the artifact applies unchanged to `trading`; the same file
+        applies to an ephemeral database under different role names
+  - [ ] Effort: 2
+
+- [ ] **2.2 Add the ephemeral role-privilege fixture**
+  - [ ] Build on the existing `migrated_db` fixture
+        ([test/conftest.py](../../../test/conftest.py)) so the test database
+        has real schema and is one the fixture created itself
+  - [ ] Apply the parameterized artifact to that database using **uniquely
+        named** roles (e.g. suffixed with the same UUID fragment as the
+        database). Never `trading_app` / `trading_migrate` — those are shared
+        cluster objects that prod is using
+  - [ ] Drop the test roles on teardown; `DROP ROLE` fails while grants remain,
+        so revoke or drop the owned objects first
+  - [ ] Must NOT read `MT_TIMESCALE_DB_URL` — derive everything from
+        `MT_TIMESCALE_TEST_URL`, keeping the file outside the ratchet allowlist
+  - [ ] Skip only when the database is **not configured**; never swallow an
+        exception from the connection, from role provisioning, or from
+        `SET ROLE`. A broad except-to-skip would turn the whole suite green
+        while asserting nothing — the one outcome this slice cannot tolerate
+  - [ ] Success: fixture skips (not errors) with no DB configured; creates and
+        cleans up its own roles; leaves no residue in `pg_roles`; both static
+        ratchet guards still pass
   - [ ] Effort: 3
 
-- [ ] **2.2 Assert the three incident statements are denied**
+- [ ] **2.3 Assert the three incident statements are denied**
   - [ ] Assert `TRUNCATE instruments` raises `InsufficientPrivilege`
   - [ ] Assert `DROP TABLE daemon_heartbeat` raises an error (`must be owner`)
   - [ ] Assert `DELETE FROM schema_migrations` raises `InsufficientPrivilege`
-  - [ ] Wrap each in a transaction that is rolled back, so a regression that
-        *permits* the statement still cannot destroy anything
-  - [ ] Success: all three assertions pass against `trading`; each failure
+  - [ ] Safe to assert DROP here precisely because the target is a database the
+        fixture created — no live reader can be blocked
+  - [ ] Set `lock_timeout` on the session anyway, so a future change that
+        reintroduces contention fails fast instead of hanging a suite
+  - [ ] Success: all three pass against the ephemeral database; each failure
         message names the statement that was wrongly permitted
   - [ ] Effort: 2
 
-- [ ] **2.3 Assert the positive surface still works**
-  - [ ] Assert `SELECT` succeeds on every application table and all 9 caggs
-  - [ ] Assert `INSERT`/`UPDATE`/`DELETE` succeed on a representative write table
-        (rolled back)
+- [ ] **2.4 Assert the positive surface still works**
+  - [ ] Assert `SELECT` succeeds on every application table
+  - [ ] Assert `INSERT`/`UPDATE`/`DELETE` succeed on a representative write
+        table (rolled back)
   - [ ] Assert temp-table creation succeeds (D2 — guards the COPY hot path)
-  - [ ] Assert `_timescaledb_functions.cagg_watermark(mat_hypertable_id)` returns
-        a value, confirming `SELECT` grants are sufficient for
-        `mt data caggs status`
-  - [ ] Success: all assertions pass; a missing grant fails with a message naming
-        the object
+  - [ ] Cagg assertions depend on which aggregates the migration chain creates
+        in a fresh database. Assert against the caggs actually present rather
+        than the prod list of 9 — a hardcoded count would be brittle. If none
+        are materialized, note it and rely on the prod verification in 2.5
+  - [ ] Success: all assertions pass; a missing grant fails with a message
+        naming the object
   - [ ] Effort: 2
+
+- [ ] **2.5 Record the one-time production privilege verification**
+  - [ ] The ephemeral suite proves the *artifact* is correct. It cannot prove
+        prod's live state matches, since it never connects there
+  - [ ] Capture the already-completed read-only prod check as an evidence
+        record in the slice's verification walkthrough: as `trading_app`,
+        TRUNCATE / DROP / ledger-DELETE all denied, 9/9 caggs readable, TEMP
+        creation permitted, UPDATE privilege held on all 14 write tables
+  - [ ] This check is **read-only and non-blocking** — the `UPDATE ... WHERE
+        false` form takes no exclusive lock, unlike the DROP that caused the
+        redesign
+  - [ ] Success: walkthrough carries the evidence and states plainly that prod
+        confirmation is a manual step, not covered by CI
+  - [ ] Effort: 1
 
 ---
 

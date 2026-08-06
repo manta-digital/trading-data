@@ -161,6 +161,34 @@ reachable only from tests. It is the highest-danger statement in the tree and
 precisely the incident's shape. Withholding `TRUNCATE` from the application role
 neutralizes it without deleting code.
 
+### D8 — Privilege tests run against an ephemeral database, never `trading`
+
+Added 20260806, after a first implementation attempt. The negative-case tests
+originally targeted production. `DROP TABLE` requires an `ACCESS EXCLUSIVE`
+lock, so even inside a rolled-back transaction it queues behind live readers and
+then blocks every reader and writer of that table. The run hung in that lock
+queue and was killed. **Rolling back protects data; it does not protect
+availability** — and the original design conflated the two.
+
+It also violated the `sql.md` rule this slice exists to enforce: a fixture
+issuing TRUNCATE/DROP/ALTER/DELETE may only target a database it created.
+
+Two consequences shape the test design:
+
+- **`provision_roles.sql` is parameterized** on database name (`:DBNAME`) and
+  role names, so the *same* artifact the production run applies is the one the
+  test exercises. A fixture with its own derived grant set could pass while the
+  real artifact is wrong.
+- **Test roles must be uniquely named.** `pg_authid` is a shared catalog
+  (verified), and the ephemeral database lives on the same cluster as prod, so
+  role-level statements reach across into the roles prod depends on while table
+  grants do not. The fixture provisions throwaway role names and drops them on
+  teardown.
+
+The ephemeral suite proves the artifact is correct; it cannot prove prod's live
+state matches. That confirmation is a **read-only, non-blocking manual check**
+(recorded in the walkthrough), deliberately not part of CI.
+
 ## Migration Plan
 
 Cutover is staged so the old credential remains available for rollback until the
@@ -187,11 +215,17 @@ are untouched.
 
 - [ ] `provision_roles.sql` runs cleanly against `trading`, and a second
       consecutive run also succeeds with no error (idempotent).
-- [ ] As `trading_app`: `TRUNCATE`, `DROP`, and `DELETE FROM schema_migrations`
-      each raise `permission denied` (or `must be owner`), asserted by test.
-- [ ] As `trading_app`: `SELECT` succeeds on all application tables and all 9
-      caggs; `INSERT`/`UPDATE`/`DELETE` succeed on the D3 write surface; temp
-      table creation succeeds.
+- [ ] Under the application role on an **ephemeral** database (D8): `TRUNCATE`,
+      `DROP`, and `DELETE FROM schema_migrations` each raise `permission denied`
+      (or `must be owner`), asserted by test. No test issues these against
+      `trading`.
+- [ ] Under the application role on the ephemeral database: `SELECT` succeeds on
+      all application tables; `INSERT`/`UPDATE`/`DELETE` succeed on the D3 write
+      surface; temp table creation succeeds.
+- [ ] On `trading`, a **read-only** manual check confirms the same privilege
+      surface — including all 9 caggs readable — using only non-blocking
+      statements (`UPDATE ... WHERE false` takes no exclusive lock). Recorded as
+      evidence in the walkthrough, not run by CI.
 - [ ] `mt data migrate apply` succeeds under the maintenance URL and fails with
       a permission error under the application URL.
 - [ ] A DDL command invoked with `MT_TIMESCALE_MAINTENANCE_URL` unset fails with
