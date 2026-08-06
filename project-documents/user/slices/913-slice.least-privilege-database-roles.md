@@ -186,8 +186,15 @@ Two consequences shape the test design:
   teardown.
 
 The ephemeral suite proves the artifact is correct; it cannot prove prod's live
-state matches. That confirmation is a **read-only, non-blocking manual check**
-(recorded in the walkthrough), deliberately not part of CI.
+state matches. That confirmation is a **manual catalog read** (recorded in the
+walkthrough), deliberately not part of CI.
+
+**A denial is never verified on production by attempting the statement.**
+Privilege state is data — read it from `information_schema.table_privileges`,
+`pg_tables.tableowner`, and `pg_roles`. Attempting `DROP TABLE` to see whether
+it is refused has, as its failure mode, a dropped table; a rollback does not
+help, because the lock is taken before the rollback is reached. Attempting the
+statement is only acceptable against a database the fixture created (step 2).
 
 ## Migration Plan
 
@@ -222,10 +229,11 @@ are untouched.
 - [ ] Under the application role on the ephemeral database: `SELECT` succeeds on
       all application tables; `INSERT`/`UPDATE`/`DELETE` succeed on the D3 write
       surface; temp table creation succeeds.
-- [ ] On `trading`, a **read-only** manual check confirms the same privilege
-      surface — including all 9 caggs readable — using only non-blocking
-      statements (`UPDATE ... WHERE false` takes no exclusive lock). Recorded as
-      evidence in the walkthrough, not run by CI.
+- [ ] On `trading`, a manual check confirms the same privilege surface by
+      **reading the catalog** (`information_schema.table_privileges`,
+      `pg_tables.tableowner`, `pg_roles`) — never by attempting a denied
+      statement, whose failure mode is executing it. Recorded as evidence in the
+      walkthrough, not run by CI.
 - [ ] `mt data migrate apply` succeeds under the maintenance URL and fails with
       a permission error under the application URL.
 - [ ] A DDL command invoked with `MT_TIMESCALE_MAINTENANCE_URL` unset fails with
@@ -302,28 +310,56 @@ migrations). Includes the three incident statements (`TRUNCATE instruments`,
 > the prod URL is dropped from the child environment and only
 > `MT_TIMESCALE_TEST_URL` is allowlisted in.
 
-**2a. Confirm prod's live privilege surface — manual, read-only.** The suite in
-step 2 proves the *artifact* is correct; it never connects to production, so it
-cannot prove prod's live state matches. This check closes that gap and uses only
-non-blocking statements — `UPDATE ... WHERE false` takes no exclusive lock, and
-PostgreSQL checks privileges before column validity, so a role holding UPDATE
-fails on `cannot assign to system column "ctid"` while one without it fails on
-`permission denied`.
+**2a. Confirm prod's live privilege surface — read the catalog, attempt nothing.**
 
-Verified 20260806 as `trading_app` against `trading`:
+Step 2 proves the *artifact* is correct. It never connects to production, so it
+cannot prove prod's live state matches — a `REVOKE` on prod tomorrow would leave
+every test still green. This check closes that gap.
 
-| Check | Result |
-|---|---|
-| `TRUNCATE instruments` | `permission denied for table instruments` |
-| `DROP TABLE daemon_heartbeat` | `must be owner of table daemon_heartbeat` |
-| `DELETE FROM schema_migrations` | `permission denied for table schema_migrations` |
-| `SELECT` on all 9 continuous aggregates | 9/9 readable |
-| `UPDATE` privilege on the 14 write tables | held on all |
-| `CREATE TEMP TABLE` | permitted (D2 — the COPY hot path) |
-| Grant rows for `trading_app` | 38,691 |
+> **Never verify a denial on production by attempting the statement.** If the
+> deny has regressed, the "test" executes the very thing it was checking: the
+> failure mode of `DROP TABLE daemon_heartbeat` is a dropped table. A rollback
+> does not save you either, since `DROP` takes an `ACCESS EXCLUSIVE` lock and
+> blocks live readers while it queues. Privilege state is *data* — read it.
 
-This is a manual step, deliberately **not** part of CI: CI must never hold
-production credentials, which is the rule whose violation caused the incident.
+```sql
+-- All four must hold. None attempts a privileged operation.
+SELECT table_name FROM information_schema.table_privileges
+ WHERE grantee = 'trading_app' AND privilege_type = 'TRUNCATE';        -- expect 0 rows
+
+SELECT privilege_type FROM information_schema.table_privileges
+ WHERE grantee = 'trading_app' AND table_name = 'schema_migrations';   -- expect only SELECT
+
+SELECT count(*) FROM pg_tables WHERE tableowner = 'trading_app';       -- expect 0
+
+SELECT rolsuper, rolcreatedb, rolcreaterole, rolbypassrls
+  FROM pg_roles WHERE rolname = 'trading_app';                         -- expect all false
+```
+
+Positive surface, same approach:
+
+```sql
+SELECT count(*) FROM information_schema.table_privileges
+ WHERE grantee = 'trading_app' AND privilege_type = 'SELECT'
+   AND table_name IN ('daily_coverage','minute_coverage','daily_weekly_ohlcv',
+       'daily_monthly_ohlcv','daily_quarterly_ohlcv','minute_5min_ohlcv',
+       'minute_15min_ohlcv','minute_hourly_ohlcv','minute_4hour_ohlcv');  -- expect 9
+
+SELECT count(DISTINCT table_name) FROM information_schema.table_privileges p
+  JOIN pg_tables t ON t.tablename = p.table_name AND t.schemaname = 'public'
+ WHERE p.grantee = 'trading_app' AND p.privilege_type = 'UPDATE';         -- expect 14
+```
+
+(The `pg_tables` join scopes to `public`; without it the count includes every
+TimescaleDB chunk that inherits the grant — 9,168 on prod, which is correct but
+not what the check is asking.)
+
+Verified 20260806 against `trading`: TRUNCATE 0 rows, ledger `SELECT` only,
+0 tables owned, all four role attributes false, 9/9 caggs granted SELECT.
+
+Manual rather than automated: anything running this holds a production
+credential, and prod state is not something CI should be gating on. Once a
+dedicated read-only role exists, this could move into automation safely.
 
 **3. Prove the application role still works.** There is no `--url` CLI option —
 every command resolves `settings.timescale_db_url`, so credentials are switched

@@ -33,9 +33,7 @@ from urllib.parse import urlparse, urlunparse
 import psycopg
 import pytest
 
-PROVISION_SQL = (
-    Path(__file__).resolve().parents[3] / "scripts" / "provision_roles.sql"
-)
+PROVISION_SQL = Path(__file__).resolve().parents[3] / "scripts" / "provision_roles.sql"
 
 #: Tables the application role must be able to write. Mirrors the enumerated
 #: grant list in the provisioning artifact (D3).
@@ -56,18 +54,22 @@ WRITE_TABLES = (
 LEDGER = "schema_migrations"
 
 
-@pytest.fixture
-def provisioned_roles(migrated_db: str) -> Iterator[tuple[str, str]]:
+@pytest.fixture(scope="session")
+def provisioned_roles(session_migrated_db: str) -> Iterator[tuple[str, str]]:
     """Apply the real provisioning artifact to an ephemeral migrated database.
 
     Yields ``(db_url, app_role)``. The artifact under test is
     ``scripts/provision_roles.sql`` itself — not a re-implementation — so a
     defect in the file the production run applies is a test failure here.
 
-    Skips only when the database is *not configured* (via ``migrated_db``).
-    Provisioning failures deliberately propagate: a broad except-to-skip would
-    turn this entire suite green while asserting nothing, which is the one
-    outcome this slice cannot tolerate.
+    Session-scoped: every test here is read-only apart from transactions it
+    rolls back, so re-running 52 migrations per test bought nothing and cost
+    ~5 minutes. One database is built for the whole module instead.
+
+    Skips only when the database is *not configured* (via
+    ``session_migrated_db``). Provisioning failures deliberately propagate: a
+    broad except-to-skip would turn this entire suite green while asserting
+    nothing, which is the one outcome this slice cannot tolerate.
     """
     suffix = uuid.uuid4().hex[:10]
     app_role = f"t913_app_{suffix}"
@@ -76,7 +78,7 @@ def provisioned_roles(migrated_db: str) -> Iterator[tuple[str, str]]:
     result = subprocess.run(
         [
             "psql",
-            migrated_db,
+            session_migrated_db,
             "-v",
             "ON_ERROR_STOP=1",
             "-q",
@@ -97,11 +99,11 @@ def provisioned_roles(migrated_db: str) -> Iterator[tuple[str, str]]:
         )
 
     try:
-        yield migrated_db, app_role
+        yield session_migrated_db, app_role
     finally:
         # DROP ROLE fails while the role holds grants or owns objects.
-        admin_url = urlunparse(urlparse(migrated_db)._replace(path="/postgres"))
-        with psycopg.connect(migrated_db, autocommit=True) as conn:
+        admin_url = urlunparse(urlparse(session_migrated_db)._replace(path="/postgres"))
+        with psycopg.connect(session_migrated_db, autocommit=True) as conn:
             for role in (app_role, migrate_role):
                 conn.execute(f'DROP OWNED BY "{role}" CASCADE')
         with psycopg.connect(admin_url, autocommit=True) as admin:

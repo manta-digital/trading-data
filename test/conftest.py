@@ -120,6 +120,50 @@ def migrated_db(ephemeral_db: str) -> str:
     return ephemeral_db
 
 
+@pytest.fixture(scope="session")
+def session_ephemeral_db() -> Iterator[str]:
+    """Session-scoped twin of :func:`ephemeral_db`.
+
+    Same guarantee — a UUID-named database the fixture created and drops — but
+    built once per session. For suites whose tests do not mutate shared state
+    (read-only checks, or writes they roll back), per-test rebuilds are pure
+    cost: the migration chain is 50+ steps.
+
+    Prefer the function-scoped fixtures when tests write. Isolation is the
+    default for a reason; this is the deliberate exception.
+    """
+    if not TEST_ADMIN_URL:
+        pytest.skip("MT_TIMESCALE_TEST_URL not set")
+
+    db_name = f"mt_test_s{uuid.uuid4().hex[:11]}"
+    with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
+        admin.execute(f'CREATE DATABASE "{db_name}"')
+
+    try:
+        yield swap_dbname(TEST_ADMIN_URL, db_name)
+    finally:
+        with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
+            admin.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (db_name,),
+            )
+            admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+
+
+@pytest.fixture(scope="session")
+def session_migrated_db(session_ephemeral_db: str) -> str:
+    """Session-scoped twin of :func:`migrated_db` — full chain, built once."""
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+    from manta_trading.market.schema.runner import apply_migrations
+
+    with ConnectionPool(session_ephemeral_db, min_size=1, max_size=2) as pool:
+        apply_migrations(pool, MINUTE_MIGRATIONS)
+    return session_ephemeral_db
+
+
 @pytest.fixture
 def market_db_url() -> str:
     """PostgreSQL connection URL for the market (daily OHLCV) database.
