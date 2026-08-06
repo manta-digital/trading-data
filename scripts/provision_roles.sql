@@ -29,55 +29,83 @@
 --
 -- Idempotent and re-runnable. Apply with:
 --     psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
+--
+-- Parameterized on database and role names so the *same* artifact production
+-- applies is the one the test suite exercises (D8). A fixture that applied its
+-- own derived grant set could pass while this file is wrong. Defaults below
+-- mean the production invocation above needs no extra arguments.
+--
+-- Roles are cluster-wide (`pg_authid` is a shared catalog) while table grants
+-- are per-database, so a test run against a throwaway database on the same
+-- cluster MUST pass throwaway role names — otherwise it mutates the very roles
+-- production depends on:
+--     psql "$URL" -v app_role=trading_app_t1 -v migrate_role=trading_migrate_t1 \
+--          -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
 
-\echo 'Provisioning least-privilege roles for database:' :DBNAME
+\if :{?app_role}
+\else
+  \set app_role trading_app
+\endif
+
+\if :{?migrate_role}
+\else
+  \set migrate_role trading_migrate
+\endif
+
+\echo 'Provisioning least-privilege roles on database:' :DBNAME
+\echo '  application role:' :app_role
+\echo '  maintenance role:' :migrate_role
 
 BEGIN;
 
 -- ---------------------------------------------------------------------------
 -- Roles (idempotent: CREATE ROLE has no IF NOT EXISTS, so guard on pg_roles)
+--
+-- Uses \gexec rather than a DO block: psql does not interpolate variables
+-- inside a dollar-quoted body, so :'app_role' there is a syntax error.
+-- \gexec runs the *result* of the query, and the query emits nothing when the
+-- role already exists — which is the idempotency guard.
 -- ---------------------------------------------------------------------------
 
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'trading_app') THEN
-        CREATE ROLE trading_app LOGIN;
-    END IF;
+SELECT format('CREATE ROLE %I LOGIN', :'app_role')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role')
+\gexec
 
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'trading_migrate') THEN
-        CREATE ROLE trading_migrate LOGIN;
-    END IF;
-END
-$$;
+SELECT format('CREATE ROLE %I LOGIN', :'migrate_role')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'migrate_role')
+\gexec
 
--- trading_migrate inherits ownership rights via role membership rather than
--- per-object ALTER ... OWNER. This keeps the ownership contract of the
--- originating initiative intact while still allowing DDL.
-GRANT postgres TO trading_migrate;
+-- The maintenance role inherits ownership rights via role membership rather
+-- than per-object ALTER ... OWNER, keeping the originating initiative's
+-- ownership contract intact while still allowing DDL. Granting `current_user`
+-- rather than a hardcoded `postgres` keeps this correct on a test database
+-- owned by whichever role created it.
+SELECT format('GRANT %I TO %I', current_user, :'migrate_role')
+\gexec
 
 -- ---------------------------------------------------------------------------
 -- Application role — read surface
 -- ---------------------------------------------------------------------------
 
-GRANT CONNECT ON DATABASE trading TO trading_app;
-GRANT USAGE ON SCHEMA public TO trading_app;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO trading_app;
+SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'DBNAME', :'app_role')
+\gexec
+SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'app_role')
+\gexec
+SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', :'app_role')
+\gexec
 
 -- Continuous aggregates are views, and ALL TABLES IN SCHEMA public does NOT
--- cover them. They must be enumerated or the coverage/rollup read paths fail
--- with `permission denied for view ...`. Enumerated deliberately so that a new
--- cagg is a visible omission here rather than a silent runtime failure.
-GRANT SELECT ON
-    daily_coverage,
-    daily_weekly_ohlcv,
-    daily_monthly_ohlcv,
-    daily_quarterly_ohlcv,
-    minute_coverage,
-    minute_5min_ohlcv,
-    minute_15min_ohlcv,
-    minute_hourly_ohlcv,
-    minute_4hour_ohlcv
-TO trading_app;
+-- cover them; without an explicit grant the coverage/rollup read paths fail
+-- with `permission denied for view ...`.
+--
+-- Discovered from the catalog rather than hardcoded, because the set differs by
+-- database: production carries 9, while a freshly migrated database carries
+-- only what its migration chain has materialized. A static list would make this
+-- artifact inapplicable to any database but prod — and the point of
+-- parameterizing it is that the tested file is the applied file.
+SELECT format('GRANT SELECT ON %I.%I TO %I', view_schema, view_name, :'app_role')
+FROM timescaledb_information.continuous_aggregates
+\gexec
 
 -- ---------------------------------------------------------------------------
 -- Application role — write surface
@@ -87,34 +115,53 @@ TO trading_app;
 -- withholding it is precisely what makes the 2026-08-04 statement fail.
 -- ---------------------------------------------------------------------------
 
-GRANT INSERT, UPDATE, DELETE ON
-    minute_ohlcv,
-    daily_ohlcv,
-    data_gaps,
-    acquisition_state,
-    daemon_heartbeat,
-    trading_sessions,
-    instruments,
-    provider_symbol_mapping,
-    universe_members,
-    splits,
-    dividends,
-    backfill_state,
-    trading_calendars,
-    trading_holidays
-TO trading_app;
+-- The list is enumerated (D3: write surface is enumerated, not inferred), but
+-- filtered against pg_tables so the artifact also applies to a freshly migrated
+-- database whose chain has not created every table. A table named here but
+-- absent from the target is silently skipped; a table present but *not* named
+-- here gets SELECT only, which is the intended default.
+SELECT format('GRANT INSERT, UPDATE, DELETE ON %I TO %I', tablename, :'app_role')
+FROM pg_tables
+WHERE schemaname = 'public'
+  AND tablename IN (
+      'minute_ohlcv',
+      'daily_ohlcv',
+      'data_gaps',
+      'acquisition_state',
+      'daemon_heartbeat',
+      'trading_sessions',
+      'instruments',
+      'provider_symbol_mapping',
+      'universe_members',
+      'splits',
+      'dividends',
+      'backfill_state',
+      'trading_calendars',
+      'trading_holidays'
+  )
+\gexec
 
 -- The migration ledger is readable but never writable by the application role.
 -- The incident deleted from this table; SELECT-only makes that impossible.
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON schema_migrations FROM trading_app;
-GRANT SELECT ON schema_migrations TO trading_app;
+-- Guarded on existence so the artifact also applies to a database whose
+-- migration chain has not yet created the ledger.
+SELECT format(
+    'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON schema_migrations FROM %I',
+    :'app_role')
+FROM pg_tables WHERE schemaname = 'public' AND tablename = 'schema_migrations'
+\gexec
+SELECT format('GRANT SELECT ON schema_migrations TO %I', :'app_role')
+FROM pg_tables WHERE schemaname = 'public' AND tablename = 'schema_migrations'
+\gexec
 
 -- Required by the COPY bulk-write hot path, which creates a temp staging table
 -- (staging_minute_ohlcv). Without this, all minute ingestion fails.
-GRANT TEMPORARY ON DATABASE trading TO trading_app;
+SELECT format('GRANT TEMPORARY ON DATABASE %I TO %I', :'DBNAME', :'app_role')
+\gexec
 
 -- Identity/serial columns need sequence USAGE for INSERT.
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO trading_app;
+SELECT format('GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO %I', :'app_role')
+\gexec
 
 -- ---------------------------------------------------------------------------
 -- Default privileges — future tables
@@ -125,15 +172,23 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO trading_app;
 -- application role cannot read.
 -- ---------------------------------------------------------------------------
 
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO trading_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-    GRANT USAGE ON SEQUENCES TO trading_app;
+-- `current_user` covers the role that owns the existing schema (postgres on
+-- prod, whichever role created the database in a test). The maintenance role is
+-- declared separately because a migration run under it creates tables the
+-- application role must still be able to read.
+SELECT format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public '
+    'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
+    role_name, :'app_role')
+FROM (VALUES (current_user), (:'migrate_role')) AS r(role_name)
+\gexec
 
-ALTER DEFAULT PRIVILEGES FOR ROLE trading_migrate IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO trading_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE trading_migrate IN SCHEMA public
-    GRANT USAGE ON SEQUENCES TO trading_app;
+SELECT format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public '
+    'GRANT USAGE ON SEQUENCES TO %I',
+    role_name, :'app_role')
+FROM (VALUES (current_user), (:'migrate_role')) AS r(role_name)
+\gexec
 
 COMMIT;
 
