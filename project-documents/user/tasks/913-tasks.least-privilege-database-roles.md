@@ -19,7 +19,7 @@ projectState: >
   connects; Section 5 (cutover) is deliberately separated and requires explicit
   PM approval before starting.
 dateCreated: 20260806
-dateUpdated: 20260806
+dateUpdated: 20260807
 status: in_progress
 ---
 
@@ -215,79 +215,96 @@ therefore provision **test-local role names**, never `trading_app` /
         naming the object
   - [x] Effort: 2
 
-- [ ] **2.5 Record the one-time production privilege verification**
-  - [ ] The ephemeral suite proves the *artifact* is correct. It cannot prove
-        prod's live state matches, since it never connects there
-  - [ ] Capture the already-completed read-only prod check as an evidence
-        record in the slice's verification walkthrough: as `trading_app`,
-        TRUNCATE / DROP / ledger-DELETE all denied, 9/9 caggs readable, TEMP
-        creation permitted, UPDATE privilege held on all 14 write tables
-  - [ ] This check is **read-only and non-blocking** — the `UPDATE ... WHERE
-        false` form takes no exclusive lock, unlike the DROP that caused the
-        redesign
-  - [ ] Success: walkthrough carries the evidence and states plainly that prod
-        confirmation is a manual step, not covered by CI
-  - [ ] Effort: 1
+- [x] **2.5 Record the one-time production privilege verification**
+  - [x] The ephemeral suite proves the *artifact* is correct. It cannot prove
+        prod's live state matches, since it never connects there — a `REVOKE`
+        on prod tomorrow would leave every test green
+  - [x] **Revised 20260807 — read the catalog, attempt nothing.** This task
+        originally called for confirming denials on prod by *running*
+        `TRUNCATE` / `DROP` / ledger-`DELETE`. The PM rejected that, correctly:
+        a check whose failure mode is executing the statement it verifies is
+        not a check. `DROP` additionally takes an `ACCESS EXCLUSIVE` lock and
+        blocks live readers even when rolled back — the same hazard that forced
+        the Section 2 redesign, left in the manual path by oversight
+  - [x] Verify instead by reading privilege state as data:
+        `information_schema.table_privileges` (TRUNCATE absent, ledger
+        SELECT-only, cagg SELECT grants, write-table UPDATE grants),
+        `pg_tables.tableowner` (owns nothing), `pg_roles` (not superuser, no
+        createdb/createrole/bypassrls)
+  - [x] Success: walkthrough step 2a carries the queries and the evidence, and
+        states plainly that prod confirmation is manual, not covered by CI
+  - [x] Effort: 1
+  - [x] Done: commit `15cd1c6`. Verified against `trading` 20260806 — TRUNCATE
+        0 rows, ledger SELECT only, 0 tables owned, all four role attributes
+        false, 9/9 caggs granted SELECT
 
 ---
 
 ## Section 3 — Maintenance URL settings key
 
-- [ ] **3.1 Add the maintenance URL setting**
-  - [ ] Add `timescale_maintenance_url: str | None = None` to
+- [x] **3.1 Add the maintenance URL setting**
+  - [x] Add `timescale_maintenance_url: str | None = None` to
         [Settings](../../../src/manta_trading/config/__init__.py) beside
         `timescale_db_url` (resolves `MT_TIMESCALE_MAINTENANCE_URL`)
-  - [ ] Add the key, commented, to `.env_sample` with a note that it holds the
+  - [x] Add the key, commented, to `.env_sample` with a note that it holds the
         migration/maintenance credential and is only needed for DDL commands
-  - [ ] Success: `Settings()` exposes the field; unset yields `None`
-  - [ ] Effort: 1
+  - [x] Success: `Settings()` exposes the field; unset yields `None`
+  - [x] Effort: 1
 
-- [ ] **3.2 Add an explicit maintenance-URL resolver**
-  - [ ] Add a helper beside `_get_timescale_url`
+- [x] **3.2 Add an explicit maintenance-URL resolver**
+  - [x] Add a helper beside `_get_timescale_url`
         ([data.py:389](../../../src/manta_trading/cli/commands/data.py)) that
         returns `settings.timescale_maintenance_url`
-  - [ ] Raise a `typer.BadParameter` (or the module's existing failure idiom)
+  - [x] Raise a `typer.BadParameter` (or the module's existing failure idiom)
         naming `MT_TIMESCALE_MAINTENANCE_URL` when unset
-  - [ ] **Must not** fall back to `timescale_db_url` under any condition (D4)
-  - [ ] Success: unset key produces an error message containing the variable
+  - [x] **Must not** fall back to `timescale_db_url` under any condition (D4)
+  - [x] Success: unset key produces an error message containing the variable
         name; the function has no fallback branch
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] **3.3 Test the resolver's fail-loud behavior**
-  - [ ] Test: maintenance key set → returns that value
-  - [ ] Test: maintenance key unset, `timescale_db_url` set → **raises**, and the
+- [x] **3.3 Test the resolver's fail-loud behavior**
+  - [x] Test: maintenance key set → returns that value
+  - [x] Test: maintenance key unset, `timescale_db_url` set → **raises**, and the
         raised message names `MT_TIMESCALE_MAINTENANCE_URL`
-  - [ ] The second test is the regression guard against a fallback being added
+  - [x] The second test is the regression guard against a fallback being added
         later; add a comment saying so
-  - [ ] Success: both tests pass
-  - [ ] Effort: 1
+  - [x] Success: both tests pass
+  - [x] Effort: 1
 
-- [ ] **3.4 Route DDL commands through the maintenance resolver**
-  - [ ] Update each to resolve the maintenance URL instead of
+- [x] **3.4 Route DDL commands through the maintenance resolver**
+  - [x] Update each to resolve the maintenance URL instead of
         `settings.timescale_db_url`: `mt data init` (default path only —
         `--validate-only` stays on the read credential), `mt data migrate apply`,
         `mt data restore run`, `mt data rechunk` (real run only, not
         `--dry-run`), `mt data caggs repair` (real run only), `mt data caggs
         refresh`
-  - [ ] Leave `mt data migrate status` and `mt data restore assess` on the read
+  - [x] Leave `mt data migrate status` and `mt data restore assess` on the read
         credential — they are genuinely read-only
-  - [ ] No library-module changes: every module below the CLI already accepts
+  - [x] No library-module changes: every module below the CLI already accepts
         `conninfo`/`pool` as a parameter
-  - [ ] Note: [runner.py:81](../../../src/manta_trading/market/schema/runner.py)
+  - [x] Note: [runner.py:81](../../../src/manta_trading/market/schema/runner.py)
         re-connects raw from `pool.conninfo` for the 6 `requires_autocommit`
         migrations. It needs no change — it inherits whichever URL built the
         pool — but is verified in 4.3
-  - [ ] Success: each listed command resolves the maintenance key; the four
+  - [x] Success: each listed command resolves the maintenance key; the four
         read-only commands are untouched
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] **3.5 Test DDL command URL routing**
-  - [ ] For each command in 3.4, assert it fails with the maintenance-key error
+- [x] **3.5 Test DDL command URL routing**
+  - [x] For each command in 3.4, assert it fails with the maintenance-key error
         when that key is unset, without attempting a connection
-  - [ ] Assert `mt data migrate status` and `mt data restore assess` still work
+  - [x] Assert `mt data migrate status` and `mt data restore assess` still work
         with only `timescale_db_url` set
-  - [ ] Success: tests pass; no test reads `MT_TIMESCALE_DB_URL`
-  - [ ] Effort: 2
+  - [x] Success: tests pass; no test reads `MT_TIMESCALE_DB_URL`
+  - [x] Effort: 2
+
+### Pre-existing tests updated
+
+Two tests asserted the old contract and were updated:
+- `test/unit/cli/commands/test_data_init.py::test_missing_url_exits_with_error`
+- `test/unit/test_cli_data.py::TestMigrateApply::test_migrate_apply_missing_url_exits_nonzero`
+
+Their `_settings` MagicMock helpers now set `timescale_maintenance_url` explicitly because a bare MagicMock auto-creates a truthy attribute. Both tests remain green.
 
 ---
 
