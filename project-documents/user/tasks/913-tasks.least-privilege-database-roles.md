@@ -238,6 +238,40 @@ therefore provision **test-local role names**, never `trading_app` /
         0 rows, ledger SELECT only, 0 tables owned, all four role attributes
         false, 9/9 caggs granted SELECT
 
+- [ ] **2.9 Demote the test-fixture admin credential off superuser**
+  - [ ] `MT_TIMESCALE_TEST_URL` is `postgres` (superuser) on the same host as
+        production. The fixtures need it to `CREATE DATABASE` / `DROP DATABASE`,
+        which the application role deliberately cannot do — but superuser is far
+        more than that requires. A fixture holding this URL can reach `trading`
+        by swapping the database name, which is exactly what
+        `swap_dbname(TEST_ADMIN_URL, ...)` does by design. **The only thing
+        preventing that today is convention**: fixtures happen to generate
+        `mt_test_*` names. That is the same shape as the 2026-08-04 incident —
+        safety by everyone remembering rather than by the server refusing.
+  - [ ] Create a `trading_test_admin` role with `LOGIN CREATEDB` and nothing
+        else. No superuser, no membership in any other role, no grants on
+        `trading`
+  - [ ] **Measured 20260807 — `CREATEDB` alone is sufficient**, so this costs no
+        test capability. A probe role with only `LOGIN CREATEDB` successfully
+        ran `CREATE DATABASE` *and* `CREATE EXTENSION timescaledb CASCADE` (it
+        owns the database it creates, so the non-trusted extension installs
+        without superuser), while `SELECT` against `trading.instruments` failed
+        with `permission denied for table instruments`
+  - [ ] Add the role to `scripts/provision_roles.sql` so it is provisioned by
+        the same reviewed artifact as the other two, guarded for idempotency
+  - [ ] Repoint `MT_TIMESCALE_TEST_URL` at the new role; no test code changes
+        are expected, since fixtures only need create/drop
+  - [ ] Add a test asserting the test-admin role **cannot** read `trading` —
+        the negative case, so a future widening of its rights is caught
+  - [ ] Note: `DROP DATABASE` teardown calls `pg_terminate_backend` on
+        connections to the fixture's own database. A role can signal backends
+        it owns; if teardown fails against a database another role connected
+        to, grant `pg_signal_backend` rather than reverting to superuser
+  - [ ] Success: the full integration and load tiers pass with
+        `MT_TIMESCALE_TEST_URL` pointing at `trading_test_admin`; that role
+        raises `permission denied` on any read of `trading`
+  - [ ] Effort: 2
+
 ---
 
 ## Section 3 — Maintenance URL settings key

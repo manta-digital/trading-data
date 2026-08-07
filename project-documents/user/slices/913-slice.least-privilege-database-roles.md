@@ -196,6 +196,25 @@ it is refused has, as its failure mode, a dropped table; a rollback does not
 help, because the lock is taken before the rollback is reached. Attempting the
 statement is only acceptable against a database the fixture created (step 2).
 
+### D9 — The test-fixture admin credential is demoted too
+
+Added 20260807 at the PM's direction, folded into this slice rather than split
+out: it is the same least-privilege argument one layer down.
+
+`MT_TIMESCALE_TEST_URL` is `postgres` — superuser, on production's host. The
+ephemeral-database fixtures genuinely need `CREATE DATABASE` / `DROP DATABASE`,
+which the application role deliberately lacks, so the variable cannot simply be
+pointed at `trading_app`. But superuser is far more than the fixtures require,
+and `swap_dbname(TEST_ADMIN_URL, ...)` will happily produce a production URL —
+the only thing preventing that today is that fixtures *choose* to generate
+`mt_test_*` names. Convention, not enforcement: the incident's shape.
+
+A `trading_test_admin` role holding `LOGIN CREATEDB` and nothing else closes it
+at no cost to the test tier. Measured on prod: such a role creates databases and
+installs the non-trusted `timescaledb` extension successfully (it owns what it
+creates), while `SELECT` against `trading.instruments` fails with
+`permission denied`.
+
 ## Migration Plan
 
 Cutover is staged so the old credential remains available for rollback until the
