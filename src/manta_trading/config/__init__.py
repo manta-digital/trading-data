@@ -87,9 +87,7 @@ class Settings(BaseSettings):
     # once in the API lifespan hook, so changing one requires a restart, the
     # same contract as MT_TIMESCALE_DB_URL. work_mem, the estimator's
     # derivation inputs, and the pool sizes are deliberately not settable.
-    api_max_bars_per_request: int = Field(
-        default=API_MAX_BARS_PER_REQUEST, gt=0
-    )
+    api_max_bars_per_request: int = Field(default=API_MAX_BARS_PER_REQUEST, gt=0)
     # Pattern-constrained because the value is interpolated into a SET
     # statement (Postgres does not accept a bind parameter there). Validating
     # the shape at load time is what keeps that interpolation safe, and it
@@ -102,6 +100,13 @@ class Settings(BaseSettings):
     # Database
     market_db_url: str | None = None
     timescale_db_url: str | None = None
+    # Migration/maintenance credential (slice 913 D4). Deliberately separate
+    # from `timescale_db_url`: the daemon, API, and CLI read paths run as the
+    # DML-only application role, while DDL — migrate apply, init, rechunk,
+    # cagg repair/refresh, restore — resolves this key explicitly. Callers must
+    # never fall back to `timescale_db_url` when this is unset; that fallback
+    # would restore exactly the single-credential coupling 913 removes.
+    timescale_maintenance_url: str | None = None
     # Tick data database (separate instance)
     tick_db_url: str | None = None
 

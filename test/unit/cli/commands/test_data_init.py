@@ -11,9 +11,17 @@ from manta_trading.cli.app import app
 runner = CliRunner()
 
 
-def _settings(*, timescale_url: str | None = "postgresql://ts/db"):
+def _settings(
+    *,
+    timescale_url: str | None = "postgresql://ts/db",
+    maintenance_url: str | None = "postgresql://ts/db",
+):
     s = MagicMock()
     s.timescale_db_url = timescale_url
+    # Set explicitly: on a bare MagicMock this attribute would auto-create a
+    # truthy Mock, so the DDL credential check would pass for the wrong
+    # reason and a routing regression could go unnoticed (913 D4).
+    s.timescale_maintenance_url = maintenance_url
     s.eodhd_api_key = None
     return s
 
@@ -56,11 +64,17 @@ def _mock_db(applied_now=None, applied_total=None, pending=None):
 
 class TestDataInit:
     def test_missing_url_exits_with_error(self):
-        s = _settings(timescale_url=None)
+        """Default ``data init`` applies DDL, so it demands the maintenance key.
+
+        Updated for slice 913 D4: the credential follows the work. This path
+        no longer complains about ``MT_TIMESCALE_DB_URL`` because it does not
+        use the application credential at all — and must not fall back to it.
+        """
+        s = _settings(timescale_url=None, maintenance_url=None)
         with _patch_app(s):
             result = runner.invoke(app, ["data", "init"])
         assert result.exit_code != 0
-        assert "MT_TIMESCALE_DB_URL" in result.output
+        assert "MT_TIMESCALE_MAINTENANCE_URL" in result.output
 
     def test_default_invocation_calls_apply_once(self):
         s = _settings()

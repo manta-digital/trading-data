@@ -122,13 +122,12 @@ def data_init(
     from rich.console import Console
     from rich.table import Table
 
-    settings = ctx.obj["settings"]
+    # Credential follows the work: --validate-only only reads migration state,
+    # so it stays on the application URL. The default path applies DDL and
+    # requires the migration role (913 D4).
+    conninfo = None if validate_only else _get_maintenance_url(ctx)
 
-    if not settings.timescale_db_url:
-        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=json_output)
-        raise typer.Exit(1)
-
-    db = _create_timescale_db(ctx)
+    db = _create_timescale_db(ctx, conninfo=conninfo)
     try:
         if validate_only:
             state = db.list_migration_state()
@@ -186,14 +185,13 @@ def migrate_apply(
     ctx: typer.Context,
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Apply pending schema migrations."""
-    settings = ctx.obj["settings"]
+    """Apply pending schema migrations.
 
-    if not settings.timescale_db_url:
-        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=json_output)
-        raise typer.Exit(1)
-
-    db = _create_timescale_db(ctx)
+    Runs as the migration role: this issues DDL, so it resolves
+    ``MT_TIMESCALE_MAINTENANCE_URL`` and fails loudly when that key is unset
+    rather than falling back to the application credential (913 D4).
+    """
+    db = _create_timescale_db(ctx, conninfo=_get_maintenance_url(ctx))
     try:
         applied = db.apply_schema_migrations()
     finally:
@@ -283,9 +281,16 @@ def _validate_credentials(ctx: typer.Context, json_output: bool) -> str | None:
     return settings.eodhd_api_key
 
 
-def _create_timescale_db(ctx: typer.Context):
-    """Create TimescaleMinuteDataDB from settings timescale_db_url."""
+def _create_timescale_db(ctx: typer.Context, conninfo: str | None = None):
+    """Create TimescaleMinuteDataDB, defaulting to settings timescale_db_url.
+
+    ``conninfo`` lets a DDL command pass the maintenance URL explicitly
+    (slice 913 D4) without changing the default for the many read paths.
+    """
     from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
+
+    if conninfo:
+        return TimescaleMinuteDataDB(conninfo=conninfo)
 
     settings = ctx.obj["settings"]
     if not settings.timescale_db_url:
@@ -397,6 +402,32 @@ def _get_timescale_url(ctx: typer.Context) -> str:
         )
         raise typer.Exit(1)
     return settings.timescale_db_url
+
+
+def _get_maintenance_url(ctx: typer.Context) -> str:
+    """Return the maintenance (DDL) URL, failing explicitly if missing.
+
+    Slice 913 D4. Schema and maintenance commands run as the migration role;
+    the daemon, API, and read paths run as the DML-only application role.
+
+    **There is deliberately no fallback to** ``timescale_db_url``. Falling back
+    would mean a machine configured only with the application credential
+    silently attempts DDL as the application role — restoring the
+    single-credential coupling this slice exists to remove, and turning a
+    clear configuration error into a confusing privilege error at a random
+    point mid-migration. Fail loudly, naming the variable to set.
+    """
+    settings = ctx.obj["settings"]
+    if not settings.timescale_maintenance_url:
+        print_error(
+            "MT_TIMESCALE_MAINTENANCE_URL not configured. This command "
+            "performs schema or maintenance work and requires the migration "
+            "credential; it will not fall back to MT_TIMESCALE_DB_URL. "
+            "Set the environment variable or add it to your .env file.",
+            json_mode=False,
+        )
+        raise typer.Exit(1)
+    return settings.timescale_maintenance_url
 
 
 @instruments_app.command("rebuild")
@@ -560,15 +591,13 @@ def restore_run(
         restore,
     )
 
-    settings = ctx.obj["settings"]
-    if not settings.timescale_db_url:
-        print_error("MT_TIMESCALE_DB_URL not configured", json_mode=json_output)
-        raise typer.Exit(1)
+    # A dry run assesses and returns before writing, so it stays on the
+    # application URL; a real restore replays migrations and needs the
+    # migration role (913 D4).
+    conninfo = _get_timescale_url(ctx) if dry_run else _get_maintenance_url(ctx)
 
     try:
-        with ConnectionPool(
-            str(settings.timescale_db_url), min_size=1, max_size=2
-        ) as pool:
+        with ConnectionPool(str(conninfo), min_size=1, max_size=2) as pool:
             summary = restore(pool, dry_run=dry_run)
     except RestoreRefused as exc:
         print_error(str(exc), json_mode=json_output)
@@ -1199,13 +1228,13 @@ def data_rechunk(
         run_rechunk,
     )
 
-    settings = ctx.obj["settings"]
-    if not settings.timescale_db_url:
-        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=False)
-        raise typer.Exit(_EXIT_PREFLIGHT_FAILED)
+    # A dry run only reads chunk metadata; a real run takes an EXCLUSIVE lock
+    # and calls drop_chunks/compress_chunk, so it needs the migration role
+    # (913 D4).
+    conninfo = _get_timescale_url(ctx) if dry_run else _get_maintenance_url(ctx)
 
     try:
-        result = run_rechunk(settings.timescale_db_url, dry_run=dry_run)
+        result = run_rechunk(conninfo, dry_run=dry_run)
     except PreflightError as exc:
         print_error(f"Pre-flight refused: {exc}", json_mode=False)
         raise typer.Exit(_EXIT_PREFLIGHT_FAILED) from exc
@@ -2892,10 +2921,9 @@ def caggs_refresh(
 
     from manta_trading.constants import Granularity
 
-    settings = ctx.obj["settings"]
-    if not settings.timescale_db_url:
-        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=json_output)
-        raise typer.Exit(1)
+    # Materializing a cagg requires rights on the aggregate itself, so this
+    # runs as the migration role (913 D4).
+    maintenance_url = _get_maintenance_url(ctx)
 
     # Resolve cagg subset.
     if granularity_opt is not None:
@@ -2950,7 +2978,7 @@ def caggs_refresh(
             raise typer.Exit(1)
 
     results: list[dict] = []
-    with psycopg.connect(settings.timescale_db_url, autocommit=True) as conn:
+    with psycopg.connect(maintenance_url, autocommit=True) as conn:
         for gran_token, view_name in cagg_subset:
             if verbose:
                 print(f"{gran_token:<6} {view_name} ...", flush=True)
@@ -3478,10 +3506,9 @@ def caggs_repair(
     )
     from manta_trading.market.maintenance.rechunk import PreflightError
 
-    settings = ctx.obj["settings"]
-    if not settings.timescale_db_url:
-        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=False)
-        raise typer.Exit(_EXIT_REPAIR_PREFLIGHT)
+    # A dry run reports what would change; a real repair calls drop_chunks and
+    # refresh_continuous_aggregate, so it needs the migration role (913 D4).
+    conninfo = _get_timescale_url(ctx) if dry_run else _get_maintenance_url(ctx)
 
     granularities = _resolve_minute_granularities(granularity_opt, json_output=False)
 
@@ -3504,7 +3531,7 @@ def caggs_repair(
 
     try:
         result = run_repair(
-            settings.timescale_db_url,
+            conninfo,
             granularities,
             dry_run=dry_run,
             assume_headroom_gb=assume_headroom_gb,
