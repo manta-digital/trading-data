@@ -348,18 +348,19 @@ This is the section that finds missing grants. It runs against a scratch
 environment or an explicitly-overridden invocation — it does **not** change any
 running process.
 
-- [ ] **4.1 Verify the CLI read surface**
-  - [ ] With `MT_TIMESCALE_DB_URL` overridden to the application credential for
+- [x] **4.1 Verify the CLI read surface**
+  - [x] With `MT_TIMESCALE_DB_URL` overridden to the application credential for
         the invocation, run: `mt data status`, `mt data caggs status`, `mt data
         get SPY --start 2026-07-01 --end 2026-08-01`
-  - [ ] `mt data status` exercises the auto-extend write to `trading_sessions`
+  - [x] `mt data status` exercises the auto-extend write to `trading_sessions`
         ([data.py:883](../../../src/manta_trading/cli/commands/data.py)) — it is
         a writer despite appearing read-only (D3)
-  - [ ] `mt data caggs status` exercises `_timescaledb_catalog` and
+  - [x] `mt data caggs status` exercises `_timescaledb_catalog` and
         `cagg_watermark`
-  - [ ] Success: all three complete without `permission denied`; bars return and
+  - [x] Success: all three complete without `permission denied`; bars return and
         cagg status lists all 9 aggregates with watermarks
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done: verified 20260807 against prod as `trading_app`: (1) `mt data status` exit 0, full 64,151-symbol table (exercises auto-extend write to trading_sessions, the write hiding on a read-looking command per D3); (2) `mt data caggs status` — all 9 aggregates with watermarks and job stats (highest-risk command in original survey exercising _timescaledb_catalog, cagg_watermark, timescaledb_information.*, confirms D1 measurement); (3) `mt data get SPY 1d` 22 rows, `mt data get SPY 1m` 1,922 rows, `mt data get SPY 4h` executed in 0.078s returning 0 bars (known cagg staleness, slice 169 — not a privilege issue)
 
 - [ ] **4.2 Verify the daemon hot path**
   - [ ] Under the application credential, run a bounded minute pull for one
@@ -370,31 +371,34 @@ running process.
         logs
   - [ ] Effort: 3
 
-- [ ] **4.3 Verify migrations under the maintenance role**
-  - [ ] Run `mt data migrate apply` with the maintenance credential against a
+- [x] **4.3 Verify migrations under the maintenance role**
+  - [x] Run `mt data migrate apply` with the maintenance credential against a
         scratch database (not prod) that is behind on migrations, so real DDL
         executes rather than a no-op
-  - [ ] Confirm at least one `requires_autocommit` migration applies, exercising
+  - [x] Confirm at least one `requires_autocommit` migration applies, exercising
         the `runner.py:81` raw-reconnect path
-  - [ ] Run `MT_TIMESCALE_MAINTENANCE_URL="$APP_URL" mt data migrate apply` and
+  - [x] Run `MT_TIMESCALE_MAINTENANCE_URL="$APP_URL" mt data migrate apply` and
         confirm it fails on privilege — proving the DDL path fails on the role's
         rights, not merely on which key it read
-  - [ ] Success: migrations apply under maintenance; denied under application
-  - [ ] Effort: 3
+  - [x] Success: migrations apply under maintenance; denied under application
+  - [x] Effort: 3
+  - [x] Done: verified on scratch databases: (1) under `trading_migrate`, 51 migrations applied to empty database including `requires_autocommit` ones (001 CREATE EXTENSION, 042, 045, 047), proves runner.py:81 raw-reconnect path works under maintenance role (D5); (2) with MT_TIMESCALE_MAINTENANCE_URL pointing at application credential, fails with `InsufficientPrivilege: permission denied for schema public`, proving DDL fails on privilege not on which key was read
 
-- [ ] **4.4 Verify the API surface**
-  - [ ] Start `mt serve` with the application credential
-  - [ ] Exercise `/api/v1/health`, `/api/v1/status`, `/api/v1/symbols/SPY`, and a
+- [x] **4.4 Verify the API surface**
+  - [x] Start `mt serve` with the application credential
+  - [x] Exercise `/api/v1/health`, `/api/v1/status`, `/api/v1/symbols/SPY`, and a
         bars request
-  - [ ] Success: all return 200 with correct payloads; no `permission denied`
-  - [ ] Effort: 2
+  - [x] Success: all return 200 with correct payloads; no `permission denied`
+  - [x] Effort: 2
+  - [x] Done: `mt serve` starts and connects under `trading_app`: (1) `/api/v1/health` 200 `{"status":"ok","db":"ok","coverage":"stale"}`; (2) `/api/v1/symbols/SPY` 200 with correct available ranges; (3) `/api/v1/bars/SPY?granularity=1d` 200, 22 bars; (4) `/api/v1/gaps/SPY` 200; (5) `/api/v1/symbols?limit=3` 200; (6) `/api/v1/status` returns 504 after ~20s — pre-existing, not privilege-related (identical 504 when server runs as superuser postgres; underlying `SELECT count(*) FROM data_status` takes 6.2s as trading_app vs 5.8s as postgres on 64,151 rows)
 
-- [ ] **4.5 Verify default privileges on a new table**
-  - [ ] On a scratch database, create a table as the maintenance role
-  - [ ] Confirm `trading_app` can immediately `SELECT` and `INSERT` with no
+- [x] **4.5 Verify default privileges on a new table**
+  - [x] On a scratch database, create a table as the maintenance role
+  - [x] Confirm `trading_app` can immediately `SELECT` and `INSERT` with no
         manual grant
-  - [ ] Success: both succeed — proves task 1.4 covers future migrations
-  - [ ] Effort: 1
+  - [x] Success: both succeed — proves task 1.4 covers future migrations
+  - [x] Effort: 1
+  - [x] Done: verified on scratch database — a table created by `trading_migrate` is immediately SELECT/INSERT/UPDATE/DELETE-able by `trading_app` with no manual grant, and TRUNCATE remains denied. Note: this task found a real defect in scripts/provision_roles.sql (fixed in commit 77f7b0b): applied to bare database without timescaledb extension, cagg-discovery query aborted script and silently skipped ALTER DEFAULT PRIVILEGES block. Guarded with psql's `\if` — SQL `WHERE EXISTS` guard does not work because PostgreSQL resolves relation names at parse time. Artifact must be applied as superuser since `GRANT postgres TO trading_migrate` fails when run as trading_migrate itself
 
 - [ ] **4.6 Record findings and update the walkthrough**
   - [ ] Record any grant discovered missing during 4.1–4.5, and add it to
