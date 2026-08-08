@@ -27,8 +27,13 @@
 -- which plain SELECT grants cover. There is therefore no ALTER ... OWNER in
 -- this file, and adding one would be a scope error.
 --
--- Idempotent and re-runnable. Apply with:
---     psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
+-- Idempotent and re-runnable. **Apply as a superuser**, not as the maintenance
+-- role: creating roles and running `GRANT postgres TO trading_migrate` requires
+-- rights the maintenance role does not hold on itself ("permission denied to
+-- grant role ... Only roles with the ADMIN option ... may grant this role").
+-- This is provisioning, done once by an administrator — it is deliberately not
+-- something the day-to-day maintenance credential can do.
+--     psql "$SUPERUSER_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
 --
 -- Parameterized on database and role names so the *same* artifact production
 -- applies is the one the test suite exercises (D8). A fixture that applied its
@@ -103,9 +108,25 @@ SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', :'app_role')
 -- only what its migration chain has materialized. A static list would make this
 -- artifact inapplicable to any database but prod — and the point of
 -- parameterizing it is that the tested file is the applied file.
-SELECT format('GRANT SELECT ON %I.%I TO %I', view_schema, view_name, :'app_role')
-FROM timescaledb_information.continuous_aggregates
-\gexec
+-- Guarded with \if, not a SQL WHERE. Referencing
+-- `timescaledb_information.*` on a database without TimescaleDB is a hard
+-- error that aborts the whole script, and PostgreSQL resolves relation names
+-- at *parse* time — so a `WHERE EXISTS (... pg_extension ...)` guard still
+-- fails. Only psql's client-side \if keeps the statement from being sent.
+--
+-- Found by task 4.5: applied to a bare database, the script aborted here and
+-- silently skipped the default privileges below, leaving the application role
+-- unable to read tables created later.
+SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') AS has_ts
+\gset
+
+\if :has_ts
+    SELECT format('GRANT SELECT ON %I.%I TO %I', view_schema, view_name, :'app_role')
+    FROM timescaledb_information.continuous_aggregates
+    \gexec
+\else
+    \echo '  (timescaledb not installed — no continuous aggregates to grant)'
+\endif
 
 -- ---------------------------------------------------------------------------
 -- Application role — write surface
