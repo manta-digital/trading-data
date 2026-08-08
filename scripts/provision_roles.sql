@@ -1,0 +1,291 @@
+-- provision_roles.sql — least-privilege database roles for the `trading` database.
+--
+-- Slice 913. Enforces the `sql.md` "Production Database Protection" rule
+-- "Split connection roles", the one bullet not previously enforced by the
+-- server. Motivated by the 2026-08-04 incident, in which a test fixture
+-- received the production URL and ran TRUNCATE ... CASCADE against six
+-- metadata tables. Production connects as superuser `postgres`, so the
+-- credential that inserts bars can also drop the database.
+--
+-- Two roles:
+--   trading_app      DML only. No TRUNCATE, no DDL, no ownership, SELECT-only
+--                    on the migration ledger. This is the credential the
+--                    daemon, API server, and CLI read paths use. A leak of
+--                    this credential dies on `permission denied`.
+--   trading_migrate  DDL and Timescale management, supplied only when doing
+--                    that work (migrations, rechunk, cagg repair, restore).
+--
+-- PASSWORDS ARE NOT SET HERE. This file is committed to the repository, so it
+-- must never contain credentials. Set passwords out-of-band, e.g.:
+--     ALTER ROLE trading_app     WITH PASSWORD '...';
+--     ALTER ROLE trading_migrate WITH PASSWORD '...';
+--
+-- Ownership is deliberately NOT transferred. `postgres` remains the owner of
+-- all tables and continuous aggregates. Measured on TimescaleDB 2.23, the
+-- `timescaledb_information.*` views do NOT row-filter by ownership, so a
+-- non-owner role reads catalog metadata normally; only data access is gated,
+-- which plain SELECT grants cover. There is therefore no ALTER ... OWNER in
+-- this file, and adding one would be a scope error.
+--
+-- Idempotent and re-runnable. **Apply as a superuser**, not as the maintenance
+-- role: creating roles and running `GRANT postgres TO trading_migrate` requires
+-- rights the maintenance role does not hold on itself ("permission denied to
+-- grant role ... Only roles with the ADMIN option ... may grant this role").
+-- This is provisioning, done once by an administrator — it is deliberately not
+-- something the day-to-day maintenance credential can do.
+--     psql "$SUPERUSER_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
+--
+-- Parameterized on database and role names so the *same* artifact production
+-- applies is the one the test suite exercises (D8). A fixture that applied its
+-- own derived grant set could pass while this file is wrong. Defaults below
+-- mean the production invocation above needs no extra arguments.
+--
+-- Roles are cluster-wide (`pg_authid` is a shared catalog) while table grants
+-- are per-database, so a test run against a throwaway database on the same
+-- cluster MUST pass throwaway role names — otherwise it mutates the very roles
+-- production depends on:
+--     psql "$URL" -v app_role=trading_app_t1 -v migrate_role=trading_migrate_t1 \
+--          -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
+
+\if :{?app_role}
+\else
+  \set app_role trading_app
+\endif
+
+\if :{?migrate_role}
+\else
+  \set migrate_role trading_migrate
+\endif
+
+\if :{?test_admin_role}
+\else
+  \set test_admin_role trading_test_admin
+\endif
+
+\echo 'Provisioning least-privilege roles on database:' :DBNAME
+\echo '  application role:' :app_role
+\echo '  maintenance role:' :migrate_role
+\if :{?with_test_admin}
+\echo '  test-admin role: ' :test_admin_role
+\endif
+
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Roles (idempotent: CREATE ROLE has no IF NOT EXISTS, so guard on pg_roles)
+--
+-- Uses \gexec rather than a DO block: psql does not interpolate variables
+-- inside a dollar-quoted body, so :'app_role' there is a syntax error.
+-- \gexec runs the *result* of the query, and the query emits nothing when the
+-- role already exists — which is the idempotency guard.
+-- ---------------------------------------------------------------------------
+
+SELECT format('CREATE ROLE %I LOGIN', :'app_role')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role')
+\gexec
+
+SELECT format('CREATE ROLE %I LOGIN', :'migrate_role')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'migrate_role')
+\gexec
+
+-- Test-fixture admin (D9). Previously the fixtures used `postgres`, so one
+-- could reach production by swapping the database name in the URL — which is
+-- exactly what `swap_dbname` does. The only thing preventing it was the
+-- convention that fixtures generate `mt_test_*` names.
+--
+-- Three attributes, each earned by a fixture requirement measured in practice:
+--   CREATEDB    — ephemeral_db creates and drops throwaway databases, and the
+--                 owner of a database may install the non-trusted timescaledb
+--                 extension in it without superuser.
+--   CREATEROLE  — the privilege suite applies *this file* to its throwaway
+--                 database under per-run role names, which means creating
+--                 roles ("Only roles with the CREATEROLE attribute may create
+--                 roles").
+--   pg_signal_backend — teardown calls pg_terminate_backend so DROP DATABASE
+--                 does not block on a lingering connection. Without it:
+--                 "Only roles with the SUPERUSER attribute may terminate
+--                 processes of roles with the SUPERUSER attribute."
+--
+-- None of these confers access to another database's *data*. The protection is
+-- the continued absence of any grant on `trading`, asserted by
+-- test/integration/data/test_test_admin_role.py.
+--
+-- Opt-in, because this block needs rights the test-admin role does not hold on
+-- itself. The privilege test suite runs this very file against its throwaway
+-- database *as* trading_test_admin, and an unconditional ALTER ROLE there fails
+-- with "Only roles with the CREATEROLE attribute and the ADMIN option on role
+-- ... may alter this role". Provisioning the test-admin role is a superuser
+-- action performed once against the cluster:
+--     psql "$SUPERUSER_URL" -v with_test_admin=1 -v ON_ERROR_STOP=1 \
+--          -f scripts/provision_roles.sql
+\if :{?with_test_admin}
+    SELECT format('CREATE ROLE %I LOGIN CREATEDB CREATEROLE', :'test_admin_role')
+    WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'test_admin_role')
+    \gexec
+
+    -- Idempotent for a pre-existing role missing either attribute.
+    SELECT format('ALTER ROLE %I CREATEDB CREATEROLE', :'test_admin_role')
+    \gexec
+
+    SELECT format('GRANT pg_signal_backend TO %I', :'test_admin_role')
+    \gexec
+\endif
+
+-- The maintenance role inherits ownership rights via role membership rather
+-- than per-object ALTER ... OWNER, keeping the originating initiative's
+-- ownership contract intact while still allowing DDL. Granting `current_user`
+-- rather than a hardcoded `postgres` keeps this correct on a test database
+-- owned by whichever role created it.
+--
+-- Skipped when the applier *is* the maintenance role, and when it lacks the
+-- ADMIN option to confer its own membership — a role cannot grant itself, and
+-- the test suite applies this file as trading_test_admin against a throwaway
+-- database it owns, where the grant is meaningless anyway ("permission denied
+-- to grant role ... Only roles with the ADMIN option ... may grant this role").
+SELECT format('GRANT %I TO %I', current_user, :'migrate_role')
+WHERE current_user <> :'migrate_role'
+  AND (
+    SELECT rolsuper FROM pg_roles WHERE rolname = current_user
+  )
+\gexec
+
+-- ---------------------------------------------------------------------------
+-- Application role — read surface
+-- ---------------------------------------------------------------------------
+
+SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'DBNAME', :'app_role')
+\gexec
+SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'app_role')
+\gexec
+SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', :'app_role')
+\gexec
+
+-- Continuous aggregates are views, and ALL TABLES IN SCHEMA public does NOT
+-- cover them; without an explicit grant the coverage/rollup read paths fail
+-- with `permission denied for view ...`.
+--
+-- Discovered from the catalog rather than hardcoded, because the set differs by
+-- database: production carries 9, while a freshly migrated database carries
+-- only what its migration chain has materialized. A static list would make this
+-- artifact inapplicable to any database but prod — and the point of
+-- parameterizing it is that the tested file is the applied file.
+-- Guarded with \if, not a SQL WHERE. Referencing
+-- `timescaledb_information.*` on a database without TimescaleDB is a hard
+-- error that aborts the whole script, and PostgreSQL resolves relation names
+-- at *parse* time — so a `WHERE EXISTS (... pg_extension ...)` guard still
+-- fails. Only psql's client-side \if keeps the statement from being sent.
+--
+-- Found by task 4.5: applied to a bare database, the script aborted here and
+-- silently skipped the default privileges below, leaving the application role
+-- unable to read tables created later.
+SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') AS has_ts
+\gset
+
+\if :has_ts
+    SELECT format('GRANT SELECT ON %I.%I TO %I', view_schema, view_name, :'app_role')
+    FROM timescaledb_information.continuous_aggregates
+    \gexec
+\else
+    \echo '  (timescaledb not installed — no continuous aggregates to grant)'
+\endif
+
+-- ---------------------------------------------------------------------------
+-- Application role — write surface
+--
+-- Enumerated, not inferred: exactly the tables production code writes. TRUNCATE
+-- is a separately grantable PostgreSQL privilege and is deliberately absent —
+-- withholding it is precisely what makes the 2026-08-04 statement fail.
+-- ---------------------------------------------------------------------------
+
+-- The list is enumerated (D3: write surface is enumerated, not inferred), but
+-- filtered against pg_tables so the artifact also applies to a freshly migrated
+-- database whose chain has not created every table. A table named here but
+-- absent from the target is silently skipped; a table present but *not* named
+-- here gets SELECT only, which is the intended default.
+SELECT format('GRANT INSERT, UPDATE, DELETE ON %I TO %I', tablename, :'app_role')
+FROM pg_tables
+WHERE schemaname = 'public'
+  AND tablename IN (
+      'minute_ohlcv',
+      'daily_ohlcv',
+      'data_gaps',
+      'acquisition_state',
+      'daemon_heartbeat',
+      'trading_sessions',
+      'instruments',
+      'provider_symbol_mapping',
+      'universe_members',
+      'splits',
+      'dividends',
+      'backfill_state',
+      'trading_calendars',
+      'trading_holidays'
+  )
+\gexec
+
+-- The migration ledger is readable but never writable by the application role.
+-- The incident deleted from this table; SELECT-only makes that impossible.
+-- Guarded on existence so the artifact also applies to a database whose
+-- migration chain has not yet created the ledger.
+SELECT format(
+    'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON schema_migrations FROM %I',
+    :'app_role')
+FROM pg_tables WHERE schemaname = 'public' AND tablename = 'schema_migrations'
+\gexec
+SELECT format('GRANT SELECT ON schema_migrations TO %I', :'app_role')
+FROM pg_tables WHERE schemaname = 'public' AND tablename = 'schema_migrations'
+\gexec
+
+-- Required by the COPY bulk-write hot path, which creates a temp staging table
+-- (staging_minute_ohlcv). Without this, all minute ingestion fails.
+SELECT format('GRANT TEMPORARY ON DATABASE %I TO %I', :'DBNAME', :'app_role')
+\gexec
+
+-- Identity/serial columns need sequence USAGE for INSERT.
+SELECT format('GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO %I', :'app_role')
+\gexec
+
+-- ---------------------------------------------------------------------------
+-- Default privileges — future tables
+--
+-- Default privileges are scoped to the role that CREATES the object, so both
+-- roles must be declared. Without the trading_migrate row, the next migration
+-- run under the maintenance credential would silently produce a table the
+-- application role cannot read.
+-- ---------------------------------------------------------------------------
+
+-- `current_user` covers the role that owns the existing schema (postgres on
+-- prod, whichever role created the database in a test). The maintenance role is
+-- declared separately because a migration run under it creates tables the
+-- application role must still be able to read.
+--
+-- Emitted only for roles the applier may actually alter: yourself always, and
+-- another role only if you hold USAGE membership in it. Note MEMBER is the
+-- wrong mode here: a CREATEROLE role gets implicit ADMIN on roles it creates,
+-- so pg_has_role(...,'MEMBER') returns true while ALTER DEFAULT PRIVILEGES
+-- still fails (measured) — that check needs USAGE. PostgreSQL
+-- otherwise refuses with "permission denied to change default privileges", and
+-- since the whole script runs in one transaction, that aborts everything after
+-- it. On prod (applied as superuser) both rows are emitted, which is what
+-- matters; a throwaway test database only ever needs its own.
+SELECT format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public '
+    'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
+    role_name, :'app_role')
+FROM (VALUES (current_user), (:'migrate_role')) AS r(role_name)
+WHERE role_name = current_user
+   OR pg_has_role(current_user, role_name, 'USAGE')
+\gexec
+
+SELECT format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public '
+    'GRANT USAGE ON SEQUENCES TO %I',
+    role_name, :'app_role')
+FROM (VALUES (current_user), (:'migrate_role')) AS r(role_name)
+WHERE role_name = current_user
+   OR pg_has_role(current_user, role_name, 'USAGE')
+\gexec
+
+COMMIT;
+
+\echo 'Done. Passwords, if not already set, must be applied out-of-band.'

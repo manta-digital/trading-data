@@ -19,11 +19,16 @@ runner = CliRunner()
 # ---------------------------------------------------------------------------
 
 def _settings(*, timescale_url: str | None = "postgresql://ts/db",
-              market_url: str | None = "postgresql://mkt/db"):
+              market_url: str | None = "postgresql://mkt/db",
+              maintenance_url: str | None = "postgresql://ts/db"):
     """Return a mock Settings with configurable URLs."""
     s = MagicMock()
     s.timescale_db_url = timescale_url
     s.market_db_url = market_url
+    # Set explicitly: a bare MagicMock would auto-create a truthy attribute
+    # here, so a DDL command's credential check would pass for the wrong
+    # reason and a routing regression could slip through (913 D4).
+    s.timescale_maintenance_url = maintenance_url
     return s
 
 
@@ -95,9 +100,15 @@ class TestMigrateApply:
         ts_db.apply_schema_migrations.assert_called_once()
 
     def test_migrate_apply_missing_url_exits_nonzero(self):
-        with _patch_app(_settings(timescale_url=None)):
+        """Applying migrations is DDL, so it demands the maintenance key.
+
+        Updated for slice 913 D4: this path runs as the migration role and
+        must not fall back to the application credential.
+        """
+        with _patch_app(_settings(timescale_url=None, maintenance_url=None)):
             result = runner.invoke(app, ["data", "migrate", "apply"])
         assert result.exit_code == 1
+        assert "MT_TIMESCALE_MAINTENANCE_URL" in result.output
 
     def test_migrate_apply_json_output(self):
         ts_db = _mock_timescale_db(applied=["001_schema_migrations"])

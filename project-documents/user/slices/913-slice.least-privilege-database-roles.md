@@ -146,7 +146,7 @@ the 52 minute migrations take that path.
 
 ### D6 — Grants as an idempotent, re-runnable artifact
 
-A single reviewable SQL artifact (`scripts/sql/provision_roles.sql`) that is safe
+A single reviewable SQL artifact (`scripts/provision_roles.sql`) that is safe
 to run repeatedly and covers **future** tables via `ALTER DEFAULT PRIVILEGES FOR
 ROLE postgres IN SCHEMA public`. Without default privileges, the next migration
 that creates a table silently produces one the application role cannot read.
@@ -160,6 +160,60 @@ issues `TRUNCATE TABLE ... RESTART IDENTITY`, has no CLI entry point, and is
 reachable only from tests. It is the highest-danger statement in the tree and
 precisely the incident's shape. Withholding `TRUNCATE` from the application role
 neutralizes it without deleting code.
+
+### D8 — Privilege tests run against an ephemeral database, never `trading`
+
+Added 20260806, after a first implementation attempt. The negative-case tests
+originally targeted production. `DROP TABLE` requires an `ACCESS EXCLUSIVE`
+lock, so even inside a rolled-back transaction it queues behind live readers and
+then blocks every reader and writer of that table. The run hung in that lock
+queue and was killed. **Rolling back protects data; it does not protect
+availability** — and the original design conflated the two.
+
+It also violated the `sql.md` rule this slice exists to enforce: a fixture
+issuing TRUNCATE/DROP/ALTER/DELETE may only target a database it created.
+
+Two consequences shape the test design:
+
+- **`provision_roles.sql` is parameterized** on database name (`:DBNAME`) and
+  role names, so the *same* artifact the production run applies is the one the
+  test exercises. A fixture with its own derived grant set could pass while the
+  real artifact is wrong.
+- **Test roles must be uniquely named.** `pg_authid` is a shared catalog
+  (verified), and the ephemeral database lives on the same cluster as prod, so
+  role-level statements reach across into the roles prod depends on while table
+  grants do not. The fixture provisions throwaway role names and drops them on
+  teardown.
+
+The ephemeral suite proves the artifact is correct; it cannot prove prod's live
+state matches. That confirmation is a **manual catalog read** (recorded in the
+walkthrough), deliberately not part of CI.
+
+**A denial is never verified on production by attempting the statement.**
+Privilege state is data — read it from `information_schema.table_privileges`,
+`pg_tables.tableowner`, and `pg_roles`. Attempting `DROP TABLE` to see whether
+it is refused has, as its failure mode, a dropped table; a rollback does not
+help, because the lock is taken before the rollback is reached. Attempting the
+statement is only acceptable against a database the fixture created (step 2).
+
+### D9 — The test-fixture admin credential is demoted too
+
+Added 20260807 at the PM's direction, folded into this slice rather than split
+out: it is the same least-privilege argument one layer down.
+
+`MT_TIMESCALE_TEST_URL` is `postgres` — superuser, on production's host. The
+ephemeral-database fixtures genuinely need `CREATE DATABASE` / `DROP DATABASE`,
+which the application role deliberately lacks, so the variable cannot simply be
+pointed at `trading_app`. But superuser is far more than the fixtures require,
+and `swap_dbname(TEST_ADMIN_URL, ...)` will happily produce a production URL —
+the only thing preventing that today is that fixtures *choose* to generate
+`mt_test_*` names. Convention, not enforcement: the incident's shape.
+
+A `trading_test_admin` role holding `LOGIN CREATEDB` and nothing else closes it
+at no cost to the test tier. Measured on prod: such a role creates databases and
+installs the non-trusted `timescaledb` extension successfully (it owns what it
+creates), while `SELECT` against `trading.instruments` fails with
+`permission denied`.
 
 ## Migration Plan
 
@@ -187,11 +241,18 @@ are untouched.
 
 - [ ] `provision_roles.sql` runs cleanly against `trading`, and a second
       consecutive run also succeeds with no error (idempotent).
-- [ ] As `trading_app`: `TRUNCATE`, `DROP`, and `DELETE FROM schema_migrations`
-      each raise `permission denied` (or `must be owner`), asserted by test.
-- [ ] As `trading_app`: `SELECT` succeeds on all application tables and all 9
-      caggs; `INSERT`/`UPDATE`/`DELETE` succeed on the D3 write surface; temp
-      table creation succeeds.
+- [ ] Under the application role on an **ephemeral** database (D8): `TRUNCATE`,
+      `DROP`, and `DELETE FROM schema_migrations` each raise `permission denied`
+      (or `must be owner`), asserted by test. No test issues these against
+      `trading`.
+- [ ] Under the application role on the ephemeral database: `SELECT` succeeds on
+      all application tables; `INSERT`/`UPDATE`/`DELETE` succeed on the D3 write
+      surface; temp table creation succeeds.
+- [ ] On `trading`, a manual check confirms the same privilege surface by
+      **reading the catalog** (`information_schema.table_privileges`,
+      `pg_tables.tableowner`, `pg_roles`) — never by attempting a denied
+      statement, whose failure mode is executing it. Recorded as evidence in the
+      walkthrough, not run by CI.
 - [ ] `mt data migrate apply` succeeds under the maintenance URL and fails with
       a permission error under the application URL.
 - [ ] A DDL command invoked with `MT_TIMESCALE_MAINTENANCE_URL` unset fails with
@@ -207,51 +268,172 @@ are untouched.
 
 ## Verification Walkthrough
 
-Draft — to be refined at Phase 6 completion. Run from the repo root.
+Steps 1, 2, and 2a are **verified as run** (20260806); the rest remain draft
+until their sections land. Run from the repo root.
 
-**1. Provision and prove idempotency.**
+**1. Provision and prove idempotency.** Verified on prod `trading` (.144).
+
+**Run this as a superuser, not as the maintenance role.** Creating roles and
+`GRANT postgres TO trading_migrate` need rights `trading_migrate` does not hold
+on itself — attempting it yields *"permission denied to grant role ... Only roles
+with the ADMIN option ... may grant this role."* That is correct: provisioning is
+a one-time administrator action, deliberately outside what the day-to-day
+maintenance credential can do. It is re-run only when roles or grants change, or
+on a new database — new *tables* are covered automatically by default privileges.
 
 ```bash
-psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/provision_roles.sql
-psql "$MT_TIMESCALE_MAINTENANCE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/provision_roles.sql
+psql "$SUPERUSER_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
+psql "$SUPERUSER_URL" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
 ```
 
-Both runs exit 0. The second proves re-runnability.
+Both runs exit 0; the second proves re-runnability. Expected output ends with:
 
-**2. Prove the incident cannot recur.** With `$APP_URL` as the application
-credential:
+```
+Provisioning least-privilege roles on database: trading
+  application role: trading_app
+  maintenance role: trading_migrate
+Done. Passwords, if not already set, must be applied out-of-band.
+```
+
+The second run additionally emits `NOTICE: role "trading_migrate" has already
+been granted membership in role "postgres"`. A `NOTICE` is informational — the
+run still exits 0 under `ON_ERROR_STOP=1`.
+
+The artifact takes no extra arguments for production because `app_role` /
+`migrate_role` default to the production names. A test target overrides them:
 
 ```bash
-psql "$APP_URL" -c "TRUNCATE instruments"
-psql "$APP_URL" -c "DROP TABLE daemon_heartbeat"
-psql "$APP_URL" -c "DELETE FROM schema_migrations"
+psql "$URL" -v app_role=t913_app_x -v migrate_role=t913_mig_x \
+     -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
 ```
 
-Each must print `ERROR: permission denied` (or `must be owner`) and exit
-non-zero. This is the demo: the exact statement that destroyed production in
-August now fails.
+**2. Prove the incident cannot recur — automated, on an ephemeral database.**
+
+```bash
+python - <<'EOF'
+import sys, subprocess; sys.path.insert(0, "scripts")
+from pathlib import Path
+from run_tests import build_env, load_dotenv_values
+env = build_env("integration", load_dotenv_values(Path(".env")))
+sys.exit(subprocess.run([sys.executable, "-m", "pytest",
+    "test/integration/data/test_role_privileges.py", "-v", "--no-header"],
+    env=env).returncode)
+EOF
+```
+
+Expected: `30 passed` (~5 min — each test rebuilds a database through 52
+migrations). Includes the three incident statements (`TRUNCATE instruments`,
+`DROP TABLE daemon_heartbeat`, `DELETE FROM schema_migrations`) all denied.
+
+> **Do not run these statements against `trading`.** `DROP TABLE` requires an
+> `ACCESS EXCLUSIVE` lock, so even inside a rolled-back transaction it queues
+> behind live readers and then blocks every reader and writer of that table.
+> An earlier revision of this walkthrough did exactly that and hung (D8).
+>
+> Invoking pytest directly rather than through `scripts/run_tests.py` is
+> deliberate: that runner always passes the tier directory, so a file path
+> becomes an *additional* target and the whole tier runs. The snippet above
+> reuses the runner's `build_env`, which is what carries the safety property —
+> the prod URL is dropped from the child environment and only
+> `MT_TIMESCALE_TEST_URL` is allowlisted in.
+
+**2a. Confirm prod's live privilege surface — read the catalog, attempt nothing.**
+
+Step 2 proves the *artifact* is correct. It never connects to production, so it
+cannot prove prod's live state matches — a `REVOKE` on prod tomorrow would leave
+every test still green. This check closes that gap.
+
+> **Never verify a denial on production by attempting the statement.** If the
+> deny has regressed, the "test" executes the very thing it was checking: the
+> failure mode of `DROP TABLE daemon_heartbeat` is a dropped table. A rollback
+> does not save you either, since `DROP` takes an `ACCESS EXCLUSIVE` lock and
+> blocks live readers while it queues. Privilege state is *data* — read it.
+
+```sql
+-- All four must hold. None attempts a privileged operation.
+SELECT table_name FROM information_schema.table_privileges
+ WHERE grantee = 'trading_app' AND privilege_type = 'TRUNCATE';        -- expect 0 rows
+
+SELECT privilege_type FROM information_schema.table_privileges
+ WHERE grantee = 'trading_app' AND table_name = 'schema_migrations';   -- expect only SELECT
+
+SELECT count(*) FROM pg_tables WHERE tableowner = 'trading_app';       -- expect 0
+
+SELECT rolsuper, rolcreatedb, rolcreaterole, rolbypassrls
+  FROM pg_roles WHERE rolname = 'trading_app';                         -- expect all false
+```
+
+Positive surface, same approach:
+
+```sql
+SELECT count(*) FROM information_schema.table_privileges
+ WHERE grantee = 'trading_app' AND privilege_type = 'SELECT'
+   AND table_name IN ('daily_coverage','minute_coverage','daily_weekly_ohlcv',
+       'daily_monthly_ohlcv','daily_quarterly_ohlcv','minute_5min_ohlcv',
+       'minute_15min_ohlcv','minute_hourly_ohlcv','minute_4hour_ohlcv');  -- expect 9
+
+SELECT count(DISTINCT table_name) FROM information_schema.table_privileges p
+  JOIN pg_tables t ON t.tablename = p.table_name AND t.schemaname = 'public'
+ WHERE p.grantee = 'trading_app' AND p.privilege_type = 'UPDATE';         -- expect 14
+```
+
+(The `pg_tables` join scopes to `public`; without it the count includes every
+TimescaleDB chunk that inherits the grant — 9,168 on prod, which is correct but
+not what the check is asking.)
+
+Verified 20260806 against `trading`: TRUNCATE 0 rows, ledger `SELECT` only,
+0 tables owned, all four role attributes false, 9/9 caggs granted SELECT.
+
+Manual rather than automated: anything running this holds a production
+credential, and prod state is not something CI should be gating on. Once a
+dedicated read-only role exists, this could move into automation safely.
 
 **3. Prove the application role still works.** There is no `--url` CLI option —
 every command resolves `settings.timescale_db_url`, so credentials are switched
-by overriding the environment variable for the invocation:
+through the environment. With `MT_TIMESCALE_DB_URL` set to the `trading_app`
+credential:
 
 ```bash
-export MT_TIMESCALE_DB_URL="$APP_URL"
 mt data status
 mt data caggs status
-mt data get SPY --start 2026-07-01 --end 2026-08-01
+mt data get SPY 1d --start 2026-07-01 --end 2026-08-01
+mt data get SPY 1m --start 2026-08-04 --end 2026-08-05
 ```
 
-Bars return, coverage renders, and cagg status shows all 9 aggregates with
-watermarks.
+Verified 20260807. `mt data status` exits 0 over the full 64,151-symbol table —
+and note it *writes*, via the auto-extend hook into `trading_sessions` (D3), so
+this doubles as a write check on a read-looking command. `mt data caggs status`
+lists all 9 aggregates with watermarks and job stats; it was the highest-risk
+command in the pre-slice survey (`_timescaledb_catalog`, `cagg_watermark`,
+`timescaledb_information.*`) and needs only plain `SELECT` grants. `1d` returned
+22 bars, `1m` returned 1,922.
 
-**4. Prove the daemon's hot path.** Run a bounded minute cycle under the
-application credential and confirm rows land — this exercises the temp-table
-COPY path that a missing `TEMPORARY` grant would break:
+> Granularity is a positional argument taking one of `1m, 5m, 15m, 1h, 4h, 1d,
+> 1w, 1mo, 1q` — not a `--timeframe` flag, and not the words `daily`/`minute`.
+> A `4h` query over a recent window returns 0 bars: that is the known coverage
+> staleness (slice 169), not a privilege failure — the query itself executes in
+> ~0.08s.
+
+**4. Prove the daemon's hot path.** This is the step a missing `TEMPORARY` grant
+(D2) would break, since the COPY bulk-write path stages through a temp table.
 
 ```bash
-mt data pull SPY --timeframe minute --start <recent> --end <recent>
+mt data daemon run --minute --stop-when-done
 ```
+
+Verified 20260807 against prod as `trading_app`, confirmed by
+`pg_stat_activity`. The daemon marched alphabetically through LAR → LCLG writing
+`acquisition_state` (LCII `success`, the rest `empty`), minute `UNKNOWN` gaps
+fell 309 → 302, and `PROVIDER_HOLE` rose 33,365 → 33,414 as confirmed holes were
+classified. No `permission denied` anywhere.
+
+> `mt data pull` is gap-driven: with no open gaps for the chosen symbol it
+> reports `Would fetch 0 gap(s)` and writes nothing, which proves little. Check
+> `data_gaps` for `fetch_status='UNKNOWN'` first, or use the daemon as above.
+> Unrelated to this slice: `daemon_heartbeat` stays empty (`acquisition_state`
+> is the reliable signal), and shutdown does not always return promptly on
+> Ctrl-C — during one such event the database showed no active backends, nothing
+> blocked, and no idle-in-transaction, so it is daemon shutdown code, not a lock.
 
 **5. Prove the split.** Migration under each credential:
 
@@ -264,6 +446,13 @@ The second form deliberately points the *maintenance* key at the application
 credential: it proves the DDL path fails on privilege rather than on which key
 it read, which is the property that matters after cutover.
 
+Verified 20260807 on a scratch database: 51 migrations applied under
+`trading_migrate`, including the `requires_autocommit` ones (001 `CREATE
+EXTENSION`, 042, 045, 047) that reconnect raw from `pool.conninfo`
+([runner.py:81](../../../src/manta_trading/market/schema/runner.py)), confirming
+D5. Under the application credential the same command fails with
+`InsufficientPrivilege: permission denied for schema public`.
+
 **6. Prove no silent fallback.**
 
 ```bash
@@ -271,7 +460,9 @@ env -u MT_TIMESCALE_MAINTENANCE_URL mt data migrate apply
 ```
 
 Fails with an explicit message naming `MT_TIMESCALE_MAINTENANCE_URL`. It must not
-quietly proceed on `MT_TIMESCALE_DB_URL`.
+quietly proceed on `MT_TIMESCALE_DB_URL`. Verified for all six DDL commands;
+the four read-only paths (`migrate status`, `restore assess`,
+`init --validate-only`, `rechunk --dry-run`) never demand the key.
 
 **7. Prove the API.** Start `mt serve` against the application credential and
 exercise the endpoint surface:
@@ -279,10 +470,19 @@ exercise the endpoint surface:
 ```bash
 curl -s localhost:8000/api/v1/health
 curl -s localhost:8000/api/v1/symbols/SPY
-curl -s "localhost:8000/api/v1/bars/SPY?timeframe=daily&start=2026-07-01&end=2026-08-01"
+curl -s "localhost:8000/api/v1/bars/SPY?granularity=1d&start=2026-07-01&end=2026-08-01"
+curl -s localhost:8000/api/v1/gaps/SPY
 ```
 
-All return 200 with correct payloads.
+Verified 20260807: health returns `{"status":"ok","db":"ok","coverage":"stale"}`,
+symbols returns correct available ranges, bars returns 22 rows, gaps returns 200.
+
+> Two corrections to the original draft: the bars parameter is `granularity`,
+> not `timeframe`, and gaps is a path parameter (`/gaps/SPY`), not a query
+> string. **`/api/v1/status` returns 504** after ~20s — this is *pre-existing and
+> not privilege-related*: the same endpoint returns an identical 504 with the
+> server running as superuser, and the underlying `count(*)` over `data_status`
+> costs 6.2s as `trading_app` versus 5.8s as `postgres` for the same 64,151 rows.
 
 ## Risks
 

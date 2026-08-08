@@ -79,6 +79,30 @@ def build_env(tier: str, dotenv: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def build_pytest_args(tier: str, pytest_args: list[str]) -> list[str]:
+    """Return the pytest argument list, honoring an explicit path target.
+
+    The tier directory is a *default*, not a constant. Passing
+    ``test/integration/foo.py`` used to add a second target alongside
+    ``test/integration``, so pytest ran the entire tier and the narrower
+    intent was silently ignored — two full-tier runs before anyone noticed.
+
+    An explicit target must still live under the tier's directory, so this
+    cannot be used to run one tier's files with another tier's environment
+    allowlist.
+    """
+    tier_dir = f"test/{tier}"
+    has_explicit_target = any(
+        not a.startswith("-") and a.split("::")[0].startswith(f"{tier_dir}/")
+        for a in pytest_args
+    )
+    # When the caller named a target, pass their args through untouched;
+    # otherwise fall back to the whole tier.
+    if has_explicit_target:
+        return list(pytest_args)
+    return [tier_dir, *pytest_args]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tier", choices=sorted(TIERS))
@@ -95,7 +119,12 @@ def main() -> int:
     supplied = [n for n in TIERS[args.tier] if n in env]
     print(f"tier={args.tier} env={supplied or '(none)'}", file=sys.stderr)
 
-    cmd = [sys.executable, "-m", "pytest", f"test/{args.tier}", *args.pytest_args]
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        *build_pytest_args(args.tier, args.pytest_args),
+    ]
     return subprocess.run(cmd, cwd=REPO_ROOT, env=env).returncode
 
 

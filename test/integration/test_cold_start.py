@@ -129,10 +129,23 @@ def ephemeral_db() -> Iterator[str]:
         yield yield_url
     finally:
         with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
-            # Terminate live connections so DROP DATABASE doesn't block.
+            # Terminate live connections so DROP DATABASE doesn't block, but
+            # skip superuser backends: the test-admin credential holds
+            # pg_signal_backend, not SUPERUSER (913 D9), and PostgreSQL refuses
+            # with "Only roles with the SUPERUSER attribute may terminate
+            # processes of roles with the SUPERUSER attribute" — which aborts
+            # teardown. A superuser attached to a throwaway database is an
+            # operator inspecting it, not something this suite should kill.
+            #
+            # NOTE: this duplicates the teardown in test/conftest.py's
+            # ephemeral_db / session_ephemeral_db. Worth consolidating; three
+            # copies of the same logic meant this one was missed when the
+            # credential was demoted.
             admin.execute(
-                "SELECT pg_terminate_backend(pid) "
-                "FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
+                "SELECT pg_terminate_backend(a.pid) FROM pg_stat_activity a "
+                "JOIN pg_roles r ON r.rolname = a.usename "
+                "WHERE a.datname = %s AND a.pid <> pg_backend_pid() "
+                "AND NOT r.rolsuper",
                 (db_name,),
             )
             admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
@@ -144,9 +157,7 @@ def ephemeral_db() -> Iterator[str]:
 
 
 class TestColdStartProducesWorkingSchema:
-    def test_apply_migrations_brings_schema_to_current(
-        self, ephemeral_db: str
-    ) -> None:
+    def test_apply_migrations_brings_schema_to_current(self, ephemeral_db: str) -> None:
         db = TimescaleMinuteDataDB(conninfo=ephemeral_db)
         try:
             applied = db.apply_schema_migrations()
@@ -317,9 +328,7 @@ class TestDeletedCreateMigrationFailsClearly:
         from manta_trading.market.schema import migrations as migrations_pkg
 
         patched = [
-            m
-            for m in MINUTE_MIGRATIONS
-            if m["id"] != "038_create_acquisition_state"
+            m for m in MINUTE_MIGRATIONS if m["id"] != "038_create_acquisition_state"
         ]
         original = migrations_pkg.TRACKS["minute"]
         migrations_pkg.TRACKS["minute"] = patched
