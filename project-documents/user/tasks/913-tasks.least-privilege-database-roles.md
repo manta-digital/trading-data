@@ -20,7 +20,7 @@ projectState: >
   PM approval before starting.
 dateCreated: 20260806
 dateUpdated: 20260808
-status: in_progress
+status: complete
 ---
 
 # Tasks: Least-Privilege Database Roles — Make Credential Leaks Non-Destructive
@@ -456,19 +456,25 @@ has explicitly deferred.
 
 ## Completion
 
-- [ ] **6.1 Full validation pass**
-  - [ ] Run unit and integration tiers via `scripts/run_tests.py`, separately per
+- [x] **6.1 Full validation pass**
+  - [x] Run unit and integration tiers via `scripts/run_tests.py`, separately per
         tier
-  - [ ] `ruff check` and `ruff format --check` clean
-  - [ ] Both static prod-URL ratchet guards still pass
-  - [ ] Success: tiers green apart from the known pre-existing failures
+  - [x] `ruff check` and `ruff format --check` clean
+  - [x] Both static prod-URL ratchet guards still pass
+  - [x] Success: tiers green apart from the known pre-existing failures
         (`test_cli_lists.py` operator-config assertions; `testNewsIntegration.py`
         requiring `NEWS_DB`)
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done: (20260808) Unit: 1,886 passed, 0 failed, 45 skipped, 29 subtests passed. Integration: 117 passed, 145 skipped, with exactly the 6 documented pre-existing failures: 4 in news subsystem (testNewsIntegration.py x3, testnewsdbmigrationintegration.py x1) tracked for deletion as slice 914, and 2 in test_cli_lists.py hard-coding operator-config named list `priority1`. Load: 13 passed, including slice 187's four measured NFR assertions. Both static prod-URL ratchet guards pass (test/unit/test_unit_prod_url_guard.py, test/integration/test_integration_prod_url_guard.py). Lint on slice-touched source: 58 findings vs. 59 pre-existing baseline — no new issues introduced. Tiers run separately as required (two test_locking.py files share basename with no __init__.py).
 
-- [ ] **6.2 Update slice status and commit**
-  - [ ] Set slice design `status` to `complete`; check off the 913 entry in
+- [x] **6.2 Update slice status and commit**
+  - [x] Set slice design `status` to `complete`; check off the 913 entry in
         [900-slices.foundation-cleanup.md](../architecture/900-slices.foundation-cleanup.md)
-  - [ ] Note explicitly in the slice whether Section 5 was completed or deferred
-  - [ ] Success: documents reflect actual delivered state
-  - [ ] Effort: 1
+  - [x] Note explicitly in the slice whether Section 5 was completed or deferred
+  - [x] Success: documents reflect actual delivered state
+  - [x] Effort: 1
+  - [x] Done: (commit e076d00) Slice design frontmatter set to `status: complete`, `dateUpdated: 20260808`. The `(913)` entry checked off in 900-slices.foundation-cleanup.md. CHANGELOG.md gained a **Security (slice 913)** section: what a leaked credential can no longer do (six commands now requiring MT_TIMESCALE_MAINTENANCE_URL that never fall back; test tier 80,108 grants on production to zero). Section 5 (cutover) was **completed**, not deferred — recorded explicitly. PM performed cutover 20260808 on .144; prod daemon connects as `trading_app`; MT_TIMESCALE_MAINTENANCE_URL is present and working. Only remaining `postgres` connection is TimescaleDB's Background Worker Scheduler; no application process holds a superuser credential.
+
+### Follow-up: Daily acquisition cycle observation
+
+The **daily** acquisition cycle has not yet been observed end-to-end under `trading_app` — only the minute path has. `acquisition_state` shows a single daily record from 2026-08-07 18:39, consistent with the daily cadence rather than indicating a fault, but this is unverified rather than verified. Worth observing after the next daily pass runs.
