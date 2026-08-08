@@ -57,9 +57,15 @@
   \set migrate_role trading_migrate
 \endif
 
+\if :{?test_admin_role}
+\else
+  \set test_admin_role trading_test_admin
+\endif
+
 \echo 'Provisioning least-privilege roles on database:' :DBNAME
 \echo '  application role:' :app_role
 \echo '  maintenance role:' :migrate_role
+\echo '  test-admin role: ' :test_admin_role
 
 BEGIN;
 
@@ -78,6 +84,24 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role')
 
 SELECT format('CREATE ROLE %I LOGIN', :'migrate_role')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'migrate_role')
+\gexec
+
+-- Test-fixture admin (D9). `CREATEDB` and nothing else: the ephemeral-database
+-- fixtures need CREATE/DROP DATABASE, which the application role deliberately
+-- lacks, but that is *all* they need. Previously they used `postgres`, so a
+-- fixture could reach production by swapping the database name in the URL —
+-- prevented only by the convention that fixtures generate `mt_test_*` names.
+--
+-- Measured: a LOGIN CREATEDB role creates databases and installs the
+-- non-trusted timescaledb extension (it owns what it creates), while SELECT
+-- against `trading` fails with `permission denied`. No grants on any database
+-- are issued to this role — that absence is the protection.
+SELECT format('CREATE ROLE %I LOGIN CREATEDB', :'test_admin_role')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'test_admin_role')
+\gexec
+
+-- Idempotent for a pre-existing role that lacks the attribute.
+SELECT format('ALTER ROLE %I CREATEDB', :'test_admin_role')
 \gexec
 
 -- The maintenance role inherits ownership rights via role membership rather
