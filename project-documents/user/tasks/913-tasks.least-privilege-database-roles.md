@@ -19,7 +19,7 @@ projectState: >
   connects; Section 5 (cutover) is deliberately separated and requires explicit
   PM approval before starting.
 dateCreated: 20260806
-dateUpdated: 20260807
+dateUpdated: 20260808
 status: in_progress
 ---
 
@@ -238,8 +238,8 @@ therefore provision **test-local role names**, never `trading_app` /
         0 rows, ledger SELECT only, 0 tables owned, all four role attributes
         false, 9/9 caggs granted SELECT
 
-- [ ] **2.9 Demote the test-fixture admin credential off superuser**
-  - [ ] `MT_TIMESCALE_TEST_URL` is `postgres` (superuser) on the same host as
+- [x] **2.9 Demote the test-fixture admin credential off superuser**
+  - [x] `MT_TIMESCALE_TEST_URL` is `postgres` (superuser) on the same host as
         production. The fixtures need it to `CREATE DATABASE` / `DROP DATABASE`,
         which the application role deliberately cannot do — but superuser is far
         more than that requires. A fixture holding this URL can reach `trading`
@@ -248,29 +248,30 @@ therefore provision **test-local role names**, never `trading_app` /
         preventing that today is convention**: fixtures happen to generate
         `mt_test_*` names. That is the same shape as the 2026-08-04 incident —
         safety by everyone remembering rather than by the server refusing.
-  - [ ] Create a `trading_test_admin` role with `LOGIN CREATEDB` and nothing
+  - [x] Create a `trading_test_admin` role with `LOGIN CREATEDB` and nothing
         else. No superuser, no membership in any other role, no grants on
         `trading`
-  - [ ] **Measured 20260807 — `CREATEDB` alone is sufficient**, so this costs no
+  - [x] **Measured 20260807 — `CREATEDB` alone is sufficient**, so this costs no
         test capability. A probe role with only `LOGIN CREATEDB` successfully
         ran `CREATE DATABASE` *and* `CREATE EXTENSION timescaledb CASCADE` (it
         owns the database it creates, so the non-trusted extension installs
         without superuser), while `SELECT` against `trading.instruments` failed
         with `permission denied for table instruments`
-  - [ ] Add the role to `scripts/provision_roles.sql` so it is provisioned by
+  - [x] Add the role to `scripts/provision_roles.sql` so it is provisioned by
         the same reviewed artifact as the other two, guarded for idempotency
-  - [ ] Repoint `MT_TIMESCALE_TEST_URL` at the new role; no test code changes
+  - [x] Repoint `MT_TIMESCALE_TEST_URL` at the new role; no test code changes
         are expected, since fixtures only need create/drop
-  - [ ] Add a test asserting the test-admin role **cannot** read `trading` —
+  - [x] Add a test asserting the test-admin role **cannot** read `trading` —
         the negative case, so a future widening of its rights is caught
-  - [ ] Note: `DROP DATABASE` teardown calls `pg_terminate_backend` on
+  - [x] Note: `DROP DATABASE` teardown calls `pg_terminate_backend` on
         connections to the fixture's own database. A role can signal backends
         it owns; if teardown fails against a database another role connected
         to, grant `pg_signal_backend` rather than reverting to superuser
-  - [ ] Success: the full integration and load tiers pass with
+  - [x] Success: the full integration and load tiers pass with
         `MT_TIMESCALE_TEST_URL` pointing at `trading_test_admin`; that role
         raises `permission denied` on any read of `trading`
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done: commit 3844642 (verified 20260807-08). `trading_test_admin` provisioned and `MT_TIMESCALE_TEST_URL` repointed at it. Measured before/after: as `postgres` the credential held **80,108 table grants on `trading`**; as `trading_test_admin` it holds **zero** and cannot read production. Four assertions in `test/integration/data/test_test_admin_role.py` lock this in (not superuser, can still CREATEDB, cannot read production, holds no grants on production), plus a fifth bounding role membership to `pg_signal_backend`. The role needs three attributes, each earned by a measured fixture requirement — none of which grants access to another database's data: (1) `CREATEDB` — ephemeral_db creates/drops throwaway databases; the owner may install the non-trusted timescaledb extension without superuser; (2) `CREATEROLE` — the privilege suite applies provision_roles.sql to its own throwaway database under per-run role names; (3) `pg_signal_backend` — teardown calls pg_terminate_backend so DROP DATABASE does not block. Root cause of the fallout: PostgreSQL 16 changed `CREATEROLE`. Creating a role no longer confers `USAGE`, only `ADMIN`, so the fixture could create its throwaway roles but could not `SET ROLE` into them or `DROP OWNED BY` them at teardown. Fixed with `GRANT <role> TO CURRENT_USER WITH SET TRUE`, revoked at teardown. Four secondary fixes: (1) `pg_terminate_backend` now skips superuser backends in all three copies of the teardown (test/conftest.py x2, test/integration/test_cold_start.py); (2) the test-admin provisioning block in provision_roles.sql is now opt-in via `-v with_test_admin=1`; (3) `ALTER DEFAULT PRIVILEGES` guards on `pg_has_role(..., 'USAGE')` not `'MEMBER'`; (4) `test_ddl_command_url_routing.py` now patches the `Settings` object rather than the environment. Full tiers after the change: **unit 1886 passed / 0 failed; integration 117 passed with only the 6 documented pre-existing failures; load 13 passed** including slice 187's NFR assertions.
 
 ---
 
