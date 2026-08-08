@@ -98,6 +98,15 @@ def provisioned_roles(session_migrated_db: str) -> Iterator[tuple[str, str]]:
             f"{result.stdout}\n{result.stderr}"
         )
 
+    # PostgreSQL 16 changed CREATEROLE: creating a role no longer confers
+    # USAGE on it, only ADMIN. Without USAGE the runner cannot `SET ROLE` into
+    # the role it just made, nor `DROP OWNED BY` it at teardown — both fail
+    # with "permission denied". `WITH SET TRUE` restores exactly that, and
+    # only for these per-run throwaway roles.
+    with psycopg.connect(session_migrated_db, autocommit=True) as grantor:
+        for role in (app_role, migrate_role):
+            grantor.execute(f'GRANT "{role}" TO CURRENT_USER WITH SET TRUE')
+
     try:
         yield session_migrated_db, app_role
     finally:
@@ -108,6 +117,11 @@ def provisioned_roles(session_migrated_db: str) -> Iterator[tuple[str, str]]:
                 conn.execute(f'DROP OWNED BY "{role}" CASCADE')
         with psycopg.connect(admin_url, autocommit=True) as admin:
             for role in (app_role, migrate_role):
+                # Revoke first: the membership granted above is itself a
+                # dependency that would otherwise block the drop, and leaving
+                # it behind trips the membership assertion in
+                # test_test_admin_role.py.
+                admin.execute(f'REVOKE "{role}" FROM CURRENT_USER')
                 admin.execute(f'DROP ROLE IF EXISTS "{role}"')
 
 

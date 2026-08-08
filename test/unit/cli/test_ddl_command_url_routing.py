@@ -49,9 +49,28 @@ FAST_FAIL_APP_URL = "postgresql://app@192.0.2.1:5432/trading?connect_timeout=1"
 
 @pytest.fixture
 def app_credential_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The realistic misconfiguration: application URL set, maintenance absent."""
+    """The realistic misconfiguration: application URL set, maintenance absent.
+
+    Clearing the environment is not enough. ``Settings`` declares
+    ``env_file=.env``, so pydantic-settings reads that file directly — a
+    developer machine with ``MT_TIMESCALE_MAINTENANCE_URL`` in ``.env`` would
+    still resolve a real credential, and these tests would connect to a live
+    host and hang instead of asserting the fail-loud behaviour. Patch the
+    loaded settings object, which is what the resolvers actually consult.
+    """
     monkeypatch.setenv(APP_VAR, UNROUTABLE_APP_URL)
     monkeypatch.delenv(MAINT_VAR, raising=False)
+
+    from manta_trading.config import Settings
+
+    original_init = Settings.__init__
+
+    def _init_without_maintenance_url(self: Settings, **kwargs: object) -> None:
+        original_init(self, **kwargs)  # type: ignore[arg-type]
+        object.__setattr__(self, "timescale_db_url", UNROUTABLE_APP_URL)
+        object.__setattr__(self, "timescale_maintenance_url", None)
+
+    monkeypatch.setattr(Settings, "__init__", _init_without_maintenance_url)
 
 
 @pytest.mark.parametrize("command", DDL_COMMANDS)

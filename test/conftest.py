@@ -94,9 +94,18 @@ def ephemeral_db() -> Iterator[str]:
     finally:
         with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
             # Terminate live connections so DROP DATABASE doesn't block.
+            # Skip superuser backends: pg_signal_backend does not permit
+            # signalling them ("Only roles with the SUPERUSER attribute may
+            # terminate processes of roles with the SUPERUSER attribute"), and
+            # since the test-admin credential is deliberately not a superuser
+            # (913 D9), attempting it aborts teardown. A superuser connected to
+            # a throwaway database is an operator looking at it, not something
+            # the suite should be killing anyway.
             admin.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                "SELECT pg_terminate_backend(a.pid) FROM pg_stat_activity a "
+                "JOIN pg_roles r ON r.rolname = a.usename "
+                "WHERE a.datname = %s AND a.pid <> pg_backend_pid() "
+                "AND NOT r.rolsuper",
                 (db_name,),
             )
             admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
@@ -143,9 +152,18 @@ def session_ephemeral_db() -> Iterator[str]:
         yield swap_dbname(TEST_ADMIN_URL, db_name)
     finally:
         with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
+            # Skip superuser backends: pg_signal_backend does not permit
+            # signalling them ("Only roles with the SUPERUSER attribute may
+            # terminate processes of roles with the SUPERUSER attribute"), and
+            # since the test-admin credential is deliberately not a superuser
+            # (913 D9), attempting it aborts teardown. A superuser connected to
+            # a throwaway database is an operator looking at it, not something
+            # the suite should be killing anyway.
             admin.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                "SELECT pg_terminate_backend(a.pid) FROM pg_stat_activity a "
+                "JOIN pg_roles r ON r.rolname = a.usename "
+                "WHERE a.datname = %s AND a.pid <> pg_backend_pid() "
+                "AND NOT r.rolsuper",
                 (db_name,),
             )
             admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')

@@ -65,7 +65,9 @@
 \echo 'Provisioning least-privilege roles on database:' :DBNAME
 \echo '  application role:' :app_role
 \echo '  maintenance role:' :migrate_role
+\if :{?with_test_admin}
 \echo '  test-admin role: ' :test_admin_role
+\endif
 
 BEGIN;
 
@@ -86,30 +88,65 @@ SELECT format('CREATE ROLE %I LOGIN', :'migrate_role')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'migrate_role')
 \gexec
 
--- Test-fixture admin (D9). `CREATEDB` and nothing else: the ephemeral-database
--- fixtures need CREATE/DROP DATABASE, which the application role deliberately
--- lacks, but that is *all* they need. Previously they used `postgres`, so a
--- fixture could reach production by swapping the database name in the URL —
--- prevented only by the convention that fixtures generate `mt_test_*` names.
+-- Test-fixture admin (D9). Previously the fixtures used `postgres`, so one
+-- could reach production by swapping the database name in the URL — which is
+-- exactly what `swap_dbname` does. The only thing preventing it was the
+-- convention that fixtures generate `mt_test_*` names.
 --
--- Measured: a LOGIN CREATEDB role creates databases and installs the
--- non-trusted timescaledb extension (it owns what it creates), while SELECT
--- against `trading` fails with `permission denied`. No grants on any database
--- are issued to this role — that absence is the protection.
-SELECT format('CREATE ROLE %I LOGIN CREATEDB', :'test_admin_role')
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'test_admin_role')
-\gexec
+-- Three attributes, each earned by a fixture requirement measured in practice:
+--   CREATEDB    — ephemeral_db creates and drops throwaway databases, and the
+--                 owner of a database may install the non-trusted timescaledb
+--                 extension in it without superuser.
+--   CREATEROLE  — the privilege suite applies *this file* to its throwaway
+--                 database under per-run role names, which means creating
+--                 roles ("Only roles with the CREATEROLE attribute may create
+--                 roles").
+--   pg_signal_backend — teardown calls pg_terminate_backend so DROP DATABASE
+--                 does not block on a lingering connection. Without it:
+--                 "Only roles with the SUPERUSER attribute may terminate
+--                 processes of roles with the SUPERUSER attribute."
+--
+-- None of these confers access to another database's *data*. The protection is
+-- the continued absence of any grant on `trading`, asserted by
+-- test/integration/data/test_test_admin_role.py.
+--
+-- Opt-in, because this block needs rights the test-admin role does not hold on
+-- itself. The privilege test suite runs this very file against its throwaway
+-- database *as* trading_test_admin, and an unconditional ALTER ROLE there fails
+-- with "Only roles with the CREATEROLE attribute and the ADMIN option on role
+-- ... may alter this role". Provisioning the test-admin role is a superuser
+-- action performed once against the cluster:
+--     psql "$SUPERUSER_URL" -v with_test_admin=1 -v ON_ERROR_STOP=1 \
+--          -f scripts/provision_roles.sql
+\if :{?with_test_admin}
+    SELECT format('CREATE ROLE %I LOGIN CREATEDB CREATEROLE', :'test_admin_role')
+    WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'test_admin_role')
+    \gexec
 
--- Idempotent for a pre-existing role that lacks the attribute.
-SELECT format('ALTER ROLE %I CREATEDB', :'test_admin_role')
-\gexec
+    -- Idempotent for a pre-existing role missing either attribute.
+    SELECT format('ALTER ROLE %I CREATEDB CREATEROLE', :'test_admin_role')
+    \gexec
+
+    SELECT format('GRANT pg_signal_backend TO %I', :'test_admin_role')
+    \gexec
+\endif
 
 -- The maintenance role inherits ownership rights via role membership rather
 -- than per-object ALTER ... OWNER, keeping the originating initiative's
 -- ownership contract intact while still allowing DDL. Granting `current_user`
 -- rather than a hardcoded `postgres` keeps this correct on a test database
 -- owned by whichever role created it.
+--
+-- Skipped when the applier *is* the maintenance role, and when it lacks the
+-- ADMIN option to confer its own membership — a role cannot grant itself, and
+-- the test suite applies this file as trading_test_admin against a throwaway
+-- database it owns, where the grant is meaningless anyway ("permission denied
+-- to grant role ... Only roles with the ADMIN option ... may grant this role").
 SELECT format('GRANT %I TO %I', current_user, :'migrate_role')
+WHERE current_user <> :'migrate_role'
+  AND (
+    SELECT rolsuper FROM pg_roles WHERE rolname = current_user
+  )
 \gexec
 
 -- ---------------------------------------------------------------------------
@@ -221,11 +258,23 @@ SELECT format('GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO %I', :'app_role'
 -- prod, whichever role created the database in a test). The maintenance role is
 -- declared separately because a migration run under it creates tables the
 -- application role must still be able to read.
+--
+-- Emitted only for roles the applier may actually alter: yourself always, and
+-- another role only if you hold USAGE membership in it. Note MEMBER is the
+-- wrong mode here: a CREATEROLE role gets implicit ADMIN on roles it creates,
+-- so pg_has_role(...,'MEMBER') returns true while ALTER DEFAULT PRIVILEGES
+-- still fails (measured) — that check needs USAGE. PostgreSQL
+-- otherwise refuses with "permission denied to change default privileges", and
+-- since the whole script runs in one transaction, that aborts everything after
+-- it. On prod (applied as superuser) both rows are emitted, which is what
+-- matters; a throwaway test database only ever needs its own.
 SELECT format(
     'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public '
     'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
     role_name, :'app_role')
 FROM (VALUES (current_user), (:'migrate_role')) AS r(role_name)
+WHERE role_name = current_user
+   OR pg_has_role(current_user, role_name, 'USAGE')
 \gexec
 
 SELECT format(
@@ -233,6 +282,8 @@ SELECT format(
     'GRANT USAGE ON SEQUENCES TO %I',
     role_name, :'app_role')
 FROM (VALUES (current_user), (:'migrate_role')) AS r(role_name)
+WHERE role_name = current_user
+   OR pg_has_role(current_user, role_name, 'USAGE')
 \gexec
 
 COMMIT;

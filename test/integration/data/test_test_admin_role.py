@@ -49,11 +49,46 @@ def test_test_admin_is_not_a_superuser(admin_conn: psycopg.Connection) -> None:
     assert row is not None
     is_super, bypass_rls = row
     assert not is_super, (
-        "MT_TIMESCALE_TEST_URL is a superuser. The test tier only needs "
-        "CREATEDB; a superuser credential can reach production by swapping the "
-        "database name in the URL (913 D9). Repoint it at trading_test_admin."
+        "MT_TIMESCALE_TEST_URL is a superuser. The test tier needs only "
+        "CREATEDB, CREATEROLE, and pg_signal_backend — none of which grants "
+        "access to another database's data. A superuser credential can reach "
+        "production by swapping the database name in the URL (913 D9). "
+        "Repoint it at trading_test_admin."
     )
     assert not bypass_rls
+
+
+def test_test_admin_memberships_are_limited_to_signalling(
+    admin_conn: psycopg.Connection,
+) -> None:
+    """Role membership is how a demoted role could quietly regain reach.
+
+    ``pg_signal_backend`` is expected and necessary: teardown calls
+    ``pg_terminate_backend`` so ``DROP DATABASE`` does not block on a lingering
+    connection, and without it PostgreSQL refuses with *"Only roles with the
+    SUPERUSER attribute may terminate processes of roles with the SUPERUSER
+    attribute."* Anything beyond that — notably membership in ``postgres`` or
+    ``trading_migrate`` — would hand back exactly what D9 removed.
+    """
+    memberships = {
+        row[0]
+        for row in admin_conn.execute(
+            "SELECT r.rolname FROM pg_auth_members m "
+            "JOIN pg_roles r ON r.oid = m.roleid "
+            "JOIN pg_roles c ON c.oid = m.member "
+            "WHERE c.rolname = current_user"
+        ).fetchall()
+    }
+    # `t913_*` are the privilege suite's own per-run throwaway roles. That
+    # fixture grants itself USAGE on them (PostgreSQL 16 stopped conferring it
+    # with CREATEROLE) and revokes at teardown, so they are legitimately
+    # present while that suite is mid-run. They are per-run and grant nothing
+    # on `trading`; a leftover one is fixture residue, not a privilege breach.
+    persistent = {m for m in memberships if not m.startswith("t913_")}
+    assert persistent <= {"pg_signal_backend"}, (
+        f"the test-admin credential is a member of {sorted(persistent)}; only "
+        "pg_signal_backend is justified (913 D9)"
+    )
 
 
 def test_test_admin_can_still_create_databases(
