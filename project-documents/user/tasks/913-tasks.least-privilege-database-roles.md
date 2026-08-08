@@ -362,14 +362,15 @@ running process.
   - [x] Effort: 2
   - [x] Done: verified 20260807 against prod as `trading_app`: (1) `mt data status` exit 0, full 64,151-symbol table (exercises auto-extend write to trading_sessions, the write hiding on a read-looking command per D3); (2) `mt data caggs status` — all 9 aggregates with watermarks and job stats (highest-risk command in original survey exercising _timescaledb_catalog, cagg_watermark, timescaledb_information.*, confirms D1 measurement); (3) `mt data get SPY 1d` 22 rows, `mt data get SPY 1m` 1,922 rows, `mt data get SPY 4h` executed in 0.078s returning 0 bars (known cagg staleness, slice 169 — not a privilege issue)
 
-- [ ] **4.2 Verify the daemon hot path**
-  - [ ] Under the application credential, run a bounded minute pull for one
+- [x] **4.2 Verify the daemon hot path**
+  - [x] Under the application credential, run a bounded minute pull for one
         symbol over a recent window
-  - [ ] Confirm rows land, exercising the temp-table COPY path (D2)
-  - [ ] Run a bounded daily cycle
-  - [ ] Success: both complete; row counts increase; no `permission denied` in
+  - [x] Confirm rows land, exercising the temp-table COPY path (D2)
+  - [x] Run a bounded daily cycle
+  - [x] Success: both complete; row counts increase; no `permission denied` in
         logs
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done: verified 20260807 against prod `trading` as `trading_app` — PM ran `mt data daemon run --minute --stop-when-done` and monitored via `pg_stat_activity`: connection identity was `trading_app` from 192.168.1.102; `acquisition_state` showed contiguous alphabetical march LAR → LCII with fresh timestamps 18:15–18:37; LCII recorded `last_attempt_outcome = 'success'`; others `'empty'` (no provider data); minute gaps with `fetch_status='UNKNOWN'` dropped 309 → 302; `PROVIDER_HOLE` rose 33,365 → 33,414 (daemon correctly classifying holes); exercised real hot path (fetch → COPY through temp staging table → gap bookkeeping → state writes) with no `permission denied`; D2 `TEMPORARY` grant and D3 write surface confirmed correct under application role. Non-issues tracked elsewhere: `daemon_heartbeat` empty (pre-existing, matches known behavior); shutdown delay after Ctrl-C not privilege-related (no blocked backends, no idle-in-transaction).
 
 - [x] **4.3 Verify migrations under the maintenance role**
   - [x] Run `mt data migrate apply` with the maintenance credential against a
@@ -400,13 +401,14 @@ running process.
   - [x] Effort: 1
   - [x] Done: verified on scratch database — a table created by `trading_migrate` is immediately SELECT/INSERT/UPDATE/DELETE-able by `trading_app` with no manual grant, and TRUNCATE remains denied. Note: this task found a real defect in scripts/provision_roles.sql (fixed in commit 77f7b0b): applied to bare database without timescaledb extension, cagg-discovery query aborted script and silently skipped ALTER DEFAULT PRIVILEGES block. Guarded with psql's `\if` — SQL `WHERE EXISTS` guard does not work because PostgreSQL resolves relation names at parse time. Artifact must be applied as superuser since `GRANT postgres TO trading_migrate` fails when run as trading_migrate itself
 
-- [ ] **4.6 Record findings and update the walkthrough**
-  - [ ] Record any grant discovered missing during 4.1–4.5, and add it to
+- [x] **4.6 Record findings and update the walkthrough**
+  - [x] Record any grant discovered missing during 4.1–4.5, and add it to
         `provision_roles.sql` (then re-run 1.5 idempotency)
-  - [ ] Refine the LLD Verification Walkthrough with the commands as actually run
-  - [ ] Success: walkthrough reflects reality; artifact covers every grant the
+  - [x] Refine the LLD Verification Walkthrough with the commands as actually run
+  - [x] Success: walkthrough reflects reality; artifact covers every grant the
         offline pass required
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done: One grant-artifact defect was found during Section 4 and folded back in (commit 77f7b0b): applied to a bare database without the timescaledb extension, `scripts/provision_roles.sql` aborted at the cagg-discovery query and silently skipped the ALTER DEFAULT PRIVILEGES block. Guarded with psql's `\if`. Idempotency re-verified afterward: prod exits 0 on two consecutive runs, bare database exits 0, and the 30-test privilege suite still passes. The LLD Verification Walkthrough was rewritten with the commands as actually run. Corrections made to the draft: Step 1 now states the artifact must be applied as a **superuser**, not the maintenance role (`GRANT postgres TO trading_migrate` fails as trading_migrate: "Only roles with the ADMIN option may grant this role"). Also notes it is re-run only when roles/grants change or on a new database — new tables are covered by default privileges. Step 3: granularity is a positional argument (`1d`, `1m`, ...), not a `--timeframe` flag and not the words `daily`/`minute`. Added note that a `4h` query returning 0 bars is the known slice-169 coverage staleness, not a privilege failure. Step 4: replaced `mt data pull` with `mt data daemon run --minute --stop-when-done`, because pull is gap-driven and reports "Would fetch 0 gap(s)" when the chosen symbol has none — proving little. Added the daemon evidence and noted the unrelated empty `daemon_heartbeat` and the Ctrl-C shutdown delay (database showed nothing stuck). Step 5: added the verified result — 51 migrations under trading_migrate including the requires_autocommit path (D5), and `InsufficientPrivilege: permission denied for schema public` under the application credential. Step 7: bars parameter is `granularity` not `timeframe`; gaps is a path parameter `/gaps/SPY` not a query string. Recorded that `/api/v1/status` returns 504 after ~20s and that this is pre-existing and not privilege-related (identical 504 as superuser; underlying query 6.2s as trading_app vs 5.8s as postgres).
 
 ---
 
