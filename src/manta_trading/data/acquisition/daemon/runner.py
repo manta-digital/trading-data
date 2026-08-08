@@ -358,6 +358,10 @@ class Runner:
         self._sleep = sleep
         self._state = RunnerState()
         self._should_exit: bool = False
+        # A quota wait must observe shutdown: sleeps resume after signal
+        # handlers (PEP 475), so without this a daily-window wait outlives
+        # any number of Ctrl-Cs. Reads the flag at call time via closure.
+        bucket.stop_requested = lambda: self._should_exit
         # When the D5 wait was last reported. None until the wait begins; the
         # wait then repeats on a heartbeat rather than falling silent.
         self._wait_announced_at: datetime | None = None

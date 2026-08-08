@@ -24,7 +24,7 @@ from manta_trading.constants import (
 from manta_trading.market.db_session import make_configure_connection
 from manta_trading.providers.types import ProviderType
 from manta_trading.data.acquisition.daemon.cadence import daily_pass_boundary
-from manta_trading.data.acquisition.quota import CallType
+from manta_trading.data.acquisition.quota import CallType, QuotaWaitAborted
 from manta_trading.data.acquisition.outcomes import (
     ProviderResponseError,
     classify_outcome,
@@ -402,15 +402,21 @@ def run_daily_cycle(
                 # rebinding here discarded the un-actionable counts set above,
                 # while the BACKFILL branch below preserved them, so the two
                 # modes disagreed on what a report contained (912 review F001).
-                _run_steady_state_cycle(
-                    report=report,
-                    symbol_list=symbol_list,
-                    pool=pool,
-                    http=http,
-                    settings=settings,
-                    should_continue=should_continue,
-                    t0=t0,
-                )
+                try:
+                    _run_steady_state_cycle(
+                        report=report,
+                        symbol_list=symbol_list,
+                        pool=pool,
+                        http=http,
+                        settings=settings,
+                        should_continue=should_continue,
+                        t0=t0,
+                    )
+                except QuotaWaitAborted:
+                    _logger.info(
+                        "run_daily_cycle: quota wait aborted by shutdown — "
+                        "exiting"
+                    )
             else:
                 for sym in symbol_list:
                     if should_continue is not None and not should_continue():
@@ -421,13 +427,22 @@ def run_daily_cycle(
                             len(symbol_list) - report.total,
                         )
                         break
-                    outcome = _process_daily_symbol(
-                        sym,
-                        pool=pool,
-                        http=http,
-                        settings=settings,
-                        via=FetchEntryPoint.CYCLE,
-                    )
+                    try:
+                        outcome = _process_daily_symbol(
+                            sym,
+                            pool=pool,
+                            http=http,
+                            settings=settings,
+                            via=FetchEntryPoint.CYCLE,
+                        )
+                    except QuotaWaitAborted:
+                        _logger.info(
+                            "run_daily_cycle: quota wait aborted by shutdown — "
+                            "exiting (processed=%d, remaining=%d)",
+                            report.total,
+                            len(symbol_list) - report.total,
+                        )
+                        break
                     report.symbol_outcomes[sym] = str(outcome)
                     if outcome == LastAttemptOutcome.SUCCESS:
                         report.success_count += 1
@@ -640,6 +655,10 @@ def _process_daily_symbol(
         return _do_daily_symbol(
             symbol, pool=pool, http=http, settings=settings, via=via
         )
+    except QuotaWaitAborted:
+        # Shutdown, not a failure — must reach the cycle loop, so it cannot
+        # fall through to the except Exception below.
+        raise
     except ProviderResponseError as exc:
         # Unexpected 4xx from EODHD — skip this symbol rather than crashing
         # the cycle. Log at ERROR so it surfaces for investigation.

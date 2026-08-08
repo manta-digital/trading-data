@@ -14,7 +14,7 @@ from manta_trading.data.acquisition.daemon.minute import (
     run_minute_cycle,
     run_minute_refetch,
 )
-from manta_trading.data.acquisition.quota import QuotaBucket
+from manta_trading.data.acquisition.quota import QuotaBucket, QuotaWaitAborted
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.gaps.actionable_gap_selector import GapRow
 
@@ -71,6 +71,8 @@ class TestRunMinuteCycle:
         gaps_sequence: list,
         outcome: LastAttemptOutcome = LastAttemptOutcome.SUCCESS,
         gaps_inserted: int = 0,
+        should_continue=None,
+        eodhd_side_effect=None,
     ) -> tuple:
         gap_iter = iter(gaps_sequence)
         mocks: dict[str, MagicMock] = {}
@@ -86,6 +88,11 @@ class TestRunMinuteCycle:
                 "manta_trading.data.acquisition.daemon.minute.Settings",
                 return_value=_FakeSettings(),
             )
+            if eodhd_side_effect is not None:
+                mp(
+                    "manta_trading.data.acquisition.daemon.minute.eodhd_get",
+                    side_effect=eodhd_side_effect,
+                )
             mp(
                 "manta_trading.data.acquisition.daemon.minute.classify_outcome",
                 return_value=outcome,
@@ -187,7 +194,9 @@ class TestRunMinuteCycle:
                 ),
             )
 
-            report = run_minute_cycle(symbols=symbols)
+            report = run_minute_cycle(
+                symbols=symbols, should_continue=should_continue
+            )
 
         return report, pick_mock, update_mock, coalesce_mock, advance_mock
 
@@ -246,6 +255,43 @@ class TestRunMinuteCycle:
         assert len(complete_lines) == 1
         assert "3 symbols" in complete_lines[0]
         assert "9 gap rows seeded" in complete_lines[0]
+
+    def test_should_continue_false_mid_symbol_exits_between_chunks(self) -> None:
+        """Shutdown mid-symbol stops after the current chunk, not after the
+        whole symbol (20260807 clean-exit fix).
+
+        Flag polls: 1 = between symbols, 2 = first chunk top (both pass),
+        3 = second chunk top (stop). Exactly one chunk is fetched and the
+        post-loop bookkeeping (coalesce) still runs.
+        """
+        g1 = _gap(_dt(2024, 1, 1), _dt(2024, 4, 30))
+        g2 = _gap(_dt(2024, 5, 1), _dt(2024, 8, 31))
+        g3 = _gap(_dt(2024, 9, 1), _dt(2024, 12, 31))
+        polls = {"n": 0}
+
+        def flag() -> bool:
+            polls["n"] += 1
+            return polls["n"] <= 2
+
+        report, pick_mock, _, coalesce_mock, advance_mock = self._run(
+            ["AAPL"], [g1, g2, g3, None], should_continue=flag
+        )
+        assert pick_mock.call_count == 1
+        assert advance_mock.call_count == 1
+        coalesce_mock.assert_called_once()
+
+    def test_quota_wait_aborted_exits_cycle_without_transient_failure(self) -> None:
+        """QuotaWaitAborted mid-fetch is shutdown, not a symbol failure: the
+        cycle exits before the next symbol and records no outcome for it."""
+        g1 = _gap(_dt(2024, 1, 1), _dt(2024, 4, 30))
+        report, pick_mock, *_ = self._run(
+            ["AAPL", "MSFT"],
+            [g1, None, g1, None],
+            eodhd_side_effect=QuotaWaitAborted("shutdown"),
+        )
+        assert pick_mock.call_count == 1  # MSFT never started
+        assert report.transient_failure_count == 0
+        assert report.symbol_outcomes == {}
 
 
 # ---------------------------------------------------------------------------

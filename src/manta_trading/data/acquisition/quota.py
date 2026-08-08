@@ -42,6 +42,23 @@ CALL_COSTS: dict[CallType, int] = {
 _MINUTE_WINDOW_SECONDS: float = 60.0
 _DAY_WINDOW_SECONDS: float = 86400.0
 
+_STOP_POLL_SECONDS: float = 1.0
+"""Upper bound on a single ``consume`` sleep when ``stop_requested`` is set.
+
+A quota wait must re-check the shutdown flag at this cadence: ``time.sleep``
+is transparently restarted after a signal handler runs (PEP 475), so a single
+full-length sleep — a *daily*-window wait can be hours — would resume after
+Ctrl-C and ignore the requested exit (the 20260807 minute-daemon kill)."""
+
+
+class QuotaWaitAborted(Exception):
+    """A blocked ``consume`` observed ``stop_requested`` and gave up waiting.
+
+    Raised instead of deducting credits or making progress; the call it
+    would have authorized never happens. Cycle loops catch this to exit
+    cleanly between (or within) symbols during shutdown.
+    """
+
 
 @dataclass
 class _Window:
@@ -100,10 +117,18 @@ class QuotaBucket:
 
     A custom ``now`` clock and ``sleep`` callable can be injected for
     deterministic testing.
+
+    ``stop_requested`` (assigned by the daemon Runner, never required for
+    CLI one-shot buckets) lets a blocked ``consume`` abort with
+    :class:`QuotaWaitAborted` when shutdown is flagged, instead of resuming
+    its sleep after the signal handler returns. When set, sleeps are capped
+    at ``_STOP_POLL_SECONDS`` so the flag is observed promptly; when None,
+    ``consume`` sleeps full-length exactly as before.
     """
 
     now: Callable[[], float] = field(default=time.monotonic)
     sleep: Callable[[float], None] = field(default=time.sleep)
+    stop_requested: Callable[[], bool] | None = None
     minute_window: _Window = field(init=False)
     day_window: _Window = field(init=False)
     _spent_log: list[tuple[float, int]] = field(default_factory=list, init=False)
@@ -154,7 +179,15 @@ class QuotaBucket:
                 self._spent_log.append((now, cost))
                 self._trim_spent_log(now)
                 return
-            self.sleep(wait)
+            if self.stop_requested is None:
+                self.sleep(wait)
+            elif self.stop_requested():
+                raise QuotaWaitAborted(
+                    f"quota wait aborted by shutdown ({wait:.1f}s remaining "
+                    f"for {call_type})"
+                )
+            else:
+                self.sleep(min(wait, _STOP_POLL_SECONDS))
 
     def spent_today(self) -> int:
         """Credits consumed in the rolling 24h window ending now."""

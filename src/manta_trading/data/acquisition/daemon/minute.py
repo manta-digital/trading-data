@@ -21,7 +21,7 @@ from manta_trading.constants import (
     FetchEntryPoint,
 )
 from manta_trading.market.db_session import make_configure_connection
-from manta_trading.data.acquisition.quota import CallType
+from manta_trading.data.acquisition.quota import CallType, QuotaWaitAborted
 from manta_trading.data.acquisition.daemon.daily import (
     CycleReport,
     _last_completed_session,
@@ -173,14 +173,24 @@ def run_minute_cycle(
                         len(symbol_list) - report.total,
                     )
                     break
-                outcome, cs, ce, n_chunks, gaps_seeded = _process_minute_symbol(
-                    sym,
-                    pool=pool,
-                    http=http,
-                    settings=settings,
-                    coverage_index=coverage_index,
-                    via=FetchEntryPoint.CYCLE,
-                )
+                try:
+                    outcome, cs, ce, n_chunks, gaps_seeded = _process_minute_symbol(
+                        sym,
+                        pool=pool,
+                        http=http,
+                        settings=settings,
+                        coverage_index=coverage_index,
+                        via=FetchEntryPoint.CYCLE,
+                        should_continue=should_continue,
+                    )
+                except QuotaWaitAborted:
+                    _logger.info(
+                        "run_minute_cycle: quota wait aborted by shutdown — "
+                        "exiting (processed=%d, remaining=%d)",
+                        report.total,
+                        len(symbol_list) - report.total,
+                    )
+                    break
                 report.symbol_outcomes[sym] = str(outcome)
                 if outcome == LastAttemptOutcome.SUCCESS:
                     report.success_count += 1
@@ -221,6 +231,7 @@ def _process_minute_symbol(
     settings: Settings,
     via: FetchEntryPoint,
     coverage_index: dict[str, set[date]] | None = None,
+    should_continue: Callable[[], bool] | None = None,
 ) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     try:
         return _do_minute_symbol(
@@ -230,7 +241,12 @@ def _process_minute_symbol(
             settings=settings,
             coverage_index=coverage_index,
             via=via,
+            should_continue=should_continue,
         )
+    except QuotaWaitAborted:
+        # Shutdown, not a failure — must reach the cycle loop, so it cannot
+        # fall through to the except Exception below.
+        raise
     except ProviderResponseError as exc:
         # Non-404 4xx from EODHD — unexpected but skip this symbol rather than
         # crashing the entire cycle. Log at ERROR so it surfaces for investigation.
@@ -276,6 +292,7 @@ def _do_minute_symbol(
     force_reset_terminal: bool = False,
     window: tuple[date, date] | None = None,
     coverage_index: dict[str, set[date]] | None = None,
+    should_continue: Callable[[], bool] | None = None,
 ) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     now_midnight = datetime.now(_UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     with pool.connection() as conn:
@@ -380,6 +397,19 @@ def _do_minute_symbol(
     # conn is returned to pool here — chunk loop uses fresh connections per chunk.
 
     while True:
+        # A deep backfill walks ~69 chunks per symbol; checking only between
+        # symbols left Ctrl-C unanswered for 10+ minutes (20260807). Exiting
+        # here is identical to the gap-is-None break: per-chunk commits make
+        # the remaining UNKNOWN gaps resume on the next cycle.
+        if should_continue is not None and not should_continue():
+            _logger.info(
+                "minute fetch: %s — should_continue=False, exiting between "
+                "chunks (chunks done=%d)",
+                symbol,
+                chunk_count,
+            )
+            break
+
         # Re-read actionable gaps each iteration (prior chunk may have
         # filled some).  Advisory lock re-acquired per transaction.
         with pool.connection() as chunk_conn:
