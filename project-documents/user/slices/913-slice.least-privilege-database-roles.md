@@ -8,6 +8,7 @@ interfaces: [912]
 dateCreated: 20260806
 dateUpdated: 20260808
 status: complete
+review: none
 ---
 
 # Slice Design: Least-Privilege Database Roles — Make Credential Leaks Non-Destructive
