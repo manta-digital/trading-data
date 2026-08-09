@@ -4,82 +4,100 @@ layer: project
 reviewType: tasks
 slice: remove-the-alphavantage-era-news-subsystem
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 sourceDocument: project-documents/user/tasks/914-tasks.remove-the-alphavantage-era-news-subsystem.md
 aiModel: minimax/minimax-m3
 status: complete
-dateCreated: 20260808
-dateUpdated: 20260808
-reviewedSha: 2c8ea3b3c2efdcb28d958e9752fbc1cb0e4fdc13
+dateCreated: 20260809
+dateUpdated: 20260809
+reviewedSha: 1f10e9f76adc8ef7e8ccc3bf2a8f511de3d4db95
 findings:
   - id: F001
-    severity: fail
-    category: missing-task
-    summary: "Load test verification is missing despite being a stated success criterion"
-    location: unverified
+    severity: pass
+    category: uncategorized
+    summary: "All Functional Requirements are traced to tasks"
+    location: 914-tasks.remove-the-alphavantage-era-news-subsystem.md:54-91
   - id: F002
-    severity: fail
-    category: sequencing
-    summary: "Integration test deletion is not followed by a test-with verification task"
-    location: project-documents/user/tasks/914-tasks.remove-the-alphavantage-era-news-subsystem.md:2.1-2.3
+    severity: pass
+    category: uncategorized
+    summary: "All Technical Requirements are traced to tasks"
+    location: 914-tasks.remove-the-alphavantage-era-news-subsystem.md:46-52,98-105,162-178
   - id: F003
-    severity: concern
-    category: commit-distribution
-    summary: "Task 1.2 has no immediately-following commit checkpoint tied to it"
-    location: project-documents/user/tasks/914-tasks.remove-the-alphavantage-era-news-subsystem.md:phase-1
+    severity: pass
+    category: uncategorized
+    summary: "Both Integration Requirements are traced to tasks"
+    location: 914-tasks.remove-the-alphavantage-era-news-subsystem.md:183-194
   - id: F004
-    severity: concern
-    category: scope-clarity
-    summary: "Phase 4.1 ruff/mypy baseline comparison is ambiguous"
-    location: project-documents/user/tasks/914-tasks.remove-the-alphavantage-era-news-subsystem.md:4.1
+    severity: pass
+    category: sequencing
+    summary: "Sequencing and dependencies are respected"
+    location: 914-tasks.remove-the-alphavantage-era-news-subsystem.md:25-228
   - id: F005
-    severity: concern
-    category: scope-clarity
-    summary: "Task 4.2's \"30-second pytest timeout\" claim is unverifiable as written"
-    location: project-documents/user/tasks/914-tasks.remove-the-alphavantage-era-news-subsystem.md:4.2
+    severity: pass
+    category: scope
+    summary: "Task sizing is appropriate"
+    location: 914-tasks.remove-the-alphavantage-era-news-subsystem.md
   - id: F006
-    severity: note
-    category: process-observation
-    summary: "Task 5.1 modifies the slice design as a work artifact"
-    location: project-documents/user/tasks/914-tasks.remove-the-alphavantage-era-news-subsystem.md:5.1
+    severity: concern
+    category: scope-creep
+    summary: "Phase 4 commit checkpoint has no file changes to commit"
+    location: 914-tasks.remove-the-alphavantage-era-news-subsystem.md:159-205
   - id: F007
+    severity: concern
+    category: gaps
+    summary: "Task 4.5 lacks a captured baseline for the `mt --help` comparison"
+    location: 914-tasks.remove-the-alphavantage-era-news-subsystem.md:199-205
+  - id: F008
     severity: note
-    category: commit-distribution
-    summary: "Phase 1 commit message may conflict with Phase 2 commit message boundary"
-    location: project-documents/user/tasks/914-tasks.remove-the-alphavantage-era-news-subsystem.md:phase-1-phase-2
+    category: sequencing
+    summary: "Commit granularity diverges from slice design with a documented justification"
+    location: 914-tasks.remove-the-alphavantage-era-news-subsystem.md:18-23
+  - id: F009
+    severity: note
+    category: scope
+    summary: "No load test or CI wiring required by the slice"
+    location: 914-slice.remove-the-alphavantage-era-news-subsystem.md:103-129
 ---
 
 # Review: tasks — slice 914
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS
 **Model:** minimax/minimax-m3
 
 ## Findings
 
-### [FAIL] Load test verification is missing despite being a stated success criterion
+### [PASS] All Functional Requirements are traced to tasks
 
-The slice design's Technical Requirements state: "Per-subpackage test suites (unit, integration, load) all pass, matching or improving on the pre-slice baseline." The tasks only cover unit and integration tiers (Phase 4.2). There is no task to run the load test suite, and Phase 4.2's success criteria explicitly mention "no timeout hazard observed" in pytest, which is a different artifact than load test execution. The load tier must be run to satisfy this criterion. Note: no NFR restatement exists in the slice, so the `tests/load/` task and CI-wiring requirements from the evaluation criteria are not triggered — but the explicit per-subpackage success criterion still requires a load test run task.
+Tasks 1.2 (source deletion), 2.1+2.2 (8 test files), 3.1+3.2 (pymongo/motor in pyproject.toml and uv.lock), and 4.5 (CLI unchanged) each map 1:1 to a stated Functional Requirement in the slice design. No gaps.
 
-### [FAIL] Integration test deletion is not followed by a test-with verification task
+### [PASS] All Technical Requirements are traced to tasks
 
-The test-with pattern requires that test tasks immediately follow their implementation tasks with verification. Phase 2 deletes integration tests (2.2) but no task immediately runs the integration suite to confirm the deletion didn't break imports or test discovery in surrounding files. Phase 4.2 runs the full suite at the end, but the immediate post-deletion verification step that would catch a test-collection error (e.g., a conftest that referenced the deleted modules) is absent. A task to run integration test discovery between 2.2 and 2.3, or immediately after 2.3, would satisfy the pattern.
+Tasks 1.3 and 2.3 cover the `grep` Technical Requirement (with the `NEWSTOCK` exclusion correctly called out twice). Task 3.2 covers `uv sync`. Task 4.1 covers ruff/mypy static checks. Tasks 4.2+4.3 cover per-subpackage suite passes including load. All four Technical Requirements have corresponding tasks.
 
-### [CONCERN] Task 1.2 has no immediately-following commit checkpoint tied to it
+### [PASS] Both Integration Requirements are traced to tasks
 
-Phase 1 bundles three sub-tasks (1.1 deletion, 1.2 grep verification) under a single commit. The grep verification in 1.2 is what proves the deletion is clean; if it fails, the commit should be blocked. This is functionally fine but the success criteria for 1.2 are documentation only — there is no enforcement mechanism. Consider making 1.2 a hard gate before the Phase 1 commit is made.
+The "exactly 4 fewer integration failures" assertion is covered by Task 4.2 with a precise arithmetic comparison (`(1.1 baseline − 4)`). The timeout-hazard elimination is covered by Task 4.4, framed as a by-construction check rooted in the dependency removal in 3.2 — a reasonable interpretation given that no behavioral NFR is restated.
 
-### [CONCERN] Phase 4.1 ruff/mypy baseline comparison is ambiguous
+### [PASS] Sequencing and dependencies are respected
 
-The success criteria say "pass at or below the pre-slice baseline" but a junior AI executing this task has no clear way to determine the pre-slice baseline numbers. The slice design's Verification Walkthrough does not record these. The task should either reference where the baseline is recorded (e.g., "see slice 913's wrap-up") or include a step to capture the baseline before Phase 1 begins. Currently the verification is partially subjective.
+Phase 1 baseline (1.1) precedes all later comparisons; source deletion (1.2) precedes its verification gate (1.3); test deletion (2.1, 2.2) precedes its verification gates (2.3, 2.4); pyproject.toml edits (3.1) precede lockfile refresh (3.2); lockfile refresh precedes the by-construction timeout check (4.4). No circular dependencies.
 
-### [CONCERN] Task 4.2's "30-second pytest timeout" claim is unverifiable as written
+### [PASS] Task sizing is appropriate
 
-The success criterion states "no test run hits the 30-second pytest timeout attributable to the former `pymongo` server-RTT background thread." A junior AI cannot distinguish a 30-second timeout attributable to the pymongo thread from any other 30-second timeout. The slice design mentions that the timeout "has taken an unrelated neighboring test down with it in an otherwise-clean run" but provides no mechanism to attribute the cause after the fact. Either drop this verification (since the cause is removed by construction) or replace it with a concrete signal like "all tests complete in under the per-test timeout limit."
+Each task is mechanical and completable by a junior AI with explicit success criteria. The multi-file deletions (1.2, 2.1, 2.2) could be split per-file but are reasonably grouped because they share a single success criterion (`does not exist` checks). Documentation tasks in Phase 5 are appropriately scoped.
 
-### [NOTE] Task 5.1 modifies the slice design as a work artifact
+### [CONCERN] Phase 4 commit checkpoint has no file changes to commit
 
-Editing the slice design's Verification Walkthrough with actual output during closeout is reasonable for reproducibility, but worth noting that this means the design doc becomes a mutable execution artifact rather than a frozen spec. A separate closeout report (or appending a "Post-Execution Verification" section) might be cleaner, but this is a stylistic call, not a defect.
+The `Commit: chore: verify news subsystem removal is clean` line at the end of Phase 4 implies a commit, but Tasks 4.1–4.5 are pure verification steps that produce no file diffs. Unless verification surfaces a fix (in which case that fix belongs in a different, more descriptive commit), this commit will be empty. Either remove the commit checkpoint and treat Phase 4 as a gate-only phase, or fold the Phase 5 documentation commits (5.1, 5.2, 5.3) under Phase 4's commit so the checkpoint has content.
 
-### [NOTE] Phase 1 commit message may conflict with Phase 2 commit message boundary
+### [CONCERN] Task 4.5 lacks a captured baseline for the `mt --help` comparison
 
-The slice design's Implementation Notes explicitly state: "A single commit deleting both source and tests together is correct; splitting further adds no safety." The task breakdown splits source deletion and test deletion into two separate commits. This is a deliberate deviation from the design's recommendation; flagging for the Project Manager to confirm intent. The split is defensible (it makes the source-only commit bisectable for blame) but contradicts the design's stated approach.
+The Phase 4.5 success criterion says "output is unchanged," but Task 1.1 does not include capturing the `mt --help` output as part of the baseline. The task's own description acknowledges "expect identical (no command referenced the news subsystem)" — true by construction, but a textual diff still requires captured output to compare against. Add a `mt --help > /tmp/mt-help-before.txt` step to Task 1.1, then a `diff` step to Task 4.5, so the verification is reproducible rather than asserted.
+
+### [NOTE] Commit granularity diverges from slice design with a documented justification
+
+The slice design's Implementation Notes recommend a single combined commit ("splitting further adds no safety"), whereas the task breakdown uses four commits across Phases 1–4 plus a docs commit. The preamble justifies this with bisectability. The decision is defensible and the slice design's preference is not a hard constraint, but the breakdown should be aware it is overriding the upstream guidance rather than following it.
+
+### [NOTE] No load test or CI wiring required by the slice
+
+The slice design restates no behavioral NFR (e.g., latency, throughput) — its Integration Requirements are verification assertions about a removal. Task 4.3 correctly runs the existing load tier for regression rather than adding a new load test, and no CI gate change is required. The reviewer criteria for load-test addition do not trigger.

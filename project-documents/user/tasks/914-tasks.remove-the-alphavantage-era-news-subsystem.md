@@ -50,11 +50,13 @@ end state or leave the tree broken at either checkpoint.
     `testcli_lists.py` failures) per slice 913's wrap-up; record the actual
     numbers observed, since this is the number Phase 4 must reproduce minus
     4
-  - [ ] Write these counts into a scratch note (e.g. the top of this task
-    file's Context section, or a local file) — they are the reference
-    values Phase 4.1 and 4.2 compare against
+  - [ ] Run `mt --help > /tmp/mt-help-before.txt` and keep the file — it is
+    the reference output Task 4.5 diffs against
+  - [ ] Write the ruff/mypy/unit/integration counts into a scratch note
+    (e.g. the top of this task file's Context section, or a local file) —
+    they are the reference values Phase 4.1 and 4.2 compare against
   - [ ] Success: ruff, mypy, unit, and integration baseline counts are
-    recorded and available for later comparison
+    recorded, and `/tmp/mt-help-before.txt` exists and is non-empty
 
 - [ ] **1.2 Delete the news package**
   - [ ] Delete `src/manta_trading/news/` in full: `__init__.py`, `news.py`,
@@ -172,11 +174,17 @@ end state or leave the tree broken at either checkpoint.
   - [ ] Success: no test in either tier hits its configured timeout
 
 - [ ] **4.5 Confirm CLI is unaffected**
-  - [ ] Run `mt --help` and compare against pre-slice output — expect
-    identical (no command referenced the news subsystem)
-  - [ ] Success: `mt --help` output is unchanged
+  - [ ] Run `mt --help > /tmp/mt-help-after.txt`
+  - [ ] Run `diff /tmp/mt-help-before.txt /tmp/mt-help-after.txt` — expect no
+    output (no command referenced the news subsystem, so nothing should
+    change)
+  - [ ] Success: `diff` reports no differences between the 1.1 baseline and
+    the post-removal output
 
-**Commit**: `chore: verify news subsystem removal is clean`
+Phase 4 is verification-only and produces no file changes to commit —
+proceed directly to Phase 5 without a commit checkpoint here. If any 4.x
+step surfaces an actual defect requiring a code fix, that fix gets its own
+descriptively-named commit before continuing.
 
 ### Phase 5: Documentation and Slice Closeout
 
