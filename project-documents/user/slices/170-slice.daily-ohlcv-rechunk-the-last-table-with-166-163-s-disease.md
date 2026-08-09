@@ -7,7 +7,7 @@ dependencies: [166]
 interfaces: [169]
 dateCreated: 20260809
 dateUpdated: 20260809
-status: draft
+status: ready
 ---
 
 # Slice Design: `daily_ohlcv` Rechunk — the Last Table with 166/163's Disease
