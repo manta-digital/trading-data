@@ -2,13 +2,31 @@
 docType: devlog
 project: trading
 dateCreated: 20260411
-dateUpdated: 20260804
+dateUpdated: 20260809
 ---
 
 # Development Log
 
 A lightweight, append-only record of development activity. Newest entries first.
 Format: `## YYYYMMDD` followed by brief notes (1-3 lines per session). Written from implementor perspective (class names, design decisions, test counts). For user-visible changes see CHANGELOG.md.
+
+---
+
+## 20260809
+
+**Slice 914 + 0.7.7 release** — removed the AlphaVantage-era news subsystem: `news/` (7 files), `agents/newsagent.py`, 5 unit + 3 integration test files, and the `pymongo`/`motor` dependencies (`uv lock` also dropped `dnspython`). Unit 1,892 → 1,868 passed (0 failed); integration failures 6 → 2, both the pre-existing `test_cli_lists.py` pair; `mt --help` diff empty. Cut CHANGELOG sections retroactively for 0.7.5/0.7.6 (tagged without changelog) and released 0.7.7. Filed API enhancement issues #11 (expose all stored instrument metadata), #12 (batch bars), #13 (last-N-bars).
+
+---
+
+## 20260808
+
+**Slice 913** — least-privilege database roles. Prod now connects as `trading_app` (DML-only: no TRUNCATE/DDL/ownership, SELECT-only on the migration ledger); schema/maintenance commands (`migrate apply`, `init`, `restore run`, `rechunk`, `caggs repair/refresh`) resolve `MT_TIMESCALE_MAINTENANCE_URL` and fail loudly when unset; test tier moved off superuser onto `trading_test_admin` (CREATEDB/CREATEROLE/pg_signal_backend only — 80,108 prod table grants → 0). Provisioning via idempotent `scripts/provision_roles.sql`, superuser-applied. Also: daemon clean-exit fix (`_do_minute_symbol` polls `should_continue` per chunk; `QuotaBucket.stop_requested` raises `QuotaWaitAborted` with 1s-sliced sleeps; cycle loops re-raise it past the transient-failure handlers) — 20260807 had shown five ignored signals and a required SIGKILL.
+
+---
+
+## 20260805–06
+
+**0.7.5 / 0.7.6 ship + daemon wedge fix** — 0.7.5 shipped slices 186 (API contract hardening) and 187 (symbols ranges via coverage caggs) plus the post-186 window-bound fixes below. 0.7.6 shipped the daily-mode wedge fix: `_select_daily_mode`'s cold-symbol probe (`COUNT(DISTINCT symbol)` with ~31k-element `ANY` over 3,371-chunk `daily_ohlcv`) rewritten as a bounded anti-join on `acquisition_state` (`_WARM_OUTCOMES`), and `make_configure_connection` hoisted from `api_server` to `market/db_session` so all four daemon pools get `DB_BULK_SESSION` (UTC, work_mem, 300s statement_timeout). Incident restore + test-tier prod-URL ratchet work journaled in `000-process-journal.md` 20260805–06.
 
 ---
 
