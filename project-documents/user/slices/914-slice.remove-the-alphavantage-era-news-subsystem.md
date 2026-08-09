@@ -6,8 +6,8 @@ parent: user/architecture/900-slices.foundation-cleanup.md
 dependencies: []
 interfaces: []
 dateCreated: 20260808
-dateUpdated: 20260808
-status: not_started
+dateUpdated: 20260809
+status: complete
 review: none
 ---
 
@@ -200,43 +200,74 @@ None.
 
 ### Verification Walkthrough
 
+Verified 20260809 against the actual implementation (commits cda10b7,
+c77f450, 879b1d6 on branch `914-slice.remove-the-alphavantage-era-news-subsystem`).
+Pre-slice baseline was captured first (task 1.1) so each step below compares
+against a recorded number rather than an assumed one.
+
 1. **Confirm the subsystem is gone:**
    ```
    find src/manta_trading/news src/manta_trading/agents/newsagent.py
    ```
-   Expect: "No such file or directory" for both paths.
+   Expect: `find: ... No such file or directory` (BSD/macOS `find`; GNU `find`
+   emits the same message with a different leading token) for both paths.
+   Confirmed.
 
 2. **Confirm no dangling references:**
    ```
    grep -ri news src/ test/ --include="*.py"
    ```
    Expect: only `test/unit/test_chunking_strategy.py` lines containing the
-   literal `"NEWSTOCK"` test symbol — nothing else.
+   literal `"NEWSTOCK"` test symbol — nothing else. Confirmed (5 matching
+   lines, all `NEWSTOCK`).
 
 3. **Confirm dependency removal:**
    ```
    grep -i "pymongo\|motor" pyproject.toml uv.lock
    ```
-   Expect: no matches. Then:
+   Expect: no matches (exit code 1). Then:
    ```
-   uv sync
+   uv sync --extra dev
    ```
-   Expect: clean resolution, no errors.
+   Expect: clean resolution, no errors. Confirmed — `uv lock` reported
+   "Removed dnspython v2.8.0 / Removed motor v3.7.1 / Removed pymongo
+   v4.16.0"; `uv sync --extra dev` resolved 105 packages with no errors.
 
 4. **Confirm the test suite is cleaner, not just smaller:**
-   Run the project's per-subpackage suite (unit, then integration, per the
-   existing `scripts/run_tests.py` invocation pattern). Compare the
-   integration failure count against the pre-slice baseline recorded in the
-   913 wrap-up (6 pre-existing failures: 4 news-related + 2 unrelated
-   `testcli_lists.py` failures). Expect exactly 2 remaining (the unrelated
-   ones), and no new failures.
+   Run `uv run --extra dev pytest test/unit/ -q` and
+   `uv run --extra dev pytest test/integration/ -q`. Compare against the
+   pre-slice baseline captured in task 1.1 (not the 913 wrap-up estimate,
+   which task 1.1 superseded with an exact count): baseline was unit 1892
+   passed/45 skipped/0 failed, integration 12 passed/6 failed/250
+   skipped/2 errors (4 news-related + 2 unrelated `test_cli_lists.py`
+   failures). Post-removal actual: unit 1868 passed/45 skipped/0 failed
+   (24 fewer tests, matching the 5 deleted unit test files, no new
+   failures); integration 3 passed/2 failed/255 skipped/0 errors — exactly
+   the baseline minus the 4 news failures and minus the 2 errors (both were
+   on now-deleted news tests), leaving only the pre-existing unrelated
+   `test_cli_lists.py::test_lists_ls_includes_priority1` and
+   `test_cli_lists.py::test_lists_show_priority1_emits_ten_symbols`
+   failures. Confirmed, no new failures anywhere.
+
+   Also confirmed (task 4.3): load tier (`MT_RUN_LOAD_TESTS=1 uv run --extra
+   dev pytest test/load/ -q`) — 6 passed, 7 skipped, unchanged from
+   pre-slice (no news tests exist in this tier).
 
 5. **Confirm the CLI is unaffected:**
    ```
    mt --help
    ```
    Expect: identical output to before the slice — no news-related subcommand
-   existed, so none disappears.
+   existed, so none disappears. Confirmed via
+   `diff /tmp/mt-help-before.txt /tmp/mt-help-after.txt` (captured
+   before/after the slice per task 1.1 / task 4.5): zero-length diff.
+
+**Caveat discovered during implementation:** ruff (1788→1460) and mypy
+(93 errors/19 files/149 files→90 errors/17 files/141 files) counts both
+dropped along with the deleted files, as expected since the deleted files
+themselves carried violations — this is a byproduct of deletion, not a
+verification target in its own right, but confirms no orphaned-import
+regressions were introduced elsewhere in the tree.
 
 ## Implementation Notes
 
