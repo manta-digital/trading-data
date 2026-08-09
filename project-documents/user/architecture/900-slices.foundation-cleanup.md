@@ -3,8 +3,8 @@ docType: slice-plan
 parent: user/architecture/900-arch.foundation-cleanup.md
 project: trading
 dateCreated: 20260328
-dateUpdated: 20260808
-status: in-progress
+dateUpdated: 20260809
+status: in_progress
 ---
 
 # Slice Plan: Foundation & Cleanup

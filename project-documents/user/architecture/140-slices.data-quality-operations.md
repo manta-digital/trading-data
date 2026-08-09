@@ -3,8 +3,8 @@ docType: slice-plan
 parent: user/architecture/140-arch.data-quality-operations.md
 project: trading
 dateCreated: 20260429
-dateUpdated: 20260806
-status: in-progress
+dateUpdated: 20260809
+status: in_progress
 ---
 
 # Slice Plan: Data Quality and Operations
