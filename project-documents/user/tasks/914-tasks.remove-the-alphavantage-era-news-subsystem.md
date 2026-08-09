@@ -36,6 +36,20 @@ commit the slice design's Implementation Notes suggest. This is a deliberate
 choice — it keeps the source-only commit bisectable — and does not change
 end state or leave the tree broken at either checkpoint.
 
+**Pre-slice baseline (captured 20260809, task 1.1)**:
+- ruff (`src/ test/`): 1788 errors
+- mypy (`uv run --extra dev mypy`): 93 errors in 19 files (149 source files checked)
+- unit (`test/unit/`): 1892 passed, 45 skipped, 0 failed
+- integration (`test/integration/`): 12 passed, 6 failed, 250 skipped, 2 errors
+  — the 6 failures are exactly the expected set: 4 news-related
+  (`testNewsIntegration.py::test_agent_command`,
+  `testNewsIntegration.py::test_invalid_command`,
+  `testNewsIntegration.py::test_verify_news_db`,
+  `testnewsdbmigrationintegration.py::testMigrationBatch`) plus 2 unrelated
+  (`test_cli_lists.py::test_lists_ls_includes_priority1`,
+  `test_cli_lists.py::test_lists_show_priority1_emits_ten_symbols`)
+- `mt --help` captured to `/tmp/mt-help-before.txt` (21 lines)
+
 ## Tasks
 
 ### Phase 1: Capture Baseline, Then Delete Source
