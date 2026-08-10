@@ -107,6 +107,10 @@ status: not_started
       resumability **untouched**. If a change to any of these seems
       necessary, stop and raise it — it means the refactor has exceeded its
       scope.
+- [ ] B2.6 Commit: the constant (B1) and the registry refactor land together
+      — the registry references `DAILY_OHLCV_CHUNK_INTERVAL`, so they cannot
+      be split without leaving a broken commit. This lands before the
+      migration and CLI work so a bisect can isolate the refactor.
 - **Success:** the driver is table-agnostic; no `MINUTE_*` constant is
   referenced outside the registry's `MINUTE` entry; dispatch is by enum, not
   string comparison.
@@ -125,10 +129,13 @@ status: not_started
 - [ ] B3.3 Add a test asserting the daily pre-flight error message names
       migration 050 and the minute one still names 043.
 - [ ] B3.4 Confirm the existing minute-path unit tests still pass unmodified.
-      If any required editing, note precisely which and why — that is
-      evidence the refactor changed minute behavior (Success Criterion 7).
+      **If any test required editing to pass, HALT and escalate to the PM
+      before proceeding to B4** — a required edit is evidence the refactor
+      changed minute behavior, which Success Criterion 7 forbids. Do not
+      "fix" the test to match new behavior; that converts the regression
+      guard into a rubber stamp. Note precisely which test and why.
 - **Success:** `uv run pytest test/unit/market/test_rechunk.py` passes; the
-  pre-existing minute assertions are untouched.
+  pre-existing minute assertions are untouched, with zero edits to them.
 - **Effort:** 2
 
 ### B4. Add migration 050 and update the creation migration
@@ -149,6 +156,8 @@ status: not_started
       creates 70-day chunks directly.
 - [ ] B4.4 Update the same migration's description text, which currently
       states `chunk_time_interval = 7 days`.
+- [ ] B4.5 Commit: migration 050 plus the creation-migration update land as
+      the schema-definition commit.
 - **Success:** migration list ends at 050; both call sites derive from the
   constant; no `INTERVAL '7 days'` literal remains for `daily_ohlcv`.
 - **Effort:** 1
@@ -212,6 +221,8 @@ status: not_started
       policy is still scheduled.
 - [ ] B8.4 Keep using the driver's table/cagg parameters as seams — the test
       must never touch real `daily_ohlcv` or `minute_ohlcv`.
+- [ ] B8.5 Commit: the integration test lands once it passes, so the proven
+      daily-shaped cycle is its own point in history.
 - **Success:** integration tests pass against a TimescaleDB instance and are
   skipped cleanly when `MT_TIMESCALE_DB_URL` is unset.
 - **Effort:** 3
@@ -222,8 +233,12 @@ status: not_started
       beyond the two known-unrelated `test_cli_lists.py` failures.
 - [ ] B9.2 Run `ruff` and `mypy` on the touched files; do not increase the
       existing baseline counts.
-- [ ] B9.3 Commit on the slice branch `170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease`
-      (forked from `main` — `git.integration_branch` is unset).
+- [ ] B9.3 Commit any remaining work (B6/B7 CLI, docstring sweep) and confirm
+      the branch history reads as distinct units — registry refactor,
+      schema definition, integration test, CLI — rather than one bulk commit.
+      All work is on the slice branch
+      `170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease`,
+      forked from `main` (`git.integration_branch` is unset).
 - **Success:** branch builds clean; Phase C can proceed on a PM go.
 - **Effort:** 1
 
@@ -261,6 +276,12 @@ status: not_started
 - **Effort:** 1
 
 ### C3. Capture pre-rewrite baselines
+
+> **Every query in this task runs against production.** Set
+> `statement_timeout` on each one — not just the first — and cancel the
+> backend if a client-side timeout fires, or the query keeps running on the
+> server. An unbounded expression aggregate over a compressed hypertable
+> decompresses everything and has crashed this server before (2026-07-20).
 
 - [ ] C3.1 With `statement_timeout` set, capture exact
       `count(*) FROM daily_ohlcv`.
@@ -301,7 +322,12 @@ status: not_started
       rather than retrying blindly.
 - [ ] C5.3 On completion, confirm exit 0 and that every window reported the
       staged==reinserted guard passing.
-- **Success:** exit 0; chunk count drops to low hundreds; log retained.
+- [ ] C5.4 Checkpoint before verification: commit the run log and the actual
+      window/chunk counts into the C3.5 notes file. The rechunk itself mutates
+      the database, not the repository — this checkpoint exists so the
+      execution record survives independently of whatever Phase D finds.
+- **Success:** exit 0; chunk count drops to low hundreds; log retained and
+  committed.
 - **Effort:** 2
 
 ### C6. Resume jobs and force-refresh the caggs
@@ -325,6 +351,11 @@ status: not_started
 ## Phase D — Verification and Close-out
 
 ### D1. Verify performance and chunk health
+
+> **Prod query discipline applies to every measurement below**, same as C3:
+> `statement_timeout` on each query, cancel the backend on a client timeout.
+> Compare each result against the C3.4 baseline rather than against the
+> design's expected value — the baseline is what proves the change.
 
 - [ ] D1.1 `SELECT MAX(time) FROM daily_ohlcv` returns sub-second
       (Criterion 2).
