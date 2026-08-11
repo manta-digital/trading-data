@@ -9,8 +9,12 @@ from typing import TYPE_CHECKING
 
 import typer
 
+# ``RechunkTarget`` is imported at module scope, unlike most of this module's
+# imports, because Typer resolves an option's enum type at decoration time to
+# build --table's choice list and reject anything else.
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.logging import get_logger
+from manta_trading.market.maintenance.rechunk import RechunkTarget
 from manta_trading.providers.auth import resolve_auth
 from manta_trading.providers.profiles import get_profile
 
@@ -1201,19 +1205,32 @@ def data_rechunk(
         "--dry-run",
         help="Report the window plan and counts; mutate nothing.",
     ),
+    table: RechunkTarget = typer.Option(
+        RechunkTarget.MINUTE,
+        "--table",
+        help="Which hypertable to rewrite.",
+    ),
 ) -> None:
-    """Rewrite minute_ohlcv's 4-hour chunks into 7-day chunks (slice 166).
+    """Rewrite a hypertable's small chunks into its configured chunk interval.
+
+    Two targets, both using the same driver (slices 166, 170):
+
+      --table minute  minute_ohlcv, 4-hour chunks -> 7 days, ~1,175 windows
+      --table daily   daily_ohlcv, 7-day chunks -> 70 days, ~118 windows
 
     One window per transaction; resumable and idempotent (window state is
     re-derived from the Timescale catalog each run). Pre-flight refuses to
-    run unless migration 043 is applied and the minute-family background
-    jobs are paused.
+    run unless the target's chunk-interval migration is applied (043 for
+    minute, 050 for daily) and that family's background jobs are paused.
 
     OPERATOR: stop the data daemon and any `mt data pull` / gap-seeding
     processes before a real run. Each window transaction takes an EXCLUSIVE
-    lock on minute_ohlcv (writers block for that window's duration, readers
-    are unaffected), so concurrent writers cannot lose rows — but they would
-    stall repeatedly across ~1,175 windows.
+    lock on the target table (writers block for that window's duration,
+    readers are unaffected), so concurrent writers cannot lose rows — but
+    they would stall repeatedly across every window.
+
+    Pause only the target family's jobs. The minute jobs must keep running
+    during a daily rewrite, or the daemon's coverage re-seeding loop reopens.
 
     Exit codes:
       0   success (or dry run)
@@ -1234,7 +1251,7 @@ def data_rechunk(
     conninfo = _get_timescale_url(ctx) if dry_run else _get_maintenance_url(ctx)
 
     try:
-        result = run_rechunk(conninfo, dry_run=dry_run)
+        result = run_rechunk(conninfo, dry_run=dry_run, target=table)
     except PreflightError as exc:
         print_error(f"Pre-flight refused: {exc}", json_mode=False)
         raise typer.Exit(_EXIT_PREFLIGHT_FAILED) from exc
