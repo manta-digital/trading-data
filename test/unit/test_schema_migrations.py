@@ -167,8 +167,10 @@ class TestMigrationsListIntegrity:
         assert filtered == sorted(filtered)
 
     def test_migration_count(self):
-        # 048 -> 052 with the slice 167 coverage caggs (046-049).
-        assert len(MIGRATIONS) == 52
+        # 52 -> 53 with slice 170's migration 050. This count is a
+        # deliberate-change tripwire: adding a migration must be a conscious
+        # act, so bump it in the same commit that adds one.
+        assert len(MIGRATIONS) == 53
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +196,12 @@ class TestMigration023DailyOhlcv:
         assert "ix_daily_ohlcv_symbol_time" in sql
         assert "ix_daily_ohlcv_time_symbol" in sql
 
-    def test_sql_contains_chunk_time_interval_7_days(self) -> None:
-        assert "7 days" in self._get()["sql"]
+    def test_sql_sets_chunk_time_interval(self) -> None:
+        """Was `assert "7 days"` until slice 170 raised the interval to 70 days.
+        The value itself is asserted against the constant by
+        TestMigration023DailyChunkIntervalFromConstant; this only pins that the
+        create_hypertable call still configures an interval at all."""
+        assert "chunk_time_interval" in self._get()["sql"]
 
     def test_sql_contains_expected_columns(self) -> None:
         sql = self._get()["sql"]
@@ -923,3 +929,74 @@ class TestMigration045ColumnstoreExecution:
             "enable_columnstore" in str(c.args[0])
             for c in conn.execute.call_args_list
         )
+
+
+# ---------------------------------------------------------------------------
+# Migration 050 + 023 chunk-interval checks (slice 170)
+# ---------------------------------------------------------------------------
+
+
+_MIGRATION_050_ID = "050_daily_chunk_interval_70d"
+
+
+class TestMigration050DailyChunkInterval:
+    """Slice 170: daily_ohlcv chunk interval derives from the one constant."""
+
+    def _get(self) -> dict:
+        return next(m for m in MINUTE_MIGRATIONS if m["id"] == _MIGRATION_050_ID)
+
+    def test_is_last_in_the_chain(self) -> None:
+        """050 is the newest migration; a later addition must renumber past it
+        rather than silently land before an already-applied production run."""
+        assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_050_ID
+
+    def test_sql_calls_set_chunk_time_interval_on_daily(self) -> None:
+        sql = self._get()["sql"]
+        assert "set_chunk_time_interval" in sql
+        assert "daily_ohlcv" in sql
+
+    def test_sql_interval_derives_from_constant(self) -> None:
+        from manta_trading.constants import DAILY_OHLCV_CHUNK_INTERVAL
+
+        expected = (
+            f"INTERVAL '{int(DAILY_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
+        )
+        assert expected in self._get()["sql"]
+
+    def test_constant_is_seventy_days(self) -> None:
+        """Guards the slice 170 decision; changing it must be deliberate."""
+        from datetime import timedelta
+
+        from manta_trading.constants import DAILY_OHLCV_CHUNK_INTERVAL
+
+        assert DAILY_OHLCV_CHUNK_INTERVAL == timedelta(days=70)
+
+    def test_description_states_future_chunks_only(self) -> None:
+        """An operator reading the ledger must not think this rewrites data;
+        existing chunks need `mt data rechunk --table daily`."""
+        desc = self._get()["description"].lower()
+        assert "future" in desc
+        assert "mt data rechunk --table daily" in desc
+        assert "idempotent" in desc
+
+
+class TestMigration023DailyChunkIntervalFromConstant:
+    """Slice 170: cold-start create_hypertable must use the constant, so a
+    fresh DB creates 70-day chunks without ever needing the rechunk run."""
+
+    def _get(self) -> dict:
+        return next(m for m in MINUTE_MIGRATIONS if m["id"] == "023_daily_ohlcv")
+
+    def test_sql_has_no_hardcoded_seven_days(self) -> None:
+        assert "INTERVAL '7 days'" not in self._get()["sql"]
+
+    def test_sql_interval_derives_from_constant(self) -> None:
+        from manta_trading.constants import DAILY_OHLCV_CHUNK_INTERVAL
+
+        expected = (
+            f"INTERVAL '{int(DAILY_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
+        )
+        assert expected in self._get()["sql"]
+
+    def test_description_does_not_teach_the_superseded_interval(self) -> None:
+        assert "= 7 days" not in self._get()["description"]

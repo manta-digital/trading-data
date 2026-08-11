@@ -17,6 +17,8 @@ from manta_trading.constants import (
     DAILY_COVERAGE_REFRESH_START_OFFSET,
     DAILY_COVERAGE_VIEW,
     DAILY_HISTORY_MONTHS,
+    DAILY_OHLCV_CHUNK_INTERVAL,
+    DAILY_OHLCV_TABLE,
     DAILY_STALENESS_THRESHOLD,
     GRANULARITY_SOURCE,
     LATE_BAR_GRACE_PERIOD,
@@ -50,6 +52,15 @@ def _minute_chunk_interval_sql() -> str:
     Seconds-based so any timedelta renders exactly; keeps migrations 001c and
     043 derived from the one constant (slice 166)."""
     return f"INTERVAL '{int(MINUTE_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
+
+
+def _daily_chunk_interval_sql() -> str:
+    """Render DAILY_OHLCV_CHUNK_INTERVAL as a SQL INTERVAL literal.
+
+    Keeps the create-hypertable migration (023) and migration 050 derived from
+    the one constant (slice 170), so a cold start and a migrated database land
+    on the same interval."""
+    return f"INTERVAL '{int(DAILY_OHLCV_CHUNK_INTERVAL.total_seconds())} seconds'"
 
 
 # The four minute-cagg view names migrations 044/045 target — resolved from the
@@ -1211,10 +1222,12 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         "id": "023_daily_ohlcv",
         "description": (
             "Create daily_ohlcv hypertable mirroring minute_ohlcv schema "
-            "(slice 143). chunk_time_interval = 7 days. Unique (symbol, time) "
-            "index plus supporting indexes for symbol-range and time-range scans."
+            "(slice 143). chunk_time_interval = DAILY_OHLCV_CHUNK_INTERVAL "
+            "(70 days, slice 170 — was 7 days at creation, which produced "
+            "3,371 chunks on production). Unique (symbol, time) index plus "
+            "supporting indexes for symbol-range and time-range scans."
         ),
-        "sql": """
+        "sql": f"""
             CREATE TABLE IF NOT EXISTS daily_ohlcv (
                 time         TIMESTAMPTZ     NOT NULL,
                 symbol       TEXT            NOT NULL,
@@ -1233,7 +1246,8 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             );
 
             SELECT create_hypertable('daily_ohlcv', 'time',
-                                     chunk_time_interval => INTERVAL '7 days',
+                                     chunk_time_interval =>
+                                         {_daily_chunk_interval_sql()},
                                      if_not_exists => TRUE);
 
             CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_ohlcv_symbol_time
@@ -2019,6 +2033,27 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                     END IF;
                 END LOOP;
             END $$;
+        """,
+    },
+    {
+        "id": "050_daily_chunk_interval_70d",
+        "description": (
+            "Set daily_ohlcv chunk_time_interval to DAILY_OHLCV_CHUNK_INTERVAL "
+            "(70 days, slice 170). Affects FUTURE chunks only; the existing "
+            "7-day chunks are rewritten by `mt data rechunk --table daily`. "
+            "The 7-day interval set at creation (023) was never revisited and "
+            "produced 3,371 chunks over ~34.7 M rows — the same over-chunking "
+            "pathology migration 043 fixed for minute_ohlcv. 70 = 10 x 7, so "
+            "existing chunks nest exactly inside the new epoch-aligned grid. "
+            "Idempotent — re-applying the same interval is a no-op. Cold-start "
+            "no-op: migration 023 now creates the hypertable at this interval "
+            "directly. To revert manually: SELECT set_chunk_time_interval("
+            "'daily_ohlcv', INTERVAL '7 days');"
+        ),
+        "sql": f"""
+            SELECT set_chunk_time_interval(
+                '{DAILY_OHLCV_TABLE}', {_daily_chunk_interval_sql()}
+            );
         """,
     },
 ]

@@ -27,8 +27,12 @@ import pytest
 
 from manta_trading.constants import (
     DAILY_COVERAGE_VIEW,
+    DAILY_OHLCV_CHUNK_INTERVAL,
+    DAILY_OHLCV_TABLE,
     MINUTE_CAGG_CHUNK_INTERVAL,
     MINUTE_COVERAGE_VIEW,
+    MINUTE_OHLCV_CHUNK_INTERVAL,
+    MINUTE_OHLCV_TABLE,
 )
 from manta_trading.market.schema.migrations.minute import (
     _MINUTE_CAGG_VIEWS,
@@ -262,6 +266,29 @@ class TestColdStartProducesWorkingSchema:
                     "expected one columnstore policy per minute cagg after "
                     "cold start (migration 045)"
                 )
+
+                # Both raw hypertables land at their configured chunk interval
+                # from migrations alone — a cold start must never need the
+                # rechunk maintenance run to reach a healthy interval
+                # (slice 170 Success Criterion 6; migrations 023/050 for
+                # daily, 001c/043 for minute).
+                for tbl, expected in (
+                    (DAILY_OHLCV_TABLE, DAILY_OHLCV_CHUNK_INTERVAL),
+                    (MINUTE_OHLCV_TABLE, MINUTE_OHLCV_CHUNK_INTERVAL),
+                ):
+                    cur.execute(
+                        "SELECT time_interval "
+                        "FROM timescaledb_information.dimensions "
+                        "WHERE hypertable_name = %s",
+                        (tbl,),
+                    )
+                    row = cur.fetchone()
+                    assert row is not None, f"'{tbl}' has no time dimension"
+                    assert row[0] == expected, (
+                        f"'{tbl}' chunk_time_interval is {row[0]}, expected "
+                        f"{expected} — the cold-start chain did not reach the "
+                        "configured interval"
+                    )
 
                 # data_status view returns 0 rows on an empty registry
                 # (and crucially does not error out)
