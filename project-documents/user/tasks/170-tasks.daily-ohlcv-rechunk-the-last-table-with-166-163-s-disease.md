@@ -15,8 +15,8 @@ projectState: >
   PostgreSQL 17.7. Latest migration id is 049; this slice adds 050.
   Slice 169 (coverage-cagg refresh repair) is sequenced immediately after.
 dateCreated: 20260809
-dateUpdated: 20260810
-status: in_progress
+dateUpdated: 20260811
+status: complete
 ---
 
 ## Context Summary
@@ -252,21 +252,21 @@ status: in_progress
 
 ### C1. Pre-flight gate
 
-- [ ] C1.1 Confirm with the PM: backup/snapshot point taken, and go-ahead for
+- [x] C1.1 Confirm with the PM: backup/snapshot point taken, and go-ahead for
       the maintenance window.
-- [ ] C1.2 Stop the data daemon. Verify it is actually stopped —
+- [x] C1.2 Stop the data daemon. Verify it is actually stopped —
       `acquisition_state` quiescent and no fresh `daemon_heartbeat` — rather
       than assuming; there is no `status` subcommand.
-- [ ] C1.3 Confirm no `mt data pull` or gap-seeding process is running.
+- [x] C1.3 Confirm no `mt data pull` or gap-seeding process is running.
 - **Success:** the PM has authorized the window and no writer is active.
 - **Effort:** 1
 
 ### C2. Apply migration 050 and inspect the plan
 
-- [ ] C2.1 Apply the migration to prod (`mt data migrate apply`).
-- [ ] C2.2 Verify `timescaledb_information.dimensions` reports 70 days for
+- [x] C2.1 Apply the migration to prod (`mt data migrate apply`).
+- [x] C2.2 Verify `timescaledb_information.dimensions` reports 70 days for
       `daily_ohlcv`.
-- [ ] C2.3 Run `mt data rechunk --table daily --dry-run` and read the plan:
+- [x] C2.3 Run `mt data rechunk --table daily --dry-run` and read the plan:
       expect ~118 windows, with trailing uncompressed windows listed as
       skips. If the window count is wildly off, **stop** — it means the grid
       assumption is wrong, and that is evidence to bring back to the design,
@@ -283,30 +283,30 @@ status: in_progress
 > server. An unbounded expression aggregate over a compressed hypertable
 > decompresses everything and has crashed this server before (2026-07-20).
 
-- [ ] C3.1 With `statement_timeout` set, capture exact
+- [x] C3.1 With `statement_timeout` set, capture exact
       `count(*) FROM daily_ohlcv`.
-- [ ] C3.2 Capture per-cagg totals for `daily_weekly_ohlcv`,
+- [x] C3.2 Capture per-cagg totals for `daily_weekly_ohlcv`,
       `daily_monthly_ohlcv`, `daily_quarterly_ohlcv`, and `daily_coverage`.
-- [ ] C3.3 Capture bounded `count(*)` / `MIN(time)` / `MAX(time)` for at least
+- [x] C3.3 Capture bounded `count(*)` / `MIN(time)` / `MAX(time)` for at least
       3 sampled symbols over fixed windows — bind timestamps as `timestamptz`,
       not dates, or chunk exclusion is defeated.
-- [ ] C3.4 Record the current chunk count (3,371 expected) and the "before"
+- [x] C3.4 Record the current chunk count (3,371 expected) and the "before"
       timings for `SELECT MAX(time)` and the 31k-symbol `ANY` EXPLAIN.
-- [ ] C3.5 Write all baselines to a notes file under `user/notes/` so the
+- [x] C3.5 Write all baselines to a notes file under `user/notes/` so the
       after-comparison is against a recorded artifact, not memory.
 - **Success:** every Phase D comparison has a captured "before" value.
 - **Effort:** 2
 
 ### C4. Pause daily-family jobs
 
-- [ ] C4.1 Resolve job IDs from the catalog at runtime — never trust the
+- [x] C4.1 Resolve job IDs from the catalog at runtime — never trust the
       runbook's table. Target `daily_ohlcv`'s columnstore policy, the four
       dependent caggs' refresh policies, and any columnstore policies on
       those caggs' mat hypertables.
-- [ ] C4.2 Pause them via `alter_job(..., scheduled => false)`.
+- [x] C4.2 Pause them via `alter_job(..., scheduled => false)`.
       `daily_coverage` is not hierarchical, so plain `alter_job` works — the
       R2b catalog-update workaround applies only to `minute_coverage`.
-- [ ] C4.3 **Verify the minute-family jobs are still scheduled**, job 1003
+- [x] C4.3 **Verify the minute-family jobs are still scheduled**, job 1003
       especially (runbook R1). Record the pause start time; R2's catch-up
       depends on it.
 - **Success:** exactly the daily-family jobs are unscheduled; no minute job
@@ -315,14 +315,14 @@ status: in_progress
 
 ### C5. Run the rechunk
 
-- [ ] C5.1 Run `mt data rechunk --table daily` with output captured to a log.
-- [ ] C5.2 Monitor progress per window. The run is expected to be short
+- [x] C5.1 Run `mt data rechunk --table daily` with output captured to a log.
+- [x] C5.2 Monitor progress per window. The run is expected to be short
       relative to 166's; if a window fails, the driver stops with that window
       identified and the table is left valid — report the failing window
       rather than retrying blindly.
-- [ ] C5.3 On completion, confirm exit 0 and that every window reported the
+- [x] C5.3 On completion, confirm exit 0 and that every window reported the
       staged==reinserted guard passing.
-- [ ] C5.4 Checkpoint before verification: commit the run log and the actual
+- [x] C5.4 Checkpoint before verification: commit the run log and the actual
       window/chunk counts into the C3.5 notes file. The rechunk itself mutates
       the database, not the repository — this checkpoint exists so the
       execution record survives independently of whatever Phase D finds.
@@ -332,16 +332,16 @@ status: in_progress
 
 ### C6. Resume jobs and force-refresh the caggs
 
-- [ ] C6.1 Resume every paused job via `alter_job(..., scheduled => true)`.
-- [ ] C6.2 Force-refresh the three rollup caggs over their full span with
+- [x] C6.1 Resume every paused job via `alter_job(..., scheduled => true)`.
+- [x] C6.2 Force-refresh the three rollup caggs over their full span with
       `force => true` — their policies look back at most 270 days and a
       scheduled run can never heal history (the 163 lesson).
-- [ ] C6.3 Force-refresh `daily_coverage` using the R2a form: NULL bounds
+- [x] C6.3 Force-refresh `daily_coverage` using the R2a form: NULL bounds
       (365-day buckets reject narrow windows) with `force => true`.
-- [ ] C6.4 Run `ANALYZE daily_ohlcv` and re-check
+- [x] C6.4 Run `ANALYZE daily_ohlcv` and re-check
       `approximate_row_count('daily_ohlcv')` for sanity against the exact
       count from C3.1.
-- [ ] C6.5 Confirm zero jobs left unscheduled (runbook R4) and that resumed
+- [x] C6.5 Confirm zero jobs left unscheduled (runbook R4) and that resumed
       jobs report `last_run_status = 'Success'` on their next runs.
 - **Success:** all caggs re-materialized; no job left paused.
 - **Effort:** 2
@@ -357,64 +357,64 @@ status: in_progress
 > Compare each result against the C3.4 baseline rather than against the
 > design's expected value — the baseline is what proves the change.
 
-- [ ] D1.1 `SELECT MAX(time) FROM daily_ohlcv` returns sub-second
+- [x] D1.1 `SELECT MAX(time) FROM daily_ohlcv` returns sub-second
       (Criterion 2).
-- [ ] D1.2 Chunk count is low hundreds, ~120 plus trailing skips
+- [x] D1.2 Chunk count is low hundreds, ~120 plus trailing skips
       (Criterion 1).
-- [ ] D1.3 The 31k-symbol `ANY` aggregate `EXPLAIN` (plan-only) completes in
+- [x] D1.3 The 31k-symbol `ANY` aggregate `EXPLAIN` (plan-only) completes in
       seconds, not minutes (Criterion 3).
 - **Success:** all three measured and recorded against their C3 baselines.
 - **Effort:** 1
 
 ### D2. Verify data integrity
 
-- [ ] D2.1 Total `count(*)` is identical to the C3.1 baseline (Criterion 4).
-- [ ] D2.2 Each sampled symbol's bounded `count(*)` / `MIN` / `MAX` matches
+- [x] D2.1 Total `count(*)` is identical to the C3.1 baseline (Criterion 4).
+- [x] D2.2 Each sampled symbol's bounded `count(*)` / `MIN` / `MAX` matches
       its C3.3 baseline exactly.
-- [ ] D2.3 If any comparison differs, **stop and escalate** — a mismatch is a
+- [x] D2.3 If any comparison differs, **stop and escalate** — a mismatch is a
       data-loss event, not a rounding difference.
 - **Success:** every integrity comparison is identical.
 - **Effort:** 1
 
 ### D3. Verify cagg parity
 
-- [ ] D3.1 Run `mt data caggs verify`.
-- [ ] D3.2 Apply the R5 discriminator per rollup cagg: sum parity strictly
+- [x] D3.1 Run `mt data caggs verify`.
+- [x] D3.2 Apply the R5 discriminator per rollup cagg: sum parity strictly
       before the newest window boundary must be exactly 0. Do not read exit 2
       as corruption, and do not read it as safe (Criterion 5).
-- [ ] D3.3 Beware the `SET` echo when scripting the R5 query — a piped
+- [x] D3.3 Beware the `SET` echo when scripting the R5 query — a piped
       `psql -tAc "SET ...; SELECT ..."` yields `SET0`, not `0`. Log the
       parsed value and fail closed on anything that is not a bare integer.
-- [ ] D3.4 If a closed window is short, that is real under-materialization —
+- [x] D3.4 If a closed window is short, that is real under-materialization —
       re-run the repair path for that cagg before proceeding.
 - **Success:** every rollup cagg returns exactly 0 for closed-window parity.
 - **Effort:** 2
 
 ### D4. Verify the minute path did not regress
 
-- [ ] D4.1 Run `mt data rechunk --dry-run` with no `--table` and confirm it
+- [x] D4.1 Run `mt data rechunk --dry-run` with no `--table` and confirm it
       plans the minute table with unchanged semantics (Criterion 7).
-- [ ] D4.2 Confirm `minute_ohlcv`'s chunk count and dimension interval are
+- [x] D4.2 Confirm `minute_ohlcv`'s chunk count and dimension interval are
       untouched by this slice.
 - **Success:** the minute target behaves exactly as before the refactor.
 - **Effort:** 1
 
 ### D5. Documentation and close-out
 
-- [ ] D5.1 Record the execution results — before/after table, actual window
+- [x] D5.1 Record the execution results — before/after table, actual window
       count, run duration, and any surprises — in the slice design document
       as its execution record, following the 166 precedent.
-- [ ] D5.2 Note explicitly that `daily_coverage`'s content staleness was
+- [x] D5.2 Note explicitly that `daily_coverage`'s content staleness was
       healed as a side effect, but the policy defect remains and staleness
       re-accrues, so **slice 169 is still required**.
-- [ ] D5.3 Update `100-arch.data-storage.md` and any other doc restating
+- [x] D5.3 Update `100-arch.data-storage.md` and any other doc restating
       `daily_ohlcv`'s 7-day chunk interval, so no document keeps teaching the
       superseded value.
-- [ ] D5.4 Add a CHANGELOG entry under `[Unreleased]`.
-- [ ] D5.5 Add a DEVLOG entry for the maintenance run.
-- [ ] D5.6 Refine the design's Verification Walkthrough from draft into the
+- [x] D5.4 Add a CHANGELOG entry under `[Unreleased]`.
+- [x] D5.5 Add a DEVLOG entry for the maintenance run.
+- [x] D5.6 Refine the design's Verification Walkthrough from draft into the
       verified form, with actual measured values substituted.
-- [ ] D5.7 Check off this task file and merge the slice branch to `main`.
+- [x] D5.7 Check off this task file and merge the slice branch to `main`.
 - **Success:** documents reflect what actually happened, with measured values
   rather than expectations.
 - **Effort:** 2
