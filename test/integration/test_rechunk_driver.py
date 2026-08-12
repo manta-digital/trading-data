@@ -1,10 +1,12 @@
-"""Integration tests: slice 166 rechunk driver on a scratch hypertable.
+"""Integration tests: the rechunk driver on scratch hypertables (166, 170).
 
-Requires MT_TIMESCALE_DB_URL pointing at a TimescaleDB instance. Each test
-builds a gap-faithful scratch hypertable (market-hours-only data, 4-hour
-chunks, compressed, optionally one attached cagg with a refresh policy) and
-exercises the full Option D cycle. **Never touches minute_ohlcv** — the
-driver's table/cagg parameters are its test seams.
+Requires MT_TIMESCALE_TEST_URL — an *admin* URL the ``ephemeral_db`` fixture
+uses to create and drop a throwaway database per test. Each test builds a
+gap-faithful scratch hypertable inside that database (market-hours-only data,
+small chunks, compressed, optionally one attached cagg with a refresh policy)
+and exercises the full Option D cycle. **Never touches minute_ohlcv or
+daily_ohlcv** — the driver's table/cagg parameters are its test seams, and the
+tier holds no production credential at all.
 
 Covers task C2's assertions plus the code-review F001 writer-lock guarantee:
   - --dry-run mutates nothing
@@ -20,8 +22,6 @@ state) — no reliance on definition order or shared mutation.
 
 from __future__ import annotations
 
-import os
-
 import psycopg
 import pytest
 
@@ -35,8 +35,6 @@ from manta_trading.market.maintenance.rechunk import (
     run_rechunk,
 )
 
-TIMESCALE_URL = os.environ.get("MT_TIMESCALE_DB_URL", "")
-
 TABLE = "scratch_166_rechunk"
 CAGG = "scratch_166_rechunk_5min"
 
@@ -45,14 +43,13 @@ CAGG = "scratch_166_rechunk_5min"
 DAILY_TABLE = "scratch_170_rechunk_daily"
 DAILY_CAGG = "scratch_170_rechunk_daily_weekly"
 
-#: Applied per-class rather than module-wide: the 166 suite below needs the
-#: working database, while the 170 daily suite builds its state inside an
-#: ``ephemeral_db`` throwaway. A module-level pytestmark would skip the daily
-#: suite whenever ``test/conftest.py``'s prod-safety guard scrubbed the
-#: working URL — that is, by default.
-requires_working_url = pytest.mark.skipif(
-    not TIMESCALE_URL, reason="MT_TIMESCALE_DB_URL not set"
-)
+# Neither suite reads MT_TIMESCALE_DB_URL. Both build their own scratch
+# hypertables inside the throwaway database ``ephemeral_db`` mints and drops,
+# so the tier holds no production credential and cannot reach real
+# minute_ohlcv / daily_ohlcv even by mistake (testing.md: "Tests never read
+# the production DB URL variable"). The 166 suite read that variable until
+# slice 170's code review (F002); it never needed production *data* — only a
+# TimescaleDB instance to create scratch tables on.
 
 
 def _drop_scratch(conn: psycopg.Connection) -> None:
@@ -226,23 +223,22 @@ def daily_scratch_db(ephemeral_db: str):
 
 
 @pytest.fixture
-def scratch_db():
-    """Fresh scratch hypertable + cagg per test; torn down after."""
-    with psycopg.connect(TIMESCALE_URL, autocommit=True) as conn:
+def scratch_db(ephemeral_db: str) -> str:
+    """Fresh scratch hypertable + cagg in a throwaway database."""
+    with psycopg.connect(ephemeral_db, autocommit=True) as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
         _build_scratch(conn, with_cagg=True)
-    yield
-    with psycopg.connect(TIMESCALE_URL, autocommit=True) as conn:
-        _drop_scratch(conn)
+    # Teardown is the database drop itself; no explicit cleanup needed.
+    return ephemeral_db
 
 
 @pytest.fixture
-def scratch_db_nocagg():
+def scratch_db_nocagg(ephemeral_db: str) -> str:
     """Fresh scratch hypertable without a cagg (no policy job) per test."""
-    with psycopg.connect(TIMESCALE_URL, autocommit=True) as conn:
+    with psycopg.connect(ephemeral_db, autocommit=True) as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
         _build_scratch(conn, with_cagg=False)
-    yield
-    with psycopg.connect(TIMESCALE_URL, autocommit=True) as conn:
-        _drop_scratch(conn)
+    return ephemeral_db
 
 
 def _exec(conn: psycopg.Connection, sql: str, params: tuple = ()) -> list[tuple]:
@@ -288,9 +284,9 @@ def _set_job_scheduled(conn: psycopg.Connection, scheduled: bool) -> None:
     conn.commit()
 
 
-def _run(dry_run: bool = False, max_windows: int | None = None, **kw):
+def _run(url: str, dry_run: bool = False, max_windows: int | None = None, **kw):
     return run_rechunk(
-        TIMESCALE_URL,
+        url,
         dry_run=dry_run,
         table=TABLE,
         cagg_views=(CAGG,),
@@ -299,39 +295,38 @@ def _run(dry_run: bool = False, max_windows: int | None = None, **kw):
     )
 
 
-@requires_working_url
 class TestRechunkDriver:
     def test_preflight_refuses_scheduled_job(self, scratch_db) -> None:
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             before = _chunk_count(conn)
         with pytest.raises(PreflightError, match="still scheduled"):
-            _run()
-        with psycopg.connect(TIMESCALE_URL) as conn:
+            _run(scratch_db)
+        with psycopg.connect(scratch_db) as conn:
             assert _chunk_count(conn) == before, "refused run must not mutate"
 
     def test_dry_run_mutates_nothing(self, scratch_db) -> None:
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             before_chunks = _chunk_count(conn)
             before_integrity = _integrity(conn)
         # Dry run is allowed even while jobs are scheduled (read-only).
-        result = _run(dry_run=True)
+        result = _run(scratch_db, dry_run=True)
         assert result.dry_run
         assert result.total_windows > 0
         assert result.rewritten == 0 and result.compressed_only == 0
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             assert _chunk_count(conn) == before_chunks
             assert _integrity(conn) == before_integrity
 
     def test_real_run_reduces_chunks_and_preserves_data(self, scratch_db) -> None:
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             before_chunks = _chunk_count(conn)
             before_integrity = _integrity(conn)
             cagg_before = _exec(conn, f"SELECT count(*), sum(volume) FROM {CAGG}")  # noqa: S608
             _set_job_scheduled(conn, False)
-        result = _run()
+        result = _run(scratch_db)
         assert result.rewritten > 0
         assert result.skipped_uncompressed >= 1, "trailing window skipped"
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             assert _chunk_count(conn) < before_chunks
             assert _integrity(conn) == before_integrity, "no data loss"
             assert (
@@ -348,40 +343,41 @@ class TestRechunkDriver:
             assert uncompressed_rewritten == 0
 
     def test_rerun_is_noop(self, scratch_db) -> None:
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             _set_job_scheduled(conn, False)
-        first = _run()
+        first = _run(scratch_db)
         assert first.rewritten > 0
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             after_first = _chunk_count(conn)
-        second = _run()
+        second = _run(scratch_db)
         assert second.rewritten == 0
         assert second.compressed_only == 0
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             assert _chunk_count(conn) == after_first
 
     def test_interrupted_run_resumes(self, scratch_db_nocagg) -> None:
         """A run stopped mid-way leaves a valid state the next run finishes."""
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        scratch_db = scratch_db_nocagg
+        with psycopg.connect(scratch_db) as conn:
             before_chunks = _chunk_count(conn)
             before_integrity = _integrity(conn)
 
         partial = run_rechunk(
-            TIMESCALE_URL, table=TABLE, cagg_views=(), max_windows=1
+            scratch_db, table=TABLE, cagg_views=(), max_windows=1
         )
         assert partial.rewritten == 1
 
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             assert _chunk_count(conn) < before_chunks, "one window rewritten"
             assert _integrity(conn) == before_integrity, "partial state valid"
 
-        finish = run_rechunk(TIMESCALE_URL, table=TABLE, cagg_views=())
+        finish = run_rechunk(scratch_db, table=TABLE, cagg_views=())
         assert finish.rewritten >= 1
 
-        with psycopg.connect(TIMESCALE_URL) as conn:
+        with psycopg.connect(scratch_db) as conn:
             assert _integrity(conn) == before_integrity
         final = run_rechunk(
-            TIMESCALE_URL, table=TABLE, cagg_views=(), dry_run=True
+            scratch_db, table=TABLE, cagg_views=(), dry_run=True
         )
         assert (
             final.total_windows == final.already_done + final.skipped_uncompressed
@@ -397,10 +393,11 @@ class TestRechunkDriver:
         destroy a concurrent writer's rows. A writer with a short lock_timeout
         must fail to commit during that span.
         """
+        scratch_db = scratch_db_nocagg
         blocked: list[str] = []
 
         def try_concurrent_insert(window) -> None:
-            with psycopg.connect(TIMESCALE_URL, autocommit=True) as wconn:
+            with psycopg.connect(scratch_db, autocommit=True) as wconn:
                 wconn.execute("SET lock_timeout = '500ms'")
                 try:
                     wconn.execute(
@@ -414,7 +411,7 @@ class TestRechunkDriver:
                     blocked.append(str(window.start))
 
         run_rechunk(
-            TIMESCALE_URL,
+            scratch_db,
             table=TABLE,
             cagg_views=(),
             max_windows=1,
