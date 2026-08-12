@@ -4,7 +4,7 @@ layer: project
 reviewType: code
 slice: daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 sourceDocument: project-documents/user/slices/170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md
 aiModel: moonshotai/kimi-k2.7-code
 status: complete
@@ -41,7 +41,8 @@ findings:
 
 # Review: code — slice 170
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS *(PM override — reviewer returned FAIL on F004 alone,
+which was disproven by execution; see Disposition)*
 **Model:** moonshotai/kimi-k2.7-code
 
 ## Disposition (2026-08-11)
@@ -78,8 +79,10 @@ $ uv run pytest test/unit/market/test_rechunk.py::TestPreflightMigrationId -q
 
 Executed directly against a cursor returning `None`, the function raises
 `PreflightError: no_such_table is not a hypertable on this database` — the
-exact behavior the finding says is missing. **No code change was made**; the
-FAIL verdict rests entirely on this finding and is not supported by the code.
+exact behavior the finding says is missing. **No code change was made.** The
+reviewer's FAIL verdict rested entirely on this finding, so the PM overrode it
+to CONCERNS; the `[FAIL]` entry for F004 below is the reviewer's original text,
+retained unedited for the record.
 
 ### F005 — considered, declined
 
