@@ -5,7 +5,7 @@ parent: user/slices/163-slice.minute-cagg-chunk-re-sizing.md
 relatedSlices: [162, 163, 166, 167]
 host: <db_host>
 dateCreated: 20260725
-dateUpdated: 20260726
+dateUpdated: 20260811
 status: ready
 ---
 
@@ -38,32 +38,40 @@ The failure is silent: no errors, no corruption (bars re-insert via
 
 ## Job reference (minute caggs)
 
-| Granularity | Refresh job | Columnstore job | mat_hypertable_id |
-|---|---|---|---|
-| 5m  | 1007 | 1018 | 3 |
-| 15m | 1008 | 1019 | 4 |
-| 1h  | 1002 | 1020 | 5 |
-| 4h  | 1003 | 1021 | 6 |
-
-Job IDs are environment-specific. Always re-derive rather than trusting this table:
+Job IDs are **environment-specific and go stale** whenever a policy is dropped and
+recreated. Never copy a job ID out of this document — always derive the current IDs by
+cagg view name first, and substitute them into the rules below:
 
 ```sql
-SELECT j.job_id, j.application_name, j.scheduled, j.config, s.last_run_status
+SELECT ca.view_name, j.job_id, j.proc_name, j.scheduled, s.last_run_status
 FROM timescaledb_information.jobs j
+JOIN timescaledb_information.continuous_aggregates ca
+  ON ca.materialization_hypertable_name = j.hypertable_name
 LEFT JOIN timescaledb_information.job_stats s ON s.job_id = j.job_id
-WHERE j.application_name NOT LIKE '%Telemetry%'
-ORDER BY j.job_id;
+WHERE ca.view_name IN ('minute_5min_ohlcv', 'minute_15min_ohlcv',
+                       'minute_hourly_ohlcv', 'minute_4hour_ohlcv')
+ORDER BY ca.view_name, j.proc_name;
 ```
+
+Each cagg has one refresh policy (`policy_refresh_continuous_aggregate`) and one
+columnstore/compression policy. Wherever a rule below says e.g. `<4h_refresh_job_id>`,
+it means the `job_id` this query returns for that view and proc.
+
+Historical snapshot from the 2026-07-25 incident (these IDs no longer exist on prod;
+kept only so the incident notes in `163-baseline-verify-20260724.md` stay readable):
+5m = 1007/1018, 15m = 1008/1019, 1h = 1002/1020, 4h = 1003/1021
+(refresh/columnstore, mat_hypertable_ids 3–6).
 
 ## Rules
 
-### R1 — Never pause the 4h refresh job (1003) to repair a different granularity
+### R1 — Never pause the 4h refresh job to repair a different granularity
 
 The coverage index depends only on the **4h** cagg. Repairing 5m/15m/1h requires pausing
-only that granularity's own pair. Pausing 1003 during a long sweep re-opens the daemon
-re-seed loop for the sweep's entire duration.
+only that granularity's own pair. Pausing the 4h refresh job during a long sweep
+re-opens the daemon re-seed loop for the sweep's entire duration.
 
-Pause 1003 **only** for a 4h-specific operation, and follow R2 on the way out.
+Pause the 4h refresh job **only** for a 4h-specific operation, and follow R2 on the
+way out.
 
 ### R2 — After any pause longer than `start_offset`, run a manual catch-up refresh
 
@@ -157,12 +165,19 @@ while 349 symbols were invisible for four days.
 
 ### R4 — Confirm jobs actually resumed
 
+Derive by view name — do not hardcode job IDs here:
+
 ```sql
-SELECT job_id, scheduled FROM timescaledb_information.jobs
-WHERE job_id IN (1002,1003,1007,1008,1018,1019,1020,1021) ORDER BY job_id;
+SELECT ca.view_name, j.job_id, j.proc_name, j.scheduled
+FROM timescaledb_information.jobs j
+JOIN timescaledb_information.continuous_aggregates ca
+  ON ca.materialization_hypertable_name = j.hypertable_name
+WHERE ca.view_name IN ('minute_5min_ohlcv', 'minute_15min_ohlcv',
+                       'minute_hourly_ohlcv', 'minute_4hour_ohlcv')
+ORDER BY ca.view_name, j.proc_name;
 ```
 
-All must be `t`. Then confirm `last_run_status = 'Success'` after the next scheduled run.
+All eight rows (refresh + columnstore per cagg) must show `scheduled = t`. Then confirm `last_run_status = 'Success'` after the next scheduled run.
 
 ### R5 — Distinguish trailing refresh lag from real corruption
 
@@ -220,8 +235,8 @@ SELECT count(DISTINCT date_trunc('day', time_bucket)) FROM minute_4hour_ohlcv WH
 ```
 
 2. If the cagg count is lower, list the specific invisible days (R3 query, scoped to the
-   symbol). If they cluster in a contiguous recent block, check whether job 1003 was
-   unscheduled over that block.
+   symbol). If they cluster in a contiguous recent block, check whether the 4h refresh
+   job was unscheduled over that block.
 
 3. Remediate per R2 + R3.
 
@@ -233,6 +248,6 @@ tiebreaker, so wrapping Z→A is correct behavior.
 ## Known gap
 
 `preflight()` in `src/manta_trading/market/maintenance/cagg_repair.py` refuses to run when
-the **target** cagg's jobs are scheduled, but does not check whether job 1003 is
-*unscheduled* while a different granularity is being repaired. R1 is currently enforced by
-this runbook only, not by code.
+the **target** cagg's jobs are scheduled, but does not check whether the 4h refresh job
+is *unscheduled* while a different granularity is being repaired. R1 is currently
+enforced by this runbook only, not by code.
