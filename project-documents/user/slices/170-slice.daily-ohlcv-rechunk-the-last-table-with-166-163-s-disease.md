@@ -383,6 +383,29 @@ reintroduce the grid-alignment hazard 166 warned about — a bad trade for a
 marginal planner gain. **The design's derivation method (wall-clock span ÷
 target count) is sound; only its span input was wrong.**
 
+### Load-tier consideration (code review F005)
+
+The Python rules require a `test/load/` NFR test for code on the concurrency
+or environment-layer path, and the driver does take per-window `EXCLUSIVE`
+locks. **Deliberately not added**, for three reasons:
+
+1. The driver is a **manually-invoked maintenance command**, not a serving or
+   daemon path. Nothing calls it concurrently; the operator runs it once in a
+   window with writers stopped. There is no throughput or latency budget for a
+   load test to defend.
+2. Its concurrency guarantee is **correctness, not performance** — that a
+   concurrent writer is *blocked* rather than silently losing rows. That is
+   already asserted functionally by
+   `test_concurrent_writer_blocked_during_window`, which drives the real race
+   through the `after_stage` seam. A load test would not strengthen it.
+3. Real-world evidence exceeds anything a load test would simulate: the same
+   driver has now completed two production runs — 7.27 B rows (166) and
+   65.6 M rows across 337 windows (170) — both with zero errors and exact
+   integrity parity.
+
+Revisit only if the driver ever becomes automated or runs against a live
+writer, at which point contention becomes a real property worth bounding.
+
 ### Other findings
 
 - **The runbook's job table is stale.** There is no job 1003; the 4h minute

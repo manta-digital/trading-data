@@ -10,28 +10,33 @@ aiModel: moonshotai/kimi-k2.7-code
 status: complete
 dateCreated: 20260811
 dateUpdated: 20260811
-reviewedSha: bffeaf255d22b43e66f39bf7600d58ec386ae556
+reviewedSha: 40b1a290a55f307031827a1d92bd8f24d8a91610
 findings:
   - id: F001
-    severity: fail
-    category: error-handling
-    summary: "Preflight handler crashes when hypertable is missing"
-    location: src/manta_trading/market/maintenance/rechunk.py:197-217
-  - id: F002
-    severity: concern
-    category: testing
-    summary: "Integration test still reads production database URL variable"
-    location: test/integration/test_rechunk_driver.py:36
-  - id: F003
     severity: pass
     category: design
-    summary: "Rechunk target registry centralizes table-specific values"
-    location: src/manta_trading/market/maintenance/rechunk.py:50-105
-  - id: F004
+    summary: "Registry abstraction centralizes table-specific rechunk configuration"
+    location: src/manta_trading/market/maintenance/rechunk.py#RechunkTargetSpec
+  - id: F002
     severity: pass
     category: testing
-    summary: "Daily rechunk tests use isolated throwaway database"
-    location: test/integration/test_rechunk_driver.py:203-220
+    summary: "Rechunk integration tests no longer read the production DB URL"
+    location: test/integration/test_rechunk_driver.py#scratch_db
+  - id: F003
+    severity: pass
+    category: testing
+    summary: "Cold-start and migration tests verify chunk interval constants"
+    location: test/integration/test_cold_start.py:267
+  - id: F004
+    severity: fail
+    category: error-handling
+    summary: "Missing hypertable causes `TypeError` instead of `PreflightError`"
+    location: src/manta_trading/market/maintenance/rechunk.py#_assert_dimension_interval
+  - id: F005
+    severity: note
+    category: testing
+    summary: "No load test exercises the rechunk driver's concurrency path"
+    location: test/integration/test_rechunk_driver.py
 ---
 
 # Review: code — slice 170
@@ -39,64 +44,72 @@ findings:
 **Verdict:** FAIL
 **Model:** moonshotai/kimi-k2.7-code
 
-## Disposition (2026-08-11, commit f7d4eac)
+## Disposition (2026-08-11)
 
 | Finding | Disposition |
 |---|---|
-| F001 preflight crash | **Rejected — false positive.** The guard already exists. |
-| F002 prod URL in test | **Fixed.** 166 suite moved to `ephemeral_db`; allowlist ratcheted. |
-| F003, F004 | Pass, no action. |
+| F001, F002, F003 | Pass. F002 confirms the fix made after the first review. |
+| F004 missing-hypertable `TypeError` | **Rejected — false positive, disproven by execution.** |
+| F005 no load test | **Considered and declined**, with reasoning recorded in the slice design. |
 
-**F001 is incorrect.** It states `_assert_dimension_interval` "immediately
-indexes `row[0]`, but never checks whether `row` is `None`", and recommends
-adding a guard. That guard is already present at
-`src/manta_trading/market/maintenance/rechunk.py:209` — two lines *before* the
-`row[0]` access at 211, and inside the 197–217 range the finding itself cites:
+### F004 is incorrect — this is the second time the same model raised it
 
-```python
-row = cur.fetchone()
-if row is None:
-    raise PreflightError(f"{table} is not a hypertable on this database")
-if row[0] != interval:
+It was F001 in the first review pass and is re-raised verbatim here. The
+`None` guard it asks for **is present**, and was present at
+`40b1a290a55f307031827a1d92bd8f24d8a91610` — the exact SHA this review
+records as reviewed:
+
+```console
+$ git show 40b1a290:src/manta_trading/market/maintenance/rechunk.py | sed -n '208,212p'
+        row = cur.fetchone()
+    if row is None:
+        raise PreflightError(f"{table} is not a hypertable on this database")
+    if row[0] != interval:
 ```
 
-The finding also claims the implementation is inconsistent with
-`test_missing_hypertable_is_a_preflight_error`. That test passes
-(`uv run pytest test/unit/market/test_rechunk.py -k missing_hypertable` →
-1 passed), which it could not do if the described defect existed. No code
-change was made, and the FAIL verdict does not stand on this finding.
+The guard precedes the `row[0]` access, so the described `TypeError` cannot
+occur. The finding makes a falsifiable prediction — that
+`test_missing_hypertable_is_a_preflight_error` "will fail" — and it does not:
 
-**F002 is valid and was fixed.** The 166 suite read `MT_TIMESCALE_DB_URL` and
-passed it to `psycopg.connect`, contrary to the `testing.md` rule. It never
-needed production *data* — only a TimescaleDB instance to create scratch
-tables on — so it now builds its scratch state inside the same `ephemeral_db`
-throwaway the 170 daily suite uses, and `test_rechunk_driver.py` was ratcheted
-out of the prod-URL allowlist (the guard test requires removal once a file
-stops reading the variable). Side effect: the suite no longer skips by default
-under conftest's scrub, so the integration tier gained 6 executing tests
-(120 → 126 passing, same 2 known `test_cli_lists.py` failures).
+```console
+$ uv run pytest test/unit/market/test_rechunk.py::TestPreflightMigrationId -q
+4 passed
+```
+
+Executed directly against a cursor returning `None`, the function raises
+`PreflightError: no_such_table is not a hypertable on this database` — the
+exact behavior the finding says is missing. **No code change was made**; the
+FAIL verdict rests entirely on this finding and is not supported by the code.
+
+### F005 — considered, declined
+
+Recorded in the slice design under "Load-tier consideration". Summary: the
+driver is a manually-invoked maintenance command with no concurrent callers,
+so there is no throughput budget to defend; its concurrency guarantee is
+correctness (a writer is *blocked*, not silently lost), already asserted by
+`test_concurrent_writer_blocked_during_window` driving the real race through
+the `after_stage` seam; and it has now completed two production runs — 7.27 B
+rows (166) and 65.6 M across 337 windows (170) — with zero errors. Revisit if
+the driver is ever automated or run against a live writer.
 
 ## Findings
 
-### [FAIL] Preflight handler crashes when hypertable is missing
+### [PASS] Registry abstraction centralizes table-specific rechunk configuration
 
-`_assert_dimension_interval` fetches the dimension row and immediately indexes `row[0]`, but never checks whether `row` is `None`. When the target table is not a hypertable (or the dimension query returns no row), this raises `TypeError: 'NoneType' object is not subscriptable` instead of the `PreflightError` the new unit test `test_missing_hypertable_is_a_preflight_error` expects. That test at `test/unit/market/test_rechunk.py` asserts `pytest.raises(PreflightError, match="not a hypertable")`, so the implementation and the test added in this change are inconsistent. Add a guard such as:
+The new `RechunkTarget` `StrEnum` and `RechunkTargetSpec` frozen dataclass move all table-specific values (hypertable name, chunk interval, dependent cagg views, and migration ID) into the `RECHUNK_TARGETS` registry. This satisfies the "one value, one source" rule, makes the driver genuinely table-agnostic, and lets the CLI dispatch through the enum rather than fragile string comparisons.
 
-```python
-if row is None:
-    raise PreflightError(f"{table} is not a hypertable")
-```
+### [PASS] Rechunk integration tests no longer read the production DB URL
 
-before indexing `row[0]`.
+Both the original minute suite and the new daily suite build scratch hypertables inside the `ephemeral_db` fixture's throwaway database and no longer read `MT_TIMESCALE_DB_URL`. The tests therefore cannot reach real `minute_ohlcv` or `daily_ohlcv`, and `test_rechunk_driver.py` is correctly removed from `ALLOWED_PROD_URL_READERS` in `test_integration_prod_url_guard.py`.
 
-### [CONCERN] Integration test still reads production database URL variable
+### [PASS] Cold-start and migration tests verify chunk interval constants
 
-The 166 rechunk test suite reads `MT_TIMESCALE_DB_URL` via `os.environ.get("MT_TIMESCALE_DB_URL", "")` and passes it to `psycopg.connect` in the `scratch_db` fixture (`test/integration/test_rechunk_driver.py:115`). The testing rules ("Production Database Protection") state: "Tests never read the production DB URL variable." The new daily suite correctly uses the `ephemeral_db` fixture, but the pre-existing minute suite still relies on the production URL variable. It is gated by `@requires_working_url` and skipped by default, but the code still reads the variable. Migrate the minute suite to `ephemeral_db` (or a dedicated test admin URL) so the tier never accesses production credentials.
+New assertions in `test_cold_start.py` confirm both `minute_ohlcv` and `daily_ohlcv` land at their configured chunk intervals from migrations alone. `test_migration_050.py` and the new `TestMigration023DailyChunkIntervalFromConstant`/`TestMigration050DailyChunkInterval` unit tests guard that the interval derives from the single constant, not a hardcoded literal.
 
-### [PASS] Rechunk target registry centralizes table-specific values
+### [FAIL] Missing hypertable causes `TypeError` instead of `PreflightError`
 
-`RechunkTargetSpec` and `RECHUNK_TARGETS` provide a single source of truth for table names, chunk intervals, dependent cagg views, and migration IDs. Dispatch is by `RechunkTarget` enum rather than string comparisons, and the CLI uses the same enum for its `--table` choices. This follows the project convention to never scatter comparison values across code.
+`_assert_dimension_interval` calls `row[0]` immediately after `cur.fetchone()` without checking for `None`. If the target hypertable does not exist, the function raises a raw `TypeError: 'NoneType' object is not subscriptable` instead of a helpful `PreflightError`. The new unit test `TestPreflightMigrationId.test_missing_hypertable_is_a_preflight_error` in `test/unit/market/test_rechunk.py` expects a `PreflightError` whose message contains "not a hypertable", so it will fail. Add an explicit guard such as `if row is None: raise PreflightError(f"{table} is not a hypertable")` before the interval comparison.
 
-### [PASS] Daily rechunk tests use isolated throwaway database
+### [NOTE] No load test exercises the rechunk driver's concurrency path
 
-The new `daily_scratch_db` fixture builds the daily-shaped scratch hypertable inside `ephemeral_db` and never touches `daily_ohlcv` or `minute_ohlcv`. This matches the production-database protection rule: destructive fixtures only target databases the fixture created.
+The Python rules require a load test for code on the concurrency / environment-layer path. The rechunk driver acquires per-window `EXCLUSIVE` locks and already has a functional concurrency test, but no new `tests/load/` test verifies latency, throughput, or lock contention under a realistic window count. Given that this is a manual maintenance command, the omission may be acceptable, but it should be explicitly considered.
