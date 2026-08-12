@@ -10,53 +10,58 @@ aiModel: minimax/minimax-m3
 status: complete
 dateCreated: 20260809
 dateUpdated: 20260809
-reviewedSha: f477a716cda1efc5c0cb29eb0c4335973072991f
+reviewedSha: c23d7d42f93d1ad1aea8a12323afe6490dc54900
 findings:
   - id: F001
     severity: pass
     category: uncategorized
-    summary: "Generalizes slice 166 mechanism without altering driver semantics"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#D2 — Generalize `mt data rechunk` via a target registry
+    summary: "Cagg list matches parent architecture"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#dependent-caggs-all-must-be-paused-during-the-run-per-the-166-a5-q3-lesson
   - id: F002
     severity: pass
     category: uncategorized
-    summary: "Reuses slice 166 grid-alignment lesson and per-window transaction discipline"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#D1 — Target chunk interval: 70 days (`DAILY_OHLCV_CHUNK_INTERVAL`)
+    summary: "Sub-second latency NFR for the touched path is restated"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#success-criteria
   - id: F003
     severity: pass
     category: uncategorized
-    summary: "Enforces slice 166 A5-Q3 lesson: dependent caggs must be paused during chunk rewrite"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#D5 — Job pause/resume scope (runbook `cagg-maintenance-pausing.md`)
+    summary: "Pause/resume scope respects the minute/daily family boundary"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#d5-job-pauseresume-scope-runbook-cagg-maintenance-pausingmd
   - id: F004
     severity: pass
     category: uncategorized
-    summary: "NFR targets from parent architecture are restated as concrete acceptance criteria"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#Success Criteria
+    summary: "Constants centralization matches architecture convention"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#d1-target-chunk-interval-70-days-daily_ohlcv_chunk_interval
   - id: F005
     severity: pass
     category: uncategorized
-    summary: "Respects slice 152 adjusted-on-read contract; does not touch `adj_*` schema"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md
+    summary: "Scope kept minimal via registry pattern, no over-engineering"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#d2-generalize-mt-data-rechunk-via-a-target-registry
   - id: F006
     severity: pass
     category: uncategorized
-    summary: "Correct dependency direction and integration sequencing"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#Integration Points
+    summary: "Migration-chain-as-source-of-truth preserved"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#d3-migration-pair-166-phase-b-pattern
   - id: F007
     severity: pass
     category: uncategorized
-    summary: "Failure modes enumerated with explicit handling strategy"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#Risk Assessment
+    summary: "Failure modes handled via inherited 166 mechanism"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#risk-assessment
   - id: F008
     severity: pass
     category: uncategorized
-    summary: "Cold-start schema source-of-truth preserved"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#D3 — Migration pair (166 Phase-B pattern)
+    summary: "Post-rewrite verification aligns with arch's \"verify after raw chunk restructuring\" rule"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#d6-verification-gate-r5-discriminator-not-exit-codes-alone
   - id: F009
     severity: pass
     category: uncategorized
-    summary: "Verification walkthrough aligns with parent architecture query discipline"
-    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#Verification Walkthrough
+    summary: "Integration sequencing with slice 169 is explicit"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#integration-points
+  - id: F010
+    severity: pass
+    category: uncategorized
+    summary: "Daemon hazard closed without changing daemon code"
+    location: 170-slice.daily-ohlcv-rechunk-the-last-table-with-166-163-s-disease.md#integration-points
 ---
 
 # Review: slice — slice 170
@@ -66,38 +71,42 @@ findings:
 
 ## Findings
 
-### [PASS] Generalizes slice 166 mechanism without altering driver semantics
+### [PASS] Cagg list matches parent architecture
 
-The registry refactor keeps `run_rechunk` driver logic untouched (parameters only) and defaults to `minute`, so existing invocation behavior is bit-identical (regression-guarded by Success Criterion 7). This matches the architecture's "single source of truth" constants rule and avoids scope creep into unrelated code paths.
+The four caggs paused during the run (`daily_weekly_ohlcv`, `daily_monthly_ohlcv`, `daily_quarterly_ohlcv`, `daily_coverage`) match exactly the post-152 cagg inventory declared in arch §"Continuous aggregates" (3 over `daily_ohlcv`) plus the `daily_coverage` cagg defined in arch §"One status view" and §Constants `COVERAGE_SOURCE_TABLE`. The slice correctly notes `daily_coverage` is "not hierarchical, so plain `alter_job` works on it," consistent with arch's distinction between hierarchical (`minute_coverage`) and direct-over-raw (`daily_coverage`) coverage caggs.
 
-### [PASS] Reuses slice 166 grid-alignment lesson and per-window transaction discipline
+### [PASS] Sub-second latency NFR for the touched path is restated
 
-70 days = 10 × 7 days, so existing 7-day chunks nest exactly inside the epoch-aligned 70-day grid. This satisfies the 166 grid-alignment caveat by construction, and each rewritten window yields exactly one chunk — matching the wall-clock sizing rule (span ÷ target chunk count, not data volume).
+Success Criterion #2 ("`SELECT MAX(time) FROM daily_ohlcv` returns sub-second") explicitly restates the latency target for the path this slice touches. This is the path that serves arch §"One status view" (`daily_coverage` reads raw `daily_ohlcv`, so daily timestamps stay exact), and which `assert_cagg_fresh` (slice 168) probes under the `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT = 10s` budget. Restating the target lets a reader verify the slice closes the planning-latency hazard the parent arch depends on.
 
-### [PASS] Enforces slice 166 A5-Q3 lesson: dependent caggs must be paused during chunk rewrite
+### [PASS] Pause/resume scope respects the minute/daily family boundary
 
-The pre-flight refuses to run while daily-family jobs are scheduled, and `force_refresh_continuous_aggregate(..., force => true)` on resume heals history the scheduled policy can never reach (start_offset ≥ 270 days). R1 holds: minute-family jobs stay running. The D4 acceptance of cagg default divergence (12 chunks on daily caggs) correctly identifies this as harmless given the over-chunking pathology class.
+D5 pauses only the daily-family jobs and explicitly states "R1 holds: minute-family jobs stay running." This is consistent with the architecture's per-granularity operator discipline (arch §"Operator commands" — separate daily and minute paths, no cross-granularity mutation). The non-hierarchical `daily_coverage` is handled with the R2a form (NULL bounds, `force => true`), matching its single-hop refresh topology in arch §"COVERAGE_SOURCE_TABLE" vs. the two-hop minute chain.
 
-### [PASS] NFR targets from parent architecture are restated as concrete acceptance criteria
+### [PASS] Constants centralization matches architecture convention
 
-The architecture's coverage-aggregate freshness intent (slice 167/168) requires fast raw-edge probes; this slice restates that as: `MAX(time)` sub-second, plan latency in seconds (not minutes), chunk count drops to ~120. Each target is measurable against the prod baseline captured in the "Measured Baseline" table.
+D1 defines `DAILY_OHLCV_CHUNK_INTERVAL` once in `constants.py` and references it from both the new migration and the updated creation migration. This is consistent with arch §"Constants" ("Defined once, in `manta_trading.constants` ... Referenced by every module that needs them") and the 166 precedent cited. The choice (70 days, matching `MINUTE_CAGG_CHUNK_INTERVAL`) is justified by a wall-clock rule (span ÷ target count) and grid nesting (70 = 10 × 7 nests inside the existing 7-day chunks).
 
-### [PASS] Respects slice 152 adjusted-on-read contract; does not touch `adj_*` schema
+### [PASS] Scope kept minimal via registry pattern, no over-engineering
 
-No `adj_*` columns, `k_factor`, or `last_adjusted_ca_snapshot_id` are referenced. The slice operates purely on raw hypertable chunking and cagg refresh policies, which is correct given the post-152 architecture where adjustment is a read-time concern.
+D2 limits generalization to a `RechunkTarget` enum + per-target registry supplying hypertable name, interval, dependent cagg views, and the migration id the pre-flight names in its error message. The CLI default (`minute`) preserves existing invocation semantics, gated by Success Criterion #7's regression guard. Driver logic (window classification, EXCLUSIVE lock, staged==reinserted guard, `SKIP_UNCOMPRESSED`, resumability) is explicitly "reused untouched" — minimal new surface, no hidden abstraction layers.
 
-### [PASS] Correct dependency direction and integration sequencing
+### [PASS] Migration-chain-as-source-of-truth preserved
 
-Consumes from slice 166 (mechanism) and is correctly ordered as a strict precondition for slice 169 (coverage-cagg refresh repair). The honest acknowledgment that step 8's `daily_coverage` full refresh heals content staleness but not the policy defect (so 169 remains required) shows the slice understands boundary scope.
+D3 updates the slice-143 creation migration's literal `INTERVAL '7 days'` to render the new constant, so a cold start creates 70-day chunks directly. Combined with the new `set_chunk_time_interval` migration (which affects only future chunks and is safe regardless of rewrite timing), this satisfies the single-schema-source-of-truth contract. Success Criterion #6 ("Cold start creates 70-day `daily_ohlcv` chunks from the first migration run") verifies the property.
 
-### [PASS] Failure modes enumerated with explicit handling strategy
+### [PASS] Failure modes handled via inherited 166 mechanism
 
-Three concrete residual risks are named: (1) registry refactor regressing minute path → mitigated by untouched driver logic + regression guard; (2) cagg corruption via mid-rewrite job firing → mitigated by pre-flight + force-refresh on exit; (3) bulk prod mutation → mitigated by PM-confirmed backup gate + per-window transactions leaving valid partial state on interruption. No "TBD" placeholders.
+The slice's genuinely new I/O surface is small: a CLI flag validated by a `StrEnum` (rejected by Typer on invalid values), a registry lookup (in-memory, no failure mode), a `set_chunk_time_interval` migration (framework-handled transactional semantics), and the new daily target's force-refresh. The runtime path (`mt data rechunk --table daily`) inherits 166's well-defined failure handling: per-window transactions ("an interrupted run leaves a valid, partially-improved table"), EXCLUSIVE per-window lock (concurrent writers "safe but stalled"), pre-flight (refuses to run while daily-family jobs are scheduled), `SKIP_UNCOMPRESSED` trailing windows (idempotent re-run picks them up later). The catastrophic mode (cagg corruption via concurrent refresh during chunk restructuring, cited from 166 A5-Q3) is explicitly mitigated by pre-flight + force-refresh on resume.
 
-### [PASS] Cold-start schema source-of-truth preserved
+### [PASS] Post-rewrite verification aligns with arch's "verify after raw chunk restructuring" rule
 
-The slice-143 creation migration literal `INTERVAL '7 days'` (`migrations/minute.py:1236`) is updated to render `DAILY_OHLCV_CHUNK_INTERVAL`, satisfying the slice 156 contract that the migration chain is the single schema source of truth. New `set_chunk_time_interval` migration affects future chunks only, safe regardless of rewrite timing.
+D6 uses the R5 closed-window parity check (sum parity strictly before the newest window boundary must be exactly 0) alongside `mt data caggs verify`, applying the arch §"`mt data caggs` — continuous-aggregate maintenance" standing rule ("after any raw chunk restructuring, run `verify`; if parity fails, run `repair`"). The decision to combine exit-code + R5 discriminator (rather than treating `verify` exit 2 as failure) is well-justified — exit 2 covers benign trailing lag as well as real corruption.
 
-### [PASS] Verification walkthrough aligns with parent architecture query discipline
+### [PASS] Integration sequencing with slice 169 is explicit
 
-Always sets `statement_timeout` before prod queries (matching the slice 168 `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` discipline). R5 closed-window parity query is the verification discriminator, and the cold-start DB check uses throwaway DB per DB-protection rules.
+The slice correctly identifies 169 (coverage-cagg refresh repair) as a downstream dependency that must run after this slice, and disambiguates two distinct defects: the `daily_coverage` content staleness (stuck at 2026-06-12) is healed as a side effect of step 8's full refresh, but the policy defect (365-day bucket never refreshed) re-accrues staleness from day one — so 169 is still required. This is consistent with arch's two-hop cagg chain and the role of slice 169's repair scope.
+
+### [PASS] Daemon hazard closed without changing daemon code
+
+The slice removes the planning-latency hazard for "every other query shape" while preserving the 0.7.6 daemon anti-join fix that treats the symptom. No daemon changes — the wedge class is closed at the storage layer (chunk count) rather than at the query layer. This respects arch §"`mt data daemon run`" as the long-running process whose interactions must remain uncontested.

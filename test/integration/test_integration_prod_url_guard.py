@@ -45,7 +45,9 @@ ALLOWED_PROD_URL_READERS: frozenset[str] = frozenset(
         "test_migrations_023_024.py",
         "test_migrations_025_026.py",
         "test_migrations_029_036.py",
-        "test_rechunk_driver.py",
+        # test_rechunk_driver.py ratcheted out by slice 170's code review
+        # (F002): both its suites now build scratch hypertables inside an
+        # ephemeral_db throwaway and read no production URL.
         "test_runner_ca_update.py",
         "test_runner_sigterm.py",
         "test_status_queries.py",

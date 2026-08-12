@@ -2,13 +2,23 @@
 docType: devlog
 project: trading
 dateCreated: 20260411
-dateUpdated: 20260809
+dateUpdated: 20260811
 ---
 
 # Development Log
 
 A lightweight, append-only record of development activity. Newest entries first.
 Format: `## YYYYMMDD` followed by brief notes (1-3 lines per session). Written from implementor perspective (class names, design decisions, test counts). For user-visible changes see CHANGELOG.md.
+
+---
+
+## 20260811
+
+**Slice 170** — generalized the 166 rechunk driver to a `RechunkTarget` StrEnum + `RECHUNK_TARGETS` registry (table, interval, cagg views, interval-migration id); `run_rechunk` takes `target=`, keeping `table`/`cagg_views` as test seams. Added `DAILY_OHLCV_CHUNK_INTERVAL` (70 d), migration `050_daily_chunk_interval_70d`, and made creation migration 023 render the constant instead of `INTERVAL '7 days'`. CLI `mt data rechunk --table minute|daily`. Tests: 24 unit (registry coverage vs enum, 70-day grid nesting, pre-flight naming 043 vs 050), 9 CLI, 5 migration-050 integration on an ephemeral DB, 7 daily-shaped driver integration. Unit tier 1,898 passed; integration baseline unchanged (2 known `test_cli_lists.py`).
+
+**Prod run** — `mt data rechunk --table daily` exit 0, ~16 min: 337/338 windows rewritten, every one collapsing to exactly 1 chunk (336 from 10, 1 from 8). Chunks 3,372 → 341; `MAX(time)` 4.92 s → 0.157 s; 31k-symbol EXPLAIN >120 s → 7.70 s; `count(*)` identical at 65,652,505. **C2.3 stop condition fired**: dry run reported 338 windows, not ~118 — the design's span input was wrong (data starts 1962, not 2004; 64.6 years), grid arithmetic was correct. Exit force-refresh revealed the daily caggs were ~half-materialized (+6.6 M / +1.5 M / +530 k / +148 k rows); R5 closed-window parity now 0 for all three rollups. Runbook job 1003 no longer exists (4h minute refresh is 1124). `approximate_row_count` off by +2,099% post-`ANALYZE` — known estimator defect, do not use for verification.
+
+**Slice 915** — added overview + Phase 4 design for backup and restore procedures (no backup procedure or tested restore path exists; prod `archive_mode=off`, so no PITR). Dependencies [913].
 
 ---
 

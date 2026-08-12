@@ -15,8 +15,8 @@ projectState: >
   PostgreSQL 17.7. Latest migration id is 049; this slice adds 050.
   Slice 169 (coverage-cagg refresh repair) is sequenced immediately after.
 dateCreated: 20260809
-dateUpdated: 20260809
-status: not_started
+dateUpdated: 20260811
+status: complete
 ---
 
 ## Context Summary
@@ -63,15 +63,15 @@ status: not_started
 
 ### B1. Add the `DAILY_OHLCV_CHUNK_INTERVAL` constant
 
-- [ ] B1.1 Add `DAILY_OHLCV_CHUNK_INTERVAL: timedelta = timedelta(days=70)`
+- [x] B1.1 Add `DAILY_OHLCV_CHUNK_INTERVAL: timedelta = timedelta(days=70)`
       to `src/manta_trading/constants.py`, placed beside
       `MINUTE_OHLCV_CHUNK_INTERVAL`.
-- [ ] B1.2 Write its docstring to record *why* 70 days, not just what: the
+- [x] B1.2 Write its docstring to record *why* 70 days, not just what: the
       wall-clock rule (span ÷ target chunk count, never data volume;
       22.6 years ÷ 70 days ≈ 118 chunks), the 70 = 10 × 7 grid-nesting
       property, and the note that migration 001c (creation), migration 050,
       and the rechunk registry all derive from it — never restate the value.
-- [ ] B1.3 Reword the `MINUTE_OHLCV_CHUNK_INTERVAL` and
+- [x] B1.3 Reword the `MINUTE_OHLCV_CHUNK_INTERVAL` and
       `MINUTE_CAGG_CHUNK_INTERVAL` docstrings where they cite `daily_ohlcv`
       or the `daily_*` caggs at their pre-170 intervals as reference points,
       so the constants file stops teaching superseded values.
@@ -82,9 +82,9 @@ status: not_started
 
 ### B2. Generalize the rechunk driver to a target registry
 
-- [ ] B2.1 Add a `RechunkTarget` `StrEnum` (`MINUTE = "minute"`,
+- [x] B2.1 Add a `RechunkTarget` `StrEnum` (`MINUTE = "minute"`,
       `DAILY = "daily"`) to `market/maintenance/rechunk.py`.
-- [ ] B2.2 Add a frozen dataclass describing one target — hypertable name,
+- [x] B2.2 Add a frozen dataclass describing one target — hypertable name,
       chunk interval, dependent cagg views, and the migration id the
       pre-flight names in its error message — plus a registry dict keyed by
       `RechunkTarget`. Populate `MINUTE` from the existing values
@@ -92,22 +92,22 @@ status: not_started
       cagg views via `GRANULARITY_SOURCE`, migration id `043...`) and `DAILY`
       from `daily_ohlcv`, `DAILY_OHLCV_CHUNK_INTERVAL`, the four daily cagg
       views, and migration id `050...`.
-- [ ] B2.3 Change `run_rechunk` to accept `target: RechunkTarget =
+- [x] B2.3 Change `run_rechunk` to accept `target: RechunkTarget =
       RechunkTarget.MINUTE` and read table/interval/cagg views from the
       registry instead of the module-level `RECHUNK_TABLE` constant and the
       hardcoded `interval = MINUTE_OHLCV_CHUNK_INTERVAL`. Keep the existing
       `table` / `cagg_views` / `max_windows` / `after_stage` parameters as
       test seams (the integration tests depend on them), with the registry
       supplying their defaults.
-- [ ] B2.4 Thread the target's migration id into
+- [x] B2.4 Thread the target's migration id into
       `_assert_dimension_interval`'s `PreflightError` message so a daily
       pre-flight failure names migration 050, not 043.
-- [ ] B2.5 Leave window classification, the EXCLUSIVE-before-stage lock, the
+- [x] B2.5 Leave window classification, the EXCLUSIVE-before-stage lock, the
       staged==reinserted guard, `SKIP_UNCOMPRESSED` handling, and
       resumability **untouched**. If a change to any of these seems
       necessary, stop and raise it — it means the refactor has exceeded its
       scope.
-- [ ] B2.6 Commit: the constant (B1) and the registry refactor land together
+- [x] B2.6 Commit: the constant (B1) and the registry refactor land together
       — the registry references `DAILY_OHLCV_CHUNK_INTERVAL`, so they cannot
       be split without leaving a broken commit. This lands before the
       migration and CLI work so a bisect can isolate the refactor.
@@ -118,17 +118,17 @@ status: not_started
 
 ### B3. Test the registry and the preserved minute behavior
 
-- [ ] B3.1 In `test/unit/market/test_rechunk.py`, add unit tests: each
+- [x] B3.1 In `test/unit/market/test_rechunk.py`, add unit tests: each
       `RechunkTarget` resolves to the expected table, interval, and cagg-view
       tuple; the registry covers every enum member (guards against adding an
       enum value without a registry entry).
-- [ ] B3.2 Add a unit test that `_load_windows` groups on a 70-day grid
+- [x] B3.2 Add a unit test that `_load_windows` groups on a 70-day grid
       correctly, including the nesting property — a set of 7-day chunk rows
       spanning one 70-day window groups into exactly one window, and a window
       boundary lands where `_window_start` says it does.
-- [ ] B3.3 Add a test asserting the daily pre-flight error message names
+- [x] B3.3 Add a test asserting the daily pre-flight error message names
       migration 050 and the minute one still names 043.
-- [ ] B3.4 Confirm the existing minute-path unit tests still pass unmodified.
+- [x] B3.4 Confirm the existing minute-path unit tests still pass unmodified.
       **If any test required editing to pass, HALT and escalate to the PM
       before proceeding to B4** — a required edit is evidence the refactor
       changed minute behavior, which Success Criterion 7 forbids. Do not
@@ -140,23 +140,23 @@ status: not_started
 
 ### B4. Add migration 050 and update the creation migration
 
-- [ ] B4.1 Add migration `050_daily_chunk_interval_70d` to
+- [x] B4.1 Add migration `050_daily_chunk_interval_70d` to
       `src/manta_trading/market/schema/migrations/minute.py`, following the
       shape of `043_minute_chunk_interval_7d`: a single
       `set_chunk_time_interval('daily_ohlcv', ...)` rendering
       `DAILY_OHLCV_CHUNK_INTERVAL` through the existing
       `_interval_seconds_sql` helper.
-- [ ] B4.2 Write the migration description to state that it affects **future
+- [x] B4.2 Write the migration description to state that it affects **future
       chunks only**, that existing 7-day chunks are rewritten by
       `mt data rechunk --table daily`, that it is idempotent, and how to
       revert manually — matching 043's description convention.
-- [ ] B4.3 Update the slice-143 creation migration (the `create_hypertable`
+- [x] B4.3 Update the slice-143 creation migration (the `create_hypertable`
       call for `daily_ohlcv`, currently `chunk_time_interval => INTERVAL
       '7 days'`) to render `DAILY_OHLCV_CHUNK_INTERVAL`, so a cold start
       creates 70-day chunks directly.
-- [ ] B4.4 Update the same migration's description text, which currently
+- [x] B4.4 Update the same migration's description text, which currently
       states `chunk_time_interval = 7 days`.
-- [ ] B4.5 Commit: migration 050 plus the creation-migration update land as
+- [x] B4.5 Commit: migration 050 plus the creation-migration update land as
       the schema-definition commit.
 - **Success:** migration list ends at 050; both call sites derive from the
   constant; no `INTERVAL '7 days'` literal remains for `daily_ohlcv`.
@@ -164,17 +164,17 @@ status: not_started
 
 ### B5. Test the migration and cold-start interval
 
-- [ ] B5.1 Add or extend a migration test asserting 050 is present, is
+- [x] B5.1 Add or extend a migration test asserting 050 is present, is
       ordered last, and renders the interval from the constant (not a
       literal) — following whatever pattern the existing migration tests use
       for 043/044.
-- [ ] B5.2 Add a cold-start assertion covering Success Criterion 6: after
+- [x] B5.2 Add a cold-start assertion covering Success Criterion 6: after
       applying the full chain to a throwaway database,
       `timescaledb_information.dimensions` reports 70 days for `daily_ohlcv`.
       Use the existing throwaway-DB fixture; **verify that fixture contains
       no TRUNCATE/DELETE against a configured production URL before running
       it** (2026-08-04 incident).
-- [ ] B5.3 Re-apply the chain twice against the throwaway DB to confirm 050
+- [x] B5.3 Re-apply the chain twice against the throwaway DB to confirm 050
       is idempotent.
 - **Success:** tests pass; the throwaway database is created and dropped by
   the test itself and no production URL is read.
@@ -182,14 +182,14 @@ status: not_started
 
 ### B6. Expose `--table` on the CLI
 
-- [ ] B6.1 Add a `--table` option to `data_rechunk` in
+- [x] B6.1 Add a `--table` option to `data_rechunk` in
       `src/manta_trading/cli/commands/data.py`, typed as `RechunkTarget` so
       Typer validates the value and rejects anything else, defaulting to
       `RechunkTarget.MINUTE`.
-- [ ] B6.2 Pass the target through to `run_rechunk`. Leave the existing
+- [x] B6.2 Pass the target through to `run_rechunk`. Leave the existing
       exit-code contract (0 / 1 / 2) and the dry-run vs maintenance-role
       connection split unchanged.
-- [ ] B6.3 Update the command's docstring: it currently describes only the
+- [x] B6.3 Update the command's docstring: it currently describes only the
       minute rewrite. State both targets, keep the operator warning about
       stopping the daemon, and make the ~118-window daily expectation
       explicit alongside the minute ~1,175.
@@ -199,29 +199,29 @@ status: not_started
 
 ### B7. Test the CLI surface
 
-- [ ] B7.1 Add CLI tests: default invocation targets minute; `--table daily`
+- [x] B7.1 Add CLI tests: default invocation targets minute; `--table daily`
       targets daily; an invalid `--table` value exits non-zero without
       touching the database.
-- [ ] B7.2 Assert the pre-flight and rechunk failure exit codes are unchanged
+- [x] B7.2 Assert the pre-flight and rechunk failure exit codes are unchanged
       for both targets.
 - **Success:** CLI tests pass; no existing rechunk CLI test needed edits.
 - **Effort:** 1
 
 ### B8. Integration test on a daily-shaped scratch hypertable
 
-- [ ] B8.1 Extend `test/integration/test_rechunk_driver.py` with a
+- [x] B8.1 Extend `test/integration/test_rechunk_driver.py` with a
       daily-shaped scratch table: 7-day chunks over a span covering at least
       two 70-day grid windows, weekday-only rows so empty ranges are faithful,
       everything compressed except a trailing region that exercises
       `SKIP_UNCOMPRESSED`, and one attached cagg with a refresh policy.
-- [ ] B8.2 Assert the full cycle on that table: dry run mutates nothing; a
+- [x] B8.2 Assert the full cycle on that table: dry run mutates nothing; a
       real run collapses each grid window to exactly one chunk with zero row
       loss; the attached cagg's contents are unchanged; a re-run is a no-op.
-- [ ] B8.3 Assert the pre-flight refuses while the scratch cagg's refresh
+- [x] B8.3 Assert the pre-flight refuses while the scratch cagg's refresh
       policy is still scheduled.
-- [ ] B8.4 Keep using the driver's table/cagg parameters as seams — the test
+- [x] B8.4 Keep using the driver's table/cagg parameters as seams — the test
       must never touch real `daily_ohlcv` or `minute_ohlcv`.
-- [ ] B8.5 Commit: the integration test lands once it passes, so the proven
+- [x] B8.5 Commit: the integration test lands once it passes, so the proven
       daily-shaped cycle is its own point in history.
 - **Success:** integration tests pass against a TimescaleDB instance and are
   skipped cleanly when `MT_TIMESCALE_DB_URL` is unset.
@@ -229,11 +229,11 @@ status: not_started
 
 ### B9. Phase B close-out
 
-- [ ] B9.1 Run the full unit + integration tiers; confirm no regression
+- [x] B9.1 Run the full unit + integration tiers; confirm no regression
       beyond the two known-unrelated `test_cli_lists.py` failures.
-- [ ] B9.2 Run `ruff` and `mypy` on the touched files; do not increase the
+- [x] B9.2 Run `ruff` and `mypy` on the touched files; do not increase the
       existing baseline counts.
-- [ ] B9.3 Commit any remaining work (B6/B7 CLI, docstring sweep) and confirm
+- [x] B9.3 Commit any remaining work (B6/B7 CLI, docstring sweep) and confirm
       the branch history reads as distinct units — registry refactor,
       schema definition, integration test, CLI — rather than one bulk commit.
       All work is on the slice branch
@@ -252,21 +252,21 @@ status: not_started
 
 ### C1. Pre-flight gate
 
-- [ ] C1.1 Confirm with the PM: backup/snapshot point taken, and go-ahead for
+- [x] C1.1 Confirm with the PM: backup/snapshot point taken, and go-ahead for
       the maintenance window.
-- [ ] C1.2 Stop the data daemon. Verify it is actually stopped —
+- [x] C1.2 Stop the data daemon. Verify it is actually stopped —
       `acquisition_state` quiescent and no fresh `daemon_heartbeat` — rather
       than assuming; there is no `status` subcommand.
-- [ ] C1.3 Confirm no `mt data pull` or gap-seeding process is running.
+- [x] C1.3 Confirm no `mt data pull` or gap-seeding process is running.
 - **Success:** the PM has authorized the window and no writer is active.
 - **Effort:** 1
 
 ### C2. Apply migration 050 and inspect the plan
 
-- [ ] C2.1 Apply the migration to prod (`mt data migrate apply`).
-- [ ] C2.2 Verify `timescaledb_information.dimensions` reports 70 days for
+- [x] C2.1 Apply the migration to prod (`mt data migrate apply`).
+- [x] C2.2 Verify `timescaledb_information.dimensions` reports 70 days for
       `daily_ohlcv`.
-- [ ] C2.3 Run `mt data rechunk --table daily --dry-run` and read the plan:
+- [x] C2.3 Run `mt data rechunk --table daily --dry-run` and read the plan:
       expect ~118 windows, with trailing uncompressed windows listed as
       skips. If the window count is wildly off, **stop** — it means the grid
       assumption is wrong, and that is evidence to bring back to the design,
@@ -283,30 +283,30 @@ status: not_started
 > server. An unbounded expression aggregate over a compressed hypertable
 > decompresses everything and has crashed this server before (2026-07-20).
 
-- [ ] C3.1 With `statement_timeout` set, capture exact
+- [x] C3.1 With `statement_timeout` set, capture exact
       `count(*) FROM daily_ohlcv`.
-- [ ] C3.2 Capture per-cagg totals for `daily_weekly_ohlcv`,
+- [x] C3.2 Capture per-cagg totals for `daily_weekly_ohlcv`,
       `daily_monthly_ohlcv`, `daily_quarterly_ohlcv`, and `daily_coverage`.
-- [ ] C3.3 Capture bounded `count(*)` / `MIN(time)` / `MAX(time)` for at least
+- [x] C3.3 Capture bounded `count(*)` / `MIN(time)` / `MAX(time)` for at least
       3 sampled symbols over fixed windows — bind timestamps as `timestamptz`,
       not dates, or chunk exclusion is defeated.
-- [ ] C3.4 Record the current chunk count (3,371 expected) and the "before"
+- [x] C3.4 Record the current chunk count (3,371 expected) and the "before"
       timings for `SELECT MAX(time)` and the 31k-symbol `ANY` EXPLAIN.
-- [ ] C3.5 Write all baselines to a notes file under `user/notes/` so the
+- [x] C3.5 Write all baselines to a notes file under `user/notes/` so the
       after-comparison is against a recorded artifact, not memory.
 - **Success:** every Phase D comparison has a captured "before" value.
 - **Effort:** 2
 
 ### C4. Pause daily-family jobs
 
-- [ ] C4.1 Resolve job IDs from the catalog at runtime — never trust the
+- [x] C4.1 Resolve job IDs from the catalog at runtime — never trust the
       runbook's table. Target `daily_ohlcv`'s columnstore policy, the four
       dependent caggs' refresh policies, and any columnstore policies on
       those caggs' mat hypertables.
-- [ ] C4.2 Pause them via `alter_job(..., scheduled => false)`.
+- [x] C4.2 Pause them via `alter_job(..., scheduled => false)`.
       `daily_coverage` is not hierarchical, so plain `alter_job` works — the
       R2b catalog-update workaround applies only to `minute_coverage`.
-- [ ] C4.3 **Verify the minute-family jobs are still scheduled**, job 1003
+- [x] C4.3 **Verify the minute-family jobs are still scheduled**, job 1003
       especially (runbook R1). Record the pause start time; R2's catch-up
       depends on it.
 - **Success:** exactly the daily-family jobs are unscheduled; no minute job
@@ -315,14 +315,14 @@ status: not_started
 
 ### C5. Run the rechunk
 
-- [ ] C5.1 Run `mt data rechunk --table daily` with output captured to a log.
-- [ ] C5.2 Monitor progress per window. The run is expected to be short
+- [x] C5.1 Run `mt data rechunk --table daily` with output captured to a log.
+- [x] C5.2 Monitor progress per window. The run is expected to be short
       relative to 166's; if a window fails, the driver stops with that window
       identified and the table is left valid — report the failing window
       rather than retrying blindly.
-- [ ] C5.3 On completion, confirm exit 0 and that every window reported the
+- [x] C5.3 On completion, confirm exit 0 and that every window reported the
       staged==reinserted guard passing.
-- [ ] C5.4 Checkpoint before verification: commit the run log and the actual
+- [x] C5.4 Checkpoint before verification: commit the run log and the actual
       window/chunk counts into the C3.5 notes file. The rechunk itself mutates
       the database, not the repository — this checkpoint exists so the
       execution record survives independently of whatever Phase D finds.
@@ -332,16 +332,16 @@ status: not_started
 
 ### C6. Resume jobs and force-refresh the caggs
 
-- [ ] C6.1 Resume every paused job via `alter_job(..., scheduled => true)`.
-- [ ] C6.2 Force-refresh the three rollup caggs over their full span with
+- [x] C6.1 Resume every paused job via `alter_job(..., scheduled => true)`.
+- [x] C6.2 Force-refresh the three rollup caggs over their full span with
       `force => true` — their policies look back at most 270 days and a
       scheduled run can never heal history (the 163 lesson).
-- [ ] C6.3 Force-refresh `daily_coverage` using the R2a form: NULL bounds
+- [x] C6.3 Force-refresh `daily_coverage` using the R2a form: NULL bounds
       (365-day buckets reject narrow windows) with `force => true`.
-- [ ] C6.4 Run `ANALYZE daily_ohlcv` and re-check
+- [x] C6.4 Run `ANALYZE daily_ohlcv` and re-check
       `approximate_row_count('daily_ohlcv')` for sanity against the exact
       count from C3.1.
-- [ ] C6.5 Confirm zero jobs left unscheduled (runbook R4) and that resumed
+- [x] C6.5 Confirm zero jobs left unscheduled (runbook R4) and that resumed
       jobs report `last_run_status = 'Success'` on their next runs.
 - **Success:** all caggs re-materialized; no job left paused.
 - **Effort:** 2
@@ -357,64 +357,64 @@ status: not_started
 > Compare each result against the C3.4 baseline rather than against the
 > design's expected value — the baseline is what proves the change.
 
-- [ ] D1.1 `SELECT MAX(time) FROM daily_ohlcv` returns sub-second
+- [x] D1.1 `SELECT MAX(time) FROM daily_ohlcv` returns sub-second
       (Criterion 2).
-- [ ] D1.2 Chunk count is low hundreds, ~120 plus trailing skips
+- [x] D1.2 Chunk count is low hundreds, ~120 plus trailing skips
       (Criterion 1).
-- [ ] D1.3 The 31k-symbol `ANY` aggregate `EXPLAIN` (plan-only) completes in
+- [x] D1.3 The 31k-symbol `ANY` aggregate `EXPLAIN` (plan-only) completes in
       seconds, not minutes (Criterion 3).
 - **Success:** all three measured and recorded against their C3 baselines.
 - **Effort:** 1
 
 ### D2. Verify data integrity
 
-- [ ] D2.1 Total `count(*)` is identical to the C3.1 baseline (Criterion 4).
-- [ ] D2.2 Each sampled symbol's bounded `count(*)` / `MIN` / `MAX` matches
+- [x] D2.1 Total `count(*)` is identical to the C3.1 baseline (Criterion 4).
+- [x] D2.2 Each sampled symbol's bounded `count(*)` / `MIN` / `MAX` matches
       its C3.3 baseline exactly.
-- [ ] D2.3 If any comparison differs, **stop and escalate** — a mismatch is a
+- [x] D2.3 If any comparison differs, **stop and escalate** — a mismatch is a
       data-loss event, not a rounding difference.
 - **Success:** every integrity comparison is identical.
 - **Effort:** 1
 
 ### D3. Verify cagg parity
 
-- [ ] D3.1 Run `mt data caggs verify`.
-- [ ] D3.2 Apply the R5 discriminator per rollup cagg: sum parity strictly
+- [x] D3.1 Run `mt data caggs verify`.
+- [x] D3.2 Apply the R5 discriminator per rollup cagg: sum parity strictly
       before the newest window boundary must be exactly 0. Do not read exit 2
       as corruption, and do not read it as safe (Criterion 5).
-- [ ] D3.3 Beware the `SET` echo when scripting the R5 query — a piped
+- [x] D3.3 Beware the `SET` echo when scripting the R5 query — a piped
       `psql -tAc "SET ...; SELECT ..."` yields `SET0`, not `0`. Log the
       parsed value and fail closed on anything that is not a bare integer.
-- [ ] D3.4 If a closed window is short, that is real under-materialization —
+- [x] D3.4 If a closed window is short, that is real under-materialization —
       re-run the repair path for that cagg before proceeding.
 - **Success:** every rollup cagg returns exactly 0 for closed-window parity.
 - **Effort:** 2
 
 ### D4. Verify the minute path did not regress
 
-- [ ] D4.1 Run `mt data rechunk --dry-run` with no `--table` and confirm it
+- [x] D4.1 Run `mt data rechunk --dry-run` with no `--table` and confirm it
       plans the minute table with unchanged semantics (Criterion 7).
-- [ ] D4.2 Confirm `minute_ohlcv`'s chunk count and dimension interval are
+- [x] D4.2 Confirm `minute_ohlcv`'s chunk count and dimension interval are
       untouched by this slice.
 - **Success:** the minute target behaves exactly as before the refactor.
 - **Effort:** 1
 
 ### D5. Documentation and close-out
 
-- [ ] D5.1 Record the execution results — before/after table, actual window
+- [x] D5.1 Record the execution results — before/after table, actual window
       count, run duration, and any surprises — in the slice design document
       as its execution record, following the 166 precedent.
-- [ ] D5.2 Note explicitly that `daily_coverage`'s content staleness was
+- [x] D5.2 Note explicitly that `daily_coverage`'s content staleness was
       healed as a side effect, but the policy defect remains and staleness
       re-accrues, so **slice 169 is still required**.
-- [ ] D5.3 Update `100-arch.data-storage.md` and any other doc restating
+- [x] D5.3 Update `100-arch.data-storage.md` and any other doc restating
       `daily_ohlcv`'s 7-day chunk interval, so no document keeps teaching the
       superseded value.
-- [ ] D5.4 Add a CHANGELOG entry under `[Unreleased]`.
-- [ ] D5.5 Add a DEVLOG entry for the maintenance run.
-- [ ] D5.6 Refine the design's Verification Walkthrough from draft into the
+- [x] D5.4 Add a CHANGELOG entry under `[Unreleased]`.
+- [x] D5.5 Add a DEVLOG entry for the maintenance run.
+- [x] D5.6 Refine the design's Verification Walkthrough from draft into the
       verified form, with actual measured values substituted.
-- [ ] D5.7 Check off this task file and merge the slice branch to `main`.
+- [x] D5.7 Check off this task file and merge the slice branch to `main`.
 - **Success:** documents reflect what actually happened, with measured values
   rather than expectations.
 - **Effort:** 2

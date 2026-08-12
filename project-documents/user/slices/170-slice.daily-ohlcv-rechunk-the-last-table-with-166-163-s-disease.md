@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [166]
 interfaces: [169]
 dateCreated: 20260809
-dateUpdated: 20260809
-status: not_started
+dateUpdated: 20260811
+status: complete
 ---
 
 # Slice Design: `daily_ohlcv` Rechunk — the Last Table with 166/163's Disease
@@ -53,15 +53,22 @@ maintenance window, not a marathon.
 
 ## Measured Baseline (prod, 2026-08-05/06)
 
-| Fact | `daily_ohlcv` |
-|---|---|
-| `chunk_time_interval` | 7 days (slice 143, literal in creation migration) |
-| Chunk count | 3,371 (3,369 compressed) |
-| Rows | ~34.7 M |
-| Total size | ~4.4 GB (166 baseline table) |
-| Data span | ~2004 → present (~22.6 years) |
-| 31k-symbol `ANY` aggregate | EXPLAIN plan-only > 120 s |
-| `SELECT MAX(time)` | > 30 s |
+| Fact | `daily_ohlcv` | Corrected at execution (2026-08-11) |
+|---|---|---|
+| `chunk_time_interval` | 7 days (slice 143, literal in creation migration) | — |
+| Chunk count | 3,371 (3,369 compressed) | 3,372 / 3,370 |
+| Rows | ~34.7 M | **65,652,505** (~1.9× the estimate) |
+| Total size | ~4.4 GB (166 baseline table) | — |
+| Data span | ~2004 → present (~22.6 years) | **1962 → present (64.6 years)** |
+| 31k-symbol `ANY` aggregate | EXPLAIN plan-only > 120 s | confirmed; 7.70 s after |
+| `SELECT MAX(time)` | > 30 s | 4.92 s re-measured; 0.157 s after |
+
+> **Two inputs in this table were wrong, and one changed the plan.** The data
+> span was carried over from `minute_ohlcv`'s 2004 EODHD horizon; daily history
+> actually begins in **1962**. That made the derived window count 338 rather
+> than the ~118 predicted below — see the Execution Record. The grid arithmetic
+> was never at fault. (`MAX(time)` re-measured at 4.92 s rather than >30 s on
+> execution day; the original was taken under daemon load.)
 
 Dependent caggs (all must be paused during the run, per the 166 A5-Q3
 lesson — a concurrent refresh during chunk restructuring silently and
@@ -238,53 +245,189 @@ document as the execution record.
 9. `ANALYZE` run; `approximate_row_count('daily_ohlcv')` sane against the
    exact count.
 
-## Verification Walkthrough (draft — refined at Phase 6 completion)
+## Verification Walkthrough (verified 2026-08-11)
+
+Expected values below are the **measured** post-run results, not predictions.
+An external agent re-running these against prod should reproduce them, allowing
+for growth in the trailing (uncompressed) region.
 
 ```sql
--- Prod psql; always: SET statement_timeout (prod query discipline).
+-- Prod psql; always: SET statement_timeout (prod query discipline). After a
+-- client-side timeout, pg_cancel_backend before running anything else.
 SET statement_timeout = '120s';
 \timing on
 
--- 1. The probe that exceeded 30 s:
-SELECT MAX(time) FROM daily_ohlcv;              -- expect sub-second
+-- 1. The probe that was slow before the rewrite (4.92 s measured pre-run):
+SELECT MAX(time) FROM daily_ohlcv;
+-- measured after: 0.157 s, 2026-08-05 18:00:00-06:00
 
 -- 2. Chunk health:
 SELECT num_chunks FROM timescaledb_information.hypertables
-WHERE hypertable_name = 'daily_ohlcv';          -- expect ~120 (was 3,371)
+WHERE hypertable_name = 'daily_ohlcv';
+-- measured after: 341 total / 339 compressed (was 3,372 / 3,370).
+-- NOT ~120: the data spans 64.6 years (from 1962), so 23,604 days / 70
+-- = 338 windows. See the Execution Record.
 
 -- 3. Future-chunk interval:
 SELECT time_interval FROM timescaledb_information.dimensions
 WHERE hypertable_name = 'daily_ohlcv';          -- expect 70 days
 
--- 4. Integrity (vs. captured baselines):
-SELECT count(*) FROM daily_ohlcv;               -- identical to baseline
-SELECT count(*), MIN(time), MAX(time) FROM daily_ohlcv
-WHERE symbol = 'AAPL' AND time >= '2015-01-01' AND time < '2016-01-01';
+-- 4. Integrity (vs. captured baselines). NOTE the ::timestamptz casts —
+--    binding a bare date defeats chunk exclusion (measured 3,100 ms vs 7 ms).
+SELECT count(*) FROM daily_ohlcv;
+-- measured: 65,652,505 both before and after — identical
 
--- 5. R5 closed-window parity, per rollup cagg (must be exactly 0):
-SELECT (SELECT count(*) FROM daily_ohlcv
-         WHERE time >= '2004-01-01' AND time < '<newest_window_start>')
-     - (SELECT coalesce(sum(day_count), 0) FROM daily_weekly_ohlcv
-         WHERE time_bucket >= '2004-01-01'
-           AND time_bucket < '<newest_window_start>');
--- (column/expression per cagg schema; repeat for monthly/quarterly)
+SELECT count(*), sum(volume) FROM daily_ohlcv
+WHERE symbol = 'AAPL'
+  AND time >= '2015-01-01'::timestamptz AND time < '2026-01-01'::timestamptz;
+-- measured: 2766, 308130610600  (MSFT 2766/78239020262;
+--           SPY 2766/238100213300; IBM 2766/13257218779)
+
+-- 5. R5 closed-window parity, per rollup cagg (must be exactly 0). Compare
+--    sums strictly BEFORE the newest materialized bucket; trailing lag beyond
+--    that edge is benign and is why exit codes alone are not the gate.
+WITH edge AS (SELECT max(time_bucket) AS b FROM daily_weekly_ohlcv),
+     m AS (SELECT coalesce(sum(volume),0) v FROM daily_weekly_ohlcv, edge
+            WHERE time_bucket < edge.b),
+     s AS (SELECT coalesce(sum(volume),0) v FROM daily_ohlcv, edge
+            WHERE time >= (SELECT min(time_bucket) FROM daily_weekly_ohlcv)
+              AND time < edge.b)
+SELECT m.v - s.v FROM m, s;
+-- measured: 0 for daily_weekly_ohlcv, daily_monthly_ohlcv,
+--           daily_quarterly_ohlcv (repeat with each view substituted)
 
 -- 6. No job left paused:
-SELECT job_id, application_name FROM timescaledb_information.jobs
-WHERE NOT scheduled;                            -- expect zero rows
+SELECT job_id, proc_name, hypertable_name
+FROM timescaledb_information.jobs WHERE NOT scheduled;
+-- measured: zero rows (R4 satisfied)
 ```
 
 ```bash
 # 7. CLI plan and run (operator):
 mt data rechunk --table daily --dry-run   # window plan, no mutation
+                                          # measured: 338 windows, 337 to
+                                          # rewrite, 1 skipped (trailing)
 mt data rechunk --table daily             # after jobs paused; resumable
-mt data caggs verify                      # parity; exit 2 → apply R5
-mt data status                            # coverage banner: fresh until the
-                                          # 169 bucket-drift defect re-accrues
+                                          # measured: exit 0, ~16 min
 
-# 8. Cold-start check (throwaway DB only, per DB-protection rules):
-createdb slice170_coldstart && mt data init   # then check dimensions = 70 days
+mt data rechunk --dry-run                 # regression guard: with no --table
+                                          # this still plans minute_ohlcv
+                                          # measured: 1,180 windows, 1,176 done
+
+mt data caggs verify   # NOTE: checks the MINUTE family, not daily. It reports
+                       # FAIL from a pre-existing ~0.018% minute shortfall that
+                       # is slice 169 / `mt data caggs repair` territory — it is
+                       # NOT a daily-parity signal. Use step 5 for this slice.
+
+mt data status         # coverage still reports data ending 2025-12-26: the
+                       # 365-day coverage bucket never refreshes while open.
+                       # Not fixed by this slice — see 169.
+
+# 8. Cold-start check (throwaway DB only, per DB-protection rules).
+#    Covered automatically by test/integration/test_migration_050.py and
+#    test_cold_start.py against an ephemeral database:
+MT_TIMESCALE_TEST_URL=... uv run pytest test/integration/test_migration_050.py -q
+# measured: 5 passed (interval = 70 days, 050 idempotent)
 ```
+
+## Execution Record (prod, 2026-08-11)
+
+Executed on `192.168.1.144` after a PM-authorized window with the daemon
+stopped and a cold backup taken (PostgreSQL stopped for the copy). Full detail,
+including every baseline value, is in
+[2026-08-11-slice-170-daily-rechunk-execution.md](../notes/2026-08-11-slice-170-daily-rechunk-execution.md);
+the run log is beside it.
+
+**Result: all nine success criteria met, one with a caveat.** `mt data rechunk
+--table daily` exited 0 in ~16 minutes. 337 of 338 windows rewritten, 1 skipped
+(trailing uncompressed), 0 failures. **Every window collapsed to exactly one
+chunk** — 336 from 10 chunks, one from 8.
+
+| Measure | Before | After | Criterion |
+|---|---|---|---|
+| Chunks (total / compressed) | 3,372 / 3,370 | **341 / 339** | 1 ✅ |
+| `SELECT MAX(time)` | 4.92 s | **0.157 s** | 2 ✅ |
+| 31k-symbol `ANY` EXPLAIN (plan only) | >120 s, never finished | **7.70 s** | 3 ✅ |
+| `count(*)` | 65,652,505 | **65,652,505** | 4 ✅ |
+| R5 closed-window parity (3 rollups) | — | **0, 0, 0** | 5 ✅ |
+
+Per-symbol integrity (AAPL, MSFT, SPY, IBM) matched **exactly** on both count
+and `sum(volume)`. Criterion 6 was verified pre-flight by the cold-start
+integration test; 7 by `mt data rechunk --dry-run` still planning
+`minute_ohlcv` (1,180 windows, 1,176 done) with its interval unchanged at
+7 days; 8 by zero jobs left unscheduled.
+
+**Criterion 9 — caveat, and the criterion was mis-specified.** `ANALYZE` ran
+in 3.1 s, but `approximate_row_count('daily_ohlcv')` then returned
+**1,443,446,308** against an exact 65,652,505 — **+2,099% wrong**. This is a
+known TimescaleDB estimator defect already recorded for `minute_ohlcv` (+68%
+there), not damage from this rewrite: the exact count is correct and matches
+baseline. The criterion should never have asked for a "sane"
+`approximate_row_count`; **do not use that function for verification**.
+
+### The C2.3 stop condition fired — and was right to
+
+The dry run reported **338 windows**, 2.9× the design's ~118. Per C2.3 the run
+was halted and diagnosed before any mutation:
+
+- Real span is **1961-12-27 .. 2026-08-12 = 23,604 days = 64.6 years**, not the
+  22.6 years this design assumed by borrowing `minute_ohlcv`'s 2004 horizon.
+- 23,604 ÷ 70 = 337.2 → **338 windows.** The arithmetic was correct throughout.
+- All 3,372 source chunks were exactly 7 days wide, so **the 70 = 10 × 7
+  nesting property held perfectly** — which the run then demonstrated by
+  collapsing every window to a single chunk.
+
+The PM approved proceeding at 70 days. Re-deriving to ~200 days to hit the
+original ~120-chunk target would **break nesting** (200 = 28.57 × 7) and
+reintroduce the grid-alignment hazard 166 warned about — a bad trade for a
+marginal planner gain. **The design's derivation method (wall-clock span ÷
+target count) is sound; only its span input was wrong.**
+
+### Load-tier consideration (code review F005)
+
+The Python rules require a `test/load/` NFR test for code on the concurrency
+or environment-layer path, and the driver does take per-window `EXCLUSIVE`
+locks. **Deliberately not added**, for three reasons:
+
+1. The driver is a **manually-invoked maintenance command**, not a serving or
+   daemon path. Nothing calls it concurrently; the operator runs it once in a
+   window with writers stopped. There is no throughput or latency budget for a
+   load test to defend.
+2. Its concurrency guarantee is **correctness, not performance** — that a
+   concurrent writer is *blocked* rather than silently losing rows. That is
+   already asserted functionally by
+   `test_concurrent_writer_blocked_during_window`, which drives the real race
+   through the `after_stage` seam. A load test would not strengthen it.
+3. Real-world evidence exceeds anything a load test would simulate: the same
+   driver has now completed two production runs — 7.27 B rows (166) and
+   65.6 M rows across 337 windows (170) — both with zero errors and exact
+   integrity parity.
+
+Revisit only if the driver ever becomes automated or runs against a live
+writer, at which point contention becomes a real property worth bounding.
+
+### Other findings
+
+- **The runbook's job table is stale.** There is no job 1003; the 4h minute
+  refresh is now **job 1124**. D5's instruction to resolve IDs from the catalog
+  at runtime is what prevented acting on a wrong ID.
+- **The daily caggs were roughly half-materialized.** The exit force-refresh
+  added +6.6 M rows to `daily_weekly_ohlcv`, +1.5 M to monthly, +530 k to
+  quarterly, +148 k to `daily_coverage`. Their policies look back ≤270 days, so
+  a scheduled run could never have healed 64 years of history — D6 and the 163
+  lesson vindicated. Post-refresh parity is exactly 0.
+- **`mt data caggs verify` reports FAIL, on the *minute* family**, which this
+  slice never touched (`minute_ohlcv` unchanged at 7 days / 1,207 chunks, its
+  jobs running throughout). Closed-window parity there is 99.982% — an
+  identical shortfall across all four minute rollups, i.e. late-arriving source
+  rows rather than per-cagg corruption. Pre-existing; `mt data caggs repair`
+  clears it. This is exactly the ambiguity D6 anticipated in refusing to gate
+  on that command's exit code.
+- **`daily_coverage` content staleness was healed as a side effect, but the
+  policy defect remains** — the current 365-day bucket is never refreshed, so
+  its newest bucket is still 2025-12-26 even immediately after a forced
+  full-span refresh, and staleness re-accrues. **Slice 169 is still required**,
+  and this is the project's live API-facing defect.
 
 ## Risk Assessment
 

@@ -140,10 +140,32 @@ MINUTE_OHLCV_CHUNK_INTERVAL: timedelta = timedelta(days=7)
 Single source of truth (slice 166). The original 4-hour interval (slice 156)
 produced 25,256 chunks over 22.5 years; planning any un-pruned query against
 that many chunks took ~14 minutes and fragmented compression batches (85 GB
-TOAST overhead). 7 days matches ``daily_ohlcv``'s proven-healthy interval and
-the ``compress_after = 7 days`` policy cadence. Referenced by the
-create-hypertable migration (001c), migration 043, and the slice 166 rechunk
-maintenance command — never restate the value as a literal elsewhere.
+TOAST overhead). 7 days was derived from the wall-clock rule (span ÷ target
+chunk count) and matches the ``compress_after = 7 days`` policy cadence.
+Referenced by the create-hypertable migration (001c), migration 043, and the
+rechunk registry's ``MINUTE`` target — never restate the value as a literal
+elsewhere.
+"""
+
+DAILY_OHLCV_CHUNK_INTERVAL: timedelta = timedelta(days=70)
+"""TimescaleDB ``chunk_time_interval`` for the ``daily_ohlcv`` hypertable.
+
+Single source of truth (slice 170). Derived from the same wall-clock rule as
+the minute interval — chunk interval = wall-clock span ÷ target chunk count,
+never data volume: 22.6 years ÷ 70 days ≈ 118 chunks. The 7-day interval set
+at creation (slice 143) was never revisited and produced 3,371 chunks over only
+~34.7 M rows, the same over-chunking pathology slices 166 and 163 repaired
+elsewhere: ``SELECT MAX(time)`` exceeded 30 s and a 31k-symbol ``ANY``
+aggregate could not finish planning in 120 s.
+
+70 = 10 × 7, so the existing 7-day chunks nest **exactly** inside the
+epoch-aligned 70-day grid. Every target window therefore contains only whole
+chunks and collapses to exactly one chunk, which is what makes the rechunk
+rewrite safe (slice 166's grid-alignment caveat is satisfied by construction).
+
+Referenced by the create-hypertable migration (023), migration 050, and the
+rechunk registry's ``DAILY`` target — never restate the value as a literal
+elsewhere.
 """
 
 LATE_BAR_GRACE_PERIOD: timedelta = timedelta(minutes=30)
@@ -676,6 +698,22 @@ MINUTE_CAGG_GRANULARITIES: tuple[Granularity, ...] = (
 canonical order for reporting and for resolving user granularity input. This is
 NOT a repair sweep order; per-granularity repair sequencing is an operator
 decision (see cagg_repair.REPAIR_RUN_ORDER)."""
+
+DAILY_OHLCV_TABLE: str = GRANULARITY_SOURCE[Granularity.D1]
+"""The raw daily hypertable — the source of truth the three daily rollup caggs
+and ``daily_coverage`` derive from. Derived from GRANULARITY_SOURCE so the name
+has exactly one definition."""
+
+DAILY_CAGG_GRANULARITIES: tuple[Granularity, ...] = (
+    Granularity.W1,
+    Granularity.MO1,
+    Granularity.Q1,
+)
+"""The three daily rollup continuous aggregates, in ascending bucket width —
+the same canonical ordering as MINUTE_CAGG_GRANULARITIES. Does NOT include
+``daily_coverage``: coverage is not a granularity rollup and has no Granularity
+member, so callers needing the full set of caggs materializing from
+``daily_ohlcv`` must add DAILY_COVERAGE_VIEW explicitly."""
 
 
 @dataclass(frozen=True)

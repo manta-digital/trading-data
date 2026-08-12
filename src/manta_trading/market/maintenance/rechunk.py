@@ -1,11 +1,11 @@
-"""In-place hypertable re-chunking driver (slice 166).
+"""In-place hypertable re-chunking driver (slices 166, 170).
 
-Rewrites a hypertable's small chunks into epoch-aligned windows of
-``MINUTE_OHLCV_CHUNK_INTERVAL`` (7 days), one window per transaction:
+Rewrites a hypertable's small chunks into epoch-aligned windows of the target's
+chunk interval, one window per transaction:
 
     stage window rows into a temp table
       -> drop_chunks() for the window (removes chunks AND their slices)
-      -> INSERT the rows back (tuple routing creates one fresh 7-day chunk)
+      -> INSERT the rows back (tuple routing creates one fresh chunk)
       -> COMMIT; then compress the new chunk
 
 This mechanism (Option D of the slice 166 design's Root-Cause Record) exists
@@ -17,6 +17,12 @@ interrupted run leave a valid, partially-rewritten table — never a broken one
 Window state is derived from the Timescale catalog on every run, so the
 driver is idempotent and resumable: finished windows are skipped, a window
 interrupted between COMMIT and compression is finished by compressing only.
+
+The driver is table-agnostic: every table-specific value (hypertable name,
+chunk interval, dependent cagg views, the migration that sets the interval)
+lives in ``RECHUNK_TARGETS``, keyed by ``RechunkTarget``. Slice 166 ran the
+``MINUTE`` target at 7.27 B rows; slice 170 runs ``DAILY`` at ~210x smaller
+scale on the same mechanism.
 """
 
 from __future__ import annotations
@@ -31,6 +37,10 @@ from psycopg import sql as _sql
 from psycopg.rows import dict_row
 
 from manta_trading.constants import (
+    DAILY_CAGG_GRANULARITIES,
+    DAILY_COVERAGE_VIEW,
+    DAILY_OHLCV_CHUNK_INTERVAL,
+    DAILY_OHLCV_TABLE,
     GRANULARITY_SOURCE,
     MINUTE_CAGG_GRANULARITIES,
     MINUTE_OHLCV_CHUNK_INTERVAL,
@@ -40,8 +50,56 @@ from manta_trading.logging import get_logger
 
 logger = get_logger(__name__)
 
-RECHUNK_TABLE: str = MINUTE_OHLCV_TABLE
-"""The hypertable this maintenance run targets (parameterized for tests only)."""
+
+class RechunkTarget(StrEnum):
+    """A hypertable the rechunk driver knows how to rewrite.
+
+    Dispatch key for ``RECHUNK_TARGETS`` and the CLI's ``--table`` option —
+    the operator-facing string routes through this enum, never a bare string
+    comparison.
+    """
+
+    MINUTE = "minute"
+    DAILY = "daily"
+
+
+@dataclass(frozen=True)
+class RechunkTargetSpec:
+    """Everything table-specific about one rechunk target."""
+
+    table: str
+    """Hypertable to rewrite."""
+
+    interval: timedelta
+    """Target epoch-aligned chunk interval; also the pre-flight's expectation."""
+
+    cagg_views: tuple[str, ...]
+    """Continuous aggregates whose refresh policies must be paused before a
+    run. A refresh firing mid-rewrite consumes the invalidation log and
+    materializes nothing, silently and permanently losing rows (166 A5-Q3)."""
+
+    interval_migration_id: str
+    """Migration that sets ``interval`` on ``table`` — named in the pre-flight
+    error so an operator is told which migration to apply."""
+
+
+RECHUNK_TARGETS: dict[RechunkTarget, RechunkTargetSpec] = {
+    RechunkTarget.MINUTE: RechunkTargetSpec(
+        table=MINUTE_OHLCV_TABLE,
+        interval=MINUTE_OHLCV_CHUNK_INTERVAL,
+        cagg_views=tuple(GRANULARITY_SOURCE[g] for g in MINUTE_CAGG_GRANULARITIES),
+        interval_migration_id="043_minute_chunk_interval_7d",
+    ),
+    RechunkTarget.DAILY: RechunkTargetSpec(
+        table=DAILY_OHLCV_TABLE,
+        interval=DAILY_OHLCV_CHUNK_INTERVAL,
+        # The three rollup caggs plus daily_coverage, which also materializes
+        # from daily_ohlcv and therefore carries the same mid-rewrite hazard.
+        cagg_views=tuple(GRANULARITY_SOURCE[g] for g in DAILY_CAGG_GRANULARITIES)
+        + (DAILY_COVERAGE_VIEW,),
+        interval_migration_id="050_daily_chunk_interval_70d",
+    ),
+}
 
 
 class WindowState(StrEnum):
@@ -139,7 +197,7 @@ def _load_windows(
 
 
 def _assert_dimension_interval(
-    conn: psycopg.Connection, table: str, interval: timedelta
+    conn: psycopg.Connection, table: str, interval: timedelta, migration_id: str
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
@@ -153,7 +211,8 @@ def _assert_dimension_interval(
     if row[0] != interval:
         raise PreflightError(
             f"{table} chunk_time_interval is {row[0]}, expected {interval} — "
-            "apply migration 043 (mt data migrate apply) before rechunking"
+            f"apply migration {migration_id} (mt data migrate apply) before "
+            "rechunking"
         )
 
 
@@ -267,26 +326,34 @@ def run_rechunk(
     conninfo: str,
     *,
     dry_run: bool = False,
-    table: str = RECHUNK_TABLE,
+    target: RechunkTarget = RechunkTarget.MINUTE,
+    table: str | None = None,
     cagg_views: tuple[str, ...] | None = None,
     max_windows: int | None = None,
     after_stage: Callable[[Window], None] | None = None,
 ) -> RechunkResult:
-    """Re-chunk ``table`` into MINUTE_OHLCV_CHUNK_INTERVAL windows.
+    """Re-chunk ``target``'s hypertable into its epoch-aligned chunk windows.
 
-    ``table``/``cagg_views``/``max_windows``/``after_stage`` are test seams,
-    not operator configuration — the CLI exposes only ``--dry-run``.
+    ``target`` selects the table, chunk interval, and dependent caggs from
+    ``RECHUNK_TARGETS``. ``table``/``cagg_views``/``max_windows``/``after_stage``
+    are test seams that override the spec's defaults, not operator
+    configuration — the CLI exposes only ``--table`` and ``--dry-run``.
     """
-    interval = MINUTE_OHLCV_CHUNK_INTERVAL
+    spec = RECHUNK_TARGETS[target]
+    interval = spec.interval
+    if table is None:
+        table = spec.table
     if cagg_views is None:
-        cagg_views = tuple(GRANULARITY_SOURCE[g] for g in MINUTE_CAGG_GRANULARITIES)
+        cagg_views = spec.cagg_views
 
     with psycopg.connect(conninfo) as conn:
         # Pre-flight guards mutation only; a dry run is read-only and must
-        # work before migration 043 is applied and before jobs are paused,
-        # so the operator can inspect the plan first.
+        # work before the interval migration is applied and before jobs are
+        # paused, so the operator can inspect the plan first.
         if not dry_run:
-            _assert_dimension_interval(conn, table, interval)
+            _assert_dimension_interval(
+                conn, table, interval, spec.interval_migration_id
+            )
             still_scheduled = _resolve_paused_job_violations(conn, table, cagg_views)
             if still_scheduled:
                 raise PreflightError(

@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (slice 170)
+- **Daily-bar queries are no longer slow before they read anything.** `daily_ohlcv` had been split into **3,372 chunks** by a 7-day chunk interval set at creation and never revisited — the same over-chunking pathology fixed for `minute_ohlcv` (slice 166) and the minute aggregates (slice 163). Planning, not execution, was the cost: a bare `SELECT MAX(time)` took **4.92 s**, and asking for the latest bar across the full 31k-symbol universe could not finish *planning* in two minutes, which is what wedged the daemon for 15 hours on 2026-08-05. The table is now rewritten into 70-day chunks — **341 chunks**, a 10x reduction — and the same probes take **0.157 s** and **7.70 s**. Row counts and per-symbol volume sums are byte-identical before and after; nothing was lost.
+- **The daily continuous aggregates were roughly half-empty, and are now complete.** `daily_weekly_ohlcv`, `daily_monthly_ohlcv`, `daily_quarterly_ohlcv`, and `daily_coverage` were missing large spans of history — their refresh policies look back at most 270 days, so a scheduled run could never repair anything older, and the gaps sat there indefinitely while every run reported success. A forced full-span rebuild added **+6.6 M**, **+1.5 M**, **+530 k**, and **+148 k** rows respectively. All three rollups now match their source exactly (closed-window parity of 0). Note this does **not** fix coverage staleness: the 365-day coverage bucket is still never refreshed while it is open, so `mt data status` continues to report data ending 2025-12-26 until slice 169 lands.
+
+### Added (slice 170)
+- **`mt data rechunk` now takes `--table minute|daily`.** The maintenance command was hardcoded to the minute table; it now targets either hypertable through a small registry that carries each table's chunk interval, dependent aggregates, and interval migration, so a pre-flight failure names the migration that actually fixes it. The default invocation is unchanged and still plans `minute_ohlcv`.
+
 ## [0.7.7] - 2026-08-09
 
 ### Removed (slice 914)

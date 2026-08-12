@@ -65,6 +65,7 @@ Two independent storage layers exist on separate hosts, using two different DB d
 - All queries are raw SQL via `connection.execute(text(...))` — no ORM or query builder usage
 - SQLAlchemy serves only as a connection pool manager; its weight is unjustified for this use case
 - Hypertable: `minute_ohlcv` (7-day chunks per `MINUTE_OHLCV_CHUNK_INTERVAL`; re-chunked from the pathological 4hr interval in slice 166), columns: `time, symbol, open, high, low, close, volume`
+- Hypertable: `daily_ohlcv` (**70-day chunks** per `DAILY_OHLCV_CHUNK_INTERVAL`; re-chunked from the 7-day interval set at creation in slice 143, which had produced 3,372 chunks — slice 170, executed 2026-08-11, leaving 341). Note the daily history is far deeper than the minute history: it starts in **1962**, not 2004.
 - Continuous aggregates: 5min, 15min, 1hr, 4hr, daily, weekly, monthly (v2 materialized views)
 - Compression: ~95% ratio
 - Takes a `db_config` dict via `TimescaleDBConfig` which reads `TRADING_PSQL_*` env vars
