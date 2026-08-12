@@ -39,6 +39,43 @@ findings:
 **Verdict:** FAIL
 **Model:** moonshotai/kimi-k2.7-code
 
+## Disposition (2026-08-11, commit f7d4eac)
+
+| Finding | Disposition |
+|---|---|
+| F001 preflight crash | **Rejected — false positive.** The guard already exists. |
+| F002 prod URL in test | **Fixed.** 166 suite moved to `ephemeral_db`; allowlist ratcheted. |
+| F003, F004 | Pass, no action. |
+
+**F001 is incorrect.** It states `_assert_dimension_interval` "immediately
+indexes `row[0]`, but never checks whether `row` is `None`", and recommends
+adding a guard. That guard is already present at
+`src/manta_trading/market/maintenance/rechunk.py:209` — two lines *before* the
+`row[0]` access at 211, and inside the 197–217 range the finding itself cites:
+
+```python
+row = cur.fetchone()
+if row is None:
+    raise PreflightError(f"{table} is not a hypertable on this database")
+if row[0] != interval:
+```
+
+The finding also claims the implementation is inconsistent with
+`test_missing_hypertable_is_a_preflight_error`. That test passes
+(`uv run pytest test/unit/market/test_rechunk.py -k missing_hypertable` →
+1 passed), which it could not do if the described defect existed. No code
+change was made, and the FAIL verdict does not stand on this finding.
+
+**F002 is valid and was fixed.** The 166 suite read `MT_TIMESCALE_DB_URL` and
+passed it to `psycopg.connect`, contrary to the `testing.md` rule. It never
+needed production *data* — only a TimescaleDB instance to create scratch
+tables on — so it now builds its scratch state inside the same `ephemeral_db`
+throwaway the 170 daily suite uses, and `test_rechunk_driver.py` was ratcheted
+out of the prod-URL allowlist (the guard test requires removal once a file
+stops reading the variable). Side effect: the suite no longer skips by default
+under conftest's scrub, so the integration tier gained 6 executing tests
+(120 → 126 passing, same 2 known `test_cli_lists.py` failures).
+
 ## Findings
 
 ### [FAIL] Preflight handler crashes when hypertable is missing
