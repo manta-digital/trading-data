@@ -486,17 +486,35 @@ and is not a verification tool (D7).
 
 ---
 
-## Open Questions for the Project Manager
+## PM Decisions and Open Questions
 
-1. **Is a one-bucket display lag on `mt data status` acceptable?** After this
-   slice, `last_bar_ts` for a symbol can trail reality by up to one bucket width
+1. **A 30-day display lag on `mt data status` is accepted for this slice**
+   (PM, 2026-08-13) — **provisionally, not permanently.** After this slice,
+   `last_bar_ts` for a symbol can trail reality by up to one bucket width
    without the staleness banner firing (D3). The API's `/symbols` ranges are
-   unaffected (187 D2's head probe keeps them exact). If not acceptable, the
-   follow-on is extending the floor-plus-head-probe shape to `bars_summary` —
-   out of scope here.
+   unaffected (187 D2's head probe keeps them exact). Build to the 30-day
+   width; do not treat it as a settled ceiling.
+
+   **Follow-on, not scheduled:** extending slice 187 D2's floor-plus-head-probe
+   shape to `bars_summary` — a coverage floor for the bulk plus a bounded head
+   read for the edge — would bring `mt data status` to roughly the underlying
+   data's own freshness (~8 h), matching what a 4h-cagg read already provides.
+   That is a change to a view with a strict column contract (167 D2) and stays
+   out of scope here. Nothing in this slice forecloses it.
+
+   Weighing it later should account for what `mt data status` is actually
+   *for*: it duplicates `/api/v1/status` almost exactly (same backend —
+   `fetch_status_rows_with_freshness` over the `data_status` view, same
+   filters, same health summary), and its one substantive advantage is that it
+   needs **no running server**. That makes it the incident tool — reached for
+   precisely when the API may be what is down. In that role a stale reading
+   costs more than in a convenience tool, which argues for the head-probe
+   follow-on over deprecating the command.
+
 2. **Confirm the widened `COVERAGE_CONTENT_STALENESS`.** D3 changes it from a
    value the architecture cannot meet to one it can. This is a deliberate
    loosening of a staleness threshold and should be an explicit PM call.
+   Still open.
 
 ---
 
