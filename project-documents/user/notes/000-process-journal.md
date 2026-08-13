@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260806
+dateUpdated: 20260813
 status: in_progress
 ---
 
@@ -19,6 +19,97 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260813 — A silent TimescaleDB upgrade broke cagg refresh unboundedly; the exit plan is OS-first (two-hop to 26.04 LTS), not a rebuild and not more workarounds
+
+**Context:** The `minute_4hour_ohlcv` repair (36 of 119 windows out of parity
+after the weekend backfill) OOM-killed the cluster on 2026-08-11 at a 111 GB
+peak, and kept failing after `vm.overcommit_memory=2` converted the failure
+mode to statement errors. An evidence chain across two days eliminated window
+size (a 1-day refresh costs the same as 70-day), invalidation-log bloat
+(near-empty), plan-cache mode (`force_custom_plan` no effect), and literal-plan
+pruning (custom plans prune to one chunk). The mechanism: the parameterized
+materialization statement under a generic plan is a full-table aggregate —
+~4.9 B rows, ~3,600 chunk references, window filter applied at the top — and
+TimescaleDB 2.23.0's refresh takes that path for any historic-window refresh
+of this cagg ("no valid batches produced … falling back to single batch
+processing"). The version had moved 2.21.3 → 2.23.0 **silently inside routine
+OS patching** at the 2026-08-08 reboot; every successful rebuild (119 windows
+at 20–35 s on 2026-08-05/06) ran on 2.21.x, every balloon on 2.23.0. Upstream
+issue timescale/timescaledb#8792 documents the 2.22.x batching-rework family;
+the overhaul that fixes it lands in 2.27.0+.
+
+**Why no workaround shipped:** the box runs Ubuntu 25.04 (non-LTS). Timescale
+publishes no 25.04 builds, and its 24.04 builds ≥ 2.27 require PostgreSQL ≥
+17.9–17.10, which no repo carries for 25.04 (PGDG plucky stops at 17.8). The
+newest installable TimescaleDB is 2.25.1 with no documented fix — a coin
+flip. On 2.23.0, probes showed invalidation-entry seeding bounds refresh
+memory (~12–15 GB instead of unbounded) but still exceeds the commit headroom
+available on a host that is also a desktop (~104 GB baseline committed of a
+119 GB limit; editor processes hold tens of GB). No refresh invocation on the
+damaged cagg is reliably completable on this stack.
+
+**Decision — the exit plan (recorded for handoff; execution not started):**
+
+1. **Immediately (before anything else):** `apt-mark hold` on
+   `timescaledb-2-postgresql-17` and `timescaledb-2-loader-postgresql-17` so
+   extension versions move only by decision. This is the standing rule going
+   forward: database-critical extensions are never upgraded as a side effect
+   of OS patching; upgrades go through the extension-upgrade runbook
+   (backup gate → quiesce → upgrade → restart → per-DB
+   `ALTER EXTENSION … UPDATE` resolved by catalog query → bounded refresh
+   probe → resume).
+2. **Primary path — OS-first, in place:** two-hop `do-release-upgrade`
+   25.04 → 25.10 → 26.04 LTS. **Not** a machine rebuild: the data directory
+   survives an in-place OS upgrade, PostgreSQL stays on major 17 throughout,
+   and a rebuild adds days of reinstall/restore for no correctness gain.
+   The three guardrails that make in-place safe: (a) verified physical
+   backup first (slice 915 procedure); (b) glibc/collation churn across OS
+   hops can silently corrupt text-keyed indexes — run `amcheck` and/or
+   REINDEX text indexes after the final hop; (c) the release upgrader
+   disables third-party apt sources — re-point PGDG and Timescale suites
+   after each hop and verify both vendors publish for 26.04 **before
+   starting** (10-minute check; if Timescale lacks 26.04 builds, hold at
+   the last covered configuration and reassess).
+3. **Then the actual fix, nearly free:** on 26.04, install PostgreSQL 17.10+
+   (PGDG) and TimescaleDB 2.29.x, `ALTER EXTENSION … UPDATE` per database,
+   probe a 1-day refresh (bounded, statement-timeout-capped), then run the
+   existing repair tool — its 14-day sub-windowing is already committed, and
+   2.28+ adds `buckets_per_batch => 0` as an explicit escape hatch. Sequence:
+   4h repair → runbook R2 (resume the 4h refresh policy by view+proc lookup,
+   catch-up refresh) → 1h → 15m → 5m → `mt data caggs verify` at 100 % —
+   restoring the daemon's coverage-index source and full minute seeding.
+   Housekeeping en route: drop the orphaned `mt_test_*`/`mt_diag_*`
+   databases leaked by fixture teardowns that died in the OOM kills.
+4. **Fallback (only if the OS path stalls):** direct materialization — per
+   window, `drop_chunks` → `INSERT INTO` the materialization hypertable from
+   the partial view with **literal** bounds (proven one-chunk plans) →
+   compress → parity gate, plus cleanup of stale invalidation entries for
+   repaired ranges; rehearsed on `trading_test` first. Bypasses the broken
+   refresh entirely on 2.23.0. Kept as designed fallback, not primary —
+   it is catalog-adjacent surgery that the OS path makes unnecessary.
+5. **Separately scheduled, unchanged:** slice 169 (coverage head-bucket
+   refresh defect) remains with its owner; its rematerialization runs after
+   the repairs. The desktop/database cohabitation of this host (the commit
+   -headroom fights) is recorded as a standing constraint worth its own
+   decision eventually.
+
+**Success criteria for "the database actually works":** `mt data caggs
+verify` exits 0 at 100 % parity on all granularities; a 1-day cagg refresh
+completes bounded (seconds-to-minutes, no memory event); no OOM statement
+errors in steady operation; daemon minute cycles seed from a fresh coverage
+index; no minutes-long queries on any serving or acquisition path.
+
+**Rationale:** every stall of the minute pipeline this month — chunking,
+cagg machinery, silent version drift, commit-limit fights — is
+infrastructure-layer, not domain logic, and each root cause is now
+identified. The OS-first path retires the whole class in one motion (vendor
+-covered stack + version pinning + the already-fixed tooling) instead of
+spending further effort on workarounds that leave the broken layer in place.
+
+**Follow-ups:** extension-upgrade runbook to write alongside execution;
+journal cross-ref from the 20260811 OOM observations; slice 169; host-role
+decision (desktop vs database).
 
 ## 20260806 — The daemon wedged forever at startup: an incident-emptied table un-short-circuited a query that cannot even be planned, and no session had a statement_timeout
 
