@@ -4,91 +4,109 @@ layer: project
 reviewType: tasks
 slice: coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized
 project: trading-data
-verdict: CONCERNS
+verdict: PASS
 sourceDocument: project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md
 aiModel: minimax/minimax-m3
 status: complete
 dateCreated: 20260813
 dateUpdated: 20260813
-reviewedSha: 452b0b367d03dd87337a1c1fcec74a64e853c76e
+reviewedSha: 55e661cde8c0e626d6936db21f494b924af4def0
 findings:
   - id: F001
     severity: pass
     category: uncategorized
-    summary: "All 19 success criteria are addressed across Part 1 and Part 2"
-    location: "169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+    summary: "All 19 success criteria have corresponding tasks across Parts 1 and 2"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
   - id: F002
     severity: pass
     category: uncategorized
-    summary: "Clear cross-references to slice design sections"
-    location: "169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+    summary: "Sequencing correctly operationalizes the design's two-window Rebuild Window model"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
   - id: F003
     severity: pass
     category: uncategorized
-    summary: "Non-negotiables are carried through to Part 2"
-    location: "169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+    summary: "G.5 stop-and-replan gate prevents committing to an unsafe full-sweep"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
   - id: F004
-    severity: concern
-    category: operational-gap
-    summary: "API server restart is not an explicit task"
-    location: "169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+    severity: pass
+    category: uncategorized
+    summary: "G.7 detects partial materialization by content per the design's Rebuild Window guidance"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
   - id: F005
-    severity: concern
-    category: nfr-coverage
-    summary: "NFR load test missing for restated NFRs (criterion 12, 17, 19)"
-    location: "169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+    severity: pass
+    category: uncategorized
+    summary: "G.9a closes criterion 12 with an actual prod measurement rather than Part 1's seeded prediction"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
   - id: F006
-    severity: concern
-    category: ambiguity
-    summary: "G.2 success criterion reads as if both services are stopped for the whole window"
-    location: "169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+    severity: pass
+    category: uncategorized
+    summary: "G.13 (walkthrough 8a) is the only check that distinguishes the fix from the defect"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
   - id: F007
-    severity: concern
-    category: nfr-coverage
-    summary: "Criterion 12 prod measurement is not explicit on prod"
-    location: "169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+    severity: pass
+    category: uncategorized
+    summary: "Non-negotiables from Part 1's design are restated at the top of Part 2"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
   - id: F008
+    severity: pass
+    category: uncategorized
+    summary: "Explicit Part 1 → Part 2 gating and PM-decision contingency"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+  - id: F009
+    severity: pass
+    category: uncategorized
+    summary: "Task G is acknowledged as non-code, with the runbook/journal convention called out"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+  - id: F010
     severity: note
-    category: sequencing
-    summary: "G.6 absorbs the G.5 success gate"
-    location: "169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md"
+    category: uncategorized
+    summary: "H.1 quality-gates language implies code changes despite Part 2 being operational"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md#H.1"
 ---
 
 # Review: tasks — slice 169
 
-**Verdict:** CONCERNS
+**Verdict:** PASS
 **Model:** minimax/minimax-m3
 
 ## Findings
 
-### [PASS] All 19 success criteria are addressed across Part 1 and Part 2
+### [PASS] All 19 success criteria have corresponding tasks across Parts 1 and 2
 
-Each of the 19 success criteria in the slice design maps to at least one task. Part 1 (Tasks A–F) covers criteria 1, 2, 3 (partial), 4, 12, 15, 17, 19 (design-time measurement in B1, plus constants/migrations/architecture). Part 2 covers criteria 5 (G.5/G.6/G.7/G.8), 6/7/8/16 (G.9), 9 (G.15), 10 (G.14), 11 (G.3/G.11), 13 (G.4), 14 (G.10), 18 (G.13). The H.2 task audits all 19 with evidence, providing a final check.
+Walked all 19 criteria from the slice design. Criteria 1, 2, 3 (cold-start), 4, 15, 17, 19 are covered by Part 1 (Tasks A–F per the `projectState` field). Criteria 5–14, 16, 18 are covered in Part 2: G.6+G.8 (5), G.9 (6, 7, 8, 16 — including explicit "seven pre-167 caggs still report against their unchanged budgets"), G.15 (9), G.14 (10), G.3+G.11 (11), G.9a (12), G.4 (13 — verified directly by chain advancement, not inferred), G.10 (14), G.13 (18). H.2 audits all 19 with recorded evidence, which catches any drift in Part 1's coverage.
 
-### [PASS] Clear cross-references to slice design sections
+### [PASS] Sequencing correctly operationalizes the design's two-window Rebuild Window model
 
-Tasks explicitly cite the relevant slice-design sections — e.g., G.1 (walkthrough step 2), G.3 (walkthrough step 3), G.4 (walkthrough step 4), G.6 (walkthrough step 5), G.8 (walkthrough step 6), G.9 (walkthrough step 7), G.10 (walkthrough step 7a), G.11 (walkthrough step 8), G.13 (walkthrough step 8a, criterion 18), G.14 (walkthrough step 9), G.15 (slice 187 walkthrough step 4, criterion 9). The D4/D7 lessons and the runbook/journal convention for prod execution are surfaced.
+G.2 explicitly differentiates the daemon's stop duration (entire window — DDL through G.6) from the API server's (Window A only — restarted at G.4a, before materialization). This matches the slice design's "The daemon stays stopped for the entire window, not merely during DDL" and the rationale that running writes to `minute_ohlcv`/`daily_ohlcv` during a full-span refresh move the target mid-rebuild.
 
-### [PASS] Non-negotiables are carried through to Part 2
+### [PASS] G.5 stop-and-replan gate prevents committing to an unsafe full-sweep
 
-The five non-negotiables (jobs resolved from catalog by name, bounded sub-window materialization, exact `count(*)` for verification, content-based partial-materialization detection, `minute_4hour_ohlcv`'s refresh never paused) are repeated at the top of the file and embedded in the relevant G.* tasks. G.3 explicitly verifies `minute_4hour_ohlcv`'s refresh remains `scheduled = true`; G.7 explicitly invokes content-based detection; G.14 explicitly uses exact counts.
+G.5's "Stop-and-replan condition" explicitly halts G.6 if the measured sub-window exceeds the host's safe envelope, with escalation to the PM before continuing. The success criterion is worded as a *judgment* ("explicitly judged safe") rather than a measurement — appropriate, because the Risks table makes clear that the cost of discovering a bad sub-window span partway through 64 years vastly exceeds the cost of one extra measurement cycle.
 
-### [CONCERN] API server restart is not an explicit task
+### [PASS] G.7 detects partial materialization by content per the design's Rebuild Window guidance
 
-G.2 stops the API server for "the 051 DDL window specifically (Window A)" and G.4 applies migrations 051/052, but no task restarts the API server after Window A. The daemon restart is explicit (G.12), but the API server restart is implicit — a junior AI following the task list literally could leave the API server stopped throughout the materialization window (G.5–G.6) and into the verification (G.7–G.11), extending the user-facing 500 exposure far beyond the intended 051 DDL window. This should be either an explicit "Restart the API server" task between G.4 and G.5, or merged into G.4's success criteria with a clear "after applying 051, restart the API server" sub-step.
+G.7 samples per-symbol `MIN(first_bucket)` against the known history floor rather than relying on `\dm` catalog presence. The task explicitly cites the 170 lesson (the daily rollups were half-materialized despite being present in the catalog), which is the same defect class the design flags in the Risks table and the sql.md rule.
 
-### [CONCERN] NFR load test missing for restated NFRs (criterion 12, 17, 19)
+### [PASS] G.9a closes criterion 12 with an actual prod measurement rather than Part 1's seeded prediction
 
-The slice restates three NFRs: the sub-second `data_status` read (criterion 12, originally 167's NFR), the 10s `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` budget (criterion 17 / D3b), and the 1-hour policy schedule interval (criterion 19 / D4a). Per the review criteria, restated NFRs require a `tests/load/` task covering them, or the breakdown must add one. The current Part 2 only records the values via H.3 (which says "Replace the '(draft)' marker and fill in the actual measured sub-window span, wall-clock times, and row counts from Task G" — this references Task G's measurements, not the NFR probe/policy-cost numbers from Part 1's B1). No `tests/load/` test is added, and the Part 1 measurement (in B1) is on an ephemeral/test database, not a load test that can run in CI. A load test task (e.g., a `tests/load/test_data_status_read_meets_nfr.py` and `tests/load/test_content_edge_probe_within_budget.py`) would close this.
+G.9a runs `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM data_status;` against prod after materialization is verified (so the measurement reflects the fully-materialized state, not Window B's empty-cagg state). It also escalates to the PM if the sub-second NFR is missed — preventing a width selection validated against a seeded test database from quietly passing on prod.
 
-### [CONCERN] G.2 success criterion reads as if both services are stopped for the whole window
+### [PASS] G.13 (walkthrough 8a) is the only check that distinguishes the fix from the defect
 
-G.2's prose distinguishes clearly: "Daemon stopped for the whole window… API server stopped for the 051 DDL window specifically (Window A)". But the success criterion says "both confirmed stopped before G.3 proceeds" — the word "both" applied to the same "stopped" state suggests both are stopped for the same duration, which contradicts the prose. Combined with the missing API server restart (see prior finding), this could lead a junior AI to leave the API server down through the materialization. The success criterion should be split, or worded to convey "daemon stopped for the whole window; API server stopped for Window A (until 051 applies)".
+G.13's "policy-driven advance without manual refresh" correctly operationalizes the slice design's claim that "every other step is satisfiable by the bug." Placement after G.12 (daemon restart) and the explicit requirement to confirm raw also advanced over the same interval avoid the test being vacuous in either direction.
 
-### [CONCERN] Criterion 12 prod measurement is not explicit on prod
+### [PASS] Non-negotiables from Part 1's design are restated at the top of Part 2
 
-Criterion 12 requires the full-universe `data_status` read to meet the sub-second NFR, "measured as `SELECT count(*) FROM data_status`". The walkthrough step 1 times this on a test/ephemeral database (Part 1's B1), and H.3 records the number in the slice design's walkthrough section. But no Part 2 task times it on prod to confirm the NFR holds in the actual prod environment. H.2 audits the criterion with recorded evidence, but if no prod timing is taken, the audit can only cite the test-DB measurement. An explicit prod timing (e.g., as a sub-step in G.9 or a dedicated `G.X — Measure prod `data_status` read latency and record against 1s NFR`) would close this — and would also feed the test that should exist per the NFR-load-test finding above.
+The four non-negotiables (catalog resolution by name, bounded sub-windows, exact counts only, content-based partial-materialization detection) are repeated verbatim from Part 1. This reduces the risk of a future editor dropping one when modifying Part 2 in isolation, and immediately orients any reader without forcing them to chase back to Part 1.
 
-### [NOTE] G.6 absorbs the G.5 success gate
+### [PASS] Explicit Part 1 → Part 2 gating and PM-decision contingency
 
-G.5 is described as "One measured sub-window before the full sweep" with success "one sub-window's cost measured; confirms the chosen sub-window span is safe on the host as configured" — but no task gates G.6 on the G.5 measurement being acceptable. The slice design's Migration Plan and Risks sections both treat the sub-window measurement as a check that, if it fails, aborts the full sweep ("if the width proves wrong after 051 applies, the path back is another migration pair at a corrected width"). The success criteria of G.5 could be tightened to "if peak memory or wall-clock exceeds the host's safe envelope, stop and re-plan rather than proceeding to G.6" — a junior AI might otherwise treat the measurement as informational and proceed regardless.
+Both the `projectState` field and the Context summary state "Task G cannot start until Part 1's Tasks A–F are merged." The Notes section further flags the PM Decisions (30-day provisional lag, widened `COVERAGE_CONTENT_STALENESS`) as operative — instructing the executor to stop and confirm if the PM revisits either before Task G runs. This is appropriate since the PM explicitly recorded both decisions as provisional.
+
+### [PASS] Task G is acknowledged as non-code, with the runbook/journal convention called out
+
+The Notes section explicitly states "Task G is prod execution and is not squashed into a single commit — use the runbook/journal convention for recording each step's result even though no code changes." This is the right framing for operational work and avoids the test-with-commit pattern being misapplied.
+
+### [NOTE] H.1 quality-gates language implies code changes despite Part 2 being operational
+
+H.1 says "ruff clean, mypy/pyright zero errors on all touched files" — but Part 2 has no code changes per the design (it is prod execution and close-out). The gate works as a final sanity check, but the phrasing reads as if code modifications are expected. Minor wording alignment (e.g., "no regressions in the touched files from Part 1, verified clean") would more accurately reflect what the task is checking. No action required — flagging for awareness.

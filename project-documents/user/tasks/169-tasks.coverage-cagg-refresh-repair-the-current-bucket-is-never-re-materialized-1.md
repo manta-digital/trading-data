@@ -487,6 +487,22 @@ below hardcodes a width.
     from the single doc-comment function, no duplicated string.
   - Effort: 2
 
+- [ ] **D.2a Bump the migration-count tripwire (criterion 3, "count tripwire
+      updated")**
+  - [ ] `test/unit/test_schema_migrations.py:169-173`,
+        `test_migration_count`, asserts `len(MIGRATIONS) == 53` — a
+        deliberate-change tripwire the file's own comment says must be
+        bumped "in the same commit that adds one [migration]." Adding 051
+        and 052 is two migrations, so update the assertion to `== 55` and
+        update the comment to note the `53 -> 55` bump and its cause (slice
+        169, migrations 051/052).
+  - [ ] Confirm the test fails before this edit (with 051/052 added but the
+        assertion unbumped) and passes after — proving the tripwire actually
+        tripped, not that it was silently already correct.
+  - Success: `test_migration_count` asserts `55` and passes; the failure
+    was observed before the fix, confirming the tripwire fired as designed.
+  - Effort: 1
+
 - [ ] **D.3 Integration test: 051/052 apply cleanly on a cold-start database
       (criterion 3)**
   - [ ] New `test/integration/test_migration_051_052.py`, following
@@ -498,6 +514,9 @@ below hardcodes a width.
         `COVERAGE_BUCKET_INTERVAL`).
   - [ ] Assert `data_status` exists and returns zero rows without error on
         the empty cold-start database (criterion 13, cold-start case).
+  - [ ] Criterion 3's "count tripwire updated" clause is D.2a's job, not
+        this task's — D.2a's assertion bump is the tripwire; this task
+        proves the chain itself applies cleanly.
   - Success: test passes on a throwaway database; fails if 051/052 regress.
   - Effort: 3
 
@@ -617,23 +636,54 @@ below hardcodes a width.
 
 ## Task F — `restore_metadata.py` verification (D-Consumers)
 
-- [ ] **F.1 Verify `restore_metadata.py` needs no change**
-  - [ ] Confirm `expected_caggs` (:185-195) already lists `minute_coverage`
-        and `daily_coverage` by name (no migration-number literal to update —
-        the ledger check at :166 consults `MINUTE_MIGRATIONS` dynamically).
+- [ ] **F.1 Reconcile the slice design's `restore_metadata.py` claim against
+      the actual mechanism, and fix the one real stale reference**
+  - [ ] **The design's Consumers section says**: `restore_metadata.py` "lists
+        both coverage views among recreatable objects (lines 190–191) and
+        references 046 as their creating migration. That reference must move
+        to 051, or the restore tool recreates them at the old width." **This
+        does not match the code as written**, and that mismatch must be
+        recorded, not silently resolved one way:
+        - `assess()`'s `missing_caggs` (`:200-201`) is computed by **catalog
+          presence** (`present_caggs` from `_timescaledb_catalog.continuous_agg`
+          vs. the `expected_caggs` name tuple, `:185-195`) — it never consults
+          a migration ID at all. There is no per-object "creating migration"
+          field to be stale.
+        - `missing_migrations` (`:200`) compares `MINUTE_MIGRATIONS`'
+          **current, full list** (imported live at `:166`/`:236`, so it
+          already includes 051/052 once they exist) against the ledger —
+          again no hardcoded "046".
+        - `replay_missing_migrations` (`:214`) calls
+          `apply_migrations(pool, MINUTE_MIGRATIONS)` — the **full current
+          migration list**, run idempotently. If `minute_coverage`/
+          `daily_coverage` are present in the catalog but their migration is
+          already ledgered, replay does nothing to them (by design — see the
+          `:226-231` docstring note on the ledger boundary); if 051/052 are
+          *not* ledgered, replay applies them and produces the *new* width,
+          not the old one. **There is no code path that "recreates them at
+          the old width"** — the design's stated risk does not reproduce
+          against the current implementation.
+  - [ ] **The one real stale reference**: the docstring at `:228` says
+        "`minute_coverage` via 046" — update to "`minute_coverage`/
+        `daily_coverage` via 046, narrowed by 051" so the prose does not
+        imply 046 is still the operative migration post-169. This is a
+        comment-only fix; no logic changes.
+  - [ ] Record this reconciliation explicitly (e.g. in the slice's completion
+        notes or a comment at the design's Consumers section pointer) so a
+        future reader hitting the same discrepancy does not have to re-derive
+        it — the design's claim was a reasonable prediction at design time
+        that the code's catalog-driven approach (chosen independently)
+        already avoided.
   - [ ] **No test file currently exercises `restore_metadata.py`** (verified:
-        no test imports it as of this task breakdown) — there is nothing
-        "existing" to run against a post-051/052 database. Write a minimal
-        integration test instead: on a database with 051/052 applied,
-        call the assessment path (`assess_restore` / equivalent) and assert
-        `minute_coverage`/`daily_coverage` are reported present, not among
-        `missing_migrations`.
-  - [ ] If this surfaces a genuine gap (e.g. a stale reference), fix it and
-        extend the same test to pin the fix as a regression guard — do not
-        fix silently without a test, per the project's test-with convention.
-  - Success: a test exists asserting `restore_metadata.py` correctly reports
-    both coverage caggs present post-051/052, whether or not a gap was found;
-    if a gap was found, the same test fails without the fix.
+        no test imports it). Write a minimal integration test: on a database
+        with 051/052 applied and both coverage caggs present, call `assess()`
+        and assert `minute_coverage`/`daily_coverage` are absent from both
+        `missing_migrations` and `missing_caggs` — this is the regression
+        guard that would catch it if the catalog-driven mechanism above were
+        ever changed to something migration-ID-based and stale.
+  - Success: the design/code discrepancy is explicitly recorded (not silently
+    picked); the stale `:228` docstring reference is corrected; a test exists
+    asserting both coverage caggs are reported present post-051/052.
   - Effort: 2
 
 - [ ] **Commit**: `test: verify restore_metadata reports coverage caggs post-051/052`

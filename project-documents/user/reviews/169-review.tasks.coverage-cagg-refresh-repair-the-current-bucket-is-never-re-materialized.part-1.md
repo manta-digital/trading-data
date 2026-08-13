@@ -4,178 +4,91 @@ layer: project
 reviewType: tasks
 slice: coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 sourceDocument: project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md
 aiModel: minimax/minimax-m3
 status: complete
 dateCreated: 20260813
 dateUpdated: 20260813
-reviewedSha: 452b0b367d03dd87337a1c1fcec74a64e853c76e
+reviewedSha: 55e661cde8c0e626d6936db21f494b924af4def0
 findings:
   - id: F001
-    severity: fail
-    category: uncategorized
-    summary: "Criterion 16 has no integration test asserting end-to-end generic bucket-lag freshness for coverage views"
-    location: "unverified"
+    severity: concern
+    category: scope-coverage
+    summary: "F.1 contradicts the slice design's \"Consumers requiring change\" claim for `restore_metadata.py`"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md"
   - id: F002
-    severity: fail
-    category: uncategorized
-    summary: "Criterion 18 has no part-1 task establishing the verification scaffold"
-    location: "unverified"
+    severity: note
+    category: scope-coverage
+    summary: "Criterion 3's \"count tripwire\" aspect is not explicitly addressed"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md"
   - id: F003
-    severity: concern
-    category: task-sizing
-    summary: "Task B.6 may be too large and too coarse for a junior AI"
-    location: "unverified"
-  - id: F004
-    severity: concern
-    category: sequencing
-    summary: "Sequencing: Task B.6 measurement depends on `start_offset`, which is selected in B.7"
-    location: "unverified"
-  - id: F005
-    severity: concern
-    category: scope-clarity
-    summary: "Criterion 12's full-view NFR measurement is on the seed DB, not prod"
-    location: "unverified"
-  - id: F006
-    severity: concern
-    category: test-quality
-    summary: "Task B.1's \"approximate\" seeding may invalidate B.4/B.5/B.6 measurements"
-    location: "unverified"
-  - id: F007
-    severity: concern
-    category: ci-coverage
-    summary: "Missing CI wiring for the new integration tests"
-    location: "unverified"
-  - id: F008
-    severity: concern
-    category: completeness
-    summary: "`_interval_seconds_sql` is referenced but never verified to render the new width correctly"
-    location: "unverified"
-  - id: F009
-    severity: concern
-    category: sequencing
-    summary: "Task C.9 vs D.2 ordering ambiguity: doc comment rendered in 051 vs 052"
-    location: "unverified"
-  - id: F010
-    severity: concern
-    category: test-quality
-    summary: "Task F.1 verification has no automated test added if the gap exists"
-    location: "unverified"
-  - id: F011
-    severity: concern
-    category: test-quality
-    summary: "No test asserts the `_build_data_status_view_sql` re-execution in D.1 step ③ is byte-identical"
-    location: "unverified"
-  - id: F012
-    severity: pass
-    category: test-coverage
-    summary: "Test-with-implementation pattern is respected throughout"
-    location: "unverified"
-  - id: F013
-    severity: pass
-    category: process
-    summary: "Commit checkpoints are distributed, not batched"
-    location: "unverified"
-  - id: F014
     severity: pass
     category: traceability
-    summary: "Success criteria 1–11, 13–15, 17, 19 trace cleanly to tasks"
-    location: "unverified"
-  - id: F015
+    summary: "All 19 success criteria trace to at least one task across Parts 1 and 2"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md"
+  - id: F004
+    severity: pass
+    category: test-coverage
+    summary: "Test-with pattern respected; tests immediately follow their implementation tasks"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md"
+  - id: F005
+    severity: pass
+    category: load-testing
+    summary: "Load tests added for the three NFRs the slice restates; CI wiring gap documented, not implicit"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md"
+  - id: F006
+    severity: pass
+    category: process
+    summary: "Commit checkpoints distributed across task groups, not batched at the end"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md"
+  - id: F007
+    severity: pass
+    category: sequencing
+    summary: "Sequencing is logical; A → B → C → D → E → F; B feeds C; C.9 precedes D; E and F depend only on prior"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md"
+  - id: F008
     severity: pass
     category: task-sizing
-    summary: "Tasks are scoped for a junior AI with clear success criteria"
-    location: "unverified"
-  - id: F016
-    severity: pass
-    category: scope-discipline
-    summary: "No scope creep detected"
-    location: "unverified"
+    summary: "Tasks are well-scoped; sub-tasks are independently completable with clear success criteria"
+    location: "project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md"
 ---
 
 # Review: tasks — slice 169
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS
 **Model:** minimax/minimax-m3
 
 ## Findings
 
-### [FAIL] Criterion 16 has no integration test asserting end-to-end generic bucket-lag freshness for coverage views
+### [CONCERN] F.1 contradicts the slice design's "Consumers requiring change" claim for `restore_metadata.py`
 
-The slice design's criterion 16 reads: "Both coverage views report **fresh** on the *generic* bucket-lag check as well as the content-edge check, with the seven pre-167 caggs' budgets unchanged (D3a)." Task C.6 covers the formula in unit tests (override applies to coverage views, pre-167 views fall back, lag at exactly one bucket width passes), but no integration test exists that wires the new C.4 map into `_resolve_threshold`/`_evaluate` and asserts the resulting `assert_cagg_fresh` verdict on a realistic database is `fresh` for `minute_coverage`/`daily_coverage`. Without this, criterion 16 is unverifiable from part 1 alone. Task D.3 covers cold-start migration application and criterion 13 (data_status exists), but does not assert criterion 16. Task E is documentation only. The criterion is a load-bearing acceptance gate per D3a's own argument ("without it they are unachievable in steady state"), so it must be exercised by an automated test, not merely by unit-level formula inspection.
+The slice design's Migration Plan / Consumers section states that `restore_metadata.py` "lists both coverage views among recreatable objects (lines 190–191) and references 046 as their creating migration. **That reference must move to 051**, or the restore tool recreates them at the old width." Task F.1 instead verifies that no change is needed, on the grounds that the ledger check at `:166` consults `MINUTE_MIGRATIONS` dynamically. The author has documented the verification (with line numbers), but the two documents disagree on a load-bearing consumer and the disagreement is not flagged. If the dynamic-lookup claim is correct, the slice design should be amended; if incorrect, F.1 needs a "change" branch, not just a verify-only branch. Either way, the discrepancy should be reconciled in writing — the current state leaves a future reader trying to determine which document is authoritative on this consumer.
 
-### [FAIL] Criterion 18 has no part-1 task establishing the verification scaffold
+### [NOTE] Criterion 3's "count tripwire" aspect is not explicitly addressed
 
-Criterion 18 — "The refresh policy advances the head on its own" — is the only criterion the original defect could not satisfy, and the design's walkthrough 8a calls it out explicitly. The part-1 tasks defer everything to part 2's Task G (prod rebuild), but part 1 should establish what the verification looks like at the unit/integration tier so part 2 isn't a blank-slate operational task. Specifically: there is no task to define a regression test that simulates "policy tick fires → MAX(last_bucket) advances" against a test cagg, even though this is mechanically determinable. Without it, part 2 carries design + verification work undeclared, and criterion 18 has no automated guard.
+Criterion 3 says: "Migrations 051/052 apply cleanly on a cold-start database, and the migration chain ends at **052 with the count tripwire updated**." Task D.3 covers the cold-start apply and the "ends at 052" assertion, but the "count tripwire updated" clause is not represented as a separate check. If the project has a count assertion elsewhere (e.g. a `MAX_MIGRATION` constant, ledger length check, or test that pins the migration count), an explicit verify/update step would close the criterion literally. If the tripwire is implicit in the existing framework, a one-line note in D.3 confirming this would suffice.
 
-### [CONCERN] Task B.6 may be too large and too coarse for a junior AI
+### [PASS] All 19 success criteria trace to at least one task across Parts 1 and 2
 
-Task B.6 ("Measure the refresh policy's per-run cost at candidate `start_offset` values") combines: spinning up a representative policy run, sizing `start_offset` per width per the engine floor + parent constraint + schedule-interval margin, and recording wall-clock against the 1-hour interval. This conflates three measurements (floor, parent window, schedule fit) and requires deriving the `start_offset` value that B.7 selects. B.7 is the actual selection step, so B.6 should be split: B.6a measures raw policy wall-clock at each candidate width at a fixed `start_offset`; B.6b derives the candidate `start_offset` value(s) from the B.6a measurement + the two non-runtime constraints. As written, the junior AI is being asked to make a coupled decision (width × start_offset) under three constraints simultaneously.
+Every criterion is covered: criteria 1, 2, 4, 7, 13, 14, 15, 16, 18 (scaffold), 19 are addressed in Part 1; criteria 3, 5, 6, 8, 9, 10, 11, 12, 17, 18 (prod), 19 (prod) are appropriately split with the prod step in Part 2. Criterion 12 is correctly framed as a prediction in B.4 and explicitly handed off to Part 2 G.9a rather than marked satisfied prematurely. Criterion 18's "policy advances the head" mechanism is built as a reusable check in C.6a (with a regression case that would catch the original defect's signature), ready for Part 2 G.13 to exercise against prod.
 
-### [CONCERN] Sequencing: Task B.6 measurement depends on `start_offset`, which is selected in B.7
+### [PASS] Test-with pattern respected; tests immediately follow their implementation tasks
 
-Task B.6 measures "representative policy run" at candidate `start_offset` values, but `start_offset` selection (Task B.7) is downstream of B.6's measurements (per the C.7 docstring requirement that docstrings cite "the B.6 measurement"). This is a circular dependency: B.6 needs a `start_offset` to measure, but `start_offset` selection needs B.6's measurement. The fix is to measure at a fixed `start_offset` (e.g., the engine-floor value) in B.6, then re-measure at the candidate `start_offset` after B.7 if needed, or split B.6 into two passes.
+C.3 follows C.2; C.6 follows C.5; C.6a carries its own integration + regression tests; C.8 follows C.1/C.7; C.10 follows C.9; D.3, D.3a, D.4, D.5, D.5a all follow D.1/D.2. The C.9 fix to `_data_status_doc_comment()` is correctly sequenced **before** D.1/D.2's migrations, so 051/052 can call the corrected function directly with no placeholder/supersede step. F.1 also adds a previously-missing test for `restore_metadata.py` — good test-with discipline, even though that file had no coverage before this slice.
 
-### [CONCERN] Criterion 12's full-view NFR measurement is on the seed DB, not prod
+### [PASS] Load tests added for the three NFRs the slice restates; CI wiring gap documented, not implicit
 
-Criterion 12 (sub-second `SELECT count(*) FROM data_status`) and B.4 measure this on the seeded measurement database. The success criterion as written applies to prod ("meets the sub-second NFR that slice 167 exists to hold"). Task B.4 explicitly says "ephemeral or test database seeded to a representative shape" — but the seed's shape (B.1) is only "approximate" to slice 170's measured spans, and `data_status` joins against `symbols`, `acquisition_state`, and the exchange-close CTE over the larger intermediate. If the seed's row counts in those joined tables don't match prod, B.4's number is not criterion 12's number. The task breakdown should either (a) make criterion 12 a re-measurement on prod that part 2 performs, with B.4 a *predicted* number, or (b) require B.1 to seed the full joined view's shape, not just `daily_ohlcv`/`minute_ohlcv` spans. As written, criterion 12 looks covered by B.4 but actually isn't.
+Task B.8 adds `test/load/test_169_coverage_freshness_probe_nfr.py` (criterion 17), extends the 167 precedent `test_167_data_status_nfr.py` (criterion 12), and adds a policy-run-cost assertion (criterion 19). B.8 explicitly cites the 167 precedent's documented CI gap, references slice 907 (CI Pipeline and Load-Test Gating) as the out-of-band owner, and D.7 confirms no integration-test CI gap is introduced relative to the project's current (no test-CI) baseline. CI gating is documented, not left implicit.
 
-### [CONCERN] Task B.1's "approximate" seeding may invalidate B.4/B.5/B.6 measurements
+### [PASS] Commit checkpoints distributed across task groups, not batched at the end
 
-Task B.1 says "exact replication is not required, but the row-count arithmetic in design D2 must be checkable against it." But criteria 12, 17, and 19 require *measured actuals* — not checkable arithmetic. If the seed's symbol count or span differs materially from prod, B.4 (sub-second data_status) and B.6 (policy wall-clock) measure the wrong system. The task should pin the seed's row counts for `symbols`, `acquisition_state`, and the joined view, not just `daily_ohlcv`/`minute_ohlcv`, and require them to match prod within a stated tolerance.
+Five commits, one per task group: after B, C, D, E, F. Each commit message is descriptive and scope-bounded (e.g. `feat: re-derive coverage cagg constants at the measured width`, `test: add load tests for coverage-cagg NFRs at the new width`).
 
-### [CONCERN] Missing CI wiring for the new integration tests
+### [PASS] Sequencing is logical; A → B → C → D → E → F; B feeds C; C.9 precedes D; E and F depend only on prior
 
-Task D.3, D.4, and D.5 add three new integration test files (`test_migration_051_052.py`, idempotency test, DROP-ordering test). No task wires these into CI (e.g., updates the integration-test job, the migration-chain gate, or a new marker). The slice design's risks table treats "Cagg refresh racing the rebuild silently loses rows" as the 163 lesson; without CI gating on the migration tests, regressions in 051/052's idempotency or DROP ordering will not be caught automatically. Either add a CI-wiring task or note explicitly that an existing integration-test job covers them.
+A.1 verifies the 140-arch amendment state before B measures; B.7 selects the width that C.1/C.2/C.4/C.7 render from; C.9 (doc comment fix) is explicitly called out as a prerequisite for D.1/D.2 so 051 can call the corrected function directly. The F.1 verification is correctly placed last — it depends on the migration state being settled.
 
-### [CONCERN] `_interval_seconds_sql` is referenced but never verified to render the new width correctly
+### [PASS] Tasks are well-scoped; sub-tasks are independently completable with clear success criteria
 
-Task D.1 says migration 051 recreates both caggs "using `_interval_seconds_sql`, mirroring 046's structure." `_interval_seconds_sql` is the existing rendering path (per D5), so this is correct in principle. But D.1 also requires the description text to state "the new width" — and `description` text typically renders before DDL executes. If `_interval_seconds_sql` reads `COVERAGE_BUCKET_INTERVAL` at *migration-execution time* but the description text is a string literal built at migration-definition time, there is a subtle trap. Worth a one-line task or assertion that the description text reads `COVERAGE_BUCKET_INTERVAL` lazily (e.g., via a helper) or is verified after C.1 to not contain a hardcoded width.
-
-### [CONCERN] Task C.9 vs D.2 ordering ambiguity: doc comment rendered in 051 vs 052
-
-Task C.9 says the fix is "Done here, **before** Task D's migrations, so 051/052 can re-execute this function directly with no placeholder/supersede step." Task D.1 step ③ re-attaches the corrected comment as part of 051. Task D.2 says 052 also "Re-render `COMMENT ON VIEW data_status` from the corrected doc-comment function." So both migrations re-render the comment. That's fine and idempotent (the same function output), but the task breakdown doesn't state which migration owns the comment in the "happy path" — i.e., if both run cleanly, is the comment from 051 or 052? This is minor but the runbook in part 2 will want to know whose migration to re-run if the comment drifts. Add one line clarifying 052's comment re-render is a belt-and-braces idempotency guard, not the primary install path.
-
-### [CONCERN] Task F.1 verification has no automated test added if the gap exists
-
-Task F.1 says "Either outcome recorded — do not skip silently." But the only verification path is "Run any existing `restore_metadata` tests against a database that has 051/052 applied." If a gap is found and fixed, no new test is added to guard against regression. The slice design's risks call out "stale reference here fails exactly when it is least affordable" (the incident-recovery path). Either add a test task for the post-fix state, or explicitly note that the existing test (which is not named) covers this — but the task says "any existing `restore_metadata` tests," which is vague.
-
-### [CONCERN] No test asserts the `_build_data_status_view_sql` re-execution in D.1 step ③ is byte-identical
-
-Task D.1 step ③ says 051 re-executes 048's `_build_data_status_view_sql(...)` output "unchanged (not a rewrite)." Task D.3 asserts `data_status` "exists and returns zero rows without error" — but does not assert the column names, order, and types match the 167 D2 contract (criterion 7). Criterion 7 is a load-bearing data-contract criterion, and it should have its own test, not be subsumed under D.3's existence check. Add a D.3a or extend D.3 to assert the column schema matches what 167 D2 specifies.
-
-### [PASS] Test-with-implementation pattern is respected throughout
-
-Every constants change in Task C has a paired unit test (C.3, C.6, C.8, C.10), and the migration tasks have paired integration tests (D.3, D.4, D.5). The test-with pattern is correctly applied.
-
-### [PASS] Commit checkpoints are distributed, not batched
-
-Commits are placed at the end of Tasks B, C, D, and E — distributed across the work, with no batching at end. Each commit message is descriptive and maps to a logical unit.
-
-### [PASS] Success criteria 1–11, 13–15, 17, 19 trace cleanly to tasks
-
-Cross-referencing each criterion:
-- 1 → C.1, plus the no-literal invariant re-stated in D.1, D.5
-- 2 → C.2, C.3
-- 3 → D.3 (cold-start migration application)
-- 4 → C.8 (existing test passes unedited)
-- 5 → deferred to part 2 (materialization) — appropriately
-- 6, 8 → deferred to part 2 (prod rebuild + freshness checks)
-- 7 → covered loosely by D.3 but see concern above about column-schema assertion
-- 9 → deferred to part 2 (walkthrough step 4)
-- 10 → deferred to part 2 (walkthrough step 9)
-- 11 → deferred to part 2 (R1/R4 in the runbook)
-- 13 → D.3 (existence after 051)
-- 14 → C.10 (asserts bucket-width term present, two-hop-only absent)
-- 15 → E.1 (140-arch amendment with measured values)
-- 17 → B.5
-- 19 → C.7 (docstring cites B.6 measurement)
-
-### [PASS] Tasks are scoped for a junior AI with clear success criteria
-
-With the exceptions of B.6 (flagged above), each subtask has a single verifiable success criterion and references specific files/lines. The non-negotiables block at the top of the file reinforces the constraints effectively.
-
-### [PASS] No scope creep detected
-
-The "Out of scope, per D7" footer correctly enumerates the exclusions (head-refresh, bars_summary reshape, mt data caggs repair extension, minute rollup parity, approximate_row_count). No task in A–F violates these.
+While Task B has 8 sub-tasks (18 effort) and Task C has 11 sub-tasks (22 effort), each sub-task carries an explicit `Success:` clause and a discrete deliverable. The largest unit, D.1 (effort 4), is a complex migration with non-trivial ordering requirements that justify its size. D.1's success criteria explicitly enumerate the mandatory ①②③ ordering, the `CASCADE` prohibition, the idempotency requirement, and the description-text verification — all the things a junior AI would otherwise need to derive from the slice design.
