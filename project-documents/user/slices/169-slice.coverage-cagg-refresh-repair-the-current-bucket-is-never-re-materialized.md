@@ -263,10 +263,20 @@ docstring makes ("a 1-year bucket is the first one large relative to any sane
 refresh window"). Widening the budget globally would blunt the guard on seven
 healthy caggs to accommodate two exceptional ones.
 
-Mechanism is a task-level choice between two shapes, both of which keep the
-derivation in constants rather than at a call site: a per-view budget override
-resolved alongside `COVERAGE_SOURCE_TABLE`, or an "open-bucket-tolerant" flag on
-the view's freshness spec that adds the width term. **What must not happen** is
+**Mechanism (decided here, not at task level):** a per-view budget override
+resolved alongside `COVERAGE_SOURCE_TABLE` in `constants.py`. That map already
+exists, already keys on view name, and already holds per-view coverage
+metadata — adding the budget beside it keeps one lookup and introduces no new
+concept. `assert_cagg_fresh` consults it and falls back to the existing
+`min(start_offset, MAX_COVERAGE_SOURCE_STALENESS) + end_offset` for any view
+without an entry, so the seven pre-167 caggs are untouched by construction.
+
+Rejected: an "open-bucket-tolerant" boolean flag on the freshness spec. It
+encodes *why* rather than *what*, so the width term would still have to be
+derived somewhere else, and a second view needing a different budget for a
+different reason would need a second flag.
+
+**What must not happen** is
 suppressing the bucket-lag signal for these views — that would remove a real
 guard (a genuinely stalled or unscheduled policy) to silence a structural
 offset, and the content-edge check does not subsume it: they detect different
@@ -399,6 +409,13 @@ amending it leaves the architecture stating values the system no longer has:
 **Decision:** amending 140-arch is a **deliverable of this slice**, not a
 follow-up, using the established convention (`*(Architecture amendment,
 {date} — slice 169.)*`, as at lines 100 and 667).
+
+**Done 2026-08-13**, three amendments: `COVERAGE_BUCKET_INTERVAL`'s constants
+block, the slice-167 bounded-consistency paragraph, and the refresh-policy
+block — the last because it carried the same wrong two-hop formula as the doc
+comment. The width is written as 30 days, the design's working assumption;
+**Task B1 must update it if measurement selects a different width**, along with
+the derived thresholds.
 
 The reasoning is D1's own: a stale architecture is the same failure as a lying
 job catalog. A later slice designing against coverage would read 365 days and

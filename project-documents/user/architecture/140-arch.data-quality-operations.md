@@ -112,8 +112,35 @@ contract.
 Two consequences amend the "always consistent" claim above:
 
 - **Consistency is bounded, not unconditional.** The view is consistent with
-  the underlying data only within a documented and asserted staleness bound
-  (the two-hop cagg refresh lag). Freshness is asserted in Python at the
+  the underlying data only within a documented and asserted staleness bound.
+
+  *(Architecture amendment, 2026-08-13 — slice 169.)* That bound is **one
+  coverage bucket width plus the refresh end_offset**, not the two-hop refresh
+  lag this paragraph originally stated. The refresh lag was only ever the
+  bound on *closed* buckets; the open bucket is never re-materialized while
+  open, so a symbol's `last_bar_ts` can trail reality by up to a full bucket.
+  Slice 169 narrowed `COVERAGE_BUCKET_INTERVAL` to cut this from ~1 year to
+  ~30 days, and widened `COVERAGE_CONTENT_STALENESS` to match — the previous
+  1 d 4 h threshold was unreachable at any width compatible with the NFR, so
+  it fired permanently and taught operators to ignore it.
+
+  Two consequences for readers of this architecture:
+
+  - **The freshness budget is now per-view.** The seven pre-167 caggs keep
+    `min(start_offset, MAX_COVERAGE_SOURCE_STALENESS) + end_offset`; their
+    buckets are small relative to their offsets, so the open bucket always
+    falls inside the refresh window and the structural offset genuinely
+    cancels. The two coverage caggs add a `COVERAGE_BUCKET_INTERVAL` term,
+    resolved per view alongside `COVERAGE_SOURCE_TABLE`. Without it the
+    generic bucket-lag check fires permanently on both.
+  - **`/api/v1/symbols` is not subject to this bound.** Slice 187 D2 combines
+    a coverage floor with a bounded head probe past the coverage horizon, so
+    its ranges stay exact regardless of coverage lag. The bound applies to
+    `data_status` readers — `mt data status`, `/api/v1/status`,
+    `/api/v1/health`. Closing it there requires extending the same
+    floor-plus-head-probe shape to `bars_summary` (GitHub issue #14).
+
+  Freshness is asserted in Python at the
   guarded accessor `data/maintenance/status_coverage.py` via slice 168's
   `assert_cagg_fresh`, not in SQL; a stale verdict is *reported* to the
   operator rather than raised or silently presented as current. Every Python
@@ -1106,16 +1133,33 @@ DAILY_COVERAGE_VIEW  = "daily_coverage"
     -- which is why daily timestamps in `data_status` stay exact while
     -- minute first/last are truncated to the 4-hour parent bucket start.
 
-COVERAGE_BUCKET_INTERVAL = 365 days
+COVERAGE_BUCKET_INTERVAL = 30 days   -- was 365 days; see slice 169 amendment
     -- time_bucket width for both coverage caggs. Sized so bars_summary
-    -- groups ~15k rows rather than scanning 4.4 billion raw rows, which is
-    -- what held the full-universe data_status read at 7.8 s. Grouping at
-    -- this size is sub-millisecond *regardless of the parent cagg's chunk
-    -- count* — the durability argument for the hierarchical structure.
+    -- groups a bounded number of rows rather than scanning 4.4 billion raw
+    -- rows, which is what held the full-universe data_status read at 7.8 s.
+    -- Grouping at this size stays well inside the NFR *regardless of the
+    -- parent cagg's chunk count* — the durability argument for the
+    -- hierarchical structure.
     -- A timedelta, not a calendar year: time_bucket takes a fixed-width
     -- interval and these buckets are a bookkeeping device, not a reporting
     -- calendar. This width sets a hard floor on the refresh policies'
-    -- start_offset (see COVERAGE_REFRESH_MIN_WINDOW_BUCKETS).
+    -- start_offset (see COVERAGE_REFRESH_MIN_WINDOW_BUCKETS) — narrowing it
+    -- relaxes that floor.
+    --
+    -- *(Architecture amendment, 2026-08-13 — slice 169.)* Narrowed from
+    -- 365 days. The original width made the refresh policy structurally
+    -- unable to materialize the head: a policy window is truncated to whole
+    -- buckets, so with a year-wide bucket the open bucket was dropped from
+    -- every refresh and written only once, at cagg creation. Measured on
+    -- prod 2026-08-11, both coverage caggs were pinned at 2025-12-26 while
+    -- raw ran to 2026-08-07.
+    -- The open bucket is still never refreshed while open — nothing changes
+    -- that — so the width now sets the WORST-CASE COVERAGE LAG directly:
+    --     worst-case lag = COVERAGE_BUCKET_INTERVAL + end_offset
+    -- Narrowing trades cagg row count for that bound. The row count rises
+    -- ~12x (the ~15k-row figure this block previously cited no longer
+    -- holds); the NFR gate is the full-universe data_status read, not the
+    -- bars_summary CTE in isolation.
 
 COVERAGE_SOURCE_TABLE = {minute_coverage: minute_ohlcv,
                          daily_coverage:  daily_ohlcv}
@@ -1149,13 +1193,21 @@ MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL = 1 hour
 DAILY_COVERAGE_REFRESH_START_OFFSET  = 750 days
 DAILY_COVERAGE_REFRESH_END_OFFSET    = 1 hour
 DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL  = 1 hour
-    -- Refresh policies for the two coverage caggs (migration 047). The
-    -- start_offsets sit just above the 731-day two-bucket floor. Coverage
-    -- therefore trails raw ingest by at most the two-hop refresh interval on
-    -- the minute side (parent 4-hour cagg + minute_coverage) and one hop on
-    -- the daily side; migration 048's COMMENT ON VIEW states these bounds on
-    -- the view itself. Note the loose 750-day start_offset is exactly why
+    -- Refresh policies for the two coverage caggs (migration 047).
+    -- Note the loose 750-day start_offset is exactly why
     -- MAX_COVERAGE_SOURCE_STALENESS below must cap the staleness budget.
+    --
+    -- *(Architecture amendment, 2026-08-13 — slice 169.)* This block
+    -- previously stated that coverage "trails raw ingest by at most the
+    -- two-hop refresh interval." THAT WAS WRONG, and was wrong from slice
+    -- 167 onward: it bounds only *closed* buckets. The open bucket is never
+    -- re-materialized while open, so the real bound adds a full
+    -- COVERAGE_BUCKET_INTERVAL (see that constant's amendment above).
+    -- Migration 048's COMMENT ON VIEW rendered the same wrong formula from
+    -- the schedule intervals alone — "2 hours total" against a real bound of
+    -- months on prod — and slice 169 corrects the formula, not just the
+    -- numbers. The two-bucket floor also moves with the width; it is
+    -- asserted from the constants rather than restated here.
 
 -- Cagg freshness assertion for derived-data readers (slice 168).
 MAX_COVERAGE_SOURCE_STALENESS = 1 day
