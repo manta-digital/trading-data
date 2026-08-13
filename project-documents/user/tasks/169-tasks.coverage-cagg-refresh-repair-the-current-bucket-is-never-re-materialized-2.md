@@ -67,11 +67,20 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
   - Effort: 1
 
 - [ ] **G.2 Stop the daemon and the API server**
-  - [ ] Daemon stopped for the whole window (raw tables must not move mid
-        full-span refresh). API server stopped for the 051 DDL window
-        specifically (Window A) — reduces the missing-`data_status` exposure
-        to operator-driven CLI, not user-facing 500s.
-  - Success: both confirmed stopped before G.3 proceeds.
+  - [ ] Stop the **daemon** — it stays down for the **entire window** (DDL
+        through the end of materialization, through G.6), because a running
+        daemon writes to `minute_ohlcv`/`daily_ohlcv` during the full-span
+        refresh and moves the target mid-rebuild. It is restarted only at
+        G.12, after materialization is verified.
+  - [ ] Stop the **API server** — it is down for **Window A only** (the 051
+        DDL window), reducing the missing-`data_status` exposure to
+        operator-driven CLI rather than user-facing 500s. It is restarted at
+        G.4a, immediately after 051/052 apply — **not** left down through
+        materialization (G.5–G.6) or verification (G.7–G.11).
+  - Success: daemon confirmed stopped before G.3 proceeds; API server
+    confirmed stopped before G.4 proceeds. The two services have **different**
+    stop durations — do not treat "both stopped" as "both stopped for the
+    same window."
   - Effort: 1
 
 - [ ] **G.3 Pause jobs resolved from the catalog (walkthrough step 3)**
@@ -92,13 +101,34 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
     (criterion 13).
   - Effort: 1
 
-- [ ] **G.5 One measured sub-window before the full sweep**
+- [ ] **G.4a Restart the API server**
+  - [ ] Window A (the missing-`data_status` exposure) ends once 051's step ③
+        re-installs the view — restart the API server now, **before**
+        materialization (G.5–G.6) begins, not after verification (G.9–G.11).
+        Leaving it down through the multi-hour materialization would extend
+        user-facing 500s far past the intended DDL-only window.
+  - [ ] Confirm the server is up and `data_status`-backed endpoints respond
+        (they will report coverage stale until G.9 — that is expected and
+        correct per the design's Window B handling, not a fault to fix here).
+  - Success: API server confirmed running before G.5 proceeds.
+  - Effort: 1
+
+- [ ] **G.5 One measured sub-window before the full sweep — a gate, not just
+      a measurement**
   - [ ] Materialize a single bounded sub-window (reuse `_REFRESH_SUBWINDOW`
         or a value sized from Part 1's Task B measurements) on
         `daily_coverage` and record peak memory and wall-clock, before
         committing to the full 64-year sweep.
-  - Success: one sub-window's cost measured; confirms the chosen sub-window
-    span is safe on the host as configured.
+  - [ ] **Stop-and-replan condition:** if peak memory or wall-clock exceeds
+        the host's safe envelope (per `sql.md`'s host-protection guidance and
+        the design's Risks table — a single call's memory is not bounded by
+        `work_mem`), **do not proceed to G.6.** Reduce the sub-window span and
+        re-measure, or escalate to the PM before continuing — this
+        measurement exists specifically to catch an unsafe span before it
+        runs for hours against the full 64-year span, not to be informational.
+  - Success: one sub-window's cost measured **and explicitly judged safe**
+    before G.6 begins; if judged unsafe, G.6 does not start until re-measured
+    safe or the PM has decided how to proceed.
   - Effort: 2
 
 - [ ] **G.6 Materialize full history in bounded sub-windows (walkthrough step
@@ -142,6 +172,24 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
         (criterion 16).
   - Success: all three surfaces report fresh; pre-167 caggs unaffected.
   - Effort: 2
+
+- [ ] **G.9a Measure `data_status`'s full-universe read on prod — the actual
+      close of criterion 12**
+  - [ ] Part 1's B.4 only predicted this NFR against a seeded test database.
+        Criterion 12 is a prod NFR ("the full-universe `data_status` read
+        meets the sub-second NFR"). With `statement_timeout` set, run
+        `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM data_status;`
+        against prod, after G.9's freshness checks pass (so the measurement
+        reflects the fully-materialized, fresh state, not the Window B
+        empty-cagg state).
+  - [ ] Record the timing. If it does not meet the sub-second NFR on prod
+        despite B.4's prediction, stop and report to the PM before H.2's
+        audit closes criterion 12 — a regression here means the seeded
+        database in Part 1 understated real cost and the width selection
+        (B.7) needs revisiting.
+  - Success: prod timing recorded against the sub-second NFR; this is the
+    number H.2 cites for criterion 12, not B.4's predicted one.
+  - Effort: 1
 
 - [ ] **G.10 Verify the in-database doc comment no longer lies (walkthrough
       step 7a)**
@@ -208,6 +256,9 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
         pass/fail for each with the evidence (test name, prod measurement,
         or architecture line) that satisfies it. Any criterion not met is
         reported, not silently dropped.
+  - [ ] Criterion 12 specifically: cite G.9a's prod timing, not Part 1's B.4
+        prediction — B.4 is supporting evidence for the width choice, G.9a is
+        what actually closes the criterion.
   - Success: 19/19 criteria addressed with recorded evidence.
   - Effort: 2
 

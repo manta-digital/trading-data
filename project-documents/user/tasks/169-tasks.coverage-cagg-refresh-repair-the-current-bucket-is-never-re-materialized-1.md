@@ -135,15 +135,28 @@ below hardcodes a width.
 > Task B issues DDL against prod.
 
 - [ ] **B.1 Seed a representative measurement database**
-  - [ ] Use or build a database whose `daily_ohlcv`/`minute_ohlcv` span and
-        symbol count approximate slice 170's measured prod spans (daily
-        1962–2026 / 12,040 symbols; minute 2004–2026 / 5,871 symbols) —
-        exact replication is not required, but the row-count arithmetic in
-        design D2 must be checkable against it.
-  - [ ] Document the seed's actual span and symbol count in the task notes —
-        Task B's numbers are only meaningful relative to what was measured.
+  - [ ] Seed `daily_ohlcv`/`minute_ohlcv` span and symbol count **within 10%**
+        of slice 170's measured prod spans (daily 1962–2026 / 12,040 symbols;
+        minute 2004–2026 / 5,871 symbols) — this tolerance, not "approximate,"
+        is what B.4/B.5/B.6a's measurements are checked against; record the
+        actual delta achieved.
+  - [ ] **Also seed `symbols`, `acquisition_state`, and enough of the
+        exchange-close CTE's inputs (`trading_sessions`) to exercise
+        `data_status`'s full join** — not just the two coverage source
+        tables. Criterion 12 measures the *full view read*
+        (`SELECT count(*) FROM data_status`), which joins `bars_summary`
+        against these three; seeding only `daily_ohlcv`/`minute_ohlcv` would
+        let B.4 measure a cheaper query shape than the one criterion 12
+        actually gates, silently understating cost.
+  - [ ] Document the seed's actual span, symbol count, and per-table row
+        counts (`symbols`, `acquisition_state`) in the task notes, with the
+        delta from prod's counts — Task B's numbers are only meaningful
+        relative to what was measured, and B.7 must record this delta
+        alongside the selected width.
   - Success: a database exists that can materialize `minute_coverage` and
-    `daily_coverage` at candidate widths without touching prod.
+    `daily_coverage` at candidate widths, and exercise `data_status`'s full
+    join, without touching prod; seed row counts recorded within 10% of prod
+    for every table `data_status` reads.
   - Effort: 3
 
 - [ ] **B.2 Materialize both caggs at each candidate width (7 / 30 / 90 days)**
@@ -164,14 +177,19 @@ below hardcodes a width.
   - Success: three timing pairs recorded.
   - Effort: 2
 
-- [ ] **B.4 Measure the full-universe `data_status` NFR (the actual gate,
-      criterion 12)**
+- [ ] **B.4 Measure the full-universe `data_status` NFR on the seeded database
+      (a prediction for criterion 12, not the criterion itself)**
   - [ ] Run `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM data_status;` at
-        each candidate width.
+        each candidate width, against B.1's fully-joined seed (not just the
+        two coverage tables).
   - [ ] This is the shape slice 167 took from 7.8 s to sub-second — record
         against that NFR, not against B.3's CTE-only number.
-  - Success: three full-view timings recorded; any width failing the
-    sub-second NFR is flagged.
+  - [ ] **This measurement predicts criterion 12; it does not satisfy it.**
+        Criterion 12 is a prod NFR. Part 2's Task G takes the prod
+        measurement that actually closes it (see part 1's B.7 and part 2's
+        Task G for the explicit hand-off).
+  - Success: three full-view timings recorded on the seed; any width failing
+    the sub-second NFR is flagged; predicted-vs-prod status noted explicitly.
   - Effort: 2
 
 - [ ] **B.5 Measure the content-edge probe cost against the 10 s budget (D3b,
@@ -185,31 +203,85 @@ below hardcodes a width.
     failing the margin check is flagged.
   - Effort: 2
 
-- [ ] **B.6 Measure the refresh policy's per-run cost at candidate
-      `start_offset` values (D4a)**
-  - [ ] For each candidate width, derive the corresponding floor
-        (`COVERAGE_REFRESH_MIN_WINDOW_BUCKETS × width`) and measure a
-        representative policy run (`refresh_continuous_aggregate` over a
-        `start_offset`-sized window) on the seeded database.
-  - [ ] Record wall-clock against the 1-hour schedule interval — it must fit
-        comfortably with margin, not merely complete.
-  - Success: one measured run time per candidate width, compared against its
-    schedule interval.
-  - Effort: 3
+- [ ] **B.6a Measure raw policy wall-clock at each candidate width, at the
+      engine-floor `start_offset` (D4a)**
+  - [ ] For each candidate width, fix `start_offset` at the engine floor
+        (`COVERAGE_REFRESH_MIN_WINDOW_BUCKETS × width`) — a single, mechanical
+        value, not a choice — and measure a representative policy run
+        (`refresh_continuous_aggregate` over that `start_offset`-sized window)
+        on the seeded database.
+  - [ ] Record wall-clock per candidate width. This step does **not** select
+        `start_offset`; it only measures cost at the one value every
+        candidate needs regardless of what B.7 ultimately picks.
+  - Success: one measured run time per candidate width, all at the same
+    floor-relative `start_offset` definition.
+  - Effort: 2
+
+- [ ] **B.6b Derive the candidate `start_offset` value(s) from B.6a plus the
+      non-runtime constraints (D4a)**
+  - [ ] For each candidate width, apply the two non-runtime constraints —
+        engine floor (already used as B.6a's measurement point) and the
+        minute side's parent-window constraint (unchanged from 167 D4) — to
+        get a candidate `start_offset`. If B.6a's floor-relative measurement
+        already fits the 1-hour schedule interval with comfortable margin,
+        the floor value is retained; if it does not, widen `start_offset`
+        only as far as needed and re-measure that one case (not a full
+        re-sweep of B.6a).
+  - Success: one candidate `start_offset` per width, each backed by a
+    wall-clock measurement that fits its schedule interval with margin.
+  - Effort: 2
 
 - [ ] **B.7 Select the width and record the decision**
   - [ ] Choose the smallest candidate width that holds **all** of: the
         sub-second `data_status` NFR (B.4), the 10 s probe budget with margin
         (B.5), and a policy run comfortably inside its schedule interval
-        (B.6).
-  - [ ] Record the selected width, the selected `start_offset`, and every
-        measurement from B.2–B.6 in the task notes — this is the source data
-        Task E's architecture amendment renders from.
+        (B.6b).
+  - [ ] Record the selected width, the selected `start_offset` (from B.6b),
+        and every measurement from B.2–B.6b in the task notes — this is the
+        source data Task E's architecture amendment renders from.
+  - [ ] **Criterion 12's B.4 number is a prediction, not the criterion.**
+        Criterion 12 is a prod NFR; B.4 measures the seeded database only.
+        Record B.4's number as "predicted, pending prod confirmation
+        (part 2)" — do not mark criterion 12 satisfied from B.4 alone. Part
+        2's G.9a (see that file) takes the prod measurement that actually
+        closes criterion 12.
   - Success: one width and one `start_offset` selected, with the measurements
-    that justify the choice recorded, not just the conclusion.
+    that justify the choice recorded, not just the conclusion; criterion 12
+    explicitly flagged as pending prod confirmation.
   - Effort: 1
 
-- [ ] **Commit**: `docs: record slice 169 width-selection measurements (Task B)`
+- [ ] **B.8 Add load tests pinning the three restated NFRs (criteria 12, 17,
+      19) at the selected width**
+  - [ ] `test/load/` already exists with the tier convention to follow:
+        `test_167_data_status_nfr.py` is the direct precedent for criterion
+        12 — a prod-shaped throwaway database, gated on
+        `MT_RUN_LOAD_TESTS=1`, using `MT_TIMESCALE_TEST_URL` (never the prod
+        URL), with a mechanical `test_load_tier_never_references_prod_db_url`
+        guard. Update it to seed at the **new** `COVERAGE_BUCKET_INTERVAL`
+        (the existing fixture predates this slice) and re-assert the
+        sub-second NFR — this makes criterion 12 re-checkable by any future
+        change, not just confirmed once during this slice.
+  - [ ] Add `test/load/test_169_coverage_freshness_probe_nfr.py`: seed a
+        prod-shaped database at the selected width, run the content-edge
+        probe (`max(last_bucket)`) and assert it stays well inside
+        `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` (criterion 17) — same tier
+        conventions as the 167 precedent.
+  - [ ] Add a policy-run-cost assertion (criterion 19) to the same or a
+        sibling load test: at the selected `start_offset` (B.6b/C.7), a
+        representative refresh run completes comfortably inside the 1-hour
+        schedule interval on a prod-shaped database.
+  - [ ] **CI wiring note:** per the 167 load test's own documented gap, this
+        repo's CI (`.github/workflows/ci.yml`) runs no test job at all — CI
+        wiring for the whole `test/load/` tier is out-of-band, tracked as
+        slice 907 (CI Pipeline and Load-Test Gating). These load tests close
+        the same documented gap 167 already accepted, not a new one this
+        slice introduces; do not add slice 907's CI wiring here.
+  - Success: criteria 12, 17, and 19 each have a load test that can be
+    re-run (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`) to reconfirm the
+    NFR, rather than resting on a one-time Task B/G measurement alone.
+  - Effort: 3
+
+- [ ] **Commit**: `test: add load tests for coverage-cagg NFRs at the new width`
 
 ---
 
@@ -281,15 +353,45 @@ below hardcodes a width.
     applied unconditionally.
   - Effort: 2
 
+- [ ] **C.6a Build the scratch-cagg scaffold for "policy advances the head
+      unaided" (criterion 18 verification scaffold)**
+  - [ ] Criterion 18 — "the refresh policy advances the head on its own" — is
+        the only criterion the original defect could not satisfy, and it is
+        exercised for real against prod in part 2's Task G.13. Part 1's job is
+        to build and unit/integration-test the **mechanism** that
+        distinguishes "policy ran and head moved" from "policy ran and head
+        stood still," so G.13 in part 2 is executing a proven check, not
+        writing one from scratch.
+  - [ ] Following `test/integration/test_rechunk_driver.py`'s and slice 168's
+        Task 8 pattern: build a scratch hypertable + scratch cagg + scratch
+        refresh policy at the new narrow bucket width, dropped on teardown.
+  - [ ] Write a helper `_head_advanced(before, after) -> bool` (or equivalent)
+        that compares `MAX(last_bucket)` and `last_successful_finish` before
+        and after a policy tick, and returns true only when **both** the job
+        ran and the head moved — a job that ran while the head stood still
+        (the original defect's exact signature) must return `False`.
+  - [ ] Integration test: insert rows into the scratch hypertable spanning
+        into a still-open bucket, wait for (or manually trigger) one scratch
+        policy tick, and assert `_head_advanced` returns `True` — proving the
+        narrowed-bucket mechanism actually lets the policy write the open
+        bucket, which is D1/D2's central claim.
+  - [ ] Regression case: assert `_head_advanced` returns `False` when the
+        scratch policy is paused (job ran nothing, head genuinely frozen) —
+        so the helper cannot be trivially satisfied by "job exists."
+  - Success: a tested, reusable check for "policy advanced the head unaided"
+    exists before part 2 runs it against prod; the regression case proves it
+    can actually detect the original defect's signature.
+  - Effort: 3
+
 - [ ] **C.7 Re-examine `start_offset` for both coverage policies (D4a,
       criterion 19)**
   - [ ] Update `MINUTE_COVERAGE_REFRESH_START_OFFSET` and
         `DAILY_COVERAGE_REFRESH_START_OFFSET` to the value Task B.7 selected,
         with docstrings recording the three constraints: engine floor
         (`COVERAGE_REFRESH_MIN_WINDOW_BUCKETS × width`), the minute side's
-        parent-window constraint (unchanged from 167 D4), and the new
-        measured-runtime-fits-schedule-interval constraint from B.6.
-  - Success: both `start_offset`s updated; docstrings cite the B.6
+        parent-window constraint (unchanged from 167 D4), and the
+        measured-runtime-fits-schedule-interval constraint from B.6a/B.6b.
+  - Success: both `start_offset`s updated; docstrings cite the B.6a/B.6b
     measurement showing margin against the schedule interval, not an
     assumption (criterion 19).
   - Effort: 2
@@ -353,11 +455,19 @@ below hardcodes a width.
         directly with no placeholder text.
   - [ ] Description text states the new width and the new worst-case row
         counts from Task B (no stale "1 year"/"~15k rows" text carried
-        forward from 046).
+        forward from 046). Because the description is a Python string built
+        at migration-definition time (module import), verify it is built
+        by calling `_interval_literal`/an f-string against
+        `COVERAGE_BUCKET_INTERVAL` at that point, **not** copy-pasted as a
+        literal — the DDL's `_interval_seconds_sql` call is safe by
+        construction (it runs inside `python_fn`/`sql` at execution time,
+        same as 046), but the description string has no such execution-time
+        seam and is the one place a hardcoded width could hide undetected.
   - [ ] Idempotent: every statement uses `IF EXISTS`/`IF NOT EXISTS`, so
         re-running 051 from any point in ①②③ converges.
   - Success: migration defined; matches the mandatory ①②③ ordering; no
-    `CASCADE` anywhere in the migration.
+    `CASCADE` anywhere in the migration; description text confirmed to read
+    `COVERAGE_BUCKET_INTERVAL` rather than a copy-pasted number.
   - Effort: 4
 
 - [ ] **D.2 Write migration `052_coverage_cagg_refresh_policies_narrowed`**
@@ -366,8 +476,13 @@ below hardcodes a width.
         using the idempotent `DO $$ ... IF NOT EXISTS ... $$` pattern from
         047 (:1925).
   - [ ] Re-render `COMMENT ON VIEW data_status` from the corrected doc-comment
-        function (Task C.9) so the migration-052-installed comment is already
-        correct — no follow-up migration needed for the comment text.
+        function (Task C.9). **051's step ③ is the primary install path for
+        the comment** (the view and its comment are re-attached together, in
+        the same migration, so they can never observably disagree); 052's
+        re-render is a belt-and-braces idempotency guard for the case where
+        051 already applied and 052 runs later — both calls render the same
+        function output, so this is a no-op in the happy path, not a second
+        source of truth.
   - Success: migration defined; idempotent on re-run; comment text sourced
     from the single doc-comment function, no duplicated string.
   - Effort: 2
@@ -385,6 +500,23 @@ below hardcodes a width.
         the empty cold-start database (criterion 13, cold-start case).
   - Success: test passes on a throwaway database; fails if 051/052 regress.
   - Effort: 3
+
+- [ ] **D.3a Integration test: `data_status`'s column contract is unchanged
+      (criterion 7)**
+  - [ ] On the same cold-start database as D.3 (post-051/052), assert the
+        column **names, order, and types** of `data_status` match the 167 D2
+        contract exactly — introspect via `information_schema.columns` (or
+        the equivalent psycopg cursor description), not a row-count or
+        existence check. D.3 proves the view exists and is queryable; this
+        proves it is the *same* view shape 167 committed to, which downstream
+        readers (`api_server/queries.py`, `mt data status`) depend on.
+  - [ ] This is the automated guard for D.1 step ③'s claim that
+        `_build_data_status_view_sql(...)` is re-executed "unchanged (not a
+        rewrite)" — a future edit that accidentally alters the CTE would fail
+        this test rather than surfacing as a silent contract break.
+  - Success: column names/order/types asserted equal to the pre-169 contract;
+    fails if any column is added, removed, reordered, or retyped.
+  - Effort: 2
 
 - [ ] **D.4 Integration test: idempotent re-run from a partial 051 state**
   - [ ] Simulate a failure between steps ① and ③ (e.g. run only step ① and
@@ -405,6 +537,27 @@ below hardcodes a width.
   - Success: test passes; fails if steps ①/② are reordered.
   - Effort: 2
 
+- [ ] **D.5a Integration test: `assert_cagg_fresh` reports both coverage
+      views fresh end-to-end on the *generic* bucket-lag check (criterion 16)**
+  - [ ] On a database with 051/052 applied **and** materialized history (not
+        the empty cold-start DB — reuse or extend Task B's seeded database,
+        or a smaller purpose-built fixture with a handful of symbols spanning
+        into the current bucket), run `assert_cagg_fresh(conn,
+        'minute_coverage', ...)` and the daily equivalent, with C.4's
+        per-view override wired in (Task C.5).
+  - [ ] Assert both verdicts are `is_fresh=True` with no `LAG_EXCEEDS_THRESHOLD`
+        signal — this is the integration-level proof that C.4's map and C.5's
+        wiring actually produce a fresh verdict on a realistic database, not
+        just that the formula is correct in isolation (C.6 covers the formula;
+        this covers the wiring reaching a real `assert_cagg_fresh` call).
+  - [ ] Regression companion: assert a **pre-167 cagg** (e.g.
+        `daily_monthly_ohlcv`) on the same database still resolves via the
+        unchanged generic formula and is unaffected by the new map — same
+        intent as C.6's unit-level regression case, at the integration tier.
+  - Success: both coverage views report fresh via `assert_cagg_fresh` on a
+    real database; the pre-167 cagg's verdict is provably untouched.
+  - Effort: 3
+
 - [ ] **D.6 Update `test_migrations_046_047.py`/`test_migration_050.py`
       fixtures that assume the old width, if any (verify, do not assume)**
   - [ ] Per D5: `test_coverage_content_edge.py`, `test_migrations_046_047.py`,
@@ -415,6 +568,23 @@ below hardcodes a width.
   - Success: all four suites pass unedited, or the specific hardcoded
     literal found is fixed and noted.
   - Effort: 2
+
+- [ ] **D.7 Confirm the new integration tests need no CI wiring (verify, do
+      not assume)**
+  - [ ] `.github/workflows/ci.yml` runs no test job at all — it only builds
+        and publishes on a `v*` tag push. No existing integration test file
+        (`test_migrations_046_047.py`, `test_migration_050.py`, etc.) is
+        CI-gated today, so D.3/D.3a/D.4/D.5/D.5a follow the project's
+        existing convention (run locally / on demand) rather than a
+        regression from it. Test-running CI is tracked separately as slice
+        907 (CI Pipeline and Load-Test Gating) — the same gap `test_167_data_status_nfr.py`'s
+        module docstring already documents for the load tier (B.8).
+  - [ ] If slice 907 lands **before** this slice ships, revisit this task and
+        wire the new files in then — do not add a CI job as part of this
+        slice; that is 907's scope, not 169's.
+  - Success: confirmed no CI gap is introduced relative to the project's
+    current (no test-CI) baseline; decision recorded, not assumed.
+  - Effort: 1
 
 - [ ] **Commit**: `feat: add migrations 051/052 narrowing coverage cagg buckets`
 
@@ -433,7 +603,7 @@ below hardcodes a width.
         from Task B.2.
   - [ ] Record the measured probe cost (B.5) against the 10 s budget.
   - [ ] Record the selected `start_offset` (C.7) and its measured per-run
-        cost (B.6).
+        cost (B.6a/B.6b).
   - [ ] Use the established amendment convention (`*(Architecture amendment,
         {date} — slice 169.)*`) for each edit, consistent with the four
         blocks already amended under D6a.
@@ -451,12 +621,22 @@ below hardcodes a width.
   - [ ] Confirm `expected_caggs` (:185-195) already lists `minute_coverage`
         and `daily_coverage` by name (no migration-number literal to update —
         the ledger check at :166 consults `MINUTE_MIGRATIONS` dynamically).
-  - [ ] Run any existing `restore_metadata` tests against a database that has
-        051/052 applied and confirm no missing-migration or missing-view
-        false positive.
-  - Success: confirmed no code change needed, or a genuine gap found and
-    fixed. Either outcome recorded — do not skip silently.
-  - Effort: 1
+  - [ ] **No test file currently exercises `restore_metadata.py`** (verified:
+        no test imports it as of this task breakdown) — there is nothing
+        "existing" to run against a post-051/052 database. Write a minimal
+        integration test instead: on a database with 051/052 applied,
+        call the assessment path (`assess_restore` / equivalent) and assert
+        `minute_coverage`/`daily_coverage` are reported present, not among
+        `missing_migrations`.
+  - [ ] If this surfaces a genuine gap (e.g. a stale reference), fix it and
+        extend the same test to pin the fix as a regression guard — do not
+        fix silently without a test, per the project's test-with convention.
+  - Success: a test exists asserting `restore_metadata.py` correctly reports
+    both coverage caggs present post-051/052, whether or not a gap was found;
+    if a gap was found, the same test fails without the fix.
+  - Effort: 2
+
+- [ ] **Commit**: `test: verify restore_metadata reports coverage caggs post-051/052`
 
 ---
 
@@ -466,7 +646,7 @@ below hardcodes a width.
   changes here are small; the width measurement (Task B) is the weight in
   this file. The prod rebuild (part 2, Task G) carries the rest.
 - **Commit per task group**, not batched at the end — checkpoints follow
-  Tasks B, C, D, E.
+  Tasks B, C, D, E, F.
 - **Continue to part 2**
   (`169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-2.md`)
   once Tasks A–F are merged. Part 2's Task G (prod rebuild) requires the
