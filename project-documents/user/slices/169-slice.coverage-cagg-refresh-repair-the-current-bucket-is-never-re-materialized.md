@@ -145,10 +145,18 @@ history, which is false for nearly all of them:
 
 | Width | Minute rows (≤) | Daily rows (≤) | Worst-case invisible window |
 |---|---|---|---|
-| 365 d (today) | ~15 k | ~780 k | **up to 1 year** |
+| 365 d (today) | ~129 k | ~780 k | **up to 1 year** |
 | 90 d | ~530 k | ~3.1 M | ~90 d + 4 h |
 | 30 d | ~1.6 M | ~9.5 M | ~30 d + 4 h |
 | 7 d | ~6.7 M | ~40 M | ~7 d + 4 h |
+
+**All cells are worst cases on the same basis** — every symbol assumed to span
+full history. Do **not** compare the 365-day row against slice 167's ~15 k
+figure: that is a *measured actual*, ~8× below the worst case for the same
+width, because almost no symbol spans 22 years. Mixing the two bases would
+make the width comparison apples-to-oranges precisely where it justifies the
+choice. Task B1 measures actuals at the candidate widths; those numbers, not
+these, are what the architecture should ultimately carry.
 
 **None of these widths brings the worst case under `COVERAGE_CONTENT_STALENESS`
 (1 d 4 h).** That is the crux of this slice and the reason D3 exists: narrowing
@@ -287,11 +295,47 @@ path).
 with this change. Without it they are unachievable in steady state, since both
 views would report stale on every read the moment the rebuild completes.
 
+### D3b — The probe budget is an NFR this slice perturbs, and it fails closed
+
+`CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` is **10 s**
+(`constants.py:94`), sized by 140-arch as "a small multiple of measured cost
+(0.37–2.14 s/cagg on prod)", and **on timeout the check degrades to a refusal
+(`PROBE_FAILED`), not to a pass.**
+
+This slice perturbs exactly that path. The content-edge probe reads
+`max(last_bucket)` — a plain aggregate column, **not** the `time_bucket` the
+generic check uses, so it is not chunk-excludable — over caggs that grow ~12×
+and carry columnstore policies. If the enlarged `daily_coverage` pushes that
+probe past 10 s on prod, every `data_status` reader through the guarded
+accessor gets `PROBE_FAILED`, and `mt data status`, `/api/v1/status`, and
+`/api/v1/health` report unusable coverage.
+
+That failure is **indistinguishable to an operator from the staleness this
+slice set out to clear**, and it would fail criteria 6 and 8 by a mechanism
+unrelated to bucket width. Fails closed, so nothing reports falsely fresh —
+but nothing works either.
+
+**Decision:** the probe cost is a **Task B1 measurement alongside the view
+read**, at each candidate width, on both views. Two outcomes:
+
+- Probe stays well inside 10 s → record the measured cost and keep the
+  constant; the width is safe on this axis.
+- Probe approaches or exceeds 10 s → that width is **rejected on NFR grounds**,
+  the same way a width that breaks the `data_status` read is rejected. Raising
+  the timeout is the wrong lever: it is a bound on reader latency, and widening
+  it to accommodate a slower probe trades a refusal for a stall on every
+  status read.
+
+The walkthrough's diagnostic queries use a longer timeout deliberately (they
+are operator-run one-offs, not the reader path) — but that is a diagnostic
+setting and **must not be read as the production budget**, which stays at
+`CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT`.
+
 If the PM judges a one-bucket display lag on `mt data status` unacceptable, the
 follow-on is to extend the 187 D2 head-probe pattern to the `data_status` view's
 `bars_summary` — a coverage floor plus a bounded head read. That is a larger
 change to a view with a strict column contract (167 D2) and is **out of scope
-here**; noted in Open Questions.
+here** — filed as **GitHub issue #14**, and recorded under PM Decisions item 1.
 
 ### D4 — Rematerialization: drop and rebuild, do not refresh in place
 
@@ -328,6 +372,37 @@ the daily rollup caggs were roughly half-materialized. The rebuild covers the
 full span explicitly — but **issued as a loop of bounded sub-windows, not one
 call** (see The Rebuild Window for why the span of a single
 `refresh_continuous_aggregate` is a memory bound, not just a duration).
+
+### D4a — The 750-day `start_offset` must be re-examined, not inherited
+
+Both `start_offset`s are 750 days, and 140-arch records the reason: ">= 2
+buckets (731d floor)". **That value was forced by the 365-day width**, not
+independently motivated. Narrowing relaxes the floor to ~61 days at a 30-day
+width, so 750 days is no longer a constraint — it is a leftover.
+
+Leaving it is not neutral. The premise of this slice is that both hourly
+policies have been **successful no-ops since creation**. After narrowing they
+begin doing real work every hour, over a 750-day window — ~25 buckets across
+12,040 daily and 5,871 minute symbols — on a host that also runs the daemon
+and where memory headroom is a standing constraint. A policy that overruns its
+1-hour schedule interval, or contends with daemon writes, re-creates the
+perpetually-behind head this slice exists to fix.
+
+**Decision:** treat `start_offset` as a value to re-derive at the new width,
+with the same two constraints as before — engine floor
+(`COVERAGE_REFRESH_MIN_WINDOW_BUCKETS × width`) and the parent's refresh window
+on the minute side — plus a third that did not previously bind: **the policy's
+measured runtime must fit comfortably inside its schedule interval.**
+
+Task B1 measures the policy's per-run cost at the candidate width and
+`start_offset`; that measurement selects the value. The design does not fix a
+number here, for the same reason it does not fix the width.
+
+Note the invalidation-tracking argument still holds — a refresh rewrites only
+buckets that actually changed, so steady-state cost is far below the window
+size. That is why this is a measurement rather than an assumed problem. But it
+was also true at 365 days, where the policy did nothing at all, so it is not
+evidence on its own.
 
 ### D5 — Everything renders from the constant; no width literal anywhere
 
@@ -412,12 +487,30 @@ amending it leaves the architecture stating values the system no longer has:
 follow-up, using the established convention (`*(Architecture amendment,
 {date} — slice 169.)*`, as at lines 100 and 667).
 
-**Done 2026-08-13**, three amendments: `COVERAGE_BUCKET_INTERVAL`'s constants
-block, the slice-167 bounded-consistency paragraph, and the refresh-policy
-block — the last because it carried the same wrong two-hop formula as the doc
-comment. The width is written as 30 days, the design's working assumption;
-**Task B1 must update it if measurement selects a different width**, along with
-the derived thresholds.
+**Done 2026-08-13**, four amendments: `COVERAGE_BUCKET_INTERVAL`'s constants
+block, the slice-167 bounded-consistency paragraph, the refresh-policy block
+(it carried the same wrong two-hop formula as the doc comment), and the
+`MAX_COVERAGE_SOURCE_STALENESS` block (it asserted the bucket-width
+cancellation D3a refutes — the block a reader working on freshness actually
+opens).
+
+**Task B1 closes the amendment; it is not optional.** The architecture
+currently states **30 days**, this design's working assumption, written before
+measurement. Until B1 completes, the architecture reads as settled to anyone
+who does not also read this slice — the transient form of exactly the staleness
+D6a exists to prevent. B1 therefore carries these as explicit deliverables, not
+prose:
+
+- [ ] Update `COVERAGE_BUCKET_INTERVAL` in 140-arch to the **measured** width.
+- [ ] Update the derived thresholds (`COVERAGE_CONTENT_STALENESS`, the
+      per-view bucket-lag budget) to match.
+- [ ] Replace the worst-case row counts with **measured actuals** (F006).
+- [ ] Record the measured probe cost against the 10 s budget (D3b).
+- [ ] Record the selected `start_offset` and its measured per-run cost (D4a).
+
+If measurement selects 30 days, these are confirmations rather than edits —
+but they are still checked off explicitly, so "the architecture matches
+reality" is an asserted state rather than an assumption.
 
 The reasoning is D1's own: a stale architecture is the same failure as a lying
 job catalog. A later slice designing against coverage would read 365 days and
@@ -430,8 +523,8 @@ design's working assumption.
 Out of scope, explicitly:
 
 - **Head-refresh machinery of any kind** (D1, D3).
-- **Changing `bars_summary` to a floor-plus-head-probe shape** (D3, Open
-  Questions).
+- **Changing `bars_summary` to a floor-plus-head-probe shape** (D3; GitHub
+  issue #14).
 - **`mt data caggs repair` extension to the coverage caggs.** The rebuild here
   is a one-time migration-driven operation, not a recurring sweep.
 - **The minute rollup caggs' ~0.018 % parity shortfall.** Known, unrelated
@@ -475,7 +568,7 @@ and raw `daily_ohlcv`, so they stay exact across this change (D3).
 | 051 ① | `data_status` | `DROP VIEW data_status` **first** — it depends on both caggs (see below) |
 | 051 ② | `minute_coverage`, `daily_coverage` | `DROP MATERIALIZED VIEW` (no `CASCADE`) + recreate at new width; one `CREATE` per `execute()` (046's constraint), `requires_autocommit` |
 | 051 ③ | `data_status` | Re-install from 048's branch-on-`to_regclass` definition and re-attach its doc comment |
-| 052 | refresh policies | Reinstall for both views at unchanged offsets; idempotent `DO` block, matching 047 |
+| 052 | refresh policies | Reinstall for both views; `start_offset` re-examined per D4a, `end_offset`/schedule unchanged; idempotent `DO` block, matching 047 |
 | 052 | `COMMENT ON VIEW data_status` | Re-render from the new constants (D5) |
 | — | full-history materialization | `refresh_continuous_aggregate` looped over **bounded sub-windows** covering the full span; **operational step, not a migration** (see below) |
 
@@ -573,6 +666,17 @@ readers; it is **not** invisible to `DROP`, which is F002's point above.
 16. Both coverage views report **fresh** on the *generic* bucket-lag check as
     well as the content-edge check, with the seven pre-167 caggs' budgets
     unchanged (D3a).
+17. The content-edge probe measures **well inside**
+    `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` (10 s) on both views at the
+    selected width, recorded as a number. A width that pushes it near the
+    budget is rejected on NFR grounds, not accommodated by raising the
+    timeout (D3b).
+18. **The refresh policy advances the head on its own** — after the rebuild,
+    with no manual refresh issued, one policy tick moves `MAX(last_bucket)`
+    while raw is also advancing (walkthrough 8a). This is the only criterion
+    the original defect could not satisfy.
+19. The selected `start_offset` fits its schedule interval with measured
+    margin at the new width (D4a).
 
 ---
 
@@ -601,9 +705,20 @@ Then time the **full-universe view read**, which is the actual NFR (criterion
 EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM data_status;
 ```
 
-Record rows materialized, CTE time, and full-view time per width. Choose the
-smallest width whose **full `data_status` read** holds the sub-second NFR with
-margin.
+Then measure the **content-edge probe** — the reader-path query whose budget is
+10 s and whose timeout is a refusal, not a stall (D3b):
+
+```sql
+SELECT max(last_bucket) FROM daily_coverage;   -- and minute_coverage
+```
+
+And the **policy's per-run cost** at the candidate `start_offset` (D4a), which
+must fit inside the 1-hour schedule interval with margin.
+
+Record per width: rows materialized (actual, not worst case), CTE time,
+full-view time, probe time, and policy run time. Choose the smallest width that
+holds **all** of: the sub-second `data_status` NFR, the 10 s probe budget with
+margin, and a policy run comfortably inside its schedule interval.
 
 ### 2. Confirm the defect is still live before repairing
 
@@ -686,6 +801,28 @@ Before this slice it reads "2 hours total" against a real bound of months
 
 Re-run step 3's catalog query; every row must read `scheduled = true`.
 
+### 8a. Observe the policy itself advance the head — the only check that proves the fix
+
+**Every other step in this walkthrough is satisfiable by the bug.** Steps 5–7
+run immediately after a *manual* full-span refresh, and step 8 reads
+`scheduled = true` from the catalog — a manual write plus a green catalog row
+are precisely the two signals that stayed green through all 205 successful
+no-op runs. Nothing above distinguishes a working policy from the defect.
+
+So, after the rebuild and **with no manual refresh issued**:
+
+1. Record `MAX(last_bucket)` on both views and the current
+   `last_successful_finish` for both policy jobs.
+2. Wait for at least one policy tick (schedule interval is 1 h).
+3. Confirm the job ran (`last_successful_finish` advanced) **and**
+   `MAX(last_bucket)` advanced with it.
+
+A job that ran while `MAX(last_bucket)` stood still is the original defect,
+whatever the verdict elsewhere says. Requires ingest to be live during the
+window — so run this after the daemon restarts, and confirm raw actually
+advanced over the same interval, or the test is vacuous in the other
+direction.
+
 ### 9. Confirm no raw data moved
 
 ```sql
@@ -705,14 +842,39 @@ opens an interval in which both caggs exist but are **empty or partial**. That
 interval is the riskiest part of this slice and needs stated handling rather
 than the word "resumable."
 
-**What readers report while the caggs are empty.** `assert_cagg_fresh`'s
-`cagg_max is None` path yields maximal lag → stale, so every symbol reads as
-no-coverage: `data_status` returns rows with `bars_stored = 0` and null
-timestamps, and `mt data status`, `/api/v1/status`, and `/api/v1/health` all
-report coverage stale. **This is correct reporting of a true state** (167 D3a:
-report, don't refuse) and nothing crashes — but it is operator-visible and
-lasts for the whole materialization. Announce the window; do not run it
-alongside anything that reads coverage for decisions.
+There are **two** windows with different failure modes, and they must not be
+conflated.
+
+**Window A — the 051 DDL window, where `data_status` does not exist.** Steps
+①→③ drop the view, rebuild the caggs, and re-install the view. Between ① and
+③ `data_status` is *missing*, so readers get a **missing-relation exception**,
+not a stale report. This is the same operator-visible outcome the design cites
+as the reason to forbid `CASCADE` — the intended path has the window too, just
+briefly. And because 051 runs under `requires_autocommit` with no
+transactional rollback, **a failure between ① and ③ leaves it open
+indefinitely.**
+
+Handling:
+
+- **Stop the API server for 051.** It is the reader that turns this into
+  user-visible 500s; the CLI is operator-driven and can be told to wait. The
+  DDL itself is fast (drop/recreate of empty caggs, no materialization).
+- **Recovery if 051 fails mid-window is to re-run 051**, which is idempotent
+  by requirement. If it cannot be re-run, re-install `data_status` directly
+  from 048's definition — the view is a pure function of its migration, so
+  this is recovery, not repair.
+- Criterion 13 verifies the view exists *afterward*; that is detection, and
+  the above is the handling.
+
+**Window B — the materialization window, where the caggs are empty.**
+`assert_cagg_fresh`'s `cagg_max is None` path yields maximal lag → stale, so
+every symbol reads as no-coverage: `data_status` returns rows with
+`bars_stored = 0` and null timestamps, and `mt data status`,
+`/api/v1/status`, and `/api/v1/health` all report coverage stale. **Here
+nothing crashes** — this is correct reporting of a true state (167 D3a:
+report, don't refuse) — but it is operator-visible and lasts for the whole
+materialization. Announce the window; do not run it alongside anything that
+reads coverage for decisions.
 
 **The daemon stays stopped for the entire window**, not merely during DDL. Not
 for the caggs' sake — the daemon's coverage index reads `minute_4hour_ohlcv`,

@@ -1156,9 +1156,14 @@ COVERAGE_BUCKET_INTERVAL = 30 days   -- was 365 days; see slice 169 amendment
     -- The open bucket is still never refreshed while open — nothing changes
     -- that — so the width now sets the WORST-CASE COVERAGE LAG directly:
     --     worst-case lag = COVERAGE_BUCKET_INTERVAL + end_offset
-    -- Narrowing trades cagg row count for that bound. The row count rises
-    -- ~12x (the ~15k-row figure this block previously cited no longer
-    -- holds); the NFR gate is the full-universe data_status read, not the
+    -- Narrowing trades cagg row count for that bound: row count scales as
+    -- 1/width, so a 365 -> 30 day change raises it ~12x. The ~15k-row figure
+    -- this block previously cited was a MEASURED ACTUAL and no longer holds;
+    -- slice 169's sizing table is in worst cases (every symbol assumed to
+    -- span full history), which is ~8x higher for the same width -- do not
+    -- compare the two bases. Slice 169 Task B1 measures actuals at the
+    -- selected width; those replace both figures.
+    -- The NFR gate is the full-universe data_status read, not the
     -- bars_summary CTE in isolation.
 
 COVERAGE_SOURCE_TABLE = {minute_coverage: minute_ohlcv,
@@ -1226,6 +1231,21 @@ MAX_COVERAGE_SOURCE_STALENESS = 1 day
     -- the cagg's own grid before comparison, so the structural offset
     -- cancels exactly. Measured on prod 2026-07-26 before that fix, healthy
     -- caggs read as 4d / 42d / 72d "behind" purely from bucket width.
+    --
+    -- *(Architecture amendment, 2026-08-13 — slice 169.)* That cancellation
+    -- holds only while the cagg's HEAD BUCKET IS MATERIALIZED. It is not
+    -- universal: a refresh policy's window is truncated to whole buckets, so
+    -- a cagg whose bucket is large relative to its offsets never
+    -- materializes its open bucket, and the "structural offset" stops being
+    -- symmetric — the cagg sits at the last CLOSED bucket while raw is
+    -- bucketed to the OPEN one, leaving a permanent one-bucket lag.
+    -- THE BUDGET IS THEREFORE PER-VIEW. The seven pre-167 caggs keep the
+    -- formula above (their buckets are small relative to their offsets, so
+    -- the open bucket is always inside the refresh window and the
+    -- cancellation genuinely holds). The two COVERAGE caggs add a
+    -- COVERAGE_BUCKET_INTERVAL term, resolved per view alongside
+    -- COVERAGE_SOURCE_TABLE. Without it the generic check fires permanently
+    -- on both. See the COVERAGE_BUCKET_INTERVAL amendment above.
 
 CAGG_FRESHNESS_CACHE_TTL = 60 seconds
     -- TTL for the process-local assert_cagg_fresh verdict cache (D6). Two
