@@ -72,6 +72,9 @@ class _FakeConn:
         uncompressed_chunks=None,
     ):
         self.executed: list[str] = []
+        # (sql, params) pairs for tests asserting on bound parameters
+        # (e.g. refresh sub-window spans), not just statement order.
+        self.calls: list[tuple[str, tuple | None]] = []
         self._jobs = jobs if jobs is not None else []
         # Jobs returned when the job query is scoped to the coverage-index cagg
         # (a different view than the repair target). None => reuse self._jobs,
@@ -90,6 +93,7 @@ class _FakeConn:
 
     def execute(self, sql, params=None):
         self.executed.append(sql)
+        self.calls.append((sql, params))
         s = sql
         if "FROM timescaledb_information.jobs" in s:
             # _resolve_cagg_jobs passes (view_name, [procs]) — dispatch on the
@@ -338,6 +342,35 @@ class TestSweep:
         )
         compress_i = next(i for i, s in enumerate(order) if "compress_chunk" in s)
         assert drop_i < refresh_i < compress_i
+
+    def test_pending_window_refreshes_in_14_day_subwindows(self):
+        # A 70-day epoch window must never be refreshed by one call: with
+        # TimescaleDB batching not engaging ("no valid batches produced"),
+        # a single call materializes the whole span in memory and OOM'd prod
+        # twice (2026-08-11). Expect ceil(70/14) = 5 contiguous refresh calls,
+        # each spanning at most 14 days, all between drop_chunks and compress.
+        from manta_trading.market.maintenance.cagg_repair import _REFRESH_SUBWINDOW
+
+        conn = _FakeConn(
+            parity_sequence=[(1000, 208)],
+            uncompressed_chunks=[{"chunk": "_timescaledb_internal._hyper_6_1_chunk"}],
+        )
+        (window,) = self._windows(1)
+        _repair_one_cagg(
+            conn, Granularity.H4, [window], dry_run=False, progress=_noop
+        )
+        refreshes = [
+            p for s, p in conn.calls if "refresh_continuous_aggregate" in s
+        ]
+        expected = -(-MINUTE_CAGG_CHUNK_INTERVAL // _REFRESH_SUBWINDOW)
+        assert len(refreshes) == expected
+        start, end = window
+        cursor = start
+        for _view, s, e in refreshes:
+            assert s == cursor, "sub-windows must be contiguous, no gaps"
+            assert e - s <= _REFRESH_SUBWINDOW
+            cursor = e
+        assert cursor == end, "sub-windows must cover the window exactly"
 
     def test_dry_run_performs_zero_mutations(self):
         conn = _FakeConn(parity_sequence=[(1000, 208)])

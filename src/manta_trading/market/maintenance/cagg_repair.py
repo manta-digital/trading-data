@@ -105,6 +105,21 @@ _PROC_COLUMNSTORE: str = "policy_compression"
 _COVERAGE_INDEX_VIEW: str = GRANULARITY_SOURCE[Granularity.H4]
 
 
+_REFRESH_SUBWINDOW: timedelta = timedelta(days=14)
+"""Maximum span of a single ``refresh_continuous_aggregate`` call.
+
+A 70-day epoch window is rebuilt in 14-day refresh slices, never one call.
+TimescaleDB's materialization batching does not engage for these caggs (server
+log: "no valid batches produced ... falling back to single batch processing"),
+so a refresh materializes its whole range as ONE in-memory tuplestore whose
+size scales with the window — outside ``work_mem``'s control. A single 70-day
+call on ``minute_4hour_ohlcv`` grew past the ~119 GB commit limit and was
+OOM-killed twice on prod (2026-08-11; journal 20260805 established the class).
+14-day slices are the proven ceiling: the 2026-08-06 minute_5min rebuild ran
+119 windows of them without a memory event. Parity remains per 70-day window —
+slicing only bounds each call's memory, not the resume/skip granularity."""
+
+
 @dataclass(frozen=True)
 class CaggJob:
     job_id: int
@@ -334,12 +349,18 @@ def _rebuild_window(
     )
     # 2. Rebuild the window from raw. force => true because the corrupted
     #    region's invalidation entries were already consumed (a plain refresh
-    #    would no-op — journal cagg-collision entry).
-    conn.execute(
-        "CALL refresh_continuous_aggregate(%s, %s::timestamptz, %s::timestamptz, "
-        "force => true)",
-        (view_name, start, end),
-    )
+    #    would no-op — journal cagg-collision entry). Refreshed in
+    #    _REFRESH_SUBWINDOW slices: one 70-day call materializes as a single
+    #    batch and exceeds the host's memory (see the constant's docstring).
+    slice_start = start
+    while slice_start < end:
+        slice_end = min(slice_start + _REFRESH_SUBWINDOW, end)
+        conn.execute(
+            "CALL refresh_continuous_aggregate(%s, %s::timestamptz, "
+            "%s::timestamptz, force => true)",
+            (view_name, slice_start, slice_end),
+        )
+        slice_start = slice_end
     # 3. Compress the window's freshly-created chunk(s) behind the frontier. A
     #    grid-straddling table edge can yield two chunks — compress all
     #    uncompressed chunks in the window.
