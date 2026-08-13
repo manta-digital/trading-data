@@ -324,8 +324,10 @@ with restructuring silently loses rows. Therefore:
 **Materialization must cover full history explicitly.** The scheduled policy
 looks back only `start_offset` (750 d) and cannot heal 64 years — the 163 lesson
 restated, and the same trap slice 170 found when its exit force-refresh revealed
-the daily rollup caggs were roughly half-materialized. The rebuild issues an
-explicit `refresh_continuous_aggregate(view, <full-span start>, <now>)`.
+the daily rollup caggs were roughly half-materialized. The rebuild covers the
+full span explicitly — but **issued as a loop of bounded sub-windows, not one
+call** (see The Rebuild Window for why the span of a single
+`refresh_continuous_aggregate` is a memory bound, not just a duration).
 
 ### D5 — Everything renders from the constant; no width literal anywhere
 
@@ -475,7 +477,7 @@ and raw `daily_ohlcv`, so they stay exact across this change (D3).
 | 051 ③ | `data_status` | Re-install from 048's branch-on-`to_regclass` definition and re-attach its doc comment |
 | 052 | refresh policies | Reinstall for both views at unchanged offsets; idempotent `DO` block, matching 047 |
 | 052 | `COMMENT ON VIEW data_status` | Re-render from the new constants (D5) |
-| — | full-history materialization | Explicit `refresh_continuous_aggregate` over the full span; **operational step, not a migration** (see below) |
+| — | full-history materialization | `refresh_continuous_aggregate` looped over **bounded sub-windows** covering the full span; **operational step, not a migration** (see below) |
 
 **Ordering ①②③ is mandatory, and `CASCADE` is forbidden.** Migration 048
 installs `data_status` as a plain `CREATE OR REPLACE VIEW` whose `bars_summary`
@@ -640,8 +642,16 @@ mt data migrate --status      # chain ends at 052 after
 
 ### 5. Materialize full history
 
-Explicit full-span refresh per view, outside a transaction. Expect a long run on
-the daily side (64.6-year span). Record wall-clock and rows written.
+Per view, outside a transaction, looping bounded sub-windows across the full
+span with a statement timeout sized to one sub-window. Expect a long run on the
+daily side (64.6-year span).
+
+Before committing to the full sweep, run **one** sub-window and record its peak
+memory and wall-clock. That is the cheap check that the chosen sub-window span
+is safe on the host as configured; scaling from one measured slice beats
+discovering the bound partway through 64 years.
+
+Record wall-clock, rows written, and the sub-window span used.
 
 ### 6. Verify the leading edge tracks raw
 
@@ -710,15 +720,31 @@ which is untouched here — but because a running daemon writes to
 `minute_ohlcv`/`daily_ohlcv` while a full-span refresh is reading them, which
 moves the target mid-rebuild and leaves the trailing edge indeterminate.
 
-**Interruption handling.** `refresh_continuous_aggregate` over a full span is
-**not** chunk-committed the way the minute-fetch pattern is
-(`feedback_minute_txn_pattern`); it is one long operation. A statement timeout,
-client disconnect, or Ctrl-C leaves partial materialization. Three consequences
-to plan for:
+**Issue the materialization in bounded sub-windows, never as one full-span
+call.** A single `refresh_continuous_aggregate` materializes its whole range as
+one in-memory tuplestore whose size scales with the span, **outside `work_mem`'s
+control**. Over a 64-year daily span that is an unbounded allocation. This is
+not a quirk of any one release: `cagg_repair.py`'s `_REFRESH_SUBWINDOW`
+(14 days) already encodes the pattern for the minute caggs, and TimescaleDB
+2.28+ adds `buckets_per_batch` as an explicit knob for exactly this — upstream
+treats large single-batch refreshes as something the caller bounds deliberately.
 
-- Set **no** statement timeout on the refresh session specifically (unlike
-  every read session, which must have one). A timeout here converts a slow
-  success into a partial failure.
+So Task C loops the refresh over sub-windows and treats the sub-window span as
+a tunable with a conservative default, rather than issuing one call per view.
+Reuse `_REFRESH_SUBWINDOW` if it fits; the coverage caggs are far smaller
+per-bucket than `minute_4hour_ohlcv`, so a larger slice may measure fine — but
+the default must be bounded, not the full span.
+
+**Interruption handling.** The refresh is **not** chunk-committed the way the
+minute-fetch pattern is (`feedback_minute_txn_pattern`). A client disconnect or
+Ctrl-C leaves partial materialization. Three consequences to plan for:
+
+- **Set a statement timeout on the refresh session**, sized to a sub-window
+  rather than the whole job. An unbounded refresh session is not a safety
+  measure — it removes the only server-side bound on a call whose memory
+  cost is not governed by `work_mem`. With sub-windowing, a timeout scopes to
+  one slice, so a trip costs one slice's work and the loop resumes rather
+  than restarting.
 - After any client-side interruption, `pg_cancel_backend` the server side
   before doing anything else — client disconnect does not cancel the backend
   (`feedback_prod_query_discipline`), and a still-running refresh racing a
@@ -730,10 +756,11 @@ to plan for:
   half-materialized — exactly what slice 170's exit refresh discovered about
   the daily rollups.
 
-**Recovery is re-run, not rollback.** A full-span
-`refresh_continuous_aggregate` is idempotent: re-running it over the same span
-rewrites the same buckets. So the recovery path for any interruption is to
-re-issue it, optionally narrowed to the unmaterialized span once detection has
+**Recovery is re-run, not rollback.** `refresh_continuous_aggregate` is
+idempotent: re-running it over the same span rewrites the same buckets. So the
+recovery path for any interruption is to re-issue it — and with sub-windowing,
+only the interrupted sub-window and those after it need re-running, not the
+whole span. Optionally narrow to the unmaterialized span once detection has
 identified it.
 
 **If the width proves wrong after 051 applies**, the path back is another
@@ -747,7 +774,7 @@ measurement *before* 051 rather than discovering it on prod.
 |---|---|
 | Cagg refresh racing the rebuild silently loses rows (163 lesson) | Pause both views' refresh + columnstore jobs from the catalog before any DDL; resume and verify after (D4) |
 | Pausing `minute_4hour_ohlcv` triggers the daemon re-seed loop | Never paused; `_check_coverage_index_available` refuses it (D4) |
-| Full-history materialization is heavy on the daily side | See **The Rebuild Window** above — no statement timeout on the refresh session, `pg_cancel_backend` after any client interruption, content-based partial-materialization detection, re-run (not rollback) as recovery |
+| Full-history materialization is heavy on the daily side | See **The Rebuild Window** — bounded sub-windows (a single call's memory scales with its span, outside `work_mem`), statement timeout sized to one sub-window, one measured sub-window before the full sweep, `pg_cancel_backend` after any client interruption, content-based partial-materialization detection, re-run (not rollback) as recovery |
 | `DROP MATERIALIZED VIEW` fails or `CASCADE` silently removes `data_status` | 051 drops and re-installs `data_status` as ordered steps ①②③; `CASCADE` forbidden; 051 idempotent on re-run since it is non-transactional |
 | Generic bucket-lag guard fires permanently after narrowing | Per-view budget gains a bucket-width term (D3a); pre-167 caggs unchanged |
 | New width regresses the 167 sub-second NFR | Width chosen by measurement (Task B1), NFR re-measured as criterion 12 |
