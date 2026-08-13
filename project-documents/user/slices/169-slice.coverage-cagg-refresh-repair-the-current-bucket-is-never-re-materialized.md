@@ -486,7 +486,12 @@ and is not a verification tool (D7).
 
 ---
 
-## PM Decisions and Open Questions
+## PM Decisions
+
+Both questions this design raised are resolved (PM, 2026-08-13); neither
+blocks task breakdown. Both are recorded with their reasoning because both are
+provisional — accepted as the best available under the current structure, not
+as settled ceilings.
 
 1. **A 30-day display lag on `mt data status` is accepted for this slice**
    (PM, 2026-08-13) — **provisionally, not permanently.** After this slice,
@@ -511,10 +516,29 @@ and is not a verification tool (D7).
    costs more than in a convenience tool, which argues for the head-probe
    follow-on over deprecating the command.
 
-2. **Confirm the widened `COVERAGE_CONTENT_STALENESS`.** D3 changes it from a
-   value the architecture cannot meet to one it can. This is a deliberate
-   loosening of a staleness threshold and should be an explicit PM call.
-   Still open.
+2. **The widened `COVERAGE_CONTENT_STALENESS` is accepted** (PM, 2026-08-13).
+   D3 changes it from a value the architecture cannot meet to one it can.
+
+   The reasoning, so a later reader does not mistake this for a threshold
+   quietly loosened to silence an alarm: at 1 d 4 h the banner fires
+   permanently, because no bucket width compatible with slice 167's purpose
+   delivers 1-day-fresh coverage. A permanently-firing signal is
+   indistinguishable from a broken one and trains operators to ignore it.
+   Widening it to `COVERAGE_BUCKET_INTERVAL + max(end_offset)` makes it
+   describe the guarantee the system actually provides. A genuine stall — a
+   dead refresh policy, a cagg that stops materializing — still exceeds one
+   bucket width and still fires.
+
+   Accepting the 30-day display lag (item 1) while keeping a threshold that
+   treats that same lag as a fault would be incoherent; the two decisions
+   stand or fall together.
+
+   **PM's standing reservation, recorded deliberately:** a 30-day lag is not
+   considered *useful*, only the best available under the current structure.
+   This is an argument for the item-1 follow-on (floor-plus-head-probe on
+   `bars_summary`, which would reach ~8 h), not an objection to this slice.
+   Treat both the width and this threshold as provisional ceilings rather
+   than settled design.
 
 ---
 
