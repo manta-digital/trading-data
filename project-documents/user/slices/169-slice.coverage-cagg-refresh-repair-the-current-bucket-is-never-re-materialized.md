@@ -3,7 +3,7 @@ docType: slice-design
 slice: coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized
 project: trading-data
 parent: user/architecture/140-slices.data-quality-operations.md
-dependencies: [167, 168, 170]
+dependencies: [167, 168, 170, 187]
 interfaces: [187]
 dateCreated: 20260813
 dateUpdated: 20260813
@@ -51,6 +51,18 @@ Observable consequence today: `data_status` reports `SPY / daily / OK /
 last_bar_ts = 2025-12-26`, and `mt data status` presents it as current coverage.
 Slice 187 D6 made this visible rather than silent (both views now report STALE
 via the content-edge check) — **this slice is what clears it.**
+
+### Why slice 187 is both a dependency and an interface
+
+187 appears in **both** frontmatter lists, deliberately. It is a *dependency*
+because this slice consumes and then **modifies** what 187 built: D3 relies on
+187 D6's content-edge check already existing in `status_coverage.py` as its
+truth-telling mechanism, and it edits `COVERAGE_CONTENT_STALENESS`, the
+constant 187 introduced. That is consume-and-modify, not adjacency. It remains
+an *interface* because 187's D3 residual window is what this slice closes and
+its walkthrough step 4 is a success criterion here. 187 is shipped, so the
+dependency costs nothing operationally — it is recorded so the ordering is
+legible from the frontmatter alone.
 
 ### Why this is filed after 170
 
@@ -177,7 +189,9 @@ bucket-lag guard has a one-bucket detection floor and was returning
 1. Narrows the bucket (D2), shrinking the invisible window by ~12–52×.
 2. Re-derives `COVERAGE_CONTENT_STALENESS` from the new width so the threshold
    describes the system's actual guarantee instead of an unreachable one.
-3. Leaves the content-edge check as the mechanism that tells the truth when the
+3. Re-derives the **generic bucket-lag budget** for these two views as well
+   (D3a) — without which narrowing makes that check fire permanently.
+4. Leaves the content-edge check as the mechanism that tells the truth when the
    head bucket is behind.
 
 Point 2 is the honest part and needs stating plainly: **the current 1 d 4 h
@@ -205,6 +219,63 @@ per-symbol head probe (`_SYMBOL_HEAD_SQL`) reads `minute_5min_ohlcv` and raw
 `daily_ohlcv` *past the coverage horizon*, so `/symbols` ranges stay exact
 regardless of coverage lag. The residual window slice 187 D3 recorded closes to
 one bucket width rather than to zero.
+
+### D3a — The generic bucket-lag guard needs a bucket-width term, or it fires forever
+
+Slice 168's `assert_cagg_fresh` computes
+
+```
+lag = time_bucket(width, max(time) on raw)  -  max(time_bucket) on cagg
+```
+
+against a budget of `min(start_offset, MAX_COVERAGE_SOURCE_STALENESS) + end_offset`
+= **1 day 4 h** (`cagg_freshness.py:392, :481`). The architecture justifies
+omitting bucket width from that budget: *"The raw edge is bucketed to the cagg's
+own grid before comparison, so the structural offset cancels exactly."*
+
+**That cancellation depends on the head bucket being materialized**, and D1's
+central premise is that it never is. Once the cagg's newest materialized bucket
+is the most recently *closed* one while the bucketed raw edge is the *open* one,
+the generic lag pins at **exactly one bucket width, permanently**.
+
+Today this does not fire only by accident: the 365-day head bucket was written
+once at cagg creation, so `max(time_bucket)` still equals the bucketed raw edge
+and the check reports `lag=0`. That is the false negative slice 187 D6 was built
+to work around. **Narrowing the bucket removes the accident**, and without a
+matching budget change `LAG_EXCEEDS_THRESHOLD` would fire on every read of both
+views forever — converting a silent false negative into a permanently-firing
+true positive, which is the outcome D3 argues against two paragraphs earlier.
+
+**Decision:** the bucket-lag budget for the **coverage caggs specifically**
+gains a bucket-width term, parallel to the content-edge threshold:
+
+```
+coverage bucket-lag budget  =  COVERAGE_BUCKET_INTERVAL
+                            +  min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)
+                            +  end_offset
+```
+
+Applied **per view, not globally**: the seven pre-167 caggs keep the existing
+budget unchanged. Their buckets are small relative to their offsets, so the open
+bucket is always inside the refresh window and the cancellation genuinely holds
+for them — this is the same point `COVERAGE_REFRESH_MIN_WINDOW_BUCKETS`'
+docstring makes ("a 1-year bucket is the first one large relative to any sane
+refresh window"). Widening the budget globally would blunt the guard on seven
+healthy caggs to accommodate two exceptional ones.
+
+Mechanism is a task-level choice between two shapes, both of which keep the
+derivation in constants rather than at a call site: a per-view budget override
+resolved alongside `COVERAGE_SOURCE_TABLE`, or an "open-bucket-tolerant" flag on
+the view's freshness spec that adds the width term. **What must not happen** is
+suppressing the bucket-lag signal for these views — that would remove a real
+guard (a genuinely stalled or unscheduled policy) to silence a structural
+offset, and the content-edge check does not subsume it: they detect different
+failures (168 D1's `NOT_SCHEDULED` / `LAST_RUN_FAILED` signals ride the same
+path).
+
+**Consequence for the success criteria:** criteria 6 and 8 are achievable only
+with this change. Without it they are unachievable in steady state, since both
+views would report stale on every read the moment the rebuild completes.
 
 If the PM judges a one-bucket display lag on `mt data status` unacceptable, the
 follow-on is to extend the 187 D2 head-probe pattern to the `data_status` view's
@@ -252,14 +323,41 @@ explicit `refresh_continuous_aggregate(view, <full-span start>, <now>)`.
 migrations via `_interval_seconds_sql`. The new migrations do the same. No
 literal width appears in SQL, tests, or docs.
 
-Three derived values move with it and must be re-derived rather than restated:
+Five derived values move with it and must be re-derived rather than restated:
 
 - `COVERAGE_CONTENT_STALENESS` — per D3, now a function of the width.
+- The coverage bucket-lag budget — per D3a.
 - The engine-minimum assertion in `test_constants.py` — already written against
   `COVERAGE_REFRESH_MIN_WINDOW_BUCKETS * COVERAGE_BUCKET_INTERVAL`, so it
   follows automatically. This is the constants test doing its job: it was
   written specifically so a width change fails at test time, not migration time.
-- Migration 046's description text, which names "1 year" in prose.
+- Migration 046's description text, which names "1 year" **and "~15k rows"** in
+  prose. Both numbers change; 046 is already applied everywhere, so an existing
+  database keeps the obsolete text unless 051's description supersedes it.
+- **`_data_status_doc_comment()`** (`minute.py:355-397`), which migration 048
+  attaches via `COMMENT ON VIEW data_status` and which 140-arch designates as
+  the in-database statement of these bounds.
+
+**The doc comment is already wrong today, before this slice touches it.** It
+renders CAGG LAG from the *schedule intervals* only —
+`MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL + MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL`,
+i.e. **2 hours total** — a derivation that never accounted for the open bucket.
+The true bound on prod right now is the 365-day open-bucket lag. An operator
+running `\d+ data_status` reads a promise of hours against a reality of months.
+
+So this is not merely "re-render with new constants": the **formula** is wrong
+and must gain the bucket-width term, matching D3 and D3a:
+
+```
+coverage lag bound  =  COVERAGE_BUCKET_INTERVAL
+                    +  refresh schedule interval(s)
+```
+
+Re-attaching the corrected comment belongs to 052 (the migration that owns the
+policies the comment describes). This is the artifact the architecture points
+operators at, so it is precisely the one that must not lie — the same
+operator-visibility principle D1 used to reject a cron job invisible to
+`timescaledb_information.jobs`.
 
 Test fixtures that construct spans as multiples of `COVERAGE_BUCKET_INTERVAL`
 (`test_coverage_content_edge.py`, `test_migrations_046_047.py`,
@@ -282,6 +380,31 @@ a 64-year span yields ~79 chunks for `daily_coverage` — comfortably in the
 healthy band the wall-clock rule targets (span ÷ 1,000–2,000 is the *upper*
 bound guidance; low hundreds is the proven-good range from 166/170). No explicit
 `set_chunk_time_interval` unless Task B1's measurement contradicts this.
+
+### D6a — Amend the parent architecture
+
+140-arch is normative about both things this slice changes, so shipping without
+amending it leaves the architecture stating values the system no longer has:
+
+- **`140-arch#Constants` (line 1109)** specifies `COVERAGE_BUCKET_INTERVAL =
+  365 days` with the load-bearing rationale *"groups ~15k rows rather than
+  scanning 4.4 billion raw rows"*. Both the constant and the row count change.
+- **The slice-167 amendment (line 100)** states that `data_status` *"is
+  consistent with the underlying data only within a documented and asserted
+  staleness bound."* This slice widens that asserted bound from 1 d 4 h to
+  ~30 d 4 h — a change to what the architecture **promises the operator**,
+  against its Purpose question 1 ("For symbol X, what data do we have, at what
+  granularity, when?").
+
+**Decision:** amending 140-arch is a **deliverable of this slice**, not a
+follow-up, using the established convention (`*(Architecture amendment,
+{date} — slice 169.)*`, as at lines 100 and 667).
+
+The reasoning is D1's own: a stale architecture is the same failure as a lying
+job catalog. A later slice designing against coverage would read 365 days and
+a sub-1-day bound, and size its work wrong. Tie this to the D3/D3a threshold
+values, so the amendment records the final measured width rather than the
+design's working assumption.
 
 ### D7 — Scope exclusions
 
@@ -330,9 +453,35 @@ and raw `daily_ohlcv`, so they stay exact across this change (D3).
 | Step | Object | Action |
 |---|---|---|
 | 051 | `COVERAGE_BUCKET_INTERVAL` | New width, rendered into DDL |
-| 051 | `minute_coverage`, `daily_coverage` | `DROP MATERIALIZED VIEW` + recreate at new width; one `CREATE` per `execute()` (046's constraint), `requires_autocommit` |
+| 051 ① | `data_status` | `DROP VIEW data_status` **first** — it depends on both caggs (see below) |
+| 051 ② | `minute_coverage`, `daily_coverage` | `DROP MATERIALIZED VIEW` (no `CASCADE`) + recreate at new width; one `CREATE` per `execute()` (046's constraint), `requires_autocommit` |
+| 051 ③ | `data_status` | Re-install from 048's branch-on-`to_regclass` definition and re-attach its doc comment |
 | 052 | refresh policies | Reinstall for both views at unchanged offsets; idempotent `DO` block, matching 047 |
+| 052 | `COMMENT ON VIEW data_status` | Re-render from the new constants (D5) |
 | — | full-history materialization | Explicit `refresh_continuous_aggregate` over the full span; **operational step, not a migration** (see below) |
+
+**Ordering ①②③ is mandatory, and `CASCADE` is forbidden.** Migration 048
+installs `data_status` as a plain `CREATE OR REPLACE VIEW` whose `bars_summary`
+CTE selects from `minute_coverage` and `daily_coverage`
+(`minute.py:297`, `:401-407`), so PostgreSQL records a hard relation dependency.
+Column compatibility — which the original draft of this plan reasoned about —
+is irrelevant to a `DROP`.
+
+Two failure modes if this is not explicit:
+
+- **Without the pre-drop:** `DROP MATERIALIZED VIEW minute_coverage` raises
+  `cannot drop ... because other objects depend on it`, aborting partway
+  through a two-view drop/recreate that runs under `requires_autocommit` — so
+  there is **no transactional rollback**, and the database is left with one
+  cagg dropped and one intact.
+- **With `CASCADE`** (the reflex, and the spelling used elsewhere in this
+  module): `data_status` is silently dropped, and `mt data status`,
+  `/api/v1/status`, and `/api/v1/health` all fail against a missing relation
+  until someone notices.
+
+Because 051 is not transactional, it must be **idempotent on re-run** from any
+point in ①②③ — `DROP ... IF EXISTS`, `CREATE ... IF NOT EXISTS`, matching the
+convention 046 already uses.
 
 **Why the full-history refresh is not in the migration.** It is a long,
 resource-heavy write against 64 years of daily and 22 years of minute data. Two
@@ -341,16 +490,23 @@ history to materialize and should not pay for the machinery, and on prod the
 operator needs it under the pausing runbook with the ability to stop and resume.
 It belongs in the execution phase (Task C), driven by an explicit command.
 
-**Consumers requiring no change:** `data_status` view (051 recreates the caggs
-with identical column names and types, so the view's `bars_summary` CTE binds
-unchanged), `api_server/queries.py`, `status_coverage.py` structure,
-`cagg_freshness.py`. This is the payoff of 167 D2's column contract — the width
-is invisible above the cagg boundary.
+**Consumers requiring no change:** `api_server/queries.py`,
+`status_coverage.py` structure. The caggs are recreated with identical column
+names and types, so every *query* against them binds unchanged — the payoff of
+167 D2's column contract. The width is invisible above the cagg boundary for
+readers; it is **not** invisible to `DROP`, which is F002's point above.
 
-**Consumer requiring change:** `restore_metadata.py` lists both coverage views
-among recreatable objects (lines 190–191) and references 046 as their creating
-migration. That reference must move to 051, or the restore tool will recreate
-them at the old width.
+**Consumers requiring change:**
+
+- **`data_status`** — dropped and re-installed by 051 as an ordered step
+  (above). Not a rewrite: 048's existing definition is re-executed unchanged.
+- **`cagg_freshness.py`** — the per-view bucket-lag budget (D3a).
+- **`restore_metadata.py`** — lists both coverage views among recreatable
+  objects (lines 190–191) and references 046 as their creating migration. That
+  reference must move to 051, or the restore tool recreates them at the old
+  width. Note this file is also the incident-recovery path, so a stale
+  reference here fails exactly when it is least affordable.
+- **`_data_status_doc_comment()`** — see D5.
 
 ---
 
@@ -379,8 +535,25 @@ them at the old width.
     (`count(*)`, not `approximate_row_count`).
 11. Every job paused during the rebuild is `scheduled = true` afterward, and
     `minute_4hour_ohlcv`'s refresh was never paused (R1/R4).
-12. `bars_summary` at the new width meets the sub-second NFR that slice 167
-    exists to hold — measured, with the number recorded.
+12. **The full-universe `data_status` read** meets the sub-second NFR that slice
+    167 exists to hold — measured as `SELECT count(*) FROM data_status` (the
+    shape 167 took from 7.8 s to sub-second, and the form 140-arch states the
+    NFR in), with the number recorded. The isolated `bars_summary` `GROUP BY`
+    is a **diagnostic, not the gate**: at 30 days `daily_coverage` grows ~12×,
+    and the full view additionally joins that CTE against `symbols`,
+    `acquisition_state`, and the exchange-close CTE over a larger intermediate.
+    A fast CTE with a regressed view read would pass a CTE-only criterion while
+    breaking the actual architectural NFR.
+13. `data_status` exists and returns rows after 051 — verified directly, not
+    inferred from column compatibility (F002).
+14. `COMMENT ON VIEW data_status`, read back via `obj_description`, states a
+    lag bound including the bucket-width term and matching the constants —
+    i.e. no longer the current "2 hours total" (D5).
+15. 140-arch is amended for the new width, the new row-count rationale, and the
+    widened staleness bound, using the established amendment convention (D6a).
+16. Both coverage views report **fresh** on the *generic* bucket-lag check as
+    well as the content-edge check, with the seven pre-167 caggs' budgets
+    unchanged (D3a).
 
 ---
 
@@ -402,8 +575,16 @@ SELECT symbol, MIN(first_bucket), MAX(last_bucket), SUM(bars)::BIGINT
 FROM daily_coverage GROUP BY symbol;
 ```
 
-Record rows materialized and grouping time per width. Choose the smallest width
-whose `bars_summary` read holds the sub-second NFR with margin.
+Then time the **full-universe view read**, which is the actual NFR (criterion
+12) — the CTE timing above is only a diagnostic for *where* any cost lands:
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM data_status;
+```
+
+Record rows materialized, CTE time, and full-view time per width. Choose the
+smallest width whose **full `data_status` read** holds the sub-second NFR with
+margin.
 
 ### 2. Confirm the defect is still live before repairing
 
@@ -450,13 +631,29 @@ the daily side (64.6-year span). Record wall-clock and rows written.
 Re-run step 2's queries. Each cagg's `MAX(last_bucket)` must now be within one
 bucket width plus `end_offset` of its raw source's `MAX(time)`.
 
-### 7. Verify freshness clears end to end
+### 7. Verify freshness clears end to end — **both** checks
 
 ```bash
 mt data status --json    # coverage staleness absent; SPY/daily last_bar_ts current
 curl -s localhost:8000/api/v1/health | jq .
 curl -s localhost:8000/api/v1/status | jq .
 ```
+
+The generic bucket-lag check and the content-edge check are distinct signals
+(D3a). Confirm **neither** fires — a verdict carrying `LAG_EXCEEDS_THRESHOLD`
+means the D3a budget change is missing or wrong, even if the content-edge
+check passes. Confirm too that the seven pre-167 caggs still report against
+their unchanged budgets.
+
+### 7a. Verify the in-database doc comment no longer lies
+
+```sql
+SELECT obj_description('data_status'::regclass, 'pg_class');
+```
+
+The CAGG LAG clause must include the bucket-width term and match the constants.
+Before this slice it reads "2 hours total" against a real bound of months
+(D5) — that specific string must be gone.
 
 ### 8. Resume every paused job and confirm
 
@@ -474,13 +671,68 @@ and is not a verification tool (D7).
 
 ---
 
+## The Rebuild Window
+
+Splitting the drop/recreate (051) from the full-history materialization (Task C)
+opens an interval in which both caggs exist but are **empty or partial**. That
+interval is the riskiest part of this slice and needs stated handling rather
+than the word "resumable."
+
+**What readers report while the caggs are empty.** `assert_cagg_fresh`'s
+`cagg_max is None` path yields maximal lag → stale, so every symbol reads as
+no-coverage: `data_status` returns rows with `bars_stored = 0` and null
+timestamps, and `mt data status`, `/api/v1/status`, and `/api/v1/health` all
+report coverage stale. **This is correct reporting of a true state** (167 D3a:
+report, don't refuse) and nothing crashes — but it is operator-visible and
+lasts for the whole materialization. Announce the window; do not run it
+alongside anything that reads coverage for decisions.
+
+**The daemon stays stopped for the entire window**, not merely during DDL. Not
+for the caggs' sake — the daemon's coverage index reads `minute_4hour_ohlcv`,
+which is untouched here — but because a running daemon writes to
+`minute_ohlcv`/`daily_ohlcv` while a full-span refresh is reading them, which
+moves the target mid-rebuild and leaves the trailing edge indeterminate.
+
+**Interruption handling.** `refresh_continuous_aggregate` over a full span is
+**not** chunk-committed the way the minute-fetch pattern is
+(`feedback_minute_txn_pattern`); it is one long operation. A statement timeout,
+client disconnect, or Ctrl-C leaves partial materialization. Three consequences
+to plan for:
+
+- Set **no** statement timeout on the refresh session specifically (unlike
+  every read session, which must have one). A timeout here converts a slow
+  success into a partial failure.
+- After any client-side interruption, `pg_cancel_backend` the server side
+  before doing anything else — client disconnect does not cancel the backend
+  (`feedback_prod_query_discipline`), and a still-running refresh racing a
+  retry is the 163 collision shape.
+- **Detect partial materialization by content, not catalog presence** (the
+  sql.md rule, and the 2026-08-04 incident's lesson): compare per-symbol
+  coverage against raw for a sample, and check that `MIN(first_bucket)` reaches
+  the known history floor. A cagg that is present and non-empty may still be
+  half-materialized — exactly what slice 170's exit refresh discovered about
+  the daily rollups.
+
+**Recovery is re-run, not rollback.** A full-span
+`refresh_continuous_aggregate` is idempotent: re-running it over the same span
+rewrites the same buckets. So the recovery path for any interruption is to
+re-issue it, optionally narrowed to the unmaterialized span once detection has
+identified it.
+
+**If the width proves wrong after 051 applies**, the path back is another
+migration pair at a corrected width, not a revert — the same drop/recreate
+cost paid again. This is the argument for spending the effort on Task B1's
+measurement *before* 051 rather than discovering it on prod.
+
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
 | Cagg refresh racing the rebuild silently loses rows (163 lesson) | Pause both views' refresh + columnstore jobs from the catalog before any DDL; resume and verify after (D4) |
 | Pausing `minute_4hour_ohlcv` triggers the daemon re-seed loop | Never paused; `_check_coverage_index_available` refuses it (D4) |
-| Full-history materialization is heavy on the daily side | Run under the pausing runbook, outside a transaction, resumable; daemon stopped |
+| Full-history materialization is heavy on the daily side | See **The Rebuild Window** above — no statement timeout on the refresh session, `pg_cancel_backend` after any client interruption, content-based partial-materialization detection, re-run (not rollback) as recovery |
+| `DROP MATERIALIZED VIEW` fails or `CASCADE` silently removes `data_status` | 051 drops and re-installs `data_status` as ordered steps ①②③; `CASCADE` forbidden; 051 idempotent on re-run since it is non-transactional |
+| Generic bucket-lag guard fires permanently after narrowing | Per-view budget gains a bucket-width term (D3a); pre-167 caggs unchanged |
 | New width regresses the 167 sub-second NFR | Width chosen by measurement (Task B1), NFR re-measured as criterion 12 |
 | Widening `COVERAGE_CONTENT_STALENESS` masks a real future staleness | Threshold is *derived* from the width, not chosen; a genuine stall still exceeds one bucket width and fires (D3) |
 
