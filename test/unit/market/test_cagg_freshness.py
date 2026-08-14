@@ -996,8 +996,14 @@ class TestDetectionFloor:
         every read, converting slice 187's silent false negative into a
         permanently-firing true positive. A signal that always fires is
         indistinguishable from a broken one.
+
+        Uses ``COVERAGE_BUCKET_INTERVAL`` rather than this class's 365-day
+        fixture width: the fixture deliberately pins the *historical* wide
+        bucket to reproduce the aliasing the detection floor is about, while the
+        budget the verdict is judged against derives from the **current** width.
+        A lag of one current-width bucket is the state D3a tolerates.
         """
-        verdict = self._verdict(timedelta(days=365))
+        verdict = self._verdict(COVERAGE_BUCKET_INTERVAL)
         assert verdict.is_fresh is True
         assert StalenessSignal.LAG_EXCEEDS_THRESHOLD not in verdict.signals
 

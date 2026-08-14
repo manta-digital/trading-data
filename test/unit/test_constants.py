@@ -12,6 +12,7 @@ from manta_trading.constants import (
     API_SERVING_SESSION,
     BARS_PER_TRADING_DAY,
     COVERAGE_BUCKET_INTERVAL,
+    COVERAGE_CONTENT_STALENESS,
     COVERAGE_REFRESH_MIN_WINDOW_BUCKETS,
     DAILY_COVERAGE_REFRESH_END_OFFSET,
     DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
@@ -129,8 +130,25 @@ def test_coverage_view_names_are_distinct() -> None:
 
 
 def test_coverage_bucket_interval_type_and_value() -> None:
+    """The width is a whole-day timedelta; its *value* is deliberately not pinned.
+
+    Slice 169 narrowed this from 365 days to 7 and D5 forbids a width literal
+    anywhere — every derived value renders from the constant instead. Pinning
+    the number here would just be a second definition site that has to be
+    hand-edited in lockstep, which is the drift D5 exists to prevent. What must
+    hold regardless of the chosen width is asserted instead:
+
+    - a ``timedelta``, not a calendar interval, because ``time_bucket`` on a
+      ``timestamptz`` column takes a fixed-width interval;
+    - whole days, so the width nests cleanly inside ``minute_coverage``'s
+      4-hour parent buckets and renders through ``_interval_literal``;
+    - positive, and small enough that the two-bucket engine floor stays
+      reachable (asserted concretely by the refresh-window test below).
+    """
     assert isinstance(COVERAGE_BUCKET_INTERVAL, timedelta)
-    assert COVERAGE_BUCKET_INTERVAL == timedelta(days=365)
+    assert COVERAGE_BUCKET_INTERVAL > timedelta(0)
+    assert COVERAGE_BUCKET_INTERVAL.seconds == 0
+    assert COVERAGE_BUCKET_INTERVAL.microseconds == 0
 
 
 @pytest.mark.parametrize(
@@ -198,10 +216,21 @@ def test_coverage_refresh_window_satisfies_timescale_minimum(
     buckets *fully contained* in its window, so a narrower window can slide into
     a position containing no whole bucket and silently refresh nothing.
 
-    Verified empirically on TimescaleDB 2.21.3 with the 1-year bucket: 730 days
-    rejected, 731 accepted. Asserted here so a change to
-    ``COVERAGE_BUCKET_INTERVAL`` fails at test time rather than at migration
-    time against a live database.
+    Verified empirically twice, at both widths this project has used:
+
+    - TimescaleDB 2.21.3, 365-day bucket, 4 h end_offset: 730 days rejected,
+      731 accepted.
+    - TimescaleDB 2.29.1, 7-day bucket, 4 h end_offset (slice 169): 14 days
+      rejected, 14 days 4 hours accepted.
+
+    Note what the second measurement pins down: the floor is on the *window*
+    (``start_offset - end_offset``), so the smallest usable ``start_offset`` is
+    ``2 x bucket + end_offset``, not ``2 x bucket``. Slice 169 initially set
+    16 -> 14 days and this assertion caught it before it reached a database,
+    which is precisely the job it was written for.
+
+    Asserted here so a change to ``COVERAGE_BUCKET_INTERVAL`` fails at test time
+    rather than at migration time against a live database.
     """
     minimum_window = COVERAGE_REFRESH_MIN_WINDOW_BUCKETS * COVERAGE_BUCKET_INTERVAL
     assert start_offset - end_offset >= minimum_window
@@ -212,6 +241,37 @@ def test_coverage_start_offsets_exceed_end_offsets() -> None:
     policy describes an empty or inverted range."""
     assert MINUTE_COVERAGE_REFRESH_START_OFFSET > MINUTE_COVERAGE_REFRESH_END_OFFSET
     assert DAILY_COVERAGE_REFRESH_START_OFFSET > DAILY_COVERAGE_REFRESH_END_OFFSET
+
+
+def test_coverage_content_staleness_is_derived_not_literal() -> None:
+    """Slice 169 C.3 / criterion 2: the threshold is arithmetic, not a guess.
+
+    ``COVERAGE_CONTENT_STALENESS`` must equal ``COVERAGE_BUCKET_INTERVAL`` plus
+    the larger of the two coverage policies' ``end_offset`` values. Computing
+    the expectation from the same constants means this fails the moment someone
+    hand-edits the threshold back to a literal, which is the drift D5 forbids.
+
+    The bucket-width term is the substance: the open bucket is never
+    re-materialized while open, so coverage content can trail its source by a
+    full bucket without anything being wrong. The pre-169 derivation
+    (``MAX_COVERAGE_SOURCE_STALENESS + end_offset``, 1 d 4 h) omitted it and was
+    therefore unreachable at any width compatible with slice 167's purpose --
+    it fired permanently, which trains operators to ignore the signal.
+    """
+    expected = COVERAGE_BUCKET_INTERVAL + max(
+        MINUTE_COVERAGE_REFRESH_END_OFFSET, DAILY_COVERAGE_REFRESH_END_OFFSET
+    )
+    assert COVERAGE_CONTENT_STALENESS == expected
+
+
+def test_coverage_content_staleness_exceeds_one_bucket() -> None:
+    """A full open bucket of content lag must not by itself read as stale.
+
+    This is the same structural tolerance ``COVERAGE_BUCKET_LAG_BUDGET`` grants
+    the generic check (D3a), asserted on the content-edge threshold so the two
+    signals cannot drift into disagreeing about the same healthy state.
+    """
+    assert COVERAGE_CONTENT_STALENESS > COVERAGE_BUCKET_INTERVAL
 
 
 # --- Slice 186: session settings and range-cap derivation inputs -------------

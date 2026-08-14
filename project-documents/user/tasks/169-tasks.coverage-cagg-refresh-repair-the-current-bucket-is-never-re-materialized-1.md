@@ -114,12 +114,12 @@ below hardcodes a width.
 
 ## Task A — Amend the row-count basis before measuring (prerequisite for Task B)
 
-- [ ] **A.1 Confirm 140-arch's D6a amendment is current**
-  - [ ] Read the four amendment blocks 140-arch already carries (commit
+- [x] **A.1 Confirm 140-arch's D6a amendment is current**
+  - [x] Read the four amendment blocks 140-arch already carries (commit
         `7849757`): `COVERAGE_BUCKET_INTERVAL`'s constants block, the
         slice-167 bounded-consistency paragraph, the refresh-policy block, the
         `MAX_COVERAGE_SOURCE_STALENESS` block.
-  - [ ] Confirm each still states the width as the **working assumption**
+  - [x] Confirm each still states the width as the **working assumption**
         (30 days), not yet the measured value — Task B closes this out (D6a's
         checklist).
   - Success: no drift between the design's D6a section and the live
@@ -134,13 +134,13 @@ below hardcodes a width.
 > database seeded to a representative shape**, never against prod. Nothing in
 > Task B issues DDL against prod.
 
-- [ ] **B.1 Seed a representative measurement database**
-  - [ ] Seed `daily_ohlcv`/`minute_ohlcv` span and symbol count **within 10%**
+- [x] **B.1 Seed a representative measurement database**
+  - [x] Seed `daily_ohlcv`/`minute_ohlcv` span and symbol count **within 10%**
         of slice 170's measured prod spans (daily 1962–2026 / 12,040 symbols;
         minute 2004–2026 / 5,871 symbols) — this tolerance, not "approximate,"
         is what B.4/B.5/B.6a's measurements are checked against; record the
         actual delta achieved.
-  - [ ] **Also seed `symbols`, `acquisition_state`, and enough of the
+  - [x] **Also seed `symbols`, `acquisition_state`, and enough of the
         exchange-close CTE's inputs (`trading_sessions`) to exercise
         `data_status`'s full join** — not just the two coverage source
         tables. Criterion 12 measures the *full view read*
@@ -148,7 +148,7 @@ below hardcodes a width.
         against these three; seeding only `daily_ohlcv`/`minute_ohlcv` would
         let B.4 measure a cheaper query shape than the one criterion 12
         actually gates, silently understating cost.
-  - [ ] Document the seed's actual span, symbol count, and per-table row
+  - [x] Document the seed's actual span, symbol count, and per-table row
         counts (`symbols`, `acquisition_state`) in the task notes, with the
         delta from prod's counts — Task B's numbers are only meaningful
         relative to what was measured, and B.7 must record this delta
@@ -312,41 +312,41 @@ below hardcodes a width.
   - Success: test passes; fails if the constant is replaced with a literal.
   - Effort: 1
 
-- [ ] **C.4 Add the per-view bucket-lag budget override (D3a)**
-  - [ ] Add a mapping in `constants.py`, resolved alongside
+- [x] **C.4 Add the per-view bucket-lag budget override (D3a)**
+  - [x] Add a mapping in `constants.py`, resolved alongside
         `COVERAGE_SOURCE_TABLE` (:351), keyed by view name, giving the
         coverage bucket-lag budget: `COVERAGE_BUCKET_INTERVAL +
         min(start_offset, MAX_COVERAGE_SOURCE_STALENESS) + end_offset` per
         view. Follow the design's rejection of a boolean "tolerant" flag —
         the map carries the value, not a mode switch.
-  - [ ] Docstring cites D3a and states explicitly that the seven pre-167
+  - [x] Docstring cites D3a and states explicitly that the seven pre-167
         caggs are untouched because they have no entry, falling back to
         `cagg_freshness._resolve_threshold`'s existing formula.
   - Success: importable map with two entries (`minute_coverage`,
     `daily_coverage`); no width literal.
   - Effort: 2
 
-- [ ] **C.5 Wire the override into `cagg_freshness._resolve_threshold` /
+- [x] **C.5 Wire the override into `cagg_freshness._resolve_threshold` /
       `_evaluate`**
-  - [ ] In `src/manta_trading/market/maintenance/cagg_freshness.py`, extend
+  - [x] In `src/manta_trading/market/maintenance/cagg_freshness.py`, extend
         `_evaluate` (:589) or `_resolve_threshold` (:457) to consult the new
         C.4 map by `view_name` when present, falling back to the existing
         `min(start_offset, MAX_COVERAGE_SOURCE_STALENESS) + end_offset`
         formula for every view without an entry.
-  - [ ] Preserve the public `assert_cagg_fresh` signature — `status_coverage.py`'s
+  - [x] Preserve the public `assert_cagg_fresh` signature — `status_coverage.py`'s
         call site (`source_table=..., augment=..., **kwargs`) must not change
         (167/187 contract).
   - Success: `minute_coverage`/`daily_coverage` resolve the D3a budget; every
     other view's resolved threshold is byte-identical to before this task.
   - Effort: 3
 
-- [ ] **C.6 Unit-test the per-view override, both directions**
-  - [ ] `minute_coverage`/`daily_coverage` resolve to the C.4 budget, not the
+- [x] **C.6 Unit-test the per-view override, both directions**
+  - [x] `minute_coverage`/`daily_coverage` resolve to the C.4 budget, not the
         generic formula.
-  - [ ] A pre-167 cagg (e.g. `daily_monthly_ohlcv`) resolves to the
+  - [x] A pre-167 cagg (e.g. `daily_monthly_ohlcv`) resolves to the
         **unchanged** generic formula — regression guard against the override
         leaking to views without an entry.
-  - [ ] A view whose lag pins at exactly one bucket width no longer trips
+  - [x] A view whose lag pins at exactly one bucket width no longer trips
         `LAG_EXCEEDS_THRESHOLD` under the new budget (the D3a scenario
         directly).
   - Success: three tests pass; the second one fails if the override is
@@ -405,27 +405,27 @@ below hardcodes a width.
   - Success: test passes with zero diff to the assertion.
   - Effort: 1
 
-- [ ] **C.9 Fix `_data_status_doc_comment()`'s CAGG LAG formula (D5)**
-  - [ ] `src/manta_trading/market/schema/migrations/minute.py:355-397` — the
+- [x] **C.9 Fix `_data_status_doc_comment()`'s CAGG LAG formula (D5)**
+  - [x] `src/manta_trading/market/schema/migrations/minute.py:355-397` — the
         current formula (`MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL +
         MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL`, "2 hours total") is wrong
         independent of this slice's width change: it never accounted for the
         open-bucket lag. Replace with `COVERAGE_BUCKET_INTERVAL + refresh
         schedule interval(s)` per D5, rendered from constants via
         `_interval_literal`, matching the CAGG LAG clause's existing style.
-  - [ ] Keep the BUCKET TRUNCATION clause and the "FRESHNESS IS NOT ASSERTED
+  - [x] Keep the BUCKET TRUNCATION clause and the "FRESHNESS IS NOT ASSERTED
         IN SQL" clause unchanged — only the CAGG LAG derivation changes.
-  - [ ] Done here, **before** Task D's migrations, so 051/052 can re-execute
+  - [x] Done here, **before** Task D's migrations, so 051/052 can re-execute
         this function directly with no placeholder/supersede step.
   - Success: the string "2 hours total" (or any two-hop-only phrasing) no
     longer appears anywhere in the function's output.
   - Effort: 2
 
-- [ ] **C.10 Unit-test the corrected doc comment (criterion 14)**
-  - [ ] Assert the rendered comment text includes the bucket-width term (i.e.
+- [x] **C.10 Unit-test the corrected doc comment (criterion 14)**
+  - [x] Assert the rendered comment text includes the bucket-width term (i.e.
         contains a rendering of `COVERAGE_BUCKET_INTERVAL`), not just the
         schedule intervals.
-  - [ ] Assert the old two-hop-only phrasing is absent — regression guard
+  - [x] Assert the old two-hop-only phrasing is absent — regression guard
         pinned to criterion 14.
   - Success: tests pass; fail if the formula reverts to schedule-intervals
     only (criterion 14).
