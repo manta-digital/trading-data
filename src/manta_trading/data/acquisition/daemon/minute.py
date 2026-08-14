@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import httpx
 import psycopg
@@ -809,33 +809,59 @@ def _record_minute_attempt(
         )
 
 
+_OHLC_FIELDS = ("open", "high", "low", "close")
+
+
+def _bar_to_row(symbol: str, bar: dict) -> tuple | None:
+    """Convert one provider bar to a stage-table row, or None to skip it.
+
+    Provider payloads occasionally carry null or absent price fields (EODHD
+    sent open=null for CVR and LFWD, 2026-08-14). A price that is missing,
+    non-numeric, non-finite, or <= 0 makes the bar unusable: skip it with a
+    warning. Never substitute a default — a fabricated 0.00 price poisons
+    every consumer downstream. InvalidOperation is in the except tuple
+    because Decimal raises it (an ArithmeticError, not a ValueError) on
+    unparseable input like str(None); the finite/positive check guards the
+    values Decimal accepts but the table must never hold ("NaN", "Inf", 0).
+    """
+    try:
+        ts_epoch = bar.get("timestamp")
+        if ts_epoch is not None:
+            bar_ts = datetime.fromtimestamp(int(ts_epoch), tz=_UTC)
+        else:
+            bar_ts = datetime.fromisoformat(bar.get("datetime", "")).replace(
+                tzinfo=_UTC
+            )
+        prices: dict[str, Decimal] = {}
+        for field in _OHLC_FIELDS:
+            value = Decimal(str(bar[field]))
+            if not value.is_finite() or value <= 0:
+                raise ValueError(f"unusable {field} price: {value}")
+            prices[field] = value
+        volume = int(bar.get("volume") or 0)
+    except (KeyError, ValueError, TypeError, InvalidOperation):
+        _logger.warning("Skipping malformed minute bar for %s: %r", symbol, bar)
+        return None
+    return (
+        bar_ts,
+        symbol,
+        prices["open"],
+        prices["high"],
+        prices["low"],
+        prices["close"],
+        volume,
+    )
+
+
 def _insert_minute_bars(
     conn: psycopg.Connection, symbol: str, bars: list[dict]
 ) -> None:
     """Bulk-insert minute bars via COPY (fastest path for large payloads)."""
     rows: list[tuple] = []
     for bar in bars:
-        try:
-            ts_epoch = bar.get("timestamp")
-            if ts_epoch is not None:
-                bar_ts = datetime.fromtimestamp(int(ts_epoch), tz=_UTC)
-            else:
-                bar_ts = datetime.fromisoformat(bar.get("datetime", "")).replace(
-                    tzinfo=_UTC
-                )
-            rows.append(
-                (
-                    bar_ts,
-                    symbol,
-                    Decimal(str(bar.get("open", 0))),
-                    Decimal(str(bar.get("high", 0))),
-                    Decimal(str(bar.get("low", 0))),
-                    Decimal(str(bar.get("close", 0))),
-                    int(bar.get("volume") or 0),
-                )
-            )
-        except (KeyError, ValueError, TypeError):
-            _logger.warning("Skipping malformed minute bar for %s: %r", symbol, bar)
+        row = _bar_to_row(symbol, bar)
+        if row is not None:
+            rows.append(row)
 
     if not rows:
         return
