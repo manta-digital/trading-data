@@ -120,9 +120,12 @@ Two consequences amend the "always consistent" claim above:
   bound on *closed* buckets; the open bucket is never re-materialized while
   open, so a symbol's `last_bar_ts` can trail reality by up to a full bucket.
   Slice 169 narrowed `COVERAGE_BUCKET_INTERVAL` to cut this from ~1 year to
-  ~30 days, and widened `COVERAGE_CONTENT_STALENESS` to match — the previous
+  **7 days** (measured selection, Task B — this paragraph previously said
+  ~30 days, the pre-measurement working assumption), and widened
+  `COVERAGE_CONTENT_STALENESS` to match at **7 d 4 h** — the previous
   1 d 4 h threshold was unreachable at any width compatible with the NFR, so
-  it fired permanently and taught operators to ignore it.
+  it fired permanently and taught operators to ignore it. The remaining
+  display lag is closed to ~8 h by issue #14.
 
   Two consequences for readers of this architecture:
 
@@ -133,6 +136,13 @@ Two consequences amend the "always consistent" claim above:
     cancels. The two coverage caggs add a `COVERAGE_BUCKET_INTERVAL` term,
     resolved per view alongside `COVERAGE_SOURCE_TABLE`. Without it the
     generic bucket-lag check fires permanently on both.
+    *(Architecture amendment, 2026-08-14 — slice 169.)* Implemented as
+    `COVERAGE_BUCKET_LAG_BUDGET`, a `{view_name: timedelta}` map in
+    `constants.py` consulted by `cagg_freshness._resolve_threshold`; views
+    with no entry fall through to the generic formula, so the seven pre-167
+    caggs are untouched **by construction** rather than by intent. At the
+    7-day width the two entries are 8 d 4 h (`minute_coverage`) and
+    8 d 1 h (`daily_coverage`).
   - **`/api/v1/symbols` is not subject to this bound.** Slice 187 D2 combines
     a coverage floor with a bounded head probe past the coverage horizon, so
     its ranges stay exact regardless of coverage lag. The bound applies to
@@ -1133,7 +1143,7 @@ DAILY_COVERAGE_VIEW  = "daily_coverage"
     -- which is why daily timestamps in `data_status` stay exact while
     -- minute first/last are truncated to the 4-hour parent bucket start.
 
-COVERAGE_BUCKET_INTERVAL = 30 days   -- was 365 days; see slice 169 amendment
+COVERAGE_BUCKET_INTERVAL = 7 days   -- was 365 days; see slice 169 amendment
     -- time_bucket width for both coverage caggs. Sized so bars_summary
     -- groups a bounded number of rows rather than scanning 4.4 billion raw
     -- rows, which is what held the full-universe data_status read at 7.8 s.
@@ -1156,15 +1166,29 @@ COVERAGE_BUCKET_INTERVAL = 30 days   -- was 365 days; see slice 169 amendment
     -- The open bucket is still never refreshed while open — nothing changes
     -- that — so the width now sets the WORST-CASE COVERAGE LAG directly:
     --     worst-case lag = COVERAGE_BUCKET_INTERVAL + end_offset
-    -- Narrowing trades cagg row count for that bound: row count scales as
-    -- 1/width, so a 365 -> 30 day change raises it ~12x. The ~15k-row figure
-    -- this block previously cited was a MEASURED ACTUAL and no longer holds;
-    -- slice 169's sizing table is in worst cases (every symbol assumed to
-    -- span full history), which is ~8x higher for the same width -- do not
-    -- compare the two bases. Slice 169 Task B1 measures actuals at the
-    -- selected width; those replace both figures.
+    -- At 7 days that is 7 d 4 h, down from up to a full year.
+    --
+    -- *(Architecture amendment, 2026-08-14 — slice 169 Task B.)* The width is
+    -- 7 days, MEASURED, superseding this block's earlier 30-day working
+    -- assumption. Row count scales as 1/width; measured actuals on a
+    -- prod-shaped database (12,040 daily symbols over 1962-2026; 5,871 minute
+    -- symbols over 2004-2026, non-uniform listing dates):
+    --     width   minute_coverage   daily_coverage
+    --      365 d       ~15 k (measured, slice 167)
+    --       30 d      708,568         3,914,188
+    --        7 d    3,019,870        16,742,957
+    -- The ~15k figure this block previously cited was a measured actual for
+    -- the 365-day width and no longer applies. Read cost is linear in these
+    -- rows and SATURATES AT ONE PARALLEL WORKER (measured flat from 1 to 16),
+    -- so this is a straight volume trade, not a parallelism cliff.
+    -- 7 days was chosen over 30 despite costing ~3.5x on the interactive path
+    -- because ~99% of that cost is the unfiltered health-count scan (issue
+    -- #16), which is a separate, already-planned fix -- whereas the width is
+    -- structural and changing it later is a full drop/rebuild.
     -- The NFR gate is the full-universe data_status read, not the
-    -- bars_summary CTE in isolation.
+    -- bars_summary CTE in isolation. NOTE (issue #17): the NFR as written
+    -- ("SELECT count(*) FROM data_status") is a query no caller issues and
+    -- understates real cost; it needs restating against a real read shape.
 
 COVERAGE_SOURCE_TABLE = {minute_coverage: minute_ohlcv,
                          daily_coverage:  daily_ohlcv}
@@ -1191,16 +1215,44 @@ COVERAGE_REFRESH_MIN_WINDOW_BUCKETS = 2
     -- rejected, 731 accepted. A constant so the constants test asserts the
     -- real engine constraint, and so changing COVERAGE_BUCKET_INTERVAL fails
     -- at test time rather than at migration time.
+    --
+    -- *(Architecture amendment, 2026-08-14 — slice 169.)* Re-verified at the
+    -- narrowed width on TimescaleDB 2.29.1, 7-day bucket, 4 h end_offset:
+    -- 14 days REJECTED, 14 days 4 hours accepted. Note what that pins down --
+    -- the floor is on the WINDOW (start_offset - end_offset), so the smallest
+    -- usable start_offset is 2*bucket + end_offset, NOT 2*bucket. Slice 169
+    -- initially set 14 days and the constants test caught it before it
+    -- reached a database, which is exactly the job this constant exists for.
 
-MINUTE_COVERAGE_REFRESH_START_OFFSET = 750 days   -- >= 2 buckets (731d floor)
+MINUTE_COVERAGE_REFRESH_START_OFFSET = 16 days    -- >= 2 buckets + end_offset
 MINUTE_COVERAGE_REFRESH_END_OFFSET   = 4 hours    -- one parent bucket
 MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL = 1 hour
-DAILY_COVERAGE_REFRESH_START_OFFSET  = 750 days
+DAILY_COVERAGE_REFRESH_START_OFFSET  = 16 days
 DAILY_COVERAGE_REFRESH_END_OFFSET    = 1 hour
 DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL  = 1 hour
-    -- Refresh policies for the two coverage caggs (migration 047).
-    -- Note the loose 750-day start_offset is exactly why
-    -- MAX_COVERAGE_SOURCE_STALENESS below must cap the staleness budget.
+    -- Refresh policies for the two coverage caggs (migrations 047/052).
+    -- MAX_COVERAGE_SOURCE_STALENESS below caps the staleness budget; that
+    -- cap was load-bearing when start_offset was 750 days and remains the
+    -- ceiling term in the per-view budget.
+    --
+    -- *(Architecture amendment, 2026-08-14 — slice 169 D4a.)* start_offset
+    -- was 750 days on BOTH views. That value was FORCED by the 365-day
+    -- width's 731-day engine floor, not independently motivated, so
+    -- narrowing the bucket left it a leftover rather than a constraint.
+    -- Leaving it would not have been neutral: both hourly policies had been
+    -- successful no-ops since creation, so after the repair they begin doing
+    -- real work every hour -- a 750-day window over 12,040 daily and 5,871
+    -- minute symbols, on a host that also runs the daemon. A policy that
+    -- overruns its schedule interval re-creates the perpetually-behind head
+    -- slice 169 exists to fix. 16 days is the engine floor (14 d 4 h)
+    -- rounded up to a whole day.
+    -- ACCEPTED RESIDUAL: a refresh policy never revisits data older than
+    -- start_offset, so this moves the deep-backfill stranding boundary from
+    -- ~2 years to ~16 days. `mt data caggs verify`/`repair` do NOT cover
+    -- these two caggs (minute rollups only), and assert_cagg_fresh compares
+    -- EDGES so it cannot see a hole in the middle -- see issue #18. Until
+    -- that lands, the remedy after a deep backfill is an explicit bounded
+    -- sub-window refresh over the affected range.
     --
     -- *(Architecture amendment, 2026-08-13 — slice 169.)* This block
     -- previously stated that coverage "trails raw ingest by at most the
