@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260813
+dateUpdated: 20260814
 status: in_progress
 ---
 
@@ -19,6 +19,51 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260814 — The OS-first exit executed clean: single-hop to 26.04, TS 2.29.1 kills the refresh balloon, all caggs verified to 100% parity
+
+**Context:** Execution of the 20260813 plan (previous entry). Two deviations
+from the written plan, both favorable: the release upgrader routed 25.04
+directly to 26.04 (25.10 had gone EOL, so the two-hop collapsed to one), and
+PGDG had already deleted its 25.04 suite — confirming there was no
+stay-put fallback to reassess toward.
+
+**Decision (what was settled by doing it):** The platform is now Ubuntu 26.04
+LTS, PostgreSQL 17.11 (PGDG), TimescaleDB 2.29.1, with PGDG and Timescale apt
+sources pinned to the `resolute` suites. The 2.23.0 refresh balloon is
+confirmed fixed, not inferred: a forced 1-day refresh on `minute_4hour_ohlcv`
+— the exact operation that peaked at 111 GB and OOM-killed the cluster —
+completed in under a second at bounded memory. All four minute caggs
+(4h/1h/15m/5m) were repaired (36 dirty windows each) and `mt data caggs
+verify` exits 0 at 100% parity across all granularities, 2014–2026, with zero
+OOM statement errors across ~200 window rebuilds. Post-upgrade hygiene per
+plan: glibc 2.41→2.43 collation pass (all text-keyed indexes REINDEXed, every
+database stamped with the new collation version), extension updated per
+database resolved by catalog query, orphaned fixture databases dropped. All
+refresh and columnstore policies are scheduled again; the daemon runs at full
+function (coverage-index seeding from the fresh 4h cagg) and closed the
+incident-era bar gap in one sweep.
+
+**Rationale:** Unchanged from the 20260813 entry — this entry records that
+the plan's success criteria were met, so the fallback (direct
+materialization per window) is retired unexercised.
+
+**Follow-ups:**
+- The first full-function sweep surfaced a provider data-quality bug:
+  EODHD null price fields crashed whole-symbol batches as spurious
+  "transient" failures (`decimal.InvalidOperation` escaping the per-bar skip
+  guard). Fixed at the ingest boundary in 358f49c (skip-and-warn, no
+  fabricated defaults). Historical 0.00-price scan and the written
+  zero-price/survivorship policy are issue #15.
+- `minute_coverage` cagg found frozen at 2025-12-26 alongside
+  `daily_coverage`'s known freeze — second instance of the slice 169 defect
+  family. Confirmed acquisition does not read either cagg (status/reporting
+  only); folded into slice 169 scope, whose production rematerialization is
+  now unblocked and remains PM-gated.
+- EODHD minute data trails realtime by roughly one session (both observed
+  fill edges landed at the prior day's market open), so any
+  `--stop-when-done` sweep ends about a day behind; the succeeding run tops
+  up. Not a defect; worth remembering when reading coverage reports.
 
 ## 20260813 — A silent TimescaleDB upgrade broke cagg refresh unboundedly; the exit plan is OS-first (two-hop to 26.04 LTS), not a rebuild and not more workarounds
 
