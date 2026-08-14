@@ -9,12 +9,18 @@ from __future__ import annotations
 import pytest
 
 from manta_trading.constants import (
+    COVERAGE_BUCKET_INTERVAL,
+    DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     DAILY_COVERAGE_VIEW,
     LATE_BAR_GRACE_PERIOD,
+    MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL,
+    MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_VIEW,
 )
 from manta_trading.market.schema.migrations.minute import (
     _build_data_status_view_sql,
+    _composite_lag_literal,
+    _data_status_doc_comment,
     _interval_literal,
 )
 
@@ -184,3 +190,70 @@ class TestDataStatusViewSqlWithoutTradingSessions:
 
     def test_does_not_contain_session_close_utc(self, sql: str) -> None:
         assert "session_close_utc" not in sql
+
+
+class TestDataStatusDocCommentCaggLag:
+    """Slice 169 C.10 / criterion 14: the CAGG LAG bound must include the
+    bucket-width term.
+
+    Before slice 169 this clause derived the bound from the refresh *schedule
+    intervals* alone -- "2 hours total" -- which was wrong from slice 167
+    onward, independent of any width change. A refresh policy's window is
+    truncated to whole buckets, so the open bucket is never re-materialized
+    while open; the schedule interval bounds only how promptly *closed* buckets
+    are rewritten. An operator running ``\\d+ data_status`` read a promise of
+    hours against a production reality of months.
+
+    These assertions are pinned to the constants, never to a literal width, so
+    they keep holding when ``COVERAGE_BUCKET_INTERVAL`` changes again.
+    """
+
+    @pytest.fixture()
+    def comment(self) -> str:
+        # Doubled quotes are the DO-block escaping; unwrap for plain matching.
+        return _data_status_doc_comment().replace("''", "'")
+
+    def test_states_the_bucket_width_term(self, comment: str) -> None:
+        """The bound must name one coverage bucket, rendered from the constant."""
+        assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in comment
+
+    def test_minute_total_includes_bucket_plus_both_hops(self, comment: str) -> None:
+        expected = _composite_lag_literal(
+            COVERAGE_BUCKET_INTERVAL
+            + MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL
+            + MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+        )
+        assert f"{expected} total" in comment
+
+    def test_daily_total_includes_bucket_plus_one_hop(self, comment: str) -> None:
+        expected = _composite_lag_literal(
+            COVERAGE_BUCKET_INTERVAL + DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+        )
+        assert f"{expected} total" in comment
+
+    def test_open_bucket_is_named_as_the_reason(self, comment: str) -> None:
+        """The comment must say *why*, not just carry a bigger number.
+
+        A future reader who sees only a widened bound learns nothing about the
+        open-bucket mechanism, which is the whole content of the correction.
+        """
+        assert "open" in comment.lower()
+        assert "truncated to whole buckets" in comment
+
+    def test_two_hop_only_phrasing_is_gone(self, comment: str) -> None:
+        """Regression guard: the pre-169 formula must not come back.
+
+        Computed from the constants rather than spelled "2 hours total", so
+        this keeps guarding if the schedule intervals are ever retuned.
+        """
+        two_hop_only = _composite_lag_literal(
+            MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL
+            + MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+        )
+        # The two-hop figure must never stand as a *whole* bound. Matching on
+        # "(<two_hop> total)" rather than the bare substring is deliberate: the
+        # corrected minute bound legitimately ends in the same minute count
+        # ("365 days 120 minutes total"), so a bare-substring check would fail
+        # on correct output and pass only by accident of formatting.
+        assert f"({two_hop_only} total)" not in comment
+        assert "at most the two-hop refresh interval" not in comment

@@ -20,6 +20,8 @@ import pytest
 from manta_trading.constants import (
     CAGG_FRESHNESS_CACHE_TTL,
     CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT,
+    COVERAGE_BUCKET_INTERVAL,
+    COVERAGE_BUCKET_LAG_BUDGET,
     MAX_COVERAGE_SOURCE_STALENESS,
 )
 from manta_trading.market.maintenance import cagg_freshness
@@ -386,6 +388,72 @@ class TestResolveThreshold:
         assert _resolve_threshold(timedelta(days=270), timedelta(hours=4)) == (
             MAX_COVERAGE_SOURCE_STALENESS + timedelta(hours=4)
         )
+
+
+class TestPerViewBucketLagBudget:
+    """Slice 169 C.6 / D3a — the coverage views' budget carries a width term.
+
+    The override exists because a cagg whose bucket is large relative to its
+    offsets never materializes its open bucket, pinning the generic lag at
+    exactly one bucket width forever. It must apply to *those two views only*:
+    the seven pre-167 caggs' buckets are small relative to their offsets, so
+    the cancellation genuinely holds for them and widening their budget would
+    blunt a real guard.
+    """
+
+    @pytest.mark.parametrize("view_name", sorted(COVERAGE_BUCKET_LAG_BUDGET))
+    def test_coverage_views_resolve_to_the_override(self, view_name: str) -> None:
+        """The map's value wins over the generic formula, whatever is passed.
+
+        The offsets handed in here are the *generic* formula's inputs; if the
+        override were not consulted the result would be 1 day 4 h, which is
+        what fired permanently before D3a.
+        """
+        resolved = _resolve_threshold(
+            timedelta(days=750), timedelta(hours=4), view_name
+        )
+        assert resolved == COVERAGE_BUCKET_LAG_BUDGET[view_name]
+        assert resolved != _resolve_threshold(timedelta(days=750), timedelta(hours=4))
+
+    @pytest.mark.parametrize(
+        "view_name",
+        [
+            "daily_monthly_ohlcv",
+            "daily_weekly_ohlcv",
+            "daily_quarterly_ohlcv",
+            "minute_4hour_ohlcv",
+        ],
+    )
+    def test_pre_167_caggs_are_untouched_by_the_override(self, view_name: str) -> None:
+        """REGRESSION GUARD: this fails if the override is applied unconditionally.
+
+        A pre-167 cagg has no entry in the map, so it must fall through to the
+        generic formula and resolve byte-identically to the no-view-name call.
+        """
+        assert view_name not in COVERAGE_BUCKET_LAG_BUDGET
+        with_name = _resolve_threshold(
+            timedelta(days=270), timedelta(days=30), view_name
+        )
+        without_name = _resolve_threshold(timedelta(days=270), timedelta(days=30))
+        assert with_name == without_name
+        assert with_name == MAX_COVERAGE_SOURCE_STALENESS + timedelta(days=30)
+
+    def test_unknown_view_name_falls_through_rather_than_raising(self) -> None:
+        """An unrecognised name is not an error here — ``_evaluate`` already
+        rejects unknown views before any threshold is resolved, so this path
+        only needs to decline to override."""
+        assert _resolve_threshold(
+            timedelta(days=1), timedelta(hours=1), "not_a_cagg"
+        ) == _resolve_threshold(timedelta(days=1), timedelta(hours=1))
+
+    @pytest.mark.parametrize("view_name", sorted(COVERAGE_BUCKET_LAG_BUDGET))
+    def test_budget_exceeds_one_bucket_width(self, view_name: str) -> None:
+        """The whole purpose: one bucket of structural lag must fit inside it.
+
+        Asserted against the constant, not a literal, so it keeps holding at
+        whatever width Task B selects.
+        """
+        assert COVERAGE_BUCKET_LAG_BUDGET[view_name] > COVERAGE_BUCKET_INTERVAL
 
 
 # --- Task 5: evaluation fixtures -------------------------------------------
@@ -898,13 +966,40 @@ class TestDetectionFloor:
         assert verdict.lag == timedelta(0)
         assert StalenessSignal.LAG_EXCEEDS_THRESHOLD not in verdict.signals
 
-    def test_lag_exceeding_one_bucket_is_still_caught(self) -> None:
-        # The floor is a boundary. Push the raw edge into the next bucket and
-        # the same guard reports the staleness it just missed.
-        verdict = self._verdict(timedelta(days=400))
+    def test_lag_exceeding_the_budget_is_still_caught(self) -> None:
+        """The floor is a boundary: a genuine stall still fires.
+
+        **Slice 169 D3a raised the bar this test clears.** The coverage views'
+        budget now carries a ``COVERAGE_BUCKET_INTERVAL`` term, so exactly one
+        bucket of lag — the permanent structural offset of an unmaterialized
+        open bucket — is tolerated by design. That is the entire point of the
+        override: without it the generic check would fire on every read forever.
+
+        So the probe must be pushed past the *budget*, not merely past one
+        bucket. Derived from the constant rather than restated, so this keeps
+        testing "a genuine stall fires" at whatever width is selected, instead
+        of silently becoming vacuous when the width changes.
+        """
+        budget = COVERAGE_BUCKET_LAG_BUDGET[self._VIEW_NAME]
+        verdict = self._verdict(budget + timedelta(days=365))
         assert verdict.is_fresh is False
         assert StalenessSignal.LAG_EXCEEDS_THRESHOLD in verdict.signals
-        assert verdict.lag is not None and verdict.lag >= timedelta(days=365)
+        assert verdict.lag is not None and verdict.lag > budget
+
+    def test_exactly_one_bucket_of_lag_is_tolerated(self) -> None:
+        """The D3a scenario itself: an unmaterialized open bucket must not fire.
+
+        A cagg whose newest materialized bucket is the most recently *closed*
+        one, while the bucketed raw edge sits in the *open* one, pins at exactly
+        one bucket width — permanently, for as long as the head stays open.
+        Before the per-view budget this reported ``LAG_EXCEEDS_THRESHOLD`` on
+        every read, converting slice 187's silent false negative into a
+        permanently-firing true positive. A signal that always fires is
+        indistinguishable from a broken one.
+        """
+        verdict = self._verdict(timedelta(days=365))
+        assert verdict.is_fresh is True
+        assert StalenessSignal.LAG_EXCEEDS_THRESHOLD not in verdict.signals
 
     def test_verdict_exposes_the_bucket_width_that_sets_the_floor(self) -> None:
         # The floor is inspectable rather than implicit: a caller holding the

@@ -534,6 +534,62 @@ far more often than strictly required; the refresh is cheap (one 1-year bucket
 per symbol) and a uniform cadence keeps the documented lag bound uniform.
 """
 
+COVERAGE_BUCKET_LAG_BUDGET: dict[str, timedelta] = {
+    MINUTE_COVERAGE_VIEW: (
+        COVERAGE_BUCKET_INTERVAL
+        + min(MINUTE_COVERAGE_REFRESH_START_OFFSET, MAX_COVERAGE_SOURCE_STALENESS)
+        + MINUTE_COVERAGE_REFRESH_END_OFFSET
+    ),
+    DAILY_COVERAGE_VIEW: (
+        COVERAGE_BUCKET_INTERVAL
+        + min(DAILY_COVERAGE_REFRESH_START_OFFSET, MAX_COVERAGE_SOURCE_STALENESS)
+        + DAILY_COVERAGE_REFRESH_END_OFFSET
+    ),
+}
+"""Per-view override of the **generic bucket-lag** staleness budget (slice 169 D3a).
+
+``cagg_freshness._resolve_threshold`` computes
+``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS) + end_offset`` and
+deliberately omits a bucket-width term, because ``_raw_max`` buckets the raw
+edge onto the cagg's own grid before comparing — so the structural offset
+cancels exactly. **That cancellation holds only while the cagg's head bucket is
+materialized.**
+
+A refresh policy's window is truncated to whole buckets, so a cagg whose bucket
+is large relative to its offsets never materializes its *open* bucket. Its
+``max(time_bucket)`` then sits at the last **closed** bucket while the bucketed
+raw edge sits in the **open** one, and the generic lag pins at exactly one
+bucket width — permanently. Before slice 169 this did not fire only by accident:
+the 365-day head bucket was written once at cagg creation, so both sides
+happened to agree and the check reported ``lag=0`` over a 52-day staleness
+(prod, 2026-08-04) — the false negative slice 187 D6's content-edge check was
+built to work around. Narrowing the bucket removes that accident, so without
+this term ``LAG_EXCEEDS_THRESHOLD`` would fire on every read of both views
+forever.
+
+    coverage bucket-lag budget = COVERAGE_BUCKET_INTERVAL
+                               + min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)
+                               + end_offset
+
+**Applied per view, never globally.** The seven pre-167 caggs have no entry here
+and fall back to ``_resolve_threshold``'s existing formula, untouched by
+construction. Their buckets are small relative to their offsets, so the open
+bucket is always inside the refresh window and the cancellation genuinely holds
+— widening the budget globally would blunt a real guard on seven healthy caggs
+to accommodate two exceptional ones.
+
+Carries the **value**, not a mode switch: a boolean "open-bucket tolerant" flag
+was rejected (D3a) because it encodes *why* rather than *what*, leaving the
+width term to be derived somewhere else, and a second view needing a different
+budget for a different reason would need a second flag.
+
+This does **not** suppress the bucket-lag signal for these views. That would
+remove a real guard (a genuinely stalled or unscheduled policy) to silence a
+structural offset, and the content-edge check does not subsume it — they detect
+different failures, and 168 D1's ``NOT_SCHEDULED``/``LAST_RUN_FAILED`` signals
+ride the same path. A genuine stall still exceeds one bucket width and fires.
+"""
+
 MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT: str = "1800s"
 """PostgreSQL statement_timeout for the ``mt data caggs verify``/``repair``
 prod parity and sweep queries (slice 163).

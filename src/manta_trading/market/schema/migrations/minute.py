@@ -156,6 +156,25 @@ def _interval_literal(td: timedelta) -> str:
     )
 
 
+def _composite_lag_literal(td: timedelta) -> str:
+    """Render a days+minutes duration for human prose (slice 169 D5).
+
+    Distinct from :func:`_interval_literal`, which renders values that become
+    real SQL ``INTERVAL`` literals and therefore must stay in a single unit.
+    This one is for the ``COMMENT ON VIEW`` text only, where a coverage lag of
+    one bucket plus a schedule interval would otherwise render as
+    ``525720 minutes`` — arithmetically right and useless to the operator the
+    comment exists for.
+    """
+    days, seconds = td.days, td.seconds
+    minutes = seconds // 60
+    if days and minutes:
+        return f"{days} days {minutes} minutes"
+    if days:
+        return f"{days} days"
+    return f"{minutes} minutes"
+
+
 _SEED_START_YEAR = 2020
 _SEED_END_YEAR = 2026
 
@@ -361,10 +380,30 @@ def _data_status_doc_comment() -> str:
 
     Single-quoted for embedding in the migration's DO block, hence the doubled
     quotes throughout — same escaping convention as the view builder.
+
+    **The CAGG LAG formula carries a bucket-width term (slice 169 D5).** Before
+    169 this rendered the schedule intervals alone — "2 hours total" — which was
+    wrong from slice 167 onward, independent of any width change: a refresh
+    policy's window is truncated to whole buckets, so the *open* bucket is never
+    re-materialized while it is open. The schedule interval bounds only how
+    promptly *closed* buckets are rewritten. The real bound an operator running
+    ``\\d+ data_status`` needs is therefore
+
+        coverage lag  =  COVERAGE_BUCKET_INTERVAL + refresh schedule interval(s)
+
+    Rendering the old formula promised hours against a production reality of
+    months (both coverage caggs sat at 2025-12-26 on 2026-08-11 while raw ran to
+    2026-08-07). This is the artifact 140-arch points operators at, so it is
+    precisely the one that must not lie.
     """
-    minute_lag = _interval_literal(
-        MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL
+    bucket_lag = _interval_literal(COVERAGE_BUCKET_INTERVAL)
+    minute_lag = _composite_lag_literal(
+        COVERAGE_BUCKET_INTERVAL
+        + MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL
         + MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+    )
+    daily_lag = _composite_lag_literal(
+        COVERAGE_BUCKET_INTERVAL + DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
     )
     return (
         "data_status: per-symbol acquisition health. "
@@ -377,14 +416,22 @@ def _data_status_doc_comment() -> str:
         "earlier than the true first/last bar; daily timestamps are EXACT, "
         f"because {DAILY_COVERAGE_VIEW} reads raw daily_ohlcv rather than a "
         "parent cagg. bars_stored is exact on both branches. "
-        "(2) CAGG LAG: coverage trails raw ingest by at most the two-hop "
-        "refresh interval -- "
+        "(2) CAGG LAG: coverage trails raw ingest by at most one coverage "
+        f"bucket ({bucket_lag}) PLUS the refresh schedule interval(s). The "
+        "bucket term dominates and is structural, not a scheduling delay: a "
+        "refresh policy''s window is truncated to whole buckets, so the "
+        "CURRENT (open) bucket is never re-materialized while it is open. The "
+        "schedule interval bounds only how promptly CLOSED buckets are "
+        "rewritten. For "
+        f"{MINUTE_COVERAGE_VIEW} that is {bucket_lag} plus "
         f"{_interval_literal(MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL)} "
         "for the parent 4-hour cagg plus "
         f"{_interval_literal(MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} "
-        f"for {MINUTE_COVERAGE_VIEW} ({minute_lag} total); "
-        f"{_interval_literal(DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} for "
-        f"{DAILY_COVERAGE_VIEW}, which reads raw and so has one hop. "
+        f"for the coverage cagg ({minute_lag} total); for "
+        f"{DAILY_COVERAGE_VIEW}, which reads raw and so has one hop, "
+        f"{bucket_lag} plus "
+        f"{_interval_literal(DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} "
+        f"({daily_lag} total). "
         "Refresh policies use start_offset "
         f"{_interval_literal(MINUTE_COVERAGE_REFRESH_START_OFFSET)} / end_offset "
         f"{_interval_literal(MINUTE_COVERAGE_REFRESH_END_OFFSET)} (minute) and "
