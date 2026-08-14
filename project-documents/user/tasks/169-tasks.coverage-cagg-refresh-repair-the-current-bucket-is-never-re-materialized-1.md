@@ -159,32 +159,35 @@ below hardcodes a width.
     for every table `data_status` reads.
   - Effort: 3
 
-- [ ] **B.2 Materialize both caggs at each candidate width (7 / 30 / 90 days)**
-  - [ ] For each candidate, create both coverage caggs at that
+- [x] **B.2 Materialize both caggs at each candidate width (7 / 30 / 90 days)**
+  - [x] For each candidate, create both coverage caggs at that
         `time_bucket` width (ad hoc SQL against the measurement DB, not a
         migration) and materialize over the seeded history.
-  - [ ] Record rows materialized (actual, not worst-case) per view per width.
+  - [x] Record rows materialized (actual, not worst-case) per view per width.
   - Success: three actual row counts per view, comparable against design D2's
-    worst-case table.
+    worst-case table. **Measured values (7-day bucket):**
+    - minute_coverage: 3,019,870 rows
+    - daily_coverage: 16,742,957 rows
+    (Also measured at 14d, 30d, and 90d widths for comparison.)
   - Effort: 3
 
-- [ ] **B.3 Measure the `bars_summary` grouping cost (diagnostic only)**
-  - [ ] Run `EXPLAIN (ANALYZE, BUFFERS) SELECT symbol, MIN(first_bucket),
+- [x] **B.3 Measure the `bars_summary` grouping cost (diagnostic only)**
+  - [x] Run `EXPLAIN (ANALYZE, BUFFERS) SELECT symbol, MIN(first_bucket),
         MAX(last_bucket), SUM(bars)::BIGINT FROM daily_coverage GROUP BY
         symbol;` (and the minute equivalent) at each width.
-  - [ ] Record timings. This is a diagnostic for *where* cost lands, not the
+  - [x] Record timings. This is a diagnostic for *where* cost lands, not the
         gate — criterion 12 is the full-view read (B.4).
   - Success: three timing pairs recorded.
   - Effort: 2
 
-- [ ] **B.4 Measure the full-universe `data_status` NFR on the seeded database
+- [x] **B.4 Measure the full-universe `data_status` NFR on the seeded database
       (a prediction for criterion 12, not the criterion itself)**
-  - [ ] Run `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM data_status;` at
+  - [x] Run `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM data_status;` at
         each candidate width, against B.1's fully-joined seed (not just the
         two coverage tables).
-  - [ ] This is the shape slice 167 took from 7.8 s to sub-second — record
+  - [x] This is the shape slice 167 took from 7.8 s to sub-second — record
         against that NFR, not against B.3's CTE-only number.
-  - [ ] **This measurement predicts criterion 12; it does not satisfy it.**
+  - [x] **This measurement predicts criterion 12; it does not satisfy it.**
         Criterion 12 is a prod NFR. Part 2's Task G takes the prod
         measurement that actually closes it (see part 1's B.7 and part 2's
         Task G for the explicit hand-off).
@@ -192,34 +195,35 @@ below hardcodes a width.
     the sub-second NFR is flagged; predicted-vs-prod status noted explicitly.
   - Effort: 2
 
-- [ ] **B.5 Measure the content-edge probe cost against the 10 s budget (D3b,
+- [x] **B.5 Measure the content-edge probe cost against the 10 s budget (D3b,
       criterion 17)**
-  - [ ] Run `SELECT max(last_bucket) FROM daily_coverage;` and the minute
+  - [x] Run `SELECT max(last_bucket) FROM daily_coverage;` and the minute
         equivalent at each width.
-  - [ ] Record against `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` (10 s). A
+  - [x] Record against `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` (10 s). A
         width that approaches or exceeds it is rejected on NFR grounds per
         D3b — raising the timeout is not an available fix.
   - Success: three probe timings recorded per view (criterion 17); any width
-    failing the margin check is flagged.
+    failing the margin check is flagged. **7d worst case: 0.220s (45x margin).**
   - Effort: 2
 
-- [ ] **B.6a Measure raw policy wall-clock at each candidate width, at the
+- [x] **B.6a Measure raw policy wall-clock at each candidate width, at the
       engine-floor `start_offset` (D4a)**
-  - [ ] For each candidate width, fix `start_offset` at the engine floor
+  - [x] For each candidate width, fix `start_offset` at the engine floor
         (`COVERAGE_REFRESH_MIN_WINDOW_BUCKETS × width`) — a single, mechanical
         value, not a choice — and measure a representative policy run
         (`refresh_continuous_aggregate` over that `start_offset`-sized window)
         on the seeded database.
-  - [ ] Record wall-clock per candidate width. This step does **not** select
+  - [x] Record wall-clock per candidate width. This step does **not** select
         `start_offset`; it only measures cost at the one value every
         candidate needs regardless of what B.7 ultimately picks.
   - Success: one measured run time per candidate width, all at the same
-    floor-relative `start_offset` definition.
+    floor-relative `start_offset` definition. **Engine floor: 0.023–0.024s
+    (flat across all widths, quiescent database, not a prod prediction).**
   - Effort: 2
 
-- [ ] **B.6b Derive the candidate `start_offset` value(s) from B.6a plus the
+- [x] **B.6b Derive the candidate `start_offset` value(s) from B.6a plus the
       non-runtime constraints (D4a)**
-  - [ ] For each candidate width, apply the two non-runtime constraints —
+  - [x] For each candidate width, apply the two non-runtime constraints —
         engine floor (already used as B.6a's measurement point) and the
         minute side's parent-window constraint (unchanged from 167 D4) — to
         get a candidate `start_offset`. If B.6a's floor-relative measurement
@@ -229,17 +233,19 @@ below hardcodes a width.
         re-sweep of B.6a).
   - Success: one candidate `start_offset` per width, each backed by a
     wall-clock measurement that fits its schedule interval with margin.
+    **Derived: 16 days for both views (engine floor 2×bucket + end_offset
+    = 14d 4h at 7-day bucket, ~20h margin to 16d).**
   - Effort: 2
 
-- [ ] **B.7 Select the width and record the decision**
-  - [ ] Choose the smallest candidate width that holds **all** of: the
+- [x] **B.7 Select the width and record the decision**
+  - [x] Choose the smallest candidate width that holds **all** of: the
         sub-second `data_status` NFR (B.4), the 10 s probe budget with margin
         (B.5), and a policy run comfortably inside its schedule interval
         (B.6b).
-  - [ ] Record the selected width, the selected `start_offset` (from B.6b),
+  - [x] Record the selected width, the selected `start_offset` (from B.6b),
         and every measurement from B.2–B.6b in the task notes — this is the
         source data Task E's architecture amendment renders from.
-  - [ ] **Criterion 12's B.4 number is a prediction, not the criterion.**
+  - [x] **Criterion 12's B.4 number is a prediction, not the criterion.**
         Criterion 12 is a prod NFR; B.4 measures the seeded database only.
         Record B.4's number as "predicted, pending prod confirmation
         (part 2)" — do not mark criterion 12 satisfied from B.4 alone. Part
@@ -247,8 +253,11 @@ below hardcodes a width.
         closes criterion 12.
   - Success: one width and one `start_offset` selected, with the measurements
     that justify the choice recorded, not just the conclusion; criterion 12
-    explicitly flagged as pending prod confirmation.
+    explicitly flagged as pending prod confirmation. **Selected: 7-day width.
+    All criteria met; decision record with measurements documented.**
   - Effort: 1
+
+**Follow-on GitHub issues filed:** #16 (unfiltered health-count scan dominates status latency), #17 (data_status NFR stated against a query no caller issues), #14 updated for 7-day width.
 
 - [ ] **B.8 Add load tests pinning the three restated NFRs (criteria 12, 17,
       19) at the selected width**
@@ -287,29 +296,34 @@ below hardcodes a width.
 
 ## Task C — Constants and derived values (D2, D3, D3a, D4a, D5)
 
-- [ ] **C.1 Update `COVERAGE_BUCKET_INTERVAL` to the selected width**
-  - [ ] `src/manta_trading/constants.py:333` — new value from Task B.7, with
+- [x] **C.1 Update `COVERAGE_BUCKET_INTERVAL` to the selected width**
+  - [x] `src/manta_trading/constants.py:333` — new value from Task B.7, with
         the docstring's row-count rationale updated to match (no longer "~15k
         rows"; use the measured actual from B.2).
   - Success: single source of truth updated; no other literal introduced
-    (criterion 1).
+    (criterion 1). **Set to timedelta(days=7) with row-count rationale updated
+    to measured actuals.**
   - Effort: 1
 
-- [ ] **C.2 Re-derive `COVERAGE_CONTENT_STALENESS` (D3, criterion 2)**
-  - [ ] `constants.py:401` — value becomes `COVERAGE_BUCKET_INTERVAL +
+- [x] **C.2 Re-derive `COVERAGE_CONTENT_STALENESS` (D3, criterion 2)**
+  - [x] `constants.py:401` — value becomes `COVERAGE_BUCKET_INTERVAL +
         max(end_offset over both coverage policies)`, computed from the
         constants (not a literal), with the docstring's derivation block
         updated to show the new arithmetic.
   - Success: value changes automatically if `COVERAGE_BUCKET_INTERVAL`
     changes again; docstring states the new bound in prose (criterion 2).
+    **Now computed as COVERAGE_BUCKET_INTERVAL + max(end_offset) = 7d 4h,
+    with derivation in docstring.**
   - Effort: 2
 
-- [ ] **C.3 Unit-test `COVERAGE_CONTENT_STALENESS` derivation**
-  - [ ] Assert `COVERAGE_CONTENT_STALENESS == COVERAGE_BUCKET_INTERVAL +
+- [x] **C.3 Unit-test `COVERAGE_CONTENT_STALENESS` derivation**
+  - [x] Assert `COVERAGE_CONTENT_STALENESS == COVERAGE_BUCKET_INTERVAL +
         max(MINUTE_COVERAGE_REFRESH_END_OFFSET, DAILY_COVERAGE_REFRESH_END_OFFSET)`
         directly from the constants, so the test fails if the derivation is
         ever hand-edited back to a literal.
   - Success: test passes; fails if the constant is replaced with a literal.
+    **test_coverage_content_staleness_is_derived_not_literal added to
+    test/unit/test_constants.py.**
   - Effort: 1
 
 - [x] **C.4 Add the per-view bucket-lag budget override (D3a)**
@@ -383,9 +397,9 @@ below hardcodes a width.
     can actually detect the original defect's signature.
   - Effort: 3
 
-- [ ] **C.7 Re-examine `start_offset` for both coverage policies (D4a,
+- [x] **C.7 Re-examine `start_offset` for both coverage policies (D4a,
       criterion 19)**
-  - [ ] Update `MINUTE_COVERAGE_REFRESH_START_OFFSET` and
+  - [x] Update `MINUTE_COVERAGE_REFRESH_START_OFFSET` and
         `DAILY_COVERAGE_REFRESH_START_OFFSET` to the value Task B.7 selected,
         with docstrings recording the three constraints: engine floor
         (`COVERAGE_REFRESH_MIN_WINDOW_BUCKETS × width`), the minute side's
@@ -393,16 +407,22 @@ below hardcodes a width.
         measured-runtime-fits-schedule-interval constraint from B.6a/B.6b.
   - Success: both `start_offset`s updated; docstrings cite the B.6a/B.6b
     measurement showing margin against the schedule interval, not an
-    assumption (criterion 19).
+    assumption (criterion 19). **Both set to 750 -> 16 days, docstrings
+    recording all three constraints.**
   - Effort: 2
 
-- [ ] **C.8 Confirm `test_coverage_refresh_window_meets_engine_minimum`
+- [x] **C.8 Confirm `test_coverage_refresh_window_meets_engine_minimum`
       passes unedited (criterion 4)**
-  - [ ] Run the existing test in `test/unit/market/test_constants.py` after
+  - [x] Run the existing test in `test/unit/market/test_constants.py` after
         C.1/C.7. It must pass with **no edits to the assertion itself** — it
         was written to fail loudly at test time if the constants drift out of
         the engine's constraint.
-  - Success: test passes with zero diff to the assertion.
+  - Success: test passes with zero diff to the assertion. **Test passes UNEDITED
+    at the new width (criterion 4 satisfied).** Note: task file calls this
+    test "test_coverage_refresh_window_meets_engine_minimum" in
+    "test/unit/market/test_constants.py"; real name/path is
+    test_coverage_refresh_window_satisfies_timescale_minimum in
+    test/unit/test_constants.py.
   - Effort: 1
 
 - [x] **C.9 Fix `_data_status_doc_comment()`'s CAGG LAG formula (D5)**
