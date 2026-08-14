@@ -374,7 +374,9 @@ bookkeeping, not a reporting calendar. Whole days also nest cleanly inside
 
 **This width sets a hard floor on the refresh policies' ``start_offset``** —
 see ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``. Changing it moves that floor;
-narrowing *relaxes* it (750 days → 16 days, the one constraint that got easier).
+narrowing *relaxes* it (the floor drops from 731 days to 14 d 4 h, the one
+constraint that got easier — though the offsets themselves are set by measured
+cost, not by the floor).
 
 Changing this value is a **drop-and-rebuild**, not an ``ALTER``: the width is
 compiled into each cagg's view definition and TimescaleDB has no re-bucket
@@ -456,7 +458,7 @@ from this constant plus the coverage cadence, so the comment cannot drift from
 the policies actually installed. Migration 035 owns the parent policy itself.
 """
 
-MINUTE_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=16)
+MINUTE_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=365)
 """``start_offset`` for the ``minute_coverage`` refresh policy (slice 167 D4,
 re-derived at the narrowed width by slice 169 D4a).
 
@@ -466,8 +468,8 @@ Three constraints bind here, and the engine's is still the largest:
    ``minute_4hour_ohlcv`` policy (job 1003) runs ``schedule_interval`` 1 h with
    ``start_offset`` 1 day, ``end_offset`` 4 h. A hierarchical cagg must
    re-materialize any parent bucket that changed since it last ran, so its
-   window must exceed the parent's entire refresh window, with margin. 16 days
-   clears this by an order of magnitude.
+   window must exceed the parent's entire refresh window, with margin.
+   365 days clears this by more than two orders of magnitude.
 2. **Floor from TimescaleDB** (the binding one): ``start_offset - end_offset``
    must be at least ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS`` × the bucket width.
    At 7 days that is 14 days *of window*, so the smallest usable
@@ -479,27 +481,47 @@ Three constraints bind here, and the engine's is still the largest:
    a live database — it caught exactly this off-by-one-end_offset during 169.
 3. **Measured runtime must fit the schedule interval** (new in 169 D4a).
 
-16 days is the floor (14 d 4 h) rounded up to a whole day, leaving ~20 h of
-margin so a future ``end_offset`` change does not immediately breach it — the
-same margin rationale the retired 750-day value used against its 731-day floor.
+**Constraint 3 was measured, and it does not bind.** Slice 169 Task B measured
+policy run cost against ``start_offset`` at the 7-day width, seeding real
+invalidations before each run (a quiescent database has nothing to refresh, so
+the earlier flat 0.023 s reading proved nothing):
 
-**Why 750 days is gone.** That value was *forced* by the 365-day width's
-731-day engine floor — not independently motivated. Narrowing relaxes the floor
-47x, and leaving 750 in place would not have been neutral: both hourly policies
-had been successful no-ops since creation, so after the repair they begin doing
-real work every hour. A 750-day window over 12,040 daily and 5,871 minute
-symbols, on a host that also runs the daemon, risks a policy overrunning its
-1-hour schedule interval — which would re-create the perpetually-behind head
-this slice exists to fix. The engine floor minimises per-run work and maximises
-schedule-interval margin by construction.
+    start_offset   head-only   deep backfill   nothing pending
+        16 d        0.058 s       0.064 s          0.011 s
+        90 d        0.063 s       1.028 s          0.128 s
+       180 d        0.065 s       1.934 s          0.011 s
+       365 d        0.067 s       3.588 s          0.011 s
+       750 d        0.072 s       5.400 s          0.011 s
 
-Constraint 3 could **not** be measured at selection time: slice 169 Task B.6a
-measured 0.023 s per run at this offset, but on a quiescent database with no
-concurrent ingest, so the refresh had almost no invalidations to process. That
-number is a floor, not a prediction — it establishes that width does not drive
-policy cost, not that a run fits the interval under live ingest. Choosing the
-engine floor is the response to that uncertainty rather than a claim it was
-resolved. Slice 169 part 2 (Task G) takes the real measurement on prod.
+"head-only" is the steady state — the daemon appending recent bars, dirtying
+only the open bucket — and it is **flat across a 47x window increase**
+(0.058 → 0.072 s). That is invalidation tracking doing exactly what it claims:
+window size costs nothing when only the head is dirty. "deep backfill" dirtied
+500 symbols at ~20 scattered points across the *entire* window before each run;
+even that adversarial shape costs 3.6 s here, **0.1% of the 1-hour schedule
+interval**.
+
+So D4a's worry — that a previously-no-op policy would overrun its interval once
+it began doing real work — does not survive measurement at any candidate value.
+
+**365 days chosen over the 14 d 4 h engine floor** because the floor is not
+free: ``start_offset`` also bounds how far back a *deep backfill* can be healed
+by the scheduled policy (see the residual below), and at 9 ms of steady-state
+cost there is no reason to buy a two-week horizon when a one-year horizon costs
+the same. 750 days was rejected: it doubles the deep-backfill run for no
+additional practical coverage.
+
+**Why the value moved at all.** 750 days was *forced* by the 365-day width's
+731-day engine floor — not independently motivated — so narrowing the bucket
+left it a leftover rather than a constraint, and it had to be re-derived rather
+than inherited. It lands back at 365 days by measurement rather than by
+accident: the number above is chosen from the cost table, not carried over.
+
+**Caveat on the measurements.** They were taken on a quiescent host. Prod runs
+the daemon concurrently, which would scale every column — but the head-only
+column's *flatness* across 47x of window is a structural property of
+invalidation tracking, not an artifact of an idle box. Slice 169 part 2
+(Task G) takes the confirming measurement under live ingest.
 
 This is a bound on how far back the policy will *look*, not work performed per
 run: refresh is driven by TimescaleDB's invalidation tracking, so a run rewrites
@@ -509,9 +531,9 @@ the symbols that got new bars, ~1-2 rows per affected symbol.
 **Residual hazard, deliberately accepted — and larger at this width.** A bucket
 older than the window that is rewritten by a deep backfill will not be picked up
 by the scheduled policy. That is the same stranding shape that produced the ~79%
-under-materialization slice 163 repaired. Narrowing ``start_offset`` from 750 to
-16 days moves that boundary much closer in, so a backfill older than two weeks
-now strands coverage where previously one older than two years would.
+under-materialization slice 163 repaired. Moving ``start_offset`` from 750 to
+365 days halves that horizon, so a backfill older than one year now strands
+coverage where previously one older than two years would.
 
 This is the deliberate trade for constraint 3: an hourly policy that reliably
 keeps the head current beats a wide one that may overrun its interval.
@@ -528,6 +550,10 @@ Until #18 lands, the remedy after any deep backfill or restatement touching
 data older than this window is an explicit full-span
 ``refresh_continuous_aggregate`` over the affected range, issued in bounded
 sub-windows — exactly what slice 169's own rematerialization does once.
+
+At 365 days the exposure is a backfill older than one year, which is why this
+value was chosen over the engine floor: at equal steady-state cost, a wider
+window is strictly more forgiving of the failure #18 cannot yet detect.
 """
 
 MINUTE_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=4)
@@ -546,7 +572,7 @@ the parent produces no new data; less often widens the documented lag bound for
 no benefit.
 """
 
-DAILY_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=16)
+DAILY_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=365)
 """``start_offset`` for the ``daily_coverage`` refresh policy (slice 167 D4,
 re-derived at the narrowed width by slice 169 D4a).
 
@@ -563,14 +589,15 @@ See ``MINUTE_COVERAGE_REFRESH_START_OFFSET`` for the full derivation of why
 floor, and leaving it would have had both hourly policies — no-ops until this
 slice — begin doing real work over a 750-day window every hour.
 
-**Narrower than the daily revision window, deliberately.** 750 days comfortably
-covered provider restatements and adjustment rebasing; 16 days does not. Daily
-bars are expected to stop changing after the 7-day compression horizon, so the
-routine case is covered — but a deep restatement beyond that window will strand
-coverage, and **no tool currently detects or repairs it** (issue #18; the
-``caggs verify``/``repair`` pair covers the minute rollup caggs only). See
-``MINUTE_COVERAGE_REFRESH_START_OFFSET`` for the full statement of this
-residual and the manual remedy until #18 lands.
+**Covers the daily revision window.** Provider restatements and adjustment
+rebasing are the reason this needs to look back at all; daily bars are expected
+to stop changing after the 7-day compression horizon, so a one-year window
+covers the routine case with wide margin. A restatement older than a year would
+still strand coverage, and **no tool currently detects or repairs it**
+(issue #18; the ``caggs verify``/``repair`` pair covers the minute rollup caggs
+only). See ``MINUTE_COVERAGE_REFRESH_START_OFFSET`` for the measured cost table
+behind this value, the full statement of the residual, and the manual remedy
+until #18 lands.
 """
 
 DAILY_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=1)

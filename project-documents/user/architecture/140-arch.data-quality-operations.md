@@ -1224,10 +1224,10 @@ COVERAGE_REFRESH_MIN_WINDOW_BUCKETS = 2
     -- initially set 14 days and the constants test caught it before it
     -- reached a database, which is exactly the job this constant exists for.
 
-MINUTE_COVERAGE_REFRESH_START_OFFSET = 16 days    -- >= 2 buckets + end_offset
+MINUTE_COVERAGE_REFRESH_START_OFFSET = 365 days   -- measured, not the floor
 MINUTE_COVERAGE_REFRESH_END_OFFSET   = 4 hours    -- one parent bucket
 MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL = 1 hour
-DAILY_COVERAGE_REFRESH_START_OFFSET  = 16 days
+DAILY_COVERAGE_REFRESH_START_OFFSET  = 365 days
 DAILY_COVERAGE_REFRESH_END_OFFSET    = 1 hour
 DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL  = 1 hour
     -- Refresh policies for the two coverage caggs (migrations 047/052).
@@ -1244,15 +1244,38 @@ DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL  = 1 hour
     -- real work every hour -- a 750-day window over 12,040 daily and 5,871
     -- minute symbols, on a host that also runs the daemon. A policy that
     -- overruns its schedule interval re-creates the perpetually-behind head
-    -- slice 169 exists to fix. 16 days is the engine floor (14 d 4 h)
-    -- rounded up to a whole day.
+    -- slice 169 exists to fix.
+    -- THAT WORRY WAS MEASURED AND DOES NOT BIND. Policy run cost vs
+    -- start_offset at the 7-day width, with real invalidations seeded before
+    -- each run (a quiescent database refreshes nothing, so the earlier flat
+    -- 0.023 s reading proved nothing):
+    --     start_offset   head-only   deep backfill
+    --         16 d        0.058 s       0.064 s
+    --         90 d        0.063 s       1.028 s
+    --        180 d        0.065 s       1.934 s
+    --        365 d        0.067 s       3.588 s
+    --        750 d        0.072 s       5.400 s
+    -- head-only is the STEADY STATE (daemon appends recent bars, dirtying
+    -- only the open bucket) and is FLAT across a 47x window increase --
+    -- invalidation tracking makes window size nearly free when only the head
+    -- is dirty. The deep-backfill column dirtied 500 symbols at ~20 scattered
+    -- points across the WHOLE window; even that costs 0.1% of the 1-hour
+    -- schedule interval at 365 days.
+    -- 365 days is therefore chosen by MEASURED COST, not by the engine floor
+    -- (14 d 4 h). The floor is not free: start_offset also bounds how far
+    -- back a deep backfill can be healed by the scheduled policy, and at 9 ms
+    -- of steady-state cost there is no reason to buy a two-week horizon when
+    -- a one-year horizon costs the same. 750 d rejected -- double the
+    -- deep-backfill cost for no practical gain.
     -- ACCEPTED RESIDUAL: a refresh policy never revisits data older than
-    -- start_offset, so this moves the deep-backfill stranding boundary from
-    -- ~2 years to ~16 days. `mt data caggs verify`/`repair` do NOT cover
-    -- these two caggs (minute rollups only), and assert_cagg_fresh compares
-    -- EDGES so it cannot see a hole in the middle -- see issue #18. Until
-    -- that lands, the remedy after a deep backfill is an explicit bounded
+    -- start_offset, so the deep-backfill stranding boundary is ~1 year (was
+    -- ~2 years at 750 d). `mt data caggs verify`/`repair` do NOT cover these
+    -- two caggs (minute rollups only), and assert_cagg_fresh compares EDGES
+    -- so it cannot see a hole in the middle -- see issue #18. Until that
+    -- lands, the remedy after a deep backfill is an explicit bounded
     -- sub-window refresh over the affected range.
+    -- Measured on a quiescent host; part 2 (Task G) confirms under live
+    -- ingest.
     --
     -- *(Architecture amendment, 2026-08-13 — slice 169.)* This block
     -- previously stated that coverage "trails raw ingest by at most the
