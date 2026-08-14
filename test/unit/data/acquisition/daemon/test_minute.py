@@ -809,3 +809,81 @@ class TestHasAnyGapsRefireRegression:
             r.gap_start_utc == history_start and r.gap_end_utc == target_end
             for r in seeded_ranges
         )
+
+
+class TestBarToRow:
+    """Per-bar conversion guard: a malformed provider bar is skipped with a
+    warning, never inserted with a fabricated price (CVR/LFWD incident,
+    2026-08-14: EODHD sent open=null, Decimal raised InvalidOperation, and
+    the whole symbol batch aborted as a spurious transient failure)."""
+
+    GOOD = {
+        "timestamp": 1755093000,
+        "open": "10.5",
+        "high": "10.9",
+        "low": "10.1",
+        "close": "10.7",
+        "volume": 1200,
+    }
+
+    def _row(self, **overrides):
+        from manta_trading.data.acquisition.daemon.minute import _bar_to_row
+
+        return _bar_to_row("CVR", {**self.GOOD, **overrides})
+
+    def test_good_bar_converts(self) -> None:
+        row = self._row()
+        assert row is not None
+        ts, symbol, o, h, lo, c, v = row
+        assert symbol == "CVR"
+        assert (str(o), str(h), str(lo), str(c), v) == (
+            "10.5",
+            "10.9",
+            "10.1",
+            "10.7",
+            1200,
+        )
+        assert ts.tzinfo is not None
+
+    def test_null_open_skipped_not_raised(self, caplog) -> None:
+        """The CVR/LFWD payload shape: open=None -> Decimal('None') raises
+        InvalidOperation, which must be swallowed by the skip path."""
+        assert self._row(open=None) is None
+        assert "Skipping malformed minute bar" in caplog.text
+
+    def test_missing_price_field_skipped_no_silent_default(self) -> None:
+        bad = {k: v for k, v in self.GOOD.items() if k != "close"}
+        from manta_trading.data.acquisition.daemon.minute import _bar_to_row
+
+        assert _bar_to_row("CVR", bad) is None
+
+    def test_nan_price_skipped(self) -> None:
+        """Decimal('NaN') parses successfully — the finite check must
+        reject it."""
+        assert self._row(high="NaN") is None
+
+    def test_zero_price_skipped(self) -> None:
+        assert self._row(low=0) is None
+
+    def test_negative_price_skipped(self) -> None:
+        assert self._row(close="-1.25") is None
+
+    def test_null_volume_defaults_to_zero(self) -> None:
+        row = self._row(volume=None)
+        assert row is not None
+        assert row[6] == 0
+
+    def test_insert_filters_bad_bars_keeps_good(self) -> None:
+        """One bad bar must not abort the batch: good rows still reach COPY."""
+        from manta_trading.data.acquisition.daemon.minute import (
+            _insert_minute_bars,
+        )
+
+        conn = MagicMock()
+        copy_rows: list[tuple] = []
+        copy_cm = conn.cursor.return_value.__enter__.return_value.copy
+        copy_cm.return_value.__enter__.return_value.write_row.side_effect = (
+            copy_rows.append
+        )
+        _insert_minute_bars(conn, "CVR", [self.GOOD, {**self.GOOD, "open": None}])
+        assert len(copy_rows) == 1
