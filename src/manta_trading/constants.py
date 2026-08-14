@@ -514,12 +514,20 @@ under-materialization slice 163 repaired. Narrowing ``start_offset`` from 750 to
 now strands coverage where previously one older than two years would.
 
 This is the deliberate trade for constraint 3: an hourly policy that reliably
-keeps the head current beats a wide one that may overrun its interval, given
-that deep-backfill stranding is *already* a known condition with an established
-remedy. It is detected by ``mt data caggs verify`` and healed by ``repair`` —
-the standing rule after any raw restructuring or deep backfill, unchanged by
-this slice. Slice 169's own full-history rematerialization is exactly that
-remedy applied once.
+keeps the head current beats a wide one that may overrun its interval.
+
+**There is currently no automated detection or remedy for this (issue #18).**
+``mt data caggs verify``/``repair`` cover the four *minute rollup* caggs only —
+``_resolve_minute_granularities`` states "Daily caggs are out of scope for
+parity/repair" — so neither coverage cagg is reachable by either command. Do
+not rely on the standing "verify then repair" rule here; it does not apply to
+these two views. ``assert_cagg_fresh`` will not catch it either: it compares
+*edges*, so a cagg with a current head and a hole in its middle reports fresh.
+
+Until #18 lands, the remedy after any deep backfill or restatement touching
+data older than this window is an explicit full-span
+``refresh_continuous_aggregate`` over the affected range, issued in bounded
+sub-windows — exactly what slice 169's own rematerialization does once.
 """
 
 MINUTE_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=4)
@@ -558,9 +566,11 @@ slice — begin doing real work over a 750-day window every hour.
 **Narrower than the daily revision window, deliberately.** 750 days comfortably
 covered provider restatements and adjustment rebasing; 16 days does not. Daily
 bars are expected to stop changing after the 7-day compression horizon, so the
-routine case is covered — but a deep restatement beyond two weeks will strand
-coverage until ``mt data caggs verify``/``repair`` heals it. That is the same
-accepted residual the minute side carries, and the same remedy applies.
+routine case is covered — but a deep restatement beyond that window will strand
+coverage, and **no tool currently detects or repairs it** (issue #18; the
+``caggs verify``/``repair`` pair covers the minute rollup caggs only). See
+``MINUTE_COVERAGE_REFRESH_START_OFFSET`` for the full statement of this
+residual and the manual remedy until #18 lands.
 """
 
 DAILY_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=1)
