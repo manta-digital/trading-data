@@ -193,6 +193,19 @@ def assess(conn: psycopg.Connection[Any]) -> Assessment:
         "daily_monthly_ohlcv",
         "daily_quarterly_ohlcv",
     )
+    # Slice 169 reconciliation, recorded so a future reader does not re-derive
+    # it: that slice's design predicted this module "references 046 as their
+    # creating migration [so] that reference must move to 051, or the restore
+    # tool recreates them at the old width." **That risk does not reproduce
+    # against this implementation.** Detection here is by CATALOG PRESENCE —
+    # the name tuple above against _timescaledb_catalog.continuous_agg — with
+    # no per-object "creating migration" field to go stale. Likewise
+    # missing_migrations diffs MINUTE_MIGRATIONS' current, live list (imported
+    # above) against the ledger, so it picks up 051/052 automatically, and
+    # replay_missing_migrations applies that same full list. There is no code
+    # path that recreates these caggs at a stale width. The design's claim was
+    # a reasonable prediction that the catalog-driven approach, chosen
+    # independently, had already avoided.
 
     return Assessment(
         preserved=[_count(conn, t) for t in PRESERVED_TABLES],
@@ -225,10 +238,11 @@ def replay_missing_migrations(pool: ConnectionPool[Any]) -> list[str]:
     ``minute_hourly_ohlcv``, ``minute_4hour_ohlcv``, and the daily rollups.
     NOTE the ledger boundary observed during the 2026-08-04 restore: replay
     only covers migrations *absent from the ledger*. Objects dropped while
-    their creating migration is still recorded (``minute_coverage`` via 046,
-    the minute caggs' columnstore config via 045, its refresh policy via 047)
-    are NOT recreated by this step and need their idempotent DDL applied
-    directly.
+    their creating migration is still recorded (``minute_coverage`` /
+    ``daily_coverage`` via 046 — **narrowed by 051**, which is the operative
+    migration for their bucket width since slice 169 — the minute caggs'
+    columnstore config via 045, its refresh policy via 047 and 052) are NOT
+    recreated by this step and need their idempotent DDL applied directly.
 
     Returns:
         The migration ids applied, in order.
