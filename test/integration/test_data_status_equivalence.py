@@ -51,8 +51,9 @@ _SYM_EMPTY = "ZZEQEMPTY"
 _ALL_SYMBOLS = (_SYM_COVERED, _SYM_PARTIAL, _SYM_EMPTY)
 
 # A settled historical window: far enough from the refresh policies' trailing
-# edge that a scheduled refresh cannot race the assertions, and inside a single
-# 1-year coverage bucket so the rollup arithmetic is unambiguous.
+# edge that a scheduled refresh cannot race the assertions. The seeded span may
+# cross coverage-bucket boundaries (it does at slice 169's 7-day width); the
+# rollup arithmetic sums across buckets per symbol, so that stays unambiguous.
 _FIXTURE_START = datetime(2010, 3, 1, 14, 31, tzinfo=UTC)
 """Deliberately :31 past the hour — a round :00 start would make the
 bucket-truncation tolerance untestable, since truncation would be a no-op."""
@@ -150,9 +151,22 @@ def _refresh_coverage(url: str) -> None:
         Granularity,
     )
 
-    span = COVERAGE_BUCKET_INTERVAL * 4
-    window_start = _DAILY_START - span
-    window_end = _FIXTURE_START + span
+    # The window must CONTAIN every seeded bar, and separately must span at
+    # least two buckets. Deriving it from the seeded data rather than from a
+    # multiple of the bucket width is the point: the earlier
+    # `_DAILY_START - 4*bucket .. _FIXTURE_START + 4*bucket` form happened to
+    # swallow the fixture only because a 365-day bucket made the padding
+    # enormous. At slice 169's 7-day width that window ended before the last
+    # two daily bars, and the equivalence assertions failed with "cagg 28 !=
+    # raw 30" — a fixture defect that reads exactly like a real
+    # under-materialization bug.
+    last_seeded = max(
+        _DAILY_START + timedelta(days=_DAILY_BAR_COUNT),
+        _FIXTURE_START + timedelta(minutes=_MINUTE_BAR_COUNT),
+    )
+    pad = max(COVERAGE_BUCKET_INTERVAL * 2, timedelta(days=1))
+    window_start = min(_DAILY_START, _FIXTURE_START) - pad
+    window_end = last_seeded + pad
 
     with psycopg.connect(url, autocommit=True) as conn:
         for view in (

@@ -167,10 +167,11 @@ class TestMigrationsListIntegrity:
         assert filtered == sorted(filtered)
 
     def test_migration_count(self):
-        # 52 -> 53 with slice 170's migration 050. This count is a
+        # 53 -> 55 with slice 169's migrations 051 (coverage-cagg bucket
+        # narrowing) and 052 (their refresh policies). This count is a
         # deliberate-change tripwire: adding a migration must be a conscious
         # act, so bump it in the same commit that adds one.
-        assert len(MIGRATIONS) == 53
+        assert len(MIGRATIONS) == 55
 
 
 # ---------------------------------------------------------------------------
@@ -945,10 +946,27 @@ class TestMigration050DailyChunkInterval:
     def _get(self) -> dict:
         return next(m for m in MINUTE_MIGRATIONS if m["id"] == _MIGRATION_050_ID)
 
-    def test_is_last_in_the_chain(self) -> None:
-        """050 is the newest migration; a later addition must renumber past it
-        rather than silently land before an already-applied production run."""
-        assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_050_ID
+    def test_comes_after_every_lower_numbered_migration(self) -> None:
+        """A later addition must renumber PAST 050 rather than silently land
+        before an already-applied production run.
+
+        Retargeted by slice 169: this asserted ``MINUTE_MIGRATIONS[-1]`` was
+        050, which was true only while 050 happened to be newest. That made it
+        a "nothing has been added since slice 170" assertion wearing the name
+        of an ordering assertion, so it failed the moment 051/052 landed
+        correctly. The ordering property it was actually guarding — 050 sits
+        after everything numbered below it — is asserted directly instead, and
+        keeps holding as the chain grows. ``test_chain_ends_at_052`` below
+        carries the "newest migration is last" check for the current tip.
+        """
+        index = next(
+            i
+            for i, m in enumerate(MINUTE_MIGRATIONS)
+            if m["id"] == _MIGRATION_050_ID
+        )
+        assert all(
+            m["id"] < _MIGRATION_050_ID for m in MINUTE_MIGRATIONS[:index]
+        )
 
     def test_sql_calls_set_chunk_time_interval_on_daily(self) -> None:
         sql = self._get()["sql"]
@@ -1000,3 +1018,198 @@ class TestMigration023DailyChunkIntervalFromConstant:
 
     def test_description_does_not_teach_the_superseded_interval(self) -> None:
         assert "= 7 days" not in self._get()["description"]
+
+
+_MIGRATION_051_ID = "051_coverage_cagg_bucket_narrowing"
+_MIGRATION_052_ID = "052_coverage_cagg_refresh_policies_narrowed"
+
+
+class _StatementRecorder:
+    """Captures the SQL a python_fn migration would execute.
+
+    051 is a ``python_fn`` migration because Timescale forbids more than one
+    continuous-aggregate DDL statement per ``execute()``, so its statements are
+    only inspectable by running the callable against a fake connection.
+    """
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def execute(self, sql: str) -> None:
+        self.statements.append(sql)
+
+
+class TestMigration051CoverageBucketNarrowing:
+    """Slice 169 D.1: drop/recreate both coverage caggs at the new width."""
+
+    def _get(self) -> dict:
+        return next(m for m in MINUTE_MIGRATIONS if m["id"] == _MIGRATION_051_ID)
+
+    def _statements(self) -> list[str]:
+        recorder = _StatementRecorder()
+        self._get()["python_fn"](recorder)
+        return recorder.statements
+
+    def test_requires_autocommit(self) -> None:
+        """One CREATE MATERIALIZED VIEW per execute(), outside a transaction —
+        the same engine constraint 033/034/046 carry."""
+        assert self._get()["requires_autocommit"] is True
+
+    def test_drops_data_status_before_either_cagg(self) -> None:
+        """MANDATORY ORDERING (1)(2)(3).
+
+        ``data_status``'s bars_summary CTE selects from both coverage caggs, so
+        PostgreSQL records a hard relation dependency. Dropping a cagg first
+        raises "cannot drop ... because other objects depend on it" — and since
+        051 runs without transactional rollback, that aborts partway through,
+        leaving one cagg dropped and one intact.
+        """
+        statements = self._statements()
+        view_drop = next(
+            i
+            for i, s in enumerate(statements)
+            if "DROP VIEW IF EXISTS data_status" in s
+        )
+        cagg_drops = [
+            i
+            for i, s in enumerate(statements)
+            if "DROP MATERIALIZED VIEW" in s
+        ]
+        assert cagg_drops, "expected both coverage caggs to be dropped"
+        assert view_drop < min(cagg_drops)
+
+    def test_reinstalls_data_status_last(self) -> None:
+        """(3): the view is re-installed after the caggs it depends on exist."""
+        statements = self._statements()
+        creates = [
+            i for i, s in enumerate(statements) if "CREATE MATERIALIZED VIEW" in s
+        ]
+        reinstall = next(
+            i for i, s in enumerate(statements) if "COMMENT ON VIEW data_status" in s
+        )
+        assert reinstall > max(creates)
+
+    def test_never_uses_cascade(self) -> None:
+        """CASCADE is the reflex here and it is forbidden: it silently drops
+        data_status, breaking `mt data status`, /api/v1/status and
+        /api/v1/health against a missing relation until someone notices."""
+        assert not any("CASCADE" in s.upper() for s in self._statements())
+
+    def test_every_statement_is_idempotent(self) -> None:
+        """051 is non-transactional, so a failure at any point must be
+        recoverable by re-running it (the design's Window A handling)."""
+        for statement in self._statements():
+            upper = statement.upper()
+            assert (
+                "IF EXISTS" in upper
+                or "IF NOT EXISTS" in upper
+                or upper.strip().startswith("DO $$")
+            ), f"non-idempotent statement: {' '.join(statement.split())[:80]}"
+
+    def test_creates_both_caggs_with_no_data(self) -> None:
+        """Materialization is an operational step, not part of the chain: a
+        cold-start database has no history and should not pay for it."""
+        creates = [s for s in self._statements() if "CREATE MATERIALIZED VIEW" in s]
+        assert len(creates) == 2
+        for statement in creates:
+            assert "WITH NO DATA" in statement
+
+    def test_bucket_width_renders_from_the_constant(self) -> None:
+        """D5: no width literal in SQL. The DDL must carry exactly the
+        constant's value, so a width change moves the migration with it."""
+        from manta_trading.constants import COVERAGE_BUCKET_INTERVAL
+
+        expected = (
+            f"INTERVAL '{int(COVERAGE_BUCKET_INTERVAL.total_seconds())} seconds'"
+        )
+        creates = [s for s in self._statements() if "CREATE MATERIALIZED VIEW" in s]
+        for statement in creates:
+            assert expected in statement
+
+    def test_description_renders_the_width_from_the_constant(self) -> None:
+        """D.1's specific warning: the DDL is safe by construction (rendered at
+        execution time), but the description is a plain Python string built at
+        import time — the one place a hardcoded width could hide undetected.
+        """
+        from manta_trading.constants import COVERAGE_BUCKET_INTERVAL
+        from manta_trading.market.schema.migrations.minute import _interval_literal
+
+        assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["description"]
+
+    def test_description_carries_no_stale_365_day_text(self) -> None:
+        """046's prose named "1 year" and "~15k rows"; both are wrong now, and
+        046 is already applied everywhere, so 051's description is what an
+        operator reads instead."""
+        desc = self._get()["description"]
+        assert "~15k" not in desc
+        assert "365" not in desc
+
+    def test_column_contract_matches_046(self) -> None:
+        """167 D2: identical column names/types/aliases so every downstream
+        query binds unchanged across the rebuild."""
+        creates = " ".join(
+            s for s in self._statements() if "CREATE MATERIALIZED VIEW" in s
+        )
+        for column in ("time_bucket", "symbol", "bars", "first_bucket", "last_bucket"):
+            assert f"AS {column}" in creates or f"{column}," in creates
+
+
+class TestMigration052CoverageRefreshPolicies:
+    """Slice 169 D.2: reinstall the policies dropped with the caggs."""
+
+    def _get(self) -> dict:
+        return next(m for m in MINUTE_MIGRATIONS if m["id"] == _MIGRATION_052_ID)
+
+    def test_offsets_render_from_the_constants(self) -> None:
+        from manta_trading.constants import (
+            DAILY_COVERAGE_REFRESH_END_OFFSET,
+            DAILY_COVERAGE_REFRESH_START_OFFSET,
+            MINUTE_COVERAGE_REFRESH_END_OFFSET,
+            MINUTE_COVERAGE_REFRESH_START_OFFSET,
+        )
+
+        sql = self._get()["sql"]
+        for interval in (
+            MINUTE_COVERAGE_REFRESH_START_OFFSET,
+            MINUTE_COVERAGE_REFRESH_END_OFFSET,
+            DAILY_COVERAGE_REFRESH_START_OFFSET,
+            DAILY_COVERAGE_REFRESH_END_OFFSET,
+        ):
+            assert f"INTERVAL '{int(interval.total_seconds())} seconds'" in sql
+
+    def test_is_idempotent_via_existence_guard(self) -> None:
+        """Matches 047/035/037: adding a policy that already exists raises, so
+        the DO block checks the job catalog first."""
+        sql = self._get()["sql"]
+        assert "IF NOT EXISTS" in sql
+        assert "timescaledb_information.jobs" in sql
+
+    def test_reattaches_the_doc_comment_from_the_shared_function(self) -> None:
+        """Belt-and-braces for the case where 051 applied and 052 runs later.
+        Both render the same function, so this is a no-op in the happy path
+        rather than a second source of truth."""
+        from manta_trading.market.schema.migrations.minute import (
+            _data_status_doc_comment,
+        )
+
+        assert _data_status_doc_comment() in self._get()["sql"]
+
+    def test_doc_comment_carries_the_bucket_width_term(self) -> None:
+        """Criterion 14 at the migration layer: the in-database bound an
+        operator reads via \\d+ must include the open-bucket term, not just the
+        refresh schedule intervals."""
+        from manta_trading.constants import COVERAGE_BUCKET_INTERVAL
+        from manta_trading.market.schema.migrations.minute import _interval_literal
+
+        assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
+
+
+def test_chain_ends_at_052() -> None:
+    """The newest migration must be last (slice 169).
+
+    Carries the check ``TestMigration050DailyChunkInterval`` used to make about
+    050. Retarget this when a later slice adds a migration — that is the point:
+    landing a migration before an already-applied production tip must be a
+    deliberate, test-breaking act.
+    """
+    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_052_ID
