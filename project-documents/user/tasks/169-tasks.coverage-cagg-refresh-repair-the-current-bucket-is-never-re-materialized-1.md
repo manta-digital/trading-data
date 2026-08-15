@@ -457,7 +457,7 @@ below hardcodes a width.
 
 ## Task D — Migrations 051/052 (D4, Migration Plan)
 
-- [ ] **D.1 Write migration `051_coverage_cagg_bucket_narrowing`**
+- [x] **D.1 Write migration `051_coverage_cagg_bucket_narrowing`**
   - [ ] In `MINUTE_MIGRATIONS` (`src/manta_trading/market/schema/migrations/minute.py`),
         append after `050`. `requires_autocommit: True`.
   - [ ] Step ① `DROP VIEW IF EXISTS data_status` — **before** touching either
@@ -490,7 +490,7 @@ below hardcodes a width.
     `COVERAGE_BUCKET_INTERVAL` rather than a copy-pasted number.
   - Effort: 4
 
-- [ ] **D.2 Write migration `052_coverage_cagg_refresh_policies_narrowed`**
+- [x] **D.2 Write migration `052_coverage_cagg_refresh_policies_narrowed`**
   - [ ] Reinstall both coverage caggs' refresh policies at the new
         `start_offset` (Task C.7), unchanged `end_offset`/`schedule_interval`,
         using the idempotent `DO $$ ... IF NOT EXISTS ... $$` pattern from
@@ -507,7 +507,7 @@ below hardcodes a width.
     from the single doc-comment function, no duplicated string.
   - Effort: 2
 
-- [ ] **D.2a Bump the migration-count tripwire (criterion 3, "count tripwire
+- [x] **D.2a Bump the migration-count tripwire (criterion 3, "count tripwire
       updated")**
   - [ ] `test/unit/test_schema_migrations.py:169-173`,
         `test_migration_count`, asserts `len(MIGRATIONS) == 53` — a
@@ -523,7 +523,7 @@ below hardcodes a width.
     was observed before the fix, confirming the tripwire fired as designed.
   - Effort: 1
 
-- [ ] **D.3 Integration test: 051/052 apply cleanly on a cold-start database
+- [x] **D.3 Integration test: 051/052 apply cleanly on a cold-start database
       (criterion 3)**
   - [ ] New `test/integration/test_migration_051_052.py`, following
         `test_migrations_046_047.py`'s pattern: fresh throwaway database, run
@@ -540,7 +540,7 @@ below hardcodes a width.
   - Success: test passes on a throwaway database; fails if 051/052 regress.
   - Effort: 3
 
-- [ ] **D.3a Integration test: `data_status`'s column contract is unchanged
+- [x] **D.3a Integration test: `data_status`'s column contract is unchanged
       (criterion 7)**
   - [ ] On the same cold-start database as D.3 (post-051/052), assert the
         column **names, order, and types** of `data_status` match the 167 D2
@@ -557,7 +557,7 @@ below hardcodes a width.
     fails if any column is added, removed, reordered, or retyped.
   - Effort: 2
 
-- [ ] **D.4 Integration test: idempotent re-run from a partial 051 state**
+- [x] **D.4 Integration test: idempotent re-run from a partial 051 state**
   - [ ] Simulate a failure between steps ① and ③ (e.g. run only step ① and
         ②'s DDL on a scratch database, matching "Window A" in the design's
         Rebuild Window section), then re-run 051 in full and assert it
@@ -566,7 +566,7 @@ below hardcodes a width.
     A handling describes (re-run 051, not a manual recovery script).
   - Effort: 3
 
-- [ ] **D.5 Integration test: `DROP` ordering is enforced (regression guard
+- [x] **D.5 Integration test: `DROP` ordering is enforced (regression guard
       for F002)**
   - [ ] Assert that attempting to drop either coverage cagg **without**
         first dropping `data_status` raises the expected dependency error on
@@ -576,7 +576,7 @@ below hardcodes a width.
   - Success: test passes; fails if steps ①/② are reordered.
   - Effort: 2
 
-- [ ] **D.5a Integration test: `assert_cagg_fresh` reports both coverage
+- [x] **D.5a Integration test: `assert_cagg_fresh` reports both coverage
       views fresh end-to-end on the *generic* bucket-lag check (criterion 16)**
   - [ ] On a database with 051/052 applied **and** materialized history (not
         the empty cold-start DB — reuse or extend Task B's seeded database,
@@ -597,7 +597,7 @@ below hardcodes a width.
     real database; the pre-167 cagg's verdict is provably untouched.
   - Effort: 3
 
-- [ ] **D.6 Update `test_migrations_046_047.py`/`test_migration_050.py`
+- [x] **D.6 Update `test_migrations_046_047.py`/`test_migration_050.py`
       fixtures that assume the old width, if any (verify, do not assume)**
   - [ ] Per D5: `test_coverage_content_edge.py`, `test_migrations_046_047.py`,
         `test_symbol_ranges_sql.py`, `test_data_status_equivalence.py`
@@ -608,7 +608,7 @@ below hardcodes a width.
     literal found is fixed and noted.
   - Effort: 2
 
-- [ ] **D.7 Confirm the new integration tests need no CI wiring (verify, do
+- [x] **D.7 Confirm the new integration tests need no CI wiring (verify, do
       not assume)**
   - [ ] `.github/workflows/ci.yml` runs no test job at all — it only builds
         and publishes on a `v*` tag push. No existing integration test file
@@ -656,7 +656,7 @@ below hardcodes a width.
 
 ## Task F — `restore_metadata.py` verification (D-Consumers)
 
-- [ ] **F.1 Reconcile the slice design's `restore_metadata.py` claim against
+- [x] **F.1 Reconcile the slice design's `restore_metadata.py` claim against
       the actual mechanism, and fix the one real stale reference**
   - [ ] **The design's Consumers section says**: `restore_metadata.py` "lists
         both coverage views among recreatable objects (lines 190–191) and
