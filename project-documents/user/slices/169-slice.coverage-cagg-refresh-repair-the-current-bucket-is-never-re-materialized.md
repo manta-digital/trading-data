@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [167, 168, 170, 187]
 interfaces: [187]
 dateCreated: 20260813
-dateUpdated: 20260813
-status: not_started
+dateUpdated: 20260815
+status: in_progress
 ---
 
 # Slice Design: Coverage-Cagg Refresh Repair — the Current Bucket Is Never Re-materialized

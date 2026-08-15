@@ -17,8 +17,8 @@ projectState: >
   1107/1108) have been successful no-ops since creation — the defect this
   slice repairs.
 dateCreated: 20260813
-dateUpdated: 20260813
-status: not_started
+dateUpdated: 20260815
+status: in_progress
 ---
 
 # Tasks: Coverage-Cagg Refresh Repair — Part 1 (Design and Implementation)
@@ -259,9 +259,9 @@ below hardcodes a width.
 
 **Follow-on GitHub issues filed:** #16 (unfiltered health-count scan dominates status latency), #17 (data_status NFR stated against a query no caller issues), #14 updated for 7-day width.
 
-- [ ] **B.8 Add load tests pinning the three restated NFRs (criteria 12, 17,
+- [x] **B.8 Add load tests pinning the three restated NFRs (criteria 12, 17,
       19) at the selected width**
-  - [ ] `test/load/` already exists with the tier convention to follow:
+  - [x] `test/load/` already exists with the tier convention to follow:
         `test_167_data_status_nfr.py` is the direct precedent for criterion
         12 — a prod-shaped throwaway database, gated on
         `MT_RUN_LOAD_TESTS=1`, using `MT_TIMESCALE_TEST_URL` (never the prod
@@ -270,16 +270,16 @@ below hardcodes a width.
         (the existing fixture predates this slice) and re-assert the
         sub-second NFR — this makes criterion 12 re-checkable by any future
         change, not just confirmed once during this slice.
-  - [ ] Add `test/load/test_169_coverage_freshness_probe_nfr.py`: seed a
+  - [x] Add `test/load/test_169_coverage_freshness_probe_nfr.py`: seed a
         prod-shaped database at the selected width, run the content-edge
         probe (`max(last_bucket)`) and assert it stays well inside
         `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` (criterion 17) — same tier
         conventions as the 167 precedent.
-  - [ ] Add a policy-run-cost assertion (criterion 19) to the same or a
+  - [x] Add a policy-run-cost assertion (criterion 19) to the same or a
         sibling load test: at the selected `start_offset` (B.6b/C.7), a
         representative refresh run completes comfortably inside the 1-hour
         schedule interval on a prod-shaped database.
-  - [ ] **CI wiring note:** per the 167 load test's own documented gap, this
+  - [x] **CI wiring note:** per the 167 load test's own documented gap, this
         repo's CI (`.github/workflows/ci.yml`) runs no test job at all — CI
         wiring for the whole `test/load/` tier is out-of-band, tracked as
         slice 907 (CI Pipeline and Load-Test Gating). These load tests close
@@ -288,9 +288,16 @@ below hardcodes a width.
   - Success: criteria 12, 17, and 19 each have a load test that can be
     re-run (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`) to reconfirm the
     NFR, rather than resting on a one-time Task B/G measurement alone.
+    **Verified complete on branch 169-slice.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized (commits 580664d, 3a6b76a, 7acfd3f):**
+    - test/load/conftest.py made width-aware: BARS_PER_YEAR now derives from COVERAGE_BUCKET_INTERVAL (52 at the 7-day width). This was NOT cosmetic — the fixture had seeded one bar per symbol-year, producing 120,000 coverage rows at a 365-day bucket AND at a 7-day bucket, so it was structurally incapable of detecting a width regression.
+    - test_167_data_status_nfr updated and passing (criterion 12).
+    - New test/load/test_169_coverage_freshness_probe_nfr.py, 6 tests passing: content-edge probe and raw-edge probe both asserted at a 25% ceiling of CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT (criterion 17, per D3b's "well inside" requirement), and both policies' runs inside half their schedule interval (criterion 19).
+    - CI wiring note confirmed: .github/workflows/ci.yml runs no test job at all; that gap is slice 907's scope, not introduced here.
   - Effort: 3
+  
+  **AMENDMENT to criterion 12 (PM-approved 2026-08-15):** Criterion 12 was previously stated as requiring a sub-second full-universe read measured as `SELECT count(*) FROM data_status`, which is not a shape any caller issues. It is now a recorded measurement plus a no-regression margin against the 7.8 s pre-167 raw scan, measured on the caller-issued shape (row fetch + always-unfiltered health summary). Recorded value at the shipped 7-day width: 2.636 s, versus 0.487 s at the pre-169 365-day width and 7.8 s before slice 167. The regression is accepted with remedies filed as issues #16 and #17. Width stays 7 days. Full detail is in 169-notes.task-b-width-measurements.md under "Resolution of the criterion-12 caveat".
 
-- [ ] **Commit**: `test: add load tests for coverage-cagg NFRs at the new width`
+- [x] **Commit**: `test: add load tests for coverage-cagg NFRs at the new width`
 
 ---
 
@@ -470,29 +477,29 @@ below hardcodes a width.
     only (criterion 14).
   - Effort: 2
 
-- [ ] **Commit**: `feat: re-derive coverage cagg constants at the measured width`
+- [x] **Commit**: `feat: re-derive coverage cagg constants at the measured width`
 
 ---
 
 ## Task D — Migrations 051/052 (D4, Migration Plan)
 
 - [x] **D.1 Write migration `051_coverage_cagg_bucket_narrowing`**
-  - [ ] In `MINUTE_MIGRATIONS` (`src/manta_trading/market/schema/migrations/minute.py`),
+  - [x] In `MINUTE_MIGRATIONS` (`src/manta_trading/market/schema/migrations/minute.py`),
         append after `050`. `requires_autocommit: True`.
-  - [ ] Step ① `DROP VIEW IF EXISTS data_status` — **before** touching either
+  - [x] Step ① `DROP VIEW IF EXISTS data_status` — **before** touching either
         cagg (mandatory ordering; `data_status` depends on both).
-  - [ ] Step ② `DROP MATERIALIZED VIEW IF EXISTS minute_coverage` /
+  - [x] Step ② `DROP MATERIALIZED VIEW IF EXISTS minute_coverage` /
         `daily_coverage` — **no `CASCADE`** — then recreate both at the new
         `COVERAGE_BUCKET_INTERVAL` width using `_interval_seconds_sql`,
         mirroring 046's structure (one `CREATE MATERIALIZED VIEW IF NOT
         EXISTS` per `execute()` call, same column names/types/aliases as 046
         so downstream queries bind unchanged).
-  - [ ] Step ③ re-install `data_status` by re-executing 048's existing
+  - [x] Step ③ re-install `data_status` by re-executing 048's existing
         `_build_data_status_view_sql(...)` output unchanged (not a rewrite),
         and re-attach the corrected `_data_status_doc_comment()` from Task
         C.9 — the function is already fixed by this point, so 051 calls it
         directly with no placeholder text.
-  - [ ] Description text states the new width and the new worst-case row
+  - [x] Description text states the new width and the new worst-case row
         counts from Task B (no stale "1 year"/"~15k rows" text carried
         forward from 046). Because the description is a Python string built
         at migration-definition time (module import), verify it is built
@@ -502,7 +509,7 @@ below hardcodes a width.
         construction (it runs inside `python_fn`/`sql` at execution time,
         same as 046), but the description string has no such execution-time
         seam and is the one place a hardcoded width could hide undetected.
-  - [ ] Idempotent: every statement uses `IF EXISTS`/`IF NOT EXISTS`, so
+  - [x] Idempotent: every statement uses `IF EXISTS`/`IF NOT EXISTS`, so
         re-running 051 from any point in ①②③ converges.
   - Success: migration defined; matches the mandatory ①②③ ordering; no
     `CASCADE` anywhere in the migration; description text confirmed to read
@@ -510,11 +517,11 @@ below hardcodes a width.
   - Effort: 4
 
 - [x] **D.2 Write migration `052_coverage_cagg_refresh_policies_narrowed`**
-  - [ ] Reinstall both coverage caggs' refresh policies at the new
+  - [x] Reinstall both coverage caggs' refresh policies at the new
         `start_offset` (Task C.7), unchanged `end_offset`/`schedule_interval`,
         using the idempotent `DO $$ ... IF NOT EXISTS ... $$` pattern from
         047 (:1925).
-  - [ ] Re-render `COMMENT ON VIEW data_status` from the corrected doc-comment
+  - [x] Re-render `COMMENT ON VIEW data_status` from the corrected doc-comment
         function (Task C.9). **051's step ③ is the primary install path for
         the comment** (the view and its comment are re-attached together, in
         the same migration, so they can never observably disagree); 052's
@@ -528,14 +535,14 @@ below hardcodes a width.
 
 - [x] **D.2a Bump the migration-count tripwire (criterion 3, "count tripwire
       updated")**
-  - [ ] `test/unit/test_schema_migrations.py:169-173`,
+  - [x] `test/unit/test_schema_migrations.py:169-173`,
         `test_migration_count`, asserts `len(MIGRATIONS) == 53` — a
         deliberate-change tripwire the file's own comment says must be
         bumped "in the same commit that adds one [migration]." Adding 051
         and 052 is two migrations, so update the assertion to `== 55` and
         update the comment to note the `53 -> 55` bump and its cause (slice
         169, migrations 051/052).
-  - [ ] Confirm the test fails before this edit (with 051/052 added but the
+  - [x] Confirm the test fails before this edit (with 051/052 added but the
         assertion unbumped) and passes after — proving the tripwire actually
         tripped, not that it was silently already correct.
   - Success: `test_migration_count` asserts `55` and passes; the failure
@@ -544,16 +551,16 @@ below hardcodes a width.
 
 - [x] **D.3 Integration test: 051/052 apply cleanly on a cold-start database
       (criterion 3)**
-  - [ ] New `test/integration/test_migration_051_052.py`, following
+  - [x] New `test/integration/test_migration_051_052.py`, following
         `test_migrations_046_047.py`'s pattern: fresh throwaway database, run
         the full migration chain, assert it ends at `052` with no errors.
-  - [ ] Assert both coverage caggs exist with the new `time_bucket` width
+  - [x] Assert both coverage caggs exist with the new `time_bucket` width
         (query `timescaledb_information.continuous_aggregates` /
         `dimensions`, not a hardcoded literal — compare against
         `COVERAGE_BUCKET_INTERVAL`).
-  - [ ] Assert `data_status` exists and returns zero rows without error on
+  - [x] Assert `data_status` exists and returns zero rows without error on
         the empty cold-start database (criterion 13, cold-start case).
-  - [ ] Criterion 3's "count tripwire updated" clause is D.2a's job, not
+  - [x] Criterion 3's "count tripwire updated" clause is D.2a's job, not
         this task's — D.2a's assertion bump is the tripwire; this task
         proves the chain itself applies cleanly.
   - Success: test passes on a throwaway database; fails if 051/052 regress.
@@ -561,14 +568,14 @@ below hardcodes a width.
 
 - [x] **D.3a Integration test: `data_status`'s column contract is unchanged
       (criterion 7)**
-  - [ ] On the same cold-start database as D.3 (post-051/052), assert the
+  - [x] On the same cold-start database as D.3 (post-051/052), assert the
         column **names, order, and types** of `data_status` match the 167 D2
         contract exactly — introspect via `information_schema.columns` (or
         the equivalent psycopg cursor description), not a row-count or
         existence check. D.3 proves the view exists and is queryable; this
         proves it is the *same* view shape 167 committed to, which downstream
         readers (`api_server/queries.py`, `mt data status`) depend on.
-  - [ ] This is the automated guard for D.1 step ③'s claim that
+  - [x] This is the automated guard for D.1 step ③'s claim that
         `_build_data_status_view_sql(...)` is re-executed "unchanged (not a
         rewrite)" — a future edit that accidentally alters the CTE would fail
         this test rather than surfacing as a silent contract break.
@@ -577,7 +584,7 @@ below hardcodes a width.
   - Effort: 2
 
 - [x] **D.4 Integration test: idempotent re-run from a partial 051 state**
-  - [ ] Simulate a failure between steps ① and ③ (e.g. run only step ① and
+  - [x] Simulate a failure between steps ① and ③ (e.g. run only step ① and
         ②'s DDL on a scratch database, matching "Window A" in the design's
         Rebuild Window section), then re-run 051 in full and assert it
         converges without error.
@@ -587,7 +594,7 @@ below hardcodes a width.
 
 - [x] **D.5 Integration test: `DROP` ordering is enforced (regression guard
       for F002)**
-  - [ ] Assert that attempting to drop either coverage cagg **without**
+  - [x] Assert that attempting to drop either coverage cagg **without**
         first dropping `data_status` raises the expected dependency error on
         a scratch database with 048's `data_status` installed — this pins
         the reason step ① exists, so a future edit that reorders 051
@@ -597,18 +604,18 @@ below hardcodes a width.
 
 - [x] **D.5a Integration test: `assert_cagg_fresh` reports both coverage
       views fresh end-to-end on the *generic* bucket-lag check (criterion 16)**
-  - [ ] On a database with 051/052 applied **and** materialized history (not
+  - [x] On a database with 051/052 applied **and** materialized history (not
         the empty cold-start DB — reuse or extend Task B's seeded database,
         or a smaller purpose-built fixture with a handful of symbols spanning
         into the current bucket), run `assert_cagg_fresh(conn,
         'minute_coverage', ...)` and the daily equivalent, with C.4's
         per-view override wired in (Task C.5).
-  - [ ] Assert both verdicts are `is_fresh=True` with no `LAG_EXCEEDS_THRESHOLD`
+  - [x] Assert both verdicts are `is_fresh=True` with no `LAG_EXCEEDS_THRESHOLD`
         signal — this is the integration-level proof that C.4's map and C.5's
         wiring actually produce a fresh verdict on a realistic database, not
         just that the formula is correct in isolation (C.6 covers the formula;
         this covers the wiring reaching a real `assert_cagg_fresh` call).
-  - [ ] Regression companion: assert a **pre-167 cagg** (e.g.
+  - [x] Regression companion: assert a **pre-167 cagg** (e.g.
         `daily_monthly_ohlcv`) on the same database still resolves via the
         unchanged generic formula and is unaffected by the new map — same
         intent as C.6's unit-level regression case, at the integration tier.
@@ -618,7 +625,7 @@ below hardcodes a width.
 
 - [x] **D.6 Update `test_migrations_046_047.py`/`test_migration_050.py`
       fixtures that assume the old width, if any (verify, do not assume)**
-  - [ ] Per D5: `test_coverage_content_edge.py`, `test_migrations_046_047.py`,
+  - [x] Per D5: `test_coverage_content_edge.py`, `test_migrations_046_047.py`,
         `test_symbol_ranges_sql.py`, `test_data_status_equivalence.py`
         already scale with `COVERAGE_BUCKET_INTERVAL` and should need no
         arithmetic changes. Run each and confirm — do not edit unless a
@@ -629,7 +636,7 @@ below hardcodes a width.
 
 - [x] **D.7 Confirm the new integration tests need no CI wiring (verify, do
       not assume)**
-  - [ ] `.github/workflows/ci.yml` runs no test job at all — it only builds
+  - [x] `.github/workflows/ci.yml` runs no test job at all — it only builds
         and publishes on a `v*` tag push. No existing integration test file
         (`test_migrations_046_047.py`, `test_migration_050.py`, etc.) is
         CI-gated today, so D.3/D.3a/D.4/D.5/D.5a follow the project's
@@ -637,14 +644,14 @@ below hardcodes a width.
         regression from it. Test-running CI is tracked separately as slice
         907 (CI Pipeline and Load-Test Gating) — the same gap `test_167_data_status_nfr.py`'s
         module docstring already documents for the load tier (B.8).
-  - [ ] If slice 907 lands **before** this slice ships, revisit this task and
+  - [x] If slice 907 lands **before** this slice ships, revisit this task and
         wire the new files in then — do not add a CI job as part of this
         slice; that is 907's scope, not 169's.
   - Success: confirmed no CI gap is introduced relative to the project's
     current (no test-CI) baseline; decision recorded, not assumed.
   - Effort: 1
 
-- [ ] **Commit**: `feat: add migrations 051/052 narrowing coverage cagg buckets`
+- [x] **Commit**: `feat: add migrations 051/052 narrowing coverage cagg buckets`
 
 ---
 
@@ -684,7 +691,7 @@ below hardcodes a width.
     convention.
   - Effort: 2
 
-- [ ] **Commit**: `docs: close 140-arch D6a with measured coverage-cagg values`
+- [x] **Commit**: `docs: close 140-arch D6a with measured coverage-cagg values`
 
 ---
 
@@ -692,7 +699,7 @@ below hardcodes a width.
 
 - [x] **F.1 Reconcile the slice design's `restore_metadata.py` claim against
       the actual mechanism, and fix the one real stale reference**
-  - [ ] **The design's Consumers section says**: `restore_metadata.py` "lists
+  - [x] **The design's Consumers section says**: `restore_metadata.py` "lists
         both coverage views among recreatable objects (lines 190–191) and
         references 046 as their creating migration. That reference must move
         to 051, or the restore tool recreates them at the old width." **This
@@ -717,18 +724,18 @@ below hardcodes a width.
           not the old one. **There is no code path that "recreates them at
           the old width"** — the design's stated risk does not reproduce
           against the current implementation.
-  - [ ] **The one real stale reference**: the docstring at `:228` says
+  - [x] **The one real stale reference**: the docstring at `:228` says
         "`minute_coverage` via 046" — update to "`minute_coverage`/
         `daily_coverage` via 046, narrowed by 051" so the prose does not
         imply 046 is still the operative migration post-169. This is a
         comment-only fix; no logic changes.
-  - [ ] Record this reconciliation explicitly (e.g. in the slice's completion
+  - [x] Record this reconciliation explicitly (e.g. in the slice's completion
         notes or a comment at the design's Consumers section pointer) so a
         future reader hitting the same discrepancy does not have to re-derive
         it — the design's claim was a reasonable prediction at design time
         that the code's catalog-driven approach (chosen independently)
         already avoided.
-  - [ ] **No test file currently exercises `restore_metadata.py`** (verified:
+  - [x] **No test file currently exercises `restore_metadata.py`** (verified:
         no test imports it). Write a minimal integration test: on a database
         with 051/052 applied and both coverage caggs present, call `assess()`
         and assert `minute_coverage`/`daily_coverage` are absent from both
@@ -740,7 +747,7 @@ below hardcodes a width.
     asserting both coverage caggs are reported present post-051/052.
   - Effort: 2
 
-- [ ] **Commit**: `test: verify restore_metadata reports coverage caggs post-051/052`
+- [x] **Commit**: `test: verify restore_metadata reports coverage caggs post-051/052`
 
 ---
 
