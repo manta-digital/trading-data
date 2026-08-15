@@ -207,3 +207,54 @@ needed.
    path to a genuinely good (~8 h) coverage bound.
 3. **Restate the `data_status` NFR** against a caller-issued shape rather than
    `SELECT count(*)`.
+
+---
+
+## Resolution of the criterion-12 caveat (2026-08-15)
+
+The caveat recorded above — "the NFR as stated (`SELECT count(*) FROM
+data_status`) is not a query any caller issues" — turned out to be the
+load-bearing one, and it invalidated part of B.7's reasoning.
+
+**What happened.** Task B.8 made `test/load/conftest.py`'s fixture width-aware
+(it had seeded one bar per symbol-year, so it produced 120,000 coverage rows at
+a 365-day bucket *and* at a 7-day bucket — structurally blind to the change this
+slice makes). With the fixture able to see the width for the first time,
+`test_167_data_status_nfr` failed: **2.778 s median against its 1.0 s bound.**
+
+That test always measured `fetch_status_rows_with_freshness` — the real caller
+path — while B.4 measured `count(*)`. The gap is 2.8x:
+
+| Width | caller-issued (rows + health) | `count(*)` |
+|---|---|---|
+| 365 d (pre-169 prod) | **0.487 s** | 0.119 s |
+| 30 d | **1.716 s** | 0.670 s |
+| 7 d (shipped) | **2.636 s** | 0.933 s |
+
+**The error was mine, and it was in B.7's selection basis.** I recommended 7
+days partly on `count(*)` = 0.933 s reading as "just inside the NFR", having
+already filed issue #17 noting that `count(*)` is not what callers issue — and
+then failed to apply that to my own width recommendation. Measuring the real
+shape at selection time would have made the tradeoff visibly steeper.
+
+**What did NOT change: the width.** PM confirmed 7 days (2026-08-15). The
+frequency analysis that justified it is unaffected — `/api/v1/health` does not
+read `data_status`, the daemon never reads it, `mt data status` is
+operator-initiated a few times a day, and there is no hot path. A ~2 s wait a
+few times a day still buys a 7 d 4 h staleness bound instead of a yearly one.
+Note also that a 1-second bound is reachable **only at 365 days**, i.e. only at
+the width that causes the defect — so "keep the NFR, widen the bucket" was never
+a coherent option.
+
+**What changed: criterion 12.** Amended (PM-approved, 2026-08-15) from a flat
+sub-second gate measured on `count(*)` to a recorded measurement plus a
+no-regression margin against the 7.8 s pre-167 raw scan, measured on the
+caller-issued shape. Recorded value at the shipped width: **2.636 s**. The
+amendment is in the slice design, 140-arch, and
+`test_167_data_status_nfr._NFR_SECONDS`.
+
+**Accepted regression, remedy filed.** 2.636 s is worse than pre-169
+production's 0.487 s. ~37 % of it is `fetch_all_health_counts_with_freshness`
+ignoring the caller's symbol filter (issue #16, expected to take the
+single-symbol case to ~0.01 s); the row-fetch term is issue #17. Neither is in
+this slice's scope.

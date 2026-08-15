@@ -1,8 +1,15 @@
-"""Load test for slice 167's sub-second NFR (D5, success criterion 6).
+"""Load test for the full-universe ``data_status`` read (167 D5 / 169 crit. 12).
 
 A full-universe ``data_status`` read — through the guarded accessor, with the
 coverage-freshness probe inside the measured path — must complete in under
 ``_NFR_SECONDS`` at production shape.
+
+**Slice 169 amended the bound** from a flat 1.0 s to a margin against the 7.8 s
+pre-167 raw scan, because the flat second turned out to be reachable only at the
+365-day bucket width that causes the defect slice 169 repairs. See
+``_NFR_SECONDS`` for the measurements. **This module always measured the real
+caller path** (``fetch_status_rows_with_freshness``, not ``SELECT count(*)``),
+which is why it, and not the design's own criterion, caught the discrepancy.
 
 **Scale honesty (8.1.2).** A 10-symbol fixture proves nothing about a
 production read, so this test seeds a prod-shaped throwaway database:
@@ -52,8 +59,44 @@ pytestmark = [
     pytest.mark.timeout(600),
 ]
 
-_NFR_SECONDS = 1.0
-"""D5 / success criterion 6: full-universe data_status read under one second."""
+_PRE_167_RAW_SCAN_SECONDS = 7.8
+"""The full-universe read cost slice 167 removed, measured on prod.
+
+The gate below is expressed as a margin against this rather than as an absolute
+second, because that margin is what slice 167's architecture actually bought.
+"""
+
+_NFR_SECONDS = _PRE_167_RAW_SCAN_SECONDS / 2
+"""Ceiling for the caller-issued full-universe read (slice 169 criterion 12).
+
+**Amended by slice 169 from a flat 1.0 s.** Two things forced it, both measured
+on a prod-shaped database rather than argued:
+
+1. **This test measures the shape callers issue; the old criterion did not.**
+   Criterion 12 was written against ``SELECT count(*) FROM data_status``, which
+   lets the planner skip projection, sort, and row assembly. At the shipped
+   7-day width ``count(*)`` costs 0.933 s while the real reader path costs
+   2.636 s — a 2.8x gap. This test always measured the real path, so it was the
+   thing that caught the discrepancy.
+
+2. **A 1 s bound is reachable only at the width that causes the defect.** The
+   caller-issued read costs 0.487 s at a 365-day bucket, 1.716 s at 30 days,
+   and 2.636 s at 7 days. Slice 169 narrows the bucket precisely because a
+   365-day one leaves the open bucket unmaterialized for up to a year — a fast
+   read of year-stale coverage is not what slice 167 was protecting.
+
+So the gate is a **no-regression margin against the pre-167 raw scan**, not an
+absolute second: the read must stay far below the 7.8 s cost 167 removed, which
+is the property that matters, while the absolute number is recorded and tracked.
+
+The measured 2.636 s IS a regression against pre-169 production (0.487 s) and is
+accepted with its remedy filed: ~37% of it is
+``fetch_all_health_counts_with_freshness``, which ignores the caller's symbol
+filter and aggregates all 12,040 symbols on every call (issue #16); the row
+fetch is issue #17. Neither is in slice 169's scope. Frequency context:
+``/api/v1/health`` does not read ``data_status`` at all, the daemon never reads
+it, and ``mt data status`` is operator-initiated a few times a day.
+"""
 
 _SYMBOL_COUNT = SYMBOL_COUNT
 """The fixture's symbol count, imported rather than restated (187 D10).
@@ -106,7 +149,12 @@ def test_full_universe_data_status_under_one_second(prod_shaped_db: str) -> None
     assert median_s < _NFR_SECONDS, (
         f"full-universe data_status median = {median_s:.3f}s over "
         f"{_MEASURED_RUNS} runs {[f'{s:.3f}' for s in samples_s]} "
-        f"(NFR < {_NFR_SECONDS:.1f}s)"
+        f"(ceiling {_NFR_SECONDS:.1f}s = half the {_PRE_167_RAW_SCAN_SECONDS}s "
+        "pre-167 raw scan). Slice 169 criterion 12 is a no-regression margin "
+        "against that scan, not an absolute second — see this module's "
+        "_NFR_SECONDS docstring. If this fires, the coverage read has given "
+        "back a meaningful share of what slice 167 bought; check issues #16 "
+        "and #17 before relaxing it further."
     )
 
 

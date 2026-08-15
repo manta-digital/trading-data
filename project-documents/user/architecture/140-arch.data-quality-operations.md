@@ -213,7 +213,36 @@ entirely.
 
 The CTE returns ~5 rows (one per exchange in our universe).
 `target_end` joins from this lookup, avoiding per-row function calls.
-View latency stays sub-second at full-universe scope.
+
+*(Architecture amendment, 2026-08-15 — slice 169 criterion 12, PM-approved.)*
+This previously read "View latency stays sub-second at full-universe scope."
+**That is no longer the bound, and the sub-second figure was measured against a
+query no caller issues.** Every real invocation of `mt data status` and
+`/api/v1/status` issues two reads — the row fetch plus an always-unfiltered
+`GROUP BY health` — where the NFR was stated against
+`SELECT count(*) FROM data_status`, which skips projection, sort, and most row
+assembly. Measured on a prod-shaped database, the caller-issued pair versus
+`count(*)`:
+
+    bucket width   caller-issued   count(*)
+        365 d         0.487 s       0.119 s     (pre-169 production)
+         30 d         1.716 s       0.670 s
+          7 d         2.636 s       0.933 s     (shipped by slice 169)
+
+A one-second bound is therefore reachable **only at the 365-day width that
+causes the open-bucket defect** — a fast read of coverage that may be a year
+stale is not the property this architecture was protecting. The bound is now a
+**no-regression margin against the 7.8 s raw scan slice 167 removed**, with the
+absolute number recorded and tracked by
+`test/load/test_167_data_status_nfr.py`.
+
+The 2.636 s at the shipped width **is a regression against pre-169 production
+and is accepted with its remedy filed**: ~37 % is
+`fetch_all_health_counts_with_freshness`, which ignores the caller's symbol
+filter and aggregates all 12,040 symbols on every call (issue #16); the row
+fetch is issue #17. `/api/v1/health` does not read `data_status` at all, the
+daemon never reads it, and `mt data status` is operator-initiated — there is no
+hot path paying this.
 
 #### Target window
 
