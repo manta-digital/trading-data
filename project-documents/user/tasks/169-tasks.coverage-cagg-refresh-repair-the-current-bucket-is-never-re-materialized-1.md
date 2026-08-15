@@ -367,34 +367,53 @@ below hardcodes a width.
     applied unconditionally.
   - Effort: 2
 
-- [ ] **C.6a Build the scratch-cagg scaffold for "policy advances the head
+- [x] **C.6a Build the scratch-cagg scaffold for "policy advances the head
       unaided" (criterion 18 verification scaffold)**
-  - [ ] Criterion 18 — "the refresh policy advances the head on its own" — is
+  - [x] Criterion 18 — "the refresh policy advances the head on its own" — is
         the only criterion the original defect could not satisfy, and it is
         exercised for real against prod in part 2's Task G.13. Part 1's job is
         to build and unit/integration-test the **mechanism** that
         distinguishes "policy ran and head moved" from "policy ran and head
         stood still," so G.13 in part 2 is executing a proven check, not
         writing one from scratch.
-  - [ ] Following `test/integration/test_rechunk_driver.py`'s and slice 168's
+  - [x] Following `test/integration/test_rechunk_driver.py`'s and slice 168's
         Task 8 pattern: build a scratch hypertable + scratch cagg + scratch
         refresh policy at the new narrow bucket width, dropped on teardown.
-  - [ ] Write a helper `_head_advanced(before, after) -> bool` (or equivalent)
+  - [x] Write a helper `_head_advanced(before, after) -> bool` (or equivalent)
         that compares `MAX(last_bucket)` and `last_successful_finish` before
         and after a policy tick, and returns true only when **both** the job
         ran and the head moved — a job that ran while the head stood still
         (the original defect's exact signature) must return `False`.
-  - [ ] Integration test: insert rows into the scratch hypertable spanning
+  - [x] Integration test: insert rows into the scratch hypertable spanning
         into a still-open bucket, wait for (or manually trigger) one scratch
         policy tick, and assert `_head_advanced` returns `True` — proving the
         narrowed-bucket mechanism actually lets the policy write the open
         bucket, which is D1/D2's central claim.
-  - [ ] Regression case: assert `_head_advanced` returns `False` when the
+        
+        **IMPORTANT NOTE (verified complete, defect documented):** The task
+        brief's instruction to "insert rows spanning into a still-open bucket
+        ... and assert `_head_advanced` returns `True`" was found to be FALSE
+        when measured. 200 rows in the open bucket saw 13 consecutive
+        successful policy runs materialize nothing — the open bucket is never
+        refreshed while open, at the 7-day width exactly as at 365 (design D1:
+        "nothing does"). The positive test therefore seeds a CLOSED bucket
+        (materializes unaided within one tick), and a separate test asserts
+        the open-bucket non-event so the accepted residual is documented
+        rather than mistaken for a fix.
+  - [x] Regression case: assert `_head_advanced` returns `False` when the
         scratch policy is paused (job ran nothing, head genuinely frozen) —
         so the helper cannot be trivially satisfied by "job exists."
   - Success: a tested, reusable check for "policy advanced the head unaided"
     exists before part 2 runs it against prod; the regression case proves it
-    can actually detect the original defect's signature.
+    can actually detect the original defect's signature. New test/integration/test_policy_advances_head.py,
+    9 tests passing. Scratch hypertable + scratch cagg at the new narrow
+    width + scratch refresh policy, dropped on teardown. `_head_advanced(before, after) -> bool`
+    returns True only when BOTH the job ran (last_successful_finish advanced)
+    AND MAX(last_bucket) moved; 6 unit-level cases pin the contract including
+    the defect's exact signature (job ran, head frozen -> False) and
+    manual-refresh detection (head moved, job didn't run -> False). Integration
+    cases use the REAL background scheduler, never `CALL run_job()`, since a
+    manually-triggered policy is exactly what criterion 18 does not assert.
   - Effort: 3
 
 - [x] **C.7 Re-examine `start_offset` for both coverage policies (D4a,
@@ -631,23 +650,38 @@ below hardcodes a width.
 
 ## Task E — Architecture close-out (D6, D6a)
 
-- [ ] **E.1 Close out the 140-arch D6a checklist with measured values
+- [x] **E.1 Close out the 140-arch D6a checklist with measured values
       (criterion 15)**
-  - [ ] Update `COVERAGE_BUCKET_INTERVAL` in 140-arch to the **measured**
+  - [x] Update `COVERAGE_BUCKET_INTERVAL` in 140-arch to the **measured**
         width from Task B.7 (confirm or correct the existing 30-day working
         assumption).
-  - [ ] Update `COVERAGE_CONTENT_STALENESS` and the per-view bucket-lag
+  - [x] Update `COVERAGE_CONTENT_STALENESS` and the per-view bucket-lag
         budget text to match Task C.2/C.4.
-  - [ ] Replace the worst-case row-count table with **measured actuals**
+  - [x] Replace the worst-case row-count table with **measured actuals**
         from Task B.2.
-  - [ ] Record the measured probe cost (B.5) against the 10 s budget.
-  - [ ] Record the selected `start_offset` (C.7) and its measured per-run
+  - [x] Record the measured probe cost (B.5) against the 10 s budget.
+  - [x] Record the selected `start_offset` (C.7) and its measured per-run
         cost (B.6a/B.6b).
-  - [ ] Use the established amendment convention (`*(Architecture amendment,
+  - [x] Use the established amendment convention (`*(Architecture amendment,
         {date} — slice 169.)*`) for each edit, consistent with the four
         blocks already amended under D6a.
   - Success: 140-arch states measured values throughout, with no remaining
-    "working assumption" language for anything Task B measured.
+    "working assumption" language for anything Task B measured. All five D6a
+    checklist items closed:
+    - COVERAGE_BUCKET_INTERVAL updated to the measured 7 days (was the 30-day
+      working assumption)
+    - COVERAGE_CONTENT_STALENESS (7 d 4 h) and COVERAGE_BUCKET_LAG_BUDGET (8 d 4 h /
+      8 d 1 h) now have constants-block entries recording that both are
+      derived, not chosen
+    - Worst-case row counts replaced with measured actuals (7d: 3,019,870
+      minute / 16,742,957 daily; 30d and 90d also recorded)
+    - Measured probe cost recorded against the 10 s budget (0.068 s minute /
+      0.220 s daily, ~45x margin)
+    - Selected start_offset (365 days) recorded with its measured per-run cost
+      table (head-only flat 0.058-0.072 s across a 47x window range;
+      deep-backfill 0.064-5.400 s)
+    All use the established `*(Architecture amendment, {date} — slice 169.)*`
+    convention.
   - Effort: 2
 
 - [ ] **Commit**: `docs: close 140-arch D6a with measured coverage-cagg values`

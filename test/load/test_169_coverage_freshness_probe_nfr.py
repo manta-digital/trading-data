@@ -52,6 +52,7 @@ import pytest
 
 from manta_trading.constants import (
     CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT,
+    COVERAGE_BUCKET_INTERVAL,
     COVERAGE_SOURCE_TABLE,
     DAILY_COVERAGE_REFRESH_END_OFFSET,
     DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
@@ -183,22 +184,69 @@ def test_policy_run_fits_its_schedule_interval(
     schedule contends with the next run and with the daemon, re-creating the
     perpetually-behind head this slice repairs.
 
-    **What this can and cannot prove.** The fixture is quiescent, so the
-    refresh processes only the invalidations left by seeding. Task B measured
-    the same shape with deliberate invalidations and found steady-state cost
-    flat across a 47x range of ``start_offset`` (0.058 s at 16 days vs 0.072 s
-    at 750), because invalidation tracking bounds the work to buckets that
-    actually changed. So this guards against a *structural* regression — a
-    window or width that makes even a near-empty refresh expensive — not
-    against live-ingest contention, which only production can measure.
+    **The refresh must have real work to do.** ``prod_shaped_db`` seeds
+    ``FIRST_YEAR``..``FIRST_YEAR + YEAR_COUNT`` (2010-2019), while the policy
+    window is ``now() - start_offset .. now() - end_offset`` — 2025-2026 at a
+    365-day offset. Those do not overlap, so refreshing the configured window
+    against the bare fixture would materialize **nothing** and this test would
+    pass vacuously no matter how expensive a real run became. Bars are
+    therefore written into the window first, and the assertion below confirms
+    the refresh actually materialized them.
+
+    **What this can and cannot prove.** Even so, the invalidation volume is
+    synthetic. Task B measured this shape with deliberate invalidations and
+    found steady-state cost flat across a 47x range of ``start_offset``
+    (0.058 s at 16 days vs 0.072 s at 750), because invalidation tracking
+    bounds the work to buckets that actually changed. So this guards against a
+    *structural* regression — a window or width that makes a refresh expensive
+    — not against live-ingest contention, which only production can measure.
     """
     from datetime import timedelta
+
+    from .conftest import SYMBOL_COUNT, symbol_name
 
     assert isinstance(start_offset, timedelta)
     assert isinstance(end_offset, timedelta)
     assert isinstance(schedule_interval, timedelta)
 
+    source = COVERAGE_SOURCE_TABLE[view_name]
+    # One bar per bucket across the policy window, for a slice of the universe:
+    # enough to give the refresh genuine work without re-seeding the whole
+    # fixture. Placed at now() - 2*end_offset .. so every row is inside the
+    # window rather than in the excluded head.
+    dirty_symbols = min(SYMBOL_COUNT, 2_000)
+    buckets = max(1, int(start_offset / COVERAGE_BUCKET_INTERVAL) - 1)
+
     with psycopg.connect(prod_shaped_db, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                f"INSERT INTO {source} "
+                "(time, symbol, open, high, low, close, volume) "
+                "VALUES (now() - %s::interval - %s::interval, %s, "
+                "        10.0, 10.0, 10.0, 10.0, 100) "
+                "ON CONFLICT DO NOTHING",
+                [
+                    (end_offset * 2, COVERAGE_BUCKET_INTERVAL * b, symbol_name(i))
+                    for i in range(dirty_symbols)
+                    for b in range(buckets)
+                ],
+            )
+
+        if view_name == MINUTE_COVERAGE_VIEW:
+            # Hierarchical: the parent must carry the new bars or the child
+            # rolls up nothing and the measurement is empty again.
+            conn.execute(
+                "CALL refresh_continuous_aggregate('minute_4hour_ohlcv', "
+                f"now() - INTERVAL '{int(start_offset.total_seconds())} seconds', "
+                f"now() - INTERVAL '{int(end_offset.total_seconds())} seconds')"
+            )
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM {view_name}")
+            row = cur.fetchone()
+            assert row is not None
+            rows_before = int(row[0])
+
         start = time.perf_counter()
         conn.execute(
             f"CALL refresh_continuous_aggregate('{view_name}', "
@@ -206,6 +254,20 @@ def test_policy_run_fits_its_schedule_interval(
             f"now() - INTERVAL '{int(end_offset.total_seconds())} seconds')"
         )
         elapsed_s = time.perf_counter() - start
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM {view_name}")
+            row = cur.fetchone()
+            assert row is not None
+            rows_after = int(row[0])
+
+    # Without this the timing above is meaningless: an empty refresh is fast
+    # regardless of how expensive a real one would be.
+    assert rows_after > rows_before, (
+        f"{view_name}: the measured refresh materialized nothing "
+        f"({rows_before} -> {rows_after} rows), so the timing proves nothing. "
+        "The seeded bars must land inside the policy window."
+    )
 
     budget_s = schedule_interval.total_seconds() * 0.5
     assert elapsed_s < budget_s, (
