@@ -1322,6 +1322,43 @@ MAX_COVERAGE_SOURCE_STALENESS = 1 day
     -- COVERAGE_SOURCE_TABLE. Without it the generic check fires permanently
     -- on both. See the COVERAGE_BUCKET_INTERVAL amendment above.
 
+-- *(Architecture amendment, 2026-08-14 — slice 169.)* The two derived values
+-- below were previously stated only in prose. They are the thresholds an
+-- operator's staleness banner actually fires on, so they belong in the
+-- constants block. BOTH ARE DERIVED, never chosen: they move with
+-- COVERAGE_BUCKET_INTERVAL by construction, and unit tests assert the
+-- derivation so neither can be hand-edited back to a literal.
+
+COVERAGE_CONTENT_STALENESS = COVERAGE_BUCKET_INTERVAL + max(end_offset)
+                           = 7 days 4 hours
+    -- How far a coverage cagg's CONTENT edge (max(last_bucket), no bucket
+    -- alignment) may trail max(time) on its raw source before
+    -- check_coverage_freshness reports stale. Slice 187 D6 introduced the
+    -- check; slice 169 D3 re-derived the threshold.
+    -- The pre-169 value (MAX_COVERAGE_SOURCE_STALENESS + end_offset =
+    -- 1 d 4 h) omitted the bucket-width term and was therefore UNREACHABLE at
+    -- any width compatible with slice 167's purpose — a ~1-day bound needs a
+    -- ~1-day bucket, which puts daily_coverage near 280 M rows. It fired
+    -- permanently, and a permanently-firing signal is indistinguishable from
+    -- a broken one. Widening it to describe the guarantee the architecture
+    -- actually provides is a correction, not a loosening: a genuine stall
+    -- still exceeds one bucket width and still fires.
+
+COVERAGE_BUCKET_LAG_BUDGET = {minute_coverage: 8 days 4 hours,
+                              daily_coverage:  8 days 1 hour}
+    -- Per-view override of the GENERIC bucket-lag budget (D3a), resolved by
+    -- cagg_freshness._resolve_threshold. Each entry is
+    -- COVERAGE_BUCKET_INTERVAL + min(start_offset,
+    -- MAX_COVERAGE_SOURCE_STALENESS) + end_offset.
+    -- Views with no entry — including all seven pre-167 caggs — fall through
+    -- to the unchanged generic formula, so they are untouched BY
+    -- CONSTRUCTION rather than by intent. A regression test asserts that
+    -- directly.
+    -- Note the budgets do NOT move when start_offset does:
+    -- MAX_COVERAGE_SOURCE_STALENESS caps that term, so the 750 -> 365 day
+    -- change left both at 8 days. That ceiling is the reason widening the
+    -- refresh window cannot loosen the staleness guard.
+
 CAGG_FRESHNESS_CACHE_TTL = 60 seconds
     -- TTL for the process-local assert_cagg_fresh verdict cache (D6). Two
     -- orders of magnitude below MAX_COVERAGE_SOURCE_STALENESS, so a cached
@@ -1337,6 +1374,23 @@ CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT = 10s
     -- its own transaction, so SET LOCAL is discarded and the timeout would
     -- silently stay 0 (unlimited). On timeout the check degrades to a
     -- refusal (PROBE_FAILED) rather than stalling the reader.
+    --
+    -- *(Architecture amendment, 2026-08-14 — slice 169 D3b/Task B.)* Slice 169
+    -- perturbs this path: the CONTENT-edge probe reads max(last_bucket), a
+    -- plain aggregate column rather than a time_bucket, so it is NOT
+    -- chunk-excludable, over caggs that grow ~1,100x at the narrowed width.
+    -- MEASURED at the selected 7-day width on a prod-shaped database
+    -- (12,040 daily / 5,871 minute symbols over prod's real spans):
+    --     minute_coverage  0.068 s     daily_coverage  0.220 s
+    -- i.e. worst case 2% of the 10 s budget, ~45x margin. Also measured at
+    -- 30 d (0.076 s) and 90 d (0.040 s); the probe was never the binding
+    -- constraint at any candidate width.
+    -- D3b's rule stands for future changes: a width that pushes this NEAR the
+    -- budget is REJECTED ON NFR GROUNDS, not accommodated by raising the
+    -- timeout — that constant is a bound on reader latency, and widening it
+    -- trades a refusal for a stall on every status read. Re-checkable via
+    -- test/load/test_169_coverage_freshness_probe_nfr.py, which asserts a
+    -- 25% ceiling rather than a bare "under 10 s".
 
 EODHD_DAILY_QUOTA           = 100_000  -- credits/day rolling cap
 EODHD_PER_MINUTE_BURST      = 1_000    -- credits/min short-window ceiling
