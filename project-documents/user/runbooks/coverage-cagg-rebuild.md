@@ -125,7 +125,17 @@ uv run mt data migrate status    # chain ends at 052
 ```
 
 Both caggs now exist empty at the 7-day width and `data_status` is
-re-installed. Restart the API server now — the DDL exposure window (Window A)
+re-installed.
+
+**Re-run the step-4 pause block now.** 051's drop deleted the paused jobs
+along with the old caggs, and 052 recreates the policies **scheduled** —
+`add_continuous_aggregate_policy` has no way to create them paused. The
+step-4 block resolves jobs by name, so it applies unchanged to the new job
+IDs. Verify the printed table the same way: coverage rows `f`,
+`minute_4hour_ohlcv` rows `t`. (Skipping this is caught, not fatal: step 6's
+pre-flight refuses with exit 2 and prints the fix.)
+
+Restart the API server now — the DDL exposure window (Window A)
 is over; it does **not** stay down during materialization. Start it the way it
 is normally run on this host (e.g. `nohup uv run mt serve >> ~/mt-serve.log 2>&1 &`).
 Endpoints will report coverage **stale** until step 7 completes — expected,
