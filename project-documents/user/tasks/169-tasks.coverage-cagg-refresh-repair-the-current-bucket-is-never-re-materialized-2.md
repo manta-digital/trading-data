@@ -14,8 +14,8 @@ projectState: >
   (Task G) and close-out (Task H). Task G requires Tasks A–F merged and the
   migrations applied to a database, not just designed.
 dateCreated: 20260813
-dateUpdated: 20260813
-status: not_started
+dateUpdated: 20260816
+status: in_progress
 ---
 
 # Tasks: Coverage-Cagg Refresh Repair — Part 2 (Prod Rebuild and Close-out)
@@ -60,19 +60,19 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
 > by `pg_cancel_backend` on the server side. The daemon stays stopped for the
 > **entire** window (DDL + materialization), not merely during DDL.
 
-- [ ] **G.1 Pre-check: confirm the defect is still live (walkthrough step 2)**
-  - [ ] Run the design's step-2 queries with `statement_timeout = '30s'`.
+- [x] **G.1 Pre-check: confirm the defect is still live (walkthrough step 2)**
+  - [x] Run the design's step-2 queries with `statement_timeout = '30s'`.
         Record `MAX(last_bucket)` on both views against raw `MAX(time)`.
   - Success: current drift recorded as a before-state for later comparison.
   - Effort: 1
 
-- [ ] **G.2 Stop the daemon and the API server**
-  - [ ] Stop the **daemon** — it stays down for the **entire window** (DDL
+- [x] **G.2 Stop the daemon and the API server**
+  - [x] Stop the **daemon** — it stays down for the **entire window** (DDL
         through the end of materialization, through G.6), because a running
         daemon writes to `minute_ohlcv`/`daily_ohlcv` during the full-span
         refresh and moves the target mid-rebuild. It is restarted only at
         G.12, after materialization is verified.
-  - [ ] Stop the **API server** — it is down for **Window A only** (the 051
+  - [x] Stop the **API server** — it is down for **Window A only** (the 051
         DDL window), reducing the missing-`data_status` exposure to
         operator-driven CLI rather than user-facing 500s. It is restarted at
         G.4a, immediately after 051/052 apply — **not** left down through
@@ -83,43 +83,43 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
     same window."
   - Effort: 1
 
-- [ ] **G.3 Pause jobs resolved from the catalog (walkthrough step 3)**
-  - [ ] Query `timescaledb_information.jobs` filtered to
+- [x] **G.3 Pause jobs resolved from the catalog (walkthrough step 3)**
+  - [x] Query `timescaledb_information.jobs` filtered to
         `minute_coverage`/`daily_coverage`/`minute_4hour_ohlcv`. Pause the
         coverage views' refresh and columnstore jobs **by the IDs this query
         returns** — never a hardcoded ID (170 lesson: job 1003 no longer
         exists; the minute 4h refresh is job 1124 as of this session, and IDs
         may have shifted again by execution time).
-  - [ ] Confirm `minute_4hour_ohlcv`'s refresh remains `scheduled = true`.
+  - [x] Confirm `minute_4hour_ohlcv`'s refresh remains `scheduled = true`.
   - Success: coverage jobs paused; parent minute cagg's refresh untouched.
   - Effort: 2
 
-- [ ] **G.4 Apply migrations 051/052 (walkthrough step 4)**
-  - [ ] `mt data migrate --status` (confirm chain ends at 050) → `mt data
+- [x] **G.4 Apply migrations 051/052 (walkthrough step 4)**
+  - [x] `mt data migrate --status` (confirm chain ends at 050) → `mt data
         migrate` → `mt data migrate --status` (confirm chain ends at 052).
   - Success: chain advances cleanly; `data_status` exists immediately after
     (criterion 13).
   - Effort: 1
 
-- [ ] **G.4a Restart the API server**
-  - [ ] Window A (the missing-`data_status` exposure) ends once 051's step ③
+- [x] **G.4a Restart the API server**
+  - [x] Window A (the missing-`data_status` exposure) ends once 051's step ③
         re-installs the view — restart the API server now, **before**
         materialization (G.5–G.6) begins, not after verification (G.9–G.11).
         Leaving it down through the multi-hour materialization would extend
         user-facing 500s far past the intended DDL-only window.
-  - [ ] Confirm the server is up and `data_status`-backed endpoints respond
+  - [x] Confirm the server is up and `data_status`-backed endpoints respond
         (they will report coverage stale until G.9 — that is expected and
         correct per the design's Window B handling, not a fault to fix here).
   - Success: API server confirmed running before G.5 proceeds.
   - Effort: 1
 
-- [ ] **G.5 One measured sub-window before the full sweep — a gate, not just
+- [x] **G.5 One measured sub-window before the full sweep — a gate, not just
       a measurement**
-  - [ ] Materialize a single bounded sub-window (reuse `_REFRESH_SUBWINDOW`
+  - [x] Materialize a single bounded sub-window (reuse `_REFRESH_SUBWINDOW`
         or a value sized from Part 1's Task B measurements) on
         `daily_coverage` and record peak memory and wall-clock, before
         committing to the full 64-year sweep.
-  - [ ] **Stop-and-replan condition:** if peak memory or wall-clock exceeds
+  - [x] **Stop-and-replan condition:** if peak memory or wall-clock exceeds
         the host's safe envelope (per `sql.md`'s host-protection guidance and
         the design's Risks table — a single call's memory is not bounded by
         `work_mem`), **do not proceed to G.6.** Reduce the sub-window span and
@@ -131,22 +131,22 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
     safe or the PM has decided how to proceed.
   - Effort: 2
 
-- [ ] **G.6 Materialize full history in bounded sub-windows (walkthrough step
+- [x] **G.6 Materialize full history in bounded sub-windows (walkthrough step
       5)**
-  - [ ] Loop `refresh_continuous_aggregate` over bounded sub-windows across
+  - [x] Loop `refresh_continuous_aggregate` over bounded sub-windows across
         each view's full span, outside a transaction, with a statement
         timeout sized to one sub-window. Record wall-clock, rows written, and
         the sub-window span used, per view.
-  - [ ] On any client-side interruption: `pg_cancel_backend` the server side
+  - [x] On any client-side interruption: `pg_cancel_backend` the server side
         before retrying; resume from the interrupted sub-window, not from the
         start (idempotent re-run per view's window).
   - Success: both views materialized over their full span; per-view timing
     and row counts recorded.
   - Effort: 3
 
-- [ ] **G.7 Verify partial materialization is absent, by content (Rebuild
+- [x] **G.7 Verify partial materialization is absent, by content (Rebuild
       Window's detection guidance)**
-  - [ ] Sample per-symbol coverage against raw for both views and check that
+  - [x] Sample per-symbol coverage against raw for both views and check that
         `MIN(first_bucket)` reaches the known history floor for a sample of
         symbols — catalog presence alone (`\dm`) is not sufficient (170's
         exit refresh found the daily rollups half-materialized despite
@@ -155,34 +155,34 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
     view.
   - Effort: 2
 
-- [ ] **G.8 Verify the leading edge tracks raw (walkthrough step 6)**
-  - [ ] Re-run G.1's queries. Each cagg's `MAX(last_bucket)` must be within
+- [x] **G.8 Verify the leading edge tracks raw (walkthrough step 6)**
+  - [x] Re-run G.1's queries. Each cagg's `MAX(last_bucket)` must be within
         one bucket width plus `end_offset` of raw `MAX(time)` (criterion 5).
   - Success: both views within bound.
   - Effort: 1
 
-- [ ] **G.9 Verify freshness clears end to end — both checks (walkthrough
+- [x] **G.9 Verify freshness clears end to end — both checks (walkthrough
       step 7)**
-  - [ ] `mt data status --json`, `/api/v1/health`, `/api/v1/status` — confirm
+  - [x] `mt data status --json`, `/api/v1/health`, `/api/v1/status` — confirm
         coverage staleness absent and `SPY / daily` `last_bar_ts` tracks raw
         (criteria 6, 7, 8).
-  - [ ] Confirm **neither** the generic bucket-lag check nor the content-edge
+  - [x] Confirm **neither** the generic bucket-lag check nor the content-edge
         check reports stale for `minute_coverage`/`daily_coverage`, and that
         the seven pre-167 caggs still report against their unchanged budgets
         (criterion 16).
   - Success: all three surfaces report fresh; pre-167 caggs unaffected.
   - Effort: 2
 
-- [ ] **G.9a Measure `data_status`'s full-universe read on prod — the actual
+- [x] **G.9a Measure `data_status`'s full-universe read on prod — the actual
       close of criterion 12**
-  - [ ] Part 1's B.4 only predicted this NFR against a seeded test database.
+  - [x] Part 1's B.4 only predicted this NFR against a seeded test database.
         Criterion 12 is a prod NFR ("the full-universe `data_status` read
         meets the sub-second NFR"). With `statement_timeout` set, run
         `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM data_status;`
         against prod, after G.9's freshness checks pass (so the measurement
         reflects the fully-materialized, fresh state, not the Window B
         empty-cagg state).
-  - [ ] Record the timing. If it does not meet the sub-second NFR on prod
+  - [x] Record the timing. If it does not meet the sub-second NFR on prod
         despite B.4's prediction, stop and report to the PM before H.2's
         audit closes criterion 12 — a regression here means the seeded
         database in Part 1 understated real cost and the width selection
@@ -191,22 +191,22 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
     number H.2 cites for criterion 12, not B.4's predicted one.
   - Effort: 1
 
-- [ ] **G.10 Verify the in-database doc comment no longer lies (walkthrough
+- [x] **G.10 Verify the in-database doc comment no longer lies (walkthrough
       step 7a)**
-  - [ ] `SELECT obj_description('data_status'::regclass, 'pg_class');` — must
+  - [x] `SELECT obj_description('data_status'::regclass, 'pg_class');` — must
         include the bucket-width term and match the constants; the "2 hours
         total" string must be gone (criterion 14).
   - Success: comment text confirmed correct on prod.
   - Effort: 1
 
-- [ ] **G.11 Resume every paused job and confirm (walkthrough step 8)**
-  - [ ] Re-run G.3's catalog query; every row must read `scheduled = true`
+- [x] **G.11 Resume every paused job and confirm (walkthrough step 8)**
+  - [x] Re-run G.3's catalog query; every row must read `scheduled = true`
         (criterion 11).
   - Success: all jobs resumed and verified via the catalog, not assumed.
   - Effort: 1
 
-- [ ] **G.12 Restart the daemon**
-  - [ ] Required before G.13, which needs live ingest to observe raw
+- [x] **G.12 Restart the daemon**
+  - [x] Required before G.13, which needs live ingest to observe raw
         advancing.
   - Success: daemon running; confirm via existing daemon status signals.
   - Effort: 1
@@ -223,14 +223,14 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
     is absent.
   - Effort: 2
 
-- [ ] **G.14 Confirm no raw data moved (walkthrough step 9, criterion 10)**
-  - [ ] `SELECT count(*) FROM daily_ohlcv;` expect exactly 65,652,505 (slice
+- [x] **G.14 Confirm no raw data moved (walkthrough step 9, criterion 10)**
+  - [x] `SELECT count(*) FROM daily_ohlcv;` expect exactly 65,652,505 (slice
         170 measured, or the current exact count if it has since advanced via
         live ingest — record the actual pre-rebuild count in G.1 and compare
         against that, not a stale literal).
-  - [ ] `SELECT count(*) FROM minute_ohlcv;` — same approach against slice
+  - [x] `SELECT count(*) FROM minute_ohlcv;` — same approach against slice
         163's measured baseline.
-  - [ ] Exact counts only — `approximate_row_count` is excluded (D7).
+  - [x] Exact counts only — `approximate_row_count` is excluded (D7).
   - Success: raw counts match their pre-rebuild baseline (accounting for any
     live ingest during the window, which should be zero since the daemon was
     stopped).
