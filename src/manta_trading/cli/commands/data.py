@@ -3588,3 +3588,216 @@ def caggs_repair(
         )
         print_result(f"\n{_CAGG_MAINTENANCE_STANDING_RULE}", json_mode=False)
 
+
+
+# ---------------------------------------------------------------------------
+# mt data caggs rebuild-coverage — slice 169 Task G
+# ---------------------------------------------------------------------------
+
+
+@caggs_app.command("rebuild-coverage")
+def caggs_rebuild_coverage(
+    ctx: typer.Context,
+    family: str = typer.Option(
+        ...,
+        "--family",
+        help="Which coverage cagg to rebuild: daily | minute. ONE PER RUN. "
+        "Run daily first: it is the larger side (64.6 yr vs 22.6) and the one "
+        "with the operator-visible symptom.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Plan and print the sub-windows; mutate nothing. Skips the "
+        "policy-paused pre-flight, so it is safe to run at any time.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-materialize sub-windows that already hold rows. Off by "
+        "default so an interrupted run resumes cheaply; use when a window is "
+        "suspected partially materialized.",
+    ),
+    subwindow_days: int = typer.Option(
+        0,
+        "--subwindow-days",
+        help="Override the refresh sub-window span. 0 uses REBUILD_SUBWINDOW. "
+        "Narrow it on a host with less memory headroom — a single refresh "
+        "materializes its whole range as one in-memory tuplestore, outside "
+        "work_mem's control.",
+    ),
+    verify_only: bool = typer.Option(
+        False,
+        "--verify",
+        help="Skip the rebuild; only run the content-based verification "
+        "(spans, symbol counts, head lag against the source).",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
+) -> None:
+    """Rematerialize a coverage cagg over its full history (slice 169 Task G).
+
+    Migrations 051/052 recreate both coverage caggs EMPTY at the narrowed
+    bucket width; this is the sweep that fills them. Issued as bounded
+    sub-windows, never one call: a refresh materializes its whole range as a
+    single in-memory tuplestore outside work_mem's control, which OOM-killed
+    the minute rollup rebuild twice on prod (2026-08-11).
+
+    PRE-FLIGHT REFUSES (never warns) unless the target cagg's refresh and
+    columnstore policies are paused, resolved from the catalog by job name —
+    a refresh racing this sweep silently loses rows (slice 163). For the
+    minute family it additionally refuses if minute_4hour_ohlcv's refresh is
+    paused: that cagg is both this sweep's source and the daemon's coverage
+    index, and pausing it makes the daemon re-seed every cycle.
+
+    Resumable: each sub-window commits independently, and a re-run skips
+    windows that already hold rows. Recovery from any interruption is re-run,
+    never rollback.
+    """
+    from datetime import timedelta
+
+    import psycopg as _psycopg
+    from psycopg.rows import dict_row as _dict_row
+
+    from manta_trading.market.maintenance.coverage_rebuild import (
+        REBUILD_SUBWINDOW,
+        CoverageFamily,
+        CoverageRebuildError,
+        rebuild_coverage,
+        verify_coverage,
+    )
+    from manta_trading.market.maintenance.rechunk import PreflightError
+
+    settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=json_output)
+        raise typer.Exit(1)
+
+    try:
+        target = CoverageFamily(family.strip().lower())
+    except ValueError:
+        valid = ", ".join(f.value for f in CoverageFamily)
+        print_error(
+            f"Unknown --family {family!r}. Valid: {valid}", json_mode=json_output
+        )
+        raise typer.Exit(1) from None
+
+    span = (
+        timedelta(days=subwindow_days) if subwindow_days > 0 else REBUILD_SUBWINDOW
+    )
+
+    last_counts = {"refreshed": 0, "skipped": 0}
+
+    def _emit_window(progress, window) -> None:
+        # Which action this window took is derived from which counter moved,
+        # so the line reports what actually happened rather than restating the
+        # request (a skipped window under --force would otherwise read as
+        # "refreshed").
+        action = (
+            "refreshed" if progress.refreshed > last_counts["refreshed"] else "skipped"
+        )
+        last_counts["refreshed"] = progress.refreshed
+        last_counts["skipped"] = progress.skipped
+        done = progress.refreshed + progress.skipped
+        print_result(
+            f"  [{done}/{progress.total_windows}] {window} {action}",
+            json_mode=False,
+        )
+
+    try:
+        with _psycopg.connect(
+            settings.timescale_db_url, autocommit=True, row_factory=_dict_row
+        ) as conn:
+            if verify_only:
+                report = verify_coverage(conn, target)
+                _print_coverage_verification(report, json_output=json_output)
+                raise typer.Exit(0 if report["head_within_one_bucket"] else 1)
+
+            result = rebuild_coverage(
+                conn,
+                target,
+                subwindow=span,
+                force=force,
+                dry_run=dry_run,
+                on_progress=_emit_window if not json_output else None,
+            )
+            report = None if dry_run else verify_coverage(conn, target)
+    except PreflightError as exc:
+        print_error(str(exc), json_mode=json_output)
+        raise typer.Exit(2) from None
+    except CoverageRebuildError as exc:
+        print_error(str(exc), json_mode=json_output)
+        raise typer.Exit(3) from None
+
+    if json_output:
+        import json as _json
+
+        payload: dict[str, object] = {
+            "family": result.family.value,
+            "view": result.view_name,
+            "dry_run": dry_run,
+            "windows": result.windows,
+            "refreshed": result.refreshed,
+            "skipped": result.skipped,
+            "rows_before": result.rows_before,
+            "rows_after": result.rows_after,
+            "rows_added": result.rows_added,
+            "elapsed_seconds": round(result.elapsed_seconds, 1),
+            "subwindow_days": span.days,
+        }
+        if report is not None:
+            payload["verification"] = {
+                k: (str(v) if not isinstance(v, (int, bool)) else v)
+                for k, v in report.items()
+            }
+        print_result(_json.dumps(payload, indent=2, default=str), json_mode=True)
+        return
+
+    verb = "Planned" if dry_run else "Rebuilt"
+    print_result(
+        f"\n{verb} {result.view_name}: {result.refreshed} window(s) refreshed, "
+        f"{result.skipped} skipped, of {result.windows} total "
+        f"(sub-window {span.days}d).",
+        json_mode=False,
+    )
+    if not dry_run:
+        print_result(
+            f"Rows: {result.rows_before:,} -> {result.rows_after:,} "
+            f"(+{result.rows_added:,}) in {result.elapsed_seconds:.1f}s.",
+            json_mode=False,
+        )
+    if report is not None:
+        _print_coverage_verification(report, json_output=False)
+        print_result(
+            "\nRESUME THE PAUSED JOBS and verify from the catalog — this "
+            "command does not resume them:\n"
+            "  SELECT job_id, proc_name, hypertable_name, scheduled\n"
+            "  FROM timescaledb_information.jobs\n"
+            "  WHERE hypertable_name IN ('minute_coverage', 'daily_coverage');\n"
+            "See user/runbooks/cagg-maintenance-pausing.md (R4).",
+            json_mode=False,
+        )
+
+
+def _print_coverage_verification(
+    report: dict[str, object], *, json_output: bool
+) -> None:
+    """Render the content-based verification, or emit it as JSON."""
+    if json_output:
+        import json as _json
+
+        print_result(_json.dumps(report, indent=2, default=str), json_mode=True)
+        return
+
+    src_lo, src_hi = report["source_span"]  # type: ignore[misc]
+    cov_lo, cov_hi = report["coverage_span"]  # type: ignore[misc]
+    ok = "OK" if report["head_within_one_bucket"] else "STALE"
+    print_result(
+        f"\nVerification ({report['view']} vs {report['source']}):\n"
+        f"  source span   : {src_lo} .. {src_hi}\n"
+        f"  coverage span : {cov_lo} .. {cov_hi}\n"
+        f"  symbols       : {report['coverage_symbols']:,} covered of "
+        f"{report['source_symbols']:,} in source\n"
+        f"  coverage rows : {report['coverage_rows']:,}\n"
+        f"  head lag      : {report['head_lag']}  [{ok}]",
+        json_mode=False,
+    )
