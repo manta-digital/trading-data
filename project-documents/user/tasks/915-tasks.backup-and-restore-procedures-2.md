@@ -34,9 +34,12 @@ Three properties carry over from Part 1 and govern everything here:
   mid-incident is presumed damaged, per `sql.md` and the 2026-08-04 restore.
 - **Never restore over `trading`** (D6). A separate host, or a second cluster on
   a distinct port.
-- **Section 7 is gated on a confirmed restore target** with ~150 GB free. Part 1
-  task 1.2 measured what is available; if no target has been chosen, resolve it
-  with the PM before starting.
+- **Section 7's restore target is resolved**: `nvme1n1` on prod, PM-reported
+  ~800 GB free (2026-08-16), against a measured 141 GB `trading`. That is ample
+  headroom for the compressed archive plus the extracted cluster. The one thing
+  still to confirm is whether `nvme1n1` is the same device as `PGDATA` — if it
+  is, the restore drill shares fate with production and that must be recorded
+  rather than discovered (Part 1 task 1.2).
 
 Sections 7 and 8 are distinct on purpose: Section 7 proves the base backup
 restores, Section 8 proves WAL replay works. Passing the first tells you nothing
@@ -48,18 +51,25 @@ All decisions referenced (D1–D7) are in the LLD.
 
 ## Section 7 — The restore drill (the actual deliverable)
 
-**Gated on a confirmed restore target with ~150 GB free.** Section 1 measured
-what is available; if no target has been identified, resolve that with the PM
-before starting — this section cannot proceed on an assumed disk.
+Target resolved: **`nvme1n1` on prod, ~800 GB free** against a 141 GB source.
+Disk is no longer the blocker it was when the design was written.
 
 - [ ] **7.1 Confirm the restore target**
-  - [ ] Identify where the restore runs: a separate host, or a second cluster on
-        a **distinct port** on `.144`. Never over `trading` (D6)
-  - [ ] Confirm free space against 3.4's measured compressed size plus the
-        extracted 150 GB
-  - [ ] Success: target confirmed with measured free space. If restoring onto
-        `.144`, record explicitly how the restored cluster is prevented from
-        touching the production data directory
+  - [x] Target chosen: `nvme1n1` on `.144`, PM-reported ~800 GB free
+        (2026-08-16). Against a measured 141 GB `trading` plus its compressed
+        archive, headroom is ample
+  - [ ] Restore as a **second cluster on a distinct port**, since the target is
+        the production host rather than a separate machine. Never over `trading`
+        (D6)
+  - [ ] Record explicitly how the restored cluster is prevented from touching
+        the production data directory — a distinct `PGDATA`, a distinct port,
+        and a distinct service invocation. This is the step where an operator
+        under pressure can do real damage, so it belongs in the runbook verbatim
+  - [ ] Confirm whether `nvme1n1` also holds `PGDATA`. If it does, note that the
+        drill is consuming the same device production runs on, and watch free
+        space during 7.2 rather than assuming 800 GB stays available
+  - [ ] Success: target confirmed with measured free space and an explicit
+        written separation from production
   - [ ] Effort: 1
 
 - [ ] **7.2 Restore the base backup and bring the cluster up**
@@ -74,9 +84,13 @@ before starting — this section cannot proceed on an assumed disk.
 - [ ] **7.3 Verify content parity on the priority tables**
   - [ ] Compare `count(*)` for `minute_ohlcv`, `daily_ohlcv`, and
         `acquisition_state` against source (success criterion 6)
-  - [ ] Expect the 4.4 B-class figure for `minute_ohlcv`; note that
-        `approximate_row_count` is known to be materially wrong on this table
-        and must not be used for the comparison
+  - [ ] Expect the 4.4 B-class figure for `minute_ohlcv` and **45,537-class for
+        `acquisition_state`** (measured 2026-08-16, growing daily — 12,191 rows
+        were touched in the 24 hours before that reading)
+  - [ ] Use exact `count(*)` only. Two estimate sources are known wrong on this
+        database: `approximate_row_count` is +68% off on `minute_ohlcv`, and
+        `pg_stat_user_tables.n_live_tup` was measured reporting 0 for several
+        populated metadata tables. Either would let an empty restore pass
   - [ ] Counts will differ slightly from live source if acquisition ran after
         the backup — compare against the source **as of the backup's LSN/time**,
         or accept a documented delta and explain it rather than hand-waving
@@ -102,6 +116,20 @@ before starting — this section cannot proceed on an assumed disk.
   - [ ] Confirm production is untouched: `trading` still serving, daemon still
         advancing
   - [ ] Success: no residue; no production impact
+  - [ ] Effort: 1
+
+- [ ] **7.6 Retire the 2026-08-10 cloned copy**
+  - [ ] **Only after 7.3 and 7.4 pass.** The clone is torn and unverified, but
+        until the drill succeeds it is the only copy that exists. Deleting it
+        earlier trades a known-imperfect backup for an unproven one
+  - [ ] Confirm the drive holds both the clone and the new base backup
+        simultaneously through the drill — reclaiming its space is the *result*
+        of the drill, not a precondition for it
+  - [ ] Once the drill has passed and the offsite copy is checksum-verified
+        (6.5), delete the clone and record the reclaimed space
+  - [ ] Success: the torn copy is gone, and what replaced it has been restored
+        from at least once. This closes out the 2026-08-10 procedure rather than
+        leaving two backup regimes in play
   - [ ] Effort: 1
 
 ---

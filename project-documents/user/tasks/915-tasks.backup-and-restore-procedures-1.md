@@ -13,8 +13,9 @@ projectState: >
   914 is complete. Production is `192.168.1.144`, native Debian
   `postgresql@17-main`, running from a git checkout with **no systemd units and
   no process manager** — the daemon is started manually (production-deploy
-  runbook). Prod today has `archive_mode = off`, `wal_level = replica`, a 150 GB
-  `trading` database, and no tested restore path; the only "backup" is a torn
+  runbook). Re-measured against prod 2026-08-16 (see "Measured state" below):
+  `archive_mode` is still `off`, `wal_level` still `replica`, `trading` is
+  141 GB, and there is still no tested restore path; the only "backup" is a torn
   `cp` of the data directory taken against a running server on 2026-08-10. Slice
   169's coverage-cagg rebuild completed on prod 2026-08-16; its deferred
   criterion-18 check falls on Monday 2026-08-24 and depends on acquisition
@@ -42,6 +43,51 @@ been executed and documented (D6). Tooling that has never restored anything is a
 hypothesis.
 
 All decisions referenced below (D1–D7) are in the LLD.
+
+### Measured state — prod `trading` on .144, 2026-08-16
+
+Queried directly during task breakdown, superseding the design's 2026-08-11
+figures. These are recorded so Section 1 confirms rather than discovers.
+
+| Fact | Measured value |
+|---|---|
+| `archive_mode` / `archive_command` | **`off`** / disabled — unchanged, PITR still does not exist |
+| `wal_level` | `replica` — sufficient for archiving, no change needed |
+| `max_wal_senders` | 10 — `pg_basebackup -Xs` has senders available |
+| `archive_timeout` / `max_wal_size` | 0 / 1024 MB |
+| `trading` size | **141 GB** (design said 150 GB) |
+| Other databases | `trading_test` 7,018 MB, `mt_169_b1` 2,904 MB, 2 small leftovers, `postgres` 11 MB |
+| `pg_wal` | 560 MB across 35 segments |
+| `trading_migrate` attributes | `rolsuper=f`, **`rolreplication=f`**, `rolcreatedb=f` |
+| Restore-target disk | `nvme1n1`, **~800 GB free** (PM-reported 2026-08-16; not verified from here) |
+
+**The metadata tier is populated and actively advancing** — the tables are
+live, not empty:
+
+| Table | Rows | Table | Rows |
+|---|---|---|---|
+| `acquisition_state` | **45,537** | `dividends` | 327,534 |
+| `data_gaps` | 105,774 | `instruments` | 32,075 |
+| `splits` | 6,568 | `trading_sessions` | 4,560 |
+| `universe_members` | 1,127 | `trading_holidays` | 168 |
+| `schema_migrations` | 55 | `trading_calendars` | 2 |
+| `backfill_state` | 0 | `provider_symbol_mapping` | 0 |
+
+`acquisition_state` shows 12,191 rows touched in the last 24 hours and 18,848 in
+the last 7 days, newest attempt 2026-08-16 — the re-run daemons rebuilt it. The
+oldest attempt is 2026-01-15. **This is exactly the state that has no external
+source and is therefore worth protecting**; it is no longer hypothetical.
+
+Two cautions this measurement produced, both folded into tasks below:
+
+- **`pg_stat_user_tables.n_live_tup` is badly stale on this database** — it
+  reported 0 for `instruments`, `dividends`, `splits` and 2 for
+  `schema_migrations`, all wrong. Any verification in this slice must use exact
+  `count(*)`, never planner estimates. This is the same class of error as
+  `approximate_row_count` being +68% wrong on `minute_ohlcv`.
+- **`backfill_state` and `provider_symbol_mapping` are genuinely 0.** Confirm
+  with the PM whether that is expected before treating a restored 0 as a
+  successful restore — a table that is empty on both sides proves nothing.
 
 ### Non-negotiables from the design
 
@@ -102,26 +148,41 @@ The design's prod figures were measured 2026-08-11, before an OS update. Every
 number the later sections depend on is re-confirmed here, so no task acts on a
 stale measurement.
 
-- [ ] **1.1 Re-confirm archive and WAL settings on prod**
-  - [ ] Query `pg_settings` for `wal_level`, `archive_mode`, `archive_command`,
-        `archive_timeout`, `max_wal_size`, `min_wal_size`, `wal_keep_size`
-  - [ ] Confirm `wal_level` is still `replica` and `archive_mode` still `off`
-  - [ ] Record the current values verbatim — they are the rollback state for
+- [x] **1.1 Re-confirm archive and WAL settings on prod**
+  - [x] Query `pg_settings` for `wal_level`, `archive_mode`, `archive_command`,
+        `archive_timeout`, `max_wal_size`, `max_wal_senders`
+  - [x] Confirm `wal_level` is still `replica` and `archive_mode` still `off`
+  - [x] Record the current values verbatim — they are the rollback state for
         Section 4
-  - [ ] Use `statement_timeout` on every prod query per project rule
-  - [ ] Success: current settings recorded in the slice's working notes; any
-        deviation from the design's 2026-08-11 table is flagged before
-        proceeding
-  - [ ] Effort: 1
+  - [x] Use `statement_timeout` on every prod query per project rule
+  - [x] Success: current settings recorded; any deviation from the design's
+        2026-08-11 table is flagged before proceeding
+  - [x] Effort: 1
+  - [x] Done: measured 2026-08-16 during task breakdown. `archive_mode=off`,
+        `archive_command` disabled, `wal_level=replica`, `archive_timeout=0`,
+        `max_wal_size=1024`, `max_wal_senders=10`. No deviation from the design's
+        table — the premise holds and PITR still does not exist. Rollback state
+        for Section 4 is `archive_mode=off` with `archive_command` unset
 
-- [ ] **1.2 Measure database and filesystem sizes**
-  - [ ] `pg_database_size` for `trading`, `trading_test`, and each leftover
-        `mt_test_*` / `mt_diag_*` database
-  - [ ] `df -h` on `.144` for the filesystem holding the data directory, and for
-        any candidate archive/staging destination
-  - [ ] Record current `pg_wal` directory size and file count
-  - [ ] Success: sizes recorded; free space on the data filesystem is known in
-        absolute GB, not percentage
+- [ ] **1.2 Measure filesystem sizes on the host**
+  - [x] `pg_database_size` for every non-template database — done 2026-08-16:
+        `trading` **141 GB** (not the design's 150 GB), `trading_test` 7,018 MB,
+        `mt_169_b1` 2,904 MB, `dbg_sweep_bd61c93e` and `mt_test_0e0e2e2bc659`
+        13 MB each, `postgres` 11 MB. `pg_wal` is 560 MB / 35 segments
+  - [x] Note the leftover-database count is now **4**, not the design's 9 — some
+        were cleaned up since 2026-08-11. `mt_169_b1` (2.9 GB) is slice 169
+        residue and is the largest; still out of scope per D7, but worth a
+        mention to the PM since it is no longer trivially small
+  - [ ] Remaining, and requires host access this breakdown did not have: `df -h`
+        on `.144` for the filesystem holding the data directory and for the
+        archive/staging destination
+  - [ ] Confirm the PM-reported **~800 GB free on `nvme1n1`** and record which
+        mount point that corresponds to, and whether it is the same filesystem
+        as `PGDATA`. If it is the same device, the restore drill and the archive
+        share fate with production — record that explicitly rather than
+        discovering it during an incident
+  - [ ] Success: free space known in absolute GB per mount point, with `PGDATA`,
+        archive destination, and restore target each mapped to a device
   - [ ] Effort: 1
 
 - [ ] **1.3 Measure WAL generation rate**
@@ -135,26 +196,36 @@ stale measurement.
   - [ ] Effort: 2
 
 - [ ] **1.4 Determine whether the maintenance role can run `pg_basebackup`**
-  - [ ] `pg_basebackup` requires the `REPLICATION` attribute or superuser.
-        Membership in `postgres` (which `trading_migrate` has via `GRANT postgres
-        TO trading_migrate`) confers **privileges**, not role **attributes** —
-        verify empirically rather than reasoning about it
-  - [ ] Query `pg_roles` for `rolreplication` and `rolsuper` on `trading_migrate`
-  - [ ] Confirm `max_wal_senders` > 0 (required for `-Xs`) and check
-        `pg_hba.conf` admits a `replication` connection for the maintenance role
-        from the backup host
+  - [x] Query `pg_roles` for `rolreplication` and `rolsuper` — measured
+        2026-08-16: `trading_migrate` has **`rolsuper=f` and `rolreplication=f`**.
+        `trading_app` likewise both false. Only `postgres` has either
+  - [x] **Confirmed: the anticipated gap is real.** `trading_migrate` holds
+        `GRANT postgres TO trading_migrate` (913), but role *membership* confers
+        privileges, not role *attributes* — and `pg_basebackup` checks the
+        attribute. As it stands, the maintenance credential **cannot** take a
+        base backup. Task 1.5 is therefore required, not conditional
+  - [x] `max_wal_senders` is 10, so `-Xs` has senders available
+  - [ ] Remaining (needs host access): check `pg_hba.conf` admits a
+        `replication` connection for `trading_migrate` from the backup host.
+        A `replication` connection is matched by its own `pg_hba.conf` line —
+        an existing entry for the `trading` database does **not** cover it,
+        which is the usual first failure of a `pg_basebackup` attempt
   - [ ] Success: a definite answer to "which credential takes the base backup,
-        and what does it need." If `REPLICATION` is missing, that is the input
-        to task 1.5 — do not work around it by reaching for `postgres`
+        and what does it need." Do not work around a missing attribute by
+        reaching for `postgres`
   - [ ] Effort: 2
 
-- [ ] **1.5 Add any required grant to `provision_roles.sql`**
-  - [ ] If 1.4 shows the maintenance role lacks what `pg_basebackup` needs, add
-        it to [scripts/provision_roles.sql](../../../scripts/provision_roles.sql)
-        — the same reviewed artifact 913 established, guarded for idempotency
-  - [ ] Prefer `ALTER ROLE trading_migrate REPLICATION` over granting superuser;
-        if a `pg_hba.conf` line is also needed, record it in the runbook (it is
-        a host file, not part of the SQL artifact)
+- [ ] **1.5 Add the required replication grant to `provision_roles.sql`**
+  - [ ] **Required, per the 1.4 measurement** — `trading_migrate` lacks
+        `rolreplication`. Add `ALTER ROLE trading_migrate REPLICATION` to
+        [scripts/provision_roles.sql](../../../scripts/provision_roles.sql), the
+        same reviewed artifact 913 established, guarded for idempotency
+  - [ ] Do **not** grant superuser as a shortcut. 913's whole result was that no
+        application-reachable credential is destructive; `REPLICATION` alone is
+        the minimum `pg_basebackup` needs and does not confer DML or DDL rights
+  - [ ] Add the `pg_hba.conf` `replication` line if 1.4 shows it missing, and
+        record it in the runbook — it is a host file, not part of the SQL
+        artifact, so the artifact alone will not reproduce it on a rebuild
   - [ ] Re-run the artifact twice consecutively under `psql -v ON_ERROR_STOP=1`
         and confirm both exit 0 (913's idempotency contract)
   - [ ] Success: the maintenance credential can open a replication connection;
@@ -194,11 +265,18 @@ the 150 GB tier.
         `_timescaledb_internal` chunk tables
   - [ ] Do **not** hardcode the table list from the design's D4 table — that
         list is the expected *output*, not the input
-  - [ ] Success: the query returns the D4 set (`instruments`,
-        `provider_symbol_mapping`, `acquisition_state`, `backfill_state`,
-        `data_gaps`, `trading_calendars`, `trading_holidays`, `trading_sessions`,
-        `splits`, `dividends`, `schema_migrations`) against prod's current
-        schema, derived rather than typed
+  - [ ] Success: the query returns the D4 set against prod's current schema,
+        derived rather than typed. Expected output as measured 2026-08-16 —
+        `acquisition_state`, `data_gaps`, `dividends`, `instruments`, `splits`,
+        `trading_sessions`, `universe_members`, `trading_holidays`,
+        `schema_migrations`, `trading_calendars`, `backfill_state`,
+        `provider_symbol_mapping`. Note `universe_members` is **not** in the
+        design's D4 list but is a real metadata table with 1,127 rows; a derived
+        query picks it up automatically, which is the point of deriving
+  - [ ] Also confirm `daemon_heartbeat` is classified deliberately rather than
+        by accident — it is genuinely empty and is runtime state, so excluding
+        it is defensible, but it should not be excluded merely because it
+        happened to be empty on the day the query was written
   - [ ] Effort: 2
 
 - [ ] **2.2 Implement the metadata dump script**
@@ -243,9 +321,19 @@ the 150 GB tier.
 - [ ] **2.5 Prove the metadata dump actually restores**
   - [ ] `pg_restore` the dump into a throwaway database and compare row counts
         for every dumped table against the source
+  - [ ] Use exact `count(*)`, **never** `pg_stat_user_tables.n_live_tup` — it was
+        measured badly stale on this database (reported 0 for `instruments` and
+        `dividends`, 2 for `schema_migrations`, all wrong). A comparison built on
+        estimates would pass against an empty restore
+  - [ ] Expected source counts as of 2026-08-16 are in the Measured state table;
+        they will have moved by execution time, so re-read source at compare time
+        rather than asserting against these figures
+  - [ ] The two genuinely-empty tables (`backfill_state`,
+        `provider_symbol_mapping`) prove nothing on either side — do not count
+        them as evidence of a successful restore
   - [ ] This is a content check, not a "pg_restore exited 0" check (D6)
-  - [ ] Success: every table's row count matches source. A dump that has never
-        been restored does not count as a backup
+  - [ ] Success: every non-empty table's row count matches source. A dump that
+        has never been restored does not count as a backup
   - [ ] Effort: 2
 
 ---
@@ -294,7 +382,8 @@ untested tooling at the same time.
 - [ ] **3.4 Take a full base backup against the live prod server**
   - [ ] Run with the daemon **running** — the whole point of D1 is that no
         maintenance window is needed (success criterion 3)
-  - [ ] Run off-hours: this is a ~150 GB read against the live box
+  - [ ] Run off-hours: this is a **141 GB** read against the live box (measured
+        2026-08-16; the design's 150 GB was approximate)
   - [ ] Record wall-clock duration, compressed size, and observed impact on
         acquisition (does the daemon keep advancing `acquisition_state`?)
   - [ ] Confirm `pg_verifybackup` reports success on the result
@@ -422,14 +511,20 @@ written. An unfired alarm is untested.
 
 ## Section 6 — Offsite copy
 
-- [ ] **6.1 Confirm the offsite target with the PM**
-  - [ ] The design recommends **B2** on three grounds: no minimum storage
-        duration, immediate restore, and free egress (which removes the
-        disincentive to repeat the drill). Deep Archive's 180-day floor and
-        12–48 h restore are the disqualifiers, not its headline price
-  - [ ] This is a PM decision with a cost commitment — confirm rather than assume
-  - [ ] Success: target chosen and recorded; bucket created; credentials held
-        out-of-band
+- [ ] **6.1 Set up the Backblaze B2 account and bucket**
+  - [x] Target decided: **B2**, confirmed by the PM 2026-08-16. Chosen for no
+        minimum storage duration, immediate restore, and free egress (which
+        removes the disincentive to repeat the drill). Deep Archive's 180-day
+        floor and 12–48 h restore were the disqualifiers, not its headline price
+  - [ ] PM action: create the B2 account (not yet held as of 2026-08-16)
+  - [ ] Create a bucket for this project; keep it **private**, and note that a
+        bucket holding a full database copy must never be public
+  - [ ] Create an **application key scoped to that bucket**, not the master key.
+        A master key can delete every bucket in the account; a scoped key limits
+        what a leaked credential reaches — the same reasoning as slice 913
+  - [ ] Expected cost at 141 GB: roughly $1/month at B2's current rate
+  - [ ] Success: bucket exists, is private, and a bucket-scoped application key
+        authenticates
   - [ ] Effort: 1
 
 - [ ] **6.2 Configure credentials without committing them**
