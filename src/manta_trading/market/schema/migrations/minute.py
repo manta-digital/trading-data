@@ -156,6 +156,25 @@ def _interval_literal(td: timedelta) -> str:
     )
 
 
+def _composite_lag_literal(td: timedelta) -> str:
+    """Render a days+minutes duration for human prose (slice 169 D5).
+
+    Distinct from :func:`_interval_literal`, which renders values that become
+    real SQL ``INTERVAL`` literals and therefore must stay in a single unit.
+    This one is for the ``COMMENT ON VIEW`` text only, where a coverage lag of
+    one bucket plus a schedule interval would otherwise render as
+    ``525720 minutes`` — arithmetically right and useless to the operator the
+    comment exists for.
+    """
+    days, seconds = td.days, td.seconds
+    minutes = seconds // 60
+    if days and minutes:
+        return f"{days} days {minutes} minutes"
+    if days:
+        return f"{days} days"
+    return f"{minutes} minutes"
+
+
 _SEED_START_YEAR = 2020
 _SEED_END_YEAR = 2026
 
@@ -361,10 +380,30 @@ def _data_status_doc_comment() -> str:
 
     Single-quoted for embedding in the migration's DO block, hence the doubled
     quotes throughout — same escaping convention as the view builder.
+
+    **The CAGG LAG formula carries a bucket-width term (slice 169 D5).** Before
+    169 this rendered the schedule intervals alone — "2 hours total" — which was
+    wrong from slice 167 onward, independent of any width change: a refresh
+    policy's window is truncated to whole buckets, so the *open* bucket is never
+    re-materialized while it is open. The schedule interval bounds only how
+    promptly *closed* buckets are rewritten. The real bound an operator running
+    ``\\d+ data_status`` needs is therefore
+
+        coverage lag  =  COVERAGE_BUCKET_INTERVAL + refresh schedule interval(s)
+
+    Rendering the old formula promised hours against a production reality of
+    months (both coverage caggs sat at 2025-12-26 on 2026-08-11 while raw ran to
+    2026-08-07). This is the artifact 140-arch points operators at, so it is
+    precisely the one that must not lie.
     """
-    minute_lag = _interval_literal(
-        MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL
+    bucket_lag = _interval_literal(COVERAGE_BUCKET_INTERVAL)
+    minute_lag = _composite_lag_literal(
+        COVERAGE_BUCKET_INTERVAL
+        + MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL
         + MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+    )
+    daily_lag = _composite_lag_literal(
+        COVERAGE_BUCKET_INTERVAL + DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
     )
     return (
         "data_status: per-symbol acquisition health. "
@@ -377,14 +416,22 @@ def _data_status_doc_comment() -> str:
         "earlier than the true first/last bar; daily timestamps are EXACT, "
         f"because {DAILY_COVERAGE_VIEW} reads raw daily_ohlcv rather than a "
         "parent cagg. bars_stored is exact on both branches. "
-        "(2) CAGG LAG: coverage trails raw ingest by at most the two-hop "
-        "refresh interval -- "
+        "(2) CAGG LAG: coverage trails raw ingest by at most one coverage "
+        f"bucket ({bucket_lag}) PLUS the refresh schedule interval(s). The "
+        "bucket term dominates and is structural, not a scheduling delay: a "
+        "refresh policy''s window is truncated to whole buckets, so the "
+        "CURRENT (open) bucket is never re-materialized while it is open. The "
+        "schedule interval bounds only how promptly CLOSED buckets are "
+        "rewritten. For "
+        f"{MINUTE_COVERAGE_VIEW} that is {bucket_lag} plus "
         f"{_interval_literal(MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL)} "
         "for the parent 4-hour cagg plus "
         f"{_interval_literal(MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} "
-        f"for {MINUTE_COVERAGE_VIEW} ({minute_lag} total); "
-        f"{_interval_literal(DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} for "
-        f"{DAILY_COVERAGE_VIEW}, which reads raw and so has one hop. "
+        f"for the coverage cagg ({minute_lag} total); for "
+        f"{DAILY_COVERAGE_VIEW}, which reads raw and so has one hop, "
+        f"{bucket_lag} plus "
+        f"{_interval_literal(DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL)} "
+        f"({daily_lag} total). "
         "Refresh policies use start_offset "
         f"{_interval_literal(MINUTE_COVERAGE_REFRESH_START_OFFSET)} / end_offset "
         f"{_interval_literal(MINUTE_COVERAGE_REFRESH_END_OFFSET)} (minute) and "
@@ -2054,6 +2101,179 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             SELECT set_chunk_time_interval(
                 '{DAILY_OHLCV_TABLE}', {_daily_chunk_interval_sql()}
             );
+        """,
+    },
+    {
+        "id": "051_coverage_cagg_bucket_narrowing",
+        "description": (
+            "Drop and recreate both coverage caggs at the narrowed "
+            f"COVERAGE_BUCKET_INTERVAL ({_interval_literal(COVERAGE_BUCKET_INTERVAL)}, "
+            "slice 169), replacing 046's 1-year width. "
+            "WHY A REBUILD: a cagg's time_bucket width is compiled into its view "
+            "definition and TimescaleDB has no re-bucket operation, so the width "
+            "cannot be ALTERed — the views must be dropped and re-materialized. "
+            "WHY NARROWER: a refresh policy's window is truncated to whole "
+            "buckets and only re-materializes buckets FULLY CONTAINED in it, so "
+            "the open bucket is never written while open. At a 1-year width that "
+            "made both hourly policies successful no-ops for 205 consecutive "
+            "runs — measured on prod 2026-08-11, both caggs sat at 2025-12-26 "
+            "while raw ran to 2026-08-07. Narrowing does not make the engine "
+            "refresh an open bucket (nothing does); it bounds how much that "
+            "limitation can hide, from up to a year to one bucket width. "
+            "ORDERING IS MANDATORY: data_status depends on both caggs, so it is "
+            "dropped FIRST and re-installed LAST from 048's unchanged builder. "
+            "CASCADE is forbidden — it would silently drop data_status and break "
+            "mt data status, /api/v1/status, and /api/v1/health against a "
+            "missing relation. "
+            "Runs requires_autocommit with NO transactional rollback, so every "
+            "statement is IF EXISTS / IF NOT EXISTS and re-running converges "
+            "from any point. "
+            "This migration creates the caggs EMPTY (WITH NO DATA); "
+            "full-history materialization is a separate operational step, not "
+            "part of the migration chain — a cold-start database has no history "
+            "to materialize and should not pay for the machinery."
+        ),
+        # Same constraint as 033/034/046: one CREATE MATERIALIZED VIEW per
+        # execute(), outside an implicit transaction.
+        "requires_autocommit": True,
+        "python_fn": lambda conn: [
+            conn.execute(sql)
+            for sql in [
+                # (1) data_status holds a hard relation dependency on both
+                # caggs (048's bars_summary CTE selects from them), so it must
+                # go first. Without this the DROP below raises "cannot drop ...
+                # because other objects depend on it" partway through a
+                # non-transactional migration, leaving one cagg dropped and one
+                # intact.
+                "DROP VIEW IF EXISTS data_status",
+                # (2) No CASCADE. See the description.
+                f"DROP MATERIALIZED VIEW IF EXISTS {MINUTE_COVERAGE_VIEW}",
+                f"DROP MATERIALIZED VIEW IF EXISTS {DAILY_COVERAGE_VIEW}",
+                # Column names/types/aliases are identical to 046 (with 049's
+                # time_bucket rename already applied), so every downstream query
+                # binds unchanged — the payoff of 167 D2's column contract.
+                # WITH NO DATA: materialization is the operational step.
+                f"""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS {MINUTE_COVERAGE_VIEW}
+                WITH (timescaledb.continuous) AS
+                SELECT
+                    time_bucket(
+                        {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
+                        time_bucket
+                    ) AS time_bucket,
+                    symbol,
+                    SUM(minute_count) AS bars,
+                    MIN(time_bucket)  AS first_bucket,
+                    MAX(time_bucket)  AS last_bucket
+                FROM minute_4hour_ohlcv
+                GROUP BY 1, symbol
+                WITH NO DATA
+                """,
+                f"""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS {DAILY_COVERAGE_VIEW}
+                WITH (timescaledb.continuous) AS
+                SELECT
+                    time_bucket(
+                        {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
+                        time
+                    ) AS time_bucket,
+                    symbol,
+                    COUNT(*)  AS bars,
+                    MIN(time) AS first_bucket,
+                    MAX(time) AS last_bucket
+                FROM daily_ohlcv
+                GROUP BY 1, symbol
+                WITH NO DATA
+                """,
+                # (3) Re-install data_status from 048's definition, unchanged,
+                # and re-attach the corrected doc comment. Both are re-executed
+                # here rather than rewritten: the view is a pure function of its
+                # migration, so this is restoration, not revision.
+                f"""
+                DO $$ BEGIN
+                    IF to_regclass('public.daily_ohlcv') IS NOT NULL THEN
+                        EXECUTE '{_DATA_STATUS_VIEW_WITH_DAILY_COVERAGE}';
+                    ELSE
+                        EXECUTE '{_DATA_STATUS_VIEW_WITHOUT_DAILY_COVERAGE}';
+                    END IF;
+
+                    EXECUTE 'COMMENT ON VIEW data_status IS '
+                         || quote_literal('{_data_status_doc_comment()}');
+                END $$;
+                """,
+            ]
+        ],
+    },
+    {
+        "id": "052_coverage_cagg_refresh_policies_narrowed",
+        "description": (
+            "Reinstall both coverage caggs' refresh policies after 051's "
+            "drop/recreate (slice 169). Dropping a cagg drops its policies with "
+            "it, so this is a reinstall rather than an alteration. "
+            "start_offset is re-derived at the new width (D4a): the previous "
+            "750 days was FORCED by the 1-year bucket's 731-day engine floor, "
+            "not independently motivated. Measured policy cost with real "
+            "invalidations shows steady-state (head-only) refresh is flat across "
+            "a 47x window increase — 0.058 s at 16 days vs 0.072 s at 750 — so "
+            "the window is chosen for how far back a deep backfill can self-heal "
+            "rather than to minimise per-run work. end_offset and "
+            "schedule_interval are unchanged from 047. "
+            "Also re-renders COMMENT ON VIEW data_status. 051 step (3) is the "
+            "primary install path for that comment — view and comment are "
+            "attached together so they can never observably disagree — and this "
+            "is a belt-and-braces idempotency guard for the case where 051 "
+            "already applied and 052 runs later. Both call the same function, so "
+            "this is a no-op in the happy path, not a second source of truth. "
+            "Idempotent: policies are added inside a DO block that checks for an "
+            "existing job first, matching 047/035/037."
+        ),
+        "sql": f"""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM timescaledb_information.jobs
+                    WHERE hypertable_name = '{MINUTE_COVERAGE_VIEW}'
+                      AND proc_name = 'policy_refresh_continuous_aggregate'
+                ) THEN
+                    PERFORM add_continuous_aggregate_policy(
+                        '{MINUTE_COVERAGE_VIEW}',
+                        start_offset =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_START_OFFSET
+                            )},
+                        end_offset =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_END_OFFSET
+                            )},
+                        schedule_interval =>
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM timescaledb_information.jobs
+                    WHERE hypertable_name = '{DAILY_COVERAGE_VIEW}'
+                      AND proc_name = 'policy_refresh_continuous_aggregate'
+                ) THEN
+                    PERFORM add_continuous_aggregate_policy(
+                        '{DAILY_COVERAGE_VIEW}',
+                        start_offset =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_START_OFFSET
+                            )},
+                        end_offset =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_END_OFFSET
+                            )},
+                        schedule_interval =>
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
+                END IF;
+
+                EXECUTE 'COMMENT ON VIEW data_status IS '
+                     || quote_literal('{_data_status_doc_comment()}');
+            END $$;
         """,
     },
 ]

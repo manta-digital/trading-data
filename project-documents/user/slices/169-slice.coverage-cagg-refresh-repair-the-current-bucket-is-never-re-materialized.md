@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [167, 168, 170, 187]
 interfaces: [187]
 dateCreated: 20260813
-dateUpdated: 20260813
-status: not_started
+dateUpdated: 20260815
+status: in_progress
 ---
 
 # Slice Design: Coverage-Cagg Refresh Repair — the Current Bucket Is Never Re-materialized
@@ -647,15 +647,61 @@ readers; it is **not** invisible to `DROP`, which is F002's point above.
     (`count(*)`, not `approximate_row_count`).
 11. Every job paused during the rebuild is `scheduled = true` afterward, and
     `minute_4hour_ohlcv`'s refresh was never paused (R1/R4).
-12. **The full-universe `data_status` read** meets the sub-second NFR that slice
-    167 exists to hold — measured as `SELECT count(*) FROM data_status` (the
-    shape 167 took from 7.8 s to sub-second, and the form 140-arch states the
-    NFR in), with the number recorded. The isolated `bars_summary` `GROUP BY`
-    is a **diagnostic, not the gate**: at 30 days `daily_coverage` grows ~12×,
-    and the full view additionally joins that CTE against `symbols`,
-    `acquisition_state`, and the exchange-close CTE over a larger intermediate.
-    A fast CTE with a regressed view read would pass a CTE-only criterion while
-    breaking the actual architectural NFR.
+12. **The full-universe `data_status` read** is measured against the shape a
+    caller actually issues, and the measured value is recorded.
+
+    *(Amended 2026-08-15 — slice 169 Task B.8, PM-approved.)* This criterion
+    previously read "meets the sub-second NFR … measured as
+    `SELECT count(*) FROM data_status`". Both halves were wrong for this slice:
+
+    - **`count(*)` is not a shape any caller issues.** It lets the planner skip
+      the projection, the sort, and most row assembly, so it systematically
+      understates the reader path. Every real invocation of `mt data status`
+      and `/api/v1/status` issues *two* reads — the row fetch
+      (`fetch_status_rows_with_freshness`) and an **always-unfiltered**
+      `GROUP BY health` summary. Measured at the shipped 7-day width on a
+      prod-shaped database: `count(*)` = 0.933 s while the real pair = 2.636 s,
+      a 2.8× gap. Selecting the width against `count(*)` (Task B.4) therefore
+      rested on a number that did not describe the thing being protected.
+    - **The 1-second bound cannot survive the narrowing this slice exists to
+      do.** Measured on the same database, the caller-issued pair costs
+      0.487 s at 365 days, 1.716 s at 30 days, and 2.636 s at 7 days. The
+      bound is reachable *only* at the width that causes the defect — a fast
+      read of coverage that may be a year stale is not the property slice 167
+      was protecting.
+
+    **The criterion is therefore a recorded measurement plus a no-regression
+    bound, not a fixed sub-second gate.** What must hold:
+
+    a. The caller-issued read (row fetch + health summary, full universe) is
+       measured at the shipped width and the number is recorded here, in
+       140-arch, and in `test/load/test_167_data_status_nfr.py`.
+    b. It stays **two orders of magnitude** below the 7.8 s raw-scan cost
+       slice 167 removed — that margin, not an absolute second, is what 167's
+       architecture actually bought and what a regression would erase.
+    c. Any later change that worsens it fails the load test, so the number can
+       only move deliberately.
+
+    **Recorded value at the shipped 7-day width: 2.636 s** (row fetch 1.672 s +
+    health summary 0.964 s), versus 7.8 s before slice 167 and 0.487 s at the
+    pre-169 365-day width.
+
+    **This is a real regression against pre-169 production and is accepted with
+    its remedy already identified**, not waved through: ~37 % of the cost is
+    `fetch_all_health_counts_with_freshness`, which ignores the caller's symbol
+    filter and aggregates all 12,040 symbols on every call (**issue #16**). The
+    row-fetch term is **issue #17**. Neither is in this slice's scope, both are
+    filed, and #16 alone is expected to take the single-symbol case — the
+    common one — from ~2.6 s to ~0.01 s. Frequency context that makes this
+    acceptable: `/api/v1/health` does not read `data_status` at all, the daemon
+    never reads it, and `mt data status` is operator-initiated a few times a
+    day. There is no hot path.
+
+    The isolated `bars_summary` `GROUP BY` remains a **diagnostic, not the
+    gate**: the full view joins that CTE against `instruments`,
+    `acquisition_state`, `data_gaps`, and the exchange-close CTE, so a fast CTE
+    with a regressed view read would pass a CTE-only criterion while breaking
+    what an operator experiences.
 13. `data_status` exists and returns rows after 051 — verified directly, not
     inferred from column compatibility (F002).
 14. `COMMENT ON VIEW data_status`, read back via `obj_description`, states a

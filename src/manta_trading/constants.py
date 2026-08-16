@@ -330,22 +330,58 @@ the raw hypertable — so the timestamps it yields are exact rather than truncat
 to a parent bucket. See slice 167 D3/D7.
 """
 
-COVERAGE_BUCKET_INTERVAL: timedelta = timedelta(days=365)
-"""``time_bucket`` width for both coverage continuous aggregates (slice 167).
+COVERAGE_BUCKET_INTERVAL: timedelta = timedelta(days=7)
+"""``time_bucket`` width for both coverage continuous aggregates (slice 167,
+narrowed from 365 days by slice 169).
 
-One year. Sized so ``bars_summary`` groups ~15k rows (~5,871 symbols × ~22 years
-of history) instead of the 4.4-billion-row raw scan that held the full-universe
-``data_status`` read at 7.8 s. Grouping at this size is sub-millisecond
-*regardless of the parent cagg's chunk count*, which is the durability argument
-for the hierarchical structure (slice 167 D1).
+**Why it is no longer a year.** A refresh policy's window is truncated to whole
+buckets and only re-materializes buckets *fully contained* in it, so the open
+(current) bucket is never written by the policy — it is materialized once at
+cagg creation and then not again until it closes. At a 365-day width that made
+both hourly policies successful no-ops for 205 consecutive runs: measured on
+prod 2026-08-11, both coverage caggs sat at 2025-12-26 while raw ran to
+2026-08-07, and a forced full-span refresh did not move the head.
 
-``timedelta`` rather than a calendar year: TimescaleDB's ``time_bucket`` on a
-``timestamptz`` column takes a fixed-width interval, and bucket boundaries need
-not align to calendar years — the buckets are a grouping device for coverage
-bookkeeping, not a reporting calendar.
+Narrowing does **not** make the engine refresh an open bucket — nothing does.
+It bounds how much data that limitation can hide. The width therefore sets the
+worst-case coverage lag directly:
+
+    worst-case coverage lag = COVERAGE_BUCKET_INTERVAL + end_offset
+
+At 7 days that is 7 d 4 h, down from up to a year. ``COVERAGE_CONTENT_STALENESS``
+and ``COVERAGE_BUCKET_LAG_BUDGET`` are both derived from it for exactly this
+reason.
+
+**Row-count trade, measured (slice 169 Task B, not worst-case estimates).** Row
+count scales as 1/width. On a prod-shaped database (12,040 daily symbols over
+1962-2026; 5,871 minute symbols over 2004-2026) the actuals are:
+
+    width   minute_coverage   daily_coverage
+     365 d      ~15 k (measured, slice 167)
+      30 d      708,568         3,914,188
+       7 d    3,019,870        16,742,957
+
+Read cost is linear in those rows and saturates at **one** parallel worker
+(measured: flat from 1 to 16 workers), so this is a straight volume trade, not
+a parallelism cliff. The 4.4-billion-row raw scan slice 167 escaped is still
+two orders of magnitude away.
+
+``timedelta`` rather than a calendar interval: TimescaleDB's ``time_bucket`` on
+a ``timestamptz`` column takes a fixed-width interval, and bucket boundaries
+need not align to a calendar — the buckets are a grouping device for coverage
+bookkeeping, not a reporting calendar. Whole days also nest cleanly inside
+``minute_coverage``'s 4-hour parent buckets.
 
 **This width sets a hard floor on the refresh policies' ``start_offset``** —
-see ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``. Changing it moves that floor.
+see ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``. Changing it moves that floor;
+narrowing *relaxes* it (the floor drops from 731 days to 14 d 4 h, the one
+constraint that got easier — though the offsets themselves are set by measured
+cost, not by the floor).
+
+Changing this value is a **drop-and-rebuild**, not an ``ALTER``: the width is
+compiled into each cagg's view definition and TimescaleDB has no re-bucket
+operation, so both caggs must be dropped, recreated, and re-materialized over
+full history (migrations 051/052).
 """
 
 COVERAGE_SOURCE_TABLE: dict[str, str] = {
@@ -395,44 +431,10 @@ test time instead of at migration time.
 
 This constraint never bound the pre-167 caggs: each has a bucket far smaller
 than its offsets (4 h bucket / 1 day offset; 3-month bucket / 270-day offset).
-A 1-year bucket is the first one large relative to any sane refresh window.
-"""
-
-COVERAGE_CONTENT_STALENESS: timedelta = timedelta(days=1, hours=4)
-"""How far a coverage cagg's **content edge** may trail its raw source before
-``check_coverage_freshness`` reports it stale (slice 187 D6).
-
-Distinct from ``MAX_COVERAGE_SOURCE_STALENESS``, which the generic guard applies
-to *bucket* lag — ``time_bucket(width, max(time))`` on raw versus
-``max(time_bucket)`` on the cagg. Both sides of that comparison are bucket
-starts, so no lag smaller than one bucket width is observable (see
-``cagg_freshness._raw_max``). With ``COVERAGE_BUCKET_INTERVAL`` at 365 days the
-generic check is vacuous for these two views: prod returned ``is_fresh=True,
-lag=0`` over a 52-day staleness on 2026-08-04.
-
-This threshold is applied to a different measurement — ``max(last_bucket)`` on
-the cagg against ``max(time)`` on its source, with **no** bucket alignment.
-``last_bucket`` is a content timestamp rather than a bucket start, so the lag it
-yields is real rather than structural, and a one-year bucket cannot cancel it.
-
-Derivation, so the value is arithmetic and not a guess:
-
-    MAX_COVERAGE_SOURCE_STALENESS  (1 day)
-  + max(end_offset) over both coverage refresh policies  (4 h)
-  = 1 day 4 h
-
-``end_offset`` is added because a policy deliberately declines to materialize
-the most recent ``end_offset`` of data — that much lag is configured, not stale.
-The **larger** of the two policies' offsets is used so one threshold serves both
-views without firing on a healthy one. Measured on prod ``trading`` 2026-08-04,
-jobs 1107/1108: ``minute_coverage`` end_offset 4 h, ``daily_coverage`` 1 h (both
-``start_offset`` 750 days).
-
-This is a **detection** fix, not a policy tightening: the budget is the same one
-the bucket check nominally applies, and it stays the same size — what changes is
-that the measurement it judges can actually see the lag. Once slice 169 repairs
-the refresh, this value can be revisited independently of the bucket threshold,
-which is the reason it is a separate constant rather than a reuse.
+The 365-day coverage bucket was the first one large relative to any sane
+refresh window — which is precisely why its open bucket was never
+re-materialized (slice 169). At the narrowed 7-day width the coverage caggs
+rejoin the well-behaved group: the floor drops from 731 days to 14.
 """
 
 MINUTE_CAGG_REFRESH_START_OFFSET: timedelta = timedelta(days=1)
@@ -456,34 +458,102 @@ from this constant plus the coverage cadence, so the comment cannot drift from
 the policies actually installed. Migration 035 owns the parent policy itself.
 """
 
-MINUTE_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=750)
-"""``start_offset`` for the ``minute_coverage`` refresh policy (slice 167 D4).
+MINUTE_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=365)
+"""``start_offset`` for the ``minute_coverage`` refresh policy (slice 167 D4,
+re-derived at the narrowed width by slice 169 D4a).
 
-Two constraints bind here, and the engine's is the larger:
+Three constraints bind here, and the engine's is still the largest:
 
 1. **Floor from the parent** (measured on prod 2026-07-26): the parent
    ``minute_4hour_ohlcv`` policy (job 1003) runs ``schedule_interval`` 1 h with
    ``start_offset`` 1 day, ``end_offset`` 4 h. A hierarchical cagg must
    re-materialize any parent bucket that changed since it last ran, so its
    window must exceed the parent's entire refresh window, with margin.
+   365 days clears this by more than two orders of magnitude.
 2. **Floor from TimescaleDB** (the binding one): ``start_offset - end_offset``
-   must be at least ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS`` × the 1-year bucket,
-   i.e. ≥ 731 days here. Measured, not assumed — 730 days is rejected.
+   must be at least ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS`` × the bucket width.
+   At 7 days that is 14 days *of window*, so the smallest usable
+   ``start_offset`` is 14 d + ``end_offset`` — not 14 d flat. Verified against
+   TimescaleDB 2.29.1 with a 7-day bucket and a 4 h ``end_offset``: 14 days is
+   rejected, 14 days 4 hours is the first value accepted.
+   ``test_coverage_refresh_window_satisfies_timescale_minimum`` asserts this
+   from the constants, so a width change fails at test time rather than against
+   a live database — it caught exactly this off-by-one-end_offset during 169.
+3. **Measured runtime must fit the schedule interval** (new in 169 D4a).
 
-750 days satisfies both with a ~19-day margin above the engine floor, so a
-future ``end_offset`` change does not immediately breach it.
+**Constraint 3 was measured, and it does not bind.** Slice 169 Task B measured
+policy run cost against ``start_offset`` at the 7-day width, seeding real
+invalidations before each run (a quiescent database has nothing to refresh, so
+the earlier flat 0.023 s reading proved nothing):
+
+    start_offset   head-only   deep backfill   nothing pending
+        16 d        0.058 s       0.064 s          0.011 s
+        90 d        0.063 s       1.028 s          0.128 s
+       180 d        0.065 s       1.934 s          0.011 s
+       365 d        0.067 s       3.588 s          0.011 s
+       750 d        0.072 s       5.400 s          0.011 s
+
+"head-only" is the steady state — the daemon appending recent bars, dirtying
+only the open bucket — and it is **flat across a 47x window increase**
+(0.058 → 0.072 s). That is invalidation tracking doing exactly what it claims:
+window size costs nothing when only the head is dirty. "deep backfill" dirtied
+500 symbols at ~20 scattered points across the *entire* window before each run;
+even that adversarial shape costs 3.6 s here, **0.1% of the 1-hour schedule
+interval**.
+
+So D4a's worry — that a previously-no-op policy would overrun its interval once
+it began doing real work — does not survive measurement at any candidate value.
+
+**365 days chosen over the 14 d 4 h engine floor** because the floor is not
+free: ``start_offset`` also bounds how far back a *deep backfill* can be healed
+by the scheduled policy (see the residual below), and at 9 ms of steady-state
+cost there is no reason to buy a two-week horizon when a one-year horizon costs
+the same. 750 days was rejected: it doubles the deep-backfill run for no
+additional practical coverage.
+
+**Why the value moved at all.** 750 days was *forced* by the 365-day width's
+731-day engine floor — not independently motivated — so narrowing the bucket
+left it a leftover rather than a constraint, and it had to be re-derived rather
+than inherited. It lands back at 365 days by measurement rather than by
+accident: the number above is chosen from the cost table, not carried over.
+
+**Caveat on the measurements.** They were taken on a quiescent host. Prod runs
+the daemon concurrently, which would scale every column — but the head-only
+column's *flatness* across 47x of window is a structural property of
+invalidation tracking, not an artifact of an idle box. Slice 169 part 2
+(Task G) takes the confirming measurement under live ingest.
 
 This is a bound on how far back the policy will *look*, not work performed per
 run: refresh is driven by TimescaleDB's invalidation tracking, so a run rewrites
-only the buckets that actually changed — in steady state the current year's
-bucket for the symbols that got new bars, ~1-2 rows per affected symbol.
+only the buckets that actually changed — in steady state the current bucket for
+the symbols that got new bars, ~1-2 rows per affected symbol.
 
-**Residual hazard, deliberately accepted:** a bucket older than the window that
-is rewritten by a deep backfill will not be picked up by the scheduled policy.
-That is the same stranding shape that produced the ~79% under-materialization
-slice 163 repaired, relocated to the ~2-year boundary rather than eliminated.
-It is detected by ``mt data caggs verify`` and healed by ``repair`` — the
-standing rule after any raw restructuring or deep backfill.
+**Residual hazard, deliberately accepted — and larger at this width.** A bucket
+older than the window that is rewritten by a deep backfill will not be picked up
+by the scheduled policy. That is the same stranding shape that produced the ~79%
+under-materialization slice 163 repaired. Moving ``start_offset`` from 750 to
+365 days halves that horizon, so a backfill older than one year now strands
+coverage where previously one older than two years would.
+
+This is the deliberate trade for constraint 3: an hourly policy that reliably
+keeps the head current beats a wide one that may overrun its interval.
+
+**There is currently no automated detection or remedy for this (issue #18).**
+``mt data caggs verify``/``repair`` cover the four *minute rollup* caggs only —
+``_resolve_minute_granularities`` states "Daily caggs are out of scope for
+parity/repair" — so neither coverage cagg is reachable by either command. Do
+not rely on the standing "verify then repair" rule here; it does not apply to
+these two views. ``assert_cagg_fresh`` will not catch it either: it compares
+*edges*, so a cagg with a current head and a hole in its middle reports fresh.
+
+Until #18 lands, the remedy after any deep backfill or restatement touching
+data older than this window is an explicit full-span
+``refresh_continuous_aggregate`` over the affected range, issued in bounded
+sub-windows — exactly what slice 169's own rematerialization does once.
+
+At 365 days the exposure is a backfill older than one year, which is why this
+value was chosen over the engine floor: at equal steady-state cost, a wider
+window is strictly more forgiving of the failure #18 cannot yet detect.
 """
 
 MINUTE_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=4)
@@ -502,8 +572,9 @@ the parent produces no new data; less often widens the documented lag bound for
 no benefit.
 """
 
-DAILY_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=750)
-"""``start_offset`` for the ``daily_coverage`` refresh policy (slice 167 D4).
+DAILY_COVERAGE_REFRESH_START_OFFSET: timedelta = timedelta(days=365)
+"""``start_offset`` for the ``daily_coverage`` refresh policy (slice 167 D4,
+re-derived at the narrowed width by slice 169 D4a).
 
 ``daily_coverage``'s source is the **raw** ``daily_ohlcv`` hypertable, which has
 no refresh policy of its own (measured, prod 2026-07-26 — only a compression
@@ -512,10 +583,21 @@ clear; the binding constraint is TimescaleDB's two-bucket minimum window (see
 ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``), identical to the minute side because
 the bucket width is the same.
 
-Matching the minute side at 750 days also keeps one operator-visible number
-rather than two, and covers the revision window that matters for daily bars —
-provider restatements and adjustment rebasing — far beyond the 7-day
-compression horizon after which rows are no longer expected to change.
+Matching the minute side keeps one operator-visible number rather than two.
+See ``MINUTE_COVERAGE_REFRESH_START_OFFSET`` for the full derivation of why
+750 days was retired: it was forced by the 365-day width's 731-day engine
+floor, and leaving it would have had both hourly policies — no-ops until this
+slice — begin doing real work over a 750-day window every hour.
+
+**Covers the daily revision window.** Provider restatements and adjustment
+rebasing are the reason this needs to look back at all; daily bars are expected
+to stop changing after the 7-day compression horizon, so a one-year window
+covers the routine case with wide margin. A restatement older than a year would
+still strand coverage, and **no tool currently detects or repairs it**
+(issue #18; the ``caggs verify``/``repair`` pair covers the minute rollup caggs
+only). See ``MINUTE_COVERAGE_REFRESH_START_OFFSET`` for the measured cost table
+behind this value, the full statement of the residual, and the manual remedy
+until #18 lands.
 """
 
 DAILY_COVERAGE_REFRESH_END_OFFSET: timedelta = timedelta(hours=1)
@@ -530,8 +612,122 @@ DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL: timedelta = timedelta(hours=1)
 """``schedule_interval`` for the ``daily_coverage`` refresh policy (slice 167 D4).
 
 Matches the minute coverage cadence. Daily bars land once per session, so this is
-far more often than strictly required; the refresh is cheap (one 1-year bucket
-per symbol) and a uniform cadence keeps the documented lag bound uniform.
+far more often than strictly required; the refresh is cheap (one bucket per
+symbol) and a uniform cadence keeps the documented lag bound uniform.
+"""
+
+COVERAGE_CONTENT_STALENESS: timedelta = COVERAGE_BUCKET_INTERVAL + max(
+    MINUTE_COVERAGE_REFRESH_END_OFFSET, DAILY_COVERAGE_REFRESH_END_OFFSET
+)
+"""How far a coverage cagg's **content edge** may trail its raw source before
+``check_coverage_freshness`` reports it stale (slice 187 D6, re-derived by
+slice 169 D3).
+
+Distinct from ``MAX_COVERAGE_SOURCE_STALENESS``, which the generic guard applies
+to *bucket* lag — ``time_bucket(width, max(time))`` on raw versus
+``max(time_bucket)`` on the cagg. Both sides of that comparison are bucket
+starts, so no lag smaller than one bucket width is observable (see
+``cagg_freshness._raw_max``). At the old 365-day width the generic check was
+outright vacuous for these two views: prod returned ``is_fresh=True, lag=0``
+over a 52-day staleness on 2026-08-04.
+
+This threshold is applied to a different measurement — ``max(last_bucket)`` on
+the cagg against ``max(time)`` on its source, with **no** bucket alignment.
+``last_bucket`` is a content timestamp rather than a bucket start, so the lag it
+yields is real rather than structural, and no bucket width can cancel it.
+
+Derivation, computed from the constants rather than restated (D3/D5):
+
+    COVERAGE_BUCKET_INTERVAL                              (7 days)
+  + max(end_offset) over both coverage refresh policies   (4 h)
+  = 7 days 4 h
+
+**Why the bucket width replaced ``MAX_COVERAGE_SOURCE_STALENESS`` here.** The
+previous derivation (1 day + 4 h) was written for the bucket-lag check and never
+accounted for the open bucket. A refresh policy's window is truncated to whole
+buckets, so the open bucket is never re-materialized while open — and *no*
+bucket width compatible with slice 167's purpose delivers 1-day-fresh coverage
+(a ~1-day bound needs a ~1-day bucket, putting ``daily_coverage`` near 280 M
+rows). The old threshold was therefore unreachable by construction and fired
+permanently. A permanently-firing staleness signal is indistinguishable from a
+broken one and trains operators to ignore it.
+
+So this is a **widening**, which normally deserves suspicion — the justification
+is that it corrects the threshold to describe a bound the architecture actually
+provides, rather than leaving it at one the architecture can never meet. It is
+*derived* from the width, not chosen: a genuine stall — a dead refresh policy, a
+cagg that stops materializing — still exceeds one bucket width and still fires.
+Narrowing the width from 365 to 7 days cut this threshold from a nominal
+1 d 4 h that never held to a real 7 d 4 h that does.
+
+``end_offset`` is added because a policy deliberately declines to materialize
+the most recent ``end_offset`` of data — that much lag is configured, not stale.
+The **larger** of the two policies' offsets is used so one threshold serves both
+views without firing on a healthy one. Measured on prod ``trading`` 2026-08-04,
+jobs 1107/1108: ``minute_coverage`` end_offset 4 h, ``daily_coverage`` 1 h.
+
+**Operator consequence (PM-accepted, 2026-08-13/14, provisional not permanent):**
+``mt data status`` can show a ``last_bar_ts`` up to one bucket width behind
+reality without the staleness banner firing. ``/api/v1/symbols`` ranges are
+unaffected — slice 187 D2's per-symbol head probe reads past the coverage
+horizon. The path to a genuinely good (~8 h) bound is the floor-plus-head-probe
+reshape of ``bars_summary``, GitHub issue #14, out of scope here.
+"""
+
+COVERAGE_BUCKET_LAG_BUDGET: dict[str, timedelta] = {
+    MINUTE_COVERAGE_VIEW: (
+        COVERAGE_BUCKET_INTERVAL
+        + min(MINUTE_COVERAGE_REFRESH_START_OFFSET, MAX_COVERAGE_SOURCE_STALENESS)
+        + MINUTE_COVERAGE_REFRESH_END_OFFSET
+    ),
+    DAILY_COVERAGE_VIEW: (
+        COVERAGE_BUCKET_INTERVAL
+        + min(DAILY_COVERAGE_REFRESH_START_OFFSET, MAX_COVERAGE_SOURCE_STALENESS)
+        + DAILY_COVERAGE_REFRESH_END_OFFSET
+    ),
+}
+"""Per-view override of the **generic bucket-lag** staleness budget (slice 169 D3a).
+
+``cagg_freshness._resolve_threshold`` computes
+``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS) + end_offset`` and
+deliberately omits a bucket-width term, because ``_raw_max`` buckets the raw
+edge onto the cagg's own grid before comparing — so the structural offset
+cancels exactly. **That cancellation holds only while the cagg's head bucket is
+materialized.**
+
+A refresh policy's window is truncated to whole buckets, so a cagg whose bucket
+is large relative to its offsets never materializes its *open* bucket. Its
+``max(time_bucket)`` then sits at the last **closed** bucket while the bucketed
+raw edge sits in the **open** one, and the generic lag pins at exactly one
+bucket width — permanently. Before slice 169 this did not fire only by accident:
+the 365-day head bucket was written once at cagg creation, so both sides
+happened to agree and the check reported ``lag=0`` over a 52-day staleness
+(prod, 2026-08-04) — the false negative slice 187 D6's content-edge check was
+built to work around. Narrowing the bucket removes that accident, so without
+this term ``LAG_EXCEEDS_THRESHOLD`` would fire on every read of both views
+forever.
+
+    coverage bucket-lag budget = COVERAGE_BUCKET_INTERVAL
+                               + min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)
+                               + end_offset
+
+**Applied per view, never globally.** The seven pre-167 caggs have no entry here
+and fall back to ``_resolve_threshold``'s existing formula, untouched by
+construction. Their buckets are small relative to their offsets, so the open
+bucket is always inside the refresh window and the cancellation genuinely holds
+— widening the budget globally would blunt a real guard on seven healthy caggs
+to accommodate two exceptional ones.
+
+Carries the **value**, not a mode switch: a boolean "open-bucket tolerant" flag
+was rejected (D3a) because it encodes *why* rather than *what*, leaving the
+width term to be derived somewhere else, and a second view needing a different
+budget for a different reason would need a second flag.
+
+This does **not** suppress the bucket-lag signal for these views. That would
+remove a real guard (a genuinely stalled or unscheduled policy) to silence a
+structural offset, and the content-edge check does not subsume it — they detect
+different failures, and 168 D1's ``NOT_SCHEDULED``/``LAST_RUN_FAILED`` signals
+ride the same path. A genuine stall still exceeds one bucket width and fires.
 """
 
 MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT: str = "1800s"

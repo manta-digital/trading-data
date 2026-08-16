@@ -138,7 +138,15 @@ def ranges_db(ephemeral_db: str) -> str:
     ]
     _insert(ephemeral, history_daily, history_minute)
 
-    window_start = _HORIZON - 4 * COVERAGE_BUCKET_INTERVAL
+    # The window must reach back past the OLDEST seeded bar, not merely a few
+    # bucket widths. `_HORIZON - 4 * COVERAGE_BUCKET_INTERVAL` covered the
+    # fixture only while a 365-day bucket made that padding ~4 years; at slice
+    # 169's 7-day width it reached back 28 days against history starting 300
+    # days out, so coverage materialized nothing and every range assertion
+    # read as an empty merge. Derived from the seeded data instead, with two
+    # buckets of slack for the engine's minimum-window rule.
+    oldest_seeded = min(span_start, before_start)
+    window_start = oldest_seeded - 2 * COVERAGE_BUCKET_INTERVAL
     _refresh_all(ephemeral, window_start, _HORIZON)
 
     # --- phase 2: what coverage will never see ------------------------------
@@ -160,7 +168,10 @@ def ranges_db(ephemeral_db: str) -> str:
     with psycopg.connect(ephemeral, autocommit=True) as conn:
         conn.execute(
             "CALL refresh_continuous_aggregate('minute_5min_ohlcv', %s, %s)",
-            (window_start, _PAST_HORIZON + 10 * COVERAGE_BUCKET_INTERVAL),
+            (
+                window_start,
+                _PAST_HORIZON + timedelta(days=120) + 2 * COVERAGE_BUCKET_INTERVAL,
+            ),
         )
     return ephemeral
 

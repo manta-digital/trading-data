@@ -47,10 +47,30 @@ from manta_trading.market.schema.runner import apply_migrations
 
 _SYMBOL = "ZZEDGE"
 
-# How far past the coverage edge the stale case writes its raw row. Comfortably
-# beyond COVERAGE_CONTENT_STALENESS (1 day 4 h) and far under the 365-day bucket
-# width, which is the gap the whole check exists to cover.
-_STALE_LAG = timedelta(days=10)
+# How far past the coverage edge the stale case writes its raw row.
+#
+# The scenario only isolates the content-edge check while the lag sits in a
+# specific band: **beyond COVERAGE_CONTENT_STALENESS** (so the content check
+# fires) but **inside the generic guard's one-bucket detection floor** (so the
+# bucket-lag check stays quiet and the control test below means something).
+#
+# Derived from the constants rather than hardcoded (slice 169). The previous
+# literal 10 days satisfied both conditions only at a 365-day bucket; at the
+# narrowed 7-day width a 10-day lag is more than one bucket, so the generic
+# guard correctly fired and the control test failed — the fixture had drifted
+# out of the band, not the code out of spec.
+#
+# The band is (COVERAGE_CONTENT_STALENESS, 2 x COVERAGE_BUCKET_INTERVAL): above
+# the threshold so the content check fires, and close enough to one bucket that
+# the bucketed generic lag stays within COVERAGE_BUCKET_LAG_BUDGET. Note the
+# generic side is measured in *whole buckets* after alignment, so a raw edge
+# only slightly past the threshold can still land two buckets away depending on
+# where the seed falls relative to the grid — which is what actually broke the
+# literal 10 days at the 7-day width, not the nominal arithmetic.
+#
+# Sitting just above the threshold keeps the aligned lag at one bucket for any
+# grid alignment.
+_STALE_LAG = COVERAGE_CONTENT_STALENESS + timedelta(hours=6)
 
 
 @pytest.fixture

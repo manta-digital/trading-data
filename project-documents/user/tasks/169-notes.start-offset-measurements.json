@@ -1,0 +1,32 @@
+[
+  {
+    "start_offset_days": 16,
+    "head_only_s": 0.058,
+    "deep_backfill_s": 0.064,
+    "no_invalidation_s": 0.011
+  },
+  {
+    "start_offset_days": 90,
+    "head_only_s": 0.063,
+    "deep_backfill_s": 1.028,
+    "no_invalidation_s": 0.128
+  },
+  {
+    "start_offset_days": 180,
+    "head_only_s": 0.065,
+    "deep_backfill_s": 1.934,
+    "no_invalidation_s": 0.011
+  },
+  {
+    "start_offset_days": 365,
+    "head_only_s": 0.067,
+    "deep_backfill_s": 3.588,
+    "no_invalidation_s": 0.011
+  },
+  {
+    "start_offset_days": 750,
+    "head_only_s": 0.072,
+    "deep_backfill_s": 5.4,
+    "no_invalidation_s": 0.011
+  }
+]

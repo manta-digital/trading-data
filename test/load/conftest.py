@@ -29,6 +29,7 @@ import pytest
 from psycopg_pool import ConnectionPool
 
 from manta_trading.constants import (
+    COVERAGE_BUCKET_INTERVAL,
     DAILY_COVERAGE_VIEW,
     GRANULARITY_SOURCE,
     MINUTE_COVERAGE_VIEW,
@@ -46,6 +47,24 @@ FIRST_YEAR = 2010
 """Preserved from slice 167's original definition — the extraction must not
 change the seeded history's span."""
 
+BARS_PER_YEAR = max(1, int(timedelta(days=365) / COVERAGE_BUCKET_INTERVAL))
+"""Bars per symbol-year, derived from the coverage bucket width (slice 169).
+
+**This fixture was width-blind before slice 169 and would have silently under-
+tested the new width.** It seeded exactly one bar per symbol-year, so every bar
+landed in its own coverage bucket at any width up to a year: 12,000 x 10 =
+120,000 coverage rows at a 365-day bucket *and* at a 7-day bucket. Narrowing the
+width would not have moved the measured cost at all, so
+``test_167_data_status_nfr`` would have kept passing while saying nothing about
+the shape actually shipped.
+
+Deriving the bar count from the constant makes coverage rows scale the way
+production's do — one bar per bucket per symbol-year, i.e. ~52 rows/symbol-year
+at a 7-day width. That is what puts the fixture's coverage row count in the same
+order as the prod-shaped measurement taken in slice 169 Task B (16.7 M daily
+coverage rows over 12,040 symbols x 64.6 years).
+"""
+
 
 def symbol_name(i: int) -> str:
     return f"ZZLD{i:05d}"
@@ -57,17 +76,26 @@ def _apply_schema(url: str) -> None:
 
 
 def _seed_prod_shape(url: str) -> None:
-    """COPY instruments plus one minute and one daily bar per symbol-year.
+    """COPY instruments plus ``BARS_PER_YEAR`` minute and daily bars per symbol-year.
 
-    All symbols share the same per-year timestamps, so the raw rows land in a
-    handful of hypertable chunks while the coverage caggs still materialize
-    the full symbols x years row count that drives the view's read cost.
+    All symbols share the same timestamps, so the raw rows land in a bounded
+    number of hypertable chunks while the coverage caggs still materialize the
+    symbols x buckets row count that drives the view's read cost.
+
+    Bar spacing is one per ``COVERAGE_BUCKET_INTERVAL`` (slice 169), so each bar
+    occupies its own coverage bucket and the cagg row count scales with the
+    width the way production's does. See ``BARS_PER_YEAR``.
     """
+    spacing = COVERAGE_BUCKET_INTERVAL
     minute_ts = [
-        datetime(FIRST_YEAR + y, 3, 1, 14, 31, tzinfo=UTC) for y in range(YEAR_COUNT)
+        datetime(FIRST_YEAR + y, 1, 2, 14, 31, tzinfo=UTC) + spacing * b
+        for y in range(YEAR_COUNT)
+        for b in range(BARS_PER_YEAR)
     ]
     daily_ts = [
-        datetime(FIRST_YEAR + y, 3, 1, 0, 0, tzinfo=UTC) for y in range(YEAR_COUNT)
+        datetime(FIRST_YEAR + y, 1, 2, 0, 0, tzinfo=UTC) + spacing * b
+        for y in range(YEAR_COUNT)
+        for b in range(BARS_PER_YEAR)
     ]
 
     with psycopg.connect(url) as conn:
@@ -111,7 +139,7 @@ def _seed_prod_shape(url: str) -> None:
 def _refresh_coverage(url: str) -> None:
     """Materialize the coverage caggs over the full seeded history.
 
-    NULL bounds (runbook R2a): an explicit window under two 365-day buckets is
+    NULL bounds (runbook R2a): an explicit window under two coverage buckets is
     rejected by the engine, and full history is what the fixture needs anyway.
     Parent before child — refreshing ``minute_coverage`` over an
     unmaterialized 4-hour cagg rolls up nothing (measured in slice 167 s7).

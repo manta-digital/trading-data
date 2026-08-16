@@ -39,6 +39,7 @@ from manta_trading.constants import (
     CAGG_BASE_GRANULARITY,
     CAGG_FRESHNESS_CACHE_TTL,
     CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT,
+    COVERAGE_BUCKET_LAG_BUDGET,
     GRANULARITY_SOURCE,
     MAX_COVERAGE_SOURCE_STALENESS,
     Granularity,
@@ -455,9 +456,24 @@ def _resolve_source_table(view_name: str) -> str:
 
 
 def _resolve_threshold(
-    start_offset: timedelta | None, end_offset: timedelta | None = None
+    start_offset: timedelta | None,
+    end_offset: timedelta | None = None,
+    view_name: str | None = None,
 ) -> timedelta:
     """The staleness budget: ``min(start_offset, ceiling) + end_offset``.
+
+    **Per-view override (slice 169 D3a).** When ``view_name`` has an entry in
+    ``COVERAGE_BUCKET_LAG_BUDGET``, that value is returned instead. Only the two
+    coverage caggs have entries; every other view — including all seven pre-167
+    caggs — falls through to the generic formula below, byte-identical to its
+    pre-169 behaviour. See that constant for why the width term is required for
+    those two and wrong for the rest.
+
+    ``view_name`` is keyword-optional so the generic formula stays callable on
+    its own (the unit tests exercise it that way), but ``_evaluate`` always
+    passes it — a caller that forgets would silently get the un-overridden
+    budget, which for the coverage views means ``LAG_EXCEEDS_THRESHOLD`` on
+    every read.
 
     The ceiling is load-bearing, not defensive. A refresh policy only reconsiders
     the last ``start_offset`` of data, so ``start_offset`` alone is the natural
@@ -475,6 +491,11 @@ def _resolve_threshold(
     ``start_offset is None`` (a policy configured without one) falls back to the
     ceiling alone rather than to "no bound".
     """
+    if view_name is not None:
+        override = COVERAGE_BUCKET_LAG_BUDGET.get(view_name)
+        if override is not None:
+            return override
+
     base = (
         MAX_COVERAGE_SOURCE_STALENESS
         if start_offset is None
@@ -649,7 +670,7 @@ def _evaluate(
             bucket_width=bucket_width,
         )
 
-    threshold = _resolve_threshold(job.start_offset, job.end_offset)
+    threshold = _resolve_threshold(job.start_offset, job.end_offset, view_name)
     signals: list[StalenessSignal] = []
 
     lag: timedelta | None = None
