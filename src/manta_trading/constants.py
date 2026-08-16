@@ -7,7 +7,7 @@ grace periods used by the data acquisition and quality pipelines.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Final
 
@@ -382,6 +382,21 @@ Changing this value is a **drop-and-rebuild**, not an ``ALTER``: the width is
 compiled into each cagg's view definition and TimescaleDB has no re-bucket
 operation, so both caggs must be dropped, recreated, and re-materialized over
 full history (migrations 051/052).
+"""
+
+COVERAGE_BUCKET_ORIGIN: datetime = datetime(2000, 1, 3, tzinfo=UTC)
+"""The instant TimescaleDB's ``time_bucket`` grid is anchored to (slice 169).
+
+The coverage caggs call ``time_bucket(interval, time)`` with no ``origin``
+argument, so buckets align to the engine's documented default for day/week
+intervals: 2000-01-03 00:00 UTC (a Monday). Verified empirically on
+TimescaleDB 2.29.1: ``time_bucket('7 days', '2000-01-03Z')`` returns itself.
+
+Anything that aligns refresh windows to bucket boundaries must snap to *this*
+grid, not a midnight-of-2000-01-01 one: a grid offset by even a day puts every
+window boundary mid-bucket, and a refresh only materializes buckets fully
+contained in its window — each misaligned boundary silently strands a bucket
+(measured: a 12-bucket rebuild sweep materialized 9).
 """
 
 COVERAGE_SOURCE_TABLE: dict[str, str] = {

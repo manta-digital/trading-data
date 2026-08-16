@@ -48,6 +48,8 @@ import psycopg
 
 from manta_trading.constants import (
     COVERAGE_BUCKET_INTERVAL,
+    COVERAGE_BUCKET_ORIGIN,
+    COVERAGE_REFRESH_MIN_WINDOW_BUCKETS,
     DAILY_COVERAGE_VIEW,
     GRANULARITY_SOURCE,
     MINUTE_COVERAGE_VIEW,
@@ -225,25 +227,42 @@ def plan_windows(
     its range, so a boundary mid-bucket would leave that bucket unwritten by
     both adjacent calls — the same truncation behaviour that caused the defect
     this slice repairs, reintroduced through the sweep.
+
+    Every emitted window is at least ``COVERAGE_REFRESH_MIN_WINDOW_BUCKETS``
+    buckets wide: ``refresh_continuous_aggregate`` raises
+    ``InvalidParameterValue: refresh window too small`` below that, so a
+    too-narrow trailing remainder is absorbed into the previous window and a
+    too-narrow total span is widened (refreshing an empty bucket is a no-op).
     """
     if end <= start:
         return []
 
     bucket = COVERAGE_BUCKET_INTERVAL
-    # Snap the span outward onto the bucket grid.
-    epoch = datetime(2000, 1, 1, tzinfo=start.tzinfo)
+    min_window = COVERAGE_REFRESH_MIN_WINDOW_BUCKETS * bucket
+    # Snap the span outward onto the engine's bucket grid — see
+    # COVERAGE_BUCKET_ORIGIN for why any other anchor strands buckets.
+    # All arithmetic in UTC: timedelta addition on a DST-observing zone is
+    # wall-clock, so a boundary computed in the session timezone drifts an
+    # hour off the grid at each transition (measured: 3 stranded buckets).
+    start = start.astimezone(UTC)
+    end = end.astimezone(UTC)
+    epoch = COVERAGE_BUCKET_ORIGIN
     steps_lo = (start - epoch) // bucket
     aligned_start = epoch + steps_lo * bucket
     steps_hi = -((epoch - end) // bucket)
     aligned_end = epoch + steps_hi * bucket
+    if aligned_end - aligned_start < min_window:
+        aligned_end = aligned_start + min_window
 
     # Sub-window span must itself be a whole number of buckets.
-    span = max(bucket, (subwindow // bucket) * bucket)
+    span = max(min_window, (subwindow // bucket) * bucket)
 
     windows: list[SubWindow] = []
     cursor = aligned_start
     while cursor < aligned_end:
         stop = min(cursor + span, aligned_end)
+        if timedelta(0) < aligned_end - stop < min_window:
+            stop = aligned_end
         windows.append(SubWindow(start=cursor, end=stop))
         cursor = stop
     return windows

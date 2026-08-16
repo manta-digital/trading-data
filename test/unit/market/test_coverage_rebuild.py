@@ -16,6 +16,8 @@ import pytest
 
 from manta_trading.constants import (
     COVERAGE_BUCKET_INTERVAL,
+    COVERAGE_BUCKET_ORIGIN,
+    COVERAGE_REFRESH_MIN_WINDOW_BUCKETS,
     DAILY_COVERAGE_VIEW,
     GRANULARITY_SOURCE,
     MINUTE_COVERAGE_VIEW,
@@ -98,7 +100,8 @@ class TestPlanWindows:
         """
         windows = plan_windows(self._START, self._START + timedelta(days=days))
         bucket_s = COVERAGE_BUCKET_INTERVAL.total_seconds()
-        epoch = datetime(2000, 1, 1, tzinfo=UTC)
+        # The engine's grid, not calendar midnight-2000: see the constant.
+        epoch = COVERAGE_BUCKET_ORIGIN
         for window in windows:
             for edge in (window.start, window.end):
                 offset = (edge - epoch).total_seconds()
@@ -117,14 +120,32 @@ class TestPlanWindows:
 
     def test_span_narrower_than_a_bucket_still_yields_whole_buckets(self) -> None:
         """A caller passing an over-narrow --subwindow-days must not produce
-        zero-width windows and spin forever."""
+        zero-width windows and spin forever — and every window must satisfy
+        the engine floor (``refresh window too small`` below 2 buckets)."""
+        floor = COVERAGE_REFRESH_MIN_WINDOW_BUCKETS * COVERAGE_BUCKET_INTERVAL
         windows = plan_windows(
             self._START, self._START + timedelta(days=30), timedelta(hours=1)
         )
         assert windows
         for window in windows:
-            assert window.end > window.start
-            assert window.end - window.start == COVERAGE_BUCKET_INTERVAL
+            assert window.end - window.start >= floor
+
+    def test_no_window_is_narrower_than_the_engine_floor(self) -> None:
+        """The trailing remainder must be absorbed, not emitted: TimescaleDB
+        rejects any refresh narrower than 2 buckets, so a 1-bucket tail would
+        fail the sweep on its last call."""
+        floor = COVERAGE_REFRESH_MIN_WINDOW_BUCKETS * COVERAGE_BUCKET_INTERVAL
+        # A grid-aligned start (so snapping cannot widen the span): 13 buckets
+        # in sub-windows of 3 leaves a 1-bucket remainder.
+        aligned = COVERAGE_BUCKET_ORIGIN + COVERAGE_BUCKET_INTERVAL * 1043
+        windows = plan_windows(
+            aligned,
+            aligned + COVERAGE_BUCKET_INTERVAL * 13,
+            COVERAGE_BUCKET_INTERVAL * 3,
+        )
+        assert len(windows) == 4, "the remainder must merge into the last window"
+        assert all(w.end - w.start >= floor for w in windows)
+        assert windows[-1].end - windows[-1].start == COVERAGE_BUCKET_INTERVAL * 4
 
     def test_default_subwindow_is_bounded(self) -> None:
         """Regression guard: the default must never become "the whole span"."""
