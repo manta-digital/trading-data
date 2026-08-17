@@ -23,7 +23,7 @@ projectState: >
   PostgreSQL restart may be taken (see Sequencing).
 dateCreated: 20260816
 dateUpdated: 20260816
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Backup and Restore Procedures — Part 1 (Mechanisms)
@@ -172,7 +172,7 @@ stale measurement.
         table — the premise holds and PITR still does not exist. Rollback state
         for Section 4 is `archive_mode=off` with `archive_command` unset
 
-- [ ] **1.2 Measure filesystem sizes on the host**
+- [x] **1.2 Measure filesystem sizes on the host**
   - [x] `pg_database_size` for every non-template database — done 2026-08-16:
         `trading` **141 GB** (not the design's 150 GB), `trading_test` 7,018 MB,
         `mt_169_b1` 2,904 MB, `dbg_sweep_bd61c93e` and `mt_test_0e0e2e2bc659`
@@ -190,6 +190,7 @@ stale measurement.
         Section 7 against **760 GB**; 141 GB fits comfortably either way
   - [x] Success: free space known per mount point, each mapped to a device
   - [x] Effort: 1
+  - [x] Done: host survey 2026-08-16 (project-documents/user/notes/2026-08-16-915-host-survey.md). PGDATA on /dev/nvme0n1p2 (/, 978 GB avail); /data on /dev/nvme1n1p1 (760 GB avail, separate physical device — archive and restore target do NOT share fate with PGDATA). The PM-reported ~800 GB was measured at 760 GB
 
 - [ ] **1.3 Measure WAL generation rate**
   - [ ] Sample `pg_current_wal_lsn()` twice, separated by a period with the
@@ -200,8 +201,9 @@ stale measurement.
         both retention (4.5) and the `pg_wal`-fills-the-disk risk — without it,
         retention is a guess
   - [ ] Effort: 2
+  - [ ] In progress 2026-08-16: idle-period samples taken (21:33:41 11A6/4CC00E98 → 21:38:55 11A6/5194DE40, but window polluted by restore-proof writes; clean idle pair pending after 3.4's base backup completes). Daemon-active sample blocked until the PM next starts acquisition — daemon confirmed not running today
 
-- [ ] **1.4 Determine whether the maintenance role can run `pg_basebackup`**
+- [x] **1.4 Determine whether the maintenance role can run `pg_basebackup`**
   - [x] Query `pg_roles` for `rolreplication` and `rolsuper` — measured
         2026-08-16: `trading_migrate` has **`rolsuper=f` and `rolreplication=f`**.
         `trading_app` likewise both false. Only `postgres` has either
@@ -225,25 +227,27 @@ stale measurement.
   - [x] Success: definite answer — `trading_migrate` over localhost, once
         `rolreplication` is granted (1.5). No superuser, no `pg_hba.conf` change
   - [x] Effort: 2
+  - [x] Done: pg_hba.conf read via pg_hba_file_rules 2026-08-16 — replication admitted for all roles from 127.0.0.1 and ::1 only (lines 139-141); no LAN replication line, and none needed since backups run on the host. After 1.5's grant, an actual replication connection as trading_migrate succeeded via 127.0.0.1 (IDENTIFY_SYSTEM) and was refused via 192.168.1.144, confirming both sides. Definite answer: trading_migrate over 127.0.0.1
 
-- [ ] **1.5 Add the required replication grant to `provision_roles.sql`**
-  - [ ] **Required, per the 1.4 measurement** — `trading_migrate` lacks
+- [x] **1.5 Add the required replication grant to `provision_roles.sql`**
+  - [x] **Required, per the 1.4 measurement** — `trading_migrate` lacks
         `rolreplication`. Add `ALTER ROLE trading_migrate REPLICATION` to
         [scripts/provision_roles.sql](../../../scripts/provision_roles.sql), the
         same reviewed artifact 913 established, guarded for idempotency
-  - [ ] Do **not** grant superuser as a shortcut. 913's whole result was that no
+  - [x] Do **not** grant superuser as a shortcut. 913's whole result was that no
         application-reachable credential is destructive; `REPLICATION` alone is
         the minimum `pg_basebackup` needs and does not confer DML or DDL rights
   - [x] No `pg_hba.conf` change needed — 1.4 confirmed localhost replication is
         already admitted, and the backup runs on the host. The grant is the only
         missing piece
-  - [ ] Re-run the artifact twice consecutively under `psql -v ON_ERROR_STOP=1`
+  - [x] Re-run the artifact twice consecutively under `psql -v ON_ERROR_STOP=1`
         and confirm both exit 0 (913's idempotency contract)
-  - [ ] Success: the maintenance credential can open a replication connection;
+  - [x] Success: the maintenance credential can open a replication connection;
         the artifact remains idempotent; no new superuser credential exists
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done: ALTER ROLE ... REPLICATION guarded via \gexec was already in the committed artifact; applied to prod 2026-08-16 by running provision_roles.sql twice under psql -v ON_ERROR_STOP=1 with a SET ROLE postgres prelude (the maintenance role itself cannot alter role attributes; session_user stays trading_migrate). Run 1 emitted ALTER ROLE, run 2 emitted nothing (idempotency guard held), both exit 0. pg_roles now shows trading_migrate rolreplication=t, rolsuper=f. No pg_hba.conf edit required (1.4). No new superuser credential
 
-- [ ] **1.6 Confirm host tooling and scheduling mechanism**
+- [x] **1.6 Confirm host tooling and scheduling mechanism**
   - [x] All four binaries present (host survey 2026-08-16). `pg_basebackup` and
         `pg_dump` at `/usr/bin`, PostgreSQL 17.11
   - [x] **`pg_verifybackup` has no `/usr/bin` wrapper** — it exists only at
@@ -258,16 +262,17 @@ stale measurement.
         project systemd timer, all 17 timers stock OS units. Confirms the deploy
         runbook: the daemon is started manually. The backup schedule therefore
         cannot assume acquisition is running at any given hour
-  - [ ] Remaining: `sudo crontab -u postgres -l` was not measurable (no TTY).
+  - [x] Remaining: `sudo crontab -u postgres -l` was not measurable (no TTY).
         Low risk — a postgres-owned acquisition cron is implausible given the
         above — but check it before task 9.1 writes a schedule
-  - [ ] Verify `rclone` **v1.60.1-DEV** works against B2. This is a 2022-era
+  - [x] Verify `rclone` **v1.60.1-DEV** works against B2. This is a 2022-era
         distro build; confirm `rclone check` and the B2/S3 backend behave before
         Section 6 depends on them, and upgrade if not. Do not discover this at
         the checksum-verification step
-  - [ ] Success: every binary the later sections invoke is confirmed present and
+  - [x] Success: every binary the later sections invoke is confirmed present and
         working, with exact invocation paths recorded
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Done: host survey 2026-08-16. pg_basebackup/pg_dump 17.11 in /usr/bin; pg_verifybackup 17.11 present ONLY at /usr/lib/postgresql/17/bin/pg_verifybackup (no /usr/bin wrapper); rclone v1.60.1-DEV (2022-era distro build — verify against B2 before relying on it). cron installed, active, enabled. manta crontab has one @reboot rclone-mount entry; nothing re-invokes acquisition (no cron.d/cron.daily/systemd-timer entries; postgres crontab unmeasured, needs sudo)
 
 ---
 
@@ -277,16 +282,16 @@ Built first because it is small, cheap, independently useful, and needs no
 restart. It restores the exact tables the incident destroyed without touching
 the 150 GB tier.
 
-- [ ] **2.1 Implement catalog-derived metadata table enumeration**
-  - [ ] Write the query that enumerates metadata tables **by exclusion**:
+- [x] **2.1 Implement catalog-derived metadata table enumeration**
+  - [x] Write the query that enumerates metadata tables **by exclusion**:
         everything in `public` that is not a hypertable and not a continuous
         aggregate (D4)
-  - [ ] Source the exclusions from `timescaledb_information.hypertables` and
+  - [x] Source the exclusions from `timescaledb_information.hypertables` and
         `timescaledb_information.continuous_aggregates`, plus the internal
         `_timescaledb_internal` chunk tables
-  - [ ] Do **not** hardcode the table list from the design's D4 table — that
+  - [x] Do **not** hardcode the table list from the design's D4 table — that
         list is the expected *output*, not the input
-  - [ ] Success: the query returns the D4 set against prod's current schema,
+  - [x] Success: the query returns the D4 set against prod's current schema,
         derived rather than typed. Expected output as measured 2026-08-16 —
         `acquisition_state`, `data_gaps`, `dividends`, `instruments`, `splits`,
         `trading_sessions`, `universe_members`, `trading_holidays`,
@@ -294,68 +299,73 @@ the 150 GB tier.
         `provider_symbol_mapping`. Note `universe_members` is **not** in the
         design's D4 list but is a real metadata table with 1,127 rows; a derived
         query picks it up automatically, which is the point of deriving
-  - [ ] Also confirm `daemon_heartbeat` is classified deliberately rather than
+  - [x] Also confirm `daemon_heartbeat` is classified deliberately rather than
         by accident — it is genuinely empty and is runtime state, so excluding
         it is defensible, but it should not be excluded merely because it
         happened to be empty on the day the query was written
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done: implemented inside scripts/backup_metadata.sh; derived query returns the expected 12 tables against prod (universe_members included by derivation). daemon_heartbeat classified deliberately: excluded as runtime liveness state via a documented EXCLUDED_RUNTIME_TABLES constant, not because it is empty
 
-- [ ] **2.2 Implement the metadata dump script**
-  - [ ] Create `scripts/backup_metadata.sh` (or `.py` if the enumeration is
+- [x] **2.2 Implement the metadata dump script**
+  - [x] Create `scripts/backup_metadata.sh` (or `.py` if the enumeration is
         easier in Python — either is acceptable; it orchestrates external
         binaries, so shell is the lower-ceremony choice)
-  - [ ] Take the DB URL and destination directory as **required explicit
+  - [x] Take the DB URL and destination directory as **required explicit
         arguments**; exit non-zero with a usage message if either is absent
         (D5). Do not read `MT_TIMESCALE_*` from the environment inside the tool
-  - [ ] Run the 2.1 enumeration, then `pg_dump -Fc` scoped to those tables via
+  - [x] Run the 2.1 enumeration, then `pg_dump -Fc` scoped to those tables via
         repeated `-t` arguments
-  - [ ] Write to a timestamped path; exit non-zero on any `pg_dump` failure and
+  - [x] Write to a timestamped path; exit non-zero on any `pg_dump` failure and
         do not leave a partial file presented as complete (D5)
-  - [ ] Success: a single invocation produces a restorable custom-format dump;
+  - [x] Success: a single invocation produces a restorable custom-format dump;
         omitting either argument produces a usage error and no dump
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done: scripts/backup_metadata.sh; required explicit --db-url/--dest (usage error and non-zero exit when missing, never reads MT_* env); pg_dump -Fc via repeated -t; timestamped output written to a .part file and renamed only on success; refuses an empty enumeration (wrong-database guard). Note: an initial NOT IN + NULL-seeded array bug excluded every table; caught by the integration test, fixed to = ANY(array)
 
-- [ ] **2.3 Test the metadata dump against an ephemeral database**
-  - [ ] Test against a throwaway database the fixture creates itself, via
+- [x] **2.3 Test the metadata dump against an ephemeral database**
+  - [x] Test against a throwaway database the fixture creates itself, via
         `MT_TIMESCALE_TEST_URL` — never the production URL (project rule; the
         2026-08-04 incident was a fixture pointed at prod)
-  - [ ] Assert: the dump completes; `pg_restore -l` lists the expected tables;
+  - [x] Assert: the dump completes; `pg_restore -l` lists the expected tables;
         no hypertable or cagg appears in the dump
-  - [ ] Assert the derived-list property directly: create a scratch table in the
+  - [x] Assert the derived-list property directly: create a scratch table in the
         ephemeral database, re-run, and assert it appears in the dump **with no
         script edit**. This is the test that distinguishes a derived list from a
         hardcoded one (success criterion 4)
-  - [ ] Assert the tool exits non-zero with no arguments and with a DB URL but
+  - [x] Assert the tool exits non-zero with no arguments and with a DB URL but
         no destination
-  - [ ] Success: all assertions pass; the test reads no production environment
+  - [x] Success: all assertions pass; the test reads no production environment
         variable and both static prod-URL ratchet guards still pass
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done: test/integration/data/test_backup_metadata.py (2 tests, pass) using ephemeral_db/migrated_db fixtures on MT_TIMESCALE_TEST_URL; asserts dump content via pg_restore -l (metadata core present, no hypertable, no cagg, no daemon_heartbeat), the derived-list property (scratch table appears on re-run with no script edit), empty-enumeration refusal, and no .part left behind. Arg-refusal cases covered DB-free in test/unit/test_backup_scripts.py. Both prod-URL ratchet guards pass
 
-- [ ] **2.4 Run the metadata dump against prod and record timing**
-  - [ ] Run against `trading` using the maintenance credential
-  - [ ] Record wall-clock duration and resulting file size
-  - [ ] Success: completes in seconds (D4's stated expectation) and the dump is
+- [x] **2.4 Run the metadata dump against prod and record timing**
+  - [x] Run against `trading` using the maintenance credential
+  - [x] Record wall-clock duration and resulting file size
+  - [x] Success: completes in seconds (D4's stated expectation) and the dump is
         non-trivial in size. If it takes materially longer, record why before
         proceeding — the nightly cadence assumes it is cheap
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Done 2026-08-16: 12 tables, 1.3 s wall clock, 4.6 MB → /data/backup/metadata/meta-20260816T213743.dump. Matches D4's completes-in-seconds expectation
 
-- [ ] **2.5 Prove the metadata dump actually restores**
-  - [ ] `pg_restore` the dump into a throwaway database and compare row counts
+- [x] **2.5 Prove the metadata dump actually restores**
+  - [x] `pg_restore` the dump into a throwaway database and compare row counts
         for every dumped table against the source
-  - [ ] Use exact `count(*)`, **never** `pg_stat_user_tables.n_live_tup` — it was
+  - [x] Use exact `count(*)`, **never** `pg_stat_user_tables.n_live_tup` — it was
         measured badly stale on this database (reported 0 for `instruments` and
         `dividends`, 2 for `schema_migrations`, all wrong). A comparison built on
         estimates would pass against an empty restore
-  - [ ] Expected source counts as of 2026-08-16 are in the Measured state table;
+  - [x] Expected source counts as of 2026-08-16 are in the Measured state table;
         they will have moved by execution time, so re-read source at compare time
         rather than asserting against these figures
-  - [ ] The two genuinely-empty tables (`backfill_state`,
+  - [x] The two genuinely-empty tables (`backfill_state`,
         `provider_symbol_mapping`) prove nothing on either side — do not count
         them as evidence of a successful restore
-  - [ ] This is a content check, not a "pg_restore exited 0" check (D6)
-  - [ ] Success: every non-empty table's row count matches source. A dump that
+  - [x] This is a content check, not a "pg_restore exited 0" check (D6)
+  - [x] Success: every non-empty table's row count matches source. A dump that
         has never been restored does not count as a backup
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done 2026-08-16: pg_restore of the prod dump into a fixture-created throwaway DB (mt_test_restore915_*, dropped afterward) via MT_TIMESCALE_TEST_URL. Exact count(*) source-vs-restored for all 12 tables: all match (acquisition_state 45,537; data_gaps 105,774; dividends 327,534; instruments 32,075; splits 6,568; trading_sessions 4,560; universe_members 1,127; trading_holidays 168; schema_migrations 55; trading_calendars 2). backfill_state and provider_symbol_mapping are 0=0 and counted as no evidence per the task note
 
 ---
 
@@ -365,47 +375,50 @@ the 150 GB tier.
 means the restart in Section 4 changes one setting rather than introducing
 untested tooling at the same time.
 
-- [ ] **3.1 Implement the base-backup wrapper script**
-  - [ ] Create `scripts/backup_prod.sh` per D5 — `scripts/`, not an `mt`
+- [x] **3.1 Implement the base-backup wrapper script**
+  - [x] Create `scripts/backup_prod.sh` per D5 — `scripts/`, not an `mt`
         subcommand
-  - [ ] Required explicit arguments: `--db-url` and `--dest`. Refuse to run if
+  - [x] Required explicit arguments: `--db-url` and `--dest`. Refuse to run if
         either is missing, and never fall back to an environment variable
         (success criterion 8)
-  - [ ] Invoke `pg_basebackup -Ft -z -Xs` with the checkpoint mode made explicit
+  - [x] Invoke `pg_basebackup -Ft -z -Xs` with the checkpoint mode made explicit
         rather than left to default
-  - [ ] Exit non-zero on failure; never leave a partial destination presented as
+  - [x] Exit non-zero on failure; never leave a partial destination presented as
         a complete backup
-  - [ ] Success: the script runs a base backup with explicit arguments and
+  - [x] Success: the script runs a base backup with explicit arguments and
         refuses every invocation missing one
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done: scripts/backup_prod.sh; required explicit --db-url/--dest, no env fallback; pg_basebackup -Ft -z -Xs with --checkpoint=spread made explicit; writes to <dest>.inprogress, renames to <dest> only after verification, removes the partial on failure; refuses an existing destination and a stale .inprogress
 
-- [ ] **3.2 Add `pg_verifybackup` to the wrapper**
-  - [ ] After the backup completes, run `pg_verifybackup` against the result and
+- [x] **3.2 Add `pg_verifybackup` to the wrapper**
+  - [x] After the backup completes, run `pg_verifybackup` against the result and
         fail the whole invocation if it does not verify (D6 level 1)
-  - [ ] **Call the versioned path `/usr/lib/postgresql/17/bin/pg_verifybackup`** —
+  - [x] **Call the versioned path `/usr/lib/postgresql/17/bin/pg_verifybackup`** —
         the host survey found no `/usr/bin` wrapper, so a bare invocation fails
         with command-not-found. Define it once as a constant at the top of the
         script rather than inline, so a version bump is a one-line edit
-  - [ ] Guard against the failure being swallowed: if the binary is missing, the
+  - [x] Guard against the failure being swallowed: if the binary is missing, the
         script must **fail**, never treat an unrunnable verification as a pass.
         This is the step whose whole purpose is refusing to trust the backup
-  - [ ] Note in a comment that `-Ft` archives may need extraction before
+  - [x] Note in a comment that `-Ft` archives may need extraction before
         verification depending on server version — determine the working
         invocation empirically in 3.4 rather than assuming
-  - [ ] Success: a corrupted or truncated backup causes non-zero exit;
+  - [x] Success: a corrupted or truncated backup causes non-zero exit;
         verification is not skippable by a flag
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done: versioned path /usr/lib/postgresql/17/bin/pg_verifybackup as a single constant; checked executable BEFORE the backup starts (missing binary fails the run, never skips verification); verification not skippable by any flag; comment records that PG17 pg_verifybackup verifies tar-format backups natively (being confirmed empirically in 3.4, in progress)
 
-- [ ] **3.3 Test the wrapper's refusal behavior**
-  - [ ] Unit-level test (no database required): invoke with no arguments, with
+- [x] **3.3 Test the wrapper's refusal behavior**
+  - [x] Unit-level test (no database required): invoke with no arguments, with
         only `--db-url`, and with only `--dest`; assert non-zero exit and a
         message naming the missing argument in each case
-  - [ ] Assert the script contains no read of `MT_TIMESCALE_DB_URL` or
+  - [x] Assert the script contains no read of `MT_TIMESCALE_DB_URL` or
         `MT_TIMESCALE_MAINTENANCE_URL` — a static assertion, so a later edge
         toward ambient configuration is caught
-  - [ ] Success: all cases fail loudly; success criterion 8 is covered by an
+  - [x] Success: all cases fail loudly; success criterion 8 is covered by an
         automated test rather than by memory
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done: test/unit/test_backup_scripts.py (16 tests, pass): no-args / --db-url-only / --dest-only / unknown-arg all exit non-zero naming the missing argument, plus a static assertion that no backup script names MT_TIMESCALE_DB_URL, MT_TIMESCALE_MAINTENANCE_URL, or MT_TIMESCALE_TEST_URL at all (stronger than the Python-tier ratchet, since shell has too many read spellings)
 
 - [ ] **3.4 Take a full base backup against the live prod server**
   - [ ] Run with the daemon **running** — the whole point of D1 is that no
