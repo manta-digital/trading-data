@@ -531,10 +531,21 @@ written. An unfired alarm is untested.
   - [ ] Object-store credentials come from the environment or an
         operator-provided config path — **never** committed; `.env` stays
         gitignored (project rule and D3)
-  - [ ] Document the required variables in `.env_sample` as commented keys, with
-        no values
-  - [ ] Success: the sync authenticates; `git status` is clean after
-        configuration; no credential appears in any tracked file
+  - [x] Four keys documented in `.env_sample` as commented entries with no
+        values, using S3-generic names so the target can change without editing
+        the scripts: `MT_BACKUP_S3_ENDPOINT`, `MT_BACKUP_S3_KEY_ID`,
+        `MT_BACKUP_S3_APPLICATION_KEY`, `MT_BACKUP_S3_BUCKET`. Both the key ID
+        and the application key are required — the ID alone authenticates
+        nothing
+  - [x] PM populated the real values in `.env` on the workstation 2026-08-16.
+        Verified `.env` is gitignored (`.gitignore:137`) and untracked
+  - [ ] Populate the same four keys in `.env` **on `.144`** — the backup runs on
+        the prod host, so the workstation copy does not cover it
+  - [ ] Extract credentials with `grep`, never `source` — the project's
+        `$`-in-password trap. B2 keys are alphanumeric so `source` would likely
+        work, which is exactly why the habit matters more than the instance
+  - [ ] Success: the sync authenticates from `.144`; `git status` is clean; no
+        credential appears in any tracked file
   - [ ] Effort: 1
 
 - [ ] **6.3 Add checksum-verified sync to the wrapper**
