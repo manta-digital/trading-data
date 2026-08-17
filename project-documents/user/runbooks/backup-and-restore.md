@@ -227,58 +227,91 @@ Expect zero differences. Same for `metadata/`.
 ## Step 6 — Restore drill (the actual deliverable)
 
 A backup that has never been restored is a hypothesis. Do this once before
-trusting any of the above, and repeat it periodically.
+trusting any of the above, and repeat it periodically. Executed successfully
+2026-08-17; the procedure below is as-run (no sudo anywhere — `/data` is
+manta-owned and the drill cluster runs as the operator).
 
-Restore to a **second cluster on a distinct port**. Never over `trading`.
+**Separation from production, verbatim** (this is where an operator under
+pressure can do damage): distinct PGDATA (`/data/restore-test`, owned by
+`manta`, not `postgres`); **no TCP at all** (`listen_addresses=''`, socket
+only, in a directory only `manta` can reach); distinct invocation (`pg_ctl`
+as `manta` — never systemd, never the `postgres` user); `archive_mode = off`
+so it cannot write into the production WAL archive. The restored data dir is
+self-contained: Debian keeps prod's configs in `/etc/postgresql`, which the
+backup deliberately does not carry, so the drill cluster inherits nothing.
 
 ```bash
-sudo -u postgres mkdir -p /data/restore-test
-cd /data/restore-test
-sudo -u postgres tar xzf /data/backup/base/<date>/base.tar.gz -C /data/restore-test
-sudo -u postgres tar xzf /data/backup/base/<date>/pg_wal.tar.gz -C /data/restore-test/pg_wal
+mkdir -p /data/restore-test && chmod 700 /data/restore-test
+tar -xzf /data/backup/base/<date>/base.tar.gz -C /data/restore-test
+mkdir -p /data/restore-test/pg_wal /data/restore-test/sock
+tar -xzf /data/backup/base/<date>/pg_wal.tar.gz -C /data/restore-test/pg_wal
 ```
 
-Set `port = 5433` in the restored `postgresql.conf`, then start it:
+(Measured 2026-08-17: extraction of the 152 GB tree took 13m47s.)
+
+Write `/data/restore-test/postgresql.conf`:
+
+```
+listen_addresses = ''
+port = 5433
+unix_socket_directories = '/data/restore-test/sock'
+shared_preload_libraries = 'timescaledb'
+timescaledb.max_background_workers = 0   # keep policy jobs off the evidence
+shared_buffers = 2GB
+max_wal_size = 4GB
+archive_mode = off
+hba_file = '/data/restore-test/pg_hba.conf'
+ident_file = '/data/restore-test/pg_ident.conf'
+```
+
+Write `/data/restore-test/pg_hba.conf` (socket dir is 0700 manta — only the
+operator can connect):
+
+```
+local all all trust
+```
+
+Then `touch /data/restore-test/pg_ident.conf` and start:
 
 ```bash
-sudo -u postgres /usr/lib/postgresql/17/bin/pg_ctl -D /data/restore-test -o "-p 5433" start
+/usr/lib/postgresql/17/bin/pg_ctl -D /data/restore-test \
+  -l /data/restore-test/startup.log -w -t 600 start
 ```
+
+Recovery replays from `backup_label` + the streamed `pg_wal` (42 s measured).
+Connect with `psql -h /data/restore-test/sock -p 5433 -U postgres -d trading`.
 
 Compare content against source. **Exact counts only** —
 `pg_stat_user_tables.n_live_tup` and `approximate_row_count` are both badly
 wrong on this database:
 
 ```bash
-psql -p 5433 -U postgres -d trading -c "SELECT count(*) FROM daily_ohlcv;"
-psql -p 5433 -U postgres -d trading -c "SELECT count(*) FROM acquisition_state;"
-psql -p 5433 -U postgres -d trading -c "SELECT count(*) FROM instruments;"
+psql -h /data/restore-test/sock -p 5433 -U postgres -d trading \
+  -c "SELECT count(*) FROM minute_ohlcv;"
+psql "$MAINT" -c "SET statement_timeout=0;" -c "SELECT count(*) FROM minute_ohlcv;"
 ```
 
-Against source (expect small deltas from writes after the backup started):
+(Exact counts are cheap here — columnstore batch metadata; 12 s for 4.46 B
+rows.) Repeat for `daily_ohlcv`, `acquisition_state`, `instruments`,
+`data_gaps`, `universe_members`. Deltas are explainable writes after backup
+start, or failures — 2026-08-17 all six matched exactly (daemon was down).
+
+Check every cagg by **content**, not catalog presence — an interrupted
+derived object is presumed damaged. Two comparisons over a closed historical
+window (2026-08-17 used Q2-2026), both of which must match:
+
+1. **Carried state**: the same windowed signature (`count`, `sum(volume)`,
+   `sum(close)`, bucket extrema) on restored vs prod, for all nine caggs.
+2. **Source recomputation**: the cagg's window recomputed from its source
+   hypertable on the restored cluster (per its own `view_definition`),
+   including the coverage caggs (`minute_coverage` sources
+   `minute_4hour_ohlcv`, not the hypertable).
+
+Tear down and reclaim (no sudo — everything is manta-owned):
 
 ```bash
-psql "$MAINT" -c "SELECT count(*) FROM daily_ohlcv;"
-psql "$MAINT" -c "SELECT count(*) FROM acquisition_state;"
-psql "$MAINT" -c "SELECT count(*) FROM instruments;"
-```
-
-Reference figures measured 2026-08-16: `daily_ohlcv` 65,652,505;
-`acquisition_state` 45,537; `instruments` 32,075; `minute_ohlcv`
-4,414,650,928.
-
-Check a cagg by **content**, not catalog presence — an interrupted derived
-object is presumed damaged:
-
-```bash
-psql -p 5433 -U postgres -d trading -c "SELECT count(*) FROM daily_coverage;"
-psql "$MAINT" -c "SELECT count(*) FROM daily_coverage;"
-```
-
-Tear down and reclaim:
-
-```bash
-sudo -u postgres /usr/lib/postgresql/17/bin/pg_ctl -D /data/restore-test stop
-sudo rm -rf /data/restore-test
+/usr/lib/postgresql/17/bin/pg_ctl -D /data/restore-test stop
+rm -rf /data/restore-test
 ```
 
 **Once this passes and B2 holds a verified copy, the 2026-08-10 cloned directory
