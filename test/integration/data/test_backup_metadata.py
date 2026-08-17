@@ -75,9 +75,9 @@ def test_dump_content_and_derived_list(migrated_db: str, tmp_path: Path) -> None
         assert expected in tables
 
     # …and nothing from the bar-data or derived tiers, nor runtime state.
-    assert not tables & hypertables, f"hypertables leaked into dump: {tables & hypertables}"
+    assert not tables & hypertables, f"hypertables leaked: {tables & hypertables}"
     assert not tables & caggs, f"caggs leaked into dump: {tables & caggs}"
-    assert "daemon_heartbeat" not in tables, "runtime state must be excluded deliberately"
+    assert "daemon_heartbeat" not in tables, "runtime state must be excluded"
 
     # Derived-list property: a table the script has never heard of appears in
     # the next dump with no script edit.
