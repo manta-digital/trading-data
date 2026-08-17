@@ -18,7 +18,11 @@ _REPO_ROOT = Path(__file__).parents[2]
 _SCRIPTS = {
     "backup_metadata": _REPO_ROOT / "scripts" / "backup_metadata.sh",
     "backup_prod": _REPO_ROOT / "scripts" / "backup_prod.sh",
+    "check_archive_health": _REPO_ROOT / "scripts" / "check_archive_health.sh",
 }
+# Scripts taking the --db-url/--dest argument pair (check_archive_health has
+# no destination, so its refusal cases are separate below).
+_DUMP_SCRIPTS = ("backup_metadata", "backup_prod")
 
 
 def _run(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -27,7 +31,7 @@ def _run(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.parametrize("script_key", sorted(_SCRIPTS))
+@pytest.mark.parametrize("script_key", _DUMP_SCRIPTS)
 class TestArgumentRefusal:
     def test_no_arguments_refused(self, script_key: str) -> None:
         result = _run(_SCRIPTS[script_key])
@@ -48,6 +52,18 @@ class TestArgumentRefusal:
 
     def test_unknown_argument_refused(self, script_key: str) -> None:
         result = _run(_SCRIPTS[script_key], "--frobnicate")
+        assert result.returncode != 0
+        assert "unknown argument" in result.stderr
+
+
+class TestArchiveHealthRefusal:
+    def test_no_arguments_refused(self) -> None:
+        result = _run(_SCRIPTS["check_archive_health"])
+        assert result.returncode != 0
+        assert "--db-url" in result.stderr
+
+    def test_unknown_argument_refused(self) -> None:
+        result = _run(_SCRIPTS["check_archive_health"], "--frobnicate")
         assert result.returncode != 0
         assert "unknown argument" in result.stderr
 
