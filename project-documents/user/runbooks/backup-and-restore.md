@@ -35,49 +35,59 @@ mangles the credential. Always `grep` it out like the line above.
 | WAL archive | `/data/backup/wal` |
 | Metadata dumps | `/data/backup/metadata` |
 | Replication | admitted from **localhost only** — backups run on this host |
+| Backup scripts | `scripts/backup_prod.sh`, `scripts/backup_metadata.sh`, `scripts/check_archive_health.sh` — each requires explicit `--db-url`/`--dest`, none reads the environment |
+
+`/data` is owned by `manta`, so backup directories and the backups themselves
+need **no sudo** — everything below except Step 4 runs as the operator.
+
+**The `$MAINT` URL points at `192.168.1.144`, but replication connections are
+only admitted from localhost** — anything invoking `pg_basebackup` must swap
+the host: `"${MAINT/@192.168.1.144:/@127.0.0.1:}"`. Verified 2026-08-16:
+`IDENTIFY_SYSTEM` succeeds via `127.0.0.1` and is refused via the LAN address.
 
 ---
 
-## Step 1 — Grant REPLICATION (done via git; no restart)
+## Step 1 — Grant REPLICATION (DONE 2026-08-16; no restart)
 
 `pg_basebackup` needs the REPLICATION role attribute. `GRANT postgres TO
 trading_migrate` does not confer it.
 
+The artifact must be applied **as a superuser** (its own header says so):
+altering role attributes is beyond the maintenance role. The maintenance
+credential's `postgres` membership covers it via `SET ROLE` — no sudo, no
+superuser URL:
+
 ```bash
 git pull
-psql "$MAINT" -v ON_ERROR_STOP=1 -f scripts/provision_roles.sql
+psql "$MAINT" -v ON_ERROR_STOP=1 -c "SET ROLE postgres;" -f scripts/provision_roles.sql
 psql "$MAINT" -c "SELECT rolname, rolreplication FROM pg_roles WHERE rolname='trading_migrate';"
 ```
 
 Expect `rolreplication | t`. Idempotent — safe to re-run.
 
+**Applied 2026-08-16**: ran twice, both exit 0, second run emitted no `ALTER
+ROLE` (guard held). `trading_migrate` is `rolreplication=t`, still
+`rolsuper=f`. Replication connection tested both ways (see above).
+
 ---
 
 ## Step 2 — Take a base backup (live; daemon stays up)
 
-```bash
-sudo -u postgres mkdir -p /data/backup/base
-DEST=/data/backup/base/$(date +%Y%m%d)
-sudo -u postgres pg_basebackup -h 127.0.0.1 -U trading_migrate \
-  -D "$DEST" -Ft -z -Xs -P
-```
-
-`-Xs` streams WAL during the copy, which is what makes a live backup
-consistent. Expect a long run — 141 GB source. Record the wall-clock time and
-the resulting size:
+Use the wrapper — it refuses missing arguments, streams WAL during the copy
+(`-Xs`, what makes a live backup consistent), verifies with `pg_verifybackup`
+(PG17 verifies tar-format natively), and only presents the destination once
+verification passes; failures remove the partial:
 
 ```bash
-du -sh "$DEST"
+mkdir -p /data/backup/base
+./scripts/backup_prod.sh \
+  --db-url "${MAINT/@192.168.1.144:/@127.0.0.1:}" \
+  --dest /data/backup/base/$(date +%Y%m%d)
 ```
 
-Verify it — **this step is not optional**, it is the difference between a backup
-and a hope:
-
-```bash
-/usr/lib/postgresql/17/bin/pg_verifybackup "$DEST"
-```
-
-Expect `backup successfully verified`.
+Expect a long run — 141 GB source. The script prints start/end timestamps and
+the verified compressed size; record them. A directory named `*.inprogress`
+is a crashed or running backup, never a restorable one.
 
 ---
 
@@ -87,25 +97,17 @@ These are the tables with no external source — losing them forces a mass
 re-pull. This is what the 2026-08-04 incident destroyed.
 
 ```bash
-sudo -u postgres mkdir -p /data/backup/metadata
-psql "$MAINT" -At -c "
-SELECT string_agg('-t '||quote_ident(tablename), ' ')
-  FROM pg_tables
- WHERE schemaname='public'
-   AND tablename NOT IN (SELECT hypertable_name FROM timescaledb_information.hypertables)
-   AND tablename NOT IN (SELECT view_name FROM timescaledb_information.continuous_aggregates);"
+./scripts/backup_metadata.sh --db-url "$MAINT" --dest /data/backup/metadata
 ```
 
-That prints the `-t` list. Feed it to `pg_dump`:
+The table list is derived from the catalog at run time, so a table added by a
+future migration is picked up without editing anything; `daemon_heartbeat` is
+deliberately excluded as runtime state. The script refuses to produce an
+empty dump (wrong-database guard).
 
-```bash
-TABLES=$(psql "$MAINT" -At -c "SELECT string_agg('-t '||quote_ident(tablename),' ') FROM pg_tables WHERE schemaname='public' AND tablename NOT IN (SELECT hypertable_name FROM timescaledb_information.hypertables) AND tablename NOT IN (SELECT view_name FROM timescaledb_information.continuous_aggregates);")
-eval pg_dump \"\$MAINT\" -Fc $TABLES -f /data/backup/metadata/meta-$(date +%Y%m%d).dump
-ls -lh /data/backup/metadata/
-```
-
-Derived from the catalog, so a table added by a future migration is picked up
-without editing anything. Should finish in seconds.
+**First prod run 2026-08-16**: 12 tables, 1.3 s, 4.6 MB
+(`meta-20260816T213743.dump`). Restore-proven the same day: `pg_restore` into
+a throwaway database, exact `count(*)` matched source on all 12 tables.
 
 ---
 
@@ -165,11 +167,17 @@ Postgres retains every unarchived segment. If `archive_command` fails, `pg_wal`
 grows until the filesystem fills and **the server halts**. This is the one way
 this work can cause an outage.
 
-Check periodically:
+Check with the health script — it names the failing condition and exits
+non-zero (run it ad hoc, and Step 7 schedules it):
+
+```bash
+./scripts/check_archive_health.sh --db-url "$MAINT" --pgdata /var/lib/postgresql/17/main
+```
+
+Or by hand:
 
 ```bash
 psql "$MAINT" -c "SELECT last_failed_wal, last_failed_time, failed_count FROM pg_stat_archiver;"
-du -sh /var/lib/postgresql/17/main/pg_wal
 df -h /data
 ```
 
@@ -180,8 +188,11 @@ the archiver drains its backlog on its own. Do not delete from `pg_wal` by hand.
 
 ## Step 5 — Offsite to B2
 
-Credentials are in `.env` on this host as `MT_BACKUP_S3_*`. Use a
-**bucket-scoped** application key, never the account master key.
+Credentials go in `.env` on this host as `MT_BACKUP_S3_*` — **not yet
+present on `.144` as of 2026-08-16** (the PM populated the workstation copy
+only; measured zero `MT_BACKUP_S3` lines here). PM action before this step:
+copy the four values into this host's `.env`. Use a **bucket-scoped**
+application key, never the account master key.
 
 `rclone` here is v1.60.1-DEV (2022 build) — test it against B2 before relying
 on it.
