@@ -88,6 +88,25 @@ SELECT format('CREATE ROLE %I LOGIN', :'migrate_role')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'migrate_role')
 \gexec
 
+-- REPLICATION on the maintenance role (slice 915). pg_basebackup requires the
+-- REPLICATION *attribute* or superuser. `GRANT postgres TO migrate_role` below
+-- confers postgres's privileges but NOT its role attributes, so without this
+-- the maintenance credential cannot take a base backup — measured on prod
+-- 20260816: rolreplication was false.
+--
+-- REPLICATION alone permits starting replication and reading the WAL stream. It
+-- confers no DML, no DDL, and no ownership, so this does not walk back 913.
+--
+-- pg_hba.conf must also admit a `replication` connection: prod admits it from
+-- localhost only (lines 140/141), which is why the base backup runs on the host
+-- rather than over the LAN. That file is not reproduced by this artifact.
+SELECT format('ALTER ROLE %I REPLICATION', :'migrate_role')
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles
+  WHERE rolname = :'migrate_role' AND rolreplication
+)
+\gexec
+
 -- Test-fixture admin (D9). Previously the fixtures used `postgres`, so one
 -- could reach production by swapping the database name in the URL — which is
 -- exactly what `swap_dbname` does. The only thing preventing it was the
