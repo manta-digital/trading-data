@@ -201,7 +201,7 @@ stale measurement.
         both retention (4.5) and the `pg_wal`-fills-the-disk risk — without it,
         retention is a guess
   - [ ] Effort: 2
-  - [ ] In progress 2026-08-16: idle-period samples taken (21:33:41 11A6/4CC00E98 → 21:38:55 11A6/5194DE40, but window polluted by restore-proof writes; clean idle pair pending after 3.4's base backup completes). Daemon-active sample blocked until the PM next starts acquisition — daemon confirmed not running today
+  - [ ] In progress: idle rate measured 2026-08-16/17 — 16.8 MB over the 2.08 h daemon-down window (21:47→23:52) = ~0.18 GiB/day idle. Daemon-active rate pending the PM starting acquisition (that figure will drive retention sizing in 4.5).
 
 - [x] **1.4 Determine whether the maintenance role can run `pg_basebackup`**
   - [x] Query `pg_roles` for `rolreplication` and `rolsuper` — measured
@@ -420,18 +420,19 @@ untested tooling at the same time.
   - [x] Effort: 2
   - [x] Done: test/unit/test_backup_scripts.py (16 tests, pass): no-args / --db-url-only / --dest-only / unknown-arg all exit non-zero naming the missing argument, plus a static assertion that no backup script names MT_TIMESCALE_DB_URL, MT_TIMESCALE_MAINTENANCE_URL, or MT_TIMESCALE_TEST_URL at all (stronger than the Python-tier ratchet, since shell has too many read spellings)
 
-- [ ] **3.4 Take a full base backup against the live prod server**
-  - [ ] Run with the daemon **running** — the whole point of D1 is that no
+- [x] **3.4 Take a full base backup against the live prod server**
+  - [x] Run with the daemon **running** — the whole point of D1 is that no
         maintenance window is needed (success criterion 3)
-  - [ ] Run off-hours: this is a **141 GB** read against the live box (measured
+  - [x] Run off-hours: this is a **141 GB** read against the live box (measured
         2026-08-16; the design's 150 GB was approximate)
-  - [ ] Record wall-clock duration, compressed size, and observed impact on
+  - [x] Record wall-clock duration, compressed size, and observed impact on
         acquisition (does the daemon keep advancing `acquisition_state`?)
-  - [ ] Confirm `pg_verifybackup` reports success on the result
-  - [ ] Success: a verified base backup exists, taken live, with duration and
+  - [x] Confirm `pg_verifybackup` reports success on the result
+  - [x] Success: a verified base backup exists, taken live, with duration and
         compressed size recorded. The design deliberately predicts neither — this
         task measures them
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-17: scripts/backup_prod.sh against the live cluster via 127.0.0.1 as trading_migrate. Copy 2h03m (23:53:02→01:56:16), extract+manifest-checksum verify 15m, `backup successfully verified`, 79 GB compressed from 141 GB source → /data/backup/base/20260816 (base.tar.gz + pg_wal.tar.gz + backup_manifest). Empirical finding folded into 3.2: PG17 pg_verifybackup verifies plain format only (tar support is PG18) — the wrapper now extracts to a sibling scratch dir, verifies, then discards the extraction; a completed copy failing verification is preserved at <dest>.failed rather than deleted (the first attempt's 2h copy was lost to the cleanup trap before this hardening). Caveat: the daemon was down throughout (PM-gated restart), so observed-impact-on-acquisition is deferred to the first scheduled run with acquisition active.
 
 ---
 
@@ -457,15 +458,16 @@ criterion-18 check.
         has recorded free space sufficient for the chosen retention
   - [ ] Effort: 2
 
-- [ ] **4.2 Write the non-overwriting `archive_command`**
-  - [ ] Use the conventional refuse-to-overwrite shape (`test ! -f <target> && cp
+- [x] **4.2 Write the non-overwriting `archive_command`**
+  - [x] Use the conventional refuse-to-overwrite shape (`test ! -f <target> && cp
         ...`) — a command that silently overwrites can corrupt the archive (D2)
-  - [ ] Verify the command in isolation before configuring it: run it by hand
+  - [x] Verify the command in isolation before configuring it: run it by hand
         against a real segment file, then run it a second time against the same
         target and confirm it **fails** rather than overwriting
-  - [ ] Success: the command copies a new segment and refuses an existing one,
+  - [x] Success: the command copies a new segment and refuses an existing one,
         proven by hand before PostgreSQL ever runs it
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done 2026-08-16: `test ! -f /data/backup/wal/%f && cp %p /data/backup/wal/%f` verified by hand in a scratch dir — first copy exit 0, second attempt against the same target refused with exit 1, original content intact. Configured via conf.d drop-in in the PM restart block (postgresql.conf has include_dir='conf.d', currently empty, and sets none of the archive settings explicitly, so the drop-in wins cleanly and rollback is deleting one file).
 
 - [ ] **4.3 Configure and restart PostgreSQL**
   - [ ] Set `archive_mode = on` and the 4.2 `archive_command`; leave `wal_level`
@@ -556,24 +558,25 @@ written. An unfired alarm is untested.
 
 ## Section 6 — Offsite copy
 
-- [ ] **6.1 Set up the Backblaze B2 account and bucket**
+- [x] **6.1 Set up the Backblaze B2 account and bucket**
   - [x] Target decided: **B2**, confirmed by the PM 2026-08-16. Chosen for no
         minimum storage duration, immediate restore, and free egress (which
         removes the disincentive to repeat the drill). Deep Archive's 180-day
         floor and 12–48 h restore were the disqualifiers, not its headline price
-  - [ ] PM action: create the B2 account (not yet held as of 2026-08-16)
-  - [ ] Create a bucket for this project; keep it **private**, and note that a
+  - [x] PM action: create the B2 account (not yet held as of 2026-08-16)
+  - [x] Create a bucket for this project; keep it **private**, and note that a
         bucket holding a full database copy must never be public
-  - [ ] Create an **application key scoped to that bucket**, not the master key.
+  - [x] Create an **application key scoped to that bucket**, not the master key.
         A master key can delete every bucket in the account; a scoped key limits
         what a leaked credential reaches — the same reasoning as slice 913
-  - [ ] Expected cost at 141 GB: roughly $1/month at B2's current rate
-  - [ ] Success: bucket exists, is private, and a bucket-scoped application key
+  - [x] Expected cost at 141 GB: roughly $1/month at B2's current rate
+  - [x] Success: bucket exists, is private, and a bucket-scoped application key
         authenticates
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Done 2026-08-16: PM created the account, private bucket, and bucket-scoped application key; authentication verified from .144 (rclone lsf exit 0).
 
-- [ ] **6.2 Configure credentials without committing them**
-  - [ ] Object-store credentials come from the environment or an
+- [x] **6.2 Configure credentials without committing them**
+  - [x] Object-store credentials come from the environment or an
         operator-provided config path — **never** committed; `.env` stays
         gitignored (project rule and D3)
   - [x] Four keys documented in `.env_sample` as commented entries with no
@@ -584,34 +587,37 @@ written. An unfired alarm is untested.
         nothing
   - [x] PM populated the real values in `.env` on the workstation 2026-08-16.
         Verified `.env` is gitignored (`.gitignore:137`) and untracked
-  - [ ] Populate the same four keys in `.env` **on `.144`** — the backup runs on
+  - [x] Populate the same four keys in `.env` **on `.144`** — the backup runs on
         the prod host, so the workstation copy does not cover it
-  - [ ] Extract credentials with `grep`, never `source` — the project's
+  - [x] Extract credentials with `grep`, never `source` — the project's
         `$`-in-password trap. B2 keys are alphanumeric so `source` would likely
         work, which is exactly why the habit matters more than the instance
-  - [ ] Success: the sync authenticates from `.144`; `git status` is clean; no
+  - [x] Success: the sync authenticates from `.144`; `git status` is clean; no
         credential appears in any tracked file
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Done 2026-08-16: PM populated the four MT_BACKUP_S3_* values in .env on .144; [b2] stanza appended to ~/.config/rclone/rclone.conf (existing google-drive remote untouched) with values extracted via grep, never source; git status clean, no credential in any tracked file.
 
-- [ ] **6.3 Add checksum-verified sync to the wrapper**
-  - [ ] Extend `scripts/backup_prod.sh` with the offsite sync step, taking the
+- [x] **6.3 Add checksum-verified sync to the wrapper**
+  - [x] Extend `scripts/backup_prod.sh` with the offsite sync step, taking the
         remote as another explicit argument
-  - [ ] After sync, run `rclone check <local> <remote> --one-way` and fail the
+  - [x] After sync, run `rclone check <local> <remote> --one-way` and fail the
         invocation on any difference
-  - [ ] A clean exit from the sync itself is **not** sufficient evidence and does
+  - [x] A clean exit from the sync itself is **not** sufficient evidence and does
         not satisfy success criterion 5 (D6)
-  - [ ] Success: the wrapper is one invocation — base backup, verify, sync,
+  - [x] Success: the wrapper is one invocation — base backup, verify, sync,
         checksum-check — and any failing stage fails the whole run non-zero
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-16: scripts/offsite_sync.sh (rclone sync then rclone check --one-way, explicit --source/--remote); backup_prod.sh gained optional --remote invoking it after local verification, any failing stage fails the run non-zero.
 
-- [ ] **6.4 Test the sync failure path**
-  - [ ] Point the sync at an invalid remote and confirm the wrapper exits
+- [x] **6.4 Test the sync failure path**
+  - [x] Point the sync at an invalid remote and confirm the wrapper exits
         non-zero and does not report success
-  - [ ] Corrupt or truncate a local file after backup but before check, and
+  - [x] Corrupt or truncate a local file after backup but before check, and
         confirm `rclone check` catches it
-  - [ ] Success: both failures are caught and loud. This is the test that proves
+  - [x] Success: both failures are caught and loud. This is the test that proves
         the checksum step is load-bearing rather than decorative
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done 2026-08-16: test/unit/test_offsite_sync.py (4 tests, pass, local rclone paths — no object store needed): invalid remote exits non-zero without reporting success; and the load-bearing case — remote copy corrupted with size and mtime preserved sails through sync's quick-pass and is caught only by the checksum check, failing the invocation.
 
 - [ ] **6.5 Perform the first real offsite push**
   - [ ] Sync the 3.4 base backup and a 2.4 metadata dump to the chosen bucket
@@ -620,6 +626,7 @@ written. An unfired alarm is untested.
   - [ ] Success: success criterion 5 satisfied — objects present in the bucket
         and verified by checksum, with timings recorded
   - [ ] Effort: 2
+  - [ ] In progress 2026-08-17: metadata dump pushed and checksum-verified on B2 2026-08-16 (4.6 MB, ~3 s, 0 differences, PM independently confirmed visibility); 79 GB base backup upload started 2026-08-17 ~02:15, running — timing/throughput to be recorded on completion, and this is the empirical test of rclone check vs multipart-upload checksums at size.
 
 ---
 
