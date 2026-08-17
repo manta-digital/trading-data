@@ -111,8 +111,9 @@ without editing anything. Should finish in seconds.
 
 ## Step 4 — Enable WAL archiving (REQUIRES RESTART)
 
-**Do this after 2026-08-24** — the slice-169 criterion-18 check needs continuous
-acquisition through that week, and a restart can stall it.
+Stop the daemon before restarting. If this restart interrupts acquisition during
+the week of the slice-169 criterion-18 check, that check simply gets re-run the
+following Monday — it is one query, not a blocker.
 
 Prepare the destination first:
 
