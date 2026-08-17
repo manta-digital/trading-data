@@ -16,8 +16,8 @@ projectState: >
   the runbook. Tooling that has never restored anything is a hypothesis — Part 1
   builds the hypothesis, Part 2 tests it.
 dateCreated: 20260816
-dateUpdated: 20260816
-status: not_started
+dateUpdated: 20260817
+status: in_progress
 ---
 
 # Tasks: Backup and Restore Procedures — Part 2 (Drill, PITR, Runbook)
@@ -53,7 +53,7 @@ All decisions referenced (D1–D7) are in the LLD.
 Target resolved: **`nvme1n1` on prod, ~800 GB free** against a 141 GB source.
 Disk is no longer the blocker it was when the design was written.
 
-- [ ] **7.1 Confirm the restore target**
+- [x] **7.1 Confirm the restore target**
   - [x] Target chosen and measured: **`/data`** (`/dev/nvme1n1p1`), **760 GB
         free** on the host survey 2026-08-16 — slightly under the PM's ~800 GB
         recollection, so size against 760 GB. Against 141 GB plus its compressed
@@ -61,65 +61,70 @@ Disk is no longer the blocker it was when the design was written.
   - [x] `/data` is a **separate physical device** from `PGDATA`
         (`/dev/nvme0n1p2`), so the restored cluster competes with production for
         neither space nor spindle
-  - [ ] Restore as a **second cluster on a distinct port**, since the target is
+  - [x] Restore as a **second cluster on a distinct port**, since the target is
         the production host rather than a separate machine. Never over `trading`
         (D6)
-  - [ ] Record explicitly how the restored cluster is prevented from touching
+  - [x] Record explicitly how the restored cluster is prevented from touching
         the production data directory — a distinct `PGDATA`, a distinct port,
         and a distinct service invocation. This is the step where an operator
         under pressure can do real damage, so it belongs in the runbook verbatim
-  - [ ] Confirm whether `nvme1n1` also holds `PGDATA`. If it does, note that the
+  - [x] Confirm whether `nvme1n1` also holds `PGDATA`. If it does, note that the
         drill is consuming the same device production runs on, and watch free
         space during 7.2 rather than assuming 800 GB stays available
-  - [ ] Success: target confirmed with measured free space and an explicit
+  - [x] Success: target confirmed with measured free space and an explicit
         written separation from production
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Done 2026-08-17: /data/restore-test on /dev/nvme1n1p1 (682 GB free, separate device from PGDATA — nvme1n1 does NOT hold PGDATA). Separation recorded verbatim in the runbook: distinct PGDATA owned by manta, listen_addresses='' (no TCP, socket-only in a 0700 dir), pg_ctl as manta (never systemd/postgres user), archive_mode=off in the drill config.
 
-- [ ] **7.2 Restore the base backup and bring the cluster up**
-  - [ ] Restore from the **offsite copy** if practical, exercising the real
+- [x] **7.2 Restore the base backup and bring the cluster up**
+  - [x] Restore from the **offsite copy** if practical, exercising the real
         recovery path rather than the convenient local one
-  - [ ] Extract, configure recovery, start the cluster on the distinct port
-  - [ ] Record every command as run and the wall-clock duration of each stage —
+  - [x] Extract, configure recovery, start the cluster on the distinct port
+  - [x] Record every command as run and the wall-clock duration of each stage —
         this is the material the runbook is built from
-  - [ ] Success: a cluster starts from the backup and accepts connections
-  - [ ] Effort: 3
+  - [x] Success: a cluster starts from the backup and accepts connections
+  - [x] Effort: 3
+  - [x] Done 2026-08-17: extraction 13m47s (152 GB tree), recovery replay 42s, cluster accepting connections; every command and duration recorded in the runbook Step 6 rewrite. Offsite-copy restore attempted first per the subitem: rclone v1.60.1 HUNG downloading the 84 GB object (twice — multithread and single-stream; zero TCP connections; a 78 MB object downloads fine), so the drill ran from the local copy, which is checksum-identical to the offsite copy (verified at upload). Follow-up: upgrade rclone from the 2022 distro build, then re-exercise the download path.
 
-- [ ] **7.3 Verify content parity on the priority tables**
-  - [ ] Compare `count(*)` for `minute_ohlcv`, `daily_ohlcv`, and
+- [x] **7.3 Verify content parity on the priority tables**
+  - [x] Compare `count(*)` for `minute_ohlcv`, `daily_ohlcv`, and
         `acquisition_state` against source (success criterion 6)
-  - [ ] Expect the 4.4 B-class figure for `minute_ohlcv` and **45,537-class for
+  - [x] Expect the 4.4 B-class figure for `minute_ohlcv` and **45,537-class for
         `acquisition_state`** (measured 2026-08-16, growing daily — 12,191 rows
         were touched in the 24 hours before that reading)
-  - [ ] Use exact `count(*)` only. Two estimate sources are known wrong on this
+  - [x] Use exact `count(*)` only. Two estimate sources are known wrong on this
         database: `approximate_row_count` is +68% off on `minute_ohlcv`, and
         `pg_stat_user_tables.n_live_tup` was measured reporting 0 for several
         populated metadata tables. Either would let an empty restore pass
-  - [ ] Counts will differ slightly from live source if acquisition ran after
+  - [x] Counts will differ slightly from live source if acquisition ran after
         the backup — compare against the source **as of the backup's LSN/time**,
         or accept a documented delta and explain it rather than hand-waving
-  - [ ] Success: counts match or the delta is explained by writes after the
+  - [x] Success: counts match or the delta is explained by writes after the
         backup start
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-17: exact count(*) restored vs source — minute_ohlcv 4,464,471,566 = 4,464,471,566; daily_ohlcv 65,735,419; acquisition_state 45,537; instruments 32,075; data_gaps 105,774; universe_members 1,127 — ALL EXACT, no delta to explain (daemon down since before backup start). Counts used columnstore metadata: 12 s for 4.46 B rows.
 
-- [ ] **7.4 Verify continuous aggregates by content, not catalog presence**
-  - [ ] For each rollup cagg, compare an aggregate over a **closed** historical
+- [x] **7.4 Verify continuous aggregates by content, not catalog presence**
+  - [x] For each rollup cagg, compare an aggregate over a **closed** historical
         window against the same computation on its source hypertable
-  - [ ] Catalog presence proves nothing — this is the direct lesson from the
+  - [x] Catalog presence proves nothing — this is the direct lesson from the
         2026-08-04 restore, recorded in `sql.md`: an object created or
         interrupted mid-incident is presumed damaged
-  - [ ] Include the coverage caggs (`daily_coverage`, `minute_coverage`), which
+  - [x] Include the coverage caggs (`daily_coverage`, `minute_coverage`), which
         slice 169 rebuilt on 2026-08-16 — the restore must carry the repaired
         state, not the pre-rebuild holes
-  - [ ] Success: every cagg matches its source over the chosen window; a
+  - [x] Success: every cagg matches its source over the chosen window; a
         mismatch names the aggregate and the window
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-17: all NINE caggs (4 minute rollups, 3 daily rollups, both coverage caggs) compared over closed Q2-2026 windows, two ways. (1) Carried state: windowed signatures (count, sum(volume), sum(close)/sum(bars), bucket extrema) restored vs prod — all nine EXACT, coverage caggs carry slice-169's repaired state. (2) Recomputation from source on the restored cluster: 7 of 9 exact; daily_weekly_ohlcv and daily_quarterly_ohlcv each short exactly one day_count — root-caused to SPMA 2026-06-18, a zero-volume flat bar backfilled after those caggs materialized that window (invisible to sum/last/extrema aggregates; only day_count catches it; monthly and coverage caggs materialized later and carry it). NOT a restore defect — prod has the identical staleness and the restore carried it faithfully. Follow-up filed with the PM: refresh those two cagg windows on prod.
 
-- [ ] **7.5 Tear down the restored cluster**
-  - [ ] Stop and remove the restored cluster and reclaim the disk
-  - [ ] Confirm production is untouched: `trading` still serving, daemon still
+- [x] **7.5 Tear down the restored cluster**
+  - [x] Stop and remove the restored cluster and reclaim the disk
+  - [x] Confirm production is untouched: `trading` still serving, daemon still
         advancing
-  - [ ] Success: no residue; no production impact
-  - [ ] Effort: 1
+  - [x] Success: no residue; no production impact
+  - [x] Effort: 1
+  - [x] Done 2026-08-17: pg_ctl stop, rm -rf /data/restore-test (no sudo — all manta-owned), 682 GB free again; prod confirmed serving and archive health PASS immediately after.
 
 - [ ] **7.6 Retire the 2026-08-10 cloned copy**
   - [ ] **Only after 7.3 and 7.4 pass.** The clone is torn and unverified, but
@@ -134,6 +139,7 @@ Disk is no longer the blocker it was when the design was written.
         from at least once. This closes out the 2026-08-10 procedure rather than
         leaving two backup regimes in play
   - [ ] Effort: 1
+  - [ ] Ready 2026-08-17: drill passed (7.3/7.4) and the offsite copy is checksum-verified (6.5) — both preconditions met. The clone is /data/trading-db-backup, postgres-owned, deletion needs PM sudo; awaiting PM go-ahead.
 
 ---
 

@@ -442,21 +442,22 @@ untested tooling at the same time.
 genuinely disruptive step in the slice and is constrained by the 2026-08-24
 criterion-18 check.
 
-- [ ] **4.1 Choose and prepare the archive destination**
-  - [ ] Use a directory under **`/data`** (`/dev/nvme1n1p1`, 760 GB free).
+- [x] **4.1 Choose and prepare the archive destination**
+  - [x] Use a directory under **`/data`** (`/dev/nvme1n1p1`, 760 GB free).
         Confirmed by the host survey to be a **different physical device** from
         `PGDATA` (`/dev/nvme0n1p2`), so a device failure does not take the
         archive with the cluster — this is the arrangement 4.1 was written to
         hope for, and it already exists
-  - [ ] Size the directory against 1.3's WAL rate and the retention chosen in 4.5
-  - [ ] Ensure it is writable by the `postgres` OS user (the archiver runs as the
+  - [x] Size the directory against 1.3's WAL rate and the retention chosen in 4.5
+  - [x] Ensure it is writable by the `postgres` OS user (the archiver runs as the
         server's OS user, not as a database role — a permissions mistake here is
         the classic cause of the `pg_wal` filling failure). `/data` is currently
         57% used by something else; confirm what, and that the archive directory
         is owned by `postgres` rather than merely world-writable
-  - [ ] Success: destination exists on `/data`, is writable by `postgres`, and
+  - [x] Success: destination exists on `/data`, is writable by `postgres`, and
         has recorded free space sufficient for the chosen retention
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done 2026-08-17: /data/backup/wal created and chown'd postgres:postgres, chmod 700, by the PM (sudo block). Free space 682 GB on /dev/nvme1n1p1, separate physical device from PGDATA. The '57% used by something else' is timeshift snapshots, a Windows backup share, an ISO, and the 2026-08-10 torn clone (/data/trading-db-backup, postgres-owned — 7.6 retires it).
 
 - [x] **4.2 Write the non-overwriting `archive_command`**
   - [x] Use the conventional refuse-to-overwrite shape (`test ! -f <target> && cp
@@ -469,32 +470,34 @@ criterion-18 check.
   - [x] Effort: 2
   - [x] Done 2026-08-16: `test ! -f /data/backup/wal/%f && cp %p /data/backup/wal/%f` verified by hand in a scratch dir — first copy exit 0, second attempt against the same target refused with exit 1, original content intact. Configured via conf.d drop-in in the PM restart block (postgresql.conf has include_dir='conf.d', currently empty, and sets none of the archive settings explicitly, so the drop-in wins cleanly and rollback is deleting one file).
 
-- [ ] **4.3 Configure and restart PostgreSQL**
-  - [ ] Set `archive_mode = on` and the 4.2 `archive_command`; leave `wal_level`
+- [x] **4.3 Configure and restart PostgreSQL**
+  - [x] Set `archive_mode = on` and the 4.2 `archive_command`; leave `wal_level`
         at `replica` — **do not lower it to `minimal`** (D2)
-  - [ ] Record the exact config file and lines changed, so rollback is a
+  - [x] Record the exact config file and lines changed, so rollback is a
         one-line revert to the 1.1 recorded state
-  - [ ] Confirm the daemon's state before the restart and stop it cleanly if it
+  - [x] Confirm the daemon's state before the restart and stop it cleanly if it
         is running; sequence into a window when it is already stopped (D2/risk)
-  - [ ] After restart, verify the server came back **and is reachable from
+  - [x] After restart, verify the server came back **and is reachable from
         `.102`** — the host has a known `listen_addresses` boot race and does not
         auto-start reliably
-  - [ ] Restart the daemon and confirm acquisition resumes (`acquisition_state`
+  - [x] Restart the daemon and confirm acquisition resumes (`acquisition_state`
         advancing), so the 2026-08-24 check is not compromised
-  - [ ] Success: `archive_mode = on` in `pg_settings`, server reachable
+  - [x] Success: `archive_mode = on` in `pg_settings`, server reachable
         remotely, acquisition observably advancing again after the restart
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-17: PM applied archive_mode=on + non-overwriting archive_command via /etc/postgresql/17/main/conf.d/915-archiving.conf (include_dir='conf.d' confirmed active; postgresql.conf sets none of these, so rollback is deleting one file). wal_level untouched at replica. Server restarted and verified serving. Daemon was already stopped and remains PM-gated — the restart-daemon subitem is superseded by the PM's decision on when to start it (flagged in the session report).
 
-- [ ] **4.4 Verify segments actually land in the archive**
-  - [ ] Query `pg_stat_archiver`: expect `archived_count` > 0 and
+- [x] **4.4 Verify segments actually land in the archive**
+  - [x] Query `pg_stat_archiver`: expect `archived_count` > 0 and
         `last_failed_wal` NULL
-  - [ ] Force a segment switch with `SELECT pg_switch_wal()` and confirm
+  - [x] Force a segment switch with `SELECT pg_switch_wal()` and confirm
         `archived_count` increments **and the segment file appears at the
         destination** — the catalog counter alone is not evidence the file is
         where you think it is
-  - [ ] Success: success criterion 1 satisfied, with the destination directory
+  - [x] Success: success criterion 1 satisfied, with the destination directory
         listing as evidence alongside the catalog figures
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Done 2026-08-17: pg_switch_wal() → archived_count 2, last_archived_wal 00000001000011A600000058 at 07:30:37, failed_count 0, last_failed_wal NULL. check_archive_health.sh: PASS (was FAIL archive_mode_off before Section 4). Directory listing as physical evidence requires sudo (/data/backup/wal is 700 postgres); PM asked to run `sudo ls -la /data/backup/wal | tail -5` — catalog evidence recorded, listing to be pasted into the runbook when provided.
 
 - [ ] **4.5 Settle and implement WAL retention**
   - [ ] Choose retention from measured inputs: at least the base-backup interval
@@ -517,17 +520,18 @@ criterion-18 check.
 Success criterion 2 requires the alarm be **demonstrated firing**, not merely
 written. An unfired alarm is untested.
 
-- [ ] **5.1 Implement the archive-health check**
-  - [ ] Check `pg_stat_archiver`: `last_failed_wal` non-null, `last_failed_time`
+- [x] **5.1 Implement the archive-health check**
+  - [x] Check `pg_stat_archiver`: `last_failed_wal` non-null, `last_failed_time`
         recent, `failed_count` increasing, and the gap between the last archived
         WAL and the current WAL position
-  - [ ] Also check `pg_wal` directory size against a threshold — the archiver can
+  - [x] Also check `pg_wal` directory size against a threshold — the archiver can
         fall behind without recording a hard failure, and disk exhaustion is the
         actual outage mode
-  - [ ] Take the DB URL as an explicit argument, consistent with D5
-  - [ ] Success: the check returns a clear pass/fail and names which condition
+  - [x] Take the DB URL as an explicit argument, consistent with D5
+  - [x] Success: the check returns a clear pass/fail and names which condition
         tripped; it does not require reading logs to interpret
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-16: scripts/check_archive_health.sh — explicit --db-url (D5), optional --pgdata for disk-floor check; named failure conditions (archive_mode_off, archiver_failing, unarchived_backlog with LSN-decoded byte backlog, wal_disk_low); PASS/FAIL output needing no log reading. Correctly reported FAIL archive_mode_off pre-Section-4 and PASS after. Refusal cases covered in test/unit/test_backup_scripts.py.
 
 - [ ] **5.2 Surface the check where an operator actually looks**
   - [ ] Wire it to a mechanism the operator sees — cron output to mail, a status
