@@ -78,23 +78,53 @@ fi
 
 # The backup lands in <dest>.inprogress and is renamed only after
 # verification passes, so nothing at <dest> is ever a partial or unverified
-# backup. On failure the partial is removed — a weekly cron that left partials
-# behind would silently fill the disk.
+# backup. A partial from a failed *copy* is removed (a weekly cron that left
+# partials behind would silently fill the disk); a completed copy that fails
+# *verification* is preserved as <dest>.failed for diagnosis — measured
+# 2026-08-16, the copy phase alone is ~2 hours, too expensive to discard as a
+# side effect of a verification problem.
 TMP_DEST="$DEST.inprogress"
-if [ -e "$TMP_DEST" ]; then
-  echo "error: stale in-progress destination exists: $TMP_DEST (previous run crashed?) — inspect and remove it first" >&2
-  exit 1
-fi
-trap 'rm -rf "$TMP_DEST"' EXIT
+VERIFY_DIR="$DEST.verify"
+FAILED_DEST="$DEST.failed"
+for leftover in "$TMP_DEST" "$VERIFY_DIR" "$FAILED_DEST"; do
+  if [ -e "$leftover" ]; then
+    echo "error: leftover from a previous run exists: $leftover — inspect and remove it first" >&2
+    exit 1
+  fi
+done
+trap 'rm -rf "$TMP_DEST" "$VERIFY_DIR"' EXIT
 
 echo "base backup starting: $(date -Is)"
 pg_basebackup -d "$DB_URL" -D "$TMP_DEST" -Ft -z -Xs \
   --checkpoint="$CHECKPOINT_MODE" --no-password
 
-echo "backup complete, verifying: $(date -Is)"
-# PG17 pg_verifybackup verifies tar-format backups natively (-Ft needs no
-# extraction on this version; confirmed empirically against prod, task 3.4).
-"$PG_VERIFYBACKUP" "$TMP_DEST"
+# Copy phase done — from here on, failures preserve the archives.
+trap 'rm -rf "$VERIFY_DIR"; mv "$TMP_DEST" "$FAILED_DEST"; echo "error: verification failed — backup preserved at $FAILED_DEST for diagnosis, NOT restorable-verified" >&2' EXIT
+
+echo "backup complete, verifying (extract + manifest checksums): $(date -Is)"
+# Determined empirically against prod 2026-08-16 (task 3.4): PG17's
+# pg_verifybackup verifies PLAIN-format backups only — pointed at a -Ft
+# directory it reports every manifest entry as missing (tar support arrives
+# in PG18). So: extract to a sibling scratch dir on the same filesystem,
+# verify the extracted tree against the manifest, then discard the
+# extraction. Costs one decompression pass per backup; it is the only true
+# checksum-against-manifest verification available on this version.
+for archive in "$TMP_DEST"/*.tar.gz; do
+  case "$(basename "$archive")" in
+    base.tar.gz|pg_wal.tar.gz) ;;
+    *)
+      # A third archive means a tablespace tarball; this cluster has none and
+      # the extraction layout below would silently mis-verify one.
+      echo "error: unexpected archive $archive — tablespace backups are not supported by this wrapper" >&2
+      exit 1
+      ;;
+  esac
+done
+mkdir "$VERIFY_DIR" "$VERIFY_DIR/pg_wal"
+tar -xzf "$TMP_DEST/base.tar.gz" -C "$VERIFY_DIR"
+tar -xzf "$TMP_DEST/pg_wal.tar.gz" -C "$VERIFY_DIR/pg_wal"
+"$PG_VERIFYBACKUP" -m "$TMP_DEST/backup_manifest" "$VERIFY_DIR"
+rm -rf "$VERIFY_DIR"
 
 mv "$TMP_DEST" "$DEST"
 trap - EXIT
