@@ -4,7 +4,7 @@ layer: project
 project: trading
 source: user/project-guides/000-concept.trading.md
 dateCreated: 20260327
-dateUpdated: 20260513
+dateUpdated: 20260816
 status: in_progress
 ---
 
@@ -50,6 +50,8 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
 
 9. [ ] **(240) Data Acquisition — Flat File Import** — One-shot import tool for bulk historical data (CSV, Parquet, provider-specific export formats). CLI-invoked, not a daemon. Reuses 120's orchestrator core, state tracking, and idempotent-write patterns so imports participate in the same `acquisition_state` universe as live acquisition. Supports rehydrating archived minute data (e.g. the irreplaceable .95/.144 historical rows) and seeding from third-party dumps. Dependencies: [100, 120]. Status: not_started
 
+10. [ ] **(260) Kalshi Event-Contract Data** — Continuous collection of Kalshi prediction-market data via their public REST API (`trade-api/v2`; market data requires no authentication). Relational catalog following Kalshi's own hierarchy: series → events → markets, with settlement outcomes captured on close. Collected surfaces: catalog sync (market lifecycle and settlement), candlesticks, and public trades; orderbook snapshots optional/later. Value is time-sensitive: Kalshi is migrating settled markets, old trades, and candlesticks behind `/historical/*` endpoints with a cutoff timestamp whose retention policy is theirs to change, and orderbook depth is live-only — data not collected now may be unobtainable later. Runs as a low-priority async collector (polling daemon on the 120 daemon/orchestrator patterns; websocket exists if ever needed) so it accumulates data while higher-priority initiatives (e.g. 220) proceed. Simpler than minute OHLCV: modest volumes, plain relational tables (hypertable only if trade/candle volume warrants), tiered rate limits are generous at the public tier. Dependencies: [900] (patterns from 120 reused, not blocking). Status: not_started
+
 ## Cross-Initiative Dependencies
 
 - **100 depends on 900**: Needs CLI framework, TOML config, structured logging, and `src/` layout in place before building the storage layer.
@@ -70,7 +72,8 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
  │    │    ├── 220 Data Acquisition — Futures Tick (primary focus)
  │    │    └── 240 Data Acquisition — Flat File Import
  │    └── 180 Data Serving API
- └── 200 Event Infrastructure
+ ├── 200 Event Infrastructure
+ └── 260 Kalshi Event-Contract Data
 ```
 
 ## Recommended Sequencing
@@ -81,6 +84,7 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
 4. **140 + 180** — Data Quality and Data Serving API (parallel; 180 depends only on 100 and can proceed as soon as storage schemas are stable)
 5. **220** — Futures tick acquisition (the project's primary research target). Start with purchased historical-tick data to prove schema, provider seam, roll logic, and storage volume before signing up for a $179/mo live feed. Can begin once the equities pipeline (120 → 140 → 160) is solid enough to validate the patterns 220 reuses.
 6. **240** — Flat file import, sequenced after 220 or in parallel depending on operational priority (it is a smaller, self-contained tool and can be slotted opportunistically)
+7. **260** — Kalshi collector, started as early as practical and run async at low priority alongside 220 — its value is the data accumulated while other work proceeds
 
 ## Notes
 
