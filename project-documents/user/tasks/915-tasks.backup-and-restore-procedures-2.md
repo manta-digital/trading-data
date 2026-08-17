@@ -34,12 +34,11 @@ Three properties carry over from Part 1 and govern everything here:
   mid-incident is presumed damaged, per `sql.md` and the 2026-08-04 restore.
 - **Never restore over `trading`** (D6). A separate host, or a second cluster on
   a distinct port.
-- **Section 7's restore target is resolved**: `nvme1n1` on prod, PM-reported
-  ~800 GB free (2026-08-16), against a measured 141 GB `trading`. That is ample
-  headroom for the compressed archive plus the extracted cluster. The one thing
-  still to confirm is whether `nvme1n1` is the same device as `PGDATA` — if it
-  is, the restore drill shares fate with production and that must be recorded
-  rather than discovered (Part 1 task 1.2).
+- **Section 7's restore target is resolved and measured**: `/data`
+  (`/dev/nvme1n1p1`), **760 GB free**, against a measured 141 GB `trading`.
+  Ample headroom for the compressed archive plus the extracted cluster. The host
+  survey confirmed `/data` is a **different physical device** from `PGDATA`
+  (`/dev/nvme0n1p2`), so the drill does not share fate with production.
 
 Sections 7 and 8 are distinct on purpose: Section 7 proves the base backup
 restores, Section 8 proves WAL replay works. Passing the first tells you nothing
@@ -55,9 +54,13 @@ Target resolved: **`nvme1n1` on prod, ~800 GB free** against a 141 GB source.
 Disk is no longer the blocker it was when the design was written.
 
 - [ ] **7.1 Confirm the restore target**
-  - [x] Target chosen: `nvme1n1` on `.144`, PM-reported ~800 GB free
-        (2026-08-16). Against a measured 141 GB `trading` plus its compressed
+  - [x] Target chosen and measured: **`/data`** (`/dev/nvme1n1p1`), **760 GB
+        free** on the host survey 2026-08-16 — slightly under the PM's ~800 GB
+        recollection, so size against 760 GB. Against 141 GB plus its compressed
         archive, headroom is ample
+  - [x] `/data` is a **separate physical device** from `PGDATA`
+        (`/dev/nvme0n1p2`), so the restored cluster competes with production for
+        neither space nor spindle
   - [ ] Restore as a **second cluster on a distinct port**, since the target is
         the production host rather than a separate machine. Never over `trading`
         (D6)

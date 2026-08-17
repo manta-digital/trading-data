@@ -59,7 +59,15 @@ figures. These are recorded so Section 1 confirms rather than discovers.
 | Other databases | `trading_test` 7,018 MB, `mt_169_b1` 2,904 MB, 2 small leftovers, `postgres` 11 MB |
 | `pg_wal` | 560 MB across 35 segments |
 | `trading_migrate` attributes | `rolsuper=f`, **`rolreplication=f`**, `rolcreatedb=f` |
-| Restore-target disk | `nvme1n1`, **~800 GB free** (PM-reported 2026-08-16; not verified from here) |
+| Restore-target disk | `/dev/nvme1n1p1` mounted at **`/data`**, 1.8 TB, **760 GB free** (measured on host 2026-08-16) |
+| PGDATA device | `/dev/nvme0n1p2` (root `/`), 1.8 TB, 978 GB free — **a different physical device from `/data`** |
+| Host identity | `manta9000`, Ubuntu 26.04, PostgreSQL 17.11 |
+| `pg_basebackup` / `pg_dump` | present at `/usr/bin`, 17.11 |
+| `pg_verifybackup` | present but **only at `/usr/lib/postgresql/17/bin/pg_verifybackup`** — no `/usr/bin` wrapper |
+| `rclone` | `/usr/bin/rclone`, **v1.60.1-DEV** (2022-era distro build) |
+| `cron` | installed and active since 2026-08-13; `manta` crontab holds only an `@reboot` rclone mount |
+| Acquisition re-invocation | **nothing found** — no cron entry, no systemd timer; daemon is started manually, matching the deploy runbook |
+| `pg_hba.conf` replication | `replication` admitted **from localhost only** (lines 140/141, any role, scram). No LAN `replication` line exists |
 
 **The metadata tier is populated and actively advancing** — the tables are
 live, not empty:
@@ -173,17 +181,15 @@ stale measurement.
         were cleaned up since 2026-08-11. `mt_169_b1` (2.9 GB) is slice 169
         residue and is the largest; still out of scope per D7, but worth a
         mention to the PM since it is no longer trivially small
-  - [ ] Remaining, and requires host access this breakdown did not have: `df -h`
-        on `.144` for the filesystem holding the data directory and for the
-        archive/staging destination
-  - [ ] Confirm the PM-reported **~800 GB free on `nvme1n1`** and record which
-        mount point that corresponds to, and whether it is the same filesystem
-        as `PGDATA`. If it is the same device, the restore drill and the archive
-        share fate with production — record that explicitly rather than
-        discovering it during an incident
-  - [ ] Success: free space known in absolute GB per mount point, with `PGDATA`,
-        archive destination, and restore target each mapped to a device
-  - [ ] Effort: 1
+  - [x] Host survey completed 2026-08-16 (`2026-08-16-915-host-survey.md`):
+        `PGDATA` is on `/dev/nvme0n1p2` (root `/`, 978 GB free); the restore
+        target `/data` is `/dev/nvme1n1p1` (760 GB free). **Separate physical
+        devices** — an archive or restore target on `/data` does not share fate
+        with production `PGDATA`, which resolves the shared-fate concern
+  - [x] Note the measured 760 GB is slightly under the PM-reported ~800 GB. Size
+        Section 7 against **760 GB**; 141 GB fits comfortably either way
+  - [x] Success: free space known per mount point, each mapped to a device
+  - [x] Effort: 1
 
 - [ ] **1.3 Measure WAL generation rate**
   - [ ] Sample `pg_current_wal_lsn()` twice, separated by a period with the
@@ -205,15 +211,20 @@ stale measurement.
         attribute. As it stands, the maintenance credential **cannot** take a
         base backup. Task 1.5 is therefore required, not conditional
   - [x] `max_wal_senders` is 10, so `-Xs` has senders available
-  - [ ] Remaining (needs host access): check `pg_hba.conf` admits a
-        `replication` connection for `trading_migrate` from the backup host.
-        A `replication` connection is matched by its own `pg_hba.conf` line —
-        an existing entry for the `trading` database does **not** cover it,
-        which is the usual first failure of a `pg_basebackup` attempt
-  - [ ] Success: a definite answer to "which credential takes the base backup,
-        and what does it need." Do not work around a missing attribute by
-        reaching for `postgres`
-  - [ ] Effort: 2
+  - [x] `pg_hba.conf` checked via `pg_hba_file_rules` 2026-08-16: `replication`
+        is admitted **from localhost only** — lines 140 (`127.0.0.1`) and 141
+        (`::1`), any role, scram-sha-256. Line 139 is `peer`, so it does not
+        apply to `trading_migrate`. The LAN lines 128–131 grant `{all}`
+        *databases* but do **not** cover replication, which is matched only by
+        explicit `replication` lines
+  - [x] **Consequence: the base backup runs on `.144` itself, not remotely.**
+        This needs no `pg_hba.conf` edit and is the better arrangement anyway —
+        141 GB never crosses the network. Section 3's wrapper is therefore host-
+        local tooling; do not add a LAN replication line to enable a remote run
+        that nothing requires
+  - [x] Success: definite answer — `trading_migrate` over localhost, once
+        `rolreplication` is granted (1.5). No superuser, no `pg_hba.conf` change
+  - [x] Effort: 2
 
 - [ ] **1.5 Add the required replication grant to `provision_roles.sql`**
   - [ ] **Required, per the 1.4 measurement** — `trading_migrate` lacks
@@ -223,9 +234,9 @@ stale measurement.
   - [ ] Do **not** grant superuser as a shortcut. 913's whole result was that no
         application-reachable credential is destructive; `REPLICATION` alone is
         the minimum `pg_basebackup` needs and does not confer DML or DDL rights
-  - [ ] Add the `pg_hba.conf` `replication` line if 1.4 shows it missing, and
-        record it in the runbook — it is a host file, not part of the SQL
-        artifact, so the artifact alone will not reproduce it on a rebuild
+  - [x] No `pg_hba.conf` change needed — 1.4 confirmed localhost replication is
+        already admitted, and the backup runs on the host. The grant is the only
+        missing piece
   - [ ] Re-run the artifact twice consecutively under `psql -v ON_ERROR_STOP=1`
         and confirm both exit 0 (913's idempotency contract)
   - [ ] Success: the maintenance credential can open a replication connection;
@@ -233,19 +244,29 @@ stale measurement.
   - [ ] Effort: 2
 
 - [ ] **1.6 Confirm host tooling and scheduling mechanism**
-  - [ ] Check which of `pg_basebackup`, `pg_verifybackup`, `pg_dump`, `rclone`
-        are installed on `.144` and record versions. `pg_verifybackup` requires
-        PostgreSQL 13+ — confirm it is present, since D6's per-backup
-        verification depends on it
-  - [ ] Confirm `cron` is available and note whether a crontab already exists
-        for the operator account. The production-deploy runbook records **no
-        systemd units installed and no process manager** — so cron is the
-        mechanism (D4), and a timer is not available to hang off
-  - [ ] Record what currently re-invokes the acquisition passes, if anything —
-        the deploy runbook lists this as an open question, and a backup cron
-        entry must not collide with it
-  - [ ] Success: every binary the later sections invoke is confirmed present, or
-        an install step is recorded. No task later discovers a missing tool
+  - [x] All four binaries present (host survey 2026-08-16). `pg_basebackup` and
+        `pg_dump` at `/usr/bin`, PostgreSQL 17.11
+  - [x] **`pg_verifybackup` has no `/usr/bin` wrapper** — it exists only at
+        `/usr/lib/postgresql/17/bin/pg_verifybackup`. Scripts must call the
+        versioned path explicitly; a bare `pg_verifybackup` invocation fails
+        with command-not-found. Carried into task 3.2, since verification is the
+        one step that must not be silently skippable
+  - [x] `cron` installed and active since 2026-08-13. The `manta` crontab holds
+        one unrelated `@reboot` rclone mount for Google Drive — no collision
+        risk, but the backup entries land in the same crontab
+  - [x] **Nothing re-invokes the acquisition passes** — no cron entry, no
+        project systemd timer, all 17 timers stock OS units. Confirms the deploy
+        runbook: the daemon is started manually. The backup schedule therefore
+        cannot assume acquisition is running at any given hour
+  - [ ] Remaining: `sudo crontab -u postgres -l` was not measurable (no TTY).
+        Low risk — a postgres-owned acquisition cron is implausible given the
+        above — but check it before task 9.1 writes a schedule
+  - [ ] Verify `rclone` **v1.60.1-DEV** works against B2. This is a 2022-era
+        distro build; confirm `rclone check` and the B2/S3 backend behave before
+        Section 6 depends on them, and upgrade if not. Do not discover this at
+        the checksum-verification step
+  - [ ] Success: every binary the later sections invoke is confirmed present and
+        working, with exact invocation paths recorded
   - [ ] Effort: 1
 
 ---
@@ -361,6 +382,13 @@ untested tooling at the same time.
 - [ ] **3.2 Add `pg_verifybackup` to the wrapper**
   - [ ] After the backup completes, run `pg_verifybackup` against the result and
         fail the whole invocation if it does not verify (D6 level 1)
+  - [ ] **Call the versioned path `/usr/lib/postgresql/17/bin/pg_verifybackup`** —
+        the host survey found no `/usr/bin` wrapper, so a bare invocation fails
+        with command-not-found. Define it once as a constant at the top of the
+        script rather than inline, so a version bump is a one-line edit
+  - [ ] Guard against the failure being swallowed: if the binary is missing, the
+        script must **fail**, never treat an unrunnable verification as a pass.
+        This is the step whose whole purpose is refusing to trust the backup
   - [ ] Note in a comment that `-Ft` archives may need extraction before
         verification depending on server version — determine the working
         invocation empirically in 3.4 rather than assuming
@@ -401,15 +429,19 @@ genuinely disruptive step in the slice and is constrained by the 2026-08-24
 criterion-18 check.
 
 - [ ] **4.1 Choose and prepare the archive destination**
-  - [ ] Select a local archive directory on `.144` with headroom measured
-        against 1.3's WAL rate and 1.2's free space
+  - [ ] Use a directory under **`/data`** (`/dev/nvme1n1p1`, 760 GB free).
+        Confirmed by the host survey to be a **different physical device** from
+        `PGDATA` (`/dev/nvme0n1p2`), so a device failure does not take the
+        archive with the cluster — this is the arrangement 4.1 was written to
+        hope for, and it already exists
+  - [ ] Size the directory against 1.3's WAL rate and the retention chosen in 4.5
   - [ ] Ensure it is writable by the `postgres` OS user (the archiver runs as the
         server's OS user, not as a database role — a permissions mistake here is
-        the classic cause of the `pg_wal` filling failure)
-  - [ ] Confirm it is **not** on the same filesystem as `pg_wal` if that is
-        achievable; if it is not, record the shared-fate risk explicitly
-  - [ ] Success: destination exists, is writable by `postgres`, and has recorded
-        free space sufficient for the retention chosen in 4.5
+        the classic cause of the `pg_wal` filling failure). `/data` is currently
+        57% used by something else; confirm what, and that the archive directory
+        is owned by `postgres` rather than merely world-writable
+  - [ ] Success: destination exists on `/data`, is writable by `postgres`, and
+        has recorded free space sufficient for the chosen retention
   - [ ] Effort: 2
 
 - [ ] **4.2 Write the non-overwriting `archive_command`**
