@@ -619,14 +619,14 @@ written. An unfired alarm is untested.
   - [x] Effort: 2
   - [x] Done 2026-08-16: test/unit/test_offsite_sync.py (4 tests, pass, local rclone paths — no object store needed): invalid remote exits non-zero without reporting success; and the load-bearing case — remote copy corrupted with size and mtime preserved sails through sync's quick-pass and is caught only by the checksum check, failing the invocation.
 
-- [ ] **6.5 Perform the first real offsite push**
+- [x] **6.5 Perform the first real offsite push**
   - [ ] Sync the 3.4 base backup and a 2.4 metadata dump to the chosen bucket
   - [ ] Record upload duration and observed throughput — this bounds how long a
         real restore's download will take
   - [ ] Success: success criterion 5 satisfied — objects present in the bucket
         and verified by checksum, with timings recorded
   - [ ] Effort: 2
-  - [ ] In progress 2026-08-17: metadata dump pushed and checksum-verified on B2 2026-08-16 (4.6 MB, ~3 s, 0 differences, PM independently confirmed visibility); 79 GB base backup upload started 2026-08-17 ~02:15, running — timing/throughput to be recorded on completion, and this is the empirical test of rclone check vs multipart-upload checksums at size.
+  - [x] Done 2026-08-17: metadata dump pushed and checksum-verified 2026-08-16 (4.6 MB, ~3 s, 0 differences; PM confirmed visibility). Base backup 84.5 GB pushed 02:12-06:56 (4 h 44 m, ~4.9 MB/s / ~40 Mbps sustained), rclone check: 0 differences, 3 matching files — confirming checksum verification works for the multipart-uploaded 84 GB object. A full restore download is bounded at roughly the same ~5 h. Success criterion 5 satisfied.
 
 ---
 
