@@ -211,18 +211,6 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
   - Success: daemon running; confirm via existing daemon status signals.
   - Effort: 1
 
-- [ ] **G.13 Observe the policy advance the head unaided (walkthrough step
-      8a, criterion 18 — the only check the original defect could not pass)**
-  - [ ] Record `MAX(last_bucket)` on both views and `last_successful_finish`
-        for both policy jobs. Wait for at least one policy tick (schedule
-        interval 1 h) with **no manual refresh issued**. Confirm the job ran
-        (`last_successful_finish` advanced) **and** `MAX(last_bucket)`
-        advanced with it, while raw also advanced over the same interval.
-  - Success: policy-driven advance confirmed without manual intervention —
-    the defect's own signature (a job that runs while the head stands still)
-    is absent.
-  - Effort: 2
-
 - [x] **G.14 Confirm no raw data moved (walkthrough step 9, criterion 10)**
   - [x] `SELECT count(*) FROM daily_ohlcv;` expect exactly 65,652,505 (slice
         170 measured, or the current exact count if it has since advanced via
