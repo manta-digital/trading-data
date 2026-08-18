@@ -189,18 +189,19 @@ copied" into "recovery to an arbitrary point exists."
 ## Section 9 — Scheduling and runbook
 
 - [ ] **9.1 Schedule the two tiers via cron**
-  - [ ] Metadata tier nightly; base-backup tier on the infrequent cadence
+  - [x] Metadata tier nightly; base-backup tier on the infrequent cadence
         settled against 3.4's measured duration and 4.5's retention (D4)
-  - [ ] Use `cron`, not a systemd timer — the host has no process manager and no
+  - [x] Use `cron`, not a systemd timer — the host has no process manager and no
         units installed (D4, confirmed by the production-deploy runbook). Note
         in a comment that this migrates to a timer if the `/opt` + systemd
         deployment lands
-  - [ ] Ensure cron's environment is sufficient: cron does not load the
+  - [x] Ensure cron's environment is sufficient: cron does not load the
         operator's shell profile, so absolute paths and explicitly-set variables
         are required. Verify by observing an actual scheduled run, not by
         reading the crontab
   - [ ] Ensure the base-backup schedule does not collide with acquisition peaks
         or whatever re-invokes the acquisition passes (1.6)
+  - [ ] In progress 2026-08-18: installed in the manta crontab (existing @reboot entry preserved) — half-hourly archive_health_cron, nightly 02:00 cron_nightly_metadata (dump + offsite checksum sync), weekly Sun 03:00 cron_weekly_base (backup + verify + offsite + retention prune, guarded by the health flag), plus a TEMPORARY one-shot base entry 2026-08-19 03:00 so the scheduled-base-backup observation lands tonight instead of next Sunday (remove after it runs). Comment in crontab notes migration to systemd timers if the /opt deployment lands. Nothing re-invokes acquisition (measured 1.6), so no collision. Remaining: observe the real scheduled runs tonight.
   - [ ] Success: both tiers run on schedule unattended, verified by observing a
         real scheduled execution and its output
   - [ ] Effort: 3
@@ -213,33 +214,35 @@ copied" into "recovery to an arbitrary point exists."
         condition under which it will ever actually run
   - [ ] Effort: 2
 
-- [ ] **9.3 Write the backup-and-restore runbook**
-  - [ ] Create `project-documents/user/runbooks/backup-and-restore.md`, alongside
+- [x] **9.3 Write the backup-and-restore runbook**
+  - [x] Create `project-documents/user/runbooks/backup-and-restore.md`, alongside
         `cagg-maintenance-pausing.md` and `coverage-cagg-rebuild.md`
-  - [ ] Include the **real commands as executed** and the **observed timings**
+  - [x] Include the **real commands as executed** and the **observed timings**
         from 3.4, 6.5, 7.2, and 8.2 — not idealized ones (success criterion 9)
-  - [ ] Cover all four recovery scenarios from the LLD's recovery-path table:
+  - [x] Cover all four recovery scenarios from the LLD's recovery-path table:
         metadata-only restore, whole-cluster restore, PITR to a chosen time, and
         the degraded base-backup-only case
-  - [ ] Follow the coverage-cagg-rebuild runbook's structure: numbered steps
+  - [x] Follow the coverage-cagg-rebuild runbook's structure: numbered steps
         with explicit credentials per step. Note which steps need the maintenance
         credential and which need the `postgres` OS user
-  - [ ] Include the archive-failure response: what the alarm looks like, and what
+  - [x] Include the archive-failure response: what the alarm looks like, and what
         to do when `pg_wal` is growing
-  - [ ] Record the credential-extraction idiom used by the existing runbooks
+  - [x] Record the credential-extraction idiom used by the existing runbooks
         (grep from `.env`, never `source` — the `$`-in-password trap)
-  - [ ] Success: someone following the runbook under pressure, without this
+  - [x] Success: someone following the runbook under pressure, without this
         context, can restore. That is the test — not whether it is complete on
         its own terms
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-18 (iteratively since 20260816): project-documents/user/runbooks/backup-and-restore.md — as-executed commands with observed timings for every step (backup 2h03m–2h09m, verify 15m, offsite up 4h44m–5h06m / down 2h05m, extract 13m47s, PITR replay ~1m), all four recovery scenarios (metadata-only, whole-cluster, PITR section tested both directions, from-B2 degraded path with measured download), archive-failure response with the demonstrated alarm and self-recovery, credential-extraction idiom (grep from .env, never source), per-step credentials, and the hard-won gotchas (localhost-only replication, PG17 pg_verifybackup plain-format-only, ACL masking vs archive_command chmod, max_worker_processes floor for archive recovery, rclone ≥1.75 for large-object download).
 
-- [ ] **9.4 Record the drill result and set a repeat expectation**
-  - [ ] Write the drill's date, duration, and outcome into the runbook
-  - [ ] State when it should next be repeated. The realistic failure mode of
+- [x] **9.4 Record the drill result and set a repeat expectation**
+  - [x] Write the drill's date, duration, and outcome into the runbook
+  - [x] State when it should next be repeated. The realistic failure mode of
         backup work is that it is verified once and rots (LLD risks)
-  - [ ] Success: the runbook says when this was last proven and when it is due
+  - [x] Success: the runbook says when this was last proven and when it is due
         again
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Done 2026-08-18: runbook 'Drill record' table lists each proven capability with date, duration, and outcome (restore drill 2026-08-17, PITR both directions 2026-08-18, offsite round trip, alarm fire + self-recovery). Repeat expectation stated: re-run the drill and one PITR direction quarterly or after any PG/TS major upgrade, next due 2026-11-17.
 
 ---
 

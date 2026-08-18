@@ -500,19 +500,20 @@ criterion-18 check.
   - [x] Effort: 1
   - [x] Done 2026-08-17: pg_switch_wal() → archived_count 2, last_archived_wal 00000001000011A600000058 at 07:30:37, failed_count 0, last_failed_wal NULL. check_archive_health.sh: PASS (was FAIL archive_mode_off before Section 4). Directory listing as physical evidence requires sudo (/data/backup/wal is 700 postgres); PM asked to run `sudo ls -la /data/backup/wal | tail -5` — catalog evidence recorded, listing to be pasted into the runbook when provided.
 
-- [ ] **4.5 Settle and implement WAL retention**
-  - [ ] Choose retention from measured inputs: at least the base-backup interval
+- [x] **4.5 Settle and implement WAL retention**
+  - [x] Choose retention from measured inputs: at least the base-backup interval
         plus margin. WAL older than the oldest base backup you intend to restore
         from is useless; WAL newer than your newest base backup is mandatory
         (D2)
-  - [ ] Compute the resulting steady-state archive size from 1.3's WAL rate and
+  - [x] Compute the resulting steady-state archive size from 1.3's WAL rate and
         confirm it fits 4.1's free space with margin
-  - [ ] Implement expiry (a dated-directory prune, or `pg_archivecleanup` keyed
+  - [x] Implement expiry (a dated-directory prune, or `pg_archivecleanup` keyed
         to the oldest retained base backup)
-  - [ ] Success: retention is a written, justified number tied to the base-backup
+  - [x] Success: retention is a written, justified number tied to the base-backup
         cadence — not "until the disk fills." The fourth row of the LLD's
         recovery-path table is the failure this task exists to prevent
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-18: retention = 21 days, justified against the weekly base-backup cadence and measured WAL rates (idle 0.18 GiB/day, active blend ~3.1 GiB/day, ~8 GiB/day peak → ≤170 GB worst case vs 759 GB free). Implemented in scripts/prune_wal_archive.sh: keeps 21 days of dated base backups but never fewer than the newest whatever its age, then pg_archivecleanup keyed to the oldest RETAINED backup's manifest Start-LSN — never bare age, which could sever a backup from its WAL. Runs after each weekly backup via cron_weekly_base.sh. Unit-tested (keeps-newest, manifest-keyed cutoff, refuses empty base dir).
 
 ---
 
@@ -534,30 +535,32 @@ written. An unfired alarm is untested.
   - [x] Effort: 3
   - [x] Done 2026-08-16: scripts/check_archive_health.sh — explicit --db-url (D5), optional --pgdata for disk-floor check; named failure conditions (archive_mode_off, archiver_failing, unarchived_backlog with LSN-decoded byte backlog, wal_disk_low); PASS/FAIL output needing no log reading. Correctly reported FAIL archive_mode_off pre-Section-4 and PASS after. Refusal cases covered in test/unit/test_backup_scripts.py.
 
-- [ ] **5.2 Surface the check where an operator actually looks**
-  - [ ] Wire it to a mechanism the operator sees — cron output to mail, a status
+- [x] **5.2 Surface the check where an operator actually looks**
+  - [x] Wire it to a mechanism the operator sees — cron output to mail, a status
         line the existing tooling prints, or a file the deploy runbook says to
         check. Decide with the PM if the destination is unclear
-  - [ ] Avoid inventing a notification subsystem; this slice needs the signal to
+  - [x] Avoid inventing a notification subsystem; this slice needs the signal to
         reach a human, not a monitoring platform
-  - [ ] Success: a failing archive produces a signal in a place named in the
+  - [x] Success: a failing archive produces a signal in a place named in the
         runbook, not only an exit code in a cron log nobody reads
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done 2026-08-18 (PM approved the shape): scripts/archive_health_cron.sh runs half-hourly via cron; on FAIL — or on being UNABLE to check, which alarms rather than staying silent — it writes /data/backup/ARCHIVE-BROKEN naming the condition, and cron_weekly_base.sh refuses to take a base backup while the flag exists, so a broken archive becomes a loud file plus a missing backup, never a silent gap. Flag self-clears on the first healthy check; every check appends one line to /data/backup/archive-health.log. Documented in the runbook Step 7.
 
-- [ ] **5.3 Demonstrate the alarm firing, then recovering**
-  - [ ] Deliberately break the archive destination in a controlled way (revoke
+- [x] **5.3 Demonstrate the alarm firing, then recovering**
+  - [x] Deliberately break the archive destination in a controlled way (revoke
         write permission — reversible and less disruptive than an unmount)
-  - [ ] Force segment switches; confirm the monitor alarms and that `pg_wal`
+  - [x] Force segment switches; confirm the monitor alarms and that `pg_wal`
         growth is visible **before** it becomes dangerous
-  - [ ] Restore the destination and confirm the archiver **drains its backlog**
+  - [x] Restore the destination and confirm the archiver **drains its backlog**
         and `last_failed_wal` clears
-  - [ ] Watch free space throughout; abort and restore immediately if headroom
+  - [x] Watch free space throughout; abort and restore immediately if headroom
         drops below the 4.1 margin. This task deliberately induces the slice's
         one outage mode — do not run it unattended
-  - [ ] Success: success criterion 2 satisfied — the alarm fired in a controlled
+  - [x] Success: success criterion 2 satisfied — the alarm fired in a controlled
         test, and the archiver recovered without intervention beyond fixing the
         destination
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-18, attended with the PM: PM revoked write on /data/backup/wal (chmod 500); two forced segment switches → pg_stat_archiver failed_count 0→6, last_failed_wal set; check_archive_health.sh reported FAIL archiver_failing exit 1 with 2 segments queued (.ready), visible with weeks of headroom at measured WAL rates. PM restored permissions (chmod 700, later 755 for PITR traversal): archiver drained the backlog unaided in <20 s — queued 2→0, archived_count 74→76, last_archived advanced past the failed segment, health back to PASS. Success criterion 2 satisfied: fired AND recovered without intervention beyond fixing the destination.
 
 ---
 
