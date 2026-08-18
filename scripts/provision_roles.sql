@@ -68,6 +68,9 @@
 \if :{?with_test_admin}
 \echo '  test-admin role: ' :test_admin_role
 \endif
+\if :{?with_replication}
+\echo '  granting REPLICATION to:' :migrate_role
+\endif
 
 BEGIN;
 
@@ -100,12 +103,24 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'migrate_role')
 -- pg_hba.conf must also admit a `replication` connection: prod admits it from
 -- localhost only (lines 140/141), which is why the base backup runs on the host
 -- rather than over the LAN. That file is not reproduced by this artifact.
+--
+-- Opt-in via `-v with_replication=1`, in the same mould as with_test_admin, for
+-- two reasons. (1) Only roles that themselves hold REPLICATION may set it, so
+-- an unguarded ALTER aborts the whole artifact under any non-superuser
+-- executor — which is what the test-privilege fixture is. (2) Roles are
+-- cluster-wide and prod shares this cluster with the test databases, so a
+-- throwaway test role granted REPLICATION could stream *production* WAL. That
+-- is precisely the reach 913 removed, so it must never be conferred by default.
+\if :{?with_replication}
 SELECT format('ALTER ROLE %I REPLICATION', :'migrate_role')
 WHERE NOT EXISTS (
   SELECT 1 FROM pg_roles
   WHERE rolname = :'migrate_role' AND rolreplication
 )
 \gexec
+\else
+\echo '  REPLICATION not granted to' :migrate_role '— pass -v with_replication=1 (production needs it for pg_basebackup)'
+\endif
 
 -- Test-fixture admin (D9). Previously the fixtures used `postgres`, so one
 -- could reach production by swapping the database name in the URL — which is

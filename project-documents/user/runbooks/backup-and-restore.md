@@ -59,11 +59,18 @@ superuser URL:
 
 ```bash
 git pull
-psql "$MAINT" -v ON_ERROR_STOP=1 -c "SET ROLE postgres;" -f scripts/provision_roles.sql
+psql "$MAINT" -v ON_ERROR_STOP=1 -v with_replication=1 \
+  -c "SET ROLE postgres;" -f scripts/provision_roles.sql
 psql "$MAINT" -c "SELECT rolname, rolreplication FROM pg_roles WHERE rolname='trading_migrate';"
 ```
 
 Expect `rolreplication | t`. Idempotent — safe to re-run.
+
+`-v with_replication=1` is required: the grant is opt-in, because only a role
+holding REPLICATION may set it (so an unguarded ALTER aborts the artifact for
+every non-superuser executor), and because roles are cluster-wide — a throwaway
+test role given REPLICATION could stream production WAL. Without the flag the
+artifact prints that it skipped the grant and `rolreplication` stays `f`.
 
 **Applied 2026-08-16**: ran twice, both exit 0, second run emitted no `ALTER
 ROLE` (guard held). `trading_migrate` is `rolreplication=t`, still
