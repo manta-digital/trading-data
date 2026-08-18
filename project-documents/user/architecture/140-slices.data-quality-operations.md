@@ -3,7 +3,7 @@ docType: slice-plan
 parent: user/architecture/140-arch.data-quality-operations.md
 project: trading
 dateCreated: 20260429
-dateUpdated: 20260811
+dateUpdated: 20260818
 status: complete
 ---
 
@@ -166,7 +166,7 @@ exists purely as scaffolding for a later slice.
 
 ## Future work
 
-1. [ ] **(155) Daemon as a real background service: detached lifecycle + CLI control**~~ — ~~deprecated~~ — Deferred to future work. The foreground `mt data daemon run` with tmux/screen is sufficient for current single-operator use. The OS supervisor decisions (systemd user vs. system unit, env-var injection, daemon_id resolution, log routing) carry more design overhead than the value delivered right now. Moved to initiative 180's future work section; no dependency on this slice before picking it up there.
+1. [ ] **(155) Daemon as a real background service: detached lifecycle + CLI control**~~ — ~~deprecated~~ — Deferred to future work. The foreground `mt data daemon run` with tmux/screen is sufficient for current single-operator use. The OS supervisor decisions (systemd user vs. system unit, env-var injection, daemon_id resolution, log routing) carry more design overhead than the value delivered right now. Promoted to **slice 916** in [900-slices.foundation-cleanup.md](900-slices.foundation-cleanup.md), which absorbs it together with the production install-path work; no dependency on this slice.
 
 2. [ ]**Bulk CA ingestion (splits + dividends)** — EODHD exposes
   `/api/eod-bulk-last-day/US?type=splits&date=YYYY-MM-DD` and
