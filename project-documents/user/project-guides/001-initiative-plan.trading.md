@@ -22,7 +22,7 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
 
 ## Initiatives
 
-1. [x] **(900) Foundation & Cleanup** — CLI framework (Typer + Rich, command name `mt`), TOML config with precedence (CLI > project > user > defaults), structured logging, `src/` layout migration, deprecated code cleanup, provider registry with enums. Modeled on Squadron patterns. This is the maintenance/refactor band covering cross-cutting project infrastructure. Dependencies: None (do first). Status: complete
+1. [ ] **(900) Foundation & Cleanup** — CLI framework (Typer + Rich, command name `mt`), TOML config with precedence (CLI > project > user > defaults), structured logging, `src/` layout migration, deprecated code cleanup, provider registry with enums. Modeled on Squadron patterns. This is the maintenance/refactor band covering cross-cutting project infrastructure. Dependencies: None (do first). Status: in_progress
 
 2. [x] **(100) Data Storage** — TimescaleDB layer cleanup and integration. Tick-level schema design (event model: trade, quote, BBO). Continuous aggregates across all granularities (tick → 1s → 1min → 5min → 15min → 1hr → daily). Compression and retention policies. Existing minute/daily storage proven (13k+ rows/sec writes, 95% compression), needs integration into new architecture. Instrument registry and trading calendars. Dependencies: [900]. Status: not_started
 
