@@ -231,9 +231,10 @@ class TestChainAppliesOnColdStart:
         start_offset: timedelta,
         end_offset: timedelta,
     ) -> None:
-        with psycopg.connect(migrated) as conn, conn.cursor(
-            row_factory=dict_row
-        ) as cur:
+        with (
+            psycopg.connect(migrated) as conn,
+            conn.cursor(row_factory=dict_row) as cur,
+        ):
             cur.execute(
                 "SELECT config FROM timescaledb_information.jobs "
                 "WHERE proc_name = 'policy_refresh_continuous_aggregate' "
@@ -308,9 +309,10 @@ class TestDataStatusColumnContract:
             "last_attempt_outcome": "text",
             "health": "text",
         }
-        with psycopg.connect(migrated) as conn, conn.cursor(
-            row_factory=dict_row
-        ) as cur:
+        with (
+            psycopg.connect(migrated) as conn,
+            conn.cursor(row_factory=dict_row) as cur,
+        ):
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_name = 'data_status' ORDER BY ordinal_position"

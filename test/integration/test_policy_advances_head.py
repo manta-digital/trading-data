@@ -112,12 +112,9 @@ def _head_advanced(before: HeadSample, after: HeadSample) -> bool:
     maximal staleness rather than an absence of lag, so it can only be the
     *before* side of an advance.
     """
-    job_ran = (
-        after.last_successful_finish is not None
-        and (
-            before.last_successful_finish is None
-            or after.last_successful_finish > before.last_successful_finish
-        )
+    job_ran = after.last_successful_finish is not None and (
+        before.last_successful_finish is None
+        or after.last_successful_finish > before.last_successful_finish
     )
     if not job_ran:
         return False
