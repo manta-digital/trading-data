@@ -22,8 +22,8 @@ projectState: >
   running continuously through that week — which constrains when this slice's
   PostgreSQL restart may be taken (see Sequencing).
 dateCreated: 20260816
-dateUpdated: 20260816
-status: in_progress
+dateUpdated: 20260818
+status: complete
 ---
 
 # Tasks: Backup and Restore Procedures — Part 1 (Mechanisms)
@@ -629,12 +629,12 @@ written. An unfired alarm is untested.
   - [x] Done 2026-08-16: test/unit/test_offsite_sync.py (4 tests, pass, local rclone paths — no object store needed): invalid remote exits non-zero without reporting success; and the load-bearing case — remote copy corrupted with size and mtime preserved sails through sync's quick-pass and is caught only by the checksum check, failing the invocation.
 
 - [x] **6.5 Perform the first real offsite push**
-  - [ ] Sync the 3.4 base backup and a 2.4 metadata dump to the chosen bucket
-  - [ ] Record upload duration and observed throughput — this bounds how long a
+  - [x] Sync the 3.4 base backup and a 2.4 metadata dump to the chosen bucket
+  - [x] Record upload duration and observed throughput — this bounds how long a
         real restore's download will take
-  - [ ] Success: success criterion 5 satisfied — objects present in the bucket
+  - [x] Success: success criterion 5 satisfied — objects present in the bucket
         and verified by checksum, with timings recorded
-  - [ ] Effort: 2
+  - [x] Effort: 2
   - [x] Done 2026-08-17: metadata dump pushed and checksum-verified 2026-08-16 (4.6 MB, ~3 s, 0 differences; PM confirmed visibility). Base backup 84.5 GB pushed 02:12-06:56 (4 h 44 m, ~4.9 MB/s / ~40 Mbps sustained), rclone check: 0 differences, 3 matching files — confirming checksum verification works for the multipart-uploaded 84 GB object. A full restore download is bounded at roughly the same ~5 h. Success criterion 5 satisfied.
 
 ---

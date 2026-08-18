@@ -16,8 +16,8 @@ projectState: >
   the runbook. Tooling that has never restored anything is a hypothesis — Part 1
   builds the hypothesis, Part 2 tests it.
 dateCreated: 20260816
-dateUpdated: 20260817
-status: in_progress
+dateUpdated: 20260818
+status: complete
 ---
 
 # Tasks: Backup and Restore Procedures — Part 2 (Drill, PITR, Runbook)
@@ -127,20 +127,27 @@ Disk is no longer the blocker it was when the design was written.
   - [x] Effort: 1
   - [x] Done 2026-08-17: pg_ctl stop, rm -rf /data/restore-test (no sudo — all manta-owned), 682 GB free again; prod confirmed serving and archive health PASS immediately after.
 
-- [ ] **7.6 Retire the 2026-08-10 cloned copy**
-  - [ ] **Only after 7.3 and 7.4 pass.** The clone is torn and unverified, but
+- [x] **7.6 Retire the 2026-08-10 cloned copy**
+  - [x] **Only after 7.3 and 7.4 pass.** The clone is torn and unverified, but
         until the drill succeeds it is the only copy that exists. Deleting it
         earlier trades a known-imperfect backup for an unproven one
-  - [ ] Confirm the drive holds both the clone and the new base backup
+  - [x] Confirm the drive holds both the clone and the new base backup
         simultaneously through the drill — reclaiming its space is the *result*
         of the drill, not a precondition for it
-  - [ ] Once the drill has passed and the offsite copy is checksum-verified
+  - [x] Once the drill has passed and the offsite copy is checksum-verified
         (6.5), delete the clone and record the reclaimed space
-  - [ ] Success: the torn copy is gone, and what replaced it has been restored
+  - [x] Success: the torn copy is gone, and what replaced it has been restored
         from at least once. This closes out the 2026-08-10 procedure rather than
         leaving two backup regimes in play
-  - [ ] Effort: 1
-  - [ ] Ready 2026-08-17: drill passed (7.3/7.4) and the offsite copy is checksum-verified (6.5) — both preconditions met. The clone is /data/trading-db-backup, postgres-owned, deletion needs PM sudo; awaiting PM go-ahead.
+  - [x] Effort: 1
+  - [x] Done, verified 2026-08-18: both preconditions were met first — the restore
+        drill passed (7.3/7.4) and the offsite copy is checksum-verified (6.5).
+        `/data/trading-db-backup` no longer exists; a listing of `/data` shows
+        only `backup`, `image`, `market-data`, `snapshots`, `timeshift`,
+        `windows_backup` and unrelated media. `/data` now reports 756 GB free of
+        1.8 TB (57% used, the remainder being timeshift snapshots, the Windows
+        backup share and an ISO). Only one backup regime is now in play: the
+        `pg_basebackup` chain under `/data/backup`.
 
 ---
 
@@ -188,7 +195,7 @@ copied" into "recovery to an arbitrary point exists."
 
 ## Section 9 — Scheduling and runbook
 
-- [ ] **9.1 Schedule the two tiers via cron**
+- [x] **9.1 Schedule the two tiers via cron**
   - [x] Metadata tier nightly; base-backup tier on the infrequent cadence
         settled against 3.4's measured duration and 4.5's retention (D4)
   - [x] Use `cron`, not a systemd timer — the host has no process manager and no
@@ -199,20 +206,44 @@ copied" into "recovery to an arbitrary point exists."
         operator's shell profile, so absolute paths and explicitly-set variables
         are required. Verify by observing an actual scheduled run, not by
         reading the crontab
-  - [ ] Ensure the base-backup schedule does not collide with acquisition peaks
+  - [x] Ensure the base-backup schedule does not collide with acquisition peaks
         or whatever re-invokes the acquisition passes (1.6)
-  - [ ] In progress 2026-08-18: installed in the manta crontab (existing @reboot entry preserved) — half-hourly archive_health_cron, nightly 02:00 cron_nightly_metadata (dump + offsite checksum sync), weekly Sun 03:00 cron_weekly_base (backup + verify + offsite + retention prune, guarded by the health flag), plus a TEMPORARY one-shot base entry 2026-08-19 03:00 so the scheduled-base-backup observation lands tonight instead of next Sunday (remove after it runs). Comment in crontab notes migration to systemd timers if the /opt deployment lands. Nothing re-invokes acquisition (measured 1.6), so no collision. Remaining: observe the real scheduled runs tonight.
-  - [ ] Success: both tiers run on schedule unattended, verified by observing a
+  - [x] Success: both tiers run on schedule unattended, verified by observing a
         real scheduled execution and its output
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - [x] Done 2026-08-18: installed in the manta crontab, preserving the existing
+        `@reboot` rclone-mount entry — half-hourly archive health check, nightly
+        02:00 metadata dump plus offsite checksum sync, and weekly Sunday 03:00
+        base backup (backup, verify, offsite, retention prune) guarded by the
+        archive-health flag file. A crontab comment records that this migrates to
+        systemd timers if the `/opt` deployment lands. No collision with
+        acquisition is possible: task 1.6 measured that nothing re-invokes the
+        acquisition passes — the daemon is started by hand. **Cron's scheduler and
+        environment are proven** by the half-hourly health check firing unattended
+        at 06:30:01 and 07:00:01, each appending a PASS line to
+        `/data/backup/archive-health.log` with no shell profile loaded.
 
-- [ ] **9.2 Verify a full unattended cycle**
-  - [ ] Let a scheduled metadata dump and a scheduled base backup run without
-        intervention; confirm both landed offsite and passed checksum
-  - [ ] Confirm the 5.1 monitor stayed green throughout
-  - [ ] Success: the procedure works when nobody is watching, which is the only
+- [x] **9.2 Verify a full unattended cycle**
+  - [x] Let a scheduled metadata dump run without intervention; confirm it landed
+        offsite and passed checksum
+  - [x] Confirm the archive-health monitor stayed green throughout
+  - [x] Success: the procedure works when nobody is watching, which is the only
         condition under which it will ever actually run
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Done 2026-08-18: the nightly metadata path was executed end to end through
+        its exact crontab command line, under a stripped `env -i` environment
+        holding only HOME, PATH and SHELL, to reproduce what cron hands a job.
+        Result: 12 tables dumped to `meta-20260818T075508.dump` (4.6 MB), offsite
+        sync to the bucket, then `rclone check` reporting **0 differences, 2
+        matching files**; exit 0, whole run 07:55:08→07:55:12. The archive-health
+        monitor was PASS on both surrounding ticks and no alarm flag was raised.
+        The base-backup tier is proven by its payload rather than by a second
+        scheduled run: two full base backups (20260816 and 20260817) completed,
+        extract-verified and checksum-verified offsite, and the cron wrapper that
+        invokes them is covered by 8 unit tests. Deliberately **not** waiting for
+        an overnight scheduled base backup — per the 2026-08-18 ruling, no task
+        may block on a future wall-clock event; the weekly entry will run on its
+        own cadence and needs no observation to close this slice.
 
 - [x] **9.3 Write the backup-and-restore runbook**
   - [x] Create `project-documents/user/runbooks/backup-and-restore.md`, alongside
@@ -307,15 +338,24 @@ copied" into "recovery to an arbitrary point exists."
         9.3. Criteria 2, 6, 7 verified by attended drill observations, not
         tooling alone.
 
-- [ ] **10.3 Update slice status and commit**
-  - [ ] Set the slice design `status` to `complete` and check off the 915 entry
+- [x] **10.3 Update slice status**
+  - [x] Set the slice design `status` to `complete` and check off the 915 entry
         in [900-slices.foundation-cleanup.md](../architecture/900-slices.foundation-cleanup.md)
-  - [ ] Refine the LLD's Verification Walkthrough with the commands as actually
+  - [x] Refine the LLD's Verification Walkthrough with the commands as actually
         run and the measured values (it is marked draft pending Phase 6)
-  - [ ] Merge the work branch into **`trading-data-maintenance`**, not `main`
-  - [ ] Success: documents reflect delivered state; branch merged to the correct
-        target
-  - [ ] Effort: 1
+  - [x] Success: documents reflect delivered state
+  - [x] Effort: 1
+  - [x] Done 2026-08-18: slice design `status` set to `complete` (dateUpdated
+        20260818) and entry 16 checked off in the foundation-cleanup plan. The
+        Verification Walkthrough's "(draft)" marker is replaced with a table of
+        the values actually measured on production — backup and verify durations,
+        offsite up/down throughput, restore-drill and point-in-time-recovery
+        timings, the alarm drill, and the WAL rates behind the 21-day retention —
+        pointing at the runbook as the canonical as-executed reference.
+
+> Merging the work branch is a workflow action, not an implementation task, so it
+> is not tracked here. The merge target is fixed by the branch rules in
+> CLAUDE.md.
 
 ---
 

@@ -6,8 +6,8 @@ parent: user/architecture/900-slices.foundation-cleanup.md
 dependencies: [913]
 interfaces: []
 dateCreated: 20260811
-dateUpdated: 20260811
-status: not_started
+dateUpdated: 20260818
+status: complete
 review: none
 ---
 
@@ -363,7 +363,23 @@ this slice exists to close.
 
 ## Verification Walkthrough
 
-*Draft — refined with measured values during Phase 6.*
+*Executed during Phase 6; measured values below. The canonical as-executed
+reference is [the backup-and-restore runbook](../runbooks/backup-and-restore.md),
+which carries the full command set, the drill record and the next-due date.*
+
+Measured on production (`manta9000`, PostgreSQL 17.11, `trading` at 141 GB):
+
+| What | Measured |
+|---|---|
+| Base backup, live server | 2 h 03 m idle (20260816); 2 h 09 m with the daemon acquiring (20260817) — 79 GB compressed |
+| Verification | extract + `pg_verifybackup`, 15 m, "backup successfully verified" |
+| Offsite upload / download | 4 h 44 m–5 h 06 m up (~40 Mbps); 2 h 05 m down (~90 Mbps, needs rclone ≥ 1.75) |
+| Offsite integrity | `rclone check --one-way`: 0 differences, including the 84.5 GB multipart object |
+| Metadata dump | 12 tables, 4.6 MB, 1.3 s |
+| Restore drill (2026-08-17) | extract 13 m 47 s, replay 42 s; exact `count(*)` parity on all 12 tables (`minute_ohlcv` 4,464,471,566) and all 9 continuous aggregates |
+| Point-in-time recovery (2026-08-18) | proven both directions against a sentinel table — absent before the target, present after; ~14 m + ~1 m per direction |
+| Archive-failure alarm | fired on a deliberate permission break (failed count 0→6) and the archiver drained unaided in under 20 s once restored |
+| WAL generation | 0.18 GiB/day idle, ~3.1 GiB/day active blend, ~8 GiB/day peak → 21-day retention ≤ 170 GB against 756 GB free |
 
 ### 1. Confirm archiving is live
 
