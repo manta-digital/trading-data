@@ -159,28 +159,30 @@ copied" into "recovery to an arbitrary point exists."
   - [x] Effort: 1
   - [x] Done 2026-08-17: pitr_sentinel_915 created and one row inserted as trading_migrate; commit 21:40:57.36-06, bracketed T_BEFORE 21:40:55.348 (LSN 11A6/9D143570) and T_AFTER 21:40:59.362 (LSN 11A6/9D170130); pg_switch_wal immediately after — segment 00000001000011A60000009D archived at 21:41:00, failed_count 0.
 
-- [ ] **8.2 Recover to before the sentinel and confirm absence**
-  - [ ] Restore a copy with `recovery_target_time` set **before** the sentinel
+- [x] **8.2 Recover to before the sentinel and confirm absence**
+  - [x] Restore a copy with `recovery_target_time` set **before** the sentinel
         insert
-  - [ ] Confirm the scratch row is **absent**
-  - [ ] Success: the row is absent — proving replay stopped where instructed
+  - [x] Confirm the scratch row is **absent**
+  - [x] Success: the row is absent — proving replay stopped where instructed
         rather than replaying everything
-  - [ ] Effort: 3
-  - [ ] Blocked 2026-08-18: first start surfaced two archive-recovery requirements — max_worker_processes must be ≥ primary's 51 (drill config now sets 64), and archived segments are mode 600 postgres because archive_command's cp + POSIX ACL masking strips the manta default-ACL entry on newly created files. Fix is a reload-only archive_command change appending chmod 644 plus a one-time chmod of existing segments; the two sudo lines are with the PM.
+  - [x] Effort: 3
+  - [x] Done 2026-08-18: after the PM's reload-only archive_command fix (chmod 644 on each archived segment; ACL masking made the directory default-ACL approach fail) and max_worker_processes=64 in the drill config (archive recovery refuses to start below the primary's 51 — crash recovery never checks this), the restore replayed from the 20260817 backup through the production archive with recovery_target_time = T_BEFORE (21:40:55.348-06). Log: 'recovery stopping before commit of transaction 70691056, time 03:40:57.357+00' — the sentinel's own commit; last completed transaction 03:40:55.05+00. to_regclass('pitr_sentinel_915') IS NULL = true; cluster promoted. Replay provably traversed ~17 minutes of archived WAL past backup-end to find that boundary.
 
-- [ ] **8.3 Recover to after the sentinel and confirm presence**
-  - [ ] Restore with `recovery_target_time` **after** the insert
-  - [ ] Confirm the scratch row is **present**
-  - [ ] Both directions are required: absence alone is also what a failed replay
+- [x] **8.3 Recover to after the sentinel and confirm presence**
+  - [x] Restore with `recovery_target_time` **after** the insert
+  - [x] Confirm the scratch row is **present**
+  - [x] Both directions are required: absence alone is also what a failed replay
         looks like. Presence in the second run is what distinguishes working
         PITR from broken recovery (success criterion 7)
-  - [ ] Success: present in the after-restore, absent in the before-restore
-  - [ ] Effort: 2
+  - [x] Success: present in the after-restore, absent in the before-restore
+  - [x] Effort: 2
+  - [x] Done 2026-08-18: second full restore with recovery_target_time = T_AFTER (21:40:59.362-06): sentinel_present=true, row (1, 03:40:57.359+00) is the last completed transaction, replay stopped before the next commit at 03:41:30+00. Present-after + absent-before together satisfy success criterion 7. Full cycle cost per direction: ~14 m extract + ~1 m replay.
 
-- [ ] **8.4 Drop the scratch table from prod**
-  - [ ] Remove the sentinel scratch table under the maintenance credential
-  - [ ] Success: prod schema is back to its pre-drill state
-  - [ ] Effort: 1
+- [x] **8.4 Drop the scratch table from prod**
+  - [x] Remove the sentinel scratch table under the maintenance credential
+  - [x] Success: prod schema is back to its pre-drill state
+  - [x] Effort: 1
+  - [x] Done 2026-08-18: DROP TABLE pitr_sentinel_915 as trading_migrate, to_regclass confirms gone; drill cluster torn down, 759 GB free on /data, prod schema back to pre-drill state.
 
 ---
 
