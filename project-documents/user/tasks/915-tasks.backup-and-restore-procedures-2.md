@@ -256,13 +256,23 @@ copied" into "recovery to an arbitrary point exists."
   - [ ] Success: tiers green apart from documented pre-existing failures
   - [ ] Effort: 2
 
-- [ ] **10.2 Verify every success criterion has evidence**
-  - [ ] Walk the LLD's nine success criteria and record which task produced the
+- [x] **10.2 Verify every success criterion has evidence**
+  - [x] Walk the LLD's nine success criteria and record which task produced the
         evidence for each. Criteria 2, 6, and 7 require **demonstrated**
         behavior — an alarm that fired, a drill that ran, a PITR in both
         directions — not implemented tooling
-  - [ ] Success: each of the nine maps to a concrete recorded observation
-  - [ ] Effort: 2
+  - [x] Success: each of the nine maps to a concrete recorded observation
+  - [x] Effort: 2
+  - [x] Done 2026-08-18: All nine LLD criteria mapped to evidence: (1)
+        archive_mode=on via 4.3–4.4; (2) archive-failure monitoring firing via
+        5.3 (dated attended observation 2026-08-18); (3) base backup LIVE +
+        pg_verifybackup via 3.4 + addendum; (4) metadata tier derived via 2.1,
+        2.3–2.4; (5) offsite checksum verified via 6.4–6.5; (6) restore drill
+        with parity via 7.2–7.4 (dated attended observation 2026-08-17); (7)
+        PITR demonstrated via 8.1–8.4 (dated attended observation 2026-08-18);
+        (8) wrapper isolation via 3.3; (9) runbook with measured timings via
+        9.3. Criteria 2, 6, 7 verified by attended drill observations, not
+        tooling alone.
 
 - [ ] **10.3 Update slice status and commit**
   - [ ] Set the slice design `status` to `complete` and check off the 915 entry
