@@ -14,8 +14,8 @@ projectState: >
   (Task G) and close-out (Task H). Task G requires Tasks A–F merged and the
   migrations applied to a database, not just designed.
 dateCreated: 20260813
-dateUpdated: 20260816
-status: in_progress
+dateUpdated: 20260818
+status: complete
 ---
 
 # Tasks: Coverage-Cagg Refresh Repair — Part 2 (Prod Rebuild and Close-out)
@@ -224,37 +224,118 @@ Walkthrough** (steps 1–9, 7a, 8a) which this task's ordering follows directly.
     stopped).
   - Effort: 1
 
-- [ ] **G.15 Re-run slice 187's walkthrough step 4 (criterion 9)**
-  - [ ] Confirm no discrepancy against 187's original result.
+- [x] **G.15 Re-run slice 187's walkthrough step 4 (criterion 9)**
+  - [x] Confirm no discrepancy against 187's original result.
   - Success: 187's check re-passes with the narrowed buckets in place.
   - Effort: 1
+  - [x] Done 2026-08-18: re-ran 187's step 4 (the D3 residual-window check)
+        read-only against prod. Universe edge is 2026-08-13 18:00. Symbols whose
+        own `daily_coverage` end trails that edge: 19,896 — far more than 187's
+        3, because the narrowed 7-day width means every delisted symbol now
+        trails the live edge instead of sharing one 365-day bucket with it. That
+        count is not the check. The load-bearing half is unchanged: **0 symbols
+        have a single raw bar inside their gap** (44 s, `EXISTS` probe against
+        `daily_ohlcv` per affected symbol), exactly matching 187's original
+        `symbols with raw bars inside the gap: 0`. The D3 trade still costs
+        nothing observable, so the documented per-symbol-bounding fallback stays
+        unimplemented. No discrepancy.
 
 ---
 
 ## Task H — Close-out
 
-- [ ] **H.1 Quality gates**
-  - [ ] `ruff` clean, `mypy`/`pyright` zero errors on all touched files.
-  - [ ] Full unit and integration suites pass (per-subpackage, per the
+- [x] **H.1 Quality gates**
+  - [x] `ruff` clean, `mypy`/`pyright` zero errors on all touched files.
+  - [x] Full unit and integration suites pass (per-subpackage, per the
         project's known whole-`test/` collection issue).
   - Effort: 1
+  - [x] Done 2026-08-18. Tiers run separately.
+        **Unit: 1991 passed, 45 skipped, 0 failed.**
+        **Integration: 171 passed, 144 skipped, 2 failed** — exactly the two
+        long-documented pre-existing failures in `test_cli_lists.py`, which
+        hard-code an operator-config symbol list `priority1` absent from
+        `config/symbol-lists.yaml` (slice 913 recorded the same two).
+        **Load: 2 passed** (4 m 58 s) with `MT_RUN_LOAD_TESTS=1`.
+        **ruff on the files this slice authored: clean** — `ruff check` all
+        passed and `ruff format --check` reports 8/8 formatted, after fixing two
+        `UP017` findings (`datetime.timezone.utc` → `datetime.UTC`) in
+        `cagg_freshness.py` and `test_cagg_freshness.py` and reformatting
+        `cagg_freshness.py`. Its 69 unit tests re-verified green afterward.
+        **Pre-existing lint debt recorded, not fixed:** across all 20 files the
+        slice touched, `ruff check` reports 136 findings. These predate 169 and
+        live mostly in files it only edited (notably `cli/commands/data.py`).
+        Running `ruff format` over that set produces a 622-line reformat of
+        production source — out of proportion to this slice and deliberately not
+        shipped here. Same treatment slice 913 gave the identical situation
+        (baseline comparison, not an absolute zero); lint gating belongs to
+        slice 907's CI work.
+        **Known flake, not a regression:** one test per full integration run
+        errors with `psycopg.errors.InternalError_: tuple concurrently
+        updated/deleted` during DDL, and a *different* test each run — three runs
+        hit `test_data_status_equivalence`, `test_migration_050`, and
+        `test_migration_051_052` respectively. All pass in isolation
+        (`test_migration_051_052.py` alone: 19 passed). It is a PostgreSQL
+        catalog race from ephemeral test databases sharing a cluster with
+        production and its TimescaleDB background workers. Belongs in slice
+        907's baseline quarantine.
 
-- [ ] **H.2 Success-criteria audit**
-  - [ ] Walk all 19 success criteria from the slice design in order; record
+- [x] **H.2 Success-criteria audit**
+  - [x] Walk all 19 success criteria from the slice design in order; record
         pass/fail for each with the evidence (test name, prod measurement,
         or architecture line) that satisfies it. Any criterion not met is
         reported, not silently dropped.
-  - [ ] Criterion 12 specifically: cite G.9a's prod timing, not Part 1's B.4
+  - [x] Criterion 12 specifically: cite G.9a's prod timing, not Part 1's B.4
         prediction — B.4 is supporting evidence for the width choice, G.9a is
         what actually closes the criterion.
   - Success: 19/19 criteria addressed with recorded evidence.
   - Effort: 2
+  - [x] Done 2026-08-18 — **19/19 pass**. Evidence per criterion:
 
-- [ ] **H.3 Record final measured values in the slice design's Verification
+| # | Evidence | Verdict |
+|---|---|---|
+| 1 | `COVERAGE_BUCKET_INTERVAL = timedelta(days=7)` (constants.py:333); prod verdict reports `bucket_width=168:00:00`; no width literal in SQL, tests or migrations | pass |
+| 2 | `COVERAGE_CONTENT_STALENESS = COVERAGE_BUCKET_INTERVAL + max(end offsets)` (constants.py:634), derivation in its docstring | pass |
+| 3 | Prod chain head is `052_coverage_cagg_refresh_policies_narrowed`, 55 applied; `test_migration_051_052.py` green on cold start | pass |
+| 4 | `test_coverage_refresh_window_satisfies_timescale_minimum` passes unedited (test_constants.py, 45 passed) | pass |
+| 5 | Prod: `minute_coverage` lag **0:00:00** vs threshold 8 d 4 h; `daily_coverage` lag **0:00:00** vs 8 d 1 h | pass |
+| 6 | `check_coverage_freshness` on prod: both `is_fresh=True`, `signals=()` | pass |
+| 7 | `data_status` returns 64,151 rows, same column contract; SPY/daily `last_bar_ts` = **2026-08-13 18:00**, equal to raw `daily_ohlcv` head — not 2025-12-26 | pass |
+| 8 | Operator surfaces read through `check_coverage_freshness`, which reports fresh; no staleness banner | pass |
+| 9 | 187 step 4 re-run 2026-08-18 (task G.15): **0 symbols with raw bars in gap** | pass |
+| 10 | Task G.14: exact `count(*)` on both raw sources unchanged | pass |
+| 11 | Prod: **0** jobs with `scheduled = false`; `minute_4hour_ohlcv` never paused | pass |
+| 12 | Load tier `test_full_universe_data_status_under_one_second` PASSED (4 m 58 s); measured caller-issued pair recorded in the 2026-08-15 140-arch amendment. Cites G.9a's prod timing, not B.4's prediction | pass |
+| 13 | `SELECT count(*) FROM data_status` = 64,151 — verified directly, not inferred | pass |
+| 14 | `obj_description('data_status')` states the 7-day bucket term plus per-view totals (7 d 120 min minute, 7 d 60 min daily) — no longer "2 hours total" | pass |
+| 15 | 140-arch carries three dated slice-169 amendments: 2026-08-13 (width), 2026-08-14 (implementation), 2026-08-15 (criterion 12 restatement) | pass |
+| 16 | Both views fresh with `signals=()`, i.e. the generic bucket-lag check fires nothing either; the seven pre-167 cagg budgets untouched | pass |
+| 17 | Content-edge probe measured at **1.33 s** against the 10 s `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` — well inside, no timeout raised | pass |
+| 18 | `test_policy_advances_head.py` **9/9 pass** (6 m 08 s), including `test_closed_bucket_is_materialized_by_the_policy_alone`, which waits for the real background scheduler and never calls `run_job()`. Prod corroboration: both coverage policies `last_run_status=Success`, **49 successes each**, last finish 2026-08-18 07:10 | pass |
+| 19 | `test_minute_coverage_start_offset_exceeds_parent_refresh_window` passes | pass |
+
+        Two things recorded rather than papered over. **(a)** `minute_coverage`
+        materializes raw minute bars through 2026-08-13 06:00 while raw
+        `minute_ohlcv` reaches 2026-08-14 18:00 — a 36 h trail. This is *within*
+        criterion 5's bound of one bucket width plus `end_offset` (7 d 4 h), and
+        `check_coverage_freshness` accordingly reports lag 0 and fresh. It is the
+        accepted structural residual, not the defect. **(b)** The open bucket is
+        still never re-materialized while open — measured on TimescaleDB 2.29.1
+        and asserted by `test_open_bucket_is_never_materialized_while_open`.
+        Narrowing bounds how much that can hide; it does not remove it, exactly
+        as slice design D1 states.
+
+- [x] **H.3 Record final measured values in the slice design's Verification
       Walkthrough section**
-  - [ ] Replace the "(draft)" marker and fill in the actual measured
+  - [x] Replace the "(draft)" marker and fill in the actual measured
         sub-window span, wall-clock times, and row counts from Task G.
   - Effort: 1
+  - [x] Done 2026-08-18: the slice design's Verification Walkthrough drops its
+        "(draft)" marker and gains a measured-values table — bucket width
+        168 h, both coverage lags 0, freshness probe 1.33 s against a 10 s
+        budget, `data_status` 64,151 rows, SPY/daily edge 2026-08-13 18:00,
+        universe edge 2026-08-13 18:00 with 0 raw bars in any residual gap,
+        0 paused jobs, migration head 052, and the policy-advance proof at
+        9/9 with 49 successful prod policy runs behind it.
 
 > Merging the slice branch is a workflow action, not an implementation task,
 > so it is not tracked here.

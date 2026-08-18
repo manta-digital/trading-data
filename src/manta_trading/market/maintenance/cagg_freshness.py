@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import cast
 
@@ -515,7 +515,7 @@ def _now() -> datetime:
     function — a freeze that silently does nothing and lets time-dependent
     signals fire off the real clock.
     """
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _resolve_clock(now: Callable[[], datetime] | None) -> Callable[[], datetime]:
@@ -540,9 +540,7 @@ def assert_cagg_fresh(
     *,
     now: Callable[[], datetime] | None = None,
     source_table: str | None = None,
-    augment: Callable[
-        [psycopg.Connection[object], FreshnessVerdict], FreshnessVerdict
-    ]
+    augment: Callable[[psycopg.Connection[object], FreshnessVerdict], FreshnessVerdict]
     | None = None,
 ) -> FreshnessVerdict:
     """Assert a continuous aggregate is fresh enough to read from.

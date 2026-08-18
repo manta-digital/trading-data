@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [167, 168, 170, 187]
 interfaces: [187]
 dateCreated: 20260813
-dateUpdated: 20260815
-status: in_progress
+dateUpdated: 20260818
+status: complete
 ---
 
 # Slice Design: Coverage-Cagg Refresh Repair — the Current Bucket Is Never Re-materialized
@@ -726,7 +726,30 @@ readers; it is **not** invisible to `DROP`, which is F002's point above.
 
 ---
 
-## Verification Walkthrough (draft)
+## Verification Walkthrough
+
+*Executed at Phase 6 close, 2026-08-18. Values below are as measured against
+production; every ad-hoc query set `statement_timeout` explicitly and all were
+read-only.*
+
+| What | Measured |
+|---|---|
+| Coverage bucket width | 168 h (7 days), reported by the freshness verdict itself |
+| `minute_coverage` freshness | fresh, lag **0:00:00**, threshold 8 d 4 h |
+| `daily_coverage` freshness | fresh, lag **0:00:00**, threshold 8 d 1 h |
+| Content-edge probe | **1.33 s** against a 10 s statement-timeout budget |
+| `data_status` | 64,151 rows; SPY/daily `last_bar_ts` = 2026-08-13 18:00, equal to the raw `daily_ohlcv` head |
+| 187 step 4 (D3 residual window) | universe edge 2026-08-13 18:00; **0 symbols with any raw bar inside a gap** (44 s) |
+| Refresh policies | **0** paused jobs; both coverage policies `last_run_status=Success` with **49 successes** each, last finish 2026-08-18 07:10 |
+| Migration chain | head `052_coverage_cagg_refresh_policies_narrowed`, 55 applied |
+| Policy advances head unaided | `test_policy_advances_head.py` 9/9 pass (6 m 08 s), scheduler never manually triggered |
+| Full-universe `data_status` NFR | load tier passed (4 m 58 s) |
+
+Accepted residual, unchanged by this slice: the **open** bucket is never
+re-materialized while open (measured on TimescaleDB 2.29.1, asserted by
+`test_open_bucket_is_never_materialized_while_open`). Narrowing the width bounds
+how much staleness that can hide — from ~1 year to 7 days plus `end_offset` —
+but does not remove the limitation, exactly as D1 states.
 
 To be refined with measured values at Phase 6 completion. **Every prod step
 runs only when prod is clear of other work**, with `statement_timeout` set on

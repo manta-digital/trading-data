@@ -10,7 +10,7 @@ assertions are on call *order* and bound parameters, not SQL text.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Any, Literal, cast
 
@@ -45,7 +45,7 @@ _DAILY_VIEW = "daily_quarterly_ohlcv"
 
 
 def _utc(year: int, month: int = 1, day: int = 1) -> datetime:
-    return datetime(year, month, day, tzinfo=timezone.utc)
+    return datetime(year, month, day, tzinfo=UTC)
 
 
 def _render_sql(query: object) -> str:
