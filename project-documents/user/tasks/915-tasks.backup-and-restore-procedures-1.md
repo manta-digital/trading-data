@@ -192,16 +192,16 @@ stale measurement.
   - [x] Effort: 1
   - [x] Done: host survey 2026-08-16 (project-documents/user/notes/2026-08-16-915-host-survey.md). PGDATA on /dev/nvme0n1p2 (/, 978 GB avail); /data on /dev/nvme1n1p1 (760 GB avail, separate physical device — archive and restore target do NOT share fate with PGDATA). The PM-reported ~800 GB was measured at 760 GB
 
-- [ ] **1.3 Measure WAL generation rate**
-  - [ ] Sample `pg_current_wal_lsn()` twice, separated by a period with the
+- [x] **1.3 Measure WAL generation rate**
+  - [x] Sample `pg_current_wal_lsn()` twice, separated by a period with the
         daemon actively writing, and compute bytes/hour from the LSN delta
-  - [ ] Sample both during a minute-acquisition pass and during idle, since the
+  - [x] Sample both during a minute-acquisition pass and during idle, since the
         rates differ substantially
-  - [ ] Success: a defensible WAL bytes/day figure exists. This is the input to
+  - [x] Success: a defensible WAL bytes/day figure exists. This is the input to
         both retention (4.5) and the `pg_wal`-fills-the-disk risk — without it,
         retention is a guess
-  - [ ] Effort: 2
-  - [ ] In progress: idle rate measured 2026-08-16/17 — 16.8 MB over the 2.08 h daemon-down window (21:47→23:52) = ~0.18 GiB/day idle. Daemon-active rate pending the PM starting acquisition (that figure will drive retention sizing in 4.5).
+  - [x] Effort: 2
+  - [x] Done 2026-08-18: idle rate 0.18 GiB/day (16.8 MB over a 2.08 h daemon-down window, 2026-08-16 21:47→23:52). Active window 2026-08-17 18:36→02:48 (daemon minute sweep + one full base backup + idle tail): 1.06 GiB over 8.2 h ≈ 3.1 GiB/day blended average, ~8 GiB/day short-window peak while acquisition and the backup's FPW inflation overlapped. Retention input for 4.5: worst-case 8 GiB/day × 3 weeks ≈ 170 GB against 759 GB free on /data — comfortable.
 
 - [x] **1.4 Determine whether the maintenance role can run `pg_basebackup`**
   - [x] Query `pg_roles` for `rolreplication` and `rolsuper` — measured
@@ -433,6 +433,7 @@ untested tooling at the same time.
         task measures them
   - [x] Effort: 3
   - [x] Done 2026-08-17: scripts/backup_prod.sh against the live cluster via 127.0.0.1 as trading_migrate. Copy 2h03m (23:53:02→01:56:16), extract+manifest-checksum verify 15m, `backup successfully verified`, 79 GB compressed from 141 GB source → /data/backup/base/20260816 (base.tar.gz + pg_wal.tar.gz + backup_manifest). Empirical finding folded into 3.2: PG17 pg_verifybackup verifies plain format only (tar support is PG18) — the wrapper now extracts to a sibling scratch dir, verifies, then discards the extraction; a completed copy failing verification is preserved at <dest>.failed rather than deleted (the first attempt's 2h copy was lost to the cleanup trap before this hardening). Caveat: the daemon was down throughout (PM-gated restart), so observed-impact-on-acquisition is deferred to the first scheduled run with acquisition active.
+  - [x] Addendum 2026-08-18: second base backup (20260817) taken with the daemon actively acquiring — copy 2h09m vs 2h03m idle, negligible impact; acquisition kept advancing throughout. The live-under-load caveat from the first run is closed.
 
 ---
 
@@ -612,6 +613,7 @@ written. An unfired alarm is untested.
         checksum-check — and any failing stage fails the whole run non-zero
   - [x] Effort: 3
   - [x] Done 2026-08-16: scripts/offsite_sync.sh (rclone sync then rclone check --one-way, explicit --source/--remote); backup_prod.sh gained optional --remote invoking it after local verification, any failing stage fails the run non-zero.
+  - [x] Addendum 2026-08-18: full one-invocation chain proven on a real production run (20260817): backup 2h09m → extract-verify 15m → offsite upload 5h06m (~4.6 MB/s) → rclone check 0 differences, exit 0.
 
 - [x] **6.4 Test the sync failure path**
   - [x] Point the sync at an invalid remote and confirm the wrapper exits

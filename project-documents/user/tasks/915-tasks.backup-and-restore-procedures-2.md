@@ -85,6 +85,7 @@ Disk is no longer the blocker it was when the design was written.
   - [x] Success: a cluster starts from the backup and accepts connections
   - [x] Effort: 3
   - [x] Done 2026-08-17: extraction 13m47s (152 GB tree), recovery replay 42s, cluster accepting connections; every command and duration recorded in the runbook Step 6 rewrite. Offsite-copy restore attempted first per the subitem: rclone v1.60.1 HUNG downloading the 84 GB object (twice — multithread and single-stream; zero TCP connections; a 78 MB object downloads fine), so the drill ran from the local copy, which is checksum-identical to the offsite copy (verified at upload). Follow-up: upgrade rclone from the 2022 distro build, then re-exercise the download path.
+  - [x] Follow-up resolved 2026-08-18: rclone upgraded to v1.75.0; the full 84.5 GB offsite copy downloaded in 2h05m (~11 MB/s) and checksum-verified (0 differences). The offsite restore path is proven end to end; from-B2 disaster restore is bounded at ~2 h download + ~15 m extraction.
 
 - [x] **7.3 Verify content parity on the priority tables**
   - [x] Compare `count(*)` for `minute_ohlcv`, `daily_ohlcv`, and
@@ -149,13 +150,14 @@ Distinct from Section 7. Section 7 proves the base backup restores; this proves
 **WAL replay works**, which is the only thing that turns "segments are being
 copied" into "recovery to an arbitrary point exists."
 
-- [ ] **8.1 Plant a timestamped sentinel on prod**
-  - [ ] Create a scratch table on prod and insert a sentinel row; note the
+- [x] **8.1 Plant a timestamped sentinel on prod**
+  - [x] Create a scratch table on prod and insert a sentinel row; note the
         timestamp precisely (before and after)
-  - [ ] Keep it trivially reversible and clearly named as scratch — this is a
+  - [x] Keep it trivially reversible and clearly named as scratch — this is a
         deliberate write to production for test purposes
-  - [ ] Success: sentinel exists with known before/after timestamps recorded
-  - [ ] Effort: 1
+  - [x] Success: sentinel exists with known before/after timestamps recorded
+  - [x] Effort: 1
+  - [x] Done 2026-08-17: pitr_sentinel_915 created and one row inserted as trading_migrate; commit 21:40:57.36-06, bracketed T_BEFORE 21:40:55.348 (LSN 11A6/9D143570) and T_AFTER 21:40:59.362 (LSN 11A6/9D170130); pg_switch_wal immediately after — segment 00000001000011A60000009D archived at 21:41:00, failed_count 0.
 
 - [ ] **8.2 Recover to before the sentinel and confirm absence**
   - [ ] Restore a copy with `recovery_target_time` set **before** the sentinel
@@ -164,6 +166,7 @@ copied" into "recovery to an arbitrary point exists."
   - [ ] Success: the row is absent — proving replay stopped where instructed
         rather than replaying everything
   - [ ] Effort: 3
+  - [ ] Blocked 2026-08-18: first start surfaced two archive-recovery requirements — max_worker_processes must be ≥ primary's 51 (drill config now sets 64), and archived segments are mode 600 postgres because archive_command's cp + POSIX ACL masking strips the manta default-ACL entry on newly created files. Fix is a reload-only archive_command change appending chmod 644 plus a one-time chmod of existing segments; the two sudo lines are with the PM.
 
 - [ ] **8.3 Recover to after the sentinel and confirm presence**
   - [ ] Restore with `recovery_target_time` **after** the insert
