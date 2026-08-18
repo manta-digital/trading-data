@@ -5,7 +5,7 @@ parent: user/slices/915-slice.backup-and-restore-procedures.md
 relatedSlices: [913, 915]
 host: <prod_host>
 dateCreated: 20260816
-dateUpdated: 20260816
+dateUpdated: 20260818
 status: in_progress
 ---
 
@@ -124,8 +124,10 @@ following Monday — it is one query, not a blocker.
 Prepare the destination first:
 
 ```bash
-sudo -u postgres mkdir -p /data/backup/wal
+mkdir -p /data/backup/wal          # /data is manta-owned
 sudo chown postgres:postgres /data/backup/wal
+sudo chmod 755 /data/backup/wal    # operator needs traversal for PITR; only
+                                   # postgres can write. NOT 700 — see below
 ```
 
 Edit `/etc/postgresql/17/main/postgresql.conf`:
@@ -326,29 +328,59 @@ copy can be deleted.** It is torn, unverified, and superseded.
 
 ---
 
-## Step 7 — Schedule it
+## Step 7 — Schedule it (INSTALLED 2026-08-18)
 
-Cron, not systemd — this host has no units installed. Add to the `manta`
-crontab (`crontab -e`); cron does not load your shell profile, so use absolute
-paths:
+Cron, not systemd — this host has no units installed and no process manager;
+migrate these to systemd timers if the `/opt` + systemd deployment lands.
+Installed in the `manta` crontab (absolute paths — cron loads no shell
+profile). Three entries, all thin glue scripts that grep credentials from the
+named `.env` and call the explicit-argument tools:
 
 ```cron
-# metadata dump, nightly
-0 2 * * * cd /home/manta/source/repos/manta/trading-data && ./scripts/backup_metadata.sh >> /data/backup/metadata.log 2>&1
-
-# base backup, weekly
-0 3 * * 0 cd /home/manta/source/repos/manta/trading-data && ./scripts/backup_prod.sh >> /data/backup/base.log 2>&1
+*/30 * * * * .../scripts/archive_health_cron.sh --env-file .../.env --pgdata /var/lib/postgresql/17/main --flag /data/backup/ARCHIVE-BROKEN --log /data/backup/archive-health.log >/dev/null 2>&1
+0 2 * * *    .../scripts/cron_nightly_metadata.sh --env-file .../.env --dest /data/backup/metadata >> /data/backup/metadata.log 2>&1
+0 3 * * 0    .../scripts/cron_weekly_base.sh --env-file .../.env --base-dir /data/backup/base --wal-dir /data/backup/wal --keep-days 21 --health-flag /data/backup/ARCHIVE-BROKEN >> /data/backup/base.log 2>&1
 ```
 
-Verify by watching a real scheduled run, not by reading the crontab.
+(`...` = `/home/manta/source/repos/manta/trading-data`; run `crontab -l` for
+the literal lines.) Nothing re-invokes acquisition on this host (measured),
+so there is no collision to schedule around.
 
-Nothing currently re-invokes acquisition on this host, so there is no collision
-to schedule around.
+**How a failure surfaces (the alarm):** the half-hourly health check writes
+the flag file **`/data/backup/ARCHIVE-BROKEN`** naming the failed condition,
+and `cron_weekly_base.sh` **refuses to take a base backup while the flag
+exists** — so a broken archive turns into a missing weekly backup and a loud
+file, not a silent gap. The flag clears itself on the first healthy check.
+If you see the flag: read it, fix the destination (permissions or space),
+and the archiver drains its own backlog — demonstrated 2026-08-18: broke the
+directory, alarm fired within one check, restore of permissions drained the
+2-segment backlog unaided in under 20 seconds.
 
-**Retention:** WAL older than the oldest base backup you would restore from is
-useless; WAL newer than the newest base backup is mandatory. With weekly base
-backups, keep at least 2–3 weeks of WAL. Prune `/data/backup/wal` on that basis
-and watch `df -h /data`.
+**Retention (implemented):** `prune_wal_archive.sh` runs after each weekly
+backup: keeps 21 days of dated base backups (never fewer than the newest,
+whatever its age), then `pg_archivecleanup`s WAL older than the oldest
+*retained* backup's manifest start. Sized against measured WAL rates (idle
+0.18 GiB/day, active ~3–8 GiB/day): three weeks is at most ~170 GB against
+759 GB free. Watch `df -h /data` on the monthly pass anyway.
+
+---
+
+## Drill record
+
+| Proven | Date | Duration / outcome |
+|---|---|---|
+| Full restore drill (Step 6): counts + all 9 caggs | 2026-08-17 | 13m47s extract, 42s replay; all content exact; found+fixed a real pre-existing cagg staleness (SPMA 2026-06-18) |
+| PITR both directions (sentinel) | 2026-08-18 | ~14m extract + ~1m replay per direction; absent-before / present-after |
+| Offsite round trip | 2026-08-17/18 | up 4h44m–5h06m, down 2h05m, checksums 0 differences (rclone ≥ 1.75 required) |
+| Alarm fire + self-recovery | 2026-08-18 | FAIL within one check; backlog drained unaided in <20 s |
+
+**Repeat expectation: re-run the restore drill (Step 6, at least the count
+checks and one cagg signature) and one PITR direction every quarter, or
+after any PostgreSQL/TimescaleDB major upgrade — whichever comes first.
+Next due: 2026-11-17.** A backup regime verified once and never again is the
+LLD's named rot risk.
+
+---
 
 ---
 
