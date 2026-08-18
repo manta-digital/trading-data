@@ -132,7 +132,7 @@ Edit `/etc/postgresql/17/main/postgresql.conf`:
 
 ```
 archive_mode = on
-archive_command = 'test ! -f /data/backup/wal/%f && cp %p /data/backup/wal/%f'
+archive_command = 'test ! -f /data/backup/wal/%f && cp %p /data/backup/wal/%f && chmod 644 /data/backup/wal/%f'
 ```
 
 Leave `wal_level = replica`. **Never set it to `minimal`** — that silently
@@ -140,6 +140,13 @@ breaks archiving and `pg_basebackup` both.
 
 The `test ! -f` is what stops an existing segment being overwritten. A command
 that overwrites can corrupt the archive.
+
+The `chmod 644` makes each segment operator-readable, so a PITR restore runs
+as `manta` without root. Learned the hard way 2026-08-18: a default ACL on
+the directory does NOT survive — `cp` creates segments mode 600 and POSIX ACL
+masking strips the named-user entry on every new file. WAL is no more
+sensitive than the base backups, which are already operator-readable.
+`archive_command` is reload-only (`systemctl reload`), no restart.
 
 Stop the daemon, restart Postgres, bring it back:
 
@@ -345,11 +352,36 @@ and watch `df -h /data`.
 
 ---
 
+## Point-in-time recovery (tested 2026-08-18, both directions)
+
+Exactly the Step 6 drill procedure, plus three lines in the restored
+`postgresql.conf` and one signal file:
+
+```
+restore_command = 'cp /data/backup/wal/%f %p'
+recovery_target_time = '<target>'   # compares against COMMIT timestamps
+recovery_target_action = 'promote'
+max_worker_processes = 64   # archive recovery refuses to start below the
+                            # primary's setting (51 measured); crash recovery
+                            # (Step 6) does not check this
+```
+
+Then `touch <datadir>/recovery.signal` and start. The startup log shows
+`recovery stopping before commit of transaction ...` at the target and the
+cluster promotes read-write. Proven with a sentinel: a row committed at
+21:40:57 was absent when targeting 21:40:55 and present when targeting
+21:40:59 — replay both stops where instructed and reaches what it should.
+
+Constraint that gates all PITR: **the base backup must start inside archived
+WAL coverage.** A backup taken before archiving was enabled cannot replay
+across the unarchived gap (the 20260816 backup has this defect; 20260817
+onward do not). The weekly cadence keeps this true automatically.
+
 ## Recovery quick reference
 
 | Situation | Do this |
 |---|---|
 | Metadata tables truncated/lost | `pg_restore` the newest `/data/backup/metadata/*.dump`. Does not touch the 141 GB tier |
-| Whole cluster lost | Restore newest base backup, replay WAL from `/data/backup/wal` |
-| Need a specific point in time | Restore base backup, set `recovery_target_time` in `postgresql.conf`, start |
-| Local disk gone | Pull from B2 first, then as above |
+| Whole cluster lost | Restore newest base backup (Step 6), replay WAL from `/data/backup/wal` |
+| Need a specific point in time | Step 6 + the PITR section above |
+| Local disk gone | Pull from B2 first (measured: 84.5 GB in 2h05m with rclone ≥1.75; v1.60 hangs on large objects), then as above |
