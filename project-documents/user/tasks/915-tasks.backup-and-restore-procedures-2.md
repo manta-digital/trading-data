@@ -248,13 +248,46 @@ copied" into "recovery to an arbitrary point exists."
 
 ## Section 10 — Completion
 
-- [ ] **10.1 Full validation pass**
-  - [ ] Run unit and integration tiers separately via `scripts/run_tests.py`
-  - [ ] `ruff check` and `ruff format --check` clean on slice-touched files
-  - [ ] Both static prod-URL ratchet guards still pass — Section 2's tests are
+- [x] **10.1 Full validation pass**
+  - [x] Run unit and integration tiers separately via `scripts/run_tests.py`
+  - [x] `ruff check` and `ruff format --check` clean on slice-touched files
+  - [x] Both static prod-URL ratchet guards still pass — Section 2's tests are
         the ones that could regress them
-  - [ ] Success: tiers green apart from documented pre-existing failures
-  - [ ] Effort: 2
+  - [x] Success: tiers green apart from documented pre-existing failures
+  - [x] Effort: 2
+  - [x] Done 2026-08-18: tiers run separately via `scripts/run_tests.py`. Unit
+        tier: 1991 passed, 45 skipped, 0 failed — 29 slice-specific unit tests
+        all pass (16 in test_backup_scripts.py, 4 in test_offsite_sync.py, 8 in
+        test_backup_cron_glue.py, 1 unit ratchet guard). Integration tier: 171
+        passed, 144 skipped, 2 failed — exactly the two documented pre-existing
+        failures in test_cli_lists.py (hard-coded `priority1` named list absent
+        from config/symbol-lists.yaml; same two slice 913 recorded; the four
+        news-subsystem failures it listed were deleted by slice 914). Both static
+        prod-URL ratchet guards pass (test/unit/test_unit_prod_url_guard.py and
+        test/integration/test_integration_prod_url_guard.py). ruff check and
+        ruff format clean on all four slice-touched Python files (one file,
+        test/unit/test_backup_cron_glue.py, needed reformatting, fixed in
+        commit 5f39b4a). Real regression found and fixed: unguarded `ALTER ROLE
+        ... REPLICATION` in scripts/provision_roles.sql (commit 3b0b881) aborted
+        artifact for any executor lacking REPLICATION attribute, erroring all 30
+        tests in test/integration/data/test_role_privileges.py. Production
+        shares this cluster; granting REPLICATION to test admin would let test
+        credential stream production WAL, undoing slice 913. Fixed opt-in behind
+        `-v with_replication=1` (matching `with_test_admin` idiom); runbook Step
+        1 updated; all 30 role-privilege tests now pass; production unchanged
+        (`trading_migrate` still `rolreplication=t`, `rolsuper=f`). Known
+        instability (not a slice defect): across three full integration runs,
+        one or two tests rotate between passing and erroring with
+        `psycopg.errors.InternalError_: tuple concurrently deleted` during DDL
+        (e.g., `DROP MATERIALIZED VIEW IF EXISTS minute_coverage`). Different
+        test hit it on each run (test_health_and_gap_columns_unaffected_by_source_swap,
+        then test_daily_timestamps_exact_not_merely_same_date, plus one in
+        test_migration_050). All pass in isolation — 16 passed when affected
+        files run alone. Root cause: PostgreSQL catalog race from ephemeral test
+        databases on same cluster as production and its TimescaleDB background
+        workers; visibility increased once 30 role-privilege tests executed DDL
+        instead of erroring at setup. Recommend folding into slice 907's
+        pre-existing-failure baseline quarantine.
 
 - [x] **10.2 Verify every success criterion has evidence**
   - [x] Walk the LLD's nine success criteria and record which task produced the
