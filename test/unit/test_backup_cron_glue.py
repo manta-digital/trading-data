@@ -42,9 +42,12 @@ class TestPruneWalArchive:
         wal.mkdir()
         result = _run(
             "prune_wal_archive.sh",
-            "--base-dir", str(tmp_path / "base"),
-            "--wal-dir", str(wal),
-            "--keep-days", "21",
+            "--base-dir",
+            str(tmp_path / "base"),
+            "--wal-dir",
+            str(wal),
+            "--keep-days",
+            "21",
         )
         assert result.returncode != 0
         assert "refusing" in result.stderr
@@ -63,9 +66,12 @@ class TestPruneWalArchive:
 
         result = _run(
             "prune_wal_archive.sh",
-            "--base-dir", str(base),
-            "--wal-dir", str(wal),
-            "--keep-days", "21",
+            "--base-dir",
+            str(base),
+            "--wal-dir",
+            str(wal),
+            "--keep-days",
+            "21",
         )
         assert result.returncode == 0, result.stderr
         assert not (base / "20250101").exists(), "old backup should be pruned"
@@ -87,11 +93,16 @@ class TestWeeklyGlueRefusals:
         env.write_text("MT_TIMESCALE_MAINTENANCE_URL=postgresql://x@localhost/x\n")
         result = _run(
             "cron_weekly_base.sh",
-            "--env-file", str(env),
-            "--base-dir", str(tmp_path / "base"),
-            "--wal-dir", str(tmp_path / "wal"),
-            "--keep-days", "21",
-            "--health-flag", str(flag),
+            "--env-file",
+            str(env),
+            "--base-dir",
+            str(tmp_path / "base"),
+            "--wal-dir",
+            str(tmp_path / "wal"),
+            "--keep-days",
+            "21",
+            "--health-flag",
+            str(flag),
         )
         assert result.returncode != 0
         assert "unhealthy" in result.stderr
@@ -112,10 +123,14 @@ class TestHealthGlue:
         log = tmp_path / "health.log"
         result = _run(
             "archive_health_cron.sh",
-            "--env-file", str(env),
-            "--pgdata", str(tmp_path),
-            "--flag", str(flag),
-            "--log", str(log),
+            "--env-file",
+            str(env),
+            "--pgdata",
+            str(tmp_path),
+            "--flag",
+            str(flag),
+            "--log",
+            str(log),
         )
         assert result.returncode != 0
         assert flag.exists(), "cannot-check must raise the flag"
