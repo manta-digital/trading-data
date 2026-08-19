@@ -175,14 +175,23 @@ that received the wrong target. A runbook the Project Manager executes has no su
 failure mode. Role provisioning stays scripted, because `provision_roles.sql` is
 idempotent, parameterized, and already the artifact production uses.
 
-**D12 — Re-baseline the load tier's latency bounds, or retire them as
-machine-specific.** Slice 187 added `test/load/` with request-latency assertions
-measured on .144. `run_tests.py load` also consumes `MT_TIMESCALE_TEST_URL`, so
-those assertions move to a 20-core / 62 GiB machine as a side effect of this
-slice. Numbers that silently start describing different hardware are worse than no
-numbers. This slice must either re-establish the thresholds on hammerhead and
-record which machine they describe, or mark them as requiring a named host. It is
-917's business because 917 is what moves them.
+**D12 — The load tier's latency thresholds are labelled with the machine they
+describe; they are not re-derived here.** Slice 187 added `test/load/` with
+request-latency assertions measured on manta9000. `run_tests.py load` also
+consumes `MT_TIMESCALE_TEST_URL`, so those assertions move to a 20-core / 62 GiB
+machine as a side effect of this slice.
+
+Re-baselining was considered and **declined** (Project Manager, 2026-08-19). The
+thresholds stay as they are, and this slice's obligation is narrower: record in
+`test/load/` that the numbers were established on manta9000 (32 cores, 125 GiB),
+so that **a failure there is read as a possible hardware difference rather than
+automatically as a regression**. Numbers that silently start describing different
+hardware are the failure mode being avoided; a label is sufficient to avoid it,
+and re-deriving them is work this slice does not need to do.
+
+The tier is manually gated on `MT_RUN_LOAD_TESTS=1` today, so nothing runs it
+unattended. If slice 907 wires it into CI, that slice inherits the question of
+which machine CI's numbers describe.
 
 ## Known differences from production
 
@@ -266,8 +275,9 @@ stop.
    rather than skipping; pointing it at production is **refused**.
 9. The integration tier's wall-clock time is recorded before and after the move,
    so the network cost is a measured number rather than an assumption.
-10. The load tier's latency thresholds either pass on hammerhead with re-recorded
-    values, or are explicitly marked as describing a named machine (D12).
+10. `test/load/` records that its latency thresholds were established on
+    manta9000 (32 cores, 125 GiB), so a failure on other hardware is not read as
+    an automatic regression (D12).
 11. Production is untouched: no cluster created, no configuration edited, and
     `pg_postmaster_start_time()` on 5432 unchanged from the baseline capture.
 
@@ -338,6 +348,16 @@ Production restart risk, which dominated the previous version of this design, is
   catalog objects and removing them is a Project Manager decision.
 - Fixing the two pre-existing `test_cli_lists.py` failures, or the missing
   `__init__.py` packaging that breaks whole-`test/` collection — both are 907's.
+- **A single-machine path for other users of this repository.** The design
+  assumes two database-capable machines, which most people cloning this project
+  will not have. Worth adding later, and cheap when the time comes: the *first*
+  version of this design — a second PostgreSQL cluster on the same host — is
+  precisely what a one-machine user would do, and it is preserved in this file's
+  git history rather than lost. Everything downstream of the cluster (role
+  provisioning, the `MT_TIMESCALE_TEST_URL` indirection, the guards from D8) is
+  identical either way, so a single-machine setup differs only in where the
+  cluster is created. Deferred deliberately; raised so it is not rediscovered as a
+  surprise when someone opens an issue.
 - **Simplifying how tests name roles.** `provision_roles.sql` documents that a
   test run "MUST pass throwaway role names — otherwise it mutates the very roles
   production depends on," because `pg_authid` is cluster-wide. On a separate
