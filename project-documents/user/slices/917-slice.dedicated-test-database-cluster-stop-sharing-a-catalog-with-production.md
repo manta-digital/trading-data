@@ -8,7 +8,7 @@ interfaces: [905, 907, 913, 915]
 dateCreated: 20260819
 dateUpdated: 20260819
 status: not_started
-review: user/reviews/917-review.slice.dedicated-test-database-cluster-stop-sharing-a-catalog-with-production.md
+review: none
 ---
 
 # Slice Design: Dedicated test database cluster
