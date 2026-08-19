@@ -12,7 +12,7 @@ projectState: >
   integration test per run dies on a catalog race. Hammerhead (192.168.1.143,
   Ubuntu 24.04, 20 cores, 62 GiB, 1.7 TB free) has no PostgreSQL installed and is
   reachable by SSH key as `manta`.
-status: not_started
+status: in_progress
 dateCreated: 20260819
 dateUpdated: 20260819
 ---
@@ -66,32 +66,32 @@ checks are a **gate before any test run** rather than a verification afterwards.
 
 Effort: 1/5. Nothing here modifies either host.
 
-- [ ] **A.1 [agent] Record the integration tier's current wall-clock time and result set**
-  - [ ] Run the tier once against the current (shared) cluster, timed, tee'd to a log
-  - [ ] Record: elapsed time, pass/fail totals, and the count of
+- [x] **A.1 [agent] Record the integration tier's current wall-clock time and result set**
+  - [x] Run the tier once against the current (shared) cluster, timed, tee'd to a log
+  - [x] Record: elapsed time, pass/fail totals, and the count of
         `tuple concurrently updated` occurrences with the test each hit
-  - [ ] The elapsed time is the **before** half of the network-cost comparison in F.5
-  - [ ] Success: a log and a recorded summary. Expected shape is 171 passed with 2
+  - [x] The elapsed time is the **before** half of the network-cost comparison in F.5
+  - [x] Success: a log and a recorded summary. Expected shape is 171 passed with 2
         `test_cli_lists.py` failures, plus zero or one catalog race. **A zero is
         not a problem** — the flake is intermittent; note it and continue
 
-- [ ] **A.2 [agent] Capture production's role set, after A.1**
-  - [ ] Order matters: A.1 creates and drops its own `t913_*` roles, so a snapshot
+- [x] **A.2 [agent] Capture production's role set, after A.1**
+  - [x] Order matters: A.1 creates and drops its own `t913_*` roles, so a snapshot
         taken before it would not match at F.6 for reasons unrelated to this slice
-  - [ ] `SELECT rolname,rolsuper,rolcreatedb,rolcreaterole,rolreplication FROM
+  - [x] `SELECT rolname,rolsuper,rolcreatedb,rolcreaterole,rolreplication FROM
         pg_roles WHERE rolname NOT LIKE 't913\_%' ORDER BY rolname` via `psql -At`
-  - [ ] Filtering `t913_*` as transient follows the existing convention in
+  - [x] Filtering `t913_*` as transient follows the existing convention in
         `test/integration/data/test_test_admin_role.py`
-  - [ ] Success: a diffable file including `trading_app`, `trading_migrate`,
+  - [x] Success: a diffable file including `trading_app`, `trading_migrate`,
         `trading_test_admin`, and `postgres`
 
-- [ ] **A.3 [agent] Capture production's postmaster start time**
-  - [ ] `SELECT pg_postmaster_start_time();` against 5432
-  - [ ] Success: a timestamp recorded. Proves at F.6 that production never restarted
+- [x] **A.3 [agent] Capture production's postmaster start time**
+  - [x] `SELECT pg_postmaster_start_time();` against 5432
+  - [x] Success: a timestamp recorded. Proves at F.6 that production never restarted
 
-- [ ] **A.4 [agent] Commit the captured baselines**
-  - [ ] Commit the baseline files and a short note of what A.1–A.3 found
-  - [ ] Success: the baselines are recoverable by anyone reading the branch
+- [x] **A.4 [agent] Commit the captured baselines**
+  - [x] Commit the baseline files and a short note of what A.1–A.3 found
+  - [x] Success: the baselines are recoverable by anyone reading the branch
 
 ---
 
