@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260814
+dateUpdated: 20260819
 status: in_progress
 ---
 
@@ -19,6 +19,69 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260819 — `free -h` is the wrong instrument on a mixed desktop/database host: strict overcommit refused a 48-byte allocation with 90 GiB of RAM free
+
+**Context:** A routine integration-tier run against production's cluster died
+with a server-side `psycopg.errors.OutOfMemory` — `Failed on request of size 48
+in memory context "SPI Exec"` — and a client-side `MemoryError` inside pytest's
+own terminal writer. `free -h` reported 117 GiB available at the time. A
+memory-profiling utility run shortly afterward took the machine down entirely.
+
+**Decision:** `vm.overcommit_memory` moved from 2 (strict) to 0 (heuristic), and
+`shared_buffers` from 32179MB to 8GB. The sysctl file was kept rather than
+deleted, with the reasoning recorded inline, so that a future reader following
+PostgreSQL tuning guidance does not helpfully restore it.
+
+**Rationale:** Under `vm.overcommit_memory=2` the kernel allows allocations based
+on `Committed_AS` against `CommitLimit`, which count *reserved* address space
+rather than usage. Electron applications reserve enormous arenas they never
+touch. Measured during the incident: 78.6 GiB committed against 4.8 GiB of
+`AnonPages` actually resident, with the reservations dominated by the editor
+(10.5 GiB), the browser (8.7 GiB), and agent processes (4.7 GiB) — none of it the
+database. Headroom was 1.47 GiB while `MemAvailable` read 117 GiB, because
+`MemAvailable` counts reclaimable page cache and the overcommit accounting does
+not.
+
+Strict overcommit is sound guidance for a **dedicated** database server, where a
+clean `malloc` failure is preferable to the OOM killer selecting the postmaster.
+This host is not dedicated — it is simultaneously production, the developer
+checkout, and a desktop session — so the policy was refusing promises that nobody
+intended to keep. The general lesson is that a setting is only as good as the
+assumption it was chosen under, and "dedicated database server" was an assumption
+this host stopped satisfying without anyone revisiting the config.
+
+The `shared_buffers` reduction is separate and additive: the database is 142 GB
+(83 GB in hypertables), so no buffer pool can hold it and the OS page cache does
+the real work regardless. Postgres was sustaining a 99.72% hit ratio with only
+1.3 GiB of the 31.4 GiB pool populated. `effective_cache_size` was deliberately
+left at 94 GB — it is a planner hint describing total cache including the OS, so
+it remains correct at any `shared_buffers` value.
+
+Neither change belongs to a slice. `postgresql.conf` and sysctls are host
+configuration; slices own code and recorded decisions. Routing operational
+settings through slice ownership generates friction without adding safety.
+
+**Follow-ups:**
+
+- **Outstanding verification.** The `shared_buffers` cut has not been validated
+  under real load — the statistics counters reset at the restart. Re-measure
+  after a normal working day:
+  `SELECT round(100.0*blks_hit/NULLIF(blks_hit+blks_read,0),2) FROM
+  pg_stat_database WHERE datname='trading';`
+  It was 99.72% at the old setting. At or above 99% the old value was waste and
+  the matter is closed; below roughly 97%, raise to 16GB and re-measure. Reverting
+  is one configuration line plus a cluster restart.
+- `work_mem` remains 512MB cluster-wide, where the line's own comment records that
+  `timescaledb-tune` recommended ~10000KB — a 50× override. Left alone
+  deliberately so the two changes above can be evaluated without a third
+  variable. This is the cluster-wide setting; the API server's per-session
+  `work_mem` is a separate knob and was addressed by slice 186.
+- Slice 917's design assumed roughly 92 GiB of headroom when sizing a test
+  cluster. That reasoning was measuring free RAM rather than commit headroom and
+  must be re-derived before the slice proceeds.
+- Any host where strict overcommit is set carries the same trap. Check it before
+  trusting free-memory numbers on the candidate test machine.
 
 ## 20260814 — The OS-first exit executed clean: single-hop to 26.04, TS 2.29.1 kills the refresh balloon, all caggs verified to 100% parity
 
