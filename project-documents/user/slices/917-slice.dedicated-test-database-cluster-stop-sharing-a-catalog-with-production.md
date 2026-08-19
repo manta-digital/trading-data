@@ -131,6 +131,16 @@ cannot silently reintroduce the sharing this slice exists to remove.
 integration and load tiers, so the runner path is close; the bare-`pytest` path
 is the hole.
 
+**D11 — Cluster creation is a runbook procedure, not a committed script.** The
+slice plan left this open. Creation is a one-time operation requiring root; a
+committed script that takes a cluster name and runs under `sudo` is an executable
+that can be pointed at the wrong target, and this project has already lost six
+production tables once to a tool that received the wrong target. A runbook step
+the Project Manager executes has no such failure mode, and recreating the cluster
+later is equally well served by it. Role provisioning stays scripted, because
+`scripts/provision_roles.sql` is idempotent, parameterized, and already the
+artifact production itself uses.
+
 **D9 — No data migrates.** Test databases are created and dropped per fixture;
 there is nothing persistent to move. The whole "migration" is a URL change plus
 role provisioning on the new cluster.
@@ -290,6 +300,14 @@ the root-access boundary (see Risks) splits the work.
   privilege guarantees.
 - Fixing the two pre-existing `test_cli_lists.py` failures, or the missing
   `__init__.py` packaging that breaks whole-`test/` collection — both are 907's.
+- **Simplifying how tests name roles.** `scripts/provision_roles.sql` documents
+  that a test run "MUST pass throwaway role names — otherwise it mutates the very
+  roles production depends on," because `pg_authid` is a shared catalog. On a
+  dedicated cluster that hazard is gone, and the suite could exercise the real
+  role names — a fidelity gain, since the test would then run the exact
+  invocation production runs. It is deliberately left alone here: the parameters
+  are harmless once the cluster is separate, and changing slice 913's suite is
+  not this slice's work. Worth raising as follow-up rather than losing.
 
 **Effort: 2/5. Risk: Med** — the work never touches the production cluster, but it
 runs on the production host, and the failure mode of getting that wrong is an
