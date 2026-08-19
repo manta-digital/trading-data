@@ -49,6 +49,14 @@ checks are a **gate before any test run** rather than a verification afterwards.
 - **Never `source .env`** — a `$` in the password mangles it. Grep the value out.
 - **zsh does not word-split unquoted `$VAR`.** Use `xargs -a` or `$(cat file)`.
 - SSH reaches the test host as `ssh hammerhead` (configured in `~/.ssh/config`).
+- **Every `[PM]` step in groups B, C, and D is written up as a runbook**:
+  [test-database-cluster.md](../runbooks/test-database-cluster.md). It is committed,
+  and the repository is already cloned on hammerhead at
+  `~/source/repos/manta/trading-data`, so the Project Manager follows it there
+  directly rather than having steps relayed. Configuration comes from
+  `deploy/test-cluster/` in the checkout, so nothing multi-line is ever pasted.
+  Keep the runbook and these tasks in step: a correction found while running one
+  belongs in both.
 - Integration tier runs take roughly 9.5 minutes each; groups A and F each spend
   real time on the runner.
 
