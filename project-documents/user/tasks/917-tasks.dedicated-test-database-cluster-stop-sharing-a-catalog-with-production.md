@@ -181,6 +181,14 @@ Effort: 1/5.
   - [ ] Success: the diff is **empty**. A non-empty diff means the provisioning
         ran against the wrong cluster — stop and investigate before continuing
 
+- [ ] **C.5 [agent] Commit the recorded host evidence**
+  - [ ] Groups B and C change *host* state, not repository state, so without this
+        the slice runs several groups with nothing reviewable committed
+  - [ ] Commit the recorded port from B.2, the gate output from B.5, the version
+        parity from B.6, and the role verification from C.3–C.4
+  - [ ] Success: the branch now contains enough evidence for someone else to tell
+        what the cluster looks like without logging into the host
+
 ---
 
 ## Group D — Repoint the test suite at the new cluster
@@ -253,6 +261,10 @@ summarising it.
         and exits zero regardless is not an assertion
   - [ ] Success: zero occurrences of `tuple concurrently updated` across all five
         runs. Any single occurrence fails the slice's central criterion
+  - [ ] **Void-run rule:** a run that dies on a connection refusal or is
+        interrupted is **discarded, not counted** — neither as a pass nor as a
+        baseline deviation. Only five *complete* runs satisfy the criterion. Note
+        each discarded run and why, so the count cannot be quietly padded
 
 - [ ] **F.2 [agent] Compare the pass/fail set to the A.3 baseline**
   - [ ] Success: the same tests pass and the same two `test_cli_lists.py` tests
@@ -296,28 +308,25 @@ Effort: 1/5.
   - [ ] Success: someone who has never seen this slice can recreate the cluster
         from the runbook alone
 
-- [ ] **G.2 [agent] Point the backup runbook's cron note at reality**
-  - [ ] `backup-and-restore.md` and the crontab both carry a note about migrating
-        cron to systemd timers "if the `/opt` + systemd deployment lands"
-  - [ ] That work is slice 916. Confirm the note names 916 so the trail leads
-        somewhere real, and correct it if it does not
-  - [ ] Success: no forward reference points at a deprecated or unnamed item
-
-- [ ] **G.3 [agent] Fold the measured values back into the slice design**
+- [ ] **G.2 [agent] Fold the measured values back into the slice design**
   - [ ] Replace the design's draft verification walkthrough placeholders with the
         actual port, the actual measured freshness-probe time, and the F.1 result
   - [ ] Success: the walkthrough is a record of what was run, not a plan for what
         might be
 
-- [ ] **G.4 [agent] Record the follow-up this slice deliberately did not do**
+- [ ] **G.3 [agent] Record the follow-up this slice deliberately did not do**
   - [ ] The suite passes throwaway role names to `provision_roles.sql` because
         `pg_authid` is cluster-wide. On a dedicated cluster that is no longer
         necessary, and using the real role names would make the test exercise the
         exact invocation production runs
-  - [ ] Success: this is captured where slice 913's or 907's owner will find it,
-        not left only in this task file
+  - [ ] Write it as an entry in the **Future Work** section of
+        `user/architecture/900-slices.foundation-cleanup.md`, which is where this
+        class of small deferred item already lives
+  - [ ] Success: the entry names the file, why the workaround existed, and why it
+        is no longer needed — enough that a reader who never saw this slice can
+        act on it
 
-- [ ] **G.5 [agent] Final commit**
+- [ ] **G.4 [agent] Final commit**
   - [ ] Commit the runbook, the design update, and the recorded evidence
   - [ ] Success: the working tree is clean and `cf check` reports no new warnings
 

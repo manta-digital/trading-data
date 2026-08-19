@@ -337,8 +337,10 @@ copy can be deleted.** It is torn, unverified, and superseded.
 
 ## Step 7 — Schedule it (INSTALLED 2026-08-18)
 
-Cron, not systemd — this host has no units installed and no process manager;
-migrate these to systemd timers if the `/opt` + systemd deployment lands.
+Cron, not systemd — this host has no units installed and no process manager.
+Whether these migrate to systemd timers is an explicit decision inside **slice
+916** (supervised production services); the current recommendation recorded there
+is to leave them on cron, since cron is installed and proven.
 Installed in the `manta` crontab (absolute paths — cron loads no shell
 profile). Three entries, all thin glue scripts that grep credentials from the
 named `.env` and call the explicit-argument tools:
