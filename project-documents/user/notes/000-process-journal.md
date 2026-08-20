@@ -64,9 +64,11 @@ settings through slice ownership generates friction without adding safety.
 
 **Follow-ups:**
 
-- **Outstanding verification.** The `shared_buffers` cut has not been validated
-  under real load — the statistics counters reset at the restart. Re-measure
-  after a normal working day:
+- **Resolved 2026-08-20.** After 1 day 4.6 hours of uptime the hit ratio is
+  **99.75%** (1,745,331,997 hits / 4,395,476 reads) — marginally *better* than the
+  99.72% recorded at the old 31.4 GiB setting. The 8GB pool is sufficient and the
+  previous 31.4 GiB was waste; no further action. Original instruction retained
+  below for anyone repeating the measurement:
   `SELECT round(100.0*blks_hit/NULLIF(blks_hit+blks_read,0),2) FROM
   pg_stat_database WHERE datname='trading';`
   It was 99.72% at the old setting. At or above 99% the old value was waste and

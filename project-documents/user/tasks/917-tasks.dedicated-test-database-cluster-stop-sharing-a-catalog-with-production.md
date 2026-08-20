@@ -99,32 +99,40 @@ Effort: 1/5. Nothing here modifies either host.
 
 Effort: 2/5. Every install and configuration task is **[PM]**.
 
-- [ ] **B.1 [PM] Add the PGDG and TimescaleDB apt repositories**
-  - [ ] PGDG for `noble`, and the TimescaleDB packagecloud repository for `noble`
-  - [ ] Success: `apt-cache policy postgresql-17` lists `17.11-1.pgdg24.04+2`, and
+- [x] **B.1 [PM] Add the PGDG and TimescaleDB apt repositories**
+  - [x] PGDG for `noble`, and the TimescaleDB packagecloud repository for `noble`
+  - [x] Success: `apt-cache policy postgresql-17` lists `17.11-1.pgdg24.04+2`, and
         `apt-cache policy timescaledb-2-postgresql-17` lists
         `2.29.1~ubuntu24.04-1710`
 
-- [ ] **B.2 [PM] Install the pinned versions**
-  - [ ] Install `postgresql-17=17.11-1.pgdg24.04+2`,
+- [x] **B.2 [PM] Install the pinned versions**
+  - [x] Install `postgresql-17=17.11-1.pgdg24.04+2`,
         `timescaledb-2-postgresql-17=2.29.1~ubuntu24.04-1710`, and
         `timescaledb-2-loader-postgresql-17=2.29.1~ubuntu24.04-1710`
-  - [ ] **Do not** install unversioned. Newer builds exist — TimescaleDB 2.29.2 is
+  - [x] **Do not** install unversioned. Newer builds exist — TimescaleDB 2.29.2 is
         published — and taking them forfeits the parity this slice depends on
-  - [ ] Success: all three install at exactly the named versions
-  - [ ] If apt cannot resolve a pinned version, **stop**. Do not relax the pin
+  - [x] Success: all three install at exactly the named versions
+  - [x] If apt cannot resolve a pinned version, **stop**. Do not relax the pin
 
-- [ ] **B.3 [PM] Hold the three packages against upgrade**
-  - [ ] `apt-mark hold` each of the three
-  - [ ] Success: `apt-mark showhold` lists all three, so an unattended
+- [x] **B.3 [PM] Hold the three packages against upgrade**
+  - [x] `apt-mark hold` each of the three
+  - [x] Success: `apt-mark showhold` lists all three, so an unattended
         `apt upgrade` on an interactively-used machine cannot drift them
 
-- [ ] **B.4 [agent] Verify version parity with production**
-  - [ ] `SELECT version();` and the `timescaledb` row from `pg_extension` on
+- [x] **B.4 [agent] Verify version parity with production**
+  - [x] `SELECT version();` and the `timescaledb` row from `pg_extension` on
         hammerhead, compared against production's `17.11` / `2.29.1`
-  - [ ] Success: upstream versions match. The distro build suffix differs
+  - [x] Success: upstream versions match. The distro build suffix differs
         (`pgdg24.04` vs `pgdg26.04`) and that is expected — it is packaging
         metadata, not code
+  - [x] **Verified 2026-08-20:** hammerhead `postgresql-17 17.11-1.pgdg24.04+2`,
+        `timescaledb-2-postgresql-17 2.29.1~ubuntu24.04-1710`, loader likewise —
+        matching production's 17.11 / 2.29.1
+  - [x] **Known harmless difference:** `timescaledb-toolkit` is 1.25.0 here and
+        1.24.0 on production. It is **not pinned and does not need to be** — the
+        extension is never created (production's `pg_extension` holds only
+        `plpgsql` and `timescaledb`) and no code references toolkit functions. If
+        the project ever adopts the toolkit, it joins the pinned set
 
 ---
 
@@ -132,30 +140,36 @@ Effort: 2/5. Every install and configuration task is **[PM]**.
 
 Effort: 2/5.
 
-- [ ] **C.1 [PM] Create the cluster on hammerhead**
-  - [ ] Create a cluster for PostgreSQL 17 on the default data directory. The 1.7 TB
+- [x] **C.1 [PM] Create the cluster on hammerhead**
+  - [x] Create a cluster for PostgreSQL 17 on the default data directory. The 1.7 TB
         NVMe root filesystem has ample room; no separate location is needed
-  - [ ] Success: the cluster is listed by `pg_lsclusters` on hammerhead
+  - [x] Success: the cluster is listed by `pg_lsclusters` on hammerhead
 
-- [ ] **C.2 [agent] Record the assigned port**
-  - [ ] Read it from `pg_lsclusters`, not from an assumption
-  - [ ] Success: the port is recorded and every later task uses that value
+- [x] **C.2 [agent] Record the assigned port**
+  - [x] Read it from `pg_lsclusters`, not from an assumption
+  - [x] Success: the port is recorded and every later task uses that value
+  - [x] **Observed 2026-08-20:** port **5432**, data directory
+        `/var/lib/postgresql/17/main`, cluster `17/main`, status online
 
-- [ ] **C.3 [PM] Configure the cluster**
-  - [ ] `shared_preload_libraries = 'timescaledb'`
-  - [ ] `listen_addresses` includes the LAN interface — the suite runs on .144
-  - [ ] Sizing from the design: `shared_buffers` 8GB, `work_mem` 64MB,
+- [x] **C.3 [PM] Configure the cluster**
+  - [x] `shared_preload_libraries = 'timescaledb'`
+  - [x] `listen_addresses` includes the LAN interface — the suite runs on .144
+  - [x] Sizing from the design: `shared_buffers` 8GB, `work_mem` 64MB,
         `maintenance_work_mem` 512MB, `max_connections` 100,
         `max_worker_processes` 16, `timescaledb.max_background_workers` 8
-  - [ ] Success: all settings present in hammerhead's `postgresql.conf`
+  - [x] Success: all settings present in hammerhead's `postgresql.conf`
 
-- [ ] **C.4 [PM] Admit only manta9000 in `pg_hba.conf`**
-  - [ ] Admit the test admin role from `192.168.1.144` specifically
-  - [ ] **Never `0.0.0.0`.** Name the one host
-  - [ ] Success: the entry names a single source address
+- [x] **C.4 [PM] Admit only manta9000 in `pg_hba.conf`**
+  - [x] Admit the test admin role from `192.168.1.144` specifically
+  - [x] **Never `0.0.0.0`.** Name the one host
+  - [x] Success: the entry names a single source address
 
-- [ ] **C.5 [PM] Start the cluster**
-  - [ ] Success: `pg_lsclusters` reports it online
+- [x] **C.5 [PM] Restart the cluster**
+  - [x] **`restart`, not `start`.** Installing `postgresql-17` creates and starts
+        `17/main` automatically, so `start` fails with "already running". More
+        importantly C.3 changed `shared_preload_libraries`, which only takes
+        effect on a genuine restart
+  - [x] Success: `pg_lsclusters` reports it online
   - [ ] If it starts then exits, read the cluster's own log, fix the config, and
         restart the hammerhead cluster
 
@@ -182,7 +196,13 @@ Effort: 2/5.
 Effort: 1/5.
 
 - [ ] **D.1 [PM] Run the existing role provisioning script against hammerhead**
-  - [ ] `psql "<superuser-url>" -v ON_ERROR_STOP=1 -v with_test_admin=1 -f scripts/provision_roles.sql`
+  - [ ] Pipe the script in; do **not** pass `-f <path>`. `sudo -u postgres` drops
+        to the `postgres` user, which cannot traverse a mode-750 home directory,
+        so a path argument fails with `Permission denied`. Redirecting means your
+        own shell opens the file and `postgres` receives only stdin. `-f -`
+        preserves `\if` and `\gexec` handling exactly
+  - [ ] Do not relax home-directory permissions and do not stage the script in
+        `/tmp` — configuration comes from the version-controlled checkout
   - [ ] Must be applied **as a superuser** — the script's own header explains why
         creating roles and granting `postgres` requires rights the maintenance role
         does not hold
