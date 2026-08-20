@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: hammerhead (192.168.1.143)
 dateCreated: 20260819
-dateUpdated: 20260819
+dateUpdated: 20260820
 status: current
 ---
 
@@ -124,6 +124,9 @@ sudo pg_createcluster 17 main
 
 **Record the port** it reports. It is expected to be 5432 on this machine since
 nothing else uses it, but take the value the tool assigns rather than assuming.
+On the 2026-08-20 build the auto-created cluster took 5432 with its data
+directory at `/var/lib/postgresql/17/main`, and was reused rather than
+recreated.
 
 ## Step 5 — Install the cluster configuration
 
@@ -152,8 +155,13 @@ uses `SET ROLE`, so it never opens a connection as a throwaway role.
 
 ## Step 7 — Start the cluster
 
+Use `restart`, not `start`. Installing `postgresql-17` creates and starts
+`17/main` automatically, so the cluster is already running by the time you get
+here and `start` fails with "already running". More importantly, Step 5 changed
+`shared_preload_libraries`, which only takes effect on a genuine restart:
+
 ```bash
-sudo pg_ctlcluster 17 main start
+sudo pg_ctlcluster 17 main restart
 ```
 
 ```bash
@@ -162,7 +170,10 @@ pg_lsclusters
 
 Expect status `online`. If it starts and immediately exits, read
 `/var/log/postgresql/postgresql-17-main.log` for the cause, correct the config,
-and start it again.
+and start it again. A healthy start logs `listening on IPv4 address "0.0.0.0"`
+and `TimescaleDB background worker launcher connected to shared catalogs` — the
+second line is the one worth looking for, since its absence is what Step 8
+catches.
 
 ## Step 8 — Gate checks, before anything else connects
 
@@ -207,9 +218,26 @@ Applied as a superuser, using the same artifact production uses. The script's ow
 header explains why: creating roles and granting `postgres` requires rights the
 maintenance role does not hold on itself.
 
+The script is piped in rather than named with `-f <path>`. `sudo -u postgres`
+drops to the `postgres` user, which cannot traverse `/home/<user>` — Ubuntu
+creates home directories mode 750 — so passing the path directly fails with
+`psql: error: ...: Permission denied`. The redirect is expanded by your own
+shell, so the file is opened as you and `postgres` only ever receives stdin.
+`-f -` keeps `\if` and `\gexec` handling identical to reading a named file:
+
 ```bash
-sudo -u postgres psql -v ON_ERROR_STOP=1 -v with_test_admin=1 -f ~/source/repos/manta/trading-data/scripts/provision_roles.sql
+sudo -u postgres psql -v ON_ERROR_STOP=1 -v with_test_admin=1 -f - < ~/source/repos/manta/trading-data/scripts/provision_roles.sql
 ```
+
+Do not work around this by relaxing the permissions on your home directory, and
+do not copy the script to `/tmp` — that would break this runbook's rule that
+configuration comes from the version-controlled checkout.
+
+Expect `BEGIN`, three `CREATE ROLE` lines, a notice that REPLICATION was not
+granted, and `COMMIT`. Against the default `postgres` database the table-grant
+sections filter through `pg_tables` and no-op, so the output is much shorter
+than a production run; the roles themselves are cluster-wide, which is the part
+that matters here.
 
 `with_replication` is deliberately **not** passed. The constraint that made it
 opt-in was production and tests sharing one cluster, which no longer applies —
