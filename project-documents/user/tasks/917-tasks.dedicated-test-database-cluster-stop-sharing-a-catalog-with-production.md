@@ -163,6 +163,14 @@ Effort: 2/5.
   - [x] Admit the test admin role from `192.168.1.144` specifically
   - [x] **Never `0.0.0.0`.** Name the one host
   - [x] Success: the entry names a single source address
+  - [ ] **The host firewall is a second gate.** `ufw` is active on hammerhead and
+        blocks 5432 by default. It **drops** rather than rejects, so the symptom is
+        a client hanging to its timeout, which reads as a database problem rather
+        than a network one — this cost a diagnosis cycle on 2026-08-20
+  - [ ] Allow the port from the one host only:
+        `sudo ufw allow from 192.168.1.144 to any port 5432 proto tcp`. Never
+        `sudo ufw allow 5432`, which opens it network-wide and discards the
+        containment `pg_hba` provides. Both rules must name the same single source
 
 - [x] **C.5 [PM] Restart the cluster**
   - [x] **`restart`, not `start`.** Installing `postgresql-17` creates and starts

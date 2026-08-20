@@ -153,6 +153,34 @@ control that makes binding all interfaces acceptable. Only the test admin role
 needs to connect — the privilege suite authenticates as that credential and then
 uses `SET ROLE`, so it never opens a connection as a throwaway role.
 
+### The host firewall also has to allow it
+
+`ufw` is **active** on hammerhead and blocks 5432 by default. Because it *drops*
+rather than rejects, the symptom is a client that hangs until its timeout — not
+a refused connection — which reads like a database problem rather than a network
+one. Check first, so you know whether you need this at all:
+
+```bash
+sudo ufw status
+```
+
+If it reports `active`, open the port to the one host, mirroring the `pg_hba`
+restriction rather than opening it broadly:
+
+```bash
+sudo ufw allow from 192.168.1.144 to any port 5432 proto tcp
+```
+
+Do **not** use `sudo ufw allow 5432`, which opens the port to the entire network
+and silently discards the containment the previous command provides. The two
+rules should always say the same thing: one source host.
+
+Confirm the port is actually reachable before moving on — from **manta9000**:
+
+```bash
+timeout 5 bash -c 'cat < /dev/null > /dev/tcp/192.168.1.143/5432' && echo REACHABLE || echo BLOCKED
+```
+
 ## Step 7 — Start the cluster
 
 Use `restart`, not `start`. Installing `postgresql-17` creates and starts
