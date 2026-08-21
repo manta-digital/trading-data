@@ -68,10 +68,43 @@ pointed at production by an unset variable defaulting to the working DB.
 """
 
 
-def swap_dbname(url: str, new_db: str) -> str:
-    """Return ``url`` with the path component replaced by ``new_db``."""
+class MaskedUrl(str):
+    """A connection URL whose *printed* form hides the password.
+
+    pytest renders each fixture's value with ``repr()`` in the header of a
+    failure traceback, so handing tests a plain string puts the test-admin
+    password into the output of every failing run — and into CI logs once those
+    exist. Subclassing ``str`` keeps the real value intact for ``psycopg``,
+    which needs the actual characters; only ``repr()`` is masked.
+
+    ``str()`` is deliberately NOT masked: it must keep returning the working
+    URL. That means an f-string or ``%s`` in a log statement still leaks. This
+    class closes the traceback path, which is the one that fires on every
+    failure; it is not a general-purpose redaction.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        parsed = urlparse(str(self))
+        if not parsed.password:
+            return super().__repr__()
+        userinfo = f"{parsed.username}:***" if parsed.username else "***"
+        host = parsed.hostname or ""
+        if parsed.port:
+            host = f"{host}:{parsed.port}"
+        masked = urlunparse(parsed._replace(netloc=f"{userinfo}@{host}"))
+        return repr(masked)
+
+
+def swap_dbname(url: str, new_db: str) -> MaskedUrl:
+    """Return ``url`` with the path component replaced by ``new_db``.
+
+    The result is a :class:`MaskedUrl` so that a failing test does not print
+    the password in its traceback header.
+    """
     parsed = urlparse(url)
-    return urlunparse(parsed._replace(path=f"/{new_db}"))
+    return MaskedUrl(urlunparse(parsed._replace(path=f"/{new_db}")))
 
 
 @pytest.fixture(scope="function")
