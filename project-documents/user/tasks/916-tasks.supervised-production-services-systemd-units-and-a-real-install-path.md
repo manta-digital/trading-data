@@ -317,32 +317,32 @@ Effort: 2/5. Every root step is **[PM]**. Nothing is enabled in this group.
   - [x] Success: the ref is recorded here, and `git log` confirms it contains
         the unit files and the install script
 
-- [ ] **D.2 [PM] Run the install script**
-  - [ ] `sudo deploy/install-production.sh --ref <recorded ref>` from the dev
+- [x] **D.2 [PM] Run the install script**
+  - [x] `sudo deploy/install-production.sh --ref <recorded ref>` from the dev
         checkout
-  - [ ] Success: exits 0 and prints the "nothing has been enabled" message
+  - [x] Success: exits 0 and prints the "nothing has been enabled" message
 
-- [ ] **D.3 [PM] Run it a second time — idempotence**
-  - [ ] Same command, unchanged
-  - [ ] Success: exits 0; no account recreated; the env file is byte-identical
+- [x] **D.3 [PM] Run it a second time — idempotence**
+  - [x] Same command, unchanged
+  - [x] Success: exits 0; no account recreated; the env file is byte-identical
         (checksum before and after); nothing became enabled
 
-- [ ] **D.4 [PM] Fill `/etc/manta-trading.env`**
-  - [ ] `sudoedit /etc/manta-trading.env`; set `MT_TIMESCALE_DB_URL` (the
+- [x] **D.4 [PM] Fill `/etc/manta-trading.env`**
+  - [x] `sudoedit /etc/manta-trading.env`; set `MT_TIMESCALE_DB_URL` (the
         DML-only application credential) and `MT_EODHD_API_KEY`. Values come
         from the dev checkout's `.env`; **the file itself is never copied**
-  - [ ] Success: the file holds real values at mode 0640 `root:manta-trading`
+  - [x] Success: the file holds real values at mode 0640 `root:manta-trading`
 
-- [ ] **D.5 [agent] Verify the install without starting anything**
-  - [ ] `/opt/manta-trading` exists, owned by `manta-trading`, at the pinned ref,
+- [x] **D.5 [agent] Verify the install without starting anything**
+  - [x] `/opt/manta-trading` exists, owned by `manta-trading`, at the pinned ref,
         clean working tree; `.venv/bin/mt --version` runs
-  - [ ] **No `.env` file inside `/opt/manta-trading`** — configuration reaches
+  - [x] **No `.env` file inside `/opt/manta-trading`** — configuration reaches
         services only through `/etc/manta-trading.env`
-  - [ ] `MT_TIMESCALE_MAINTENANCE_URL` is absent from the env file
-  - [ ] No credential appears in any tracked file (grep the repo)
-  - [ ] `systemctl list-unit-files 'mt-*'` shows all units **disabled**;
+  - [x] `MT_TIMESCALE_MAINTENANCE_URL` is absent from the env file
+  - [x] No credential appears in any tracked file (grep the repo)
+  - [x] `systemctl list-unit-files 'mt-*'` shows all units **disabled**;
         `systemctl list-timers 'mt-*'` is empty
-  - [ ] Success: every check above holds. Production is still running by hand
+  - [x] Success: every check above holds. Production is still running by hand
         from the dev checkout, unchanged
 
 ---
