@@ -45,6 +45,9 @@ not.
 
 Strict overcommit is sound guidance for a **dedicated** database server, where a
 clean `malloc` failure is preferable to the OOM killer selecting the postmaster.
+The project's own SQL rules say exactly this — "`vm.overcommit_memory=2` on
+dedicated Postgres hosts" — and the change here does not contradict them: the
+qualifier is load-bearing, and manta9000 stopped satisfying it.
 This host is not dedicated — it is simultaneously production, the developer
 checkout, and a desktop session — so the policy was refusing promises that nobody
 intended to keep. The general lesson is that a setting is only as good as the
