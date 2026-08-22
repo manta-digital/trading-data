@@ -6,62 +6,75 @@ slice: supervised-production-services-systemd-units-and-a-real-install-path
 project: trading-data
 verdict: CONCERNS
 sourceDocument: project-documents/user/slices/916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md
-aiModel: claude-sonnet-5
+aiModel: z-ai/glm-5.2
 status: complete
 dateCreated: 20260822
 dateUpdated: 20260822
 reviewedSha: 24ce883bcaeebbcffa8aa35b4099cc4a47b32ae9
 findings:
   - id: F001
-    severity: concern
-    category: architectural-alignment
-    summary: "Production liveness answer moves off the CLI, against a stated Design Goal"
-    location: "project-documents/user/slices/916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md:33-35"
+    severity: pass
+    category: configuration
+    summary: "Configuration approach aligns with architecture's pydantic-settings pattern"
+    location: "916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md#architecture"
   - id: F002
-    severity: concern
-    category: scope-boundary
-    summary: "New capability delivered under the maintenance band's \"corrective, not additive\" constraint"
-    location: "project-documents/user/slices/916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md:17-29"
+    severity: pass
+    category: error-handling
+    summary: "Runtime failure modes for supervised paths are well-enumerated"
+    location: "916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md#architecture"
   - id: F003
-    severity: note
-    category: failure-modes
-    summary: "Install-script network I/O failure modes are not enumerated"
-    location: "project-documents/user/slices/916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md:235-241"
+    severity: concern
+    category: error-handling
+    summary: "Install script failure recovery is implicit, not per-step enumerated"
+    location: "916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md#implementation-details"
   - id: F004
     severity: pass
-    category: dependency-direction
-    summary: "Contract boundaries with dependency slices are honored, not rewritten"
-    location: "project-documents/user/slices/916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md:118-131"
+    category: scope
+    summary: "Scope boundaries respect maintenance-band constraints"
+    location: "916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md#technical-scope"
   - id: F005
-    severity: pass
-    category: architectural-alignment
-    summary: "Explicit-failure and no-magic-defaults principles are correctly inherited"
-    location: "project-documents/user/slices/916-slice.supervised-production-services-systemd-units-and-a-real-install-path.md:146-148"
+    severity: note
+    category: nfr
+    summary: "No NFRs in parent architecture require restatement"
+    location: "900-arch.foundation-cleanup.md"
 ---
 
 # Review: slice — slice 916
 
 **Verdict:** CONCERNS
-**Model:** claude-sonnet-5
+**Model:** z-ai/glm-5.2
 
 ## Findings
 
-### [CONCERN] Production liveness answer moves off the CLI, against a stated Design Goal
+### [PASS] Configuration approach aligns with architecture's pydantic-settings pattern
 
-`900-arch.foundation-cleanup.md` states as an Architectural Principle: "**CLI is the verification surface**: If a feature can't be exercised through `mt`, it doesn't exist yet. Every initiative's work must be visible through CLI commands before it's considered complete" (900-arch.foundation-cleanup.md:53). Slice 916's Value section explicitly does the opposite for this capability: "The answer to 'is production running?' becomes `systemctl status` / `systemctl list-timers` **instead of** querying `acquisition_state` by hand" (916 doc:34-35), and every success criterion (1-6) and the verification walkthrough are `systemctl`/`journalctl`-based, with no corresponding `mt status`/`mt data daemon status` surface added. Existing `mt status` (from slice 902) already reports provider/DB health; this slice introduces a new operational dimension (is the supervisor running, last/next fire time) without extending that CLI surface, leaving the answer to "is production alive" reachable only by a host shell, not `mt`. Worth an explicit PM call on whether this is an accepted exception (host supervision is arguably outside "features" the CLI enumerates) or a gap to close (e.g., a thin `mt status` addition surfacing systemd state) before calling the slice complete.
+The slice's environment-file design correctly implements the architecture's centralized configuration principle. Services receive `MT_*` variables via systemd's `EnvironmentFile=/etc/manta-trading.env`, which populates the process environment that pydantic-settings reads. No `.env` file is placed in the working directory, ensuring a single source of truth. Missing variables fail explicitly per the architecture's "Explicit failure" principle and the project rule against silent fallbacks. The deliberate exclusion of `MT_TIMESCALE_MAINTENANCE_URL` from the service environment honors the credential separation established in slice 913, keeping DDL credentials out of service-runtime scope.
 
-### [CONCERN] New capability delivered under the maintenance band's "corrective, not additive" constraint
+### [PASS] Runtime failure modes for supervised paths are well-enumerated
 
-The architecture's maintenance-band scope extension (900-arch.foundation-cleanup.md:22-29) permits band 900-999 to touch any layer, but gates that on two constraints: "**Corrective, not additive.** ... New capability belongs to the initiative that owns the layer" and "the originating initiative's contracts are honored, not rewritten." Systemd supervision and a dedicated `/opt` install path are not a fix to already-specified-but-wrong behavior — they are genuinely new capability, and the parent slice-plan entry itself says as much: it "**Absorbs** initiative 180's 'Supervised process launcher' future-work item," i.e., work that a different, non-maintenance initiative was tracking (900-slices.foundation-cleanup.md:62, entry 17). The plan justifies the absorption ("one piece of work seen from two ends, since `ExecStart=` cannot be written without first deciding what is installed where"), and that reasoning is defensible given 908's checkout-vs-install entanglement — but it is a plan-level exception to the architecture's own explicit anti-scope-creep rule, made without the architecture document itself being amended to reflect it. Recommend either a short amendment/pointer in 900-arch.foundation-cleanup.md's scope-extension section acknowledging this class of absorption, or explicit PM sign-off recorded in the slice doc (beyond the plan entry) that this is a deliberate, bounded exception rather than a precedent for routing initiative-owned features through the maintenance band generally.
+The slice enumerates and addresses failure modes for each new supervision path:
+- **Crash of `mt-serve`**: `Restart=on-failure` with `RestartSec=10s`, `StartLimitBurst=5`/`StartLimitIntervalSec=300s`.
+- **Reboot**: `Persistent=true` on timers fires missed schedules; `mt-serve.service` has `WantedBy=multi-user.target`.
+- **Overlong pass**: systemd won't start a service whose previous activation is still running, so the next timer firing is absorbed.
+- **Failed oneshot pass**: no `Restart=` — recovery is the next timer firing, which is safe because pass semantics make re-runs cheap (no provider calls on a drained scope).
+- **Two installs coexisting**: journal `_SYSTEMD_UNIT` identity distinguishes supervised from manual runs; the install script pins a ref so `/opt` never tracks a moving branch.
 
-### [NOTE] Install-script network I/O failure modes are not enumerated
+These are concrete handling strategies, not "TBD" or implicit.
 
-The migration plan's step 1 (`deploy/install-production.sh`) performs new I/O (git clone from a remote, `uv sync` package resolution/download) and states the script is "idempotent (safe to re-run) and refuses to proceed if `/opt/manta-trading` exists with local modifications" — but doesn't say what happens on a partial failure mid-run (clone interrupted, `uv sync` fails after clone succeeds, network hang during either). Given it's a PM-supervised, foreground, one-shot script (not a background service), the operational risk is low — a hang just blocks the terminal and can be interrupted — but the design criteria call for explicit handling of new I/O paths rather than relying on "idempotent, re-runnable" as an implicit catch-all. A one-line note on what state a half-completed run leaves behind and that re-running is the prescribed recovery would close this cleanly.
+### [CONCERN] Install script failure recovery is implicit, not per-step enumerated
 
-### [PASS] Contract boundaries with dependency slices are honored, not rewritten
+The `deploy/install-production.sh` script is a new I/O path that performs network operations (`git clone`, `uv sync`) and privileged filesystem changes (account creation, unit file installation, `daemon-reload`). The doc states the script is "idempotent (safe to re-run) and refuses to proceed if `/opt/manta-trading` exists with local modifications," but does not enumerate the failure-recovery behavior for each step:
 
-Pass semantics from 145/146/912 (`--stop-when-done`, gate wait, cheap re-run, resumability), credential separation from 913 (maintenance URL deliberately excluded from the service environment), and 908's checkout-based-production decision (D7) are all consumed as-is and cited by decision number rather than reinterpreted — consistent with the architecture's maintenance-band rule that "a maintenance slice consumes the interfaces its target layer already publishes ... and may depend on them freely. It does not redefine them" (900-arch.foundation-cleanup.md:27).
+- What state is the system in if `git clone` succeeds but `uv sync` fails mid-way? Is a partial `.venv` cleaned up on re-run, or does the idempotency check's "local modifications" guard prevent a clean retry?
+- If unit files are installed but `daemon-reload` hasn't run, does the script detect and re-run that step?
+- If the `manta-trading` account already exists (from a prior partial run), does account creation fail or skip gracefully?
 
-### [PASS] Explicit-failure and no-magic-defaults principles are correctly inherited
+The "enables nothing" design mitigates the blast radius (the system stays inert until the explicit cutover step), but the per-step failure handling strategy is implicit rather than explicitly enumerated. For a production install script that is PM-executed and is the sole deployment artifact, each failure point should state its recovery strategy concretely.
 
-The single-source environment file design ("No `.env` file is placed in `/opt/manta-trading`... so there is exactly one source (fails explicit if a variable is missing, per project rules)") directly implements the architecture's "Explicit failure" principle (900-arch.foundation-cleanup.md:51) and the project's no-silent-fallback rule, and the fixed `DAILY_DAEMON_ID`/`MINUTE_DAEMON_ID` constants (916 doc:124-127) are consistent with the architecture's "No magic strings" principle (900-arch.foundation-cleanup.md:49).
+### [PASS] Scope boundaries respect maintenance-band constraints
+
+The architecture's maintenance-band extension allows 900-999 slices to touch any layer but constrains them to "corrective, not additive" work. This slice fills three explicitly-documented gaps ("Not yet documented" items in the runbook, a "Future target" section) — making real what was already specified as needed but unbuilt. The only code change is correcting `serve.py` help text that references a deprecated slice (155). The slice explicitly excludes: backup cron migration, rclone mount, automatic migrations, `mt update` changes, test/production separation, and CI. The scope is well-bounded and does not smuggle in feature work under the maintenance label.
+
+### [NOTE] No NFRs in parent architecture require restatement
+
+The architecture document does not state any non-functional requirements (latency, throughput, availability targets) that this slice's paths would need to restate. The journald caps (2 GiB / 200 MiB) are operational disk-management choices, not NFRs derived from the architecture. No action required.

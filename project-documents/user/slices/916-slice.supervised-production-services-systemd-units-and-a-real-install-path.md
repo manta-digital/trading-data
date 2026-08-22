@@ -9,6 +9,7 @@ dateCreated: 20260822
 dateUpdated: 20260822
 reviewVerdictsAddressed:
   - 916-review.slice (z-ai/glm-5.2, CONCERNS, F003)
+  - 916-review.slice (z-ai/glm-5.2, PASS) — second pass, after the multi-source folds
 status: not_started
 ---
 
@@ -573,6 +574,15 @@ a real review of this design.)
   is unreachable; an existing service account is verified and skipped, and only
   a *mismatched* account aborts.
 - **F001, F002, F004 (pass), F005 (note).** No action.
+
+Re-reviewed at `919df58` after the three multi-source forward-compatibility
+folds (`TimeoutStopSec`, naming pattern + add-a-source and pause procedures,
+empty `manta-acquisition.slice`) and the arbitration deferral: **PASS**, five
+passes and one note, no concerns. The re-review specifically confirms F003
+closed (per-step install failure recovery), that the deferral reads as
+complexity resisted rather than scope dropped, and that the maintenance band
+still holds — the `/opt` install is new infrastructure but corrective of the
+deficiency the plan entry named. Design is closed for Phase 5.
 
 ## Implementation Notes
 
