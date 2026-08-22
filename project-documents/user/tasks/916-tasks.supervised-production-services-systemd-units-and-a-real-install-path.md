@@ -49,6 +49,13 @@ single reversible `systemctl enable --now`.
   or enable a unit before F, that is a stop-and-ask.
 - **The dev checkout is never modified.** It stays runnable throughout, and is
   the rollback path.
+- **Nothing here takes more than minutes.** The single bounded wait is E.1: a
+  `--stop-when-done` pass that meets a closed cadence gate *sleeps* rather than
+  exiting, for at most 30 minutes (the gate is UTC-midnight + 30 min, and the
+  retry interval is 30 min). There is no "already ran today, come back tomorrow"
+  path — the due-predicate deliberately makes no UTC-day comparison. Check
+  `acquisition_state.last_daily_cycle_end_utc` before E.1 and the wait is
+  usually zero. A wait, if it happens, announces itself every 5 minutes.
 - **No task waits on a wall-clock event.** Timer *firing* is proven by
   `systemctl start` on the same unit the timer activates, plus `list-timers` for
   the schedule. The one reboot (G.4) is a PM-scheduled moment executed
@@ -344,6 +351,10 @@ Effort: 2/5. Every root step is **[PM]**. Nothing is enabled in this group.
 Effort: 1/5.
 
 - [ ] **E.1 [PM] Run one daily pass through its unit**
+  - [ ] First check `acquisition_state.last_daily_cycle_end_utc`. If it is more
+        than 30 minutes ago and the clock is past 00:30 UTC, the pass starts
+        working immediately; otherwise it sleeps out the gate, at most 30
+        minutes, restating the remaining time every 5 minutes
   - [ ] `sudo systemctl start mt-daily-pass.service`, then
         `journalctl -u mt-daily-pass.service -f`
   - [ ] Success: normal pass output; the unit ends `inactive (dead)` with
@@ -352,6 +363,10 @@ Effort: 1/5.
 - [ ] **E.2 [agent] Confirm the supervised pass matches a manual one**
   - [ ] Same log shape as today's by-hand invocation, and the same
         `acquisition_state` effect, now running as `manta-trading` from `/opt`
+  - [ ] **If E.1 exited "no actionable work"**, that is a valid pass but a weak
+        comparison — it never touched the fetch path. Do not wait for one; run
+        E.3 instead and compare there. The minute gate is one minute rather than
+        thirty, so a minute pass almost always has real work
   - [ ] Confirm the journal identifies it by `_SYSTEMD_UNIT`, which is what
         distinguishes supervised runs from manual ones
   - [ ] Success: no behavioral difference beyond user and working directory.
@@ -415,6 +430,9 @@ Effort: 2/5. All **[PM]** for the acting steps; verification is **[agent]**.
 
 - [ ] **G.4 [PM] Reboot survival, with the pause still in force**
   - [ ] PM-scheduled moment, executed immediately — this is not a wait
+  - [ ] Prefer a moment when no pass is mid-flight, but do not wait for one:
+        an interrupted pass resumes where it stopped (slice 912), which is
+        exactly the property the reboot is testing
   - [ ] `sudo reboot`
   - [ ] Success after boot, with **no operator action**: `mt-serve` is active,
         the daily timer is back in `list-timers`, and the paused minute timer is
