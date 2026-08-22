@@ -264,9 +264,13 @@ stop.
    creates and drops per run.
 4. `MT_TIMESCALE_TEST_URL` resolves to hammerhead, and hammerhead's cluster admits
    `192.168.1.144` but not an arbitrary LAN host.
-5. **Five consecutive full integration runs complete with zero**
-   `tuple concurrently updated/deleted` **errors**, against today's rate of one per
-   run.
+5. ~~Five consecutive full integration runs with zero catalog races.~~
+   **Moved to slice 918 (2026-08-22).** Implementation proved this slice can
+   neither cause nor cure that flake: the races reproduce on the dedicated host
+   with no production workload present, because the test suite races its own
+   `DROP DATABASE` teardown. Isolation was never the remedy. What this slice does
+   deliver is criterion 11 — production is provably untouched, and no test
+   database or role is created in its catalog.
 6. The integration tier's pass/fail set matches the recorded baseline apart from
    the removed flake — no test newly fails, and none newly **skips**.
 7. `test_policy_advances_head.py` passes 9/9 on hammerhead, proving the background
