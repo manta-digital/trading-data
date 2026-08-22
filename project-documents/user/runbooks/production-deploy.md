@@ -155,9 +155,14 @@ Normally, nobody runs them — the timers do. To run one out of schedule
 (supervised, correct user, correct environment):
 
 ```bash
-sudo systemctl start mt-daily-pass.service     # or mt-minute-pass.service
-journalctl -u mt-daily-pass.service -f
+sudo systemctl start --no-block mt-daily-pass.service   # or mt-minute-pass.service
+journalctl -u mt-daily-pass.service -f                  # live output, like a manual run
 ```
+
+Without `--no-block`, `systemctl start` on a oneshot blocks silently until the
+pass exits — correct, but a poor experience for a long pass. With it, the pass
+runs detached and `journalctl -f` streams the output; Ctrl-C detaches your
+view without touching the pass (unlike a manual run, where Ctrl-C kills it).
 
 The manual form still works from the dev checkout and is the rollback path:
 
