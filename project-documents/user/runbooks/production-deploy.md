@@ -152,17 +152,21 @@ The dev checkout keeps its own update procedure (`git pull` + `uv sync` on
 ## Running the acquisition passes
 
 Normally, nobody runs them — the timers do. To run one out of schedule
-(supervised, correct user, correct environment):
+(supervised, correct user, correct environment), use the operator front-end
+installed at `/usr/local/bin/mt-run`:
 
 ```bash
-sudo systemctl start --no-block mt-daily-pass.service   # or mt-minute-pass.service
-journalctl -u mt-daily-pass.service -f                  # live output, like a manual run
+sudo mt-run daily          # or: sudo mt-run minute — live output, like a manual run
+mt-run status              # what's running now, latest output, last results, timers
+mt-run follow daily        # re-attach to a running pass's live output
 ```
 
-Without `--no-block`, `systemctl start` on a oneshot blocks silently until the
-pass exits — correct, but a poor experience for a long pass. With it, the pass
-runs detached and `journalctl -f` streams the output; Ctrl-C detaches your
-view without touching the pass (unlike a manual run, where Ctrl-C kills it).
+`sudo mt-run daily` streams the pass output to your terminal and exits with
+the pass's real exit code — the pre-systemd experience, with one improvement:
+**Ctrl-C detaches your view and the pass keeps running** (a manual run dies
+with the terminal). Under the hood it is `systemctl start --no-block` plus a
+journal follow; a bare `systemctl start` on a oneshot blocks silently until
+the pass exits, which is why the wrapper exists.
 
 The manual form still works from the dev checkout and is the rollback path:
 

@@ -173,6 +173,11 @@ mkdir -p "${JOURNALD_DROPIN_DIR}"
 install -m 0644 -o root -g root "${UNIT_SRC_DIR}/journald-manta-trading.conf" \
   "${JOURNALD_DROPIN_DIR}/manta-trading.conf"
 echo "installed ${JOURNALD_DROPIN_DIR}/manta-trading.conf"
+# Operator front-end: one command to start a pass with live output, or check
+# on a running one (mt-run status / mt-run follow). Copied unconditionally,
+# same reasoning as the units.
+install -m 0755 -o root -g root "${INSTALL_DIR}/deploy/mt-run" /usr/local/bin/mt-run
+echo "installed /usr/local/bin/mt-run"
 
 # --- Step 6: reload ---------------------------------------------------------
 step "Step 6/6: systemctl daemon-reload"
@@ -193,6 +198,6 @@ systemctl list-unit-files 'mt-*' 'manta-acquisition.*' || true
 echo
 echo "Next steps:"
 echo "  1. Fill the environment file:  sudoedit ${ENV_FILE}"
-echo "  2. Run one pass by hand:       sudo systemctl start mt-daily-pass.service"
+echo "  2. Run one pass by hand:       sudo mt-run daily   (live output; Ctrl-C detaches)"
 echo
 echo "Cutover (later, explicit): sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service"

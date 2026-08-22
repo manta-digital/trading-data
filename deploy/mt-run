@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# mt-run — operator front-end for the acquisition pass units.
+#
+#   sudo mt-run daily        start a daily pass, stream its output live
+#   sudo mt-run minute       start a minute pass, stream its output live
+#   mt-run status            state + last result + recent output of both passes
+#   mt-run follow daily      attach to a running pass's live output
+#
+# Starting streams output exactly like the old manual invocation, with one
+# improvement: Ctrl-C DETACHES your terminal and the pass keeps running
+# (re-attach any time with `mt-run follow daily`). The command exits with
+# the pass's real exit code when it completes.
+#
+# The timers run the same units automated; mt-run is for out-of-schedule
+# runs and for checking on whatever is currently happening.
+set -euo pipefail
+
+usage() {
+  sed -n '2,8p' "$0" | sed 's/^# \{0,3\}//'
+  exit 2
+}
+
+unit_for() {
+  case "$1" in
+    daily)  echo "mt-daily-pass.service" ;;
+    minute) echo "mt-minute-pass.service" ;;
+    *) usage ;;
+  esac
+}
+
+is_running() {
+  local st
+  st="$(systemctl is-active "$1" || true)"
+  [[ "${st}" == "active" || "${st}" == "activating" ]]
+}
+
+show_status() {
+  local unit kind st
+  for kind in daily minute; do
+    unit="$(unit_for "${kind}")"
+    st="$(systemctl is-active "${unit}" || true)"
+    if is_running "${unit}"; then
+      echo "== ${kind}: RUNNING (since $(systemctl show "${unit}" -p ExecMainStartTimestamp --value)) — latest output:"
+      journalctl -u "${unit}" -n 5 --no-hostname --no-pager 2>/dev/null \
+        || echo "   (journal not readable as this user — try sudo mt-run status)"
+      echo "   attach live: mt-run follow ${kind}"
+    else
+      local ended
+      ended="$(systemctl show "${unit}" -p ExecMainExitTimestamp --value)"
+      if [[ -n "${ended}" ]]; then
+        echo "== ${kind}: not running (state=${st}); last run: $(systemctl show "${unit}" -p Result --value), exit=$(systemctl show "${unit}" -p ExecMainStatus --value), ended ${ended}"
+      else
+        echo "== ${kind}: not running (state=${st}); no run recorded this boot"
+      fi
+    fi
+  done
+  echo "== timers:"
+  systemctl list-timers 'mt-*' --no-pager | sed 's/^/   /'
+}
+
+follow() {
+  local unit
+  unit="$(unit_for "$1")"
+  is_running "${unit}" || echo "(no ${1} pass is currently running — showing/waiting on the journal anyway; Ctrl-C exits)"
+  # Plain attach: Ctrl-C here only stops the viewer, never the pass.
+  exec journalctl -u "${unit}" -f --no-hostname
+}
+
+start_and_stream() {
+  local kind="$1" unit
+  unit="$(unit_for "${kind}")"
+
+  [[ "$(id -u)" -eq 0 ]] || { echo "ERROR: starting needs root: sudo mt-run ${kind}" >&2; exit 1; }
+
+  if is_running "${unit}"; then
+    echo "A ${kind} pass is already running — attaching to it instead." >&2
+    exec journalctl -u "${unit}" -f --no-hostname
+  fi
+
+  # Begin the journal follow BEFORE starting the unit so no lines are missed.
+  journalctl -u "${unit}" -f -n 0 --no-hostname &
+  local jctl=$!
+
+  # shellcheck disable=SC2329  # invoked indirectly via the INT trap below
+  detach() {
+    kill "${jctl}" 2>/dev/null || true
+    echo
+    echo "Detached — the pass is still running. Check on it with:"
+    echo "  mt-run status        # or: mt-run follow ${kind}"
+    exit 130
+  }
+  trap detach INT
+
+  systemctl start --no-block "${unit}"
+
+  while is_running "${unit}"; do sleep 2; done
+  trap - INT
+  kill "${jctl}" 2>/dev/null || true
+  wait "${jctl}" 2>/dev/null || true
+
+  local result code
+  result="$(systemctl show "${unit}" -p Result --value)"
+  code="$(systemctl show "${unit}" -p ExecMainStatus --value)"
+  echo
+  if [[ "${result}" == "success" ]]; then
+    echo "Pass complete: ${unit} exited 0 (success)."
+  else
+    echo "Pass FAILED: ${unit} result=${result} exit=${code}. Full log: mt-run follow ${kind} (or journalctl -u ${unit} -e)" >&2
+  fi
+  exit "${code:-1}"
+}
+
+[[ $# -ge 1 ]] || usage
+case "$1" in
+  daily|minute)  start_and_stream "$1" ;;
+  status)        show_status ;;
+  follow)        [[ $# -eq 2 ]] || usage; follow "$2" ;;
+  -h|--help)     usage ;;
+  *)             usage ;;
+esac
