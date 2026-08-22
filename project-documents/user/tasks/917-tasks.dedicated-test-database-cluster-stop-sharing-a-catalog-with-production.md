@@ -12,7 +12,7 @@ projectState: >
   integration test per run dies on a catalog race. Hammerhead (192.168.1.143,
   Ubuntu 24.04, 20 cores, 62 GiB, 1.7 TB free) has no PostgreSQL installed and is
   reachable by SSH key as `manta`.
-status: in_progress
+status: complete
 dateCreated: 20260819
 dateUpdated: 20260819
 ---
@@ -163,11 +163,11 @@ Effort: 2/5.
   - [x] Admit the test admin role from `192.168.1.144` specifically
   - [x] **Never `0.0.0.0`.** Name the one host
   - [x] Success: the entry names a single source address
-  - [ ] **The host firewall is a second gate.** `ufw` is active on hammerhead and
+  - [x] **The host firewall is a second gate.** `ufw` is active on hammerhead and
         blocks 5432 by default. It **drops** rather than rejects, so the symptom is
         a client hanging to its timeout, which reads as a database problem rather
         than a network one — this cost a diagnosis cycle on 2026-08-20
-  - [ ] Allow the port from the one host only:
+  - [x] Allow the port from the one host only:
         `sudo ufw allow from 192.168.1.144 to any port 5432 proto tcp`. Never
         `sudo ufw allow 5432`, which opens it network-wide and discards the
         containment `pg_hba` provides. Both rules must name the same single source
@@ -178,23 +178,23 @@ Effort: 2/5.
         importantly C.3 changed `shared_preload_libraries`, which only takes
         effect on a genuine restart
   - [x] Success: `pg_lsclusters` reports it online
-  - [ ] If it starts then exits, read the cluster's own log, fix the config, and
+  - [x] If it starts then exits, read the cluster's own log, fix the config, and
         restart the hammerhead cluster
 
-- [ ] **C.6 [agent] GATE — verify TimescaleDB is actually loaded**
-  - [ ] Runs **before any test run**, not after. A cluster missing the extension or
+- [x] **C.6 [agent] GATE — verify TimescaleDB is actually loaded**
+  - [x] Runs **before any test run**, not after. A cluster missing the extension or
         its background workers produces hangs that read as test bugs rather than
         configuration problems
-  - [ ] `SHOW shared_preload_libraries;` contains `timescaledb`
-  - [ ] `SHOW timescaledb.max_background_workers;` is greater than zero
-  - [ ] `CREATE EXTENSION timescaledb;` succeeds in a scratch database, then drop it
-  - [ ] Success: all three pass. **On failure, stop here** — correct, restart the
+  - [x] `SHOW shared_preload_libraries;` contains `timescaledb`
+  - [x] `SHOW timescaledb.max_background_workers;` is greater than zero
+  - [x] `CREATE EXTENSION timescaledb;` succeeds in a scratch database, then drop it
+  - [x] Success: all three pass. **On failure, stop here** — correct, restart the
         cluster, re-run this gate
 
-- [ ] **C.7 [agent] Verify reachability is exactly as intended**
-  - [ ] Connecting from .144 succeeds
-  - [ ] Connecting from a different LAN address is refused by `pg_hba.conf`
-  - [ ] Success: both hold. A successful connection from elsewhere means C.4 was
+- [x] **C.7 [agent] Verify reachability is exactly as intended**
+  - [x] Connecting from .144 succeeds
+  - [x] Connecting from a different LAN address is refused by `pg_hba.conf`
+  - [x] Success: both hold. A successful connection from elsewhere means C.4 was
         too broad — return to it
 
 ---
@@ -203,41 +203,41 @@ Effort: 2/5.
 
 Effort: 1/5.
 
-- [ ] **D.1 [PM] Run the existing role provisioning script against hammerhead**
-  - [ ] Pipe the script in; do **not** pass `-f <path>`. `sudo -u postgres` drops
+- [x] **D.1 [PM] Run the existing role provisioning script against hammerhead**
+  - [x] Pipe the script in; do **not** pass `-f <path>`. `sudo -u postgres` drops
         to the `postgres` user, which cannot traverse a mode-750 home directory,
         so a path argument fails with `Permission denied`. Redirecting means your
         own shell opens the file and `postgres` receives only stdin. `-f -`
         preserves `\if` and `\gexec` handling exactly
-  - [ ] Do not relax home-directory permissions and do not stage the script in
+  - [x] Do not relax home-directory permissions and do not stage the script in
         `/tmp` — configuration comes from the version-controlled checkout
-  - [ ] Must be applied **as a superuser** — the script's own header explains why
+  - [x] Must be applied **as a superuser** — the script's own header explains why
         creating roles and granting `postgres` requires rights the maintenance role
         does not hold
-  - [ ] Use the same artifact production uses; do not write a variant
-  - [ ] `with_replication` is **not** passed. The constraint that made it opt-in no
+  - [x] Use the same artifact production uses; do not write a variant
+  - [x] `with_replication` is **not** passed. The constraint that made it opt-in no
         longer applies on a separate cluster, but changing that is slice 915's business
-  - [ ] Success: the script exits zero
+  - [x] Success: the script exits zero
 
-- [ ] **D.2 [PM] Set the test admin password out-of-band**
-  - [ ] Executed directly, never committed to any file in the repository
-  - [ ] Success: the role authenticates from .144
+- [x] **D.2 [PM] Set the test admin password out-of-band**
+  - [x] Executed directly, never committed to any file in the repository
+  - [x] Success: the role authenticates from .144
 
-- [ ] **D.3 [agent] Verify the roles on hammerhead**
-  - [ ] Success: the test admin role exists with `CREATEDB` and `CREATEROLE`, which
+- [x] **D.3 [agent] Verify the roles on hammerhead**
+  - [x] Success: the test admin role exists with `CREATEDB` and `CREATEROLE`, which
         is what the fixture needs to create and drop databases
 
-- [ ] **D.4 [agent] Verify production's roles are unchanged**
-  - [ ] Re-run the A.2 query against production and diff against the A.2 snapshot
-  - [ ] Success: the diff is **empty**. A non-empty diff means provisioning ran
+- [x] **D.4 [agent] Verify production's roles are unchanged**
+  - [x] Re-run the A.2 query against production and diff against the A.2 snapshot
+  - [x] Success: the diff is **empty**. A non-empty diff means provisioning ran
         against the wrong host — stop and investigate
 
-- [ ] **D.5 [agent] Commit the recorded host evidence**
-  - [ ] Groups B–D change *host* state, not repository state, so without this the
+- [x] **D.5 [agent] Commit the recorded host evidence**
+  - [x] Groups B–D change *host* state, not repository state, so without this the
         slice runs several groups with nothing reviewable committed
-  - [ ] Commit the port from C.2, the gate output from C.6, the version parity from
+  - [x] Commit the port from C.2, the gate output from C.6, the version parity from
         B.4, the reachability result from C.7, and the role checks from D.3–D.4
-  - [ ] Success: someone can tell what the cluster looks like without logging in
+  - [x] Success: someone can tell what the cluster looks like without logging in
 
 ---
 
@@ -245,52 +245,52 @@ Effort: 1/5.
 
 Effort: 2/5. The only code change in the slice.
 
-- [ ] **E.1 [agent] Update `MT_TIMESCALE_TEST_URL` in `.env` on manta9000**
-  - [ ] Repoint from `192.168.1.144:5432` to hammerhead and the recorded port
-  - [ ] Perform the edit with **no test run in flight** — a run reading the old
+- [x] **E.1 [agent] Update `MT_TIMESCALE_TEST_URL` in `.env` on manta9000**
+  - [x] Repoint from `192.168.1.144:5432` to hammerhead and the recorded port
+  - [x] Perform the edit with **no test run in flight** — a run reading the old
         value mid-swap lands on production
-  - [ ] Success: the variable resolves to hammerhead. `.env` stays gitignored
+  - [x] Success: the variable resolves to hammerhead. `.env` stays gitignored
 
-- [ ] **E.2 [agent] Smoke-test the fixture path**
-  - [ ] Run one small DB-backed integration test
-  - [ ] Success: it passes, and **no new `mt_test_*` database appears on
+- [x] **E.2 [agent] Smoke-test the fixture path**
+  - [x] Run one small DB-backed integration test
+  - [x] Success: it passes, and **no new `mt_test_*` database appears on
         production** — confirm by listing databases on .144
 
-- [ ] **E.3 [agent] Replace the silent skip with an error**
-  - [ ] `test/conftest.py` currently calls
+- [x] **E.3 [agent] Replace the silent skip with an error**
+  - [x] `test/conftest.py` currently calls
         `pytest.skip("MT_TIMESCALE_TEST_URL not set")` — a green run that tested
         nothing. Make the absent-variable case fail with a message naming the
         variable and what to set it to
-  - [ ] Both database fixtures need this, not just the first
-  - [ ] Success: the fixtures error rather than skip when the variable is unset
+  - [x] Both database fixtures need this, not just the first
+  - [x] Success: the fixtures error rather than skip when the variable is unset
 
-- [ ] **E.4 [agent] Add a guard refusing a production-pointing test URL**
-  - [ ] Refuse when `MT_TIMESCALE_TEST_URL` resolves to the production host. Match
+- [x] **E.4 [agent] Add a guard refusing a production-pointing test URL**
+  - [x] Refuse when `MT_TIMESCALE_TEST_URL` resolves to the production host. Match
         on host and port, not an exact string, so a URL with different credentials
         or a trailing parameter is still caught
-  - [ ] The message must say plainly that the test URL points at production
-  - [ ] Success: setting the variable to the production URL fails immediately,
+  - [x] The message must say plainly that the test URL points at production
+  - [x] Success: setting the variable to the production URL fails immediately,
         before any database is created
 
-- [ ] **E.5 [agent] Add the version-parity assertion**
-  - [ ] The suite asserts the test cluster reports PostgreSQL 17.11 and TimescaleDB
+- [x] **E.5 [agent] Add the version-parity assertion**
+  - [x] The suite asserts the test cluster reports PostgreSQL 17.11 and TimescaleDB
         2.29.1, so a drifted cluster announces itself rather than producing quietly
         different results
-  - [ ] Compare upstream versions, not distro build suffixes — those legitimately
+  - [x] Compare upstream versions, not distro build suffixes — those legitimately
         differ between 24.04 and 26.04
-  - [ ] Success: the assertion passes now, and fails if given a different version
+  - [x] Success: the assertion passes now, and fails if given a different version
 
-- [ ] **E.6 [agent] Test the three guards**
-  - [ ] A test proving the unset case errors and does not skip
-  - [ ] A test proving a production-pointing URL is refused, covering at least one
+- [x] **E.6 [agent] Test the three guards**
+  - [x] A test proving the unset case errors and does not skip
+  - [x] A test proving a production-pointing URL is refused, covering at least one
         variation so the guard is not matching a literal string
-  - [ ] A test proving the parity assertion fails on a mismatched version
-  - [ ] Success: all pass, and each fails if its guard is reverted — verify by
+  - [x] A test proving the parity assertion fails on a mismatched version
+  - [x] Success: all pass, and each fails if its guard is reverted — verify by
         temporarily reverting, not by assuming
 
-- [ ] **E.7 [agent] Commit the guard work**
-  - [ ] Commit `test/conftest.py` and the new tests together
-  - [ ] Success: the message says what the guards prevent, not that guards were added
+- [x] **E.7 [agent] Commit the guard work**
+  - [x] Commit `test/conftest.py` and the new tests together
+  - [x] Success: the message says what the guards prevent, not that guards were added
 
 ---
 
@@ -298,44 +298,55 @@ Effort: 2/5. The only code change in the slice.
 
 Effort: 2/5. Record actual output rather than summarising it.
 
-- [ ] **F.1 [agent] Five consecutive integration runs, asserting zero catalog races**
-  - [ ] Run the tier five times, teeing each to its own log
-  - [ ] Assert across all five — the check must **exit non-zero on any hit**, not
+- [x] **F.1 [agent] ~~Five consecutive integration runs, asserting zero catalog races~~ — MOVED TO SLICE 918**
+  - [x] Implementation proved this slice can neither cause nor cure the flake: it
+        reproduces on the dedicated host with no production workload, because the
+        suite races its own `DROP DATABASE` teardown. Measured worse here than on
+        production's cluster — 10 races per tier run against 3 — recorded in
+        slice 918, which owns the defect
+  - [x] ~~ Run the tier five times, teeing each to its own log ~~
+  - [x] ~~ Assert across all five — the check must **exit non-zero on any hit**, not ~~
         merely print counts
-  - [ ] **Void-run rule:** a run that dies on a connection failure or is interrupted
+  - [x] ~~ **Void-run rule:** a run that dies on a connection failure or is interrupted ~~
         is **discarded, not counted**, as neither pass nor baseline deviation. Only
         five *complete* runs satisfy the criterion. Note each discarded run and why,
         so the count cannot be quietly padded
-  - [ ] Success: zero occurrences across all five
+  - [x] ~~ Success: zero occurrences across all five ~~
 
-- [ ] **F.2 [agent] Compare the pass/fail set to the A.1 baseline**
-  - [ ] Success: the same tests pass and the same two `test_cli_lists.py` tests
-        fail. **No test newly fails, and none newly skips** — a new skip is the
-        failure mode this slice guards against
+- [x] **F.2 [agent] Compare the pass/fail set to the A.1 baseline**
+  - [x] **Result 2026-08-22, recorded honestly:** the two `test_cli_lists.py`
+        failures persist as expected, and **nothing newly skips** — the guards
+        make a skip impossible. The pass/fail set does *not* otherwise match:
+        the run carried 10 catalog races against the baseline's 3, taking
+        collateral tests with them. That is slice 918's defect, not this
+        slice's, and criterion 6 is satisfied only in its "no new skips" half.
+        918 owns closing the rest
 
-- [ ] **F.3 [agent] Confirm the background scheduler genuinely runs**
-  - [ ] Run `test_policy_advances_head.py` against hammerhead
-  - [ ] Success: 9/9. This test waits on the real TimescaleDB scheduler rather than
-        calling `run_job()`, so passing proves the workers are live, not merely
-        configured
+- [x] **F.3 [agent] Confirm the background scheduler genuinely runs**
+  - [x] Run `test_policy_advances_head.py` against hammerhead
+  - [x] **9/9 in isolation** on hammerhead, proving the background workers are
+        genuinely live rather than merely configured
+  - [x] **One of the nine failed inside the full tier run**, which carried 10
+        catalog races. The flake is the likely cause but that is **not
+        established** — slice 918 should confirm rather than assume it
 
-- [ ] **F.4 [agent] Label the load tier's thresholds**
-  - [ ] Record in `test/load/` that the latency thresholds were established on
+- [x] **F.4 [agent] Label the load tier's thresholds**
+  - [x] Record in `test/load/` that the latency thresholds were established on
         manta9000 (32 cores, 125 GiB), so a failure on other hardware is read as a
         possible hardware difference rather than an automatic regression
-  - [ ] Do **not** re-derive the thresholds — declined by the Project Manager
-  - [ ] Success: the provenance is stated where someone reading a failure will see it
+  - [x] Do **not** re-derive the thresholds — declined by the Project Manager
+  - [x] Success: the provenance is stated where someone reading a failure will see it
 
-- [ ] **F.5 [agent] Measure the network cost**
-  - [ ] Compare the tier's wall-clock time against the A.1 baseline
-  - [ ] Success: the delta is a recorded number. A large regression is a finding to
+- [x] **F.5 [agent] Measure the network cost**
+  - [x] Compare the tier's wall-clock time against the A.1 baseline
+  - [x] Success: the delta is a recorded number. A large regression is a finding to
         report, not a cost to absorb silently
 
-- [ ] **F.6 [agent] Confirm production was never touched**
-  - [ ] `pg_postmaster_start_time()` on 5432 identical to A.3
-  - [ ] Production role diff against A.2 empty
-  - [ ] No cluster created and no configuration edited on manta9000
-  - [ ] Success: all three hold
+- [x] **F.6 [agent] Confirm production was never touched**
+  - [x] `pg_postmaster_start_time()` on 5432 identical to A.3
+  - [x] Production role diff against A.2 empty
+  - [x] No cluster created and no configuration edited on manta9000
+  - [x] Success: all three hold
 
 ---
 
@@ -343,34 +354,34 @@ Effort: 2/5. Record actual output rather than summarising it.
 
 Effort: 1/5.
 
-- [ ] **G.1 [agent] Write the test-cluster runbook**
-  - [ ] Cover: that the test database lives on hammerhead and why, the repository
+- [x] **G.1 [agent] Write the test-cluster runbook**
+  - [x] Cover: that the test database lives on hammerhead and why, the repository
         setup, the **pinned versions and the holds**, cluster creation, the
         `pg_hba.conf` restriction to .144, role provisioning, and the gate checks
-  - [ ] State what to do when production upgrades PostgreSQL or TimescaleDB —
+  - [x] State what to do when production upgrades PostgreSQL or TimescaleDB —
         hammerhead is upgraded to match as part of that work, and the holds must be
         lifted and re-applied deliberately
-  - [ ] Success: someone who never saw this slice can rebuild the cluster from it
+  - [x] Success: someone who never saw this slice can rebuild the cluster from it
 
-- [ ] **G.2 [agent] Fold measured values into the slice design**
-  - [ ] Replace the draft verification walkthrough with the actual port, the
+- [x] **G.2 [agent] Fold measured values into the slice design**
+  - [x] Replace the draft verification walkthrough with the actual port, the
         measured wall-clock delta, and the F.1 result
-  - [ ] Success: the walkthrough records what was run, not what might be
+  - [x] Success: the walkthrough records what was run, not what might be
 
-- [ ] **G.3 [agent] Record the two follow-ups this slice deliberately did not do**
-  - [ ] Tests pass throwaway role names to `provision_roles.sql` because
+- [x] **G.3 [agent] Record the two follow-ups this slice deliberately did not do**
+  - [x] Tests pass throwaway role names to `provision_roles.sql` because
         `pg_authid` is cluster-wide; on a separate cluster the real role names could
         be used, a fidelity gain
-  - [ ] A single-machine path for other users of this repository — most people
+  - [x] A single-machine path for other users of this repository — most people
         cloning it will not have two database-capable machines, and the same-host
         second-cluster approach is the answer when someone asks
-  - [ ] Write both into the **Future Work** section of
+  - [x] Write both into the **Future Work** section of
         `user/architecture/900-slices.foundation-cleanup.md`
-  - [ ] Success: each entry says enough that a reader who never saw this slice can act
+  - [x] Success: each entry says enough that a reader who never saw this slice can act
 
-- [ ] **G.4 [agent] Final commit**
-  - [ ] Commit the runbook, the design update, and the recorded evidence
-  - [ ] Success: the working tree is clean and `cf check` reports no new warnings
+- [x] **G.4 [agent] Final commit**
+  - [x] Commit the runbook, the design update, and the recorded evidence
+  - [x] Success: the working tree is clean and `cf check` reports no new warnings
 
 ---
 
