@@ -7,6 +7,8 @@ dependencies: [128, 908]
 interfaces: []
 dateCreated: 20260822
 dateUpdated: 20260822
+reviewVerdictsAddressed:
+  - 916-review.slice (z-ai/glm-5.2, CONCERNS, F003)
 status: not_started
 ---
 
@@ -259,6 +261,56 @@ production; the dev checkout keeps its own): PM-executed
 units pick the new code up at their next firing. Migrations, when a release
 has one, stay a separate operator step with the maintenance credential.
 
+### Install script failure recovery
+
+`install-production.sh` is the slice's only substantial new I/O path, it runs as
+root on the production host, and it does network work (`git clone`, `uv sync`)
+that can fail part-way. It runs under `set -euo pipefail` and exits non-zero at
+the first failed step, naming the step. **Recovery is always the same — fix the
+cause, re-run the whole script** — which is only true because every step is
+check-then-act and because no step enables anything: a failed run leaves the
+host inert (nothing started, nothing scheduled) and the dev checkout untouched.
+
+What each step checks, and what a failure leaves behind:
+
+1. **Service account** — `getent passwd manta-trading`; create only if absent
+   (system account, nologin shell, home `/opt/manta-trading`). If it exists,
+   verify shell and home match and continue; if it exists with a different
+   shape, **abort** rather than adopt it — a colliding or hand-made account is
+   a decision for the PM, not a silent fixup. A re-run after any later failure
+   takes the "exists and matches" path.
+2. **Checkout** — if `/opt/manta-trading/.git` is absent, remove any leftover
+   directory (a died-mid-way `git clone` leaves either nothing or a partial
+   tree with no usable `.git`) and clone at the ref passed as an argument. If
+   `.git` is present: `git status --porcelain` must be empty and `origin` must
+   match, else **abort untouched**. That guard is about *local modifications*
+   only — a clean checkout sitting at some other ref is fetched and checked out
+   to the requested ref, so it never blocks a retry.
+3. **Venv** — `uv sync --frozen` as the service account. `uv sync` is itself
+   idempotent and resumable, so a partial `.venv` from a dropped connection is
+   reconciled by the next run; the script does **not** delete `.venv` on
+   failure. It then verifies `/opt/manta-trading/.venv/bin/mt --version`, since
+   every `ExecStart` depends on that exact path, and stops hard if that fails.
+   A genuinely corrupt venv is escalated in the runbook as `rm -rf
+   /opt/manta-trading/.venv` + re-run — deliberately a human step, not an
+   automatic wipe.
+4. **Env file** — installs `/etc/manta-trading.env` from the example *only if
+   the file does not exist*; an existing file is never overwritten or merged,
+   so the PM's filled-in credentials survive every re-run. Ownership and mode
+   (0640 root:manta-trading) are re-asserted on every run.
+5. **Unit files + journald drop-in** — copied unconditionally; the repo is the
+   source of truth and these files carry no host-local state, so overwriting is
+   correct. A failure mid-copy leaves some units present but unreferenced —
+   inert, because nothing is enabled — and the re-run completes the set.
+6. **`systemctl daemon-reload`** — runs unconditionally at the end of every
+   run, including runs where step 5 changed nothing. There is therefore no
+   reachable state where unit files are installed but the reload was skipped:
+   either the script reached this step, or it died earlier and the re-run
+   performs it. Reload runs last so a half-copied unit set is never loaded.
+
+On success the script prints the next two steps (fill the env file, then run one
+pass by hand) and restates that nothing has been enabled.
+
 ### Code changes
 
 Minimal, by design (this slice is deployment + documentation):
@@ -323,6 +375,9 @@ changed them:
 9. Rollback demonstrated once: disable the three units, run a manual pass from
    the dev checkout, re-enable.
 10. `serve.py --help` no longer references slice 155.
+11. `install-production.sh` re-runs cleanly on an already-installed host:
+    exit 0, no account recreated, `/etc/manta-trading.env` unchanged
+    (checksum before/after), nothing enabled that was not already enabled.
 
 ### Verification Walkthrough
 
@@ -331,8 +386,9 @@ Draft demo script — refined at end of Phase 6. PM executes all `sudo` steps.
 ```bash
 # 1. Install (inert — enables nothing)
 sudo deploy/install-production.sh --ref <tag-or-sha>
-sudo install -o root -g manta-trading -m 0640 /dev/null /etc/manta-trading.env
-sudoedit /etc/manta-trading.env          # fill MT_TIMESCALE_DB_URL, MT_EODHD_API_KEY
+sudo deploy/install-production.sh --ref <tag-or-sha>   # idempotence: exit 0, no churn
+sudoedit /etc/manta-trading.env          # skeleton installed by the script above;
+                                         # fill MT_TIMESCALE_DB_URL, MT_EODHD_API_KEY
 
 # 2. One supervised pass, no cutover yet
 sudo systemctl start mt-daily-pass.service
@@ -380,6 +436,26 @@ wall-clock event, per standing PM rule.
   A oneshot failure does not page anyone; it shows as `failed` in `systemctl`
   and is retried at the next firing. Accepted for this slice — alerting is
   future work and is *not* smuggled in here.
+
+## Design review disposition (20260822)
+
+Review: `user/reviews/916-review.slice.supervised-production-services-systemd-units-and-a-real-install-path.md`,
+z-ai/glm-5.2, verdict CONCERNS (one concern, three passes, one note), against
+`24ce883`. (A prior file at that path held a bogus UNKNOWN verdict from an
+unregistered model alias and is archived under `reviews/archive/`; it was never
+a real review of this design.)
+
+- **F003 (concern) — install-script failure recovery implicit, not per-step.**
+  Valid. The design claimed idempotency and a local-modifications guard without
+  saying what any individual step does when it fails. Answered by the new
+  **Install script failure recovery** subsection, which takes the finding's
+  three questions directly: a failed `uv sync` leaves `.venv` in place and is
+  reconciled by re-running — the local-modifications guard covers the checkout,
+  not the venv, so it cannot block a clean retry; `daemon-reload` runs
+  unconditionally at the end of every run, so "files installed, reload skipped"
+  is unreachable; an existing service account is verified and skipped, and only
+  a *mismatched* account aborts.
+- **F001, F002, F004 (pass), F005 (note).** No action.
 
 ## Implementation Notes
 
