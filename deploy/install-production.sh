@@ -19,6 +19,10 @@ ENV_FILE="/etc/manta-trading.env"
 UNIT_DIR="/etc/systemd/system"
 JOURNALD_DROPIN_DIR="/etc/systemd/journald.conf.d"
 UV_CACHE_DIR="/var/cache/manta-trading/uv"
+# uv's managed-python dir follows HOME (~/.local/share/uv/python), which would
+# land INSIDE the checkout and trip the dirty-tree guard on the next run —
+# keep all uv state out of the working tree.
+UV_PYTHON_INSTALL_DIR="/var/cache/manta-trading/python"
 NOLOGIN_SHELL="/usr/sbin/nologin"
 # Unit files installed from the pinned checkout (not the checkout this script
 # runs from) so what lands in /etc matches the ref that was chosen.
@@ -50,7 +54,7 @@ step() { echo; echo "==> $*"; }
 
 # Run a command as the service account with a sane environment.
 as_service_user() {
-  runuser -u "${SERVICE_USER}" -- env HOME="${INSTALL_DIR}" UV_CACHE_DIR="${UV_CACHE_DIR}" "$@"
+  runuser -u "${SERVICE_USER}" -- env HOME="${INSTALL_DIR}" UV_CACHE_DIR="${UV_CACHE_DIR}" UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR}" "$@"
 }
 
 # --- Argument handling: --ref is required, no default -----------------------
@@ -91,7 +95,7 @@ else
 fi
 
 # uv cache lives outside the checkout so it never dirties the working tree.
-mkdir -p "${UV_CACHE_DIR}"
+mkdir -p "${UV_CACHE_DIR}" "${UV_PYTHON_INSTALL_DIR}"
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "$(dirname "${UV_CACHE_DIR}")"
 
 # --- Step 2: checkout at the pinned ref -------------------------------------

@@ -121,7 +121,7 @@ PM-executed. Move the pinned checkout, resync, restart the long-running unit:
 ```bash
 sudo -u manta-trading git -C /opt/manta-trading fetch --tags origin
 sudo -u manta-trading git -C /opt/manta-trading checkout --detach <ref>
-cd /opt/manta-trading && sudo -u manta-trading env HOME=/opt/manta-trading UV_CACHE_DIR=/var/cache/manta-trading/uv uv sync --frozen
+cd /opt/manta-trading && sudo -u manta-trading env HOME=/opt/manta-trading UV_CACHE_DIR=/var/cache/manta-trading/uv UV_PYTHON_INSTALL_DIR=/var/cache/manta-trading/python uv sync --frozen
 sudo systemctl restart mt-serve.service
 ```
 
