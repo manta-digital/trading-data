@@ -313,7 +313,7 @@ Effort: 2/5. Every root step is **[PM]**. Nothing is enabled in this group.
 - [x] **D.1 [agent] Choose and record the ref to pin**
   - [x] A tag or commit SHA that contains Groups A–C. Record the exact value;
         every later step uses it
-  - Recorded ref: `bf0eb0ccfa8e0f559fd3d69fa6f49b36013c5608` (branch 916-slice..., contains Groups A–C: f746575 units, 7396ad6 install script, bf0eb0c docs). NOTE: must be pushed to origin before D.2 — the install script clones from GitHub.
+  - Recorded ref: `942b5422dd9d5eb8c77439bdc72f6fee06a5e772` (pushed to origin; contains Groups A–C plus the UV_PYTHON_INSTALL_DIR fix found in the first host install attempt — the earlier bf0eb0c pin predated that fix).
   - [x] Success: the ref is recorded here, and `git log` confirms it contains
         the unit files and the install script
 
