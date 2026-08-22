@@ -37,6 +37,9 @@ def pytest_configure(config: pytest.Config) -> None:
     need real production data; that opt-in is deliberately not something any
     fixture or ``.env`` sets for you.
     """
+    global _PRODUCTION_ENDPOINT
+    _PRODUCTION_ENDPOINT = endpoint_of(os.environ.get(_PROD_URL_VAR, ""))
+
     if os.environ.get(_PROD_OPT_IN_VAR) == "1":
         return
 
@@ -56,6 +59,68 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
             "read-only production access."
         ]
     return []
+
+
+_PRODUCTION_ENDPOINT: str | None = None
+"""Production's ``host:port``, captured in ``pytest_configure`` before the
+production URL is scrubbed from the environment.
+
+Only the endpoint is kept — never the credentials — and it exists solely so
+:func:`points_at_production` can refuse a test run aimed at production. Capturing
+it here avoids hard-coding a host address in the test suite, which would go stale
+the first time production moved.
+"""
+
+
+def endpoint_of(url: str) -> str | None:
+    """Return ``host:port`` for ``url``, or ``None`` if it names no host."""
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        return None
+    return f"{parsed.hostname}:{parsed.port or 5432}"
+
+
+def points_at_production(test_url: str, production_endpoint: str | None) -> bool:
+    """Whether ``test_url`` resolves to the same server as production.
+
+    Compares the semantic endpoint rather than the string, so a URL carrying
+    different credentials, a different database name, or a trailing parameter is
+    still caught.
+
+    Returns ``False`` when production's endpoint is unknown — the suite cannot
+    compare against something it was never told. That is a real limit of this
+    guard, not an oversight: it protects a misconfigured ``.env`` on a machine
+    that also has production configured, which is the case that has actually
+    occurred.
+    """
+    if not production_endpoint:
+        return False
+    return endpoint_of(test_url) == production_endpoint
+
+
+def require_usable_test_endpoint() -> None:
+    """Fail — never skip — when the test database is missing or is production.
+
+    ``pytest.skip`` here would produce a green run that tested nothing, which is
+    the outcome this project rejects outright. A missing test database is a
+    configuration error, and it should read like one.
+    """
+    if not TEST_ADMIN_URL:
+        pytest.fail(
+            "MT_TIMESCALE_TEST_URL is not set, so no throwaway database can be "
+            "created. Set it to the dedicated test cluster — see "
+            "project-documents/user/runbooks/test-database-cluster.md. This is "
+            "a failure rather than a skip on purpose: a skipped database tier "
+            "is indistinguishable from a passing one."
+        )
+    if points_at_production(TEST_ADMIN_URL, _PRODUCTION_ENDPOINT):
+        pytest.fail(
+            f"MT_TIMESCALE_TEST_URL points at production ({_PRODUCTION_ENDPOINT}). "
+            "The suite creates and drops databases, so it must never be aimed "
+            "there. Point it at the dedicated test cluster."
+        )
 
 
 TEST_ADMIN_URL = os.environ.get("MT_TIMESCALE_TEST_URL", "")
@@ -107,6 +172,18 @@ def swap_dbname(url: str, new_db: str) -> MaskedUrl:
     return MaskedUrl(urlunparse(parsed._replace(path=f"/{new_db}")))
 
 
+@pytest.fixture(scope="session")
+def test_admin_url() -> str:
+    """The verified test-cluster admin URL.
+
+    Provided as a fixture rather than an import because ``test/integration/``
+    has its own ``conftest``, which shadows this module for anything under it.
+    Fixtures resolve through the conftest chain and are unaffected.
+    """
+    require_usable_test_endpoint()
+    return TEST_ADMIN_URL
+
+
 @pytest.fixture(scope="function")
 def ephemeral_db() -> Iterator[str]:
     """Create a UUID-named database, yield its URL, drop it on teardown.
@@ -115,8 +192,7 @@ def ephemeral_db() -> Iterator[str]:
     state nor inherit another database's chunk layout. Shared at the ``test/``
     level so both the integration and load tiers can use it.
     """
-    if not TEST_ADMIN_URL:
-        pytest.skip("MT_TIMESCALE_TEST_URL not set")
+    require_usable_test_endpoint()
 
     db_name = f"mt_test_{uuid.uuid4().hex[:12]}"
     with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
@@ -174,8 +250,7 @@ def session_ephemeral_db() -> Iterator[str]:
     Prefer the function-scoped fixtures when tests write. Isolation is the
     default for a reason; this is the deliberate exception.
     """
-    if not TEST_ADMIN_URL:
-        pytest.skip("MT_TIMESCALE_TEST_URL not set")
+    require_usable_test_endpoint()
 
     db_name = f"mt_test_s{uuid.uuid4().hex[:11]}"
     with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
