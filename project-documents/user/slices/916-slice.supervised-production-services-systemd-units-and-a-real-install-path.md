@@ -83,6 +83,7 @@ the gating ones on 2026-08-22; the rest are resolved here as design decisions.
   - `mt-daily-pass.service` + `mt-daily-pass.timer`
   - `mt-minute-pass.service` + `mt-minute-pass.timer`
   - `mt-serve.service` (long-running API server)
+  - `manta-acquisition.slice` (grouping only, no resource settings)
 - The existing journald drop-in `journald-manta-trading.conf` (2 GiB /
   200 MiB caps), installed.
 - A single PM-run install script `deploy/install-production.sh` (every root
@@ -105,6 +106,36 @@ the gating ones on 2026-08-22; the rest are resolved here as design decisions.
 - Test-cluster/production separation (slice 917, complete) and CI (slice 907).
 - Automatic migrations. `mt data migrate apply` stays operator-run with the
   maintenance credential; units never run DDL.
+
+### Deferred — cross-source arbitration (needs its own slice)
+
+EODHD daily + minute is the beginning, not the end: Kalshi (its own pass) and
+Databento tick on a small futures set (few instruments, large volume) are
+coming. 916 makes each new source cheap to *add* and cheap to *pause*, and
+deliberately stops there. Deferred, with the reason each cannot be settled now:
+
+- **Preemption and priority between sources.** systemd prevents a unit from
+  starting only while *that same unit* is still running; two different pass
+  units run concurrently with no arbitration. There is no priority and no
+  queue, and `Conflicts=` is the wrong primitive because it *kills* the loser
+  mid-fetch. Real arbitration is either a shared lock the passes take (keyed by
+  resource class) or a scheduler with priorities inside `mt` — the looping form
+  the PM declined for 916, which would acquire an actual reason to exist here.
+  Deciding between them without knowing Databento's real behavior would be
+  guessing.
+- **Resource weights on `manta-acquisition.slice`.** The slice unit ships
+  empty on purpose. `IOWeight`/`CPUWeight`/`MemoryMax` values are speculative
+  tuning until there is measured contention — and the binding constraint is
+  expected to be host bandwidth, disk, and DB write throughput, not provider
+  quota (separate providers are separate buckets, so 916's stagger reasoning
+  does not carry over).
+- **Hand-staggered schedules.** The 00:35/01:05 offsets are a two-body
+  solution. Somewhere around the third or fourth source, picking
+  non-colliding `OnCalendar` times by hand becomes a packing problem that
+  wants a coordinator instead.
+
+Recorded as a slice-plan entry so the gap is on the record rather than
+rediscovered when Kalshi lands.
 
 ## Dependencies
 
@@ -141,7 +172,8 @@ the gating ones on 2026-08-22; the rest are resolved here as design decisions.
 /opt/manta-trading/.venv/      created by `uv sync` at deploy time
 /etc/manta-trading.env         MT_* runtime config, root:manta-trading 0640
 /etc/systemd/system/           mt-daily-pass.{service,timer},
-                               mt-minute-pass.{service,timer}, mt-serve.service
+                               mt-minute-pass.{service,timer}, mt-serve.service,
+                               manta-acquisition.slice
 /etc/systemd/journald.conf.d/  manta-trading.conf (2G/200M caps)
 ```
 
@@ -157,12 +189,17 @@ services only through `/etc/manta-trading.env`, so there is exactly one source
 [Service]
 Type=oneshot
 User=manta-trading
+Slice=manta-acquisition.slice
 WorkingDirectory=/opt/manta-trading
 EnvironmentFile=/etc/manta-trading.env
 ExecStart=/opt/manta-trading/.venv/bin/mt data daemon run --daily --stop-when-done
 # A pass legitimately runs for a long time (gate wait up to 30 min, then the
 # fetch itself). The 90s DefaultTimeoutStartSec would kill it mid-pass.
 TimeoutStartSec=infinity
+# The runner traps SIGTERM and exits between symbols, but its sleeps are capped
+# at 60s (runner.py), so worst-case clean-stop latency is that cap plus the
+# in-flight symbol. The 90s default would SIGKILL a shutdown that is working.
+TimeoutStopSec=300
 StandardOutput=journal
 StandardError=journal
 NoNewPrivileges=true
@@ -180,6 +217,21 @@ pass semantics make safe and cheap. No `[Install]` section on pass services;
 the timers are what get enabled. The stale
 `Documentation=https://github.com/manta-trading/trading` URL (predates the repo
 rename) is corrected in all units.
+
+**`manta-acquisition.slice`** — every acquisition unit (both pass services, and
+every future source's) sets `Slice=manta-acquisition.slice`. The slice unit
+itself is installed **with no resource settings**: it is a grouping, not a
+tuning decision. The point is placement, not policy — putting units into a
+slice later means editing every unit file and restarting production, whereas
+adding `IOWeight=`/`CPUWeight=`/`MemoryMax=` to an existing slice later is a
+one-file drop-in. Choosing those numbers requires contention that does not
+exist yet (see Deferred, below).
+
+```ini
+# /etc/systemd/system/manta-acquisition.slice
+[Unit]
+Description=Manta acquisition passes (resource grouping)
+```
 
 **`mt-daily-pass.timer`** (analogous for minute, staggered):
 
@@ -209,6 +261,53 @@ same `User=`/`EnvironmentFile=`/hardening block, `ExecStart=
 /opt/manta-trading/.venv/bin/mt serve`, `Restart=on-failure`, `RestartSec=10s`,
 `StartLimitBurst=5` / `StartLimitIntervalSec=300s`, `WantedBy=multi-user.target`.
 This is the unit the `kill -9` success criterion exercises.
+
+### Unit naming pattern — adding a source
+
+EODHD daily and minute are the first two of several sources (Kalshi and
+Databento tick are known to be coming). The units are therefore named as an
+instance of a pattern, not as two one-offs:
+
+    mt-{source-or-cadence}-pass.service   +   .timer     — a bounded pass
+    mt-{name}.service                                     — a long-running service
+
+The current units are `mt-daily-pass` / `mt-minute-pass` (EODHD is implicit
+because it is the only provider today; a second daily-cadence provider would
+force the fuller `mt-{source}-{cadence}-pass` form). Adding a source is then a
+documented procedure, not a design conversation: copy a unit pair, change
+`ExecStart`, pick a non-colliding `OnCalendar`, set
+`Slice=manta-acquisition.slice`, install, enable. The runbook carries this as a
+checklist.
+
+Two limits of the pattern are stated here so they are not rediscovered:
+`Type=oneshot` + timer suits a **bounded** pass; a streaming subscription (a
+plausible shape for Databento tick capture) is a `Type=simple` unit like
+`mt-serve`, with historical backfill as a separate pass unit. And systemd
+serializes only a unit against *itself* — see Deferred.
+
+### Pausing a source
+
+916's supervision is what makes an off switch exist at all; today "not running"
+and "nobody ran it" are indistinguishable. Three levels, each per-source:
+
+- `systemctl stop mt-minute-pass.timer` — no further firings this boot; a pass
+  already running is untouched. Returns after a reboot (still enabled).
+- `systemctl disable --now mt-minute-pass.timer` — **the operator-facing pause**:
+  stops it now and removes the boot symlink, so it stays off across reboots
+  until an explicit `enable --now`.
+- `systemctl mask mt-minute-pass.service` — nothing can start it, not even a
+  manual `start`. A guardrail for "leave this alone while X runs".
+
+`systemctl stop mt-daily-pass.service` stops a pass that is *currently* running:
+the runner traps SIGTERM and exits cleanly between symbols, which is why the
+unit sets `TimeoutStopSec=300` rather than letting the 90s default escalate to
+SIGKILL.
+
+**Resuming fires a catch-up immediately.** `Persistent=true` means re-enabling
+after a pause runs the missed schedule at once, which is usually the intent —
+but it must be documented rather than discovered. The escape hatch, when a
+resume should *not* backfill, is the stamp file
+`/var/lib/systemd/timers/stamp-mt-{unit}.timer`.
 
 ### Environment file contents
 
@@ -318,8 +417,8 @@ Minimal, by design (this slice is deployment + documentation):
 - `src/manta_trading/cli/commands/serve.py` — `--workers` help text: replace
   "Run the daemon in a separate terminal; slice 155 adds supervised launch"
   with a reference to the `mt-serve` systemd unit.
-- New files under `deploy/`: five unit files, `manta-trading.env.example`,
-  `install-production.sh`. The two `.service.tmpl` files are deleted —
+- New files under `deploy/`: five unit files plus `manta-acquisition.slice`,
+  `manta-trading.env.example`, `install-production.sh`. The two `.service.tmpl` files are deleted —
   superseded, and the fixed service account removes the need for templating.
   `journald-manta-trading.conf` is kept as-is (it already says what it needs
   to; only its install becomes real).
@@ -333,7 +432,12 @@ Minimal, by design (this slice is deployment + documentation):
   verify), and status checking via `systemctl` alongside the existing
   `acquisition_state` queries. The "Future target — /opt + systemd" section is
   deleted. The timing-constraints section (gate wait, retry interval,
-  cheap re-runs) survives — it now explains timer behavior.
+  cheap re-runs) survives — it now explains timer behavior. Gains two new
+  procedures: **adding a source** (copy a unit pair, change `ExecStart`, pick a
+  non-colliding `OnCalendar`, set `Slice=`, install, enable) and **pausing a
+  source** (`disable --now` is the pause that survives reboot; `mask` is the
+  guardrail; resuming fires a `Persistent=true` catch-up immediately, with the
+  stamp file named as the escape hatch).
 - `backup-and-restore.md`: the "916 will decide cron vs timers" pointer becomes
   "decided 2026-08-22: backups stay on cron."
 - Slice plan entry 17 in `900-slices.foundation-cleanup.md`: gets its decision
@@ -375,7 +479,14 @@ changed them:
 9. Rollback demonstrated once: disable the three units, run a manual pass from
    the dev checkout, re-enable.
 10. `serve.py --help` no longer references slice 155.
-11. `install-production.sh` re-runs cleanly on an already-installed host:
+11. Pause works and survives a reboot: `systemctl disable --now
+    mt-minute-pass.timer` removes it from `list-timers`, and it is still
+    absent after a reboot that brings back daily and `mt-serve`; `enable --now`
+    restores it (and fires the catch-up pass).
+12. `systemctl stop` on a *running* pass exits cleanly via the SIGTERM path
+    (journal shows the clean-exit log line, not `Killed`/`signal=KILL`), and
+    `acquisition_state` shows a resumable position.
+13. `install-production.sh` re-runs cleanly on an already-installed host:
     exit 0, no account recreated, `/etc/manta-trading.env` unchanged
     (checksum before/after), nothing enabled that was not already enabled.
 
@@ -411,7 +522,13 @@ sudo reboot
 systemctl list-timers 'mt-*'              # timers back with no operator action
 systemctl is-active mt-serve.service      # active
 
-# 6. Rollback rehearsal
+# 6. Pause one source (must survive reboot; daily keeps running)
+sudo systemctl disable --now mt-minute-pass.timer
+systemctl list-timers 'mt-*'              # minute gone, daily still listed
+# after the step-5 reboot: minute still absent, daily + mt-serve back
+sudo systemctl enable --now mt-minute-pass.timer   # returns; fires catch-up
+
+# 7. Rollback rehearsal
 sudo systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service
 cd ~/source/repos/manta/trading-data && uv run mt data daemon run --daily --stop-when-done
 sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service
@@ -459,13 +576,16 @@ a real review of this design.)
 
 ## Implementation Notes
 
-- Suggested order: unit files + env example → install script → serve.py help
-  text → runbook rewrite → host install/verify (PM) → cutover (PM) →
-  backup-and-restore pointer + slice-plan entry update.
+- Suggested order: unit files + slice unit + env example → install script →
+  serve.py help text → runbook rewrite (including the add-a-source and pause
+  procedures) → host install/verify (PM) → cutover (PM) → backup-and-restore
+  pointer + slice-plan entry update.
 - Task breakdown must mark every root/host step as PM-executed (the 917
   pattern); stage all files in the repo — multi-line pastes into the host zsh
   are unreliable.
 - The install script is the only shell of substance; keep it plain (no
   templating engine — the fixed account name removed the need) and idempotent.
-- Effort: 3/5, unchanged from the plan entry. Risk: Med, concentrated in the
+- Effort: 3/5 — the three forward-compatibility items are a documented
+  pattern, one `TimeoutStopSec=` line, and an empty slice unit; none adds a
+  mechanism. Cross-source arbitration, which would, is deferred. Risk: Med, concentrated in the
   cutover as the entry states.
