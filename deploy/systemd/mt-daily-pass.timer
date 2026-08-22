@@ -1,0 +1,14 @@
+[Unit]
+Description=Fire the daily acquisition pass (after the 00:30 UTC daily gate)
+Documentation=https://github.com/manta-digital/trading-data
+
+[Timer]
+# After the 00:30 UTC daily gate; the second firing is a same-day catch-up —
+# a drained pass exits without provider calls, an interrupted one resumes.
+OnCalendar=*-*-* 00:35:00 UTC
+OnCalendar=*-*-* 12:35:00 UTC
+# Fire a schedule missed while the host was down (post-reboot catch-up).
+Persistent=true
+
+[Install]
+WantedBy=timers.target

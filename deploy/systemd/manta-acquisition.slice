@@ -1,0 +1,10 @@
+# manta-acquisition.slice — grouping unit for all acquisition passes.
+#
+# Deliberately carries NO resource settings (IOWeight/CPUWeight/MemoryMax):
+# those are speculative tuning until there is measured contention (design:
+# Deferred). This unit exists so acquisition units have a home — adding
+# resource limits later is a one-file edit here, whereas moving units into a
+# slice later would mean editing every unit and restarting production.
+[Unit]
+Description=Manta acquisition passes (resource grouping)
+Documentation=https://github.com/manta-digital/trading-data
