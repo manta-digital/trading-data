@@ -1,5 +1,17 @@
 """Shared fixtures for the load tier (slice 187 D10).
 
+**Which machine these thresholds describe.** Every latency and throughput bound
+in this tier was established on manta9000 — 32 cores, 125 GiB RAM — when the
+test databases lived on that host alongside production. Slice 917 moved the test
+databases to a dedicated machine (20 cores, 62 GiB, reached over a LAN), and the
+thresholds were deliberately **not** re-derived: re-baselining was declined
+because the numbers still serve their purpose as a regression signal.
+
+The consequence is worth stating plainly: **a failure here on different hardware
+is not automatically a regression.** Check what machine the tier ran against
+before treating a breach as a defect. The runbook for the test cluster is
+project-documents/user/runbooks/test-database-cluster.md.
+
 ``prod_shaped_db`` was slice 167's, defined inside
 ``test_167_data_status_nfr.py``. Slice 187 adds a second module that needs the
 same fixture, so it moves here — pytest auto-discovers ``conftest.py`` fixtures,

@@ -287,7 +287,40 @@ stop.
 
 ## Verification walkthrough
 
-Draft — to be replaced with actual output at implementation close.
+**Executed 2026-08-20 to 2026-08-22.** Measured values below; the commands are
+what was actually run.
+
+### What was measured
+
+| | Result |
+|---|---|
+| Test host | hammerhead, 192.168.1.143, cluster `17/main`, **port 5432** |
+| PostgreSQL | `17.11-1.pgdg24.04+2` — matches production's 17.11 |
+| TimescaleDB | `2.29.1~ubuntu24.04-1710` — matches production's 2.29.1 |
+| Packages held | all three, verified with `apt-mark showhold` |
+| Reachability | succeeds from 192.168.1.144; refused elsewhere by `pg_hba.conf` |
+| Firewall | `ufw` open on 5432 to 192.168.1.144 only |
+| Background workers | 8, greater than zero |
+| Integration tier, before | 556 s on production's cluster |
+| Integration tier, after | 482–540 s on hammerhead — **no network penalty**, within noise and if anything faster |
+| Production postmaster | `2026-08-19 11:25:01.540727-06`, identical to the group A capture |
+| Production roles | byte-identical to the group A capture |
+| Databases created on production | none — the 3 present predate this slice |
+| Clusters on the production host | 1, unchanged; none created |
+
+**The one thing that did not improve: the catalog-race flake got worse.** A full
+tier on production's cluster produced 3 races; on hammerhead it produced 10. This
+slice neither caused nor could cure it — see slice 918, which owns it — but the
+rate is higher on the dedicated host, plausibly because a less-loaded machine runs
+tests closer together and widens the collision window. Recorded so 918 starts from
+the real number.
+
+One `test_policy_advances_head.py` test failed in that run. It passes 9/9 in
+isolation and passed in a smaller multi-file run, so the flake is the likely
+cause — but that attribution is **not** established, and 918 should confirm it
+rather than assume it.
+
+### Commands
 
 ```bash
 # 1. Versions and holds on hammerhead
