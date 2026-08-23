@@ -42,6 +42,7 @@ A reboot needs **no operator action**: everything above comes back, and
 | Watch a running pass | `mt-run follow daily` (Ctrl-C detaches, pass unaffected) | no |
 | Check the API server | `systemctl status mt-serve` · `curl localhost:8100/api/v1/health` | no |
 | See timer schedule | `systemctl list-timers 'mt-*'` | no |
+| Run ANY production `mt` command | `mt-run <mt args>`, e.g. `mt-run data caggs status` | no¹ |
 | Read a pass's full log | `journalctl -u mt-daily-pass.service -e` | no |
 | Pause a source (survives reboot) | `systemctl disable --now mt-minute-pass.timer` | yes |
 | Resume it (fires catch-up at once) | `systemctl enable --now mt-minute-pass.timer` | yes |
@@ -49,7 +50,10 @@ A reboot needs **no operator action**: everything above comes back, and
 | Roll back to manual operation | `systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service` | yes |
 | Update production code | see *Update procedure* below | yes |
 
-Things to know before touching anything: a completed pass shows
+¹ after a one-time `sudo usermod -aG manta-trading <user>` (new shell); otherwise prefix `sudo`.
+
+Things to know before touching anything: **`mt-run` is the production front
+door — there is never a reason to operate production from the dev checkout.** a completed pass shows
 `inactive (dead)` + `status=0/SUCCESS` — that is success, not failure.
 Passes are resumable: stopping or crashing one loses nothing; the next run
 continues where it left off. `Ctrl-C` on `mt-run`/`journalctl` views only

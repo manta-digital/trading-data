@@ -5,6 +5,7 @@
 #   sudo mt-run minute       start a minute pass, stream its output live
 #   mt-run status            state + last result + recent output of both passes
 #   mt-run follow daily      attach to a running pass's live output
+#   mt-run <anything else>   run production's mt CLI, e.g. mt-run data caggs status
 #
 # Starting streams output exactly like the old manual invocation, with one
 # improvement: Ctrl-C DETACHES your terminal and the pass keeps running
@@ -16,7 +17,7 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,8p' "$0" | sed 's/^# \{0,3\}//'
+  sed -n '2,9p' "$0" | sed 's/^# \{0,3\}//'
   exit 2
 }
 
@@ -119,11 +120,35 @@ start_and_stream() {
   exit "${code:-1}"
 }
 
+# Anything that is not a wrapper verb passes through to production's own mt
+# CLI: /opt binary + /etc/manta-trading.env credentials. One front door.
+run_production_mt() {
+  local mt_bin="/opt/manta-trading/.venv/bin/mt" env_file="/etc/manta-trading.env"
+  [[ -x "${mt_bin}" ]] || { echo "ERROR: ${mt_bin} not found — is production installed?" >&2; exit 1; }
+  if [[ -r "${env_file}" ]]; then
+    set -a; # shellcheck disable=SC1090  # runtime env file, not a script dependency
+    . "${env_file}"; set +a
+    exec "${mt_bin}" "$@"
+  elif [[ "$(id -u)" -eq 0 ]]; then
+    set -a; # shellcheck disable=SC1090
+    . "${env_file}"; set +a
+    exec runuser -u manta-trading -- env HOME=/opt/manta-trading \
+      MT_TIMESCALE_DB_URL="${MT_TIMESCALE_DB_URL}" MT_EODHD_API_KEY="${MT_EODHD_API_KEY}" \
+      "${mt_bin}" "$@"
+  else
+    echo "ERROR: ${env_file} is not readable by you. Either:" >&2
+    echo "  sudo mt-run $*" >&2
+    echo "or (one-time) join the manta-trading group for password-less access:" >&2
+    echo "  sudo usermod -aG manta-trading ${SUDO_USER:-$USER}   # then open a new shell" >&2
+    exit 1
+  fi
+}
+
 [[ $# -ge 1 ]] || usage
 case "$1" in
   daily|minute)  start_and_stream "$1" ;;
   status)        show_status ;;
   follow)        [[ $# -eq 2 ]] || usage; follow "$2" ;;
   -h|--help)     usage ;;
-  *)             usage ;;
+  *)             run_production_mt "$@" ;;
 esac
