@@ -3541,7 +3541,7 @@ def caggs_repair(
             f"{order} — repair 4h first, resume its refresh policy and run "
             "the catch-up refresh (runbook R2), then repair the rest. "
             "Use --dry-run to inspect the all-cagg plan read-only. "
-            "See user/runbooks/cagg-maintenance-pausing.md",
+            "See user/runbooks/300-cagg-maintenance-pausing.md",
             json_mode=False,
         )
         raise typer.Exit(_EXIT_REPAIR_PREFLIGHT)
@@ -3583,7 +3583,7 @@ def caggs_repair(
             "policies (alter_job(<id>, scheduled => true)); if the refresh "
             "policy was paused longer than its start_offset, run the catch-up "
             "refresh_continuous_aggregate over the paused span. "
-            "See user/runbooks/cagg-maintenance-pausing.md (R2, R4).",
+            "See user/runbooks/300-cagg-maintenance-pausing.md (R2, R4).",
             json_mode=False,
         )
         print_result(f"\n{_CAGG_MAINTENANCE_STANDING_RULE}", json_mode=False)
@@ -3773,7 +3773,7 @@ def caggs_rebuild_coverage(
             "  SELECT job_id, proc_name, hypertable_name, scheduled\n"
             "  FROM timescaledb_information.jobs\n"
             "  WHERE hypertable_name IN ('minute_coverage', 'daily_coverage');\n"
-            "See user/runbooks/cagg-maintenance-pausing.md (R4).",
+            "See user/runbooks/300-cagg-maintenance-pausing.md (R4).",
             json_mode=False,
         )
 

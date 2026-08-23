@@ -220,7 +220,7 @@ def _check_coverage_index_available(
         "its start_offset, run a catch-up "
         f"CALL refresh_continuous_aggregate('{_COVERAGE_INDEX_VIEW}', "
         "<pause_start - 1 day>, <now + 1 day>); "
-        "see user/runbooks/cagg-maintenance-pausing.md"
+        "see user/runbooks/300-cagg-maintenance-pausing.md"
     )
 
 

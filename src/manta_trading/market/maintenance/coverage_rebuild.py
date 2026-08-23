@@ -327,7 +327,7 @@ def assert_policies_paused(
         "scheduled. A refresh running concurrently with this sweep silently "
         "loses rows (slice 163). Pause them first: "
         f"{pause_cmds} and resume them afterward — see "
-        "user/runbooks/cagg-maintenance-pausing.md"
+        "user/runbooks/300-cagg-maintenance-pausing.md"
     )
 
 
