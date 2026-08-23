@@ -189,15 +189,22 @@ echo "reloaded systemd; restarted journald"
 
 # --- Closing message ---------------------------------------------------------
 echo
-echo "Install complete. NOTHING HAS BEEN ENABLED — no timer or service will"
-echo "start on its own. Production is unchanged."
+if systemctl is-enabled --quiet mt-daily-pass.timer 2>/dev/null; then
+  echo "Install complete. Production was ALREADY CUT OVER and remains supervised —"
+  echo "this run only updated files. Enabled units stay enabled."
+else
+  echo "Install complete. NOTHING HAS BEEN ENABLED — no timer or service will"
+  echo "start on its own. Production is unchanged."
+fi
 echo
 echo "Unit state (pass services show 'static' by design — no [Install]; the"
 echo "timers are what get enabled, later):"
 systemctl list-unit-files 'mt-*' 'manta-acquisition.*' || true
-echo
-echo "Next steps:"
-echo "  1. Fill the environment file:  sudoedit ${ENV_FILE}"
-echo "  2. Run one pass by hand:       sudo mt-run daily   (live output; Ctrl-C detaches)"
-echo
-echo "Cutover (later, explicit): sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service"
+if ! systemctl is-enabled --quiet mt-daily-pass.timer 2>/dev/null; then
+  echo
+  echo "Next steps:"
+  echo "  1. Fill the environment file:  sudoedit ${ENV_FILE}"
+  echo "  2. Run one pass by hand:       sudo mt-run daily   (live output; Ctrl-C detaches)"
+  echo
+  echo "Cutover (later, explicit): sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service"
+fi
