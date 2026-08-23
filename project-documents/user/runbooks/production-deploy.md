@@ -20,6 +20,44 @@ production tooling.
 
 ---
 
+## Quick reference — operating production
+
+### What runs by itself (no operator action)
+
+| Unit | What | When | On failure |
+|---|---|---|---|
+| `mt-daily-pass.service` | one bounded daily acquisition pass | timer: **00:35 & 12:35 UTC** | next timer firing resumes it |
+| `mt-minute-pass.service` | one bounded minute acquisition pass | timer: **01:05 & 13:05 UTC** | next timer firing resumes it |
+| `mt-serve.service` | API server (port 8100) | always on, starts at boot | auto-restart in 10s |
+
+A reboot needs **no operator action**: everything above comes back, and
+`Persistent=true` fires any pass schedule missed while the host was down.
+
+### Commands
+
+| I want to… | Command | sudo? |
+|---|---|---|
+| See what's running + latest output | `mt-run status` | no |
+| Run a pass now, watch it live | `mt-run daily` / `mt-run minute` | yes |
+| Watch a running pass | `mt-run follow daily` (Ctrl-C detaches, pass unaffected) | no |
+| Check the API server | `systemctl status mt-serve` · `curl localhost:8100/api/v1/health` | no |
+| See timer schedule | `systemctl list-timers 'mt-*'` | no |
+| Read a pass's full log | `journalctl -u mt-daily-pass.service -e` | no |
+| Pause a source (survives reboot) | `systemctl disable --now mt-minute-pass.timer` | yes |
+| Resume it (fires catch-up at once) | `systemctl enable --now mt-minute-pass.timer` | yes |
+| Stop a pass mid-run (clean) | `systemctl stop mt-daily-pass.service` | yes |
+| Roll back to manual operation | `systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service` | yes |
+| Update production code | see *Update procedure* below | yes |
+
+Things to know before touching anything: a completed pass shows
+`inactive (dead)` + `status=0/SUCCESS` — that is success, not failure.
+Passes are resumable: stopping or crashing one loses nothing; the next run
+continues where it left off. `Ctrl-C` on `mt-run`/`journalctl` views only
+detaches — it never kills a supervised pass. Nothing here touches the dev
+checkout at `~/source/repos/manta/trading-data`.
+
+---
+
 ## Current reality
 
 | | |
