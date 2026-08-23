@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20260822
+dateUpdated: 20260823
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -134,11 +134,17 @@ exist — the install script never overwrites it. The dev checkout keeps its own
 
 ## Install / reinstall
 
-PM-run, from the dev checkout:
+PM-run. Deploys use a **readable tag, never a raw SHA**: tag the commit
+(`git tag -a v0.7.8 -m "..." && git push origin v0.7.8` — prefer version tags
+matching `pyproject.toml` so `mt --version` on the host names the deploy),
+then:
 
 ```bash
-sudo deploy/install-production.sh --ref <tag-or-sha>
+sudo /opt/manta-trading/deploy/install-production.sh --ref v0.7.8
 ```
+
+(Works from any directory once production is installed; the first-ever install
+runs the same script from a git checkout.)
 
 Idempotent — every step is check-then-act, and recovery for any failure is
 "fix the cause, re-run the whole script." It **enables nothing**; a failed or

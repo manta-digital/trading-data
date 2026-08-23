@@ -16,6 +16,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (slice 916 — supervised production, complete 2026-08-23)
+- **Production now runs itself.** The daily and minute acquisition passes fire
+  from systemd timers (00:35/12:35 and 01:05/13:05 UTC), `mt serve` runs as a
+  supervised service, and a reboot or crash needs no operator action: services
+  restart, timers return, and `Persistent=true` catches up any schedule missed
+  while the host was down. Production is a dedicated pinned checkout at
+  `/opt/manta-trading` under a `nologin` service account — the dev checkout is
+  development-only and no longer what production means.
+- **`mt-run` — one front door for operating production.** `mt-run daily|minute`
+  runs a pass with live terminal output (Ctrl-C detaches; the pass keeps
+  running), `mt-run status` shows what's running with its latest output,
+  `mt-run follow` re-attaches, and `mt-run <anything>` runs any production
+  `mt` command (e.g. `mt-run data caggs status`) from any directory.
+- **One-command install/update:** `deploy/install-production.sh --ref <tag>`,
+  idempotent and check-then-act; deploys use readable tags (e.g.
+  `prod-20260823`), never raw SHAs. Enables nothing by itself — cutover is an
+  explicit `systemctl enable --now`.
+- **Runbooks are indexed:** `__readme.md` lists every runbook with a
+  when-to-open line; files renamed to `100-production-operations.md`,
+  `200-backup-and-restore.md`, `3xx` cagg maintenance, `400` test cluster.
+
+### Fixed (slice 916)
+- **EODHD API token no longer leaks into logs.** Retry/error paths in
+  `eodhd_sync` logged full request URLs including `api_token` into journald;
+  now redacted at every log and exception site.
+- `mt serve --help` no longer cites dead slice 155; it names the `mt-serve`
+  systemd unit.
+
 ### Changed (slice 169, part 1 — schema and thresholds; not yet applied to production)
 - **The coverage aggregates behind `mt data status` now bucket at 7 days instead of a year.** A TimescaleDB refresh policy only re-materializes buckets *fully contained* in its window, so the **current (open) bucket is never written while it is open**. With a year-wide bucket that meant coverage was materialized once, at creation, and then not again until the year rolled over: on 2026-08-11 both aggregates sat at **2025-12-26** while raw data ran to 2026-08-07, and each hourly refresh had reported success 205 times running. Narrowing does not make the engine refresh an open bucket — nothing does — but it cuts the worst-case invisible window from **up to a year to 7 days 4 hours**. Migrations 051/052 carry the change; **production still has the old width until the rebuild in part 2 runs**, so `mt data status` continues to report stale coverage until then.
 - **The staleness threshold now describes a bound the system can actually meet.** `COVERAGE_CONTENT_STALENESS` was 1 day 4 hours — unreachable at any bucket width compatible with a fast `data_status` read, so it fired permanently, and a signal that always fires teaches operators to ignore it. It is now derived from the bucket width (7 days 4 hours) rather than chosen. A genuine stall still exceeds one bucket width and still fires.
