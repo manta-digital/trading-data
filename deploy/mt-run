@@ -50,7 +50,16 @@ show_status() {
       if [[ -n "${ended}" ]]; then
         echo "== ${kind}: not running (state=${st}); last run: $(systemctl show "${unit}" -p Result --value), exit=$(systemctl show "${unit}" -p ExecMainStatus --value), ended ${ended}"
       else
-        echo "== ${kind}: not running (state=${st}); no run recorded this boot"
+        # systemd forgets a dead oneshot's ExecMain* after daemon-reload;
+        # the journal still knows.
+        local lastline
+        lastline="$(journalctl -u "${unit}" -n 1 --no-pager --no-hostname -q 2>/dev/null || true)"
+        if [[ -n "${lastline}" ]]; then
+          echo "== ${kind}: not running (state=${st}); last journal activity:"
+          echo "   ${lastline}"
+        else
+          echo "== ${kind}: not running (state=${st}); never run"
+        fi
       fi
     fi
   done
