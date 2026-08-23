@@ -1,21 +1,23 @@
 [Unit]
-Description=Manta Trading daily acquisition daemon (slice 128)
-Documentation=https://github.com/manta-trading/trading
+Description=Manta Trading API server (mt serve)
+Documentation=https://github.com/manta-digital/trading-data
 After=network-online.target
 Wants=network-online.target
+# Give up only after 5 failed starts within 5 minutes.
+StartLimitBurst=5
+StartLimitIntervalSec=300s
 
 [Service]
 Type=simple
-User=${MANTA_TRADING_SERVICE_USER}
-Group=${MANTA_TRADING_SERVICE_USER}
+User=manta-trading
+Group=manta-trading
 WorkingDirectory=/opt/manta-trading
 EnvironmentFile=/etc/manta-trading.env
-# uv-based invocation. Repo's uv.lock pins everything.
-ExecStart=/usr/local/bin/uv run mt data daemon run --daily
+# The venv entry point directly — uv is a deploy-time tool, not a runtime
+# dependency; `uv run` at service start could resolve/sync at the wrong moment.
+ExecStart=/opt/manta-trading/.venv/bin/mt serve
 Restart=on-failure
 RestartSec=10s
-StartLimitBurst=5
-StartLimitIntervalSec=300s
 # Journald is the log sink — no application-level log files.
 StandardOutput=journal
 StandardError=journal

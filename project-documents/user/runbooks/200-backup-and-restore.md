@@ -5,7 +5,7 @@ parent: user/slices/915-slice.backup-and-restore-procedures.md
 relatedSlices: [913, 915]
 host: <prod_host>
 dateCreated: 20260816
-dateUpdated: 20260818
+dateUpdated: 20260822
 status: in_progress
 ---
 
@@ -337,10 +337,12 @@ copy can be deleted.** It is torn, unverified, and superseded.
 
 ## Step 7 — Schedule it (INSTALLED 2026-08-18)
 
-Cron, not systemd — this host has no units installed and no process manager.
-Whether these migrate to systemd timers is an explicit decision inside **slice
-916** (supervised production services); the current recommendation recorded there
-is to leave them on cron, since cron is installed and proven.
+Cron, not systemd. **Decided 2026-08-22 (slice 916): backups stay on cron** —
+cron is installed and proven, and acquisition's move to systemd timers does not
+pull the backup jobs with it. If the crontab's comment still describes this as
+an open question, update it to: `# Backups stay on cron (decided 2026-08-22,
+slice 916); acquisition runs on systemd timers.` (The crontab is PM-owned host
+config — the PM applies that edit, not automation.)
 Installed in the `manta` crontab (absolute paths — cron loads no shell
 profile). Three entries, all thin glue scripts that grep credentials from the
 named `.env` and call the explicit-argument tools:

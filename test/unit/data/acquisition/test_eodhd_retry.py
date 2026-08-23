@@ -175,3 +175,43 @@ def test_partial_response_body_not_pre_parsed():
     eodhd_get(client, "u", CallType.EOD, bucket=bucket)
     # json() should NOT have been called inside the wrapper.
     resp.json.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Token redaction (slice 916): the api_token must never reach logs or
+# exception messages — journald persists them.
+# ---------------------------------------------------------------------------
+
+_TOKEN = "sekrit-token-123"
+_URL = f"https://eodhd.com/api/intraday/INO.US?api_token={_TOKEN}&fmt=json&interval=1m"
+
+
+def test_redact_token_strips_value_keeps_other_params():
+    from manta_trading.api.eodhd_sync import redact_token
+
+    redacted = redact_token(_URL)
+    assert _TOKEN not in redacted
+    assert "api_token=REDACTED" in redacted
+    assert "interval=1m" in redacted
+
+
+def test_retry_warning_log_never_contains_token(caplog):
+    client = MagicMock()
+    client.get.side_effect = [
+        _resp(429, {"Retry-After": "1"}),
+        _resp(200),
+    ]
+    with caplog.at_level("WARNING"):
+        eodhd_get(client, _URL, CallType.INTRADAY, bucket=_bucket(), sleep=lambda _s: None)
+    assert caplog.text  # the retry did log
+    assert _TOKEN not in caplog.text
+    assert "api_token=REDACTED" in caplog.text
+
+
+def test_429_escalation_error_never_contains_token(caplog):
+    client = MagicMock()
+    client.get.return_value = _resp(429, {"Retry-After": "1"})
+    with caplog.at_level("WARNING"), pytest.raises(QuotaBucketMisconfiguredError) as exc_info:
+        eodhd_get(client, _URL, CallType.INTRADAY, bucket=_bucket(), sleep=lambda _s: None)
+    assert _TOKEN not in str(exc_info.value)
+    assert _TOKEN not in caplog.text

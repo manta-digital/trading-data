@@ -6,11 +6,11 @@ parent: ../architecture/900-slices.foundation-cleanup.md
 dependencies: [128, 908]
 interfaces: []
 dateCreated: 20260822
-dateUpdated: 20260822
+dateUpdated: 20260823
 reviewVerdictsAddressed:
   - 916-review.slice (z-ai/glm-5.2, CONCERNS, F003)
   - 916-review.slice (z-ai/glm-5.2, PASS) — second pass, after the multi-source folds
-status: not_started
+status: complete
 ---
 
 # Slice Design: Supervised Production Services — systemd Units and a Real Install Path
@@ -493,51 +493,86 @@ changed them:
 
 ### Verification Walkthrough
 
-Draft demo script — refined at end of Phase 6. PM executes all `sudo` steps.
+As executed 2026-08-22/23 on manta9000 (PM ran all `sudo` steps; measured
+results in `user/notes/2026-08-23-916-verification-results.md`). Reproducible
+by an external agent; expected outputs noted inline.
 
 ```bash
-# 1. Install (inert — enables nothing)
-sudo deploy/install-production.sh --ref <tag-or-sha>
-sudo deploy/install-production.sh --ref <tag-or-sha>   # idempotence: exit 0, no churn
-sudoedit /etc/manta-trading.env          # skeleton installed by the script above;
-                                         # fill MT_TIMESCALE_DB_URL, MT_EODHD_API_KEY
+# 0. Deploys use a READABLE TAG, never a raw SHA (PM rule, 20260823).
+#    Tag the commit to deploy, e.g.:
+git tag -a prod-YYYYMMDD -m "production deploy: <what>" && git push origin prod-YYYYMMDD
+# Going forward, prefer version tags (vX.Y.Z matching pyproject) so
+# `mt --version` on the host names the deploy.
 
-# 2. One supervised pass, no cutover yet
-sudo systemctl start mt-daily-pass.service
-journalctl -u mt-daily-pass.service -f    # normal pass output, exits 0
-systemctl status mt-daily-pass.service    # "inactive (dead)" + "status=0/SUCCESS"
+# 1. Install (inert — enables nothing). Idempotent; re-run after any failure.
+sudo deploy/install-production.sh --ref prod-YYYYMMDD
+sudo deploy/install-production.sh --ref prod-YYYYMMDD   # second run: exit 0, env
+                                          # file sha256 unchanged, nothing enabled
+sudoedit /etc/manta-trading.env           # fill MT_TIMESCALE_DB_URL (DML app
+                                          # credential) + MT_EODHD_API_KEY; never
+                                          # paste MT_TIMESCALE_MAINTENANCE_URL
+# Observed: transient network failure mid-run recovers by re-running unchanged.
+# After first install, future runs also work from the /opt copy itself:
+#   sudo /opt/manta-trading/deploy/install-production.sh --ref <tag>
+
+# 2. One supervised pass per cadence, no cutover yet
+sudo mt-run daily     # live output; Ctrl-C detaches (pass keeps running)
+# expected end: "Pass complete: mt-daily-pass.service exited 0 (success)"
+# verify identity: journalctl -u mt-daily-pass.service -o verbose _COMM=mt -n 1
+#   → _UID=997(manta-trading), _SYSTEMD_UNIT=mt-daily-pass.service,
+#     _SYSTEMD_SLICE=manta-acquisition.slice, _CMDLINE=/opt/.../mt ...
+sudo mt-run minute    # same; a large backfill may run for hours — a clean
+                      # operator stop (systemctl stop) is a valid completion:
+                      # journal shows "received signal 15 — initiating clean
+                      # exit", exit 0, NO "Killed"/SIGKILL line
+# Observed: daily 47min/373MB; minute (first catch-up) 10h14m/1.5G, clean-stopped.
 
 # 3. Cutover — the one explicit step
 sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service
-systemctl list-timers 'mt-*'              # both timers, sane next-fire times
-curl -s localhost:8100/...                # API answers (exact path per API docs)
+systemctl list-timers 'mt-*'    # 12:35 & 13:05 UTC next-fires
+curl -s localhost:8100/api/v1/health   # {"status":"ok","db":"ok",...}
+# Observed: first autonomous firing 06:35:07 local, +7s timer jitter, pass
+# completed 34min later, exit 0 — no human involved.
 
 # 4. Crash supervision
 sudo kill -9 "$(systemctl show -p MainPID --value mt-serve.service)"
-sleep 15; systemctl status mt-serve.service   # active again, restart count +1
+sleep 15; systemctl show mt-serve.service -p NRestarts   # 0 → 1, new MainPID,
+                                                         # API answers again
+# Observed: restart ~10s after kill (RestartSec=10s).
 
-# 5. Reboot survival (PM-scheduled moment, executed immediately — not a
-#    wall-clock-waiting task)
-sudo reboot
-# after boot:
-systemctl list-timers 'mt-*'              # timers back with no operator action
-systemctl is-active mt-serve.service      # active
+# 5. Clean stop of a RUNNING pass
+sudo systemctl start --no-block mt-daily-pass.service; sleep 20
+sudo systemctl stop mt-daily-pass.service
+# ("its triggering units are still active" is informational — expected)
+journalctl -u mt-daily-pass.service -n 10   # "received signal 15" then
+                                            # "Deactivated successfully"; no SIGKILL
+# Observed: signal→exit in <100ms (worst case is one 60s runner sleep + the
+# in-flight symbol; TimeoutStopSec=300 covers it).
 
-# 6. Pause one source (must survive reboot; daily keeps running)
+# 6. Pause, reboot, resume (pause must survive the reboot)
 sudo systemctl disable --now mt-minute-pass.timer
-systemctl list-timers 'mt-*'              # minute gone, daily still listed
-# after the step-5 reboot: minute still absent, daily + mt-serve back
-sudo systemctl enable --now mt-minute-pass.timer   # returns; fires catch-up
+sudo reboot
+# after boot, with NO operator action:
+systemctl is-active mt-serve.service        # active (~12s after boot, observed twice)
+systemctl list-timers 'mt-*'                # daily listed; minute STILL absent
+sudo systemctl enable --now mt-minute-pass.timer
+# if a scheduled elapse was missed while paused, the catch-up fires IMMEDIATELY
+# (observed: enable 08:08:40 → pass start 08:08:40). Escape hatch when a resume
+# must not backfill: delete /var/lib/systemd/timers/stamp-mt-minute-pass.timer first.
 
-# 7. Rollback rehearsal
+# 7. Rollback rehearsal (dev checkout was never modified)
 sudo systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service
 cd ~/source/repos/manta/trading-data && uv run mt data daemon run --daily --stop-when-done
 sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service
+
+# 8. Day-to-day operation is one front door (added by this slice):
+mt-run status                  # what's running, last results, timers
+mt-run data caggs status       # any production mt command, any directory
 ```
 
-Timer *firing* is verified with `systemctl start` (same unit the timer
-activates) plus `list-timers` for the schedule — no task waits for a
-wall-clock event, per standing PM rule.
+Timer *firing* was nevertheless observed live (step 3) in addition to the
+`systemctl start` equivalence — no task waited on it; it happened during
+Group G work.
 
 ## Risk Assessment
 

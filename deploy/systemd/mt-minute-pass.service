@@ -1,0 +1,35 @@
+[Unit]
+Description=Manta Trading minute acquisition pass (one bounded pass, fired by mt-minute-pass.timer)
+Documentation=https://github.com/manta-digital/trading-data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=manta-trading
+Group=manta-trading
+Slice=manta-acquisition.slice
+WorkingDirectory=/opt/manta-trading
+EnvironmentFile=/etc/manta-trading.env
+# The venv entry point directly — uv is a deploy-time tool, not a runtime
+# dependency; `uv run` at service start could resolve/sync at the wrong moment.
+ExecStart=/opt/manta-trading/.venv/bin/mt data daemon run --minute --stop-when-done
+# A pass legitimately runs for a long time (gate wait up to 30 min, then the
+# fetch itself). The 90s DefaultTimeoutStartSec would kill it mid-pass.
+TimeoutStartSec=infinity
+# The runner traps SIGTERM and exits between symbols, but its sleeps are capped
+# at 60s (runner.py), so worst-case clean-stop latency is that cap plus the
+# in-flight symbol. The 90s default would SIGKILL a shutdown that is working.
+TimeoutStopSec=300
+# Journald is the log sink — no application-level log files.
+StandardOutput=journal
+StandardError=journal
+# Hardening: minimal additional surface beyond the service user.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+# No Restart= — recovery is the next timer firing; pass semantics (slice 912)
+# make a re-run safe and cheap. No [Install] — the timer gets enabled, not
+# this service.

@@ -19,7 +19,7 @@ def serve(
         "--workers",
         help=(
             "Number of uvicorn worker processes (default 1). "
-            "Run the daemon in a separate terminal; slice 155 adds supervised launch."
+            "In production, mt serve runs under the mt-serve systemd unit."
         ),
     ),
 ) -> None:
