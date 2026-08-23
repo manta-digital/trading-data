@@ -18,6 +18,7 @@ async and serve the universe-rebuild path.
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
@@ -32,6 +33,18 @@ from manta_trading.logging import get_logger
 _logger = get_logger(__name__)
 
 _DEFAULT_RETRY_AFTER_SECONDS: float = 60.0
+
+_TOKEN_PATTERN = re.compile(r"(api_token=)[^&]*")
+
+
+def redact_token(url: str) -> str:
+    """Strip the api_token value from a URL destined for logs or errors.
+
+    Journald persists WARNING/ERROR lines; the credential must never
+    land there (found leaking during slice 916 verification).
+    """
+    return _TOKEN_PATTERN.sub(r"\1REDACTED", url)
+
 
 
 class QuotaBucketMisconfiguredError(RuntimeError):
@@ -104,6 +117,7 @@ def eodhd_get(
     """
     bucket = bucket or _resolve_bucket()
     backoff = backoff or _Backoff()
+    log_url = redact_token(url)
 
     consecutive_429: int = 0
     transient_attempt: int = 0
@@ -122,13 +136,13 @@ def eodhd_get(
             if transient_attempt > MAX_RETRY_COUNT:
                 _logger.error(
                     "eodhd_get(%s): transient retries exhausted (%d) — raising",
-                    url, transient_attempt,
+                    log_url, transient_attempt,
                 )
                 raise
             wait = backoff.wait_for(transient_attempt - 1)
             _logger.warning(
                 "eodhd_get(%s): %s — retrying in %.1fs (attempt %d/%d)",
-                url, type(exc).__name__, wait, transient_attempt, MAX_RETRY_COUNT,
+                log_url, type(exc).__name__, wait, transient_attempt, MAX_RETRY_COUNT,
             )
             sleep(wait)
             continue
@@ -139,16 +153,16 @@ def eodhd_get(
                 _logger.error(
                     "EODHD 429 escalation — token bucket likely "
                     "misconfigured (%d consecutive 429s on %s)",
-                    consecutive_429, url,
+                    consecutive_429, log_url,
                 )
                 raise QuotaBucketMisconfiguredError(
-                    f"{consecutive_429} consecutive 429s for {url}"
+                    f"{consecutive_429} consecutive 429s for {log_url}"
                 )
             wait = _retry_after_seconds(resp)
             _logger.warning(
                 "eodhd_get(%s): HTTP 429 — sleeping %.1fs (Retry-After=%r) "
                 "(attempt %d/%d)",
-                url, wait, resp.headers.get("Retry-After"),
+                log_url, wait, resp.headers.get("Retry-After"),
                 consecutive_429, MAX_RETRY_COUNT,
             )
             sleep(wait)
