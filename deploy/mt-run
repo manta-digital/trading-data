@@ -135,11 +135,14 @@ run_production_mt() {
     exec runuser -u manta-trading -- env HOME=/opt/manta-trading \
       MT_TIMESCALE_DB_URL="${MT_TIMESCALE_DB_URL}" MT_EODHD_API_KEY="${MT_EODHD_API_KEY}" \
       "${mt_bin}" "$@"
+  elif [[ -t 0 ]]; then
+    # Credentials need elevation; just do it rather than making the human
+    # retype the command. (Group membership from usermod applies at login —
+    # after the next logout/login this branch stops being needed.)
+    echo "(elevating via sudo — credentials are root-protected)" >&2
+    exec sudo "$0" "$@"
   else
-    echo "ERROR: ${env_file} is not readable by you. Either:" >&2
-    echo "  sudo mt-run $*" >&2
-    echo "or (one-time) join the manta-trading group for password-less access:" >&2
-    echo "  sudo usermod -aG manta-trading ${SUDO_USER:-$USER}   # then open a new shell" >&2
+    echo "ERROR: ${env_file} not readable and no terminal for sudo. Run as root or add this user to the manta-trading group." >&2
     exit 1
   fi
 }
