@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-23
+
 ### Added (slice 916 — supervised production, complete 2026-08-23)
 - **Production now runs itself.** The daily and minute acquisition passes fire
   from systemd timers (00:35/12:35 and 01:05/13:05 UTC), `mt serve` runs as a
