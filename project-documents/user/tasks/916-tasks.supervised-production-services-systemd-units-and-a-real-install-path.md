@@ -373,11 +373,11 @@ Effort: 1/5.
   - [x] Success: no behavioral difference beyond user and working directory.
         **A difference here stops the cutover** — investigate before Group F
 
-- [ ] **E.3 [PM] Run one minute pass through its unit**
-  - [ ] `sudo systemctl start mt-minute-pass.service`
-  - [ ] Success: as E.1
+- [x] **E.3 [PM] Run one minute pass through its unit**
+  - [x] `sudo systemctl start mt-minute-pass.service`
+  - [x] Success: as E.1
 
-- [ ] **E.4 [agent] Confirm the minute pass as in E.2**
+- [x] **E.4 [agent] Confirm the minute pass as in E.2**
 
 ---
 
@@ -385,26 +385,26 @@ Effort: 1/5.
 
 Effort: 1/5, risk concentrated here. This is the one explicit step.
 
-- [ ] **F.1 [PM] Enable the timers and the API server**
-  - [ ] `sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer
+- [x] **F.1 [PM] Enable the timers and the API server**
+  - [x] `sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer
         mt-serve.service`
-  - [ ] From this instant production is the `/opt` install. Operator practice
+  - [x] From this instant production is the `/opt` install. Operator practice
         changes: passes and `mt serve` are no longer started by hand
-  - [ ] Success: the command exits 0
+  - [x] Success: the command exits 0
 
-- [ ] **F.2 [agent] Verify the timers and the API**
-  - [ ] `systemctl list-timers 'mt-*'` shows both timers with sane next-fire
+- [x] **F.2 [agent] Verify the timers and the API**
+  - [x] `systemctl list-timers 'mt-*'` shows both timers with sane next-fire
         times consistent with the design's schedule
-  - [ ] `systemctl is-active mt-serve.service` is `active`; the API answers on
+  - [x] `systemctl is-active mt-serve.service` is `active`; the API answers on
         its configured port
-  - [ ] Success: both checks pass
+  - [x] Success: both checks pass
 
-- [ ] **F.3 [agent] Verify journald caps and the acquisition slice**
-  - [ ] The 2 GiB / 200 MiB caps are in effect (`journalctl --header` or a
+- [x] **F.3 [agent] Verify journald caps and the acquisition slice**
+  - [x] The 2 GiB / 200 MiB caps are in effect (`journalctl --header` or a
         disk-usage check)
-  - [ ] `systemctl status manta-acquisition.slice` shows the pass units as its
+  - [x] `systemctl status manta-acquisition.slice` shows the pass units as its
         members when one runs
-  - [ ] Success: caps confirmed; units are in the slice
+  - [x] Success: caps confirmed; units are in the slice
 
 ---
 
