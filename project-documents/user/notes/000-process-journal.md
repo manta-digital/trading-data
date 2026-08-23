@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260819
+dateUpdated: 20260823
 status: in_progress
 ---
 
@@ -20,7 +20,65 @@ file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
 
-## 20260819 — `free -h` is the wrong instrument on a mixed desktop/database host: strict overcommit refused a 48-byte allocation with 90 GiB of RAM free
+## 20260823 — ADR: how a new data source folds into production — bounded pass + timer behind `mt-run`, one front door; the dev checkout keeps only migrations and deploys
+
+**Context:** The 260 (Kalshi) architecture review surfaced that the document
+envisioned a long-running collector daemon while slice 916 — one day earlier —
+had settled production on oneshot passes fired by systemd timers. Resolving
+that raised the broader questions this entry settles: how any new source is
+run, checked, and operated in production, and what (if anything) still requires
+the dev checkout. Databento tick capture will face the same questions shortly.
+
+**Decision:**
+
+1. **A new data source is a bounded pass, not a daemon.** It ships as an `mt`
+   CLI command that syncs until caught up and exits, wrapped in a
+   `mt-{source}-pass.service` oneshot unit fired by a `.timer`, grouped under
+   `manta-acquisition.slice`, and installed by `deploy/install-production.sh`
+   into the pinned `/opt/manta-trading` checkout. The long-running
+   `Type=simple` form (like `mt-serve`) is reserved for genuinely streaming
+   workloads — a websocket/subscription feed, not REST polling. This is 916's
+   taxonomy applied as a standing rule.
+2. **`mt-run` is the single operator front door.** Wrapper verbs
+   (`sudo mt-run {source}`, `mt-run status`, `mt-run follow {source}`) drive
+   the pass units with live-stream/detach semantics; each new source adds its
+   unit to the wrapper's verb map. Everything else passes through to
+   production's own `mt` binary with production credentials
+   (`mt-run data ... `), so any `mt` command is runnable against the
+   production install without a dev checkout.
+3. **Status has two layers, both required.** Process status (running/idle,
+   last result, next timer firing) comes from systemd via `mt-run status`.
+   Data status is a per-source `mt data {source} status` command reading
+   persisted collection state — watermarks per surface plus an explicit
+   completeness definition (for Kalshi: a closed market is complete when
+   settlement is recorded, candles cover open→close, and trades reach close).
+   "Is it complete and up until when" must be a queryable fact, not a feeling.
+4. **The dev checkout retains exactly two operational roles:** operator-run
+   migrations with the maintenance credential (kept out of service
+   environments per slice 913) and running the deploy script. All routine
+   operation goes through `mt-run` against the pinned install.
+5. **CLI and timer share one code path.** The pass command the timer runs is
+   the same command an operator runs manually; both update the same persisted
+   state. No divergence between automated and manual operation.
+
+**Rationale:** The oneshot-pass form makes every run bounded and inspectable
+(exit code, journal, timer schedule) and lets systemd's no-overlap semantics
+replace hand-rolled locking. One front door (`mt-run`) means the production
+install is self-sufficient — a source that needs the dev checkout to operate
+is not actually deployed. The two-layer status split matches what each layer
+can actually know: systemd knows whether the process ran; only persisted
+per-surface state can say whether the *data* is complete. Keeping migrations
+operator-run preserves the credential separation 913 established rather than
+widening service credentials for deploy convenience.
+
+**Follow-ups:** 260-arch revised to this model (Kalshi pass + timer;
+`ProviderType.KALSHI`/`AuthType.NONE`; schema on the TimescaleDB host as its
+own migration track so hypertable promotion stays in-place). Cross-source
+arbitration remains the known gap 916 deferred — pass units share
+`manta-acquisition.slice` with no priority mechanism; that slice is due
+before multiple sources genuinely compete. For Databento ticks: historical
+DBN backfill fits the pass form; live capture is the streaming case and takes
+the `Type=simple` form — the first real exercise of that branch of the rule.
 
 **Context:** A routine integration-tier run against production's cluster died
 with a server-side `psycopg.errors.OutOfMemory` — `Failed on request of size 48
