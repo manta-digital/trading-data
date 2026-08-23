@@ -351,26 +351,26 @@ Effort: 2/5. Every root step is **[PM]**. Nothing is enabled in this group.
 
 Effort: 1/5.
 
-- [ ] **E.1 [PM] Run one daily pass through its unit**
-  - [ ] First check `acquisition_state.last_daily_cycle_end_utc`. If it is more
+- [x] **E.1 [PM] Run one daily pass through its unit**
+  - [x] First check `acquisition_state.last_daily_cycle_end_utc`. If it is more
         than 30 minutes ago and the clock is past 00:30 UTC, the pass starts
         working immediately; otherwise it sleeps out the gate, at most 30
         minutes, restating the remaining time every 5 minutes
-  - [ ] `sudo systemctl start mt-daily-pass.service`, then
+  - [x] `sudo systemctl start mt-daily-pass.service`, then
         `journalctl -u mt-daily-pass.service -f`
-  - [ ] Success: normal pass output; the unit ends `inactive (dead)` with
+  - [x] Success: normal pass output; the unit ends `inactive (dead)` with
         `status=0/SUCCESS`
 
-- [ ] **E.2 [agent] Confirm the supervised pass matches a manual one**
-  - [ ] Same log shape as today's by-hand invocation, and the same
+- [x] **E.2 [agent] Confirm the supervised pass matches a manual one**
+  - [x] Same log shape as today's by-hand invocation, and the same
         `acquisition_state` effect, now running as `manta-trading` from `/opt`
-  - [ ] **If E.1 exited "no actionable work"**, that is a valid pass but a weak
+  - [x] **If E.1 exited "no actionable work"**, that is a valid pass but a weak
         comparison — it never touched the fetch path. Do not wait for one; run
         E.3 instead and compare there. The minute gate is one minute rather than
         thirty, so a minute pass almost always has real work
-  - [ ] Confirm the journal identifies it by `_SYSTEMD_UNIT`, which is what
+  - [x] Confirm the journal identifies it by `_SYSTEMD_UNIT`, which is what
         distinguishes supervised runs from manual ones
-  - [ ] Success: no behavioral difference beyond user and working directory.
+  - [x] Success: no behavioral difference beyond user and working directory.
         **A difference here stops the cutover** — investigate before Group F
 
 - [ ] **E.3 [PM] Run one minute pass through its unit**
