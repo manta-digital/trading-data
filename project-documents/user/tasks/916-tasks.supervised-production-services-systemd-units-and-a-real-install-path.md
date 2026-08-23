@@ -13,9 +13,9 @@ projectState: >
   back PostgreSQL and the backup cron but not acquisition. deploy/systemd/ holds
   two never-installed .service.tmpl files from slice 128 plus a journald drop-in.
   The host has no passwordless sudo.
-status: in_progress
+status: complete
 dateCreated: 20260822
-dateUpdated: 20260822
+dateUpdated: 20260823
 ---
 
 # Tasks: Supervised production services — systemd units and a real install path
@@ -412,51 +412,51 @@ Effort: 1/5, risk concentrated here. This is the one explicit step.
 
 Effort: 2/5. All **[PM]** for the acting steps; verification is **[agent]**.
 
-- [ ] **G.1 [PM] Crash supervision**
-  - [ ] `sudo kill -9 "$(systemctl show -p MainPID --value mt-serve.service)"`
-  - [ ] Success: `systemctl status mt-serve.service` shows it active again with
+- [x] **G.1 [PM] Crash supervision**
+  - [x] `sudo kill -9 "$(systemctl show -p MainPID --value mt-serve.service)"`
+  - [x] Success: `systemctl status mt-serve.service` shows it active again with
         the restart count incremented
 
-- [ ] **G.2 [PM] Clean stop of a running pass**
-  - [ ] Start a pass by hand (`systemctl start mt-daily-pass.service`), then
+- [x] **G.2 [PM] Clean stop of a running pass**
+  - [x] Start a pass by hand (`systemctl start mt-daily-pass.service`), then
         `systemctl stop mt-daily-pass.service` while it is running
-  - [ ] Success: the journal shows the runner's clean-exit path, **not**
+  - [x] Success: the journal shows the runner's clean-exit path, **not**
         `Killed` or `signal=KILL`; `acquisition_state` shows a resumable
         position. A SIGKILL here means `TimeoutStopSec` is too low — fix A.2/A.4
 
-- [ ] **G.3 [PM] Pause one source**
-  - [ ] `sudo systemctl disable --now mt-minute-pass.timer`
-  - [ ] Success: `systemctl list-timers 'mt-*'` no longer lists it; daily is
+- [x] **G.3 [PM] Pause one source**
+  - [x] `sudo systemctl disable --now mt-minute-pass.timer`
+  - [x] Success: `systemctl list-timers 'mt-*'` no longer lists it; daily is
         still listed and `mt-serve` still active
 
-- [ ] **G.4 [PM] Reboot survival, with the pause still in force**
-  - [ ] PM-scheduled moment, executed immediately — this is not a wait
-  - [ ] Prefer a moment when no pass is mid-flight, but do not wait for one:
+- [x] **G.4 [PM] Reboot survival, with the pause still in force**
+  - [x] PM-scheduled moment, executed immediately — this is not a wait
+  - [x] Prefer a moment when no pass is mid-flight, but do not wait for one:
         an interrupted pass resumes where it stopped (slice 912), which is
         exactly the property the reboot is testing
-  - [ ] `sudo reboot`
-  - [ ] Success after boot, with **no operator action**: `mt-serve` is active,
+  - [x] `sudo reboot`
+  - [x] Success after boot, with **no operator action**: `mt-serve` is active,
         the daily timer is back in `list-timers`, and the paused minute timer is
         **still absent**. `Persistent=true` fires any daily schedule missed while
         the host was down
 
-- [ ] **G.5 [PM] Resume the paused source**
-  - [ ] `sudo systemctl enable --now mt-minute-pass.timer`
-  - [ ] Success: the timer returns to `list-timers`, and the `Persistent=true`
+- [x] **G.5 [PM] Resume the paused source**
+  - [x] `sudo systemctl enable --now mt-minute-pass.timer`
+  - [x] Success: the timer returns to `list-timers`, and the `Persistent=true`
         catch-up pass fires immediately — the documented behavior from C.5
 
-- [ ] **G.6 [PM] Rollback rehearsal**
-  - [ ] `sudo systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer
+- [x] **G.6 [PM] Rollback rehearsal**
+  - [x] `sudo systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer
         mt-serve.service`
-  - [ ] Run one pass manually from the dev checkout, exactly as before this slice
-  - [ ] Re-enable the three
-  - [ ] Success: rollback works, the dev checkout was never modified, and
+  - [x] Run one pass manually from the dev checkout, exactly as before this slice
+  - [x] Re-enable the three
+  - [x] Success: rollback works, the dev checkout was never modified, and
         re-enabling restores the supervised state
 
-- [ ] **G.7 [agent] Record the measured results of G.1–G.6**
-  - [ ] Restart counts, timer states before and after the reboot, the clean-stop
+- [x] **G.7 [agent] Record the measured results of G.1–G.6**
+  - [x] Restart counts, timer states before and after the reboot, the clean-stop
         journal line, and the rollback outcome
-  - [ ] Success: each success criterion in the design is answered with an
+  - [x] Success: each success criterion in the design is answered with an
         observation, not an assertion
 
 ---
@@ -465,20 +465,20 @@ Effort: 2/5. All **[PM]** for the acting steps; verification is **[agent]**.
 
 Effort: 1/5. All **[agent]**.
 
-- [ ] **H.1 [agent] Fold the measured results into the runbook**
-  - [ ] `production-deploy.md` gains anything Groups D–G proved that the draft
+- [x] **H.1 [agent] Fold the measured results into the runbook**
+  - [x] `production-deploy.md` gains anything Groups D–G proved that the draft
         got wrong or left vague. A correction found while running belongs in both
         the runbook and this task file
-  - [ ] Success: the runbook describes what actually happened on the host
+  - [x] Success: the runbook describes what actually happened on the host
 
-- [ ] **H.2 [agent] Refine the design's verification walkthrough**
-  - [ ] Replace the draft walkthrough with the commands as actually run,
+- [x] **H.2 [agent] Refine the design's verification walkthrough**
+  - [x] Replace the draft walkthrough with the commands as actually run,
         including anything that needed a correction
-  - [ ] Success: the walkthrough is reproducible by someone who was not present
+  - [x] Success: the walkthrough is reproducible by someone who was not present
 
-- [ ] **H.3 [agent] Update slice status and the plan entry**
-  - [ ] Design frontmatter `status: complete`; slice-plan entry 17 checked off
+- [x] **H.3 [agent] Update slice status and the plan entry**
+  - [x] Design frontmatter `status: complete`; slice-plan entry 17 checked off
         with its outcome recorded
-  - [ ] Success: no document still describes this slice as open
+  - [x] Success: no document still describes this slice as open
 
-- [ ] **H.4 [agent] Final commit**
+- [x] **H.4 [agent] Final commit**
