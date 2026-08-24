@@ -8,7 +8,7 @@ interfaces: [262, 263, 264, 265, 266]
 effort: 3
 dateCreated: 20260824
 dateUpdated: 20260824
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: Kalshi Provider Foundation (261)
@@ -49,6 +49,8 @@ These findings satisfy the architecture requirement that endpoint surface and cu
 | `GET /markets/trades` | cursor; `limit` 1–1000, default 100 | Filters: `ticker`, `min_ts`, `max_ts`, `is_block_trade`. Trade fields: `trade_id`, `ticker`, `count_fp`, `yes_price_dollars`, `no_price_dollars`, `taker_outcome_side`, `taker_book_side`, `created_time`, `is_block_trade`. (`taker_side` is deprecated.) |
 
 Money and quantity are served as **fixed-point decimal strings** (`*_dollars`, `*_fp` with 2 decimals) — the legacy integer-cents representation is superseded. Storage uses `NUMERIC`; parsing uses `Decimal`.
+
+**Served market status vocabulary differs from the filter vocabulary (Phase 6 finding, live survey 2026-08-24, 1,000 markets per filter).** The `status` *field* in market objects does not carry the documented filter values. Observed mapping, filter → served: `unopened` → `initialized`; `open` → `active`; `paused` → `inactive` (plus some `closed`); `closed` → `determined` (result known, `settlement_ts` absent) and `closed`; `settled` → `finalized` (result and `settlement_ts` present). Consequence: `MarketStatus` (stored values; drives the `kalshi.markets.status` CHECK) has the six served values `initialized`, `active`, `inactive`, `closed`, `determined`, `finalized`, and a separate `MarketStatusFilter` enum carries the five documented query values. Settled time is served as `settlement_ts`, alongside `settlement_value_dollars`. `Market.status` is parsed as a plain string so an unknown future value fails at the CHECK (per Technical Decision 7), not by poisoning a whole page at parse time.
 
 ### Historical tier and cutoff behavior
 
@@ -109,8 +111,9 @@ Architectural enablement: every subsequent 260 slice (262 catalog sync, 263 pass
 src/manta_trading/data/kalshi/
   __init__.py
   constants.py    # base URL default, endpoint paths, rate-budget default,
-                  # MarketStatus / EventStatus / CandlePeriod StrEnums — the
-                  # single source for every comparison value in the domain
+                  # MarketStatus (served) / MarketStatusFilter / EventStatusFilter /
+                  # CandlePeriod / Surface enums — the single source for every
+                  # comparison value in the domain
   models.py       # Pydantic response models (external boundary)
   client.py       # KalshiClient — httpx.AsyncClient + RateLimiter + retry
 
@@ -155,7 +158,7 @@ KalshiClient.method()
 
 6. **Catalog rows keep the raw payload** — `series`/`events`/`markets` rows carry a `raw JSONB` column holding the full API object. Rationale: the initiative's purpose is capture before the data becomes unobtainable; column modeling covers what we query, `raw` preserves what we didn't anticipate. Candles/trades (264/265) will not carry raw — they are fully structured.
 
-7. **Lifecycle status enforced from one enum** — `MarketStatus` StrEnum in `kalshi/constants.py` with the five documented values (`unopened`, `open`, `paused`, `closed`, `settled`); the migration derives the CHECK constraint from it (the `acquisition_state` precedent). An undocumented new status fails the upsert loudly — correct per fail-explicit; admitting a new value is a one-line enum change plus a small migration.
+7. **Lifecycle status enforced from one enum** — `MarketStatus` StrEnum in `kalshi/constants.py` with the values the API actually *serves* — `initialized`, `active`, `inactive`, `closed`, `determined`, `finalized` (Discovery Findings: the documented five-value vocabulary is the *filter* vocabulary, carried by the separate `MarketStatusFilter` enum); the migration derives the CHECK constraint from `MarketStatus` (the `acquisition_state` precedent). An undocumented new status fails the upsert loudly — correct per fail-explicit; admitting a new value is a one-line enum change plus a small migration.
 
 8. **`mt data migrate --track`** — `mt data migrate apply|status` gain a `--track` option whose choices come from `TRACKS.keys()` (no string scatter), defaulting to `minute` so existing behavior and the 913 credential rules (apply uses `MT_TIMESCALE_MAINTENANCE_URL`, status the app URL) are unchanged. Both tracks target the same database, so no new connection plumbing.
 
@@ -192,7 +195,7 @@ Migration sequence (IDs indicative; content is the contract):
 - `kalshi_002_catalog` — catalog tables:
   - `kalshi.series` — `ticker TEXT PK`, `frequency`, `title`, `category`, `tags JSONB`, `settlement_sources JSONB`, `fee_type`, `fee_multiplier NUMERIC`, `product_metadata JSONB`, `last_updated_ts TIMESTAMPTZ` (Kalshi's), `raw JSONB`, `first_seen_at`/`last_synced_at TIMESTAMPTZ` (ours).
   - `kalshi.events` — `event_ticker TEXT PK`, `series_ticker TEXT NOT NULL REFERENCES kalshi.series`, `title`, `sub_title`, `mutually_exclusive BOOLEAN`, `strike_date TIMESTAMPTZ`, `strike_period`, `collateral_return_type`, `product_metadata JSONB`, `last_updated_ts TIMESTAMPTZ`, `raw JSONB`, `first_seen_at`/`last_synced_at`.
-  - `kalshi.markets` — `ticker TEXT PK`, `event_ticker TEXT NOT NULL REFERENCES kalshi.events`, `market_type`, `status TEXT NOT NULL` + CHECK derived from `MarketStatus`, lifecycle timestamps (`created_time`, `open_time`, `close_time`, `latest_expiration_time`, `updated_time` — all Kalshi's, TIMESTAMPTZ), settlement fields (`result`, `expiration_value`, `can_close_early`, settled-time as confirmed by fixtures), market economics as `NUMERIC` (`notional_value`, `volume`, `open_interest`, last/bid/ask prices), `rules_primary`/`rules_secondary TEXT`, `raw JSONB`, `first_seen_at`/`last_synced_at`.
+  - `kalshi.markets` — `ticker TEXT PK`, `event_ticker TEXT NOT NULL REFERENCES kalshi.events`, `market_type`, `status TEXT NOT NULL` + CHECK derived from `MarketStatus`, lifecycle timestamps (`created_time`, `open_time`, `close_time`, `latest_expiration_time`, `updated_time` — all Kalshi's, TIMESTAMPTZ), settlement fields (`result`, `expiration_value`, `can_close_early`, `settlement_ts`, `settlement_value_dollars` — names confirmed from live responses), market economics as `NUMERIC` (`notional_value`, `volume`, `open_interest`, last/bid/ask prices), `rules_primary`/`rules_secondary TEXT`, `raw JSONB`, `first_seen_at`/`last_synced_at`.
   - Indexes: `markets(event_ticker)`, `markets(status)`, `markets(close_time)`, `events(series_ticker)`. Exact secondary-index set may be tuned in 262 when query shapes are real.
   - Exact optional-column list is finalized during implementation **from the recorded fixtures**, not from prose docs — required columns above are the contract.
 - `kalshi_003_collection_state` — collection-state tables (created now so 262/264 write into a stable schema; row semantics are finalized by their consuming slices):

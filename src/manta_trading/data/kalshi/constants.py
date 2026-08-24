@@ -97,12 +97,34 @@ CURSOR_FIELD = "cursor"
 
 
 class MarketStatus(StrEnum):
-    """Market lifecycle status as served by ``GET /markets``.
+    """Market lifecycle status as *served* in market objects.
+
+    Discovery (live survey 2026-08-24, recorded in the 261 design): the
+    documented filter vocabulary (``unopened``/``open``/``paused``/``closed``/
+    ``settled``) is **not** what the ``status`` field carries. Served values
+    map from the filters as unopened→``initialized``, open→``active``,
+    paused→``inactive``, closed→``closed``/``determined`` (determined = result
+    known, settlement pending), settled→``finalized``.
 
     Values are stored as TEXT in ``kalshi.markets.status``; the CHECK
     constraint in the kalshi migration track is derived from this enum (the
     ``acquisition_state`` precedent in ``data/acquisition/state.py``). An
     undocumented new status fails the upsert loudly by design.
+    """
+
+    INITIALIZED = "initialized"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    CLOSED = "closed"
+    DETERMINED = "determined"
+    FINALIZED = "finalized"
+
+
+class MarketStatusFilter(StrEnum):
+    """``status`` query-parameter values accepted by ``GET /markets``.
+
+    Distinct from :class:`MarketStatus` (the served vocabulary) — see its
+    docstring for the mapping between the two.
     """
 
     UNOPENED = "unopened"
@@ -112,8 +134,8 @@ class MarketStatus(StrEnum):
     SETTLED = "settled"
 
 
-class EventStatus(StrEnum):
-    """Event status filter accepted by ``GET /events`` (no ``paused``)."""
+class EventStatusFilter(StrEnum):
+    """``status`` query-parameter values accepted by ``GET /events``."""
 
     UNOPENED = "unopened"
     OPEN = "open"

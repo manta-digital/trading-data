@@ -14,9 +14,20 @@ _SRC_ROOT = Path(__file__).resolve().parents[4] / "src" / "manta_trading"
 
 
 class TestEnums:
-    def test_market_status_values(self):
+    def test_market_status_served_values(self):
         assert issubclass(kc.MarketStatus, StrEnum)
         assert [m.value for m in kc.MarketStatus] == [
+            "initialized",
+            "active",
+            "inactive",
+            "closed",
+            "determined",
+            "finalized",
+        ]
+
+    def test_market_status_filter_values(self):
+        assert issubclass(kc.MarketStatusFilter, StrEnum)
+        assert [m.value for m in kc.MarketStatusFilter] == [
             "unopened",
             "open",
             "paused",
@@ -24,9 +35,9 @@ class TestEnums:
             "settled",
         ]
 
-    def test_event_status_values(self):
-        assert issubclass(kc.EventStatus, StrEnum)
-        assert [m.value for m in kc.EventStatus] == [
+    def test_event_status_filter_values(self):
+        assert issubclass(kc.EventStatusFilter, StrEnum)
+        assert [m.value for m in kc.EventStatusFilter] == [
             "unopened",
             "open",
             "closed",
