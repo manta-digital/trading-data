@@ -239,46 +239,46 @@ batched into one trailing test task).
 
 ## Section 6: Recorded real-response fixtures
 
-- [ ] **Task 6.1: Fixture recording script** (effort: 2)
-  - [ ] Create `scripts/record_kalshi_fixtures.py`: drives `KalshiClient`
+- [x] **Task 6.1: Fixture recording script** (effort: 2)
+  - [x] Create `scripts/record_kalshi_fixtures.py`: drives `KalshiClient`
         methods against the live API (public mode) and writes raw response
         JSON to `test/fixtures/kalshi/`. Capture raw bodies via an httpx
         `event_hooks` response hook or a recording transport wrapper so what
         is written is the wire payload, not a model re-serialization.
-  - [ ] Supports `--only <name>` and `--dry-run` (print, don't write) —
+  - [x] Supports `--only <name>` and `--dry-run` (print, don't write) —
         the design's verification walkthrough uses
         `--only historical_cutoff --dry-run` as the live smoke check.
-  - [ ] Respects the client's rate limiter; never runs in CI; module
+  - [x] Respects the client's rate limiter; never runs in CI; module
         docstring states both.
-  - [ ] Success: `--dry-run` against the live API prints responses without
+  - [x] Success: `--dry-run` against the live API prints responses without
         writing; script passes lint/type checks.
 
-- [ ] **Task 6.2: Record and commit the fixture set** (effort: 2)
-  - [ ] Run the script; commit fixtures for every consumed endpoint per the
+- [x] **Task 6.2: Record and commit the fixture set** (effort: 2)
+  - [x] Run the script; commit fixtures for every consumed endpoint per the
         design's fixtures list: series list, single series, events page,
         single event, markets page, single market, candlesticks (one market,
         one period), trades page, historical cutoff.
-  - [ ] Multi-page pairs with a **genuine** follow-the-cursor second page for
+  - [x] Multi-page pairs with a **genuine** follow-the-cursor second page for
         events, markets, and trades.
-  - [ ] At least one settled market fixture including its `result`; at least
+  - [x] At least one settled market fixture including its `result`; at least
         one non-2xx body (e.g. 404 unknown ticker) for error-path tests.
-  - [ ] Success: files exist under `test/fixtures/kalshi/`; each is valid
+  - [x] Success: files exist under `test/fixtures/kalshi/`; each is valid
         JSON; no credentials or personal data in any fixture.
-  - [ ] **Commit checkpoint**: `test: add recorded kalshi API fixtures`.
+  - [x] **Commit checkpoint**: `test: add recorded kalshi API fixtures`.
 
-- [ ] **Task 6.3: Fixture-driven test pass and discovery cross-check** (effort: 3)
-  - [ ] `test/unit/data/kalshi/test_fixtures.py`: every committed fixture
+- [x] **Task 6.3: Fixture-driven test pass and discovery cross-check** (effort: 3)
+  - [x] `test/unit/data/kalshi/test_fixtures.py`: every committed fixture
         parses through its model via the client (MockTransport serving the
         file); `Decimal` fields asserted against fixture strings; pagination
         test re-pointed at the real two-page fixture pairs; 404 fixture →
         `ProviderPermanentError`.
-  - [ ] Cross-check the design's Discovery Findings against what recording
+  - [x] Cross-check the design's Discovery Findings against what recording
         actually returned (field names, pagination behavior, cutoff response
         shape). If reality disagrees, update the design's Discovery Findings
         section and say so in the commit message; finalize any
         optional-column choices Task 8.2 needs.
-  - [ ] Success: all tests pass; design doc updated or confirmed unchanged.
-  - [ ] **Commit checkpoint**: `test: fixture-driven kalshi client coverage`.
+  - [x] Success: all tests pass; design doc updated or confirmed unchanged.
+  - [x] **Commit checkpoint**: `test: fixture-driven kalshi client coverage`.
 
 ## Section 7: Authenticated signing (optional mode)
 

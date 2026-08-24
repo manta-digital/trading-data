@@ -23,7 +23,9 @@ from typing import Any, TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 
+from manta_trading.data.kalshi.auth import KalshiCredentials
 from manta_trading.data.kalshi.constants import (
+    KALSHI_AUTHENTICATED_RATE_LIMIT,
     KALSHI_BACKOFF_BASE_SECONDS,
     KALSHI_BACKOFF_CAP_SECONDS,
     KALSHI_BASE_URL,
@@ -73,7 +75,7 @@ def _clean_params(params: Mapping[str, ParamValue]) -> dict[str, str]:
 
 
 class KalshiTransport:
-    """Rate-limited, retrying GET-and-validate core (public mode).
+    """Rate-limited, retrying GET-and-validate core.
 
     Owns one lazily created, reused ``httpx.AsyncClient`` (close it with
     :meth:`aclose`) and one :class:`RateLimiter` — the shared budget every
@@ -82,12 +84,15 @@ class KalshiTransport:
 
     Args:
         base_url: API root; defaults to the documented primary host.
-        rate_limit: Request budget; defaults to the public-tier constant.
+        rate_limit: Request budget; defaults to the constant for the mode
+            (public or authenticated) selected by ``credentials``.
         rate_limiter: An explicit limiter instance to share with other
             callers (overrides ``rate_limit``).
         transport: Optional ``httpx`` transport — tests inject
             ``httpx.MockTransport`` here.
         max_retries: Retries after the first attempt on transient failures.
+        credentials: Loaded key pair for authenticated mode; ``None`` is
+            public mode (see ``auth.load_credentials`` for mode selection).
     """
 
     def __init__(
@@ -98,15 +103,35 @@ class KalshiTransport:
         rate_limiter: RateLimiter | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         max_retries: int = KALSHI_MAX_RETRIES,
+        credentials: KalshiCredentials | None = None,
     ) -> None:
         self._base_url = base_url
-        budget = rate_limit or KALSHI_PUBLIC_RATE_LIMIT
+        self._credentials = credentials
+        mode_budget = (
+            KALSHI_AUTHENTICATED_RATE_LIMIT if credentials else KALSHI_PUBLIC_RATE_LIMIT
+        )
+        self.rate_limit = rate_limit or mode_budget
         self._limiter = rate_limiter or RateLimiter(
-            max_calls=budget.requests_per_minute, period=RATE_LIMIT_PERIOD_SECONDS
+            max_calls=self.rate_limit.requests_per_minute,
+            period=RATE_LIMIT_PERIOD_SECONDS,
         )
         self._transport = transport
         self._max_retries = max_retries
         self._http: httpx.AsyncClient | None = None
+        # The URL path prefix under the host (e.g. ``/trade-api/v2``): the
+        # signed path is the full request path, query string excluded.
+        self._path_prefix = httpx.URL(base_url).path.rstrip("/")
+        _logger.info(
+            "kalshi client mode=%s budget=%d/min base_url=%s",
+            self.mode,
+            self.rate_limit.requests_per_minute,
+            base_url,
+        )
+
+    @property
+    def mode(self) -> str:
+        """``"authenticated"`` or ``"public"``."""
+        return "authenticated" if self._credentials else "public"
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -132,8 +157,11 @@ class KalshiTransport:
     # ------------------------------------------------------------------
 
     def request_headers(self, method: str, path: str) -> dict[str, str]:
-        """Per-request headers. Public mode sends none (signing: Section 7)."""
-        return {}
+        """Per-request headers: the signed ``KALSHI-ACCESS-*`` trio in
+        authenticated mode, none in public mode."""
+        if self._credentials is None:
+            return {}
+        return self._credentials.headers(method, self._path_prefix + path)
 
     async def get_json(self, path: str, params: Mapping[str, ParamValue]) -> Any:
         """GET ``path`` (relative to the base URL) and return the JSON body.

@@ -11,10 +11,12 @@ limiting, retry, error taxonomy) lives in ``transport.py``.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
-from typing import TypedDict, Unpack, cast
+from typing import Self, TypedDict, Unpack, cast
 
 import httpx
 
+from manta_trading.config import Settings
+from manta_trading.data.kalshi.auth import KalshiCredentials, load_credentials
 from manta_trading.data.kalshi.constants import (
     CURSOR_FIELD,
     EVENT_PATH,
@@ -126,11 +128,12 @@ def _with_cursor(
 
 
 class KalshiClient:
-    """Async client for Kalshi market data (public mode).
+    """Async client for Kalshi market data (public or authenticated mode).
 
     One instance holds one rate budget shared across every surface. Close
     with :meth:`aclose`. Constructor arguments are forwarded to
-    :class:`KalshiTransport`.
+    :class:`KalshiTransport`; :meth:`from_settings` selects the mode from
+    the configured credential pair.
     """
 
     def __init__(
@@ -141,6 +144,7 @@ class KalshiClient:
         rate_limiter: RateLimiter | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         max_retries: int = KALSHI_MAX_RETRIES,
+        credentials: KalshiCredentials | None = None,
     ) -> None:
         self._transport = KalshiTransport(
             base_url=base_url,
@@ -148,7 +152,29 @@ class KalshiClient:
             rate_limiter=rate_limiter,
             transport=transport,
             max_retries=max_retries,
+            credentials=credentials,
         )
+
+    @classmethod
+    def from_settings(
+        cls, settings: Settings, *, base_url: str = KALSHI_BASE_URL
+    ) -> Self:
+        """Build a client whose mode follows the configured credential pair.
+
+        Raises ``KalshiCredentialError`` for a partial pair or unreadable
+        PEM — a construction-time failure, never a runtime surprise.
+        """
+        return cls(
+            base_url=base_url,
+            credentials=load_credentials(
+                settings.kalshi_api_key_id, settings.kalshi_private_key_path
+            ),
+        )
+
+    @property
+    def mode(self) -> str:
+        """``"authenticated"`` or ``"public"``."""
+        return self._transport.mode
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client (idempotent)."""
