@@ -18,7 +18,7 @@ status: not_started
 Foundation slice for Initiative 260 (Kalshi event-contract data). Delivers the three things every later slice stands on:
 
 1. **Provider registration** — `ProviderType.KALSHI` and a `ProviderProfile` with `AuthType.NONE` in the existing provider registry.
-2. **API client** — an httpx-based client for Kalshi's `trade-api/v2` market-data surface: shared-budget rate limiting, cursor pagination, transient/permanent error taxonomy, Pydantic response models, and recorded real-response fixtures for every consumed endpoint.
+2. **API client** — an httpx-based client for Kalshi's `trade-api/v2` market-data surface: shared-budget rate limiting, cursor pagination, transient/permanent error taxonomy, Pydantic response models, optional authenticated request signing (the PM holds a funded, verified Kalshi account; authenticated operation is planned near-term for its documented rate budget), and recorded real-response fixtures for every consumed endpoint.
 3. **Schema** — a `kalshi` migration track on the TimescaleDB host creating the catalog tables (series, events, markets with lifecycle status and settlement fields) and collection-state tables (per-surface watermarks, awaiting-settlement set).
 
 This slice also discharges the architecture's discovery mandate: Kalshi's current endpoint surface and `/historical/*` cutoff behavior were verified against published documentation (docs.kalshi.com, checked 2026-08-24) and are recorded in **Discovery Findings** below. The findings gate conditional slice 266 (Historical Backfill).
@@ -62,8 +62,13 @@ The live/historical split took effect **2026-02-19** (per the API changelog). Be
 
 ### Rate limits
 
-- Kalshi replaced its per-second scheme with a **token-bucket model on 2026-04-23**: separate read/write budgets; most requests cost 10 tokens. The lowest authenticated tier (Basic) refills 200 read tokens/sec ≈ 20 reads/sec. Per-endpoint costs are queryable only via an authenticated account endpoint.
-- **The unauthenticated budget is not documented.** Consequence: the client's operating budget is a conservative local config value, not a documented ceiling. Default: **300 requests/minute (5/sec sustained)**, defined once (see Technical Decisions) and configurable. A `429` carries no penalty per the docs; the client treats it as transient and backs off.
+- Kalshi replaced its per-second scheme with a **token-bucket model on 2026-04-23**: separate read/write budgets; most requests cost 10 tokens. The lowest authenticated tier (Basic — default for any account holder) refills 200 read tokens/sec ≈ 20 reads/sec. Per-endpoint costs are queryable only via an authenticated account endpoint.
+- **The unauthenticated budget is not documented.** Consequence: in public mode the client's operating budget is a conservative local config value, not a documented ceiling. Default: **300 requests/minute (5/sec sustained)**, defined once (see Technical Decisions) and configurable. A `429` carries no penalty per the docs; the client treats it as transient and backs off.
+- In authenticated mode the budget is documented (Basic: ~20 reads/sec); the authenticated default runs below that ceiling (see Technical Decisions).
+
+### Authentication mechanism (authenticated tier)
+
+Verified against the API-keys documentation: keys are created in Kalshi account settings and issued as an **RSA private key plus a Key ID** (the private key is shown once and never stored by Kalshi). Each authenticated request carries three headers — `KALSHI-ACCESS-KEY` (key ID), `KALSHI-ACCESS-TIMESTAMP` (milliseconds), `KALSHI-ACCESS-SIGNATURE` — where the signature is **RSA-PSS (SHA-256, MGF1-SHA256, digest-length salt)**, base64-encoded, over the concatenation `timestamp + HTTP method + request path` with **query parameters excluded** from the signed path. The same market-data endpoints serve both modes; responses are identical, so fixtures are mode-independent.
 
 ## Value
 
@@ -73,8 +78,9 @@ Architectural enablement: every subsequent 260 slice (262 catalog sync, 263 pass
 
 **In scope:**
 - `ProviderType.KALSHI` + `ProviderProfile` registration (`src/manta_trading/providers/types.py`, `profiles.py`).
-- New package `src/manta_trading/data/kalshi/`: async client, Pydantic models, constants (endpoint paths, rate default, enums).
+- New package `src/manta_trading/data/kalshi/`: async client, Pydantic models, constants (endpoint paths, rate defaults, enums).
 - Client methods for: series list, series, events (paged), event, markets (paged), market, market candlesticks, trades (paged), historical cutoff.
+- Optional authenticated mode: RSA-PSS request signing when credentials are configured, public mode otherwise; the two modes select different rate budgets.
 - Recorded real-response fixtures under `test/fixtures/kalshi/` for every method above, plus representative error responses; a manual recording script.
 - `kalshi` migration track (`src/manta_trading/market/schema/migrations/kalshi.py`, registered in `TRACKS`): PostgreSQL schema `kalshi` with catalog tables (`series`, `events`, `markets`) and collection-state tables (`sync_state`, `awaiting_settlement`, `market_candle_state`).
 - `--track` option on `mt data migrate apply|status` so the kalshi track can be applied and inspected (default `minute`, preserving current behavior).
@@ -131,13 +137,15 @@ KalshiClient.method()
 
 ## Technical Decisions
 
-1. **Same `trading` database, new PostgreSQL schema `kalshi`** — not a separate database. The architecture requires the TimescaleDB *host*; a dedicated PG schema on the existing `trading` database gives table isolation and clean namespacing (Kalshi's natural table names — `series`, `events`, `markets` — would be collision-prone in `public`) while reusing the existing connection URLs, role split, pools, and backup coverage. A separate database would add two env vars, role provisioning, and install/runbook surface for no additional isolation the schema doesn't already provide. Hypertable promotion later works identically on non-public schemas. *(Flagged for PM review — this is the one materially reversible infrastructure choice in the slice.)*
+1. **Same `trading` database, new PostgreSQL schema `kalshi`** — not a separate database. *(PM-approved, with direction: the Kalshi domain is expected to grow and eventually separate for zero blast-radius crossover with equities.)* The architecture requires the TimescaleDB *host*; a dedicated PG schema on the existing `trading` database gives table isolation and clean namespacing (Kalshi's natural table names — `series`, `events`, `markets` — would be collision-prone in `public`) while reusing the existing connection URLs, role split, pools, and backup coverage. Hypertable promotion later works identically on non-public schemas. **Extraction discipline (binding on all 260 slices):** the `kalshi` schema must stay fully self-contained — no foreign keys, joins, views, or code paths that cross into `public` tables — so the eventual move to a dedicated database is a schema dump/restore plus a URL change, never an untangling.
 
 2. **Migration IDs are prefixed `kalshi_NNN_*`** — the kalshi track shares the `trading` database's `schema_migrations` ledger with the minute track, so IDs must be globally unique within that database. The track's first entry is the standard `001_schema_migrations` bootstrap (identical SQL to the other tracks): already recorded on the production database (no-op there), and it lets the unchanged runner bootstrap a bare throwaway database in tests.
 
 3. **Reuse, don't invent** — errors: the existing `ProviderTransientError`/`ProviderPermanentError` hierarchy; rate limiting: the existing `util.ratelimiter.RateLimiter`; retry: the bounded exponential-backoff shape already used by `data/adjustment/providers/_http.fetch_with_retry` (reused directly if its signature fits, otherwise mirrored in the client). No new frameworks.
 
-4. **Conservative unauthenticated rate budget, defined once** — because Kalshi does not document the unauthenticated budget (Discovery Findings), the operating budget is `KALSHI_DEFAULT_RATE_LIMIT = RateLimit(requests_per_minute=300)` in `kalshi/constants.py`. The provider profile and the client wiring both reference this one constant; a config override (read at CLI wiring time, 262+) can raise or lower it. No other rate number appears anywhere.
+4. **Two rate budgets, each defined once, selected by mode** — `kalshi/constants.py` defines `KALSHI_PUBLIC_RATE_LIMIT = RateLimit(requests_per_minute=300)` (conservative — the unauthenticated budget is undocumented) and `KALSHI_AUTHENTICATED_RATE_LIMIT = RateLimit(requests_per_minute=1000)` (≈83% of the documented Basic-tier read budget of ~20 reads/sec, leaving headroom for token-cost exceptions). The client selects the constant matching its mode; a config override (read at CLI wiring time, 262+) can raise or lower either. No other rate number appears anywhere.
+
+4a. **Authenticated support ships in this slice, as an optional mode** — the PM holds a funded, verified account and authenticated operation is planned near-term, so the signing layer is foundation work, not a retrofit (it lives in the same client file either way). Credentials are `MT_KALSHI_API_KEY_ID` and `MT_KALSHI_PRIVATE_KEY_PATH` (a path to the PEM file — private key material never goes in an env var or the repo). Mode selection is explicit, not a silent fallback: both set → authenticated; neither set → public; **exactly one set → hard error at client construction**. The selected mode is logged at construction. The architecture's constraint stands: the collector must keep working with no credentials configured. Signing uses the `cryptography` package (RSA-PSS/SHA-256) — one new direct dependency, the standard library for this and not otherwise in the tree. The provider profile keeps `AuthType.NONE`: the registry field records what the provider *requires* (market data requires nothing); optional signing is a client capability, and a new `AuthType` member is only warranted if a required-auth surface is ever adopted.
 
 5. **Pydantic models, lenient by policy** — models declare the fields the initiative consumes as required, parse `*_dollars`/`*_fp` strings to `Decimal`, and set `extra="allow"` so new upstream fields never break collection (capture-before-it-disappears beats strictness here; genuinely malformed payloads still fail validation loudly).
 
@@ -152,7 +160,7 @@ KalshiClient.method()
 ### Provider registry
 
 - `ProviderType.KALSHI = "kalshi"` in `types.py`.
-- Profile in `profiles.py`: `name="kalshi"`, `base_url="https://external-api.kalshi.com/trade-api/v2"` (documented primary; overridable at client construction — the alternate host is a config change, not a code change), `api_key_env=None`, `auth_type=AuthType.NONE`, `rate_limit=KALSHI_DEFAULT_RATE_LIMIT` with a comment that the unauthenticated tier budget is undocumented and this is our conservative operating budget, not Kalshi's ceiling.
+- Profile in `profiles.py`: `name="kalshi"`, `base_url="https://external-api.kalshi.com/trade-api/v2"` (documented primary; overridable at client construction — the alternate host is a config change, not a code change), `api_key_env=None`, `auth_type=AuthType.NONE` (records what the provider *requires*; see Technical Decision 4a), `rate_limit=KALSHI_PUBLIC_RATE_LIMIT` with a comment that the unauthenticated tier budget is undocumented and this is our conservative operating budget, not Kalshi's ceiling.
 
 ### Client contract (`kalshi/client.py`)
 
@@ -165,7 +173,9 @@ Async methods, all returning validated models; paged endpoints get both a single
 - `get_trades(...)` / `iter_trades(...)`
 - `get_historical_cutoff()`
 
-Filter parameters mirror the documented query parameters (Discovery Findings table) — no invented abstractions over them. The client owns one `httpx.AsyncClient` (lazy, reused; explicit `aclose()`), one `RateLimiter`, and a request timeout constant. Every request passes through the limiter, including retries.
+Filter parameters mirror the documented query parameters (Discovery Findings table) — no invented abstractions over them. The client owns one `httpx.AsyncClient` (lazy, reused; explicit `aclose()`), one `RateLimiter` (budget selected by mode per Technical Decision 4), and a request timeout constant. Every request passes through the limiter, including retries.
+
+Authenticated mode (Technical Decision 4a): when credentials are configured, every request additionally carries the three `KALSHI-ACCESS-*` headers, with the signature computed per the Discovery Findings mechanism (RSA-PSS/SHA-256 over `timestamp_ms + method + path`, query string excluded from the signed path). The private key loads once at client construction; a missing/unreadable key file or a partial credential pair is a construction-time error, never a runtime surprise.
 
 ### Database schema (`kalshi` track)
 
@@ -210,10 +220,11 @@ Nothing unreleased — all prerequisites are complete initiatives (900, 100, 913
 1. `ProviderType.KALSHI` registered; `mt provider list` (existing command) shows `kalshi` with `auth: none`; existing provider registry tests extended and passing.
 2. `KalshiClient` implements every method in the client contract; each consumed endpoint has a committed real-response fixture; unit tests cover: successful parse of every fixture, cursor pagination across a multi-page fixture pair, 429/5xx/timeout → `ProviderTransientError` (after bounded retry), other 4xx and malformed payload → `ProviderPermanentError`, and rate-limiter enforcement (N calls take ≥ the window time at the configured budget).
 3. Every price/quantity field parses to `Decimal` from the fixed-point string forms — asserted against fixture values.
+3a. Authenticated mode: unit tests verify the signature against a generated test key pair (correct signing input including query-string exclusion, correct headers), mode selection (both/neither/exactly-one credential — the last a construction-time error), and budget selection per mode. No test touches the real account credentials.
 4. `TRACKS["kalshi"]` exists; `mt data migrate apply --track kalshi` applies it (maintenance credential path unchanged); `mt data migrate status --track kalshi` reports it; `--track` defaults preserve existing minute-track behavior byte-for-byte.
 5. Integration test on a throwaway database: kalshi track applies from bare (bootstrap included), re-apply is a no-op, all `kalshi.*` tables/constraints/grants exist, FK and CHECK constraints reject bad rows, and the teardown/re-apply cycle described in the rollback posture passes.
 6. Discovery findings recorded (this document) with the 266 gate decision stated.
-7. `ruff` and strict `pyright` clean; no new dependencies beyond what the repo already uses (httpx, pydantic, psycopg are present).
+7. `ruff` and strict `pyright` clean; exactly one new direct dependency (`cryptography`, for RSA-PSS signing) — everything else the slice uses (httpx, pydantic, psycopg) is already present.
 
 ## Verification Walkthrough
 
@@ -247,14 +258,15 @@ There is no `mt data kalshi ...` command yet — that surface starts in 262. Wha
 
 ## Risk Assessment
 
-- **Unauthenticated rate budget is undocumented.** Mitigated by the conservative single-constant default, 429-as-transient handling, and configurability. If 429s appear at 5 req/s during fixture recording, lower the default before merging.
+- **Unauthenticated rate budget is undocumented.** Mitigated by the conservative single-constant default, 429-as-transient handling, configurability — and by authenticated mode (documented budget) being available from this slice onward. If 429s appear at 5 req/s during unauthenticated fixture recording, lower the public default before merging.
+- **Private key is a production secret.** The PEM file lives outside the repo, referenced by path; `.env` (gitignored) holds only the path and key ID. Gitleaks already scans the repo; the recording script and tests never read the real key.
 - **Docs vs. reality drift** (the API changed materially three times in 2026). Mitigated by fixture recording being the source of truth for optional columns and model fields — implementation trusts recorded responses over prose documentation, and this document records where each claim came from.
 
 ## Implementation Notes
 
 ### Development Approach
 
-Suggested order: constants + enums → provider registry (small, unblocks nothing but cheap) → Pydantic models against hand-fetched sample responses → recording script + commit fixtures → client + unit tests → migration track + integration tests → `--track` CLI option → this document's findings cross-checked against what recording actually returned (update Discovery Findings if reality disagrees, and say so).
+Suggested order: constants + enums → provider registry (small, unblocks nothing but cheap) → Pydantic models against hand-fetched sample responses → recording script + commit fixtures → client (public mode) + unit tests → signing layer + signing tests → migration track + integration tests → `--track` CLI option → this document's findings cross-checked against what recording actually returned (update Discovery Findings if reality disagrees, and say so).
 
 Branch: `261-slice.kalshi-provider-foundation` from `main` (no integration branch configured), per the git rules.
 

@@ -10,7 +10,7 @@ relatedSlices: []
 riskLevel: low
 archIndex: 260
 dateCreated: 20260823
-dateUpdated: 20260823
+dateUpdated: 20260824
 status: in_progress
 ---
 
@@ -97,7 +97,7 @@ At completion, event-contract data accumulates with no operational attention, th
 
 - **Settlement capture timing** — Markets pass through close → determination → settlement, and the interval varies by market. The awaiting-settlement set and its age-visibility requirement (Architectural Principles) cover the mechanism; the stuck-threshold and any operator alerting are slice-design decisions.
 
-- **Rate-limit budget** — Public-tier limits are generous relative to this workload, but they are tiered and Kalshi's to change; the client needs the same configurable rate-limiter discipline as existing providers, budgeted so catalog sync, candles, and trades share one budget across the pass. Whether an authenticated tier is worth adopting for higher limits is an open decision — the architecture assumes the unauthenticated public tier and must not require credentials.
+- **Rate-limit budget** — Public-tier limits are generous relative to this workload, but they are tiered and Kalshi's to change; the client needs the same configurable rate-limiter discipline as existing providers, budgeted so catalog sync, candles, and trades share one budget across the pass. The authenticated-tier question is resolved (20260824): the PM holds a funded, verified account and authenticated operation is planned near-term, so the client supports an optional signed mode from slice 261 with its documented (higher) budget — while the hard constraint stands unchanged: the collector must keep working without credentials, on the public tier.
 
 - **Pass duration and the timer interval** — Unlike daily/minute passes, first-run Kalshi catch-up (full catalog crawl plus candle history) may take far longer than a steady-state pass. The oneshot unit's semantics already prevent overlap (systemd will not start a unit that is still running), but the timer interval and any first-run expectations should be chosen so steady-state passes are short and frequent while the initial catch-up simply runs long once.
 
