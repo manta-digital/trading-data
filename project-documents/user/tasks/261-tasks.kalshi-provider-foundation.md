@@ -111,33 +111,33 @@ status: in_progress
 
 ## Section 3: Pydantic response models
 
-- [ ] **Task 3.1: Implement `models.py`** (effort: 3)
-  - [ ] Create `src/manta_trading/data/kalshi/models.py` with Pydantic models
+- [x] **Task 3.1: Implement `models.py`** (effort: 3)
+  - [x] Create `src/manta_trading/data/kalshi/models.py` with Pydantic models
         for: `Series`, `Event`, `Market`, `Trade`, `Candlestick` (with its
         nested yes_bid/yes_ask/price OHLC objects), `HistoricalCutoff`, and
         the page/list response wrappers (series list, events+cursor,
         markets+cursor, trades+cursor, candlesticks).
-  - [ ] Required fields = the columns the design's schema section names as
+  - [x] Required fields = the columns the design's schema section names as
         the contract; everything else optional. `model_config` sets
         `extra="allow"` (design Technical Decision 5 — lenient by policy).
-  - [ ] All `*_dollars` / `*_fp` fixed-point string fields parse to
+  - [x] All `*_dollars` / `*_fp` fixed-point string fields parse to
         `Decimal`; nullable price fields tolerated (candlesticks).
-  - [ ] Timestamps: ISO-8601 datetimes and Unix-seconds ints parse to aware
+  - [x] Timestamps: ISO-8601 datetimes and Unix-seconds ints parse to aware
         `datetime` as served per endpoint — match the documented field types
         in the design's endpoint table, do not guess.
-  - [ ] Success: models import cleanly; `pyright` strict passes.
+  - [x] Success: models import cleanly; `pyright` strict passes.
 
-- [ ] **Task 3.2: Model unit tests with hand-fetched samples** (effort: 2)
-  - [ ] New `test/unit/data/kalshi/test_models.py` using small inline sample
+- [x] **Task 3.2: Model unit tests with hand-fetched samples** (effort: 2)
+  - [x] New `test/unit/data/kalshi/test_models.py` using small inline sample
         payloads hand-fetched from the live API (a browser/curl grab is fine
         at this stage; full recorded fixtures arrive in Section 6 and the
         fixture-driven pass in Task 6.3 supersedes these samples as
         coverage).
-  - [ ] Cover: successful parse per model; `Decimal` values asserted exactly
+  - [x] Cover: successful parse per model; `Decimal` values asserted exactly
         against the sample strings; unknown extra field tolerated; missing
         required field raises `ValidationError`.
-  - [ ] Success: tests pass.
-  - [ ] **Commit checkpoint**: `feat: add kalshi API response models`.
+  - [x] Success: tests pass.
+  - [x] **Commit checkpoint**: `feat: add kalshi API response models`.
 
 ## Section 4: Client — core request path (public mode)
 
