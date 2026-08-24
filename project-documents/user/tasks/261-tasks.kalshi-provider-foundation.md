@@ -12,7 +12,7 @@ projectState: >
   initiative 260; slices 262-266 build on its client and schema.
 dateCreated: 20260824
 dateUpdated: 20260824
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -386,39 +386,39 @@ behavior question arises; this slice creates plain relational tables only.
 
 ## Section 9: CLI `--track` option
 
-- [ ] **Task 9.1: Add `--track` to `mt data migrate apply|status`** (effort: 2)
-  - [ ] In `cli/commands/data.py`: `--track` option on both commands,
+- [x] **Task 9.1: Add `--track` to `mt data migrate apply|status`** (effort: 2)
+  - [x] In `cli/commands/data.py`: `--track` option on both commands,
         choices sourced from `TRACKS.keys()` (no string literals), default
         `"minute"` (defined once, e.g. alongside `TRACKS`).
-  - [ ] Selected track's migration list is passed to the existing runner;
+  - [x] Selected track's migration list is passed to the existing runner;
         credential behavior unchanged (apply → maintenance URL per 913,
         status → application URL).
-  - [ ] Success: `mt data migrate status` output for the default is
+  - [x] Success: `mt data migrate status` output for the default is
         byte-identical to before; `--track kalshi` reports the kalshi track.
-- [ ] **Task 9.2: CLI tests** (effort: 2)
-  - [ ] Extend `test/unit/test_cli_data.py`: default-track behavior
+- [x] **Task 9.2: CLI tests** (effort: 2)
+  - [x] Extend `test/unit/test_cli_data.py`: default-track behavior
         unchanged; `--track kalshi` selects `TRACKS["kalshi"]` (assert on
         the migration list handed to the mocked runner); invalid track name
         rejected with the available choices listed.
-  - [ ] Success: CLI tests pass.
-  - [ ] **Commit checkpoint**: `feat: add --track option to mt data migrate`.
+  - [x] Success: CLI tests pass.
+  - [x] **Commit checkpoint**: `feat: add --track option to mt data migrate`.
 
 ## Section 10: Final validation and walkthrough
 
-- [ ] **Task 10.1: Full-suite validation** (effort: 1)
-  - [ ] `uv run pytest` (unit + integration) green; `ruff check` clean;
+- [x] **Task 10.1: Full-suite validation** (effort: 1)
+  - [x] `uv run pytest` (unit + integration) green; `ruff check` clean;
         `pyright` strict zero errors (src and tests).
-  - [ ] Success criteria list in the design (items 1–7 incl. 3a) each
+  - [x] Success criteria list in the design (items 1–7 incl. 3a) each
         verified and noted.
-- [ ] **Task 10.2: Execute the verification walkthrough** (effort: 1)
-  - [ ] Run the design's Verification Walkthrough steps 1–5 end to end
+- [x] **Task 10.2: Execute the verification walkthrough** (effort: 1)
+  - [x] Run the design's Verification Walkthrough steps 1–5 end to end
         (provider list, unit tests, throwaway-DB integration run,
         `mt data migrate status --track kalshi`, live cutoff smoke via
         `--only historical_cutoff --dry-run`).
-  - [ ] Refine the walkthrough section in the design doc to match actual
+  - [x] Refine the walkthrough section in the design doc to match actual
         commands/output (it is a draft until Phase 6 completes).
-- [ ] **Task 10.3: Close out** (effort: 1)
-  - [ ] Delegate checklist updates to the task-checker agent; ensure all
+- [x] **Task 10.3: Close out** (effort: 1)
+  - [x] Delegate checklist updates to the task-checker agent; ensure all
         completed tasks are checked.
-  - [ ] Success summary kept concise; **final commit** of any doc updates:
+  - [x] Success summary kept concise; **final commit** of any doc updates:
         `docs: refine 261 walkthrough post-implementation`.

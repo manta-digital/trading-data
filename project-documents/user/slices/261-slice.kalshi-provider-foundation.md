@@ -8,7 +8,7 @@ interfaces: [262, 263, 264, 265, 266]
 effort: 3
 dateCreated: 20260824
 dateUpdated: 20260824
-status: in_progress
+status: complete
 ---
 
 # Slice Design: Kalshi Provider Foundation (261)
@@ -245,31 +245,65 @@ Nothing unreleased — all prerequisites are complete initiatives (900, 100, 913
 
 ## Verification Walkthrough
 
-Draft demo script — refined at end of Phase 6.
+Executed at the end of Phase 6 (2026-08-24); commands and outputs below are what actually ran. Every database step targets a throwaway database on the test cluster — nothing here touches production.
 
 ```bash
 # 1. Provider is registered
-mt provider list                      # → row: kalshi | auth: none | base_url: external-api.kalshi.com/...
+uv run mt provider list
+#    → row: kalshi | kalshi | Kalshi event-contract market data (trade-api/v2) | (no aliases) | ✓
+uv run mt provider status --json | python3 -c "import sys,json;print([p for p in json.load(sys.stdin) if p['name']=='kalshi'][0]['auth_type'])"
+#    → none
 
-# 2. Unit tests: client vs recorded real responses
-uv run pytest test/unit/data/kalshi/ -v
-#    → parse, pagination, error-taxonomy, and rate-limit tests pass
+# 2. Unit tests: client vs recorded real responses (no network, no database)
+uv run pytest test/unit/data/kalshi -q
+#    → 106 passed (constants/enums, models, request core incl. transport-error
+#      taxonomy and rate-limit enforcement, endpoint methods, recorded-fixture
+#      pass incl. genuine two-page cursor pairs and the 404 body, signing)
 
 # 3. Migration on a throwaway database (never production)
-export MT_TIMESCALE_TEST_URL=postgresql://trading_test_admin:...@host:5432/postgres
-uv run pytest test/integration/ -k kalshi_migrations -v
-#    → creates throwaway DB, applies track from bare, idempotence + teardown checks
+#    MT_TIMESCALE_TEST_URL is the test-cluster admin URL (runbook:
+#    user/runbooks/test-database-cluster.md); the reviewed runner copies in
+#    only that tier's allowlisted variables.
+uv run python scripts/run_tests.py integration -- -k kalshi_migrations -q
+#    → 14 passed: bare apply bootstraps the ledger then applies
+#      kalshi_001_schema / kalshi_002_catalog / kalshi_003_collection_state;
+#      second apply returns []; tables, PKs, FKs, enum-derived CHECKs, indexes
+#      and trading_app grants present; nothing references public; bad status /
+#      unknown series / unknown period rejected; DROP SCHEMA kalshi CASCADE +
+#      ledger cleanup + re-apply succeeds
 
-# 4. Migration track visible through the CLI (against a dev/test DB)
-mt data migrate status --track kalshi
-#    → applied: 001_schema_migrations, kalshi_001_schema, kalshi_002_catalog,
-#      kalshi_003_collection_state; pending: none
-mt data migrate status                # → minute track output, unchanged
+# 4. Migration track through the CLI, against a throwaway database
+#    (point BOTH URLs at a database you created on the test cluster; apply
+#    resolves the maintenance URL per 913, status the application URL)
+export MT_TIMESCALE_DB_URL=postgresql://trading_test_admin:...@host:5432/mt_walk_xxx
+export MT_TIMESCALE_MAINTENANCE_URL=$MT_TIMESCALE_DB_URL
+uv run mt data migrate apply --track kalshi
+#    → Applied: kalshi_001_schema / kalshi_002_catalog / kalshi_003_collection_state
+#      3 migration(s) applied
+uv run mt data migrate status --track kalshi
+#    → 001_schema_migrations, kalshi_001_schema, kalshi_002_catalog,
+#      kalshi_003_collection_state all "applied"; "4 applied, 0 pending"
+uv run mt data migrate apply --track kalshi --json      # → {"applied": []}
+uv run mt data migrate status                           # → minute track, unchanged
+#    (on the throwaway DB: the shared ledger's 4 rows applied, 54 minute
+#     migrations pending — the minute view is the same output as before 261)
+uv run mt data migrate apply --track bogus
+#    → Invalid value for '--track': 'bogus' is not one of 'minute', 'daily', 'kalshi'.
 
 # 5. One live smoke call (manual, optional — proves the real API matches fixtures)
 uv run python scripts/record_kalshi_fixtures.py --only historical_cutoff --dry-run
-#    → prints current cutoff timestamps (market_settled_ts, trades_created_ts, ...)
+#    → --- historical_cutoff (HTTP 200, 188 bytes)
+#      {"market_positions_last_updated_ts":"2026-06-25T00:00:00Z",
+#       "market_settled_ts":"2026-06-25T00:00:00Z", ...,
+#       "trades_created_ts":"2026-06-25T00:00:00Z"}
 ```
+
+Caveats discovered during implementation:
+
+- **Type checking:** `pyproject.toml` configures `mypy` as this project's checker (the python-rules "or mypy" alternative); `pyright` is not installed in the environment. The slice was verified with both — `uv run --extra dev mypy` on every touched file, and strict `pyright` (via `npx pyright`, an ad-hoc config with `typeCheckingMode: strict`) on the kalshi package, its tests, the migration module, and the recorder — zero errors on each. Adding a repo-wide `[tool.pyright]` block remains the tracked chore noted in `pyproject.toml`.
+- **Running tiers together** (`pytest test/unit test/integration` in one invocation) fails at collection on a pre-existing `from conftest import …` name collision between tiers; run tiers separately (`scripts/run_tests.py <tier>`), as the project already does.
+- **Applying the kalshi track to production** (`mt data migrate apply --track kalshi` with the production maintenance URL) was *not* run — it is a PM action. The track is idempotent and additive (new schema only), so it can be applied whenever 262 is ready to write into it.
+- The live series list for the recorded fixture uses `category=Health` (98 series, 78 KB) to keep the unpaginated response a sane size; the full unfiltered list is several MB.
 
 There is no `mt data kalshi ...` command yet — that surface starts in 262. What the user can *prove* after this slice: the provider exists, the client speaks the real API (fixtures + optional smoke call), and the schema applies cleanly and idempotently.
 

@@ -16,6 +16,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (slice 261 — Kalshi provider foundation, complete 2026-08-24)
+- **Kalshi is a registered provider.** `mt provider list` shows `kalshi`
+  (auth: none — market data is public). New package
+  `manta_trading.data.kalshi`: an async `trade-api/v2` client covering series,
+  events, markets, candlesticks, trades and the historical cutoff, with
+  cursor-following iterators, one shared rate budget, bounded retry, and a
+  transient/permanent error taxonomy that is complete over every httpx
+  failure mode. Responses are typed Pydantic models; fixed-point money fields
+  parse to `Decimal`.
+- **Optional authenticated mode.** Set `MT_KALSHI_API_KEY_ID` and
+  `MT_KALSHI_PRIVATE_KEY_PATH` (a PEM file path — never key material) and the
+  client signs requests (RSA-PSS) and runs on the documented authenticated
+  budget; set neither for public mode; setting only one is a construction-time
+  error. New direct dependency: `cryptography`.
+- **`kalshi` migration track.** `mt data migrate apply|status --track kalshi`
+  creates PostgreSQL schema `kalshi` on the trading database: catalog tables
+  (`series`, `events`, `markets` with an enum-derived status CHECK and the raw
+  payload) and collection-state tables (`sync_state`, `awaiting_settlement`,
+  `market_candle_state`). `--track` defaults to `minute`, so existing
+  `mt data migrate` behaviour is unchanged. Not yet applied to production.
+- **Recorded real-response fixtures** under `test/fixtures/kalshi/` and the
+  developer recorder `scripts/record_kalshi_fixtures.py` (`--only`, `--dry-run`).
+
+### Changed
+- Discovery finding recorded in the 261 design: Kalshi *serves* market status
+  as `initialized`/`active`/`inactive`/`closed`/`determined`/`finalized`; the
+  documented `unopened`/`open`/`paused`/`closed`/`settled` vocabulary is the
+  query filter only. Slice 266 (historical backfill) is confirmed viable —
+  public `/historical/*` data exists behind a discoverable cutoff.
+
 ## [0.8.0] — 2026-08-23
 
 ### Added (slice 916 — supervised production, complete 2026-08-23)
