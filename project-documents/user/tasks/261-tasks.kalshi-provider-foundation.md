@@ -282,36 +282,36 @@ batched into one trailing test task).
 
 ## Section 7: Authenticated signing (optional mode)
 
-- [ ] **Task 7.1: Signing layer and mode selection** (effort: 3)
-  - [ ] Per the design's authentication mechanism (Discovery Findings):
+- [x] **Task 7.1: Signing layer and mode selection** (effort: 3)
+  - [x] Per the design's authentication mechanism (Discovery Findings):
         sign `timestamp_ms + method + path` — **query string excluded** —
         with RSA-PSS (SHA-256, MGF1-SHA256, digest-length salt), base64;
         send `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-TIMESTAMP` (ms),
         `KALSHI-ACCESS-SIGNATURE` on every request when in authenticated
         mode.
-  - [ ] Credentials from the Task 1.2 env var constants: key ID +
+  - [x] Credentials from the Task 1.2 env var constants: key ID +
         private-key PEM *path*. PEM loads once at client construction.
-  - [ ] Mode selection is explicit (design Technical Decision 4a): both set
+  - [x] Mode selection is explicit (design Technical Decision 4a): both set
         → authenticated; neither → public; exactly one → raise at
         construction. Missing/unreadable PEM file → raise at construction.
         Selected mode logged at construction.
-  - [ ] Budget selection by mode: authenticated mode uses
+  - [x] Budget selection by mode: authenticated mode uses
         `KALSHI_AUTHENTICATED_RATE_LIMIT`, public uses
         `KALSHI_PUBLIC_RATE_LIMIT`, unless an explicit budget was passed.
-  - [ ] Success: lint/type clean; public-mode behavior byte-identical to
+  - [x] Success: lint/type clean; public-mode behavior byte-identical to
         Sections 4–6 (existing tests untouched and passing).
 
-- [ ] **Task 7.2: Signing unit tests** (effort: 2)
-  - [ ] `test/unit/data/kalshi/test_client_auth.py` with a keypair
+- [x] **Task 7.2: Signing unit tests** (effort: 2)
+  - [x] `test/unit/data/kalshi/test_client_auth.py` with a keypair
         *generated in the test* (never the real credentials):
-  - [ ] Signature verifies with the public key over the exact signed string;
+  - [x] Signature verifies with the public key over the exact signed string;
         request with query parameters signs the bare path.
-  - [ ] Headers present and well-formed in authenticated mode; absent in
+  - [x] Headers present and well-formed in authenticated mode; absent in
         public mode.
-  - [ ] Mode selection: both/neither/exactly-one (error) /missing-PEM-file
+  - [x] Mode selection: both/neither/exactly-one (error) /missing-PEM-file
         (error); budget constant selected per mode.
-  - [ ] Success: all pass.
-  - [ ] **Commit checkpoint**: `feat: add optional kalshi authenticated signing`.
+  - [x] Success: all pass.
+  - [x] **Commit checkpoint**: `feat: add optional kalshi authenticated signing`.
 
 ## Section 8: `kalshi` migration track
 
