@@ -1,11 +1,8 @@
-"""Request-core tests for ``KalshiClient`` (slice 261, Task 4.2).
+"""Request-core tests for ``KalshiTransport`` (slice 261, Task 4.2).
 
-Drives ``_get_json`` / ``_get_model`` through ``httpx.MockTransport``.
+Drives ``get_json`` / ``get_model`` through ``httpx.MockTransport``.
 Failure-path tests assert exception *type and cause*, never message text.
 """
-
-# The request core is private by design; these tests exist to drive it.
-# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
@@ -17,9 +14,9 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from manta_trading.data.kalshi import client as client_module
-from manta_trading.data.kalshi.client import KalshiClient
+from manta_trading.data.kalshi import transport as transport_module
 from manta_trading.data.kalshi.constants import KALSHI_MAX_RETRIES
+from manta_trading.data.kalshi.transport import KalshiTransport
 from manta_trading.providers.errors import (
     ProviderPermanentError,
     ProviderTransientError,
@@ -37,12 +34,12 @@ def no_backoff_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     async def fake_sleep(seconds: float) -> None:
         sleeps.append(seconds)
 
-    monkeypatch.setattr(client_module, "_sleep", fake_sleep)
+    monkeypatch.setattr(transport_module, "_sleep", fake_sleep)
     return sleeps
 
 
-def make_client(handler: Handler, **kwargs: Any) -> KalshiClient:
-    return KalshiClient(transport=httpx.MockTransport(handler), **kwargs)
+def make_client(handler: Handler, **kwargs: Any) -> KalshiTransport:
+    return KalshiTransport(transport=httpx.MockTransport(handler), **kwargs)
 
 
 class Counter:
@@ -83,7 +80,7 @@ class TestTransportFailures:
         counter = Counter(lambda _n, req: _raise(exc_type)(req))
         client = make_client(counter)
         with pytest.raises(ProviderTransientError) as info:
-            await client._get_json("/historical/cutoff", {})
+            await client.get_json("/historical/cutoff", {})
         assert isinstance(info.value.__cause__, exc_type)
         assert counter.calls == KALSHI_MAX_RETRIES + 1
         assert len(no_backoff_sleep) == KALSHI_MAX_RETRIES
@@ -97,13 +94,13 @@ class TestTransportFailures:
 
         counter = Counter(behaviour)
         client = make_client(counter)
-        assert await client._get_json("/x", {}) == {"ok": 2}
+        assert await client.get_json("/x", {}) == {"ok": 2}
         assert counter.calls == 2
 
     async def test_backoff_is_exponential(self, no_backoff_sleep: list[float]):
         client = make_client(_raise(httpx.ConnectError))
         with pytest.raises(ProviderTransientError):
-            await client._get_json("/x", {})
+            await client.get_json("/x", {})
         assert no_backoff_sleep == [1.0, 2.0, 4.0][:KALSHI_MAX_RETRIES]
 
     async def test_non_transport_http_error_is_permanent_with_cause(self):
@@ -116,7 +113,7 @@ class TestTransportFailures:
         counter = Counter(lambda _n, req: handler(req))
         client = make_client(counter)
         with pytest.raises(ProviderPermanentError) as info:
-            await client._get_json("/x", {})
+            await client.get_json("/x", {})
         assert isinstance(info.value.__cause__, httpx.DecodingError)
         assert counter.calls == 1
 
@@ -127,7 +124,7 @@ class TestStatusClassification:
         counter = Counter(lambda _n, _r: httpx.Response(status, text="slow down"))
         client = make_client(counter)
         with pytest.raises(ProviderTransientError):
-            await client._get_json("/x", {})
+            await client.get_json("/x", {})
         assert counter.calls == KALSHI_MAX_RETRIES + 1
 
     async def test_transient_status_then_success(self):
@@ -138,7 +135,7 @@ class TestStatusClassification:
 
         counter = Counter(behaviour)
         client = make_client(counter)
-        assert await client._get_json("/x", {}) == {"n": 3}
+        assert await client.get_json("/x", {}) == {"n": 3}
         assert counter.calls == 3
 
     @pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
@@ -148,13 +145,13 @@ class TestStatusClassification:
         )
         client = make_client(counter)
         with pytest.raises(ProviderPermanentError):
-            await client._get_json("/x", {})
+            await client.get_json("/x", {})
         assert counter.calls == 1
 
     async def test_malformed_json_permanent_with_cause(self):
         client = make_client(lambda _r: httpx.Response(200, text="<html>nope"))
         with pytest.raises(ProviderPermanentError) as info:
-            await client._get_json("/x", {})
+            await client.get_json("/x", {})
         assert isinstance(info.value.__cause__, ValueError)
 
 
@@ -165,13 +162,13 @@ class _Model(BaseModel):
 class TestModelValidation:
     async def test_valid_payload_returns_model(self):
         client = make_client(lambda _r: httpx.Response(200, json={"ticker": "A"}))
-        result = await client._get_model("/x", _Model)
+        result = await client.get_model("/x", _Model)
         assert result.ticker == "A"
 
     async def test_validation_failure_is_permanent_with_cause(self):
         client = make_client(lambda _r: httpx.Response(200, json={"nope": 1}))
         with pytest.raises(ProviderPermanentError) as info:
-            await client._get_model("/x", _Model)
+            await client.get_model("/x", _Model)
         assert info.value.__cause__ is not None
         assert type(info.value.__cause__).__name__ == "ValidationError"
 
@@ -185,7 +182,7 @@ class TestRequestShape:
             return httpx.Response(200, json={})
 
         client = make_client(handler, base_url="https://example.test/trade-api/v2")
-        await client._get_json(
+        await client.get_json(
             "/markets", {"limit": 5, "status": None, "with_nested_markets": True}
         )
         assert seen[0].url.host == "example.test"
@@ -194,7 +191,7 @@ class TestRequestShape:
 
     async def test_aclose_is_idempotent(self):
         client = make_client(lambda _r: httpx.Response(200, json={}))
-        await client._get_json("/x", {})
+        await client.get_json("/x", {})
         await client.aclose()
         await client.aclose()
 
@@ -207,7 +204,7 @@ class TestRateLimiter:
         )
         start = time.monotonic()
         for _ in range(3):
-            await client._get_json("/x", {})
+            await client.get_json("/x", {})
         assert time.monotonic() - start >= 1.0
 
     async def test_retries_pass_through_limiter(self):
@@ -216,7 +213,7 @@ class TestRateLimiter:
         client = make_client(counter, rate_limiter=limiter, max_retries=2)
         start = time.monotonic()
         with pytest.raises(ProviderTransientError):
-            await client._get_json("/x", {})
+            await client.get_json("/x", {})
         # 3 attempts through a 2-per-second limiter: the third waits a period.
         assert counter.calls == 3
         assert time.monotonic() - start >= 1.0

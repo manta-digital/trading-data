@@ -1,92 +1,136 @@
-"""``KalshiClient`` — httpx transport for Kalshi ``trade-api/v2`` market data.
+"""``KalshiClient`` — the Kalshi ``trade-api/v2`` market-data surface.
 
-A thin, honest transport layer: it rate-limits, fetches, retries bounded,
-classifies failures, validates, and raises. Sync strategy, watermarks, and
-persistence live in later slices; the client never touches the database.
-
-Error classification is complete over ``httpx.HTTPError`` (design 261,
-client contract): every ``httpx.TransportError`` (DNS, refused, TLS, all
-four timeout phases, peer disconnect mid-response, protocol errors) and HTTP
-429/5xx → ``ProviderTransientError`` after bounded retry; every other
-``httpx.HTTPError``, every other non-2xx status, non-JSON bodies, and
-Pydantic validation failures → ``ProviderPermanentError``. Raised errors
-carry their cause. Nothing else is caught.
+Async methods returning validated models; paged endpoints get a single-page
+call plus an ``iter_*`` async generator that follows ``cursor`` until it is
+absent or empty. Filter parameters mirror the documented query parameters
+(design 261, Discovery Findings) verbatim — the ``*Query`` TypedDicts below
+are the documented names, typed, nothing more. The request core (rate
+limiting, retry, error taxonomy) lives in ``transport.py``.
 """
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Mapping
-from typing import Any, TypeVar
+from collections.abc import AsyncIterator, Mapping
+from typing import TypedDict, Unpack, cast
 
 import httpx
-from pydantic import BaseModel, ValidationError
 
 from manta_trading.data.kalshi.constants import (
-    KALSHI_BACKOFF_BASE_SECONDS,
-    KALSHI_BACKOFF_CAP_SECONDS,
+    CURSOR_FIELD,
+    EVENT_PATH,
+    EVENTS_PATH,
+    HISTORICAL_CUTOFF_PATH,
     KALSHI_BASE_URL,
     KALSHI_MAX_RETRIES,
-    KALSHI_PUBLIC_RATE_LIMIT,
-    KALSHI_REQUEST_TIMEOUT,
-    KALSHI_TRANSIENT_STATUSES,
-    RATE_LIMIT_PERIOD_SECONDS,
+    MARKET_CANDLESTICKS_PATH,
+    MARKET_PATH,
+    MARKETS_PATH,
+    SERIES_LIST_PATH,
+    SERIES_PATH,
+    TRADES_PATH,
+    CandlePeriod,
+    EventStatusFilter,
+    MarketStatusFilter,
 )
-from manta_trading.logging import get_logger
-from manta_trading.providers.errors import (
-    ProviderPermanentError,
-    ProviderTransientError,
+from manta_trading.data.kalshi.models import (
+    Candlestick,
+    CandlesticksResponse,
+    Event,
+    EventResponse,
+    EventsPage,
+    HistoricalCutoff,
+    Market,
+    MarketResponse,
+    MarketsPage,
+    Series,
+    SeriesListResponse,
+    SeriesResponse,
+    Trade,
+    TradesPage,
 )
+from manta_trading.data.kalshi.transport import KalshiTransport, ParamValue
 from manta_trading.providers.types import RateLimit
 from manta_trading.util.ratelimiter import RateLimiter
 
-_logger = get_logger(__name__)
 
-ModelT = TypeVar("ModelT", bound=BaseModel)
+class SeriesQuery(TypedDict, total=False):
+    """``GET /series`` filters (no pagination)."""
 
-#: Query-parameter value types the client accepts; ``None`` means "omit".
-ParamValue = str | int | bool | None
-
-
-def _backoff_seconds(attempt: int) -> float:
-    """Exponential backoff for 0-indexed ``attempt``, capped."""
-    return min(KALSHI_BACKOFF_BASE_SECONDS * (2**attempt), KALSHI_BACKOFF_CAP_SECONDS)
+    category: str | None
+    tags: str | None
+    min_updated_ts: int | None
+    include_product_metadata: bool | None
+    include_volume: bool | None
 
 
-async def _sleep(seconds: float) -> None:
-    """Indirect ``asyncio.sleep`` so tests can monkeypatch this module."""
-    await asyncio.sleep(seconds)
+class EventsQuery(TypedDict, total=False):
+    """``GET /events`` filters; ``limit`` 1–200."""
+
+    status: EventStatusFilter | None
+    series_ticker: str | None
+    tickers: str | None
+    min_close_ts: int | None
+    min_updated_ts: int | None
+    with_nested_markets: bool | None
+    limit: int | None
 
 
-def _clean_params(params: Mapping[str, ParamValue]) -> dict[str, str]:
-    """Drop ``None`` values and render the rest the way Kalshi expects."""
-    cleaned: dict[str, str] = {}
-    for key, value in params.items():
-        if value is None:
-            continue
-        if isinstance(value, bool):
-            cleaned[key] = "true" if value else "false"
-        else:
-            cleaned[key] = str(value)
-    return cleaned
+class MarketsQuery(TypedDict, total=False):
+    """``GET /markets`` filters; ``limit`` 0–1000.
+
+    Per Discovery Findings ``min_updated_ts`` is incompatible with every
+    other filter except ``mve_filter="exclude"``; the client passes such
+    combinations through and the API rejects them.
+    """
+
+    status: MarketStatusFilter | None
+    event_ticker: str | None
+    series_ticker: str | None
+    tickers: str | None
+    min_created_ts: int | None
+    max_created_ts: int | None
+    min_close_ts: int | None
+    max_close_ts: int | None
+    min_settled_ts: int | None
+    max_settled_ts: int | None
+    min_updated_ts: int | None
+    mve_filter: str | None
+    limit: int | None
+
+
+class TradesQuery(TypedDict, total=False):
+    """``GET /markets/trades`` filters; ``limit`` 1–1000."""
+
+    ticker: str | None
+    min_ts: int | None
+    max_ts: int | None
+    is_block_trade: bool | None
+    limit: int | None
+
+
+def _params(query: Mapping[str, object]) -> dict[str, ParamValue]:
+    """A ``*Query`` TypedDict as a plain param dict.
+
+    Every ``*Query`` value type is a ``ParamValue`` (StrEnums are ``str``);
+    the cast only recovers what the TypedDict-to-Mapping widening drops.
+    """
+    return cast(dict[str, ParamValue], dict(query))
+
+
+def _with_cursor(
+    query: Mapping[str, object], cursor: str | None
+) -> dict[str, ParamValue]:
+    params = _params(query)
+    params[CURSOR_FIELD] = cursor
+    return params
 
 
 class KalshiClient:
-    """Async client for the Kalshi market-data surface (public mode).
+    """Async client for Kalshi market data (public mode).
 
-    Owns one lazily created, reused ``httpx.AsyncClient`` (close it with
-    :meth:`aclose`) and one :class:`RateLimiter` — the shared budget every
-    surface (catalog, candlesticks, trades) draws from. Every request,
-    including each retry, passes through the limiter.
-
-    Args:
-        base_url: API root; defaults to the documented primary host.
-        rate_limit: Request budget; defaults to the public-tier constant.
-        rate_limiter: An explicit limiter instance to share with other
-            callers (overrides ``rate_limit``).
-        transport: Optional ``httpx`` transport — tests inject
-            ``httpx.MockTransport`` here.
-        max_retries: Retries after the first attempt on transient failures.
+    One instance holds one rate budget shared across every surface. Close
+    with :meth:`aclose`. Constructor arguments are forwarded to
+    :class:`KalshiTransport`.
     """
 
     def __init__(
@@ -98,137 +142,167 @@ class KalshiClient:
         transport: httpx.AsyncBaseTransport | None = None,
         max_retries: int = KALSHI_MAX_RETRIES,
     ) -> None:
-        self._base_url = base_url
-        budget = rate_limit or KALSHI_PUBLIC_RATE_LIMIT
-        self._limiter = rate_limiter or RateLimiter(
-            max_calls=budget.requests_per_minute, period=RATE_LIMIT_PERIOD_SECONDS
+        self._transport = KalshiTransport(
+            base_url=base_url,
+            rate_limit=rate_limit,
+            rate_limiter=rate_limiter,
+            transport=transport,
+            max_retries=max_retries,
         )
-        self._transport = transport
-        self._max_retries = max_retries
-        self._http: httpx.AsyncClient | None = None
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
-    def _ensure_http(self) -> httpx.AsyncClient:
-        if self._http is None:
-            self._http = httpx.AsyncClient(
-                base_url=self._base_url,
-                timeout=KALSHI_REQUEST_TIMEOUT,
-                transport=self._transport,
-            )
-        return self._http
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client (idempotent)."""
-        if self._http is not None:
-            await self._http.aclose()
-            self._http = None
+        await self._transport.aclose()
 
     # ------------------------------------------------------------------
-    # Request core
+    # Series (not paginated)
     # ------------------------------------------------------------------
 
-    def _request_headers(self, method: str, path: str) -> dict[str, str]:
-        """Per-request headers. Public mode sends none (signing: Section 7)."""
-        return {}
+    async def get_series_list(self, **query: Unpack[SeriesQuery]) -> list[Series]:
+        """``GET /series`` — the full list in one response (no cursor)."""
+        page = await self._transport.get_model(
+            SERIES_LIST_PATH, SeriesListResponse, _params(query)
+        )
+        return page.series
 
-    async def _get_json(self, path: str, params: Mapping[str, ParamValue]) -> Any:
-        """GET ``path`` (relative to the base URL) and return the JSON body.
+    async def get_series(self, series_ticker: str) -> Series:
+        """``GET /series/{series_ticker}``."""
+        resp = await self._transport.get_model(
+            SERIES_PATH.format(series_ticker=series_ticker), SeriesResponse
+        )
+        return resp.series
 
-        Bounded retry with exponential backoff on transient failures; each
-        attempt acquires the rate limiter first.
+    # ------------------------------------------------------------------
+    # Events (cursor paginated)
+    # ------------------------------------------------------------------
+
+    async def get_events(
+        self, *, cursor: str | None = None, **query: Unpack[EventsQuery]
+    ) -> EventsPage:
+        """``GET /events`` — one page."""
+        return await self._transport.get_model(
+            EVENTS_PATH, EventsPage, _with_cursor(query, cursor)
+        )
+
+    async def iter_events(self, **query: Unpack[EventsQuery]) -> AsyncIterator[Event]:
+        """Follow ``cursor`` across ``GET /events`` pages."""
+        cursor: str | None = None
+        while True:
+            page = await self.get_events(cursor=cursor, **query)
+            for event in page.events:
+                yield event
+            if not page.cursor:
+                return
+            cursor = page.cursor
+
+    async def get_event(
+        self, event_ticker: str, *, with_nested_markets: bool | None = None
+    ) -> Event:
+        """``GET /events/{event_ticker}``.
+
+        The wire shape is ``{"event": ..., "markets": [...]}``; a top-level
+        ``markets`` list is folded onto ``Event.markets`` so callers see one
+        object regardless of where the API placed it.
         """
-        http = self._ensure_http()
-        query = _clean_params(params)
-        attempts = self._max_retries + 1
-        for attempt in range(attempts):
-            async with self._limiter:
-                try:
-                    response = await http.get(
-                        path, params=query, headers=self._request_headers("GET", path)
-                    )
-                except httpx.TransportError as exc:
-                    # Connection-level failure (DNS, refused, TLS, any timeout
-                    # phase, peer disconnect, protocol error): transient.
-                    _logger.warning(
-                        "kalshi transport error (attempt %d/%d) on %s: %s",
-                        attempt + 1,
-                        attempts,
-                        path,
-                        exc,
-                    )
-                    if attempt < self._max_retries:
-                        await _sleep(_backoff_seconds(attempt))
-                        continue
-                    raise ProviderTransientError(
-                        f"transport failure after {attempts} attempts on {path}: {exc}"
-                    ) from exc
-                except httpx.HTTPError as exc:
-                    # Everything else httpx raises that is not a transport
-                    # failure (invalid URL, stream misuse): not retriable.
-                    _logger.error("kalshi HTTP error on %s: %s", path, exc)
-                    raise ProviderPermanentError(
-                        f"HTTP error on {path}: {exc}"
-                    ) from exc
+        resp = await self._transport.get_model(
+            EVENT_PATH.format(event_ticker=event_ticker),
+            EventResponse,
+            {"with_nested_markets": with_nested_markets},
+        )
+        event = resp.event
+        if event.markets is None and resp.markets is not None:
+            event.markets = resp.markets
+        return event
 
-            status = response.status_code
-            if status in KALSHI_TRANSIENT_STATUSES:
-                _logger.warning(
-                    "kalshi HTTP %d (transient, attempt %d/%d) on %s: %s",
-                    status,
-                    attempt + 1,
-                    attempts,
-                    path,
-                    response.text[:300],
-                )
-                if attempt < self._max_retries:
-                    await _sleep(_backoff_seconds(attempt))
-                    continue
-                raise ProviderTransientError(
-                    f"HTTP {status} after {attempts} attempts on {path}: "
-                    f"{response.text[:300]}"
-                )
-            return self._decode(response, path)
+    # ------------------------------------------------------------------
+    # Markets (cursor paginated)
+    # ------------------------------------------------------------------
 
-        # The loop always returns or raises; make that visible if it ever
-        # stops being true rather than returning None silently.
-        raise ProviderTransientError(f"retry loop exited without result on {path}")
+    async def get_markets(
+        self, *, cursor: str | None = None, **query: Unpack[MarketsQuery]
+    ) -> MarketsPage:
+        """``GET /markets`` — one page."""
+        return await self._transport.get_model(
+            MARKETS_PATH, MarketsPage, _with_cursor(query, cursor)
+        )
 
-    @staticmethod
-    def _decode(response: httpx.Response, path: str) -> Any:
-        """Turn a non-transient response into JSON or a permanent error."""
-        if not response.is_success:
-            _logger.error(
-                "kalshi HTTP %d (permanent) on %s: %s",
-                response.status_code,
-                path,
-                response.text[:300],
-            )
-            raise ProviderPermanentError(
-                f"HTTP {response.status_code} on {path}: {response.text[:300]}"
-            )
-        try:
-            return response.json()
-        except ValueError as exc:
-            _logger.error("kalshi non-JSON body on %s: %s", path, response.text[:200])
-            raise ProviderPermanentError(
-                f"non-JSON response on {path}: {response.text[:200]}"
-            ) from exc
+    async def iter_markets(
+        self, **query: Unpack[MarketsQuery]
+    ) -> AsyncIterator[Market]:
+        """Follow ``cursor`` across ``GET /markets`` pages."""
+        cursor: str | None = None
+        while True:
+            page = await self.get_markets(cursor=cursor, **query)
+            for market in page.markets:
+                yield market
+            if not page.cursor:
+                return
+            cursor = page.cursor
 
-    async def _get_model(
+    async def get_market(self, ticker: str) -> Market:
+        """``GET /markets/{ticker}``."""
+        resp = await self._transport.get_model(
+            MARKET_PATH.format(ticker=ticker), MarketResponse
+        )
+        return resp.market
+
+    # ------------------------------------------------------------------
+    # Candlesticks (range query, not paginated)
+    # ------------------------------------------------------------------
+
+    async def get_market_candlesticks(
         self,
-        path: str,
-        model_type: type[ModelT],
-        params: Mapping[str, ParamValue] | None = None,
-    ) -> ModelT:
-        """GET ``path`` and validate the body as ``model_type``."""
-        body = await self._get_json(path, params or {})
-        try:
-            return model_type.model_validate(body)
-        except ValidationError as exc:
-            _logger.error("kalshi payload failed validation on %s: %s", path, exc)
-            raise ProviderPermanentError(
-                f"payload on {path} failed {model_type.__name__} validation: {exc}"
-            ) from exc
+        series_ticker: str,
+        ticker: str,
+        *,
+        start_ts: int,
+        end_ts: int,
+        period_interval: CandlePeriod,
+        include_latest_before_start: bool = False,
+    ) -> list[Candlestick]:
+        """``GET /series/{series_ticker}/markets/{ticker}/candlesticks``."""
+        resp = await self._transport.get_model(
+            MARKET_CANDLESTICKS_PATH.format(series_ticker=series_ticker, ticker=ticker),
+            CandlesticksResponse,
+            {
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+                "period_interval": int(period_interval),
+                "include_latest_before_start": include_latest_before_start,
+            },
+        )
+        return resp.candlesticks
+
+    # ------------------------------------------------------------------
+    # Trades (cursor paginated)
+    # ------------------------------------------------------------------
+
+    async def get_trades(
+        self, *, cursor: str | None = None, **query: Unpack[TradesQuery]
+    ) -> TradesPage:
+        """``GET /markets/trades`` — one page."""
+        return await self._transport.get_model(
+            TRADES_PATH, TradesPage, _with_cursor(query, cursor)
+        )
+
+    async def iter_trades(self, **query: Unpack[TradesQuery]) -> AsyncIterator[Trade]:
+        """Follow ``cursor`` across ``GET /markets/trades`` pages."""
+        cursor: str | None = None
+        while True:
+            page = await self.get_trades(cursor=cursor, **query)
+            for trade in page.trades:
+                yield trade
+            if not page.cursor:
+                return
+            cursor = page.cursor
+
+    # ------------------------------------------------------------------
+    # Historical tier
+    # ------------------------------------------------------------------
+
+    async def get_historical_cutoff(self) -> HistoricalCutoff:
+        """``GET /historical/cutoff`` — the moving live/historical boundary.
+
+        The remaining ``/historical/*`` fetch methods belong to slice 266.
+        """
+        return await self._transport.get_model(HISTORICAL_CUTOFF_PATH, HistoricalCutoff)

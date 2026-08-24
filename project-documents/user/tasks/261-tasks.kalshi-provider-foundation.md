@@ -141,14 +141,14 @@ status: in_progress
 
 ## Section 4: Client — core request path (public mode)
 
-- [ ] **Task 4.1: `KalshiClient` construction and request core** (effort: 3)
-  - [ ] Create `src/manta_trading/data/kalshi/client.py`: constructor takes
+- [x] **Task 4.1: `KalshiClient` construction and request core** (effort: 3)
+  - [x] Create `src/manta_trading/data/kalshi/client.py`: constructor takes
         base URL (default from constants), a `RateLimit`, and optional
         credentials (wired in Section 7; unused-for-now parameters may be
         omitted until then). Owns one lazy reused `httpx.AsyncClient`
         (explicit `aclose()`), one `RateLimiter` built from the given
         budget, the Task 1.2 timeout.
-  - [ ] `_request` core: rate-limiter acquire → GET → classify. Error
+  - [x] `_request` core: rate-limiter acquire → GET → classify. Error
         classification **complete over `httpx.HTTPError`** per the design's
         client contract (revised for review 261 finding F004 — connection-
         level failures must be enumerated, not implied): every
@@ -159,25 +159,25 @@ status: in_progress
         Pydantic `ValidationError` → `ProviderPermanentError`. Raised errors
         carry the underlying cause (`raise ... from exc`). Nothing else is
         caught.
-  - [ ] Retries pass through the rate limiter too (design: Data Flow).
-  - [ ] Success: module passes `ruff`/`pyright`; no bare or broad excepts
+  - [x] Retries pass through the rate limiter too (design: Data Flow).
+  - [x] Success: module passes `ruff`/`pyright`; no bare or broad excepts
         (ruff BLE clean).
 
-- [ ] **Task 4.2: Request-core unit tests** (effort: 3)
-  - [ ] New `test/unit/data/kalshi/test_client_core.py` driving `_request`
+- [x] **Task 4.2: Request-core unit tests** (effort: 3)
+  - [x] New `test/unit/data/kalshi/test_client_core.py` driving `_request`
         via `httpx.MockTransport`:
-  - [ ] `ConnectError`, `ReadTimeout`, and mid-response `ReadError` /
+  - [x] `ConnectError`, `ReadTimeout`, and mid-response `ReadError` /
         `RemoteProtocolError` each → `ProviderTransientError` with cause
         attached, after the bounded retry count (assert attempt count).
-  - [ ] 429 and 503 → retried then `ProviderTransientError`; transient that
+  - [x] 429 and 503 → retried then `ProviderTransientError`; transient that
         succeeds on retry returns normally.
-  - [ ] 404 → `ProviderPermanentError`, no retry. Malformed JSON body →
+  - [x] 404 → `ProviderPermanentError`, no retry. Malformed JSON body →
         `ProviderPermanentError`.
-  - [ ] Rate-limiter enforcement: N+1 calls at budget N/period take ≥ period
+  - [x] Rate-limiter enforcement: N+1 calls at budget N/period take ≥ period
         (pattern from `test/unit/util/testratelimiter.py`).
-  - [ ] Success: all pass; failure-path tests assert exception *type and
+  - [x] Success: all pass; failure-path tests assert exception *type and
         cause*, not message text.
-  - [ ] **Commit checkpoint**: `feat: add kalshi client request core with error taxonomy`.
+  - [x] **Commit checkpoint**: `feat: add kalshi client request core with error taxonomy`.
 
 ## Section 5: Client — endpoint methods
 
