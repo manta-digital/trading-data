@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import Any
 
 import psycopg
 import pytest
@@ -34,13 +35,13 @@ TABLES = {
 
 
 @pytest.fixture
-def pool(ephemeral_db: str) -> Iterator[ConnectionPool]:
+def pool(ephemeral_db: str) -> Iterator[ConnectionPool[Any]]:
     with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
         yield pool
 
 
 @pytest.fixture
-def applied(pool: ConnectionPool) -> list[str]:
+def applied(pool: ConnectionPool[Any]) -> list[str]:
     """Bare database → kalshi track applied. Returns the newly applied IDs."""
     return apply_migrations(pool, TRACKS["kalshi"])
 
@@ -73,7 +74,7 @@ class TestApply:
         with psycopg.connect(ephemeral_db) as conn:
             assert ledger(conn) == {BOOTSTRAP_ID, *KALSHI_IDS}
 
-    def test_second_apply_is_noop(self, applied: list[str], pool: ConnectionPool):
+    def test_second_apply_is_noop(self, applied: list[str], pool: ConnectionPool[Any]):
         assert apply_migrations(pool, TRACKS["kalshi"]) == []
         state = list_migration_state(pool, TRACKS["kalshi"])
         assert state["pending"] == []
@@ -224,7 +225,7 @@ class TestConstraintRejection:
 
 class TestTeardownReapply:
     def test_drop_schema_then_reapply(
-        self, applied: list[str], ephemeral_db: str, pool: ConnectionPool
+        self, applied: list[str], ephemeral_db: str, pool: ConnectionPool[Any]
     ):
         """The design's rollback posture, on the throwaway database only."""
         with psycopg.connect(ephemeral_db) as conn:
