@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   developer recorder `scripts/record_kalshi_fixtures.py` (`--only`, `--dry-run`).
 
 ### Changed
+- Runbook 100 (production operations): the migrations step now shows the real
+  per-track commands (`mt data migrate apply [--track kalshi]`, `status` as
+  pre-flight) — the previous `--db all` form was never a valid option — plus
+  the test-cluster rehearsal and the no-down-migrations note.
 - Discovery finding recorded in the 261 design: Kalshi *serves* market status
   as `initialized`/`active`/`inactive`/`closed`/`determined`/`finalized`; the
   documented `unopened`/`open`/`paused`/`closed`/`settled` vocabulary is the
