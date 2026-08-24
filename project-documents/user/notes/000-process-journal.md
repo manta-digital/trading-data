@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260823
+dateUpdated: 20260824
 status: in_progress
 ---
 
@@ -19,6 +19,52 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260824 — Direction: realtime streaming is the end-state of data gathering; near-real-time collection takes the streaming form, never tight polling
+
+**Context:** 260 (Kalshi) slice-plan discussion of the Near-Real-Time
+Collection future item and how it relates to 916's deferred cross-source
+arbitration. The PM set direction that reaches beyond Kalshi.
+
+**Decision:**
+
+1. **Realtime tick streaming is the prime eventual goal of the data-gathering
+   portion of trading, and the two data modes serve distinct purposes:
+   historical data exists to research, create, and test strategies; realtime
+   data exists to execute the strategies that work.** Databento ticks
+   (initiative 220) therefore start as historical capture — that is where
+   strategies come from — and the completion state of data gathering is a
+   small selected set of commodities streaming realtime ticks for execution.
+   Not everything at once — a few instruments, live, when this is complete.
+   Initiative-level priorities and future scoping should be read against this
+   end-state.
+2. **When a source needs near-real-time data, the form is streaming
+   (websocket, `Type=simple` per the 20260823 production-form ADR) — tight
+   timer cadence is rejected.** A tight polling cadence makes a pass unit
+   effectively always-running: it forces the two hard sub-gaps 916 deferred
+   (priority/preemption between concurrent pass units, and `OnCalendar`
+   stagger-packing, which a tight timer cannot participate in at all). A
+   streaming unit sidesteps both — it never enters pass scheduling — and
+   activates only the third, tractable sub-gap: real resource weights on
+   `manta-acquisition.slice`, plus DB write throughput, tuned from measured
+   contention.
+3. **Consequence for the 916 arbitration follow-on:** its hard problems
+   (priority, stagger) stay scoped to bounded passes, which remain sparse in
+   the streaming end-state. Kalshi near-real-time and realtime ticks will
+   mature together; whichever is scoped second designs against measured
+   contention from the first, which is the condition 916 said it was waiting
+   for.
+
+**Rationale:** Latency is the entire point of near-real-time — polling can
+only approximate what streaming provides natively, and it is also the form
+that requires solving the expensive half of the arbitration gap first. The
+916 taxonomy (bounded workload → pass; genuinely streaming → `Type=simple`)
+already encodes the right split; this entry commits to it for the
+near-real-time case rather than leaving both forms notionally open.
+
+**Follow-ups:** 260-slices Future Work (Near-Real-Time Collection, Orderbook
+Snapshots — both streaming-form); 220 scoping when realtime ticks are
+prioritized; the 916 arbitration follow-on slice.
 
 ## 20260823 — ADR: how a new data source folds into production — bounded pass + timer behind `mt-run`, one front door; the dev checkout keeps only migrations and deploys
 
