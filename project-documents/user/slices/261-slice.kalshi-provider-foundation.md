@@ -129,8 +129,12 @@ KalshiClient.method()
   → RateLimiter (one instance per client — the shared budget across all
     surfaces the architecture requires; 262–266 all call through one client)
   → httpx.AsyncClient GET (bounded retry on transient failures)
-  → HTTP status mapping: 429/5xx/timeouts → ProviderTransientError (after
-    retries exhausted); other 4xx → ProviderPermanentError
+  → error mapping (complete over httpx.HTTPError — see client contract):
+    every httpx.TransportError subclass (DNS failure, connection refused,
+    TLS failure, connect/read/write/pool timeout, peer disconnect
+    mid-response, protocol errors) and HTTP 429/5xx
+      → ProviderTransientError (after retries exhausted);
+    any other 4xx → ProviderPermanentError
   → Pydantic validation → typed model (validation failure → ProviderPermanentError)
   → caller (paged endpoints: async iterator follows `cursor` until absent/empty)
 ```
@@ -173,7 +177,9 @@ Async methods, all returning validated models; paged endpoints get both a single
 - `get_trades(...)` / `iter_trades(...)`
 - `get_historical_cutoff()`
 
-Filter parameters mirror the documented query parameters (Discovery Findings table) — no invented abstractions over them. The client owns one `httpx.AsyncClient` (lazy, reused; explicit `aclose()`), one `RateLimiter` (budget selected by mode per Technical Decision 4), and a request timeout constant. Every request passes through the limiter, including retries.
+Filter parameters mirror the documented query parameters (Discovery Findings table) — no invented abstractions over them. The client owns one `httpx.AsyncClient` (lazy, reused; explicit `aclose()`), one `RateLimiter` (budget selected by mode per Technical Decision 4), and a single `httpx.Timeout` constant that sets all four phases explicitly (connect, read, write, pool) — no phase left at library default. Every request passes through the limiter, including retries.
+
+Error classification is **complete over `httpx.HTTPError`**, not status-codes-only (review 261 F004 — connection-level failures on a new outbound I/O path must be enumerated, not implied): the request path catches `httpx.HTTPError` — the common base of `TransportError` and status errors — and re-raises as exactly one of the two provider errors. Every `httpx.TransportError` subclass (`ConnectError`, `ConnectTimeout`, `ReadTimeout`/`ReadError`, `WriteError`, `PoolTimeout`, `RemoteProtocolError`, TLS failures) is **transient**: each is retriable at least once, and if the condition persists, retries exhaust and the raised `ProviderTransientError` carries the underlying cause — surfacing as a nonzero pass exit under 263, per fail-loud/back-off-hard. HTTP 429/5xx are transient; all other 4xx and Pydantic validation failures are permanent. Nothing outside `httpx.HTTPError`/validation is caught — an unexpected exception propagating uncaught is a bug made visible, by design (no broad `except`).
 
 Authenticated mode (Technical Decision 4a): when credentials are configured, every request additionally carries the three `KALSHI-ACCESS-*` headers, with the signature computed per the Discovery Findings mechanism (RSA-PSS/SHA-256 over `timestamp_ms + method + path`, query string excluded from the signed path). The private key loads once at client construction; a missing/unreadable key file or a partial credential pair is a construction-time error, never a runtime surprise.
 
@@ -218,7 +224,7 @@ Nothing unreleased — all prerequisites are complete initiatives (900, 100, 913
 ## Success Criteria
 
 1. `ProviderType.KALSHI` registered; `mt provider list` (existing command) shows `kalshi` with `auth: none`; existing provider registry tests extended and passing.
-2. `KalshiClient` implements every method in the client contract; each consumed endpoint has a committed real-response fixture; unit tests cover: successful parse of every fixture, cursor pagination across a multi-page fixture pair, 429/5xx/timeout → `ProviderTransientError` (after bounded retry), other 4xx and malformed payload → `ProviderPermanentError`, and rate-limiter enforcement (N calls take ≥ the window time at the configured budget).
+2. `KalshiClient` implements every method in the client contract; each consumed endpoint has a committed real-response fixture; unit tests cover: successful parse of every fixture, cursor pagination across a multi-page fixture pair, transient classification for both status-code and transport failures — 429/5xx *and* mock-transport-raised `httpx.ConnectError`, `ReadTimeout`, and mid-response `ReadError`/`RemoteProtocolError` → `ProviderTransientError` (after bounded retry, original cause attached), other 4xx and malformed payload → `ProviderPermanentError`, and rate-limiter enforcement (N calls take ≥ the window time at the configured budget).
 3. Every price/quantity field parses to `Decimal` from the fixed-point string forms — asserted against fixture values.
 3a. Authenticated mode: unit tests verify the signature against a generated test key pair (correct signing input including query-string exclusion, correct headers), mode selection (both/neither/exactly-one credential — the last a construction-time error), and budget selection per mode. No test touches the real account credentials.
 4. `TRACKS["kalshi"]` exists; `mt data migrate apply --track kalshi` applies it (maintenance credential path unchanged); `mt data migrate status --track kalshi` reports it; `--track` defaults preserve existing minute-track behavior byte-for-byte.
