@@ -12,7 +12,7 @@ projectState: >
   initiative 260; slices 262-266 build on its client and schema.
 dateCreated: 20260824
 dateUpdated: 20260824
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -41,73 +41,73 @@ status: not_started
 
 ## Section 1: Package scaffolding, constants, and enums
 
-- [ ] **Task 1.1: Add the `cryptography` dependency** (effort: 1)
-  - [ ] Add `cryptography` to `[project.dependencies]` in `pyproject.toml`
+- [x] **Task 1.1: Add the `cryptography` dependency** (effort: 1)
+  - [x] Add `cryptography` to `[project.dependencies]` in `pyproject.toml`
         (needed for RSA-PSS request signing in Task 7.1; the only new direct
         dependency this slice is allowed — design Success Criterion 7).
-  - [ ] Run `uv sync` (or `uv lock` + sync) so `uv.lock` updates.
-  - [ ] Success: `uv run python -c "from cryptography.hazmat.primitives.asymmetric import padding"`
+  - [x] Run `uv sync` (or `uv lock` + sync) so `uv.lock` updates.
+  - [x] Success: `uv run python -c "from cryptography.hazmat.primitives.asymmetric import padding"`
         exits 0; existing test suite still passes.
 
-- [ ] **Task 1.2: Create `src/manta_trading/data/kalshi/` package with `constants.py`** (effort: 2)
-  - [ ] Create `__init__.py` and `constants.py`. Every comparison value and
+- [x] **Task 1.2: Create `src/manta_trading/data/kalshi/` package with `constants.py`** (effort: 2)
+  - [x] Create `__init__.py` and `constants.py`. Every comparison value and
         magic number for the Kalshi domain lives here and only here:
-  - [ ] Base URL default `https://external-api.kalshi.com/trade-api/v2`
+  - [x] Base URL default `https://external-api.kalshi.com/trade-api/v2`
         (design: Discovery Findings, Base URLs).
-  - [ ] Endpoint path constants for every consumed endpoint (series list,
+  - [x] Endpoint path constants for every consumed endpoint (series list,
         series, events, event, markets, market, market candlesticks, trades,
         historical cutoff) — paths exactly as in the design's endpoint table.
-  - [ ] `KALSHI_PUBLIC_RATE_LIMIT = RateLimit(requests_per_minute=300)` and
+  - [x] `KALSHI_PUBLIC_RATE_LIMIT = RateLimit(requests_per_minute=300)` and
         `KALSHI_AUTHENTICATED_RATE_LIMIT = RateLimit(requests_per_minute=1000)`
         (reuse the `RateLimit` dataclass from `providers/types.py`), each with
         a comment stating its provenance per design Technical Decision 4.
-  - [ ] A single request-timeout constant specified as an `httpx.Timeout`
+  - [x] A single request-timeout constant specified as an `httpx.Timeout`
         with all four phases (connect, read, write, pool) set explicitly —
         no phase left at library default (design: client contract).
-  - [ ] Env var name constants `MT_KALSHI_API_KEY_ID` and
+  - [x] Env var name constants `MT_KALSHI_API_KEY_ID` and
         `MT_KALSHI_PRIVATE_KEY_PATH` (used in Task 7.1).
-  - [ ] `StrEnum`s: `MarketStatus` (unopened, open, paused, closed, settled),
+  - [x] `StrEnum`s: `MarketStatus` (unopened, open, paused, closed, settled),
         `CandlePeriod` (1, 60, 1440 — IntEnum acceptable given numeric API
         values), `Surface` (catalog, candlesticks, trades). Docstrings note
         that SQL CHECK constraints in the migration track derive from these
         (the `acquisition_state` precedent in `data/acquisition/state.py`).
-  - [ ] Success: module imports cleanly; `ruff` and `pyright` pass on it.
+  - [x] Success: module imports cleanly; `ruff` and `pyright` pass on it.
 
-- [ ] **Task 1.3: Unit tests for constants and enums** (effort: 1)
-  - [ ] New `test/unit/data/kalshi/test_constants.py`: enum members and string
+- [x] **Task 1.3: Unit tests for constants and enums** (effort: 1)
+  - [x] New `test/unit/data/kalshi/test_constants.py`: enum members and string
         values match the design; both rate-limit constants exist with the
         designed values; timeout constant sets all four phases.
-  - [ ] Success: tests pass; no other module defines a Kalshi rate number,
+  - [x] Success: tests pass; no other module defines a Kalshi rate number,
         endpoint path, or status string (grep check recorded in the test or
         done manually).
-  - [ ] **Commit checkpoint**: `feat: add kalshi package constants and enums`.
+  - [x] **Commit checkpoint**: `feat: add kalshi package constants and enums`.
 
 ## Section 2: Provider registry
 
-- [ ] **Task 2.1: Register `ProviderType.KALSHI`** (effort: 1)
-  - [ ] Add `KALSHI = "kalshi"` to `ProviderType` in
+- [x] **Task 2.1: Register `ProviderType.KALSHI`** (effort: 1)
+  - [x] Add `KALSHI = "kalshi"` to `ProviderType` in
         `src/manta_trading/providers/types.py`.
-  - [ ] Success: enum member present; imports unchanged elsewhere.
+  - [x] Success: enum member present; imports unchanged elsewhere.
 
-- [ ] **Task 2.2: Add the `kalshi` provider profile** (effort: 1)
-  - [ ] In `src/manta_trading/providers/profiles.py` add a `ProviderProfile`:
+- [x] **Task 2.2: Add the `kalshi` provider profile** (effort: 1)
+  - [x] In `src/manta_trading/providers/profiles.py` add a `ProviderProfile`:
         `name="kalshi"`, `provider_type=ProviderType.KALSHI`, `base_url` and
         `rate_limit` referencing the Task 1.2 constants (public budget),
         `api_key_env=None`, `auth_type=AuthType.NONE`, short description.
-  - [ ] Comment on the profile: `AuthType.NONE` records what the provider
+  - [x] Comment on the profile: `AuthType.NONE` records what the provider
         *requires* (market data is public); optional signed mode is a client
         capability — design Technical Decision 4a.
-  - [ ] Success: `get_profile("kalshi")` returns the profile;
+  - [x] Success: `get_profile("kalshi")` returns the profile;
         `resolve_alias("kalshi")` passes through.
 
-- [ ] **Task 2.3: Extend provider registry tests** (effort: 1)
-  - [ ] Extend `test/unit/test_provider_types.py` and
+- [x] **Task 2.3: Extend provider registry tests** (effort: 1)
+  - [x] Extend `test/unit/test_provider_types.py` and
         `test_provider_profiles.py`: KALSHI member exists; profile fields as
         designed (auth none, no api_key_env, rate limit is the shared
         constant object from `kalshi/constants.py`, not a copied number).
-  - [ ] Success: registry tests pass; `mt provider list` shows `kalshi`
+  - [x] Success: registry tests pass; `mt provider list` shows `kalshi`
         with auth `none` (manual check or CLI test).
-  - [ ] **Commit checkpoint**: `feat: register kalshi provider type and profile`.
+  - [x] **Commit checkpoint**: `feat: register kalshi provider type and profile`.
 
 ## Section 3: Pydantic response models
 

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from manta_trading.data.kalshi.constants import (
+    KALSHI_BASE_URL,
+    KALSHI_PUBLIC_RATE_LIMIT,
+)
 from manta_trading.providers.types import AuthType, ProviderType, RateLimit
 
 
@@ -40,6 +44,21 @@ BUILT_IN_PROFILES: dict[str, ProviderProfile] = {
         aliases=("flat", "file"),
         auth_type=AuthType.NONE,
         description="Local flat file data source",
+    ),
+    # Kalshi market data is public: ``AuthType.NONE`` records what the provider
+    # *requires*. The client's optional signed mode (design 261, Technical
+    # Decision 4a) is a client capability, not a registry requirement. The
+    # rate limit is our conservative operating budget for the unauthenticated
+    # tier (undocumented by Kalshi), not Kalshi's ceiling.
+    "kalshi": ProviderProfile(
+        name="kalshi",
+        provider_type=ProviderType.KALSHI,
+        base_url=KALSHI_BASE_URL,
+        api_key_env=None,
+        rate_limit=KALSHI_PUBLIC_RATE_LIMIT,
+        aliases=(),
+        auth_type=AuthType.NONE,
+        description="Kalshi event-contract market data (trade-api/v2)",
     ),
 }
 
