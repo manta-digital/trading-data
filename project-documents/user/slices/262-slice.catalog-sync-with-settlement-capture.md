@@ -73,7 +73,7 @@ Behavioral facts the design relies on (all verified in the same session):
 
 ## Deployment prerequisite (PM action)
 
-The production ledger shows `kalshi_001_schema`, `kalshi_002_catalog`, `kalshi_003_collection_state` **pending**. Before the first `sync` against production, and again for this slice's `kalshi_004`, the PM applies the track per runbook 100 *Update procedure* (tag → update → pre-flight `status` → `apply` with the maintenance credential → `status` shows 0 pending). The walkthrough below starts with exactly this. The track is additive and idempotent; there is no down-migration.
+**Applied 2026-08-24:** 261's `kalshi_001_schema`, `kalshi_002_catalog`, `kalshi_003_collection_state` are on production (`status --track kalshi` → 0 pending), so the empty `kalshi` schema exists there now. What remains is this slice's own `kalshi_004`, applied the same routine way before the first production `sync` — runbook 100 *Update procedure* (pre-flight `status` → `apply` with the maintenance credential → `status` shows 0 pending). The walkthrough below starts with exactly this. The track is additive and idempotent; there is no down-migration.
 
 ## Dependencies
 
@@ -303,10 +303,10 @@ Empty-state (no `sync_state` row) prints "catalog has never synced" and exits 0 
 Draft; refined at the end of Phase 6. Steps 0–1 are PM actions on production; every later step runs first against a throwaway database on the test cluster, then against production through the dev checkout / `mt-run`.
 
 ```bash
-# 0. PM — apply the kalshi track to production (runbook 100, Update procedure).
-#    This slice's kalshi_004 rides along with 261's three pending migrations.
+# 0. PM — apply this slice's kalshi_004 to production (runbook 100, Update procedure).
+#    261's three migrations were applied 2026-08-24; only kalshi_004 should show pending.
 cd ~/source/repos/manta/trading-data
-uv run mt data migrate status --track kalshi         # pre-flight: kalshi_001..004 pending (app credential)
+uv run mt data migrate status --track kalshi         # pre-flight: kalshi_004 pending (app credential)
 uv run mt data migrate apply  --track kalshi         # maintenance credential, interactive shell
 uv run mt data migrate status --track kalshi         # → "… applied, 0 pending"
 
