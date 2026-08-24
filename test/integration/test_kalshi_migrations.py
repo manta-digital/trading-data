@@ -17,6 +17,7 @@ import pytest
 from psycopg import errors
 from psycopg_pool import ConnectionPool
 
+from manta_trading.data.kalshi import models as km
 from manta_trading.data.kalshi.constants import CandlePeriod, MarketStatus, Surface
 from manta_trading.market.schema.migrations import TRACKS
 from manta_trading.market.schema.migrations.kalshi import APP_ROLE
@@ -241,3 +242,41 @@ class TestTeardownReapply:
         assert apply_migrations(pool, TRACKS["kalshi"]) == KALSHI_IDS
         with psycopg.connect(ephemeral_db) as conn:
             assert kalshi_tables(conn) == TABLES
+
+
+#: Columns that are ours, not Kalshi's; every catalog table carries them.
+BOOKKEEPING_COLUMNS = {"raw", "first_seen_at", "last_synced_at"}
+
+
+class TestModelColumnParity:
+    """Model field set == table column set (review 261 F002).
+
+    Keeps ``models.py`` and ``kalshi_002_catalog`` from drifting apart so a
+    field→column upsert in slice 262 cannot silently skip either side.
+    """
+
+    @pytest.mark.parametrize(
+        ("model", "table", "model_only"),
+        [
+            (km.Series, "series", set[str]()),
+            (km.Event, "events", {"markets"}),  # nested, never a column
+            (km.Market, "markets", set[str]()),
+        ],
+    )
+    def test_fields_match_columns(
+        self,
+        applied: list[str],
+        ephemeral_db: str,
+        model: type[km.KalshiModel],
+        table: str,
+        model_only: set[str],
+    ):
+        with psycopg.connect(ephemeral_db) as conn:
+            rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'kalshi' AND table_name = %s",
+                (table,),
+            ).fetchall()
+        columns = {r[0] for r in rows} - BOOKKEEPING_COLUMNS
+        fields = set(model.model_fields) - model_only
+        assert fields == columns

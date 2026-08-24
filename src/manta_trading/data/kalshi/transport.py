@@ -156,12 +156,20 @@ class KalshiTransport:
     # Request core
     # ------------------------------------------------------------------
 
-    def request_headers(self, method: str, path: str) -> dict[str, str]:
+    async def request_headers(self, method: str, path: str) -> dict[str, str]:
         """Per-request headers: the signed ``KALSHI-ACCESS-*`` trio in
-        authenticated mode, none in public mode."""
+        authenticated mode, none in public mode.
+
+        Signing is an RSA-2048 PSS operation — measured at 0.6 ms mean and
+        over 1 ms worst case on idle hardware (review 261 F001) — so it runs
+        in a worker thread rather than on the event loop, per the project's
+        <1 ms rule for synchronous work inside ``async def``.
+        """
         if self._credentials is None:
             return {}
-        return self._credentials.headers(method, self._path_prefix + path)
+        return await asyncio.to_thread(
+            self._credentials.headers, method, self._path_prefix + path
+        )
 
     async def get_json(self, path: str, params: Mapping[str, ParamValue]) -> Any:
         """GET ``path`` (relative to the base URL) and return the JSON body.
@@ -174,10 +182,9 @@ class KalshiTransport:
         attempts = self._max_retries + 1
         for attempt in range(attempts):
             async with self._limiter:
+                headers = await self.request_headers("GET", path)
                 try:
-                    response = await http.get(
-                        path, params=query, headers=self.request_headers("GET", path)
-                    )
+                    response = await http.get(path, params=query, headers=headers)
                 except httpx.TransportError as exc:
                     # Connection-level failure (DNS, refused, TLS, any timeout
                     # phase, peer disconnect, protocol error): transient.

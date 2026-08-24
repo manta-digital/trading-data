@@ -76,12 +76,14 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
         "id": "kalshi_002_catalog",
         "description": "Create kalshi catalog tables: series, events, markets",
         # Column names follow the API field names verbatim (``*_dollars`` /
-        # ``*_fp`` included) so the raw→column mapping in 262's upsert is
-        # mechanical. Optional columns are the keys observed in the recorded
-        # fixtures (design: Recording cross-check); everything else stays in
-        # ``raw``. ``first_seen_at`` / ``last_synced_at`` are ours;
-        # ``last_updated_ts`` / ``updated_time`` are Kalshi's and are the raw
-        # material for incremental sync.
+        # ``*_fp`` included), and each table's column set equals its model's
+        # field set plus our three bookkeeping columns — enforced by
+        # ``test_kalshi_migrations.py::TestModelColumnParity`` — so 262's
+        # upsert can map model fields to columns one-to-one. Optional columns
+        # are the keys observed in the recorded fixtures (design: Recording
+        # cross-check); everything else stays in ``raw``. ``first_seen_at`` /
+        # ``last_synced_at`` are ours; ``last_updated_ts`` / ``updated_time``
+        # are Kalshi's and are the raw material for incremental sync.
         "sql": f"""
             CREATE TABLE IF NOT EXISTS kalshi.series (
                 ticker              TEXT PRIMARY KEY,
@@ -160,6 +162,10 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
                 volume_fp                 NUMERIC,
                 volume_24h_fp             NUMERIC,
                 open_interest_fp          NUMERIC,
+                yes_bid_size_fp           NUMERIC,
+                yes_ask_size_fp           NUMERIC,
+                previous_yes_bid_dollars  NUMERIC,
+                previous_yes_ask_dollars  NUMERIC,
                 -- classification
                 strike_type               TEXT,
                 price_level_structure     TEXT,

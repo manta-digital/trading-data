@@ -94,7 +94,8 @@ class TestMarket:
         assert market.model_extra is not None
         assert market.model_extra["brand_new_field"] == 1
         # Fields the schema does not model are still present as extras.
-        assert market.model_extra["price_level_structure"] == "deci_cent"
+        assert market.model_extra["settlement_timer_seconds"] == 5
+        assert market.model_extra["price_ranges"] == MARKET_SAMPLE["price_ranges"]
 
     def test_missing_required_raises(self):
         payload = dict(MARKET_SAMPLE)

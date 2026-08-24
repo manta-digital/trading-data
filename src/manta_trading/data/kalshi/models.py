@@ -46,6 +46,8 @@ class Series(KalshiModel):
     settlement_sources: list[SettlementSource] | None = None
     fee_type: str | None = None
     fee_multiplier: Decimal | None = None
+    contract_url: str | None = None
+    contract_terms_url: str | None = None
     product_metadata: dict[str, Any] | None = None
     last_updated_ts: datetime | None = None
 
@@ -65,6 +67,8 @@ class Event(KalshiModel):
     strike_date: datetime | None = None
     strike_period: str | None = None
     collateral_return_type: str | None = None
+    available_on_brokers: bool | None = None
+    settlement_sources: list[SettlementSource] | None = None
     product_metadata: dict[str, Any] | None = None
     last_updated_ts: datetime | None = None
     markets: list[Market] | None = None
@@ -77,6 +81,10 @@ class Market(KalshiModel):
     ``kalshi.markets.status`` (derived from ``MarketStatus``) is where an
     undocumented value fails loudly, not the parse — a new status must not
     poison a whole page of otherwise-valid markets.
+
+    Field set = the column set of ``kalshi.markets`` minus the columns that
+    are ours (``raw``, ``first_seen_at``, ``last_synced_at``); the migration
+    integration tests enforce that parity for every catalog model.
     """
 
     ticker: str
@@ -119,6 +127,11 @@ class Market(KalshiModel):
     open_interest_fp: Decimal | None = None
     yes_bid_size_fp: Decimal | None = None
     yes_ask_size_fp: Decimal | None = None
+    # Classification.
+    strike_type: str | None = None
+    price_level_structure: str | None = None
+    is_provisional: bool | None = None
+    mve_collection_ticker: str | None = None
 
 
 # ---------------------------------------------------------------------------

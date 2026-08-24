@@ -6,6 +6,7 @@ The key pair is generated here; no test touches real credentials.
 from __future__ import annotations
 
 import base64
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +135,25 @@ class TestRequestSigning:
             signing_message(timestamp, "GET", "/trade-api/v2/markets"),
         )
         assert request.headers[KALSHI_ACCESS_KEY_HEADER] == KEY_ID
+
+    async def test_signing_runs_off_the_event_loop_thread(
+        self, credentials: KalshiCredentials
+    ):
+        """Review 261 F001: RSA-PSS signing (>1 ms worst case) must not run
+        on the loop thread — the project's <1 ms rule for sync work in async."""
+        sign_threads: list[int] = []
+        original = credentials.sign
+
+        def recording_sign(timestamp_ms: int, method: str, path: str) -> str:
+            sign_threads.append(threading.get_ident())
+            return original(timestamp_ms, method, path)
+
+        object.__setattr__(credentials, "sign", recording_sign)
+        client = KalshiClient(
+            transport=httpx.MockTransport(Capture()), credentials=credentials
+        )
+        await client.get_markets()
+        assert sign_threads and all(t != threading.get_ident() for t in sign_threads)
 
     async def test_public_mode_sends_no_auth_headers(self):
         capture = Capture()
