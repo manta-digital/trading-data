@@ -25,6 +25,7 @@ dependencies = [
     "uvicorn[standard]>=0.34.0",
     "orjson>=3.10.0",
     "msgpack>=1.1.0",
+    "cryptography>=44.0.0",
 ]
 
 [project.optional-dependencies]
