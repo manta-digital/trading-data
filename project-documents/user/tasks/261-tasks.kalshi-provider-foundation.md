@@ -184,36 +184,57 @@ status: not_started
 Separate sub-tasks per endpoint group; each implements the documented query
 parameters from the design's endpoint table verbatim (no invented
 abstractions). Paged endpoints get a single-page method plus an `iter_*`
-async generator following `cursor` until absent/empty.
+async generator following `cursor` until absent/empty. Test-with applies
+*within* this section: each endpoint task carries its own tests against the
+shared harness and its own success line, so it is independently completable
+(restructured per tasks-review finding F003 — verification was previously
+batched into one trailing test task).
 
-- [ ] **Task 5.1: Series methods** (effort: 1)
-  - [ ] `get_series_list(...)` (filters: category, tags, min_updated_ts,
-        include flags — no pagination) and `get_series(series_ticker)`.
-- [ ] **Task 5.2: Event methods** (effort: 2)
-  - [ ] `get_events(...)` + `iter_events(...)` (status, series_ticker,
-        tickers, min_close_ts, min_updated_ts, with_nested_markets, limit,
-        cursor) and `get_event(event_ticker)`.
-- [ ] **Task 5.3: Market methods** (effort: 2)
-  - [ ] `get_markets(...)` + `iter_markets(...)` (all documented filters,
-        including the timestamp-range pairs and mve_filter) and
+- [ ] **Task 5.0: Shared endpoint test harness** (effort: 1)
+  - [ ] Create `test/unit/data/kalshi/test_client_endpoints.py` scaffolding:
+        a helper building a `KalshiClient` over `httpx.MockTransport` from a
+        path→payload route map (the Section 3 inline samples) that records
+        each outgoing request for assertion.
+  - [ ] Success: harness imports; one smoke test through any route passes.
+- [ ] **Task 5.1: Series methods + tests** (effort: 1)
+  - [ ] Implement `get_series_list(...)` (filters: category, tags,
+        min_updated_ts, include flags — no pagination) and
+        `get_series(series_ticker)`.
+  - [ ] Tests: correct path and query string (captured request); responses
+        parse to the series models.
+  - [ ] Success: tests pass; `ruff`/`pyright` clean.
+- [ ] **Task 5.2: Event methods + tests** (effort: 2)
+  - [ ] Implement `get_events(...)` + `iter_events(...)` (status,
+        series_ticker, tickers, min_close_ts, min_updated_ts,
+        with_nested_markets, limit, cursor) and `get_event(event_ticker)`.
+  - [ ] Tests: path/query assertions; `iter_events` follows a two-page
+        cursor sequence and terminates.
+  - [ ] Success: tests pass; `ruff`/`pyright` clean.
+- [ ] **Task 5.3: Market methods + tests** (effort: 2)
+  - [ ] Implement `get_markets(...)` + `iter_markets(...)` (all documented
+        filters, including the timestamp-range pairs and mve_filter) and
         `get_market(ticker)`.
-- [ ] **Task 5.4: Candlestick method** (effort: 1)
-  - [ ] `get_market_candlesticks(series_ticker, ticker, start_ts, end_ts,
-        period_interval, include_latest_before_start=False)`;
+  - [ ] Tests: path/query assertions including at least one timestamp-range
+        filter; `iter_markets` two-page cursor test.
+  - [ ] Success: tests pass; `ruff`/`pyright` clean.
+- [ ] **Task 5.4: Candlestick method + tests** (effort: 1)
+  - [ ] Implement `get_market_candlesticks(series_ticker, ticker, start_ts,
+        end_ts, period_interval, include_latest_before_start=False)`;
         `period_interval` typed as `CandlePeriod`.
-- [ ] **Task 5.5: Trades methods** (effort: 1)
-  - [ ] `get_trades(...)` + `iter_trades(...)` (ticker, min_ts, max_ts,
-        is_block_trade, limit, cursor).
-- [ ] **Task 5.6: Historical cutoff method** (effort: 1)
-  - [ ] `get_historical_cutoff()` → `HistoricalCutoff` model. No other
-        `/historical/*` methods (they belong to slice 266).
-- [ ] **Task 5.7: Endpoint-method unit tests** (effort: 3)
-  - [ ] `test/unit/data/kalshi/test_client_endpoints.py` via MockTransport
-        with the Section 3 inline samples: each method builds the correct
-        path and query string (assert on captured request), parses to the
-        right model, and each `iter_*` follows a two-page cursor sequence
-        and terminates.
-  - [ ] Success: all pass; every public client method has at least one test.
+  - [ ] Tests: path contains both tickers; required query parameters
+        present; response parses to the candlestick models.
+  - [ ] Success: tests pass; `ruff`/`pyright` clean.
+- [ ] **Task 5.5: Trades methods + tests** (effort: 1)
+  - [ ] Implement `get_trades(...)` + `iter_trades(...)` (ticker, min_ts,
+        max_ts, is_block_trade, limit, cursor).
+  - [ ] Tests: path/query assertions; `iter_trades` two-page cursor test.
+  - [ ] Success: tests pass; `ruff`/`pyright` clean.
+- [ ] **Task 5.6: Historical cutoff method + tests** (effort: 1)
+  - [ ] Implement `get_historical_cutoff()` → `HistoricalCutoff` model. No
+        other `/historical/*` methods (they belong to slice 266).
+  - [ ] Tests: path assertion; response parses to `HistoricalCutoff`.
+  - [ ] Success: tests pass; every public client method now has at least
+        one test; `ruff`/`pyright` clean.
   - [ ] **Commit checkpoint**: `feat: add kalshi client endpoint methods`.
 
 ## Section 6: Recorded real-response fixtures
@@ -323,6 +344,11 @@ behavior question arises; this slice creates plain relational tables only.
         `markets(close_time)`, `events(series_ticker)`.
   - [ ] No FK, view, or reference to any `public` table (extraction
         discipline — design Technical Decision 1).
+  - [ ] Success: the track so far applies on a throwaway database without
+        error (invoke `apply_migrations` directly against the test-cluster
+        fixture); catalog queries (`information_schema` / `pg_catalog`)
+        show all three tables with the designed PKs, FKs, status CHECK,
+        and indexes; no `kalshi.*` object references a `public` object.
 - [ ] **Task 8.3: Collection-state tables migration** (effort: 2)
   - [ ] Entry `kalshi_003_collection_state`: `kalshi.sync_state` (PK
         `surface` with CHECK from `Surface`), `kalshi.awaiting_settlement`
@@ -332,6 +358,10 @@ behavior question arises; this slice creates plain relational tables only.
         `CandlePeriod`, `watermark_ts`) — columns per the design.
   - [ ] Migration comments document per-surface column semantics (finalized
         operationally by 262).
+  - [ ] Success: full track applies on a throwaway database without error;
+        catalog queries show the three state tables with the designed PKs,
+        FKs to `kalshi.markets`, and the `surface`/`period` CHECK
+        constraints deriving their value lists from the Task 1.2 enums.
 - [ ] **Task 8.4: Register the track** (effort: 1)
   - [ ] Add `"kalshi": KALSHI_MIGRATIONS` to `TRACKS` in
         `market/schema/migrations/__init__.py`; update `__all__`.
