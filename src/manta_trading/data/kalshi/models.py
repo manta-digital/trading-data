@@ -145,7 +145,8 @@ class PriceOhlc(KalshiModel):
 
     Every field is optional: a period with no trades serves ``price`` with
     only ``previous_dollars`` (observed live), and the bid/ask objects may
-    omit fields the same way.
+    omit fields the same way. ``mean_dollars`` appears on ``price`` only
+    (recorded fixture ``candlesticks.json``).
     """
 
     open_dollars: Decimal | None = None
@@ -153,6 +154,7 @@ class PriceOhlc(KalshiModel):
     low_dollars: Decimal | None = None
     close_dollars: Decimal | None = None
     previous_dollars: Decimal | None = None
+    mean_dollars: Decimal | None = None
 
 
 class Candlestick(KalshiModel):

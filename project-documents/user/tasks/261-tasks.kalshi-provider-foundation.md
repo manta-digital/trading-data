@@ -190,52 +190,52 @@ shared harness and its own success line, so it is independently completable
 (restructured per tasks-review finding F003 — verification was previously
 batched into one trailing test task).
 
-- [ ] **Task 5.0: Shared endpoint test harness** (effort: 1)
-  - [ ] Create `test/unit/data/kalshi/test_client_endpoints.py` scaffolding:
+- [x] **Task 5.0: Shared endpoint test harness** (effort: 1)
+  - [x] Create `test/unit/data/kalshi/test_client_endpoints.py` scaffolding:
         a helper building a `KalshiClient` over `httpx.MockTransport` from a
         path→payload route map (the Section 3 inline samples) that records
         each outgoing request for assertion.
-  - [ ] Success: harness imports; one smoke test through any route passes.
-- [ ] **Task 5.1: Series methods + tests** (effort: 1)
-  - [ ] Implement `get_series_list(...)` (filters: category, tags,
+  - [x] Success: harness imports; one smoke test through any route passes.
+- [x] **Task 5.1: Series methods + tests** (effort: 1)
+  - [x] Implement `get_series_list(...)` (filters: category, tags,
         min_updated_ts, include flags — no pagination) and
         `get_series(series_ticker)`.
-  - [ ] Tests: correct path and query string (captured request); responses
+  - [x] Tests: correct path and query string (captured request); responses
         parse to the series models.
-  - [ ] Success: tests pass; `ruff`/`pyright` clean.
-- [ ] **Task 5.2: Event methods + tests** (effort: 2)
-  - [ ] Implement `get_events(...)` + `iter_events(...)` (status,
+  - [x] Success: tests pass; `ruff`/`pyright` clean.
+- [x] **Task 5.2: Event methods + tests** (effort: 2)
+  - [x] Implement `get_events(...)` + `iter_events(...)` (status,
         series_ticker, tickers, min_close_ts, min_updated_ts,
         with_nested_markets, limit, cursor) and `get_event(event_ticker)`.
-  - [ ] Tests: path/query assertions; `iter_events` follows a two-page
+  - [x] Tests: path/query assertions; `iter_events` follows a two-page
         cursor sequence and terminates.
-  - [ ] Success: tests pass; `ruff`/`pyright` clean.
-- [ ] **Task 5.3: Market methods + tests** (effort: 2)
-  - [ ] Implement `get_markets(...)` + `iter_markets(...)` (all documented
+  - [x] Success: tests pass; `ruff`/`pyright` clean.
+- [x] **Task 5.3: Market methods + tests** (effort: 2)
+  - [x] Implement `get_markets(...)` + `iter_markets(...)` (all documented
         filters, including the timestamp-range pairs and mve_filter) and
         `get_market(ticker)`.
-  - [ ] Tests: path/query assertions including at least one timestamp-range
+  - [x] Tests: path/query assertions including at least one timestamp-range
         filter; `iter_markets` two-page cursor test.
-  - [ ] Success: tests pass; `ruff`/`pyright` clean.
-- [ ] **Task 5.4: Candlestick method + tests** (effort: 1)
-  - [ ] Implement `get_market_candlesticks(series_ticker, ticker, start_ts,
+  - [x] Success: tests pass; `ruff`/`pyright` clean.
+- [x] **Task 5.4: Candlestick method + tests** (effort: 1)
+  - [x] Implement `get_market_candlesticks(series_ticker, ticker, start_ts,
         end_ts, period_interval, include_latest_before_start=False)`;
         `period_interval` typed as `CandlePeriod`.
-  - [ ] Tests: path contains both tickers; required query parameters
+  - [x] Tests: path contains both tickers; required query parameters
         present; response parses to the candlestick models.
-  - [ ] Success: tests pass; `ruff`/`pyright` clean.
-- [ ] **Task 5.5: Trades methods + tests** (effort: 1)
-  - [ ] Implement `get_trades(...)` + `iter_trades(...)` (ticker, min_ts,
+  - [x] Success: tests pass; `ruff`/`pyright` clean.
+- [x] **Task 5.5: Trades methods + tests** (effort: 1)
+  - [x] Implement `get_trades(...)` + `iter_trades(...)` (ticker, min_ts,
         max_ts, is_block_trade, limit, cursor).
-  - [ ] Tests: path/query assertions; `iter_trades` two-page cursor test.
-  - [ ] Success: tests pass; `ruff`/`pyright` clean.
-- [ ] **Task 5.6: Historical cutoff method + tests** (effort: 1)
-  - [ ] Implement `get_historical_cutoff()` → `HistoricalCutoff` model. No
+  - [x] Tests: path/query assertions; `iter_trades` two-page cursor test.
+  - [x] Success: tests pass; `ruff`/`pyright` clean.
+- [x] **Task 5.6: Historical cutoff method + tests** (effort: 1)
+  - [x] Implement `get_historical_cutoff()` → `HistoricalCutoff` model. No
         other `/historical/*` methods (they belong to slice 266).
-  - [ ] Tests: path assertion; response parses to `HistoricalCutoff`.
-  - [ ] Success: tests pass; every public client method now has at least
+  - [x] Tests: path assertion; response parses to `HistoricalCutoff`.
+  - [x] Success: tests pass; every public client method now has at least
         one test; `ruff`/`pyright` clean.
-  - [ ] **Commit checkpoint**: `feat: add kalshi client endpoint methods`.
+  - [x] **Commit checkpoint**: `feat: add kalshi client endpoint methods`.
 
 ## Section 6: Recorded real-response fixtures
 
