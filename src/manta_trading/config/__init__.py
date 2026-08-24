@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # neither; the client refuses a partial pair at construction.
     kalshi_api_key_id: str | None = None
     kalshi_private_key_path: Path | None = None
+    # Kalshi rate budget override (slice 262, Decision 13): when set it
+    # replaces the mode's constant budget at client construction; None
+    # keeps 261's per-mode constants. Requests per minute, > 0.
+    kalshi_requests_per_minute: int | None = Field(default=None, gt=0)
 
     # Minute-bar provider selection. Pydantic accepts the StrEnum as both
     # the env-var string ("eodhd") and the enum value, and rejects unknown

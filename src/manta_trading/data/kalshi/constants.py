@@ -9,6 +9,7 @@ on 2026-08-24).
 
 from __future__ import annotations
 
+from datetime import timedelta
 from enum import IntEnum, StrEnum
 
 import httpx
@@ -164,3 +165,57 @@ class Surface(StrEnum):
     CATALOG = "catalog"
     CANDLESTICKS = "candlesticks"
     TRADES = "trades"
+
+
+# ---------------------------------------------------------------------------
+# Catalog sync (slice 262 — each value cites the design decision it serves)
+# ---------------------------------------------------------------------------
+
+#: Decision 1: the full walk covers every *live* status; ``settled`` is never
+#: walked — settled markets arrive through the windowed settled stream.
+CATALOG_WALK_FILTERS: tuple[MarketStatusFilter, ...] = (
+    MarketStatusFilter.UNOPENED,
+    MarketStatusFilter.OPEN,
+    MarketStatusFilter.PAUSED,
+    MarketStatusFilter.CLOSED,
+)
+
+#: Decision 2: multi-leg parlay (MVE) markets are excluded on *every* markets
+#: request. The value is the documented ``mve_filter`` parameter value.
+KALSHI_MVE_FILTER = "exclude"
+
+#: ``GET /markets`` page size (documented maximum).
+MARKETS_PAGE_LIMIT = 1000
+#: ``GET /events`` page size (documented maximum).
+EVENTS_PAGE_LIMIT = 200
+#: Decision 9: ``tickers`` batch size for parent resolution and vanished-market
+#: lookups. Verified live to 117 (events) / 300 (markets); one conservative
+#: constant for both.
+TICKERS_BATCH_SIZE = 100
+
+#: Decision 4: the settled stream is drained in windows of this length, oldest
+#: first; the watermark advances once per fully walked window.
+SETTLED_WINDOW = timedelta(hours=6)
+#: Decision 4: ``min_settled_ts`` / ``min_updated_ts`` are strict "after" at
+#: second granularity, so each window (and the events refresh floor) starts
+#: one second before its boundary. The upsert makes the overlap free.
+WINDOW_OVERLAP = timedelta(seconds=1)
+
+#: Decision 10: an awaiting market older than this (``now - close_time``) is
+#: reported as past the stuck threshold. Reporting only — never retirement.
+KALSHI_SETTLEMENT_STUCK_AFTER = timedelta(days=7)
+#: Decision 10: age-histogram edges for ``mt data kalshi status``. The middle
+#: edge *is* the stuck threshold — referenced, not repeated.
+AWAITING_AGE_BUCKETS: tuple[timedelta, ...] = (
+    timedelta(days=1),
+    KALSHI_SETTLEMENT_STUCK_AFTER,
+    timedelta(days=30),
+)
+
+#: Decision 11: preflight fails (exit 1) when the database does not answer
+#: within this many seconds.
+DB_CONNECT_TIMEOUT_SECONDS = 10
+#: Decision 11: session-level advisory lock taken by every sync run so two
+#: syncs never write concurrently. A fixed bigint; the namespace is this key
+#: alone (``pg_try_advisory_lock(SYNC_ADVISORY_LOCK_KEY)``).
+SYNC_ADVISORY_LOCK_KEY = 262_000_001
