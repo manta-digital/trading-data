@@ -179,7 +179,11 @@ etc.); status literals must not appear in SQL text.
   - [ ] Test: a market with past `close_time` and status `active` enters;
         one with future `close_time` does not; upserting the entered market
         as `finalized` with `result` then `retire_awaiting()` removes it;
-        `mark_checked` sets `last_checked_at` for the given tickers only.
+        `mark_checked` sets `last_checked_at` for the given tickers only;
+        upserting an awaiting market with a changed `close_time` then
+        `refresh_awaiting_close_times()` returns 1 and the awaiting row's
+        `close_time` matches the market (review F005 — a stale value would
+        silently corrupt every age in Section 7).
 
 - [ ] **Task 3.7: `sync_state` accessors** (effort: 1)
   - [ ] `get_sync_state(surface) -> SyncState | None` (frozen dataclass:
@@ -231,7 +235,13 @@ Test infrastructure before the core (Phase 5 guide: test-with).
 -> SyncResult`. No httpx, no typer, no SQL. Each phase is its own small
 method emitting one `phase_finished` event. Unit tests live in
 `test/unit/data/kalshi/test_sync.py` (split into `test_sync_walk.py` /
-`test_sync_settled.py` if either file passes ~300 lines).
+`test_sync_settled.py` if either file passes ~300 lines). The same ~300-line
+guidance applies to the source: if `sync.py` outgrows it, move the settled
+drain (5.6) and awaiting reconciliation (5.7) into `sync_settled.py` /
+`sync_awaiting.py` as functions the `CatalogSync` methods call; if
+`repository.py` outgrows it, move the awaiting and `sync_state` statements
+(3.6, 3.7) into `repository_state.py` — one class per file, the SQL still
+lives only in `repository*.py` (review F007).
 
 - [ ] **Task 5.1: `SyncResult` and run skeleton** (effort: 2)
   - [ ] `SyncResult` dataclass: per-phase counts (fetched / written /
@@ -288,6 +298,8 @@ method emitting one `phase_finished` event. Unit tests live in
         unknown series fetched once; parent silently omitted by the API →
         dependent markets skipped, `item_errors` lists them, run continues;
         transitions aggregate across pages; `seen` holds every walked ticker.
+  - [ ] **Commit** (interim checkpoint, review F007):
+        `feat: add kalshi sync core skeleton, page writer, series and markets walk`.
 
 - [ ] **Task 5.5: Phase 3 — events refresh** (effort: 1)
   - [ ] `_refresh_events()`: when `last_full_sync_at` is set, page through
@@ -306,13 +318,20 @@ method emitting one `phase_finished` event. Unit tests live in
         up to the run start time, requesting
         `min_settled_ts = a − WINDOW_OVERLAP`, `max_settled_ts = b`,
         `mve_filter = exclude`, following the cursor; upsert each page via
-        5.2 (parents resolved as in 5.4); after each **complete** window
+        5.2 (parents resolved as in 5.4); after each **fully walked** window
         `set_watermark(surface, b)` in its own transaction; add captured
-        tickers to `captured`. The final partial window ends at the run
-        start time.
+        tickers to `captured`. The last window is clamped so `b` = run
+        start time; once fully walked it advances the watermark to that
+        boundary exactly like any other window (review F004) — "completed"
+        means "walked to its last page", never "6 h long". A drain shorter
+        than one window is therefore one clamped window and still sets the
+        watermark (Success Criterion 1).
   - [ ] Test: floor selection for the three cases; window boundaries and
-        the 1 s overlap asserted on received queries; watermark advances
-        once per completed window; a `ProviderTransientError` injected in
+        the 1 s overlap asserted on received queries; every window query
+        carries `mve_filter == "exclude"` (review F008); watermark advances
+        once per fully walked window; `--settled-since` 2 h before run start
+        → one clamped window and `watermark_ts == run start`; a
+        `ProviderTransientError` injected in
         window 3 leaves the watermark at the end of window 2 and propagates;
         a re-run from that watermark re-walks only from window 3 (no gap);
         overlap duplicates cost zero writes (fake repo write-on-change);
@@ -323,215 +342,39 @@ method emitting one `phase_finished` event. Unit tests live in
   - [ ] `_reconcile_awaiting()`: in one transaction run
         `refresh_awaiting_close_times`, `enter_awaiting(now)`,
         `retire_awaiting`; then `vanished = awaiting_tickers() − seen −
-        captured`; look vanished up with `get_markets(tickers=…)` in
-        `TICKERS_BATCH_SIZE` batches, upsert what returns (transitions
+        captured`; look vanished up with `get_markets(tickers=…,
+        mve_filter=KALSHI_MVE_FILTER)` in `TICKERS_BATCH_SIZE` batches
+        (Decision 2 covers *every* markets request), upsert what returns (transitions
         counted), `retire_awaiting` again, `mark_checked(vanished, now)`;
         tickers the API omitted are counted `unreachable` (not errors — the
         market stays in the set). Sink `emit` failures across the whole core
         are wrapped once here or in 5.1: `logger.error`, never abort.
   - [ ] Test: a market walked as `active` with `close_time` in the past
         enters; a settled-stream capture of it retires it; an awaiting
-        ticker absent from both walk and stream is looked up by ticker and
-        `last_checked_at` set; an omitted ticker is `unreachable`; `emit`
-        raising does not fail the run.
+        ticker absent from both walk and stream is looked up by ticker
+        (query carries `mve_filter == "exclude"`) and `last_checked_at`
+        set; an omitted ticker is `unreachable`; `emit` raising does not
+        fail the run.
 
 - [ ] **Task 5.8: Phase 6 — state, and exit classification** (effort: 2)
   - [ ] After phase 5, `set_last_full_sync(surface, run_start)` in its own
-        transaction. Add a pure `classify(result, exc) -> int` function (or
-        `SyncResult.exit_code` property fed by the CLI's constants — pick
-        one, used by both CLI and 263): 0 clean, 3 when `item_errors` is
-        non-empty, 2 on provider exception, 4 on `OperationalError`
-        (Decision 11). The exit-code constants live in
-        `cli/commands/kalshi.py` (Task 8.1) — the core returns a
-        classification enum, not integers, to avoid a core→CLI import.
+        transaction. Add `SyncOutcome` StrEnum {`ok`, `partial`,
+        `provider_abort`, `storage_abort`} in `sync.py` and a pure
+        `classify(result, exc) -> SyncOutcome`: `ok` when clean, `partial`
+        when `item_errors` is non-empty, `provider_abort` on a provider
+        exception, `storage_abort` on `OperationalError` (Decision 11). The
+        core never returns integers — the exit-code numbers live only in
+        `cli/commands/kalshi.py` (Task 8.1), which maps the enum, so there
+        is no core→CLI import (review F006).
   - [ ] Test: `last_full_sync_at` is written only after phase 5 completes
         and is **not** written when a provider error aborts phase 2 (state
         advanced only as far as completed); classification table covered
-        for all four outcomes.
+        for all four outcomes; after a full fake run, **every** markets
+        query the fake recorded (walk, settled windows, ticker lookups)
+        carries `mve_filter == "exclude"` (Success Criterion 9 exactly,
+        review F008).
   - [ ] Run the type gate on `data/kalshi` and tests; **Commit**:
         `feat: add kalshi catalog sync core with unit tests`.
 
-## Section 6: Migration `kalshi_004_catalog_sync_semantics`
 
-- [ ] **Task 6.1: Append the migration** (effort: 1)
-  - [ ] Add entry `kalshi_004_catalog_sync_semantics` to `KALSHI_MIGRATIONS`:
-        `COMMENT ON COLUMN` for `kalshi.sync_state.last_full_sync_at`,
-        `.watermark_ts`, `.cursor` with the exact wording of the design's
-        *State Management* table. Comments only; idempotent.
-  - [ ] Test (`test_kalshi_migrations.py`): `kalshi_004` is in
-        `TRACKS["kalshi"]`; applies and re-applies on `ephemeral_db`; the
-        `watermark_ts` comment read via `col_description` contains
-        "completed settled window"; existing 261 tests still pass (Success
-        Criterion 8).
-  - [ ] **Commit**: `feat: add kalshi_004 sync_state comment migration`.
-
-## Section 7: Status reads (`data/kalshi/status.py`)
-
-- [ ] **Task 7.1: Status queries and dataclass** (effort: 2)
-  - [ ] Synchronous psycopg (one short read, the `mt data status` pattern).
-        `read_catalog_status(conn) -> CatalogStatus | None`: `None` when no
-        `sync_state['catalog']` row; otherwise `last_full_sync_at`,
-        `watermark_ts`, series/events counts, markets by status (dict keyed
-        by `MarketStatus`), awaiting total, age histogram over
-        `AWAITING_AGE_BUCKETS` (`now() − close_time`), count past
-        `KALSHI_SETTLEMENT_STUCK_AFTER`, oldest awaiting (ticker, age),
-        count with `last_checked_at` set. Bucket edges and threshold are
-        SQL parameters from the constants. `to_dict()` for `--json`.
-  - [ ] Test (`test_kalshi_repository.py` or a sibling integration file):
-        empty schema → `None`; after seeding via the repository (Section 3)
-        with markets at ages 0.5 d, 3 d, 10 d, 40 d → histogram
-        `{<1d:1, 1–7d:1, 7–30d:1, >30d:1}`, past-threshold 2, oldest is the
-        40 d ticker (Success Criterion 6).
-  - [ ] **Commit**: `feat: add kalshi catalog status reads`.
-
-## Section 8: CLI module (`cli/commands/kalshi.py`)
-
-- [ ] **Task 8.1: Exit-code constants and module skeleton** (effort: 1)
-  - [ ] Create `kalshi_app = typer.Typer(...)`; define `EXIT_OK = 0`,
-        `EXIT_PREFLIGHT = 1`, `EXIT_PROVIDER = 2`, `EXIT_SYNC_PARTIAL = 3`,
-        `EXIT_STORAGE = 4` with a mapping from the core's classification
-        enum (Task 5.8). Attach in `data.py`:
-        `data_app.add_typer(kalshi_app, name="kalshi")` beside the existing
-        `add_typer` lines.
-  - [ ] Success: `uv run mt data kalshi --help` lists `sync` and `status`.
-
-- [ ] **Task 8.2: Async preflight — connection, session, track, lock** (effort: 3)
-  - [ ] `open_sync_connection(settings) -> AsyncConnection` (in
-        `data/kalshi/repository.py` or a small `db.py` — keep the CLI thin):
-        `AsyncConnection.connect(url, connect_timeout=DB_CONNECT_TIMEOUT_SECONDS)`
-        using the application credential (`MT_TIMESCALE_DB_URL`, never the
-        maintenance URL); apply the `SET`s from `DB_BULK_SESSION` (same
-        values `make_configure_connection` issues — reuse its statement
-        builder if one is exposed, otherwise extract one so the list is not
-        duplicated); verify `kalshi.sync_state` exists (`to_regclass`) else
-        raise a typed `PreflightError("apply the kalshi track")`; take
-        `pg_try_advisory_lock(SYNC_ADVISORY_LOCK_KEY)` else
-        `PreflightError("another sync holds the lock")`. Lock is released
-        by closing the connection at the end of the run.
-  - [ ] Integration test (`test/integration/test_kalshi_sync.py`, created
-        here with the migrated-`ephemeral_db` fixture from Task 3.1):
-        session settings visible via `SHOW statement_timeout`; unmigrated
-        database → `PreflightError` naming the track; a second connection
-        holding the lock → `PreflightError` naming the lock (Success
-        Criterion 11, third case).
-
-- [ ] **Task 8.3: `mt data kalshi sync`** (effort: 3)
-  - [ ] Options `--settled-since ISO-8601` (parsed to aware UTC datetime;
-        naive input rejected), `--events-file PATH`, `--json`. Body:
-        settings → `KalshiClient.from_settings` with `rate_limit =
-        RateLimit(requests_per_minute=settings.kalshi_requests_per_minute)`
-        when set (log mode and budget at INFO as 261 does) → preflight
-        (8.2; failures print the message and exit `EXIT_PREFLIGHT`) → sink
-        (`JsonlSyncEventSink` or Null) → `asyncio.run(CatalogSync(...).run(...))`
-        → print the `SyncResult` summary as a Rich table (per-phase
-        fetched/written, transitions, settled windows/captured, watermark,
-        awaiting counts, item errors count) or `--json` → exit via the 8.1
-        mapping. `ProviderTransientError`/`ProviderPermanentError` →
-        `EXIT_PROVIDER`; `psycopg.OperationalError` → `logger.exception`,
-        `EXIT_STORAGE`. Client and connection closed in `finally`.
-  - [ ] Unit test (`test/unit/cli/test_kalshi_commands.py`, typer
-        `CliRunner`, core and connection monkeypatched): exit-code mapping
-        for all five outcomes; `--settled-since` naive → error; `--json`
-        output parses and contains the phase counts; budget override reaches
-        the client constructor (Success Criterion 7).
-  - [ ] Integration test (`test_kalshi_sync.py`, fake source + real
-        repository): first run populates the three tables with FKs
-        satisfied and sets both `sync_state` columns (Success Criterion 1);
-        identical second run writes zero rows and keeps `first_seen_at`
-        (Criterion 2); close→awaiting, finalized→retired, removed-from-walk
-        →looked-up (Criterion 3); aborting fake source mid-drain then
-        re-run → no duplicates, no gap (Criterion 4); `--events-file`
-        yields valid JSONL with `run_started` + 5 `phase_finished` +
-        `run_finished` (Criterion 5).
-
-- [ ] **Task 8.4: Storage failure proofs on a throwaway database** (effort: 3)
-  - [ ] `test_kalshi_sync.py`: (a) a fake-source page carrying one market
-        with an out-of-vocabulary status → row-by-row rewrite, that ticker
-        as the only item error, every other row present, exit
-        `EXIT_SYNC_PARTIAL`; (b) from a second connection,
-        `pg_terminate_backend` the run's backend mid-walk (hook the fake
-        source's page iterator to fire it after page 1) → exit
-        `EXIT_STORAGE`, page 1 rows committed, `sync_state` unchanged;
-        (c) covered by 8.2's lock test — reference it (Success Criterion 11).
-  - [ ] **Commit**: `feat: add mt data kalshi sync command with exit codes`.
-
-- [ ] **Task 8.5: `mt data kalshi status`** (effort: 2)
-  - [ ] `--json` option. Opens a sync psycopg connection with the
-        application credential, calls `read_catalog_status`; `None` prints
-        "Kalshi catalog has never synced." and exits 0; otherwise prints the
-        sections in the design's *CLI specification* (relative age for last
-        full sync, markets by status, awaiting histogram, past-threshold
-        count with oldest ticker and age in days, checked-directly count).
-        No API call.
-  - [ ] Unit test: never-synced path exits 0 with the message; `--json`
-        emits a flat object with the documented keys (status read
-        monkeypatched). Integration: after the 8.3 first-run test, `status`
-        via `CliRunner` against the throwaway URL shows non-zero counts.
-  - [ ] **Commit**: `feat: add mt data kalshi status command`.
-
-## Section 9: Recorder targets and fixtures
-
-- [ ] **Task 9.1: Three new recorder targets** (effort: 2)
-  - [ ] In `scripts/record_kalshi_fixtures.py` add `markets_by_tickers`
-        (`GET /markets?tickers=` with ~5 tickers taken from
-        `markets_page1.json` plus one bogus ticker, proving silent omission),
-        `events_by_tickers` (`GET /events?tickers=` with ~5 event tickers
-        from `events_page1.json`), `markets_settled_window`
-        (`min_settled_ts`/`max_settled_ts` spanning one recent hour,
-        `mve_filter=exclude`, `limit=50`). Register in `RECORDERS`; respect
-        `--dry-run`.
-  - [ ] Run each with `--only` (developer-run, live) and commit the three
-        JSON files under `test/fixtures/kalshi/`.
-  - [ ] Test (`test_fixtures.py`): each new fixture parses into the 261 page
-        models; the by-tickers fixture has fewer markets than tickers
-        requested (the bogus one omitted); every settled-window market is
-        `finalized` with `settlement_ts` inside the requested window.
-
-- [ ] **Task 9.2: Point the fakes at the recorded shapes** (effort: 1)
-  - [ ] `FakeCatalogSource` (Task 4.1) serves `markets_by_tickers.json` /
-        `events_by_tickers.json` for `tickers=` calls and
-        `markets_settled_window.json` as its default settled population;
-        re-run the Section 5 unit tests unchanged.
-  - [ ] **Commit**: `test: record tickers-batch and settled-window kalshi fixtures`.
-
-## Section 10: Final validation and walkthrough
-
-- [ ] **Task 10.1: Full validation** (effort: 1)
-  - [ ] `uv run pytest test/unit -q` green; `uv run python
-        scripts/run_tests.py integration -- -k kalshi -q` green (re-run a
-        known-flake in isolation before investigating — see memory);
-        `ruff check`, mypy, strict pyright clean on the kalshi package, the
-        CLI module, and tests (Success Criterion 10); no new direct
-        dependency in `pyproject.toml`.
-  - [ ] Walk the design's Success Criteria 1–11 and note where each is
-        proven (test name or walkthrough step).
-
-- [ ] **Task 10.2: Throwaway-database rehearsal (walkthrough steps 2–5)** (effort: 2)
-  - [ ] Against a test-cluster throwaway database (runbook 400): apply the
-        track, run `sync --settled-since <today T00:00Z> --events-file …`,
-        verify exit 0 and the summary shape; run `sync` again and verify
-        written 0/0/0 (modulo live changes); `status` shows every section;
-        `wc -l` on the events file matches 7 lines per run.
-  - [ ] Interrupted drain: run with `--settled-since` a few weeks back,
-        Ctrl-C after ≥2 windows, confirm `status` shows the watermark at the
-        last completed window end, re-run, confirm completion with no
-        duplicate rows (`count(*)` vs `count(distinct ticker)` is trivially
-        equal — compare per-window counts to a clean run instead).
-  - [ ] Live settlement observation (walkthrough step 3): pick an awaiting
-        15-minute crypto market close to settlement, re-run `sync` a few
-        minutes later, confirm the row is `finalized` with `result` and gone
-        from `awaiting_settlement`. Record the ticker and timestamps in the
-        walkthrough.
-  - [ ] Drop the throwaway database afterwards (it is one this session
-        created).
-
-- [ ] **Task 10.3: Refine the walkthrough and close out** (effort: 1)
-  - [ ] Update the design's *Verification Walkthrough* to the actual
-        commands and output observed in 10.2; note that steps 0 (apply
-        `kalshi_004` to production) and 6 (first production run, ~15 min
-        drain, from an interactive shell with `--events-file`) are PM /
-        operator actions to run after merge — not performed by this slice's
-        automation.
-  - [ ] Delegate checklist updates to the task-checker agent; ensure all
-        completed tasks are checked; set the task file's `status`.
-  - [ ] **Commit**: `docs: refine 262 walkthrough post-implementation`.
+Continued in `262-tasks.catalog-sync-with-settlement-capture-2.md` (Sections 6–10).
