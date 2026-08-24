@@ -114,7 +114,9 @@ class TestCatalogSyncConstants:
     """Slice 262 sync constants (task 1.1)."""
 
     def test_walk_filters_are_live_statuses_only(self):
-        assert all(isinstance(f, kc.MarketStatusFilter) for f in kc.CATALOG_WALK_FILTERS)
+        assert all(
+            isinstance(f, kc.MarketStatusFilter) for f in kc.CATALOG_WALK_FILTERS
+        )
         assert kc.MarketStatusFilter.SETTLED not in kc.CATALOG_WALK_FILTERS
         assert set(kc.CATALOG_WALK_FILTERS) == set(kc.MarketStatusFilter) - {
             kc.MarketStatusFilter.SETTLED
