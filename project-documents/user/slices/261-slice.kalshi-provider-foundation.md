@@ -8,7 +8,7 @@ interfaces: [262, 263, 264, 265, 266]
 effort: 3
 dateCreated: 20260824
 dateUpdated: 20260824
-status: not_started
+status: complete
 ---
 
 # Slice Design: Kalshi Provider Foundation (261)
@@ -49,6 +49,16 @@ These findings satisfy the architecture requirement that endpoint surface and cu
 | `GET /markets/trades` | cursor; `limit` 1–1000, default 100 | Filters: `ticker`, `min_ts`, `max_ts`, `is_block_trade`. Trade fields: `trade_id`, `ticker`, `count_fp`, `yes_price_dollars`, `no_price_dollars`, `taker_outcome_side`, `taker_book_side`, `created_time`, `is_block_trade`. (`taker_side` is deprecated.) |
 
 Money and quantity are served as **fixed-point decimal strings** (`*_dollars`, `*_fp` with 2 decimals) — the legacy integer-cents representation is superseded. Storage uses `NUMERIC`; parsing uses `Decimal`.
+
+**Served market status vocabulary differs from the filter vocabulary (Phase 6 finding, live survey 2026-08-24, 1,000 markets per filter).** The `status` *field* in market objects does not carry the documented filter values. Observed mapping, filter → served: `unopened` → `initialized`; `open` → `active`; `paused` → `inactive` (plus some `closed`); `closed` → `determined` (result known, `settlement_ts` absent) and `closed`; `settled` → `finalized` (result and `settlement_ts` present). Consequence: `MarketStatus` (stored values; drives the `kalshi.markets.status` CHECK) has the six served values `initialized`, `active`, `inactive`, `closed`, `determined`, `finalized`, and a separate `MarketStatusFilter` enum carries the five documented query values. Settled time is served as `settlement_ts`, alongside `settlement_value_dollars`. `Market.status` is parsed as a plain string so an unknown future value fails at the CHECK (per Technical Decision 7), not by poisoning a whole page at parse time.
+
+### Recording cross-check (Phase 6, fixtures recorded 2026-08-24)
+
+What the committed fixtures under `test/fixtures/kalshi/` confirmed or corrected against the findings above:
+
+- **Confirmed:** `GET /series` is unpaginated (98 series in one body, no `cursor` key); `/events`, `/markets`, `/markets/trades` paginate by `cursor` and a page that has more data always carries one (the recorded second pages do too — the iterator's termination on an absent/empty cursor is unit-tested, not fixture-driven); `/historical/cutoff` serves exactly the four ISO-8601 fields listed above; money/quantity fields are fixed-point strings throughout; the served market status vocabulary is as recorded in the paragraph above (`finalized` on the settled pages, `active` on the open page).
+- **Corrected/added:** `GET /events/{event_ticker}?with_nested_markets=true` nests the markets *inside* the `event` object and serves an empty top-level `markets` list (the client folds either placement onto `Event.markets`). Candlestick `price` objects carry `mean_dollars` in addition to OHLC and `previous_dollars`; the `yes_bid`/`yes_ask` objects do not. A settled market's series ticker is not on the market object — it comes from its event (the catalog supplies it, as the candlestick path requires).
+- **Optional columns finalized for `kalshi_002_catalog`** (every key observed across the recorded pages; anything not listed stays in `raw`): series — `frequency`, `title`, `category`, `tags`, `settlement_sources`, `fee_type`, `fee_multiplier`, `contract_url`, `contract_terms_url`, `last_updated_ts` (`product_metadata` only with `include_product_metadata`); events — `title`, `sub_title`, `category`, `mutually_exclusive`, `strike_period`, `strike_date` (documented; absent from recordings), `collateral_return_type`, `available_on_brokers`, `settlement_sources`, `last_updated_ts`; markets — `market_type`, `title`, `subtitle`, `yes_sub_title`, `no_sub_title`, `rules_primary`, `rules_secondary`, lifecycle `created_time`/`open_time`/`close_time`/`expiration_time`/`expected_expiration_time`/`latest_expiration_time`/`updated_time`, settlement `result`/`expiration_value`/`can_close_early`/`settlement_ts`/`settlement_value_dollars`, economics `notional_value_dollars`/`last_price_dollars`/`previous_price_dollars`/`yes_bid_dollars`/`yes_ask_dollars`/`no_bid_dollars`/`no_ask_dollars`/`liquidity_dollars`/`volume_fp`/`volume_24h_fp`/`open_interest_fp`, plus `strike_type`, `price_level_structure`, `is_provisional`, `mve_collection_ticker`.
 
 ### Historical tier and cutoff behavior
 
@@ -109,8 +119,9 @@ Architectural enablement: every subsequent 260 slice (262 catalog sync, 263 pass
 src/manta_trading/data/kalshi/
   __init__.py
   constants.py    # base URL default, endpoint paths, rate-budget default,
-                  # MarketStatus / EventStatus / CandlePeriod StrEnums — the
-                  # single source for every comparison value in the domain
+                  # MarketStatus (served) / MarketStatusFilter / EventStatusFilter /
+                  # CandlePeriod / Surface enums — the single source for every
+                  # comparison value in the domain
   models.py       # Pydantic response models (external boundary)
   client.py       # KalshiClient — httpx.AsyncClient + RateLimiter + retry
 
@@ -155,7 +166,7 @@ KalshiClient.method()
 
 6. **Catalog rows keep the raw payload** — `series`/`events`/`markets` rows carry a `raw JSONB` column holding the full API object. Rationale: the initiative's purpose is capture before the data becomes unobtainable; column modeling covers what we query, `raw` preserves what we didn't anticipate. Candles/trades (264/265) will not carry raw — they are fully structured.
 
-7. **Lifecycle status enforced from one enum** — `MarketStatus` StrEnum in `kalshi/constants.py` with the five documented values (`unopened`, `open`, `paused`, `closed`, `settled`); the migration derives the CHECK constraint from it (the `acquisition_state` precedent). An undocumented new status fails the upsert loudly — correct per fail-explicit; admitting a new value is a one-line enum change plus a small migration.
+7. **Lifecycle status enforced from one enum** — `MarketStatus` StrEnum in `kalshi/constants.py` with the values the API actually *serves* — `initialized`, `active`, `inactive`, `closed`, `determined`, `finalized` (Discovery Findings: the documented five-value vocabulary is the *filter* vocabulary, carried by the separate `MarketStatusFilter` enum); the migration derives the CHECK constraint from `MarketStatus` (the `acquisition_state` precedent). An undocumented new status fails the upsert loudly — correct per fail-explicit; admitting a new value is a one-line enum change plus a small migration.
 
 8. **`mt data migrate --track`** — `mt data migrate apply|status` gain a `--track` option whose choices come from `TRACKS.keys()` (no string scatter), defaulting to `minute` so existing behavior and the 913 credential rules (apply uses `MT_TIMESCALE_MAINTENANCE_URL`, status the app URL) are unchanged. Both tracks target the same database, so no new connection plumbing.
 
@@ -181,7 +192,7 @@ Filter parameters mirror the documented query parameters (Discovery Findings tab
 
 Error classification is **complete over `httpx.HTTPError`**, not status-codes-only (review 261 F004 — connection-level failures on a new outbound I/O path must be enumerated, not implied): the request path catches `httpx.HTTPError` — the common base of `TransportError` and status errors — and re-raises as exactly one of the two provider errors. Every `httpx.TransportError` subclass (`ConnectError`, `ConnectTimeout`, `ReadTimeout`/`ReadError`, `WriteError`, `PoolTimeout`, `RemoteProtocolError`, TLS failures) is **transient**: each is retriable at least once, and if the condition persists, retries exhaust and the raised `ProviderTransientError` carries the underlying cause — surfacing as a nonzero pass exit under 263, per fail-loud/back-off-hard. HTTP 429/5xx are transient; all other 4xx and Pydantic validation failures are permanent. Nothing outside `httpx.HTTPError`/validation is caught — an unexpected exception propagating uncaught is a bug made visible, by design (no broad `except`).
 
-Authenticated mode (Technical Decision 4a): when credentials are configured, every request additionally carries the three `KALSHI-ACCESS-*` headers, with the signature computed per the Discovery Findings mechanism (RSA-PSS/SHA-256 over `timestamp_ms + method + path`, query string excluded from the signed path). The private key loads once at client construction; a missing/unreadable key file or a partial credential pair is a construction-time error, never a runtime surprise.
+Authenticated mode (Technical Decision 4a): when credentials are configured, every request additionally carries the three `KALSHI-ACCESS-*` headers, with the signature computed per the Discovery Findings mechanism (RSA-PSS/SHA-256 over `timestamp_ms + method + path`, query string excluded from the signed path). The private key loads once at client construction; a missing/unreadable key file or a partial credential pair is a construction-time error, never a runtime surprise. The signature itself (RSA-2048 PSS: measured 0.6 ms mean, 1.1–1.5 ms worst case on idle hardware — code review 261 F001) is computed in a worker thread via `asyncio.to_thread`, never on the event loop, per the project's <1 ms rule for synchronous work inside `async def`.
 
 ### Database schema (`kalshi` track)
 
@@ -192,9 +203,9 @@ Migration sequence (IDs indicative; content is the contract):
 - `kalshi_002_catalog` — catalog tables:
   - `kalshi.series` — `ticker TEXT PK`, `frequency`, `title`, `category`, `tags JSONB`, `settlement_sources JSONB`, `fee_type`, `fee_multiplier NUMERIC`, `product_metadata JSONB`, `last_updated_ts TIMESTAMPTZ` (Kalshi's), `raw JSONB`, `first_seen_at`/`last_synced_at TIMESTAMPTZ` (ours).
   - `kalshi.events` — `event_ticker TEXT PK`, `series_ticker TEXT NOT NULL REFERENCES kalshi.series`, `title`, `sub_title`, `mutually_exclusive BOOLEAN`, `strike_date TIMESTAMPTZ`, `strike_period`, `collateral_return_type`, `product_metadata JSONB`, `last_updated_ts TIMESTAMPTZ`, `raw JSONB`, `first_seen_at`/`last_synced_at`.
-  - `kalshi.markets` — `ticker TEXT PK`, `event_ticker TEXT NOT NULL REFERENCES kalshi.events`, `market_type`, `status TEXT NOT NULL` + CHECK derived from `MarketStatus`, lifecycle timestamps (`created_time`, `open_time`, `close_time`, `latest_expiration_time`, `updated_time` — all Kalshi's, TIMESTAMPTZ), settlement fields (`result`, `expiration_value`, `can_close_early`, settled-time as confirmed by fixtures), market economics as `NUMERIC` (`notional_value`, `volume`, `open_interest`, last/bid/ask prices), `rules_primary`/`rules_secondary TEXT`, `raw JSONB`, `first_seen_at`/`last_synced_at`.
+  - `kalshi.markets` — `ticker TEXT PK`, `event_ticker TEXT NOT NULL REFERENCES kalshi.events`, `market_type`, `status TEXT NOT NULL` + CHECK derived from `MarketStatus`, lifecycle timestamps (`created_time`, `open_time`, `close_time`, `latest_expiration_time`, `updated_time` — all Kalshi's, TIMESTAMPTZ), settlement fields (`result`, `expiration_value`, `can_close_early`, `settlement_ts`, `settlement_value_dollars` — names confirmed from live responses), market economics as `NUMERIC` (`notional_value`, `volume`, `open_interest`, last/bid/ask prices), `rules_primary`/`rules_secondary TEXT`, `raw JSONB`, `first_seen_at`/`last_synced_at`.
   - Indexes: `markets(event_ticker)`, `markets(status)`, `markets(close_time)`, `events(series_ticker)`. Exact secondary-index set may be tuned in 262 when query shapes are real.
-  - Exact optional-column list is finalized during implementation **from the recorded fixtures**, not from prose docs — required columns above are the contract.
+  - Exact optional-column list is finalized during implementation **from the recorded fixtures**, not from prose docs — required columns above are the contract. Each catalog table's column set equals its Pydantic model's field set plus the three bookkeeping columns (`raw`, `first_seen_at`, `last_synced_at`); an integration test enforces the parity (code review 261 F002) so 262's field→column upsert cannot silently skip either side.
 - `kalshi_003_collection_state` — collection-state tables (created now so 262/264 write into a stable schema; row semantics are finalized by their consuming slices):
   - `kalshi.sync_state` — `surface TEXT PK` (values from a `Surface` StrEnum: `catalog`, `candlesticks`, `trades`; CHECK derived), `last_full_sync_at TIMESTAMPTZ`, `watermark_ts TIMESTAMPTZ`, `cursor TEXT`, `updated_at TIMESTAMPTZ NOT NULL`. Per-surface column semantics documented in the migration comment; 262 defines them operationally.
   - `kalshi.awaiting_settlement` — `market_ticker TEXT PK REFERENCES kalshi.markets`, `close_time TIMESTAMPTZ NOT NULL`, `entered_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `last_checked_at TIMESTAMPTZ`. Age (the architecture's mandatory visibility) is computed as `now() - close_time`; the stuck threshold is 262's decision.
@@ -213,7 +224,7 @@ Rollback posture: the runner has no down-migration mechanism and this slice does
 ## Integration Points
 
 ### Provides to Other Slices
-- **262 (Catalog Sync):** the full client surface (series/events/markets iterators, `get_historical_cutoff`), the catalog tables it upserts into (on-ticker idempotency is schema-guaranteed by the PKs), `sync_state` and `awaiting_settlement`, and the `MarketStatus`/`Surface` enums.
+- **262 (Catalog Sync):** the full client surface (series/events/markets iterators, `get_historical_cutoff`), the catalog tables it upserts into (on-ticker idempotency is schema-guaranteed by the PKs), `sync_state` and `awaiting_settlement`, and the `MarketStatus`/`Surface` enums. **Deployment handoff:** the kalshi track is applied on the test cluster only, never on production, by this slice — 262 owns applying it to production before its first run (`mt data migrate apply --track kalshi`; runbook 100 *Update procedure*, and the 262 prerequisite note in the 260 slice plan).
 - **263 (Pass):** nothing direct; 263 composes 262's phase.
 - **264/265 (Candles/Trades):** `get_market_candlesticks` / `iter_trades` with their fixtures; `market_candle_state`; the batch-candlesticks option noted in Discovery Findings.
 - **266 (Backfill):** the gate decision (viable — proceed), the documented `/historical/*` surface, and `get_historical_cutoff()`.
@@ -234,31 +245,65 @@ Nothing unreleased — all prerequisites are complete initiatives (900, 100, 913
 
 ## Verification Walkthrough
 
-Draft demo script — refined at end of Phase 6.
+Executed at the end of Phase 6 (2026-08-24); commands and outputs below are what actually ran. Every database step targets a throwaway database on the test cluster — nothing here touches production.
 
 ```bash
 # 1. Provider is registered
-mt provider list                      # → row: kalshi | auth: none | base_url: external-api.kalshi.com/...
+uv run mt provider list
+#    → row: kalshi | kalshi | Kalshi event-contract market data (trade-api/v2) | (no aliases) | ✓
+uv run mt provider status --json | python3 -c "import sys,json;print([p for p in json.load(sys.stdin) if p['name']=='kalshi'][0]['auth_type'])"
+#    → none
 
-# 2. Unit tests: client vs recorded real responses
-uv run pytest test/unit/data/kalshi/ -v
-#    → parse, pagination, error-taxonomy, and rate-limit tests pass
+# 2. Unit tests: client vs recorded real responses (no network, no database)
+uv run pytest test/unit/data/kalshi -q
+#    → 106 passed (constants/enums, models, request core incl. transport-error
+#      taxonomy and rate-limit enforcement, endpoint methods, recorded-fixture
+#      pass incl. genuine two-page cursor pairs and the 404 body, signing)
 
 # 3. Migration on a throwaway database (never production)
-export MT_TIMESCALE_TEST_URL=postgresql://trading_test_admin:...@host:5432/postgres
-uv run pytest test/integration/ -k kalshi_migrations -v
-#    → creates throwaway DB, applies track from bare, idempotence + teardown checks
+#    MT_TIMESCALE_TEST_URL is the test-cluster admin URL (runbook:
+#    user/runbooks/test-database-cluster.md); the reviewed runner copies in
+#    only that tier's allowlisted variables.
+uv run python scripts/run_tests.py integration -- -k kalshi_migrations -q
+#    → 14 passed: bare apply bootstraps the ledger then applies
+#      kalshi_001_schema / kalshi_002_catalog / kalshi_003_collection_state;
+#      second apply returns []; tables, PKs, FKs, enum-derived CHECKs, indexes
+#      and trading_app grants present; nothing references public; bad status /
+#      unknown series / unknown period rejected; DROP SCHEMA kalshi CASCADE +
+#      ledger cleanup + re-apply succeeds
 
-# 4. Migration track visible through the CLI (against a dev/test DB)
-mt data migrate status --track kalshi
-#    → applied: 001_schema_migrations, kalshi_001_schema, kalshi_002_catalog,
-#      kalshi_003_collection_state; pending: none
-mt data migrate status                # → minute track output, unchanged
+# 4. Migration track through the CLI, against a throwaway database
+#    (point BOTH URLs at a database you created on the test cluster; apply
+#    resolves the maintenance URL per 913, status the application URL)
+export MT_TIMESCALE_DB_URL=postgresql://trading_test_admin:...@host:5432/mt_walk_xxx
+export MT_TIMESCALE_MAINTENANCE_URL=$MT_TIMESCALE_DB_URL
+uv run mt data migrate apply --track kalshi
+#    → Applied: kalshi_001_schema / kalshi_002_catalog / kalshi_003_collection_state
+#      3 migration(s) applied
+uv run mt data migrate status --track kalshi
+#    → 001_schema_migrations, kalshi_001_schema, kalshi_002_catalog,
+#      kalshi_003_collection_state all "applied"; "4 applied, 0 pending"
+uv run mt data migrate apply --track kalshi --json      # → {"applied": []}
+uv run mt data migrate status                           # → minute track, unchanged
+#    (on the throwaway DB: the shared ledger's 4 rows applied, 54 minute
+#     migrations pending — the minute view is the same output as before 261)
+uv run mt data migrate apply --track bogus
+#    → Invalid value for '--track': 'bogus' is not one of 'minute', 'daily', 'kalshi'.
 
 # 5. One live smoke call (manual, optional — proves the real API matches fixtures)
 uv run python scripts/record_kalshi_fixtures.py --only historical_cutoff --dry-run
-#    → prints current cutoff timestamps (market_settled_ts, trades_created_ts, ...)
+#    → --- historical_cutoff (HTTP 200, 188 bytes)
+#      {"market_positions_last_updated_ts":"2026-06-25T00:00:00Z",
+#       "market_settled_ts":"2026-06-25T00:00:00Z", ...,
+#       "trades_created_ts":"2026-06-25T00:00:00Z"}
 ```
+
+Caveats discovered during implementation:
+
+- **Type checking:** `pyproject.toml` configures `mypy` as this project's checker (the python-rules "or mypy" alternative); `pyright` is not installed in the environment. The slice was verified with both — `uv run --extra dev mypy` on every touched file, and strict `pyright` (via `npx pyright`, an ad-hoc config with `typeCheckingMode: strict`) on the kalshi package, its tests, the migration module, and the recorder — zero errors on each. Adding a repo-wide `[tool.pyright]` block remains the tracked chore noted in `pyproject.toml`.
+- **Running tiers together** (`pytest test/unit test/integration` in one invocation) fails at collection on a pre-existing `from conftest import …` name collision between tiers; run tiers separately (`scripts/run_tests.py <tier>`), as the project already does.
+- **Applying the kalshi track to production** (`mt data migrate apply --track kalshi` with the production maintenance URL) was *not* run — it is a PM action. The track is idempotent and additive (new schema only), so it can be applied whenever 262 is ready to write into it.
+- The live series list for the recorded fixture uses `category=Health` (98 series, 78 KB) to keep the unpaginated response a sane size; the full unfiltered list is several MB.
 
 There is no `mt data kalshi ...` command yet — that surface starts in 262. What the user can *prove* after this slice: the provider exists, the client speaks the real API (fixtures + optional smoke call), and the schema applies cleanly and idempotently.
 

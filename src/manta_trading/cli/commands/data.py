@@ -7,14 +7,17 @@ from datetime import date as _date_t
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import click
 import typer
 
-# ``RechunkTarget`` is imported at module scope, unlike most of this module's
-# imports, because Typer resolves an option's enum type at decoration time to
-# build --table's choice list and reject anything else.
+# ``RechunkTarget`` and ``TRACKS`` are imported at module scope, unlike most of
+# this module's imports, because Typer resolves an option's choices at
+# decoration time (``--table`` from the enum, ``--track`` from ``TRACKS``) to
+# build the choice list and reject anything else.
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.rechunk import RechunkTarget
+from manta_trading.market.schema.migrations import DEFAULT_TRACK, TRACKS
 from manta_trading.providers.auth import resolve_auth
 from manta_trading.providers.profiles import get_profile
 
@@ -184,9 +187,20 @@ def data_init(
     console.print(table)
 
 
+# ``--track`` choices come from ``TRACKS`` itself — no track name is spelled
+# out here. Both tracks target the same database, so no new connection plumbing.
+_TRACK_OPTION = typer.Option(
+    DEFAULT_TRACK,
+    "--track",
+    help="Migration track to act on.",
+    click_type=click.Choice(list(TRACKS)),
+)
+
+
 @migrate_app.command("apply")
 def migrate_apply(
     ctx: typer.Context,
+    track: str = _TRACK_OPTION,
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Apply pending schema migrations.
@@ -197,7 +211,7 @@ def migrate_apply(
     """
     db = _create_timescale_db(ctx, conninfo=_get_maintenance_url(ctx))
     try:
-        applied = db.apply_schema_migrations()
+        applied = db.apply_schema_migrations(TRACKS[track])
     finally:
         db.close()
 
@@ -213,9 +227,10 @@ def migrate_apply(
 @migrate_app.command("status")
 def migrate_status(
     ctx: typer.Context,
+    track: str = _TRACK_OPTION,
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Show applied and pending migrations."""
+    """Show applied and pending migrations for a track."""
     from rich.console import Console
     from rich.table import Table
 
@@ -231,7 +246,7 @@ def migrate_status(
     try:
         db = _create_timescale_db(ctx)
         try:
-            state = db.list_migration_state()
+            state = db.list_migration_state(TRACKS[track])
         finally:
             db.close()
     except Exception as exc:

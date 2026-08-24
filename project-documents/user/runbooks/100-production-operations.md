@@ -186,11 +186,38 @@ picks up the new code at its next firing.
 
 **Apply migrations only if the release notes say a slice added one** — operator
 step, interactive shell, maintenance credential (never in the unit
-environment):
+environment). Migrations are organised in **tracks** (`mt data migrate
+apply --help` lists them: `minute`, `daily`, `kalshi`); each track is applied
+separately and `--track` defaults to `minute`. All tracks share one ledger
+(`schema_migrations`) on the trading database.
 
 ```bash
-cd ~/source/repos/manta/trading-data && uv run mt data migrate apply --db all
+cd ~/source/repos/manta/trading-data
+uv run mt data migrate status                     # pre-flight: what the minute track would apply (app credential)
+uv run mt data migrate apply                      # minute track (the default) — needs MT_TIMESCALE_MAINTENANCE_URL
+uv run mt data migrate status --track kalshi      # pre-flight for the kalshi track
+uv run mt data migrate apply --track kalshi       # kalshi track (schema `kalshi`; slice 261+)
 ```
+
+`status` reads with the application credential and is always safe; `apply`
+refuses to run without the maintenance credential. A second `apply` of an
+already-applied track prints `0 migration(s) applied` — re-running is harmless.
+
+**Rehearse on the test cluster first** (runbook 400) when a track is new or
+the change is more than additive: create a throwaway database there, apply the
+minute track from bare, then the new track, and read `status` for both — the
+same sequence the integration tests run, but through the real CLI and the
+maintenance-credential path. Point *both* `MT_TIMESCALE_DB_URL` and
+`MT_TIMESCALE_MAINTENANCE_URL` at the throwaway database for the rehearsal
+(shell-local `export`, never in `.env`), and drop it afterwards.
+
+**There are no down-migrations.** The runner only moves forward; rolling back
+the *code* (below) does not roll back an applied migration, and every track is
+written to be additive and idempotent so that is safe. Removing a track's
+objects is a PM-only manual action on a throwaway or explicitly designated
+database — e.g. for the kalshi track, `DROP SCHEMA kalshi CASCADE` plus
+deleting its `kalshi_*` rows from `schema_migrations`; the integration tests
+prove that re-applying afterwards succeeds.
 
 The dev checkout keeps its own update procedure (`git pull` + `uv sync` on
 `main`); nothing about it changed.
@@ -376,3 +403,7 @@ uv run mt data daemon run --daily --stop-when-done     # etc., as before slice 9
 
 Re-enabling the three restores the supervised state (and fires the
 `Persistent=true` catch-up).
+
+Rolling back code does **not** undo applied schema migrations — there are no
+down-migrations (see the migrations note under *Update procedure*). Older code
+runs unchanged against a newer additive schema.

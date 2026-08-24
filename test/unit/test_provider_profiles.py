@@ -6,9 +6,12 @@ import dataclasses
 
 import pytest
 
+from manta_trading.data.kalshi.constants import (
+    KALSHI_BASE_URL,
+    KALSHI_PUBLIC_RATE_LIMIT,
+)
 from manta_trading.providers.profiles import (
     BUILT_IN_PROFILES,
-    ProviderProfile,
     get_all_profiles,
     get_profile,
     resolve_alias,
@@ -26,13 +29,13 @@ class TestProviderProfile:
 
 
 class TestBuiltInProfiles:
-    """Verify BUILT_IN_PROFILES contents after slice 152 (AV removed)."""
+    """Verify BUILT_IN_PROFILES contents (152 removed AV; 261 added kalshi)."""
 
-    def test_contains_two_entries(self):
-        assert len(BUILT_IN_PROFILES) == 2
+    def test_contains_three_entries(self):
+        assert len(BUILT_IN_PROFILES) == 3
 
     def test_keys(self):
-        assert set(BUILT_IN_PROFILES) == {"databento", "flatfile"}
+        assert set(BUILT_IN_PROFILES) == {"databento", "flatfile", "kalshi"}
 
     def test_databento_profile(self):
         p = BUILT_IN_PROFILES["databento"]
@@ -48,13 +51,22 @@ class TestBuiltInProfiles:
         assert p.auth_type == AuthType.NONE
         assert p.aliases == ("flat", "file")
 
+    def test_kalshi_profile(self):
+        p = BUILT_IN_PROFILES["kalshi"]
+        assert p.provider_type == ProviderType.KALSHI
+        assert p.base_url == KALSHI_BASE_URL
+        assert p.api_key_env is None
+        assert p.auth_type == AuthType.NONE
+        # The shared constant object, not a copied number (one value, one source).
+        assert p.rate_limit is KALSHI_PUBLIC_RATE_LIMIT
+
 
 class TestGetAllProfiles:
     """Verify get_all_profiles."""
 
-    def test_returns_all_two(self):
+    def test_returns_all_three(self):
         profiles = get_all_profiles()
-        assert len(profiles) == 2
+        assert len(profiles) == 3
 
     def test_returns_copy(self):
         profiles = get_all_profiles()
@@ -96,6 +108,7 @@ class TestResolveAlias:
     def test_canonical_passthrough(self):
         assert resolve_alias("databento") == "databento"
         assert resolve_alias("flatfile") == "flatfile"
+        assert resolve_alias("kalshi") == "kalshi"
 
     def test_nonexistent_raises_key_error(self):
         with pytest.raises(KeyError, match="Available"):

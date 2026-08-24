@@ -32,7 +32,14 @@ class TestProviderList:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert isinstance(data, list)
-        assert len(data) == 2
+        assert len(data) == 3
+
+    def test_list_json_includes_kalshi(self):
+        result = runner.invoke(app, ["provider", "list", "--json"])
+        data = json.loads(result.output)
+        kalshi = next(entry for entry in data if entry["name"] == "kalshi")
+        assert kalshi["auth_valid"] is True
+        assert kalshi["base_url"].startswith("https://external-api.kalshi.com/")
 
     def test_list_json_has_required_keys(self):
         result = runner.invoke(app, ["provider", "list", "--json"])
@@ -89,7 +96,13 @@ class TestProviderStatus:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert isinstance(data, list)
-        assert len(data) == 2
+        assert len(data) == 3
+
+    def test_status_json_kalshi_auth_none(self):
+        result = runner.invoke(app, ["provider", "status", "--json"])
+        data = json.loads(result.output)
+        kalshi = next(entry for entry in data if entry["name"] == "kalshi")
+        assert kalshi["auth_type"] == "none"
 
 
 class TestProviderTest:

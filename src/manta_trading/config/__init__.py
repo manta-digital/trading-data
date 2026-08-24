@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -41,6 +42,11 @@ class Settings(BaseSettings):
     databento_api_key: str | None = None
     eodhd_api_key: str | None = None
     finnhub_api_key: str | None = None
+    # Kalshi authenticated mode (slice 261, TD 4a): a key ID plus the *path*
+    # to the RSA private-key PEM file — never the key itself. Both or
+    # neither; the client refuses a partial pair at construction.
+    kalshi_api_key_id: str | None = None
+    kalshi_private_key_path: Path | None = None
 
     # Minute-bar provider selection. Pydantic accepts the StrEnum as both
     # the env-var string ("eodhd") and the enum value, and rejects unknown

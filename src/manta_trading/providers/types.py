@@ -12,6 +12,7 @@ class ProviderType(StrEnum):
     EODHD = "eodhd"
     DATABENTO = "databento"
     FLAT_FILE = "flatfile"
+    KALSHI = "kalshi"
 
 
 class AuthType(StrEnum):

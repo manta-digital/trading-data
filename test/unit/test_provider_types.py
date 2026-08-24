@@ -17,8 +17,8 @@ class TestProviderType:
     def test_is_str_enum(self):
         assert issubclass(ProviderType, StrEnum)
 
-    def test_has_three_members(self):
-        assert len(ProviderType) == 3
+    def test_has_four_members(self):
+        assert len(ProviderType) == 4
 
     def test_values_are_lowercase_strings(self):
         for member in ProviderType:
@@ -33,6 +33,9 @@ class TestProviderType:
 
     def test_flat_file_serializes(self):
         assert str(ProviderType.FLAT_FILE) == "flatfile"
+
+    def test_kalshi_serializes(self):
+        assert str(ProviderType.KALSHI) == "kalshi"
 
 
 class TestAuthType:
