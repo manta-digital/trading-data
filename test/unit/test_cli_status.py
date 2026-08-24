@@ -84,7 +84,8 @@ class TestStatusJson:
         data = json.loads(result.output)
         assert "providers" in data
         assert isinstance(data["providers"], list)
-        assert len(data["providers"]) == 2
+        assert len(data["providers"]) == 3
+        assert {p["name"] for p in data["providers"]} == {"databento", "flatfile", "kalshi"}
 
     def test_json_has_database_key(self):
         with _patch_no_db():
