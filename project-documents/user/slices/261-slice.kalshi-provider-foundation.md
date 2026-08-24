@@ -224,7 +224,7 @@ Rollback posture: the runner has no down-migration mechanism and this slice does
 ## Integration Points
 
 ### Provides to Other Slices
-- **262 (Catalog Sync):** the full client surface (series/events/markets iterators, `get_historical_cutoff`), the catalog tables it upserts into (on-ticker idempotency is schema-guaranteed by the PKs), `sync_state` and `awaiting_settlement`, and the `MarketStatus`/`Surface` enums.
+- **262 (Catalog Sync):** the full client surface (series/events/markets iterators, `get_historical_cutoff`), the catalog tables it upserts into (on-ticker idempotency is schema-guaranteed by the PKs), `sync_state` and `awaiting_settlement`, and the `MarketStatus`/`Surface` enums. **Deployment handoff:** the kalshi track is applied on the test cluster only, never on production, by this slice — 262 owns applying it to production before its first run (`mt data migrate apply --track kalshi`; runbook 100 *Update procedure*, and the 262 prerequisite note in the 260 slice plan).
 - **263 (Pass):** nothing direct; 263 composes 262's phase.
 - **264/265 (Candles/Trades):** `get_market_candlesticks` / `iter_trades` with their fixtures; `market_candle_state`; the batch-candlesticks option noted in Discovery Findings.
 - **266 (Backfill):** the gate decision (viable — proceed), the documented `/historical/*` surface, and `get_historical_cutoff()`.
