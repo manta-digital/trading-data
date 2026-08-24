@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
+from manta_trading.market.schema.migrations import DEFAULT_TRACK, TRACKS
 
 runner = CliRunner()
 
@@ -97,7 +98,27 @@ class TestMigrateApply:
             with patch("manta_trading.cli.commands.data._create_timescale_db", return_value=ts_db):
                 result = runner.invoke(app, ["data", "migrate", "apply"])
         assert result.exit_code == 0
-        ts_db.apply_schema_migrations.assert_called_once()
+        # Default track is the minute track — the exact migration list.
+        ts_db.apply_schema_migrations.assert_called_once_with(TRACKS[DEFAULT_TRACK])
+        assert TRACKS[DEFAULT_TRACK] is TRACKS["minute"]
+
+    def test_migrate_apply_track_kalshi(self):
+        ts_db = _mock_timescale_db(applied=["kalshi_001_schema"])
+        with _patch_app(_settings()):
+            with patch("manta_trading.cli.commands.data._create_timescale_db", return_value=ts_db):
+                result = runner.invoke(app, ["data", "migrate", "apply", "--track", "kalshi"])
+        assert result.exit_code == 0
+        ts_db.apply_schema_migrations.assert_called_once_with(TRACKS["kalshi"])
+
+    def test_migrate_apply_invalid_track_lists_choices(self):
+        ts_db = _mock_timescale_db()
+        with _patch_app(_settings()):
+            with patch("manta_trading.cli.commands.data._create_timescale_db", return_value=ts_db):
+                result = runner.invoke(app, ["data", "migrate", "apply", "--track", "bogus"])
+        assert result.exit_code != 0
+        ts_db.apply_schema_migrations.assert_not_called()
+        for name in TRACKS:
+            assert name in result.output
 
     def test_migrate_apply_missing_url_exits_nonzero(self):
         """Applying migrations is DDL, so it demands the maintenance key.
@@ -141,6 +162,22 @@ class TestMigrateStatus:
         data = json.loads(result.output)
         assert "applied" in data
         assert "pending" in data
+        ts_db.list_migration_state.assert_called_once_with(TRACKS[DEFAULT_TRACK])
+
+    def test_status_track_kalshi(self):
+        ts_db = _mock_timescale_db()
+        with _patch_app(_settings()):
+            with patch("manta_trading.cli.commands.data._create_timescale_db", return_value=ts_db):
+                result = runner.invoke(app, ["data", "migrate", "status", "--track", "kalshi", "--json"])
+        assert result.exit_code == 0
+        ts_db.list_migration_state.assert_called_once_with(TRACKS["kalshi"])
+
+    def test_status_invalid_track_rejected(self):
+        with _patch_app(_settings()):
+            result = runner.invoke(app, ["data", "migrate", "status", "--track", "bogus"])
+        assert result.exit_code != 0
+        for name in TRACKS:
+            assert name in result.output
 
     def test_status_missing_url_exits_nonzero(self):
         with _patch_app(_settings(timescale_url=None)):

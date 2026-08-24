@@ -318,71 +318,71 @@ batched into one trailing test task).
 Consult `ai-project-guide/tool-guides/timescaledb/` if any TimescaleDB
 behavior question arises; this slice creates plain relational tables only.
 
-- [ ] **Task 8.1: Track module and schema migration** (effort: 2)
-  - [ ] Create `src/manta_trading/market/schema/migrations/kalshi.py` with
+- [x] **Task 8.1: Track module and schema migration** (effort: 2)
+  - [x] Create `src/manta_trading/market/schema/migrations/kalshi.py` with
         `KALSHI_MIGRATIONS`, entries in the existing dict shape.
-  - [ ] Entry 1: `001_schema_migrations` — bootstrap SQL identical to the
+  - [x] Entry 1: `001_schema_migrations` — bootstrap SQL identical to the
         other tracks (idempotent; already recorded on production, needed for
         bare throwaway DBs).
-  - [ ] Entry 2: `kalshi_001_schema` — `CREATE SCHEMA kalshi`; `GRANT USAGE
+  - [x] Entry 2: `kalshi_001_schema` — `CREATE SCHEMA kalshi`; `GRANT USAGE
         ON SCHEMA kalshi TO trading_app` plus DML grants pattern for tables
         (plain GRANTs — a missing role fails loudly by design).
-  - [ ] Success: module imports; SQL reviewed against the design's schema
+  - [x] Success: module imports; SQL reviewed against the design's schema
         section.
 
-- [ ] **Task 8.2: Catalog tables migration** (effort: 3)
-  - [ ] Entry `kalshi_002_catalog`: `kalshi.series`, `kalshi.events`,
+- [x] **Task 8.2: Catalog tables migration** (effort: 3)
+  - [x] Entry `kalshi_002_catalog`: `kalshi.series`, `kalshi.events`,
         `kalshi.markets` exactly per the design's Database schema section —
         PKs on tickers, FKs series←events←markets, `status` CHECK derived
         from `MarketStatus` (values interpolated from the enum, the
         `state.py`/`minute.py` precedent), `raw JSONB` + `first_seen_at` /
         `last_synced_at` on all three, `NUMERIC` for money/quantities,
         `TIMESTAMPTZ` throughout.
-  - [ ] Optional columns per the Task 6.3 fixture findings; required columns
+  - [x] Optional columns per the Task 6.3 fixture findings; required columns
         are the design's contract.
-  - [ ] Indexes: `markets(event_ticker)`, `markets(status)`,
+  - [x] Indexes: `markets(event_ticker)`, `markets(status)`,
         `markets(close_time)`, `events(series_ticker)`.
-  - [ ] No FK, view, or reference to any `public` table (extraction
+  - [x] No FK, view, or reference to any `public` table (extraction
         discipline — design Technical Decision 1).
-  - [ ] Success: the track so far applies on a throwaway database without
+  - [x] Success: the track so far applies on a throwaway database without
         error (invoke `apply_migrations` directly against the test-cluster
         fixture); catalog queries (`information_schema` / `pg_catalog`)
         show all three tables with the designed PKs, FKs, status CHECK,
         and indexes; no `kalshi.*` object references a `public` object.
-- [ ] **Task 8.3: Collection-state tables migration** (effort: 2)
-  - [ ] Entry `kalshi_003_collection_state`: `kalshi.sync_state` (PK
+- [x] **Task 8.3: Collection-state tables migration** (effort: 2)
+  - [x] Entry `kalshi_003_collection_state`: `kalshi.sync_state` (PK
         `surface` with CHECK from `Surface`), `kalshi.awaiting_settlement`
         (PK `market_ticker` FK→markets, `close_time` NOT NULL, `entered_at`
         default now(), `last_checked_at`), `kalshi.market_candle_state`
         (PK `(market_ticker, period)`, FK→markets, period CHECK from
         `CandlePeriod`, `watermark_ts`) — columns per the design.
-  - [ ] Migration comments document per-surface column semantics (finalized
+  - [x] Migration comments document per-surface column semantics (finalized
         operationally by 262).
-  - [ ] Success: full track applies on a throwaway database without error;
+  - [x] Success: full track applies on a throwaway database without error;
         catalog queries show the three state tables with the designed PKs,
         FKs to `kalshi.markets`, and the `surface`/`period` CHECK
         constraints deriving their value lists from the Task 1.2 enums.
-- [ ] **Task 8.4: Register the track** (effort: 1)
-  - [ ] Add `"kalshi": KALSHI_MIGRATIONS` to `TRACKS` in
+- [x] **Task 8.4: Register the track** (effort: 1)
+  - [x] Add `"kalshi": KALSHI_MIGRATIONS` to `TRACKS` in
         `market/schema/migrations/__init__.py`; update `__all__`.
-  - [ ] Success: `TRACKS["kalshi"]` importable; existing tracks unchanged.
+  - [x] Success: `TRACKS["kalshi"]` importable; existing tracks unchanged.
 
-- [ ] **Task 8.5: Migration integration tests (throwaway DB)** (effort: 3)
-  - [ ] New `test/integration/test_kalshi_migrations.py` using the existing
+- [x] **Task 8.5: Migration integration tests (throwaway DB)** (effort: 3)
+  - [x] New `test/integration/test_kalshi_migrations.py` using the existing
         throwaway-database fixtures (`MT_TIMESCALE_TEST_URL`; tests never
         read the production URL — guard tests enforce this).
-  - [ ] Bare database: track applies including bootstrap; second apply is a
+  - [x] Bare database: track applies including bootstrap; second apply is a
         no-op (returns empty list).
-  - [ ] All `kalshi.*` tables, PKs, FKs, CHECKs, indexes, and `trading_app`
+  - [x] All `kalshi.*` tables, PKs, FKs, CHECKs, indexes, and `trading_app`
         grants exist (query catalogs).
-  - [ ] Constraint rejection: market row with unknown status value fails
+  - [x] Constraint rejection: market row with unknown status value fails
         CHECK; event row with unknown series fails FK.
-  - [ ] Teardown/re-apply cycle per the design's rollback posture:
+  - [x] Teardown/re-apply cycle per the design's rollback posture:
         `DROP SCHEMA kalshi CASCADE` on the throwaway DB removes everything
         the track created outside the ledger; after deleting the track's
         ledger rows, re-apply succeeds.
-  - [ ] Success: integration tests pass against the test cluster.
-  - [ ] **Commit checkpoint**: `feat: add kalshi migration track with catalog and state tables`.
+  - [x] Success: integration tests pass against the test cluster.
+  - [x] **Commit checkpoint**: `feat: add kalshi migration track with catalog and state tables`.
 
 ## Section 9: CLI `--track` option
 

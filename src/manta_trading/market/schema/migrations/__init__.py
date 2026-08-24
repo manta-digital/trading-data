@@ -16,11 +16,15 @@ TRACKS: dict[str, list[dict[str, str]]] = {
     "kalshi": KALSHI_MIGRATIONS,
 }
 
+#: The track ``mt data migrate`` and the DB wrappers act on when none is named.
+DEFAULT_TRACK = "minute"
+
 # Deprecated: use TRACKS["minute"] for new code.
 MIGRATIONS = MINUTE_MIGRATIONS
 
 __all__ = [
     "TRACKS",
+    "DEFAULT_TRACK",
     "MIGRATIONS",
     "MINUTE_MIGRATIONS",
     "DAILY_MIGRATIONS",

@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import time
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 import psycopg
@@ -411,23 +412,31 @@ class TimescaleMinuteDataDB:
     # Schema migrations
     # ------------------------------------------------------------------
 
-    def apply_schema_migrations(self) -> list[str]:
-        """Apply pending schema migrations and return IDs of newly applied ones.
+    def apply_schema_migrations(
+        self, migrations: list[dict[str, Any]] | None = None
+    ) -> list[str]:
+        """Apply pending migrations and return IDs of newly applied ones.
 
-        Each migration runs in its own transaction.  A failure mid-sequence
-        leaves prior migrations committed.
+        ``migrations`` is a track from ``TRACKS``; ``None`` selects
+        ``TRACKS[DEFAULT_TRACK]`` (the minute track). Each migration runs in
+        its own transaction; a failure mid-sequence leaves prior migrations
+        committed.
         """
-        from manta_trading.market.schema.migrations import TRACKS
+        from manta_trading.market.schema.migrations import DEFAULT_TRACK, TRACKS
         from manta_trading.market.schema.runner import apply_migrations
 
-        return apply_migrations(self._ensure_pool(), TRACKS["minute"])
+        track = TRACKS[DEFAULT_TRACK] if migrations is None else migrations
+        return apply_migrations(self._ensure_pool(), track)
 
-    def list_migration_state(self) -> dict[str, list[dict[str, str]]]:
-        """Return applied/pending state for the minute migration track."""
-        from manta_trading.market.schema.migrations import TRACKS
+    def list_migration_state(
+        self, migrations: list[dict[str, Any]] | None = None
+    ) -> dict[str, list[dict[str, str]]]:
+        """Return applied/pending state for a track (default: minute)."""
+        from manta_trading.market.schema.migrations import DEFAULT_TRACK, TRACKS
         from manta_trading.market.schema.runner import list_migration_state
 
-        return list_migration_state(self._ensure_pool(), TRACKS["minute"])
+        track = TRACKS[DEFAULT_TRACK] if migrations is None else migrations
+        return list_migration_state(self._ensure_pool(), track)
 
     def close(self) -> None:
         """Close the connection pool."""
