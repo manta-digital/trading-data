@@ -16,6 +16,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (slice 262 — Kalshi catalog sync with settlement capture, complete 2026-08-25)
+- **`mt data kalshi sync`.** One pass over the Kalshi catalog: every series,
+  a full walk of the live non-MVE markets (parents resolved per page), an
+  events refresh, the settled stream drained in 6-hour windows from a
+  persisted watermark (first run: from the historical cutoff, or
+  `--settled-since ISO`), and the awaiting-settlement guarantee (a market
+  enters when its stored close time passes, leaves only when a finalized
+  row with its result is stored; vanished markets are looked up by ticker).
+  Write-on-change upserts keep an unchanged catalog free. Exit codes: 0 ok ·
+  1 preflight (config, database, kalshi track not applied, another sync
+  holds the lock) · 2 provider abort · 3 completed with item errors ·
+  4 storage abort. `--events-file` appends structured JSONL events;
+  `--json` prints the summary as JSON. `MT_KALSHI_REQUESTS_PER_MINUTE`
+  overrides the mode's rate budget.
+- **`mt data kalshi status`.** Last full sync, settled watermark, series /
+  events counts, markets by status, and the awaiting set with an age
+  histogram, the count past the 7-day stuck threshold, the oldest ticker,
+  and how many were looked up directly. Reports before any sync has run.
+- **Migration `kalshi_004`** (comments only) fixes the `kalshi.sync_state`
+  column semantics; apply with `mt data migrate apply --track kalshi`.
+
+
 ### Added (slice 261 — Kalshi provider foundation, complete 2026-08-24)
 - **Kalshi is a registered provider.** `mt provider list` shows `kalshi`
   (auth: none — market data is public). New package
