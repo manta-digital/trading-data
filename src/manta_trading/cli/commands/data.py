@@ -80,6 +80,7 @@ caggs_app = typer.Typer(
     no_args_is_help=True,
 )
 
+from manta_trading.cli.commands.kalshi import kalshi_app
 from manta_trading.cli.commands.universes import universes_app
 
 data_app.add_typer(daemon_app, name="daemon")
@@ -91,6 +92,7 @@ data_app.add_typer(ca_app, name="ca")
 data_app.add_typer(caggs_app, name="caggs")
 data_app.add_typer(universes_app, name="universes")
 data_app.add_typer(restore_app, name="restore")
+data_app.add_typer(kalshi_app, name="kalshi")
 
 
 _DEFAULT_LISTS_CONFIG: Path = Path("config/symbol-lists.yaml")

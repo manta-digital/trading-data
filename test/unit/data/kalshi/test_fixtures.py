@@ -38,6 +38,10 @@ EXPECTED_FIXTURES = {
     "trades_page2",
     "historical_cutoff",
     "error_404",
+    # slice 262
+    "markets_by_tickers",
+    "events_by_tickers",
+    "markets_settled_window",
 }
 
 
@@ -268,3 +272,49 @@ class TestErrorBody:
         client = serve(("/markets/NOPE-NOT-A-TICKER", 404, "error_404"))
         with pytest.raises(ProviderPermanentError):
             await client.get_market("NOPE-NOT-A-TICKER")
+
+
+def recorder_module() -> Any:
+    """The recorder script, loaded by path (``scripts/`` is not a package),
+    so its request constants stay defined in exactly one place."""
+    import importlib.util
+
+    path = FIXTURE_DIR.parents[2] / "scripts" / "record_kalshi_fixtures.py"
+    spec = importlib.util.spec_from_file_location("record_kalshi_fixtures", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestSliceBatchFixtures:
+    """Slice 262 recorder targets: ``tickers`` batches and one settled window."""
+
+    async def test_markets_by_tickers_omits_the_bogus_ticker(self):
+        rec = recorder_module()
+        client = serve(("/markets", 200, "markets_by_tickers"))
+        page = await client.get_markets(tickers="ignored-by-the-mock")
+        requested = rec.TICKERS_BATCH_SAMPLE + 1
+        recorded = {m["ticker"] for m in body("markets_settled_window")["markets"]}
+        assert 0 < len(page.markets) < requested
+        assert {m.ticker for m in page.markets} <= recorded
+        assert rec.UNKNOWN_TICKER not in {m.ticker for m in page.markets}
+
+    async def test_events_by_tickers_parses(self):
+        rec = recorder_module()
+        client = serve(("/events", 200, "events_by_tickers"))
+        page = await client.get_events(tickers="ignored-by-the-mock")
+        recorded = {e["event_ticker"] for e in body("events_page1")["events"]}
+        assert 0 < len(page.events) <= rec.TICKERS_BATCH_SAMPLE
+        assert {e.event_ticker for e in page.events} <= recorded
+
+    async def test_settled_window_is_finalized_non_mve_within_span(self):
+        SETTLED_WINDOW_SPAN = recorder_module().SETTLED_WINDOW_SPAN
+        client = serve(("/markets", 200, "markets_settled_window"))
+        page = await client.get_markets(min_settled_ts=0, max_settled_ts=1)
+        assert page.markets
+        assert all(m.status == MarketStatus.FINALIZED for m in page.markets)
+        assert all(m.mve_collection_ticker is None for m in page.markets)
+        stamps = [m.settlement_ts for m in page.markets if m.settlement_ts is not None]
+        assert len(stamps) == len(page.markets)
+        assert max(stamps) - min(stamps) <= SETTLED_WINDOW_SPAN

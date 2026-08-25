@@ -14,6 +14,14 @@ from typing import Any
 
 import httpx
 import pytest
+from kalshi_support.samples import (
+    CANDLE_SAMPLE,
+    CUTOFF_SAMPLE,
+    EVENT_SAMPLE,
+    MARKET_SAMPLE,
+    SERIES_SAMPLE,
+    TRADE_SAMPLE,
+)
 
 from manta_trading.data.kalshi.client import KalshiClient
 from manta_trading.data.kalshi.constants import (
@@ -30,15 +38,6 @@ from manta_trading.data.kalshi.models import (
     Trade,
 )
 from manta_trading.providers.errors import ProviderPermanentError
-
-from ._samples import (
-    CANDLE_SAMPLE,
-    CUTOFF_SAMPLE,
-    EVENT_SAMPLE,
-    MARKET_SAMPLE,
-    SERIES_SAMPLE,
-    TRADE_SAMPLE,
-)
 
 PAGE2_CURSOR = "cursor-page-2"
 

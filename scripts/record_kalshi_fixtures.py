@@ -44,6 +44,10 @@ SERIES_CATEGORY = "Health"
 SERIES_TICKER = "FED"
 UNKNOWN_TICKER = "NOPE-NOT-A-TICKER"
 CANDLE_WINDOW = timedelta(hours=24)
+#: Slice 262: ``tickers`` batch lookups and one settled window.
+TICKERS_BATCH_SAMPLE = 5
+SETTLED_WINDOW_SPAN = timedelta(hours=1)
+SETTLED_WINDOW_LIMIT = 50
 CANDLE_TRADE_SCAN = 100
 #: Up to this span, record 1-minute candles; beyond it, hourly.
 MINUTE_CANDLE_MAX_SPAN = timedelta(hours=6)
@@ -175,6 +179,48 @@ async def record_error_404(rec: Recorder) -> None:
     raise SystemExit(f"expected a 404 for {UNKNOWN_TICKER!r}; the API returned success")
 
 
+def _recorded_tickers(fixture: str, key: str, field: str) -> list[str]:
+    """Tickers already recorded under ``fixture`` (keeps targets consistent)."""
+    payload = json.loads((FIXTURE_DIR / f"{fixture}.json").read_text(encoding="utf-8"))
+    return [row[field] for row in payload[key][:TICKERS_BATCH_SAMPLE]]
+
+
+async def record_markets_by_tickers(rec: Recorder) -> None:
+    """``GET /markets?tickers=`` — recorded tickers plus one bogus ticker, to
+    prove the API silently omits unknown tickers (slice 262, Decision 9).
+
+    Tickers come from ``markets_settled_window`` (record that first): the
+    261 pages are MVE parlays, which ``mve_filter=exclude`` drops from a
+    ``tickers`` lookup too — observed live 2026-08-25, an empty response.
+    """
+    tickers = [
+        *_recorded_tickers("markets_settled_window", "markets", "ticker"),
+        UNKNOWN_TICKER,
+    ]
+    await rec.client.get_markets(tickers=",".join(tickers), mve_filter="exclude")
+    rec.save("markets_by_tickers")
+
+
+async def record_events_by_tickers(rec: Recorder) -> None:
+    """``GET /events?tickers=`` with recorded event tickers."""
+    tickers = _recorded_tickers("events_page1", "events", "event_ticker")
+    await rec.client.get_events(tickers=",".join(tickers))
+    rec.save("events_by_tickers")
+
+
+async def record_markets_settled_window(rec: Recorder) -> None:
+    """One recent settled window, non-MVE, as the sync core requests it."""
+    end = datetime.now(UTC).replace(microsecond=0)
+    start = end - SETTLED_WINDOW_SPAN
+    await rec.client.get_markets(
+        min_settled_ts=int(start.timestamp()),
+        max_settled_ts=int(end.timestamp()),
+        mve_filter="exclude",
+        limit=SETTLED_WINDOW_LIMIT,
+    )
+    rec.save("markets_settled_window")
+
+
 RECORDERS: dict[str, Callable[[Recorder], Awaitable[None]]] = {
     "series_list": record_series_list,
     "series": record_series,
@@ -184,6 +230,9 @@ RECORDERS: dict[str, Callable[[Recorder], Awaitable[None]]] = {
     "trades": record_trades,
     "historical_cutoff": record_historical_cutoff,
     "error_404": record_error_404,
+    "markets_settled_window": record_markets_settled_window,
+    "markets_by_tickers": record_markets_by_tickers,
+    "events_by_tickers": record_events_by_tickers,
 }
 
 

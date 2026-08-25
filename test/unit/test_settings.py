@@ -192,3 +192,22 @@ class TestApiPolicySettings:
         monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "0")
         with pytest.raises(ValidationError):
             Settings(_env_file=None)
+
+
+class TestKalshiRequestsPerMinute:
+    """Slice 262 Decision 13: optional rate-budget override."""
+
+    def test_unset_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MT_KALSHI_REQUESTS_PER_MINUTE", raising=False)
+        s = Settings(_env_file=None)
+        assert s.kalshi_requests_per_minute is None
+
+    def test_env_override_loads_int(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MT_KALSHI_REQUESTS_PER_MINUTE", "120")
+        s = Settings(_env_file=None)
+        assert s.kalshi_requests_per_minute == 120
+
+    def test_zero_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MT_KALSHI_REQUESTS_PER_MINUTE", "0")
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)

@@ -23,7 +23,12 @@ from manta_trading.market.schema.migrations import TRACKS
 from manta_trading.market.schema.migrations.kalshi import APP_ROLE
 from manta_trading.market.schema.runner import apply_migrations, list_migration_state
 
-KALSHI_IDS = ["kalshi_001_schema", "kalshi_002_catalog", "kalshi_003_collection_state"]
+KALSHI_IDS = [
+    "kalshi_001_schema",
+    "kalshi_002_catalog",
+    "kalshi_003_collection_state",
+    "kalshi_004_catalog_sync_semantics",
+]
 BOOTSTRAP_ID = "001_schema_migrations"
 TABLES = {
     "series",
@@ -280,3 +285,27 @@ class TestModelColumnParity:
         columns = {r[0] for r in rows} - BOOKKEEPING_COLUMNS
         fields = set(model.model_fields) - model_only
         assert fields == columns
+
+
+class TestSyncStateComments:
+    """``kalshi_004`` (slice 262): comment-only migration, idempotent."""
+
+    def test_in_track_and_reapplies(
+        self, applied: list[str], pool: ConnectionPool[Any]
+    ):
+        assert "kalshi_004_catalog_sync_semantics" in [
+            m["id"] for m in TRACKS["kalshi"]
+        ]
+        assert "kalshi_004_catalog_sync_semantics" in applied
+        assert apply_migrations(pool, TRACKS["kalshi"]) == []
+
+    def test_watermark_comment_states_window_semantics(
+        self, applied: list[str], ephemeral_db: str
+    ):
+        with psycopg.connect(ephemeral_db) as conn:
+            row = conn.execute(
+                "SELECT col_description('kalshi.sync_state'::regclass, attnum) "
+                "FROM pg_attribute WHERE attrelid = 'kalshi.sync_state'::regclass "
+                "AND attname = 'watermark_ts'"
+            ).fetchone()
+        assert row is not None and "completed settled window" in row[0]

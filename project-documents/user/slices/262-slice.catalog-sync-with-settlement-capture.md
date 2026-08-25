@@ -7,8 +7,8 @@ dependencies: [261]
 interfaces: [263, 264, 265, 266]
 effort: 4
 dateCreated: 20260824
-dateUpdated: 20260824
-status: not_started
+dateUpdated: 20260825
+status: complete
 ---
 
 # Slice Design: Catalog Sync with Settlement Capture (262)
@@ -300,7 +300,7 @@ Empty-state (no `sync_state` row) prints "catalog has never synced" and exits 0 
 
 ## Verification Walkthrough
 
-Draft; refined at the end of Phase 6. Steps 0–1 are PM actions on production; every later step runs first against a throwaway database on the test cluster, then against production through the dev checkout / `mt-run`.
+Refined at the end of Phase 6 (2026-08-25) from a rehearsal on throwaway database `mt_262_rehearsal_9e3bc0ba` on the test cluster (public mode, budget 300/min), dropped afterwards. Steps 0 and 6 are PM / operator actions after merge — not performed by this slice's automation. Every other step was run as written; the outputs below are what was observed.
 
 ```bash
 # 0. PM — apply this slice's kalshi_004 to production (runbook 100, Update procedure).
@@ -308,53 +308,111 @@ Draft; refined at the end of Phase 6. Steps 0–1 are PM actions on production; 
 cd ~/source/repos/manta/trading-data
 uv run mt data migrate status --track kalshi         # pre-flight: kalshi_004 pending (app credential)
 uv run mt data migrate apply  --track kalshi         # maintenance credential, interactive shell
-uv run mt data migrate status --track kalshi         # → "… applied, 0 pending"
+uv run mt data migrate status --track kalshi         # → "… applied, 0 pending" (comments only; re-apply is a no-op)
 
 # 1. Status before any sync — reports, never refuses
 uv run mt data kalshi status
-#    → "Kalshi catalog has never synced." (exit 0)
+#    → "Kalshi catalog has never synced."   (exit 0; --json → {"synced": false})
 
-# 2. Rehearsal on a throwaway database (test cluster, runbook 400)
-export MT_TIMESCALE_DB_URL=postgresql://trading_test_admin:...@host:5432/mt_walk_xxx
-export MT_TIMESCALE_MAINTENANCE_URL=$MT_TIMESCALE_DB_URL
-uv run mt data migrate apply --track kalshi
-uv run mt data kalshi sync --settled-since 2026-08-24T00:00:00Z --events-file /tmp/kalshi-sync.jsonl
-#    → mode=public budget=300/min
-#      series      fetched 13,435  written 13,435
-#      markets     fetched ~179k   written ~179k   transitions: (first run: none)
-#      events      fetched ~12.6k  written ~12.6k
-#      settled     windows 4  captured ~74k        watermark → <run start>
-#      awaiting    entered ~13.8k  retired 0  checked 0  unreachable 0
-#      exit 0, ~2–3 min
-uv run mt data kalshi sync                           # idempotence: written 0 / 0 / 0 (except live changes), exit 0
-uv run mt data kalshi status                         # sections as specified; awaiting histogram populated
-wc -l /tmp/kalshi-sync.jsonl                         # run_started + 5 phase_finished + run_finished per run
+# 2. Rehearsal on a throwaway database (test cluster, runbook 400). The track was applied with
+#    apply_migrations(TRACKS["kalshi"]) against the throwaway URL; MT_TIMESCALE_DB_URL pointed at it
+#    for the process only (never edit .env for this).
+uv run mt data kalshi sync --settled-since 2026-08-25T00:00:00Z --events-file /tmp/kalshi-run1.jsonl
+#    observed 2026-08-25 00:24–00:26 UTC, exit 3, 118 s:
+#      series      fetched 13,445  written 13,445
+#      markets     fetched 175,232 written 170,775  skipped 4,457   transitions initialized→active 12
+#      events      fetched 0 (first run: no floor)
+#      settled     windows 1  captured 2,230        watermark → 2026-08-25T00:26:27Z (run start)
+#      awaiting    entered 9,838  retired 0  checked 0  unreachable 0
+#    The 4,457 skips (366 distinct parent events) were the tickers-batch quirk described in the
+#    Implementation disposition below; with the single-event fallback now in place the walk stores
+#    them (one-time cost ≈366 extra requests) and a clean catalog reaches exit 0.
+uv run mt data kalshi sync --settled-since 2026-08-25T00:00:00Z --events-file /tmp/kalshi-run2.jsonl --json
+#    observed 95 s later, exit 3 (same skips), write-on-change proven:
+#      series 13,445 fetched / 0 written · markets 175,235 fetched / 8,254 written (live price/volume
+#      changes) · events 5 fetched / 5 written (min_updated_ts refresh) · settled 2,235 fetched / 5 written
+#      transitions initialized→active 65, active→inactive 6, active→closed 5, inactive→determined 184,
+#      determined→finalized 2, active→finalized 12 · awaiting entered 201  retired 14
+uv run mt data kalshi status
+#    Kalshi catalog
+#      last full sync      2026-08-25 00:26:27 UTC  (3 min ago)
+#      settled watermark   2026-08-25 00:26:27 UTC  (3 min ago)
+#      series / events     13,445 / 14,293
+#    Markets by status     initialized 57,689 · active 102,886 · inactive 350 · closed 9,288 · determined 550 · finalized 2,230
+#    Awaiting settlement   9,838 markets
+#      age                 <1d 962 · 1d-7d 425 · 7d-30d 860 · >30d 7,591
+#      past 7d threshold   8,451   oldest HOMEUS-23JUN-T1.0 (1,159 d)
+#      checked directly    0  (looked up by ticker; still unsettled)
+wc -l /tmp/kalshi-run1.jsonl                         # 7 + one item_error line per skipped market (4,464 in run 1)
+#    run_started, phase_finished ×5 (series, markets, events, settled, awaiting), run_finished
 
-# 3. Settlement capture, observed end-to-end on the throwaway DB
-#    Pick an awaiting market with close_time in the last hour; wait for Kalshi to settle it
-#    (crypto 15-minute markets settle within minutes); re-run sync:
-uv run mt data kalshi sync
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select ticker,status,result,settlement_ts from kalshi.markets where ticker='<T>'"
-#    → finalized | yes|no | <ts>;  and the ticker is gone from kalshi.awaiting_settlement
+# 3. Settlement capture, observed end-to-end on the throwaway DB (no waiting needed at this
+#    catalog's pace: 14 awaiting markets retired between the two runs above, 2 min apart)
+uv run psql "$MT_TIMESCALE_DB_URL" -c "select ticker, close_time, settlement_ts, result from kalshi.markets \
+   where status='finalized' and close_time < '<run 1 start>' and settlement_ts > '<run 1 start>' \
+   and ticker not in (select market_ticker from kalshi.awaiting_settlement) order by settlement_ts limit 3"
+#    KXMLBTOTAL-26AUG241840TBDET-5 | 00:24:31Z | 00:26:37Z | yes     ← entered by run 1, captured by
+#    KXWTAMATCH-26AUG24DOLPOD-POD  | 00:25:45Z | 00:27:47Z | yes       run 2's settled stream, retired
+#    KXWTAMATCH-26AUG24DOLPOD-DOL  | 00:25:45Z | 00:27:47Z | no
 
 # 4. Interrupted drain resumes without loss (throwaway DB)
-uv run mt data kalshi sync --settled-since 2026-07-01T00:00:00Z   # Ctrl-C after a few windows
-uv run mt data kalshi status                          # watermark = last completed window end
-uv run mt data kalshi sync --settled-since 2026-07-01T00:00:00Z   # resumes at the watermark; final counts match a clean run
+#    (on the throwaway DB the earlier runs had already set a watermark; it was NULLed first so this
+#     drain behaves like the first production run — see the replay caveat below)
+uv run mt data kalshi sync --settled-since 2026-08-15T00:00:00Z --events-file /tmp/kalshi-run5.jsonl
+#    SIGINT 175 s in (walk 86 s, then ~90 s of drain). Default signal exit (KeyboardInterrupt
+#    traceback, shell exit 130 / `timeout` 124); no handler of our own. No run_finished event.
+uv run mt data kalshi status
+#      last full sync      2026-08-25 00:29:29 UTC   ← unchanged: the interrupted run never reached phase 6
+#      settled watermark   2026-08-17 06:00:00 UTC   ← floor + 9 fully walked windows, exactly on the boundary
+uv run mt data kalshi sync --events-file /tmp/kalshi-run6.jsonl --json
+#    resumed at 2026-08-17 06:00 − 1 s and drained to the run start: exit 0, outcome ok, 451 s;
+#      settled fetched 551,582 / written 540,402 (the difference = rows the interrupted run had already
+#      stored, free on re-walk) over 32 windows; watermark → 2026-08-25T00:47:20Z (the run start);
+#      markets 174,719 fetched / 10,250 written (live churn), 0 item errors — the first clean exit 0 once
+#      the single-event parent fallback was in place.
+#    No gap / no duplicate: for windows 8, 9 (the one re-walked) and 10, the API's count with the
+#    same strict bounds equals count(*) of kalshi.markets by settlement_ts — observed
+#      window 8 16,163 = 16,163 · window 9 14,836 = 14,836 · window 10 18,072 = 18,072
+#    (ticker is the primary key, so a duplicate row is impossible by construction).
 
-# 5. Tests
-uv run pytest test/unit/data/kalshi -q
-uv run python scripts/run_tests.py integration -- -k kalshi -q
+# 5. Tests (unit tier, then the kalshi integration set, then the type gate)
+uv run pytest test/unit -q                                              # 2026-08-25: green
+uv run python scripts/run_tests.py integration -- -k kalshi -q          # 45 passed
+uv run ruff check src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py test/kalshi_support test/unit/data/kalshi
+uv run --extra dev mypy src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py
+npx --yes pyright src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py test/kalshi_support test/unit/data/kalshi test/integration/test_kalshi_sync.py
 
 # 6. First production run (dev checkout, application credential) — the long one
 uv run mt data kalshi sync --events-file ~/kalshi-first-sync.jsonl
 #    → first-run drain from the historical cutoff (2026-06-25): ~4.5M settled markets,
-#      ~15 min of requests at the public budget plus write time; watermark climbs per 6 h window
+#      ~15 min of requests at the public budget plus write time; watermark climbs per 6 h window.
+#      Expect exit 3 on the first pass only if the API omits a parent both in batch and singly.
 uv run mt data kalshi status
 mt-run data kalshi status                            # same, through the production front door
 ```
 
-There is no `mt data kalshi pass` and no timer yet — that is 263. What the user can prove after this slice: the catalog is populated and idempotently refreshed, settlements are captured and the awaiting set is maintained with ages visible, and an interrupted first-run drain resumes without loss.
+Caveats discovered in the rehearsal:
+- A `--settled-since` *behind* the stored watermark replays those windows (duplicates are free) but cannot record progress in `watermark_ts` — the watermark never moves backwards (Decision 4, Task 5.6) — so an interrupted replay must be re-issued with the same `--settled-since`, not resumed bare. Resume-at-the-watermark applies to a first-run drain (watermark NULL) or a drain that started at or after the watermark, which is the production case (step 6).
+- `GET /events?tickers=` silently omits some events (see the disposition); the single-event fallback covers it.
+- Two syncs on one cluster share the advisory key: the lock is per *database* (`pg_locks.database`), so a sync on another database is not refused, and anything that kills "the backend holding the key" must scope by database — the first proof test did not and killed the rehearsal run (exit 4, committed pages kept, `sync_state` untouched — an unplanned live proof of the storage-abort row).
+- Rapid back-to-back runs in public mode draw 429s; the client's backoff absorbs them but a run can start slowly.
+- The Rich summary wraps long lines at 80 columns when not attached to a terminal; `--json` is the machine-readable form.
+
+### Success criteria — where each is proven
+
+| # | Criterion | Proof |
+|---|---|---|
+| 1 | fresh sync exit 0, tables populated, FKs, both `sync_state` columns | `test_kalshi_sync.py::TestEndToEnd::test_first_run_populates_and_sets_state`; rehearsal step 2 (exit 3 only for the batch quirk, now covered) |
+| 2 | second run writes zero rows, `first_seen_at` untouched | `test_second_identical_run_writes_nothing`; rehearsal run 2 (series 0 written) |
+| 3 | closed → awaiting; finalized+result → retired; vanished → looked up, `last_checked_at` | `test_awaiting_lifecycle`; unit `test_sync_awaiting.py`; rehearsal step 3 |
+| 4 | windowed drain resumes from the last completed window, no gap, no duplicates | `test_interrupted_drain_resumes_without_gap_or_duplicates`; unit `test_sync_settled.py`; rehearsal step 4 |
+| 5 | transitions per run in `phase_finished`; per-ticker `item_error`; JSONL valid | `test_events_file_is_valid_jsonl`; unit `test_sync_core.py`; `wc -l` in step 2 |
+| 6 | `status` sections, histogram and threshold from the constant, works before any sync | `test_kalshi_status.py`; `test_data_kalshi.py::TestStatus`; steps 1 and 2 |
+| 7 | exit codes 0/1/2/3 (+4); provider abort with an unreachable base URL | `test_data_kalshi.py::TestExitCodes`; `test_provider_abort_through_real_client` (real `KalshiClient`, `http://127.0.0.1:1`) |
+| 8 | `kalshi_004` in the track, applies and re-applies; 261 tests pass | `test_kalshi_migrations.py::TestSyncStateComments` and the rest of that file |
+| 9 | MVE never stored: every markets request carries `mve_filter=exclude` | `test_sync_awaiting.py::test_every_markets_query_of_a_full_run_excludes_mve` (walk, windows, lookups) |
+| 10 | ruff, mypy, strict pyright clean; no new dependency | step 5; `git diff main -- pyproject.toml uv.lock` empty |
+| 11 | storage taxonomy: out-of-vocabulary status → exit 3 with one item error; backend terminated → exit 4, pages kept, state unchanged; held lock → exit 1 | `TestStorageFailureProofs` (two tests) and `TestPreflight::test_held_lock_is_refused`; the rehearsal's accidental kill |
 
 ## Risk Assessment
 
@@ -369,6 +427,23 @@ Review: `user/reviews/262-review.slice.catalog-sync-with-settlement-capture.md`,
 - **F001 (concern) — the async DB write path had no enumerated failure taxonomy.** Valid; it is the bar 261's client was held to (261 F004) and this slice's storage path is likewise a new I/O path. Answered by the new **Storage failure taxonomy** subsection and the revised Decisions 8 and 11: one connection per run (no pool, so exhaustion and hung checkouts are not modes), per-page transactions bounding any loss to one page, classification complete over `psycopg.Error` (operational faults → exit 4; page-level integrity rejections → row-by-row rewrite and exit 3; anything else → uncaught, a bug), `DB_BULK_SESSION`'s statement timeout, a session-level advisory lock that makes deadlock unreachable and refuses a concurrent sync at preflight, and Success Criterion 11 proving the three reachable modes on a throwaway database.
 - **F002 (note) — MVE exclusion narrows the binding constraint without a recorded sanction.** Valid as of the review. The PM reviewed the MVE explanation and sanctioned the exclusion on 2026-08-24; the sanction is now recorded at architecture level (260-arch, *Catalog scale and incremental sync*: the constraint's universe is the non-MVE catalog) and in the 260 slice plan Notes, and Decision 2 points to both. The PM also confirmed the storage figure (~70 GB/year) is acceptable and that market selectivity belongs to 264/265, not the catalog.
 - **F003, F004, F005 (pass).** No action.
+
+## Code review disposition (20260825)
+
+Review: `user/reviews/262-review.code.catalog-sync-with-settlement-capture.md`, claude-sonnet-5, verdict CONCERNS (one concern, one note), against `01176c3`.
+
+- **F001 (concern) — `JsonlSyncEventSink.emit` did synchronous file I/O on the event loop.** Valid under the project's async rule (<1 ms worst case for synchronous work inside `async def`; a flush on slow storage has no such bound, and a page of item errors emits once per row). Fixed: `CatalogSync.emit` is now `async` and runs the sink call in a worker thread (`asyncio.to_thread`); `phase_finished` / `item_error` follow. The `SyncEventSink` Protocol stays synchronous, so sinks remain trivial and 263 routes pass events unchanged. The core is a single sequential writer, so at most one sink call is in flight.
+- **F002 (note) — parent series/events written during a markets page are not counted in the series/events phases.** Intentional: a phase count is that phase's own work (series list; `min_updated_ts` refresh), and parent rows created while resolving a page are a side effect of that page. Folding them in would make the series/events lines depend on which markets happened to be walked first. Documented at `_own_kind` in `sync_writer.py`.
+
+## Implementation disposition (20260825)
+
+What Phase 6 found that the design did not anticipate, and what was done about it.
+
+- **`GET /events?tickers=` silently omits some events.** In the first live walk, 4,457 markets (366 distinct parent events — older events such as `KXNOCONFFRA-25`, `KXCANREGISTER-25APR`, `KXNFLPREPACKSGP-…` whose markets are still on the live endpoints) were skipped because the batch lookup returned nothing for them, while `GET /events/{ticker}` returned each one. Decision 9's mechanism assumed the batch was complete for known tickers; its intent — resolve every parent, never write a placeholder — is unchanged. **Amendment to Decision 9:** tickers the batch omits are fetched singly (`CatalogSource.get_event`), the same per-item shape the design already uses for series; only a parent that is unobtainable both ways becomes an item error. One-time cost ≈366 requests; afterwards the events are stored and cost nothing. *PM attention:* this is a small design addition made during implementation on the strength of the live evidence; veto or ratify.
+- **The advisory lock is per database.** `pg_try_advisory_lock` keys are scoped to the connected database, so the lock refuses a concurrent sync on the *same* database only — correct for production (one `trading` database), but a test that terminates "the backend holding the key" must scope by `pg_locks.database`. The first version of the storage proof did not and killed the rehearsal run on a sibling database (which, usefully, proved the storage-abort path live: exit 4, committed pages intact, `sync_state` unchanged). Fixed in the test.
+- **`session_statements`** (`market/db_session.py`) now exists so the sync's async preflight and the pool `configure` hook issue the same `SET`s from one list, composed with `psycopg.sql.Literal` rather than f-strings.
+- **Status timestamps** are rendered in UTC explicitly: psycopg returns `timestamptz` in the session's zone.
+- **Interrupted drain (walkthrough step 4):** observed as recorded in the walkthrough — SIGINT after 9 windows left `watermark_ts` exactly on the window boundary (2026-08-17 06:00 UTC) with `last_full_sync_at` untouched; the bare re-run resumed there, drained 32 windows to the run start, and windows 8–10 matched the API count for count.
 
 ## Implementation Notes
 

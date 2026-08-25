@@ -14,8 +14,25 @@ from collections.abc import Callable
 from typing import Any
 
 import psycopg
+from psycopg import sql
 
 from manta_trading.constants import DbSessionSettings
+
+
+def session_statements(session: DbSessionSettings) -> list[sql.Composed]:
+    """The ``SET`` statements a session budget expands to, in order.
+
+    Shared by the sync pool hook below and async consumers that cannot run
+    the hook (slice 262's ``data/kalshi/db.py``), so the list exists once.
+    ``SET`` takes no bind parameters; the values are quoted as literals.
+    """
+    return [
+        sql.SQL("SET timezone = {}").format(sql.Literal("UTC")),
+        sql.SQL("SET work_mem = {}").format(sql.Literal(session.work_mem)),
+        sql.SQL("SET statement_timeout = {}").format(
+            sql.Literal(session.statement_timeout)
+        ),
+    ]
 
 
 def make_configure_connection(
@@ -35,9 +52,8 @@ def make_configure_connection(
 
     def configure(conn: psycopg.Connection[Any]) -> None:
         conn.autocommit = True
-        conn.execute("SET timezone = 'UTC'")
-        conn.execute(f"SET work_mem = '{session.work_mem}'")
-        conn.execute(f"SET statement_timeout = '{session.statement_timeout}'")
+        for statement in session_statements(session):
+            conn.execute(statement)
         conn.autocommit = False
 
     return configure

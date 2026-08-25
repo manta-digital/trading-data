@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from enum import IntEnum, StrEnum
 from pathlib import Path
 
@@ -107,3 +108,41 @@ class TestSingleSourceOfTruth:
             if needle in p.read_text(encoding="utf-8")
         )
         assert hits == ["data/kalshi/constants.py"]
+
+
+class TestCatalogSyncConstants:
+    """Slice 262 sync constants (task 1.1)."""
+
+    def test_walk_filters_are_live_statuses_only(self):
+        assert all(
+            isinstance(f, kc.MarketStatusFilter) for f in kc.CATALOG_WALK_FILTERS
+        )
+        assert kc.MarketStatusFilter.SETTLED not in kc.CATALOG_WALK_FILTERS
+        assert set(kc.CATALOG_WALK_FILTERS) == set(kc.MarketStatusFilter) - {
+            kc.MarketStatusFilter.SETTLED
+        }
+
+    def test_mve_filter_value(self):
+        assert kc.KALSHI_MVE_FILTER == "exclude"
+
+    def test_page_and_batch_sizes(self):
+        assert kc.MARKETS_PAGE_LIMIT == 1000
+        assert kc.EVENTS_PAGE_LIMIT == 200
+        assert kc.TICKERS_BATCH_SIZE == 100
+
+    def test_settled_window_and_overlap(self):
+        assert kc.SETTLED_WINDOW == timedelta(hours=6)
+        assert kc.WINDOW_OVERLAP == timedelta(seconds=1)
+
+    def test_age_buckets_reference_stuck_threshold(self):
+        assert kc.KALSHI_SETTLEMENT_STUCK_AFTER == timedelta(days=7)
+        assert kc.KALSHI_SETTLEMENT_STUCK_AFTER in kc.AWAITING_AGE_BUCKETS
+
+    def test_age_buckets_strictly_increasing(self):
+        buckets = kc.AWAITING_AGE_BUCKETS
+        assert all(a < b for a, b in zip(buckets, buckets[1:], strict=False))
+
+    def test_db_preflight_constants(self):
+        assert isinstance(kc.DB_CONNECT_TIMEOUT_SECONDS, int)
+        assert kc.DB_CONNECT_TIMEOUT_SECONDS > 0
+        assert isinstance(kc.SYNC_ADVISORY_LOCK_KEY, int)

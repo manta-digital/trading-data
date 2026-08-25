@@ -161,11 +161,16 @@ class KalshiClient:
     ) -> Self:
         """Build a client whose mode follows the configured credential pair.
 
-        Raises ``KalshiCredentialError`` for a partial pair or unreadable
-        PEM — a construction-time failure, never a runtime surprise.
+        ``Settings.kalshi_requests_per_minute`` (slice 262, Decision 13)
+        replaces the mode's constant budget when set; ``None`` keeps the
+        mode default. Raises ``KalshiCredentialError`` for a partial pair or
+        unreadable PEM — a construction-time failure, never a runtime
+        surprise.
         """
+        budget = settings.kalshi_requests_per_minute
         return cls(
             base_url=base_url,
+            rate_limit=RateLimit(requests_per_minute=budget) if budget else None,
             credentials=load_credentials(
                 settings.kalshi_api_key_id, settings.kalshi_private_key_path
             ),
@@ -175,6 +180,11 @@ class KalshiClient:
     def mode(self) -> str:
         """``"authenticated"`` or ``"public"``."""
         return self._transport.mode
+
+    @property
+    def rate_limit(self) -> RateLimit:
+        """The budget in force (mode default or the configured override)."""
+        return self._transport.rate_limit
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client (idempotent)."""

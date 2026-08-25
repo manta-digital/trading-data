@@ -245,4 +245,28 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
                 TO {APP_ROLE};
         """,
     },
+    {
+        "id": "kalshi_004_catalog_sync_semantics",
+        "description": "Fix kalshi.sync_state column comments to slice 262 semantics",
+        # Comments only, no shape change (design 262: State Management).
+        "sql": """
+            COMMENT ON COLUMN kalshi.sync_state.last_full_sync_at IS
+                'catalog: start time of the last run whose full walk '
+                '(series, markets, events) completed; also the min_updated_ts '
+                'floor for the events refresh. NULL until the first '
+                'successful walk. candlesticks/trades: end of the last full '
+                'pass over their market sets.';
+            COMMENT ON COLUMN kalshi.sync_state.watermark_ts IS
+                'catalog: settlement_ts upper bound of the last completed '
+                'settled window - every non-MVE market with settlement_ts '
+                'before this has been captured; NULL until the first window '
+                'completes. trades: created_time of the newest stored trade; '
+                'candlesticks: unused at surface level (see '
+                'market_candle_state).';
+            COMMENT ON COLUMN kalshi.sync_state.cursor IS
+                'catalog: unused - windows replace cursor resume. trades: '
+                'resume cursor of an interrupted page walk; NULL when none '
+                'is in progress.';
+        """,
+    },
 ]

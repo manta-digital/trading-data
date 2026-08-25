@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from psycopg import sql
 
 from manta_trading.api_server.app import create_app, make_configure_connection
 from manta_trading.constants import API_SERVING_SESSION, DbSessionSettings
@@ -34,14 +35,16 @@ def test_openapi_version_comes_from_package_metadata() -> None:
 
 
 class RecordingConnection:
-    """Records the SET statements a pool ``configure`` hook issues."""
+    """Records the SET statements a pool ``configure`` hook issues, rendered
+    to SQL text (the hook composes them with ``psycopg.sql`` since 262)."""
 
     def __init__(self) -> None:
         self.statements: list[str] = []
         self.autocommit = False
 
-    def execute(self, statement: str) -> None:
-        self.statements.append(statement)
+    def execute(self, statement: str | sql.Composable) -> None:
+        rendered = statement if isinstance(statement, str) else statement.as_string()
+        self.statements.append(rendered)
 
 
 def _emitted(session: DbSessionSettings) -> list[str]:
@@ -88,9 +91,9 @@ def test_lifespan_gives_all_three_pools_the_serving_session(started_app: Any) ->
     assert _emitted(minute_cls.call_args.kwargs["session"]) == _emitted(
         API_SERVING_SESSION
     )
-    assert daily_cls.call_args.kwargs["session"] == minute_cls.call_args.kwargs[
-        "session"
-    ]
+    assert (
+        daily_cls.call_args.kwargs["session"] == minute_cls.call_args.kwargs["session"]
+    )
 
     conn = RecordingConnection()
     pool_cls.call_args.kwargs["configure"](conn)
@@ -100,9 +103,7 @@ def test_lifespan_gives_all_three_pools_the_serving_session(started_app: Any) ->
 
 def test_statement_timeout_override_reaches_the_pools(started_app: Any) -> None:
     """Proves the setting reaches the connection, not merely ``Settings``."""
-    _app, pool_cls, minute_cls, daily_cls = started_app(
-        MT_API_STATEMENT_TIMEOUT="5s"
-    )
+    _app, pool_cls, minute_cls, daily_cls = started_app(MT_API_STATEMENT_TIMEOUT="5s")
 
     conn = RecordingConnection()
     pool_cls.call_args.kwargs["configure"](conn)
