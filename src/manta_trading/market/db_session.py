@@ -14,20 +14,24 @@ from collections.abc import Callable
 from typing import Any
 
 import psycopg
+from psycopg import sql
 
 from manta_trading.constants import DbSessionSettings
 
 
-def session_statements(session: DbSessionSettings) -> list[str]:
+def session_statements(session: DbSessionSettings) -> list[sql.Composed]:
     """The ``SET`` statements a session budget expands to, in order.
 
     Shared by the sync pool hook below and async consumers that cannot run
     the hook (slice 262's ``data/kalshi/db.py``), so the list exists once.
+    ``SET`` takes no bind parameters; the values are quoted as literals.
     """
     return [
-        "SET timezone = 'UTC'",
-        f"SET work_mem = '{session.work_mem}'",
-        f"SET statement_timeout = '{session.statement_timeout}'",
+        sql.SQL("SET timezone = {}").format(sql.Literal("UTC")),
+        sql.SQL("SET work_mem = {}").format(sql.Literal(session.work_mem)),
+        sql.SQL("SET statement_timeout = {}").format(
+            sql.Literal(session.statement_timeout)
+        ),
     ]
 
 

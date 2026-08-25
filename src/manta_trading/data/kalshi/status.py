@@ -8,7 +8,7 @@ API call. Bucket edges and the stuck threshold are bound parameters from
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, LiteralString
 
 import psycopg
@@ -66,7 +66,7 @@ class CatalogStatus:
 
 
 def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
+    return value.astimezone(UTC).isoformat() if value else None
 
 
 def age_bucket_labels() -> list[str]:

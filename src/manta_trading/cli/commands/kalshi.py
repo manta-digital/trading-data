@@ -280,5 +280,6 @@ def print_status(status: CatalogStatus, now: datetime) -> None:
 def _when(value: datetime | None, now: datetime) -> str:
     if value is None:
         return "never"
-    minutes = int((now - value).total_seconds() // 60)
-    return f"{value:%Y-%m-%d %H:%M:%S} UTC  ({minutes:,} min ago)"
+    utc = value.astimezone(UTC)  # psycopg returns the session's zone
+    minutes = int((now - utc).total_seconds() // 60)
+    return f"{utc:%Y-%m-%d %H:%M:%S} UTC  ({minutes:,} min ago)"

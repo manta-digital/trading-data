@@ -14,7 +14,7 @@ transaction. Closing the connection releases the lock.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, LiteralString
 
 import psycopg
 
@@ -62,7 +62,9 @@ async def open_sync_connection(url: str) -> psycopg.AsyncConnection[Any]:
 
 
 async def _scalar(
-    conn: psycopg.AsyncConnection[Any], query: str, params: tuple[object, ...] = ()
+    conn: psycopg.AsyncConnection[Any],
+    query: LiteralString,
+    params: tuple[object, ...] = (),
 ) -> Any:
     cursor = await conn.execute(query, params)
     row = await cursor.fetchone()
