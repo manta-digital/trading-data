@@ -20,6 +20,8 @@ projectState: >
   PM-ratified 20260825.
 dateCreated: 20260825
 dateUpdated: 20260825
+reviewVerdictsAddressed:
+  - 263-review.tasks (claude-sonnet-5, CONCERNS, F001/F002 addressed)
 status: not_started
 ---
 
@@ -130,6 +132,10 @@ Decision 2 and *Implementation Details → collection_pass.py*.
         `to_dict()` producing the design's JSON shape
         (`phases: [{name, outcome, duration_ms, summary}]`, `exit_code` from
         `EXIT_BY_OUTCOME`).
+  - [ ] In `events.py`, `SyncEventType` gains `PASS_STARTED = "pass_started"`
+        and `PASS_FINISHED = "pass_finished"`; `SyncEvent` shape unchanged
+        (Decision 3 — added here so Section 2's tests have no forward
+        dependency on Section 3).
   - [ ] Define the `"skipped"` literal once (a module constant) and reference
         it everywhere it is compared.
   - [ ] Success: module imports; `PhaseReport.outcome` type never admits
@@ -172,22 +178,19 @@ Decision 2 and *Implementation Details → collection_pass.py*.
         `pass_started`/`pass_finished` emitted once each, both carrying the
         run's `run_id`; a `RuntimeError` from a phase propagates out of
         `CollectionPass.run`.
-  - [ ] Tests target `SyncEventType.PASS_STARTED`/`PASS_FINISHED` — added in
-        Task 3.1; write these two assertions so they fail until then, or
-        order the work so Task 3.1's one-line enum change lands first.
+  - [ ] `test_events.py`: the two new event types serialize like the
+        existing ones (`to_dict` round-trip, valid identifier strings).
   - [ ] **Commit**: `feat: add kalshi collection pass contract and sequencing`.
 
 ## Section 3: Catalog phase, shared `run_id`, pass events
 
 Decision 3.
 
-- [ ] **Task 3.1: `run_id` on `CatalogSync` and the two event types** (effort: 1)
-  - [ ] `SyncEventType` gains `PASS_STARTED = "pass_started"` and
-        `PASS_FINISHED = "pass_finished"`; `SyncEvent` shape unchanged.
+- [ ] **Task 3.1: `run_id` on `CatalogSync`** (effort: 1)
   - [ ] `CatalogSync.__init__` gains `run_id: UUID | None = None`; `None`
         keeps today's fresh `uuid4()` so `sync` is untouched.
-  - [ ] Success: existing `test_sync_core.py`, `test_events.py`, and
-        `test_data_kalshi.py` pass unchanged; a new test in `test_sync_core.py`
+  - [ ] Success: existing `test_sync_core.py` and `test_data_kalshi.py`
+        pass unchanged; a new test in `test_sync_core.py`
         shows a supplied `run_id` appears on every emitted event.
 
 - [ ] **Task 3.2: `CatalogPhase` and `PASS_PHASES`** (effort: 2)
@@ -484,6 +487,11 @@ must be merged and tagged per runbook 100 before 10.1 (not a task).
         exited 0".
   - [ ] Run the `journalctl … -o verbose … grep` from walkthrough step 6;
         record `_UID`, `_SYSTEMD_UNIT`, `_SYSTEMD_SLICE`, `_CMDLINE`.
+  - [ ] Prove attach: start a second pass with `sudo systemctl start
+        --no-block mt-kalshi-pass.service`, then `mt-run follow kalshi`
+        (no sudo needed); record that live journal lines stream and that
+        Ctrl-C exits the viewer while `mt-run status` still shows the pass
+        RUNNING (Criterion 6, "follow attaches"). Let the pass finish.
   - [ ] Run `mt-run status` (kalshi row present) and, for Decision 6, both
         `sudo mt-run data kalshi status` and `sudo mt-run data caggs status`;
         with `MT_LOG_LEVEL=DEBUG` set in the env file for one run, confirm
@@ -523,3 +531,20 @@ must be merged and tagged per runbook 100 before 10.1 (not a task).
         `mt-run` fix.
   - [ ] Delegate checklist updates for this file to `task-checker`.
   - [ ] **Commit**: `docs: refresh 263 walkthrough with observed host output`.
+
+## Task review disposition (20260825)
+
+Review: `user/reviews/263-review.tasks.collection-pass-and-supervised-install.md`,
+claude-sonnet-5, verdict CONCERNS against `148d878` (one concern, one note,
+four passes). CONCERNS passes the gate; both actionable findings are fixed
+in place.
+
+- **F001 (concern) — `mt-run follow kalshi` attaches was never exercised.**
+  Fixed: Task 10.2 gains an explicit attach proof (start a pass with
+  `--no-block`, `mt-run follow kalshi`, Ctrl-C leaves the pass running). The
+  design's walkthrough step 6 had the same gap and is updated to match.
+- **F002 (note) — Section 2 tests depended on Section 3's enum addition.**
+  Fixed by removing the dependency rather than annotating it: the two
+  `SyncEventType` members moved from Task 3.1 into Task 2.1 (they are part
+  of the pass contract); Task 2.3 gains the `test_events.py` check. Task 3.1
+  is now only the `run_id` parameter.

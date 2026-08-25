@@ -286,6 +286,7 @@ sudoedit /etc/manta-trading.env          # optional: uncomment MT_KALSHI_REQUEST
 
 # 6. One supervised pass, no cutover yet
 sudo mt-run kalshi                        # live output; Ctrl-C detaches
+sudo systemctl start --no-block mt-kalshi-pass.service; mt-run follow kalshi   # attaches to the live journal; Ctrl-C exits the viewer, pass keeps running
 #    expect: "kalshi pass started … mode=public budget=300/min phases=catalog",
 #            262's phase lines, one "settled window …" line, "kalshi pass finished outcome=ok exit=0",
 #            "Pass complete: mt-kalshi-pass.service exited 0 (success)"
