@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260824
+dateUpdated: 20260825
 status: in_progress
 ---
 
@@ -19,6 +19,54 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260825 — 263 implemented: the pass contract landed with one phase, and `mt-run` root invocations were silently dropping most of the environment
+
+**Context:** Phase 6 of slice 263 (Kalshi collection pass and supervised
+install). Sections 1–9 are implemented, tested, and merged into the slice
+branch; Section 10 (host steps on manta9000) is the PM's and is still
+outstanding, so the slice is `in_progress`, not `complete`.
+
+**Decision / what was settled in code:**
+
+1. **The phase contract exists now, with exactly one phase in it.** `PassPhase`,
+   `PhaseReport`, `PassResult`, `classify_pass`, and `PASS_PHASES` are real
+   in `data/kalshi/collection_pass.py` even though only `CatalogPhase`
+   populates the tuple. Slices 264 (candles) and 265 (trades) append to
+   `PASS_PHASES` and change nothing else — no unit, timer, installer,
+   wrapper, or runbook edit. The alternative (264 retrofitting a contract onto
+   a pass that was just `run_sync` renamed) is the design conversation the
+   916 unit pattern exists to avoid.
+
+2. **A real bug in a 916 artifact was found by reading it, not by it failing.**
+   `mt-run`'s root branch forwarded exactly two variables
+   (`MT_TIMESCALE_DB_URL`, `MT_EODHD_API_KEY`) to the service account, so
+   `sudo mt-run data kalshi status` would have run without `MT_KALSHI_*` or
+   `MT_LOG_LEVEL` — a silent fallback by omission, invisible until a command
+   needed one of them. It now forwards every `MT_*` name the environment file
+   defines. **This is a behavior change to a script the EODHD operators
+   already use**, called out in the CHANGELOG; the non-root branch was already
+   correct and is untouched. Writing the test for it also surfaced that a
+   stray `PATH=` line in the environment file would break the helper, so the
+   tool paths in it are absolute.
+
+3. **The rehearsal is the reason to keep doing rehearsals.** A cold pass on a
+   throwaway database took **45.7 minutes** — 244 settled windows, 3.5M
+   settlements — against the 2–3 minutes a steady-state pass takes (measured
+   immediately after: 97 seconds, one window). Nothing in the unit tests could
+   have told us that, and it is what `TimeoutStartSec=infinity` on the service
+   is for: the systemd default would have killed the run in its first minute.
+   Zero 429 retries across the whole drain at the public 300/min budget, which
+   is the evidence Decision 7 asked for and says the budget needs no change
+   yet.
+
+**Rationale:** all three are cases where the cheap thing (defer the contract;
+trust a wrapper that "works"; test only what a unit test can reach) would have
+cost more later than doing it now.
+
+**Still open:** the host steps — inert install, one supervised pass, cutover,
+stop/resume proofs, rollback rehearsal — and with them success criteria 6–10.
+The cutover date belongs in this entry once it happens.
 
 ## 20260824 — Direction: realtime streaming is the end-state of data gathering; near-real-time collection takes the streaming form, never tight polling
 
