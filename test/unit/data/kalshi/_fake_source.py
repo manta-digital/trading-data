@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Unpack
 
@@ -207,8 +207,8 @@ class FakeCatalogSource:
         self, *, cursor: str | None = None, **query: Unpack[MarketsQuery]
     ) -> MarketsPage:
         recorded: dict[str, object] = {**query, "cursor": cursor}
-        self._record("get_markets", recorded)
         self.markets_queries.append(recorded)
+        self._record("get_markets", recorded)
         tickers = query.get("tickers")
         if tickers:
             wanted = tickers.split(",")
@@ -224,12 +224,17 @@ class FakeCatalogSource:
         return MarketsPage(markets=chunk, cursor=next_cursor)
 
     def _settled_window(self, min_ts: int | None, max_ts: int | None) -> list[Market]:
+        """Strict ``after``/``before`` of second-granular bounds against the
+        market's (microsecond) ``settlement_ts`` — a market inside the 1 s
+        overlap is served by both adjacent windows, as live."""
+        lower = datetime.fromtimestamp(min_ts, tz=UTC) if min_ts is not None else None
+        upper = datetime.fromtimestamp(max_ts, tz=UTC) if max_ts is not None else None
         rows = [
             m
             for m in self.settled
             if m.settlement_ts is not None
-            and (min_ts is None or _epoch(m.settlement_ts) > min_ts)
-            and (max_ts is None or _epoch(m.settlement_ts) < max_ts)
+            and (lower is None or m.settlement_ts > lower)
+            and (upper is None or m.settlement_ts < upper)
         ]
         rows.sort(key=lambda m: m.settlement_ts or datetime.min, reverse=True)
         return rows
@@ -250,8 +255,8 @@ class FakeCatalogSource:
         self, *, cursor: str | None = None, **query: Unpack[EventsQuery]
     ) -> EventsPage:
         recorded: dict[str, object] = {**query, "cursor": cursor}
-        self._record("get_events", recorded)
         self.events_queries.append(recorded)
+        self._record("get_events", recorded)
         tickers = query.get("tickers")
         min_updated = query.get("min_updated_ts")
         if tickers:
