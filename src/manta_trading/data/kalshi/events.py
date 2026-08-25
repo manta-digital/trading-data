@@ -24,12 +24,20 @@ from uuid import UUID
 
 
 class SyncEventType(StrEnum):
-    """Event types emitted by :class:`~manta_trading.data.kalshi.sync.CatalogSync`."""
+    """Event types emitted by the catalog sync and, since slice 263, the pass.
+
+    ``PASS_STARTED`` / ``PASS_FINISHED`` bracket a
+    :class:`~manta_trading.data.kalshi.collection_pass.CollectionPass` and
+    carry ``phase=None`` (design 263, Decision 3); the events between them
+    are the phases' own, sharing the pass's ``run_id``.
+    """
 
     RUN_STARTED = "run_started"
     PHASE_FINISHED = "phase_finished"
     ITEM_ERROR = "item_error"
     RUN_FINISHED = "run_finished"
+    PASS_STARTED = "pass_started"
+    PASS_FINISHED = "pass_finished"
 
 
 @dataclass(frozen=True)
