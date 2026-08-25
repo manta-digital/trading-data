@@ -8,6 +8,8 @@ interfaces: [264, 265]
 effort: 2
 dateCreated: 20260825
 dateUpdated: 20260825
+reviewVerdictsAddressed:
+  - 263-review.slice (claude-sonnet-5, PASS, notes F005/F006)
 status: not_started
 ---
 
@@ -330,6 +332,13 @@ sudo systemctl enable --now mt-kalshi-pass.timer
 
 - **The timer fires while a long hand-run `sync` holds the lock** (precondition 4 ignored): every firing exits 1 until the run ends. Visible in `mt-run status`, retried hourly, no data effect. Mitigation is sequencing in the walkthrough and a runbook note; no code.
 - **The `mt-run` env-forwarding change** touches a script the EODHD passes' operators already rely on. Its non-root branch is unchanged; the root branch is exercised in step 6 both ways (`sudo mt-run data kalshi status` and a `sudo mt-run data caggs status` to prove the EODHD path still sees `MT_EODHD_API_KEY`).
+
+## Design review disposition (20260825)
+
+Review: `user/reviews/263-review.slice.collection-pass-and-supervised-install.md`, claude-sonnet-5, verdict PASS against `a599f0e` (four passes, two notes).
+
+- **F005 (note) — Decision 8 (per-window INFO line) is left to a post-design PM veto.** Both branches are specified; the open gate is deliberate because the slice plan recorded the line as "not yet needed" and the first production run's outcome (in progress at design time) is the evidence for it. **Resolution: PM decision, recorded here when given** — ratified → Decision 8 and Criterion 11 stand as written; vetoed → both are struck and no other part of the slice changes.
+- **F006 (note) — the `mt-run` root-branch fix touches shared tooling.** Acknowledged; no action. The non-root branch is unchanged, and the EODHD regression check (`sudo mt-run data caggs status` still sees `MT_EODHD_API_KEY`) is in Criterion 6 / walkthrough step 6.
 
 ## Implementation Notes
 
