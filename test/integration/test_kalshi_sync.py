@@ -413,9 +413,13 @@ class TestStorageFailureProofs:
                 # The unopened page is committed; kill the run's backend
                 # (the one holding the advisory lock) before the open page.
                 with psycopg.connect(kalshi_db, autocommit=True) as admin:
+                    # pg_locks is cluster-wide: scope to this throwaway database
+                    # or the kill reaches a sync on any other database here.
                     admin.execute(
                         "SELECT pg_terminate_backend(pid) FROM pg_locks "
-                        "WHERE locktype = 'advisory' AND objid = %s",
+                        "WHERE locktype = 'advisory' AND objid = %s "
+                        "AND database = (SELECT oid FROM pg_database "
+                        "WHERE datname = current_database())",
                         (SYNC_ADVISORY_LOCK_KEY,),
                     )
             return await original(cursor=cursor, **query)
