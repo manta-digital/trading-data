@@ -32,7 +32,15 @@ def _add(a: Written, b: Written) -> Written:
 
 
 def _own_kind(phase: SyncPhase, written: Written) -> int:
-    """The count the phase reports: its own row kind, never its parents'."""
+    """The count the phase reports: its own row kind, never its parents'.
+
+    Deliberate (code review 262 F002): parent series/events written while
+    resolving a markets page are a side effect of that page, not series or
+    events "phase" work, so they are not folded into those phases' counts.
+    The series phase counts the series list; the events phase counts the
+    ``min_updated_ts`` refresh. Parent rows created on the way are visible
+    in the tables, not in the run summary.
+    """
     if phase is SyncPhase.SERIES:
         return written[0]
     if phase is SyncPhase.EVENTS:
@@ -95,6 +103,6 @@ async def _write_one(
             written = await _write_rows(core, page)
     except psycopg.IntegrityError as exc:
         # Taxonomy rows 4/5: the offending row is an item error; the run continues.
-        core.item_error(phase, ticker, f"{type(exc).__name__} {exc.sqlstate}")
+        await core.item_error(phase, ticker, f"{type(exc).__name__} {exc.sqlstate}")
         return _NOTHING
     return written

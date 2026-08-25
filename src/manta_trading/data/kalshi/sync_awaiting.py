@@ -48,7 +48,7 @@ async def reconcile_awaiting(core: CatalogSync) -> None:
     async with repo.transaction():
         result.awaiting_retired += await repo.retire_awaiting()
         result.awaiting_checked = await repo.mark_checked(vanished, now)
-    core.phase_finished(
+    await core.phase_finished(
         SyncPhase.AWAITING,
         started,
         entered=result.awaiting_entered,

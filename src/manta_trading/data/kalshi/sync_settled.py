@@ -49,7 +49,7 @@ async def drain_settled(core: CatalogSync, settled_since: datetime | None) -> No
         core.result.windows_completed += 1
         window_start = window_end
     core.result.watermark_ts = watermark
-    core.phase_finished(
+    await core.phase_finished(
         SyncPhase.SETTLED,
         started,
         captured=core.result.settled_captured,

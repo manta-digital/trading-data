@@ -151,7 +151,7 @@ class TestStateAndClassification:
         from psycopg import errors
 
         assert classify(result, errors.QueryCanceled()) is SyncOutcome.STORAGE_ABORT
-        h.core.item_error(list(result.phases)[0], "X", "why")
+        await h.core.item_error(list(result.phases)[0], "X", "why")
         assert classify(result, None) is SyncOutcome.PARTIAL
         assert classify(result, ProviderTransientError()) is SyncOutcome.PROVIDER_ABORT
 

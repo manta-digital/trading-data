@@ -7,7 +7,9 @@ acquisition package. Per-item events exist only for errors; everything else
 is aggregated per phase so a sink is not flooded by ~74k settlements a day.
 
 Sinks do not swallow their own failures. Emission is best-effort at the
-*caller* (``sync.py`` wraps ``emit``: log at ERROR, never abort the run).
+*caller* (``sync.py`` wraps ``emit``: log at ERROR, never abort the run),
+and the caller runs ``emit`` in a worker thread, so a sink may block on I/O
+(``JsonlSyncEventSink`` does) without stalling the event loop.
 """
 
 from __future__ import annotations

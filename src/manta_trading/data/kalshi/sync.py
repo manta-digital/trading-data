@@ -16,6 +16,7 @@ in ``cli/commands/kalshi.py`` only.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from datetime import UTC, datetime
@@ -143,7 +144,7 @@ class CatalogSync:
 
     async def run(self, settled_since: datetime | None = None) -> SyncResult:
         result = self.result
-        self.emit(SyncEventType.RUN_STARTED)
+        await self.emit(SyncEventType.RUN_STARTED)
         try:
             self.state = await self.repository.get_sync_state(Surface.CATALOG)
             await self._sync_series()
@@ -158,17 +159,17 @@ class CatalogSync:
         except Exception as exc:
             result.error = f"{type(exc).__name__}: {exc}"
             logger.exception("kalshi catalog sync aborted")
-            self._finish()
+            await self._finish()
             raise
-        self._finish()
+        await self._finish()
         return result
 
-    def _finish(self) -> None:
+    async def _finish(self) -> None:
         elapsed = self.clock() - self.result.started_at
         self.result.duration_ms = int(elapsed.total_seconds() * 1000)
-        self.emit(SyncEventType.RUN_FINISHED, error=self.result.error)
+        await self.emit(SyncEventType.RUN_FINISHED, error=self.result.error)
 
-    def emit(
+    async def emit(
         self,
         event_type: SyncEventType,
         *,
@@ -179,7 +180,13 @@ class CatalogSync:
         error: str | None = None,
         duration_ms: int | None = None,
     ) -> None:
-        """Best-effort emission: a sink failure is logged, never aborts the run."""
+        """Best-effort emission: a sink failure is logged, never aborts the run.
+
+        The sink call runs in a worker thread (code review 262 F001): a
+        ``JsonlSyncEventSink`` does a synchronous open/write/flush, which the
+        project's async rule keeps off the event loop. The core is a single
+        sequential writer, so one sink call at a time reaches the thread.
+        """
         event = SyncEvent(
             run_id=self.result.run_id,
             timestamp=self.clock(),
@@ -192,14 +199,16 @@ class CatalogSync:
             duration_ms=duration_ms,
         )
         try:
-            self._sink.emit(event)
+            await asyncio.to_thread(self._sink.emit, event)
         except Exception:
             logger.exception("event sink failed on %s", event_type)
 
-    def phase_finished(self, phase: SyncPhase, started: datetime, **extra: int) -> None:
+    async def phase_finished(
+        self, phase: SyncPhase, started: datetime, **extra: int
+    ) -> None:
         counts = {**self.result.phases[phase].to_dict(), **extra}
         elapsed = int((self.clock() - started).total_seconds() * 1000)
-        self.emit(
+        await self.emit(
             SyncEventType.PHASE_FINISHED,
             phase=phase,
             counts=counts,
@@ -207,11 +216,13 @@ class CatalogSync:
             duration_ms=elapsed,
         )
 
-    def item_error(self, phase: SyncPhase, ticker: str, reason: str) -> None:
+    async def item_error(self, phase: SyncPhase, ticker: str, reason: str) -> None:
         logger.error("%s: %s skipped — %s", phase, ticker, reason)
         self.result.item_errors.append(ItemError(ticker, phase, reason))
         self.result.phases[phase].skipped += 1
-        self.emit(SyncEventType.ITEM_ERROR, phase=phase, ticker=ticker, error=reason)
+        await self.emit(
+            SyncEventType.ITEM_ERROR, phase=phase, ticker=ticker, error=reason
+        )
 
     # ------------------------------------------------------------------
     # Phase 1 — series
@@ -226,7 +237,7 @@ class CatalogSync:
         counts.written += written
         counts.unchanged = counts.fetched - counts.written - counts.skipped
         self.series_known.update(r.ticker for r in rows)
-        self.phase_finished(SyncPhase.SERIES, started)
+        await self.phase_finished(SyncPhase.SERIES, started)
 
     # ------------------------------------------------------------------
     # Phase 2 — markets walk (Decision 1) with parent resolution (Decision 9)
@@ -241,7 +252,7 @@ class CatalogSync:
             async for page in paged(markets, MARKETS_PAGE_LIMIT):
                 await self.ingest_markets(SyncPhase.MARKETS, page)
                 self.seen.update(m.ticker for m in page)
-        self.phase_finished(SyncPhase.MARKETS, started)
+        await self.phase_finished(SyncPhase.MARKETS, started)
 
     async def ingest_markets(self, phase: SyncPhase, markets: Sequence[Market]) -> int:
         """Resolve parents, write the page, account counts; returns rows written."""
@@ -276,7 +287,7 @@ class CatalogSync:
             if market.event_ticker in available:
                 writable.append(market)
             else:
-                self.item_error(
+                await self.item_error(
                     phase,
                     market.ticker,
                     f"parent event {market.event_ticker} unavailable",
@@ -308,7 +319,7 @@ class CatalogSync:
                 # Decision 9: a parent that cannot be obtained makes its
                 # dependents item errors; the run continues.
                 unobtainable.add(ticker)
-                self.item_error(phase, ticker, f"series unavailable: {exc}")
+                await self.item_error(phase, ticker, f"series unavailable: {exc}")
             else:
                 self.series_known.add(ticker)
         return rows, unobtainable
@@ -331,7 +342,7 @@ class CatalogSync:
                 if not page.cursor:
                     break
                 cursor = page.cursor
-        self.phase_finished(SyncPhase.EVENTS, started)
+        await self.phase_finished(SyncPhase.EVENTS, started)
 
     async def _ingest_events(self, events: Sequence[Event]) -> None:
         counts = self.result.phases[SyncPhase.EVENTS]
