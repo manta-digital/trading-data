@@ -9,6 +9,8 @@ real client and repository; ``status`` reads the database only. Exit codes
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,6 +28,7 @@ from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
     from manta_trading.config import Settings
+    from manta_trading.data.kalshi.run_context import KalshiRun
     from manta_trading.data.kalshi.status import CatalogStatus
     from manta_trading.data.kalshi.sync_types import SyncResult
 
@@ -104,6 +107,27 @@ def kalshi_sync(
     raise typer.Exit(asyncio.run(run_sync(settings, since, events_file, json_output)))
 
 
+@contextlib.asynccontextmanager
+async def kalshi_run(
+    settings: Settings, events_file: Path | None, json_output: bool
+) -> AsyncIterator[KalshiRun | None]:
+    """The shared preflight context, with the only preflight→exit-1 mapping.
+
+    Yields ``None`` when preflight failed (the message is already printed);
+    every caller returns ``EXIT_PREFLIGHT`` for that case.
+    """
+    from manta_trading.data.kalshi.auth import KalshiCredentialError
+    from manta_trading.data.kalshi.db import PreflightError
+    from manta_trading.data.kalshi.run_context import open_kalshi_run
+
+    try:
+        async with open_kalshi_run(settings, events_file) as run:
+            yield run
+    except (KalshiCredentialError, PreflightError) as exc:
+        print_error(str(exc), json_mode=json_output)
+        yield None
+
+
 async def run_sync(
     settings: Settings,
     settled_since: datetime | None,
@@ -111,43 +135,25 @@ async def run_sync(
     json_output: bool,
 ) -> int:
     """Preflight, run, summarize; returns the exit code."""
-    from manta_trading.data.kalshi.auth import KalshiCredentialError
-    from manta_trading.data.kalshi.client import KalshiClient
-    from manta_trading.data.kalshi.db import PreflightError, open_sync_connection
-    from manta_trading.data.kalshi.events import JsonlSyncEventSink, NullSyncEventSink
     from manta_trading.data.kalshi.repository import CatalogRepository
     from manta_trading.data.kalshi.sync import CatalogSync, classify
     from manta_trading.providers.errors import ProviderError
 
-    try:
-        client = KalshiClient.from_settings(settings)
-    except KalshiCredentialError as exc:
-        print_error(str(exc), json_mode=json_output)
-        return EXIT_PREFLIGHT
-    try:
-        conn = await open_sync_connection(str(settings.timescale_db_url))
-    except PreflightError as exc:
-        await client.aclose()
-        print_error(str(exc), json_mode=json_output)
-        return EXIT_PREFLIGHT
-    sink = JsonlSyncEventSink(events_file) if events_file else NullSyncEventSink()
-    sync = CatalogSync(client, CatalogRepository(conn), sink)
-    failure: ProviderError | psycopg.OperationalError | None = None
-    try:
-        await sync.run(settled_since=settled_since)
-    except ProviderError as exc:
-        failure = exc
-        print_error(f"provider abort: {exc}", json_mode=json_output)
-    except psycopg.OperationalError as exc:
-        failure = exc
-        logger.exception("kalshi sync storage failure")
-        print_error(f"storage abort: {exc}", json_mode=json_output)
-    finally:
-        await client.aclose()
-        await conn.close()
-        if isinstance(sink, JsonlSyncEventSink):
-            sink.close()
-    outcome = classify(sync.result, failure)
+    async with kalshi_run(settings, events_file, json_output) as run:
+        if run is None:
+            return EXIT_PREFLIGHT
+        sync = CatalogSync(run.client, CatalogRepository(run.conn), run.sink)
+        failure: ProviderError | psycopg.OperationalError | None = None
+        try:
+            await sync.run(settled_since=settled_since)
+        except ProviderError as exc:
+            failure = exc
+            print_error(f"provider abort: {exc}", json_mode=json_output)
+        except psycopg.OperationalError as exc:
+            failure = exc
+            logger.exception("kalshi sync storage failure")
+            print_error(f"storage abort: {exc}", json_mode=json_output)
+        outcome = classify(sync.result, failure)
     print_summary(sync.result, outcome, json_output)
     return EXIT_BY_OUTCOME[outcome]
 

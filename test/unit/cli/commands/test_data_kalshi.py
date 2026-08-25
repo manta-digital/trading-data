@@ -121,6 +121,8 @@ class TestExitCodes:
         assert "storage abort" in result.output
 
     def test_preflight_lock(self):
+        """The shared context's only exit-1 mapping (263 Task 1.3) — asserted
+        here once for every command that opens it."""
         with _patched(
             _settings(), preflight=PreflightError("another sync holds the lock")
         ):
