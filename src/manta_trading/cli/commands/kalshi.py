@@ -17,11 +17,16 @@ import psycopg
 import typer
 
 from manta_trading.cli.output import make_table, print_error, print_result
+from manta_trading.data.kalshi.constants import (
+    DB_CONNECT_TIMEOUT_SECONDS,
+    KALSHI_SETTLEMENT_STUCK_AFTER,
+)
 from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
     from manta_trading.config import Settings
+    from manta_trading.data.kalshi.status import CatalogStatus
     from manta_trading.data.kalshi.sync_types import SyncResult
 
 logger = get_logger(__name__)
@@ -196,3 +201,84 @@ def print_summary(result: SyncResult, outcome: SyncOutcome, json_output: bool) -
         f"duration {result.duration_ms} ms    "
         f"outcome [bold]{outcome}[/bold] (exit {EXIT_BY_OUTCOME[outcome]})"
     )
+
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+NEVER_SYNCED = "Kalshi catalog has never synced."
+
+
+@kalshi_app.command("status")
+def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
+    """Catalog counts, settlement watermark, and the awaiting-settlement set.
+
+    Reads the database only (no API call); reports before any sync has run.
+    """
+    from manta_trading.data.kalshi.status import read_catalog_status
+
+    settings: Settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=json_output)
+        raise typer.Exit(EXIT_PREFLIGHT)
+    try:
+        with psycopg.connect(
+            str(settings.timescale_db_url), connect_timeout=DB_CONNECT_TIMEOUT_SECONDS
+        ) as conn:
+            status = read_catalog_status(conn)
+    except psycopg.OperationalError as exc:
+        print_error(f"database unreachable: {exc}", json_mode=json_output)
+        raise typer.Exit(EXIT_PREFLIGHT) from exc
+    if status is None:
+        print_result(
+            {"synced": False} if json_output else NEVER_SYNCED, json_mode=json_output
+        )
+        raise typer.Exit(EXIT_OK)
+    if json_output:
+        print_result({"synced": True, **status.to_dict()}, json_mode=True)
+    else:
+        print_status(status, datetime.now(UTC))
+    raise typer.Exit(EXIT_OK)
+
+
+def print_status(status: CatalogStatus, now: datetime) -> None:
+    from rich import print as rprint
+
+    from manta_trading.data.kalshi.status import age_bucket_labels
+
+    awaiting = status.awaiting
+    by_status = " · ".join(
+        f"{s.value} {n:,}" for s, n in status.markets_by_status.items()
+    )
+    histogram = " · ".join(
+        f"{label} {n:,}"
+        for label, n in zip(age_bucket_labels(), awaiting.age_histogram, strict=True)
+    )
+    oldest = (
+        f"{awaiting.oldest_ticker} ({awaiting.oldest_age.days:,} d)"
+        if awaiting.oldest_ticker and awaiting.oldest_age is not None
+        else "none"
+    )
+    rprint("[bold]Kalshi catalog[/bold]")
+    rprint(f"  last full sync      {_when(status.last_full_sync_at, now)}")
+    rprint(f"  settled watermark   {_when(status.watermark_ts, now)}")
+    rprint(f"  series / events     {status.series:,} / {status.events:,}")
+    rprint(f"[bold]Markets by status[/bold]     {by_status}")
+    rprint(f"[bold]Awaiting settlement[/bold]   {awaiting.total:,} markets")
+    rprint(f"  age                 {histogram}")
+    rprint(
+        f"  past {KALSHI_SETTLEMENT_STUCK_AFTER.days}d threshold   "
+        f"{awaiting.past_threshold:,}   oldest {oldest}"
+    )
+    rprint(
+        f"  checked directly    {awaiting.checked_directly:,}  "
+        "(looked up by ticker; still unsettled)"
+    )
+
+
+def _when(value: datetime | None, now: datetime) -> str:
+    if value is None:
+        return "never"
+    minutes = int((now - value).total_seconds() // 60)
+    return f"{value:%Y-%m-%d %H:%M:%S} UTC  ({minutes:,} min ago)"

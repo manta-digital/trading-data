@@ -195,3 +195,91 @@ class TestBudgetOverride:
 @pytest.mark.parametrize("value", ["2026-08-24T00:00:00Z", "2026-08-24T02:00:00+02:00"])
 def test_parse_settled_since_normalizes_to_utc(value: str):
     assert cmd.parse_settled_since(value) == datetime(2026, 8, 24, tzinfo=UTC)
+
+
+# ---------------------------------------------------------------------------
+# status (Task 8.6)
+# ---------------------------------------------------------------------------
+
+STATUS_CMD = ["data", "kalshi", "status"]
+
+
+@contextlib.contextmanager
+def _patched_status(settings: MagicMock, status: object) -> Iterator[None]:
+    with (
+        patch("manta_trading.cli.app.Settings", return_value=settings),
+        patch("manta_trading.cli.app.setup_logging"),
+        patch("manta_trading.cli.commands.kalshi.psycopg.connect"),
+        patch(
+            "manta_trading.data.kalshi.status.read_catalog_status", return_value=status
+        ),
+    ):
+        yield
+
+
+def _catalog_status():
+    from datetime import timedelta
+
+    from manta_trading.data.kalshi.constants import MarketStatus
+    from manta_trading.data.kalshi.status import AwaitingStatus, CatalogStatus
+
+    return CatalogStatus(
+        last_full_sync_at=NOW,
+        watermark_ts=NOW,
+        series=3,
+        events=5,
+        markets_by_status={s: 0 for s in MarketStatus} | {MarketStatus.ACTIVE: 9},
+        awaiting=AwaitingStatus(
+            total=4,
+            age_histogram=(1, 1, 1, 1),
+            past_threshold=2,
+            oldest_ticker="OLD",
+            oldest_age=timedelta(days=40),
+            checked_directly=1,
+        ),
+    )
+
+
+class TestStatus:
+    def test_never_synced_reports_and_exits_zero(self):
+        with _patched_status(_settings(), None):
+            result = runner.invoke(app, STATUS_CMD)
+        assert result.exit_code == cmd.EXIT_OK
+        assert cmd.NEVER_SYNCED in result.output
+
+    def test_never_synced_json(self):
+        with _patched_status(_settings(), None):
+            result = runner.invoke(app, [*STATUS_CMD, "--json"])
+        assert result.exit_code == cmd.EXIT_OK
+        assert json.loads(result.stdout) == {"synced": False}
+
+    def test_sections_rendered(self):
+        with _patched_status(_settings(), _catalog_status()):
+            result = runner.invoke(app, STATUS_CMD)
+        assert result.exit_code == cmd.EXIT_OK
+        for needle in (
+            "Kalshi catalog",
+            "Markets by status",
+            "active 9",
+            "Awaiting settlement",
+            "past 7d threshold",
+            "OLD (40 d)",
+            "checked directly    1",
+        ):
+            assert needle in result.output, needle
+
+    def test_json_is_flat_with_documented_keys(self):
+        with _patched_status(_settings(), _catalog_status()):
+            result = runner.invoke(app, [*STATUS_CMD, "--json"])
+        payload = json.loads(result.stdout)
+        assert payload["synced"] is True
+        assert payload["awaiting_age"] == {"<1d": 1, "1d-7d": 1, "7d-30d": 1, ">30d": 1}
+        assert payload["awaiting_past_threshold"] == 2
+        assert payload["awaiting_oldest_ticker"] == "OLD"
+        assert payload["markets_by_status"]["active"] == 9
+        assert payload["stuck_threshold_days"] == 7
+
+    def test_missing_db_url(self):
+        with _patched_status(_settings(timescale_url=None), None):
+            result = runner.invoke(app, STATUS_CMD)
+        assert result.exit_code == cmd.EXIT_PREFLIGHT
