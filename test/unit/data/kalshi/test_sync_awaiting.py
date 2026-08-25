@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from kalshi_support.fake_source import make_market
+from kalshi_support.sync_harness import EVENT, NOW, Harness
 
 from manta_trading.data.kalshi.constants import (
     KALSHI_MVE_FILTER,
@@ -19,9 +21,6 @@ from manta_trading.providers.errors import (
     ProviderPermanentError,
     ProviderTransientError,
 )
-
-from ._fake_source import make_market
-from ._sync_harness import EVENT, NOW, Harness
 
 SINCE = NOW - timedelta(hours=1)
 

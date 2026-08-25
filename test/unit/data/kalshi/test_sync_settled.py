@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import cast
 
 import pytest
+from kalshi_support.sync_harness import NOW, Harness
 
 from manta_trading.data.kalshi.constants import (
     KALSHI_MVE_FILTER,
@@ -15,8 +16,6 @@ from manta_trading.data.kalshi.constants import (
 )
 from manta_trading.data.kalshi.sync import SyncPhase, epoch
 from manta_trading.providers.errors import ProviderTransientError
-
-from ._sync_harness import NOW, Harness
 
 
 @pytest.fixture

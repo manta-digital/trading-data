@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from kalshi_support.fake_repository import FakeCatalogRepository
+from kalshi_support.fake_source import (
+    FakeCatalogSource,
+    make_event,
+    make_market,
+    make_series,
+)
 from manta_trading.data.kalshi.constants import MarketStatus, MarketStatusFilter
 from manta_trading.data.kalshi.events import SyncEvent, SyncEventType
 from manta_trading.data.kalshi.models import Market
 from manta_trading.data.kalshi.sync import CatalogSync
-
-from ._fake_repository import FakeCatalogRepository
-from ._fake_source import FakeCatalogSource, make_event, make_market, make_series
 
 NOW = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
 SERIES = "S1"

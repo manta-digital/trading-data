@@ -6,6 +6,13 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from kalshi_support.fake_repository import FakeCatalogRepository
+from kalshi_support.fake_source import (
+    FakeCatalogSource,
+    make_event,
+    make_market,
+    make_series,
+)
 from psycopg import errors
 
 from manta_trading.data.kalshi.client import KalshiClient
@@ -18,9 +25,6 @@ from manta_trading.data.kalshi.constants import (
 )
 from manta_trading.data.kalshi.sync import CatalogSource
 from manta_trading.providers.errors import ProviderTransientError
-
-from ._fake_repository import FakeCatalogRepository
-from ._fake_source import FakeCatalogSource, make_event, make_market, make_series
 
 NOW = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
 

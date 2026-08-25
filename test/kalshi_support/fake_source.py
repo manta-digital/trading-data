@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Unpack
 
+from kalshi_support.samples import EVENT_SAMPLE, MARKET_SAMPLE, SERIES_SAMPLE
 from manta_trading.data.kalshi.client import EventsQuery, MarketsQuery
 from manta_trading.data.kalshi.constants import MarketStatusFilter
 from manta_trading.data.kalshi.models import (
@@ -34,9 +35,7 @@ from manta_trading.data.kalshi.models import (
 )
 from manta_trading.providers.errors import ProviderPermanentError
 
-from ._samples import EVENT_SAMPLE, MARKET_SAMPLE, SERIES_SAMPLE
-
-FIXTURE_DIR = Path(__file__).resolve().parents[4] / "test" / "fixtures" / "kalshi"
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "kalshi"
 
 #: Page size when a query carries no ``limit`` (the API default is 100).
 _DEFAULT_PAGE = 100
@@ -276,3 +275,7 @@ class FakeCatalogSource:
     async def get_historical_cutoff(self) -> HistoricalCutoff:
         self._record("get_historical_cutoff", {})
         return self.cutoff
+
+    async def aclose(self) -> None:
+        """Mirror ``KalshiClient.aclose`` so the CLI path can own the fake."""
+        self.closed = True

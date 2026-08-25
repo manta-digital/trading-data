@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from kalshi_support.fake_source import make_event, make_market, make_series
+from kalshi_support.sync_harness import EVENT, NOW, SERIES, Harness
 from psycopg import errors
 
 from manta_trading.data.kalshi.constants import (
@@ -18,9 +20,6 @@ from manta_trading.data.kalshi.constants import (
 )
 from manta_trading.data.kalshi.events import SyncEventType as T
 from manta_trading.data.kalshi.sync import SyncOutcome, SyncPhase, classify, epoch
-
-from ._fake_source import make_event, make_market, make_series
-from ._sync_harness import EVENT, NOW, SERIES, Harness
 
 
 @pytest.fixture

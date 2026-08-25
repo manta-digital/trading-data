@@ -6,11 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
-
-from manta_trading.data.kalshi import models as km
-
-from ._samples import (
+from kalshi_support.samples import (
     CANDLE_SAMPLE,
     CUTOFF_SAMPLE,
     EVENT_SAMPLE,
@@ -18,6 +14,9 @@ from ._samples import (
     SERIES_SAMPLE,
     TRADE_SAMPLE,
 )
+from pydantic import ValidationError
+
+from manta_trading.data.kalshi import models as km
 
 
 class TestSeries:
