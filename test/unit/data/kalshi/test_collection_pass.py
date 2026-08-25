@@ -35,6 +35,8 @@ from manta_trading.providers.errors import ProviderTransientError
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
+    from manta_trading.data.kalshi.client import KalshiClient
+
 OUTCOMES = list(SyncOutcome)
 
 
@@ -248,19 +250,15 @@ class TestPassResult:
 def _catalog_run(h: Harness) -> KalshiRun:
     """A ``KalshiRun`` whose client and connection are the harness's fakes.
 
-    ``KalshiRun.client`` is a full ``KalshiClient`` in production: the pass's
-    start line reads ``mode``/``rate_limit`` from it while the catalog phase
-    uses only the ``CatalogSource`` methods the fake source implements, so
-    the two reporting attributes are attached here. ``CatalogPhase`` builds
+    ``KalshiRun.client`` is a full ``KalshiClient`` in production; the fake
+    source stands in for it and carries the ``mode``/``rate_limit`` the
+    pass's start line reports. ``CatalogPhase`` builds
     ``CatalogRepository(run.conn)``; the ``passthrough_repository`` fixture
     makes that constructor return the fake repository unchanged.
     """
-    source: Any = h.source
-    source.mode = "public"
-    source.rate_limit = MagicMock(requests_per_minute=300)
     return KalshiRun(
         settings=MagicMock(),
-        client=source,
+        client=cast("KalshiClient", h.source),
         # the passthrough_repository fixture hands this straight back
         conn=cast("AsyncConnection[Any]", h.repo),
         sink=h.sink,

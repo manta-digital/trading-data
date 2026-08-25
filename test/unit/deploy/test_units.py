@@ -33,7 +33,8 @@ PASS_COMMAND = "mt data kalshi pass"
 def _parse(path: Path) -> configparser.ConfigParser:
     """systemd allows repeated keys and ``%`` specifiers; ini-parse leniently."""
     parser = configparser.ConfigParser(strict=False, interpolation=None)
-    parser.optionxform = str  # systemd keys are case-sensitive
+    # systemd keys are case-sensitive; ConfigParser lowercases by default
+    parser.optionxform = str  # type: ignore[method-assign,assignment]
     parser.read_string(path.read_text(encoding="utf-8"))
     return parser
 
