@@ -1,0 +1,14 @@
+[Unit]
+Description=Fire the Kalshi collection pass (hourly)
+Documentation=https://github.com/manta-digital/trading-data
+
+[Timer]
+# Hourly; :20 starts at none of the EODHD firings (00:35/12:35, 01:05/13:05).
+# Steady-state pass ≈ 2–3 min at the public budget (design 263, Decision 4).
+OnCalendar=*-*-* *:20:00 UTC
+# Fire a schedule missed while the host was down (post-reboot catch-up).
+Persistent=true
+Unit=mt-kalshi-pass.service
+
+[Install]
+WantedBy=timers.target

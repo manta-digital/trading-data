@@ -34,6 +34,8 @@ UNITS=(
   mt-daily-pass.timer
   mt-minute-pass.service
   mt-minute-pass.timer
+  mt-kalshi-pass.service
+  mt-kalshi-pass.timer
   mt-serve.service
 )
 
@@ -206,5 +208,5 @@ if ! systemctl is-enabled --quiet mt-daily-pass.timer 2>/dev/null; then
   echo "  1. Fill the environment file:  sudoedit ${ENV_FILE}"
   echo "  2. Run one pass by hand:       sudo mt-run daily   (live output; Ctrl-C detaches)"
   echo
-  echo "Cutover (later, explicit): sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service"
+  echo "Cutover (later, explicit): sudo systemctl enable --now mt-daily-pass.timer mt-minute-pass.timer mt-kalshi-pass.timer mt-serve.service"
 fi

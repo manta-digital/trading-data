@@ -1,0 +1,35 @@
+[Unit]
+Description=Manta Trading Kalshi collection pass (one bounded pass, fired by mt-kalshi-pass.timer)
+Documentation=https://github.com/manta-digital/trading-data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=manta-trading
+Group=manta-trading
+Slice=manta-acquisition.slice
+WorkingDirectory=/opt/manta-trading
+EnvironmentFile=/etc/manta-trading.env
+# The venv entry point directly — uv is a deploy-time tool, not a runtime
+# dependency; `uv run` at service start could resolve/sync at the wrong moment.
+ExecStart=/opt/manta-trading/.venv/bin/mt data kalshi pass
+# A catch-up pass after a pause legitimately runs long (a cold catalog drains
+# the settled stream from the historical cutoff). The 90s
+# DefaultTimeoutStartSec would kill it mid-pass.
+TimeoutStartSec=infinity
+# No TimeoutStopSec override: the pass has no clean-stop protocol to wait for —
+# SIGTERM ends it immediately and 262's per-page transactions / per-window
+# watermark make that lossless (design 263, Decision 5).
+# Journald is the log sink — no application-level log files.
+StandardOutput=journal
+StandardError=journal
+# Hardening: minimal additional surface beyond the service user.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+# No Restart= — recovery is the next timer firing; pass semantics (slice 912)
+# make a re-run safe and cheap. No [Install] — the timer gets enabled, not
+# this service.
