@@ -449,19 +449,19 @@ section; cite no job IDs; commands are exactly the ones the walkthrough runs.
   - [x] Success: all clean; no new dependency in `pyproject.toml`
         (Criterion 12).
 
-- [ ] **Task 9.2: Rehearsal on a throwaway database** (effort: 2)
-  - [ ] Walkthrough step 1 exactly: apply `TRACKS["kalshi"]` to a throwaway
+- [x] **Task 9.2: Rehearsal on a throwaway database** (effort: 2)
+  - [x] Walkthrough step 1 exactly: apply `TRACKS["kalshi"]` to a throwaway
         database on the test cluster (runbook 400 pattern; the shell's
         `MT_TIMESCALE_DB_URL` points at it — never production); `pass
         --events-file`, `pass --json | jq`, the `jq -r .event_type` order
         check, and the lock interaction (`sync` in a second shell while a
         pass runs → exit 1 "another sync holds the run lock").
-  - [ ] Record observed output (summary rows, outcome line, event order,
+  - [x] Record observed output (summary rows, outcome line, event order,
         `run_id` uniformity, the lock message) in
         `user/notes/2026-08-25-263-rehearsal.md` (or the date run).
-  - [ ] Success: exit 0 twice; second pass writes ≈ live churn only; event
+  - [x] Success: exit 0 twice; second pass writes ≈ live churn only; event
         order matches Criterion 4.
-  - [ ] **Commit**: `docs: record 263 throwaway-database rehearsal`.
+  - [x] **Commit**: `docs: record 263 throwaway-database rehearsal`.
 
 ## Section 10: Host steps and walkthrough refresh
 
