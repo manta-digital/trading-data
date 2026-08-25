@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from datetime import datetime, timedelta
 from typing import cast
 
@@ -143,3 +145,64 @@ class TestWindows:
         assert marks == [1], "only the clamped last window is ahead of the watermark"
         state = await h.repo.get_sync_state(Surface.CATALOG)
         assert state is not None and state.watermark_ts == NOW
+
+
+# ---------------------------------------------------------------------------
+# Per-window log line (slice 263, Decision 8 / Task 5.2)
+# ---------------------------------------------------------------------------
+
+SETTLED_LOGGER = "manta_trading.data.kalshi.sync_settled"
+WINDOW_LINE = re.compile(
+    r"^settled window (?P<start>\S+)→(?P<end>\S+) "
+    r"fetched (?P<fetched>\d+) written (?P<written>\d+) "
+    r"\((?P<k>\d+) windows\)$"
+)
+
+
+class TestPerWindowLogLine:
+    async def test_one_record_per_completed_window_in_order(
+        self, h: Harness, caplog: pytest.LogCaptureFixture
+    ):
+        """Criterion 11: three windows → three records, k = 1, 2, 3."""
+        floor = NOW - 3 * SETTLED_WINDOW
+        h.settled_market("S1", floor + timedelta(minutes=5))
+        with caplog.at_level(logging.INFO, logger=SETTLED_LOGGER):
+            await h.core.run(settled_since=floor)
+        records = [r for r in caplog.records if r.name == SETTLED_LOGGER]
+        matches = [WINDOW_LINE.match(r.getMessage()) for r in records]
+        assert all(matches), [r.getMessage() for r in records]
+        assert len(matches) == 3
+        assert [m["k"] for m in matches if m] == ["1", "2", "3"]
+        # bounds ascend and each window's end is the next window's start
+        ends = [m["end"] for m in matches if m]
+        starts = [m["start"] for m in matches if m]
+        assert starts[0] == floor.isoformat()
+        assert starts[1:] == ends[:-1]
+        assert ends[-1] == NOW.isoformat()
+
+    async def test_counts_are_per_window_not_cumulative(
+        self, h: Harness, caplog: pytest.LogCaptureFixture
+    ):
+        floor = NOW - 2 * SETTLED_WINDOW
+        h.settled_market("W1", floor + timedelta(minutes=5))
+        h.settled_market("W2", floor + SETTLED_WINDOW + timedelta(minutes=5))
+        with caplog.at_level(logging.INFO, logger=SETTLED_LOGGER):
+            await h.core.run(settled_since=floor)
+        matches = [
+            m
+            for m in (
+                WINDOW_LINE.match(r.getMessage())
+                for r in caplog.records
+                if r.name == SETTLED_LOGGER
+            )
+            if m
+        ]
+        assert [m["fetched"] for m in matches] == ["1", "1"]
+
+    async def test_no_completed_window_logs_nothing(
+        self, h: Harness, caplog: pytest.LogCaptureFixture
+    ):
+        """A floor at the run start leaves no window to walk."""
+        with caplog.at_level(logging.INFO, logger=SETTLED_LOGGER):
+            await h.core.run(settled_since=NOW)
+        assert [r for r in caplog.records if r.name == SETTLED_LOGGER] == []

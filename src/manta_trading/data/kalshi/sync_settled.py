@@ -22,9 +22,12 @@ from manta_trading.data.kalshi.constants import (
     Surface,
 )
 from manta_trading.data.kalshi.sync_types import SyncPhase, epoch, paged
+from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
     from manta_trading.data.kalshi.sync import CatalogSync
+
+logger = get_logger(__name__)
 
 
 async def drain_settled(core: CatalogSync, settled_since: datetime | None) -> None:
@@ -39,6 +42,8 @@ async def drain_settled(core: CatalogSync, settled_since: datetime | None) -> No
     window_start = floor
     while window_start < run_start:
         window_end = min(window_start + SETTLED_WINDOW, run_start)
+        before = core.result.phases[SyncPhase.SETTLED]
+        fetched_before, written_before = before.fetched, before.written
         await _drain_window(core, window_start, window_end)
         # A completed window advances the watermark unless an operator's
         # --settled-since replayed ground already behind it.
@@ -47,6 +52,17 @@ async def drain_settled(core: CatalogSync, settled_since: datetime | None) -> No
                 await core.repository.set_watermark(Surface.CATALOG, window_end)
             watermark = window_end
         core.result.windows_completed += 1
+        # Under the timer the journal is the only sink: one line per completed
+        # window so a multi-window catch-up shows progress (263, Decision 8).
+        counts = core.result.phases[SyncPhase.SETTLED]
+        logger.info(
+            "settled window %s→%s fetched %d written %d (%d windows)",
+            window_start.isoformat(),
+            window_end.isoformat(),
+            counts.fetched - fetched_before,
+            counts.written - written_before,
+            core.result.windows_completed,
+        )
         window_start = window_end
     core.result.watermark_ts = watermark
     await core.phase_finished(
