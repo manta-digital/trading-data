@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, LiteralString
 
 import psycopg
+from psycopg import sql
 
 from manta_trading.data.kalshi.constants import (
     AWAITING_AGE_BUCKETS,
@@ -103,18 +104,21 @@ def read_catalog_status(conn: psycopg.Connection[Any]) -> CatalogStatus | None:
     )
 
 
-def _scalar(conn: psycopg.Connection[Any], query: str) -> int:
+def _scalar(conn: psycopg.Connection[Any], query: LiteralString) -> int:
     row = conn.execute(query).fetchone()
     return int(row[0]) if row else 0
 
 
 def _read_awaiting(conn: psycopg.Connection[Any]) -> AwaitingStatus:
     edges = list(AWAITING_AGE_BUCKETS)
-    # One SELECT: a count per bucket (age < edge_i and >= edge_{i-1}), the
+    # One SELECT: a count per bucket (age in [edge_{i-1}, edge_i)), the
     # open-ended tail, the past-threshold count, and the checked count.
-    bucket_terms = ", ".join(
-        f"count(*) FILTER (WHERE now() - close_time >= %(lo{i})s "
-        f"AND now() - close_time < %(hi{i})s)"
+    bucket = sql.SQL(
+        "count(*) FILTER "
+        "(WHERE now() - close_time >= {lo} AND now() - close_time < {hi})"
+    )
+    buckets = sql.SQL(", ").join(
+        bucket.format(lo=sql.Placeholder(f"lo{i}"), hi=sql.Placeholder(f"hi{i}"))
         for i in range(len(edges))
     )
     params: dict[str, Any] = {"tail": edges[-1], "stuck": KALSHI_SETTLEMENT_STUCK_AFTER}
@@ -122,11 +126,13 @@ def _read_awaiting(conn: psycopg.Connection[Any]) -> AwaitingStatus:
         params[f"lo{i}"] = edges[i - 1] if i else timedelta(0)
         params[f"hi{i}"] = edge
     row = conn.execute(
-        f"SELECT count(*), {bucket_terms}, "
-        "count(*) FILTER (WHERE now() - close_time >= %(tail)s), "
-        "count(*) FILTER (WHERE now() - close_time >= %(stuck)s), "
-        "count(*) FILTER (WHERE last_checked_at IS NOT NULL) "
-        "FROM kalshi.awaiting_settlement",
+        sql.SQL(
+            "SELECT count(*), {buckets}, "
+            "count(*) FILTER (WHERE now() - close_time >= %(tail)s), "
+            "count(*) FILTER (WHERE now() - close_time >= %(stuck)s), "
+            "count(*) FILTER (WHERE last_checked_at IS NOT NULL) "
+            "FROM kalshi.awaiting_settlement"
+        ).format(buckets=buckets),
         params,
     ).fetchone()
     assert row is not None  # an aggregate query always returns one row
