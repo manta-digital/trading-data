@@ -428,6 +428,13 @@ Review: `user/reviews/262-review.slice.catalog-sync-with-settlement-capture.md`,
 - **F002 (note) — MVE exclusion narrows the binding constraint without a recorded sanction.** Valid as of the review. The PM reviewed the MVE explanation and sanctioned the exclusion on 2026-08-24; the sanction is now recorded at architecture level (260-arch, *Catalog scale and incremental sync*: the constraint's universe is the non-MVE catalog) and in the 260 slice plan Notes, and Decision 2 points to both. The PM also confirmed the storage figure (~70 GB/year) is acceptable and that market selectivity belongs to 264/265, not the catalog.
 - **F003, F004, F005 (pass).** No action.
 
+## Code review disposition (20260825)
+
+Review: `user/reviews/262-review.code.catalog-sync-with-settlement-capture.md`, claude-sonnet-5, verdict CONCERNS (one concern, one note), against `01176c3`.
+
+- **F001 (concern) — `JsonlSyncEventSink.emit` did synchronous file I/O on the event loop.** Valid under the project's async rule (<1 ms worst case for synchronous work inside `async def`; a flush on slow storage has no such bound, and a page of item errors emits once per row). Fixed: `CatalogSync.emit` is now `async` and runs the sink call in a worker thread (`asyncio.to_thread`); `phase_finished` / `item_error` follow. The `SyncEventSink` Protocol stays synchronous, so sinks remain trivial and 263 routes pass events unchanged. The core is a single sequential writer, so at most one sink call is in flight.
+- **F002 (note) — parent series/events written during a markets page are not counted in the series/events phases.** Intentional: a phase count is that phase's own work (series list; `min_updated_ts` refresh), and parent rows created while resolving a page are a side effect of that page. Folding them in would make the series/events lines depend on which markets happened to be walked first. Documented at `_own_kind` in `sync_writer.py`.
+
 ## Implementation disposition (20260825)
 
 What Phase 6 found that the design did not anticipate, and what was done about it.
