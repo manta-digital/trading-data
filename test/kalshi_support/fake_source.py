@@ -100,12 +100,16 @@ class FakeCatalogSource:
         }
         self.settled: list[Market] = []
         self.lookup: dict[str, Market] = {}
+        #: Event tickers the ``tickers`` batch silently omits although
+        #: ``GET /events/{ticker}`` serves them (observed live 2026-08-25).
+        self.batch_omit: set[str] = set()
         self.cutoff = HistoricalCutoff.model_validate(load_fixture("historical_cutoff"))
         # Recorded traffic.
         self.calls: list[str] = []
         self.markets_queries: list[dict[str, object]] = []
         self.events_queries: list[dict[str, object]] = []
         self.series_requests: list[str] = []
+        self.event_requests: list[str] = []
         self._failures: list[
             tuple[
                 str,
@@ -268,7 +272,11 @@ class FakeCatalogSource:
         tickers = query.get("tickers")
         min_updated = query.get("min_updated_ts")
         if tickers:
-            rows = [self.events[t] for t in tickers.split(",") if t in self.events]
+            rows = [
+                self.events[t]
+                for t in tickers.split(",")
+                if t in self.events and t not in self.batch_omit
+            ]
         elif min_updated is not None:
             rows = [
                 e
@@ -280,6 +288,13 @@ class FakeCatalogSource:
             rows = list(self.events.values())
         chunk, next_cursor = _page(rows, cursor, self.page_size or query.get("limit"))
         return EventsPage(events=chunk, cursor=next_cursor)
+
+    async def get_event(self, event_ticker: str) -> Event:
+        self._record("get_event", {"event_ticker": event_ticker})
+        self.event_requests.append(event_ticker)
+        if event_ticker not in self.events:
+            raise ProviderPermanentError(f"404 event {event_ticker}")
+        return self.events[event_ticker]
 
     async def get_historical_cutoff(self) -> HistoricalCutoff:
         self._record("get_historical_cutoff", {})

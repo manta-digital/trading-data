@@ -143,10 +143,29 @@ class TestMarketsWalk:
         assert h.source.series_requests == ["SX"]
         assert set(h.repo.markets) == {"M1", "M2"}
 
+    async def test_event_omitted_by_batch_is_fetched_singly(self, h: Harness):
+        h.source.add_events(make_event("OLD-1", SERIES), make_event("OLD-2", SERIES))
+        h.source.batch_omit = {"OLD-1", "OLD-2"}
+        h.live_market("M1", event="OLD-1")
+        h.live_market("M2", event="OLD-2")
+        h.live_market("M3")
+        result = await h.core.run(settled_since=NOW - timedelta(hours=1))
+        assert result.item_errors == []
+        assert set(h.repo.markets) == {"M1", "M2", "M3"}
+        assert h.source.event_requests == ["OLD-1", "OLD-2"]
+        # Known on the second run: no batch or single lookup at all.
+        batches_before = len([q for q in h.source.events_queries if q.get("tickers")])
+        h.new_core()
+        await h.core.run(settled_since=NOW - timedelta(hours=1))
+        assert h.source.event_requests == ["OLD-1", "OLD-2"]
+        batches_after = len([q for q in h.source.events_queries if q.get("tickers")])
+        assert batches_after == batches_before
+
     async def test_parent_omitted_by_api_skips_dependents(self, h: Harness):
         h.live_market("GOOD")
         h.live_market("ORPHAN", event="GHOST")
         result = await h.core.run(settled_since=NOW - timedelta(hours=1))
+        assert h.source.event_requests == ["GHOST"], "tried singly before giving up"
         assert set(h.repo.markets) == {"GOOD"}
         assert [(e.ticker, e.phase) for e in result.item_errors] == [
             ("ORPHAN", SyncPhase.MARKETS)

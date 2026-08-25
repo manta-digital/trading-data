@@ -82,7 +82,13 @@ logger = logging.getLogger(__name__)
 
 
 class CatalogSource(Protocol):
-    """The six client calls the sync core uses (design: *CatalogSource protocol*).
+    """The client calls the sync core uses (design: *CatalogSource protocol*).
+
+    ``get_event`` joined the six listed in the design after the live
+    rehearsal (2026-08-25): ``GET /events?tickers=`` silently omits some
+    events — 366 of ~14.7k parents, older events whose markets are still
+    live — while ``GET /events/{ticker}`` returns them. Omitted tickers are
+    fetched singly, the same per-item shape Decision 9 uses for series.
 
     ``KalshiClient`` satisfies it structurally; tests substitute a
     fixture-backed fake that records every received query.
@@ -101,6 +107,8 @@ class CatalogSource(Protocol):
     async def get_events(
         self, *, cursor: str | None = None, **query: Unpack[EventsQuery]
     ) -> EventsPage: ...
+
+    async def get_event(self, event_ticker: str) -> Event: ...
 
     async def get_historical_cutoff(self) -> HistoricalCutoff: ...
 
@@ -256,6 +264,10 @@ class CatalogSync:
                 tickers=",".join(batch), limit=EVENTS_PAGE_LIMIT
             )
             fetched.update((e.event_ticker, e) for e in page.events)
+        for ticker in sorted(wanted - known - fetched.keys()):
+            event = await self._fetch_event_singly(phase, ticker)
+            if event is not None:
+                fetched[ticker] = event
         series, bad_series = await self._resolve_series(phase, fetched.values())
         events = [e for e in fetched.values() if e.series_ticker not in bad_series]
         available = known | {e.event_ticker for e in events}
@@ -270,6 +282,16 @@ class CatalogSync:
                     f"parent event {market.event_ticker} unavailable",
                 )
         return Page(series=series, events=events, markets=writable)
+
+    async def _fetch_event_singly(self, phase: SyncPhase, ticker: str) -> Event | None:
+        """``GET /events/{ticker}`` for an event the batch lookup omitted."""
+        try:
+            return await self.source.get_event(ticker)
+        except ProviderPermanentError as exc:
+            # Decision 9: a parent that cannot be obtained makes its
+            # dependents item errors (reported per market below).
+            logger.error("%s: event %s unavailable singly: %s", phase, ticker, exc)
+            return None
 
     async def _resolve_series(
         self, phase: SyncPhase, events: Iterable[Event]
