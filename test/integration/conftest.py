@@ -15,8 +15,14 @@ whole tier.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
+
 import psycopg
 import pytest
+
+if TYPE_CHECKING:
+    from manta_trading.data.kalshi.repository import CatalogRepository
 
 # ``migrated_db`` (ephemeral DB + full migration chain) lives in
 # ``test/conftest.py`` so the unit tier's DB-backed tests share it.
@@ -60,3 +66,38 @@ def instruments_clean_db(migrated_db: str) -> str:
         )
         conn.commit()
     return migrated_db
+
+
+# ---------------------------------------------------------------------------
+# Kalshi (slice 262): a throwaway database with the kalshi track applied
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def kalshi_db(ephemeral_db: str) -> str:
+    """Bare throwaway database → kalshi track applied."""
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.market.schema.migrations import TRACKS
+    from manta_trading.market.schema.runner import apply_migrations
+
+    with ConnectionPool[Any](ephemeral_db, min_size=1, max_size=2) as pool:
+        apply_migrations(pool, TRACKS["kalshi"])
+    return ephemeral_db
+
+
+@pytest.fixture()
+async def kalshi_conn(kalshi_db: str) -> AsyncIterator[psycopg.AsyncConnection[Any]]:
+    """One async connection in autocommit mode — the sync's own model, where
+    every write is inside an explicit ``transaction()`` block."""
+    async with await psycopg.AsyncConnection.connect(
+        kalshi_db, autocommit=True
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture()
+def kalshi_repo(kalshi_conn: psycopg.AsyncConnection[Any]) -> CatalogRepository:
+    from manta_trading.data.kalshi.repository import CatalogRepository
+
+    return CatalogRepository(kalshi_conn)
