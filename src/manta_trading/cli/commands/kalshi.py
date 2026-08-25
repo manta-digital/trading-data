@@ -1,9 +1,13 @@
-"""``mt data kalshi`` — Kalshi catalog commands (slice 262, Decision 12).
+"""``mt data kalshi`` — Kalshi catalog commands (slices 262 and 263).
 
 ``sync`` runs :class:`~manta_trading.data.kalshi.sync.CatalogSync` over the
-real client and repository; ``status`` reads the database only. Exit codes
-(Decision 11) are defined here and nowhere else: the core reports a
-``SyncOutcome`` and this module maps it. Slice 263 reuses both.
+real client and repository with its operator levers; ``pass`` (263) runs
+every registered phase over one shared context and is what the timer fires;
+``status`` reads the database only. All three share one preflight
+(``kalshi_run``) and therefore one preflight-failure path. Exit codes
+(262 Decision 11) are defined here and nowhere else: the core reports a
+``SyncOutcome`` and this module maps it. Rich rendering lives in
+``kalshi_render.py``.
 """
 
 from __future__ import annotations
@@ -13,30 +17,30 @@ import contextlib
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import psycopg
 import typer
 
-from manta_trading.cli.output import make_table, print_error, print_result
-from manta_trading.data.kalshi.constants import (
-    DB_CONNECT_TIMEOUT_SECONDS,
-    KALSHI_SETTLEMENT_STUCK_AFTER,
+from manta_trading.cli.commands.kalshi_render import (
+    print_pass_summary,
+    print_status,
+    print_summary,
 )
+from manta_trading.cli.output import print_error, print_result
+from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
 from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
     from manta_trading.config import Settings
     from manta_trading.data.kalshi.run_context import KalshiRun
-    from manta_trading.data.kalshi.status import CatalogStatus
-    from manta_trading.data.kalshi.sync_types import SyncResult
 
 logger = get_logger(__name__)
 
 kalshi_app = typer.Typer(
     name="kalshi",
-    help="Kalshi event-contract catalog: sync and status.",
+    help="Kalshi event-contract catalog: pass, sync, and status.",
     no_args_is_help=True,
 )
 
@@ -154,59 +158,48 @@ async def run_sync(
             logger.exception("kalshi sync storage failure")
             print_error(f"storage abort: {exc}", json_mode=json_output)
         outcome = classify(sync.result, failure)
-    print_summary(sync.result, outcome, json_output)
-    return EXIT_BY_OUTCOME[outcome]
+    exit_code = EXIT_BY_OUTCOME[outcome]
+    print_summary(sync.result, outcome, exit_code, json_output)
+    return exit_code
 
 
-def print_summary(result: SyncResult, outcome: SyncOutcome, json_output: bool) -> None:
-    from rich import print as rprint
+# ---------------------------------------------------------------------------
+# pass
+# ---------------------------------------------------------------------------
 
-    if json_output:
-        payload: dict[str, Any] = {
-            **result.to_dict(),
-            "outcome": str(outcome),
-            "exit_code": EXIT_BY_OUTCOME[outcome],
-        }
-        print_result(payload, json_mode=True)
-        return
-    table = make_table(
-        "Kalshi catalog sync",
-        [
-            ("Phase", "cyan"),
-            ("Fetched", ""),
-            ("Written", ""),
-            ("Unchanged", ""),
-            ("Skipped", ""),
-        ],
-    )
-    for phase, counts in result.phases.items():
-        table.add_row(
-            str(phase),
-            f"{counts.fetched:,}",
-            f"{counts.written:,}",
-            f"{counts.unchanged:,}",
-            f"{counts.skipped:,}",
-        )
-    print_result(table, json_mode=False)
-    transitions = ", ".join(
-        f"{a}→{b} {n:,}" for (a, b), n in result.transitions.items()
-    )
-    watermark = result.watermark_ts.isoformat() if result.watermark_ts else "unset"
-    rprint(f"  transitions   {transitions or 'none'}")
-    rprint(
-        f"  settled       windows {result.windows_completed}  "
-        f"captured {result.settled_captured:,}  watermark → {watermark}"
-    )
-    rprint(
-        f"  awaiting      entered {result.awaiting_entered:,}  retired "
-        f"{result.awaiting_retired:,}  checked {result.awaiting_checked:,}  "
-        f"unreachable {result.awaiting_unreachable:,}"
-    )
-    rprint(
-        f"  item errors   {len(result.item_errors):,}    "
-        f"duration {result.duration_ms} ms    "
-        f"outcome [bold]{outcome}[/bold] (exit {EXIT_BY_OUTCOME[outcome]})"
-    )
+
+@kalshi_app.command("pass")
+def kalshi_pass(
+    ctx: typer.Context,
+    events_file: Path | None = _EVENTS_FILE_OPTION,
+    json_output: bool = _JSON_OPTION,
+) -> None:
+    """One bounded collection pass: every registered phase, in order.
+
+    This is what ``mt-kalshi-pass.service`` runs. It takes no phase options
+    on purpose (design 263, Decision 1) — replay and repair levers live on
+    ``sync``.
+    """
+    settings: Settings = ctx.obj["settings"]
+    if not settings.timescale_db_url:
+        print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=json_output)
+        raise typer.Exit(EXIT_PREFLIGHT)
+    raise typer.Exit(asyncio.run(run_pass(settings, events_file, json_output)))
+
+
+async def run_pass(
+    settings: Settings, events_file: Path | None, json_output: bool
+) -> int:
+    """Preflight, run every phase, summarize; returns the exit code."""
+    from manta_trading.data.kalshi.collection_pass import PASS_PHASES, CollectionPass
+
+    async with kalshi_run(settings, events_file, json_output) as run:
+        if run is None:
+            return EXIT_PREFLIGHT
+        result = await CollectionPass(run, PASS_PHASES).run()
+    exit_code = EXIT_BY_OUTCOME[result.outcome]
+    print_pass_summary(result, exit_code, json_output)
+    return exit_code
 
 
 # ---------------------------------------------------------------------------
@@ -246,46 +239,3 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
     else:
         print_status(status, datetime.now(UTC))
     raise typer.Exit(EXIT_OK)
-
-
-def print_status(status: CatalogStatus, now: datetime) -> None:
-    from rich import print as rprint
-
-    from manta_trading.data.kalshi.status import age_bucket_labels
-
-    awaiting = status.awaiting
-    by_status = " · ".join(
-        f"{s.value} {n:,}" for s, n in status.markets_by_status.items()
-    )
-    histogram = " · ".join(
-        f"{label} {n:,}"
-        for label, n in zip(age_bucket_labels(), awaiting.age_histogram, strict=True)
-    )
-    oldest = (
-        f"{awaiting.oldest_ticker} ({awaiting.oldest_age.days:,} d)"
-        if awaiting.oldest_ticker and awaiting.oldest_age is not None
-        else "none"
-    )
-    rprint("[bold]Kalshi catalog[/bold]")
-    rprint(f"  last full sync      {_when(status.last_full_sync_at, now)}")
-    rprint(f"  settled watermark   {_when(status.watermark_ts, now)}")
-    rprint(f"  series / events     {status.series:,} / {status.events:,}")
-    rprint(f"[bold]Markets by status[/bold]     {by_status}")
-    rprint(f"[bold]Awaiting settlement[/bold]   {awaiting.total:,} markets")
-    rprint(f"  age                 {histogram}")
-    rprint(
-        f"  past {KALSHI_SETTLEMENT_STUCK_AFTER.days}d threshold   "
-        f"{awaiting.past_threshold:,}   oldest {oldest}"
-    )
-    rprint(
-        f"  checked directly    {awaiting.checked_directly:,}  "
-        "(looked up by ticker; still unsettled)"
-    )
-
-
-def _when(value: datetime | None, now: datetime) -> str:
-    if value is None:
-        return "never"
-    utc = value.astimezone(UTC)  # psycopg returns the session's zone
-    minutes = int((now - utc).total_seconds() // 60)
-    return f"{utc:%Y-%m-%d %H:%M:%S} UTC  ({minutes:,} min ago)"

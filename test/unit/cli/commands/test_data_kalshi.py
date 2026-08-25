@@ -1,4 +1,4 @@
-"""Unit tests for ``mt data kalshi sync`` (slice 262, Task 8.3).
+"""Unit tests for ``mt data kalshi`` (slice 262 Task 8.3; slice 263 Task 4.2).
 
 The core, the connection preflight, and the client are monkeypatched; the
 exit-code mapping, option parsing, and summary output are the subject.
@@ -11,6 +11,7 @@ import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from psycopg import errors
@@ -19,6 +20,7 @@ from typer.testing import CliRunner
 from manta_trading.cli.app import app
 from manta_trading.cli.commands import kalshi as cmd
 from manta_trading.data.kalshi.client import KalshiClient
+from manta_trading.data.kalshi.collection_pass import PassPhaseName, PhaseReport
 from manta_trading.data.kalshi.db import PreflightError
 from manta_trading.data.kalshi.sync_types import SyncOutcome, SyncPhase, SyncResult
 from manta_trading.providers.errors import ProviderTransientError
@@ -285,3 +287,130 @@ class TestStatus:
         with _patched_status(_settings(timescale_url=None), None):
             result = runner.invoke(app, STATUS_CMD)
         assert result.exit_code == cmd.EXIT_PREFLIGHT
+
+
+# ---------------------------------------------------------------------------
+# pass (slice 263, Task 4.2)
+# ---------------------------------------------------------------------------
+
+PASS_CMD = ["data", "kalshi", "pass"]
+
+
+class _FakePhase:
+    """A pass phase returning a scripted report (the CLI is the subject)."""
+
+    outcome: SyncOutcome = SyncOutcome.OK
+    name = PassPhaseName.CATALOG
+
+    async def run(self, run: object) -> PhaseReport:
+        summary = SyncResult(run_id=uuid4(), started_at=NOW)
+        summary.phases[SyncPhase.MARKETS].fetched = 7
+        return PhaseReport(
+            name=self.name,
+            outcome=type(self).outcome,
+            summary=summary.to_dict(),
+            duration_ms=12,
+            error=None if type(self).outcome is SyncOutcome.OK else "boom",
+        )
+
+
+@contextlib.contextmanager
+def _patched_pass(
+    settings: MagicMock,
+    *,
+    outcome: SyncOutcome = SyncOutcome.OK,
+    preflight: BaseException | None = None,
+) -> Iterator[None]:
+    _FakePhase.outcome = outcome
+    conn = MagicMock()
+    conn.close = AsyncMock()
+    client = MagicMock()
+    client.aclose = AsyncMock()
+    client.mode = "public"
+    client.rate_limit.requests_per_minute = 300
+    with (
+        patch("manta_trading.cli.app.Settings", return_value=settings),
+        patch("manta_trading.cli.app.setup_logging"),
+        patch(
+            "manta_trading.data.kalshi.db.open_sync_connection",
+            AsyncMock(return_value=conn, side_effect=preflight),
+        ),
+        patch.object(KalshiClient, "from_settings", return_value=client),
+        patch("manta_trading.data.kalshi.collection_pass.PASS_PHASES", (_FakePhase(),)),
+    ):
+        yield
+
+
+class TestPassHelp:
+    def test_group_lists_pass(self):
+        with _patched_pass(_settings()):
+            result = runner.invoke(app, ["data", "kalshi", "--help"])
+        assert result.exit_code == 0
+        assert "pass" in result.output
+
+    def test_only_two_options(self):
+        with _patched_pass(_settings()):
+            result = runner.invoke(app, [*PASS_CMD, "--help"])
+        assert result.exit_code == 0
+        assert "--events-file" in result.output and "--json" in result.output
+        assert "--settled-since" not in result.output
+
+
+class TestPassExitCodes:
+    """Criterion 2: the pass uses the same constants ``sync`` does."""
+
+    @pytest.mark.parametrize(
+        ("outcome", "expected"),
+        [
+            (SyncOutcome.OK, cmd.EXIT_OK),
+            (SyncOutcome.PROVIDER_ABORT, cmd.EXIT_PROVIDER),
+            (SyncOutcome.PARTIAL, cmd.EXIT_SYNC_PARTIAL),
+            (SyncOutcome.STORAGE_ABORT, cmd.EXIT_STORAGE),
+        ],
+    )
+    def test_outcome_maps_to_exit_code(self, outcome: SyncOutcome, expected: int):
+        with _patched_pass(_settings(), outcome=outcome):
+            result = runner.invoke(app, PASS_CMD)
+        assert result.exit_code == expected, result.output
+
+    def test_missing_db_url(self):
+        with _patched_pass(_settings(timescale_url=None)):
+            result = runner.invoke(app, PASS_CMD)
+        assert result.exit_code == cmd.EXIT_PREFLIGHT
+
+
+class TestPassOutput:
+    def test_rich_prints_a_row_per_phase_and_the_catalog_block(self):
+        with _patched_pass(_settings()):
+            result = runner.invoke(app, PASS_CMD)
+        assert result.exit_code == cmd.EXIT_OK, result.output
+        assert "Kalshi collection pass" in result.output
+        assert "catalog" in result.output
+        # the phase's own summary block, rendered by the shared helper
+        assert "Kalshi catalog sync" in result.output
+        assert "outcome" in result.output and "(exit 0)" in result.output
+
+    def test_json_payload_shape(self):
+        with _patched_pass(_settings()):
+            result = runner.invoke(app, [*PASS_CMD, "--json"])
+        payload = json.loads(result.stdout)
+        assert set(payload) == {
+            "run_id",
+            "started_at",
+            "phases",
+            "outcome",
+            "exit_code",
+            "duration_ms",
+        }
+        assert payload["phases"][0]["name"] == "catalog"
+        assert payload["phases"][0]["summary"]["phases"]["markets"]["fetched"] == 7
+        assert payload["outcome"] == "ok" and payload["exit_code"] == 0
+
+    def test_events_file_is_written(self, tmp_path):
+        path = tmp_path / "pass.jsonl"
+        with _patched_pass(_settings()):
+            result = runner.invoke(app, [*PASS_CMD, "--events-file", str(path)])
+        assert result.exit_code == cmd.EXIT_OK
+        lines = path.read_text().splitlines()
+        types = [json.loads(line)["event_type"] for line in lines]
+        assert types == ["pass_started", "pass_finished"]
