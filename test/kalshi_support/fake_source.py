@@ -1,17 +1,18 @@
 """``FakeCatalogSource`` — an in-memory ``CatalogSource`` for sync-core tests.
 
-Serves the recorded 261 fixtures by default (``series_list``, the
-``markets_page*`` finalized markets as the settled stream, ``markets_open``
-as the ``open`` walk, ``events_page*``, ``historical_cutoff``) plus whatever
-a test adds. Every received query is recorded so tests can assert
-``mve_filter``, ``status``, ``min_settled_ts``/``max_settled_ts``, and
-``tickers`` batches. Paging follows the real cursor contract (a ``cursor``
-string, absent on the last page); the page size is the query ``limit``
-unless ``page_size`` forces smaller pages.
+Serves the recorded fixtures by default (``series_list``, ``events_page*``
+and ``events_by_tickers``, ``markets_open`` as the ``open`` walk,
+``markets_by_tickers`` in the lookup index, ``markets_settled_window`` as
+the settled stream, ``historical_cutoff``) plus whatever a test adds. Every
+received query is recorded so tests can assert ``mve_filter``, ``status``,
+``min_settled_ts``/``max_settled_ts``, and ``tickers`` batches. Paging
+follows the real cursor contract (a ``cursor`` string, absent on the last
+page); the page size is the query ``limit`` unless ``page_size`` forces
+smaller pages.
 
 Windowed settled responses mirror the survey: strict ``after``/``before``
-at second granularity, newest first. ``tickers`` lookups silently omit
-unknown tickers, as the live API does.
+of second-granular bounds against microsecond timestamps, newest first.
+``tickers`` lookups silently omit unknown tickers, as the live API does.
 """
 
 from __future__ import annotations
@@ -118,17 +119,25 @@ class FakeCatalogSource:
             self._load_fixtures()
 
     def _load_fixtures(self) -> None:
+        """The 261/262 recorded shapes: series list, events pages, the open
+        walk page, the ``tickers`` batch responses (lookup index), and one
+        recorded settled window as the default settled population."""
         for row in load_fixture("series_list")["series"]:
             series = Series.model_validate(row)
             self.series[series.ticker] = series
-        for page in ("events_page1", "events_page2"):
+        for page in ("events_page1", "events_page2", "events_by_tickers"):
             for event in EventsPage.model_validate(load_fixture(page)).events:
                 self.events[event.event_ticker] = event
         self.live[MarketStatusFilter.OPEN] = list(
             MarketsPage.model_validate(load_fixture("markets_open")).markets
         )
-        for page in ("markets_page1", "markets_page2"):
-            self.settled.extend(MarketsPage.model_validate(load_fixture(page)).markets)
+        self.settled.extend(
+            MarketsPage.model_validate(load_fixture("markets_settled_window")).markets
+        )
+        for market in MarketsPage.model_validate(
+            load_fixture("markets_by_tickers")
+        ).markets:
+            self.lookup[market.ticker] = market
         self._reindex()
 
     # ------------------------------------------------------------------
