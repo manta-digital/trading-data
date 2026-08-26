@@ -10,7 +10,7 @@ relatedSlices: []
 riskLevel: low
 archIndex: 260
 dateCreated: 20260823
-dateUpdated: 20260824
+dateUpdated: 20260826
 status: in_progress
 ---
 
@@ -26,7 +26,7 @@ Initiative 260 adds continuous collection of Kalshi prediction-market data to tr
 
 ## Design Goals
 
-- **Capture before it disappears** — The primary goal is completeness of the record while it is still reachable: full catalog lifecycle (open → close → settlement outcome), candlestick history, and public trades, collected ahead of Kalshi's historical-endpoint migration and retention decisions.
+- **Capture before it disappears** — The primary goal is completeness of the record while it is still reachable: full catalog lifecycle (open → close → settlement outcome), candlestick history, and public trades, collected ahead of Kalshi's historical-endpoint migration and retention decisions. **Scope of "complete" (PM decisions 20260824 and 20260826, recorded at slice 262 and 264 design):** the *catalog* is complete for every non-MVE market; the *time-series surfaces* are complete for the markets a configurable **collection rule** selects, not for the whole catalog. The rule exists because measurement showed the unfiltered candle stream to be ~600 GB/year of which 97% is market-maker re-quoting on markets that never trade; the project's default rule keeps markets that traded in the last 24 hours and excludes the Sports and Mentions categories (~31 GB/year compressed), and any operator can set a different rule (`MT_KALSHI_CANDLE_*`) because the collector ships publicly while the collected data cannot be redistributed under Kalshi's API terms. Excluded markets are counted and reported by `mt data kalshi status`, never silently dropped.
 
 - **Faithful catalog, Kalshi's shape** — Store the domain in Kalshi's own hierarchy (series → events → markets) with Kalshi's own identifiers. The catalog is queryable on its own terms; no translation into the equities instrument model is attempted.
 
@@ -71,7 +71,7 @@ A Kalshi collection pass — a bounded run that brings all surfaces up to date a
 
 - **Catalog sync** — Discovers and refreshes series, events, and markets; tracks market lifecycle status; captures settlement outcomes for the awaiting-settlement set. Active/near-close markets refresh every pass; settled markets are retired from polling once their outcome is recorded.
 
-- **Candlestick collection** — Appends candlestick history per market from each market's open through its close, driven by per-market watermarks against the freshly synced market set.
+- **Candlestick collection** — Appends 1-minute candlestick history for each market the collection rule selects (Design Goals), from the moment the collector first sees it trade (with a bounded lookback) through its close, driven by per-market watermarks against the freshly synced market set. Kalshi serves a candle only for a period in which the book or tape moved, so the record is sparse by nature; the watermark records *through when* candles were requested, not the newest candle stored (slice 264).
 
 - **Public trades collection** — Appends the public trade tape, cursor-driven, idempotent on trade id.
 
@@ -103,7 +103,7 @@ At completion, event-contract data accumulates with no operational attention, th
 
 - **Candlestick period selection** — Kalshi serves candlesticks at multiple period intervals. Collecting the finest interval and deriving coarser ones locally minimizes API surface but multiplies storage; collecting several intervals duplicates data. This trade-off is deferred to slice design, but the schema records the period explicitly (it is part of the candle natural key) so the decision can evolve.
 
-- **Volume and storage posture** — Expected volumes are modest compared to minute OHLCV (thousands of markets, most thinly traded). Plain relational tables with proper indexes are the default posture; promotion of trades/candles to hypertables is a measured decision after real volume is observed — kept cheap by hosting the schema on the TimescaleDB host from the start.
+- **Volume and storage posture** — Plain relational tables with proper indexes are the default posture for the catalog and state tables. For the time-series surfaces the "measure, then promote" stance was overtaken by measurement at design time: slice 264 measured the candle stream (1.4 M rows/day under the default rule, 262 B/row plain vs 61 B/row compressed) and, with PM ratification (20260826), creates `kalshi.candlesticks` as a hypertable from day one (7-day chunks per journal 20260719) with a compression policy at 14 days — because a table that reaches hundreds of millions of rows within its first year is cheapest to promote while empty. Slice 265 makes the same call for trades on its own measurement; its composite `(created_time, trade_id)` key was chosen for exactly this. Hosting the schema on the TimescaleDB host is what makes either choice a local one.
 
 - **Orderbook snapshots (optional/later)** — Orderbook depth is live-only and unrecoverable, which argues for capturing it; but snapshot cadence, storage cost, and the likely need for the websocket API make it a separately-scoped decision. If scoped, it is the one Kalshi workload that would take the long-running streaming form (`Type=simple`, like `mt-serve`) rather than joining the pass. The initial architecture must not preclude it: the catalog gives any future snapshot collector its market universe.
 

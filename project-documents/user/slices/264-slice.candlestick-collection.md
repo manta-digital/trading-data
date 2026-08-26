@@ -8,6 +8,8 @@ interfaces: [265, 266]
 effort: 3
 dateCreated: 20260825
 dateUpdated: 20260826
+reviewVerdictsAddressed:
+  - 264-review.slice.candlestick-collection (claude-sonnet-5, CONCERNS, F001 addressed in 260-arch; F002 noted there)
 status: not_started
 ---
 
@@ -537,6 +539,14 @@ journalctl -u mt-kalshi-pass.service --since -24h | grep -c retry               
 - **Decision 4** — hypertable at creation: yes; and a compression policy at `compress_after = 14 days` shipped in `kalshi_005`, with the standing rule that 266 pauses the job during its drain: yes.
 - **Decision 5** — 24-hour first-sight lookback: yes.
 - **Decision 2** — collection rule C: traded in the last 24 h, no Sports, no Mentions, short-lived markets kept. Sports is acknowledged as an interest limitation, not a liquidity judgement. **And the rule is configuration** (`MT_KALSHI_CANDLE_*`, rule C as defaults): the project is released publicly as a collector — the PM's collected data cannot be redistributed under the API terms — and other users will want other categories.
+
+## Design review disposition (20260826)
+
+Review `264-review.slice.candlestick-collection` (claude-sonnet-5): **CONCERNS** — passes the gate; no re-review needed.
+
+- **F001 (concern) — the selection rule narrows the architecture's completeness goal without the parent document saying so.** Valid. Addressed in `260-arch.kalshi-event-contract-data.md` (dateUpdated 20260826): the *Capture before it disappears* goal now scopes "complete" — catalog for every non-MVE market, time-series surfaces for the markets the configurable collection rule selects — with the measurement that motivates it, the project's default rule, the public-release reason the rule is configuration, and the requirement that exclusions are reported; the Envisioned State's candlestick bullet describes what 264 actually collects (rule-selected markets, from first sight with a bounded lookback, sparse by nature).
+- **F002 (note) — hypertable at creation diverges from the architecture's "measure, then promote" default.** Acknowledged in the same edit: *Volume and storage posture* now records that the stance was overtaken by design-time measurement for the time-series surfaces, cites the PM ratification and the numbers, and extends the same expectation to 265.
+- F003–F005 (pass): no action.
 
 ## Implementation Notes
 
