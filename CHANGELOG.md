@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (slice 263 — Kalshi collection pass and supervised install, in progress)
+## [0.9.0] — 2026-08-25
+
+### Added (slice 263 — Kalshi collection pass and supervised install, code complete 2026-08-25; host cutover pending)
 - **`mt data kalshi pass`.** One bounded collection pass: every registered
   Kalshi phase, in order, over one shared client, connection, and event sink.
   This is the command the timer runs, so it takes only `--events-file` and
