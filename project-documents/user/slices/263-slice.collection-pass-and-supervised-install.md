@@ -320,7 +320,9 @@ sudo systemctl start --no-block mt-kalshi-pass.service; mt-run follow kalshi   #
 #    expect: "kalshi pass started … mode=public budget=300/min phases=catalog",
 #            262's phase lines, one "settled window …" line, "kalshi pass finished outcome=ok exit=0",
 #            "Pass complete: mt-kalshi-pass.service exited 0 (success)"
-journalctl -u mt-kalshi-pass.service -o verbose -n 1 | grep -E '_UID|_SYSTEMD_UNIT|_SYSTEMD_SLICE|_CMDLINE'
+journalctl -u mt-kalshi-pass.service -o verbose --grep 'kalshi pass finished' -n 1 | grep -E '_UID=|_SYSTEMD_UNIT=|_SYSTEMD_SLICE=|_CMDLINE='
+#    NOTE: match a payload line. A bare -n 1 returns the LAST journal line, which is usually
+#    systemd's own (_UID=0, _CMDLINE=/sbin/init) — that reports PID 1, not the pass (found 20260825).
 #    → _UID=<manta-trading>, _SYSTEMD_UNIT=mt-kalshi-pass.service, _SYSTEMD_SLICE=manta-acquisition.slice,
 #      _CMDLINE=/opt/manta-trading/.venv/bin/mt data kalshi pass
 mt-run status                             # "== kalshi: not running (state=inactive); last run: success, exit=0 …"

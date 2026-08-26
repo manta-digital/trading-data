@@ -500,7 +500,12 @@ must be merged and tagged per runbook 100 before 10.1 (not a task).
         the `settled window` line(s), the finish line, and "Pass complete …
         exited 0".
   - [ ] Run the `journalctl … -o verbose … grep` from walkthrough step 6;
-        record `_UID`, `_SYSTEMD_UNIT`, `_SYSTEMD_SLICE`, `_CMDLINE`.
+        record `_UID`, `_SYSTEMD_UNIT`, `_SYSTEMD_SLICE`, `_CMDLINE`. The
+        command must select a **payload** line (`--grep 'kalshi pass
+        finished'`): a bare `-n 1` returns the last journal line, which is
+        normally systemd's own accounting line and reports PID 1
+        (`_UID=0`, `_CMDLINE=/sbin/init splash`) rather than the pass —
+        found 20260825.
   - [ ] Prove attach: start a second pass with `sudo systemctl start
         --no-block mt-kalshi-pass.service`, then `mt-run follow kalshi`
         (no sudo needed); record that live journal lines stream and that
