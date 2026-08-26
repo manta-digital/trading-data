@@ -323,8 +323,11 @@ sudo systemctl start --no-block mt-kalshi-pass.service; mt-run follow kalshi   #
 journalctl -u mt-kalshi-pass.service -o verbose --grep 'kalshi pass finished' -n 1 | grep -E '_UID=|_SYSTEMD_UNIT=|_SYSTEMD_SLICE=|_CMDLINE='
 #    NOTE: match a payload line. A bare -n 1 returns the LAST journal line, which is usually
 #    systemd's own (_UID=0, _CMDLINE=/sbin/init) — that reports PID 1, not the pass (found 20260825).
-#    → _UID=<manta-trading>, _SYSTEMD_UNIT=mt-kalshi-pass.service, _SYSTEMD_SLICE=manta-acquisition.slice,
-#      _CMDLINE=/opt/manta-trading/.venv/bin/mt data kalshi pass
+#    OBSERVED 20260825: _UID=997 (manta-trading, not 0), _SYSTEMD_UNIT=mt-kalshi-pass.service,
+#      _SYSTEMD_SLICE=manta-acquisition.slice,
+#      _CMDLINE=/opt/manta-trading/.venv/bin/python3 /opt/manta-trading/.venv/bin/mt data kalshi pass
+#      (the journal records the interpreter prefix for an exec'd console script; both paths are
+#       under /opt/manta-trading/.venv, which is what the field is there to prove)
 mt-run status                             # "== kalshi: not running (state=inactive); last run: success, exit=0 …"
 sudo mt-run data kalshi status            # root path: same output as the non-root path (env forwarding, Decision 6)
 
