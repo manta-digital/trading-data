@@ -29,7 +29,7 @@ status: not_started
 
 ## Integration Work
 
-6. [ ] **(266) Historical Backfill** — Conditional on findings from 261's endpoint verification: if recoverable data exists behind `/historical/*` (settled markets, old candles, old trades predating collector start), a one-time operator-run drain into the same tables, idempotent against live-collected rows, recording ranges confirmed unrecoverable so status can report known-lost data honestly. Runs from the CLI, not the timer. Dependencies: [264, 265]. Effort: 3/5
+6. [ ] **(266) Historical Backfill** — Conditional on findings from 261's endpoint verification: if recoverable data exists behind `/historical/*` (settled markets, old candles, old trades predating collector start), a one-time operator-run drain into the same tables, idempotent against live-collected rows, recording ranges confirmed unrecoverable so status can report known-lost data honestly. Runs from the CLI, not the timer. **Constraint from 264 (PM-ratified 20260826):** `kalshi.candlesticks` is a hypertable with a live compression policy (`compress_after = 14 days`); a backfill writes months-old data, so 266 pauses that compression job for the duration of its drain and resumes it afterwards — resolved by hypertable name at use time, never by job ID. Its market set comes from 264's `behind_cutoff_uncollected` status figure. Dependencies: [264, 265]. Effort: 3/5
 
 ## Notes
 

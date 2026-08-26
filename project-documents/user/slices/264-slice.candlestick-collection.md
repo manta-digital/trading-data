@@ -116,7 +116,7 @@ The 1.4 M/day line is ~1.15 M from the open set plus ~0.25 M from traded short-l
 - A minimum-lifetime exclusion (the PM chose to keep short-lived markets; adding one later is a constant plus one clause in the predicate).
 - Candles for markets behind the historical cutoff — reported here, fetched by 266.
 - A deeper-history or rule-override operator lever — the timer's command takes no levers (263 Decision 1).
-- Compression *policy*, retention, and any change to unit files, timer cadence, `mt-run`, or the installer. (The table is compression-*enabled* so a policy is one statement later; nothing compresses automatically in this slice.)
+- Retention, and any change to unit files, timer cadence, `mt-run`, or the installer.
 - Bounded concurrent fetching inside the phase (Decision 9).
 
 ## Dependencies
@@ -200,7 +200,7 @@ Under the abort rule (263 Decision 2), a catalog abort skips this phase; a candl
 
 3. **The watermark is the fetched window's end, and the last complete period is one minute behind the phase start.** 261's comment defined `watermark_ts` as the newest stored candle; on sparse data an idle market would never advance. `watermark_ts` records *through when candles were requested and the response was stored*, advanced for every ticker present in the response, candles or not. Target end = `floor(phase_start, period) − period` (one-period guard for a still-settling candle in a conflict-ignore table). A request re-includes the watermark instant (boundary inclusivity is undocumented; the overlap is free). `kalshi_005` rewrites the comment.
 
-4. **`kalshi.candlesticks` is a hypertable from creation, chunked by 7 days. PM-ratified 20260826.** Even under the rule the table reaches hundreds of millions of rows within its first year, where 260's "promote later" becomes a long maintenance window; creating the hypertable on the empty table costs nothing. `chunk_time_interval = 7 days` follows the 20260719 rule (~520 chunks per decade; ~10 M rows/chunk at the rule's volume), defined once as `KALSHI_CANDLE_CHUNK_INTERVAL`. The primary key contains the partitioning column; the foreign key to `kalshi.markets` is permitted on a hypertable. The table is created **compression-enabled** (`segmentby market_ticker`, `orderby end_period_ts DESC` — the settings the measurement used) but **no compression policy** ships here; until one is ratified the PM sizes disk at ~360 MB/day. Per the extraction discipline, nothing references `public`.
+4. **`kalshi.candlesticks` is a hypertable from creation, chunked by 7 days. PM-ratified 20260826.** Even under the rule the table reaches hundreds of millions of rows within its first year, where 260's "promote later" becomes a long maintenance window; creating the hypertable on the empty table costs nothing. `chunk_time_interval = 7 days` follows the 20260719 rule (~520 chunks per decade; ~10 M rows/chunk at the rule's volume), defined once as `KALSHI_CANDLE_CHUNK_INTERVAL`. The primary key contains the partitioning column; the foreign key to `kalshi.markets` is permitted on a hypertable. The table is created **compression-enabled** (`segmentby market_ticker`, `orderby end_period_ts DESC` — the settings the measurement used) **with a compression policy at `compress_after = 14 days`, PM-ratified 20260826**, defined once as `KALSHI_CANDLE_COMPRESS_AFTER`. Why 14: a compressed chunk still accepts inserts but slowly (the touched segment is decompressed), so nothing that writes *old* data may run against compressed chunks. The only old-data writer in this slice is the finalized backlog (0–62 days old, drained in ~6 firings after deploy), which finishes long before any of its chunks turns 14 days old; steady-state writes are all within 25 h of now; the uncompressed buffer is 14 days × ~360 MB/day ≈ 5 GB. **Standing rule for 266** (recorded in the 260 slice plan): historical backfill writes months-old data, so it pauses this hypertable's compression job for its drain and resumes it after — resolved by hypertable name at use time, never by job ID. Conflict-ignore means nothing here ever updates or deletes a compressed row. Per the extraction discipline, nothing references `public`.
 
 5. **First sight buys 24 hours of history; before that, nothing — except for markets seen young. PM-ratified 20260826.** A market with no state row starts at `max(open_time, min(close_time, phase_start) − 24 h)`: a ladder finalized between passes is fetched from its open; a market open for 100 days gets its last day, and `coverage_from_ts` records that for `status`. Under the rule the first pass costs ~1,150 requests ≈ 4 minutes (six tickers per request at 1,440 periods). `CANDLE_FIRST_SIGHT_LOOKBACK = timedelta(hours=24)` is the single definition.
 
@@ -231,6 +231,7 @@ CANDLE_BACKLOG_REQUESTS_PER_PASS = 1_000                      # Decision 6
 CANDLE_PROGRESS_EVERY_REQUESTS = 100                          # one INFO line per this many requests
 CANDLE_LAG_STALE_AFTER = timedelta(hours=2)                   # status: an open market two firings behind is "lagging"
 KALSHI_CANDLE_CHUNK_INTERVAL = timedelta(days=7)              # Decision 4 (journal 20260719 rule)
+KALSHI_CANDLE_COMPRESS_AFTER = timedelta(days=14)             # Decision 4: compression policy horizon
 ```
 
 `PassPhaseName.CANDLES = "candles"` names the phase in reports, events, the JSON summary, and log lines.
@@ -332,7 +333,8 @@ CREATE TABLE IF NOT EXISTS kalshi.candlesticks (
 SELECT create_hypertable('kalshi.candlesticks', 'end_period_ts',
                          chunk_time_interval => INTERVAL '7 days', if_not_exists => TRUE);          -- Decision 4
 ALTER TABLE kalshi.candlesticks SET (timescaledb.compress,
-    timescaledb.compress_segmentby = 'market_ticker', timescaledb.compress_orderby = 'end_period_ts DESC');  -- enabled, no policy
+    timescaledb.compress_segmentby = 'market_ticker', timescaledb.compress_orderby = 'end_period_ts DESC');
+SELECT add_compression_policy('kalshi.candlesticks', compress_after => INTERVAL '14 days', if_not_exists => TRUE);  -- Decision 4
 ALTER TABLE kalshi.market_candle_state ADD COLUMN IF NOT EXISTS coverage_from_ts TIMESTAMPTZ;
 COMMENT ON COLUMN kalshi.market_candle_state.watermark_ts IS 'candles requested and stored through this instant (window end, clamped to close_time + period) — NOT the newest stored candle: Kalshi serves no candle for an idle period (slice 264, Decision 3)';
 COMMENT ON COLUMN kalshi.market_candle_state.coverage_from_ts IS 'start of the first window ever requested; equals open_time only when the market was first seen young (slice 264, Decision 5)';
@@ -381,7 +383,7 @@ Kalshi candlesticks        period 1 min   last phase 2026-08-27 14:24:11 UTC (36
 
 ### Runbook 100 and CHANGELOG
 
-- Kalshi subsection gains one paragraph: the pass has two phases; what the collection rule is, that it is set by the `MT_KALSHI_CANDLE_*` lines in the environment file (defaults shown in the example), and that `status` shows the rule in force and the excluded count; `kalshi_005` must be applied during the update (a firing before that exits 1 with the migration named — expected); the first firing after the release takes a few minutes longer (first-sight history) and the backlog drains over ~6 firings; the table is compression-enabled but no policy runs until ratified.
+- Kalshi subsection gains one paragraph: the pass has two phases; what the collection rule is, that it is set by the `MT_KALSHI_CANDLE_*` lines in the environment file (defaults shown in the example), and that `status` shows the rule in force and the excluded count; `kalshi_005` must be applied during the update (a firing before that exits 1 with the migration named — expected); the first firing after the release takes a few minutes longer (first-sight history) and the backlog drains over ~6 firings; chunks older than 14 days compress automatically (how to see the policy and its last run by hypertable name — never by job ID — and that a backfill must pause it).
 - CHANGELOG under `[Unreleased]`: candle phase and rule, status block, migration (hypertable), the preflight change.
 
 ### Tests
@@ -390,7 +392,7 @@ Kalshi candlesticks        period 1 min   last phase 2026-08-27 14:24:11 UTC (36
 - **Unit — core:** with `FakeCandleSource` and an in-memory fake repository: live/finishing/backlog ordering and the cap on backlog only; present-with-zero-candles advances; omitted ticker → item error, no advance; `coverage_from_ts` set once; `sync_state` after the last batch; classification; events; progress cadence.
 - **Unit — client/models/fixtures/settings:** request parameters; batch fixture parses including empty entries; 400 fixture is `ProviderPermanentError`; `Settings` parses each `MT_KALSHI_CANDLE_*` form (comma lists with whitespace, empty = all/disabled, booleans) into the expected `CandleRule`, the defaults equal rule C, and `describe()` is stable.
 - **Unit — pass and rendering:** `PASS_PHASES == (catalog, candles)`; renderer dispatch; JSON round-trip; `status.py` imports neither the client nor the transport.
-- **Integration (`kalshi_db`):** `kalshi_005` applies and re-applies; `kalshi.candlesticks` is a hypertable with the configured chunk interval and compression settings, no policy; `CANDLE_COLUMNS` parity; conflict-ignore on a duplicate key; **the selection predicate** against fixture markets with synthesized series — a Sports market, a `Mentions`-category market, a mention-titled market in another category, a never-traded market, and a traded-24 h Politics market: under the default rule only the last is `pending_live`; under an allow-list of `Sports` only the Sports market is; with `traded_only=false` the never-traded market joins; with every setting empty all five are; the same set under the `ever` form for finalized rows; an invalid regex surfaces the database's error; a market whose `close_time` moved later becomes pending again; a market finalized before the cutoff is never selected and counts as behind-cutoff; an end-to-end `pass` runs both phases and a second pass writes nothing; preflight exit 1 names a missing migration; `status` shape and every count.
+- **Integration (`kalshi_db`):** `kalshi_005` applies and re-applies; `kalshi.candlesticks` is a hypertable with the configured chunk interval, compression settings, and a compression policy whose `compress_after` equals `KALSHI_CANDLE_COMPRESS_AFTER` (read back from `timescaledb_information.jobs` by hypertable name); running that job on a chunk older than the horizon compresses it and the rows read back identical; `CANDLE_COLUMNS` parity; conflict-ignore on a duplicate key; **the selection predicate** against fixture markets with synthesized series — a Sports market, a `Mentions`-category market, a mention-titled market in another category, a never-traded market, and a traded-24 h Politics market: under the default rule only the last is `pending_live`; under an allow-list of `Sports` only the Sports market is; with `traded_only=false` the never-traded market joins; with every setting empty all five are; the same set under the `ever` form for finalized rows; an invalid regex surfaces the database's error; a market whose `close_time` moved later becomes pending again; a market finalized before the cutoff is never selected and counts as behind-cutoff; an end-to-end `pass` runs both phases and a second pass writes nothing; preflight exit 1 names a missing migration; `status` shape and every count.
 - **Deploy drift guard:** unchanged.
 - Gates as 263.
 
@@ -400,7 +402,7 @@ Kalshi candlesticks        period 1 min   last phase 2026-08-27 14:24:11 UTC (36
 
 - **265 (trades):** the worked example of a `PassPhase` with core/repository/types split, a per-market pending query over the catalog, a per-pass cap on history, and `selection_sql()` — reusable verbatim if the PM wants the same universe for trades. `PassPhaseName.TRADES` appends after `CANDLES`. The ledger preflight covers 265's migration for free.
 - **266 (historical backfill):** `behind_cutoff_uncollected` — the exact market set for `/historical/markets/{ticker}/candlesticks`; the same table and conflict-ignore insert; `coverage_from_ts`.
-- **Future compression policy:** a compression-enabled hypertable already in place; the policy is one statement.
+- **266 (historical backfill), a constraint:** the compression policy is live; 266 pauses the job (by hypertable name) for its drain and resumes it after.
 
 ### Consumes from Other Slices
 
@@ -422,7 +424,8 @@ Kalshi candlesticks        period 1 min   last phase 2026-08-27 14:24:11 UTC (36
 10. **An omitted ticker is a partial, not an abort** (one `item_error`, exit 3, state untouched).
 11. **Preflight names the missing migration** (exit 1 with `kalshi_005_candlesticks` until `mt data migrate apply --track kalshi`).
 12. **`status` answers the candle clause from the database alone** — every field in *CLI and rendering*, including `closed_excluded_by_rule`; `status.py` imports neither the client nor the transport.
-13. **Production: the timer runs the phase unattended.** After the release is installed and `kalshi_005` applied, the next firing's journal shows `phases=catalog,candles`, `candles=ok`, `Result=success`; on the following firing `mt-run data kalshi status` shows `open_lagging == 0` and `backlog_remaining` falling.
+13. **Compression is live and proven on a real chunk.** `timescaledb_information.jobs` shows a compression policy on `kalshi.candlesticks` with `compress_after = 14 days`; in the rehearsal, running the job by hand against a backlog chunk older than the horizon compresses it (`chunk_compression_stats` shows `Compressed`) and a per-market query over it returns the same rows as before.
+14. **Production: the timer runs the phase unattended.** After the release is installed and `kalshi_005` applied, the next firing's journal shows `phases=catalog,candles`, `candles=ok`, `Result=success`; on the following firing `mt-run data kalshi status` shows `open_lagging == 0` and `backlog_remaining` falling.
 
 ## Verification Walkthrough
 
@@ -478,12 +481,16 @@ uv run mt data kalshi pass --json | jq '.phases[] | {name, outcome, w: .summary.
 uv run psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from kalshi.candlesticks c join kalshi.candlesticks d using (market_ticker, period, end_period_ts) where c.ctid <> d.ctid"   # → 0
 uv run mt data kalshi status                       # candle block as in *CLI and rendering*, excluded-by-rule count non-zero
 uv run mt data kalshi status --json | jq .candles
+# compression (Criterion 13): the policy exists; run it by hand on the backlog's oldest chunk (older than 14 days) and see it compress
+uv run psql "$MT_TIMESCALE_DB_URL" -c "select job_id, config from timescaledb_information.jobs where proc_name='policy_compression' and hypertable_schema='kalshi' and hypertable_name='candlesticks'"
+uv run psql "$MT_TIMESCALE_DB_URL" -c "call run_job((select job_id from timescaledb_information.jobs where proc_name='policy_compression' and hypertable_schema='kalshi' and hypertable_name='candlesticks'))"
+uv run psql "$MT_TIMESCALE_DB_URL" -c "select chunk_name, compression_status, before_compression_total_bytes, after_compression_total_bytes from chunk_compression_stats('kalshi.candlesticks') order by chunk_name limit 5"
 # omission path: integration test `test_omitted_ticker_is_item_error` — the fake source drops one requested ticker; exit 3, no state row.
 ```
 
 **6. Production deploy (PM).** Runbook 100 *Update procedure*: tag `v0.10.0` → `install-production.sh --ref v0.10.0` (once — no new units) → from the dev checkout `uv run mt data migrate status --track kalshi` (1 pending) → `uv run mt data migrate apply --track kalshi` (maintenance credential) → `status` shows 0 pending. A firing between install and apply shows `last run: exit-code, exit=1` naming `kalshi_005_candlesticks` — expected (Decision 8).
 
-**7. First supervised firing (Criterion 13).**
+**7. First supervised firing (Criterion 14).**
 
 ```bash
 sudo mt-run kalshi                     # or wait for :20; Ctrl-C detaches
@@ -516,17 +523,18 @@ journalctl -u mt-kalshi-pass.service --since -24h | grep -c retry               
 | 10 | core: omission | `test_omitted_ticker…` | — |
 | 11 | — | ledger preflight | step 2 |
 | 12 | status imports | status queries | step 5 |
-| 13 | — | — | steps 7–8 |
+| 13 | — | policy + run_job test | step 5 |
+| 14 | — | — | steps 7–8 |
 
 ## Risk Assessment
 
 - **The exclusion patterns may over- or under-reach.** `SAY` as a ticker substring and `\m(say|says|mention|mentions)\M` on titles matched 188 series this morning; a series whose title happens to contain "say" in another sense would be dropped, and a mention series with an unusual title kept. Walkthrough step 3 prints the full matched list for the PM to read before the first production firing; a wrong match is an environment-file edit, and nothing already stored is deleted.
 - **Kalshi may revise a completed candle.** Conflict-ignore keeps the first version; the one-period guard limits exposure. If rehearsal shows revisions (re-fetch a window and diff), `DO UPDATE` on the value columns is a one-statement change.
-- **Storage is small under the rule but uncompressed until a policy is ratified:** ~360 MB/day. The table is compression-enabled; the policy is a separate PM-ratified statement.
+- **Old-data writes against compressed chunks are slow.** Nothing in this slice writes data older than the 14-day horizon once the backlog has drained; 266 must pause the policy (Decision 4). If the historical cutoff ever jumps *backwards* (Kalshi restoring data to live endpoints), the backlog query would select old markets again — the phase logs the cutoff every run, so that shows up as a cutoff change before it shows up as slow writes.
 
 ## Decisions ratified by the Project Manager (20260826)
 
-- **Decision 4** — hypertable at creation: yes.
+- **Decision 4** — hypertable at creation: yes; and a compression policy at `compress_after = 14 days` shipped in `kalshi_005`, with the standing rule that 266 pauses the job during its drain: yes.
 - **Decision 5** — 24-hour first-sight lookback: yes.
 - **Decision 2** — collection rule C: traded in the last 24 h, no Sports, no Mentions, short-lived markets kept. Sports is acknowledged as an interest limitation, not a liquidity judgement. **And the rule is configuration** (`MT_KALSHI_CANDLE_*`, rule C as defaults): the project is released publicly as a collector — the PM's collected data cannot be redistributed under the API terms — and other users will want other categories.
 
