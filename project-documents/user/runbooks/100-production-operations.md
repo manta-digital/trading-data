@@ -480,16 +480,33 @@ sets `TimeoutStopSec=300` for this — the runner's sleeps are capped at 60s, so
 a clean stop can legitimately take a minute or two; a `Killed`/`signal=KILL`
 line in the journal after a stop means something is wrong.
 
-**The Kalshi pass stops differently, and that is by design.** It installs no
-SIGTERM handler and sets no `TimeoutStopSec`: every unit of its work is already
-safe to lose (each catalog page is its own transaction, the settled watermark
-advances only per fully walked window), so it dies where it stands and the next
-firing re-walks at most one page or window. In the journal a normal
-`systemctl stop mt-kalshi-pass.service` therefore reads
-`code=killed, status=15/TERM` followed by `Deactivated successfully`, and
-systemd records `Result=success` — **that is a clean stop, not a crash**. A
-`status=9/KILL` line is not: it means SIGTERM was ignored, which this pass
-never does.
+**The Kalshi pass stops differently, and it leaves the unit `failed`.** It
+installs no SIGTERM handler and sets no `TimeoutStopSec`: every unit of its
+work is already safe to lose (each catalog page is its own transaction, the
+settled watermark advances only per fully walked window), so it dies where it
+stands and the next firing re-walks at most one page or window.
+
+Because it dies *by signal* rather than exiting, systemd records
+`Result=signal` and the unit enters the `failed` state — verified on the host
+20260825:
+
+```
+mt-kalshi-pass.service: Main process exited, code=killed, status=15/TERM
+mt-kalshi-pass.service: Failed with result 'signal'.
+```
+
+**A stop you issued is not an incident**, even though it is reported as a
+failure. The EODHD passes differ here: their runner traps SIGTERM and exits 0,
+so a stop leaves them `success`. Practical consequences for the Kalshi unit:
+
+- `mt-run status` shows `last run: signal` after a manual stop — expected if
+  you just ran `systemctl stop`, worth investigating if you did not.
+- The unit shows red/`failed` in `systemctl status` until its next run. There
+  is no `Restart=`, so nothing retries in a loop; the next `:20` firing runs
+  normally and clears it. `systemctl reset-failed mt-kalshi-pass.service`
+  clears it immediately if the red bothers you.
+- `status=9/KILL` is still the abnormal case: it means SIGTERM was ignored,
+  which this pass never does.
 
 **Resuming fires a catch-up immediately.** `Persistent=true` means
 `sudo systemctl enable --now mt-minute-pass.timer` after a pause runs the
