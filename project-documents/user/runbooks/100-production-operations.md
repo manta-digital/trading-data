@@ -352,6 +352,14 @@ mt-run status                       # did the pass RUN? (systemd: result, exit c
 mt-run data kalshi status           # did the pass ACHIEVE anything? (the database)
 ```
 
+**`No such command 'kalshi'` from `mt-run` means production is on old code**,
+not that anything is broken. `mt-run` execs
+`/opt/manta-trading/.venv/bin/mt` — the pinned production binary — so the
+Kalshi commands appear only once a release containing them
+(v0.9.0 or later) has been installed there. Your shell's own `mt` may
+already be newer; `mt --version` and `mt-run --version` answer for two
+different installs. Fix: run the *Update procedure* above.
+
 The first is systemd's own record — whether the unit ran, when, and how it
 exited. The second reads `kalshi.sync_state` and the catalog tables: the last
 full sync, the settlement watermark, series/event/market counts, and the

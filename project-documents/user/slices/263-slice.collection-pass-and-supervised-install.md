@@ -293,9 +293,15 @@ git diff main --stat -- pyproject.toml uv.lock    # → empty: no new dependency
 
 # 3. Merge to main, bump/tag the release per runbook 100 (vX.Y.Z matching pyproject); push the tag.
 
-# 4. PRECONDITION — the first production sync from the dev checkout has finished:
-mt-run data kalshi status              # last full sync set; settled watermark near now
+# 4. PRECONDITION — the first production sync from the dev checkout has finished.
+#    NOTE (found 20260825): `mt-run` execs /opt/manta-trading/.venv/bin/mt — production's
+#    pinned binary. Before step 5 that is still v0.8.0, which has no `kalshi` command at all
+#    ("No such command 'kalshi'"), so this check CANNOT be run through mt-run yet. Use the dev
+#    checkout, which is where the hand-run sync is running anyway:
+cd ~/source/repos/manta/trading-data && uv run mt data kalshi status
+#    → last full sync set; settled watermark near now
 #    (a pass fired while that run holds the lock exits 1 — harmless, but do not cut over under it)
+#    After step 5, `mt-run data kalshi status` works and is the form the runbook uses.
 
 # 5. Install (inert). Same script, new units land; nothing is enabled.
 sudo /opt/manta-trading/deploy/install-production.sh --ref vX.Y.Z      # or from the dev checkout

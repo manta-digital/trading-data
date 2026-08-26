@@ -470,11 +470,16 @@ agent stages nothing longer than one command line for pasting. The release
 must be merged and tagged per runbook 100 before 10.1 (not a task).
 
 - [ ] **Task 10.1 [PM] Precondition check and inert install** (effort: 1)
-  - [ ] Run `mt-run data kalshi status`; record output. If it shows a
-        hand-run sync still holding the lock or no `last_full_sync_at`, stop
-        after 10.1 and report — cutover (10.3) is the PM's timing call; 10.2
-        may still proceed (a lock-held pass exits 1, which is itself the
-        Criterion 2 proof on the host).
+  - [ ] Check the precondition **from the dev checkout**, not through
+        `mt-run`: `cd ~/source/repos/manta/trading-data && uv run mt data
+        kalshi status`. Record output. (`mt-run` execs
+        `/opt/manta-trading/.venv/bin/mt`, which until the install below is
+        still v0.8.0 and answers `No such command 'kalshi'` — found
+        20260825. After the install, the `mt-run` form works and is what the
+        runbook documents.) If it shows a hand-run sync still holding the
+        lock or no `last_full_sync_at`, stop after 10.1 and report — cutover
+        (10.3) is the PM's timing call; 10.2 may still proceed (a lock-held
+        pass exits 1, which is itself the Criterion 2 proof on the host).
   - [ ] Run `sudo /opt/manta-trading/deploy/install-production.sh --ref
         vX.Y.Z` (the tag just cut) and `systemctl list-unit-files
         'mt-kalshi*'`; record: service `static`, timer `disabled`
