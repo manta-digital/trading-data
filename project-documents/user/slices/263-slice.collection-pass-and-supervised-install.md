@@ -10,7 +10,7 @@ dateCreated: 20260825
 dateUpdated: 20260825
 reviewVerdictsAddressed:
   - 263-review.slice (claude-sonnet-5, PASS, notes F005/F006)
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: Collection Pass and Supervised Install (263)
@@ -250,28 +250,46 @@ No value is a real credential; the file is installed only when absent (unchanged
 
 ## Verification Walkthrough
 
-Draft; refined at the end of Phase 6 with observed output. Steps 5–9 are PM-executed root steps on manta9000, in the same order 916 used: inert install → one supervised run → explicit cutover → supervision proofs → rollback rehearsal.
+Steps 1–2 carry **observed output** from the 20260825 implementation run; steps 4–9 are still drafts awaiting the host. Steps 5–9 are PM-executed root steps on manta9000, in the same order 916 used: inert install → one supervised run → explicit cutover → supervision proofs → rollback rehearsal.
 
 ```bash
-# 1. Rehearsal on a throwaway database (test cluster, runbook 400) — same setup 262 used:
+# 1. Rehearsal on a throwaway database (test cluster, runbook 400) — RUN 20260825, exit 0 both passes.
+#    Full observed output: user/notes/2026-08-25-263-rehearsal.md
 #    apply TRACKS["kalshi"] to the throwaway URL; point MT_TIMESCALE_DB_URL at it for the shell only.
 uv run mt data kalshi pass --events-file /tmp/kalshi-pass1.jsonl
-#    → catalog phase runs (cold: full walk + drain from the cutoff); summary shows
-#      "catalog  ok  <duration>" then 262's block; "outcome ok (exit 0)"
+#    OBSERVED (cold): "kalshi pass started run_id=9d62d64e-… mode=public budget=300/min phases=catalog",
+#      one "settled window {start}→{end} fetched N written M (k windows)" per window (244 of them,
+#      last clamped to the run start), then "kalshi pass finished outcome=ok duration=2740473 ms
+#      phases: catalog=ok"; Rich shows the phase table (catalog · ok · 2,740,245 ms) then 262's block
+#      (settled 3,512,111 written) then "pass  outcome ok (exit 0)". 45.7 min, 113 INFO lines,
+#      zero WARNING/ERROR, zero 429 retries. A cold drain is long by nature — TimeoutStartSec=infinity.
 uv run mt data kalshi pass --json | jq '.phases[].name, .outcome, .exit_code'
-#    → "catalog", "ok", 0 — and write-on-change: markets written ≈ live churn only
+#    OBSERVED: "catalog", "ok", 0 — windows: 1 (not 244; the watermark held) in 97 s, writes are
+#      live churn only (markets 38,172 over a 96-min gap). Keys: run_id started_at phases outcome
+#      exit_code duration_ms.
 jq -r .event_type /tmp/kalshi-pass1.jsonl | tr '\n' ' '
-#    → pass_started run_started phase_finished ×5 run_finished pass_finished ; one run_id throughout
+#    OBSERVED: pass_started run_started phase_finished ×5 (series markets events settled awaiting)
+#      run_finished pass_finished — the three run/pass-level events carry phase=null; one run_id.
 # Lock interaction: in a second shell while a pass is running —
-uv run mt data kalshi sync            # → exit 1 "another sync holds the run lock"
+uv run mt data kalshi sync            # OBSERVED: exit 1 "another kalshi sync holds the run lock"
+uv run mt data kalshi pass            # OBSERVED: exit 1, same message (mutual in both directions)
 
-# 2. Tests and gates
+# 2. Tests and gates — ALL CLEAN 20260825
 uv run pytest test/unit -q
+#    → 2302 passed, 5 skipped, 21 subtests passed. (40 errors are the pre-existing
+#      "MT_TIMESCALE_TEST_URL is not set" DB fixtures in four files this slice does not touch —
+#      identical count on main; they are a loud config failure by design, not a regression.)
 uv run python scripts/run_tests.py integration -- -k kalshi -q
-uv run ruff check src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py test/kalshi_support test/unit/data/kalshi test/unit/deploy
-uv run --extra dev mypy src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py
-npx --yes pyright src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py test/kalshi_support test/unit/data/kalshi
-shellcheck deploy/mt-run deploy/install-production.sh
+#    → 51 passed, 321 deselected
+uv run ruff check src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py src/manta_trading/cli/commands/kalshi_render.py test/kalshi_support test/unit/data/kalshi test/unit/deploy test/integration/test_kalshi_pass.py
+#    → All checks passed!
+uv run --extra dev mypy src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py src/manta_trading/cli/commands/kalshi_render.py
+#    → Success: no issues found in 19 source files
+npx --yes pyright src/manta_trading/data/kalshi src/manta_trading/cli/commands/kalshi.py src/manta_trading/cli/commands/kalshi_render.py test/kalshi_support test/unit/data/kalshi test/unit/deploy test/integration/test_kalshi_pass.py
+#    → 0 errors, 0 warnings, 0 informations
+npx --yes shellcheck deploy/mt-run deploy/install-production.sh    # shellcheck is not installed on the dev host; npx fetches 0.11.0
+#    → no output, exit 0
+git diff main --stat -- pyproject.toml uv.lock    # → empty: no new dependency (Criterion 12)
 
 # 3. Merge to main, bump/tag the release per runbook 100 (vX.Y.Z matching pyproject); push the tag.
 
@@ -318,16 +336,23 @@ sudo systemctl enable --now mt-kalshi-pass.timer
 
 ### Success criteria — where each is proven
 
-| Criterion | Where |
-|---|---|
-| 1, 2, 3, 4 | step 1 live + unit/integration tests (step 2) |
-| 5 | step 2 (`test_units.py`, `shellcheck`) + step 5 |
-| 6 | step 6 (`mt-run kalshi`, `mt-run status`, root-path `data kalshi status`) |
-| 7 | steps 5–7 |
-| 8, 9 | step 8 |
-| 10 | runbook diff; step 6/8 commands are the runbook's |
-| 11 | step 6 journal line + unit test |
-| 12 | step 2 |
+Status after Phase 6 implementation (20260825): criteria 1–5, 11 and 12 are
+**proven**; 6–10 need the host and are the PM's steps 4–9, still outstanding.
+
+| Criterion | Where | Status |
+|---|---|---|
+| 1 pass ≡ sync final state | `test_kalshi_pass.py::TestPassEqualsSync` (two fresh databases, identical `sync_state` + row counts) + step 1 | ✅ proven |
+| 2 exit codes 0/1/2/3/4 | unit tests per outcome; **live** lock case in step 1 (both `sync` and `pass` exit 1 under a held lock) | ✅ proven |
+| 3 phase sequencing + `classify_pass` | `test_collection_pass.py` — abort skips the remainder as `skipped`, partial continues, table-driven over every ordered pair of outcomes | ✅ proven |
+| 4 event order, one `run_id` | step 1 live (`pass_started run_started phase_finished×5 run_finished pass_finished`, one id) + unit and integration tests | ✅ proven |
+| 5 units exist, installed, listed | `test_units.py` (16 tests, drift-guarded against `UNITS` and `KINDS`), `shellcheck` clean, `systemd-analyze verify` clean | ✅ proven in repo; host half is step 5 |
+| 6 `mt-run kalshi` / `follow` / root-path env | step 6 — **needs the host** | ⏳ PM |
+| 7 inert install, cutover, first autonomous pass | steps 5–7 — **needs the host** | ⏳ PM |
+| 8 stop mid-run is clean and resumes | step 8 — **needs the host** | ⏳ PM |
+| 9 disable/enable the timer | step 8 — **needs the host** | ⏳ PM |
+| 10 runbook + CHANGELOG | runbook 100 and CHANGELOG updated this slice; the commands in them are step 6/8's verbatim | ✅ written; exercised at step 6 |
+| 11 one INFO line per settled window | `test_sync_settled.py` (three windows → three records, k=1,2,3) + **244 lines observed live** in step 1 | ✅ proven |
+| 12 gates clean, no new dependency | step 2 — ruff/mypy/strict pyright/shellcheck clean, `git diff main -- pyproject.toml uv.lock` empty | ✅ proven |
 
 ## Risk Assessment
 

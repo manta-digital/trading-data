@@ -16,6 +16,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (slice 263 — Kalshi collection pass and supervised install, in progress)
+- **`mt data kalshi pass`.** One bounded collection pass: every registered
+  Kalshi phase, in order, over one shared client, connection, and event sink.
+  This is the command the timer runs, so it takes only `--events-file` and
+  `--json` — no phase or replay options. `mt data kalshi sync` is unchanged
+  and remains the replay/repair tool with its `--settled-since` lever; both
+  share one preflight, so automated and manual operation cannot diverge.
+  Exit codes are 262's, unchanged: 0 ok · 1 preflight · 2 provider abort ·
+  3 partial · 4 storage abort. A phase that aborts stops the pass and the
+  remaining phases report `skipped`; a partial phase does not.
+- **Hourly supervised Kalshi collection.** `mt-kalshi-pass.service` and
+  `.timer` fire one pass hourly at :20 UTC (`Persistent=true`, so a schedule
+  missed while the host was down runs at boot). The install script installs
+  the pair and, as always, **enables nothing** — cutover stays one explicit
+  `sudo systemctl enable --now mt-kalshi-pass.timer`. Stopping a running pass
+  needs no grace period: it dies on SIGTERM and the next firing re-walks at
+  most one page or window, so `code=killed, status=15/TERM` in the journal is
+  a clean stop.
+- **`mt-run kalshi`.** The operator front-end gained the Kalshi verb —
+  `sudo mt-run kalshi` (live output, Ctrl-C detaches), `mt-run follow kalshi`,
+  and a `kalshi` row in `mt-run status`. The wrapper's pass kinds are now a
+  single list, so a future source is one line.
+- **A progress line per settled window.** Under the timer the journal is the
+  only sink, so `mt data kalshi sync`/`pass` now logs
+  `settled window {start}→{end} fetched N written M (k windows)` after each
+  completed window's watermark write. A steady-state pass logs one; a
+  catch-up after a pause logs one per window it walks.
+- **Kalshi environment variables documented** in
+  `deploy/manta-trading.env.example` (all commented out): the optional
+  `MT_KALSHI_REQUESTS_PER_MINUTE` budget lever and the authenticated pair
+  `MT_KALSHI_API_KEY_ID` / `MT_KALSHI_PRIVATE_KEY_PATH`, with the placement
+  rule the units impose — the PEM must live outside `/home`
+  (`/etc/manta-trading-kalshi.pem`, `0640 root:manta-trading`), because the
+  units set `ProtectHome=true`.
+
+### Fixed (slice 263)
+- **`mt-run` as root no longer drops most of the environment file.** Running
+  `sudo mt-run <mt args>` forwarded exactly two variables
+  (`MT_TIMESCALE_DB_URL`, `MT_EODHD_API_KEY`) to the service account, so
+  anything else the environment file defined — `MT_KALSHI_*`, `MT_LOG_LEVEL`
+  — was silently lost on that path. It now forwards every `MT_*` variable the
+  file names. **Behavior change:** commands run through the root path now see
+  configuration they previously did not, which is the point; a command that
+  depended on `MT_LOG_LEVEL` being absent there will now honour it.
+
 ### Added (slice 262 — Kalshi catalog sync with settlement capture, complete 2026-08-25)
 - **`mt data kalshi sync`.** One pass over the Kalshi catalog: every series,
   a full walk of the live non-MVE markets (parents resolved per page), an

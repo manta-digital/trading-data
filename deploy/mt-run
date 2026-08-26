@@ -3,8 +3,10 @@
 #
 #   sudo mt-run daily        start a daily pass, stream its output live
 #   sudo mt-run minute       start a minute pass, stream its output live
-#   mt-run status            state + last result + recent output of both passes
+#   sudo mt-run kalshi       start a Kalshi collection pass, stream it live
+#   mt-run status            state + last result + recent output of every pass
 #   mt-run follow daily      attach to a running pass's live output
+#                            (also: follow minute, follow kalshi)
 #   mt-run <anything else>   run production's mt CLI, e.g. mt-run data caggs status
 #
 # Starting streams output exactly like the old manual invocation, with one
@@ -17,16 +19,25 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,9p' "$0" | sed 's/^# \{0,3\}//'
+  sed -n '2,11p' "$0" | sed 's/^# \{0,3\}//'
   exit 2
 }
 
+# The pass kinds this wrapper drives. Adding a source means adding its kind
+# here and nowhere else in this script (runbook 100, "Adding a source").
+KINDS=(daily minute kalshi)
+
+is_kind() {
+  local candidate
+  for candidate in "${KINDS[@]}"; do
+    [[ "$1" == "${candidate}" ]] && return 0
+  done
+  return 1
+}
+
 unit_for() {
-  case "$1" in
-    daily)  echo "mt-daily-pass.service" ;;
-    minute) echo "mt-minute-pass.service" ;;
-    *) usage ;;
-  esac
+  is_kind "$1" || usage
+  echo "mt-${1}-pass.service"
 }
 
 is_running() {
@@ -37,7 +48,7 @@ is_running() {
 
 show_status() {
   local unit kind st
-  for kind in daily minute; do
+  for kind in "${KINDS[@]}"; do
     unit="$(unit_for "${kind}")"
     st="$(systemctl is-active "${unit}" || true)"
     if is_running "${unit}"; then
@@ -120,6 +131,20 @@ start_and_stream() {
   exit "${code:-1}"
 }
 
+# NAME=VALUE for every MT_* variable named in the env file, taking each value
+# from the already-sourced environment (indirect expansion) so quoting and
+# interpolation in the file are honoured exactly once. Extracted so it can be
+# exercised on its own: bash -c '. deploy/mt-run; mt_env_assignments FILE'.
+mt_env_assignments() {
+  local file="$1" name
+  # Absolute tool paths: this runs after the env file has been sourced, and a
+  # stray PATH= line in that file must not decide whether the wrapper works.
+  while IFS= read -r name; do
+    printf '%s=%s\n' "${name}" "${!name-}"
+  done < <(/usr/bin/grep -oE '^[[:space:]]*(export[[:space:]]+)?MT_[A-Z0-9_]+=' "${file}" \
+             | /usr/bin/grep -oE 'MT_[A-Z0-9_]+' | /usr/bin/sort -u)
+}
+
 # Anything that is not a wrapper verb passes through to production's own mt
 # CLI: /opt binary + /etc/manta-trading.env credentials. One front door.
 run_production_mt() {
@@ -132,9 +157,14 @@ run_production_mt() {
   elif [[ "$(id -u)" -eq 0 ]]; then
     set -a; # shellcheck disable=SC1090
     . "${env_file}"; set +a
+    # Forward EVERY MT_* variable the env file defines, not a hard-coded pair:
+    # the old two-name list silently dropped MT_KALSHI_*/MT_LOG_LEVEL on this
+    # branch, so `sudo mt-run data kalshi status` ran without its credentials
+    # (design 263, Decision 6).
+    local -a env_args=()
+    readarray -t env_args < <(mt_env_assignments "${env_file}")
     exec runuser -u manta-trading -- env HOME=/opt/manta-trading \
-      MT_TIMESCALE_DB_URL="${MT_TIMESCALE_DB_URL}" MT_EODHD_API_KEY="${MT_EODHD_API_KEY}" \
-      "${mt_bin}" "$@"
+      "${env_args[@]}" "${mt_bin}" "$@"
   elif [[ -t 0 ]]; then
     # Credentials need elevation; just do it rather than making the human
     # retype the command. (Group membership from usermod applies at login —
@@ -149,9 +179,8 @@ run_production_mt() {
 
 [[ $# -ge 1 ]] || usage
 case "$1" in
-  daily|minute)  start_and_stream "$1" ;;
   status)        show_status ;;
   follow)        [[ $# -eq 2 ]] || usage; follow "$2" ;;
   -h|--help)     usage ;;
-  *)             run_production_mt "$@" ;;
+  *)             if is_kind "$1"; then start_and_stream "$1"; else run_production_mt "$@"; fi ;;
 esac

@@ -22,7 +22,7 @@ from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from itertools import batched
 from typing import Any, Protocol, Unpack
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from manta_trading.data.kalshi.client import EventsQuery, MarketsQuery
 from manta_trading.data.kalshi.constants import (
@@ -127,6 +127,7 @@ class CatalogSync:
         repository: CatalogRepository | Any,
         sink: SyncEventSink | None = None,
         clock: Callable[[], datetime] = _utc_now,
+        run_id: UUID | None = None,
     ) -> None:
         self.source = source
         self.repository = repository
@@ -136,7 +137,9 @@ class CatalogSync:
         self.captured: set[str] = set()
         self.series_known: set[str] = set()
         self.state: SyncState | None = None
-        self.result = SyncResult(run_id=uuid4(), started_at=clock())
+        # A pass hands every phase its own run_id so one --events-file reads
+        # as one run (design 263, Decision 3); a bare sync mints its own.
+        self.result = SyncResult(run_id=run_id or uuid4(), started_at=clock())
 
     # ------------------------------------------------------------------
     # Run

@@ -25,7 +25,11 @@ from typing import Any, Unpack
 
 from kalshi_support.samples import EVENT_SAMPLE, MARKET_SAMPLE, SERIES_SAMPLE
 from manta_trading.data.kalshi.client import EventsQuery, MarketsQuery
-from manta_trading.data.kalshi.constants import MarketStatusFilter
+from manta_trading.data.kalshi.constants import (
+    KALSHI_MODE_PUBLIC,
+    KALSHI_PUBLIC_RATE_LIMIT,
+    MarketStatusFilter,
+)
 from manta_trading.data.kalshi.models import (
     Event,
     EventsPage,
@@ -104,6 +108,11 @@ class FakeCatalogSource:
         #: ``GET /events/{ticker}`` serves them (observed live 2026-08-25).
         self.batch_omit: set[str] = set()
         self.cutoff = HistoricalCutoff.model_validate(load_fixture("historical_cutoff"))
+        # This fake substitutes for a whole KalshiClient wherever a run context
+        # is built (KalshiRun.client), so it carries the two attributes the
+        # pass's start line reports — the CatalogSource Protocol needs neither.
+        self.mode = KALSHI_MODE_PUBLIC
+        self.rate_limit = KALSHI_PUBLIC_RATE_LIMIT
         # Recorded traffic.
         self.calls: list[str] = []
         self.markets_queries: list[dict[str, object]] = []

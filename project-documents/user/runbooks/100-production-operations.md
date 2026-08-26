@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20260823
+dateUpdated: 20260825
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -28,6 +28,7 @@ production tooling.
 |---|---|---|---|
 | `mt-daily-pass.service` | one bounded daily acquisition pass | timer: **00:35 & 12:35 UTC** | next timer firing resumes it |
 | `mt-minute-pass.service` | one bounded minute acquisition pass | timer: **01:05 & 13:05 UTC** | next timer firing resumes it |
+| `mt-kalshi-pass.service` | one bounded Kalshi collection pass | timer: **hourly at :20 UTC** | next timer firing resumes it |
 | `mt-serve.service` | API server (port 8100) | always on, starts at boot | auto-restart in 10s |
 
 A reboot needs **no operator action**: everything above comes back, and
@@ -38,16 +39,17 @@ A reboot needs **no operator action**: everything above comes back, and
 | I want to… | Command | sudo? |
 |---|---|---|
 | See what's running + latest output | `mt-run status` | no |
-| Run a pass now, watch it live | `mt-run daily` / `mt-run minute` | yes |
-| Watch a running pass | `mt-run follow daily` (Ctrl-C detaches, pass unaffected) | no |
+| Run a pass now, watch it live | `mt-run daily` / `mt-run minute` / `mt-run kalshi` | yes |
+| Watch a running pass | `mt-run follow daily` (also `follow minute`, `follow kalshi`; Ctrl-C detaches, pass unaffected) | no |
 | Check the API server | `systemctl status mt-serve` · `curl localhost:8100/api/v1/health` | no |
 | See timer schedule | `systemctl list-timers 'mt-*'` | no |
 | Run ANY production `mt` command | `mt-run <mt args>`, e.g. `mt-run data caggs status` | no¹ |
+| Check the Kalshi catalog | `mt-run data kalshi status` | no¹ |
 | Read a pass's full log | `journalctl -u mt-daily-pass.service -e` | no |
 | Pause a source (survives reboot) | `systemctl disable --now mt-minute-pass.timer` | yes |
 | Resume it (fires catch-up at once) | `systemctl enable --now mt-minute-pass.timer` | yes |
 | Stop a pass mid-run (clean) | `systemctl stop mt-daily-pass.service` | yes |
-| Roll back to manual operation | `systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service` | yes |
+| Roll back to manual operation | `systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer mt-kalshi-pass.timer mt-serve.service` | yes |
 | Update production code | see *Update procedure* below | yes |
 
 ¹ after a one-time `sudo usermod -aG manta-trading <user>` (new shell); otherwise prefix `sudo`.
@@ -88,6 +90,8 @@ would either do nothing or install a second, unrelated copy.
 | `mt-daily-pass.timer` | timer | fires the daily pass at **00:35 and 12:35 UTC** |
 | `mt-minute-pass.service` | oneshot pass | `mt data daemon run --minute --stop-when-done` |
 | `mt-minute-pass.timer` | timer | fires the minute pass at **01:05 and 13:05 UTC** |
+| `mt-kalshi-pass.service` | oneshot pass | `mt data kalshi pass` — every registered Kalshi phase, in order |
+| `mt-kalshi-pass.timer` | timer | fires the Kalshi pass **hourly at :20 UTC** |
 | `mt-serve.service` | long-running | the API server; `Restart=on-failure` |
 | `manta-acquisition.slice` | grouping | home for acquisition passes; carries no resource limits yet |
 
@@ -120,6 +124,16 @@ configuration source for the units — no `.env` file exists in
 - `MT_TIMESCALE_DB_URL` — the DML-only application credential
 - `MT_EODHD_API_KEY`
 - optional tuning: `MT_LOG_LEVEL`, `MT_DAILY_CYCLE_RETRY_MINUTES`
+- optional Kalshi tuning, all commented out in the skeleton:
+  `MT_KALSHI_REQUESTS_PER_MINUTE` (lower it to ease 429s on `/events`;
+  the default public budget is 300/min), and the authenticated pair
+  `MT_KALSHI_API_KEY_ID` / `MT_KALSHI_PRIVATE_KEY_PATH` — **both or neither**
+
+**Where the Kalshi private key goes.** The pass units set `ProtectHome=true`,
+so a PEM anywhere under `/home` is invisible to the service. Put it beside the
+environment file: `/etc/manta-trading-kalshi.pem`, mode `0640`
+`root:manta-trading`, installed by hand — never by the install script, never
+in the repository.
 
 `MT_TIMESCALE_MAINTENANCE_URL` is **deliberately absent**: the DDL credential
 stays out of service environments (slice 913). Migrations remain an operator
@@ -232,6 +246,7 @@ installed at `/usr/local/bin/mt-run`:
 
 ```bash
 sudo mt-run daily          # or: sudo mt-run minute — live output, like a manual run
+sudo mt-run kalshi         # one Kalshi collection pass, same treatment
 mt-run status              # what's running now, latest output, last results, timers
 mt-run follow daily        # re-attach to a running pass's live output
 ```
@@ -248,7 +263,15 @@ The manual form still works from the dev checkout and is the rollback path:
 ```bash
 cd ~/source/repos/manta/trading-data
 uv run mt data daemon run --daily --stop-when-done    # or --minute
+uv run mt data kalshi pass                            # the Kalshi equivalent
 ```
+
+`mt data kalshi pass` takes only `--events-file` and `--json`; it deliberately
+has no phase or replay options, so the timer's invocation can never carry one.
+The replay and repair levers live on `mt data kalshi sync` (`--settled-since`),
+which runs the catalog phase alone. **`--events-file` is a hand-run tool only**
+— under the unit, `PrivateTmp=true` and `ProtectSystem=full` mean the path you
+name is not the path you get; the journal is the supervised run's event log.
 
 `--stop-when-done` makes each of these **one pass, then exit** — they are not
 long-running processes despite the `daemon` subcommand name.
@@ -320,6 +343,61 @@ SELECT symbol, last_attempt_ts, last_attempt_outcome
 `daemon_heartbeat` is frequently empty and is not a reliable liveness signal;
 `acquisition_state` is.
 
+### Kalshi
+
+**Two status layers, and they answer different questions.**
+
+```bash
+mt-run status                       # did the pass RUN? (systemd: result, exit code, timers)
+mt-run data kalshi status           # did the pass ACHIEVE anything? (the database)
+```
+
+The first is systemd's own record — whether the unit ran, when, and how it
+exited. The second reads `kalshi.sync_state` and the catalog tables: the last
+full sync, the settlement watermark, series/event/market counts, and the
+awaiting-settlement set. A pass can exit 0 and still tell you little; a
+watermark that has not moved across several firings is the signal worth acting
+on.
+
+**Cold start runs long, once.** A catalog that has never synced drains the
+settled stream from Kalshi's historical cutoff — millions of rows and hours,
+not the 2–3 minutes a steady-state pass takes. That first drain is normally
+done by hand from the dev checkout **before** the timer is enabled. The unit
+sets `TimeoutStartSec=infinity` so a legitimate catch-up is never killed
+mid-pass.
+
+**A firing while a hand-run `sync` holds the lock exits 1, and that is fine.**
+Both commands take the same session-level advisory lock, so only one writer
+ever runs. The timer's pass fails preflight with `another kalshi sync holds the
+run lock`, the unit shows `failed`, and the next hour's firing succeeds once
+the hand-run finishes. Hourly exit-1s during a long manual sync are expected —
+they are the mutual exclusion working, not a defect.
+
+**Exit codes** are the same taxonomy `sync` uses: 0 ok · 1 preflight (config
+missing, database unreachable, track not applied, lock held) · 2 provider abort
+· 3 partial (item errors — a market whose status the model does not know) · 4
+storage abort. Exit 3 fails the unit **on purpose**: if Kalshi starts serving a
+status outside the known set, every pass fails visibly until the one-line fix
+ships, rather than succeeding while rows are silently skipped.
+
+**Applying the Kalshi schema track** is the normal migration step under
+*Update procedure* — the units never run migrations:
+
+```bash
+mt data migrate apply --track kalshi        # with the maintenance credential
+```
+
+**Is the rate budget too high?** The client retries a 429 with backoff and logs
+a WARNING per retry, so the journal answers it directly:
+
+```bash
+journalctl -u mt-kalshi-pass.service --since '7 days ago' | grep -c retry
+```
+
+A handful per pass is the designed behavior absorbing a per-endpoint limit. If
+that count grows into the hundreds, lower `MT_KALSHI_REQUESTS_PER_MINUTE` in
+the environment file — no code change is involved.
+
 Never run an expression aggregate over a compressed hypertable — it decompresses
 everything. If a query outlives its client-side timeout, cancel the backend
 rather than assuming it stopped.
@@ -350,7 +428,10 @@ Checklist for a new bounded pass (e.g. a Kalshi pass):
    `grep OnCalendar deploy/systemd/*.timer`); keep `Persistent=true`.
 4. Set `Slice=manta-acquisition.slice` in the service.
 5. Add the unit pair to the `UNITS` list in `deploy/install-production.sh`.
-6. PM: re-run the install script, then `sudo systemctl enable --now
+6. Add the kind to `KINDS` in `deploy/mt-run` — that one line is what gives
+   the source its `mt-run {kind}`, `mt-run follow {kind}`, and its row in
+   `mt-run status`; the wrapper derives the unit name from the kind.
+7. PM: re-run the install script, then `sudo systemctl enable --now
    mt-{name}-pass.timer`.
 
 Two limits of the pattern, stated so they are not rediscovered:
@@ -381,6 +462,17 @@ sets `TimeoutStopSec=300` for this — the runner's sleeps are capped at 60s, so
 a clean stop can legitimately take a minute or two; a `Killed`/`signal=KILL`
 line in the journal after a stop means something is wrong.
 
+**The Kalshi pass stops differently, and that is by design.** It installs no
+SIGTERM handler and sets no `TimeoutStopSec`: every unit of its work is already
+safe to lose (each catalog page is its own transaction, the settled watermark
+advances only per fully walked window), so it dies where it stands and the next
+firing re-walks at most one page or window. In the journal a normal
+`systemctl stop mt-kalshi-pass.service` therefore reads
+`code=killed, status=15/TERM` followed by `Deactivated successfully`, and
+systemd records `Result=success` — **that is a clean stop, not a crash**. A
+`status=9/KILL` line is not: it means SIGTERM was ignored, which this pass
+never does.
+
 **Resuming fires a catch-up immediately.** `Persistent=true` means
 `sudo systemctl enable --now mt-minute-pass.timer` after a pause runs the
 missed schedule at once — usually the intent, since the pass resumes/backfills
@@ -390,19 +482,28 @@ safely. When a resume should **not** backfill, delete the stamp file first:
 sudo rm /var/lib/systemd/timers/stamp-mt-minute-pass.timer
 ```
 
+The Kalshi timer pauses and resumes the same way
+(`sudo systemctl disable --now mt-kalshi-pass.timer`). Resuming it after a long
+pause makes the next pass a catch-up: it walks several settled windows instead
+of one and logs a `settled window …` line per window, which is the progress
+signal to watch.
+
 ## Rollback
 
 Disable the three units and fall back to the by-hand procedure from the dev
 checkout — which was never modified:
 
 ```bash
-sudo systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer mt-serve.service
+sudo systemctl disable --now mt-daily-pass.timer mt-minute-pass.timer \
+                            mt-kalshi-pass.timer mt-serve.service
 cd ~/source/repos/manta/trading-data
 uv run mt data daemon run --daily --stop-when-done     # etc., as before slice 916
+uv run mt data kalshi pass                             # Kalshi, from the checkout
 ```
 
-Re-enabling the three restores the supervised state (and fires the
-`Persistent=true` catch-up).
+Re-enabling them restores the supervised state (and fires the
+`Persistent=true` catch-up). Each source rolls back independently — disabling
+the Kalshi timer leaves the EODHD timers untouched.
 
 Rolling back code does **not** undo applied schema migrations — there are no
 down-migrations (see the migrations note under *Update procedure*). Older code

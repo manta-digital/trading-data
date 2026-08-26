@@ -39,6 +39,10 @@ HISTORICAL_CUTOFF_PATH = "/historical/cutoff"
 # Rate budgets (design Technical Decision 4 — each defined exactly once)
 # ---------------------------------------------------------------------------
 
+#: Client mode names, reported in logs and by ``KalshiClient.mode``.
+KALSHI_MODE_PUBLIC = "public"
+KALSHI_MODE_AUTHENTICATED = "authenticated"
+
 #: Public (unauthenticated) mode. Kalshi does not document an unauthenticated
 #: budget, so this is *our* conservative operating budget (5 req/s sustained),
 #: not Kalshi's ceiling.

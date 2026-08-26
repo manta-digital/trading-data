@@ -34,8 +34,28 @@ class TestSyncEventType:
             "phase_finished",
             "item_error",
             "run_finished",
+            "pass_started",
+            "pass_finished",
         ]
         assert all(t.value.isidentifier() for t in ke.SyncEventType)
+
+    def test_pass_events_serialize_like_the_others(self):
+        """Slice 263 Task 2.3: the two pass-level types need no new shape."""
+        for event_type in (
+            ke.SyncEventType.PASS_STARTED,
+            ke.SyncEventType.PASS_FINISHED,
+        ):
+            event = _event(
+                event_type=event_type,
+                phase=None,
+                counts={},
+                transitions={},
+                duration_ms=1200,
+            )
+            payload = json.loads(json.dumps(event.to_dict()))
+            assert payload["event_type"] == event_type.value
+            assert payload["phase"] is None
+            assert payload["duration_ms"] == 1200
 
 
 class TestSyncEvent:

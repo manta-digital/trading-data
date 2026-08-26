@@ -30,6 +30,8 @@ from manta_trading.data.kalshi.constants import (
     KALSHI_BACKOFF_CAP_SECONDS,
     KALSHI_BASE_URL,
     KALSHI_MAX_RETRIES,
+    KALSHI_MODE_AUTHENTICATED,
+    KALSHI_MODE_PUBLIC,
     KALSHI_PUBLIC_RATE_LIMIT,
     KALSHI_REQUEST_TIMEOUT,
     KALSHI_TRANSIENT_STATUSES,
@@ -131,7 +133,7 @@ class KalshiTransport:
     @property
     def mode(self) -> str:
         """``"authenticated"`` or ``"public"``."""
-        return "authenticated" if self._credentials else "public"
+        return KALSHI_MODE_AUTHENTICATED if self._credentials else KALSHI_MODE_PUBLIC
 
     # ------------------------------------------------------------------
     # Lifecycle
