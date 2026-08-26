@@ -64,9 +64,45 @@ outstanding, so the slice is `in_progress`, not `complete`.
 trust a wrapper that "works"; test only what a unit test can reach) would have
 cost more later than doing it now.
 
-**Still open:** the host steps — inert install, one supervised pass, cutover,
-stop/resume proofs, rollback rehearsal — and with them success criteria 6–10.
-The cutover date belongs in this entry once it happens.
+**Cutover: 20260825.** `mt-kalshi-pass.timer` enabled on manta9000; hourly at
+`:20` UTC. Criteria 6, 8, 9, 10 proven on the host that evening, and 7 in all
+but its last clause (an unattended firing had not yet occurred — every pass so
+far was started by hand or by `enable --now`).
+
+**Three things the host taught us that no test could have.**
+
+1. **An install script cannot install a unit it has never heard of.** Bash
+   parses the whole file — `UNITS=( … )` included — before executing, so the
+   first `install-production.sh --ref v0.9.0` ran the *old* copy already on the
+   host: it moved the checkout and installed the new `mt-run`, but iterated
+   v0.8.0's unit list and never copied the kalshi pair. `mt-run kalshi` then
+   failed with `Unit mt-kalshi-pass.service not found` while `mt-run` clearly
+   knew the kind. A second run fixes it. **Any release that adds a unit needs
+   two install runs**, now documented in runbook 100's update procedure.
+
+2. **Decision 5 was wrong about `Result=success`, and the host said so in one
+   line.** The design asserted systemd treats termination by the signal it sent
+   as a clean stop. It does not: a process that dies by signal yields
+   `Result=signal` and `ActiveState=failed` regardless of sender — verified as
+   `ExecMainStatus=15`. The *substantive* claim held perfectly — the resume
+   after a mid-run kill opened its window at exactly the interrupted watermark
+   (`02:11:12`), no gap, no duplication — so the failure state is cosmetic and
+   was accepted rather than fixed: adding a SIGTERM handler to buy a green
+   status is the code-in-three-places cost the decision rejected. But the
+   runbook now tells operators the truth, because "a stop you issued shows as
+   a failure" is exactly the kind of thing that wastes an hour at 2am.
+
+3. **A verification command can be wrong in a way that looks like a passing
+   check.** The walkthrough's provenance step used `journalctl … -n 1`, which
+   returns the *last* journal line — normally systemd's own accounting line.
+   It duly reported `_UID=0, _CMDLINE=/sbin/init splash`: PID 1, not the pass.
+   Read quickly, it looks like output. The fix is to select a payload line
+   (`--grep 'kalshi pass finished'`), which then showed `_UID=997` and the
+   `/opt` venv path the field exists to prove.
+
+**Rationale for recording all three:** each was a case where the artifact was
+correct and the *instructions about it* were not. Docs that have never been
+executed are drafts, and the host is the first execution.
 
 ## 20260824 — Direction: realtime streaming is the end-state of data gathering; near-real-time collection takes the streaming form, never tight polling
 

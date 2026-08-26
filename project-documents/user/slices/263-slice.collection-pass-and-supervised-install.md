@@ -314,12 +314,13 @@ sudo /opt/manta-trading/deploy/install-production.sh --ref vX.Y.Z      # again: 
 systemctl list-unit-files 'mt-kalshi*'   # service: static · timer: disabled — if absent, STOP
 sudoedit /etc/manta-trading.env          # optional: uncomment MT_KALSHI_REQUESTS_PER_MINUTE / auth pair
 
-# 6. One supervised pass, no cutover yet
+# 6. One supervised pass, no cutover yet — RUN 20260825 on manta9000, exit 0
 sudo mt-run kalshi                        # live output; Ctrl-C detaches
-sudo systemctl start --no-block mt-kalshi-pass.service; mt-run follow kalshi   # attaches to the live journal; Ctrl-C exits the viewer, pass keeps running
-#    expect: "kalshi pass started … mode=public budget=300/min phases=catalog",
-#            262's phase lines, one "settled window …" line, "kalshi pass finished outcome=ok exit=0",
-#            "Pass complete: mt-kalshi-pass.service exited 0 (success)"
+#    OBSERVED: "kalshi pass started run_id=… mode=public budget=300/min phases=catalog",
+#      262's phase lines, "settled window …" line(s), "kalshi pass finished outcome=ok
+#      duration=125641 ms phases: catalog=ok", the phase table + catalog block, then
+#      "Pass complete: mt-kalshi-pass.service exited 0 (success)". 2m 6s — the design's
+#      2–3 min steady-state estimate, confirmed on production data.
 journalctl -u mt-kalshi-pass.service -o verbose --grep 'kalshi pass finished' -n 1 | grep -E '_UID=|_SYSTEMD_UNIT=|_SYSTEMD_SLICE=|_CMDLINE='
 #    NOTE: match a payload line. A bare -n 1 returns the LAST journal line, which is usually
 #    systemd's own (_UID=0, _CMDLINE=/sbin/init) — that reports PID 1, not the pass (found 20260825).
@@ -328,51 +329,78 @@ journalctl -u mt-kalshi-pass.service -o verbose --grep 'kalshi pass finished' -n
 #      _CMDLINE=/opt/manta-trading/.venv/bin/python3 /opt/manta-trading/.venv/bin/mt data kalshi pass
 #      (the journal records the interpreter prefix for an exec'd console script; both paths are
 #       under /opt/manta-trading/.venv, which is what the field is there to prove)
-mt-run status                             # "== kalshi: not running (state=inactive); last run: success, exit=0 …"
-sudo mt-run data kalshi status            # root path: same output as the non-root path (env forwarding, Decision 6)
+sudo systemctl start --no-block mt-kalshi-pass.service; mt-run follow kalshi   # attaches; Ctrl-C exits the viewer only
+#    OBSERVED: live journal lines streamed; Ctrl-C returned the shell and `mt-run status` still
+#      showed "== kalshi: RUNNING (since 20:11:11)" — the pass survived the viewer exit (Criterion 6).
+mt-run status                             # OBSERVED: kalshi row present alongside daily and minute
+sudo mt-run data kalshi status            # OBSERVED: catalog printed through the root path
+sudo mt-run data caggs status             # OBSERVED: all 9 aggregates — the EODHD path still sees
+#      MT_EODHD_API_KEY after the mt-run forwarding change (Decision 6 regression check).
 
-# 7. Cutover — the one explicit step
+# 7. Cutover — the one explicit step. DONE 20260825.
 sudo systemctl enable --now mt-kalshi-pass.timer
-systemctl list-timers 'mt-*'              # kalshi NEXT at the coming :20 UTC
-#    wait for it; then:
-mt-run status                             # kalshi last run: success, exit=0, ended <that :20 + ~3 min>
-journalctl -u mt-kalshi-pass.service --since "-1h" | grep 'kalshi pass finished'
+systemctl list-timers 'mt-*'
+#    OBSERVED: "Tue 2026-08-25 20:20:00 MDT  6min  mt-kalshi-pass.timer  mt-kalshi-pass.service"
+#      — the hourly :20 schedule armed. The NEXT time is the proof; no waiting required.
+#    PENDING: an unattended :20 firing with no human involved has NOT yet been observed — every
+#      pass so far was started by hand or by `enable --now`. Confirm with, after any :20 has passed:
+#      mt-run status ; journalctl -u mt-kalshi-pass.service --since "-2h" | grep 'kalshi pass finished'
 
-# 8. Stop mid-run, pause, resume
+# 8. Stop mid-run, pause, resume — RUN 20260825
 sudo systemctl start --no-block mt-kalshi-pass.service; sleep 20; sudo systemctl stop mt-kalshi-pass.service
 journalctl -u mt-kalshi-pass.service -n 5   # OBSERVED 20260825: "code=killed, status=15/TERM" then
 #    "Failed with result 'signal'" then "Stopped …"; no SIGKILL. The failed state is expected for a
 #    signal death (see Decision 5) — `systemctl reset-failed mt-kalshi-pass.service` clears it, and the
 #    next :20 firing clears it anyway.
-sudo mt-run kalshi                           # next pass resumes: exit 0, watermark advances
-sudo systemctl disable --now mt-kalshi-pass.timer; systemctl list-timers 'mt-*'   # kalshi absent
-sudo systemctl enable --now mt-kalshi-pass.timer                                  # catch-up fires at once if a firing was missed
-
-# 9. Rollback rehearsal (kalshi only — EODHD units untouched)
-sudo systemctl disable --now mt-kalshi-pass.timer
-cd ~/source/repos/manta/trading-data && uv run mt data kalshi pass    # manual form works from the dev checkout
+#    systemctl show confirmed: ActiveState=failed, Result=signal, ExecMainStatus=15.
+sudo systemctl reset-failed mt-kalshi-pass.service
+sudo mt-run kalshi                           # OBSERVED: exit 0. THE RESUME PROOF — the killed run left
+#    the watermark at 02:11:12, and this run's window opened exactly there:
+#    "settled window 2026-08-26T02:11:12.468404+00:00→2026-08-26T02:15:56.222909+00:00 fetched 70
+#     written 50 (1 windows)" — no gap, no duplication. last_full_sync_at and watermark both advanced.
+sudo systemctl disable --now mt-kalshi-pass.timer; systemctl list-timers 'mt-*'
+#    OBSERVED: "Removed '/etc/systemd/system/timers.target.wants/mt-kalshi-pass.timer'"; 2 timers
+#      listed, kalshi absent, the EODHD pair untouched.
 sudo systemctl enable --now mt-kalshi-pass.timer
+#    OBSERVED: symlink recreated; 3 timers, kalshi NEXT back at 20:20:00 MDT (Criterion 9).
+
+# 9. Rollback rehearsal (kalshi only — EODHD units untouched) — RUN 20260825
+sudo systemctl disable --now mt-kalshi-pass.timer
+cd ~/source/repos/manta/trading-data && uv run mt data kalshi pass    # manual form from the dev checkout
+#    OBSERVED: "outcome ok (exit 0)  duration 87713 ms"; the window chained from the previous run's
+#      watermark (02:15:56 → 02:18:38) with no gap. Runs as the login user, not manta-trading.
+sudo systemctl enable --now mt-kalshi-pass.timer
+systemctl list-timers 'mt-*'
+#    OBSERVED: 3 timers; the daily and minute rows were unchanged through every step above.
 ```
 
 ### Success criteria — where each is proven
 
-Status after Phase 6 implementation (20260825): criteria 1–5, 11 and 12 are
-**proven**; 6–10 need the host and are the PM's steps 4–9, still outstanding.
+Status after Phase 6 and the host steps (20260825): **11 of 12 criteria are
+proven**; criterion 7's final clause — an unattended timer firing — is the only
+item outstanding, and needs nothing but the next `:20` to pass.
 
-| Criterion | Where | Status |
+| Criterion | Where proven | Status |
 |---|---|---|
-| 1 pass ≡ sync final state | `test_kalshi_pass.py::TestPassEqualsSync` (two fresh databases, identical `sync_state` + row counts) + step 1 | ✅ proven |
-| 2 exit codes 0/1/2/3/4 | unit tests per outcome; **live** lock case in step 1 (both `sync` and `pass` exit 1 under a held lock) | ✅ proven |
-| 3 phase sequencing + `classify_pass` | `test_collection_pass.py` — abort skips the remainder as `skipped`, partial continues, table-driven over every ordered pair of outcomes | ✅ proven |
-| 4 event order, one `run_id` | step 1 live (`pass_started run_started phase_finished×5 run_finished pass_finished`, one id) + unit and integration tests | ✅ proven |
-| 5 units exist, installed, listed | `test_units.py` (16 tests, drift-guarded against `UNITS` and `KINDS`), `shellcheck` clean, `systemd-analyze verify` clean | ✅ proven in repo; host half is step 5 |
-| 6 `mt-run kalshi` / `follow` / root-path env | step 6 — **needs the host** | ⏳ PM |
-| 7 inert install, cutover, first autonomous pass | steps 5–7 — **needs the host** | ⏳ PM |
-| 8 stop mid-run is clean and resumes | step 8 — **needs the host** | ⏳ PM |
-| 9 disable/enable the timer | step 8 — **needs the host** | ⏳ PM |
-| 10 runbook + CHANGELOG | runbook 100 and CHANGELOG updated this slice; the commands in them are step 6/8's verbatim | ✅ written; exercised at step 6 |
-| 11 one INFO line per settled window | `test_sync_settled.py` (three windows → three records, k=1,2,3) + **244 lines observed live** in step 1 | ✅ proven |
-| 12 gates clean, no new dependency | step 2 — ruff/mypy/strict pyright/shellcheck clean, `git diff main -- pyproject.toml uv.lock` empty | ✅ proven |
+| 1 pass ≡ sync final state | `test_kalshi_pass.py::TestPassEqualsSync` (two fresh databases, identical `sync_state` + row counts); host passes leave `sync_state` set | ✅ |
+| 2 exit codes 0/1/2/3/4 | unit tests per outcome; live lock case in the rehearsal — both `sync` and `pass` exit 1 with "another kalshi sync holds the run lock" | ✅ |
+| 3 phase sequencing + `classify_pass` | `test_collection_pass.py` — abort skips the remainder as `skipped`, partial continues, table-driven over every ordered pair | ✅ |
+| 4 event order, one `run_id` | rehearsal: `pass_started run_started phase_finished×5 run_finished pass_finished`, one id; plus unit and integration tests | ✅ |
+| 5 units exist, installed, listed | `test_units.py` (16 tests), `shellcheck`, `systemd-analyze verify`; on the host `list-unit-files` showed service `static`, timer `disabled` | ✅ |
+| 6 `mt-run kalshi` / `follow` attaches / root-path env | host 20260825: pass exit 0; Ctrl-C on `follow` left the pass RUNNING; `sudo mt-run data kalshi status` **and** `sudo mt-run data caggs status` (9 aggregates) both succeeded | ✅ |
+| 7 inert install · supervised pass · cutover · first autonomous pass | install inert; supervised pass exit 0 as `_UID=997` from `/opt` in `manta-acquisition.slice`; `enable --now` armed NEXT at `20:20:00 MDT` | ⚠️ **all but the last clause** — no unattended firing observed yet |
+| 8 stop mid-run is clean and resumes | `status=15/TERM`, no SIGKILL, and the resume chained from the exact interrupted watermark (`02:11:12`) with no gap. **Amended:** the unit is left `failed`/`Result=signal`, not `success` | ✅ (with Decision 5 corrected) |
+| 9 disable/enable the timer | disable → 2 timers, kalshi absent; enable → 3 timers, NEXT back at `:20`; EODHD pair untouched throughout | ✅ |
+| 10 runbook + CHANGELOG | both updated this slice; every command in the runbook's Kalshi section is one that was run above | ✅ |
+| 11 one INFO line per settled window | unit test (3 windows → k=1,2,3) + 244 lines observed in the cold rehearsal and one per steady-state pass on the host | ✅ |
+| 12 gates clean, no new dependency | ruff / mypy / strict pyright / shellcheck clean; `git diff main -- pyproject.toml uv.lock` empty | ✅ |
+
+**To close criterion 7** after any `:20` has passed with no one at the keyboard:
+
+```bash
+mt-run status                                                              # kalshi: last run success, exit=0
+journalctl -u mt-kalshi-pass.service --since "-2h" | grep 'kalshi pass finished'
+```
 
 ## Risk Assessment
 
