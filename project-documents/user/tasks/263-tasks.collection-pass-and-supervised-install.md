@@ -481,10 +481,19 @@ must be merged and tagged per runbook 100 before 10.1 (not a task).
         (10.3) is the PM's timing call; 10.2 may still proceed (a lock-held
         pass exits 1, which is itself the Criterion 2 proof on the host).
   - [ ] Run `sudo /opt/manta-trading/deploy/install-production.sh --ref
-        vX.Y.Z` (the tag just cut) and `systemctl list-unit-files
-        'mt-kalshi*'`; record: service `static`, timer `disabled`
-        (Criterion 7, inert half). Optionally `sudoedit
-        /etc/manta-trading.env` for the commented Kalshi lines.
+        vX.Y.Z` (the tag just cut) **twice**. Bash parses the whole script —
+        including its `UNITS=( … )` array — before it runs, so the first
+        invocation executes the *old* installer already on the host: it
+        moves the checkout to the new ref and installs the new `mt-run`, but
+        iterates the old unit list and never copies a newly added unit. The
+        second run executes the new installer and installs the kalshi pair.
+        Any release that ADDS a unit needs this (found 20260825: the first
+        run left `Unit mt-kalshi-pass.service not found`).
+  - [ ] Then `systemctl list-unit-files 'mt-kalshi*'`; record: service
+        `static`, timer `disabled` (Criterion 7, inert half). If the pair is
+        absent, the second install did not happen — do not continue to 10.2.
+        Optionally `sudoedit /etc/manta-trading.env` for the commented
+        Kalshi lines.
 
 - [ ] **Task 10.2 [PM] One supervised pass, no cutover** (effort: 2)
   - [ ] Run `sudo mt-run kalshi`; record the start line, 262's phase lines,

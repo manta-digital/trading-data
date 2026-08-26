@@ -304,8 +304,14 @@ cd ~/source/repos/manta/trading-data && uv run mt data kalshi status
 #    After step 5, `mt-run data kalshi status` works and is the form the runbook uses.
 
 # 5. Install (inert). Same script, new units land; nothing is enabled.
+#    RUN IT TWICE (found 20260825). Bash parses the whole script — UNITS=( … ) included —
+#    before executing, so the first run is the OLD installer already on the host: it moves the
+#    checkout to the new ref and installs the new mt-run, but iterates the old unit list, so a
+#    newly ADDED unit is never copied ("Unit mt-kalshi-pass.service not found" on mt-run kalshi).
+#    The second run is the new installer and copies the pair. Applies to any release adding a unit.
 sudo /opt/manta-trading/deploy/install-production.sh --ref vX.Y.Z      # or from the dev checkout
-systemctl list-unit-files 'mt-kalshi*'   # service: static · timer: disabled
+sudo /opt/manta-trading/deploy/install-production.sh --ref vX.Y.Z      # again: now the new UNITS list
+systemctl list-unit-files 'mt-kalshi*'   # service: static · timer: disabled — if absent, STOP
 sudoedit /etc/manta-trading.env          # optional: uncomment MT_KALSHI_REQUESTS_PER_MINUTE / auth pair
 
 # 6. One supervised pass, no cutover yet

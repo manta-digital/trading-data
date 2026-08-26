@@ -189,6 +189,16 @@ sudo systemctl restart mt-serve.service
 
 (Equivalently: re-run `deploy/install-production.sh --ref <ref>`, then restart
 `mt-serve` — the script performs exactly these steps plus the inert re-checks.)
+
+**A release that adds a new unit needs the install script run twice.** Bash
+parses the entire script — including its `UNITS=( … )` array — before running
+it, so the first invocation is the *old* copy already on the host: it moves
+the checkout to the new ref and installs the new `mt-run`, but iterates the
+old unit list, so the new unit is never copied. The symptom is
+`Unit mt-<name>-pass.service not found` from `mt-run <kind>` even though
+`mt-run` clearly knows the kind. Run the script a second time — it is
+idempotent and enables nothing — then confirm with
+`systemctl list-unit-files 'mt-*'`.
 Pass units need no restart: each timer firing starts a fresh process, which
 picks up the new code at its next firing.
 
