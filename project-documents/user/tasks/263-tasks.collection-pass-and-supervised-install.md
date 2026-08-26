@@ -469,8 +469,8 @@ Walkthrough steps 4–9. **[PM]** steps run on manta9000 in this order; the
 agent stages nothing longer than one command line for pasting. The release
 must be merged and tagged per runbook 100 before 10.1 (not a task).
 
-- [ ] **Task 10.1 [PM] Precondition check and inert install** (effort: 1)
-  - [ ] Check the precondition **from the dev checkout**, not through
+- [x] **Task 10.1 [PM] Precondition check and inert install** (effort: 1)
+  - [x] Check the precondition **from the dev checkout**, not through
         `mt-run`: `cd ~/source/repos/manta/trading-data && uv run mt data
         kalshi status`. Record output. (`mt-run` execs
         `/opt/manta-trading/.venv/bin/mt`, which until the install below is
@@ -480,7 +480,7 @@ must be merged and tagged per runbook 100 before 10.1 (not a task).
         lock or no `last_full_sync_at`, stop after 10.1 and report — cutover
         (10.3) is the PM's timing call; 10.2 may still proceed (a lock-held
         pass exits 1, which is itself the Criterion 2 proof on the host).
-  - [ ] Run `sudo /opt/manta-trading/deploy/install-production.sh --ref
+  - [x] Run `sudo /opt/manta-trading/deploy/install-production.sh --ref
         vX.Y.Z` (the tag just cut) **twice**. Bash parses the whole script —
         including its `UNITS=( … )` array — before it runs, so the first
         invocation executes the *old* installer already on the host: it
@@ -489,67 +489,76 @@ must be merged and tagged per runbook 100 before 10.1 (not a task).
         second run executes the new installer and installs the kalshi pair.
         Any release that ADDS a unit needs this (found 20260825: the first
         run left `Unit mt-kalshi-pass.service not found`).
-  - [ ] Then `systemctl list-unit-files 'mt-kalshi*'`; record: service
+  - [x] Then `systemctl list-unit-files 'mt-kalshi*'`; record: service
         `static`, timer `disabled` (Criterion 7, inert half). If the pair is
         absent, the second install did not happen — do not continue to 10.2.
         Optionally `sudoedit /etc/manta-trading.env` for the commented
         Kalshi lines.
 
-- [ ] **Task 10.2 [PM] One supervised pass, no cutover** (effort: 2)
-  - [ ] Run `sudo mt-run kalshi`; record the start line, 262's phase lines,
+- [x] **Task 10.2 [PM] One supervised pass, no cutover** (effort: 2)
+  - [x] Run `sudo mt-run kalshi`; record the start line, 262's phase lines,
         the `settled window` line(s), the finish line, and "Pass complete …
         exited 0".
-  - [ ] Run the `journalctl … -o verbose … grep` from walkthrough step 6;
+  - [x] Run the `journalctl … -o verbose … grep` from walkthrough step 6;
         record `_UID`, `_SYSTEMD_UNIT`, `_SYSTEMD_SLICE`, `_CMDLINE`. The
         command must select a **payload** line (`--grep 'kalshi pass
         finished'`): a bare `-n 1` returns the last journal line, which is
         normally systemd's own accounting line and reports PID 1
         (`_UID=0`, `_CMDLINE=/sbin/init splash`) rather than the pass —
         found 20260825.
-  - [ ] Prove attach: start a second pass with `sudo systemctl start
+  - [x] Prove attach: start a second pass with `sudo systemctl start
         --no-block mt-kalshi-pass.service`, then `mt-run follow kalshi`
         (no sudo needed); record that live journal lines stream and that
         Ctrl-C exits the viewer while `mt-run status` still shows the pass
         RUNNING (Criterion 6, "follow attaches"). Let the pass finish.
-  - [ ] Run `mt-run status` (kalshi row present) and, for Decision 6, both
+  - [x] Run `mt-run status` (kalshi row present) and, for Decision 6, both
         `sudo mt-run data kalshi status` and `sudo mt-run data caggs status`;
         with `MT_LOG_LEVEL=DEBUG` set in the env file for one run, confirm
         debug output through the root path (Criterion 6), then restore.
-  - [ ] Success: exit 0 as `manta-trading` from `/opt`; both root-path
+  - [x] Success: exit 0 as `manta-trading` from `/opt`; both root-path
         commands succeed (EODHD path still sees `MT_EODHD_API_KEY`).
 
-- [ ] **Task 10.3 [PM] Cutover** (effort: 1)
-  - [ ] `sudo systemctl enable --now mt-kalshi-pass.timer`; `systemctl
+- [x] **Task 10.3 [PM] Cutover** (effort: 1)
+  - [x] `sudo systemctl enable --now mt-kalshi-pass.timer`; `systemctl
         list-timers 'mt-*'` — record the kalshi NEXT at the coming `:20` UTC
         (Criterion 7, timer half; the schedule is the proof — the first
         autonomous firing is recorded in 10.6 if it has occurred by then).
 
-- [ ] **Task 10.4 [PM] Stop mid-run, pause, resume** (effort: 2)
-  - [ ] Walkthrough step 8 verbatim: start with `--no-block`, `sleep 20`,
+- [x] **Task 10.4 [PM] Stop mid-run, pause, resume** (effort: 2)
+  - [x] Walkthrough step 8 verbatim: start with `--no-block`, `sleep 20`,
         `stop`; record the journal's `code=killed, status=15/TERM` and
         `Deactivated successfully` lines and the absence of `SIGKILL`; `sudo
         mt-run kalshi` → exit 0 and `mt-run data kalshi status` shows the
         watermark advanced (Criterion 8); `disable --now` → kalshi absent
         from `list-timers`; `enable --now` → present again (Criterion 9).
 
-- [ ] **Task 10.5 [PM] Rollback rehearsal, kalshi only** (effort: 1)
-  - [ ] Walkthrough step 9: `disable --now` the kalshi timer; `uv run mt
+- [x] **Task 10.5 [PM] Rollback rehearsal, kalshi only** (effort: 1)
+  - [x] Walkthrough step 9: `disable --now` the kalshi timer; `uv run mt
         data kalshi pass` from the dev checkout exits 0; `enable --now`
         again; `systemctl list-timers 'mt-*'` shows the EODHD timers
         untouched throughout. Record outputs.
 
-- [ ] **Task 10.6 [agent] Walkthrough refresh and close** (effort: 2)
-  - [ ] Replace the design's draft walkthrough expectations with the
+- [x] **Task 10.6 [agent] Walkthrough refresh and close** (effort: 2)
+  - [x] Replace the design's draft walkthrough expectations with the
         observed output from 9.2 and 10.1–10.5 (the 916 pattern); add the
         shellcheck run from 6.8; if a `:20` firing has occurred, add its
         `mt-run status` line and `journalctl … 'kalshi pass finished'` hit.
         Fill the *Success criteria — where each is proven* table with what
         was actually seen.
-  - [ ] Set design `status: complete`, `dateUpdated`; add an entry to
-        `user/notes/000-process-journal.md` noting the cutover date and the
-        `mt-run` fix.
-  - [ ] Delegate checklist updates for this file to `task-checker`.
-  - [ ] **Commit**: `docs: refresh 263 walkthrough with observed host output`.
+  - [x] Add an entry to `user/notes/000-process-journal.md` noting the
+        cutover date (20260825) and the `mt-run` fix — done, plus the three
+        host findings (two-run install, Decision 5's `Result=signal`
+        correction, and the `-n 1` provenance-command trap).
+  - [x] `dateUpdated` set on the design and the runbook.
+  - [ ] **BLOCKED until an unattended `:20` firing:** set design
+        `status: complete`. Success criterion 7's last clause ("the first
+        autonomous pass completes with exit 0 and no human involved") is the
+        only unproven item in the slice — every pass so far was started by
+        hand or by `enable --now`. Confirm with `mt-run status` and
+        `journalctl -u mt-kalshi-pass.service --since "-2h" | grep 'kalshi
+        pass finished'` after any `:20` has passed, then close.
+  - [x] Delegate checklist updates for this file to `task-checker`.
+  - [x] **Commit**: `docs: refresh 263 walkthrough with observed host output`.
 
 ## Task review disposition (20260825)
 
