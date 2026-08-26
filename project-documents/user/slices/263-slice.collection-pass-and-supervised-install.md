@@ -10,7 +10,7 @@ dateCreated: 20260825
 dateUpdated: 20260825
 reviewVerdictsAddressed:
   - 263-review.slice (claude-sonnet-5, PASS, notes F005/F006)
-status: in_progress
+status: complete
 ---
 
 # Slice Design: Collection Pass and Supervised Install (263)
@@ -342,9 +342,14 @@ sudo systemctl enable --now mt-kalshi-pass.timer
 systemctl list-timers 'mt-*'
 #    OBSERVED: "Tue 2026-08-25 20:20:00 MDT  6min  mt-kalshi-pass.timer  mt-kalshi-pass.service"
 #      — the hourly :20 schedule armed. The NEXT time is the proof; no waiting required.
-#    PENDING: an unattended :20 firing with no human involved has NOT yet been observed — every
-#      pass so far was started by hand or by `enable --now`. Confirm with, after any :20 has passed:
-#      mt-run status ; journalctl -u mt-kalshi-pass.service --since "-2h" | grep 'kalshi pass finished'
+#    OBSERVED 20260825 — the first autonomous pass, no human involved:
+#      Aug 25 20:21:33 kalshi pass finished outcome=ok duration=86080 ms phases: catalog=ok
+#      Aug 25 20:21:34 Finished mt-kalshi-pass.service
+#      systemctl show → Result=success, ExecMainStatus=0
+#      That is the 02:20 UTC firing of the shipped schedule. A second unattended firing was
+#      confirmed via a temporary `systemctl edit` drop-in moving the schedule to *:30:00 UTC
+#      (fired 20:30:01, reverted with `systemctl revert mt-kalshi-pass.timer` afterwards) — the
+#      drop-in route is worth remembering: it never touches the pinned /opt checkout.
 
 # 8. Stop mid-run, pause, resume — RUN 20260825
 sudo systemctl start --no-block mt-kalshi-pass.service; sleep 20; sudo systemctl stop mt-kalshi-pass.service
@@ -376,9 +381,9 @@ systemctl list-timers 'mt-*'
 
 ### Success criteria — where each is proven
 
-Status after Phase 6 and the host steps (20260825): **11 of 12 criteria are
-proven**; criterion 7's final clause — an unattended timer firing — is the only
-item outstanding, and needs nothing but the next `:20` to pass.
+Status after Phase 6 and the host steps (20260825): **all 12 criteria are
+proven**, including the first autonomous pass — the `:20` timer fired with no
+human involved and the pass exited 0.
 
 | Criterion | Where proven | Status |
 |---|---|---|
@@ -388,7 +393,7 @@ item outstanding, and needs nothing but the next `:20` to pass.
 | 4 event order, one `run_id` | rehearsal: `pass_started run_started phase_finished×5 run_finished pass_finished`, one id; plus unit and integration tests | ✅ |
 | 5 units exist, installed, listed | `test_units.py` (16 tests), `shellcheck`, `systemd-analyze verify`; on the host `list-unit-files` showed service `static`, timer `disabled` | ✅ |
 | 6 `mt-run kalshi` / `follow` attaches / root-path env | host 20260825: pass exit 0; Ctrl-C on `follow` left the pass RUNNING; `sudo mt-run data kalshi status` **and** `sudo mt-run data caggs status` (9 aggregates) both succeeded | ✅ |
-| 7 inert install · supervised pass · cutover · first autonomous pass | install inert; supervised pass exit 0 as `_UID=997` from `/opt` in `manta-acquisition.slice`; `enable --now` armed NEXT at `20:20:00 MDT` | ⚠️ **all but the last clause** — no unattended firing observed yet |
+| 7 inert install · supervised pass · cutover · first autonomous pass | install inert; supervised pass exit 0 as `_UID=997` from `/opt` in `manta-acquisition.slice`; cutover armed the `:20` schedule; **the 02:20 UTC firing then ran unattended — `outcome=ok`, 86,080 ms, `Result=success`, `ExecMainStatus=0`, nobody at the keyboard** | ✅ |
 | 8 stop mid-run is clean and resumes | `status=15/TERM`, no SIGKILL, and the resume chained from the exact interrupted watermark (`02:11:12`) with no gap. **Amended:** the unit is left `failed`/`Result=signal`, not `success` | ✅ (with Decision 5 corrected) |
 | 9 disable/enable the timer | disable → 2 timers, kalshi absent; enable → 3 timers, NEXT back at `:20`; EODHD pair untouched throughout | ✅ |
 | 10 runbook + CHANGELOG | both updated this slice; every command in the runbook's Kalshi section is one that was run above | ✅ |

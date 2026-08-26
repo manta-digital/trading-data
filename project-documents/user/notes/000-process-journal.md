@@ -65,9 +65,19 @@ trust a wrapper that "works"; test only what a unit test can reach) would have
 cost more later than doing it now.
 
 **Cutover: 20260825.** `mt-kalshi-pass.timer` enabled on manta9000; hourly at
-`:20` UTC. Criteria 6, 8, 9, 10 proven on the host that evening, and 7 in all
-but its last clause (an unattended firing had not yet occurred — every pass so
-far was started by hand or by `enable --now`).
+`:20` UTC. **All 12 success criteria proven that evening**, including the last
+one to land: the 02:20 UTC firing ran with nobody at the keyboard —
+`kalshi pass finished outcome=ok duration=86080 ms`, `Result=success`,
+`ExecMainStatus=0`. From that point Kalshi catalog and settlement data
+accumulate with no operator action, which was the whole point of the slice.
+
+A technique worth reusing: to test a schedule without waiting an hour, override
+the cadence with a systemd drop-in rather than editing the repo —
+`sudo systemctl edit mt-kalshi-pass.timer` with an empty `OnCalendar=` line to
+clear the inherited value, then the temporary one; `systemctl revert <unit>`
+restores the shipped file exactly. This never touches the pinned `/opt`
+checkout, so it cannot drift from the tag or trip the installer's dirty-tree
+guard. (Used here to force a `*:30:00 UTC` firing; reverted immediately after.)
 
 **Three things the host taught us that no test could have.**
 

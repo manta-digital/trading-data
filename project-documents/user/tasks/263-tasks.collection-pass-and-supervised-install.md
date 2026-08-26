@@ -22,7 +22,7 @@ dateCreated: 20260825
 dateUpdated: 20260825
 reviewVerdictsAddressed:
   - 263-review.tasks (claude-sonnet-5, CONCERNS, F001/F002 addressed)
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -550,13 +550,10 @@ must be merged and tagged per runbook 100 before 10.1 (not a task).
         host findings (two-run install, Decision 5's `Result=signal`
         correction, and the `-n 1` provenance-command trap).
   - [x] `dateUpdated` set on the design and the runbook.
-  - [ ] **BLOCKED until an unattended `:20` firing:** set design
-        `status: complete`. Success criterion 7's last clause ("the first
-        autonomous pass completes with exit 0 and no human involved") is the
-        only unproven item in the slice — every pass so far was started by
-        hand or by `enable --now`. Confirm with `mt-run status` and
-        `journalctl -u mt-kalshi-pass.service --since "-2h" | grep 'kalshi
-        pass finished'` after any `:20` has passed, then close.
+  - [x] Set design `status: complete`. Criterion 7's last clause closed
+        20260825: the 02:20 UTC firing ran unattended — `kalshi pass finished
+        outcome=ok duration=86080 ms`, `Result=success`, `ExecMainStatus=0`,
+        nobody at the keyboard.
   - [x] Delegate checklist updates for this file to `task-checker`.
   - [x] **Commit**: `docs: refresh 263 walkthrough with observed host output`.
 
