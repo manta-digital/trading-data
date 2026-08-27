@@ -1460,6 +1460,14 @@ retry is doing exactly its job), but the margin is now visibly thinner:
 or the phase's wall time inflates. Watch it when slice 265 (trades) adds a
 third phase to the same budget.
 
+**4. A market complete through its close is not lagging.** A second
+rehearsal run read `open lagging 409` one second after a clean pass: selected,
+not-yet-finalized markets whose watermark already sat at `close_time + period`
+were counted, because the predicate only tested watermark age. Fixed in
+`status.py` with a regression test. Any "behind" figure over a set that can
+contain finished work needs a "nothing left to do" clause, or it grows with
+the venue's determination delay instead of the collector's lag.
+
 **Follow-ups:** slice 264 Task 8.4 corrects the walkthrough's `run_job` SQL.
 The phase wall time from the first *production* firing (Decision 9's evidence
 on whether a fetch pool is ever warranted) is a PM step (8.2) and is not yet
