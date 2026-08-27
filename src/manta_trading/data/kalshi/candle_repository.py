@@ -29,6 +29,9 @@ from manta_trading.data.kalshi.candle_plan import (
     period_span,
 )
 from manta_trading.data.kalshi.candle_selection import (
+    BACKLOG_CONDITION,
+    BEHIND_CUTOFF_CONDITION,
+    MARKET_JOIN,
     SelectionForm,
     selection_sql,
 )
@@ -67,13 +70,6 @@ class StateAdvance:
     coverage_from_ts: datetime
 
 
-_FROM = sql.SQL(
-    "FROM kalshi.markets m "
-    "JOIN kalshi.events e ON e.event_ticker = m.event_ticker "
-    "JOIN kalshi.series s ON s.ticker = e.series_ticker "
-    "LEFT JOIN kalshi.market_candle_state st "
-    "ON st.market_ticker = m.ticker AND st.period = %(period)s "
-)
 #: Decision 3: pending = opened before the phase and watermark NULL or below
 #: the target end ``min(close_time + period, last_complete_period)``.
 _PENDING = sql.SQL(
@@ -157,7 +153,7 @@ class CandleRepository:
         statement = sql.Composed(
             [
                 sql.SQL("SELECT m.ticker, m.open_time, m.close_time, st.watermark_ts "),
-                _FROM,
+                MARKET_JOIN,
                 sql.SQL("WHERE "),
                 selection.predicate,
                 sql.SQL(" "),
@@ -187,26 +183,25 @@ class CandleRepository:
     ) -> int:
         """Selected finalized markets since the cutoff with no state row — the
         *full* remainder, not the capped set ``pending_backlog`` returns."""
-        return await self._count_finalized_without_state(period, cutoff, sql.SQL(">="))
+        return await self._count(period, cutoff, BACKLOG_CONDITION)
 
     async def count_behind_cutoff(self, period: CandlePeriod, cutoff: datetime) -> int:
         """Selected finalized markets before the cutoff with no state row —
         no longer served live; slice 266's input."""
-        return await self._count_finalized_without_state(period, cutoff, sql.SQL("<"))
+        return await self._count(period, cutoff, BEHIND_CUTOFF_CONDITION)
 
-    async def _count_finalized_without_state(
-        self, period: CandlePeriod, cutoff: datetime, comparison: sql.SQL
+    async def _count(
+        self, period: CandlePeriod, cutoff: datetime, condition: sql.SQL
     ) -> int:
         selection = selection_sql(self._rule, "ever")
         statement = sql.Composed(
             [
                 sql.SQL("SELECT count(*) "),
-                _FROM,
+                MARKET_JOIN,
                 sql.SQL("WHERE "),
                 selection.predicate,
-                sql.SQL(" AND m.status = %(finalized)s AND m.settlement_ts "),
-                comparison,
-                sql.SQL(" %(cutoff)s AND st.market_ticker IS NULL"),
+                sql.SQL(" AND "),
+                condition,
             ]
         )
         cursor = await self._conn.execute(

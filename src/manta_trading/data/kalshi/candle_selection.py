@@ -80,3 +80,26 @@ def selection_sql(rule: CandleRule, form: SelectionForm) -> Selection:
     if not clauses:
         return Selection(sql.SQL("({})").format(sql.SQL("TRUE")), params)
     return Selection(sql.SQL("({})").format(sql.SQL(" AND ").join(clauses)), params)
+
+
+#: The join every candle-phase query and every ``status`` count runs over,
+#: at the collected period (bound as ``%(period)s``); spelled once.
+MARKET_JOIN = sql.SQL(
+    "FROM kalshi.markets m "
+    "JOIN kalshi.events e ON e.event_ticker = m.event_ticker "
+    "JOIN kalshi.series s ON s.ticker = e.series_ticker "
+    "LEFT JOIN kalshi.market_candle_state st "
+    "ON st.market_ticker = m.ticker AND st.period = %(period)s "
+)
+
+#: Finalized with no state row, on either side of the cutoff (``%(cutoff)s``,
+#: ``%(finalized)s`` bound by the caller): ``BACKLOG`` is still served live
+#: and drains under Decision 6; ``BEHIND_CUTOFF`` is slice 266's input.
+BACKLOG_CONDITION = sql.SQL(
+    "m.status = %(finalized)s AND m.settlement_ts >= %(cutoff)s "
+    "AND st.market_ticker IS NULL"
+)
+BEHIND_CUTOFF_CONDITION = sql.SQL(
+    "m.status = %(finalized)s AND m.settlement_ts < %(cutoff)s "
+    "AND st.market_ticker IS NULL"
+)

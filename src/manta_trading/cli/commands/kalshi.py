@@ -215,7 +215,10 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
 
     Reads the database only (no API call); reports before any sync has run.
     """
-    from manta_trading.data.kalshi.status import read_catalog_status
+    from manta_trading.data.kalshi.status import (
+        read_candle_status,
+        read_catalog_status,
+    )
 
     settings: Settings = ctx.obj["settings"]
     if not settings.timescale_db_url:
@@ -226,6 +229,9 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
             str(settings.timescale_db_url), connect_timeout=DB_CONNECT_TIMEOUT_SECONDS
         ) as conn:
             status = read_catalog_status(conn)
+            # The rule in force comes from the same Settings the pass reads
+            # (264 Decision 2), so collection and reporting cannot disagree.
+            candles = read_candle_status(conn, settings.candle_rule())
     except psycopg.OperationalError as exc:
         print_error(f"database unreachable: {exc}", json_mode=json_output)
         raise typer.Exit(EXIT_PREFLIGHT) from exc
@@ -235,7 +241,9 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
         )
         raise typer.Exit(EXIT_OK)
     if json_output:
-        print_result({"synced": True, **status.to_dict()}, json_mode=True)
+        payload = {"synced": True, **status.to_dict()}
+        payload["candles"] = candles.to_dict() if candles is not None else None
+        print_result(payload, json_mode=True)
     else:
-        print_status(status, datetime.now(UTC))
+        print_status(status, datetime.now(UTC), candles)
     raise typer.Exit(EXIT_OK)

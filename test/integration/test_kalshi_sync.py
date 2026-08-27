@@ -109,11 +109,17 @@ SERIES, EVENT = "S1", "E1"
 
 
 def _settings(url: str) -> MagicMock:
+    from manta_trading.config import Settings
+
     settings = MagicMock()
     settings.timescale_db_url = url
     settings.kalshi_api_key_id = None
     settings.kalshi_private_key_path = None
     settings.kalshi_requests_per_minute = None
+    # The candle phase (slice 264) reads the collection rule off the run's
+    # settings; the tier's environment carries no MT_KALSHI_CANDLE_*, so
+    # this is rule C — the real default, not a re-spelling of it.
+    settings.candle_rule.return_value = Settings(_env_file=None).candle_rule()  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
     return settings
 
 

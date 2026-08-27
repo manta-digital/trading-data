@@ -215,7 +215,9 @@ STATUS_CMD = ["data", "kalshi", "status"]
 
 
 @contextlib.contextmanager
-def _patched_status(settings: MagicMock, status: object) -> Iterator[None]:
+def _patched_status(
+    settings: MagicMock, status: object, candles: object = None
+) -> Iterator[None]:
     with (
         patch("manta_trading.cli.app.Settings", return_value=settings),
         patch("manta_trading.cli.app.setup_logging"),
@@ -223,8 +225,33 @@ def _patched_status(settings: MagicMock, status: object) -> Iterator[None]:
         patch(
             "manta_trading.data.kalshi.status.read_catalog_status", return_value=status
         ),
+        patch(
+            "manta_trading.data.kalshi.status.read_candle_status", return_value=candles
+        ),
     ):
         yield
+
+
+def _candle_status():
+    from manta_trading.data.kalshi.candle_types import CandleRule
+    from manta_trading.data.kalshi.status import CandleStatus
+
+    return CandleStatus(
+        period_minutes=1,
+        last_phase_at=NOW,
+        cutoff_observed=datetime(2026, 6, 25, tzinfo=UTC),
+        rule=CandleRule(True, frozenset(), frozenset({"Sports"}), "MENTION", None),
+        selected_open=6912,
+        markets_tracked=521404,
+        open_lagging=0,
+        open_oldest_watermark=NOW,
+        complete_through_close=512110,
+        closed_short_of_close=0,
+        backlog_remaining=412000,
+        behind_cutoff_uncollected=9203,
+        closed_excluded_by_rule=3117908,
+        partial_history=5822,
+    )
 
 
 def _catalog_status():
@@ -293,6 +320,50 @@ class TestStatus:
         with _patched_status(_settings(timescale_url=None), None):
             result = runner.invoke(app, STATUS_CMD)
         assert result.exit_code == cmd.EXIT_PREFLIGHT
+
+    # --- the candle block (slice 264, Task 6.2) ---
+
+    def test_never_collected_line_and_json_null(self):
+        with _patched_status(_settings(), _catalog_status(), None):
+            rich = runner.invoke(app, STATUS_CMD)
+            as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
+        assert rich.exit_code == cmd.EXIT_OK
+        assert render.NEVER_COLLECTED in rich.output
+        payload = json.loads(as_json.stdout)
+        assert payload["candles"] is None
+        assert payload["synced"] is True and "markets_by_status" in payload
+
+    def test_candle_block_rendered(self):
+        with _patched_status(_settings(), _catalog_status(), _candle_status()):
+            result = runner.invoke(app, STATUS_CMD)
+        assert result.exit_code == cmd.EXIT_OK, result.output
+        # Rich wraps long lines at the runner's width; compare on one line.
+        output = " ".join(result.output.split())
+        for needle in (
+            "Kalshi candlesticks",
+            "period 1 min",
+            "cutoff 2026-06-25",
+            "excluding Sports",
+            "(MT_KALSHI_CANDLE_*)",
+            "selected open 6,912",
+            "521,404 markets",
+            "backlog remaining 412,000",
+            "behind cutoff, uncollected 9,203",
+            "excluded by rule 3,117,908",
+        ):
+            assert needle in output, needle
+
+    def test_json_nests_candles_and_keeps_catalog_keys(self):
+        with _patched_status(_settings(), _catalog_status(), _candle_status()):
+            result = runner.invoke(app, [*STATUS_CMD, "--json"])
+        payload = json.loads(result.stdout)
+        assert payload["markets_by_status"]["active"] == 9
+        candles = payload["candles"]
+        assert candles["rule"]["excluded_categories"] == ["Sports"]
+        assert candles["rule"]["description"].startswith("traded 24h")
+        assert candles["cutoff_observed"] == "2026-06-25T00:00:00+00:00"
+        assert candles["behind_cutoff_uncollected"] == 9203
+        assert candles["period_minutes"] == 1
 
 
 # ---------------------------------------------------------------------------

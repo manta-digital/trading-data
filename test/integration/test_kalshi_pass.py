@@ -28,6 +28,7 @@ from manta_trading.data.kalshi.client import KalshiClient
 from manta_trading.data.kalshi.constants import (
     SYNC_ADVISORY_LOCK_KEY,
     MarketStatusFilter,
+    Surface,
 )
 from manta_trading.data.kalshi.db import LOCK_HELD, open_sync_connection
 
@@ -61,11 +62,17 @@ async def _counts(conn: psycopg.AsyncConnection[Any]) -> dict[str, int]:
     return out
 
 
-async def _sync_state(conn: psycopg.AsyncConnection[Any]) -> list[Any]:
+async def _sync_state(
+    conn: psycopg.AsyncConnection[Any], surface: Surface | None = None
+) -> list[Any]:
+    """``(surface, has last_full_sync, has watermark)`` per row, optionally
+    for one surface (the pass-equals-sync proof is about the catalog's)."""
     return await column(
         conn,
         "SELECT (surface, last_full_sync_at IS NOT NULL, watermark_ts IS NOT NULL)"
-        "::text FROM kalshi.sync_state ORDER BY surface",
+        "::text FROM kalshi.sync_state WHERE surface = COALESCE(%s, surface) "
+        "ORDER BY surface",
+        surface.value if surface else None,
     )
 
 
@@ -84,7 +91,11 @@ class TestPassEndToEnd:
         assert summary["phases"][0]["outcome"] == "ok"
         catalog = summary["phases"][0]["summary"]
         assert catalog["phases"]["markets"]["written"] == 3
-        assert await _sync_state(kalshi_conn) == ["(catalog,t,t)"]
+        # Both phases wrote their surface's row (slice 264 adds candlesticks).
+        assert await _sync_state(kalshi_conn) == [
+            "(candlesticks,t,t)",
+            "(catalog,t,t)",
+        ]
         assert source.closed is True
 
     async def test_second_pass_writes_nothing(
@@ -122,8 +133,10 @@ class TestPassEndToEnd:
             "run_started",
             *["phase_finished"] * 5,
             "run_finished",
+            "phase_finished",  # the candle phase (slice 264)
             "pass_finished",
         ]
+        assert events[-2]["phase"] == "candles"
         assert len({e["run_id"] for e in events}) == 1
 
 
@@ -194,7 +207,8 @@ class TestPassEqualsSync:
             ) as b,
         ):
             assert await _counts(a) == await _counts(b)
-            assert await _sync_state(a) == await _sync_state(b)
+            catalog = Surface.CATALOG
+            assert await _sync_state(a, catalog) == await _sync_state(b, catalog)
 
 
 class TestPassPreflight:
