@@ -232,10 +232,15 @@ class TestPassPreflight:
         assert (await run_pass_cli(kalshi_db, _source(), capsys))[0] == cmd.EXIT_OK
         conn = await open_sync_connection(kalshi_db)
         try:
+            # Scoped to *this* database: pg_locks is cluster-wide, and the
+            # test cluster is shared — another session's kalshi run against
+            # its own throwaway database holds the same advisory key and
+            # would otherwise be counted here (observed 2026-08-27).
             held = await column(
                 conn,
                 "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
-                "AND objid = %s",
+                "AND objid = %s AND database = "
+                "(SELECT oid FROM pg_database WHERE datname = current_database())",
                 SYNC_ADVISORY_LOCK_KEY,
             )
             assert held == [1]  # only this probe's own lock
