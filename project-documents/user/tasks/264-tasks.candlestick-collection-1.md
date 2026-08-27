@@ -355,18 +355,18 @@ to follow: it takes an open connection, never opens one, holds no exception
 handling, and binds every status value as a parameter rather than
 interpolating it.
 
-- [ ] **Task 4.1: `selection_sql` — the one place the rule is rendered** (effort: 3)
-  - [ ] New `data/kalshi/candle_repository.py` with
+- [x] **Task 4.1: `selection_sql` — the one place the rule is rendered** (effort: 3)
+  - [x] New `data/kalshi/candle_repository.py` with
         `selection_sql(rule: CandleRule, form: Literal["recent", "ever"]) ->
         sql.Composed`, composing the Decision 2 predicate over the aliases
         `m` (markets) and `s` (series).
-  - [ ] Clause by clause, each **omitted entirely when its setting is empty**
+  - [x] Clause by clause, each **omitted entirely when its setting is empty**
         so an unset value costs nothing: allow-list when `categories` is
         non-empty; exclude-list when `excluded_categories` is non-empty; the
         ticker and title patterns when set; and the traded clause when
         `traded_only` — `m.volume_24h_fp > 0` for `form="recent"`,
         `m.volume_fp > 0` for `form="ever"`.
-  - [ ] **NULL category and NULL title must not silently drop a market.**
+  - [x] **NULL category and NULL title must not silently drop a market.**
         `kalshi.series.category` and `.title` are nullable TEXT (kalshi_002)
         and Kalshi serves series with neither — the slice's own universe
         table counts a 588-market "Companies / Social / World / unknown"
@@ -388,50 +388,50 @@ interpolating it.
         Sports and Mentions by name, and a series that is neither is not one
         of them. (`IS DISTINCT FROM ALL` is not valid PostgreSQL syntax —
         verified; do not reach for it.)
-  - [ ] The **allow-list is the deliberate exception**: `s.category =
+  - [x] The **allow-list is the deliberate exception**: `s.category =
         ANY(%s)` on a NULL category is NULL, and that is correct — an
         operator naming the categories they want has not named the
         uncategorised ones. Comment the asymmetry so it reads as intent.
-  - [ ] Every value is a **bound parameter**, never interpolated — the
+  - [x] Every value is a **bound parameter**, never interpolated — the
         patterns are operator-supplied strings and must not reach the SQL
         text (repository.py's standing rule).
-  - [ ] With every setting empty and `traded_only` false, the predicate must
+  - [x] With every setting empty and `traded_only` false, the predicate must
         be a valid always-true expression, not an empty string.
-  - [ ] Module docstring states that this function is the only renderer of
+  - [x] Module docstring states that this function is the only renderer of
         the rule and that the pending queries and `status` both call it.
-  - [ ] Success: a unit-level call returns a `Composed` whose parameter list
+  - [x] Success: a unit-level call returns a `Composed` whose parameter list
         matches the clauses present.
 
-- [ ] **Task 4.1b: `selection_sql` clause-omission unit tests** (effort: 2)
-  - [ ] New `test/unit/data/kalshi/test_selection_sql.py`. The five settings
+- [x] **Task 4.1b: `selection_sql` clause-omission unit tests** (effort: 2)
+  - [x] New `test/unit/data/kalshi/test_selection_sql.py`. The five settings
         are each independently omittable, which is combinatorial and cheap
         to prove without a database: assert the rendered parameter list per
         configuration — every setting empty (no parameters, always-true
         predicate), each setting alone, and the rule C default.
-  - [ ] Assert the `COALESCE` forms are used for the two exclusion clauses
+  - [x] Assert the `COALESCE` forms are used for the two exclusion clauses
         and that the allow-list clause is **not** wrapped in `COALESCE` —
         the asymmetry Task 4.1 makes deliberate.
-  - [ ] Assert on the `Composed` sequence or render with `.as_string(conn)`;
+  - [x] Assert on the `Composed` sequence or render with `.as_string(conn)`;
         do not string-match the whole statement, which breaks on whitespace.
-  - [ ] Success: semantic row outcomes stay in Task 4.4's integration test;
+  - [x] Success: semantic row outcomes stay in Task 4.4's integration test;
         this task proves clause structure only.
 
-- [ ] **Task 4.2: Pending queries** (effort: 3)
-  - [ ] `pending_live(period, phase_start)`, `pending_finishing(period)`,
+- [x] **Task 4.2: Pending queries** (effort: 3)
+  - [x] `pending_live(period, phase_start)`, `pending_finishing(period)`,
         `pending_backlog(period, cutoff, limit)` on `CandleRepository`, each
         joining `kalshi.markets m JOIN kalshi.events e ON … JOIN
         kalshi.series s ON … LEFT JOIN kalshi.market_candle_state st ON …`
         at `period = COLLECTED_CANDLE_PERIOD`, each embedding
         `selection_sql` with the form the design's Data Flow step 2 names
         (`recent` for live, `ever` for the two finalized sets).
-  - [ ] Pending condition per Decision 3: `open_time < phase_start` and
+  - [x] Pending condition per Decision 3: `open_time < phase_start` and
         (`st.watermark_ts IS NULL` or below the target end). Each returns
         `(ticker, open_time, close_time, watermark_ts)`.
-  - [ ] `pending_backlog` orders by `settlement_ts` ascending and applies
+  - [x] `pending_backlog` orders by `settlement_ts` ascending and applies
         `limit` (Decision 6); the other two are unbounded — a live market
         must never queue behind history.
-  - [ ] Status values are bound from `MarketStatus`, never literal strings.
-  - [ ] **Two count methods the core cannot do without:**
+  - [x] Status values are bound from `MarketStatus`, never literal strings.
+  - [x] **Two count methods the core cannot do without:**
         `count_backlog_remaining(period, cutoff)` and
         `count_behind_cutoff(period, cutoff)`, both over
         `selection_sql(rule, "ever")`. `backlog_remaining` is **not**
@@ -441,55 +441,55 @@ interpolating it.
         reporting a flat line where the criterion asks for a falling one.
         The core issues no SQL of its own, so without these the count has
         nowhere to live.
-  - [ ] Success: the three pending queries differ only in the
+  - [x] Success: the three pending queries differ only in the
         status/settlement conditions, the form passed to `selection_sql`,
         and the ordering; the two count methods share the same predicate.
 
-- [ ] **Task 4.3: Writes and state** (effort: 3)
-  - [ ] `CANDLE_COLUMNS` — the flattening map from `Candlestick`'s nested
+- [x] **Task 4.3: Writes and state** (effort: 3)
+  - [x] `CANDLE_COLUMNS` — the flattening map from `Candlestick`'s nested
         `yes_bid`/`yes_ask`/`price` `PriceOhlc` objects to the table's
         sixteen column names (Decision 10). Defined once here; the parity
         test checks it against the live table.
-  - [ ] `insert_candles(rows) -> int` — multi-row `INSERT … ON CONFLICT DO
+  - [x] `insert_candles(rows) -> int` — multi-row `INSERT … ON CONFLICT DO
         NOTHING`, chunked under `_MAX_BIND_PARAMS` exactly as
         `CatalogRepository._upsert` does. No `raw` column (261 Decision 6),
         and never `DO UPDATE`.
-  - [ ] `advance_state(period, advances)` — one multi-row upsert into
+  - [x] `advance_state(period, advances)` — one multi-row upsert into
         `market_candle_state` setting `watermark_ts = EXCLUDED.watermark_ts`,
         `coverage_from_ts = COALESCE(state.coverage_from_ts,
         EXCLUDED.coverage_from_ts)` (so a re-run can never move it later),
         `updated_at = now()`.
-  - [ ] `set_sync_state(phase_start, cutoff)` writing
+  - [x] `set_sync_state(phase_start, cutoff)` writing
         `Surface.CANDLESTICKS`'s `last_full_sync_at` and `watermark_ts`
         (Decision 11) — reuse `CatalogRepository`'s `_set_state_column`
         pattern rather than a new spelling.
-  - [ ] `transaction()` delegating to the connection, as
+  - [x] `transaction()` delegating to the connection, as
         `CatalogRepository.transaction()` does — the caller owns granularity
         (one transaction per batch).
-  - [ ] Storage failure taxonomy as 262: an `IntegrityError` on a batch is
+  - [x] Storage failure taxonomy as 262: an `IntegrityError` on a batch is
         retried per market so offenders become item errors;
         `OperationalError` propagates (storage abort); any other
         `psycopg.Error` propagates as a bug.
-  - [ ] Success: the module stays under the ~300-line guideline.
+  - [x] Success: the module stays under the ~300-line guideline.
 
-- [ ] **Task 4.4a: Let the test helper write real series** (effort: 2)
-  - [ ] `kalshi_helpers.write_catalog(repo, markets)` synthesizes its series
+- [x] **Task 4.4a: Let the test helper write real series** (effort: 2)
+  - [x] `kalshi_helpers.write_catalog(repo, markets)` synthesizes its series
         through `parent_series`, which builds `km.Series(ticker=t)` — ticker
         only, so **every series it writes has `category IS NULL` and `title
         IS NULL`**. The predicate fixture set below needs both, so the
         helper must accept them.
-  - [ ] Add an optional parameter: `write_catalog(repo, markets,
+  - [x] Add an optional parameter: `write_catalog(repo, markets,
         series=None)` uses caller-supplied `km.Series` rows when given and
         falls back to today's `parent_series` behavior when not, leaving
         every existing caller unaffected.
-  - [ ] Success: the existing kalshi integration tests pass unchanged, and a
+  - [x] Success: the existing kalshi integration tests pass unchanged, and a
         caller can write a series carrying a category and a title.
 
-- [ ] **Task 4.4: Repository and predicate integration tests** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_repository.py` (or a new
+- [x] **Task 4.4: Repository and predicate integration tests** (effort: 3)
+  - [x] Extend `test/integration/test_kalshi_repository.py` (or a new
         `test_kalshi_candles.py` in the same tier) using the `kalshi_db`
         fixture and the `write_catalog` of Task 4.4a.
-  - [ ] **The predicate fixture set** — six markets with explicit series: a
+  - [x] **The predicate fixture set** — six markets with explicit series: a
         Sports market, a `Mentions`-category market, a mention-titled market
         in another category, a never-traded market, a traded-24 h Politics
         market, and **a market whose series has a NULL category and a NULL
@@ -501,32 +501,32 @@ interpolating it.
         (the allow-list deliberately does not match NULL); with
         `traded_only=false` the never-traded market joins; with every
         setting empty all six are returned.
-  - [ ] Assert the NULL case **by row identity, not by count** — a count
+  - [x] Assert the NULL case **by row identity, not by count** — a count
         assertion passes for the wrong reason if the NULL market is dropped
         while another is wrongly kept.
-  - [ ] The same set under the `ever` form for finalized rows.
-  - [ ] An invalid regex surfaces the database's own error (a
+  - [x] The same set under the `ever` form for finalized rows.
+  - [x] An invalid regex surfaces the database's own error (a
         `ProgrammingError`) rather than being swallowed — this is a
         configuration bug and must be loud.
-  - [ ] `CANDLE_COLUMNS` parity: every mapped column exists on
+  - [x] `CANDLE_COLUMNS` parity: every mapped column exists on
         `kalshi.candlesticks` and every non-key column of the table is
         mapped — so adding a column without mapping it fails here.
-  - [ ] Conflict-ignore: inserting the same batch twice leaves one row per
+  - [x] Conflict-ignore: inserting the same batch twice leaves one row per
         key and reports the second insert as writing nothing (Criterion 4).
-  - [ ] `advance_state` sets `coverage_from_ts` on first write and leaves it
+  - [x] `advance_state` sets `coverage_from_ts` on first write and leaves it
         unchanged on a later write with a different start (Criterion 6).
-  - [ ] A market whose `close_time` moved later becomes pending again.
-  - [ ] A market finalized before the cutoff is never returned by
+  - [x] A market whose `close_time` moved later becomes pending again.
+  - [x] A market finalized before the cutoff is never returned by
         `pending_backlog` (Criterion 9).
-  - [ ] **The two count methods** (Task 4.2): with more selected finalized
+  - [x] **The two count methods** (Task 4.2): with more selected finalized
         markets than the cap admits, `count_backlog_remaining` reports the
         **full** remainder while `pending_backlog` returns at most the cap,
         and the remainder **falls** once a batch of them gains state rows
         (Criterion 8 — the number must move, not sit at the cap);
         `count_behind_cutoff` counts a market finalized before the cutoff
         and excludes one finalized after it (Criterion 9).
-  - [ ] Success: the kalshi integration set passes.
-  - [ ] **Commit**: `feat: add kalshi candle repository and selection predicate`.
+  - [x] Success: the kalshi integration set passes.
+  - [x] **Commit**: `feat: add kalshi candle repository and selection predicate`.
 
 ## Task review disposition (20260826)
 
