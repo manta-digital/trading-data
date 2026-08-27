@@ -14,13 +14,17 @@ and the caller runs ``emit`` in a worker thread, so a sink may block on I/O
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import IO, Any, Protocol
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 
 class SyncEventType(StrEnum):
@@ -110,3 +114,18 @@ class JsonlSyncEventSink:
         if self._file is not None:
             self._file.close()
             self._file = None
+
+
+async def emit_in_thread(sink: SyncEventSink, event: SyncEvent) -> None:
+    """Best-effort emission off the event loop, shared by the sync cores.
+
+    The sink call runs in a worker thread (code review 262 F001): a
+    ``JsonlSyncEventSink`` does a synchronous open/write/flush, which the
+    project's async rule keeps off the loop. A sink failure is logged and
+    never aborts the run. Each core is a single sequential writer, so one
+    sink call at a time reaches the thread.
+    """
+    try:
+        await asyncio.to_thread(sink.emit, event)
+    except Exception:
+        logger.exception("event sink failed on %s", event.event_type)

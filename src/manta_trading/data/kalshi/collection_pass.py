@@ -58,9 +58,10 @@ _OUTCOME_PRECEDENCE = (
 
 
 class PassPhaseName(StrEnum):
-    """The phases a pass can contain; 264 adds ``CANDLES``, 265 ``TRADES``."""
+    """The phases a pass can contain; 265 adds ``TRADES``."""
 
     CATALOG = "catalog"
+    CANDLES = "candles"
 
 
 @dataclass(frozen=True)
@@ -235,6 +236,43 @@ class CatalogPhase:
         )
 
 
-#: The single registration point for pass phases: 264 appends ``CandlesPhase``,
-#: 265 ``TradesPhase``. Order is execution order.
-PASS_PHASES: tuple[PassPhase, ...] = (CatalogPhase(),)
+class CandlesPhase:
+    """The candle phase — 264's :class:`CandleSync` under the phase contract."""
+
+    name = PassPhaseName.CANDLES
+
+    async def run(self, run: KalshiRun) -> PhaseReport:
+        from manta_trading.data.kalshi.candle_repository import CandleRepository
+        from manta_trading.data.kalshi.candle_sync import CandleSync
+        from manta_trading.data.kalshi.candle_types import classify_candles
+
+        started = time.monotonic()
+        rule = run.settings.candle_rule()
+        sync = CandleSync(
+            run.client,
+            CandleRepository(run.conn, rule),
+            run.sink,
+            rule=rule,
+            run_id=run.run_id,
+            clock=run.clock,
+        )
+        failure: ProviderError | psycopg.OperationalError | None = None
+        try:
+            await sync.run()
+        except ProviderError as exc:
+            failure = exc
+        except psycopg.OperationalError as exc:
+            failure = exc
+            logger.exception("kalshi candles phase storage failure")
+        return PhaseReport(
+            name=self.name,
+            outcome=classify_candles(sync.result, failure),
+            summary=sync.result.to_dict(),
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error=str(failure) if failure is not None else None,
+        )
+
+
+#: The single registration point for pass phases: 265 appends ``TradesPhase``.
+#: Order is execution order — the catalog is current before candles run.
+PASS_PHASES: tuple[PassPhase, ...] = (CatalogPhase(), CandlesPhase())

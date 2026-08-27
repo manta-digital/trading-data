@@ -329,6 +329,7 @@ class FakeCatalogSource:
         end_ts: int,
         period_interval: CandlePeriod,
     ) -> list[MarketCandlesticks]:
+        self._record("get_markets_candlesticks", {"tickers": tuple(tickers)})
         return await self.candles.get_markets_candlesticks(
             tickers, start_ts=start_ts, end_ts=end_ts, period_interval=period_interval
         )

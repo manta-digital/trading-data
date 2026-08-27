@@ -10,6 +10,7 @@ import contextlib
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -19,8 +20,13 @@ from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
 from manta_trading.cli.commands import kalshi as cmd
+from manta_trading.cli.commands import kalshi_render as render
 from manta_trading.data.kalshi.client import KalshiClient
-from manta_trading.data.kalshi.collection_pass import PassPhaseName, PhaseReport
+from manta_trading.data.kalshi.collection_pass import (
+    PassPhaseName,
+    PassResult,
+    PhaseReport,
+)
 from manta_trading.data.kalshi.db import PreflightError
 from manta_trading.data.kalshi.sync_types import SyncOutcome, SyncPhase, SyncResult
 from manta_trading.providers.errors import ProviderTransientError
@@ -414,3 +420,77 @@ class TestPassOutput:
         lines = path.read_text().splitlines()
         types = [json.loads(line)["event_type"] for line in lines]
         assert types == ["pass_started", "pass_finished"]
+
+
+# ---------------------------------------------------------------------------
+# Per-phase summary rendering (slice 264, Task 5.5)
+# ---------------------------------------------------------------------------
+
+
+def _candle_summary() -> dict[str, object]:
+    from manta_trading.data.kalshi.candle_types import CandleItemError, CandleResult
+    from manta_trading.data.kalshi.constants import COLLECTED_CANDLE_PERIOD
+
+    result = CandleResult(
+        run_id=uuid4(), started_at=NOW, period=COLLECTED_CANDLE_PERIOD
+    )
+    result.cutoff = datetime(2026, 6, 25, tzinfo=UTC)
+    result.requests = 3
+    result.pending_live = 2
+    result.item_errors.append(
+        CandleItemError("GONE", "not served by the batch endpoint")
+    )
+    return result.to_dict()
+
+
+def _catalog_summary() -> dict[str, object]:
+    return SyncResult(run_id=uuid4(), started_at=NOW).to_dict()
+
+
+def _pass_result(*reports: PhaseReport) -> PassResult:
+    return PassResult(
+        run_id=uuid4(),
+        started_at=NOW,
+        reports=reports,
+        outcome=SyncOutcome.OK,
+        duration_ms=20,
+    )
+
+
+class TestPhaseRenderers:
+    def test_dispatch_selects_each_phase_renderer(self):
+        assert (
+            render.PHASE_RENDERERS[PassPhaseName.CATALOG] is render.print_phase_summary
+        )
+        assert (
+            render.PHASE_RENDERERS[PassPhaseName.CANDLES] is render.print_candle_summary
+        )
+
+    def test_every_registered_phase_has_a_renderer(self):
+        """A phase added to ``PASS_PHASES`` without a renderer fails here,
+        not on the first pass that runs it."""
+        from manta_trading.data.kalshi.collection_pass import PASS_PHASES
+
+        assert {phase.name for phase in PASS_PHASES} <= set(render.PHASE_RENDERERS)
+
+    def test_a_pass_with_both_summaries_renders_without_raising(self, capsys):
+        """The regression Task 5.4 fixes: the catalog renderer indexes
+        catalog-only keys and used to be called for every phase."""
+        result = _pass_result(
+            PhaseReport(PassPhaseName.CATALOG, SyncOutcome.OK, _catalog_summary(), 5),
+            PhaseReport(
+                PassPhaseName.CANDLES, SyncOutcome.PARTIAL, _candle_summary(), 7
+            ),
+        )
+        render.print_pass_summary(result, cmd.EXIT_SYNC_PARTIAL, json_output=False)
+        out = capsys.readouterr().out
+        assert "Kalshi catalog sync" in out
+        assert "Kalshi candles" in out
+        assert "requests      3" in out
+        assert "item errors   1" in out
+        assert "2026-06-25" in out
+
+    def test_unregistered_phase_raises_the_named_error(self):
+        bogus = cast(PassPhaseName, "trades")
+        with pytest.raises(render.NoPhaseRendererError, match="trades"):
+            render.render_phase_summary(bogus, {})
