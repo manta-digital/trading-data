@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (slice 264 — Kalshi candlestick collection)
+## [0.10.0] — 2026-08-27
+
+### Added (slice 264 — Kalshi candlestick collection, code complete 2026-08-27; host cutover pending)
 - **The Kalshi pass now has two phases: catalog, then candlesticks.** The
   candle phase collects 1-minute candles for every market the **collection
   rule** selects — by default markets traded in the last 24 hours, minus the

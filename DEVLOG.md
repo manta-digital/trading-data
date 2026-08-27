@@ -2,13 +2,47 @@
 docType: devlog
 project: trading
 dateCreated: 20260411
-dateUpdated: 20260811
+dateUpdated: 20260827
 ---
 
 # Development Log
 
 A lightweight, append-only record of development activity. Newest entries first.
 Format: `## YYYYMMDD` followed by brief notes (1-3 lines per session). Written from implementor perspective (class names, design decisions, test counts). For user-visible changes see CHANGELOG.md.
+
+---
+
+## 20260827
+
+**Slice 264 — Kalshi candlestick collection (0.10.0).** Second pass phase: `CandlesPhase` appended to `PASS_PHASES`, `CandleSync` over `CandleRepository` (three pending queries — live / finishing / backlog — sharing one `selection_sql` predicate with `status`), pure planner `candle_plan.py` (`target_window`, `plan_batches` under the 100-ticker / 10,000-candle batch caps, `AssertionError` guard not `assert`), `CandleRule` as five `MT_KALSHI_CANDLE_*` settings with rule C defaults. Migration `kalshi_005_candlesticks`: hypertable (7-day chunks), compression policy at 14 days, `coverage_from_ts`; preflight now checks the whole kalshi ledger. `status` candle block from persisted state only. Shared helpers extracted rather than duplicated (`events.emit_in_thread`, `sync_types.classify_outcome`); the kalshi track never created the TimescaleDB extension, so `kalshi_bare_db` + `ensure_timescaledb` in the test tier. Gates: 409 kalshi unit / 87 kalshi integration; unit tier 2,439 passed. Rehearsal (two runs on the test cluster) found `open_lagging` counting markets already complete through close — fixed with a regression test — and that `CALL run_job((select …))` is invalid SQL (two-statement form). Host steps (Section 8) pending.
+
+---
+
+## 20260825
+
+**Slice 263 — collection pass and supervised install (0.9.0).** `mt data kalshi pass`: `PASS_PHASES` registry run over one client/connection/sink with 262's exit codes; `mt-kalshi-pass.service` + `.timer` (hourly :20 UTC, `Persistent=true`, `TimeoutStartSec=infinity`) installed by the same script, enabling nothing; `mt-run kalshi`/`follow kalshi`; a `settled window …` INFO line per completed window. Fixed `mt-run` under sudo forwarding only two `MT_*` variables. Cold throwaway rehearsal: 3.5 M settlements in 244 windows, 45.7 min; steady state 97 s. Host cutover done, all 12 criteria proven.
+
+---
+
+## 20260824
+
+**Slice 262 — catalog sync with settlement capture.** `mt data kalshi sync`: series, live non-MVE markets with per-page parent resolution, events, the settled stream in 6-hour windows from a persisted watermark (`--settled-since` for replay), the awaiting-settlement guarantee; write-on-change upserts; exit codes 0/1/2/3/4 by `SyncOutcome`; `--events-file` JSONL sink; `mt data kalshi status`. Migration `kalshi_004` (comments). Discovery: served market status vocabulary is `initialized/active/inactive/closed/determined/finalized`, not the documented filter names.
+
+**Slice 261 — Kalshi provider foundation.** Package `manta_trading.data.kalshi`: async `trade-api/v2` client (cursor iterators, one rate budget, bounded retry, complete transient/permanent error taxonomy over httpx), Pydantic models with `Decimal` money, optional RSA-PSS authenticated mode (`MT_KALSHI_API_KEY_ID` + `MT_KALSHI_PRIVATE_KEY_PATH`, both or neither). `kalshi` migration track (`--track`), recorded fixtures under `test/fixtures/kalshi/` with `scripts/record_kalshi_fixtures.py`.
+
+---
+
+## 20260822–23
+
+**Slice 916 — supervised production (0.8.0).** systemd timers for the daily/minute passes and a supervised `mt serve`; pinned checkout at `/opt/manta-trading` under a `nologin` account; `mt-run` front door (`daily|minute|status|follow|<mt args>`); idempotent `deploy/install-production.sh --ref <tag>`; runbooks renumbered and indexed. Redacted the EODHD token from retry/error log sites.
+
+**Slice 917 — dedicated test database cluster.** Test tier moved to its own host (runbook 400, `hammerhead`), `trading_test_admin` role; the suite fails rather than skips when `MT_TIMESCALE_TEST_URL` is unset, points at production, or the server version drifts.
+
+---
+
+## 20260816–18
+
+**Slice 169 — coverage-cagg bucket narrowing.** Part 1: 7-day buckets and a reachable staleness threshold (schema + thresholds); part 2: the rebuild driver, sweep tests, runbook. Closed 20260818, 19/19 criteria. **Slice 915** — backup and restore runbook and task breakdown from the measured prod host survey; `REPLICATION` granted to the maintenance role for `pg_basebackup`.
 
 ---
 
