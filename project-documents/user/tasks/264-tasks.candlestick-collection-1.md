@@ -20,6 +20,9 @@ projectState: >
   kalshi.market_candle_state exists (kalshi_003) with watermark_ts carrying
   a comment this slice corrects. Design 264 reviewed CONCERNS (passes the
   gate); Decisions 2, 4, 5 PM-ratified 20260826.
+reviewVerdictsAddressed:
+  - 264-review.tasks.candlestick-collection.part-1 (claude-opus-5, CONCERNS, F001-F003/F006-F007 addressed)
+  - 264-review.tasks.candlestick-collection.part-2 (claude-opus-5, CONCERNS, dispositioned in parts 2-3)
 dateCreated: 20260826
 dateUpdated: 20260826
 status: not_started
@@ -85,11 +88,12 @@ status: not_started
   Manager on manta9000 (no passwordless sudo there); tasks marked
   **[agent]** need no elevation. No task waits on a wall-clock event —
   the timer's behavior is proven by starting the unit the timer activates.
-- **This file is part 1 of 2.** Sections 1–4 below build the vocabulary,
-  the schema, the planner, and the repository. The core, the phase, the
-  `status` block, the rehearsal, the documentation, and the host steps are
-  in `user/tasks/264-tasks.candlestick-collection-2.md`, which starts at
-  Section 5 and depends on everything here.
+- **This file is part 1 of 3.** Sections 1–3 below build the vocabulary, the
+  schema, and the planner — everything the later parts consume.
+  `264-tasks.candlestick-collection-2.md` has the repository and the core
+  (Sections 4–5); `264-tasks.candlestick-collection-3.md` has the `status`
+  block, verification, documentation, and the host steps (Sections 6–8).
+  Both depend on everything here.
 - Next slice: 265 (trades) copies this phase's shape; 266 (historical
   backfill) consumes `behind_cutoff_uncollected` and must pause this
   hypertable's compression policy during its drain.
@@ -345,105 +349,56 @@ no SQL, no clock — every input is an argument.
         literals in the test.
   - [ ] **Commit**: `feat: add kalshi candle batch planner`.
 
-## Section 4: `CandleRepository` — the rule, the pending queries, the writes
+## Task review disposition (20260826)
 
-Design *Repository* and *Data Flow* step 2. `CatalogRepository` is the model
-to follow: it takes an open connection, never opens one, holds no exception
-handling, and binds every status value as a parameter rather than
-interpolating it.
+Review: `user/reviews/264-review.tasks.candlestick-collection.part-1.md`,
+claude-opus-5, verdict **CONCERNS** against `1abefcd` (five concerns, three
+notes, two passes). CONCERNS passes the gate. All five concerns and both
+actionable notes are fixed in place. The tasks they name now live across
+three files (see *Not adopted* in part 3 for why); each fix is described
+here with the part it landed in.
 
-- [ ] **Task 4.1: `selection_sql` — the one place the rule is rendered** (effort: 3)
-  - [ ] New `data/kalshi/candle_repository.py` with
-        `selection_sql(rule: CandleRule, form: Literal["recent", "ever"]) ->
-        sql.Composed`, composing the Decision 2 predicate over the aliases
-        `m` (markets) and `s` (series).
-  - [ ] Clause by clause, each **omitted entirely when its setting is empty**
-        so an unset value costs nothing: allow-list (`s.category = ANY(%s)`)
-        when `categories` is non-empty; exclude-list (`NOT (s.category =
-        ANY(%s))`) when `excluded_categories` is non-empty; `s.ticker !~ %s`
-        and `s.title !~* %s` when their patterns are set; and the traded
-        clause when `traded_only` — `m.volume_24h_fp > 0` for `form
-        ="recent"`, `m.volume_fp > 0` for `form="ever"`.
-  - [ ] Every value is a **bound parameter**, never interpolated — the
-        patterns are operator-supplied strings and must not reach the SQL
-        text (repository.py's standing rule).
-  - [ ] With every setting empty and `traded_only` false, the predicate must
-        be a valid always-true expression, not an empty string.
-  - [ ] Module docstring states that this function is the only renderer of
-        the rule and that the pending queries and `status` both call it.
-  - [ ] Success: a unit-level call returns a `Composed` whose parameter list
-        matches the clauses present.
-
-- [ ] **Task 4.2: Pending queries** (effort: 3)
-  - [ ] `pending_live(period, phase_start)`, `pending_finishing(period)`,
-        `pending_backlog(period, cutoff, limit)` on `CandleRepository`, each
-        joining `kalshi.markets m JOIN kalshi.events e ON … JOIN
-        kalshi.series s ON … LEFT JOIN kalshi.market_candle_state st ON …`
-        at `period = COLLECTED_CANDLE_PERIOD`, each embedding
-        `selection_sql` with the form the design's Data Flow step 2 names
-        (`recent` for live, `ever` for the two finalized sets).
-  - [ ] Pending condition per Decision 3: `open_time < phase_start` and
-        (`st.watermark_ts IS NULL` or below the target end). Each returns
-        `(ticker, open_time, close_time, watermark_ts)`.
-  - [ ] `pending_backlog` orders by `settlement_ts` ascending and applies
-        `limit` (Decision 6); the other two are unbounded — a live market
-        must never queue behind history.
-  - [ ] Status values are bound from `MarketStatus`, never literal strings.
-  - [ ] Success: the three queries differ only in the status/settlement
-        conditions, the form passed to `selection_sql`, and the ordering.
-
-- [ ] **Task 4.3: Writes and state** (effort: 3)
-  - [ ] `CANDLE_COLUMNS` — the flattening map from `Candlestick`'s nested
-        `yes_bid`/`yes_ask`/`price` `PriceOhlc` objects to the table's
-        sixteen column names (Decision 10). Defined once here; the parity
-        test checks it against the live table.
-  - [ ] `insert_candles(rows) -> int` — multi-row `INSERT … ON CONFLICT DO
-        NOTHING`, chunked under `_MAX_BIND_PARAMS` exactly as
-        `CatalogRepository._upsert` does. No `raw` column (261 Decision 6),
-        and never `DO UPDATE`.
-  - [ ] `advance_state(period, advances)` — one multi-row upsert into
-        `market_candle_state` setting `watermark_ts = EXCLUDED.watermark_ts`,
-        `coverage_from_ts = COALESCE(state.coverage_from_ts,
-        EXCLUDED.coverage_from_ts)` (so a re-run can never move it later),
-        `updated_at = now()`.
-  - [ ] `set_sync_state(phase_start, cutoff)` writing
-        `Surface.CANDLESTICKS`'s `last_full_sync_at` and `watermark_ts`
-        (Decision 11) — reuse `CatalogRepository`'s `_set_state_column`
-        pattern rather than a new spelling.
-  - [ ] `transaction()` delegating to the connection, as
-        `CatalogRepository.transaction()` does — the caller owns granularity
-        (one transaction per batch).
-  - [ ] Storage failure taxonomy as 262: an `IntegrityError` on a batch is
-        retried per market so offenders become item errors;
-        `OperationalError` propagates (storage abort); any other
-        `psycopg.Error` propagates as a bug.
-  - [ ] Success: the module stays under the ~300-line guideline.
-
-- [ ] **Task 4.4: Repository and predicate integration tests** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_repository.py` (or a new
-        `test_kalshi_candles.py` in the same tier) using the `kalshi_db`
-        fixture and `kalshi_helpers.write_catalog`.
-  - [ ] **The predicate fixture set** — five markets with synthesized
-        series: a Sports market, a `Mentions`-category market, a
-        mention-titled market in another category, a never-traded market,
-        and a traded-24 h Politics market. Assertions (Criterion 2): under
-        the default rule only the last is returned by `pending_live`; under
-        an allow-list of `Sports` with the exclusions cleared, only the
-        Sports market is; with `traded_only=false` the never-traded market
-        joins; with every setting empty all five are returned.
-  - [ ] The same set under the `ever` form for finalized rows.
-  - [ ] An invalid regex surfaces the database's own error (a
-        `ProgrammingError`) rather than being swallowed — this is a
-        configuration bug and must be loud.
-  - [ ] `CANDLE_COLUMNS` parity: every mapped column exists on
-        `kalshi.candlesticks` and every non-key column of the table is
-        mapped — so adding a column without mapping it fails here.
-  - [ ] Conflict-ignore: inserting the same batch twice leaves one row per
-        key and reports the second insert as writing nothing (Criterion 4).
-  - [ ] `advance_state` sets `coverage_from_ts` on first write and leaves it
-        unchanged on a later write with a different start (Criterion 6).
-  - [ ] A market whose `close_time` moved later becomes pending again.
-  - [ ] A market finalized before the cutoff is never returned by
-        `pending_backlog` (Criterion 9).
-  - [ ] Success: the kalshi integration set passes.
-  - [ ] **Commit**: `feat: add kalshi candle repository and selection predicate`.
+- **F001 (concern) — no repository method could produce `backlog_remaining`
+  or `behind_cutoff`.** Valid, and the failure mode was specific: the core
+  is forbidden from issuing SQL, and `pending_backlog` is capped, so
+  `len(rows)` sits at the cap on every pass until the backlog drains —
+  Criterion 8 asks for a *falling* number and would have reported a flat
+  one. Fixed in part 2: Task 4.2 gains `count_backlog_remaining` and
+  `count_behind_cutoff` over the same predicate, Task 4.4 asserts the
+  remainder exceeds the capped row count and then falls, and Task 5.2a
+  sources both counts from these methods.
+- **F002 (concern) — `kalshi_helpers.write_catalog` cannot build the
+  predicate fixture set.** Verified against the helper: `parent_series`
+  builds `km.Series(ticker=t)`, so every series it writes has a NULL
+  category and NULL title, and Task 4.4's assertions would have passed for
+  the wrong reason. Fixed in part 2: new Task 4.4a adds an optional `series`
+  parameter with today's behavior as the fallback.
+- **F003 (concern) — the predicate's NULL behavior was unspecified.**
+  Valid and the most consequential of the five. Measured on the test cluster
+  rather than reasoned about: `NOT (category = ANY(...))`, `ticker !~ ...`,
+  and `title !~* ...` all evaluate to **NULL** on a NULL column, and NULL in
+  a `WHERE` is not TRUE — an uncategorised series would have been dropped
+  from collection *and* from `closed_excluded_by_rule`, losing coverage with
+  no report of the loss. Fixed in part 2: Task 4.1 mandates the `COALESCE` forms with
+  the measured truth table, keeps the allow-list deliberately NULL-strict,
+  and Task 4.4 gains a sixth fixture market asserted by row identity. The
+  review's suggested `IS DISTINCT FROM ALL` is not valid PostgreSQL syntax —
+  checked, and the task says so.
+- **F006 (note) — `selection_sql`'s clause-omission matrix has no unit
+  test.** Fixed in part 2: new Task 4.1b covers the combinatorics without a
+  database and asserts the `COALESCE`/allow-list asymmetry F003 introduced.
+- **F007 (note) — the rehearsal did not record the pending queries' wall
+  time.** Fixed in part 3's Task 7.4 (a `\timing on` bullet), distinguished
+  from Task 8.2's phase wall time, which is the Decision 9 evidence.
+- **F004 (concern) — Criterion 1's candle-abort clause had no task.** Valid.
+  Fixed in part 2's Task 5.5, which now asserts that a candle-phase abort
+  leaves the catalog phase's outcome and `sync_state['catalog']` intact.
+- **F005 (concern) — Task 5.2 was the size outlier.** Valid; both reviews
+  raised it. Fixed in part 2 by splitting at the batch boundary into 5.2a /
+  5.2b and 5.3a / 5.3b, with an added checkpoint commit at 5.3a. No task in
+  any part now exceeds effort 3.
+- **F008 (note) — no load test is required.** Agreed, no action: the slice
+  states no NFR, and its workload numbers are measurements and derived
+  estimates, not thresholds. Adding a `test/load/` task would invent a bound
+  the design declined to set.
+- F009, F010 (pass): no action.
