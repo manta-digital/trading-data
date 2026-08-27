@@ -240,10 +240,14 @@ _CANDLE_COUNTS = sql.SQL(
     "  AND NOT COALESCE({ever}, FALSE)), "
     "count(*) FILTER (WHERE st.coverage_from_ts > m.open_time) "
 )
-#: Tracked, still open, still selected, and two firings behind — a
-#: deselected market is idle, not lagging.
+#: Tracked, still open, still selected, short of its close, and two firings
+#: behind — a deselected market is idle, not lagging, and a market already
+#: complete through ``close_time + period`` has nothing left to fetch (seen
+#: in the 2026-08-27 rehearsal: markets closed hours earlier and awaiting
+#: determination were counted as lagging).
 _LAGGING = sql.SQL(
     "st.market_ticker IS NOT NULL AND m.status <> %(finalized)s AND {recent} "
+    "AND st.watermark_ts < m.close_time + %(span)s "
     "AND st.watermark_ts < now() - %(stale)s"
 )
 

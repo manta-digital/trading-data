@@ -358,7 +358,7 @@ Additive and idempotent; no down-migration. Applied to production by the operato
   - `rule` — the `CandleRule` in force (from `Settings`), as an object in JSON and one line in Rich
   - `selected_open` — open markets the rule selects right now (what the next pass will request)
   - `markets_tracked` — rows in `market_candle_state`
-  - `open_lagging` / `open_oldest_watermark` — tracked, still-open markets whose watermark is older than `now − CANDLE_LAG_STALE_AFTER` *and* that the rule still selects (a deselected market is not "lagging"; it is idle)
+  - `open_lagging` / `open_oldest_watermark` — tracked, still-open markets whose watermark is older than `now − CANDLE_LAG_STALE_AFTER`, is still short of `close_time + period`, *and* that the rule still selects (a deselected market is not "lagging"; it is idle; a market past its close and complete through it has nothing left to fetch — it awaits determination, and the rehearsal showed hundreds of those at any hour)
   - `complete_through_close` — state rows with watermark `≥ close_time + period`
   - `closed_short_of_close` — tracked markets past close, not behind the cutoff, watermark `< close_time + period` (should be ~0 between passes)
   - `backlog_remaining` — finalized since the cutoff, selected (ever-traded form), no state row

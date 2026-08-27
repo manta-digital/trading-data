@@ -196,3 +196,59 @@ async def test_candle_block_every_field(
     assert everything.backlog_remaining == 5  # the untracked NEW-* markets
     assert everything.open_lagging == 2  # SPORTS is now selected, and stale
     assert everything.markets_tracked == 5  # unchanged: a persisted fact
+
+
+async def test_open_market_complete_through_close_is_not_lagging(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+):
+    """A selected market past its close but not yet finalized, whose watermark
+    has reached ``close_time + period``, has nothing left to fetch: it is
+    complete through close, never lagging, however old the watermark. The
+    2026-08-27 rehearsal counted 409 such markets as lagging."""
+    from test_kalshi_candles import CUTOFF, OPENED, RULE_C, fixture_markets
+
+    from manta_trading.data.kalshi.candle_plan import period_span
+    from manta_trading.data.kalshi.candle_repository import (
+        CandleRepository,
+        StateAdvance,
+    )
+    from manta_trading.data.kalshi.constants import (
+        CANDLE_LAG_STALE_AFTER,
+        COLLECTED_CANDLE_PERIOD,
+    )
+    from manta_trading.data.kalshi.status import read_candle_status
+
+    now = datetime.now(UTC)
+    span = period_span(COLLECTED_CANDLE_PERIOD)
+    closed_at = now - CANDLE_LAG_STALE_AFTER - timedelta(hours=1)
+    # Every fixture market closed an hour beyond the stale horizon and awaits
+    # determination; rule C selects POLITICS and NULLCAT.
+    markets, series = fixture_markets(
+        status=MarketStatus.CLOSED.value, close_time=closed_at
+    )
+    catalog = CatalogRepository(kalshi_conn)
+    async with catalog.transaction():
+        await catalog.upsert_series(series)
+        await catalog.upsert_events(parent_events(markets))
+        await catalog.upsert_markets(markets)
+    repo = CandleRepository(kalshi_conn, RULE_C)
+    async with repo.transaction():
+        await repo.advance_state(
+            COLLECTED_CANDLE_PERIOD,
+            [
+                # complete through close: not lagging
+                StateAdvance("POLITICS", closed_at + span, OPENED),
+                # one period short of close, and stale: lagging
+                StateAdvance("NULLCAT", closed_at - span, OPENED),
+            ],
+        )
+        await repo.set_sync_state(now, CUTOFF)
+
+    with psycopg.connect(kalshi_db) as conn:
+        status = read_candle_status(conn, RULE_C)
+    assert status is not None
+    assert status.selected_open == 2  # POLITICS, NULLCAT: closed, not finalized
+    assert status.complete_through_close == 1  # POLITICS
+    assert status.closed_short_of_close == 1  # NULLCAT
+    assert status.open_lagging == 1  # NULLCAT only
+    assert status.open_oldest_watermark == closed_at - span
