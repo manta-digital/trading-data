@@ -217,62 +217,62 @@ Design *Migration `kalshi_005_candlesticks`* (Decision 4), *Preflight*
 (Decision 8). The design's SQL block is a sketch; the rules below govern
 where it and the existing code disagree.
 
-- [ ] **Task 2.1: `kalshi_005_candlesticks`** (effort: 3)
-  - [ ] Append one entry to `KALSHI_MIGRATIONS` in
+- [x] **Task 2.1: `kalshi_005_candlesticks`** (effort: 3)
+  - [x] Append one entry to `KALSHI_MIGRATIONS` in
         `market/schema/migrations/kalshi.py` with `id`,
         `description`, and `sql`, matching the shape of the four entries
         already there. Additive and idempotent (`IF NOT EXISTS`); no
         down-migration.
-  - [ ] `CREATE TABLE kalshi.candlesticks` with the design's columns:
+  - [x] `CREATE TABLE kalshi.candlesticks` with the design's columns:
         `market_ticker` (FK to `kalshi.markets (ticker)`), `period`,
         `end_period_ts`, the sixteen nullable NUMERIC OHLC columns,
         `volume_fp NUMERIC NOT NULL`, `open_interest_fp NUMERIC`, primary
         key `(market_ticker, period, end_period_ts)`.
-  - [ ] The period CHECK constraint is rendered by the existing
+  - [x] The period CHECK constraint is rendered by the existing
         **`_period_check_sql()`** helper, not hand-listed — the module
         docstring makes this a standing rule and `market_candle_state`
         already follows it. (The design's illustrative SQL shows a literal
         list; do not copy it.)
-  - [ ] `create_hypertable('kalshi.candlesticks', 'end_period_ts',
+  - [x] `create_hypertable('kalshi.candlesticks', 'end_period_ts',
         chunk_time_interval => …, if_not_exists => TRUE)` with the interval
         rendered from `KALSHI_CANDLE_CHUNK_INTERVAL` — the constant is the
         single definition, so import it rather than writing `7 days`.
-  - [ ] `ALTER TABLE … SET (timescaledb.compress, compress_segmentby =
+  - [x] `ALTER TABLE … SET (timescaledb.compress, compress_segmentby =
         'market_ticker', compress_orderby = 'end_period_ts DESC')` then
         `add_compression_policy(… compress_after => …, if_not_exists =>
         TRUE)` with the horizon rendered from `KALSHI_CANDLE_COMPRESS_AFTER`.
-  - [ ] `ALTER TABLE kalshi.market_candle_state ADD COLUMN IF NOT EXISTS
+  - [x] `ALTER TABLE kalshi.market_candle_state ADD COLUMN IF NOT EXISTS
         coverage_from_ts TIMESTAMPTZ` and its comment (Decision 5).
-  - [ ] Rewrite the `market_candle_state.watermark_ts` comment to Decision
+  - [x] Rewrite the `market_candle_state.watermark_ts` comment to Decision
         3's semantics (the window end fetched through, **not** the newest
         stored candle — kalshi_003's text is wrong for sparse data).
-  - [ ] Rewrite the `kalshi.sync_state.watermark_ts` comment. Note that
+  - [x] Rewrite the `kalshi.sync_state.watermark_ts` comment. Note that
         `kalshi_004` already rewrote this comment for the catalog and trades
         surfaces; `COMMENT ON` replaces the whole string, so the new text
         must **carry the catalog and trades clauses forward** and change
         only the candlesticks clause (Decision 11: the historical cutoff
         observed by the last candle phase). Do not shorten the others away.
-  - [ ] `GRANT SELECT, INSERT, UPDATE, DELETE ON kalshi.candlesticks TO`
+  - [x] `GRANT SELECT, INSERT, UPDATE, DELETE ON kalshi.candlesticks TO`
         the `APP_ROLE` constant.
-  - [ ] Success: `mt data migrate apply --track kalshi` applies it to a
+  - [x] Success: `mt data migrate apply --track kalshi` applies it to a
         throwaway database and re-applying is a no-op.
 
-- [ ] **Task 2.2: Ledger preflight** (effort: 2)
-  - [ ] In `data/kalshi/db.py`, replace the `to_regclass('kalshi.sync_state')`
+- [x] **Task 2.2: Ledger preflight** (effort: 2)
+  - [x] In `data/kalshi/db.py`, replace the `to_regclass('kalshi.sync_state')`
         probe in `open_sync_connection` with a check that every migration id
         in `TRACKS["kalshi"]` is present in `schema_migrations`
         (one query, ids bound as a parameter).
-  - [ ] Missing ids → `PreflightError` naming them and the remedy, in the
+  - [x] Missing ids → `PreflightError` naming them and the remedy, in the
         design's wording (`kalshi track has pending migrations:
         kalshi_005_candlesticks — mt data migrate apply --track kalshi`).
         An **absent `schema_migrations` table** must produce the same error,
         not an unhandled `psycopg` error — the bare-database case.
-  - [ ] Update the `TRACK_NOT_APPLIED` wording to match. The advisory-lock
+  - [x] Update the `TRACK_NOT_APPLIED` wording to match. The advisory-lock
         step is unchanged and still runs after this check.
-  - [ ] Success: the check names *all* missing ids, not just the first.
+  - [x] Success: the check names *all* missing ids, not just the first.
 
-- [ ] **Task 2.3: Migration and preflight integration tests** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_migrations.py`: `kalshi_005`
+- [x] **Task 2.3: Migration and preflight integration tests** (effort: 3)
+  - [x] Extend `test/integration/test_kalshi_migrations.py`: `kalshi_005`
         applies and re-applies cleanly; `kalshi.candlesticks` appears in
         `timescaledb_information.hypertables` with the configured chunk
         interval; its compression settings are the design's segmentby and
@@ -280,16 +280,16 @@ where it and the existing code disagree.
         equals `KALSHI_CANDLE_COMPRESS_AFTER`, read back from
         `timescaledb_information.jobs` **by hypertable name and
         `proc_name`, never by job ID** (job ids regenerate).
-  - [ ] `market_candle_state.coverage_from_ts` exists; the two rewritten
+  - [x] `market_candle_state.coverage_from_ts` exists; the two rewritten
         comments contain their new semantics; the `sync_state.watermark_ts`
         comment still carries its catalog and trades clauses (guards against
         Task 2.1 dropping them).
-  - [ ] Preflight: with `kalshi_005` deleted from `schema_migrations`,
+  - [x] Preflight: with `kalshi_005` deleted from `schema_migrations`,
         `open_sync_connection` raises `PreflightError` naming
         `kalshi_005_candlesticks`; restoring it lets the connection open.
-  - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
+  - [x] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi -q` passes. Never point the tier at the production URL.
-  - [ ] **Commit**: `feat: add kalshi_005 candlestick hypertable and ledger preflight`.
+  - [x] **Commit**: `feat: add kalshi_005 candlestick hypertable and ledger preflight`.
 
 ## Section 3: The batch planner (pure)
 
