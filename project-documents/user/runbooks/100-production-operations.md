@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20260826
+dateUpdated: 20260827
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---

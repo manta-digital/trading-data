@@ -1407,3 +1407,63 @@ realistic policy collision windows.
 carries the reproduction. `mt data rechunk` pre-flight implements the refusal.
 Slice 163 must adopt the same pause/verify discipline for the cagg
 materialized hypertables' own jobs.
+
+## 20260827 — `CALL run_job((select …))` is invalid PostgreSQL; and a rate-budget headroom note from the 264 rehearsal
+
+**Context:** The slice 264 rehearsal (`2026-08-27-264-rehearsal.md`) ran the
+design's Verification Walkthrough verbatim on a throwaway database. Two things
+the walkthrough asserted turned out not to hold, and one measurement is worth
+carrying forward.
+
+**1. A subquery cannot be a `CALL` argument.** The walkthrough (and any
+runbook tempted to copy it) spelled the compression check as
+
+```sql
+call run_job((select job_id from timescaledb_information.jobs where …));
+-- ERROR:  cannot use subquery in CALL argument
+```
+
+`CALL` takes only literal/parameter expressions. The correct shape keeps the
+same discipline — resolve by hypertable name and `proc_name` at use time,
+never record a job ID — but in two statements:
+
+```sql
+select job_id from timescaledb_information.jobs
+ where proc_name='policy_compression' and hypertable_schema='kalshi'
+   and hypertable_name='candlesticks';     -- read it now; it regenerates
+call run_job(1000);                         -- literal, from the line above
+```
+
+**Decision:** every document that shows running a Timescale job by hand uses
+the two-statement form. This does not weaken the "never by job ID" rule — the
+rule is about not *persisting* an ID, and resolving it one statement earlier
+is still resolution at use time. Recorded because the one-liner looks correct
+and fails only at execution.
+
+**2. A compression policy that runs successfully and compresses nothing is
+the expected result on fresh data.** `run_job` returned `CALL`,
+`last_run_status = Success`, `total_failures 0` — and both chunks stayed
+`Uncompressed`, because every chunk was newer than the 14-day
+`compress_after`. Proving compression *works* requires deliberately old rows,
+which is the integration test's job
+(`test_kalshi_candles.py::TestCompression`), not a rehearsal's. A rehearsal on
+live data can only confirm the policy exists, is scheduled, and runs clean.
+
+**3. Rate-budget headroom, measured.** The candle phase roughly doubles a
+pass's request count (1,217 requests on the first pass with first-sight
+history; 73 in steady state, against the catalog phase's own traffic). At the
+public 300 req/min budget this drew **58 HTTP 429s on `/markets/candlesticks`
+and 6 on `/events`** across two passes — every one retried successfully at
+attempt 1 of 4, zero provider aborts. Not a defect (the transport's bounded
+retry is doing exactly its job), but the margin is now visibly thinner:
+`MT_KALSHI_REQUESTS_PER_MINUTE` is the lever if 429s start reaching attempt 3+
+or the phase's wall time inflates. Watch it when slice 265 (trades) adds a
+third phase to the same budget.
+
+**Follow-ups:** slice 264 Task 8.4 corrects the walkthrough's `run_job` SQL.
+The phase wall time from the first *production* firing (Decision 9's evidence
+on whether a fetch pool is ever warranted) is a PM step (8.2) and is not yet
+recorded. Whether Kalshi ever revises a completed candle — the Risk
+Assessment's open question — also remains open: conflict-ignore keeps the
+first version, so a revision would show up as a diff on a deliberate re-fetch,
+which nothing does yet.

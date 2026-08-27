@@ -17,7 +17,7 @@ reviewVerdictsAddressed:
   - 264-review.tasks.candlestick-collection.part-1 (claude-opus-5, CONCERNS, F004/F005/F007 addressed)
   - 264-review.tasks.candlestick-collection.part-2 (claude-opus-5, CONCERNS, F001-F004 addressed)
 dateCreated: 20260826
-dateUpdated: 20260826
+dateUpdated: 20260827
 status: in_progress
 ---
 
@@ -281,12 +281,12 @@ persisted fact; nothing here counts rows in `kalshi.candlesticks`.
   - [x] Success: all clean; no new dependency in `pyproject.toml`.
   - [x] **Commit**: `test: add kalshi candle end-to-end and compression coverage`.
 
-- [ ] **Task 7.4: Rehearsal on a throwaway database** (effort: 3)
-  - [ ] Walkthrough steps 1–5 exactly, on a **throwaway database on the test
+- [x] **Task 7.4: Rehearsal on a throwaway database** (effort: 3)
+  - [x] Walkthrough steps 1–5 exactly, on a **throwaway database on the test
         cluster** — the shell's `MT_TIMESCALE_DB_URL` points at it and the
         production URL never enters the shell. Use `sync --settled-since` at
         about six hours to keep the catalog small.
-  - [ ] Record: the migrate/hypertable check (step 1); the preflight
+  - [x] Record: the migrate/hypertable check (step 1); the preflight
         failure naming `kalshi_005_candlesticks` and its recovery (step 2,
         Criterion 11); the rule inspection **including the full list of
         series the exclusion patterns match** — read that list, it is the
@@ -295,28 +295,28 @@ persisted fact; nothing here counts rows in `kalshi.candlesticks`.
         (Criterion 2); the first pass with its phase lines and counts (step
         4); the second pass, the duplicate check, the `status` block in both
         modes, and the compression job run (step 5).
-  - [ ] Also record from step 4 the **partial/complete counts** — the
+  - [x] Also record from step 4 the **partial/complete counts** — the
         `count(*) filter (where coverage_from_ts > open_time)` and
         `watermark_ts >= close_time + interval` query — which is where
         first-sight semantics are proven on real data (Criterion 6).
-  - [ ] Record the **pending queries' wall time** with `\timing on`. The
+  - [x] Record the **pending queries' wall time** with `\timing on`. The
         design's *Special Considerations* asks for it: each pass joins
         `markets` (3.5 M+ rows) to `events` and `series` once per pending
         set, and if the backlog query dominates, a partial index on
         `markets (settlement_ts) WHERE status = 'finalized'` is the named
         first lever. Task 8.2's phase wall time is the Decision 9 evidence
         about concurrency; this is the separate per-query evidence.
-  - [ ] Write it all into `user/notes/2026-MM-DD-264-rehearsal.md` (the date
+  - [x] Write it all into `user/notes/2026-MM-DD-264-rehearsal.md` (the date
         run), with the matched-series listing pasted in full.
-  - [ ] Success: two passes exit 0; zero HTTP 400 on `/markets/candlesticks`
+  - [x] Success: two passes exit 0; zero HTTP 400 on `/markets/candlesticks`
         (Criterion 5); the duplicate query returns 0 rows (Criterion 4).
-  - [ ] **Commit**: `docs: record 264 throwaway-database rehearsal`.
+  - [x] **Commit**: `docs: record 264 throwaway-database rehearsal`.
 
-- [ ] **Task 7.5: Documentation** (effort: 2)
-  - [ ] `deploy/manta-trading.env.example`: five commented `MT_KALSHI_CANDLE_*`
+- [x] **Task 7.5: Documentation** (effort: 2)
+  - [x] `deploy/manta-trading.env.example`: five commented `MT_KALSHI_CANDLE_*`
         lines under the existing optional-tuning block, showing the
         defaults, in the file's established comment style.
-  - [ ] Runbook 100, Kalshi subsection: one paragraph covering the pass now
+  - [x] Runbook 100, Kalshi subsection: one paragraph covering the pass now
         having two phases; what the collection rule is and that it is set by
         the `MT_KALSHI_CANDLE_*` lines; that `status` shows the rule in
         force and the excluded count; that `kalshi_005` must be applied
@@ -327,12 +327,12 @@ persisted fact; nothing here counts rows in `kalshi.candlesticks`.
         automatically — how to see the policy and its last run **by
         hypertable name and `proc_name`, never by job ID** — and that a
         historical backfill must pause it.
-  - [ ] `CHANGELOG.md` under `[Unreleased]`: the candle phase and the rule,
+  - [x] `CHANGELOG.md` under `[Unreleased]`: the candle phase and the rule,
         the status block, the migration (hypertable + compression policy),
         and the preflight change.
-  - [ ] Success: the runbook paragraph names no job ID and no wall-clock
+  - [x] Success: the runbook paragraph names no job ID and no wall-clock
         promise the collector does not make.
-  - [ ] **Commit**: `docs: document the kalshi candle phase and collection rule`.
+  - [x] **Commit**: `docs: document the kalshi candle phase and collection rule`.
 
 ## Section 8: Host steps and close
 

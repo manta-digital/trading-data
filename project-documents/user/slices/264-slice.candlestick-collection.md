@@ -7,10 +7,10 @@ dependencies: [263]
 interfaces: [265, 266]
 effort: 3
 dateCreated: 20260825
-dateUpdated: 20260826
+dateUpdated: 20260827
 reviewVerdictsAddressed:
   - 264-review.slice.candlestick-collection (claude-sonnet-5, CONCERNS, F001 addressed in 260-arch; F002 noted there)
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: Candlestick Collection (264)
@@ -431,102 +431,163 @@ Kalshi candlesticks        period 1 min   last phase 2026-08-27 14:24:11 UTC (36
 
 ## Verification Walkthrough
 
-Draft; refined with observed output after Phase 6, as 263's was. Steps 1–5 run on a **throwaway database on the test cluster** (`MT_TIMESCALE_DB_URL` points at it for these commands only; the production URL is never in the shell). Steps 6–8 are on manta9000 and are the PM's.
+Steps 1–5 were **run on 2026-08-26/27** against a UUID-named throwaway
+database on the test cluster; the output below is what was observed, not a
+draft (full transcript and the 410-row pattern listing:
+`user/notes/2026-08-27-264-rehearsal.md`). `MT_TIMESCALE_DB_URL` pointed at
+the throwaway database for those commands only; the production URL never
+entered the shell. Steps 6–8 are on manta9000 and are the PM's — they are
+**not yet run**, and their expectations remain expectations.
 
-**1. Throwaway database, migrated, with a small catalog.**
-
-```bash
-uv run mt data migrate status --track kalshi      # → 0 pending; kalshi_005_candlesticks applied
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select hypertable_name, compression_enabled from timescaledb_information.hypertables where hypertable_schema='kalshi'"
-#    → candlesticks | t
-uv run mt data kalshi sync --settled-since "$(date -u -d '6 hours ago' +%FT%TZ)"     # ~180k live + ~18k settled; minutes, not 45
-```
-
-**2. Preflight names a missing migration (Criterion 11).**
+**1. Throwaway database, migrated, with a small catalog.** ✅ observed
 
 ```bash
-uv run psql "$MT_TIMESCALE_DB_URL" -c "delete from schema_migrations where migration_id='kalshi_005_candlesticks'"
-uv run mt data kalshi pass      # → Error: kalshi track has pending migrations: kalshi_005_candlesticks — …   (exit 1)
 uv run mt data migrate apply --track kalshi
+#    → Applied: kalshi_001_schema … kalshi_005_candlesticks   (5 migration(s) applied)
+uv run mt data migrate status --track kalshi      # → all applied, 0 pending
+psql "$MT_TIMESCALE_DB_URL" -c "select hypertable_name, compression_enabled from timescaledb_information.hypertables where hypertable_schema='kalshi'"
+#    → candlesticks | t
+uv run mt data kalshi sync --settled-since "$(date -u -d '6 hours ago' +%FT%TZ)"
+#    → 189 s, exit 0, item errors 0: 13,545 series · 188,798 markets · 19,705 settled captured
 ```
 
-**3. Inspect the rule before running it, and show it is configuration (Criterion 2).**
+**2. Preflight names a missing migration (Criterion 11).** ✅ observed
 
 ```bash
-uv run mt data kalshi status --json | jq .candles.rule         # the defaults: traded_only true, excluded Sports,Mentions, two patterns
-MT_KALSHI_CANDLE_CATEGORIES=Sports MT_KALSHI_CANDLE_EXCLUDED_CATEGORIES= uv run mt data kalshi status --json | jq '.candles | {rule, selected_open}'
-#    → selected_open jumps to the ~9k traded Sports markets; nothing was collected, only the rule in force changed
-# what the default rule selects right now, and every series the exclusion patterns catch — read this list
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from kalshi.markets m join kalshi.events e on e.event_ticker=m.event_ticker join kalshi.series s on s.ticker=e.series_ticker where m.status<>'finalized' and m.volume_24h_fp>0 and s.category not in ('Sports','Mentions') and s.ticker !~ 'MENTION|SAY' and s.title !~* '\m(say|says|mention|mentions)\M'"
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select ticker, category, title from kalshi.series where ticker ~ 'MENTION|SAY' or title ~* '\m(say|says|mention|mentions)\M' order by category, ticker"
+psql "$MT_TIMESCALE_DB_URL" -c "delete from schema_migrations where migration_id='kalshi_005_candlesticks'"
+uv run mt data kalshi pass
+#    → Error: kalshi track has pending migrations: kalshi_005_candlesticks — mt data migrate apply --track kalshi
+#      exit 1
+uv run mt data migrate apply --track kalshi       # → Applied: kalshi_005_candlesticks
 ```
 
-**4. First pass: both phases, first-sight history, the backlog cap (Criteria 1, 3, 6, 8, 9).**
+**3. Inspect the rule before running it, and show it is configuration (Criterion 2).** ✅ observed
+
+```bash
+uv run mt data kalshi status --json | jq .candles.rule
+#    → traded_only true · excluded_categories ["Mentions","Sports"] · both patterns
+#      description: "traded 24h · categories all · excluding Mentions, Sports · patterns 2"
+MT_KALSHI_CANDLE_CATEGORIES=Sports MT_KALSHI_CANDLE_EXCLUDED_CATEGORIES= uv run mt data kalshi status --json | jq '.candles | {rule, selected_open}'
+#    → selected_open 7,335 → 11,162, closed_excluded_by_rule 32,260 → 28,142;
+#      market_candle_state unchanged at 9,620 rows — the rule moved, nothing was collected
+# every series the exclusion patterns catch — read this list (410 rows: Mentions 402, Entertainment 3, Politics 2, Economics 1)
+psql "$MT_TIMESCALE_DB_URL" -c "select ticker, category, title from kalshi.series where ticker ~ 'MENTION|SAY' or title ~* '\m(say|says|mention|mentions)\M' order by category, ticker"
+#    → one over-reach found: KXNWSAYLOR ("Michael Saylor net worth") — "SAY" inside "SAYLOR".
+#      One series, not collected; the rule is configuration, so an operator can narrow the pattern.
+#      Uncategorised series in this snapshot: 0 of 13,545 (the NULL rule stays proven by test, not by data).
+```
+
+**4. First pass: both phases, first-sight history, the backlog cap (Criteria 1, 3, 6, 8, 9).** ✅ observed
 
 ```bash
 uv run mt data kalshi pass --events-file candles-pass1.jsonl
+#    exit 0 in 467 s (catalog 83 s, candles 384 s)
 #    journal: kalshi pass started … phases=catalog,candles
-#             candles: cutoff 2026-06-25 · pending live ~6,900 finishing 0 backlog 100,000 (remaining ~xxx,xxx)
-#             candles: 100 requests … (progress) … kalshi pass finished outcome=ok … phases: catalog=ok candles=ok
-#    expect a few minutes (Decision 5: ~1,150 first-sight requests + ≤1,000 backlog)
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from kalshi.market_candle_state"
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select count(*) filter (where s.coverage_from_ts > m.open_time) partial, count(*) filter (where s.watermark_ts >= m.close_time + interval '1 minute') complete from kalshi.market_candle_state s join kalshi.markets m on m.ticker=s.market_ticker"
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select market_ticker, end_period_ts, yes_bid_close_dollars, price_close_dollars, volume_fp from kalshi.candlesticks order by end_period_ts desc limit 5"
-jq -r 'select(.event_type=="phase_finished" and .phase=="candles") | .counts' candles-pass1.jsonl
+#             kalshi candles phase started … cutoff=2026-06-27T00:00:00+00:00
+#               candles rule: traded 24h · categories all · excluding Mentions, Sports · patterns 2
+#             kalshi candles progress requests=100/1217 markets=598 candles=295016   (one per 100)
+#             kalshi pass finished outcome=ok … phases: catalog=ok candles=ok
+#    candles summary: pending live 7,335 / finishing 0 / backlog 2,285 (remaining 0);
+#                     1,217 requests; 9,620 markets requested = 9,620 advanced;
+#                     1,531,304 candles fetched = written; 0 item errors
+psql "$MT_TIMESCALE_DB_URL" -c "select count(*) filter (where s.coverage_from_ts > m.open_time) partial, count(*) filter (where s.watermark_ts >= m.close_time + interval '1 minute') complete from kalshi.market_candle_state s join kalshi.markets m on m.ticker=s.market_ticker"
+#    → partial 6,480 | complete 2,378 | total 9,620   (Criterion 6 on real data)
 ```
 
-**5. Second pass, status, omission path (Criteria 4, 7, 10, 12).**
+The throwaway catalog held only ~6 h of settlements, so its backlog drained in
+this one pass and `behind_cutoff_uncollected` was 0. Production's backlog is
+~0.5 M markets, where the per-pass cap is what matters.
+
+**5. Second pass, status, compression (Criteria 4, 7, 12, 13).** ✅ observed
 
 ```bash
 uv run mt data kalshi pass --json | jq '.phases[] | {name, outcome, w: .summary.candles_written, r: .summary.requests}'
-#    → candles ok, requests ≈ 70 + ≤1,000 backlog, candles_written small
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from kalshi.candlesticks c join kalshi.candlesticks d using (market_ticker, period, end_period_ts) where c.ctid <> d.ctid"   # → 0
-uv run mt data kalshi status                       # candle block as in *CLI and rendering*, excluded-by-rule count non-zero
-uv run mt data kalshi status --json | jq .candles
-# compression (Criterion 13): the policy exists; run it by hand on the backlog's oldest chunk (older than 14 days) and see it compress
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select job_id, config from timescaledb_information.jobs where proc_name='policy_compression' and hypertable_schema='kalshi' and hypertable_name='candlesticks'"
-uv run psql "$MT_TIMESCALE_DB_URL" -c "call run_job((select job_id from timescaledb_information.jobs where proc_name='policy_compression' and hypertable_schema='kalshi' and hypertable_name='candlesticks'))"
-uv run psql "$MT_TIMESCALE_DB_URL" -c "select chunk_name, compression_status, before_compression_total_bytes, after_compression_total_bytes from chunk_compression_stats('kalshi.candlesticks') order by chunk_name limit 5"
-# omission path: integration test `test_omitted_ticker_is_item_error` — the fake source drops one requested ticker; exit 3, no state row.
+#    → candles ok, 73 requests (design estimate ~70), 13,222 fetched → 8,341 written
+#      (the difference is the deliberate watermark-instant overlap, dropped by conflict-ignore)
+psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from kalshi.candlesticks c join kalshi.candlesticks d using (market_ticker, period, end_period_ts) where c.ctid <> d.ctid"   # → 0
+uv run mt data kalshi status
+#    Kalshi candlesticks   period 1 min   last phase … (0 min ago)   cutoff 2026-06-27
+#      rule                traded 24h · categories all · excluding Mentions, Sports · patterns 2   (MT_KALSHI_CANDLE_*)
+#      selected open       7,205
+#      tracked             9,626 markets   complete through close 2,605   partial history 6,480
+#      open lagging        0
+#      short of close      0        backlog remaining 0        behind cutoff, uncollected 0
+#      excluded by rule    32,919 closed markets (never traded, or an excluded category or pattern)
+# compression: resolve the job by hypertable name + proc_name, then CALL it with the literal id.
+# A subquery is NOT valid in a CALL argument — `call run_job((select …))` fails with
+# "cannot use subquery in CALL argument". Never record the id; it regenerates.
+psql "$MT_TIMESCALE_DB_URL" -c "select job_id, scheduled, config from timescaledb_information.jobs where proc_name='policy_compression' and hypertable_schema='kalshi' and hypertable_name='candlesticks'"
+#    → 1000 | t | {"hypertable_id": 1, "compress_after": "336:00:00"}
+psql "$MT_TIMESCALE_DB_URL" -c "call run_job(1000)"          # → CALL; last_run_status Success, 0 failures
+psql "$MT_TIMESCALE_DB_URL" -c "select chunk_name, compression_status from chunk_compression_stats('kalshi.candlesticks')"
+#    → both chunks Uncompressed, correctly: every chunk here is newer than the 14-day horizon.
+#      Compression of a genuinely old chunk (and identical rows afterwards) is proven by
+#      test_kalshi_candles.py::TestCompression, which creates rows past the horizon on purpose.
 ```
 
-**6. Production deploy (PM).** Runbook 100 *Update procedure*: tag `v0.10.0` → `install-production.sh --ref v0.10.0` (once — no new units) → from the dev checkout `uv run mt data migrate status --track kalshi` (1 pending) → `uv run mt data migrate apply --track kalshi` (maintenance credential) → `status` shows 0 pending. A firing between install and apply shows `last run: exit-code, exit=1` naming `kalshi_005_candlesticks` — expected (Decision 8).
+**Pending-query wall time** (design *Special Considerations*), measured on the
+same 188,798-market catalog: `pending_live` **70 ms** (7,021 rows),
+`pending_finishing` 10 ms, `pending_backlog` 28 ms, `count_backlog_remaining`
+22 ms, `count_behind_cutoff` 7 ms. The backlog query does **not** dominate, so
+the named partial index on `markets (settlement_ts)` is not added.
 
-**7. First supervised firing (Criterion 14).**
+**HTTP 4xx (Criterion 5):** **zero HTTP 400** on `/markets/candlesticks` across
+1,290 batch requests — the planner's caps held on live traffic. The 64 4xx
+lines in the transcript are all 429s (58 candlesticks, 6 events), every one
+retried successfully at attempt 1 of 4, zero provider aborts. The candle phase
+roughly doubles a pass's request count, so `MT_KALSHI_REQUESTS_PER_MINUTE` is
+the lever if that margin tightens.
+
+**6. Production deploy (PM).** *Not yet run.* Runbook 100 *Update procedure*:
+tag `v0.10.0` → `install-production.sh --ref v0.10.0` (once — no new units) →
+from the dev checkout `uv run mt data migrate status --track kalshi` (1
+pending) → `uv run mt data migrate apply --track kalshi` (maintenance
+credential) → `status` shows 0 pending. A firing between install and apply
+shows `last run: exit-code, exit=1` naming `kalshi_005_candlesticks` —
+expected (Decision 8), and proven on the throwaway database in step 2.
+
+**7. First supervised firing (Criterion 14).** *Not yet run.*
 
 ```bash
 sudo mt-run kalshi                     # or wait for :20; Ctrl-C detaches
 mt-run follow kalshi
-systemctl show mt-kalshi-pass.service -p Result -p ExecMainStatus                    # Result=success, ExecMainStatus=0
-journalctl -u mt-kalshi-pass.service --grep 'kalshi pass finished' -n 1               # phases: catalog=ok candles=ok
-journalctl -u mt-kalshi-pass.service -o cat --since -2h | grep -c 'HTTP 4'            # 0
+systemctl show mt-kalshi-pass.service -p Result -p ExecMainStatus                    # expect Result=success, ExecMainStatus=0
+journalctl -u mt-kalshi-pass.service --grep 'kalshi pass finished' -n 1               # expect phases: catalog=ok candles=ok
+journalctl -u mt-kalshi-pass.service -o cat --since -2h | grep -c 'HTTP 400'          # expect 0 (429s are retried and expected)
 ```
 
-**8. Steady state, one day later.**
+Record the phase's wall time from the journal — Decision 9 says a fetch pool
+stays a follow-up **with evidence**, and this is that evidence.
+
+**8. Steady state, second pass on demand.** *Not yet run.*
 
 ```bash
-mt-run data kalshi status              # open lagging 0; backlog remaining → 0 within ~6 firings; behind-cutoff and excluded counts stable
-journalctl -u mt-kalshi-pass.service --since -24h | grep -c retry                     # 263 Decision 7 evidence, now with ~70 more requests per pass
+mt-run data kalshi status              # then: sudo mt-run kalshi; status again
+#    expect between the two readings: open lagging 0, backlog remaining falling
+journalctl -u mt-kalshi-pass.service --since -24h | grep -c retry                     # 263 Decision 7 evidence, now with the candle phase's requests
 ```
+
+Record `behind_cutoff_uncollected` — it is 266's input and the honest
+"known-lost until then" number.
 
 ### Success criteria — where each is proven
 
 | # | Unit | Integration | Rehearsal / host |
 |---|---|---|---|
-| 1 | pass order, dispatch | pass end-to-end | step 4 journal |
-| 2 | core: recorded queries | predicate fixture set | step 3 listing |
-| 3 | core: advance on empty | insert + state | step 4 queries |
-| 4 | — | duplicate re-insert | step 5 |
-| 5 | planner invariant | — | step 7 grep |
-| 6 | `target_window` cases | pending queries | step 4 partial/complete |
-| 7 | core: finishing set | close-then-pass | step 5 |
-| 8 | core: cap on backlog only | backlog ordering | steps 4–5 status |
-| 9 | core: cutoff exclusion | behind-cutoff query | step 5 status |
-| 10 | core: omission | `test_omitted_ticker…` | — |
-| 11 | — | ledger preflight | step 2 |
-| 12 | status imports | status queries | step 5 |
-| 13 | — | policy + run_job test | step 5 |
-| 14 | — | — | steps 7–8 |
+| 1 | `PASS_PHASES` order; catalog-abort skip; candle-abort leaves catalog intact | two-phase pass end-to-end | ✅ step 4 journal `phases: catalog=ok candles=ok` |
+| 2 | `selection_sql` clause matrix; `Settings` → `CandleRule` | predicate fixture set, by row identity incl. NULL series | ✅ step 3: 7,335 → 11,162 `selected_open` on an env override, nothing collected |
+| 3 | core advances on an empty response | insert + state per requested market | ✅ step 4: 9,620 requested = 9,620 advanced |
+| 4 | — | duplicate re-insert writes nothing | ✅ step 5: duplicate query 0 rows; 13,222 fetched → 8,341 written |
+| 5 | planner randomized cap/coverage invariant | — | ✅ 0 HTTP 400 over 1,290 live batch requests |
+| 6 | `target_window` cases | `coverage_from_ts` set once | ✅ step 4: partial 6,480 / complete 2,378 of 9,620 |
+| 7 | core: finishing set | close-then-pass | ✅ step 5: `short of close 0`, `complete through close` 2,605 |
+| 8 | core: cap on backlog only; count ≠ capped rows | backlog ordering + falling remainder | ✅ step 4→5 `backlog_remaining` 0; cap exercised in test (throwaway backlog was small) |
+| 9 | core: cutoff exclusion | behind-cutoff count | ✅ counts present; 0 here (cutoff predates this catalog's settlements) |
+| 10 | core: omission → item error | omitted ticker → exit 3, no state row | — (integration only; no live omission occurred) |
+| 11 | — | ledger preflight names every missing id | ✅ step 2, exact wording and exit 1 |
+| 12 | `status.py` imports no client/transport | every field of the block | ✅ step 5 Rich + `--json` blocks |
+| 13 | — | policy run_job compresses an old chunk, rows identical | ⚠️ policy verified present/scheduled/clean; nothing eligible (all chunks < 14 d) — compression itself proven by the integration test |
+| 14 | — | — | ⏳ steps 7–8, PM, not yet run |
 
 ## Risk Assessment
 

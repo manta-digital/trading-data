@@ -24,7 +24,7 @@ reviewVerdictsAddressed:
   - 264-review.tasks.candlestick-collection.part-1 (claude-opus-5, CONCERNS, F001-F003/F006 addressed here; F004/F005/F007 in part 2)
   - 264-review.tasks.candlestick-collection.part-2 (claude-opus-5, CONCERNS, dispositioned in part 2)
 dateCreated: 20260826
-dateUpdated: 20260826
+dateUpdated: 20260827
 status: in_progress
 ---
 
