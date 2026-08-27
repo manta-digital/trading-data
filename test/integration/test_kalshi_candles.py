@@ -406,3 +406,59 @@ class TestWrites:
         assert state.last_full_sync_at == PHASE_START
         assert state.watermark_ts == CUTOFF
         assert state.cursor is None
+
+
+class TestCompression:
+    """Criterion 13 (Decision 4): the policy compresses an old chunk and the
+    rows read back identical. The job is resolved by hypertable name and
+    ``proc_name`` at use time — job ids regenerate whenever a policy is
+    recreated, so none is ever recorded."""
+
+    async def test_policy_compresses_an_old_chunk_and_rows_survive(
+        self,
+        kalshi_db: str,
+        kalshi_repo: CatalogRepository,
+        repo: CandleRepository,
+        kalshi_conn: psycopg.AsyncConnection[Any],
+    ):
+        from manta_trading.data.kalshi.constants import KALSHI_CANDLE_COMPRESS_AFTER
+
+        markets, series = fixture_markets()
+        await write_catalog(kalshi_repo, markets, series)
+        # Old enough that the whole 7-day chunk ends before the horizon.
+        old = datetime.now(UTC).replace(second=0, microsecond=0) - (
+            KALSHI_CANDLE_COMPRESS_AFTER + timedelta(days=16)
+        )
+        rows = [("POLITICS", candle(old + SPAN * i)) for i in range(10)]
+        rows.append(("POLITICS", candle(old + SPAN * 10, price={})))
+        async with repo.transaction():
+            assert await repo.insert_candles(PERIOD, rows) == len(rows)
+        query = (
+            "SELECT end_period_ts, yes_bid_open_dollars, price_close_dollars, "
+            "volume_fp FROM kalshi.candlesticks WHERE market_ticker = 'POLITICS' "
+            "ORDER BY end_period_ts"
+        )
+        with psycopg.connect(kalshi_db, autocommit=True) as conn:
+            before = conn.execute(query).fetchall()
+            job = conn.execute(
+                "SELECT job_id FROM timescaledb_information.jobs "
+                "WHERE hypertable_schema = 'kalshi' "
+                "AND hypertable_name = 'candlesticks' "
+                "AND proc_name = 'policy_compression'"
+            ).fetchall()
+            assert len(job) == 1
+            conn.execute("CALL run_job(%s)", (job[0][0],))
+            stats = conn.execute(
+                "SELECT chunk_name, compression_status "
+                "FROM chunk_compression_stats('kalshi.candlesticks')"
+            ).fetchall()
+            after = conn.execute(query).fetchall()
+            scheduled = conn.execute(
+                "SELECT scheduled FROM timescaledb_information.jobs WHERE job_id = %s",
+                (job[0][0],),
+            ).fetchone()
+        assert len(before) == len(rows)
+        assert [status for _, status in stats] == ["Compressed"]
+        assert after == before
+        # The policy is left enabled (266 pauses it for a backfill, never here).
+        assert scheduled == (True,)
