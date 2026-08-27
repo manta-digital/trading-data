@@ -18,7 +18,14 @@ from psycopg import errors
 from psycopg_pool import ConnectionPool
 
 from manta_trading.data.kalshi import models as km
-from manta_trading.data.kalshi.constants import CandlePeriod, MarketStatus, Surface
+from manta_trading.data.kalshi.constants import (
+    KALSHI_CANDLE_CHUNK_INTERVAL,
+    KALSHI_CANDLE_COMPRESS_AFTER,
+    CandlePeriod,
+    MarketStatus,
+    Surface,
+)
+from manta_trading.data.kalshi.db import PreflightError, open_sync_connection
 from manta_trading.market.schema.migrations import TRACKS
 from manta_trading.market.schema.migrations.kalshi import APP_ROLE
 from manta_trading.market.schema.runner import apply_migrations, list_migration_state
@@ -28,6 +35,7 @@ KALSHI_IDS = [
     "kalshi_002_catalog",
     "kalshi_003_collection_state",
     "kalshi_004_catalog_sync_semantics",
+    "kalshi_005_candlesticks",
 ]
 BOOTSTRAP_ID = "001_schema_migrations"
 TABLES = {
@@ -37,12 +45,14 @@ TABLES = {
     "sync_state",
     "awaiting_settlement",
     "market_candle_state",
+    "candlesticks",
 }
+CANDLES_ID = "kalshi_005_candlesticks"
 
 
 @pytest.fixture
-def pool(ephemeral_db: str) -> Iterator[ConnectionPool[Any]]:
-    with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
+def pool(kalshi_bare_db: str) -> Iterator[ConnectionPool[Any]]:
+    with ConnectionPool(kalshi_bare_db, min_size=1, max_size=2) as pool:
         yield pool
 
 
@@ -114,6 +124,12 @@ class TestSchemaObjects:
             "REFERENCES kalshi.markets(ticker)"
             in defs["market_candle_state_market_ticker_fkey"]
         )
+        assert (
+            defs["candlesticks_pkey"]
+            == "PRIMARY KEY (market_ticker, period, end_period_ts)"
+        )
+        candles_fk = defs["candlesticks_market_ticker_fkey"]
+        assert "REFERENCES kalshi.markets(ticker)" in candles_fk
 
     def test_check_constraints_derive_from_enums(
         self, applied: list[str], ephemeral_db: str
@@ -126,6 +142,7 @@ class TestSchemaObjects:
             assert f"'{surface.value}'::text" in defs["sync_state_surface_check"]
         for period in CandlePeriod:
             assert str(int(period)) in defs["market_candle_state_period_check"]
+            assert str(int(period)) in defs["candlesticks_period_check"]
 
     def test_indexes(self, applied: list[str], ephemeral_db: str):
         with psycopg.connect(ephemeral_db) as conn:
@@ -309,3 +326,144 @@ class TestSyncStateComments:
                 "AND attname = 'watermark_ts'"
             ).fetchone()
         assert row is not None and "completed settled window" in row[0]
+
+
+def column_comment(conn: psycopg.Connection, table: str, column: str) -> str:
+    row = conn.execute(
+        "SELECT col_description(%s::regclass, attnum) FROM pg_attribute "
+        "WHERE attrelid = %s::regclass AND attname = %s",
+        (table, table, column),
+    ).fetchone()
+    assert row is not None and row[0] is not None
+    return row[0]
+
+
+class TestCandlesticksHypertable:
+    """``kalshi_005`` (slice 264, Decision 4): hypertable, compression, policy."""
+
+    def test_in_track_and_reapplies(
+        self, applied: list[str], pool: ConnectionPool[Any]
+    ):
+        assert CANDLES_ID in applied
+        assert apply_migrations(pool, TRACKS["kalshi"]) == []
+
+    def test_is_hypertable_with_configured_chunk_interval(
+        self, applied: list[str], ephemeral_db: str
+    ):
+        with psycopg.connect(ephemeral_db) as conn:
+            hypertables = conn.execute(
+                "SELECT hypertable_name FROM timescaledb_information.hypertables "
+                "WHERE hypertable_schema = 'kalshi'"
+            ).fetchall()
+            interval = conn.execute(
+                "SELECT time_interval FROM timescaledb_information.dimensions "
+                "WHERE hypertable_schema = 'kalshi' "
+                "AND hypertable_name = 'candlesticks' "
+                "AND column_name = 'end_period_ts'"
+            ).fetchone()
+        assert hypertables == [("candlesticks",)]
+        assert interval == (KALSHI_CANDLE_CHUNK_INTERVAL,)
+
+    def test_compression_settings(self, applied: list[str], ephemeral_db: str):
+        with psycopg.connect(ephemeral_db) as conn:
+            row = conn.execute(
+                "SELECT segmentby, orderby "
+                "FROM timescaledb_information.hypertable_compression_settings "
+                "WHERE hypertable = 'kalshi.candlesticks'::regclass"
+            ).fetchone()
+        assert row == ("market_ticker", "end_period_ts DESC")
+
+    def test_compression_policy_horizon(self, applied: list[str], ephemeral_db: str):
+        """Read back by hypertable name and ``proc_name`` — never by job id,
+        which regenerates whenever the policy is recreated."""
+        with psycopg.connect(ephemeral_db) as conn:
+            rows = conn.execute(
+                "SELECT (config->>'compress_after')::interval "
+                "FROM timescaledb_information.jobs "
+                "WHERE hypertable_schema = 'kalshi' "
+                "AND hypertable_name = 'candlesticks' "
+                "AND proc_name = 'policy_compression'"
+            ).fetchall()
+        assert rows == [(KALSHI_CANDLE_COMPRESS_AFTER,)]
+
+    def test_coverage_from_ts_added(self, applied: list[str], ephemeral_db: str):
+        with psycopg.connect(ephemeral_db) as conn:
+            row = conn.execute(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_schema = 'kalshi' "
+                "AND table_name = 'market_candle_state' "
+                "AND column_name = 'coverage_from_ts'"
+            ).fetchone()
+        assert row == ("timestamp with time zone",)
+
+    def test_rewritten_comments(self, applied: list[str], ephemeral_db: str):
+        with psycopg.connect(ephemeral_db) as conn:
+            watermark = column_comment(
+                conn, "kalshi.market_candle_state", "watermark_ts"
+            )
+            coverage = column_comment(
+                conn, "kalshi.market_candle_state", "coverage_from_ts"
+            )
+            sync = column_comment(conn, "kalshi.sync_state", "watermark_ts")
+        # Decision 3: the window end, not the newest stored candle.
+        assert "NOT the newest stored candle" in watermark
+        assert "newest stored candle for this market" not in watermark
+        # Decision 5.
+        assert "first window ever requested" in coverage
+        # Decision 11 — and kalshi_004's catalog and trades clauses survive.
+        assert "candlesticks: market_settled_ts of the historical cutoff" in sync
+        assert "catalog: settlement_ts upper bound" in sync
+        assert "trades: created_time of the newest stored trade" in sync
+
+
+class TestLedgerPreflight:
+    """``open_sync_connection`` (slice 264, Decision 8) requires every id in
+    the kalshi track, naming the missing ones."""
+
+    async def test_missing_migration_named(self, kalshi_db: str):
+        with psycopg.connect(kalshi_db) as conn:
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = %s", (CANDLES_ID,)
+            )
+            conn.commit()
+        with pytest.raises(PreflightError) as exc:
+            await open_sync_connection(kalshi_db)
+        assert CANDLES_ID in str(exc.value)
+        assert "mt data migrate apply --track kalshi" in str(exc.value)
+
+    async def test_restoring_the_row_lets_the_connection_open(self, kalshi_db: str):
+        with psycopg.connect(kalshi_db) as conn:
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = %s", (CANDLES_ID,)
+            )
+            conn.commit()
+        with pytest.raises(PreflightError):
+            await open_sync_connection(kalshi_db)
+        with psycopg.connect(kalshi_db) as conn:
+            conn.execute(
+                "INSERT INTO schema_migrations (migration_id) VALUES (%s)",
+                (CANDLES_ID,),
+            )
+            conn.commit()
+        conn_ok = await open_sync_connection(kalshi_db)
+        await conn_ok.close()
+
+    async def test_names_every_missing_id(self, kalshi_db: str):
+        with psycopg.connect(kalshi_db) as conn:
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = ANY(%s)",
+                (KALSHI_IDS[-2:],),
+            )
+            conn.commit()
+        with pytest.raises(PreflightError) as exc:
+            await open_sync_connection(kalshi_db)
+        for migration_id in KALSHI_IDS[-2:]:
+            assert migration_id in str(exc.value)
+
+    async def test_bare_database_is_the_same_error(self, ephemeral_db: str):
+        """No ``schema_migrations`` table at all: every id is pending — a
+        PreflightError, not an unhandled psycopg error."""
+        with pytest.raises(PreflightError) as exc:
+            await open_sync_connection(ephemeral_db)
+        assert BOOTSTRAP_ID in str(exc.value)
+        assert CANDLES_ID in str(exc.value)

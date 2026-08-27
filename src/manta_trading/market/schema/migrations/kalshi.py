@@ -2,9 +2,12 @@
 
 The track targets the shared ``trading`` database (TimescaleDB host) and
 creates PostgreSQL schema ``kalshi``: catalog tables (series, events,
-markets) and collection-state tables (sync_state, awaiting_settlement,
-market_candle_state). No hypertables and no candle/trade *data* tables —
-those arrive with their collectors in slices 264/265.
+markets), collection-state tables (sync_state, awaiting_settlement,
+market_candle_state), and — from ``kalshi_005`` (slice 264) — the
+``candlesticks`` hypertable. The track assumes the TimescaleDB extension is
+already installed in the target database (the minute track's ``001a``
+created it on ``trading``); ``create_hypertable`` fails loudly otherwise.
+The trades data table arrives with its collector in slice 265.
 
 Migration IDs are prefixed ``kalshi_NNN_*`` because the ledger
 (``schema_migrations``) is shared with the minute track. The first entry is
@@ -24,9 +27,16 @@ collection enums are rendered from the enums in ``data/kalshi/constants.py``
 
 from __future__ import annotations
 
+from datetime import timedelta
 from enum import Enum
 
-from manta_trading.data.kalshi.constants import CandlePeriod, MarketStatus, Surface
+from manta_trading.data.kalshi.constants import (
+    KALSHI_CANDLE_CHUNK_INTERVAL,
+    KALSHI_CANDLE_COMPRESS_AFTER,
+    CandlePeriod,
+    MarketStatus,
+    Surface,
+)
 
 #: DML-only application role (slice 913 role split). Never TRUNCATE/DDL.
 APP_ROLE = "trading_app"
@@ -50,6 +60,13 @@ def _surface_check_sql() -> str:
 
 def _period_check_sql() -> str:
     return f"CHECK (period IN ({_in_list(CandlePeriod)}))"
+
+
+def _interval_sql(span: timedelta) -> str:
+    """Render a timedelta as a SQL INTERVAL literal, seconds-based so any
+    value renders exactly (the minute track's ``_minute_chunk_interval_sql``
+    idiom) — the constant stays the single definition of the number."""
+    return f"INTERVAL '{int(span.total_seconds())} seconds'"
 
 
 KALSHI_MIGRATIONS: list[dict[str, str]] = [
@@ -267,6 +284,86 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
                 'catalog: unused - windows replace cursor resume. trades: '
                 'resume cursor of an interrupted page walk; NULL when none '
                 'is in progress.';
+        """,
+    },
+    {
+        "id": "kalshi_005_candlesticks",
+        "description": (
+            "Create the kalshi.candlesticks hypertable with compression, add "
+            "market_candle_state.coverage_from_ts, fix watermark comments"
+        ),
+        # Slice 264. The nested ``yes_bid`` / ``yes_ask`` / ``price`` OHLC
+        # objects flatten to sixteen nullable NUMERIC columns (Decision 10;
+        # the map is ``candle_repository.CANDLE_COLUMNS``, parity-tested
+        # against this table). Hypertable from creation, chunked and
+        # compressed per Decision 4 — both horizons render from the constants.
+        # ``watermark_ts`` semantics per Decision 3 replace kalshi_003's text,
+        # which was wrong for sparse data. ``COMMENT ON`` replaces the whole
+        # string, so the sync_state comment carries kalshi_004's catalog and
+        # trades clauses forward and changes only the candlesticks clause
+        # (Decision 11).
+        "sql": f"""
+            CREATE TABLE IF NOT EXISTS kalshi.candlesticks (
+                market_ticker           TEXT        NOT NULL
+                    REFERENCES kalshi.markets (ticker),
+                period                  SMALLINT    NOT NULL,
+                end_period_ts           TIMESTAMPTZ NOT NULL,
+                yes_bid_open_dollars    NUMERIC,
+                yes_bid_high_dollars    NUMERIC,
+                yes_bid_low_dollars     NUMERIC,
+                yes_bid_close_dollars   NUMERIC,
+                yes_ask_open_dollars    NUMERIC,
+                yes_ask_high_dollars    NUMERIC,
+                yes_ask_low_dollars     NUMERIC,
+                yes_ask_close_dollars   NUMERIC,
+                price_open_dollars      NUMERIC,
+                price_high_dollars      NUMERIC,
+                price_low_dollars       NUMERIC,
+                price_close_dollars     NUMERIC,
+                price_previous_dollars  NUMERIC,
+                price_mean_dollars      NUMERIC,
+                volume_fp               NUMERIC     NOT NULL,
+                open_interest_fp        NUMERIC,
+                PRIMARY KEY (market_ticker, period, end_period_ts),
+                CONSTRAINT candlesticks_period_check {_period_check_sql()}
+            );
+            SELECT create_hypertable(
+                'kalshi.candlesticks',
+                'end_period_ts',
+                chunk_time_interval => {_interval_sql(KALSHI_CANDLE_CHUNK_INTERVAL)},
+                if_not_exists       => TRUE
+            );
+            ALTER TABLE kalshi.candlesticks SET (
+                timescaledb.compress,
+                timescaledb.compress_segmentby = 'market_ticker',
+                timescaledb.compress_orderby   = 'end_period_ts DESC'
+            );
+            SELECT add_compression_policy(
+                'kalshi.candlesticks',
+                compress_after => {_interval_sql(KALSHI_CANDLE_COMPRESS_AFTER)},
+                if_not_exists  => TRUE
+            );
+
+            ALTER TABLE kalshi.market_candle_state
+                ADD COLUMN IF NOT EXISTS coverage_from_ts TIMESTAMPTZ;
+            COMMENT ON COLUMN kalshi.market_candle_state.watermark_ts IS
+                'candles requested and stored through this instant (window '
+                'end, clamped to close_time + period) - NOT the newest stored '
+                'candle: Kalshi serves no candle for an idle period (slice '
+                '264, Decision 3)';
+            COMMENT ON COLUMN kalshi.market_candle_state.coverage_from_ts IS
+                'start of the first window ever requested; equals open_time '
+                'only when the market was first seen young (slice 264, '
+                'Decision 5)';
+            COMMENT ON COLUMN kalshi.sync_state.watermark_ts IS
+                'catalog: settlement_ts upper bound of the last completed '
+                'settled window - every non-MVE market with settlement_ts '
+                'before this has been captured; NULL until the first window '
+                'completes. trades: created_time of the newest stored trade. '
+                'candlesticks: market_settled_ts of the historical cutoff '
+                'observed by the last candle phase (slice 264, Decision 11).';
+
+            GRANT SELECT, INSERT, UPDATE, DELETE ON kalshi.candlesticks TO {APP_ROLE};
         """,
     },
 ]

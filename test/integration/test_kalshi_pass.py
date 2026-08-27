@@ -19,7 +19,7 @@ from urllib.parse import urlparse, urlunparse
 
 import psycopg
 import pytest
-from kalshi_helpers import column
+from kalshi_helpers import apply_kalshi_track, column
 from psycopg import sql
 from test_kalshi_sync import _live, _settings, _settled, _source
 
@@ -134,16 +134,7 @@ def second_kalshi_db(ephemeral_db_second: str) -> str:
     ``kalshi_db`` is function-scoped, so requesting it twice yields the same
     database; the pass-equals-sync proof needs two independent ones.
     """
-    from typing import Any as _Any
-
-    from psycopg_pool import ConnectionPool
-
-    from manta_trading.market.schema.migrations import TRACKS
-    from manta_trading.market.schema.runner import apply_migrations
-
-    with ConnectionPool[_Any](ephemeral_db_second, min_size=1, max_size=2) as pool:
-        apply_migrations(pool, TRACKS["kalshi"])
-    return ephemeral_db_second
+    return apply_kalshi_track(ephemeral_db_second)
 
 
 @pytest.fixture()

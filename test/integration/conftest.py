@@ -74,16 +74,21 @@ def instruments_clean_db(migrated_db: str) -> str:
 
 
 @pytest.fixture()
+def kalshi_bare_db(ephemeral_db: str) -> str:
+    """Throwaway database with the TimescaleDB extension, nothing else
+    (``kalshi_005`` creates a hypertable; production's ``trading`` database
+    already has the extension from the minute track)."""
+    from kalshi_helpers import ensure_timescaledb
+
+    return ensure_timescaledb(ephemeral_db)
+
+
+@pytest.fixture()
 def kalshi_db(ephemeral_db: str) -> str:
-    """Bare throwaway database → kalshi track applied."""
-    from psycopg_pool import ConnectionPool
+    """Bare throwaway database → extension → kalshi track applied."""
+    from kalshi_helpers import apply_kalshi_track
 
-    from manta_trading.market.schema.migrations import TRACKS
-    from manta_trading.market.schema.runner import apply_migrations
-
-    with ConnectionPool[Any](ephemeral_db, min_size=1, max_size=2) as pool:
-        apply_migrations(pool, TRACKS["kalshi"])
-    return ephemeral_db
+    return apply_kalshi_track(ephemeral_db)
 
 
 @pytest.fixture()

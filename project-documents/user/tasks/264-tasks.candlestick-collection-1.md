@@ -25,7 +25,7 @@ reviewVerdictsAddressed:
   - 264-review.tasks.candlestick-collection.part-2 (claude-opus-5, CONCERNS, dispositioned in part 2)
 dateCreated: 20260826
 dateUpdated: 20260826
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -103,8 +103,8 @@ Design *Constants*, *Settings — the collection rule* (Decision 2), *Client
 and models*, *Fixtures and recorder*. This section adds no behavior — it
 adds the vocabulary every later section depends on.
 
-- [ ] **Task 1.1: Constants** (effort: 1)
-  - [ ] Add to `data/kalshi/constants.py`, each with a comment naming its
+- [x] **Task 1.1: Constants** (effort: 1)
+  - [x] Add to `data/kalshi/constants.py`, each with a comment naming its
         decision or its Discovery Findings evidence:
         `MARKETS_CANDLESTICKS_PATH`, `COLLECTED_CANDLE_PERIOD`
         (`CandlePeriod.MINUTE`, Decision 1), `CANDLE_BATCH_MAX_TICKERS`,
@@ -113,43 +113,43 @@ adds the vocabulary every later section depends on.
         `CANDLE_PROGRESS_EVERY_REQUESTS`, `CANDLE_LAG_STALE_AFTER`,
         `KALSHI_CANDLE_CHUNK_INTERVAL`, `KALSHI_CANDLE_COMPRESS_AFTER`.
         Values are in the design's *Constants* block.
-  - [ ] Note in the comment on `CANDLE_BATCH_MAX_CANDLES` that the cap is on
+  - [x] Note in the comment on `CANDLE_BATCH_MAX_CANDLES` that the cap is on
         `len(tickers) × periods_in_window` of the **request**, not the
         response — this is the fact the planner is built around.
-  - [ ] `CANDLE_SINGLE_MAX_CANDLES` is recorded but unused by the phase (the
+  - [x] `CANDLE_SINGLE_MAX_CANDLES` is recorded but unused by the phase (the
         batch path is the only one used); say so in its comment so a reader
         does not hunt for its call site.
-  - [ ] Success: `test/unit/data/kalshi/test_constants.py` extended — every
+  - [x] Success: `test/unit/data/kalshi/test_constants.py` extended — every
         new constant has the design's value and the two `timedelta`
         constants are `timedelta` instances; existing assertions unchanged.
 
-- [ ] **Task 1.2: `CandleRule` and the `Settings` fields** (effort: 3)
-  - [ ] New `data/kalshi/candle_types.py` with the frozen dataclass
+- [x] **Task 1.2: `CandleRule` and the `Settings` fields** (effort: 3)
+  - [x] New `data/kalshi/candle_types.py` with the frozen dataclass
         `CandleRule(traded_only, categories, excluded_categories,
         excluded_series_pattern, excluded_title_pattern)` and
         `CandleRule.describe() -> str` rendering the one-line human form the
         design shows (`candles rule: traded 24h · categories all · excluding
         Sports, Mentions · patterns 2`). `describe()` must be deterministic:
         sort the category sets.
-  - [ ] Five fields on `Settings` (`config/__init__.py`) with the design's
+  - [x] Five fields on `Settings` (`config/__init__.py`) with the design's
         names, types, and defaults — rule C is the default. Follow the
         file's existing comment style: say *why* the values are data rather
         than an enum (the category vocabulary is Kalshi's, not ours).
-  - [ ] One `field_validator(mode="before")` splitting the comma-separated
+  - [x] One `field_validator(mode="before")` splitting the comma-separated
         forms for the two category sets: split on `,`, strip whitespace,
         drop empties, build a `frozenset`. Empty string → empty frozenset.
         Reason in a comment: pydantic-settings' default JSON-list parsing
         for a set-typed field is not what a `.env` author writes.
-  - [ ] The two pattern fields treat empty string as `None` (clause
+  - [x] The two pattern fields treat empty string as `None` (clause
         disabled) — one validator, or `str | None` with a normalizer.
-  - [ ] `Settings.candle_rule() -> CandleRule` — the single parse point.
+  - [x] `Settings.candle_rule() -> CandleRule` — the single parse point.
         Docstring states the evaluation order (allow-list if non-empty →
         exclude-list → patterns → traded) and that exclude wins when a
         category appears in both.
-  - [ ] Success: `Settings()` with no environment yields exactly rule C.
+  - [x] Success: `Settings()` with no environment yields exactly rule C.
 
-- [ ] **Task 1.3: Settings and rule unit tests** (effort: 2)
-  - [ ] New `test/unit/test_candle_rule_settings.py` (or extend the existing
+- [x] **Task 1.3: Settings and rule unit tests** (effort: 2)
+  - [x] New `test/unit/test_candle_rule_settings.py` (or extend the existing
         settings test module if one covers `Settings`): defaults equal rule
         C; `MT_KALSHI_CANDLE_CATEGORIES=Sports, Politics` parses to a
         two-member frozenset with whitespace trimmed; empty value → empty
@@ -157,14 +157,14 @@ adds the vocabulary every later section depends on.
         an empty pattern disables the clause (`None`, not `""`);
         `candle_rule()` returns the expected `CandleRule`; `describe()` is
         stable across two calls and reflects a changed rule.
-  - [ ] Use monkeypatched environment variables, not a written `.env`.
-  - [ ] Success: tests pass; no test re-spells the rule's SQL.
+  - [x] Use monkeypatched environment variables, not a written `.env`.
+  - [x] Success: tests pass; no test re-spells the rule's SQL.
 
-- [ ] **Task 1.4: Batch client method and models** (effort: 2)
-  - [ ] `models.py`: `MarketCandlesticks(market_ticker: str, candlesticks:
+- [x] **Task 1.4: Batch client method and models** (effort: 2)
+  - [x] `models.py`: `MarketCandlesticks(market_ticker: str, candlesticks:
         list[Candlestick])` and `BatchCandlesticksResponse(markets:
         list[MarketCandlesticks])`, following the existing model style.
-  - [ ] `client.py`: `get_markets_candlesticks(tickers, *, start_ts, end_ts,
+  - [x] `client.py`: `get_markets_candlesticks(tickers, *, start_ts, end_ts,
         period_interval) -> list[MarketCandlesticks]` against
         `MARKETS_CANDLESTICKS_PATH`, in the `# ---` banner style the
         candlestick section already uses. **The transport's `ParamValue` is
@@ -173,16 +173,16 @@ adds the vocabulary every later section depends on.
         tickers into a comma-separated string in the client, as
         `MarketsQuery.tickers` and the recorder already do; do not widen the
         transport for this.
-  - [ ] Pass `int(period_interval)` for the period, matching
+  - [x] Pass `int(period_interval)` for the period, matching
         `get_market_candlesticks`.
-  - [ ] The client passes the request through and enforces no cap — the
+  - [x] The client passes the request through and enforces no cap — the
         planner owns the cap (Decision 7); say so in the docstring.
-  - [ ] Success: the method issues exactly one request; unknown tickers are
+  - [x] Success: the method issues exactly one request; unknown tickers are
         simply absent from the returned list (no error raised at this
         layer).
 
-- [ ] **Task 1.5: Fixtures and the recorder** (effort: 2)
-  - [ ] `scripts/record_kalshi_fixtures.py` gains two `--only` targets
+- [x] **Task 1.5: Fixtures and the recorder** (effort: 2)
+  - [x] `scripts/record_kalshi_fixtures.py` gains two `--only` targets
         following the existing target declaration pattern:
         `candlesticks_batch` — a real batch response over at least three
         selected tickers for the last hour at `period_interval=1`, chosen so
@@ -190,26 +190,26 @@ adds the vocabulary every later section depends on.
         `price: {}`; and `candlesticks_batch_over_cap` — the HTTP 400 body
         provoked by 100 tickers × 360 minutes, saved as
         `error_400_candles_cap.json`.
-  - [ ] Record both against the live public API and commit the JSON under
+  - [x] Record both against the live public API and commit the JSON under
         `test/fixtures/kalshi/`. The existing `candlesticks.json` stays
         (261's single-market client test still uses it).
-  - [ ] Success: both fixture files exist and are valid JSON; the empty
+  - [x] Success: both fixture files exist and are valid JSON; the empty
         entry and the `price: {}` candle are actually present — check, do
         not assume, since the recorder's window choice decides it.
 
-- [ ] **Task 1.6: Client, model, and fixture unit tests** (effort: 2)
-  - [ ] Extend `test/unit/data/kalshi/test_client_endpoints.py`: the request
+- [x] **Task 1.6: Client, model, and fixture unit tests** (effort: 2)
+  - [x] Extend `test/unit/data/kalshi/test_client_endpoints.py`: the request
         `get_markets_candlesticks` issues carries the expected path and
         query parameters (`market_tickers`, `start_ts`, `end_ts`,
         `period_interval`), and the batch fixture parses into
         `MarketCandlesticks` objects **including the empty-list entry** and
         the `price: {}` candle.
-  - [ ] Extend `test/unit/data/kalshi/test_fixtures.py`: the over-cap
+  - [x] Extend `test/unit/data/kalshi/test_fixtures.py`: the over-cap
         fixture raises `ProviderPermanentError` through the transport's
         error mapping (a 400 is permanent, not retried).
-  - [ ] Extend `test/unit/data/kalshi/test_models.py` for the two new models.
-  - [ ] Success: all pass; no network access in the unit tier.
-  - [ ] **Commit**: `feat: add kalshi batch candlestick client, rule config, and fixtures`.
+  - [x] Extend `test/unit/data/kalshi/test_models.py` for the two new models.
+  - [x] Success: all pass; no network access in the unit tier.
+  - [x] **Commit**: `feat: add kalshi batch candlestick client, rule config, and fixtures`.
 
 ## Section 2: Migration `kalshi_005` and the ledger preflight
 
