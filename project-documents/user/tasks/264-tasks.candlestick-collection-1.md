@@ -296,23 +296,23 @@ where it and the existing code disagree.
 Design *Planner* (Decision 3, and the caps from Discovery Findings). No I/O,
 no SQL, no clock — every input is an argument.
 
-- [ ] **Task 3.1: `candle_plan.py` types and window arithmetic** (effort: 3)
-  - [ ] New `data/kalshi/candle_plan.py` with frozen `CandleTarget(ticker,
+- [x] **Task 3.1: `candle_plan.py` types and window arithmetic** (effort: 3)
+  - [x] New `data/kalshi/candle_plan.py` with frozen `CandleTarget(ticker,
         start, end, close_end)` and `CandleBatch(tickers, start, end)`.
-  - [ ] `last_complete_period(now, period) -> datetime` — floor to the
+  - [x] `last_complete_period(now, period) -> datetime` — floor to the
         period then subtract one period (Decision 3's one-period guard for a
         still-settling candle in a conflict-ignore table).
-  - [ ] `target_window(market, state, *, phase_start, period, lookback) ->
+  - [x] `target_window(market, state, *, phase_start, period, lookback) ->
         CandleTarget | None`: `start = watermark` when a state row exists,
         else `max(open_time, min(close_time, phase_start) − lookback)`
         (Decision 5); `end = min(close_time + period,
         last_complete_period(phase_start, period))`; return `None` when
         `start >= end` (nothing to fetch).
-  - [ ] Success: pure functions; the module imports nothing from the client,
+  - [x] Success: pure functions; the module imports nothing from the client,
         the repository, or `psycopg`.
 
-- [ ] **Task 3.2: `plan_batches` packing** (effort: 3)
-  - [ ] `plan_batches(targets, *, period, max_tickers, max_candles) ->
+- [x] **Task 3.2: `plan_batches` packing** (effort: 3)
+  - [x] `plan_batches(targets, *, period, max_tickers, max_candles) ->
         list[CandleBatch]`: sort targets by `start`; **first split any single
         target whose own window exceeds `max_candles` periods** into
         consecutive windows; then pack greedily, admitting a target to the
@@ -321,32 +321,32 @@ no SQL, no clock — every input is an argument.
         the union window is what the request asks for, which is why adding a
         distant target can overflow the cap even when the ticker count is
         small.
-  - [ ] Assert both caps on every batch before returning it. A violation is
+  - [x] Assert both caps on every batch before returning it. A violation is
         a bug here, not a provider condition (Decision 7).
-  - [ ] Deterministic: the same targets in any input order produce the same
+  - [x] Deterministic: the same targets in any input order produce the same
         batches.
-  - [ ] Success: every target's full window is covered by the returned
+  - [x] Success: every target's full window is covered by the returned
         batches — packing may widen a request, never drop a period.
 
-- [ ] **Task 3.3: Planner unit tests** (effort: 3)
-  - [ ] New `test/unit/data/kalshi/test_candle_plan.py`:
+- [x] **Task 3.3: Planner unit tests** (effort: 3)
+  - [x] New `test/unit/data/kalshi/test_candle_plan.py`:
         `last_complete_period` at an exact boundary and mid-period;
         `target_window` for each case the design lists — market first seen
         young (start is `open_time`), first seen old (start is
         `phase_start − lookback`), past close (end clamped to `close_time +
         period`), already complete (returns `None`), and with an existing
         watermark (start is the watermark).
-  - [ ] Packing: never exceeds either cap; an over-long single target splits
+  - [x] Packing: never exceeds either cap; an over-long single target splits
         into consecutive windows that tile its range; targets with distant
         starts do not share a batch when the union would breach the candle
         cap; output is deterministic.
-  - [ ] A randomized invariant test over generated target sets: for every
+  - [x] A randomized invariant test over generated target sets: for every
         batch both caps hold, and every target's `[start, end)` is fully
         covered by the batches containing its ticker (Criterion 5). Seed the
         generator so failures reproduce.
-  - [ ] Success: tests pass; the cap constants come from `constants.py`, not
+  - [x] Success: tests pass; the cap constants come from `constants.py`, not
         literals in the test.
-  - [ ] **Commit**: `feat: add kalshi candle batch planner`.
+  - [x] **Commit**: `feat: add kalshi candle batch planner`.
 
 ## Section 4: `CandleRepository` — the rule, the pending queries, the writes
 

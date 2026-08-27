@@ -293,7 +293,7 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
             "market_candle_state.coverage_from_ts, fix watermark comments"
         ),
         # Slice 264. The nested ``yes_bid`` / ``yes_ask`` / ``price`` OHLC
-        # objects flatten to sixteen nullable NUMERIC columns (Decision 10;
+        # objects flatten to fourteen nullable NUMERIC columns (Decision 10;
         # the map is ``candle_repository.CANDLE_COLUMNS``, parity-tested
         # against this table). Hypertable from creation, chunked and
         # compressed per Decision 4 — both horizons render from the constants.

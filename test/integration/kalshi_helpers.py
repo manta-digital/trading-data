@@ -78,12 +78,21 @@ def parent_events(markets: Iterable[km.Market]) -> list[km.Event]:
 
 
 async def write_catalog(
-    repo: CatalogRepository, markets: list[km.Market]
+    repo: CatalogRepository,
+    markets: list[km.Market],
+    series: list[km.Series] | None = None,
 ) -> MarketUpsertOutcome:
-    """Markets with synthesized parents, in one transaction."""
+    """Markets with synthesized parents, in one transaction.
+
+    ``series`` (slice 264, Task 4.4a) supplies real series rows — with a
+    category and a title, which ``parent_series`` never sets — for tests of
+    the collection rule; they must carry the tickers ``parent_events``
+    derives (``f"{event_ticker}-SERIES"``). When omitted the synthesized,
+    NULL-category series are written as before.
+    """
     events = parent_events(markets)
     async with repo.transaction():
-        await repo.upsert_series(parent_series(events))
+        await repo.upsert_series(parent_series(events) if series is None else series)
         await repo.upsert_events(events)
         outcome = await repo.upsert_markets(markets)
     return outcome
