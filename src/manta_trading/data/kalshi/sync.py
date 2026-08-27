@@ -16,7 +16,6 @@ in ``cli/commands/kalshi.py`` only.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from datetime import UTC, datetime
@@ -39,6 +38,7 @@ from manta_trading.data.kalshi.events import (
     SyncEvent,
     SyncEventSink,
     SyncEventType,
+    emit_in_thread,
 )
 from manta_trading.data.kalshi.models import (
     Event,
@@ -183,13 +183,8 @@ class CatalogSync:
         error: str | None = None,
         duration_ms: int | None = None,
     ) -> None:
-        """Best-effort emission: a sink failure is logged, never aborts the run.
-
-        The sink call runs in a worker thread (code review 262 F001): a
-        ``JsonlSyncEventSink`` does a synchronous open/write/flush, which the
-        project's async rule keeps off the event loop. The core is a single
-        sequential writer, so one sink call at a time reaches the thread.
-        """
+        """Best-effort emission (``events.emit_in_thread``): a sink failure
+        is logged, never aborts the run."""
         event = SyncEvent(
             run_id=self.result.run_id,
             timestamp=self.clock(),
@@ -201,10 +196,7 @@ class CatalogSync:
             error=error,
             duration_ms=duration_ms,
         )
-        try:
-            await asyncio.to_thread(self._sink.emit, event)
-        except Exception:
-            logger.exception("event sink failed on %s", event_type)
+        await emit_in_thread(self._sink, event)
 
     async def phase_finished(
         self, phase: SyncPhase, started: datetime, **extra: int

@@ -1,0 +1,1 @@
+{"error":{"code":"bad_request","message":"bad request","details":"requested candlesticks across all markets: 36000, max candlesticks: 10000"}}

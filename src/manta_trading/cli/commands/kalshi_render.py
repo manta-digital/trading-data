@@ -7,21 +7,25 @@ the exit-code mapping back (no cycle, one definition).
 
 ``print_phase_summary`` renders a catalog run's counts from its
 ``SyncResult.to_dict()`` mapping — that is the single implementation of the
-catalog block, printed by ``sync`` directly and by ``pass`` once per phase
-that produced one.
+catalog block, printed by ``sync`` directly and by ``pass`` for its catalog
+phase. ``pass`` looks each phase's renderer up by ``PassPhaseName``
+(``PHASE_RENDERERS``); a phase without one fails loudly rather than printing
+nothing, so a new phase cannot ship invisible (slice 264, Task 5.4).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from manta_trading.cli.output import make_table, print_result
+from manta_trading.data.kalshi.collection_pass import PassPhaseName
 from manta_trading.data.kalshi.constants import KALSHI_SETTLEMENT_STUCK_AFTER
 
 if TYPE_CHECKING:
     from manta_trading.data.kalshi.collection_pass import PassResult
-    from manta_trading.data.kalshi.status import CatalogStatus
+    from manta_trading.data.kalshi.status import CandleStatus, CatalogStatus
     from manta_trading.data.kalshi.sync_types import SyncOutcome, SyncResult
 
 #: Column layout of the catalog counts table, defined once.
@@ -85,6 +89,52 @@ def print_phase_summary(summary: dict[str, Any]) -> None:
     )
 
 
+def print_candle_summary(summary: dict[str, Any]) -> None:
+    """A candle phase's counts, from its ``CandleResult.to_dict()`` mapping."""
+    from rich import print as rprint
+
+    pending = summary["pending"]
+    rprint("[bold]Kalshi candles[/bold]")
+    rprint(
+        f"  requests      {summary['requests']:,}    markets requested "
+        f"{summary['markets_requested']:,}  advanced {summary['markets_advanced']:,}"
+    )
+    rprint(
+        f"  candles       fetched {summary['candles_fetched']:,}  "
+        f"written {summary['candles_written']:,}"
+    )
+    rprint(
+        f"  pending       live {pending['live']:,}  "
+        f"finishing {pending['finishing']:,}  backlog {pending['backlog']:,} "
+        f"(remaining {pending['backlog_remaining']:,})"
+    )
+    rprint(
+        f"  item errors   {len(summary['item_errors']):,}    "
+        f"cutoff {summary['cutoff'] or 'unset'}"
+    )
+
+
+class NoPhaseRendererError(LookupError):
+    """A pass reported a phase this module has no summary renderer for."""
+
+
+#: Per-phase summary renderers, keyed by the phase's registered name.
+PHASE_RENDERERS: dict[PassPhaseName, Callable[[dict[str, Any]], None]] = {
+    PassPhaseName.CATALOG: print_phase_summary,
+    PassPhaseName.CANDLES: print_candle_summary,
+}
+
+
+def render_phase_summary(name: PassPhaseName, summary: dict[str, Any]) -> None:
+    """Render one phase's summary with its registered renderer, loudly
+    refusing a phase nobody registered — silently skipping is how a phase
+    would ship invisible."""
+    renderer = PHASE_RENDERERS.get(name)
+    if renderer is None:
+        raise NoPhaseRendererError(f"no summary renderer registered for phase {name!r}")
+    renderer(summary)
+
+
 def print_pass_summary(result: PassResult, exit_code: int, json_output: bool) -> None:
     """The ``pass`` summary: one row per phase, then each phase's own block."""
     from rich import print as rprint
@@ -103,14 +153,19 @@ def print_pass_summary(result: PassResult, exit_code: int, json_output: bool) ->
     print_result(table, json_mode=False)
     for report in result.reports:
         if report.summary:
-            print_phase_summary(report.summary)
+            render_phase_summary(report.name, report.summary)
     rprint(
         f"  pass          outcome [bold]{result.outcome}[/bold] "
         f"(exit {exit_code})    duration {result.duration_ms} ms"
     )
 
 
-def print_status(status: CatalogStatus, now: datetime) -> None:
+NEVER_COLLECTED = "Candlesticks: never collected"
+
+
+def print_status(
+    status: CatalogStatus, now: datetime, candles: CandleStatus | None
+) -> None:
     from rich import print as rprint
 
     from manta_trading.data.kalshi.status import age_bucket_labels
@@ -142,6 +197,45 @@ def print_status(status: CatalogStatus, now: datetime) -> None:
     rprint(
         f"  checked directly    {awaiting.checked_directly:,}  "
         "(looked up by ticker; still unsettled)"
+    )
+    if candles is None:
+        rprint(f"[bold]{NEVER_COLLECTED}[/bold]")
+        return
+    print_candle_status(candles, now)
+
+
+def print_candle_status(candles: CandleStatus, now: datetime) -> None:
+    """The candle block (design *CLI and rendering*), one line per fact."""
+    from rich import print as rprint
+
+    cutoff = candles.cutoff_observed
+    cutoff_text = f"{cutoff.astimezone(UTC):%Y-%m-%d}" if cutoff else "unset"
+    oldest = candles.open_oldest_watermark
+    oldest_text = (
+        f" (oldest watermark {oldest.astimezone(UTC):%Y-%m-%d %H:%M} UTC)"
+        if oldest
+        else ""
+    )
+    rprint(
+        f"[bold]Kalshi candlesticks[/bold]   period {candles.period_minutes} min   "
+        f"last phase {_when(candles.last_phase_at, now)}   cutoff {cutoff_text}"
+    )
+    rprint(f"  rule                {candles.rule.describe()}   (MT_KALSHI_CANDLE_*)")
+    rprint(f"  selected open       {candles.selected_open:,}")
+    rprint(
+        f"  tracked             {candles.markets_tracked:,} markets   "
+        f"complete through close {candles.complete_through_close:,}   "
+        f"partial history {candles.partial_history:,}"
+    )
+    rprint(f"  open lagging        {candles.open_lagging:,}{oldest_text}")
+    rprint(
+        f"  short of close      {candles.closed_short_of_close:,}        "
+        f"backlog remaining {candles.backlog_remaining:,}        "
+        f"behind cutoff, uncollected {candles.behind_cutoff_uncollected:,}"
+    )
+    rprint(
+        f"  excluded by rule    {candles.closed_excluded_by_rule:,} closed markets "
+        "(never traded, or an excluded category or pattern)"
     )
 
 

@@ -42,6 +42,9 @@ EXPECTED_FIXTURES = {
     "markets_by_tickers",
     "events_by_tickers",
     "markets_settled_window",
+    # slice 264
+    "candlesticks_batch",
+    "error_400_candles_cap",
 }
 
 
@@ -272,6 +275,18 @@ class TestErrorBody:
         client = serve(("/markets/NOPE-NOT-A-TICKER", 404, "error_404"))
         with pytest.raises(ProviderPermanentError):
             await client.get_market("NOPE-NOT-A-TICKER")
+
+    async def test_recorded_candle_cap_400_is_permanent_error(self):
+        """Slice 264, Decision 7: a request over the batch candle cap is a
+        400 — permanent, never retried — so on the phase's path it is a
+        planner bug that must surface, not a provider condition."""
+        wire = body("error_400_candles_cap")
+        assert "max candlesticks: 10000" in wire["error"]["details"]
+        client = serve(("/markets/candlesticks", 400, "error_400_candles_cap"))
+        with pytest.raises(ProviderPermanentError):
+            await client.get_markets_candlesticks(
+                ["ANY"], start_ts=0, end_ts=1, period_interval=CandlePeriod.MINUTE
+            )
 
 
 def recorder_module() -> Any:

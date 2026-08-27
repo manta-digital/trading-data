@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20260825
+dateUpdated: 20260827
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -128,6 +128,8 @@ configuration source for the units — no `.env` file exists in
   `MT_KALSHI_REQUESTS_PER_MINUTE` (lower it to ease 429s on `/events`;
   the default public budget is 300/min), and the authenticated pair
   `MT_KALSHI_API_KEY_ID` / `MT_KALSHI_PRIVATE_KEY_PATH` — **both or neither**
+- the Kalshi candle collection rule, five `MT_KALSHI_CANDLE_*` lines (slice
+  264), commented out at their defaults — see *Kalshi* below
 
 **Where the Kalshi private key goes.** The pass units set `ProtectHome=true`,
 so a PEM anywhere under `/home` is invisible to the service. Put it beside the
@@ -404,6 +406,37 @@ ships, rather than succeeding while rows are silently skipped.
 ```bash
 mt data migrate apply --track kalshi        # with the maintenance credential
 ```
+
+**The pass has two phases since v0.10.0 (slice 264): catalog, then
+candlesticks.** The candle phase collects 1-minute candles for the markets
+the **collection rule** selects — by default, markets that traded in the
+last 24 hours, excluding the Sports and Mentions categories and the
+mention/say-titled series elsewhere. The rule is configuration: the five
+`MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env` (defaults in the
+skeleton, `deploy/manta-trading.env.example`), and `mt-run data kalshi
+status` prints the rule in force on its `rule` line together with the
+`excluded by rule` count, so a rule change is visible before and after it
+takes effect. `kalshi_005_candlesticks` must be applied during the update; a
+firing between install and apply exits 1 with `kalshi track has pending
+migrations: kalshi_005_candlesticks` — expected, not a defect, and the next
+hour's firing succeeds once the migration is in. The first firing after the
+release runs a few minutes longer (each selected market's first sight buys
+24 hours of history), and the finalized backlog drains over roughly six
+firings at 1,000 requests per pass — `status` shows `backlog remaining`
+falling. Chunks of `kalshi.candlesticks` older than 14 days compress
+automatically under a TimescaleDB policy; see it — and its last run — by
+hypertable name and procedure, never by a job ID, which regenerates
+whenever the policy is recreated:
+
+```sql
+select job_id, scheduled, config, last_run_status, last_successful_finish
+from timescaledb_information.jobs j join timescaledb_information.job_stats using (job_id)
+where hypertable_schema = 'kalshi' and hypertable_name = 'candlesticks' and proc_name = 'policy_compression';
+```
+
+A historical backfill (slice 266) writes months-old rows into compressed
+chunks and must pause that job for its drain (`alter_job(job_id, scheduled
+=> false)`, resolved by the query above at the time) and resume it after.
 
 **Is the rate budget too high?** The client retries a 429 with backoff and logs
 a WARNING per retry, so the journal answers it directly:

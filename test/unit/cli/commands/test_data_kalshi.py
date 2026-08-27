@@ -10,6 +10,7 @@ import contextlib
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -19,8 +20,13 @@ from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
 from manta_trading.cli.commands import kalshi as cmd
+from manta_trading.cli.commands import kalshi_render as render
 from manta_trading.data.kalshi.client import KalshiClient
-from manta_trading.data.kalshi.collection_pass import PassPhaseName, PhaseReport
+from manta_trading.data.kalshi.collection_pass import (
+    PassPhaseName,
+    PassResult,
+    PhaseReport,
+)
 from manta_trading.data.kalshi.db import PreflightError
 from manta_trading.data.kalshi.sync_types import SyncOutcome, SyncPhase, SyncResult
 from manta_trading.providers.errors import ProviderTransientError
@@ -209,7 +215,9 @@ STATUS_CMD = ["data", "kalshi", "status"]
 
 
 @contextlib.contextmanager
-def _patched_status(settings: MagicMock, status: object) -> Iterator[None]:
+def _patched_status(
+    settings: MagicMock, status: object, candles: object = None
+) -> Iterator[None]:
     with (
         patch("manta_trading.cli.app.Settings", return_value=settings),
         patch("manta_trading.cli.app.setup_logging"),
@@ -217,8 +225,33 @@ def _patched_status(settings: MagicMock, status: object) -> Iterator[None]:
         patch(
             "manta_trading.data.kalshi.status.read_catalog_status", return_value=status
         ),
+        patch(
+            "manta_trading.data.kalshi.status.read_candle_status", return_value=candles
+        ),
     ):
         yield
+
+
+def _candle_status():
+    from manta_trading.data.kalshi.candle_types import CandleRule
+    from manta_trading.data.kalshi.status import CandleStatus
+
+    return CandleStatus(
+        period_minutes=1,
+        last_phase_at=NOW,
+        cutoff_observed=datetime(2026, 6, 25, tzinfo=UTC),
+        rule=CandleRule(True, frozenset(), frozenset({"Sports"}), "MENTION", None),
+        selected_open=6912,
+        markets_tracked=521404,
+        open_lagging=0,
+        open_oldest_watermark=NOW,
+        complete_through_close=512110,
+        closed_short_of_close=0,
+        backlog_remaining=412000,
+        behind_cutoff_uncollected=9203,
+        closed_excluded_by_rule=3117908,
+        partial_history=5822,
+    )
 
 
 def _catalog_status():
@@ -287,6 +320,50 @@ class TestStatus:
         with _patched_status(_settings(timescale_url=None), None):
             result = runner.invoke(app, STATUS_CMD)
         assert result.exit_code == cmd.EXIT_PREFLIGHT
+
+    # --- the candle block (slice 264, Task 6.2) ---
+
+    def test_never_collected_line_and_json_null(self):
+        with _patched_status(_settings(), _catalog_status(), None):
+            rich = runner.invoke(app, STATUS_CMD)
+            as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
+        assert rich.exit_code == cmd.EXIT_OK
+        assert render.NEVER_COLLECTED in rich.output
+        payload = json.loads(as_json.stdout)
+        assert payload["candles"] is None
+        assert payload["synced"] is True and "markets_by_status" in payload
+
+    def test_candle_block_rendered(self):
+        with _patched_status(_settings(), _catalog_status(), _candle_status()):
+            result = runner.invoke(app, STATUS_CMD)
+        assert result.exit_code == cmd.EXIT_OK, result.output
+        # Rich wraps long lines at the runner's width; compare on one line.
+        output = " ".join(result.output.split())
+        for needle in (
+            "Kalshi candlesticks",
+            "period 1 min",
+            "cutoff 2026-06-25",
+            "excluding Sports",
+            "(MT_KALSHI_CANDLE_*)",
+            "selected open 6,912",
+            "521,404 markets",
+            "backlog remaining 412,000",
+            "behind cutoff, uncollected 9,203",
+            "excluded by rule 3,117,908",
+        ):
+            assert needle in output, needle
+
+    def test_json_nests_candles_and_keeps_catalog_keys(self):
+        with _patched_status(_settings(), _catalog_status(), _candle_status()):
+            result = runner.invoke(app, [*STATUS_CMD, "--json"])
+        payload = json.loads(result.stdout)
+        assert payload["markets_by_status"]["active"] == 9
+        candles = payload["candles"]
+        assert candles["rule"]["excluded_categories"] == ["Sports"]
+        assert candles["rule"]["description"].startswith("traded 24h")
+        assert candles["cutoff_observed"] == "2026-06-25T00:00:00+00:00"
+        assert candles["behind_cutoff_uncollected"] == 9203
+        assert candles["period_minutes"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -414,3 +491,77 @@ class TestPassOutput:
         lines = path.read_text().splitlines()
         types = [json.loads(line)["event_type"] for line in lines]
         assert types == ["pass_started", "pass_finished"]
+
+
+# ---------------------------------------------------------------------------
+# Per-phase summary rendering (slice 264, Task 5.5)
+# ---------------------------------------------------------------------------
+
+
+def _candle_summary() -> dict[str, object]:
+    from manta_trading.data.kalshi.candle_types import CandleItemError, CandleResult
+    from manta_trading.data.kalshi.constants import COLLECTED_CANDLE_PERIOD
+
+    result = CandleResult(
+        run_id=uuid4(), started_at=NOW, period=COLLECTED_CANDLE_PERIOD
+    )
+    result.cutoff = datetime(2026, 6, 25, tzinfo=UTC)
+    result.requests = 3
+    result.pending_live = 2
+    result.item_errors.append(
+        CandleItemError("GONE", "not served by the batch endpoint")
+    )
+    return result.to_dict()
+
+
+def _catalog_summary() -> dict[str, object]:
+    return SyncResult(run_id=uuid4(), started_at=NOW).to_dict()
+
+
+def _pass_result(*reports: PhaseReport) -> PassResult:
+    return PassResult(
+        run_id=uuid4(),
+        started_at=NOW,
+        reports=reports,
+        outcome=SyncOutcome.OK,
+        duration_ms=20,
+    )
+
+
+class TestPhaseRenderers:
+    def test_dispatch_selects_each_phase_renderer(self):
+        assert (
+            render.PHASE_RENDERERS[PassPhaseName.CATALOG] is render.print_phase_summary
+        )
+        assert (
+            render.PHASE_RENDERERS[PassPhaseName.CANDLES] is render.print_candle_summary
+        )
+
+    def test_every_registered_phase_has_a_renderer(self):
+        """A phase added to ``PASS_PHASES`` without a renderer fails here,
+        not on the first pass that runs it."""
+        from manta_trading.data.kalshi.collection_pass import PASS_PHASES
+
+        assert {phase.name for phase in PASS_PHASES} <= set(render.PHASE_RENDERERS)
+
+    def test_a_pass_with_both_summaries_renders_without_raising(self, capsys):
+        """The regression Task 5.4 fixes: the catalog renderer indexes
+        catalog-only keys and used to be called for every phase."""
+        result = _pass_result(
+            PhaseReport(PassPhaseName.CATALOG, SyncOutcome.OK, _catalog_summary(), 5),
+            PhaseReport(
+                PassPhaseName.CANDLES, SyncOutcome.PARTIAL, _candle_summary(), 7
+            ),
+        )
+        render.print_pass_summary(result, cmd.EXIT_SYNC_PARTIAL, json_output=False)
+        out = capsys.readouterr().out
+        assert "Kalshi catalog sync" in out
+        assert "Kalshi candles" in out
+        assert "requests      3" in out
+        assert "item errors   1" in out
+        assert "2026-06-25" in out
+
+    def test_unregistered_phase_raises_the_named_error(self):
+        bogus = cast(PassPhaseName, "trades")
+        with pytest.raises(render.NoPhaseRendererError, match="trades"):
+            render.render_phase_summary(bogus, {})

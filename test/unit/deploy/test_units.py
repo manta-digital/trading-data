@@ -136,7 +136,18 @@ class TestEnvExample:
     def test_kalshi_variables_are_documented_and_commented_out(self):
         lines = ENV_EXAMPLE.read_text().splitlines()
         kalshi = [line for line in lines if "MT_KALSHI" in line]
-        assert len(kalshi) == 3
+        names = {line.split("=", 1)[0].lstrip("#") for line in kalshi}
+        assert names == {
+            "MT_KALSHI_REQUESTS_PER_MINUTE",
+            "MT_KALSHI_API_KEY_ID",
+            "MT_KALSHI_PRIVATE_KEY_PATH",
+            # the candle collection rule (slice 264), at its defaults
+            "MT_KALSHI_CANDLE_TRADED_ONLY",
+            "MT_KALSHI_CANDLE_CATEGORIES",
+            "MT_KALSHI_CANDLE_EXCLUDED_CATEGORIES",
+            "MT_KALSHI_CANDLE_EXCLUDED_SERIES_PATTERN",
+            "MT_KALSHI_CANDLE_EXCLUDED_TITLE_PATTERN",
+        }
         assert all(line.startswith("#") for line in kalshi)
 
     def test_private_key_lives_outside_home(self):

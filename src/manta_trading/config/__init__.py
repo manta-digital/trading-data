@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
@@ -15,6 +16,7 @@ from manta_trading.constants import (
 )
 from manta_trading.data.acquisition.daily.provider import DailyProviderName
 from manta_trading.data.historical_minute.provider import MinuteProviderName
+from manta_trading.data.kalshi.candle_types import CandleRule
 
 _MINUTES_PER_DAY = 24 * 60
 
@@ -51,6 +53,66 @@ class Settings(BaseSettings):
     # replaces the mode's constant budget at client construction; None
     # keeps 261's per-mode constants. Requests per minute, > 0.
     kalshi_requests_per_minute: int | None = Field(default=None, gt=0)
+    # Kalshi candle collection rule (slice 264, Decision 2). Defaults are the
+    # PM's rule C; every value is overridable so another operator can collect a
+    # different universe. Category strings are Kalshi's own series.category
+    # values — the venue owns that vocabulary, so they are data, not an enum.
+    # The two category sets are written comma-separated in the environment
+    # (MT_KALSHI_CANDLE_EXCLUDED_CATEGORIES=Sports, Mentions); NoDecode stops
+    # pydantic-settings from JSON-parsing a set-typed field first, and the
+    # validator below does the split. Empty allow-list = every category; an
+    # empty pattern disables that clause. The patterns are PostgreSQL regexes
+    # (series.ticker case-sensitive, series.title case-insensitive) — a regex
+    # the database rejects fails the phase loudly with the database's error.
+    kalshi_candle_traded_only: bool = True
+    kalshi_candle_categories: Annotated[frozenset[str], NoDecode] = frozenset()
+    kalshi_candle_excluded_categories: Annotated[frozenset[str], NoDecode] = frozenset(
+        {"Sports", "Mentions"}
+    )
+    kalshi_candle_excluded_series_pattern: str | None = r"MENTION|SAY"
+    kalshi_candle_excluded_title_pattern: str | None = (
+        r"\m(say|says|mention|mentions)\M"
+    )
+
+    @field_validator(
+        "kalshi_candle_categories", "kalshi_candle_excluded_categories", mode="before"
+    )
+    @classmethod
+    def _split_category_list(cls, value: object) -> object:
+        # A .env author writes ``Sports, Mentions``, not a JSON list: split on
+        # commas, trim whitespace, drop empties; "" is the empty set. A value
+        # that is already a collection (a programmatic Settings(...)) passes.
+        if isinstance(value, str):
+            return frozenset(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator(
+        "kalshi_candle_excluded_series_pattern",
+        "kalshi_candle_excluded_title_pattern",
+        mode="before",
+    )
+    @classmethod
+    def _empty_pattern_disables(cls, value: object) -> object:
+        # ``MT_..._PATTERN=`` means "no clause" — None, so the repository omits
+        # it; the empty regex would match every ticker and exclude everything.
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+    def candle_rule(self) -> CandleRule:
+        """The Kalshi candle collection rule in force — the single parse point.
+
+        ``CandleRepository.selection_sql`` evaluates it as: allow-list if
+        non-empty → exclude-list → patterns → traded. A category named in
+        both lists is excluded — exclude wins.
+        """
+        return CandleRule(
+            traded_only=self.kalshi_candle_traded_only,
+            categories=self.kalshi_candle_categories,
+            excluded_categories=self.kalshi_candle_excluded_categories,
+            excluded_series_pattern=self.kalshi_candle_excluded_series_pattern,
+            excluded_title_pattern=self.kalshi_candle_excluded_title_pattern,
+        )
 
     # Minute-bar provider selection. Pydantic accepts the StrEnum as both
     # the env-var string ("eodhd") and the enum value, and rejects unknown

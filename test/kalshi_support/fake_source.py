@@ -18,7 +18,7 @@ of second-granular bounds against microsecond timestamps, newest first.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Unpack
@@ -28,6 +28,7 @@ from manta_trading.data.kalshi.client import EventsQuery, MarketsQuery
 from manta_trading.data.kalshi.constants import (
     KALSHI_MODE_PUBLIC,
     KALSHI_PUBLIC_RATE_LIMIT,
+    CandlePeriod,
     MarketStatusFilter,
 )
 from manta_trading.data.kalshi.models import (
@@ -35,6 +36,7 @@ from manta_trading.data.kalshi.models import (
     EventsPage,
     HistoricalCutoff,
     Market,
+    MarketCandlesticks,
     MarketsPage,
     Series,
 )
@@ -113,6 +115,10 @@ class FakeCatalogSource:
         # pass's start line reports — the CatalogSource Protocol needs neither.
         self.mode = KALSHI_MODE_PUBLIC
         self.rate_limit = KALSHI_PUBLIC_RATE_LIMIT
+        # Lazy: ``fake_candle_source`` imports ``load_fixture`` from here.
+        from kalshi_support.fake_candle_source import FakeCandleSource
+
+        self.candles = FakeCandleSource()
         # Recorded traffic.
         self.calls: list[str] = []
         self.markets_queries: list[dict[str, object]] = []
@@ -308,6 +314,25 @@ class FakeCatalogSource:
     async def get_historical_cutoff(self) -> HistoricalCutoff:
         self._record("get_historical_cutoff", {})
         return self.cutoff
+
+    # ------------------------------------------------------------------
+    # CandleSource (slice 264) — delegated, so one fake stands in for the
+    # whole client in a two-phase pass; ``self.candles`` is the scripting
+    # surface (``FakeCandleSource``). The cutoff is this fake's.
+    # ------------------------------------------------------------------
+
+    async def get_markets_candlesticks(
+        self,
+        tickers: Sequence[str],
+        *,
+        start_ts: int,
+        end_ts: int,
+        period_interval: CandlePeriod,
+    ) -> list[MarketCandlesticks]:
+        self._record("get_markets_candlesticks", {"tickers": tuple(tickers)})
+        return await self.candles.get_markets_candlesticks(
+            tickers, start_ts=start_ts, end_ts=end_ts, period_interval=period_interval
+        )
 
     async def aclose(self) -> None:
         """Mirror ``KalshiClient.aclose`` so the CLI path can own the fake."""

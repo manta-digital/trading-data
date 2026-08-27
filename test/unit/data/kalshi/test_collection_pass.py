@@ -9,17 +9,22 @@ from __future__ import annotations
 
 import itertools
 import json
+from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+from kalshi_support.fake_candle_repository import FakeCandleRepository, FakeMarket
 from kalshi_support.sync_harness import NOW, Harness, RecordingSink
 from psycopg import errors
 
+from manta_trading.data.kalshi.candle_types import CandleRule
 from manta_trading.data.kalshi.collection_pass import (
     PASS_PHASES,
     SKIPPED,
+    CandlesPhase,
     CatalogPhase,
     CollectionPass,
     PassPhaseName,
@@ -27,6 +32,7 @@ from manta_trading.data.kalshi.collection_pass import (
     PhaseReport,
     classify_pass,
 )
+from manta_trading.data.kalshi.constants import Surface
 from manta_trading.data.kalshi.events import SyncEventType as T
 from manta_trading.data.kalshi.run_context import KalshiRun
 from manta_trading.data.kalshi.sync_types import SyncOutcome
@@ -284,10 +290,24 @@ def passthrough_repository(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestPassPhases:
-    def test_catalog_is_the_first_registered_phase(self):
-        assert PASS_PHASES[0].name is PassPhaseName.CATALOG
-        assert len(PASS_PHASES) == 1
+    def test_catalog_then_candles_by_name_and_order(self):
+        """Criterion 1 (slice 264): the catalog is current before candles run."""
+        assert [p.name for p in PASS_PHASES] == [
+            PassPhaseName.CATALOG,
+            PassPhaseName.CANDLES,
+        ]
         assert isinstance(PASS_PHASES[0], CatalogPhase)
+        assert isinstance(PASS_PHASES[1], CandlesPhase)
+
+    async def test_catalog_abort_leaves_the_candle_phase_skipped(self):
+        catalog = FakePhase(PassPhaseName.CATALOG, SyncOutcome.PROVIDER_ABORT)
+        candles = FakePhase(PassPhaseName.CANDLES)
+        result = await CollectionPass(_run(), [catalog, candles]).run()
+        assert candles.calls == 0
+        assert [(r.name, r.outcome) for r in result.reports] == [
+            (PassPhaseName.CATALOG, SyncOutcome.PROVIDER_ABORT),
+            (PassPhaseName.CANDLES, SKIPPED),
+        ]
 
 
 @pytest.mark.asyncio
@@ -339,3 +359,99 @@ class TestCatalogPhase:
         ]
         assert {e.run_id for e in h.sink.events} == {run.run_id}
         assert result.outcome is SyncOutcome.OK
+
+
+# ---------------------------------------------------------------------------
+# The real candle phase (slice 264, Task 5.5)
+# ---------------------------------------------------------------------------
+
+RULE = CandleRule(True, frozenset(), frozenset({"Sports"}), None, None)
+
+
+@dataclass
+class FakeConn:
+    """Stands in for ``run.conn``: each phase's repository constructor is
+    patched to pull its fake from here (``two_repositories``)."""
+
+    catalog: Any
+    candles: FakeCandleRepository
+
+
+@pytest.fixture
+def two_repositories(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "manta_trading.data.kalshi.repository.CatalogRepository",
+        lambda conn: conn.catalog,
+    )
+    monkeypatch.setattr(
+        "manta_trading.data.kalshi.candle_repository.CandleRepository",
+        lambda conn, rule: conn.candles,
+    )
+
+
+def _two_phase_run(h: Harness, candles: FakeCandleRepository) -> KalshiRun:
+    settings = MagicMock()
+    settings.candle_rule.return_value = RULE
+    return KalshiRun(
+        settings=settings,
+        client=cast("KalshiClient", h.source),
+        conn=cast("AsyncConnection[Any]", FakeConn(h.repo, candles)),
+        sink=h.sink,
+        run_id=uuid4(),
+        clock=lambda: h.now,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("two_repositories")
+class TestCandlesPhase:
+    async def test_ok_reports_the_candle_summary(self, h: Harness):
+        candles = FakeCandleRepository()
+        report = await CandlesPhase().run(_two_phase_run(h, candles))
+        assert report.name is PassPhaseName.CANDLES
+        assert report.outcome is SyncOutcome.OK
+        assert report.error is None
+        assert report.summary["cutoff"] == h.source.cutoff.market_settled_ts.isoformat()
+        assert report.summary["pending"]["live"] == 0
+        assert candles.sync_state is not None
+
+    async def test_candle_abort_leaves_the_catalog_phase_intact(self, h: Harness):
+        """Criterion 1's third clause: a candle abort cannot touch the catalog
+        phase's outcome or its ``sync_state`` row (263 Decision 2)."""
+        h.live_market("M1")
+        # Only the candle phase calls the batch endpoint, so failing it is an
+        # unambiguous candle-phase abort (the catalog reads the cutoff too).
+        candles = FakeCandleRepository()
+        candles.add_market(FakeMarket("M1", h.now - timedelta(hours=1), h.now))
+        h.source.raise_on("get_markets_candlesticks", ProviderTransientError("503"))
+        run = _two_phase_run(h, candles)
+        result = await CollectionPass(run, [CatalogPhase(), CandlesPhase()]).run()
+        assert [(r.name, r.outcome) for r in result.reports] == [
+            (PassPhaseName.CATALOG, SyncOutcome.OK),
+            (PassPhaseName.CANDLES, SyncOutcome.PROVIDER_ABORT),
+        ]
+        assert result.outcome is SyncOutcome.PROVIDER_ABORT
+        # The catalog's state row stands as its phase left it (263's
+        # CatalogPhase runs on the wall clock, so only presence is asserted)
+        # and the candle side wrote nothing at all.
+        catalog_state = h.repo.sync_state[Surface.CATALOG]
+        assert catalog_state.last_full_sync_at is not None
+        assert candles.sync_state is None and candles.state == {}
+        assert result.reports[0].summary["phases"]["markets"]["written"] == 1
+        assert result.reports[0].error is None
+
+    async def test_operational_error_reports_storage_abort(self, h: Harness):
+        candles = FakeCandleRepository()
+        candles.fail_on("pending_live", errors.OperationalError("connection lost"))
+        report = await CandlesPhase().run(_two_phase_run(h, candles))
+        assert report.outcome is SyncOutcome.STORAGE_ABORT
+        assert "connection lost" in (report.error or "")
+
+    async def test_two_phase_pass_reports_both_in_order(self, h: Harness):
+        h.live_market("M1")
+        run = _two_phase_run(h, FakeCandleRepository())
+        result = await CollectionPass(run, PASS_PHASES).run()
+        payload = json.loads(json.dumps(result.to_dict()))
+        assert [p["name"] for p in payload["phases"]] == ["catalog", "candles"]
+        assert payload["outcome"] == "ok"
+        assert {e.run_id for e in h.sink.events} == {run.run_id}

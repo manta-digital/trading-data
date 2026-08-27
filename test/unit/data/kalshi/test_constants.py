@@ -7,6 +7,7 @@ from enum import IntEnum, StrEnum
 from pathlib import Path
 
 import httpx
+import pytest
 
 from manta_trading.data.kalshi import constants as kc
 from manta_trading.providers.types import RateLimit
@@ -146,3 +147,36 @@ class TestCatalogSyncConstants:
         assert isinstance(kc.DB_CONNECT_TIMEOUT_SECONDS, int)
         assert kc.DB_CONNECT_TIMEOUT_SECONDS > 0
         assert isinstance(kc.SYNC_ADVISORY_LOCK_KEY, int)
+
+
+class TestCandleCollectionConstants:
+    """Slice 264 candle-phase constants (Task 1.1): the design's values."""
+
+    def test_batch_endpoint_path(self):
+        assert kc.MARKETS_CANDLESTICKS_PATH == "/markets/candlesticks"
+
+    def test_collected_period_is_one_minute(self):
+        assert kc.COLLECTED_CANDLE_PERIOD is kc.CandlePeriod.MINUTE
+
+    def test_endpoint_caps(self):
+        assert kc.CANDLE_BATCH_MAX_TICKERS == 100
+        assert kc.CANDLE_BATCH_MAX_CANDLES == 10_000
+        assert kc.CANDLE_SINGLE_MAX_CANDLES == 5_000
+
+    def test_pass_shape(self):
+        assert kc.CANDLE_BACKLOG_REQUESTS_PER_PASS == 1_000
+        assert kc.CANDLE_PROGRESS_EVERY_REQUESTS == 100
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("CANDLE_FIRST_SIGHT_LOOKBACK", timedelta(hours=24)),
+            ("CANDLE_LAG_STALE_AFTER", timedelta(hours=2)),
+            ("KALSHI_CANDLE_CHUNK_INTERVAL", timedelta(days=7)),
+            ("KALSHI_CANDLE_COMPRESS_AFTER", timedelta(days=14)),
+        ],
+    )
+    def test_timedelta_constants(self, name: str, expected: timedelta):
+        value = getattr(kc, name)
+        assert isinstance(value, timedelta)
+        assert value == expected

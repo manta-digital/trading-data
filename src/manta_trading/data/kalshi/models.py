@@ -230,3 +230,18 @@ class TradesPage(KalshiModel):
 class CandlesticksResponse(KalshiModel):
     candlesticks: list[Candlestick]
     ticker: str | None = None
+
+
+class MarketCandlesticks(KalshiModel):
+    """One entry of ``GET /markets/candlesticks``: a requested market and its
+    candles for the window (slice 264, Discovery Findings). A market with no
+    activity in the window is present with an empty list; an unknown ticker is
+    absent from the response altogether.
+    """
+
+    market_ticker: str
+    candlesticks: list[Candlestick]
+
+
+class BatchCandlesticksResponse(KalshiModel):
+    markets: list[MarketCandlesticks]

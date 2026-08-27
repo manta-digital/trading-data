@@ -10,7 +10,7 @@ limiting, retry, error taxonomy) lives in ``transport.py``.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Self, TypedDict, Unpack, cast
 
 import httpx
@@ -26,6 +26,7 @@ from manta_trading.data.kalshi.constants import (
     KALSHI_MAX_RETRIES,
     MARKET_CANDLESTICKS_PATH,
     MARKET_PATH,
+    MARKETS_CANDLESTICKS_PATH,
     MARKETS_PATH,
     SERIES_LIST_PATH,
     SERIES_PATH,
@@ -35,6 +36,7 @@ from manta_trading.data.kalshi.constants import (
     MarketStatusFilter,
 )
 from manta_trading.data.kalshi.models import (
+    BatchCandlesticksResponse,
     Candlestick,
     CandlesticksResponse,
     Event,
@@ -42,6 +44,7 @@ from manta_trading.data.kalshi.models import (
     EventsPage,
     HistoricalCutoff,
     Market,
+    MarketCandlesticks,
     MarketResponse,
     MarketsPage,
     Series,
@@ -308,6 +311,37 @@ class KalshiClient:
             },
         )
         return resp.candlesticks
+
+    async def get_markets_candlesticks(
+        self,
+        tickers: Sequence[str],
+        *,
+        start_ts: int,
+        end_ts: int,
+        period_interval: CandlePeriod,
+    ) -> list[MarketCandlesticks]:
+        """``GET /markets/candlesticks`` — one window for a batch of markets.
+
+        The request is passed through as given: the endpoint caps
+        ``len(tickers) × periods`` (``CANDLE_BATCH_MAX_CANDLES``) and answers
+        HTTP 400 above it, and the planner — not this method — owns that cap
+        (design 264, Decision 7). ``tickers`` is comma-joined here because the
+        transport's ``ParamValue`` has no list member (a list would render as
+        ``"['A', 'B']"``), the same way ``MarketsQuery.tickers`` is sent. An
+        unknown ticker is simply absent from the result; a known but idle one
+        is present with an empty candle list.
+        """
+        resp = await self._transport.get_model(
+            MARKETS_CANDLESTICKS_PATH,
+            BatchCandlesticksResponse,
+            {
+                "market_tickers": ",".join(tickers),
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+                "period_interval": int(period_interval),
+            },
+        )
+        return resp.markets
 
     # ------------------------------------------------------------------
     # Trades (cursor paginated)

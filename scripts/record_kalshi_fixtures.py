@@ -33,7 +33,13 @@ from pathlib import Path
 import httpx
 
 from manta_trading.data.kalshi.client import KalshiClient
-from manta_trading.data.kalshi.constants import CandlePeriod, MarketStatusFilter
+from manta_trading.data.kalshi.constants import (
+    CANDLE_BATCH_MAX_TICKERS,
+    KALSHI_MVE_FILTER,
+    CandlePeriod,
+    MarketStatusFilter,
+)
+from manta_trading.data.kalshi.models import Market
 from manta_trading.providers.errors import ProviderPermanentError
 
 DESCRIPTION = "Record real Kalshi API responses as unit-test fixtures."
@@ -51,6 +57,21 @@ SETTLED_WINDOW_LIMIT = 50
 CANDLE_TRADE_SCAN = 100
 #: Up to this span, record 1-minute candles; beyond it, hourly.
 MINUTE_CANDLE_MAX_SPAN = timedelta(hours=6)
+#: Slice 264: the batch endpoint over the last hour of 1-minute candles for a
+#: few traded tickers plus never-traded open markets. Observed live 2026-08-26:
+#: a quote-only candle on a market that has *ever* traded carries
+#: ``price: {"previous_dollars": …}``; only a never-traded market serves
+#: ``price: {}``. Never-traded markets on the first open page are quoted
+#: every hour; the idle ones (an entry with an empty candle list) are the
+#: long-dated ones, so half the sample closes at least ``FAR_CLOSE`` out.
+CANDLE_BATCH_WINDOW = timedelta(hours=1)
+CANDLE_BATCH_TRADED_SAMPLE = 3
+CANDLE_BATCH_NEVER_TRADED_SAMPLE = 5
+CANDLE_BATCH_OPEN_SCAN = 100
+CANDLE_BATCH_FAR_CLOSE = timedelta(days=180)
+#: Slice 264: 100 tickers × 360 minutes = 36,000 requested candles, above the
+#: verified 10,000 cap — provokes the HTTP 400 the planner exists to avoid.
+CANDLE_OVER_CAP_WINDOW = timedelta(minutes=360)
 DRY_RUN_PREVIEW_CHARS = 600
 
 
@@ -221,6 +242,94 @@ async def record_markets_settled_window(rec: Recorder) -> None:
     rec.save("markets_settled_window")
 
 
+def _window_ending_now(span: timedelta) -> tuple[int, int]:
+    """``(start_ts, end_ts)`` for the ``span`` ending at the current minute."""
+    end = datetime.now(UTC).replace(second=0, microsecond=0)
+    return int((end - span).timestamp()), int(end.timestamp())
+
+
+async def _open_markets(
+    rec: Recorder, count: int, *, min_close_ts: int | None = None
+) -> list[Market]:
+    page = await rec.client.get_markets(
+        status=MarketStatusFilter.OPEN,
+        mve_filter=KALSHI_MVE_FILTER,
+        min_close_ts=min_close_ts,
+        limit=count,
+    )
+    return page.markets
+
+
+async def _never_traded_tickers(
+    rec: Recorder, *, min_close_ts: int | None = None
+) -> list[str]:
+    markets = await _open_markets(
+        rec, CANDLE_BATCH_OPEN_SCAN, min_close_ts=min_close_ts
+    )
+    never = [m.ticker for m in markets if not m.volume_fp]
+    return never[:CANDLE_BATCH_NEVER_TRADED_SAMPLE]
+
+
+async def record_candlesticks_batch(rec: Recorder) -> None:
+    """``GET /markets/candlesticks`` (slice 264): traded tickers from the
+    latest trades page plus never-traded open markets, last hour, ``period=1``.
+
+    The fixture must show both shapes the core handles — an entry with an
+    empty ``candlesticks`` list (an idle market) and a candle with
+    ``price: {}`` (a quote-only period on a never-traded market) — so the
+    response is checked for both before it is saved; the window and the
+    sample decide, so do not assume.
+    """
+    trades = await rec.client.get_trades(limit=CANDLE_TRADE_SCAN)
+    traded = [
+        ticker
+        for ticker, _ in Counter(t.ticker for t in trades.trades).most_common(
+            CANDLE_BATCH_TRADED_SAMPLE
+        )
+    ]
+    far_close = int((datetime.now(UTC) + CANDLE_BATCH_FAR_CLOSE).timestamp())
+    quoted = await _never_traded_tickers(rec)
+    idle = await _never_traded_tickers(rec, min_close_ts=far_close)
+    tickers = list(dict.fromkeys([*traded, *quoted, *idle]))
+    start_ts, end_ts = _window_ending_now(CANDLE_BATCH_WINDOW)
+    await rec.client.get_markets_candlesticks(
+        tickers, start_ts=start_ts, end_ts=end_ts, period_interval=CandlePeriod.MINUTE
+    )
+    served = json.loads(rec.transport.last_body)["markets"]
+    has_empty = any(not entry["candlesticks"] for entry in served)
+    has_quote_only = any(
+        candle["price"] == {} for entry in served for candle in entry["candlesticks"]
+    )
+    if not (has_empty and has_quote_only):
+        raise SystemExit(
+            "candlesticks_batch: response lacks an empty entry "
+            f"({has_empty}) or a price:{{}} candle ({has_quote_only}); rerun"
+        )
+    rec.save("candlesticks_batch")
+
+
+async def record_candlesticks_batch_over_cap(rec: Recorder) -> None:
+    """The HTTP 400 body for a request over the batch candle cap (slice 264)."""
+    tickers = [m.ticker for m in await _open_markets(rec, CANDLE_BATCH_MAX_TICKERS)]
+    if len(tickers) != CANDLE_BATCH_MAX_TICKERS:
+        raise SystemExit(
+            f"expected {CANDLE_BATCH_MAX_TICKERS} open tickers, got {len(tickers)}"
+        )
+    start_ts, end_ts = _window_ending_now(CANDLE_OVER_CAP_WINDOW)
+    try:
+        await rec.client.get_markets_candlesticks(
+            tickers,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            period_interval=CandlePeriod.MINUTE,
+        )
+    except ProviderPermanentError:
+        # Expected: the 400 body is the fixture (the cap is on the request).
+        rec.save("error_400_candles_cap")
+        return
+    raise SystemExit("expected HTTP 400 over the candle cap; the API returned success")
+
+
 RECORDERS: dict[str, Callable[[Recorder], Awaitable[None]]] = {
     "series_list": record_series_list,
     "series": record_series,
@@ -233,6 +342,8 @@ RECORDERS: dict[str, Callable[[Recorder], Awaitable[None]]] = {
     "markets_settled_window": record_markets_settled_window,
     "markets_by_tickers": record_markets_by_tickers,
     "events_by_tickers": record_events_by_tickers,
+    "candlesticks_batch": record_candlesticks_batch,
+    "candlesticks_batch_over_cap": record_candlesticks_batch_over_cap,
 }
 
 

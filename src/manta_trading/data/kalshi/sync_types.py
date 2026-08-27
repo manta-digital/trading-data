@@ -117,14 +117,23 @@ def transitions_as_dict(transitions: dict[tuple[str, str], int]) -> dict[str, in
 def classify(
     result: SyncResult, exc: ProviderError | psycopg.OperationalError | None
 ) -> SyncOutcome:
-    """Pure classification of a finished (or aborted) run."""
+    """Pure classification of a finished (or aborted) catalog run."""
+    return classify_outcome(bool(result.item_errors), exc)
+
+
+def classify_outcome(
+    has_item_errors: bool, exc: ProviderError | psycopg.OperationalError | None
+) -> SyncOutcome:
+    """The one classification rule (Decision 11), shared by every phase:
+    storage abort first, then provider abort, ``TypeError`` for anything
+    else, ``PARTIAL`` when item errors exist, else ``OK``."""
     if isinstance(exc, psycopg.OperationalError):
         return SyncOutcome.STORAGE_ABORT
     if isinstance(exc, ProviderError):
         return SyncOutcome.PROVIDER_ABORT
     if exc is not None:
         raise TypeError(f"unclassified exception {type(exc).__name__}")
-    return SyncOutcome.PARTIAL if result.item_errors else SyncOutcome.OK
+    return SyncOutcome.PARTIAL if has_item_errors else SyncOutcome.OK
 
 
 @dataclass

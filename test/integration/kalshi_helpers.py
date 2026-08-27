@@ -22,6 +22,34 @@ from manta_trading.data.kalshi.repository import CatalogRepository, MarketUpsert
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "kalshi"
 
 
+def ensure_timescaledb(url: str) -> str:
+    """Give a throwaway database the TimescaleDB extension, as production has.
+
+    The kalshi track targets the shared ``trading`` database, where the
+    minute track's ``001a`` created the extension long ago; ``kalshi_005``
+    (slice 264) creates a hypertable and assumes it. ``CREATE EXTENSION``
+    cannot run inside a transaction block. Only ever called on a database a
+    fixture in this tier minted.
+    """
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
+    return url
+
+
+def apply_kalshi_track(url: str) -> str:
+    """Extension, then the whole kalshi track — spelled once, for the
+    ``kalshi_db`` fixture and ``test_kalshi_pass.second_kalshi_db``."""
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.market.schema.migrations import TRACKS
+    from manta_trading.market.schema.runner import apply_migrations
+
+    ensure_timescaledb(url)
+    with ConnectionPool[Any](url, min_size=1, max_size=2) as pool:
+        apply_migrations(pool, TRACKS["kalshi"])
+    return url
+
+
 def load_fixture(name: str) -> dict[str, Any]:
     return json.loads((FIXTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
@@ -50,12 +78,21 @@ def parent_events(markets: Iterable[km.Market]) -> list[km.Event]:
 
 
 async def write_catalog(
-    repo: CatalogRepository, markets: list[km.Market]
+    repo: CatalogRepository,
+    markets: list[km.Market],
+    series: list[km.Series] | None = None,
 ) -> MarketUpsertOutcome:
-    """Markets with synthesized parents, in one transaction."""
+    """Markets with synthesized parents, in one transaction.
+
+    ``series`` (slice 264, Task 4.4a) supplies real series rows — with a
+    category and a title, which ``parent_series`` never sets — for tests of
+    the collection rule; they must carry the tickers ``parent_events``
+    derives (``f"{event_ticker}-SERIES"``). When omitted the synthesized,
+    NULL-category series are written as before.
+    """
     events = parent_events(markets)
     async with repo.transaction():
-        await repo.upsert_series(parent_series(events))
+        await repo.upsert_series(parent_series(events) if series is None else series)
         await repo.upsert_events(events)
         outcome = await repo.upsert_markets(markets)
     return outcome
