@@ -419,11 +419,25 @@ status` prints the rule in force on its `rule` line together with the
 takes effect. `kalshi_005_candlesticks` must be applied during the update; a
 firing between install and apply exits 1 with `kalshi track has pending
 migrations: kalshi_005_candlesticks` — expected, not a defect, and the next
-hour's firing succeeds once the migration is in. The first firing after the
-release runs a few minutes longer (each selected market's first sight buys
-24 hours of history), and the finalized backlog drains over roughly six
-firings at 1,000 requests per pass — `status` shows `backlog remaining`
-falling. Chunks of `kalshi.candlesticks` older than 14 days compress
+hour's firing succeeds once the migration is in. **The first firings after
+the release run long — under an hour each, not minutes.** Observed on
+2026-08-27: the first firing took 55 minutes for 6,538 batch requests — a
+100,000-market slice of the finalized backlog (the per-pass cap is
+`1,000 × 100` markets; dense markets pack only ~20 to a request) followed by
+the live set's first sight (~1,100 requests, ~6 minutes, 24 hours of history
+each). Each following firing takes another 100,000-market slice until
+`status` shows `backlog remaining` at 0 (about four firings from the 250k
+observed), then settles to the ~70-request steady state. A firing that lands
+while the previous one still runs exits 1 on the run lock — expected. The
+live set is planned **after** the backlog within a pass, so during the drain
+live candles land in the pass's last minutes, not its first.
+
+**A dead terminal drops the view, not the pass.** `sudo mt-run kalshi`
+streams the journal, but the pass is a systemd unit and keeps running if the
+terminal crashes or the SSH session drops (observed 2026-08-27: a terminal
+crash froze the display at `2100/6538` while the unit ran to completion).
+`mt-run follow kalshi` re-attaches; `mt-run status` shows the last lines;
+for a long watch use `tmux`. Chunks of `kalshi.candlesticks` older than 14 days compress
 automatically under a TimescaleDB policy; see it — and its last run — by
 hypertable name and procedure, never by a job ID, which regenerates
 whenever the policy is recreated:

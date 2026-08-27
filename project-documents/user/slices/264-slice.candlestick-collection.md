@@ -10,7 +10,7 @@ dateCreated: 20260825
 dateUpdated: 20260827
 reviewVerdictsAddressed:
   - 264-review.slice.candlestick-collection (claude-sonnet-5, CONCERNS, F001 addressed in 260-arch; F002 noted there)
-status: in_progress
+status: complete
 ---
 
 # Slice Design: Candlestick Collection (264)
@@ -206,7 +206,7 @@ Under the abort rule (263 Decision 2), a catalog abort skips this phase; a candl
 
 5. **First sight buys 24 hours of history; before that, nothing — except for markets seen young. PM-ratified 20260826.** A market with no state row starts at `max(open_time, min(close_time, phase_start) − 24 h)`: a ladder finalized between passes is fetched from its open; a market open for 100 days gets its last day, and `coverage_from_ts` records that for `status`. Under the rule the first pass costs ~1,150 requests ≈ 4 minutes (six tickers per request at 1,440 periods). `CANDLE_FIRST_SIGHT_LOOKBACK = timedelta(hours=24)` is the single definition.
 
-6. **The finalized backlog drains under a per-pass request cap; live markets are never capped.** ~0.5 M selected finalized markets are still on the live endpoint and fall behind the cutoff when it moves — collected oldest-settlement-first because they are reachable now. `CANDLE_BACKLOG_REQUESTS_PER_PASS = 1000` (~3.3 minutes) keeps every pass bounded and the catalog hourly; the backlog drains in roughly six firings. Live and finishing sets are bounded by the venue (~7 k markets ≈ 70 requests). `status` reports `backlog_remaining`.
+6. **The finalized backlog drains under a per-pass request cap; live markets are never capped.** ~0.5 M selected finalized markets are still on the live endpoint and fall behind the cutoff when it moves — collected oldest-settlement-first because they are reachable now. `CANDLE_BACKLOG_REQUESTS_PER_PASS = 1000` (~3.3 minutes) keeps every pass bounded and the catalog hourly; the backlog drains in roughly six firings. Live and finishing sets are bounded by the venue (~7 k markets ≈ 70 requests). `status` reports `backlog_remaining`. *Observed on the host 2026-08-27:* the cap is applied as `1,000 × 100 = 100,000` backlog **markets** per pass; dense markets pack ~20 per request, so a slice is ~5,300 requests and ~50 minutes at the public budget, not ~3.3 minutes — bounded, but an hour-scale bound. The live set is planned after the backlog within the pass.
 
 7. **A provider error on a batch aborts the phase; only an omitted ticker is an item error.** The planner guarantees the cap, so a 400 on `/markets/candlesticks` is our bug or an API change and must fail the pass visibly (exit 2). 429/5xx follow the transport's bounded-retry path. Omission from the response is the one per-market failure the API signals: `item_error` (`phase="candles"`, reason `"not served by the batch endpoint"`), state untouched, retried next pass.
 
@@ -538,7 +538,7 @@ retried successfully at attempt 1 of 4, zero provider aborts. The candle phase
 roughly doubles a pass's request count, so `MT_KALSHI_REQUESTS_PER_MINUTE` is
 the lever if that margin tightens.
 
-**6. Production deploy (PM).** *Not yet run.* Runbook 100 *Update procedure*:
+**6. Production deploy (PM).** ✅ done 2026-08-27 (v0.10.0 installed, `kalshi_005_candlesticks` applied; no firing reported between install and apply). Runbook 100 *Update procedure*:
 tag `v0.10.0` → `install-production.sh --ref v0.10.0` (once — no new units) →
 from the dev checkout `uv run mt data migrate status --track kalshi` (1
 pending) → `uv run mt data migrate apply --track kalshi` (maintenance
@@ -546,29 +546,68 @@ credential) → `status` shows 0 pending. A firing between install and apply
 shows `last run: exit-code, exit=1` naming `kalshi_005_candlesticks` —
 expected (Decision 8), and proven on the throwaway database in step 2.
 
-**7. First supervised firing (Criterion 14).** *Not yet run.*
+**7. First supervised firing (Criterion 14).** ✅ observed 2026-08-27, `sudo mt-run kalshi` at 06:06:50 MDT (12:06:50 UTC).
 
 ```bash
 sudo mt-run kalshi                     # or wait for :20; Ctrl-C detaches
-mt-run follow kalshi
-systemctl show mt-kalshi-pass.service -p Result -p ExecMainStatus                    # expect Result=success, ExecMainStatus=0
-journalctl -u mt-kalshi-pass.service --grep 'kalshi pass finished' -n 1               # expect phases: catalog=ok candles=ok
-journalctl -u mt-kalshi-pass.service -o cat --since -2h | grep -c 'HTTP 400'          # expect 0 (429s are retried and expected)
+mt-run follow kalshi                   # re-attaches — the pass survives a dead terminal (observed)
+journalctl -u mt-kalshi-pass.service --grep 'kalshi pass finished' -n 1
+#    → kalshi pass finished outcome=ok duration=3297373 ms phases: catalog=ok candles=ok   (55.0 min, exit 0)
+journalctl _SYSTEMD_INVOCATION_ID=<id> -o cat | grep -c 'HTTP 400'                     # → 0
 ```
 
-Record the phase's wall time from the journal — Decision 9 says a fetch pool
-stays a follow-up **with evidence**, and this is that evidence.
+Observed shape: `candles phase started … cutoff=2026-06-28`; **6,538 requests
+planned** — a 100,000-market backlog slice (the cap is `1,000 × 100` markets,
+and dense June/July markets packed ~20 to a request under the 10,000-candle
+limit: requests 1–5,400 at ~100 per minute) followed by the **live set's first
+sight** (requests ~5,400–6,538, ~6 markets per request, ~200 per minute, under
+six minutes). Progress lines contiguous every 100 requests. End state:
+`sync_state` row written; **107,282 markets advanced** (state rows written 12:08:42–13:01:45 UTC); the last progress line, at request 6,500 of 6,538, read 12,777,974 candles written.
 
-**8. Steady state, second pass on demand.** *Not yet run.*
+Journal counts for the invocation: **68 × `HTTP 429`** over 6,538 requests
+(1.0%), **0** needing a second attempt; the phase-start line, verbatim:
+`kalshi candles phase started run_id=fe35a2a5-… cutoff=2026-06-28T00:00:00+00:00
+candles rule: traded 24h · categories all · excluding Mentions, Sports · patterns 2`.
+
+**Wall time (Decision 9 evidence):** 55.0 minutes for the first pass — the
+backlog slice ~50, the live first sight ~6. The backlog ran at ~100 requests
+per minute, a third of the 300/min budget, with 429s at 1% and no deep
+retries: the bound is the **serial loop** (fetch, then a ~10,000-row insert,
+then the next fetch — ~0.6 s per request), not the venue. The live portion,
+with small inserts, ran ~200/min. So the evidence favours overlapping fetch
+and write (a bounded prefetch of the next batch) if drain time ever matters;
+it would roughly halve a backlog pass. The design's "~3.3 minutes" for the
+backlog cap assumed 100 markets per request; observed density makes a
+100,000-market slice ~5,300 requests.
+
+**8. Second pass and the steady-state counts.** ✅ observed 2026-08-27. The
+timer's own 13:20 UTC firing was the second pass (it started before the
+first reading was taken), which proves the same thing as a pass on demand.
+Its candle phase started 13:21:49 UTC, planned 4,906 requests (the next
+100,000-market backlog slice, then the live set), and wrote its `sync_state`
+row at ~14:15 UTC — ~53 minutes.
 
 ```bash
-mt-run data kalshi status              # then: sudo mt-run kalshi; status again
-#    expect between the two readings: open lagging 0, backlog remaining falling
-journalctl -u mt-kalshi-pass.service --since -24h | grep -c retry                     # 263 Decision 7 evidence, now with the candle phase's requests
+mt data kalshi status                  # reading A, 13:39:39 UTC — pass 2 in progress, 19 min in
+#   selected open 7,254 · tracked 143,256 · complete through close 136,516 · partial history 31,808
+#   open lagging 0 · short of close 72 · backlog remaining 249,649 · behind cutoff, uncollected 8,394
+#   excluded by rule 3,255,653
+mt data kalshi status                  # reading B, 14:15:19 UTC — pass 2 complete
+#   selected open 7,254 · tracked 207,799 · complete through close 200,705 · partial history 40,303
+#   open lagging 0 · short of close 310 · backlog remaining 185,623 · behind cutoff, uncollected 8,394
+#   excluded by rule 3,258,373
 ```
 
-Record `behind_cutoff_uncollected` — it is 266's input and the honest
-"known-lost until then" number.
+Between the readings: **`open lagging` 0 → 0**; **`backlog remaining`
+249,649 → 185,623** (the pass wrote 107,147 state rows — a full
+100,000-market slice, oldest settlement first, plus the 7,147 live markets
+re-advanced in its last minute); **`behind cutoff, uncollected` 8,394**,
+unchanged — 266's input, the honest "known-lost until then" number. At
+100,000 per firing the backlog reaches 0 in two more firings, after which a
+pass is the live set's ~70 requests. `short of close` 310 are markets that
+closed during the pass; the finishing set takes them next firing. Reading A
+was taken mid-pass on purpose — both figures are recorded outputs, not
+projections, and the delta is one firing's work.
 
 ### Success criteria — where each is proven
 
@@ -581,13 +620,13 @@ Record `behind_cutoff_uncollected` — it is 266's input and the honest
 | 5 | planner randomized cap/coverage invariant | — | ✅ 0 HTTP 400 over 1,290 live batch requests |
 | 6 | `target_window` cases | `coverage_from_ts` set once | ✅ step 4: partial 6,480 / complete 2,378 of 9,620 |
 | 7 | core: finishing set | close-then-pass | ✅ step 5: `short of close 0`, `complete through close` 2,605 |
-| 8 | core: cap on backlog only; count ≠ capped rows | backlog ordering + falling remainder | ✅ step 4→5 `backlog_remaining` 0; cap exercised in test (throwaway backlog was small) |
+| 8 | core: cap on backlog only; count ≠ capped rows | backlog ordering + falling remainder | ✅ host step 8: `backlog remaining` 249,649 → 185,623 across one firing (a 100,000-market slice, June→July watermarks first); rehearsal step 4→5 drained a small backlog to 0 |
 | 9 | core: cutoff exclusion | behind-cutoff count | ✅ counts present; 0 here (cutoff predates this catalog's settlements) |
 | 10 | core: omission → item error | omitted ticker → exit 3, no state row | — (integration only; no live omission occurred) |
 | 11 | — | ledger preflight names every missing id | ✅ step 2, exact wording and exit 1 |
 | 12 | `status.py` imports no client/transport | every field of the block | ✅ step 5 Rich + `--json` blocks |
 | 13 | — | policy run_job compresses an old chunk, rows identical | ⚠️ policy verified present/scheduled/clean; nothing eligible (all chunks < 14 d) — compression itself proven by the integration test |
-| 14 | — | — | ⏳ steps 7–8, PM, not yet run |
+| 14 | — | — | ✅ step 7: first timer-unit firing exit 0, `phases: catalog=ok candles=ok`, 55.0 min, 0 × HTTP 400, 68 × 429 none past attempt 1; step 8: the timer's own next firing completed its phase, `open lagging` 0 → 0, `backlog remaining` falling |
 
 ## Risk Assessment
 

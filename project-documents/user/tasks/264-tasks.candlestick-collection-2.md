@@ -18,7 +18,7 @@ reviewVerdictsAddressed:
   - 264-review.tasks.candlestick-collection.part-2 (claude-opus-5, CONCERNS, F001-F004 addressed)
 dateCreated: 20260826
 dateUpdated: 20260827
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -339,53 +339,53 @@ persisted fact; nothing here counts rows in `kalshi.candlesticks`.
 Walkthrough steps 6–8. **[PM]** steps run on manta9000. The release must be
 merged and tagged per runbook 100 before 8.1 (not a task here).
 
-- [ ] **Task 8.1 [PM]: Deploy and apply the migration** (effort: 2)
-  - [ ] Runbook 100 *Update procedure*: install the tag (once — this release
+- [x] **Task 8.1 [PM]: Deploy and apply the migration** (effort: 2)
+  - [x] Runbook 100 *Update procedure*: install the tag (once — this release
         adds **no** new unit, so the two-run installer dance 263 needed does
         not apply), then from the dev checkout `uv run mt data migrate
         status --track kalshi` (1 pending) → `uv run mt data migrate apply
         --track kalshi` with the maintenance credential → `status` shows 0
         pending. Record each output.
-  - [ ] A firing between install and apply shows `Result=exit-code`, exit 1,
+  - [x] A firing between install and apply shows `Result=exit-code`, exit 1,
         naming `kalshi_005_candlesticks` — expected (Decision 8). Record it
         if it happens; it is Criterion 11 on the host.
 
-- [ ] **Task 8.2 [PM]: First supervised firing** (effort: 2)
-  - [ ] `sudo mt-run kalshi` (or wait for `:20`); `mt-run follow kalshi`.
+- [x] **Task 8.2 [PM]: First supervised firing** (effort: 2)
+  - [x] `sudo mt-run kalshi` (or wait for `:20`); `mt-run follow kalshi`.
         Record the `kalshi pass finished` line showing `phases:
         catalog=ok candles=ok`, `systemctl show mt-kalshi-pass.service -p
         Result -p ExecMainStatus` (`success`, `0`), and
         `journalctl … --since -2h | grep -c 'HTTP 4'` → 0 (Criterion 14,
         and Criterion 5 on real traffic).
-  - [ ] Record the phase's wall time from the journal — Decision 9 says a
+  - [x] Record the phase's wall time from the journal — Decision 9 says a
         fetch pool stays a follow-up **with evidence**, and this is that
         evidence.
 
-- [ ] **Task 8.3 [PM]: Second pass and the steady-state counts** (effort: 1)
-  - [ ] Record `mt-run data kalshi status` immediately after 8.2 (the rule
+- [x] **Task 8.3 [PM]: Second pass and the steady-state counts** (effort: 1)
+  - [x] Record `mt-run data kalshi status` immediately after 8.2 (the rule
         line and every candle count), then run a **second pass on demand**
         with `sudo mt-run kalshi` and record `status` again. Do not wait for
         the timer: starting the unit the timer activates proves the same
         thing and is measurable now.
-  - [ ] Success (Criterion 14): between the two readings `open_lagging` is 0
+  - [x] Success (Criterion 14): between the two readings `open_lagging` is 0
         and `backlog_remaining` has fallen. Both numbers come from the two
         recorded outputs, not from a projection.
-  - [ ] Record `behind_cutoff_uncollected` — it is 266's input and the
+  - [x] Record `behind_cutoff_uncollected` — it is 266's input and the
         honest "known-lost until then" number.
 
-- [ ] **Task 8.4 [agent]: Walkthrough refresh and close** (effort: 2)
-  - [ ] Replace the design's draft walkthrough expectations with the output
+- [x] **Task 8.4 [agent]: Walkthrough refresh and close** (effort: 2)
+  - [x] Replace the design's draft walkthrough expectations with the output
         actually observed in 7.4 and 8.1–8.3 (the 263 pattern), and fill the
         *Success criteria — where each is proven* table with what was seen.
-  - [ ] Add a `user/notes/000-process-journal.md` entry for anything found
+  - [x] Add a `user/notes/000-process-journal.md` entry for anything found
         that outlives this slice — in particular the measured phase wall
         time and whether Kalshi was observed revising a completed candle
         (the Risk Assessment's open question; conflict-ignore keeps the
         first version, so a revision would show as a diff on re-fetch).
-  - [ ] Set `dateUpdated` on the design, the runbook, and this task file;
+  - [x] Set `dateUpdated` on the design, the runbook, and this task file;
         set the design's `status: complete`.
-  - [ ] Delegate checklist updates for this file to the `task-checker` agent.
-  - [ ] **Commit**: `docs: refresh 264 walkthrough with observed output`.
+  - [x] Delegate checklist updates for this file to the `task-checker` agent.
+  - [x] **Commit**: `docs: refresh 264 walkthrough with observed output`.
 
 ## Task review disposition (20260826)
 

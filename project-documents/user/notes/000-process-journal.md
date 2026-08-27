@@ -1468,6 +1468,21 @@ were counted, because the predicate only tested watermark age. Fixed in
 contain finished work needs a "nothing left to do" clause, or it grows with
 the venue's determination delay instead of the collector's lag.
 
+**5. "N requests per pass" is only a request cap if the planner sees requests.**
+`CANDLE_BACKLOG_REQUESTS_PER_PASS = 1000` is applied as a *row* limit
+(`× CANDLE_BATCH_MAX_TICKERS` = 100,000 markets) before planning, and the
+planner then packs those rows under the 10,000-candle request limit. On the
+host the first firing planned 6,538 requests and ran 55 minutes — bounded,
+but 15× the design's estimate, because dense markets pack ~20 per request,
+not 100. Two lessons: state a cap in the unit the loop actually counts, and
+cap after planning; and order the live set before the backlog so an hourly
+pass brings live markets current first. Both are one-function changes in
+`candle_sync` (candidate 0.10.1); neither was urgent because the backlog
+drained in about four firings. The same firing answers Decision 9: 68 × 429
+in 6,538 requests (1%, none past attempt 1) and ~100 requests/min against a
+300/min budget — the loop is serial (fetch, ~10,000-row insert, fetch), so
+a bounded prefetch of the next batch, not a fetch pool, is the lever.
+
 **Follow-ups:** slice 264 Task 8.4 corrects the walkthrough's `run_job` SQL.
 The phase wall time from the first *production* firing (Decision 9's evidence
 on whether a fetch pool is ever warranted) is a PM step (8.2) and is not yet
