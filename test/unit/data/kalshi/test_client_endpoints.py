@@ -8,8 +8,10 @@ when ``cursor`` equals page 1's cursor.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -40,6 +42,7 @@ from manta_trading.data.kalshi.models import (
 from manta_trading.providers.errors import ProviderPermanentError
 
 PAGE2_CURSOR = "cursor-page-2"
+FIXTURE_DIR = Path(__file__).resolve().parents[4] / "test" / "fixtures" / "kalshi"
 
 #: A route serves one payload, or a two-element list for cursor-paged routes.
 Route = dict[str, Any] | list[dict[str, Any]]
@@ -60,6 +63,12 @@ ROUTES: dict[str, Route] = {
     "/series/KXELONMARS/markets/KXELONMARS-99/candlesticks": {
         "ticker": "KXELONMARS-99",
         "candlesticks": [CANDLE_SAMPLE],
+    },
+    "/markets/candlesticks": {
+        "markets": [
+            {"market_ticker": "KXELONMARS-99", "candlesticks": [CANDLE_SAMPLE]},
+            {"market_ticker": "IDLE-1", "candlesticks": []},
+        ]
     },
     "/markets/trades": paged(
         "trades", [TRADE_SAMPLE, {**TRADE_SAMPLE, "trade_id": "t2"}]
@@ -226,6 +235,67 @@ class TestCandlesticks:
         }
         assert isinstance(candles[0], Candlestick)
         assert candles[0].yes_bid.close_dollars == Decimal("0.1000")
+
+
+class TestBatchCandlesticks:
+    """Slice 264: ``GET /markets/candlesticks`` — one request per batch."""
+
+    async def test_path_params_and_omission(self, harness: Harness):
+        markets = await harness.client.get_markets_candlesticks(
+            ["KXELONMARS-99", "IDLE-1", "NOPE-NOT-A-TICKER"],
+            start_ts=1787400000,
+            end_ts=1787403600,
+            period_interval=CandlePeriod.MINUTE,
+        )
+        assert len(harness.requests) == 1
+        assert harness.last.url.path == "/trade-api/v2/markets/candlesticks"
+        assert harness.query() == {
+            "market_tickers": "KXELONMARS-99,IDLE-1,NOPE-NOT-A-TICKER",
+            "start_ts": "1787400000",
+            "end_ts": "1787403600",
+            "period_interval": "1",
+        }
+        # The unknown ticker is absent; the idle one is present and empty.
+        assert [m.market_ticker for m in markets] == ["KXELONMARS-99", "IDLE-1"]
+        assert isinstance(markets[0].candlesticks[0], Candlestick)
+        assert markets[1].candlesticks == []
+
+
+class TestBatchCandlesticksFixture:
+    """The recorded batch response (slice 264, Task 1.5) parses as served."""
+
+    async def test_fixture_parses_including_empty_and_quote_only(self):
+        wire = json.loads((FIXTURE_DIR / "candlesticks_batch.json").read_bytes())
+        harness = build_harness({"/markets/candlesticks": wire})
+        markets = await harness.client.get_markets_candlesticks(
+            ["ignored-by-the-mock"],
+            start_ts=0,
+            end_ts=1,
+            period_interval=CandlePeriod.MINUTE,
+        )
+        assert [m.market_ticker for m in markets] == [
+            e["market_ticker"] for e in wire["markets"]
+        ]
+        # An idle market is present with an empty list, not absent.
+        empty = [m for m in markets if not m.candlesticks]
+        assert empty, "fixture must contain an empty entry"
+        # A never-traded market's candle serves ``price: {}`` — every price
+        # field None, volume zero — and still parses as a Candlestick.
+        quote_only = [
+            c
+            for m in markets
+            for c in m.candlesticks
+            if c.price.model_dump(exclude_none=True) == {}
+        ]
+        assert quote_only, "fixture must contain a price: {} candle"
+        assert all(c.volume_fp == 0 for c in quote_only)
+        for parsed, raw in zip(markets, wire["markets"], strict=True):
+            for candle, raw_candle in zip(
+                parsed.candlesticks, raw["candlesticks"], strict=True
+            ):
+                assert str(candle.volume_fp) == raw_candle["volume_fp"]
+                end_ts = int(candle.end_period_ts.timestamp())
+                assert end_ts == raw_candle["end_period_ts"]
 
 
 class TestTrades:

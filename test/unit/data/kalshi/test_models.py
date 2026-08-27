@@ -163,3 +163,35 @@ class TestHistoricalCutoff:
             km.HistoricalCutoff.model_validate(
                 {"orders_updated_ts": "2026-06-25T00:00:00Z"}
             )
+
+
+class TestBatchCandlesticks:
+    """Slice 264 batch models: an idle market is present with no candles."""
+
+    def test_market_entry_parses(self):
+        entry = km.MarketCandlesticks.model_validate(
+            {"market_ticker": "KXELONMARS-99", "candlesticks": [CANDLE_SAMPLE]}
+        )
+        assert entry.market_ticker == "KXELONMARS-99"
+        assert entry.candlesticks[0].volume_fp == Decimal("0.00")
+
+    def test_empty_entry_is_valid(self):
+        entry = km.MarketCandlesticks.model_validate(
+            {"market_ticker": "IDLE", "candlesticks": []}
+        )
+        assert entry.candlesticks == []
+
+    def test_response_wrapper(self):
+        resp = km.BatchCandlesticksResponse.model_validate(
+            {
+                "markets": [
+                    {"market_ticker": "A", "candlesticks": [CANDLE_SAMPLE]},
+                    {"market_ticker": "B", "candlesticks": []},
+                ]
+            }
+        )
+        assert [m.market_ticker for m in resp.markets] == ["A", "B"]
+
+    def test_missing_ticker_raises(self):
+        with pytest.raises(ValidationError):
+            km.MarketCandlesticks.model_validate({"candlesticks": []})

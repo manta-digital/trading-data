@@ -223,3 +223,46 @@ DB_CONNECT_TIMEOUT_SECONDS = 10
 #: syncs never write concurrently. A fixed bigint; the namespace is this key
 #: alone (``pg_try_advisory_lock(SYNC_ADVISORY_LOCK_KEY)``).
 SYNC_ADVISORY_LOCK_KEY = 262_000_001
+
+# ---------------------------------------------------------------------------
+# Candlestick collection (slice 264 — each value cites its decision or the
+# design's Discovery Findings, measured live 2026-08-26)
+# ---------------------------------------------------------------------------
+
+#: Batch candlestick endpoint (Discovery Findings): one request serves one
+#: window for up to ``CANDLE_BATCH_MAX_TICKERS`` markets.
+MARKETS_CANDLESTICKS_PATH = "/markets/candlesticks"
+
+#: Decision 1: one period is collected; coarser bars are derived locally.
+COLLECTED_CANDLE_PERIOD = CandlePeriod.MINUTE
+
+#: Documented ``market_tickers`` ceiling on the batch endpoint, verified live.
+CANDLE_BATCH_MAX_TICKERS = 100
+#: Verified by provoking it: the batch endpoint answers HTTP 400 when
+#: ``len(tickers) × periods_in_window`` of the **request** exceeds this. The
+#: cap is on what is asked for, not on how many candles come back (candles
+#: are sparse; a request under the cap may serve a handful) — this is the
+#: fact the planner is built around (Decision 7).
+CANDLE_BATCH_MAX_CANDLES = 10_000
+#: Verified cap on the single-market endpoint (periods in the requested
+#: range). Recorded for completeness only: the phase uses the batch path
+#: exclusively, so nothing under ``data/kalshi`` reads this constant.
+CANDLE_SINGLE_MAX_CANDLES = 5_000
+
+#: Decision 5: a market with no state row is fetched from at most this far
+#: before the phase start (or from its open, whichever is later).
+CANDLE_FIRST_SIGHT_LOOKBACK = timedelta(hours=24)
+#: Decision 6: the finalized backlog is capped at this many requests per
+#: pass; the live and finishing sets are never capped.
+CANDLE_BACKLOG_REQUESTS_PER_PASS = 1_000
+#: One INFO progress line per this many batch requests.
+CANDLE_PROGRESS_EVERY_REQUESTS = 100
+#: ``status``: a tracked, still-selected open market whose watermark is older
+#: than ``now - this`` is reported as lagging (two hourly firings behind).
+CANDLE_LAG_STALE_AFTER = timedelta(hours=2)
+
+#: Decision 4: ``kalshi.candlesticks`` chunk interval (journal 20260719 rule).
+KALSHI_CANDLE_CHUNK_INTERVAL = timedelta(days=7)
+#: Decision 4: compression policy horizon. Nothing that writes *old* data may
+#: run against compressed chunks; 266's backfill pauses the policy.
+KALSHI_CANDLE_COMPRESS_AFTER = timedelta(days=14)
