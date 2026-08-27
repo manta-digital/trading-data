@@ -16,6 +16,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (slice 264 — Kalshi candlestick collection)
+- **The Kalshi pass now has two phases: catalog, then candlesticks.** The
+  candle phase collects 1-minute candles for every market the **collection
+  rule** selects — by default markets traded in the last 24 hours, minus the
+  Sports and Mentions categories and mention/say-titled series — into the new
+  `kalshi.candlesticks` hypertable, driven by a per-market watermark so each
+  hourly firing brings every selected market up to the last complete minute
+  (or through its close). First sight of a market buys 24 hours of history;
+  the finalized backlog still served by Kalshi drains at 1,000 requests per
+  pass, oldest settlement first. No new unit, timer, or command: the timer
+  that already runs picks the phase up, and exit codes are unchanged.
+- **The rule is configuration.** Five `MT_KALSHI_CANDLE_*` settings
+  (`TRADED_ONLY`, `CATEGORIES` allow-list, `EXCLUDED_CATEGORIES`,
+  `EXCLUDED_SERIES_PATTERN`, `EXCLUDED_TITLE_PATTERN`) with the defaults
+  above, so another operator can collect a different universe.
+- **`mt data kalshi status` gains a candle block** — the rule in force,
+  markets selected/tracked, complete through close, lagging, short of close,
+  backlog remaining, behind the historical cutoff (uncollected), excluded by
+  rule, partial history — from persisted state alone; `--json` nests it under
+  `candles` (`null` until the phase has run).
+- **Migration `kalshi_005_candlesticks`** (track `kalshi`): the
+  `kalshi.candlesticks` hypertable (7-day chunks, compression enabled,
+  policy at 14 days), `market_candle_state.coverage_from_ts`, and corrected
+  watermark comments. Apply it with the release.
+
+### Changed
+- **Pass preflight verifies the whole kalshi migration ledger** rather than
+  one table: a firing on a release whose migration was not yet applied exits
+  1 naming the pending migration (`kalshi track has pending migrations: …`)
+  instead of failing mid-phase.
+
 ## [0.9.0] — 2026-08-25
 
 ### Added (slice 263 — Kalshi collection pass and supervised install, complete 2026-08-25)

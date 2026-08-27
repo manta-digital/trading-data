@@ -244,8 +244,8 @@ persisted fact; nothing here counts rows in `kalshi.candlesticks`.
 
 ## Section 7: End-to-end integration, docs, and the rehearsal
 
-- [ ] **Task 7.1: End-to-end pass integration test** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_pass.py` on `kalshi_db` with a
+- [x] **Task 7.1: End-to-end pass integration test** (effort: 3)
+  - [x] Extend `test/integration/test_kalshi_pass.py` on `kalshi_db` with a
         fake candle source: a `pass` runs **both** phases in order and
         reports `["catalog", "candles"]` (Criterion 1); candles land under
         the natural key and `market_candle_state` rows exist for every
@@ -257,29 +257,29 @@ persisted fact; nothing here counts rows in `kalshi.candlesticks`.
         drains oldest-settlement-first across two passes (Criterion 8); an
         omitted ticker yields exit 3 with one item error and no state row
         (Criterion 10).
-  - [ ] Success: the kalshi integration set passes end to end.
+  - [x] Success: the kalshi integration set passes end to end.
 
-- [ ] **Task 7.2: Compression proven on a real chunk** (effort: 3)
-  - [ ] Integration test (Criterion 13): insert candles old enough to fall
+- [x] **Task 7.2: Compression proven on a real chunk** (effort: 3)
+  - [x] Integration test (Criterion 13): insert candles old enough to fall
         outside `KALSHI_CANDLE_COMPRESS_AFTER`, run the compression job by
         hand (`CALL run_job(...)`), and assert
         `chunk_compression_stats('kalshi.candlesticks')` reports the chunk
         `Compressed` and that a per-market query over it returns **the same
         rows as before compression**.
-  - [ ] Resolve the job by hypertable name and `proc_name` at use time,
+  - [x] Resolve the job by hypertable name and `proc_name` at use time,
         never by a job ID — job IDs regenerate and a recorded one goes
         stale.
-  - [ ] Success: the test is self-contained (it creates the old rows it
+  - [x] Success: the test is self-contained (it creates the old rows it
         needs) and leaves no policy disabled.
 
-- [ ] **Task 7.3: Full gate pass** (effort: 1)
-  - [ ] `uv run pytest test/unit -q`; `uv run python scripts/run_tests.py
+- [x] **Task 7.3: Full gate pass** (effort: 1)
+  - [x] `uv run pytest test/unit -q`; `uv run python scripts/run_tests.py
         integration -- -k kalshi -q`; `uv run ruff check` and `uv run ruff
         format --check` **scoped to the files touched** (263 process note);
         `uv run --extra dev mypy` and `npx --yes pyright` on the kalshi
         source paths plus the new tests.
-  - [ ] Success: all clean; no new dependency in `pyproject.toml`.
-  - [ ] **Commit**: `test: add kalshi candle end-to-end and compression coverage`.
+  - [x] Success: all clean; no new dependency in `pyproject.toml`.
+  - [x] **Commit**: `test: add kalshi candle end-to-end and compression coverage`.
 
 - [ ] **Task 7.4: Rehearsal on a throwaway database** (effort: 3)
   - [ ] Walkthrough steps 1–5 exactly, on a **throwaway database on the test
