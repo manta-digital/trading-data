@@ -7,15 +7,15 @@ parent: user/architecture/260-slices.kalshi-event-contract-data.md
 dependencies: [261, 262, 263]
 interfaces: [265, 266]
 projectState: >
-  Part 2 of 3. Part 1 (264-tasks.candlestick-collection-1.md) delivers the
-  constants and the configurable collection rule, the batch client method and
-  its fixtures, migration kalshi_005 with the candlesticks hypertable and the
-  ledger preflight, and the pure batch planner. This file builds what consumes
-  them: CandleRepository (the single rendering of the selection rule, the
-  pending queries, the writes) and the CandleSync core with its phase.
+  Continuation of 264-tasks.candlestick-collection-1.md. Sections 1-4 of that
+  file (constants and the collection rule, the batch client and fixtures,
+  migration kalshi_005 and the ledger preflight, the pure batch planner, and
+  CandleRepository with its selection predicate and count methods) are
+  prerequisites for everything here: this file starts at the CandleSync core,
+  which consumes all of them.
 reviewVerdictsAddressed:
-  - 264-review.tasks.candlestick-collection.part-1 (claude-opus-5, CONCERNS, F001-F003/F006 addressed)
-  - 264-review.tasks.candlestick-collection.part-2 (claude-opus-5, CONCERNS, F001-F003 addressed)
+  - 264-review.tasks.candlestick-collection.part-1 (claude-opus-5, CONCERNS, F004/F005/F007 addressed)
+  - 264-review.tasks.candlestick-collection.part-2 (claude-opus-5, CONCERNS, F001-F004 addressed)
 dateCreated: 20260826
 dateUpdated: 20260826
 status: not_started
@@ -23,199 +23,23 @@ status: not_started
 
 ## Context Summary
 
-- Working on **264 Candlestick Collection**, part 2 of 3 — the repository and
-  the core. **Complete part 1's Sections 1–3 first**: Section 4 below renders
-  the rule defined in part 1 Task 1.2 against the schema created in part 1
-  Task 2.1, and Section 5 drives the planner built in part 1 Section 3.
-- The context, hard rules, gates, branch, and host boundary in **part 1's
-  Context Summary** apply unchanged to every task here. The two that bite
-  hardest in this half: the rule is rendered in exactly **one** place
-  (`selection_sql`), and the core issues **no SQL of its own** — every count
-  it reports comes from a repository method.
-- Source of truth remains `user/slices/264-slice.candlestick-collection.md`,
-  referenced by decision and criterion number.
-- Part 3 (`264-tasks.candlestick-collection-3.md`) has the `status` block,
-  the end-to-end and compression tests, the rehearsal, the documentation, and
-  the host steps.
-## Section 4: `CandleRepository` — the rule, the pending queries, the writes
-
-Design *Repository* and *Data Flow* step 2. `CatalogRepository` is the model
-to follow: it takes an open connection, never opens one, holds no exception
-handling, and binds every status value as a parameter rather than
-interpolating it.
-
-- [ ] **Task 4.1: `selection_sql` — the one place the rule is rendered** (effort: 3)
-  - [ ] New `data/kalshi/candle_repository.py` with
-        `selection_sql(rule: CandleRule, form: Literal["recent", "ever"]) ->
-        sql.Composed`, composing the Decision 2 predicate over the aliases
-        `m` (markets) and `s` (series).
-  - [ ] Clause by clause, each **omitted entirely when its setting is empty**
-        so an unset value costs nothing: allow-list when `categories` is
-        non-empty; exclude-list when `excluded_categories` is non-empty; the
-        ticker and title patterns when set; and the traded clause when
-        `traded_only` — `m.volume_24h_fp > 0` for `form="recent"`,
-        `m.volume_fp > 0` for `form="ever"`.
-  - [ ] **NULL category and NULL title must not silently drop a market.**
-        `kalshi.series.category` and `.title` are nullable TEXT (kalshi_002)
-        and Kalshi serves series with neither — the slice's own universe
-        table counts a 588-market "Companies / Social / World / unknown"
-        cohort. The obvious spellings all evaluate to **NULL** on a NULL
-        column, and NULL in a `WHERE` is not TRUE, so such a row would be
-        excluded with no report of the exclusion. Measured on the test
-        cluster 20260826:
-
-        | expression, NULL left operand | result |
-        |---|---|
-        | `NOT (s.category = ANY(%s))` | NULL → row dropped |
-        | `s.ticker !~ %s` | NULL → row dropped |
-        | `s.title !~* %s` | NULL → row dropped |
-        | `COALESCE(s.category, '') <> ALL(%s)` | **true** → row kept |
-        | `COALESCE(s.title, '') !~* %s` | **true** → row kept |
-
-        Use the `COALESCE` forms for the exclusion clauses, so an
-        uncategorised or untitled series is **kept**: the rule excludes
-        Sports and Mentions by name, and a series that is neither is not one
-        of them. (`IS DISTINCT FROM ALL` is not valid PostgreSQL syntax —
-        verified; do not reach for it.)
-  - [ ] The **allow-list is the deliberate exception**: `s.category =
-        ANY(%s)` on a NULL category is NULL, and that is correct — an
-        operator naming the categories they want has not named the
-        uncategorised ones. Comment the asymmetry so it reads as intent.
-  - [ ] Every value is a **bound parameter**, never interpolated — the
-        patterns are operator-supplied strings and must not reach the SQL
-        text (repository.py's standing rule).
-  - [ ] With every setting empty and `traded_only` false, the predicate must
-        be a valid always-true expression, not an empty string.
-  - [ ] Module docstring states that this function is the only renderer of
-        the rule and that the pending queries and `status` both call it.
-  - [ ] Success: a unit-level call returns a `Composed` whose parameter list
-        matches the clauses present.
-
-- [ ] **Task 4.1b: `selection_sql` clause-omission unit tests** (effort: 2)
-  - [ ] New `test/unit/data/kalshi/test_selection_sql.py`. The five settings
-        are each independently omittable, which is combinatorial and cheap
-        to prove without a database: assert the rendered parameter list per
-        configuration — every setting empty (no parameters, always-true
-        predicate), each setting alone, and the rule C default.
-  - [ ] Assert the `COALESCE` forms are used for the two exclusion clauses
-        and that the allow-list clause is **not** wrapped in `COALESCE` —
-        the asymmetry Task 4.1 makes deliberate.
-  - [ ] Assert on the `Composed` sequence or render with `.as_string(conn)`;
-        do not string-match the whole statement, which breaks on whitespace.
-  - [ ] Success: semantic row outcomes stay in Task 4.4's integration test;
-        this task proves clause structure only.
-
-- [ ] **Task 4.2: Pending queries** (effort: 3)
-  - [ ] `pending_live(period, phase_start)`, `pending_finishing(period)`,
-        `pending_backlog(period, cutoff, limit)` on `CandleRepository`, each
-        joining `kalshi.markets m JOIN kalshi.events e ON … JOIN
-        kalshi.series s ON … LEFT JOIN kalshi.market_candle_state st ON …`
-        at `period = COLLECTED_CANDLE_PERIOD`, each embedding
-        `selection_sql` with the form the design's Data Flow step 2 names
-        (`recent` for live, `ever` for the two finalized sets).
-  - [ ] Pending condition per Decision 3: `open_time < phase_start` and
-        (`st.watermark_ts IS NULL` or below the target end). Each returns
-        `(ticker, open_time, close_time, watermark_ts)`.
-  - [ ] `pending_backlog` orders by `settlement_ts` ascending and applies
-        `limit` (Decision 6); the other two are unbounded — a live market
-        must never queue behind history.
-  - [ ] Status values are bound from `MarketStatus`, never literal strings.
-  - [ ] **Two count methods the core cannot do without:**
-        `count_backlog_remaining(period, cutoff)` and
-        `count_behind_cutoff(period, cutoff)`, both over
-        `selection_sql(rule, "ever")`. `backlog_remaining` is **not**
-        derivable from `pending_backlog`'s rows — that query is capped at
-        `CANDLE_BACKLOG_REQUESTS_PER_PASS × CANDLE_BATCH_MAX_TICKERS`, so
-        `len(rows)` equals the cap on every pass until the backlog drains,
-        reporting a flat line where the criterion asks for a falling one.
-        The core issues no SQL of its own, so without these the count has
-        nowhere to live.
-  - [ ] Success: the three pending queries differ only in the
-        status/settlement conditions, the form passed to `selection_sql`,
-        and the ordering; the two count methods share the same predicate.
-
-- [ ] **Task 4.3: Writes and state** (effort: 3)
-  - [ ] `CANDLE_COLUMNS` — the flattening map from `Candlestick`'s nested
-        `yes_bid`/`yes_ask`/`price` `PriceOhlc` objects to the table's
-        sixteen column names (Decision 10). Defined once here; the parity
-        test checks it against the live table.
-  - [ ] `insert_candles(rows) -> int` — multi-row `INSERT … ON CONFLICT DO
-        NOTHING`, chunked under `_MAX_BIND_PARAMS` exactly as
-        `CatalogRepository._upsert` does. No `raw` column (261 Decision 6),
-        and never `DO UPDATE`.
-  - [ ] `advance_state(period, advances)` — one multi-row upsert into
-        `market_candle_state` setting `watermark_ts = EXCLUDED.watermark_ts`,
-        `coverage_from_ts = COALESCE(state.coverage_from_ts,
-        EXCLUDED.coverage_from_ts)` (so a re-run can never move it later),
-        `updated_at = now()`.
-  - [ ] `set_sync_state(phase_start, cutoff)` writing
-        `Surface.CANDLESTICKS`'s `last_full_sync_at` and `watermark_ts`
-        (Decision 11) — reuse `CatalogRepository`'s `_set_state_column`
-        pattern rather than a new spelling.
-  - [ ] `transaction()` delegating to the connection, as
-        `CatalogRepository.transaction()` does — the caller owns granularity
-        (one transaction per batch).
-  - [ ] Storage failure taxonomy as 262: an `IntegrityError` on a batch is
-        retried per market so offenders become item errors;
-        `OperationalError` propagates (storage abort); any other
-        `psycopg.Error` propagates as a bug.
-  - [ ] Success: the module stays under the ~300-line guideline.
-
-- [ ] **Task 4.4a: Let the test helper write real series** (effort: 2)
-  - [ ] `kalshi_helpers.write_catalog(repo, markets)` synthesizes its series
-        through `parent_series`, which builds `km.Series(ticker=t)` — ticker
-        only, so **every series it writes has `category IS NULL` and `title
-        IS NULL`**. The predicate fixture set below needs both, so the
-        helper must accept them.
-  - [ ] Add an optional parameter: `write_catalog(repo, markets,
-        series=None)` uses caller-supplied `km.Series` rows when given and
-        falls back to today's `parent_series` behavior when not, leaving
-        every existing caller unaffected.
-  - [ ] Success: the existing kalshi integration tests pass unchanged, and a
-        caller can write a series carrying a category and a title.
-
-- [ ] **Task 4.4: Repository and predicate integration tests** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_repository.py` (or a new
-        `test_kalshi_candles.py` in the same tier) using the `kalshi_db`
-        fixture and the `write_catalog` of Task 4.4a.
-  - [ ] **The predicate fixture set** — six markets with explicit series: a
-        Sports market, a `Mentions`-category market, a mention-titled market
-        in another category, a never-traded market, a traded-24 h Politics
-        market, and **a market whose series has a NULL category and a NULL
-        title**. Assertions (Criterion 2): under the default rule
-        `pending_live` returns the traded Politics market **and the
-        NULL-category one** (Task 4.1's NULL rule — an uncategorised series
-        is neither Sports nor Mentions, so it is kept); under an allow-list
-        of `Sports` with the exclusions cleared, only the Sports market is
-        (the allow-list deliberately does not match NULL); with
-        `traded_only=false` the never-traded market joins; with every
-        setting empty all six are returned.
-  - [ ] Assert the NULL case **by row identity, not by count** — a count
-        assertion passes for the wrong reason if the NULL market is dropped
-        while another is wrongly kept.
-  - [ ] The same set under the `ever` form for finalized rows.
-  - [ ] An invalid regex surfaces the database's own error (a
-        `ProgrammingError`) rather than being swallowed — this is a
-        configuration bug and must be loud.
-  - [ ] `CANDLE_COLUMNS` parity: every mapped column exists on
-        `kalshi.candlesticks` and every non-key column of the table is
-        mapped — so adding a column without mapping it fails here.
-  - [ ] Conflict-ignore: inserting the same batch twice leaves one row per
-        key and reports the second insert as writing nothing (Criterion 4).
-  - [ ] `advance_state` sets `coverage_from_ts` on first write and leaves it
-        unchanged on a later write with a different start (Criterion 6).
-  - [ ] A market whose `close_time` moved later becomes pending again.
-  - [ ] A market finalized before the cutoff is never returned by
-        `pending_backlog` (Criterion 9).
-  - [ ] **The two count methods** (Task 4.2): with more selected finalized
-        markets than the cap admits, `count_backlog_remaining` reports the
-        **full** remainder while `pending_backlog` returns at most the cap,
-        and the remainder **falls** once a batch of them gains state rows
-        (Criterion 8 — the number must move, not sit at the cap);
-        `count_behind_cutoff` counts a market finalized before the cutoff
-        and excludes one finalized after it (Criterion 9).
-  - [ ] Success: the kalshi integration set passes.
-  - [ ] **Commit**: `feat: add kalshi candle repository and selection predicate`.
+- Working on **264 Candlestick Collection**, part 2 of 2. Part 1 is
+  `user/tasks/264-tasks.candlestick-collection-1.md`; **complete its
+  Sections 1–4 first** — the core built here depends on the planner, the
+  repository, the rule, the client method, and the migration.
+- The context, hard rules, gates, branch, and host boundary stated in part
+  1's Context Summary apply unchanged to every task below. The three that
+  bite hardest in this half: the rule is rendered in exactly **one** place
+  (`selection_sql`), the core issues **no SQL of its own** — every count it
+  reports comes from a repository method — and `status.py` may import
+  neither the client nor the transport.
+- Source of truth remains the slice design at
+  `user/slices/264-slice.candlestick-collection.md`, referenced by decision
+  and criterion number.
+- What is left after part 1: the `CandleSync` core and `CandlesPhase`, the
+  per-phase renderer dispatch (a required fix — see Task 5.4), the `status`
+  candle block, end-to-end and compression integration tests, the throwaway
+  rehearsal, the documentation, and the host steps.
 
 ## Section 5: `CandleSync` core, `CandlesPhase`, renderer dispatch
 
@@ -363,3 +187,257 @@ on the `CandleSource` Protocol and `CandleRepository`.
         section fixes); an unregistered phase name raises the named error.
   - [ ] Success: `uv run pytest test/unit -q` passes.
   - [ ] **Commit**: `feat: add kalshi candle phase and per-phase summary rendering`.
+
+## Section 6: `status` — the candle block
+
+Design *CLI and rendering* (Decision 11), and Criterion 12 — `status`
+answers the candle clause from the database alone. Every field is a
+persisted fact; nothing here counts rows in `kalshi.candlesticks`.
+
+- [ ] **Task 6.1: `CandleStatus` and `read_candle_status`** (effort: 3)
+  - [ ] In `data/kalshi/status.py`, add the frozen `CandleStatus` with the
+        design's fields (`period_minutes`, `last_phase_at`,
+        `cutoff_observed`, `rule`, `selected_open`, `markets_tracked`,
+        `open_lagging`, `open_oldest_watermark`, `complete_through_close`,
+        `closed_short_of_close`, `backlog_remaining`,
+        `behind_cutoff_uncollected`, `closed_excluded_by_rule`,
+        `partial_history`) and its `to_dict()`.
+  - [ ] `read_candle_status(conn, rule) -> CandleStatus | None` — synchronous
+        psycopg like `read_catalog_status`; returns `None` until the phase
+        has run once (no `sync_state` row for `Surface.CANDLESTICKS`).
+  - [ ] The cutoff comes from `sync_state['candlesticks'].watermark_ts`, not
+        from the API — `status` must make no network call (Decision 11).
+  - [ ] Every rule-dependent count calls `selection_sql` — do not re-spell
+        the predicate here (Criterion 2's "collection and reporting cannot
+        disagree"). `open_lagging` counts only markets the rule **still
+        selects** and whose watermark is older than `now −
+        CANDLE_LAG_STALE_AFTER`: a deselected market is idle, not lagging.
+  - [ ] Success: `status.py` imports neither the client nor the transport
+        (Criterion 12).
+
+- [ ] **Task 6.2: Wire the block into the CLI** (effort: 2)
+  - [ ] `cli/commands/kalshi.py`'s `status` command reads the candle status
+        alongside the catalog one, passing `settings.candle_rule()` so the
+        printed rule is the one in force.
+  - [ ] `kalshi_render.py::print_status` gains the candle block in the
+        design's layout; `None` prints `Candlesticks: never collected`.
+  - [ ] `--json` nests the block under `candles`, `null` when never
+        collected. The catalog keys keep their current position and spelling
+        so existing consumers are unaffected.
+  - [ ] Success: both output modes render on a database where the phase has
+        never run and on one where it has.
+
+- [ ] **Task 6.3: Status tests** (effort: 3)
+  - [ ] Unit: an import-boundary test asserting `status.py`'s module
+        imports exclude the client and transport modules (Criterion 12) —
+        assert on the imported module graph, not on source text.
+  - [ ] Extend `test/integration/test_kalshi_status.py` on `kalshi_db`:
+        `read_candle_status` is `None` before the first phase run; after
+        seeding `sync_state`, `market_candle_state`, and the predicate
+        fixture set, **every field** in the design's list has the expected
+        value — including `closed_excluded_by_rule` non-zero and
+        `behind_cutoff_uncollected` counting a market finalized before the
+        cutoff; changing the rule changes `selected_open` and
+        `closed_excluded_by_rule` without any collection happening.
+  - [ ] Success: kalshi integration set passes.
+  - [ ] **Commit**: `feat: add candle block to mt data kalshi status`.
+
+## Section 7: End-to-end integration, docs, and the rehearsal
+
+- [ ] **Task 7.1: End-to-end pass integration test** (effort: 3)
+  - [ ] Extend `test/integration/test_kalshi_pass.py` on `kalshi_db` with a
+        fake candle source: a `pass` runs **both** phases in order and
+        reports `["catalog", "candles"]` (Criterion 1); candles land under
+        the natural key and `market_candle_state` rows exist for every
+        requested market including those that served nothing (Criterion 3);
+        a **second pass writes only what is new** and no duplicate row
+        exists (Criterion 4); a closed market reaches `watermark_ts >=
+        close_time + period`, is counted in `complete_through_close`, and is
+        not requested again (Criterion 7); the backlog is capped per pass and
+        drains oldest-settlement-first across two passes (Criterion 8); an
+        omitted ticker yields exit 3 with one item error and no state row
+        (Criterion 10).
+  - [ ] Success: the kalshi integration set passes end to end.
+
+- [ ] **Task 7.2: Compression proven on a real chunk** (effort: 3)
+  - [ ] Integration test (Criterion 13): insert candles old enough to fall
+        outside `KALSHI_CANDLE_COMPRESS_AFTER`, run the compression job by
+        hand (`CALL run_job(...)`), and assert
+        `chunk_compression_stats('kalshi.candlesticks')` reports the chunk
+        `Compressed` and that a per-market query over it returns **the same
+        rows as before compression**.
+  - [ ] Resolve the job by hypertable name and `proc_name` at use time,
+        never by a job ID — job IDs regenerate and a recorded one goes
+        stale.
+  - [ ] Success: the test is self-contained (it creates the old rows it
+        needs) and leaves no policy disabled.
+
+- [ ] **Task 7.3: Full gate pass** (effort: 1)
+  - [ ] `uv run pytest test/unit -q`; `uv run python scripts/run_tests.py
+        integration -- -k kalshi -q`; `uv run ruff check` and `uv run ruff
+        format --check` **scoped to the files touched** (263 process note);
+        `uv run --extra dev mypy` and `npx --yes pyright` on the kalshi
+        source paths plus the new tests.
+  - [ ] Success: all clean; no new dependency in `pyproject.toml`.
+  - [ ] **Commit**: `test: add kalshi candle end-to-end and compression coverage`.
+
+- [ ] **Task 7.4: Rehearsal on a throwaway database** (effort: 3)
+  - [ ] Walkthrough steps 1–5 exactly, on a **throwaway database on the test
+        cluster** — the shell's `MT_TIMESCALE_DB_URL` points at it and the
+        production URL never enters the shell. Use `sync --settled-since` at
+        about six hours to keep the catalog small.
+  - [ ] Record: the migrate/hypertable check (step 1); the preflight
+        failure naming `kalshi_005_candlesticks` and its recovery (step 2,
+        Criterion 11); the rule inspection **including the full list of
+        series the exclusion patterns match** — read that list, it is the
+        check that the patterns neither over- nor under-reach (step 3); the
+        env-override showing `selected_open` moving with no collection
+        (Criterion 2); the first pass with its phase lines and counts (step
+        4); the second pass, the duplicate check, the `status` block in both
+        modes, and the compression job run (step 5).
+  - [ ] Also record from step 4 the **partial/complete counts** — the
+        `count(*) filter (where coverage_from_ts > open_time)` and
+        `watermark_ts >= close_time + interval` query — which is where
+        first-sight semantics are proven on real data (Criterion 6).
+  - [ ] Record the **pending queries' wall time** with `\timing on`. The
+        design's *Special Considerations* asks for it: each pass joins
+        `markets` (3.5 M+ rows) to `events` and `series` once per pending
+        set, and if the backlog query dominates, a partial index on
+        `markets (settlement_ts) WHERE status = 'finalized'` is the named
+        first lever. Task 8.2's phase wall time is the Decision 9 evidence
+        about concurrency; this is the separate per-query evidence.
+  - [ ] Write it all into `user/notes/2026-MM-DD-264-rehearsal.md` (the date
+        run), with the matched-series listing pasted in full.
+  - [ ] Success: two passes exit 0; zero HTTP 400 on `/markets/candlesticks`
+        (Criterion 5); the duplicate query returns 0 rows (Criterion 4).
+  - [ ] **Commit**: `docs: record 264 throwaway-database rehearsal`.
+
+- [ ] **Task 7.5: Documentation** (effort: 2)
+  - [ ] `deploy/manta-trading.env.example`: five commented `MT_KALSHI_CANDLE_*`
+        lines under the existing optional-tuning block, showing the
+        defaults, in the file's established comment style.
+  - [ ] Runbook 100, Kalshi subsection: one paragraph covering the pass now
+        having two phases; what the collection rule is and that it is set by
+        the `MT_KALSHI_CANDLE_*` lines; that `status` shows the rule in
+        force and the excluded count; that `kalshi_005` must be applied
+        during the update and a firing before that exits 1 naming the
+        migration (expected, not a defect); that the first firing after the
+        release runs a few minutes longer and the backlog drains over about
+        six firings; and that chunks older than 14 days compress
+        automatically — how to see the policy and its last run **by
+        hypertable name and `proc_name`, never by job ID** — and that a
+        historical backfill must pause it.
+  - [ ] `CHANGELOG.md` under `[Unreleased]`: the candle phase and the rule,
+        the status block, the migration (hypertable + compression policy),
+        and the preflight change.
+  - [ ] Success: the runbook paragraph names no job ID and no wall-clock
+        promise the collector does not make.
+  - [ ] **Commit**: `docs: document the kalshi candle phase and collection rule`.
+
+## Section 8: Host steps and close
+
+Walkthrough steps 6–8. **[PM]** steps run on manta9000. The release must be
+merged and tagged per runbook 100 before 8.1 (not a task here).
+
+- [ ] **Task 8.1 [PM]: Deploy and apply the migration** (effort: 2)
+  - [ ] Runbook 100 *Update procedure*: install the tag (once — this release
+        adds **no** new unit, so the two-run installer dance 263 needed does
+        not apply), then from the dev checkout `uv run mt data migrate
+        status --track kalshi` (1 pending) → `uv run mt data migrate apply
+        --track kalshi` with the maintenance credential → `status` shows 0
+        pending. Record each output.
+  - [ ] A firing between install and apply shows `Result=exit-code`, exit 1,
+        naming `kalshi_005_candlesticks` — expected (Decision 8). Record it
+        if it happens; it is Criterion 11 on the host.
+
+- [ ] **Task 8.2 [PM]: First supervised firing** (effort: 2)
+  - [ ] `sudo mt-run kalshi` (or wait for `:20`); `mt-run follow kalshi`.
+        Record the `kalshi pass finished` line showing `phases:
+        catalog=ok candles=ok`, `systemctl show mt-kalshi-pass.service -p
+        Result -p ExecMainStatus` (`success`, `0`), and
+        `journalctl … --since -2h | grep -c 'HTTP 4'` → 0 (Criterion 14,
+        and Criterion 5 on real traffic).
+  - [ ] Record the phase's wall time from the journal — Decision 9 says a
+        fetch pool stays a follow-up **with evidence**, and this is that
+        evidence.
+
+- [ ] **Task 8.3 [PM]: Second pass and the steady-state counts** (effort: 1)
+  - [ ] Record `mt-run data kalshi status` immediately after 8.2 (the rule
+        line and every candle count), then run a **second pass on demand**
+        with `sudo mt-run kalshi` and record `status` again. Do not wait for
+        the timer: starting the unit the timer activates proves the same
+        thing and is measurable now.
+  - [ ] Success (Criterion 14): between the two readings `open_lagging` is 0
+        and `backlog_remaining` has fallen. Both numbers come from the two
+        recorded outputs, not from a projection.
+  - [ ] Record `behind_cutoff_uncollected` — it is 266's input and the
+        honest "known-lost until then" number.
+
+- [ ] **Task 8.4 [agent]: Walkthrough refresh and close** (effort: 2)
+  - [ ] Replace the design's draft walkthrough expectations with the output
+        actually observed in 7.4 and 8.1–8.3 (the 263 pattern), and fill the
+        *Success criteria — where each is proven* table with what was seen.
+  - [ ] Add a `user/notes/000-process-journal.md` entry for anything found
+        that outlives this slice — in particular the measured phase wall
+        time and whether Kalshi was observed revising a completed candle
+        (the Risk Assessment's open question; conflict-ignore keeps the
+        first version, so a revision would show as a diff on re-fetch).
+  - [ ] Set `dateUpdated` on the design, the runbook, and this task file;
+        set the design's `status: complete`.
+  - [ ] Delegate checklist updates for this file to the `task-checker` agent.
+  - [ ] **Commit**: `docs: refresh 264 walkthrough with observed output`.
+
+## Task review disposition (20260826)
+
+Review: `user/reviews/264-review.tasks.candlestick-collection.part-2.md`,
+claude-opus-5, verdict **CONCERNS** against `1abefcd` (two concerns, two
+notes, four passes). CONCERNS passes the gate. Both concerns and both notes
+are fixed in place. Part 1's F004 and F005 also landed here, since the tasks
+they name live in this file.
+
+- **F001 (concern) — Section 5 carried 17 effort points to one commit, and
+  Tasks 5.2/5.3 were out of family.** Valid: they were the only effort-5
+  tasks in either file, and 5.2 encoded eight behaviors behind a single
+  checkbox, so partial completion was indistinguishable from completion.
+  Fixed by the split both reviews proposed, at the batch boundary: **5.2a**
+  (cutoff, pending sets, target mapping, planning, terminal state and
+  events) and **5.2b** (the batch loop: transaction, conflict-ignore insert,
+  advance-on-empty, omitted-ticker item error, provider abort, progress
+  cadence); **5.3a** (test doubles, with its own commit) and **5.3b** (the
+  assertions). Section 5 now has an interim checkpoint, and no task in
+  either file exceeds effort 3.
+- **F002 (concern) — the `CandleResult` JSON round-trip had no owning
+  task.** Valid: it appeared only as a Success bullet on an implementation
+  task, which a one-off REPL check satisfies while leaving nothing
+  committed. Fixed: Task 5.5 now requires the assertion with the design's
+  exact key set, a non-empty `item_errors`, and a non-null `cutoff` — the
+  two places a `datetime` most easily leaks into `--json`.
+- **F003 (note) / part 1 F004 (concern) — Criterion 1's third clause was
+  never asserted.** The two reviews rated this differently; treated as the
+  concern. Fixed: Task 5.5 asserts that a pass whose *candle* phase aborts
+  still reports the catalog phase's original outcome and leaves
+  `sync_state['catalog']` unchanged. 263's `CollectionPass` very likely
+  already guarantees it, but the criterion is restated in this slice and 265
+  copies the contract, so it is asserted rather than inherited.
+- **F004 (note) — Task 7.4 did not name the step-4 query proving Criterion
+  6.** Fixed: the rehearsal record list now names the partial/complete
+  counts explicitly.
+- F005 (pass) — the renderer-dispatch fix was independently verified against
+  `kalshi_render.py`; no action.
+- F006, F007, F008 (pass): no action.
+
+### Not adopted
+
+- The reviews suggested `IS DISTINCT FROM ALL` for part 1's NULL fix. It is
+  not valid PostgreSQL syntax (checked on the test cluster); the tasks
+  specify `COALESCE(...) <> ALL(...)`, which was measured to return `true`
+  on a NULL operand.
+- **The ~450-line file guideline, deliberately.** The fixes pushed the two
+  files to 584 and 437 lines. Splitting into three was tried and reverted on
+  PM direction (20260826): the task files are reviewed one-to-one against
+  `264-review.tasks.…part-1` and `…part-2`, and a third file would break
+  that correspondence — a reviewer would have no source document to hold it
+  against, and every finding location in the two existing reviews would stop
+  resolving. The 1:1 between a task file and its review outranks the length
+  guideline here. Section numbering and task ids are unchanged from the
+  reviewed revision `1abefcd`.
