@@ -21,6 +21,9 @@ projectState: >
   rule is candle-named throughout (MT_KALSHI_CANDLE_*, Settings.
   candle_rule(), CandleRule, candle_selection.selection_sql) and this
   slice renames it. Design 265 has Decisions 2, 3, 4 PM-ratified 20260828.
+reviewVerdictsAddressed:
+  - 265-review.tasks.public-trades-collection.part-1 (claude-opus-5, CONCERNS, F001-F008 addressed; F009 no action — no NFR to gate on)
+  - 265-review.tasks.public-trades-collection.part-2 (claude-opus-5, FAIL, F009/F010 effort-ceiling and re-export notes addressed here; the rest in part 2)
 dateCreated: 20260829
 dateUpdated: 20260829
 status: not_started
@@ -97,7 +100,18 @@ status: not_started
   approval and are not tasks here.
 - Host boundary as 263/264: tasks marked **[PM]** are executed by the
   Project Manager on manta9000 (no passwordless sudo there); tasks marked
-  **[agent]** need no elevation. No task waits on a wall-clock event.
+  **[agent]** need no elevation. **No task waits on a wall-clock event** —
+  the multi-day drain is carried as a handoff note at the end of part 2, not
+  as a checklist item, and every mechanism it depends on is proven by a
+  test or a single-firing measurement.
+- **Effort ceiling.** 264's task review drove every task to effort ≤ 3. This
+  breakdown keeps four above it, deliberately: Task 4.2 (5 — `TradeSync` is
+  the design's Data Flow steps 1–6, and splitting it yields pieces that
+  cannot be tested apart), Task 3.2 and Task 3.3 (4 each — `write_page` is
+  one SQL statement and one fixture set; splitting the statement from its
+  predicate cases would test neither), and Task 4.3b (4 — eleven core
+  behaviors, one test each, already split from its fakes at Task 4.3a).
+  Everything else is ≤ 3.
 - **This file is part 1 of 2.** Sections 1–4 below do the rename, the
   migration, the repository, and the core plus the phase. The `status`
   block, the rehearsal, the documentation, and the host steps are in
@@ -116,6 +130,13 @@ suite must be green at every step, and the candle phase must behave exactly
 as before (Criterion 5, last clause).
 
 - [ ] **Task 1.1: Create `selection.py` from `candle_selection.py`** (effort: 2)
+  - [ ] **First, capture the baseline.** Before moving anything, add a test to
+        `test/unit/data/kalshi/test_selection_sql.py` asserting
+        `MARKET_JOIN`'s rendered text equals a literal snapshot of today's
+        string. There is no `MARKET_JOIN` assertion in that file today, so
+        without this the "renders identically" success criterion below has no
+        baseline to compare against once the `git mv` lands. Run it green
+        before proceeding.
   - [ ] `git mv src/manta_trading/data/kalshi/candle_selection.py
         src/manta_trading/data/kalshi/selection.py`, then recreate
         `candle_selection.py` holding only the candle-specific pieces.
@@ -129,8 +150,9 @@ as before (Criterion 5, last clause).
         `BEHIND_CUTOFF_CONDITION`.
   - [ ] Update the module docstrings: `selection.py` says the rule governs
         candles **and** trades (Decision 3) and is rendered here only.
-  - [ ] Success: `candle_selection.MARKET_JOIN` renders byte-identical SQL to
-        the pre-rename version (assert in Task 1.5); no module imports
+  - [ ] Success: the snapshot test written in this task's first bullet still
+        passes against the recomposed `MARKET_JOIN` — that is the proof the
+        rename changed no SQL (Criterion 5's last clause); no module imports
         `candle_selection` for `selection_sql` any more.
 
 - [ ] **Task 1.2: Rename `CandleRule` → `CollectionRule`** (effort: 2)
@@ -175,18 +197,38 @@ as before (Criterion 5, last clause).
         **old prefix and the new prefix each once** as module constants
         beside each other — the guard message and the fields both read them,
         so the pair is changed in one place.
-  - [ ] Add a `model_validator(mode="after")` that scans `os.environ` for any
-        key starting with the old prefix and raises, naming the offending
-        variable and its new name. Rationale in the comment: pydantic-settings
-        would otherwise **ignore** the old variable and silently fall back to
-        the defaults, which CLAUDE.md forbids.
+  - [ ] Add a `model_validator(mode="after")` that scans for any key starting
+        with the old prefix and raises, naming the offending variable and its
+        new name. Rationale in the comment: pydantic-settings would otherwise
+        **ignore** the old variable and silently fall back to the defaults,
+        which CLAUDE.md forbids.
+  - [ ] **The scan must cover both sources.** `Settings` is configured with
+        `env_file=ENV_FILE` and `extra="ignore"`
+        (`config/__init__.py:23,34`), so a stale `MT_KALSHI_CANDLE_*` line in
+        `.env` never reaches `os.environ` — an `os.environ`-only guard would
+        pass and the rule would silently revert to defaults, which is the
+        exact failure the guard exists to prevent. Scan `os.environ` **and**
+        the parsed env-file values (`dotenv_values(ENV_FILE)`). Systemd's
+        `EnvironmentFile` puts production values in `os.environ`, so the
+        `.env` hole would be invisible on the host and would bite only
+        developers and the rehearsal.
   - [ ] Update the two call sites: `cli/commands/kalshi.py:234` and
         `collection_pass.py:250` (`settings.candle_rule()` →
         `settings.collection_rule()`), and the renderer's literal at
         `cli/commands/kalshi_render.py:223` (`(MT_KALSHI_CANDLE_*)` →
         `(MT_KALSHI_COLLECTION_*)`).
   - [ ] Rename the five commented lines in `deploy/manta-trading.env.example`
-        (lines 25–29), text otherwise unchanged.
+        (lines 25–29), and fix the header comment above them (lines 22–24),
+        which reads "Kalshi **candle** collection rule (slice 264): which
+        markets the **candle phase** collects" — wrong after Decision 3, and
+        this file is the operator's reference during the walkthrough's host
+        rename.
+  - [ ] Document on `kalshi_collection_traded_only` itself that it applies to
+        **candles only** — the candle phase schedules on it, and the trades
+        path uses the `"any"` form because a trade is proof of trading
+        (design *Settings — the rename*). A setting whose surface asymmetry
+        lives only in a `SelectionForm` comment is the same trap the rename
+        removes.
   - [ ] Success: `MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES=Sports mt data
         kalshi status` behaves as the old variable did;
         `MT_KALSHI_CANDLE_CATEGORIES=Sports mt data kalshi status` exits
@@ -206,14 +248,21 @@ as before (Criterion 5, last clause).
         145–149), `test/integration/test_kalshi_sync.py`,
         `test/integration/test_kalshi_pass.py`,
         `test/integration/test_kalshi_candles.py`.
-  - [ ] **New test — the guard is loud:** every one of the five
-        `MT_KALSHI_CANDLE_*` names, set alone, raises at `Settings`
-        construction with a message containing the new name. Parametrize
-        over the five so a later sixth setting cannot be forgotten.
+  - [ ] **New test — the guard is loud from the environment:** every one of
+        the five `MT_KALSHI_CANDLE_*` names, set alone in `os.environ`,
+        raises at `Settings` construction with a message containing the new
+        name. Parametrize over the five so a later sixth setting cannot be
+        forgotten.
+  - [ ] **New test — the guard is loud from `.env`:** the same five names,
+        each written alone into a temporary env file that `Settings` is
+        pointed at, raise the same way. Without this case the hole described
+        in Task 1.4 ships untested, and it is the one a developer hits.
   - [ ] **New test — `"any"` drops the traded clause:** as Task 1.3's
         success criterion, alongside the existing `"recent"`/`"ever"` cases.
   - [ ] **New test — `MARKET_JOIN` is composed, not re-spelled:** assert
-        `CATALOG_JOIN`'s rendered text is a prefix of `MARKET_JOIN`'s.
+        `CATALOG_JOIN`'s rendered text is a prefix of `MARKET_JOIN`'s. (The
+        snapshot equality test from Task 1.1 is the stronger check; this one
+        documents the composition.)
   - [ ] Success: `uv run pytest test/unit -q` green; the candle integration
         tests pass unchanged in behavior
         (`uv run python scripts/run_tests.py integration -- -k kalshi_candles -q`).
@@ -258,10 +307,15 @@ Design *Constants*, *Migration `kalshi_006_trades`*, *Technical Decision 4*
         render through the existing `_interval_sql()` from the Task 2.1
         constants — **no literal `INTERVAL '7 days'`** in the SQL.
   - [ ] `is_block_trade` is `NOT NULL` in the table while 261's `Trade` model
-        types it `bool | None`. Resolve **in the repository**, not by
-        loosening the column: `write_page` coalesces a missing value to
-        `FALSE` and a comment records that the recorded fixture and the
-        352,000-trade sample carry it on every row.
+        types it `bool | None`. Keep the column `NOT NULL` and let a `None`
+        **fail the write loudly** — the same posture the slice takes toward a
+        non-UUID `trade_id` (Task 3.3 case 6), and the one CLAUDE.md
+        requires. Coalescing to `FALSE` would silently mislabel a real block
+        trade as non-block on the day Kalshi first omits the field; the
+        measured evidence (every row of the 352,000-trade sample and the
+        recorded fixture carries it) argues the coalesce is unnecessary, not
+        that it is safe. Record the reasoning in the migration's comment
+        block so a reader does not "fix" the NOT NULL later.
   - [ ] The three `COMMENT ON COLUMN kalshi.sync_state.*` statements replace
         the whole comment string, so carry the catalog and candlesticks
         clauses of `kalshi_004`/`kalshi_005` forward verbatim and change only
@@ -312,11 +366,28 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
         written the same way.
   - [ ] `read_state() -> TradeState | None` reading `watermark_ts` and
         `coverage_from_ts` from `sync_state` where `surface = Surface.TRADES`.
+        Note: `CatalogRepository.get_sync_state` selects only
+        `last_full_sync_at, watermark_ts, cursor` (`repository.py:258`) and
+        **does not carry `coverage_from_ts`**, the column `kalshi_006` adds —
+        so this needs its own statement rather than reusing that one. Do not
+        widen `get_sync_state`; the catalog surface has no coverage floor and
+        its `SyncState` should not grow a column that is always NULL for it.
   - [ ] `init_state(cutoff)` inserts the row with **both** `watermark_ts` and
         `coverage_from_ts` set to the cutoff — first run only (Decision 2).
   - [ ] `advance_watermark(end)` and `set_last_full_sync(phase_start)` reuse
         `CatalogRepository`'s `sync_state` statements rather than re-spelling
         them; `transaction()` is the same context manager.
+  - [ ] `read_catalog_walk_start() -> datetime | None` — the
+        `sync_state['catalog'].last_full_sync_at` the window end trails
+        (Decision 5). This is the **only** seam through which the core learns
+        it: `TradeSync` has no SQL, so without a named repository method the
+        implementer would either reach into `CatalogRepository` from the core
+        (breaking the Protocol boundary) or invent a name the fake in Task
+        4.3 does not provide. `None` is the "no catalog row" case Task 4.2
+        step 2 and Criterion 7 require, and is what makes that case
+        simulable. Implement over the existing
+        `CatalogRepository.get_sync_state(Surface.CATALOG)`
+        (`repository.py:258`), not a new statement.
   - [ ] Success: the module has no httpx, no typer import; `TradeState` is a
         frozen dataclass.
 
@@ -333,12 +404,18 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
   - [ ] Arrays are bound parameters, one array per column (nine arrays, not
         9,000 placeholders) — this is what keeps a 1,000-row page under the
         bind-parameter ceiling. Say so in a comment.
-  - [ ] `PageCounts` is a frozen dataclass carrying `fetched`, `written`,
-        `unknown_market`, `excluded_by_rule`; `duplicates` is derived as
-        `selected − written` and the identity
-        `fetched = written + unknown + excluded + duplicates` is asserted in
-        the dataclass's `__post_init__` or a module function — Criterion 2
-        is an exact accounting, so make it structural.
+  - [ ] `PageCounts` is a frozen dataclass carrying **five** independently
+        sourced numbers: `fetched` from `len(rows)` (what the client handed
+        over) and `unknown_market`, `excluded_by_rule`, `selected`, `written`
+        from the statement's four returned counts. `duplicates` is derived as
+        `selected − written`.
+  - [ ] Assert `fetched == written + unknown_market + excluded_by_rule +
+        duplicates` in `__post_init__`. **`selected` must be carried, not
+        re-derived** — deriving it as `fetched − unknown − excluded` collapses
+        the assertion to `fetched = fetched`, which can never fail. Carried
+        from SQL, the assertion catches the real defect it exists for: page
+        rows that never reached `classified` (a join or `unnest` arity bug).
+        Criterion 2 is an exact accounting, so make it structural.
   - [ ] Error taxonomy (design *Repository*): `psycopg.OperationalError`
         propagates as a storage abort; **any other** `psycopg.Error`
         propagates as a bug. No `try`/`except` swallows anything here.
@@ -369,7 +446,11 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
         `CANDLE_COLUMNS` parity test.
   - [ ] `advance_watermark` moves `watermark_ts` and leaves
         `coverage_from_ts` untouched; `init_state` sets both and is a no-op
-        on a second call.
+        on a second call; `read_catalog_walk_start` returns the catalog's
+        `last_full_sync_at`, and `None` when there is no catalog row.
+  - [ ] **A page of 1,000 rows issues exactly one statement** — Task 3.2's
+        success criterion, owned here so it is not dropped. Assert with a
+        counting cursor or the connection's query log.
   - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_trades -q` green.
 
@@ -432,11 +513,24 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         (CLAUDE.md).
   - [ ] Success: the module is under ~300 lines and imports no client.
 
-- [ ] **Task 4.3: `TradeSync` unit tests with fakes** (effort: 5)
-  - [ ] Add `test/kalshi_support/fake_trade_source.py` (scripted pages,
-        recorded `min_ts`/`max_ts`/`cursor` per call) and
-        `fake_trade_repository.py` (in-memory state and page counts),
-        modelled on the candle fakes.
+- [ ] **Task 4.3a: Test fakes for the trades core** (effort: 2)
+  - [ ] Add `test/kalshi_support/fake_trade_source.py`: scripted pages keyed
+        by window, recording the `min_ts`, `max_ts`, `limit`, and `cursor` of
+        every call so the tests can assert the request bounds; able to raise
+        a `ProviderError` after a chosen page.
+  - [ ] Add `test/kalshi_support/fake_trade_repository.py` with the full
+        surface Task 3.1 defines — `read_state`, `init_state`,
+        `advance_watermark`, `set_last_full_sync`, **`read_catalog_walk_start`
+        (returning `None` on demand, for the no-catalog-row case)**, and
+        `write_page` returning scripted `PageCounts`. In-memory state,
+        recorded call order.
+  - [ ] Model both on `fake_candle_source.py` / `fake_candle_repository.py`
+        and extend `test/unit/data/kalshi/test_fakes.py` so the fakes
+        themselves are exercised (that file already does this for the candle
+        fakes).
+  - [ ] Success: `uv run pytest test/unit/data/kalshi/test_fakes.py -q` green.
+
+- [ ] **Task 4.3b: `TradeSync` unit tests** (effort: 4)
   - [ ] New `test/unit/data/kalshi/test_trade_sync.py` covering the design's
         *Tests — Unit — core* list, one test per behavior:
     1. First run with no state initialises `coverage_from_ts` and

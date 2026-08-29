@@ -16,6 +16,8 @@ projectState: >
   a renderer. What remains: the status block, the end-to-end integration
   proof, the rehearsal on the test cluster, the documentation, and the
   production deploy.
+reviewVerdictsAddressed:
+  - 265-review.tasks.public-trades-collection.part-2 (claude-opus-5, FAIL, F001-F008 and F010 addressed; F009 addressed in part 1's Context Summary; F011-F014 pass)
 dateCreated: 20260829
 dateUpdated: 20260829
 status: not_started
@@ -40,8 +42,9 @@ status: not_started
 
 ## Section 5: The `status` trades block
 
-Design *CLI and rendering*, *Technical Decision 10*, Success Criteria 10
-and 11.
+Design *CLI and rendering*, *Technical Decision 10*, Success Criterion 11
+(plus the `status`-shows-the-lag clause of Criterion 8). Criterion 10 is the
+ledger preflight and belongs to Tasks 6.2 and 7.2, not here.
 
 - [ ] **Task 5.1: Extract the trades reader into its own module** (effort: 2)
   - [ ] `data/kalshi/status.py` is **already 309 lines** — over the ~300-line
@@ -52,15 +55,31 @@ and 11.
   - [ ] The new module imports neither the client nor the transport, and the
         existing `test/unit/data/kalshi/test_status_imports.py` guard is
         extended to cover it (Criterion 11).
+  - [ ] **No re-export through `status.py`.** Task 5.3 wires the one CLI call
+        site directly to `trade_status`; a module whose only job is to
+        forward a name is the complexity CLAUDE.md tells us to resist. If the
+        `test_status_imports.py` guard turns out to need a single import
+        surface, add the new module to the guard's list instead of adding a
+        forwarding import.
   - [ ] Success: both modules are under ~300 lines; `mt data kalshi status`
         imports resolve unchanged.
 
-- [ ] **Task 5.2: `read_trade_status`** (effort: 4)
+- [ ] **Task 5.2a: `TradeStatus` and the state fields** (effort: 2)
   - [ ] `read_trade_status(conn, rule) -> TradeStatus | None` — `None` until
         the phase has run once (no `sync_state['trades']` row).
   - [ ] Fields from `sync_state['trades']` alone: `last_phase_at`,
         `tape_through` (`watermark_ts`), `lag` (`now − watermark_ts`),
         `behind` (`lag > TRADE_LAG_STALE_AFTER`), `coverage_from`.
+  - [ ] `TradeStatus.to_dict()` follows `CandleStatus.to_dict()`'s shape;
+        timestamps through the existing `_iso` helper.
+  - [ ] **Nothing counts rows in `kalshi.trades`** (Decision 10, journal
+        20260720). Every figure is `sync_state` plus the catalog join.
+  - [ ] Success: a unit test asserts the rendered SQL text of every statement
+        this module issues contains no reference to `kalshi.trades`. That one
+        assertion is what enforces Decision 10 — write it here, not as a
+        note attached to another task.
+
+- [ ] **Task 5.2b: The four closed-market counts** (effort: 3)
   - [ ] Four counts over **selected closed markets** (`selection_sql(rule,
         "ever")`, `close_time < now()`), each exactly as the design defines
         it: `complete_through_close` (`open_time >= coverage_from AND
@@ -68,15 +87,17 @@ and 11.
         coverage_from <= close_time`); `short_of_close` (`close_time >
         watermark`); `before_coverage` (`close_time < coverage_from`) —
         266's input.
-  - [ ] **Nothing counts rows in `kalshi.trades`** (Decision 10, journal
-        20260720). Every figure is `sync_state` plus the catalog join.
+  - [ ] Three of the four turn on `coverage_from` versus `open_time` /
+        `close_time` ordering — this is where the risk in the whole section
+        sits, which is why it is its own task. Get the boundary cases from
+        Task 5.4 green before moving on.
   - [ ] No `excluded_by_rule` figure here — one rule, one figure, already in
         the candle block.
   - [ ] The rule is rendered only through `selection_sql`; the counts share
         one statement over `CATALOG_JOIN` where practical.
-  - [ ] Success: the reader issues no query against `kalshi.trades` (assert
-        in the integration test by inspecting the statements or by dropping
-        read access is not needed — assert on the rendered SQL text).
+  - [ ] Success: the four counts partition the selected closed markets — no
+        market is counted twice and none is missed (assert this as a sum
+        against the total in Task 5.4).
 
 - [ ] **Task 5.3: Rendering, Rich and JSON** (effort: 2)
   - [ ] `print_status` gains the trades block in the design's *Rich block*
@@ -86,8 +107,6 @@ and 11.
   - [ ] Wire `read_trade_status(conn, settings.collection_rule())` into
         `cli/commands/kalshi.py` beside `read_catalog_status` and
         `read_candle_status`.
-  - [ ] `TradeStatus.to_dict()` follows `CandleStatus.to_dict()`'s shape;
-        timestamps through the existing `_iso` helper.
   - [ ] Extend `test/unit/cli/commands/test_data_kalshi.py`: the Rich block
         renders every field; the `None` case renders the never-collected
         line; the JSON payload has a `trades` key that is `null` in that
@@ -108,6 +127,9 @@ and 11.
         complete) and one **closing before** it (`before_coverage`).
   - [ ] The counts respect the rule: a Sports market that would otherwise be
         `complete_through_close` is in none of the four.
+  - [ ] The four counts **partition** the selected closed markets: their sum
+        equals the total selected closed market count, over a fixture set
+        that populates all four (Task 5.2b's success criterion).
   - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_status -q` green.
 
@@ -176,7 +198,7 @@ design's expected outputs are drafts to be replaced.
         is unchanged by the rename (Criterion 5).
   - [ ] Success: both outputs captured verbatim for the rehearsal note.
 
-- [ ] **Task 7.3: First pass — three phases, the floor, the cap** (effort: 3)
+- [ ] **Task 7.3: First pass — three phases and the floor** (effort: 3)
   - [ ] The throwaway catalog is only hours old, so seed
         `sync_state['trades']` by hand at `now − 3 hours` (both
         `watermark_ts` and `coverage_from_ts`) so the drain finishes in a few
@@ -196,6 +218,11 @@ design's expected outputs are drafts to be replaced.
         query returns 0).
   - [ ] **Record the per-window wall time** — this is the uncompressed
         baseline Task 7.5 compares against.
+  - [ ] Confirm the summary reports `capped: false`, and record that **the
+        cap is not exercised here**: seeding at `now − 3 hours` gives ~3
+        windows ≈ 900 requests, well under `TRADE_REQUESTS_PER_PASS = 3,000`.
+        Criterion 8 is proven by part 1's Task 4.3b case 7 and observed in
+        production by Task 9.3.
   - [ ] Success: every assertion above holds; outputs captured.
 
 - [ ] **Task 7.4: Second pass, duplicates, status** (effort: 2)
@@ -205,7 +232,16 @@ design's expected outputs are drafts to be replaced.
   - [ ] The self-join duplicate check over `kalshi.trades` returns 0.
   - [ ] `mt data kalshi status` prints the trades block with every field
         populated (Criterion 11); capture it.
-  - [ ] Success: the block matches the design's layout with real numbers.
+  - [ ] **Late-arriving trades, the in-session check.** The design's Risk
+        Assessment names a day-later re-walk and diff as the check for its
+        third risk; that cannot be a task (it would be wait-blocked). Do the
+        measurable version now: seed the watermark back over an hour already
+        walked earlier in this rehearsal, re-run the pass, and diff the
+        stored row count for that window before and after. A non-zero
+        difference means trades became visible after their window was walked
+        — record the number either way.
+  - [ ] Success: the block matches the design's layout with real numbers, and
+        the re-walk diff is recorded as a number.
 
 - [ ] **Task 7.5: The drain against a compressed chunk** (effort: 3)
   - [ ] Walkthrough step 6, and the measurement Criterion 12's second clause
@@ -222,17 +258,22 @@ design's expected outputs are drafts to be replaced.
         never automated; the application role cannot `alter_job`).
   - [ ] Success: the two timings are recorded as numbers, not impressions.
 
-- [ ] **Task 7.6: Abort inside a window** (effort: 1)
-  - [ ] Walkthrough step 7 is the integration test's job (part 1, Task 4.3,
-        case 6). Confirm that test covers it and record in the rehearsal note
-        that the manual analogue was not re-run by hand and why.
-  - [ ] Success: the note names the test that proves Criterion 4.
-
-- [ ] **Task 7.7: Write the rehearsal note and drop the database** (effort: 2)
+- [ ] **Task 7.6: Write the rehearsal note and drop the database** (effort: 2)
   - [ ] Write `user/notes/2026-MM-DD-265-rehearsal.md` (real date) with every
         captured output, the **unknown-prefix listing** observed (the check
         that the unknown set really is all MVE), and the two per-window
         timings.
+  - [ ] Record the three things the rehearsal deliberately did **not** do,
+        each with its reason and where the proof lives instead:
+    1. **The cutoff start** — substituted by a hand-seeded watermark at
+       `now − 3 h` (Task 7.3); proven on the host by Task 9.2.
+    2. **The abort inside a window** (walkthrough step 7) — the integration
+       test's job (part 1, Task 4.3b case 6); the manual analogue was not
+       re-run by hand.
+    3. **The day-later late-arrival diff** named in the design's Risk
+       Assessment — not performed, because a task cannot wait a day; the
+       in-session re-walk diff (Task 7.4) is the weaker substitute, and the
+       residual risk is carried by the PM's drain observation.
   - [ ] Drop the throwaway database by its exact generated name; confirm
         `MT_TIMESCALE_DB_URL` is unset from the shell.
   - [ ] Commit: `docs: record the 265 rehearsal on the test cluster`.
@@ -265,9 +306,9 @@ Design *Runbook 100 and CHANGELOG*.
         prefixes named.
   - [ ] Success: the breaking entry says exactly what an operator must change
         in `/etc/manta-trading.env`.
-
-- [ ] **Task 8.3: Section 8 checkpoint commit** (effort: 1)
-  - [ ] Commit: `docs: document the trades phase and the settings rename`.
+  - [ ] Checkpoint commit: `docs: document the trades phase and the settings
+        rename`. **No ruff/mypy/pyright gates — this section edits markdown
+        only**, which is why its shape differs from Tasks 5.5 and 6.3.
 
 ## Section 9: Production deploy — Project Manager
 
@@ -275,10 +316,13 @@ Design *Verification Walkthrough* steps 8–10, Success Criterion 13. These
 run on manta9000 after PM approval of the slice, and follow runbook 100's
 update procedure.
 
-- [ ] **Task 9.1: Deploy and migrate** **[PM]** (effort: 2)
-  - [ ] Tag → `install-production.sh --ref` →
-        `uv run mt data migrate status --track kalshi` (1 pending) →
-        `apply` with the maintenance credential → `status` 0 pending.
+- [ ] **Task 9.1: Migrate the host** **[PM]** (effort: 2)
+  - [ ] Release tagging and `install-production.sh --ref` are the PM's
+        release steps under runbook 100's update procedure, **not tasks
+        here** (part 1's Context Summary). This task starts at the installed
+        ref.
+  - [ ] `uv run mt data migrate status --track kalshi` reports 1 pending →
+        `apply` with the maintenance credential → `status` reports 0 pending.
   - [ ] Replace any `MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env`
         with `MT_KALSHI_COLLECTION_*`. Unset (commented) lines need nothing;
         the example file shows the new names.
@@ -288,28 +332,45 @@ update procedure.
 - [ ] **Task 9.2: First supervised firing** **[PM]** (effort: 2)
   - [ ] `sudo mt-run kalshi` and follow it; the journal's
         `kalshi pass finished` line shows
-        `phases: catalog=ok candles=ok trades=ok`, `Result=success`, with the
-        trades phase capped at ~3,000 requests (Criterion 13).
-  - [ ] The `trades window` lines show windows from the cutoff forward
-        (~7 windows), and `mt-run data kalshi status` shows `tape through`
-        near the cutoff with a large lag — this is the observation that
-        proves the **first-run floor is the cutoff** (Criterion 6), which the
-        rehearsal deliberately did not exercise.
-  - [ ] Success: the three outputs above captured for the slice's completion
+        `phases: catalog=ok candles=ok trades=ok` and `Result=success`
+        (Criterion 13, first half).
+  - [ ] The `trades window` lines show windows from the cutoff forward, and
+        `mt-run data kalshi status` shows `tape through` near the cutoff with
+        a large lag — this is the observation that proves the **first-run
+        floor is the cutoff** (Criterion 6), which the rehearsal deliberately
+        did not exercise.
+  - [ ] Success: the two outputs above captured for the slice's completion
         record.
 
-- [ ] **Task 9.3: Watch the drain** **[PM]** (effort: 2)
-  - [ ] Over the following days, `mt-run data kalshi status`: `tape through`
-        advances ~7 hours per firing (~7 days of tape per day), `short of
-        close` falls, `before coverage` stays constant (266's number).
-  - [ ] Per firing, `journalctl … | grep -c 'HTTP 429'` stays at attempt 1.
-  - [ ] If any `trades window` line shows a window taking minutes rather than
-        seconds, the chunk under the watermark was compressed by the policy —
-        pause it by hypertable name for the remainder of the drain (runbook
-        100), resume after.
-  - [ ] Success (Criterion 13): when `behind` clears (~10 days), a
-        steady-state pass is ~800–900 requests and ~3 minutes, and `tape
-        through` stays within two hours of now.
-  - [ ] This task spans days by its nature; it is the PM's observation of a
-        running system, not a blocking step for the slice's merge. Record the
-        outcome in the slice's completion note when the drain completes.
+- [ ] **Task 9.3: Measure the first firing's deltas** **[PM]** (effort: 2)
+  - [ ] Everything here is read **from the firing that just completed** — no
+        bullet waits on a later one. Record each as a number in the slice's
+        completion record.
+  - [ ] `watermark_ts` advanced by the expected number of windows for a
+        capped pass (~7 hours of tape), read before and after from
+        `sync_state['trades']`.
+  - [ ] The phase summary reports `capped: true` with `requests` at or just
+        above `TRADE_REQUESTS_PER_PASS` — the cap's only production
+        observation (Criterion 8).
+  - [ ] `journalctl -u mt-kalshi-pass.service … | grep -c 'HTTP 429'` for
+        this firing is 0 (retries never left attempt 1).
+  - [ ] `before coverage` from `mt-run data kalshi status`, recorded as the
+        **baseline number** — it is 266's input and should not move
+        thereafter.
+  - [ ] The slowest `trades window` line's wall time, compared against the
+        rehearsal's two timings (Task 7.5). A window taking minutes rather
+        than seconds means the policy compressed the chunk under the
+        watermark — pause it by hypertable name for the remainder of the
+        drain (runbook 100), resume after.
+  - [ ] Success: all five numbers recorded from a single firing.
+
+**Handoff, not a task — the steady state.** Criterion 13's second half
+(`tape through` advancing ~7 hours per firing until `behind` clears at
+~10 days, then staying within two hours of now) is an observation of a
+running system over days, and **no task in this file may wait on it** (part
+1's hard rule; the PM has vetoed wait-blocked task items outright). It is
+carried as an explicit follow-up in the slice's completion record and as a
+**266 prerequisite** — 266 should not start against a tape still draining.
+The mechanism it depends on is already proven without waiting: the cap and
+the per-pass advance by part 1's Task 4.3b case 7 and Task 9.3 above, the
+window loop by the rehearsal, and the lag figures by Task 5.4.
