@@ -10,78 +10,58 @@ aiModel: claude-opus-5
 status: complete
 dateCreated: 20260829
 dateUpdated: 20260829
-reviewedSha: d1208310e79c72ee6a42d7ed5c5861387fb5da4a
+reviewedSha: ca487a1be8edf17a7906aa83be8f8cd6954044af
 findings:
   - id: F001
     severity: fail
-    category: uncategorized
-    summary: "Task 9.3 is wait-blocked across days, contradicting part 1's own hard rule"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:301-315"
+    category: correctness
+    summary: "Task 5.1 instructs both \"re-export from `status.py`\" and \"no re-export through `status.py`\""
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:49-63"
   - id: F002
     severity: concern
-    category: uncategorized
-    summary: "Task 9.1 makes release tagging a task, which part 1 says it is not"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:278-281"
+    category: completeness
+    summary: "The `status` Rich block prints a `cutoff` value that no task and no persisted column can supply"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:70-72"
   - id: F003
     severity: concern
-    category: uncategorized
-    summary: "The design's late-arriving-trades check has no task and no recorded omission"
-    location: "project-documents/user/slices/265-slice.public-trades-collection.md:479"
+    category: sequencing
+    summary: "Task 5.2b depends on Task 5.4, which is two tasks later"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:92-93"
   - id: F004
     severity: concern
-    category: uncategorized
-    summary: "Section 5's header cites Success Criterion 10, which belongs to a different section"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:41-44"
+    category: correctness
+    summary: "Task 7.5's compressed timing is not comparable to Task 7.3's uncompressed baseline"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:246-259"
   - id: F005
     severity: concern
-    category: uncategorized
-    summary: "Task 5.2's success criterion is self-cancelling, and its assertion has no owning test bullet"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:77-79"
+    category: completeness
+    summary: "Task 9.3 requires reading `capped` and `requests` from a timer firing with no source named"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:352-354"
   - id: F006
     severity: note
-    category: uncategorized
-    summary: "Task 7.3 is titled \"the cap\" but no bullet observes capping"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:179-199"
+    category: testability
+    summary: "Task 8.1's success criterion is not objectively checkable"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:300"
   - id: F007
     severity: note
-    category: uncategorized
-    summary: "Task 8.3 is a commit-only task and, unlike its peers, carries no gates"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:269-270"
+    category: test-coverage
+    summary: "No load test task, and none is required — the slice restates no NFR"
+    location: "test/load"
   - id: F008
     severity: note
-    category: uncategorized
-    summary: "Task 7.6 is bookkeeping-only and belongs inside Task 7.7"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:225-229"
+    category: task-sizing
+    summary: "Tasks 5.1 and 5.2a are granular enough to merge"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:49-80"
   - id: F009
-    severity: note
-    category: uncategorized
-    summary: "Task 5.2 at effort 4 exceeds the effort ceiling established for this slice family"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:58-79"
+    severity: pass
+    category: completeness
+    summary: "All 13 success criteria trace to tasks, with no untraced tasks"
+    location: "project-documents/user/slices/265-slice.public-trades-collection.md:372-386"
   - id: F010
-    severity: note
-    category: uncategorized
-    summary: "Task 5.1 deviates from the design's component structure; the deviation is justified but the re-export is not"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:46-56"
-  - id: F011
     severity: pass
-    category: uncategorized
-    summary: "Every success criterion traces to at least one task, across both files"
-    location: "project-documents/user/slices/265-slice.public-trades-collection.md:374-386"
-  - id: F012
-    severity: pass
-    category: uncategorized
-    summary: "No scope creep; every task traces back to the design"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:41-315"
-  - id: F013
-    severity: pass
-    category: uncategorized
-    summary: "Commit checkpoints are distributed, and tests follow their implementation"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:114-116"
-  - id: F014
-    severity: pass
-    category: uncategorized
-    summary: "No load test is required, consistent with the precedent set for this slice family"
-    location: "project-documents/user/slices/265-slice.public-trades-collection.md:88-96"
+    category: sequencing
+    summary: "Commit checkpoints are distributed, and the wait-blocked work is correctly excluded"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-2.md:136-138"
 ---
 
 # Review: tasks — slice 265
@@ -91,78 +71,52 @@ findings:
 
 ## Findings
 
-### [FAIL] Task 9.3 is wait-blocked across days, contradicting part 1's own hard rule
+### [FAIL] Task 5.1 instructs both "re-export from `status.py`" and "no re-export through `status.py`"
 
-Task 9.3 "Watch the drain" spans days by construction: "Over the following days…", "when `behind` clears (~10 days)", and its own last bullet admits "This task spans days by its nature". Part 1's Context Summary states as a hard rule for this slice: "No task waits on a wall-clock event" (`265-tasks.public-trades-collection-1.md:100`). The PM has separately vetoed wait-blocked tasks outright — no task may wait on tonight/tomorrow/next week; restructure to something measurable now.
+The first bullet says to put `TradeStatus` / `read_trade_status` in a new `data/kalshi/trade_status.py` "and **re-export them from `status.py`** so the CLI's import site does not fragment." The third bullet, in bold, says "**No re-export through `status.py`.** Task 5.3 wires the one CLI call site directly to `trade_status`; a module whose only job is to forward a name is the complexity CLAUDE.md tells us to resist."
 
-The self-exemption ("not a blocking step for the slice's merge") does not resolve it, because Success Criterion 13's second half — `tape through` advancing ~7 hours per firing until `behind` clears, then staying within two hours of now — has no other owning task. As written, Criterion 13 cannot be marked done for ~10 days after merge, and there is no artifact that records it when it is.
+These are mutually exclusive and appear in the same task, four lines apart — the second reads like a review fix appended without editing the original bullet. A junior AI executing top-to-bottom writes the forwarding import, then reads the next bullet telling it not to. Downstream, Task 5.3 (line 107-109) assumes the direct-import form, so the first bullet is also the wrong one. Delete the re-export clause from the first bullet.
 
-Restructure into what is measurable at the time of the firing: after the first supervised firing (Task 9.2), assert the single-firing deltas — `watermark_ts` advanced by ~7 windows, `requests` at the cap, `capped: true`, `HTTP 429` count zero, `before coverage` recorded as a baseline number. Then make the ~10-day steady-state observation an explicit follow-up note in the slice completion record (or a 266 prerequisite), not a checklist item in this file.
+### [CONCERN] The `status` Rich block prints a `cutoff` value that no task and no persisted column can supply
 
-### [CONCERN] Task 9.1 makes release tagging a task, which part 1 says it is not
+Task 5.2a enumerates the `TradeStatus` fields as `last_phase_at`, `tape_through`, `lag`, `behind`, `coverage_from` — matching the design's field list at `265-slice.public-trades-collection.md:326`. But the design's Rich block one line below (`:336`) and the walkthrough step 5 sample output (`:441`) both print `cutoff 2026-06-29` on the trades header line, and Task 5.3 requires "the Rich block renders **every field**" in "the design's *Rich block* layout".
 
-Task 9.1's first bullet begins "Tag → `install-production.sh --ref` → …". Part 1's Context Summary states "Merge and release tagging follow runbook 100's update procedure after PM approval and **are not tasks here**" (`265-tasks.public-trades-collection-1.md:96-97`), and git branch/merge/tag steps are not permitted as task items. A junior implementer reading part 2 in isolation will treat tagging as an actionable step it is told elsewhere it is not.
+The trades cutoff is fetched from `GET /historical/cutoff` per run and only logged (Data Flow step 1); it is not a `sync_state` column — `kalshi_006` adds only `coverage_from_ts`. Since Criterion 11 and Decision 10 forbid `trade_status` from importing the client, there is no legal source for it. The example values coincide only because `coverage_from == cutoff` on day one; they diverge by ~1 day/day thereafter, so silently rendering `coverage_from` as "cutoff" is a wrong label, not a shortcut. Task 5.2a or 5.3 must either drop `cutoff` from the block or add a persisted `cutoff_observed_at`-style column to `kalshi_006` (which is part 1's Task 2.2 — so this must be settled before Section 2 is committed, not at Section 5).
 
-Fix by making 9.1 start at the installed ref: "Following runbook 100's update procedure (tag and install are the PM's release steps, not tasks), verify `mt data migrate status --track kalshi` reports 1 pending → apply with the maintenance credential → 0 pending."
+### [CONCERN] Task 5.2b depends on Task 5.4, which is two tasks later
 
-### [CONCERN] The design's late-arriving-trades check has no task and no recorded omission
+Task 5.2b says "Get the boundary cases from **Task 5.4** green before moving on," and its success criterion is explicitly delegated forward ("assert this as a sum against the total in Task 5.4", line 99-100). Task 5.4 sits after Task 5.3 (rendering), so the stated order is 5.2b → 5.3 → 5.4 while the real dependency is 5.2b ↔ 5.4.
 
-The slice's Risk Assessment names a concrete rehearsal check for its third risk: "the rehearsal re-walks a settled hour a day later and diffs the count as the check." Section 7 (Tasks 7.1–7.7) contains no such step, and — unlike the abort case, which Task 7.6 handles by deliberately recording that the manual analogue was not re-run and why — nothing in the file records that this check was dropped. It also cannot be added as written without becoming a second wait-blocked task.
+This is the one place in the breakdown that breaks the test-with-implementation pattern the rest of the file honors (2.2→2.3, 3.2→3.3, 4.2→4.3a/4.3b all pair correctly). The four closed-market counts are called out as "where the risk in the whole section sits," which makes it the worst task to leave provable only after a rendering task intervenes. Swap 5.3 and 5.4, or split 5.4's boundary-case tests into 5.2b itself and leave the `None`/field-value cases in 5.4.
 
-Either add a bullet to Task 7.4 or 7.5 that re-walks a window already walked earlier in the same rehearsal and diffs the row count (measurable within the session, weaker but real), or add a bullet to Task 7.7's rehearsal note stating the day-later diff was not performed, why, and where the residual risk is carried (the PM's drain watch). Silently omitting a design-named check is the gap; the pattern for handling it correctly already exists at Task 7.6.
+### [CONCERN] Task 7.5's compressed timing is not comparable to Task 7.3's uncompressed baseline
 
-### [CONCERN] Section 5's header cites Success Criterion 10, which belongs to a different section
+Criterion 12's second clause asks for per-window wall time "before and after compressing that chunk." Task 7.3 records the baseline from the **first** pass over three fresh windows — every row a real insert. Task 7.5 records the comparison figure from a re-walk of an already-walked window after `compress_chunk`, where every row hits `ON CONFLICT DO NOTHING` and writes nothing.
 
-Section 5's header reads "Design *CLI and rendering*, *Technical Decision 10*, Success Criteria 10 and 11." Criterion 10 is the ledger preflight naming `kalshi_006_trades` (slice design line 383) and has nothing to do with the status block; it is correctly owned by Task 6.2 and Task 7.2. Decision 10 ("`status` reads the database only") is cited correctly, so this looks like the "10" being duplicated from the decision number into the criteria list. Section 5 covers Criterion 11 only (plus part of Criterion 8's `status`-shows-the-lag clause). Leaving it wrong means an implementer checking off Section 5 believes preflight coverage is done when it is not.
+Two variables change at once (compression state *and* insert-vs-conflict path), so a difference between the two numbers does not attribute to compression, which is the whole point of the measurement and of the pause/resume lever it is meant to justify. Task 7.4 already performs an uncompressed re-walk of a previously-walked window — that is the matched baseline. Task 7.5 should compare against 7.4's re-walk timing (and Task 7.4 should be told to record it), not against 7.3's.
 
-### [CONCERN] Task 5.2's success criterion is self-cancelling, and its assertion has no owning test bullet
+### [CONCERN] Task 9.3 requires reading `capped` and `requests` from a timer firing with no source named
 
-The bullet reads: "Success: the reader issues no query against `kalshi.trades` (assert in the integration test by inspecting the statements or by dropping read access is not needed — assert on the rendered SQL text)." The parenthetical proposes two approaches, negates part of one mid-sentence, and lands on a third. A junior implementer cannot determine what to write.
+The task asks the PM to confirm "the phase summary reports `capped: true` with `requests` at or just above `TRADE_REQUESTS_PER_PASS`" from a `sudo mt-run kalshi` firing. But the two journal greps the design specifies for step 9 (`kalshi pass finished` and `trades window`) carry neither field: the per-window INFO line format is `pages N fetched F written W unknown U excluded X` (design `:167`), and `capped`/`requests` live only in `TradeResult.to_dict()`, rendered by `print_trade_summary` (part 1 Task 4.6).
 
-Compounding it, Task 5.4's integration bullets (lines 97-112) enumerate the `None` case, every field value, the four counts, and rule respect — but never the "no query against `kalshi.trades`" assertion. So the check Decision 10 exists to enforce is stated as a success condition of 5.2 and then owned by no test bullet anywhere. Resolve to one sentence — e.g. "Success: a unit test asserts the rendered SQL text contains no reference to `kalshi.trades`" — and add the matching bullet to whichever task owns that test.
+This is the *only* production observation of Criterion 8, so it cannot rest on an unstated assumption that `mt-run`'s stdout reaches the journal in a parseable form. Name the concrete source — `--events-file` on the supervised firing, a `jq` over the events JSONL, or an explicit journal line the pass-finished summary must carry.
 
-### [NOTE] Task 7.3 is titled "the cap" but no bullet observes capping
+### [NOTE] Task 8.1's success criterion is not objectively checkable
 
-The task title reads "First pass — three phases, the floor, the cap", and it mirrors the design's walkthrough step 4, which cites Criteria 1, 2, 6, 8, and 9. But the task seeds the watermark at `now − 3 hours`, so the drain is ~3 windows ≈ 900 requests — well under `TRADE_REQUESTS_PER_PASS = 3,000`. Capping cannot occur, and correspondingly none of the seven bullets mentions `capped`. Criterion 8 is therefore proven only by part 1's unit test (Task 4.3, case 7) and by the PM's Task 9.2/9.3 observation.
+"A reader following the runbook can update the host without consulting the slice design" cannot be verified by the agent writing it. Every other task in the file has a mechanical success test (a command that must be green, a number that must be recorded, an output captured). Replace with the checkable form: the runbook's Kalshi subsection names `kalshi_006_trades`, the `MT_KALSHI_COLLECTION_*` prefix, the ~10-day drain, and the by-hypertable-name policy lookup; and `grep -c MT_KALSHI_CANDLE_ project-documents/user/runbooks/100-production-operations.md` returns 0.
 
-That is defensible — a rehearsal that actually hit the cap would take ~10 minutes of live tape — but the title should say so, the way Task 7.3 already handles the first-run floor ("record explicitly that this substitutes for the design's cutoff start"). Suggest either dropping "the cap" from the title, or adding a bullet: "confirm the summary reports `capped: false` and record that the cap itself is proven by Task 4.3 case 7 and observed on the host in Task 9.2."
+### [NOTE] No load test task, and none is required — the slice restates no NFR
 
-### [NOTE] Task 8.3 is a commit-only task and, unlike its peers, carries no gates
+The repo does have a load tier (`test/load/test_167_data_status_nfr.py`, `test_187_api_nfr.py`, gated by `MT_RUN_LOAD_TESTS` in `scripts/run_tests.py:45`), so the "load test in the load tier + CI gating" rule is live here in principle. But neither `260-arch.kalshi-event-contract-data.md` nor the 265 slice contains an NFR section or a restated threshold — the performance figures in the slice (~15-minute capped pass, ~3-minute steady state, per-window wall time) are operational estimates verified by rehearsal measurement and single-firing observation, not gated thresholds. This matches part 1's recorded disposition of the same question ("F009 no action — no NFR to gate on"). Recording it here so a later reviewer does not re-open it. Note also that `.github/workflows/ci.yml` does not invoke the load tier at all, so any future NFR for this initiative would need CI wiring added as a separate concern.
 
-Tasks 5.5, 6.3, and 7.7 each pair a checkpoint commit with gates or a completion action. Task 8.3's entire content is one `git commit` line. It should be a bullet at the end of Task 8.2, not a task. Separately, since Section 8 edits markdown only, its omission of gates is correct — but stating that explicitly ("no ruff/mypy gates: documentation only") would keep the section's shape legible against 5.5 and 6.3.
+### [NOTE] Tasks 5.1 and 5.2a are granular enough to merge
 
-### [NOTE] Task 7.6 is bookkeeping-only and belongs inside Task 7.7
+Task 5.1's entire deliverable is creating an empty-ish `trade_status.py` and adding it to the `test_status_imports.py` guard list; Task 5.2a then fills it. Neither is independently meaningful — 5.1's success criterion ("both modules are under ~300 lines") is trivially true of an empty file. Merging them at effort 3 would still sit inside the breakdown's stated ceiling and would remove the task boundary that the Task 5.1 contradiction above straddles. Task 5.2b stays separate on its own merits (it is the risky one).
 
-Task 7.6's whole body is "confirm that test covers it and record in the rehearsal note that the manual analogue was not re-run by hand and why." There is nothing to run and nothing to produce except one paragraph in a note that Task 7.7 writes anyway. Merging it into 7.7 as a bullet costs nothing and removes a task whose completion is indistinguishable from reading part 1. (The *content* is right and should be kept — see the late-arriving-trades finding above, where this exact pattern is what is missing.)
+### [PASS] All 13 success criteria trace to tasks, with no untraced tasks
 
-### [NOTE] Task 5.2 at effort 4 exceeds the effort ceiling established for this slice family
+Cross-referencing both parts: C1→4.4/6.1/7.3/9.2; C2→3.2/3.3/4.3b·4/7.3; C3→3.3·4/6.1/7.4; C4→4.3b·5,6/7.4; C5→§1/3.3·5/7.2; C6→4.3b·1,8/9.2; C7→4.3b·2/7.3; C8→4.3b·7/9.3; C9→3.3·2/4.3b·10/7.3/7.6; C10→6.2/7.2; C11→5.1–5.4; C12→2.3/7.5; C13→9.2/9.3 plus an explicit handoff. Every task in part 2 traces back to a criterion, the design's *Tests* section, or the Risk Assessment (Task 7.4's late-arrival re-walk) — no scope creep found.
 
-Slice 264's task review resolved its own sizing finding by splitting until "No task in either file now exceeds effort 3" (`264-tasks.candlestick-collection-1.md:571-573`). Task 5.2 is effort 4 and does carry two separable halves: the `sync_state`-only scalar fields (`last_phase_at`, `tape_through`, `lag`, `behind`, `coverage_from`) and the four boundary-sensitive counts over `selection_sql(rule, "ever")`. The counts are where the risk is — three of the four turn on `coverage_from` vs `open_time`/`close_time` ordering — and they would benefit from being their own task with their own success criterion. Part 1 carries effort-5 tasks too (4.2, 4.3), so this may be a deliberate departure from 264's ceiling; if so, saying so once in part 1's Context Summary would settle it.
+### [PASS] Commit checkpoints are distributed, and the wait-blocked work is correctly excluded
 
-### [NOTE] Task 5.1 deviates from the design's component structure; the deviation is justified but the re-export is not
-
-The design's Component Structure places `TradeStatus` and `read_trade_status` in `data/kalshi/status.py`. Task 5.1 puts them in a new `data/kalshi/trade_status.py` instead. The justification is sound and verified — `status.py` is exactly 309 lines today, already over the ~300-line guideline before this slice adds four counts and a dataclass.
-
-The re-export back through `status.py` "so the CLI's import site does not fragment" is the part worth reconsidering: it creates a module whose only job is to forward a name, and Task 5.3 then wires the CLI up anyway. Importing `read_trade_status` from `trade_status` directly at the one CLI call site is simpler and keeps the extraction honest. If the re-export is kept for the existing `test_status_imports.py` guard's sake, say that explicitly — the current rationale ("does not fragment") does not survive CLAUDE.md's resist-complexity rule on its own.
-
-### [PASS] Every success criterion traces to at least one task, across both files
-
-Criterion 1 → part 1 Task 4.4 (unit), part 2 Tasks 6.1, 7.3. Criterion 2 → part 1 3.2 (structural identity assertion), 3.3, 4.3 case 4; part 2 7.3. Criterion 3 → part 1 3.3 case 4; part 2 6.1, 7.4. Criterion 4 → part 1 4.3 cases 5–6; part 2 7.4, 7.6. Criterion 5 → part 1 Section 1 entire, 3.3 case 5; part 2 7.2. Criterion 6 → part 1 4.3 cases 1, 8; part 2 9.2 (with the substitution explicitly recorded in 7.3). Criterion 7 → part 1 4.3 case 2; part 2 7.3. Criterion 8 → part 1 4.3 case 7; part 2 9.2 (see the Task 7.3 note above). Criterion 9 → part 1 3.3 case 2, 4.3 case 10; part 2 7.3, 7.7. Criterion 10 → part 2 6.2, 7.2. Criterion 11 → part 2 5.1, 5.2, 5.4. Criterion 12 → part 1 2.3 (policy job on a real chunk); part 2 7.5 (the two timings). Criterion 13 → part 2 9.2, 9.3.
-
-Criterion 6's handling is a particular strength: the rehearsal cannot exercise the cutoff-start floor against an hours-old throwaway catalog, and Task 7.3 says so in writing and names Task 9.2 as the step that does prove it, rather than letting the gap pass unnoticed.
-
-### [PASS] No scope creep; every task traces back to the design
-
-Each of the nine tasks in Sections 5–8 maps to a named design element: Section 5 to *CLI and rendering* and Decision 10; Section 6 to the last three items of *Tests — Integration*; Section 7 to *Verification Walkthrough* steps 1–7; Section 8 to *Runbook 100 and CHANGELOG*; Section 9 to walkthrough steps 8–10. Task 8.1's runbook line references were verified accurate — `100-production-operations.md` carries `MT_KALSHI_CANDLE_*` at exactly lines 131 and 415, both of which the rename must touch. Task 5.1's claim that `status.py` is 309 lines is likewise exact.
-
-### [PASS] Commit checkpoints are distributed, and tests follow their implementation
-
-Checkpoints land at 5.5, 6.3, 7.7, and 8.3 — one per section, matching the design's Development Approach ("Sections, each a checkpoint commit") and the PM-confirmed granularity of one checkpoint per section rather than per numbered subtask. None are batched at the end.
-
-Test-with sequencing holds within each section: 5.2 (reader) → 5.3 (rendering plus its unit tests) → 5.4 (integration tests for the reader); 6.1 and 6.2 are themselves test tasks following part 1's implementation. Section dependencies are linear and acyclic — 5 and 6 both require Sections 1–4, 7 requires 5 and 6, 8 is independent of 7, 9 requires 8. Section 6 could run before Section 5 without harm, but nothing forces an out-of-order dependency.
-
-### [PASS] No load test is required, consistent with the precedent set for this slice family
-
-The slice's *Workload (derived)* table and its throughput figures (~420 requests/hour steady state, ~3-minute pass, ~155 GB/year) are measurements and derived estimates, not thresholds — the design sets no NFR and states no bound a load test could gate on. This matches the resolution recorded for the sibling slice: 264's task review closed the same question as "F008 (note) — no load test is required. Agreed, no action… Adding a `test/load/` task would invent a bound the design declined to set" (`264-tasks.candlestick-collection-1.md:578-582`). `test/load/` exists in this repo and holds NFR suites for slices that do state thresholds (146, 167, 169, 187), so the absence here is a deliberate pattern, not an oversight.
-
-The one figure that behaves like a threshold — "a window taking minutes rather than seconds" against a compressed chunk — is correctly handled as a rehearsal measurement (Tasks 7.3 and 7.5 record both timings as numbers) with a runbook lever rather than an automated gate, because the remedy is an operator pause/resume the application role cannot perform. No CI gating task is needed since no load test is added; note for completeness that `.github/workflows/ci.yml` currently runs only publish-on-tag, so any future load-test gate in this repo would need CI wiring built from scratch.
+Each section ends in its own checkpoint commit (5.5, 6.3, 7.6, 8.2), matching the design's *Development Approach* sections and the PM-confirmed per-section granularity; Section 9 correctly has none, being host observation. Task 8.2 also explicitly explains why its gate list differs (markdown only) rather than silently omitting the gates. Criterion 13's multi-day drain is carried as a handoff note and 266 prerequisite (lines 367-376) rather than as a checklist item, honoring the standing veto on wait-blocked tasks, and it names the four mechanisms that *are* proven without waiting.

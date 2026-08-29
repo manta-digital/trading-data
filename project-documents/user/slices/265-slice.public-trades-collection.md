@@ -330,10 +330,11 @@ Both intervals render from the constants (`_interval_sql`); the `COMMENT ON` sta
     `short_of_close` — `close_time > watermark` (the tape has not reached them yet; large during the drain, ~0 after);
     `before_coverage` — `close_time < coverage_from` — 266's input for trades.
   - No `excluded_by_rule` here: one rule, one figure, already in the candle block.
+  - No `cutoff` here either: the trades cutoff is observed per run, not persisted — the phase logs it at INFO every run (Data Flow step 1) and Decision 6 aborts loudly when the watermark falls behind it — and Decision 10 keeps `status` off the client. (The candle block's `cutoff_observed` reads `sync_state['candlesticks'].watermark_ts`, a slot the trades surface uses for the tape watermark, so that route is not available here.)
 - Rich block:
 
 ```
-Kalshi trades              last phase 2026-08-28 15:24:11 UTC  (3 min ago)   cutoff 2026-06-29
+Kalshi trades              last phase 2026-08-28 15:24:11 UTC  (3 min ago)
   tape through        2026-08-28 15:19:10 UTC  (8 min behind)        coverage from 2026-06-29 00:00 UTC
   closed markets      complete through close 412,010   partial history 6,120   short of close 310
   before coverage     1,203,442 closed markets (tape predates the collector; slice 266)
@@ -438,7 +439,7 @@ uv run mt data kalshi pass --json | jq '.phases[2].summary | {windows_completed,
 #    → one short window; duplicates equal the 1-second overlap's rows; nothing else written twice
 psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from kalshi.trades a join kalshi.trades b using (market_ticker, created_time, trade_id) where a.ctid <> b.ctid"   # → 0
 uv run mt data kalshi status
-#    Kalshi trades   last phase … (0 min ago)   cutoff 2026-06-29
+#    Kalshi trades   last phase … (0 min ago)
 #      tape through   … (1 min behind)   coverage from …
 #      closed markets complete through close N   partial history P   short of close 0
 #      before coverage B closed markets (…)

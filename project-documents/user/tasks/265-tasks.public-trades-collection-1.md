@@ -22,8 +22,10 @@ projectState: >
   candle_rule(), CandleRule, candle_selection.selection_sql) and this
   slice renames it. Design 265 has Decisions 2, 3, 4 PM-ratified 20260828.
 reviewVerdictsAddressed:
-  - 265-review.tasks.public-trades-collection.part-1 (claude-opus-5, CONCERNS, F001-F008 addressed; F009 no action — no NFR to gate on)
-  - 265-review.tasks.public-trades-collection.part-2 (claude-opus-5, FAIL, F009/F010 effort-ceiling and re-export notes addressed here; the rest in part 2)
+  - 265-review.tasks.public-trades-collection.part-1, first round (claude-opus-5, CONCERNS) — all findings addressed
+  - 265-review.tasks.public-trades-collection.part-2, first round (claude-opus-5, FAIL) — all findings addressed
+  - 265-review.tasks.public-trades-collection.part-1, second round (claude-opus-5, CONCERNS) — F001 the cutoff figure is struck from the status block, not given a column (Task 2.2); F002 Task 3.3 case 7; F003 Task 4.2 step 6; F004 Task 4.3a; F005 the new-behavior tests moved into Tasks 1.3 and 1.4; F006–F008 pass
+  - 265-review.tasks.public-trades-collection.part-2, second round (claude-opus-5, FAIL) — F002's column question settled in Task 2.2 here; the rest in part 2
 dateCreated: 20260829
 dateUpdated: 20260829
 status: not_started
@@ -184,9 +186,14 @@ as before (Criterion 5, last clause).
   - [ ] Document in the `SelectionForm` comment that `"recent"` is the live
         24 h window, `"ever"` is lifetime volume (used by `status` for both
         surfaces), and `"any"` is the trades write path.
+  - [ ] **Test, in this task:** extend
+        `test/unit/data/kalshi/test_selection_sql.py` — `"any"` drops the
+        traded clause, alongside the existing `"recent"`/`"ever"` cases. New
+        behavior is tested where it is written; Task 1.5 is the mechanical
+        sweep only.
   - [ ] Success: `selection_sql(rule, "any")` contains no `volume` reference
         for a rule with `traded_only=True`; `"recent"` and `"ever"` render
-        exactly as before.
+        exactly as before — asserted by that test.
 
 - [ ] **Task 1.4: Rename the settings and add the loud guard** (effort: 3)
   - [ ] In `config/__init__.py` rename the five fields
@@ -229,16 +236,29 @@ as before (Criterion 5, last clause).
         (design *Settings — the rename*). A setting whose surface asymmetry
         lives only in a `SelectionForm` comment is the same trap the rename
         removes.
+  - [ ] **Tests, in this task.** Rename
+        `test/unit/test_candle_rule_settings.py` to
+        `test_collection_rule_settings.py`, update its cases for the new
+        names, then add two new ones (new behavior is tested where it is
+        written, not two tasks downstream):
+    - **The guard is loud from the environment:** every one of the five
+      `MT_KALSHI_CANDLE_*` names, set alone in `os.environ`, raises at
+      `Settings` construction with a message containing the new name.
+      Parametrize over the five so a later sixth setting cannot be
+      forgotten.
+    - **The guard is loud from `.env`:** the same five names, each written
+      alone into a temporary env file that `Settings` is pointed at, raise
+      the same way. Without this case the hole described above ships
+      untested, and it is the one a developer hits.
   - [ ] Success: `MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES=Sports mt data
         kalshi status` behaves as the old variable did;
         `MT_KALSHI_CANDLE_CATEGORIES=Sports mt data kalshi status` exits
         nonzero with a message naming `MT_KALSHI_COLLECTION_CATEGORIES`
         (Criterion 5, walkthrough step 3).
 
-- [ ] **Task 1.5: Rename tests, and prove the rename changed nothing** (effort: 2)
-  - [ ] Mechanically update the test files the rename touches:
-        `test/unit/test_candle_rule_settings.py` (rename the file to
-        `test_collection_rule_settings.py`),
+- [ ] **Task 1.5: Rename tests — the mechanical sweep** (effort: 2)
+  - [ ] Mechanically update the test files the rename touches (the settings
+        test file was already renamed in Task 1.4):
         `test/unit/data/kalshi/test_selection_sql.py`,
         `test/unit/data/kalshi/test_candle_sync.py`,
         `test/unit/data/kalshi/test_collection_pass.py`,
@@ -248,17 +268,6 @@ as before (Criterion 5, last clause).
         145–149), `test/integration/test_kalshi_sync.py`,
         `test/integration/test_kalshi_pass.py`,
         `test/integration/test_kalshi_candles.py`.
-  - [ ] **New test — the guard is loud from the environment:** every one of
-        the five `MT_KALSHI_CANDLE_*` names, set alone in `os.environ`,
-        raises at `Settings` construction with a message containing the new
-        name. Parametrize over the five so a later sixth setting cannot be
-        forgotten.
-  - [ ] **New test — the guard is loud from `.env`:** the same five names,
-        each written alone into a temporary env file that `Settings` is
-        pointed at, raise the same way. Without this case the hole described
-        in Task 1.4 ships untested, and it is the one a developer hits.
-  - [ ] **New test — `"any"` drops the traded clause:** as Task 1.3's
-        success criterion, alongside the existing `"recent"`/`"ever"` cases.
   - [ ] **New test — `MARKET_JOIN` is composed, not re-spelled:** assert
         `CATALOG_JOIN`'s rendered text is a prefix of `MARKET_JOIN`'s. (The
         snapshot equality test from Task 1.1 is the stronger check; this one
@@ -315,7 +324,23 @@ Design *Constants*, *Migration `kalshi_006_trades`*, *Technical Decision 4*
         measured evidence (every row of the 352,000-trade sample and the
         recorded fixture carries it) argues the coalesce is unnecessary, not
         that it is safe. Record the reasoning in the migration's comment
-        block so a reader does not "fix" the NOT NULL later.
+        block so a reader does not "fix" the NOT NULL later. The blast
+        radius is the same as the non-UUID id's: the `NotNullViolation` is a
+        `psycopg.IntegrityError`, not an `OperationalError`, so under Task
+        3.2's taxonomy it propagates out of the phase and the pass as a bug
+        (exit nonzero, unit shows failed, the earlier phases' committed work
+        intact) — not as a `STORAGE_ABORT`. Task 3.3 case 7 pins that
+        exception type.
+  - [ ] `sync_state` gains **only** `coverage_from_ts`. The design's Rich
+        block used to show a `cutoff` figure the status block has no
+        persisted source for (the candle block reads its cutoff from
+        `sync_state['candlesticks'].watermark_ts`, a slot trades uses for the
+        tape watermark). It is **struck from the block** (design *CLI and
+        rendering*, corrected; part 2 Tasks 5.1 and 5.4) rather than given a
+        column here: the phase logs the cutoff at INFO every run and
+        Decision 6 aborts loudly when the watermark falls behind it, which is
+        the signal the figure would have carried. Do not add a
+        `cutoff_observed_ts` column.
   - [ ] The three `COMMENT ON COLUMN kalshi.sync_state.*` statements replace
         the whole comment string, so carry the catalog and candlesticks
         clauses of `kalshi_004`/`kalshi_005` forward verbatim and change only
@@ -439,6 +464,10 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
        cleared, the Sports trade is the one written (Criterion 5).
     6. A page carrying a **non-UUID** `trade_id` fails the write loudly (a
        `psycopg.DataError` propagates; it is not swallowed and not counted).
+    7. A page row with `is_block_trade=None` fails the write loudly:
+       `psycopg.errors.NotNullViolation` (an `IntegrityError`, not an
+       `OperationalError`) propagates — not swallowed, not counted, and not
+       a storage abort (Task 2.2's NOT NULL posture).
   - [ ] For every case assert the full identity
         `fetched = written + unknown + excluded + duplicates`.
   - [ ] `TRADE_COLUMNS` parity against the real table (every mapped column
@@ -506,7 +535,12 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         excluded X`).
   - [ ] Step 6 — finish: `set_last_full_sync(phase_start)`; emit
         `phase_finished` with `phase="trades"` through the existing sink and
-        `emit_in_thread` — **no new event type**.
+        `emit_in_thread` — **no new event type**. The phase name is a
+        module-local `PHASE = "trades"` carrying the same comment
+        `candle_sync.py:64–67` gives `PHASE = "candles"`: `PassPhaseName.
+        TRADES` lands in Task 4.4, and `collection_pass` imports this module,
+        so the core cannot import the enum without a cycle. Not a bare
+        literal at the call site.
   - [ ] The unknown-prefix tally: count by the ticker text before the first
         `-`, kept in memory, emitted as **one INFO line per phase**. A
         comment states this is display only and nothing branches on it
@@ -528,6 +562,14 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         and extend `test/unit/data/kalshi/test_fakes.py` so the fakes
         themselves are exercised (that file already does this for the candle
         fakes).
+  - [ ] **Protocol conformance, pinned:** in `test_fakes.py`, follow
+        `TestProtocol::test_client_and_fake_satisfy_catalog_source` (its
+        typed `_as_source` helper) with the same test for `TradeSource`: a
+        `KalshiClient` over `httpx.MockTransport` and the `FakeTradeSource`
+        both pass through a `TradeSource`-typed helper. The real client's
+        `get_trades` takes `**query: Unpack[TradesQuery]` with `int | None`
+        keys, and the mypy `Unpack` path artifact makes the type gate the
+        least reliable place to learn of a mismatch.
   - [ ] Success: `uv run pytest test/unit/data/kalshi/test_fakes.py -q` green.
 
 - [ ] **Task 4.3b: `TradeSync` unit tests** (effort: 4)
@@ -598,7 +640,10 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         `cli/commands/kalshi_render.py` and register it in
         `PHASE_RENDERERS[PassPhaseName.TRADES]`. It prints windows, requests
         (with `capped` when set), watermark before → after, and
-        fetched / written / unknown / excluded / duplicates.
+        fetched / written / unknown / excluded / duplicates. **`requests` and
+        `capped` share one line** (`requests 3,004 (capped)`): the supervised
+        firing's stdout lands in the journal, and part 2 Task 9.3 greps that
+        line for the cap's only production observation.
   - [ ] Extend `test/unit/cli/commands/test_data_kalshi.py`: the renderer
         dispatches on the trades phase name; the `TradeResult.to_dict()`
         payload round-trips through `json.dumps`/`loads` unchanged.

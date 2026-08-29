@@ -17,7 +17,8 @@ projectState: >
   proof, the rehearsal on the test cluster, the documentation, and the
   production deploy.
 reviewVerdictsAddressed:
-  - 265-review.tasks.public-trades-collection.part-2 (claude-opus-5, FAIL, F001-F008 and F010 addressed; F009 addressed in part 1's Context Summary; F011-F014 pass)
+  - 265-review.tasks.public-trades-collection.part-2, first round (claude-opus-5, FAIL) — all findings addressed
+  - 265-review.tasks.public-trades-collection.part-2, second round (claude-opus-5, FAIL) — F001 and F008 by merging Tasks 5.1/5.2a into one task with no re-export; F002 the cutoff figure struck from the block (part 1 Task 2.2; Tasks 5.1, 5.4); F003 the integration tests moved to Task 5.3, before rendering; F004 Tasks 7.3–7.5 match the re-walk timings; F005 Task 9.3 names the journal block; F006 Task 8.1; F007 no action — no NFR to gate on; F009–F010 pass
 dateCreated: 20260829
 dateUpdated: 20260829
 status: not_started
@@ -46,40 +47,36 @@ Design *CLI and rendering*, *Technical Decision 10*, Success Criterion 11
 (plus the `status`-shows-the-lag clause of Criterion 8). Criterion 10 is the
 ledger preflight and belongs to Tasks 6.2 and 7.2, not here.
 
-- [ ] **Task 5.1: Extract the trades reader into its own module** (effort: 2)
+- [ ] **Task 5.1: `trade_status.py` — `TradeStatus` and the state fields** (effort: 3)
   - [ ] `data/kalshi/status.py` is **already 309 lines** — over the ~300-line
         guideline before this slice adds anything. Put `TradeStatus` and
         `read_trade_status` in a new `data/kalshi/trade_status.py` rather
-        than growing it, and re-export them from `status.py` so the CLI's
-        import site does not fragment.
-  - [ ] The new module imports neither the client nor the transport, and the
-        existing `test/unit/data/kalshi/test_status_imports.py` guard is
-        extended to cover it (Criterion 11).
-  - [ ] **No re-export through `status.py`.** Task 5.3 wires the one CLI call
-        site directly to `trade_status`; a module whose only job is to
-        forward a name is the complexity CLAUDE.md tells us to resist. If the
-        `test_status_imports.py` guard turns out to need a single import
-        surface, add the new module to the guard's list instead of adding a
-        forwarding import.
-  - [ ] Success: both modules are under ~300 lines; `mt data kalshi status`
-        imports resolve unchanged.
-
-- [ ] **Task 5.2a: `TradeStatus` and the state fields** (effort: 2)
+        than growing it. **No re-export through `status.py`:** Task 5.4
+        wires the one CLI call site directly to `trade_status`; a module
+        whose only job is to forward a name is the complexity CLAUDE.md tells
+        us to resist.
+  - [ ] The new module imports neither the client nor the transport. Extend
+        `test/unit/data/kalshi/test_status_imports.py` to probe
+        `manta_trading.data.kalshi.trade_status` the same way it probes
+        `status` (Criterion 11).
   - [ ] `read_trade_status(conn, rule) -> TradeStatus | None` — `None` until
         the phase has run once (no `sync_state['trades']` row).
   - [ ] Fields from `sync_state['trades']` alone: `last_phase_at`,
         `tape_through` (`watermark_ts`), `lag` (`now − watermark_ts`),
-        `behind` (`lag > TRADE_LAG_STALE_AFTER`), `coverage_from`.
+        `behind` (`lag > TRADE_LAG_STALE_AFTER`), `coverage_from`. **No
+        `cutoff` field:** the trades cutoff is observed per run and logged,
+        never persisted (part 1, Task 2.2), and the design's block has been
+        corrected to match.
   - [ ] `TradeStatus.to_dict()` follows `CandleStatus.to_dict()`'s shape;
         timestamps through the existing `_iso` helper.
   - [ ] **Nothing counts rows in `kalshi.trades`** (Decision 10, journal
         20260720). Every figure is `sync_state` plus the catalog join.
   - [ ] Success: a unit test asserts the rendered SQL text of every statement
-        this module issues contains no reference to `kalshi.trades`. That one
-        assertion is what enforces Decision 10 — write it here, not as a
-        note attached to another task.
+        this module issues contains no reference to `kalshi.trades` — that
+        one assertion is what enforces Decision 10, so write it here; the
+        import guard is green for both modules; both are under ~300 lines.
 
-- [ ] **Task 5.2b: The four closed-market counts** (effort: 3)
+- [ ] **Task 5.2: The four closed-market counts** (effort: 3)
   - [ ] Four counts over **selected closed markets** (`selection_sql(rule,
         "ever")`, `close_time < now()`), each exactly as the design defines
         it: `complete_through_close` (`open_time >= coverage_from AND
@@ -89,31 +86,17 @@ ledger preflight and belongs to Tasks 6.2 and 7.2, not here.
         266's input.
   - [ ] Three of the four turn on `coverage_from` versus `open_time` /
         `close_time` ordering — this is where the risk in the whole section
-        sits, which is why it is its own task. Get the boundary cases from
-        Task 5.4 green before moving on.
+        sits, which is why it is its own task and why its integration tests
+        (Task 5.3) come **next**, before any rendering.
   - [ ] No `excluded_by_rule` figure here — one rule, one figure, already in
         the candle block.
   - [ ] The rule is rendered only through `selection_sql`; the counts share
         one statement over `CATALOG_JOIN` where practical.
   - [ ] Success: the four counts partition the selected closed markets — no
-        market is counted twice and none is missed (assert this as a sum
-        against the total in Task 5.4).
+        market is counted twice and none is missed, asserted as a sum against
+        the total in Task 5.3.
 
-- [ ] **Task 5.3: Rendering, Rich and JSON** (effort: 2)
-  - [ ] `print_status` gains the trades block in the design's *Rich block*
-        layout; when `read_trade_status` returns `None` it prints
-        `Trades: never collected` and the JSON payload carries
-        `"trades": null`.
-  - [ ] Wire `read_trade_status(conn, settings.collection_rule())` into
-        `cli/commands/kalshi.py` beside `read_catalog_status` and
-        `read_candle_status`.
-  - [ ] Extend `test/unit/cli/commands/test_data_kalshi.py`: the Rich block
-        renders every field; the `None` case renders the never-collected
-        line; the JSON payload has a `trades` key that is `null` in that
-        case.
-  - [ ] Success: `uv run pytest test/unit -q` green.
-
-- [ ] **Task 5.4: `status` integration tests** (effort: 3)
+- [ ] **Task 5.3: `status` integration tests** (effort: 3)
   - [ ] Extend `test/integration/test_kalshi_status.py` following its
         `read_candle_status` cases:
   - [ ] `read_trade_status` returns `None` with no `sync_state['trades']`
@@ -129,9 +112,24 @@ ledger preflight and belongs to Tasks 6.2 and 7.2, not here.
         `complete_through_close` is in none of the four.
   - [ ] The four counts **partition** the selected closed markets: their sum
         equals the total selected closed market count, over a fixture set
-        that populates all four (Task 5.2b's success criterion).
+        that populates all four (Task 5.2's success criterion).
   - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_status -q` green.
+
+- [ ] **Task 5.4: Rendering, Rich and JSON** (effort: 2)
+  - [ ] `print_status` gains the trades block in the design's *Rich block*
+        layout — the header line carries `last phase` only, no `cutoff`
+        (Task 5.1); when `read_trade_status` returns `None` it prints
+        `Trades: never collected` and the JSON payload carries
+        `"trades": null`.
+  - [ ] Wire `read_trade_status(conn, settings.collection_rule())` into
+        `cli/commands/kalshi.py` beside `read_catalog_status` and
+        `read_candle_status`, imported from `trade_status` directly.
+  - [ ] Extend `test/unit/cli/commands/test_data_kalshi.py`: the Rich block
+        renders every field; the `None` case renders the never-collected
+        line; the JSON payload has a `trades` key that is `null` in that
+        case.
+  - [ ] Success: `uv run pytest test/unit -q` green.
 
 - [ ] **Task 5.5: Section 5 gates and checkpoint commit** (effort: 1)
   - [ ] Gates as part 1's Task 1.6, scoped to the files touched.
@@ -216,8 +214,11 @@ design's expected outputs are drafts to be replaced.
         (Criterion 6's floor behavior).
   - [ ] Verify no Sports or Mentions trade was stored (design step 4's join
         query returns 0).
-  - [ ] **Record the per-window wall time** — this is the uncompressed
-        baseline Task 7.5 compares against.
+  - [ ] **Record the per-window wall time** of this first pass — the
+        insert-path, uncompressed figure Task 9.3's first firing is compared
+        against. It is **not** Task 7.5's baseline: a first pass inserts
+        every row, a re-walk hits `ON CONFLICT DO NOTHING` on every row, and
+        a difference between those two would not attribute to compression.
   - [ ] Confirm the summary reports `capped: false`, and record that **the
         cap is not exercised here**: seeding at `now − 3 hours` gives ~3
         windows ≈ 900 requests, well under `TRADE_REQUESTS_PER_PASS = 3,000`.
@@ -240,8 +241,12 @@ design's expected outputs are drafts to be replaced.
         stored row count for that window before and after. A non-zero
         difference means trades became visible after their window was walked
         — record the number either way.
+  - [ ] **Record that re-walk's per-window wall time.** It is the
+        uncompressed **re-walk** baseline Task 7.5 compares against: the same
+        conflict-only write path, so the only variable left between the two
+        figures is the chunk's compression state.
   - [ ] Success: the block matches the design's layout with real numbers, and
-        the re-walk diff is recorded as a number.
+        the re-walk diff and its wall time are recorded as numbers.
 
 - [ ] **Task 7.5: The drain against a compressed chunk** (effort: 3)
   - [ ] Walkthrough step 6, and the measurement Criterion 12's second clause
@@ -251,8 +256,9 @@ design's expected outputs are drafts to be replaced.
   - [ ] Force the chunk under the watermark compressed
         (`compress_chunk` over `show_chunks`), seed the watermark back one
         hour, and re-run the pass.
-  - [ ] **Record both per-window wall times** (Task 7.3's uncompressed
-        baseline and this compressed one) in the rehearsal note. If the
+  - [ ] **Record both re-walk per-window wall times** (Task 7.4's
+        uncompressed re-walk and this compressed one) in the rehearsal note —
+        not Task 7.3's first pass, which measured the insert path. If the
         compressed figure is materially worse, note it and the lever — pause
         the policy by hypertable name for the drain, resume after (runbook,
         never automated; the application role cannot `alter_job`).
@@ -261,8 +267,8 @@ design's expected outputs are drafts to be replaced.
 - [ ] **Task 7.6: Write the rehearsal note and drop the database** (effort: 2)
   - [ ] Write `user/notes/2026-MM-DD-265-rehearsal.md` (real date) with every
         captured output, the **unknown-prefix listing** observed (the check
-        that the unknown set really is all MVE), and the two per-window
-        timings.
+        that the unknown set really is all MVE), and the three per-window
+        timings (first pass, uncompressed re-walk, compressed re-walk).
   - [ ] Record the three things the rehearsal deliberately did **not** do,
         each with its reason and where the proof lives instead:
     1. **The cutoff start** — substituted by a hand-seeded watermark at
@@ -296,8 +302,13 @@ Design *Runbook 100 and CHANGELOG*.
         compressed chunks is paused and resumed the 266 way.
   - [ ] Update the two existing `MT_KALSHI_CANDLE_*` references at runbook
         lines 131 and 415 to the new names.
-  - [ ] Success: a reader following the runbook can update the host without
-        consulting the slice design.
+  - [ ] Success, checked mechanically: `grep -n` on
+        `project-documents/user/runbooks/100-production-operations.md` finds
+        `kalshi_006_trades`, `MT_KALSHI_COLLECTION_`, the ~10-day drain, and
+        the by-hypertable-name policy lookup, each in the Kalshi subsection;
+        and every remaining `MT_KALSHI_CANDLE_` hit is inside the one
+        sentence that describes the guard's failure message — no instruction
+        still uses the old name.
 
 - [ ] **Task 8.2: CHANGELOG** (effort: 1)
   - [ ] Under `[Unreleased]`: the trades phase, the status block, the
@@ -334,11 +345,15 @@ update procedure.
         `kalshi pass finished` line shows
         `phases: catalog=ok candles=ok trades=ok` and `Result=success`
         (Criterion 13, first half).
-  - [ ] The `trades window` lines show windows from the cutoff forward, and
-        `mt-run data kalshi status` shows `tape through` near the cutoff with
-        a large lag — this is the observation that proves the **first-run
-        floor is the cutoff** (Criterion 6), which the rehearsal deliberately
-        did not exercise.
+  - [ ] The `kalshi trades phase started … cutoff=… coverage_from=…
+        watermark=…` journal line shows all three equal on this first run,
+        the `trades window` lines walk forward from it, and
+        `mt-run data kalshi status` shows `coverage from` at that cutoff and
+        `tape through` ~7 hours past it with a large lag — this is the
+        observation that proves the **first-run floor is the cutoff**
+        (Criterion 6), which the rehearsal deliberately did not exercise.
+        (`status` does not print the cutoff itself; the journal line is its
+        source.)
   - [ ] Success: the two outputs above captured for the slice's completion
         record.
 
@@ -349,16 +364,24 @@ update procedure.
   - [ ] `watermark_ts` advanced by the expected number of windows for a
         capped pass (~7 hours of tape), read before and after from
         `sync_state['trades']`.
-  - [ ] The phase summary reports `capped: true` with `requests` at or just
-        above `TRADE_REQUESTS_PER_PASS` — the cap's only production
-        observation (Criterion 8).
+  - [ ] The pass's `Kalshi trades` summary block reports `requests` at or
+        just above `TRADE_REQUESTS_PER_PASS`, marked `(capped)` — the cap's
+        only production observation (Criterion 8). **Source:** the unit runs
+        `mt data kalshi pass` with no flags under `StandardOutput=journal`,
+        so the block `print_trade_summary` writes to stdout (part 1, Task 4.6
+        keeps `requests` and `capped` on one line) is in the journal:
+        `journalctl -u mt-kalshi-pass.service -n 200 | grep -A4 'Kalshi
+        trades'`. Neither the `kalshi pass finished` line nor the
+        `trades window` lines carry these two fields.
   - [ ] `journalctl -u mt-kalshi-pass.service … | grep -c 'HTTP 429'` for
         this firing is 0 (retries never left attempt 1).
   - [ ] `before coverage` from `mt-run data kalshi status`, recorded as the
         **baseline number** — it is 266's input and should not move
         thereafter.
   - [ ] The slowest `trades window` line's wall time, compared against the
-        rehearsal's two timings (Task 7.5). A window taking minutes rather
+        rehearsal's first-pass timing (Task 7.3 — the same insert path,
+        uncompressed) and its compressed re-walk (Task 7.5). A window taking
+        minutes rather
         than seconds means the policy compressed the chunk under the
         watermark — pause it by hypertable name for the remainder of the
         drain (runbook 100), resume after.
@@ -373,4 +396,4 @@ carried as an explicit follow-up in the slice's completion record and as a
 **266 prerequisite** — 266 should not start against a tape still draining.
 The mechanism it depends on is already proven without waiting: the cap and
 the per-pass advance by part 1's Task 4.3b case 7 and Task 9.3 above, the
-window loop by the rehearsal, and the lag figures by Task 5.4.
+window loop by the rehearsal, and the lag figures by Task 5.3.
