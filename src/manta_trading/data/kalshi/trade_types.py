@@ -16,7 +16,7 @@ from uuid import UUID
 import psycopg
 
 from manta_trading.data.kalshi.models import HistoricalCutoff, TradesPage
-from manta_trading.data.kalshi.sync_types import SyncOutcome, classify_outcome
+from manta_trading.data.kalshi.sync_types import SyncOutcome, classify_outcome, iso_utc
 from manta_trading.providers.errors import ProviderError
 
 
@@ -95,11 +95,11 @@ class TradeResult:
         return {
             "run_id": str(self.run_id),
             "started_at": self.started_at.isoformat(),
-            "cutoff": _iso(self.cutoff),
-            "coverage_from": _iso(self.coverage_from),
+            "cutoff": iso_utc(self.cutoff),
+            "coverage_from": iso_utc(self.coverage_from),
             "watermark": {
-                "before": _iso(self.watermark_before),
-                "after": _iso(self.watermark_after),
+                "before": iso_utc(self.watermark_before),
+                "after": iso_utc(self.watermark_after),
             },
             "windows_completed": self.windows_completed,
             "requests": self.requests,
@@ -114,10 +114,6 @@ class TradeResult:
             "duration_ms": self.duration_ms,
             "error": self.error,
         }
-
-
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
 
 
 def classify_trades(

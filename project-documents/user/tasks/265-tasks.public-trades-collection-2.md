@@ -22,7 +22,7 @@ reviewVerdictsAddressed:
   - 265-review.tasks.public-trades-collection.part-2, third round (claude-opus-5, CONCERNS) — F001 `_iso` moves to `sync_types` as `iso_utc` (Task 5.1); F002 Task 6.1 gains the mid-window abort against a real database; F003 Task 9.3 names the before-watermark source; F004–F005 no action; F006–F009 pass
 dateCreated: 20260829
 dateUpdated: 20260830
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -48,94 +48,94 @@ Design *CLI and rendering*, *Technical Decision 10*, Success Criterion 11
 (plus the `status`-shows-the-lag clause of Criterion 8). Criterion 10 is the
 ledger preflight and belongs to Tasks 6.2 and 7.2, not here.
 
-- [ ] **Task 5.1: `trade_status.py` — `TradeStatus` and the state fields** (effort: 3)
-  - [ ] `data/kalshi/status.py` is **already 309 lines** — over the ~300-line
+- [x] **Task 5.1: `trade_status.py` — `TradeStatus` and the state fields** (effort: 3)
+  - [x] `data/kalshi/status.py` is **already 309 lines** — over the ~300-line
         guideline before this slice adds anything. Put `TradeStatus` and
         `read_trade_status` in a new `data/kalshi/trade_status.py` rather
         than growing it. **No re-export through `status.py`:** Task 5.4
         wires the one CLI call site directly to `trade_status`; a module
         whose only job is to forward a name is the complexity CLAUDE.md tells
         us to resist.
-  - [ ] The new module imports neither the client nor the transport. Extend
+  - [x] The new module imports neither the client nor the transport. Extend
         `test/unit/data/kalshi/test_status_imports.py` to probe
         `manta_trading.data.kalshi.trade_status` the same way it probes
         `status` (Criterion 11).
-  - [ ] `read_trade_status(conn, rule) -> TradeStatus | None` — `None` until
+  - [x] `read_trade_status(conn, rule) -> TradeStatus | None` — `None` until
         the phase has run once (no `sync_state['trades']` row).
-  - [ ] Fields from `sync_state['trades']` alone: `last_phase_at`,
+  - [x] Fields from `sync_state['trades']` alone: `last_phase_at`,
         `tape_through` (`watermark_ts`), `lag` (`now − watermark_ts`),
         `behind` (`lag > TRADE_LAG_STALE_AFTER`), `coverage_from`. **No
         `cutoff` field:** the trades cutoff is observed per run and logged,
         never persisted (part 1, Task 2.2), and the design's block has been
         corrected to match.
-  - [ ] `TradeStatus.to_dict()` follows `CandleStatus.to_dict()`'s shape.
+  - [x] `TradeStatus.to_dict()` follows `CandleStatus.to_dict()`'s shape.
         Timestamps go through the one-line `_iso` helper that today is
         private to `status.py` (`status.py:81`, five call sites): **move it
         to `sync_types.py` as a public `iso_utc`** and point the five
         `status.py` call sites at it — not a private cross-module import,
         not a copy. `sync_types` is already the shared kalshi types module
         with no client import, so the import guard is unaffected.
-  - [ ] **Nothing counts rows in `kalshi.trades`** (Decision 10, journal
+  - [x] **Nothing counts rows in `kalshi.trades`** (Decision 10, journal
         20260720). Every figure is `sync_state` plus the catalog join.
-  - [ ] Success: a unit test asserts the rendered SQL text of every statement
+  - [x] Success: a unit test asserts the rendered SQL text of every statement
         this module issues contains no reference to `kalshi.trades` — that
         one assertion is what enforces Decision 10, so write it here; the
         import guard is green for both modules; both are under ~300 lines.
 
-- [ ] **Task 5.2: The four closed-market counts** (effort: 3)
-  - [ ] Four counts over **selected closed markets** (`selection_sql(rule,
+- [x] **Task 5.2: The four closed-market counts** (effort: 3)
+  - [x] Four counts over **selected closed markets** (`selection_sql(rule,
         "ever")`, `close_time < now()`), each exactly as the design defines
         it: `complete_through_close` (`open_time >= coverage_from AND
         close_time <= watermark`); `partial_history` (`open_time <
         coverage_from <= close_time`); `short_of_close` (`close_time >
         watermark`); `before_coverage` (`close_time < coverage_from`) —
         266's input.
-  - [ ] Three of the four turn on `coverage_from` versus `open_time` /
+  - [x] Three of the four turn on `coverage_from` versus `open_time` /
         `close_time` ordering — this is where the risk in the whole section
         sits, which is why it is its own task and why its integration tests
         (Task 5.3) come **next**, before any rendering.
-  - [ ] No `excluded_by_rule` figure here — one rule, one figure, already in
+  - [x] No `excluded_by_rule` figure here — one rule, one figure, already in
         the candle block.
-  - [ ] The rule is rendered only through `selection_sql`; the counts share
+  - [x] The rule is rendered only through `selection_sql`; the counts share
         one statement over `CATALOG_JOIN` where practical.
-  - [ ] Success: the four counts partition the selected closed markets — no
+  - [x] Success: the four counts partition the selected closed markets — no
         market is counted twice and none is missed, asserted as a sum against
         the total in Task 5.3.
 
-- [ ] **Task 5.3: `status` integration tests** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_status.py` following its
+- [x] **Task 5.3: `status` integration tests** (effort: 3)
+  - [x] Extend `test/integration/test_kalshi_status.py` following its
         `read_candle_status` cases:
-  - [ ] `read_trade_status` returns `None` with no `sync_state['trades']`
+  - [x] `read_trade_status` returns `None` with no `sync_state['trades']`
         row.
-  - [ ] Every field's value against a seeded state row and a seeded catalog:
+  - [x] Every field's value against a seeded state row and a seeded catalog:
         `tape_through`, `lag`, `behind` on either side of
         `TRADE_LAG_STALE_AFTER`, `coverage_from`.
-  - [ ] Each of the four counts against markets deliberately straddling the
+  - [x] Each of the four counts against markets deliberately straddling the
         boundaries — in particular a market **opening before and closing
         after** `coverage_from` (counts as `partial_history`, not as
         complete) and one **closing before** it (`before_coverage`).
-  - [ ] The counts respect the rule: a Sports market that would otherwise be
+  - [x] The counts respect the rule: a Sports market that would otherwise be
         `complete_through_close` is in none of the four.
-  - [ ] The four counts **partition** the selected closed markets: their sum
+  - [x] The four counts **partition** the selected closed markets: their sum
         equals the total selected closed market count, over a fixture set
         that populates all four (Task 5.2's success criterion).
-  - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
+  - [x] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_status -q` green.
 
-- [ ] **Task 5.4: Rendering, Rich and JSON** (effort: 2)
-  - [ ] `print_status` gains the trades block in the design's *Rich block*
+- [x] **Task 5.4: Rendering, Rich and JSON** (effort: 2)
+  - [x] `print_status` gains the trades block in the design's *Rich block*
         layout — the header line carries `last phase` only, no `cutoff`
         (Task 5.1); when `read_trade_status` returns `None` it prints
         `Trades: never collected` and the JSON payload carries
         `"trades": null`.
-  - [ ] Wire `read_trade_status(conn, settings.collection_rule())` into
+  - [x] Wire `read_trade_status(conn, settings.collection_rule())` into
         `cli/commands/kalshi.py` beside `read_catalog_status` and
         `read_candle_status`, imported from `trade_status` directly.
-  - [ ] Extend `test/unit/cli/commands/test_data_kalshi.py`: the Rich block
+  - [x] Extend `test/unit/cli/commands/test_data_kalshi.py`: the Rich block
         renders every field; the `None` case renders the never-collected
         line; the JSON payload has a `trades` key that is `null` in that
         case.
-  - [ ] Success: `uv run pytest test/unit -q` green.
+  - [x] Success: `uv run pytest test/unit -q` green.
 
 - [ ] **Task 5.5: Section 5 gates and checkpoint commit** (effort: 1)
   - [ ] Gates as part 1's Task 1.6, scoped to the files touched.

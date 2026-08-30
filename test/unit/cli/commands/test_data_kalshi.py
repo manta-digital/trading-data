@@ -216,7 +216,10 @@ STATUS_CMD = ["data", "kalshi", "status"]
 
 @contextlib.contextmanager
 def _patched_status(
-    settings: MagicMock, status: object, candles: object = None
+    settings: MagicMock,
+    status: object,
+    candles: object = None,
+    trades: object = None,
 ) -> Iterator[None]:
     with (
         patch("manta_trading.cli.app.Settings", return_value=settings),
@@ -228,8 +231,30 @@ def _patched_status(
         patch(
             "manta_trading.data.kalshi.status.read_candle_status", return_value=candles
         ),
+        patch(
+            "manta_trading.data.kalshi.trade_status.read_trade_status",
+            return_value=trades,
+        ),
     ):
         yield
+
+
+def _trade_status(*, behind: bool = False):
+    from datetime import timedelta
+
+    from manta_trading.data.kalshi.trade_status import TradeStatus
+
+    return TradeStatus(
+        last_phase_at=NOW,
+        tape_through=NOW - timedelta(minutes=5),
+        lag=timedelta(minutes=8),
+        behind=behind,
+        coverage_from=datetime(2026, 6, 29, tzinfo=UTC),
+        complete_through_close=412_010,
+        partial_history=6_120,
+        short_of_close=310,
+        before_coverage=1_203_442,
+    )
 
 
 def _candle_status():
@@ -352,6 +377,62 @@ class TestStatus:
             "excluded by rule 3,117,908",
         ):
             assert needle in output, needle
+
+    # --- the trades block (slice 265, Task 5.4) ---
+
+    def test_trades_never_collected_line_and_json_null(self):
+        with _patched_status(_settings(), _catalog_status(), _candle_status(), None):
+            rich = runner.invoke(app, STATUS_CMD)
+            as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
+        assert rich.exit_code == cmd.EXIT_OK
+        assert render.NEVER_COLLECTED_TRADES in rich.output
+        assert "Kalshi candlesticks" in rich.output
+        payload = json.loads(as_json.stdout)
+        assert payload["trades"] is None
+        assert payload["candles"]["period_minutes"] == 1
+
+    def test_trade_block_rendered(self):
+        with _patched_status(
+            _settings(), _catalog_status(), _candle_status(), _trade_status()
+        ):
+            result = runner.invoke(app, STATUS_CMD)
+        assert result.exit_code == cmd.EXIT_OK, result.output
+        output = " ".join(result.output.split())
+        for needle in (
+            "Kalshi trades last phase 2026-08-25 12:00:00 UTC",
+            "tape through 2026-08-25 11:55:00 UTC (8 min behind)",
+            "coverage from 2026-06-29 00:00 UTC",
+            "complete through close 412,010",
+            "partial history 6,120",
+            "short of close 310",
+            "before coverage 1,203,442 closed markets",
+            "slice 266",
+        ):
+            assert needle in output, needle
+        assert "cutoff" not in output.split("Kalshi trades")[1]
+
+    def test_trade_block_says_behind(self):
+        with _patched_status(
+            _settings(), _catalog_status(), None, _trade_status(behind=True)
+        ):
+            result = runner.invoke(app, STATUS_CMD)
+        output = " ".join(result.output.split())
+        assert "(8 min behind; behind, past 120 min)" in output
+        assert render.NEVER_COLLECTED in output
+
+    def test_json_nests_trades(self):
+        with _patched_status(
+            _settings(), _catalog_status(), _candle_status(), _trade_status()
+        ):
+            result = runner.invoke(app, [*STATUS_CMD, "--json"])
+        payload = json.loads(result.stdout)
+        trades = payload["trades"]
+        assert trades["tape_through"] == "2026-08-25T11:55:00+00:00"
+        assert trades["lag_minutes"] == 8 and trades["behind"] is False
+        assert trades["coverage_from"] == "2026-06-29T00:00:00+00:00"
+        assert trades["before_coverage"] == 1_203_442
+        assert "cutoff" not in trades
+        assert payload["candles"]["period_minutes"] == 1
 
     def test_json_nests_candles_and_keeps_catalog_keys(self):
         with _patched_status(_settings(), _catalog_status(), _candle_status()):

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -148,6 +148,12 @@ class Page:
 def epoch(value: datetime) -> int:
     """Unix seconds — the granularity of every ``*_ts`` query parameter."""
     return int(value.timestamp())
+
+
+def iso_utc(value: datetime | None) -> str | None:
+    """ISO-8601 in UTC for a JSON payload; ``None`` stays ``None`` (psycopg
+    returns the session's zone, so the conversion is explicit)."""
+    return value.astimezone(UTC).isoformat() if value else None
 
 
 async def paged[T](items: AsyncIterator[T], size: int) -> AsyncIterator[list[T]]:

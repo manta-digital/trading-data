@@ -690,9 +690,9 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         print `"trades"` (asserted against a fabricated `PassResult` in the
         unit test — no network).
 
-- [ ] **Task 4.7: Section 4 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as Task 1.6, scoped to the files touched.
-  - [ ] Commit: `feat: add the trades phase to the Kalshi collection pass`.
+- [x] **Task 4.7: Section 4 gates and checkpoint commit** (effort: 1)
+  - [x] Gates as Task 1.6, scoped to the files touched.
+  - [x] Commit: `feat: add the trades phase to the Kalshi collection pass`.
 
 **Continue in `user/tasks/265-tasks.public-trades-collection-2.md`** — Section
 5 (`status` block), Section 6 (end-to-end integration), Section 7 (rehearsal

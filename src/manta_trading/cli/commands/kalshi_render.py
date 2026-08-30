@@ -22,12 +22,16 @@ from typing import TYPE_CHECKING, Any
 from manta_trading.cli.output import make_table, print_result
 from manta_trading.config import KALSHI_COLLECTION_ENV_PREFIX
 from manta_trading.data.kalshi.collection_pass import PassPhaseName
-from manta_trading.data.kalshi.constants import KALSHI_SETTLEMENT_STUCK_AFTER
+from manta_trading.data.kalshi.constants import (
+    KALSHI_SETTLEMENT_STUCK_AFTER,
+    TRADE_LAG_STALE_AFTER,
+)
 
 if TYPE_CHECKING:
     from manta_trading.data.kalshi.collection_pass import PassResult
     from manta_trading.data.kalshi.status import CandleStatus, CatalogStatus
     from manta_trading.data.kalshi.sync_types import SyncOutcome, SyncResult
+    from manta_trading.data.kalshi.trade_status import TradeStatus
 
 #: Column layout of the catalog counts table, defined once.
 _CATALOG_COLUMNS = [
@@ -197,10 +201,14 @@ def print_pass_summary(result: PassResult, exit_code: int, json_output: bool) ->
 
 
 NEVER_COLLECTED = "Candlesticks: never collected"
+NEVER_COLLECTED_TRADES = "Trades: never collected"
 
 
 def print_status(
-    status: CatalogStatus, now: datetime, candles: CandleStatus | None
+    status: CatalogStatus,
+    now: datetime,
+    candles: CandleStatus | None,
+    trades: TradeStatus | None,
 ) -> None:
     from rich import print as rprint
 
@@ -236,8 +244,12 @@ def print_status(
     )
     if candles is None:
         rprint(f"[bold]{NEVER_COLLECTED}[/bold]")
-        return
-    print_candle_status(candles, now)
+    else:
+        print_candle_status(candles, now)
+    if trades is None:
+        rprint(f"[bold]{NEVER_COLLECTED_TRADES}[/bold]")
+    else:
+        print_trade_status(trades, now)
 
 
 def print_candle_status(candles: CandleStatus, now: datetime) -> None:
@@ -275,6 +287,35 @@ def print_candle_status(candles: CandleStatus, now: datetime) -> None:
     rprint(
         f"  excluded by rule    {candles.closed_excluded_by_rule:,} closed markets "
         "(never traded, or an excluded category or pattern)"
+    )
+
+
+def print_trade_status(trades: TradeStatus, now: datetime) -> None:
+    """The trades block (design *CLI and rendering*), one line per fact."""
+    from rich import print as rprint
+
+    lag_minutes = int(trades.lag.total_seconds() // 60)
+    stale_minutes = int(TRADE_LAG_STALE_AFTER.total_seconds() // 60)
+    behind = f"; behind, past {stale_minutes:,} min" if trades.behind else ""
+    rprint(
+        f"[bold]Kalshi trades[/bold]              "
+        f"last phase {_when(trades.last_phase_at, now)}"
+    )
+    through = f"{trades.tape_through.astimezone(UTC):%Y-%m-%d %H:%M:%S} UTC"
+    coverage = f"{trades.coverage_from.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
+    rprint(
+        f"  tape through        {through}  ({lag_minutes:,} min behind{behind})"
+        f"        coverage from {coverage}"
+    )
+    rprint(
+        f"  closed markets      complete through close "
+        f"{trades.complete_through_close:,}   "
+        f"partial history {trades.partial_history:,}   "
+        f"short of close {trades.short_of_close:,}"
+    )
+    rprint(
+        f"  before coverage     {trades.before_coverage:,} closed markets "
+        "(tape predates the collector; slice 266)"
     )
 
 

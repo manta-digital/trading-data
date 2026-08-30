@@ -11,7 +11,7 @@ disagree; the candle block's rule-dependent counts embed
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, LiteralString
 
 import psycopg
@@ -32,6 +32,7 @@ from manta_trading.data.kalshi.constants import (
     Surface,
 )
 from manta_trading.data.kalshi.selection import CollectionRule, selection_sql
+from manta_trading.data.kalshi.sync_types import iso_utc
 
 
 @dataclass(frozen=True)
@@ -58,8 +59,8 @@ class CatalogStatus:
     def to_dict(self) -> dict[str, Any]:
         labels = age_bucket_labels()
         return {
-            "last_full_sync_at": _iso(self.last_full_sync_at),
-            "watermark_ts": _iso(self.watermark_ts),
+            "last_full_sync_at": iso_utc(self.last_full_sync_at),
+            "watermark_ts": iso_utc(self.watermark_ts),
             "series": self.series,
             "events": self.events,
             "markets_by_status": {
@@ -75,10 +76,6 @@ class CatalogStatus:
             "awaiting_checked_directly": self.awaiting.checked_directly,
             "stuck_threshold_days": KALSHI_SETTLEMENT_STUCK_AFTER.days,
         }
-
-
-def _iso(value: datetime | None) -> str | None:
-    return value.astimezone(UTC).isoformat() if value else None
 
 
 def age_bucket_labels() -> list[str]:
@@ -195,8 +192,8 @@ class CandleStatus:
         rule = self.rule
         return {
             "period_minutes": self.period_minutes,
-            "last_phase_at": _iso(self.last_phase_at),
-            "cutoff_observed": _iso(self.cutoff_observed),
+            "last_phase_at": iso_utc(self.last_phase_at),
+            "cutoff_observed": iso_utc(self.cutoff_observed),
             "rule": {
                 "traded_only": rule.traded_only,
                 "categories": sorted(rule.categories),
@@ -208,7 +205,7 @@ class CandleStatus:
             "selected_open": self.selected_open,
             "markets_tracked": self.markets_tracked,
             "open_lagging": self.open_lagging,
-            "open_oldest_watermark": _iso(self.open_oldest_watermark),
+            "open_oldest_watermark": iso_utc(self.open_oldest_watermark),
             "complete_through_close": self.complete_through_close,
             "closed_short_of_close": self.closed_short_of_close,
             "backlog_remaining": self.backlog_remaining,

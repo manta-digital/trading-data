@@ -329,6 +329,7 @@ Both intervals render from the constants (`_interval_sql`); the `COMMENT ON` sta
     `partial_history` — `open_time < coverage_from ≤ close_time` (the tape starts mid-life);
     `short_of_close` — `close_time > watermark` (the tape has not reached them yet; large during the drain, ~0 after);
     `before_coverage` — `close_time < coverage_from` — 266's input for trades.
+    The four are a **partition** of the selected closed markets, applied in the precedence *before coverage → short of close → partial history → complete* (a market opened before the floor whose close the tape has not reached is *short of close*, not yet *partial*; a market with no recorded `open_time` is *partial*, never *complete*) — `trade_status.py` raises if the four do not sum to the total.
   - No `excluded_by_rule` here: one rule, one figure, already in the candle block.
   - No `cutoff` here either: the trades cutoff is observed per run, not persisted — the phase logs it at INFO every run (Data Flow step 1) and Decision 6 aborts loudly when the watermark falls behind it — and Decision 10 keeps `status` off the client. (The candle block's `cutoff_observed` reads `sync_state['candlesticks'].watermark_ts`, a slot the trades surface uses for the tape watermark, so that route is not available here.)
 - Rich block:
