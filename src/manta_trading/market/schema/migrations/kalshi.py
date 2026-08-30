@@ -33,6 +33,8 @@ from enum import Enum
 from manta_trading.data.kalshi.constants import (
     KALSHI_CANDLE_CHUNK_INTERVAL,
     KALSHI_CANDLE_COMPRESS_AFTER,
+    KALSHI_TRADE_CHUNK_INTERVAL,
+    KALSHI_TRADE_COMPRESS_AFTER,
     CandlePeriod,
     MarketStatus,
     Surface,
@@ -364,6 +366,92 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
                 'observed by the last candle phase (slice 264, Decision 11).';
 
             GRANT SELECT, INSERT, UPDATE, DELETE ON kalshi.candlesticks TO {APP_ROLE};
+        """,
+    },
+    {
+        "id": "kalshi_006_trades",
+        "description": (
+            "Create the kalshi.trades hypertable with compression, add "
+            "sync_state.coverage_from_ts, fix the trades clauses of the "
+            "sync_state comments"
+        ),
+        # Slice 265. One row per public trade of a market the catalog knows
+        # and the collection rule selects (Decision 3); the map is
+        # ``trade_repository.TRADE_COLUMNS``, parity-tested against this
+        # table. ``taker_side`` is not stored (Decision 11). The key is
+        # ``(market_ticker, created_time, trade_id)`` with ``trade_id`` a
+        # UUID (Decision 4, PM-ratified 20260828) — a non-UUID id fails the
+        # write loudly rather than being stored as text. Hypertable from
+        # creation, chunked and compressed per Decision 4; both horizons
+        # render from the constants.
+        #
+        # ``is_block_trade`` is NOT NULL although 261's ``Trade`` model types
+        # it ``bool | None``. This is deliberate: every row of the measured
+        # 352,000-trade sample and the recorded fixture carries the field, so
+        # a ``None`` is evidence of a served-shape change, and the day Kalshi
+        # first omits it the write must fail (a ``NotNullViolation`` — an
+        # ``IntegrityError``, which propagates out of the phase as a bug, not
+        # a storage abort) rather than coalesce to FALSE and silently
+        # mislabel a real block trade. Do not "fix" the NOT NULL.
+        #
+        # ``sync_state`` gains only ``coverage_from_ts`` (Decision 2: the
+        # instant the stored tape starts, set once). ``COMMENT ON`` replaces
+        # the whole string, so the ``watermark_ts`` and ``cursor`` comments
+        # carry kalshi_004's catalog clause and kalshi_005's candlesticks
+        # clause forward verbatim and change only the trades clause
+        # (Decisions 1 and 7).
+        "sql": f"""
+            CREATE TABLE IF NOT EXISTS kalshi.trades (
+                market_ticker       TEXT        NOT NULL
+                    REFERENCES kalshi.markets (ticker),
+                created_time        TIMESTAMPTZ NOT NULL,
+                trade_id            UUID        NOT NULL,
+                count_fp            NUMERIC     NOT NULL,
+                yes_price_dollars   NUMERIC     NOT NULL,
+                no_price_dollars    NUMERIC     NOT NULL,
+                taker_outcome_side  TEXT,
+                taker_book_side     TEXT,
+                is_block_trade      BOOLEAN     NOT NULL,
+                PRIMARY KEY (market_ticker, created_time, trade_id)
+            );
+            SELECT create_hypertable(
+                'kalshi.trades',
+                'created_time',
+                chunk_time_interval => {_interval_sql(KALSHI_TRADE_CHUNK_INTERVAL)},
+                if_not_exists       => TRUE
+            );
+            ALTER TABLE kalshi.trades SET (
+                timescaledb.compress,
+                timescaledb.compress_segmentby = 'market_ticker',
+                timescaledb.compress_orderby   = 'created_time DESC'
+            );
+            SELECT add_compression_policy(
+                'kalshi.trades',
+                compress_after => {_interval_sql(KALSHI_TRADE_COMPRESS_AFTER)},
+                if_not_exists  => TRUE
+            );
+
+            ALTER TABLE kalshi.sync_state
+                ADD COLUMN IF NOT EXISTS coverage_from_ts TIMESTAMPTZ;
+            COMMENT ON COLUMN kalshi.sync_state.coverage_from_ts IS
+                'trades: the instant the stored tape starts (the trades cutoff '
+                'observed on the first run); set once, never moved (slice 265, '
+                'Decision 2). NULL for other surfaces.';
+            COMMENT ON COLUMN kalshi.sync_state.watermark_ts IS
+                'catalog: settlement_ts upper bound of the last completed '
+                'settled window - every non-MVE market with settlement_ts '
+                'before this has been captured; NULL until the first window '
+                'completes. trades: the tape is complete through this instant '
+                '(end of the last fully walked window) - NOT the newest '
+                'stored trade (slice 265, Decision 1). candlesticks: '
+                'market_settled_ts of the historical cutoff observed by the '
+                'last candle phase (slice 264, Decision 11).';
+            COMMENT ON COLUMN kalshi.sync_state.cursor IS
+                'catalog: unused - windows replace cursor resume. trades: '
+                'unused - windows replace cursor resume (slice 265, Decision '
+                '7).';
+
+            GRANT SELECT, INSERT, UPDATE, DELETE ON kalshi.trades TO {APP_ROLE};
         """,
     },
 ]

@@ -287,11 +287,11 @@ as before (Criterion 5, last clause).
         tests pass unchanged in behavior
         (`uv run python scripts/run_tests.py integration -- -k kalshi_candles -q`).
 
-- [ ] **Task 1.6: Section 1 gates and checkpoint commit** (effort: 1)
+- [x] **Task 1.6: Section 1 gates and checkpoint commit** (effort: 1)
   - [x] `uv run ruff check` and `uv run ruff format --check` scoped to the
         files touched; `uv run --extra dev mypy` and `npx --yes pyright` over
         the kalshi source paths plus the touched tests in one invocation.
-  - [ ] Commit: `refactor: rename the candle collection rule to
+  - [x] Commit: `refactor: rename the candle collection rule to
         MT_KALSHI_COLLECTION_* (slice 265)`.
 
 ## Section 2: Constants and migration `kalshi_006_trades`
@@ -299,34 +299,34 @@ as before (Criterion 5, last clause).
 Design *Constants*, *Migration `kalshi_006_trades`*, *Technical Decision 4*
 (PM-ratified 20260828).
 
-- [ ] **Task 2.1: Constants** (effort: 1)
-  - [ ] Add to `data/kalshi/constants.py`, each with a comment naming its
+- [x] **Task 2.1: Constants** (effort: 1)
+  - [x] Add to `data/kalshi/constants.py`, each with a comment naming its
         decision or its Discovery Findings evidence: `TRADE_PAGE_LIMIT`,
         `TRADE_WINDOW`, `TRADE_LATE_ARRIVAL_GUARD`,
         `TRADE_REQUESTS_PER_PASS`, `TRADE_LAG_STALE_AFTER`,
         `KALSHI_TRADE_CHUNK_INTERVAL`, `KALSHI_TRADE_COMPRESS_AFTER`. Values
         are in the design's *Constants* block.
-  - [ ] Note on `TRADE_PAGE_LIMIT` that 1,001 is a verified HTTP 400, and on
+  - [x] Note on `TRADE_PAGE_LIMIT` that 1,001 is a verified HTTP 400, and on
         `TRADE_WINDOW` that one window is ~300–550 pages at the measured
         volume and is the unit a phase abort loses (Decision 1).
-  - [ ] `WINDOW_OVERLAP` (262) is **reused**, not redefined — confirm it
+  - [x] `WINDOW_OVERLAP` (262) is **reused**, not redefined — confirm it
         exists in `constants.py` and reference it from the design's Decision
         1 comment.
-  - [ ] `PassPhaseName.TRADES = "trades"` is added in Section 4 (Task 4.4),
+  - [x] `PassPhaseName.TRADES = "trades"` is added in Section 4 (Task 4.4),
         not here; `Surface.TRADES` already exists — do not add it again.
-  - [ ] Success: `test/unit/data/kalshi/test_constants.py` extended with the
+  - [x] Success: `test/unit/data/kalshi/test_constants.py` extended with the
         seven new values, following its existing assertion style.
 
-- [ ] **Task 2.2: Migration `kalshi_006_trades`** (effort: 3)
-  - [ ] Append the migration dict to
+- [x] **Task 2.2: Migration `kalshi_006_trades`** (effort: 3)
+  - [x] Append the migration dict to
         `src/manta_trading/market/schema/migrations/kalshi.py` following
         `kalshi_005_candlesticks`'s shape exactly: `id`, `description`, a
         comment block citing the slice and decisions, and an f-string `sql`.
-  - [ ] Table, hypertable, compression, policy, and the `sync_state` column
+  - [x] Table, hypertable, compression, policy, and the `sync_state` column
         and comments are in the design's *Migration* block. Both intervals
         render through the existing `_interval_sql()` from the Task 2.1
         constants — **no literal `INTERVAL '7 days'`** in the SQL.
-  - [ ] `is_block_trade` is `NOT NULL` in the table while 261's `Trade` model
+  - [x] `is_block_trade` is `NOT NULL` in the table while 261's `Trade` model
         types it `bool | None`. Keep the column `NOT NULL` and let a `None`
         **fail the write loudly** — the same posture the slice takes toward a
         non-UUID `trade_id` (Task 3.3 case 6), and the one CLAUDE.md
@@ -342,7 +342,7 @@ Design *Constants*, *Migration `kalshi_006_trades`*, *Technical Decision 4*
         (exit nonzero, unit shows failed, the earlier phases' committed work
         intact) — not as a `STORAGE_ABORT`. Task 3.3 case 7 pins that
         exception type.
-  - [ ] `sync_state` gains **only** `coverage_from_ts`. The design's Rich
+  - [x] `sync_state` gains **only** `coverage_from_ts`. The design's Rich
         block used to show a `cutoff` figure the status block has no
         persisted source for (the candle block reads its cutoff from
         `sync_state['candlesticks'].watermark_ts`, a slot trades uses for the
@@ -352,41 +352,41 @@ Design *Constants*, *Migration `kalshi_006_trades`*, *Technical Decision 4*
         Decision 6 aborts loudly when the watermark falls behind it, which is
         the signal the figure would have carried. Do not add a
         `cutoff_observed_ts` column.
-  - [ ] The three `COMMENT ON COLUMN kalshi.sync_state.*` statements replace
+  - [x] The three `COMMENT ON COLUMN kalshi.sync_state.*` statements replace
         the whole comment string, so carry the catalog and candlesticks
         clauses of `kalshi_004`/`kalshi_005` forward verbatim and change only
         the trades clause (the `kalshi_005` block is the model).
-  - [ ] Additive and idempotent (`IF NOT EXISTS`, `if_not_exists => TRUE`);
+  - [x] Additive and idempotent (`IF NOT EXISTS`, `if_not_exists => TRUE`);
         no down-migration.
-  - [ ] Success: the migration appears in `TRACKS["kalshi"]` by construction
+  - [x] Success: the migration appears in `TRACKS["kalshi"]` by construction
         (it is a list entry) and the ledger preflight covers it for free.
 
-- [ ] **Task 2.3: Migration integration tests** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_migrations.py`, following the
+- [x] **Task 2.3: Migration integration tests** (effort: 3)
+  - [x] Extend `test/integration/test_kalshi_migrations.py`, following the
         `kalshi_005` cases:
-  - [ ] `kalshi_006_trades` applies to a fresh database and **re-applies**
+  - [x] `kalshi_006_trades` applies to a fresh database and **re-applies**
         with no error.
-  - [ ] `kalshi.trades` is a hypertable; its `chunk_time_interval` equals
+  - [x] `kalshi.trades` is a hypertable; its `chunk_time_interval` equals
         `KALSHI_TRADE_CHUNK_INTERVAL`; `compress_segmentby` is
         `market_ticker` and `compress_orderby` is `created_time DESC`.
-  - [ ] A compression policy exists on it whose `compress_after` equals
+  - [x] A compression policy exists on it whose `compress_after` equals
         `KALSHI_TRADE_COMPRESS_AFTER`, **resolved by hypertable name**, never
         by a recorded job id (job ids regenerate).
-  - [ ] The primary key is `(market_ticker, created_time, trade_id)` and
+  - [x] The primary key is `(market_ticker, created_time, trade_id)` and
         `trade_id` is type `uuid`; the foreign key to `kalshi.markets` exists.
-  - [ ] `kalshi.sync_state.coverage_from_ts` exists and is NULL for existing
+  - [x] `kalshi.sync_state.coverage_from_ts` exists and is NULL for existing
         rows; the `watermark_ts` comment still contains the catalog and
         candlesticks clauses as well as the new trades clause.
-  - [ ] **Compression proves out on a real chunk (Criterion 12):** insert
+  - [x] **Compression proves out on a real chunk (Criterion 12):** insert
         rows dated older than the horizon, run the policy job by the id
         resolved from the view (two statements — a subquery is not a valid
         `CALL` argument), and assert the chunk is compressed and the rows
         read back identical.
-  - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
+  - [x] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_migrations -q` green.
 
 - [ ] **Task 2.4: Section 2 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as Task 1.6, scoped to the files touched.
+  - [x] Gates as Task 1.6, scoped to the files touched.
   - [ ] Commit: `feat: add kalshi_006_trades migration and trade constants`.
 
 ## Section 3: `TradeRepository` — classify and write, in SQL

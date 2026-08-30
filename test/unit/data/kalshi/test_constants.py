@@ -180,3 +180,36 @@ class TestCandleCollectionConstants:
         value = getattr(kc, name)
         assert isinstance(value, timedelta)
         assert value == expected
+
+
+class TestTradeCollectionConstants:
+    """Slice 265 trades-phase constants (Task 2.1): the design's values."""
+
+    def test_page_limit_is_the_verified_ceiling(self):
+        assert kc.TRADE_PAGE_LIMIT == 1_000
+
+    def test_pass_cap(self):
+        assert kc.TRADE_REQUESTS_PER_PASS == 3_000
+
+    def test_window_overlap_is_reused_not_redefined(self):
+        """Decision 1 steps each window's lower bound back by 262's overlap."""
+        assert kc.WINDOW_OVERLAP == timedelta(seconds=1)
+        assert not hasattr(kc, "TRADE_WINDOW_OVERLAP")
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("TRADE_WINDOW", timedelta(hours=1)),
+            ("TRADE_LATE_ARRIVAL_GUARD", timedelta(minutes=1)),
+            ("TRADE_LAG_STALE_AFTER", timedelta(hours=2)),
+            ("KALSHI_TRADE_CHUNK_INTERVAL", timedelta(days=7)),
+            ("KALSHI_TRADE_COMPRESS_AFTER", timedelta(days=14)),
+        ],
+    )
+    def test_timedelta_constants(self, name: str, expected: timedelta):
+        value = getattr(kc, name)
+        assert isinstance(value, timedelta)
+        assert value == expected
+
+    def test_guard_and_overlap_are_smaller_than_a_window(self):
+        assert kc.WINDOW_OVERLAP < kc.TRADE_LATE_ARRIVAL_GUARD < kc.TRADE_WINDOW
