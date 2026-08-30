@@ -20,7 +20,6 @@ from kalshi_support.fake_candle_repository import FakeCandleRepository, FakeMark
 from kalshi_support.sync_harness import NOW, Harness, RecordingSink
 from psycopg import errors
 
-from manta_trading.data.kalshi.candle_types import CandleRule
 from manta_trading.data.kalshi.collection_pass import (
     PASS_PHASES,
     SKIPPED,
@@ -35,6 +34,7 @@ from manta_trading.data.kalshi.collection_pass import (
 from manta_trading.data.kalshi.constants import Surface
 from manta_trading.data.kalshi.events import SyncEventType as T
 from manta_trading.data.kalshi.run_context import KalshiRun
+from manta_trading.data.kalshi.selection import CollectionRule
 from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.providers.errors import ProviderTransientError
 
@@ -365,7 +365,7 @@ class TestCatalogPhase:
 # The real candle phase (slice 264, Task 5.5)
 # ---------------------------------------------------------------------------
 
-RULE = CandleRule(True, frozenset(), frozenset({"Sports"}), None, None)
+RULE = CollectionRule(True, frozenset(), frozenset({"Sports"}), None, None)
 
 
 @dataclass
@@ -391,7 +391,7 @@ def two_repositories(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _two_phase_run(h: Harness, candles: FakeCandleRepository) -> KalshiRun:
     settings = MagicMock()
-    settings.candle_rule.return_value = RULE
+    settings.collection_rule.return_value = RULE
     return KalshiRun(
         settings=settings,
         client=cast("KalshiClient", h.source),

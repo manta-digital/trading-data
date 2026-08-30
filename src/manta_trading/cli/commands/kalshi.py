@@ -231,7 +231,7 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
             status = read_catalog_status(conn)
             # The rule in force comes from the same Settings the pass reads
             # (264 Decision 2), so collection and reporting cannot disagree.
-            candles = read_candle_status(conn, settings.candle_rule())
+            candles = read_candle_status(conn, settings.collection_rule())
     except psycopg.OperationalError as exc:
         print_error(f"database unreachable: {exc}", json_mode=json_output)
         raise typer.Exit(EXIT_PREFLIGHT) from exc

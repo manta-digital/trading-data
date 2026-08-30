@@ -375,7 +375,7 @@ class TestTwoPhasePass:
         )[0]
         assert state["DONE"] >= close_time + timedelta(minutes=1)
         with psycopg.connect(kalshi_db) as conn:
-            status = read_candle_status(conn, _settings(kalshi_db).candle_rule())
+            status = read_candle_status(conn, _settings(kalshi_db).collection_rule())
         assert status is not None and status.complete_through_close == 1
         requests_before = len(source.candles.candle_queries)
         assert (await run_pass_cli(kalshi_db, source, capsys))[0] == cmd.EXIT_OK

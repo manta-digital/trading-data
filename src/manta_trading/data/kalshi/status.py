@@ -5,7 +5,7 @@ API call, and (Criterion 12) neither the client nor the transport is
 imported. Bucket edges, the stuck threshold, and the lag horizon are bound
 parameters from ``constants`` so the report and the constant can never
 disagree; the candle block's rule-dependent counts embed
-``candle_selection.selection_sql`` so collection and reporting cannot.
+``selection.selection_sql`` so collection and reporting cannot.
 """
 
 from __future__ import annotations
@@ -22,9 +22,7 @@ from manta_trading.data.kalshi.candle_selection import (
     BACKLOG_CONDITION,
     BEHIND_CUTOFF_CONDITION,
     MARKET_JOIN,
-    selection_sql,
 )
-from manta_trading.data.kalshi.candle_types import CandleRule
 from manta_trading.data.kalshi.constants import (
     AWAITING_AGE_BUCKETS,
     CANDLE_LAG_STALE_AFTER,
@@ -33,6 +31,7 @@ from manta_trading.data.kalshi.constants import (
     MarketStatus,
     Surface,
 )
+from manta_trading.data.kalshi.selection import CollectionRule, selection_sql
 
 
 @dataclass(frozen=True)
@@ -180,7 +179,7 @@ class CandleStatus:
     period_minutes: int
     last_phase_at: datetime | None
     cutoff_observed: datetime | None
-    rule: CandleRule
+    rule: CollectionRule
     selected_open: int
     markets_tracked: int
     open_lagging: int
@@ -253,7 +252,7 @@ _LAGGING = sql.SQL(
 
 
 def read_candle_status(
-    conn: psycopg.Connection[Any], rule: CandleRule
+    conn: psycopg.Connection[Any], rule: CollectionRule
 ) -> CandleStatus | None:
     """``None`` until the candle phase has run once (no ``sync_state`` row)."""
     state = conn.execute(

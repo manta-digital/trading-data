@@ -13,21 +13,23 @@ from __future__ import annotations
 import pytest
 from psycopg import sql
 
-from manta_trading.data.kalshi.candle_selection import (
+from manta_trading.data.kalshi.candle_selection import MARKET_JOIN
+from manta_trading.data.kalshi.selection import (
+    CATALOG_JOIN,
+    CollectionRule,
     Selection,
     SelectionForm,
     selection_sql,
 )
-from manta_trading.data.kalshi.candle_types import CandleRule
 
-EMPTY = CandleRule(
+EMPTY = CollectionRule(
     traded_only=False,
     categories=frozenset(),
     excluded_categories=frozenset(),
     excluded_series_pattern=None,
     excluded_title_pattern=None,
 )
-RULE_C = CandleRule(
+RULE_C = CollectionRule(
     traded_only=True,
     categories=frozenset(),
     excluded_categories=frozenset({"Sports", "Mentions"}),
@@ -63,27 +65,27 @@ class TestOmission:
         assert text(selection) == "(TRUE)"
 
     def test_allow_list_alone(self):
-        rule = CandleRule(False, frozenset({"Sports"}), frozenset(), None, None)
+        rule = CollectionRule(False, frozenset({"Sports"}), frozenset(), None, None)
         selection = selection_sql(rule, "recent")
-        assert list(selection.params) == ["candle_categories"]
-        assert selection.params["candle_categories"] == ["Sports"]
-        assert "s.category = ANY(%(candle_categories)s)" in text(selection)
+        assert list(selection.params) == ["collection_categories"]
+        assert selection.params["collection_categories"] == ["Sports"]
+        assert "s.category = ANY(%(collection_categories)s)" in text(selection)
 
     def test_exclude_list_alone(self):
-        rule = CandleRule(False, frozenset(), frozenset({"Sports"}), None, None)
+        rule = CollectionRule(False, frozenset(), frozenset({"Sports"}), None, None)
         selection = selection_sql(rule, "recent")
-        assert list(selection.params) == ["candle_excluded_categories"]
+        assert list(selection.params) == ["collection_excluded_categories"]
 
     def test_series_pattern_alone(self):
-        rule = CandleRule(False, frozenset(), frozenset(), "MENTION", None)
+        rule = CollectionRule(False, frozenset(), frozenset(), "MENTION", None)
         selection = selection_sql(rule, "recent")
-        assert list(selection.params) == ["candle_excluded_series_pattern"]
-        assert selection.params["candle_excluded_series_pattern"] == "MENTION"
+        assert list(selection.params) == ["collection_excluded_series_pattern"]
+        assert selection.params["collection_excluded_series_pattern"] == "MENTION"
 
     def test_title_pattern_alone(self):
-        rule = CandleRule(False, frozenset(), frozenset(), None, "say")
+        rule = CollectionRule(False, frozenset(), frozenset(), None, "say")
         selection = selection_sql(rule, "recent")
-        assert list(selection.params) == ["candle_excluded_title_pattern"]
+        assert list(selection.params) == ["collection_excluded_title_pattern"]
 
     @pytest.mark.parametrize(
         ("form", "column"), [("recent", "volume_24h_fp"), ("ever", "volume_fp")]
@@ -91,7 +93,7 @@ class TestOmission:
     def test_traded_alone_binds_no_value_and_picks_the_form_column(
         self, form: SelectionForm, column: str
     ):
-        rule = CandleRule(True, frozenset(), frozenset(), None, None)
+        rule = CollectionRule(True, frozenset(), frozenset(), None, None)
         selection = selection_sql(rule, form)
         assert selection.params == {}
         identifiers = [
@@ -102,15 +104,42 @@ class TestOmission:
         assert len(identifiers) == 1
         assert identifiers[0] == sql.Identifier(column)
 
+    def test_any_form_omits_the_traded_clause(self):
+        """Task 1.3 / 265 Decision 3: a trade is proof of trading, so the
+        trades write path renders no volume test — not a third column."""
+        rule = CollectionRule(True, frozenset(), frozenset(), None, None)
+        selection = selection_sql(rule, "any")
+        assert selection.params == {}
+        assert text(selection) == "(TRUE)"
+        assert "volume" not in text(selection_sql(RULE_C, "any"))
+        assert not [
+            leaf
+            for leaf in _walk(selection_sql(RULE_C, "any").predicate)
+            if isinstance(leaf, sql.Identifier)
+        ]
+
+    @pytest.mark.parametrize(
+        ("form", "column"), [("recent", "volume_24h_fp"), ("ever", "volume_fp")]
+    )
+    def test_recent_and_ever_still_carry_the_traded_clause(
+        self, form: SelectionForm, column: str
+    ):
+        selection = selection_sql(RULE_C, form)
+        assert sql.Identifier(column) in _walk(selection.predicate)
+        assert text(selection).count(" AND ") == 3
+
     def test_rule_c_default(self):
         selection = selection_sql(RULE_C, "recent")
         assert list(selection.params) == [
-            "candle_excluded_categories",
-            "candle_excluded_series_pattern",
-            "candle_excluded_title_pattern",
+            "collection_excluded_categories",
+            "collection_excluded_series_pattern",
+            "collection_excluded_title_pattern",
         ]
         # Category sets are bound sorted, so equal rules bind equal params.
-        assert selection.params["candle_excluded_categories"] == ["Mentions", "Sports"]
+        assert selection.params["collection_excluded_categories"] == [
+            "Mentions",
+            "Sports",
+        ]
         assert text(selection).count(" AND ") == 3
 
 
@@ -121,21 +150,24 @@ class TestNullAsymmetry:
     def test_exclusion_clauses_use_coalesce(self):
         selection = selection_sql(RULE_C, "recent")
         body = text(selection)
-        assert "COALESCE(s.category, '') <> ALL(%(candle_excluded_categories)s)" in body
-        assert "COALESCE(s.title, '') !~* %(candle_excluded_title_pattern)s" in body
+        assert (
+            "COALESCE(s.category, '') <> ALL(%(collection_excluded_categories)s)"
+            in body
+        )
+        assert "COALESCE(s.title, '') !~* %(collection_excluded_title_pattern)s" in body
         # ``series.ticker`` is the primary key: no COALESCE needed or used.
-        assert "s.ticker !~ %(candle_excluded_series_pattern)s" in body
+        assert "s.ticker !~ %(collection_excluded_series_pattern)s" in body
 
     def test_allow_list_is_not_wrapped_in_coalesce(self):
-        rule = CandleRule(False, frozenset({"Sports"}), frozenset(), None, None)
+        rule = CollectionRule(False, frozenset({"Sports"}), frozenset(), None, None)
         body = text(selection_sql(rule, "recent"))
-        assert "s.category = ANY(%(candle_categories)s)" in body
+        assert "s.category = ANY(%(collection_categories)s)" in body
         assert "COALESCE(s.category" not in body
 
     def test_every_value_is_a_bound_parameter(self):
         """The operator's regex must never reach the SQL text."""
         values = ("Zq-cat", "Zq-excl", "Zq-series-re", "Zq-title-re")
-        rule = CandleRule(
+        rule = CollectionRule(
             True, frozenset({values[0]}), frozenset({values[1]}), values[2], values[3]
         )
         selection = selection_sql(rule, "ever")
@@ -143,8 +175,28 @@ class TestNullAsymmetry:
         for value in values:
             assert value not in body
         assert set(selection.params) == {
-            "candle_categories",
-            "candle_excluded_categories",
-            "candle_excluded_series_pattern",
-            "candle_excluded_title_pattern",
+            "collection_categories",
+            "collection_excluded_categories",
+            "collection_excluded_series_pattern",
+            "collection_excluded_title_pattern",
         }
+
+
+class TestMarketJoin:
+    """Slice 265, Task 1.1: the candle phase's join, as text. The literal
+    below is the join as it rendered before ``selection.py`` was split out
+    of ``candle_selection.py``; equality after the split is the proof that
+    the rename changed no SQL (265 Criterion 5, last clause)."""
+
+    def test_market_join_is_composed_from_the_catalog_join(self):
+        """Task 1.5: the candle join extends the shared join, never re-spells it."""
+        assert MARKET_JOIN.as_string(None).startswith(CATALOG_JOIN.as_string(None))
+
+    def test_market_join_renders_as_before_the_split(self):
+        assert MARKET_JOIN.as_string(None) == (
+            "FROM kalshi.markets m "
+            "JOIN kalshi.events e ON e.event_ticker = m.event_ticker "
+            "JOIN kalshi.series s ON s.ticker = e.series_ticker "
+            "LEFT JOIN kalshi.market_candle_state st "
+            "ON st.market_ticker = m.ticker AND st.period = %(period)s "
+        )

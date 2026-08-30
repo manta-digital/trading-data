@@ -233,14 +233,14 @@ def _patched_status(
 
 
 def _candle_status():
-    from manta_trading.data.kalshi.candle_types import CandleRule
+    from manta_trading.data.kalshi.selection import CollectionRule
     from manta_trading.data.kalshi.status import CandleStatus
 
     return CandleStatus(
         period_minutes=1,
         last_phase_at=NOW,
         cutoff_observed=datetime(2026, 6, 25, tzinfo=UTC),
-        rule=CandleRule(True, frozenset(), frozenset({"Sports"}), "MENTION", None),
+        rule=CollectionRule(True, frozenset(), frozenset({"Sports"}), "MENTION", None),
         selected_open=6912,
         markets_tracked=521404,
         open_lagging=0,
@@ -344,7 +344,7 @@ class TestStatus:
             "period 1 min",
             "cutoff 2026-06-25",
             "excluding Sports",
-            "(MT_KALSHI_CANDLE_*)",
+            "(MT_KALSHI_COLLECTION_*)",
             "selected open 6,912",
             "521,404 markets",
             "backlog remaining 412,000",

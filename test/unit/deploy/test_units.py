@@ -141,12 +141,12 @@ class TestEnvExample:
             "MT_KALSHI_REQUESTS_PER_MINUTE",
             "MT_KALSHI_API_KEY_ID",
             "MT_KALSHI_PRIVATE_KEY_PATH",
-            # the candle collection rule (slice 264), at its defaults
-            "MT_KALSHI_CANDLE_TRADED_ONLY",
-            "MT_KALSHI_CANDLE_CATEGORIES",
-            "MT_KALSHI_CANDLE_EXCLUDED_CATEGORIES",
-            "MT_KALSHI_CANDLE_EXCLUDED_SERIES_PATTERN",
-            "MT_KALSHI_CANDLE_EXCLUDED_TITLE_PATTERN",
+            # the collection rule (slice 264, renamed in 265), at its defaults
+            "MT_KALSHI_COLLECTION_TRADED_ONLY",
+            "MT_KALSHI_COLLECTION_CATEGORIES",
+            "MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES",
+            "MT_KALSHI_COLLECTION_EXCLUDED_SERIES_PATTERN",
+            "MT_KALSHI_COLLECTION_EXCLUDED_TITLE_PATTERN",
         }
         assert all(line.startswith("#") for line in kalshi)
 

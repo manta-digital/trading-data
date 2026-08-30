@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
+from dotenv import dotenv_values
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
@@ -16,11 +19,74 @@ from manta_trading.constants import (
 )
 from manta_trading.data.acquisition.daily.provider import DailyProviderName
 from manta_trading.data.historical_minute.provider import MinuteProviderName
-from manta_trading.data.kalshi.candle_types import CandleRule
+from manta_trading.data.kalshi.selection import CollectionRule
 
 _MINUTES_PER_DAY = 24 * 60
 
 ENV_FILE = ".env"
+
+#: The Kalshi collection rule's environment prefix (slice 265, Decision 3) and
+#: the prefix it replaced. Spelled once each, side by side: the five
+#: ``kalshi_collection_*`` fields below are exactly this prefix under
+#: ``env_prefix`` (``MT_`` + the field name, upper-cased), the ``status``
+#: renderer cites it, and the guard translates old names to new ones.
+KALSHI_COLLECTION_ENV_PREFIX = "MT_KALSHI_COLLECTION_"
+RENAMED_KALSHI_CANDLE_ENV_PREFIX = "MT_KALSHI_CANDLE_"
+
+#: What pydantic-settings accepts for ``env_file`` / ``_env_file``.
+_EnvFile = str | Path | Sequence[str | Path] | None
+
+
+class RenamedSettingError(ValueError):
+    """A setting still under its pre-rename name is set (slice 265)."""
+
+
+def _env_file_paths(env_file: _EnvFile) -> tuple[Path, ...]:
+    if env_file is None:
+        return ()
+    if isinstance(env_file, str | Path):
+        return (Path(env_file),)
+    return tuple(Path(each) for each in env_file)
+
+
+def _renamed_settings_in_use(env_file: _EnvFile) -> set[str]:
+    """Every ``MT_KALSHI_CANDLE_*`` name set in the environment **or** in the
+    env file pydantic-settings is about to read. Both sources, because
+    ``extra="ignore"`` means a stale line in ``.env`` never reaches
+    ``os.environ`` — an environment-only scan would pass and the rule would
+    silently revert to its defaults, the exact failure this guard prevents.
+    """
+    old = RENAMED_KALSHI_CANDLE_ENV_PREFIX
+    found = {name for name in os.environ if name.upper().startswith(old)}
+    for path in _env_file_paths(env_file):
+        if path.is_file():
+            found |= {
+                name for name in dotenv_values(path) if name.upper().startswith(old)
+            }
+    return found
+
+
+def reject_renamed_settings(env_file: _EnvFile) -> None:
+    """Fail loudly if any ``MT_KALSHI_CANDLE_*`` variable is still set.
+
+    pydantic-settings would otherwise **ignore** the old variable and fall
+    back to the field default — a silent fallback, which CLAUDE.md forbids;
+    an operator who set an allow-list would collect the default universe and
+    never learn why. Runs before ``Settings`` reads anything, on the same env
+    file it is about to read.
+    """
+    found = _renamed_settings_in_use(env_file)
+    if not found:
+        return
+    old, new = RENAMED_KALSHI_CANDLE_ENV_PREFIX, KALSHI_COLLECTION_ENV_PREFIX
+    renames = ", ".join(
+        f"{name} is now {new}{name.upper()[len(old) :]}" for name in sorted(found)
+    )
+    raise RenamedSettingError(
+        f"the Kalshi collection rule settings were renamed to {new}* in slice 265 "
+        f"and the old names are no longer read: {renames}. Rename the "
+        "variable(s) in the environment or the env file and retry."
+    )
 
 
 class Settings(BaseSettings):
@@ -35,6 +101,19 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    def __init__(self, **values: Any) -> None:
+        # The rename guard's seam: a validator cannot see which env file this
+        # construction reads, so resolve it exactly as pydantic-settings will —
+        # the ``_env_file`` keyword when passed (``None`` = environment only),
+        # else ``model_config``'s — and scan it before anything is parsed.
+        env_file: _EnvFile = (
+            values["_env_file"]
+            if "_env_file" in values
+            else self.model_config.get("env_file")
+        )
+        reject_renamed_settings(env_file)
+        super().__init__(**values)
 
     # Logging
     log_level: str = "INFO"
@@ -53,29 +132,38 @@ class Settings(BaseSettings):
     # replaces the mode's constant budget at client construction; None
     # keeps 261's per-mode constants. Requests per minute, > 0.
     kalshi_requests_per_minute: int | None = Field(default=None, gt=0)
-    # Kalshi candle collection rule (slice 264, Decision 2). Defaults are the
-    # PM's rule C; every value is overridable so another operator can collect a
-    # different universe. Category strings are Kalshi's own series.category
-    # values — the venue owns that vocabulary, so they are data, not an enum.
-    # The two category sets are written comma-separated in the environment
-    # (MT_KALSHI_CANDLE_EXCLUDED_CATEGORIES=Sports, Mentions); NoDecode stops
-    # pydantic-settings from JSON-parsing a set-typed field first, and the
-    # validator below does the split. Empty allow-list = every category; an
-    # empty pattern disables that clause. The patterns are PostgreSQL regexes
-    # (series.ticker case-sensitive, series.title case-insensitive) — a regex
-    # the database rejects fails the phase loudly with the database's error.
-    kalshi_candle_traded_only: bool = True
-    kalshi_candle_categories: Annotated[frozenset[str], NoDecode] = frozenset()
-    kalshi_candle_excluded_categories: Annotated[frozenset[str], NoDecode] = frozenset(
-        {"Sports", "Mentions"}
+    # Kalshi collection rule (slice 264, Decision 2; renamed from
+    # MT_KALSHI_CANDLE_* in slice 265, Decision 3, because one rule now governs
+    # candles and trades). Defaults are the PM's rule C; every value is
+    # overridable so another operator can collect a different universe.
+    # Category strings are Kalshi's own series.category values — the venue
+    # owns that vocabulary, so they are data, not an enum. The two category
+    # sets are written comma-separated in the environment
+    # (MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES=Sports, Mentions); NoDecode
+    # stops pydantic-settings from JSON-parsing a set-typed field first, and
+    # the validator below does the split. Empty allow-list = every category;
+    # an empty pattern disables that clause. The patterns are PostgreSQL
+    # regexes (series.ticker case-sensitive, series.title case-insensitive) —
+    # a regex the database rejects fails the phase loudly with the database's
+    # error.
+    #
+    # traded_only applies to **candles only**: the candle phase schedules on
+    # it, while the trades path renders the rule in the "any" form because a
+    # trade is itself proof of trading (design 265, *Settings — the rename*).
+    kalshi_collection_traded_only: bool = True
+    kalshi_collection_categories: Annotated[frozenset[str], NoDecode] = frozenset()
+    kalshi_collection_excluded_categories: Annotated[frozenset[str], NoDecode] = (
+        frozenset({"Sports", "Mentions"})
     )
-    kalshi_candle_excluded_series_pattern: str | None = r"MENTION|SAY"
-    kalshi_candle_excluded_title_pattern: str | None = (
+    kalshi_collection_excluded_series_pattern: str | None = r"MENTION|SAY"
+    kalshi_collection_excluded_title_pattern: str | None = (
         r"\m(say|says|mention|mentions)\M"
     )
 
     @field_validator(
-        "kalshi_candle_categories", "kalshi_candle_excluded_categories", mode="before"
+        "kalshi_collection_categories",
+        "kalshi_collection_excluded_categories",
+        mode="before",
     )
     @classmethod
     def _split_category_list(cls, value: object) -> object:
@@ -87,8 +175,8 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "kalshi_candle_excluded_series_pattern",
-        "kalshi_candle_excluded_title_pattern",
+        "kalshi_collection_excluded_series_pattern",
+        "kalshi_collection_excluded_title_pattern",
         mode="before",
     )
     @classmethod
@@ -99,19 +187,20 @@ class Settings(BaseSettings):
             return None
         return value
 
-    def candle_rule(self) -> CandleRule:
-        """The Kalshi candle collection rule in force — the single parse point.
+    def collection_rule(self) -> CollectionRule:
+        """The Kalshi collection rule in force — the single parse point, for
+        candles and trades alike (slice 265, Decision 3).
 
-        ``CandleRepository.selection_sql`` evaluates it as: allow-list if
-        non-empty → exclude-list → patterns → traded. A category named in
-        both lists is excluded — exclude wins.
+        ``selection.selection_sql`` evaluates it as: allow-list if non-empty
+        → exclude-list → patterns → traded. A category named in both lists is
+        excluded — exclude wins.
         """
-        return CandleRule(
-            traded_only=self.kalshi_candle_traded_only,
-            categories=self.kalshi_candle_categories,
-            excluded_categories=self.kalshi_candle_excluded_categories,
-            excluded_series_pattern=self.kalshi_candle_excluded_series_pattern,
-            excluded_title_pattern=self.kalshi_candle_excluded_title_pattern,
+        return CollectionRule(
+            traded_only=self.kalshi_collection_traded_only,
+            categories=self.kalshi_collection_categories,
+            excluded_categories=self.kalshi_collection_excluded_categories,
+            excluded_series_pattern=self.kalshi_collection_excluded_series_pattern,
+            excluded_title_pattern=self.kalshi_collection_excluded_title_pattern,
         )
 
     # Minute-bar provider selection. Pydantic accepts the StrEnum as both

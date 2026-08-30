@@ -247,7 +247,7 @@ class CandlesPhase:
         from manta_trading.data.kalshi.candle_types import classify_candles
 
         started = time.monotonic()
-        rule = run.settings.candle_rule()
+        rule = run.settings.collection_rule()
         sync = CandleSync(
             run.client,
             CandleRepository(run.conn, rule),

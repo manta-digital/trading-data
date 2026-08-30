@@ -29,7 +29,7 @@ reviewVerdictsAddressed:
   - 265-review.tasks.public-trades-collection.part-1, third round (claude-opus-5, CONCERNS) — F001 `phase_end` and `window_end` named apart in Task 4.2 and in the design's Data Flow; F002 the guard's env-file seam pinned in Task 1.4; F003 Task 3.1; F004 Task 3.3 case 7; F005 Task 4.3a and Task 4.3b case 12; F006 part 2 Task 9.1; F007 Task 3.2; F008 no change; F009–F011 pass
 dateCreated: 20260829
 dateUpdated: 20260830
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -132,85 +132,85 @@ rename plus one new guard and one new `SelectionForm` member. The candle
 suite must be green at every step, and the candle phase must behave exactly
 as before (Criterion 5, last clause).
 
-- [ ] **Task 1.1: Create `selection.py` from `candle_selection.py`** (effort: 2)
-  - [ ] **First, capture the baseline.** Before moving anything, add a test to
+- [x] **Task 1.1: Create `selection.py` from `candle_selection.py`** (effort: 2)
+  - [x] **First, capture the baseline.** Before moving anything, add a test to
         `test/unit/data/kalshi/test_selection_sql.py` asserting
         `MARKET_JOIN`'s rendered text equals a literal snapshot of today's
         string. There is no `MARKET_JOIN` assertion in that file today, so
         without this the "renders identically" success criterion below has no
         baseline to compare against once the `git mv` lands. Run it green
         before proceeding.
-  - [ ] `git mv src/manta_trading/data/kalshi/candle_selection.py
+  - [x] `git mv src/manta_trading/data/kalshi/candle_selection.py
         src/manta_trading/data/kalshi/selection.py`, then recreate
         `candle_selection.py` holding only the candle-specific pieces.
-  - [ ] `selection.py` keeps `Selection`, `SelectionForm`, `_TRADED_COLUMN`,
+  - [x] `selection.py` keeps `Selection`, `SelectionForm`, `_TRADED_COLUMN`,
         `selection_sql`, and gains `CATALOG_JOIN` — the three-table join
         (`kalshi.markets m JOIN kalshi.events e JOIN kalshi.series s`)
         extracted from the current `MARKET_JOIN`.
-  - [ ] `candle_selection.py` keeps `MARKET_JOIN` — **composed** as
+  - [x] `candle_selection.py` keeps `MARKET_JOIN` — **composed** as
         `CATALOG_JOIN` + the `LEFT JOIN kalshi.market_candle_state` clause,
         not re-spelled — plus `BACKLOG_CONDITION` and
         `BEHIND_CUTOFF_CONDITION`.
-  - [ ] Update the module docstrings: `selection.py` says the rule governs
+  - [x] Update the module docstrings: `selection.py` says the rule governs
         candles **and** trades (Decision 3) and is rendered here only.
-  - [ ] Success: the snapshot test written in this task's first bullet still
+  - [x] Success: the snapshot test written in this task's first bullet still
         passes against the recomposed `MARKET_JOIN` — that is the proof the
         rename changed no SQL (Criterion 5's last clause); no module imports
         `candle_selection` for `selection_sql` any more.
 
-- [ ] **Task 1.2: Rename `CandleRule` → `CollectionRule`** (effort: 2)
-  - [ ] Move the dataclass out of `candle_types.py` into `selection.py` as
+- [x] **Task 1.2: Rename `CandleRule` → `CollectionRule`** (effort: 2)
+  - [x] Move the dataclass out of `candle_types.py` into `selection.py` as
         `CollectionRule` (design *Component Structure*). Fields, defaults,
         and `describe()` are unchanged.
-  - [ ] Update every importer found by
+  - [x] Update every importer found by
         `grep -rn "CandleRule" src test` — `candle_repository.py`,
         `candle_sync.py`, `status.py`, `config/__init__.py`, and the tests
         listed in Task 1.5. `candle_types.py` re-exports nothing; imports
         move to `selection`.
-  - [ ] Rename the bound-parameter names inside `selection_sql` from
+  - [x] Rename the bound-parameter names inside `selection_sql` from
         `candle_*` to `collection_*` (`collection_categories`,
         `collection_excluded_categories`, `collection_excluded_series_pattern`,
         `collection_excluded_title_pattern`) — a parameter named *candle* in
         a statement that classifies trades is the same trap as a setting
         named *candle*. Every caller binds `Selection.params` as a mapping,
         so no call site changes.
-  - [ ] Success: `uv run pytest test/unit -q` passes after mechanical test
+  - [x] Success: `uv run pytest test/unit -q` passes after mechanical test
         updates; no occurrence of `CandleRule` remains outside a CHANGELOG or
         design document.
 
-- [ ] **Task 1.3: Add the `"any"` selection form** (effort: 1)
-  - [ ] Extend `SelectionForm` to `Literal["recent", "ever", "any"]`.
+- [x] **Task 1.3: Add the `"any"` selection form** (effort: 1)
+  - [x] Extend `SelectionForm` to `Literal["recent", "ever", "any"]`.
         `"any"` **omits the traded clause entirely** (Decision 3: a trade is
         proof of trading) — it is not a third `_TRADED_COLUMN` entry.
-  - [ ] Implement by guarding the `rule.traded_only` clause on
+  - [x] Implement by guarding the `rule.traded_only` clause on
         `form != "any"`, and say why in a comment citing Decision 3.
-  - [ ] Document in the `SelectionForm` comment that `"recent"` is the live
+  - [x] Document in the `SelectionForm` comment that `"recent"` is the live
         24 h window, `"ever"` is lifetime volume (used by `status` for both
         surfaces), and `"any"` is the trades write path.
-  - [ ] **Test, in this task:** extend
+  - [x] **Test, in this task:** extend
         `test/unit/data/kalshi/test_selection_sql.py` — `"any"` drops the
         traded clause, alongside the existing `"recent"`/`"ever"` cases. New
         behavior is tested where it is written; Task 1.5 is the mechanical
         sweep only.
-  - [ ] Success: `selection_sql(rule, "any")` contains no `volume` reference
+  - [x] Success: `selection_sql(rule, "any")` contains no `volume` reference
         for a rule with `traded_only=True`; `"recent"` and `"ever"` render
         exactly as before — asserted by that test.
 
-- [ ] **Task 1.4: Rename the settings and add the loud guard** (effort: 3)
-  - [ ] In `config/__init__.py` rename the five fields
+- [x] **Task 1.4: Rename the settings and add the loud guard** (effort: 3)
+  - [x] In `config/__init__.py` rename the five fields
         `kalshi_candle_*` → `kalshi_collection_*` and
         `Settings.candle_rule()` → `Settings.collection_rule()`, returning
         `CollectionRule`. Defaults and validators are unchanged.
-  - [ ] The environment form becomes `MT_KALSHI_COLLECTION_*`. Define the
+  - [x] The environment form becomes `MT_KALSHI_COLLECTION_*`. Define the
         **old prefix and the new prefix each once** as module constants
         beside each other — the guard message and the fields both read them,
         so the pair is changed in one place.
-  - [ ] Add a `model_validator(mode="after")` that scans for any key starting
+  - [x] Add a `model_validator(mode="after")` that scans for any key starting
         with the old prefix and raises, naming the offending variable and its
         new name. Rationale in the comment: pydantic-settings would otherwise
         **ignore** the old variable and silently fall back to the defaults,
         which CLAUDE.md forbids.
-  - [ ] **The scan must cover both sources.** `Settings` is configured with
+  - [x] **The scan must cover both sources.** `Settings` is configured with
         `env_file=ENV_FILE` and `extra="ignore"`
         (`config/__init__.py:23,34`), so a stale `MT_KALSHI_CANDLE_*` line in
         `.env` never reaches `os.environ` — an `os.environ`-only guard would
@@ -227,48 +227,48 @@ as before (Criterion 5, last clause).
         `.env`, and the tests. Systemd's `EnvironmentFile` puts production
         values in `os.environ`, so the `.env` hole would be invisible on the
         host and would bite only developers and the rehearsal.
-  - [ ] Update the two call sites: `cli/commands/kalshi.py:234` and
+  - [x] Update the two call sites: `cli/commands/kalshi.py:234` and
         `collection_pass.py:250` (`settings.candle_rule()` →
         `settings.collection_rule()`), and the renderer's literal at
         `cli/commands/kalshi_render.py:223` (`(MT_KALSHI_CANDLE_*)` →
         `(MT_KALSHI_COLLECTION_*)`).
-  - [ ] Rename the five commented lines in `deploy/manta-trading.env.example`
+  - [x] Rename the five commented lines in `deploy/manta-trading.env.example`
         (lines 25–29), and fix the header comment above them (lines 22–24),
         which reads "Kalshi **candle** collection rule (slice 264): which
         markets the **candle phase** collects" — wrong after Decision 3, and
         this file is the operator's reference during the walkthrough's host
         rename.
-  - [ ] Document on `kalshi_collection_traded_only` itself that it applies to
+  - [x] Document on `kalshi_collection_traded_only` itself that it applies to
         **candles only** — the candle phase schedules on it, and the trades
         path uses the `"any"` form because a trade is proof of trading
         (design *Settings — the rename*). A setting whose surface asymmetry
         lives only in a `SelectionForm` comment is the same trap the rename
         removes.
-  - [ ] **Tests, in this task.** Rename
+  - [x] **Tests, in this task.** Rename
         `test/unit/test_candle_rule_settings.py` to
         `test_collection_rule_settings.py`, update its cases for the new
         names, then add two new ones (new behavior is tested where it is
         written, not two tasks downstream):
-    - **The guard is loud from the environment:** every one of the five
+    - [x] **The guard is loud from the environment:** every one of the five
       `MT_KALSHI_CANDLE_*` names, set alone in `os.environ` (monkeypatched)
       with `_env_file=None`, raises at `Settings` construction with a
       message containing the new name.
       Parametrize over the five so a later sixth setting cannot be
       forgotten.
-    - **The guard is loud from `.env`:** the same five names, each written
+    - [x] **The guard is loud from `.env`:** the same five names, each written
       alone into a `tmp_path` env file passed as
       `Settings(_env_file=that_path)` — the same keyword the file's existing
       `_settings()` helper already uses with `None` — raise the same way,
       with `os.environ` clean of the five. Without this case the hole
       described above ships untested, and it is the one a developer hits.
-  - [ ] Success: `MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES=Sports mt data
+  - [x] Success: `MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES=Sports mt data
         kalshi status` behaves as the old variable did;
         `MT_KALSHI_CANDLE_CATEGORIES=Sports mt data kalshi status` exits
         nonzero with a message naming `MT_KALSHI_COLLECTION_CATEGORIES`
         (Criterion 5, walkthrough step 3).
 
-- [ ] **Task 1.5: Rename tests — the mechanical sweep** (effort: 2)
-  - [ ] Mechanically update the test files the rename touches (the settings
+- [x] **Task 1.5: Rename tests — the mechanical sweep** (effort: 2)
+  - [x] Mechanically update the test files the rename touches (the settings
         test file was already renamed in Task 1.4):
         `test/unit/data/kalshi/test_selection_sql.py`,
         `test/unit/data/kalshi/test_candle_sync.py`,
@@ -279,16 +279,16 @@ as before (Criterion 5, last clause).
         145–149), `test/integration/test_kalshi_sync.py`,
         `test/integration/test_kalshi_pass.py`,
         `test/integration/test_kalshi_candles.py`.
-  - [ ] **New test — `MARKET_JOIN` is composed, not re-spelled:** assert
+  - [x] **New test — `MARKET_JOIN` is composed, not re-spelled:** assert
         `CATALOG_JOIN`'s rendered text is a prefix of `MARKET_JOIN`'s. (The
         snapshot equality test from Task 1.1 is the stronger check; this one
         documents the composition.)
-  - [ ] Success: `uv run pytest test/unit -q` green; the candle integration
+  - [x] Success: `uv run pytest test/unit -q` green; the candle integration
         tests pass unchanged in behavior
         (`uv run python scripts/run_tests.py integration -- -k kalshi_candles -q`).
 
 - [ ] **Task 1.6: Section 1 gates and checkpoint commit** (effort: 1)
-  - [ ] `uv run ruff check` and `uv run ruff format --check` scoped to the
+  - [x] `uv run ruff check` and `uv run ruff format --check` scoped to the
         files touched; `uv run --extra dev mypy` and `npx --yes pyright` over
         the kalshi source paths plus the touched tests in one invocation.
   - [ ] Commit: `refactor: rename the candle collection rule to

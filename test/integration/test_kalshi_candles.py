@@ -27,13 +27,13 @@ from manta_trading.data.kalshi.candle_repository import (
     CandleRepository,
     StateAdvance,
 )
-from manta_trading.data.kalshi.candle_types import CandleRule
 from manta_trading.data.kalshi.constants import (
     COLLECTED_CANDLE_PERIOD,
     MarketStatus,
     Surface,
 )
 from manta_trading.data.kalshi.repository import CatalogRepository
+from manta_trading.data.kalshi.selection import CollectionRule
 
 PERIOD = COLLECTED_CANDLE_PERIOD
 SPAN = period_span(PERIOD)
@@ -42,16 +42,16 @@ CUTOFF = datetime(2026, 6, 25, tzinfo=UTC)
 OPENED = PHASE_START - timedelta(days=2)
 CLOSES = PHASE_START + timedelta(days=1)
 
-RULE_C = CandleRule(
+RULE_C = CollectionRule(
     traded_only=True,
     categories=frozenset(),
     excluded_categories=frozenset({"Sports", "Mentions"}),
     excluded_series_pattern=r"MENTION|SAY",
     excluded_title_pattern=r"\m(say|says|mention|mentions)\M",
 )
-EVERYTHING = CandleRule(False, frozenset(), frozenset(), None, None)
-ONLY_SPORTS = CandleRule(False, frozenset({"Sports"}), frozenset(), None, None)
-ANY_VOLUME = CandleRule(
+EVERYTHING = CollectionRule(False, frozenset(), frozenset(), None, None)
+ONLY_SPORTS = CollectionRule(False, frozenset({"Sports"}), frozenset(), None, None)
+ANY_VOLUME = CollectionRule(
     False,
     RULE_C.categories,
     RULE_C.excluded_categories,
@@ -125,12 +125,12 @@ def repo(kalshi_conn: psycopg.AsyncConnection[Any]) -> CandleRepository:
     return CandleRepository(kalshi_conn, RULE_C)
 
 
-def with_rule(kalshi_conn: psycopg.AsyncConnection[Any], rule: CandleRule):
+def with_rule(kalshi_conn: psycopg.AsyncConnection[Any], rule: CollectionRule):
     return CandleRepository(kalshi_conn, rule)
 
 
 async def live_tickers(
-    kalshi_conn: psycopg.AsyncConnection[Any], rule: CandleRule
+    kalshi_conn: psycopg.AsyncConnection[Any], rule: CollectionRule
 ) -> set[str]:
     rows = await with_rule(kalshi_conn, rule).pending_live(PERIOD, PHASE_START)
     return {r.ticker for r in rows}
@@ -189,7 +189,7 @@ class TestPredicateLive:
         swallows it."""
         markets, series = fixture_markets()
         await write_catalog(kalshi_repo, markets, series)
-        broken = CandleRule(False, frozenset(), frozenset(), "(", None)
+        broken = CollectionRule(False, frozenset(), frozenset(), "(", None)
         with pytest.raises(errors.InvalidRegularExpression):
             await with_rule(kalshi_conn, broken).pending_live(PERIOD, PHASE_START)
 

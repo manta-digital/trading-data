@@ -1,8 +1,8 @@
 """``CandleRepository`` — every SQL statement of the candle phase (slice 264).
 
 The collection rule is rendered in exactly one place —
-``candle_selection.selection_sql`` — and the pending queries and counts
-here embed it; nothing in this module re-spells a clause of it.
+``selection.selection_sql`` — and the pending queries and counts here embed
+it; nothing in this module re-spells a clause of it.
 
 The shape follows ``CatalogRepository``: an open async connection the caller
 owns, one transaction per batch chosen by the core, multi-row writes chunked
@@ -32,13 +32,15 @@ from manta_trading.data.kalshi.candle_selection import (
     BACKLOG_CONDITION,
     BEHIND_CUTOFF_CONDITION,
     MARKET_JOIN,
-    SelectionForm,
-    selection_sql,
 )
-from manta_trading.data.kalshi.candle_types import CandleRule
 from manta_trading.data.kalshi.constants import CandlePeriod, MarketStatus, Surface
 from manta_trading.data.kalshi.models import Candlestick
 from manta_trading.data.kalshi.repository import _MAX_BIND_PARAMS, CatalogRepository
+from manta_trading.data.kalshi.selection import (
+    CollectionRule,
+    SelectionForm,
+    selection_sql,
+)
 
 _OHLC = ("open", "high", "low", "close")
 #: Decision 10: the flattening map from ``Candlestick``'s nested ``yes_bid`` /
@@ -82,7 +84,9 @@ _PENDING = sql.SQL(
 class CandleRepository:
     """SQL for the candle phase over one open async connection."""
 
-    def __init__(self, conn: psycopg.AsyncConnection[Any], rule: CandleRule) -> None:
+    def __init__(
+        self, conn: psycopg.AsyncConnection[Any], rule: CollectionRule
+    ) -> None:
         self._conn = conn
         self._rule = rule
         # ``sync_state`` statements are shared with the catalog; one spelling.

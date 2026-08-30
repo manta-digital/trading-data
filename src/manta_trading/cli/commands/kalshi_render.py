@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from manta_trading.cli.output import make_table, print_result
+from manta_trading.config import KALSHI_COLLECTION_ENV_PREFIX
 from manta_trading.data.kalshi.collection_pass import PassPhaseName
 from manta_trading.data.kalshi.constants import KALSHI_SETTLEMENT_STUCK_AFTER
 
@@ -220,7 +221,10 @@ def print_candle_status(candles: CandleStatus, now: datetime) -> None:
         f"[bold]Kalshi candlesticks[/bold]   period {candles.period_minutes} min   "
         f"last phase {_when(candles.last_phase_at, now)}   cutoff {cutoff_text}"
     )
-    rprint(f"  rule                {candles.rule.describe()}   (MT_KALSHI_CANDLE_*)")
+    rprint(
+        f"  rule                {candles.rule.describe()}   "
+        f"({KALSHI_COLLECTION_ENV_PREFIX}*)"
+    )
     rprint(f"  selected open       {candles.selected_open:,}")
     rprint(
         f"  tracked             {candles.markets_tracked:,} markets   "
