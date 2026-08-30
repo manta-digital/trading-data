@@ -137,40 +137,40 @@ ledger preflight and belongs to Tasks 6.2 and 7.2, not here.
         case.
   - [x] Success: `uv run pytest test/unit -q` green.
 
-- [ ] **Task 5.5: Section 5 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as part 1's Task 1.6, scoped to the files touched.
-  - [ ] Commit: `feat: add the trades block to mt data kalshi status`.
+- [x] **Task 5.5: Section 5 gates and checkpoint commit** (effort: 1)
+  - [x] Gates as part 1's Task 1.6, scoped to the files touched.
+  - [x] Commit: `feat: add the trades block to mt data kalshi status`.
 
 ## Section 6: End-to-end integration
 
 Design *Tests — Integration* (the last three items), Success Criteria 1, 3,
 and 10.
 
-- [ ] **Task 6.1: Three-phase pass, end to end** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_pass.py`: a full
+- [x] **Task 6.1: Three-phase pass, end to end** (effort: 3)
+  - [x] Extend `test/integration/test_kalshi_pass.py`: a full
         `CollectionPass` over `PASS_PHASES` against a small seeded catalog
         and a fake trade source, asserting the phase names and order are
         `catalog`, `candles`, `trades` (Criterion 1).
-  - [ ] A **second pass immediately after** writes no new trade rows and
+  - [x] A **second pass immediately after** writes no new trade rows and
         reports the re-walked overlap's rows as duplicates (Criterion 3).
-  - [ ] A duplicate-key check over `kalshi.trades` returns 0 rows.
-  - [ ] **The mid-window abort, against a real database (Criterion 4):** the
+  - [x] A duplicate-key check over `kalshi.trades` returns 0 rows.
+  - [x] **The mid-window abort, against a real database (Criterion 4):** the
         fake trade source raises `ProviderError` after page 2 of the first
         window; afterwards `sync_state['trades'].watermark_ts` is unchanged
         and the rows pages 1–2 wrote are present and committed. Part 1's
         Task 4.3b case 6 proves the call order against an in-memory fake;
         only this proves that the watermark write and the page writes are
         separate transactions on a real connection.
-  - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
+  - [x] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_pass -q` green.
 
-- [ ] **Task 6.2: Preflight names the missing migration** (effort: 1)
-  - [ ] Extend the existing ledger-preflight integration test: with
+- [x] **Task 6.2: Preflight names the missing migration** (effort: 1)
+  - [x] Extend the existing ledger-preflight integration test: with
         `kalshi_006_trades` deleted from `schema_migrations`,
         `mt data kalshi pass` exits 1 with a message naming
         `kalshi_006_trades` (Criterion 10). This works for free through
         `TRACKS["kalshi"]` — the test proves it, it adds no code.
-  - [ ] Success: the assertion names the migration id as a string the test
+  - [x] Success: the assertion names the migration id as a string the test
         reads from the migration definition, not a hardcoded literal.
 
 - [ ] **Task 6.3: Full-tier run and checkpoint commit** (effort: 1)

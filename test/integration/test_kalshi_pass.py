@@ -21,7 +21,8 @@ import psycopg
 import pytest
 from kalshi_helpers import apply_kalshi_track, column
 from kalshi_support.fake_candle_source import make_candle
-from kalshi_support.fake_source import make_market
+from kalshi_support.fake_source import FakeCatalogSource, make_market
+from kalshi_support.fake_trade_source import make_trade
 from psycopg import sql
 from test_kalshi_sync import EVENT, _live, _settings, _settled, _source
 
@@ -36,9 +37,23 @@ from manta_trading.data.kalshi.constants import (
     Surface,
 )
 from manta_trading.data.kalshi.db import LOCK_HELD, open_sync_connection
+from manta_trading.data.kalshi.sync_types import SyncOutcome
+from manta_trading.providers.errors import ProviderTransientError
 
 #: The tables the two commands must leave identical (Criterion 1).
 _CATALOG_TABLES = ("series", "events", "markets")
+#: Slice 265: the trades phase drains from the cutoff, so the fake's cutoff
+#: sits this far back — three one-hour windows prove the walk without two
+#: months of empty tape per pass.
+_TRADES_CUTOFF_AGO = timedelta(hours=3)
+
+
+def _pass_source(page_size: int | None = None) -> FakeCatalogSource:
+    """``_source`` with the trades cutoff ``_TRADES_CUTOFF_AGO`` back."""
+    source = _source(page_size)
+    cutoff = datetime.now(UTC).replace(microsecond=0) - _TRADES_CUTOFF_AGO
+    source.cutoff = source.cutoff.model_copy(update={"trades_created_ts": cutoff})
+    return source
 
 
 async def run_pass_cli(
@@ -86,7 +101,7 @@ class TestPassEndToEnd:
         self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
     ):
         """Criterion 1: exit 0 and the catalog surface's state row is set."""
-        source = _source()
+        source = _pass_source()
         source.add_live(MarketStatusFilter.OPEN, _live("A"), _live("B"), _live("C"))
         source.add_settled(_settled("S-A", timedelta(minutes=30)))
         code, summary = await run_pass_cli(kalshi_db, source, capsys)
@@ -96,10 +111,11 @@ class TestPassEndToEnd:
         assert summary["phases"][0]["outcome"] == "ok"
         catalog = summary["phases"][0]["summary"]
         assert catalog["phases"]["markets"]["written"] == 3
-        # Both phases wrote their surface's row (slice 264 adds candlesticks).
+        # Every phase wrote its surface's row (264 candlesticks, 265 trades).
         assert await _sync_state(kalshi_conn) == [
             "(candlesticks,t,t)",
             "(catalog,t,t)",
+            "(trades,t,t)",
         ]
         assert source.closed is True
 
@@ -107,7 +123,7 @@ class TestPassEndToEnd:
         self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
     ):
         """Write-on-change holds through the pass, as it does through sync."""
-        source = _source()
+        source = _pass_source()
         source.add_live(MarketStatusFilter.OPEN, _live("A"), _live("B"))
         assert (await run_pass_cli(kalshi_db, source, capsys))[0] == cmd.EXIT_OK
         before = await column(
@@ -126,7 +142,7 @@ class TestPassEndToEnd:
         self, kalshi_db: str, capsys, tmp_path: Path
     ):
         """Criterion 4 against the real repository."""
-        source = _source()
+        source = _pass_source()
         source.add_live(MarketStatusFilter.OPEN, _live("A"))
         source.add_settled(_settled("S-A", timedelta(minutes=30)))
         path = tmp_path / "pass.jsonl"
@@ -139,9 +155,11 @@ class TestPassEndToEnd:
             *["phase_finished"] * 5,
             "run_finished",
             "phase_finished",  # the candle phase (slice 264)
+            "phase_finished",  # the trades phase (slice 265)
             "pass_finished",
         ]
-        assert events[-2]["phase"] == "candles"
+        assert events[-3]["phase"] == "candles"
+        assert events[-2]["phase"] == "trades"
         assert len({e["run_id"] for e in events}) == 1
 
 
@@ -192,7 +210,7 @@ class TestPassEqualsSync:
         from test_kalshi_sync import run_cli
 
         def fixtures():
-            source = _source()
+            source = _pass_source()
             source.add_live(MarketStatusFilter.OPEN, _live("A"), _live("B"))
             source.add_settled(_settled("S-A", timedelta(minutes=30)))
             return source
@@ -221,7 +239,9 @@ class TestPassPreflight:
         """Criterion 2, lock case: the pass refuses while a sync holds the lock."""
         holder = await open_sync_connection(kalshi_db)
         try:
-            with patch.object(KalshiClient, "from_settings", return_value=_source()):
+            with patch.object(
+                KalshiClient, "from_settings", return_value=_pass_source()
+            ):
                 code = await cmd.run_pass(_settings(kalshi_db), None, True)
         finally:
             await holder.close()
@@ -229,7 +249,7 @@ class TestPassPreflight:
         assert LOCK_HELD in capsys.readouterr().err
 
     async def test_lock_is_released_after_a_pass(self, kalshi_db: str, capsys):
-        assert (await run_pass_cli(kalshi_db, _source(), capsys))[0] == cmd.EXIT_OK
+        assert (await run_pass_cli(kalshi_db, _pass_source(), capsys))[0] == cmd.EXIT_OK
         conn = await open_sync_connection(kalshi_db)
         try:
             # Scoped to *this* database: pg_locks is cluster-wide, and the
@@ -310,7 +330,7 @@ class TestTwoPhasePass:
     ):
         """Criteria 1 and 3: both phases in order; candles under the natural
         key; a state row for every requested market, idle ones included."""
-        source = _source()
+        source = _pass_source()
         source.add_live(
             MarketStatusFilter.OPEN, _traded_live("A"), _traded_live("IDLE")
         )
@@ -320,7 +340,11 @@ class TestTwoPhasePass:
         )
         code, summary = await run_pass_cli(kalshi_db, source, capsys)
         assert code == cmd.EXIT_OK, summary
-        assert [p["name"] for p in summary["phases"]] == ["catalog", "candles"]
+        assert [p["name"] for p in summary["phases"]] == [
+            "catalog",
+            "candles",
+            "trades",
+        ]
         candles = summary["phases"][1]["summary"]
         assert candles["candles_written"] == 2
         assert candles["markets_requested"] == 2 and candles["markets_advanced"] == 2
@@ -336,7 +360,7 @@ class TestTwoPhasePass:
     ):
         """Criterion 4: re-fetching an overlapping window writes only the new
         candle; no duplicate row exists."""
-        source = _source()
+        source = _pass_source()
         source.add_live(MarketStatusFilter.OPEN, _traded_live("A"))
         last = last_complete_period(datetime.now(UTC), COLLECTED_CANDLE_PERIOD)
         source.candles.add_candles("A", make_candle(last - timedelta(minutes=8)))
@@ -363,7 +387,7 @@ class TestTwoPhasePass:
         counts as complete through close, and the next pass leaves it be."""
         from manta_trading.data.kalshi.status import read_candle_status
 
-        source = _source()
+        source = _pass_source()
         source.add_settled(_traded_settled("DONE", timedelta(minutes=30)))
         assert (await run_pass_cli(kalshi_db, source, capsys))[0] == cmd.EXIT_OK
         state = await _state(kalshi_conn)
@@ -394,7 +418,7 @@ class TestTwoPhasePass:
         from manta_trading.data.kalshi import candle_sync
 
         monkeypatch.setattr(candle_sync, "BACKLOG_ROWS_PER_PASS", 1)
-        source = _source()
+        source = _pass_source()
         source.add_settled(
             _traded_settled("OLDER", timedelta(hours=5)),
             _traded_settled("NEWER", timedelta(hours=1)),
@@ -412,7 +436,7 @@ class TestTwoPhasePass:
         self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
     ):
         """Criterion 10."""
-        source = _source()
+        source = _pass_source()
         source.add_live(
             MarketStatusFilter.OPEN, _traded_live("GONE"), _traded_live("OK")
         )
@@ -425,3 +449,121 @@ class TestTwoPhasePass:
             {"ticker": "GONE", "reason": "not served by the batch endpoint"}
         ]
         assert set(await _state(kalshi_conn)) == {"OK"}
+
+
+# ---------------------------------------------------------------------------
+# All three phases end to end (slice 265, Task 6.1)
+# ---------------------------------------------------------------------------
+
+
+async def _trade_rows(conn: psycopg.AsyncConnection[Any]) -> list[Any]:
+    return await column(
+        conn, "SELECT market_ticker FROM kalshi.trades ORDER BY created_time"
+    )
+
+
+async def _trade_duplicates(conn: psycopg.AsyncConnection[Any]) -> list[Any]:
+    return await column(
+        conn,
+        "SELECT market_ticker FROM kalshi.trades "
+        "GROUP BY market_ticker, created_time, trade_id HAVING count(*) > 1",
+    )
+
+
+async def _trade_state(conn: psycopg.AsyncConnection[Any]) -> tuple[Any, Any]:
+    cursor = await conn.execute(
+        "SELECT watermark_ts, coverage_from_ts FROM kalshi.sync_state "
+        "WHERE surface = %s",
+        (Surface.TRADES.value,),
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return row[0], row[1]
+
+
+class TestThreePhasePass:
+    def _seeded(self) -> tuple[FakeCatalogSource, datetime]:
+        source = _pass_source()
+        source.add_live(MarketStatusFilter.OPEN, _traded_live("A"))
+        cutoff = source.cutoff.trades_created_ts
+        source.trades.add_trades(
+            make_trade("A", cutoff + timedelta(minutes=10)),
+            make_trade("KXMVE-X", cutoff + timedelta(minutes=30)),
+            make_trade("A", cutoff + timedelta(minutes=70)),
+        )
+        return source, cutoff
+
+    async def test_three_phases_in_order_and_the_tape_is_stored(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
+    ):
+        """Criterion 1: catalog, candles, trades; the trades phase drains from
+        the cutoff through the catalog walk's start, storing what the rule
+        selects and counting the rest."""
+        source, cutoff = self._seeded()
+        code, summary = await run_pass_cli(kalshi_db, source, capsys)
+        assert code == cmd.EXIT_OK, summary
+        assert [p["name"] for p in summary["phases"]] == [
+            "catalog",
+            "candles",
+            "trades",
+        ]
+        trades = summary["phases"][2]["summary"]
+        assert trades["trades_fetched"] == 3
+        assert trades["trades_written"] == 2
+        assert trades["unknown_market"] == 1
+        assert trades["excluded_by_rule"] == 0 and trades["duplicates"] == 0
+        assert trades["unknown_prefixes"] == {"KXMVE": 1}
+        assert trades["windows_completed"] == 3 and trades["capped"] is False
+        assert trades["coverage_from"] == cutoff.isoformat()
+        assert await _trade_rows(kalshi_conn) == ["A", "A"]
+        watermark, coverage_from = await _trade_state(kalshi_conn)
+        assert coverage_from == cutoff
+        assert watermark > cutoff + timedelta(hours=2)
+
+    async def test_second_pass_writes_nothing_and_reports_duplicates(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
+    ):
+        """Criterion 3: the re-walked range is fetched again, written never."""
+        source, cutoff = self._seeded()
+        assert (await run_pass_cli(kalshi_db, source, capsys))[0] == cmd.EXIT_OK
+        # Roll the watermark back to inside the tape so the second pass
+        # re-walks a range that holds a stored trade (the +70 min one).
+        await kalshi_conn.execute(
+            "UPDATE kalshi.sync_state SET watermark_ts = %s WHERE surface = %s",
+            (cutoff + timedelta(hours=1), Surface.TRADES.value),
+        )
+        code, summary = await run_pass_cli(kalshi_db, source, capsys)
+        assert code == cmd.EXIT_OK
+        trades = summary["phases"][2]["summary"]
+        assert trades["trades_fetched"] == 1
+        assert trades["trades_written"] == 0
+        assert trades["duplicates"] == 1
+        assert await _trade_rows(kalshi_conn) == ["A", "A"]
+        assert await _trade_duplicates(kalshi_conn) == []
+
+    async def test_mid_window_abort_leaves_the_watermark_and_keeps_the_pages(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
+    ):
+        """Criterion 4 on a real connection: pages 1–2 are committed in their
+        own transactions; the watermark write never happens."""
+        source = _pass_source()
+        source.add_live(MarketStatusFilter.OPEN, _traded_live("A"))
+        cutoff = source.cutoff.trades_created_ts
+        source.trades.page_size = 1
+        source.trades.add_trades(
+            *(make_trade("A", cutoff + timedelta(minutes=i)) for i in range(1, 5))
+        )
+        source.trades.raise_on("get_trades", ProviderTransientError("503"), at=3)
+        code, summary = await run_pass_cli(kalshi_db, source, capsys)
+        assert code == cmd.EXIT_PROVIDER
+        assert [p["outcome"] for p in summary["phases"]] == [
+            str(SyncOutcome.OK),
+            str(SyncOutcome.OK),
+            str(SyncOutcome.PROVIDER_ABORT),
+        ]
+        assert "503" in summary["phases"][2]["summary"]["error"]
+        assert len(await _trade_rows(kalshi_conn)) == 2
+        watermark, coverage_from = await _trade_state(kalshi_conn)
+        assert watermark == cutoff and coverage_from == cutoff
+        # The earlier phases' rows stand.
+        assert await _sync_state(kalshi_conn, Surface.CATALOG) == ["(catalog,t,t)"]

@@ -631,6 +631,22 @@ class TestLedgerPreflight:
         for migration_id in KALSHI_IDS[-2:]:
             assert migration_id in str(exc.value)
 
+    async def test_missing_trades_migration_named(self, kalshi_db: str):
+        """Slice 265, Criterion 10: ``kalshi_006_trades`` is covered by the
+        preflight through ``TRACKS["kalshi"]`` — the id is read from the
+        migration definition, never spelled here."""
+        trades_id = TRACKS["kalshi"][-1]["id"]
+        assert trades_id.startswith("kalshi_006_")
+        with psycopg.connect(kalshi_db) as conn:
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = %s", (trades_id,)
+            )
+            conn.commit()
+        with pytest.raises(PreflightError) as exc:
+            await open_sync_connection(kalshi_db)
+        assert trades_id in str(exc.value)
+        assert "mt data migrate apply --track kalshi" in str(exc.value)
+
     async def test_bare_database_is_the_same_error(self, ephemeral_db: str):
         """No ``schema_migrations`` table at all: every id is pending — a
         PreflightError, not an unhandled psycopg error."""

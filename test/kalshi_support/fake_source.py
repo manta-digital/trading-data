@@ -39,6 +39,7 @@ from manta_trading.data.kalshi.models import (
     MarketCandlesticks,
     MarketsPage,
     Series,
+    TradesPage,
 )
 from manta_trading.providers.errors import ProviderPermanentError
 
@@ -117,8 +118,11 @@ class FakeCatalogSource:
         self.rate_limit = KALSHI_PUBLIC_RATE_LIMIT
         # Lazy: ``fake_candle_source`` imports ``load_fixture`` from here.
         from kalshi_support.fake_candle_source import FakeCandleSource
+        from kalshi_support.fake_trade_source import FakeTradeSource
 
         self.candles = FakeCandleSource()
+        #: Slice 265: the trades phase's tape and query log, the same way.
+        self.trades = FakeTradeSource()
         # Recorded traffic.
         self.calls: list[str] = []
         self.markets_queries: list[dict[str, object]] = []
@@ -332,6 +336,14 @@ class FakeCatalogSource:
         self._record("get_markets_candlesticks", {"tickers": tuple(tickers)})
         return await self.candles.get_markets_candlesticks(
             tickers, start_ts=start_ts, end_ts=end_ts, period_interval=period_interval
+        )
+
+    async def get_trades(
+        self, *, cursor: str | None = None, min_ts: int, max_ts: int, limit: int
+    ) -> TradesPage:
+        self._record("get_trades", {"min_ts": min_ts, "max_ts": max_ts})
+        return await self.trades.get_trades(
+            cursor=cursor, min_ts=min_ts, max_ts=max_ts, limit=limit
         )
 
     async def aclose(self) -> None:
