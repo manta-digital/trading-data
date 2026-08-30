@@ -19,8 +19,9 @@ projectState: >
 reviewVerdictsAddressed:
   - 265-review.tasks.public-trades-collection.part-2, first round (claude-opus-5, FAIL) — all findings addressed
   - 265-review.tasks.public-trades-collection.part-2, second round (claude-opus-5, FAIL) — F001 and F008 by merging Tasks 5.1/5.2a into one task with no re-export; F002 the cutoff figure struck from the block (part 1 Task 2.2; Tasks 5.1, 5.4); F003 the integration tests moved to Task 5.3, before rendering; F004 Tasks 7.3–7.5 match the re-walk timings; F005 Task 9.3 names the journal block; F006 Task 8.1; F007 no action — no NFR to gate on; F009–F010 pass
+  - 265-review.tasks.public-trades-collection.part-2, third round (claude-opus-5, CONCERNS) — F001 `_iso` moves to `sync_types` as `iso_utc` (Task 5.1); F002 Task 6.1 gains the mid-window abort against a real database; F003 Task 9.3 names the before-watermark source; F004–F005 no action; F006–F009 pass
 dateCreated: 20260829
-dateUpdated: 20260829
+dateUpdated: 20260830
 status: not_started
 ---
 
@@ -67,8 +68,13 @@ ledger preflight and belongs to Tasks 6.2 and 7.2, not here.
         `cutoff` field:** the trades cutoff is observed per run and logged,
         never persisted (part 1, Task 2.2), and the design's block has been
         corrected to match.
-  - [ ] `TradeStatus.to_dict()` follows `CandleStatus.to_dict()`'s shape;
-        timestamps through the existing `_iso` helper.
+  - [ ] `TradeStatus.to_dict()` follows `CandleStatus.to_dict()`'s shape.
+        Timestamps go through the one-line `_iso` helper that today is
+        private to `status.py` (`status.py:81`, five call sites): **move it
+        to `sync_types.py` as a public `iso_utc`** and point the five
+        `status.py` call sites at it — not a private cross-module import,
+        not a copy. `sync_types` is already the shared kalshi types module
+        with no client import, so the import guard is unaffected.
   - [ ] **Nothing counts rows in `kalshi.trades`** (Decision 10, journal
         20260720). Every figure is `sync_state` plus the catalog join.
   - [ ] Success: a unit test asserts the rendered SQL text of every statement
@@ -148,6 +154,13 @@ and 10.
   - [ ] A **second pass immediately after** writes no new trade rows and
         reports the re-walked overlap's rows as duplicates (Criterion 3).
   - [ ] A duplicate-key check over `kalshi.trades` returns 0 rows.
+  - [ ] **The mid-window abort, against a real database (Criterion 4):** the
+        fake trade source raises `ProviderError` after page 2 of the first
+        window; afterwards `sync_state['trades'].watermark_ts` is unchanged
+        and the rows pages 1–2 wrote are present and committed. Part 1's
+        Task 4.3b case 6 proves the call order against an in-memory fake;
+        only this proves that the watermark write and the page writes are
+        separate transactions on a real connection.
   - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_pass -q` green.
 
@@ -273,8 +286,9 @@ design's expected outputs are drafts to be replaced.
         each with its reason and where the proof lives instead:
     1. **The cutoff start** — substituted by a hand-seeded watermark at
        `now − 3 h` (Task 7.3); proven on the host by Task 9.2.
-    2. **The abort inside a window** (walkthrough step 7) — the integration
-       test's job (part 1, Task 4.3b case 6); the manual analogue was not
+    2. **The abort inside a window** (walkthrough step 7) — proven by Task
+       6.1's integration case against a real database (and part 1's Task
+       4.3b cases 6 and 12 at the unit tier); the manual analogue was not
        re-run by hand.
     3. **The day-later late-arrival diff** named in the design's Risk
        Assessment — not performed, because a task cannot wait a day; the
@@ -332,11 +346,14 @@ update procedure.
         release steps under runbook 100's update procedure, **not tasks
         here** (part 1's Context Summary). This task starts at the installed
         ref.
+  - [ ] **First**, before any command on the new ref: replace any
+        `MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env` with
+        `MT_KALSHI_COLLECTION_*`. Unset (commented) lines need nothing; the
+        example file shows the new names. This goes first because the guard
+        fires at `Settings` construction for **every** command, and the
+        timer may fire in the gap between install and rename.
   - [ ] `uv run mt data migrate status --track kalshi` reports 1 pending →
         `apply` with the maintenance credential → `status` reports 0 pending.
-  - [ ] Replace any `MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env`
-        with `MT_KALSHI_COLLECTION_*`. Unset (commented) lines need nothing;
-        the example file shows the new names.
   - [ ] Success: `mt data migrate status --track kalshi` reports 0 pending
         and no `MT_KALSHI_CANDLE_` variable remains in the environment file.
 
@@ -362,8 +379,13 @@ update procedure.
         bullet waits on a later one. Record each as a number in the slice's
         completion record.
   - [ ] `watermark_ts` advanced by the expected number of windows for a
-        capped pass (~7 hours of tape), read before and after from
-        `sync_state['trades']`.
+        capped pass (~7 hours of tape). **Source for "before":** on this
+        first run it equals `coverage_from_ts` (still in `sync_state`, never
+        moved) and is printed on the `kalshi trades phase started …
+        watermark=` journal line Task 9.2 captured; "after" is
+        `sync_state['trades'].watermark_ts` now, also on the pass's
+        `Kalshi trades` block (`watermark before → after`). The row itself
+        holds only the new value once the firing is done.
   - [ ] The pass's `Kalshi trades` summary block reports `requests` at or
         just above `TRADE_REQUESTS_PER_PASS`, marked `(capped)` — the cap's
         only production observation (Criterion 8). **Source:** the unit runs

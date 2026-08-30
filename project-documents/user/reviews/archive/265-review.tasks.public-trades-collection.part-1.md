@@ -10,68 +10,48 @@ aiModel: claude-opus-5
 status: complete
 dateCreated: 20260829
 dateUpdated: 20260829
-reviewedSha: d1208310e79c72ee6a42d7ed5c5861387fb5da4a
+reviewedSha: ca487a1be8edf17a7906aa83be8f8cd6954044af
 findings:
   - id: F001
     severity: concern
-    category: correctness
-    summary: "The rename guard as specified misses `.env`, the exact silent-fallback it exists to prevent"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:178"
+    category: coverage-gap
+    summary: "The trades `cutoff` the status block renders has no persisted source, and only part 1's migration can give it one"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:300-327"
   - id: F002
     severity: concern
-    category: missing-interface
-    summary: "No task defines how the core reads the catalog walk start, which the window end depends on"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:307-320"
+    category: test-coverage
+    summary: "`is_block_trade NOT NULL` is argued for at length in Task 2.2 but no task tests it"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:313-318"
   - id: F003
-    severity: concern
-    category: test-coverage
-    summary: "The `PageCounts` accounting identity is specified so that it asserts nothing"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:336-343"
+    severity: note
+    category: sequencing
+    summary: "Task 4.2 needs the phase-name string two tasks before Task 4.4 defines it, and the existing precedent is unstated"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:507-509"
   - id: F004
-    severity: concern
-    category: error-handling
-    summary: "Task 2.2 introduces a silent fallback for `is_block_trade` that the design never decided"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:260-264"
+    severity: note
+    category: test-coverage
+    summary: "No task asserts `KalshiClient` structurally satisfies the `TradeSource` Protocol"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:467-469"
   - id: F005
-    severity: concern
-    category: test-coverage
-    summary: "Task 1.1's \"byte-identical\" success criterion cannot be checked by the test Task 1.5 specifies"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:132-134"
+    severity: note
+    category: test-with-pattern
+    summary: "Section 1 batches its tests into Task 1.5 rather than pairing them with Tasks 1.2–1.4"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:238-268"
   - id: F006
-    severity: note
-    category: test-coverage
-    summary: "Task 3.2's one-statement-per-page success criterion has no corresponding assertion in Task 3.3"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:345-347"
-  - id: F007
-    severity: note
-    category: completeness
-    summary: "Two rename touchpoints named in the design have no task bullet"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:189"
-  - id: F008
-    severity: note
-    category: task-sizing
-    summary: "Task 4.3 bundles new test infrastructure with eleven behavioral tests"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:435"
-  - id: F009
-    severity: note
-    category: test-coverage
-    summary: "No load-test task, consistent with the 264 precedent; no CI gate exists to wire one into"
-    location: ".github/workflows/ci.yml:1-5"
-  - id: F010
     severity: pass
     category: coverage
-    summary: "Every Success Criterion in part 1's remit traces to a task, and no task lacks a criterion"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md"
-  - id: F011
-    severity: pass
-    category: sequencing
-    summary: "Sequencing is correct, acyclic, and the cited code locations are accurate"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md"
-  - id: F012
+    summary: "Every success criterion traces to at least one task, and no task lacks a criterion"
+    location: "project-documents/user/slices/265-slice.public-trades-collection.md:372-386"
+  - id: F007
     severity: pass
     category: process
-    summary: "Commit checkpoints are one per section, not batched at the end"
-    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:221"
+    summary: "Commit checkpoints are distributed one per section, not batched"
+    location: "project-documents/user/tasks/265-tasks.public-trades-collection-1.md:270-275"
+  - id: F008
+    severity: pass
+    category: nfr-gating
+    summary: "No NFR is restated, so the absence of a `test/load/` task is correct"
+    location: "project-documents/user/slices/265-slice.public-trades-collection.md:475-479"
 ---
 
 # Review: tasks — slice 265
@@ -81,50 +61,46 @@ findings:
 
 ## Findings
 
-### [CONCERN] The rename guard as specified misses `.env`, the exact silent-fallback it exists to prevent
+### [CONCERN] The trades `cutoff` the status block renders has no persisted source, and only part 1's migration can give it one
 
-Task 1.4 specifies a `model_validator(mode="after")` that "scans `os.environ` for any key starting with the old prefix". But `Settings` is configured with `env_file=ENV_FILE` (`src/manta_trading/config/__init__.py:23,34`) and `extra="ignore"`, and the existing field comments explicitly describe `.env` authorship ("A .env author writes ``Sports, Mentions``"). A stale `MT_KALSHI_CANDLE_EXCLUDED_CATEGORIES=` line in `.env` is never in `os.environ`, so the guard passes, pydantic-settings ignores the key, and the rule silently reverts to defaults — the precise failure Decision 3 and CLAUDE.md ("Never use silent fallback values") forbid. Systemd's `EnvironmentFile` puts production values in `os.environ`, so this hole is invisible on the host and only bites developers and the rehearsal. The task should require the scan to cover both `os.environ` **and** the parsed `env_file` values (`dotenv_values(ENV_FILE)`), and Task 1.5's parametrized guard test should cover the `.env` path as well as the environment path.
+The design's Rich block (slice line 336) prints `cutoff 2026-06-29` on the trades header line, but `TradeStatus`'s field list (slice lines 325-331) contains only `last_phase_at`, `tape_through`, `lag`, `behind`, `coverage_from` — no cutoff — and Decision 10 forbids `status` from calling the client. Task 2.2's migration adds only `coverage_from_ts` to `sync_state`; nothing writes the observed `trades_created_ts` anywhere.
 
-### [CONCERN] No task defines how the core reads the catalog walk start, which the window end depends on
+This is not covered by `coverage_from_ts`. Those two values coincide only on the first run: the design's own Discovery Findings measure the cutoff advancing ~one day per day, while `coverage_from_ts` is "set once, never moved." By day two they differ, and part 2's Task 5.3 ("render the design's *Rich block* layout", test: "the Rich block renders every field") has no value to render.
 
-Task 4.2 step 2 (line 409) requires the window end = `sync_state['catalog'].last_full_sync_at − TRADE_LATE_ARRIVAL_GUARD`, and Task 4.3 test 2 asserts the last window is clamped to it. But `TradeSync` has no SQL by design, and Task 3.1's enumerated `TradeRepository` surface is only `read_state`, `init_state`, `advance_watermark`, `set_last_full_sync`, `transaction` — no catalog-state reader. `CatalogRepository.get_sync_state(surface)` exists (`src/manta_trading/data/kalshi/repository.py:258`) and returns `last_full_sync_at`, so the plumbing is available, but the seam is unnamed. Consequence: the implementer of Task 4.2 either reaches into `CatalogRepository` from the core (breaking the Protocol boundary the slice insists on) or invents a method name that Task 4.3's `fake_trade_repository.py` was not specified to provide, and the "no catalog row → nothing fetched" case (Task 4.2 step 2, Task 4.3 test 3, Criterion 7) has no defined way to be simulated. Add the reader (e.g. `read_catalog_walk_start() -> datetime | None`) to Task 3.1's list and to the fake in Task 4.3.
+Failure scenario: the implementer reaches Task 5.3 in part 2, finds no source for `cutoff`, and either (a) renders `coverage_from` twice under two labels — a silently wrong operator-facing number that hides exactly the signal the design calls out ("a cutoff that reaches the watermark is the signal that 266 has become urgent"), or (b) calls `get_historical_cutoff()` from `status.py`, breaking Criterion 11 and the `test_status_imports.py` guard, or (c) adds a `kalshi_007` migration for a column `kalshi_006` should have carried.
 
-### [CONCERN] The `PageCounts` accounting identity is specified so that it asserts nothing
+Note the candle surface solves this by storing its cutoff in `sync_state['candlesticks'].watermark_ts` (`status.py:259-266`) — a slot that is *not* available to trades, because for trades `watermark_ts` is the tape watermark. Resolve in Task 2.2 by adding the column (e.g. `cutoff_observed_ts`) alongside `coverage_from_ts` and having Task 3.1/4.2 write it each run, or strike `cutoff` from the Rich block in part 2 and record why.
 
-Task 3.2 says `PageCounts` carries `fetched, written, unknown_market, excluded_by_rule` and that "`duplicates` is derived as `selected − written`" — but `selected` is not one of the carried fields, so the only way to derive it is `selected = fetched − unknown − excluded`. Substituting that into the identity the task then demands be asserted structurally in `__post_init__` (`fetched = written + unknown + excluded + duplicates`) yields `fetched = fetched`. Criterion 2 is "an exact accounting", and the task's own words say "make it structural", yet the assertion as specified can never fail. The design's SQL (`Repository` block) returns four values — `unknown`, `excluded`, `selected`, `written` — so `selected` must be carried from SQL and `fetched` set independently from `len(rows)`; only then does the assertion actually catch a page whose rows failed to reach `classified`. Task 3.3's per-case identity assertion inherits the same vacuity.
+### [CONCERN] `is_block_trade NOT NULL` is argued for at length in Task 2.2 but no task tests it
 
-### [CONCERN] Task 2.2 introduces a silent fallback for `is_block_trade` that the design never decided
+Task 2.2 spends a full bullet justifying keeping the column `NOT NULL` while 261's model types it `bool | None = None` (verified: `data/kalshi/models.py:153`), explicitly invoking "the same posture the slice takes toward a non-UUID `trade_id` (Task 3.3 case 6)". But Task 3.3's fixture set (lines 432-441) has a case for the non-UUID id and no case for a null `is_block_trade`.
 
-The design's migration makes `is_block_trade BOOLEAN NOT NULL` and Decision 11 lists it as a served field; 261's model types it `bool | None` (`src/manta_trading/data/kalshi/models.py:153`). Task 2.2 resolves the mismatch on its own authority by having `write_page` coalesce a missing value to `FALSE`, justified by "the recorded fixture and the 352,000-trade sample carry it on every row". That justification argues the opposite way: if the field is always served, coalescing costs nothing to omit and silently mislabels a real block trade as non-block on the one day Kalshi omits it. It is also inconsistent with the same slice's handling of the parallel mismatch — a non-UUID `trade_id` is required to "fail the write loudly" (Task 3.3 case 6) — and with CLAUDE.md's ban on silent fallback values. Either fail loudly on `None` (consistent, no design change) or route the choice back to the design as a decision; do not settle it in a task bullet.
+Failure scenario: Kalshi omits `is_block_trade` on some trade class (the sample that justified the decision was 352,000 rows from four hours of one day). The insert raises `psycopg.errors.NotNullViolation` — an `IntegrityError`, not an `OperationalError` — which under Task 3.2's taxonomy "any other `psycopg.Error` propagates as a bug" aborts the entire pass with an unclassified exception rather than a `STORAGE_ABORT`. Whether that is the intended blast radius is untested and undocumented; the sibling behavior (non-UUID id) at least has case 6 to pin its exception type. Add a seventh case to Task 3.3: a page row with `is_block_trade=None` fails the write, asserting the concrete exception type that propagates.
 
-### [CONCERN] Task 1.1's "byte-identical" success criterion cannot be checked by the test Task 1.5 specifies
+### [NOTE] Task 4.2 needs the phase-name string two tasks before Task 4.4 defines it, and the existing precedent is unstated
 
-Task 1.1 states: "Success: `candle_selection.MARKET_JOIN` renders byte-identical SQL to the pre-rename version (assert in Task 1.5)". Task 1.5's corresponding test is "assert `CATALOG_JOIN`'s rendered text is a prefix of `MARKET_JOIN`'s" — that proves composition, not equivalence to the pre-rename text, and the pre-rename text no longer exists once the `git mv` lands. There is currently no `MARKET_JOIN` assertion anywhere in `test/unit/data/kalshi/test_selection_sql.py` to serve as the baseline. Since Section 1 claims to add no behavior and Criterion 5's last clause is "the candle phase behaves exactly as before the rename", the plan should require capturing the rendered `MARKET_JOIN` string as a literal snapshot *before* the move (a first bullet in Task 1.1), then asserting equality afterwards.
+Task 4.2 step 6 requires emitting `phase_finished` with `phase="trades"`, and Task 4.3b case 9 asserts it — but `PassPhaseName.TRADES` is added in Task 4.4, and Task 2.1 (line 295-296) explicitly defers it there. Part 1's hard rule "Every comparison value is a named constant" then leaves the implementer with no constant to use.
 
-### [NOTE] Task 3.2's one-statement-per-page success criterion has no corresponding assertion in Task 3.3
+The repository already resolves this: `candle_sync.py:64-67` defines a module-local `PHASE = "candles"` with a comment explaining that the core cannot import `collection_pass` (which imports it). Task 4.2 should name that precedent and instruct the same `PHASE = "trades"` shape with the same comment; otherwise a junior implementer either hardcodes a bare literal against the stated rule, or introduces the circular import the candle module was written to avoid. Low risk of a wrong outcome, high risk of a wasted debugging cycle.
 
-Task 3.2's success is "a page of 1,000 rows issues exactly one statement (assert via a counting cursor or the connection's query log in the integration test)", but Task 3.3's enumerated cases (six predicate cases, parity, `advance_watermark`, `init_state`) do not include it. A criterion whose only verification lives in another task's unlisted scope tends to be dropped. Add it explicitly to Task 3.3.
+### [NOTE] No task asserts `KalshiClient` structurally satisfies the `TradeSource` Protocol
 
-### [NOTE] Two rename touchpoints named in the design have no task bullet
+Task 4.1 defines `TradeSource` with explicit keyword parameters (`min_ts: int, max_ts: int, limit: int`), while the real client is `get_trades(self, *, cursor=None, **query: Unpack[TradesQuery])` (`client.py:350-352`) with `TradesQuery` declaring those keys as `int | None` under `total=False` (`client.py:106-113`). Conformance should hold structurally, and the mypy/pyright gate is the intended net — but MEMORY records that this exact `Unpack` pattern produces false errors under narrower mypy invocations in this package, so the gate is the least reliable place to learn about a mismatch. A one-line `_: TradeSource = client` conformance assertion in Task 4.3a's fakes module would pin it deterministically. Nothing is currently wrong; this is cheap insurance on a known-fragile seam.
 
-(a) Task 1.4 renames `deploy/manta-trading.env.example` lines 25–29 "text otherwise unchanged", but lines 22–24 of that file are a header comment reading "Kalshi **candle** collection rule (slice 264): which markets the **candle phase** collects" — after Decision 3 that description is wrong, and the file is the operator's reference during the walkthrough step 8 rename. (b) The design's *Settings — the rename* requires that `traded_only` "is documented as not applying to trades"; Task 1.3 documents `SelectionForm` but no task documents `traded_only`'s surface asymmetry on the settings field itself. Both are one-line additions to Task 1.4.
+### [NOTE] Section 1 batches its tests into Task 1.5 rather than pairing them with Tasks 1.2–1.4
 
-### [NOTE] Task 4.3 bundles new test infrastructure with eleven behavioral tests
+Sections 2, 3, and 4 pair each implementation task with its test task immediately (2.2→2.3, 3.2→3.3, 4.2→4.3a/4.3b). Section 1 instead accumulates four implementation tasks (1.1–1.4) and tests them all in 1.5. This is defensible — Section 1 is a pure rename whose regression net is the existing green suite, and Task 1.1 does carry its own baseline snapshot test written *before* the `git mv` — but the two genuinely new behaviors (Task 1.3's `"any"` form, Task 1.4's dual-source guard) are new code whose tests sit two and one tasks downstream respectively. Consider folding the `"any"` and guard tests into 1.3 and 1.4 and leaving 1.5 as the mechanical rename sweep. Not blocking.
 
-Task 4.3 (effort 5, tied for the largest in the file) creates two new fake modules in `test/kalshi_support/` *and* eleven distinct behavioral tests spanning six Success Criteria. The fakes are reusable infrastructure with their own shape decisions (recorded `min_ts`/`max_ts`/`cursor` per call, in-memory state) and are a natural split point — and, per the finding above, the fake repository's surface is currently under-specified. Splitting at the fakes boundary would also let Task 4.2 be exercised incrementally. Not blocking.
+### [PASS] Every success criterion traces to at least one task, and no task lacks a criterion
 
-### [NOTE] No load-test task, consistent with the 264 precedent; no CI gate exists to wire one into
+Criteria 1→Tasks 4.4/6.1; 2→3.2/3.3/4.3b(4)/7.3; 3→3.3(4)/6.1/7.4; 4→4.3b(5,6)/7.4; 5→Section 1 entire/7.2; 6→4.3b(1,8)/9.2; 7→4.3b(2,3)/7.3; 8→4.3b(7)/9.3; 9→4.2/4.3b(10)/3.3(2); 10→6.2/7.2; 11→5.1/5.2a/5.4; 12→2.3/7.5; 13→9.2/9.3 plus an explicit handoff for the multi-day clause. Conversely, no part-1 task is untraceable: even the additions beyond the design's letter (Task 1.1's `MARKET_JOIN` snapshot baseline, Task 1.2's bound-parameter rename, Task 1.4's env-example header fix) each carry an in-line justification tied to Criterion 5 or walkthrough step 8. I found no scope creep.
 
-The slice restates no NFR as a threshold: its workload figures (~420 k trades/hour, ~3,000 requests/pass, ~15 min pass during the drain, per-window wall time) are measurements and derived estimates, and Criterion 13's "~7 hours per firing" is an observation the PM watches, not a bound. This matches the explicit ruling recorded for the sibling slice (`264-tasks.candlestick-collection-1.md:579`: "no load test is required… adding a `test/load/` task would invent a bound the design declined to set"). Note for completeness that the repository's only CI workflow (`.github/workflows/ci.yml`) runs on `tags: ["v*"]` and does build-and-publish only — it runs no test tier at all — so there is no CI gate to wire a `test/load/` case into even if one were added; the unit and integration tiers, and the compression proof in Task 2.3, are gated locally by the per-section gate tasks. If the PM ever wants the request-budget or per-window timing enforced rather than observed, that is a new slice-level decision, not a fix to this breakdown.
+Two criteria are deliberately proven in production rather than the rehearsal (6's cutoff start, 8's cap), and part 2's Task 7.6 requires that gap to be written down with its reason and its substitute location — a good pattern that keeps the deferral visible rather than implicit.
 
-### [PASS] Every Success Criterion in part 1's remit traces to a task, and no task lacks a criterion
+### [PASS] Commit checkpoints are distributed one per section, not batched
 
-Criterion 1 → Task 4.4; 2 → Tasks 3.2/3.3, 4.3 test 4; 3 → Task 3.3 case 4; 4 → Task 4.3 tests 5–6; 5 → Section 1 in full (1.4 guard, 1.5 tests, 3.3 case 5); 6 → Tasks 4.2 step 1, 4.3 tests 1 and 8; 7 → Tasks 4.2 step 2, 4.3 tests 2–3; 8 → Tasks 2.1, 4.2 step 3, 4.3 test 7; 9 → Tasks 4.2, 4.3 test 10, 3.3 case 2; 12 → Task 2.3's real-chunk compression case. Criteria 10, 11, 13 are explicitly deferred to part 2 (Sections 6, 5, 9 respectively), and the hand-off note at line 519 names them. In the other direction, no task in Sections 1–4 lacks a criterion or design section: the only additions beyond the design text are the `selection_sql` bound-parameter rename (Task 1.2) and the structural accounting assertion (Task 3.2), both small and reasoned in place.
+Part 1 carries four checkpoints (Tasks 1.6, 2.4, 3.4, 4.7), each with a semantic message matching CLAUDE.md's prefix table (`refactor:`, `feat:`, `feat:`, `feat:`), each preceded by scoped ruff/mypy/pyright gates. Part 2 adds five more (5.5, 6.3, 7.6, 8.2, 9.x). This matches the PM-confirmed granularity in MEMORY ("checkpoint per section, not per numbered subtask"). Task 8.2 correctly notes it omits the lint gates because it edits markdown only — the kind of stated exception that stops a reader from assuming an oversight. No git merge or branch steps appear as tasks, per the standing veto.
 
-### [PASS] Sequencing is correct, acyclic, and the cited code locations are accurate
+### [PASS] No NFR is restated, so the absence of a `test/load/` task is correct
 
-The order rename → constants/migration → repository → core/phase respects every real dependency: Task 3.2's `selection_sql(rule, "any")` comes from Task 1.3; Task 3.3's integration tests need the table from Task 2.2; Task 4.2 needs `TradeRepository` from Section 3 and the constants from Task 2.1; Task 4.6's `PHASE_RENDERERS[TRADES]` follows Task 4.4's enum member. Tests immediately follow their implementation in every section (1.5 after 1.1–1.4, 2.3 after 2.2, 3.3 after 3.2, 4.3 after 4.2, with 4.4–4.6 carrying inline test bullets). I verified every code reference the file cites: `cli/commands/kalshi.py:234`, `collection_pass.py:250`, `kalshi_render.py:223`, `manta-trading.env.example:25-29`, `test_data_kalshi.py:347`, `test_units.py:145-149`, and "`status.py` is already 309 lines" are all exact; `_interval_sql`, `WINDOW_OVERLAP`, `Surface.TRADES`, `PHASE_RENDERERS`, `record_trades`/`RECORDERS`, `test_status_imports.py` and the `test/kalshi_support/` fakes all exist as described; the Task 1.5 test-file list is complete against `grep` for `CandleRule`/`candle_rule`/`MT_KALSHI_CANDLE_`; and the branch name matches the `261-`/`262-`/`263-`/`264-slice.*` precedent in `git branch`.
-
-### [PASS] Commit checkpoints are one per section, not batched at the end
-
-Tasks 1.6, 2.4, 3.4 and 4.7 each pair the gate run (ruff scoped to touched files, mypy + pyright in a single invocation per the kalshi_support path artifact) with a semantic commit, distributed across the four sections — matching the PM-confirmed checkpoint-per-section granularity. Commit messages use correct semantic prefixes (`refactor:` for the rename, `feat:` for the migration, repository, and phase).
+I grepped the slice for NFR language and found none; the repo does maintain the convention (`test/load/test_167_data_status_nfr.py`, `test_169_...nfr.py`, etc.), so its absence here is a choice rather than an omission. The quantitative figures the slice does carry — ~420 requests/hour steady state, ~3,000-request cap, per-window wall time before and after compression — are capacity estimates and one-off drain observations, not committed thresholds, and they are correctly assigned to recorded measurements (Tasks 7.3, 7.5, 9.3) that report numbers rather than assert bounds. Task 9.3's insistence that all five numbers come "from the firing that just completed" is the right way to keep that measurable without a wait-blocked item. The one latent performance risk the design flags — `write_page`'s 1,000-row catalog join, ~10k statements/day — is observable through the per-window wall time those tasks capture, with the per-phase ticker cache named as the lever if it dominates.

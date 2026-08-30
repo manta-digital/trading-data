@@ -7,7 +7,7 @@ dependencies: [263]
 interfaces: [266]
 effort: 3
 dateCreated: 20260828
-dateUpdated: 20260828
+dateUpdated: 20260830
 status: in_progress
 ---
 
@@ -162,9 +162,9 @@ Module boundaries follow 262/264: the core has no httpx, no typer, no SQL; it de
 
 1. **Cutoff and state.** `get_historical_cutoff().trades_created_ts` once (logged at INFO every run — the line that says how much live tape remains). Read `sync_state['trades']`: on the **first run** there is no row; the phase writes one with `coverage_from_ts = watermark_ts = cutoff` (Decision 2). If `watermark_ts < cutoff` on a later run, the tape between them is no longer served live: raise `TradesBehindCutoffError` naming the range (Decision 6) — never skip silently.
 2. **Window end.** `end = sync_state['catalog'].last_full_sync_at − TRADE_LATE_ARRIVAL_GUARD` (Decision 5): every market that traded before the catalog walk began is in the catalog after it. No catalog row → the phase does nothing and says so.
-3. **Windows, oldest first.** From `watermark_ts` in steps of `TRADE_WINDOW` (1 h), the last one clamped to `end`. Before each window: if `requests ≥ TRADE_REQUESTS_PER_PASS`, stop and mark the result `capped` (Decision 8) — the next pass continues from the watermark.
-4. **One window.** Page through `get_trades(min_ts = start − WINDOW_OVERLAP, max_ts = end, limit = TRADE_PAGE_LIMIT, cursor)` until the cursor is empty. **Each page is one transaction** (`write_page`): the page's tickers are classified in SQL against the catalog and the rule (Decision 5) — *unknown* (no market row), *excluded* (known, rule does not select), *selected* — and the selected rows are inserted with `ON CONFLICT DO NOTHING`; the statement returns the three counts and the rows written, so `duplicates = selected − written`. Pages of a window commit as they go; the watermark does not move yet.
-5. **Window done.** In one transaction: `sync_state['trades'].watermark_ts = end`, `updated_at = now()`. One INFO line per window (263 Decision 8): `trades window {start}→{end} pages N fetched F written W unknown U excluded X` — the operator's progress line during the drain.
+3. **Windows, oldest first.** From `watermark_ts` in steps of `TRADE_WINDOW` (1 h), each window's `window_end = min(start + TRADE_WINDOW, end)` — only the last is short. (`end` is the pass's bound from step 2; `window_end` is one window's — two names, because read as one the first window would request the whole drain and the cap would never bind.) Before each window: if `requests ≥ TRADE_REQUESTS_PER_PASS`, stop and mark the result `capped` (Decision 8) — the next pass continues from the watermark.
+4. **One window.** Page through `get_trades(min_ts = start − WINDOW_OVERLAP, max_ts = window_end, limit = TRADE_PAGE_LIMIT, cursor)` until the cursor is empty. **Each page is one transaction** (`write_page`): the page's tickers are classified in SQL against the catalog and the rule (Decision 5) — *unknown* (no market row), *excluded* (known, rule does not select), *selected* — and the selected rows are inserted with `ON CONFLICT DO NOTHING`; the statement returns the three counts and the rows written, so `duplicates = selected − written`. Pages of a window commit as they go; the watermark does not move yet.
+5. **Window done.** In one transaction: `sync_state['trades'].watermark_ts = window_end`, `updated_at = now()`. One INFO line per window (263 Decision 8): `trades window {start}→{end} pages N fetched F written W unknown U excluded X` — the operator's progress line during the drain.
 6. **Finish.** `sync_state['trades'].last_full_sync_at = phase_start`; `phase_finished` with counts. Classification: `ProviderError` → `PROVIDER_ABORT`, `psycopg.OperationalError` → `STORAGE_ABORT`, else `OK` — this phase has no per-item failure and therefore never reports `PARTIAL` (Decision 9).
 
 Under the abort rule (263 Decision 2) a catalog or candle abort skips this phase; a trades abort cannot affect the phases that already finished.
@@ -243,7 +243,7 @@ class TradesBehindCutoffError(Exception): ...          # Decision 6; propagates 
 def classify_trades(result, exc) -> SyncOutcome:       # classify_outcome(False, exc)
 ```
 
-`TradeSync.run()` is Data Flow steps 1–6; `_window(start, end)` is step 4–5. The unknown-prefix tally is kept in memory for the log line only (ticker text before the first `-`, display only).
+`TradeSync.run()` is Data Flow steps 1–6; `_window(start, window_end)` is step 4–5. The unknown-prefix tally is kept in memory for the log line only (ticker text before the first `-`, display only).
 
 ### Repository (`trade_repository.py`)
 
@@ -264,7 +264,7 @@ SELECT count(*) FILTER (WHERE NOT known), count(*) FILTER (WHERE known AND NOT s
 ```
 
   `{rule_any}` is `selection_sql(rule, "any").predicate`, the only rendering of the rule; the arrays are bound parameters (one statement per page of 1,000 — under the bind-parameter ceiling by construction: nine arrays, not 9,000 placeholders).
-- `advance_watermark(end)`; `set_last_full_sync(phase_start)` via `CatalogRepository`'s `sync_state` statements; `transaction()`.
+- `advance_watermark(window_end)`; `set_last_full_sync(phase_start)` via `CatalogRepository`'s `sync_state` statements; `transaction()`.
 
 Storage taxonomy: `OperationalError` propagates (storage abort); any other `psycopg.Error` propagates as a bug — there is no per-market rewrite because the FK is guaranteed by the join and duplicates are conflict-ignored.
 

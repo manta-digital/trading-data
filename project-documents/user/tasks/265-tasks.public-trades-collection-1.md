@@ -26,8 +26,9 @@ reviewVerdictsAddressed:
   - 265-review.tasks.public-trades-collection.part-2, first round (claude-opus-5, FAIL) — all findings addressed
   - 265-review.tasks.public-trades-collection.part-1, second round (claude-opus-5, CONCERNS) — F001 the cutoff figure is struck from the status block, not given a column (Task 2.2); F002 Task 3.3 case 7; F003 Task 4.2 step 6; F004 Task 4.3a; F005 the new-behavior tests moved into Tasks 1.3 and 1.4; F006–F008 pass
   - 265-review.tasks.public-trades-collection.part-2, second round (claude-opus-5, FAIL) — F002's column question settled in Task 2.2 here; the rest in part 2
+  - 265-review.tasks.public-trades-collection.part-1, third round (claude-opus-5, CONCERNS) — F001 `phase_end` and `window_end` named apart in Task 4.2 and in the design's Data Flow; F002 the guard's env-file seam pinned in Task 1.4; F003 Task 3.1; F004 Task 3.3 case 7; F005 Task 4.3a and Task 4.3b case 12; F006 part 2 Task 9.1; F007 Task 3.2; F008 no change; F009–F011 pass
 dateCreated: 20260829
-dateUpdated: 20260829
+dateUpdated: 20260830
 status: not_started
 ---
 
@@ -111,7 +112,7 @@ status: not_started
   the design's Data Flow steps 1–6, and splitting it yields pieces that
   cannot be tested apart), Task 3.2 and Task 3.3 (4 each — `write_page` is
   one SQL statement and one fixture set; splitting the statement from its
-  predicate cases would test neither), and Task 4.3b (4 — eleven core
+  predicate cases would test neither), and Task 4.3b (4 — twelve core
   behaviors, one test each, already split from its fakes at Task 4.3a).
   Everything else is ≤ 3.
 - **This file is part 1 of 2.** Sections 1–4 below do the rename, the
@@ -215,10 +216,17 @@ as before (Criterion 5, last clause).
         `.env` never reaches `os.environ` — an `os.environ`-only guard would
         pass and the rule would silently revert to defaults, which is the
         exact failure the guard exists to prevent. Scan `os.environ` **and**
-        the parsed env-file values (`dotenv_values(ENV_FILE)`). Systemd's
-        `EnvironmentFile` puts production values in `os.environ`, so the
-        `.env` hole would be invisible on the host and would bite only
-        developers and the rehearsal.
+        the parsed env-file values (`dotenv_values(...)`). **The seam:** a
+        `model_validator` cannot see which env file this construction used,
+        so the guard is a module-level function called from an overridden
+        `Settings.__init__` *before* `super().__init__`, given the
+        **effective** env file resolved exactly as pydantic-settings resolves
+        it — the `_env_file` keyword when passed, else
+        `model_config["env_file"]`; `None` means no file, scan the
+        environment only. One mechanism for production, the developer's
+        `.env`, and the tests. Systemd's `EnvironmentFile` puts production
+        values in `os.environ`, so the `.env` hole would be invisible on the
+        host and would bite only developers and the rehearsal.
   - [ ] Update the two call sites: `cli/commands/kalshi.py:234` and
         `collection_pass.py:250` (`settings.candle_rule()` →
         `settings.collection_rule()`), and the renderer's literal at
@@ -242,14 +250,17 @@ as before (Criterion 5, last clause).
         names, then add two new ones (new behavior is tested where it is
         written, not two tasks downstream):
     - **The guard is loud from the environment:** every one of the five
-      `MT_KALSHI_CANDLE_*` names, set alone in `os.environ`, raises at
-      `Settings` construction with a message containing the new name.
+      `MT_KALSHI_CANDLE_*` names, set alone in `os.environ` (monkeypatched)
+      with `_env_file=None`, raises at `Settings` construction with a
+      message containing the new name.
       Parametrize over the five so a later sixth setting cannot be
       forgotten.
     - **The guard is loud from `.env`:** the same five names, each written
-      alone into a temporary env file that `Settings` is pointed at, raise
-      the same way. Without this case the hole described above ships
-      untested, and it is the one a developer hits.
+      alone into a `tmp_path` env file passed as
+      `Settings(_env_file=that_path)` — the same keyword the file's existing
+      `_settings()` helper already uses with `None` — raise the same way,
+      with `os.environ` clean of the five. Without this case the hole
+      described above ships untested, and it is the one a developer hits.
   - [ ] Success: `MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES=Sports mt data
         kalshi status` behaves as the old variable did;
         `MT_KALSHI_CANDLE_CATEGORIES=Sports mt data kalshi status` exits
@@ -398,8 +409,11 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
         widen `get_sync_state`; the catalog surface has no coverage floor and
         its `SyncState` should not grow a column that is always NULL for it.
   - [ ] `init_state(cutoff)` inserts the row with **both** `watermark_ts` and
-        `coverage_from_ts` set to the cutoff — first run only (Decision 2).
-  - [ ] `advance_watermark(end)` and `set_last_full_sync(phase_start)` reuse
+        `coverage_from_ts` set to the cutoff — first run only (Decision 2),
+        with `ON CONFLICT (surface) DO NOTHING`: `surface` is the primary
+        key, so a plain `INSERT` would raise `UniqueViolation` on re-entry,
+        and Task 3.3 asserts the second call is a no-op.
+  - [ ] `advance_watermark(window_end)` and `set_last_full_sync(phase_start)` reuse
         `CatalogRepository`'s `sync_state` statements rather than re-spelling
         them; `transaction()` is the same context manager.
   - [ ] `read_catalog_walk_start() -> datetime | None` — the
@@ -434,8 +448,11 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
         over) and `unknown_market`, `excluded_by_rule`, `selected`, `written`
         from the statement's four returned counts. `duplicates` is derived as
         `selected − written`.
-  - [ ] Assert `fetched == written + unknown_market + excluded_by_rule +
-        duplicates` in `__post_init__`. **`selected` must be carried, not
+  - [ ] Check `fetched == written + unknown_market + excluded_by_rule +
+        duplicates` in `__post_init__` and raise an explicit exception (a
+        small `PageAccountingError(ValueError)` naming all five numbers) —
+        **not `assert`**, which `python -O` strips and which would make the
+        "structural" guarantee optional. **`selected` must be carried, not
         re-derived** — deriving it as `fetched − unknown − excluded` collapses
         the assertion to `fetched = fetched`, which can never fail. Carried
         from SQL, the assertion catches the real defect it exists for: page
@@ -464,10 +481,14 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
        cleared, the Sports trade is the one written (Criterion 5).
     6. A page carrying a **non-UUID** `trade_id` fails the write loudly (a
        `psycopg.DataError` propagates; it is not swallowed and not counted).
-    7. A page row with `is_block_trade=None` fails the write loudly:
-       `psycopg.errors.NotNullViolation` (an `IntegrityError`, not an
-       `OperationalError`) propagates — not swallowed, not counted, and not
-       a storage abort (Task 2.2's NOT NULL posture).
+    7. A page row with `is_block_trade=None` **on a market the rule
+       selects** fails the write loudly: `psycopg.errors.NotNullViolation`
+       (an `IntegrityError`, not an `OperationalError`) propagates — not
+       swallowed, not counted, and not a storage abort (Task 2.2's NOT NULL
+       posture). The precondition matters: only selected rows reach the
+       `INSERT`, so a null on an excluded or unknown market never touches the
+       column and the `raises` never fires. (Case 6 is unconditional because
+       the `::uuid[]` cast fails inside `unnest`, before classification.)
   - [ ] For every case assert the full identity
         `fetched = written + unknown + excluded + duplicates`.
   - [ ] `TRADE_COLUMNS` parity against the real table (every mapped column
@@ -516,23 +537,30 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         with `coverage_from_ts = watermark_ts = cutoff` (Decision 2); on
         `watermark_ts < cutoff`, raise `TradesBehindCutoffError`
         (Decision 6).
-  - [ ] Step 2 — window end: `sync_state['catalog'].last_full_sync_at −
-        TRADE_LATE_ARRIVAL_GUARD` (Decision 5). **No catalog row → the phase
-        fetches nothing and says so** in its result and its log line.
-  - [ ] Step 3 — windows oldest-first in `TRADE_WINDOW` steps from
-        `watermark_ts`, the last clamped to `end`. The cap check
+  - [ ] Step 2 — the pass bound: `phase_end = sync_state['catalog'].
+        last_full_sync_at − TRADE_LATE_ARRIVAL_GUARD` (Decision 5). **No
+        catalog row → the phase fetches nothing and says so** in its result
+        and its log line.
+  - [ ] Step 3 — windows oldest-first from `watermark_ts`, each
+        `window_end = min(start + TRADE_WINDOW, phase_end)`, so only the
+        last is short. **Two bounds, two names:** `phase_end` is where the
+        pass stops, `window_end` is where one window stops. Read as a single
+        `end`, the first window would request `[watermark, phase_end)` —
+        the whole ~60-day drain, ~600 k pages — and the cap, checked once
+        before that one window, would never bind (Criteria 4 and 8 both
+        fail). The cap check
         (`requests >= TRADE_REQUESTS_PER_PASS`) is **before each window**, so
         a pass may exceed the cap by at most one window; on stopping, set
         `capped = True` (Decision 8).
   - [ ] Step 4 — one window: page through
-        `get_trades(min_ts=start − WINDOW_OVERLAP, max_ts=end,
+        `get_trades(min_ts=start − WINDOW_OVERLAP, max_ts=window_end,
         limit=TRADE_PAGE_LIMIT, cursor)` until the cursor is empty; each page
         is one `write_page` call in its own transaction; accumulate the
         counts. The watermark does not move inside a window.
-  - [ ] Step 5 — window done: `advance_watermark(end)` in one transaction,
-        then one INFO line per window in the design's format
-        (`trades window {start}→{end} pages N fetched F written W unknown U
-        excluded X`).
+  - [ ] Step 5 — window done: `advance_watermark(window_end)` in one
+        transaction, then one INFO line per window in the design's format
+        (`trades window {start}→{window_end} pages N fetched F written W
+        unknown U excluded X`).
   - [ ] Step 6 — finish: `set_last_full_sync(phase_start)`; emit
         `phase_finished` with `phase="trades"` through the existing sink and
         `emit_in_thread` — **no new event type**. The phase name is a
@@ -555,8 +583,12 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
   - [ ] Add `test/kalshi_support/fake_trade_repository.py` with the full
         surface Task 3.1 defines — `read_state`, `init_state`,
         `advance_watermark`, `set_last_full_sync`, **`read_catalog_walk_start`
-        (returning `None` on demand, for the no-catalog-row case)**, and
-        `write_page` returning scripted `PageCounts`. In-memory state,
+        (returning `None` on demand, for the no-catalog-row case)**,
+        `write_page` returning scripted `PageCounts`, **`transaction()`** (the
+        core wraps every write in it, as `candle_sync.py` does), and the
+        **`fail_on(method, exc, at=…)`** injection hook
+        `fake_candle_repository.py:94` provides — without it no core test can
+        raise a `psycopg.OperationalError` mid-window. In-memory state,
         recorded call order.
   - [ ] Model both on `fake_candle_source.py` / `fake_candle_repository.py`
         and extend `test/unit/data/kalshi/test_fakes.py` so the fakes
@@ -579,7 +611,9 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
        `watermark_ts` at the cutoff (Criterion 6).
     2. The window sequence starts at the watermark, steps by `TRADE_WINDOW`,
        and the last window is clamped to the catalog walk start minus the
-       guard (Criterion 7).
+       guard (Criterion 7) — asserted on the fake source's recorded `max_ts`
+       of **every** request, each equal to its own window's end, not only
+       on the last one (Task 4.2's two-bounds rule).
     3. No catalog row → nothing fetched, and the result says so.
     4. Per-page counts aggregate into the result, and the identity
        `fetched = written + unknown + excluded + duplicates` holds
@@ -596,6 +630,11 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         (Criterion 9).
     11. The lower bound of each request is `start − WINDOW_OVERLAP`
         (Decision 1's boundary handling).
+    12. A `psycopg.OperationalError` injected on `write_page` mid-window
+        (the fake's `fail_on`) leaves the watermark where it was and the
+        result classifies as `STORAGE_ABORT` — case 6's twin for the other
+        caught exception; without it Task 4.1's `STORAGE_ABORT` is only ever
+        asserted against a hand-built exception.
   - [ ] Success: `uv run pytest test/unit/data/kalshi/test_trade_sync.py -q`
         green.
 
