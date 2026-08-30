@@ -385,22 +385,22 @@ Design *Constants*, *Migration `kalshi_006_trades`*, *Technical Decision 4*
   - [x] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_migrations -q` green.
 
-- [ ] **Task 2.4: Section 2 gates and checkpoint commit** (effort: 1)
+- [x] **Task 2.4: Section 2 gates and checkpoint commit** (effort: 1)
   - [x] Gates as Task 1.6, scoped to the files touched.
-  - [ ] Commit: `feat: add kalshi_006_trades migration and trade constants`.
+  - [x] Commit: `feat: add kalshi_006_trades migration and trade constants`.
 
 ## Section 3: `TradeRepository` — classify and write, in SQL
 
 Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
 *Technical Decision 11*.
 
-- [ ] **Task 3.1: `TRADE_COLUMNS` and the state readers** (effort: 2)
-  - [ ] New `data/kalshi/trade_repository.py`. `TRADE_COLUMNS` is the
+- [x] **Task 3.1: `TRADE_COLUMNS` and the state readers** (effort: 2)
+  - [x] New `data/kalshi/trade_repository.py`. `TRADE_COLUMNS` is the
         model→column map (261's `Trade.ticker` → `market_ticker`;
         `taker_side` is **not** stored, Decision 11), following
         `candle_repository.CANDLE_COLUMNS`'s shape so the parity test can be
         written the same way.
-  - [ ] `read_state() -> TradeState | None` reading `watermark_ts` and
+  - [x] `read_state() -> TradeState | None` reading `watermark_ts` and
         `coverage_from_ts` from `sync_state` where `surface = Surface.TRADES`.
         Note: `CatalogRepository.get_sync_state` selects only
         `last_full_sync_at, watermark_ts, cursor` (`repository.py:258`) and
@@ -408,15 +408,15 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
         so this needs its own statement rather than reusing that one. Do not
         widen `get_sync_state`; the catalog surface has no coverage floor and
         its `SyncState` should not grow a column that is always NULL for it.
-  - [ ] `init_state(cutoff)` inserts the row with **both** `watermark_ts` and
+  - [x] `init_state(cutoff)` inserts the row with **both** `watermark_ts` and
         `coverage_from_ts` set to the cutoff — first run only (Decision 2),
         with `ON CONFLICT (surface) DO NOTHING`: `surface` is the primary
         key, so a plain `INSERT` would raise `UniqueViolation` on re-entry,
         and Task 3.3 asserts the second call is a no-op.
-  - [ ] `advance_watermark(window_end)` and `set_last_full_sync(phase_start)` reuse
+  - [x] `advance_watermark(window_end)` and `set_last_full_sync(phase_start)` reuse
         `CatalogRepository`'s `sync_state` statements rather than re-spelling
         them; `transaction()` is the same context manager.
-  - [ ] `read_catalog_walk_start() -> datetime | None` — the
+  - [x] `read_catalog_walk_start() -> datetime | None` — the
         `sync_state['catalog'].last_full_sync_at` the window end trails
         (Decision 5). This is the **only** seam through which the core learns
         it: `TradeSync` has no SQL, so without a named repository method the
@@ -427,28 +427,28 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
         simulable. Implement over the existing
         `CatalogRepository.get_sync_state(Surface.CATALOG)`
         (`repository.py:258`), not a new statement.
-  - [ ] Success: the module has no httpx, no typer import; `TradeState` is a
+  - [x] Success: the module has no httpx, no typer import; `TradeState` is a
         frozen dataclass.
 
-- [ ] **Task 3.2: `write_page` — one statement, one transaction** (effort: 4)
-  - [ ] Implement `write_page(rows) -> PageCounts` as the single
+- [x] **Task 3.2: `write_page` — one statement, one transaction** (effort: 4)
+  - [x] Implement `write_page(rows) -> PageCounts` as the single
         data-modifying CTE in the design's *Repository* block: `unnest` of
         the page's column arrays → `LEFT JOIN` the catalog three-table join →
         `selected = COALESCE(<rule "any" predicate>, FALSE)` → insert the
         selected rows `ON CONFLICT DO NOTHING` → return
         `unknown`, `excluded`, `selected`, `written` in one round trip.
-  - [ ] The predicate comes from `selection_sql(rule, "any").predicate` —
+  - [x] The predicate comes from `selection_sql(rule, "any").predicate` —
         the **only** rendering of the rule on this path. Its params merge
         into the statement's parameter mapping.
-  - [ ] Arrays are bound parameters, one array per column (nine arrays, not
+  - [x] Arrays are bound parameters, one array per column (nine arrays, not
         9,000 placeholders) — this is what keeps a 1,000-row page under the
         bind-parameter ceiling. Say so in a comment.
-  - [ ] `PageCounts` is a frozen dataclass carrying **five** independently
+  - [x] `PageCounts` is a frozen dataclass carrying **five** independently
         sourced numbers: `fetched` from `len(rows)` (what the client handed
         over) and `unknown_market`, `excluded_by_rule`, `selected`, `written`
         from the statement's four returned counts. `duplicates` is derived as
         `selected − written`.
-  - [ ] Check `fetched == written + unknown_market + excluded_by_rule +
+  - [x] Check `fetched == written + unknown_market + excluded_by_rule +
         duplicates` in `__post_init__` and raise an explicit exception (a
         small `PageAccountingError(ValueError)` naming all five numbers) —
         **not `assert`**, which `python -O` strips and which would make the
@@ -458,30 +458,30 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
         from SQL, the assertion catches the real defect it exists for: page
         rows that never reached `classified` (a join or `unnest` arity bug).
         Criterion 2 is an exact accounting, so make it structural.
-  - [ ] Error taxonomy (design *Repository*): `psycopg.OperationalError`
+  - [x] Error taxonomy (design *Repository*): `psycopg.OperationalError`
         propagates as a storage abort; **any other** `psycopg.Error`
         propagates as a bug. No `try`/`except` swallows anything here.
-  - [ ] Success: a page of 1,000 rows issues exactly one statement (assert
+  - [x] Success: a page of 1,000 rows issues exactly one statement (assert
         via a counting cursor or the connection's query log in the
         integration test).
 
-- [ ] **Task 3.3: `write_page` integration tests — the predicate fixture set** (effort: 4)
-  - [ ] New `test/integration/test_kalshi_trades.py` using the `kalshi_db`
+- [x] **Task 3.3: `write_page` integration tests — the predicate fixture set** (effort: 4)
+  - [x] New `test/integration/test_kalshi_trades.py` using the `kalshi_db`
         fixture and `kalshi_helpers.py`, modelled on
         `test_kalshi_candles.py`'s `with_rule` helper.
-  - [ ] Seed fixture markets with synthesized series covering the cases, then
+  - [x] Seed fixture markets with synthesized series covering the cases, then
         assert each (design *Tests — Integration*):
-    1. A **Sports** trade is excluded and counted in `excluded_by_rule`.
-    2. A `KXMVE…`-style ticker with **no market row** is counted in
+    1. [x] A **Sports** trade is excluded and counted in `excluded_by_rule`.
+    2. [x] A `KXMVE…`-style ticker with **no market row** is counted in
        `unknown_market`, is not stored, and is not an error.
-    3. A **Politics** trade is written.
-    4. A **second write of the same page** writes 0 and reports the rows as
+    3. [x] A **Politics** trade is written.
+    4. [x] A **second write of the same page** writes 0 and reports the rows as
        `duplicates` (Criterion 3).
-    5. Under `MT_KALSHI_COLLECTION_CATEGORIES=Sports` with the exclusions
+    5. [x] Under `MT_KALSHI_COLLECTION_CATEGORIES=Sports` with the exclusions
        cleared, the Sports trade is the one written (Criterion 5).
-    6. A page carrying a **non-UUID** `trade_id` fails the write loudly (a
+    6. [x] A page carrying a **non-UUID** `trade_id` fails the write loudly (a
        `psycopg.DataError` propagates; it is not swallowed and not counted).
-    7. A page row with `is_block_trade=None` **on a market the rule
+    7. [x] A page row with `is_block_trade=None` **on a market the rule
        selects** fails the write loudly: `psycopg.errors.NotNullViolation`
        (an `IntegrityError`, not an `OperationalError`) propagates — not
        swallowed, not counted, and not a storage abort (Task 2.2's NOT NULL
@@ -489,23 +489,23 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
        `INSERT`, so a null on an excluded or unknown market never touches the
        column and the `raises` never fires. (Case 6 is unconditional because
        the `::uuid[]` cast fails inside `unnest`, before classification.)
-  - [ ] For every case assert the full identity
+  - [x] For every case assert the full identity
         `fetched = written + unknown + excluded + duplicates`.
-  - [ ] `TRADE_COLUMNS` parity against the real table (every mapped column
+  - [x] `TRADE_COLUMNS` parity against the real table (every mapped column
         exists, every non-defaulted column is mapped), following the
         `CANDLE_COLUMNS` parity test.
-  - [ ] `advance_watermark` moves `watermark_ts` and leaves
+  - [x] `advance_watermark` moves `watermark_ts` and leaves
         `coverage_from_ts` untouched; `init_state` sets both and is a no-op
         on a second call; `read_catalog_walk_start` returns the catalog's
         `last_full_sync_at`, and `None` when there is no catalog row.
-  - [ ] **A page of 1,000 rows issues exactly one statement** — Task 3.2's
+  - [x] **A page of 1,000 rows issues exactly one statement** — Task 3.2's
         success criterion, owned here so it is not dropped. Assert with a
         counting cursor or the connection's query log.
-  - [ ] Success: `uv run python scripts/run_tests.py integration -- -k
+  - [x] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_trades -q` green.
 
 - [ ] **Task 3.4: Section 3 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as Task 1.6, scoped to the files touched.
+  - [x] Gates as Task 1.6, scoped to the files touched.
   - [ ] Commit: `feat: add TradeRepository with per-page classify-and-write`.
 
 ## Section 4: `TradeSync`, `TradesPhase`, fixtures, rendering

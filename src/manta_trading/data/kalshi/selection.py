@@ -150,11 +150,13 @@ def selection_sql(rule: CollectionRule, form: SelectionForm) -> Selection:
 
 #: The three-table catalog join every rule-dependent query runs over —
 #: aliases ``m`` (markets), ``e`` (events), ``s`` (series); spelled once.
-#: The candle phase extends it with its state table
-#: (``candle_selection.MARKET_JOIN``); the trades phase classifies against
-#: it as is.
-CATALOG_JOIN = sql.SQL(
-    "FROM kalshi.markets m "
+#: ``CATALOG_TABLES`` is the join without its ``FROM``, so the trades phase
+#: can ``LEFT JOIN`` a page of tickers onto it (``trade_repository``);
+#: ``CATALOG_JOIN`` is what the candle phase extends with its state table
+#: (``candle_selection.MARKET_JOIN``) and what every ``status`` count runs over.
+CATALOG_TABLES = sql.SQL(
+    "kalshi.markets m "
     "JOIN kalshi.events e ON e.event_ticker = m.event_ticker "
     "JOIN kalshi.series s ON s.ticker = e.series_ticker "
 )
+CATALOG_JOIN = sql.SQL("FROM ") + CATALOG_TABLES
