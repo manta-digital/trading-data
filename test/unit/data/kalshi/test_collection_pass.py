@@ -17,6 +17,8 @@ from uuid import uuid4
 
 import pytest
 from kalshi_support.fake_candle_repository import FakeCandleRepository, FakeMarket
+from kalshi_support.fake_trade_repository import FakeTradeRepository
+from kalshi_support.fake_trade_source import FakeTradeSource, make_trade
 from kalshi_support.sync_harness import NOW, Harness, RecordingSink
 from psycopg import errors
 
@@ -29,6 +31,7 @@ from manta_trading.data.kalshi.collection_pass import (
     PassPhaseName,
     PassResult,
     PhaseReport,
+    TradesPhase,
     classify_pass,
 )
 from manta_trading.data.kalshi.constants import Surface
@@ -36,6 +39,8 @@ from manta_trading.data.kalshi.events import SyncEventType as T
 from manta_trading.data.kalshi.run_context import KalshiRun
 from manta_trading.data.kalshi.selection import CollectionRule
 from manta_trading.data.kalshi.sync_types import SyncOutcome
+from manta_trading.data.kalshi.trade_repository import TradeState
+from manta_trading.data.kalshi.trade_types import TradesBehindCutoffError
 from manta_trading.providers.errors import ProviderTransientError
 
 if TYPE_CHECKING:
@@ -290,24 +295,67 @@ def passthrough_repository(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestPassPhases:
-    def test_catalog_then_candles_by_name_and_order(self):
-        """Criterion 1 (slice 264): the catalog is current before candles run."""
+    def test_catalog_candles_then_trades_by_name_and_order(self):
+        """Criterion 1 (slices 264 and 265): the catalog is current before
+        candles run, and both before the trades tape is classified."""
         assert [p.name for p in PASS_PHASES] == [
             PassPhaseName.CATALOG,
             PassPhaseName.CANDLES,
+            PassPhaseName.TRADES,
         ]
         assert isinstance(PASS_PHASES[0], CatalogPhase)
         assert isinstance(PASS_PHASES[1], CandlesPhase)
+        assert isinstance(PASS_PHASES[2], TradesPhase)
 
-    async def test_catalog_abort_leaves_the_candle_phase_skipped(self):
+    async def test_catalog_abort_leaves_the_later_phases_skipped(self):
         catalog = FakePhase(PassPhaseName.CATALOG, SyncOutcome.PROVIDER_ABORT)
         candles = FakePhase(PassPhaseName.CANDLES)
-        result = await CollectionPass(_run(), [catalog, candles]).run()
-        assert candles.calls == 0
+        trades = FakePhase(PassPhaseName.TRADES)
+        result = await CollectionPass(_run(), [catalog, candles, trades]).run()
+        assert candles.calls == 0 and trades.calls == 0
         assert [(r.name, r.outcome) for r in result.reports] == [
             (PassPhaseName.CATALOG, SyncOutcome.PROVIDER_ABORT),
             (PassPhaseName.CANDLES, SKIPPED),
+            (PassPhaseName.TRADES, SKIPPED),
         ]
+
+    async def test_candle_abort_leaves_the_trades_phase_skipped(self):
+        catalog = FakePhase(PassPhaseName.CATALOG)
+        candles = FakePhase(PassPhaseName.CANDLES, SyncOutcome.STORAGE_ABORT)
+        trades = FakePhase(PassPhaseName.TRADES)
+        result = await CollectionPass(_run(), [catalog, candles, trades]).run()
+        assert trades.calls == 0
+        assert [(r.name, r.outcome) for r in result.reports] == [
+            (PassPhaseName.CATALOG, SyncOutcome.OK),
+            (PassPhaseName.CANDLES, SyncOutcome.STORAGE_ABORT),
+            (PassPhaseName.TRADES, SKIPPED),
+        ]
+
+    async def test_trades_abort_leaves_the_earlier_outcomes_intact(self):
+        catalog = FakePhase(PassPhaseName.CATALOG)
+        candles = FakePhase(PassPhaseName.CANDLES, SyncOutcome.PARTIAL)
+        trades = FakePhase(PassPhaseName.TRADES, SyncOutcome.PROVIDER_ABORT)
+        result = await CollectionPass(_run(), [catalog, candles, trades]).run()
+        assert [(r.name, r.outcome) for r in result.reports] == [
+            (PassPhaseName.CATALOG, SyncOutcome.OK),
+            (PassPhaseName.CANDLES, SyncOutcome.PARTIAL),
+            (PassPhaseName.TRADES, SyncOutcome.PROVIDER_ABORT),
+        ]
+        assert result.outcome is SyncOutcome.PROVIDER_ABORT
+        assert result.reports[0].error is None
+
+    async def test_behind_cutoff_propagates_out_of_the_pass(self):
+        """265 Decision 6: not caught by the pass; the earlier reports stand."""
+        order: list[PassPhaseName] = []
+        catalog = FakePhase(PassPhaseName.CATALOG, order=order)
+        trades = FakePhase(
+            PassPhaseName.TRADES,
+            raise_with=TradesBehindCutoffError(NOW - timedelta(days=3), NOW),
+            order=order,
+        )
+        with pytest.raises(TradesBehindCutoffError):
+            await CollectionPass(_run(), [catalog, trades]).run()
+        assert order == [PassPhaseName.CATALOG, PassPhaseName.TRADES]
 
 
 @pytest.mark.asyncio
@@ -375,6 +423,7 @@ class FakeConn:
 
     catalog: Any
     candles: FakeCandleRepository
+    trades: FakeTradeRepository | None = None
 
 
 @pytest.fixture
@@ -387,15 +436,42 @@ def two_repositories(monkeypatch: pytest.MonkeyPatch) -> None:
         "manta_trading.data.kalshi.candle_repository.CandleRepository",
         lambda conn, rule: conn.candles,
     )
+    monkeypatch.setattr(
+        "manta_trading.data.kalshi.trade_repository.TradeRepository",
+        lambda conn, rule: conn.trades,
+    )
 
 
-def _two_phase_run(h: Harness, candles: FakeCandleRepository) -> KalshiRun:
+class _ThreeSurfaceSource:
+    """The catalog fake plus a trades fake behind one client-shaped object:
+    the real pass hands every phase the same ``KalshiClient``."""
+
+    def __init__(self, catalog: Any, trades: FakeTradeSource) -> None:
+        self._catalog = catalog
+        self.trades = trades
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._catalog, name)
+
+    async def get_trades(self, **query: Any) -> Any:
+        return await self.trades.get_trades(**query)
+
+
+def _two_phase_run(
+    h: Harness,
+    candles: FakeCandleRepository,
+    trades: FakeTradeRepository | None = None,
+    trade_source: FakeTradeSource | None = None,
+) -> KalshiRun:
     settings = MagicMock()
     settings.collection_rule.return_value = RULE
+    client: Any = h.source
+    if trade_source is not None:
+        client = _ThreeSurfaceSource(h.source, trade_source)
     return KalshiRun(
         settings=settings,
-        client=cast("KalshiClient", h.source),
-        conn=cast("AsyncConnection[Any]", FakeConn(h.repo, candles)),
+        client=cast("KalshiClient", client),
+        conn=cast("AsyncConnection[Any]", FakeConn(h.repo, candles, trades)),
         sink=h.sink,
         run_id=uuid4(),
         clock=lambda: h.now,
@@ -450,8 +526,93 @@ class TestCandlesPhase:
     async def test_two_phase_pass_reports_both_in_order(self, h: Harness):
         h.live_market("M1")
         run = _two_phase_run(h, FakeCandleRepository())
-        result = await CollectionPass(run, PASS_PHASES).run()
+        result = await CollectionPass(run, [CatalogPhase(), CandlesPhase()]).run()
         payload = json.loads(json.dumps(result.to_dict()))
         assert [p["name"] for p in payload["phases"]] == ["catalog", "candles"]
         assert payload["outcome"] == "ok"
         assert {e.run_id for e in h.sink.events} == {run.run_id}
+
+
+# ---------------------------------------------------------------------------
+# The real trades phase (slice 265, Task 4.4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("two_repositories")
+class TestTradesPhase:
+    def _trades(self, h: Harness) -> tuple[FakeTradeRepository, FakeTradeSource]:
+        repo = FakeTradeRepository()
+        source = FakeTradeSource()
+        cutoff = source.cutoff.trades_created_ts
+        repo.catalog_walk_start = cutoff + timedelta(hours=1, minutes=1)
+        source.add_trades(make_trade("M1", cutoff + timedelta(minutes=5)))
+        return repo, source
+
+    async def test_ok_reports_the_trade_summary(self, h: Harness):
+        repo, source = self._trades(h)
+        report = await TradesPhase().run(
+            _two_phase_run(h, FakeCandleRepository(), repo, source)
+        )
+        assert report.name is PassPhaseName.TRADES
+        assert report.outcome is SyncOutcome.OK
+        assert report.error is None
+        assert report.summary["cutoff"] == source.cutoff.trades_created_ts.isoformat()
+        assert report.summary["trades_written"] == 1
+        assert report.summary["windows_completed"] == 1
+        assert repo.last_full_sync_at == h.now
+
+    async def test_provider_abort_reports_and_the_earlier_phases_stand(
+        self, h: Harness
+    ):
+        h.live_market("M1")
+        repo, source = self._trades(h)
+        source.raise_on("get_trades", ProviderTransientError("503"))
+        run = _two_phase_run(h, FakeCandleRepository(), repo, source)
+        result = await CollectionPass(run, PASS_PHASES).run()
+        assert [(r.name, r.outcome) for r in result.reports] == [
+            (PassPhaseName.CATALOG, SyncOutcome.OK),
+            (PassPhaseName.CANDLES, SyncOutcome.OK),
+            (PassPhaseName.TRADES, SyncOutcome.PROVIDER_ABORT),
+        ]
+        assert result.outcome is SyncOutcome.PROVIDER_ABORT
+        assert result.reports[0].summary["phases"]["markets"]["written"] == 1
+        assert "503" in (result.reports[2].error or "")
+        # The trades watermark never moved; the state row was still created.
+        assert repo.state == TradeState(
+            source.cutoff.trades_created_ts, source.cutoff.trades_created_ts
+        )
+
+    async def test_operational_error_reports_storage_abort(self, h: Harness):
+        repo, source = self._trades(h)
+        repo.fail_on("write_page", errors.OperationalError("connection lost"))
+        report = await TradesPhase().run(
+            _two_phase_run(h, FakeCandleRepository(), repo, source)
+        )
+        assert report.outcome is SyncOutcome.STORAGE_ABORT
+        assert "connection lost" in (report.error or "")
+
+    async def test_behind_cutoff_propagates_out_of_the_real_pass(self, h: Harness):
+        h.live_market("M1")
+        repo, source = self._trades(h)
+        behind = source.cutoff.trades_created_ts - timedelta(days=1)
+        repo.state = TradeState(behind, behind)
+        run = _two_phase_run(h, FakeCandleRepository(), repo, source)
+        with pytest.raises(TradesBehindCutoffError):
+            await CollectionPass(run, PASS_PHASES).run()
+        # Both earlier phases ran to completion before the abort.
+        assert h.repo.sync_state[Surface.CATALOG].last_full_sync_at is not None
+
+    async def test_three_phase_pass_reports_all_in_order(self, h: Harness):
+        h.live_market("M1")
+        repo, source = self._trades(h)
+        run = _two_phase_run(h, FakeCandleRepository(), repo, source)
+        result = await CollectionPass(run, PASS_PHASES).run()
+        payload = json.loads(json.dumps(result.to_dict()))
+        assert [p["name"] for p in payload["phases"]] == [
+            "catalog",
+            "candles",
+            "trades",
+        ]
+        assert payload["outcome"] == "ok"
+        assert payload["phases"][2]["summary"]["watermark"]["after"] is not None

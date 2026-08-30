@@ -504,9 +504,9 @@ Design *Repository (`trade_repository.py`)*, *Technical Decision 5*,
   - [x] Success: `uv run python scripts/run_tests.py integration -- -k
         kalshi_trades -q` green.
 
-- [ ] **Task 3.4: Section 3 gates and checkpoint commit** (effort: 1)
+- [x] **Task 3.4: Section 3 gates and checkpoint commit** (effort: 1)
   - [x] Gates as Task 1.6, scoped to the files touched.
-  - [ ] Commit: `feat: add TradeRepository with per-page classify-and-write`.
+  - [x] Commit: `feat: add TradeRepository with per-page classify-and-write`.
 
 ## Section 4: `TradeSync`, `TradesPhase`, fixtures, rendering
 
@@ -514,34 +514,34 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
 *`collection_pass.py`*, *`TradeResult.to_dict()`*, *Fixtures and recorder*,
 *Technical Decisions 1, 2, 6, 7, 8, 9*.
 
-- [ ] **Task 4.1: `trade_types.py`** (effort: 2)
-  - [ ] `TradeSource` Protocol (`get_trades`, `get_historical_cutoff`) — the
+- [x] **Task 4.1: `trade_types.py`** (effort: 2)
+  - [x] `TradeSource` Protocol (`get_trades`, `get_historical_cutoff`) — the
         core depends on this, never on `KalshiClient`.
-  - [ ] `TradeResult` dataclass with the fields in the design's *Core* block,
+  - [x] `TradeResult` dataclass with the fields in the design's *Core* block,
         and `to_dict()` producing exactly the design's *`TradeResult.
         to_dict()`* payload shape.
-  - [ ] `TradesBehindCutoffError` (Decision 6) — its message names the
+  - [x] `TradesBehindCutoffError` (Decision 6) — its message names the
         uncovered range and slice 266 as the remedy.
-  - [ ] `classify_trades(result, exc) -> SyncOutcome` delegating to
+  - [x] `classify_trades(result, exc) -> SyncOutcome` delegating to
         `classify_outcome(False, exc)`: this phase has no per-item failure
         and therefore **never** reports `PARTIAL` (Decision 9). Say so in the
         docstring.
-  - [ ] Success: unit test asserts `classify_trades` returns `OK`,
+  - [x] Success: unit test asserts `classify_trades` returns `OK`,
         `PROVIDER_ABORT`, `STORAGE_ABORT` and never `PARTIAL` for any input.
 
-- [ ] **Task 4.2: `TradeSync` core** (effort: 5)
-  - [ ] New `data/kalshi/trade_sync.py` implementing Data Flow steps 1–6.
+- [x] **Task 4.2: `TradeSync` core** (effort: 5)
+  - [x] New `data/kalshi/trade_sync.py` implementing Data Flow steps 1–6.
         No httpx, no typer, no SQL.
-  - [ ] Step 1 — cutoff and state: `get_historical_cutoff().trades_created_ts`
+  - [x] Step 1 — cutoff and state: `get_historical_cutoff().trades_created_ts`
         once, logged at INFO every run; on no state row, `init_state(cutoff)`
         with `coverage_from_ts = watermark_ts = cutoff` (Decision 2); on
         `watermark_ts < cutoff`, raise `TradesBehindCutoffError`
         (Decision 6).
-  - [ ] Step 2 — the pass bound: `phase_end = sync_state['catalog'].
+  - [x] Step 2 — the pass bound: `phase_end = sync_state['catalog'].
         last_full_sync_at − TRADE_LATE_ARRIVAL_GUARD` (Decision 5). **No
         catalog row → the phase fetches nothing and says so** in its result
         and its log line.
-  - [ ] Step 3 — windows oldest-first from `watermark_ts`, each
+  - [x] Step 3 — windows oldest-first from `watermark_ts`, each
         `window_end = min(start + TRADE_WINDOW, phase_end)`, so only the
         last is short. **Two bounds, two names:** `phase_end` is where the
         pass stops, `window_end` is where one window stops. Read as a single
@@ -552,16 +552,16 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         (`requests >= TRADE_REQUESTS_PER_PASS`) is **before each window**, so
         a pass may exceed the cap by at most one window; on stopping, set
         `capped = True` (Decision 8).
-  - [ ] Step 4 — one window: page through
+  - [x] Step 4 — one window: page through
         `get_trades(min_ts=start − WINDOW_OVERLAP, max_ts=window_end,
         limit=TRADE_PAGE_LIMIT, cursor)` until the cursor is empty; each page
         is one `write_page` call in its own transaction; accumulate the
         counts. The watermark does not move inside a window.
-  - [ ] Step 5 — window done: `advance_watermark(window_end)` in one
+  - [x] Step 5 — window done: `advance_watermark(window_end)` in one
         transaction, then one INFO line per window in the design's format
         (`trades window {start}→{window_end} pages N fetched F written W
         unknown U excluded X`).
-  - [ ] Step 6 — finish: `set_last_full_sync(phase_start)`; emit
+  - [x] Step 6 — finish: `set_last_full_sync(phase_start)`; emit
         `phase_finished` with `phase="trades"` through the existing sink and
         `emit_in_thread` — **no new event type**. The phase name is a
         module-local `PHASE = "trades"` carrying the same comment
@@ -569,18 +569,18 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         TRADES` lands in Task 4.4, and `collection_pass` imports this module,
         so the core cannot import the enum without a cycle. Not a bare
         literal at the call site.
-  - [ ] The unknown-prefix tally: count by the ticker text before the first
+  - [x] The unknown-prefix tally: count by the ticker text before the first
         `-`, kept in memory, emitted as **one INFO line per phase**. A
         comment states this is display only and nothing branches on it
         (CLAUDE.md).
-  - [ ] Success: the module is under ~300 lines and imports no client.
+  - [x] Success: the module is under ~300 lines and imports no client.
 
-- [ ] **Task 4.3a: Test fakes for the trades core** (effort: 2)
-  - [ ] Add `test/kalshi_support/fake_trade_source.py`: scripted pages keyed
+- [x] **Task 4.3a: Test fakes for the trades core** (effort: 2)
+  - [x] Add `test/kalshi_support/fake_trade_source.py`: scripted pages keyed
         by window, recording the `min_ts`, `max_ts`, `limit`, and `cursor` of
         every call so the tests can assert the request bounds; able to raise
         a `ProviderError` after a chosen page.
-  - [ ] Add `test/kalshi_support/fake_trade_repository.py` with the full
+  - [x] Add `test/kalshi_support/fake_trade_repository.py` with the full
         surface Task 3.1 defines — `read_state`, `init_state`,
         `advance_watermark`, `set_last_full_sync`, **`read_catalog_walk_start`
         (returning `None` on demand, for the no-catalog-row case)**,
@@ -590,11 +590,11 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         `fake_candle_repository.py:94` provides — without it no core test can
         raise a `psycopg.OperationalError` mid-window. In-memory state,
         recorded call order.
-  - [ ] Model both on `fake_candle_source.py` / `fake_candle_repository.py`
+  - [x] Model both on `fake_candle_source.py` / `fake_candle_repository.py`
         and extend `test/unit/data/kalshi/test_fakes.py` so the fakes
         themselves are exercised (that file already does this for the candle
         fakes).
-  - [ ] **Protocol conformance, pinned:** in `test_fakes.py`, follow
+  - [x] **Protocol conformance, pinned:** in `test_fakes.py`, follow
         `TestProtocol::test_client_and_fake_satisfy_catalog_source` (its
         typed `_as_source` helper) with the same test for `TradeSource`: a
         `KalshiClient` over `httpx.MockTransport` and the `FakeTradeSource`
@@ -602,80 +602,80 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         `get_trades` takes `**query: Unpack[TradesQuery]` with `int | None`
         keys, and the mypy `Unpack` path artifact makes the type gate the
         least reliable place to learn of a mismatch.
-  - [ ] Success: `uv run pytest test/unit/data/kalshi/test_fakes.py -q` green.
+  - [x] Success: `uv run pytest test/unit/data/kalshi/test_fakes.py -q` green.
 
-- [ ] **Task 4.3b: `TradeSync` unit tests** (effort: 4)
-  - [ ] New `test/unit/data/kalshi/test_trade_sync.py` covering the design's
+- [x] **Task 4.3b: `TradeSync` unit tests** (effort: 4)
+  - [x] New `test/unit/data/kalshi/test_trade_sync.py` covering the design's
         *Tests — Unit — core* list, one test per behavior:
-    1. First run with no state initialises `coverage_from_ts` and
+    1. [x] First run with no state initialises `coverage_from_ts` and
        `watermark_ts` at the cutoff (Criterion 6).
-    2. The window sequence starts at the watermark, steps by `TRADE_WINDOW`,
+    2. [x] The window sequence starts at the watermark, steps by `TRADE_WINDOW`,
        and the last window is clamped to the catalog walk start minus the
        guard (Criterion 7) — asserted on the fake source's recorded `max_ts`
        of **every** request, each equal to its own window's end, not only
        on the last one (Task 4.2's two-bounds rule).
-    3. No catalog row → nothing fetched, and the result says so.
-    4. Per-page counts aggregate into the result, and the identity
+    3. [x] No catalog row → nothing fetched, and the result says so.
+    4. [x] Per-page counts aggregate into the result, and the identity
        `fetched = written + unknown + excluded + duplicates` holds
        (Criterion 2).
-    5. The watermark advances only after a window's **last** page.
-    6. A `ProviderError` mid-window leaves the watermark where it was
+    5. [x] The watermark advances only after a window's **last** page.
+    6. [x] A `ProviderError` mid-window leaves the watermark where it was
        (Criterion 4) and the result classifies as `PROVIDER_ABORT`.
-    7. The cap stops **before** a window, sets `capped`, and the next run
+    7. [x] The cap stops **before** a window, sets `capped`, and the next run
        continues from the watermark (Criterion 8).
-    8. `watermark_ts < cutoff` raises `TradesBehindCutoffError` naming the
+    8. [x] `watermark_ts < cutoff` raises `TradesBehindCutoffError` naming the
        range (Criterion 6).
-    9. `phase_finished` is emitted once with `phase="trades"`.
-    10. The unknown-prefix tally groups by prefix and logs once per phase
+    9. [x] `phase_finished` is emitted once with `phase="trades"`.
+    10. [x] The unknown-prefix tally groups by prefix and logs once per phase
         (Criterion 9).
-    11. The lower bound of each request is `start − WINDOW_OVERLAP`
+    11. [x] The lower bound of each request is `start − WINDOW_OVERLAP`
         (Decision 1's boundary handling).
-    12. A `psycopg.OperationalError` injected on `write_page` mid-window
+    12. [x] A `psycopg.OperationalError` injected on `write_page` mid-window
         (the fake's `fail_on`) leaves the watermark where it was and the
         result classifies as `STORAGE_ABORT` — case 6's twin for the other
         caught exception; without it Task 4.1's `STORAGE_ABORT` is only ever
         asserted against a hand-built exception.
-  - [ ] Success: `uv run pytest test/unit/data/kalshi/test_trade_sync.py -q`
+  - [x] Success: `uv run pytest test/unit/data/kalshi/test_trade_sync.py -q`
         green.
 
-- [ ] **Task 4.4: `TradesPhase` and `PASS_PHASES`** (effort: 2)
-  - [ ] Add `TRADES = "trades"` to `PassPhaseName` and update its docstring
+- [x] **Task 4.4: `TradesPhase` and `PASS_PHASES`** (effort: 2)
+  - [x] Add `TRADES = "trades"` to `PassPhaseName` and update its docstring
         (it currently reads "265 adds `TRADES`").
-  - [ ] Add `TradesPhase` to `collection_pass.py` with the same
+  - [x] Add `TradesPhase` to `collection_pass.py` with the same
         `try`/`except ProviderError` / `except psycopg.OperationalError` /
         `classify` shape as `CandlesPhase`, taking the rule from
         `run.settings.collection_rule()`.
-  - [ ] Append it: `PASS_PHASES = (CatalogPhase(), CandlesPhase(),
+  - [x] Append it: `PASS_PHASES = (CatalogPhase(), CandlesPhase(),
         TradesPhase())`, and update the registration comment.
-  - [ ] `TradesBehindCutoffError` is **not** caught here — it propagates out
+  - [x] `TradesBehindCutoffError` is **not** caught here — it propagates out
         of the pass (Decision 6), and the earlier phases' reports stand.
-  - [ ] Extend `test/unit/data/kalshi/test_collection_pass.py`:
+  - [x] Extend `test/unit/data/kalshi/test_collection_pass.py`:
         `PASS_PHASES` is exactly the three phases in order (Criterion 1); a
         catalog or candle abort reports trades `skipped`; a trades abort
         leaves the earlier phases' outcomes intact;
         `TradesBehindCutoffError` propagates out of `CollectionPass.run`.
-  - [ ] Success: `uv run pytest test/unit -q` green.
+  - [x] Success: `uv run pytest test/unit -q` green.
 
-- [ ] **Task 4.5: Fixtures and the recorder** (effort: 2)
-  - [ ] Add three recorders to `scripts/record_kalshi_fixtures.py` alongside
+- [x] **Task 4.5: Fixtures and the recorder** (effort: 2)
+  - [x] Add three recorders to `scripts/record_kalshi_fixtures.py` alongside
         `record_trades`: `trades_window` (a windowed page, `min_ts`/`max_ts`
         one minute apart, `limit=100`, with a non-empty cursor),
         `trades_window_last` (the same window's final page, `cursor: ""`),
         `trades_empty` (a future window, no trades, `cursor: ""`). Register
         them in the recorder map. Existing `trades_page1`/`trades_page2` stay
         for the 261 client test.
-  - [ ] Record the three fixtures against the live public endpoint and commit
+  - [x] Record the three fixtures against the live public endpoint and commit
         the JSON under `test/fixtures/kalshi/`.
-  - [ ] Extend `test/unit/data/kalshi/test_fixtures.py`: all three parse into
+  - [x] Extend `test/unit/data/kalshi/test_fixtures.py`: all three parse into
         `TradesPage`; an **empty cursor terminates** the walk (this is the
         fact the core's page loop depends on — assert it explicitly, not by
         implication).
-  - [ ] Success: `uv run pytest test/unit/data/kalshi/test_fixtures.py -q`
+  - [x] Success: `uv run pytest test/unit/data/kalshi/test_fixtures.py -q`
         green; the fixtures' `min_ts`/`max_ts` bounds are visible in the
         recorded file or its recorder so a future reader can re-record.
 
-- [ ] **Task 4.6: Phase renderer** (effort: 2)
-  - [ ] Add `print_trade_summary(summary)` to
+- [x] **Task 4.6: Phase renderer** (effort: 2)
+  - [x] Add `print_trade_summary(summary)` to
         `cli/commands/kalshi_render.py` and register it in
         `PHASE_RENDERERS[PassPhaseName.TRADES]`. It prints windows, requests
         (with `capped` when set), watermark before → after, and
@@ -683,10 +683,10 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         `capped` share one line** (`requests 3,004 (capped)`): the supervised
         firing's stdout lands in the journal, and part 2 Task 9.3 greps that
         line for the cap's only production observation.
-  - [ ] Extend `test/unit/cli/commands/test_data_kalshi.py`: the renderer
+  - [x] Extend `test/unit/cli/commands/test_data_kalshi.py`: the renderer
         dispatches on the trades phase name; the `TradeResult.to_dict()`
         payload round-trips through `json.dumps`/`loads` unchanged.
-  - [ ] Success: `mt data kalshi pass --json | jq '.phases[2].name'` would
+  - [x] Success: `mt data kalshi pass --json | jq '.phases[2].name'` would
         print `"trades"` (asserted against a fabricated `PassResult` in the
         unit test — no network).
 

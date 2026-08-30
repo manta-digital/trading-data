@@ -7,7 +7,8 @@ per page, in one data-modifying statement (Decision 5): the page's rows are
 ``unnest``-ed, ``LEFT JOIN``-ed onto the catalog, split into *unknown*
 (no market row), *excluded* (known, the rule does not select) and
 *selected*, and the selected rows are inserted conflict-ignore — the
-statement returns all four counts in one round trip.
+statement returns all four counts, plus the unknown tickers for the core's
+display-only prefix tally, in one round trip.
 
 No exception is caught here: ``psycopg.OperationalError`` propagates as a
 storage abort and **any other** ``psycopg.Error`` propagates as a bug — a
@@ -86,6 +87,9 @@ class PageCounts:
     excluded_by_rule: int
     selected: int
     written: int
+    #: The page's tickers with no market row, one per unknown trade — for the
+    #: core's once-per-phase prefix log line (Decision 5, display only).
+    unknown_tickers: tuple[str, ...] = ()
 
     @property
     def duplicates(self) -> int:
@@ -137,7 +141,8 @@ def _write_page_statement(
         "SELECT count(*) FILTER (WHERE NOT known), "
         "count(*) FILTER (WHERE known AND NOT selected), "
         "count(*) FILTER (WHERE selected), "
-        "(SELECT count(*) FROM ins) "
+        "(SELECT count(*) FROM ins), "
+        "COALESCE(array_agg(market_ticker) FILTER (WHERE NOT known), ARRAY[]::text[]) "
         "FROM classified"
     ).format(
         arrays=arrays,
@@ -232,11 +237,12 @@ class TradeRepository:
         counts = await cursor.fetchone()
         if counts is None:
             raise PageAccountingError("write_page statement returned no row")
-        unknown, excluded, selected, written = (int(value) for value in counts)
+        unknown, excluded, selected, written = (int(value) for value in counts[:4])
         return PageCounts(
             fetched=len(rows),
             unknown_market=unknown,
             excluded_by_rule=excluded,
             selected=selected,
             written=written,
+            unknown_tickers=tuple(counts[4]),
         )

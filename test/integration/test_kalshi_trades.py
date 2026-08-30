@@ -101,7 +101,7 @@ class TestClassification:
         self, repo: TradeRepository, kalshi_conn: psycopg.AsyncConnection[Any]
     ):
         counts = await write(repo, [trade(UNKNOWN)])
-        assert counts == PageCounts(1, 1, 0, 0, 0)
+        assert counts == PageCounts(1, 1, 0, 0, 0, unknown_tickers=(UNKNOWN,))
         assert await stored(kalshi_conn) == []
 
     async def test_politics_trade_is_written(
@@ -117,9 +117,9 @@ class TestClassification:
         """Criterion 3: a re-walked page writes nothing and says why."""
         page = [trade("SPORTS"), trade(UNKNOWN), trade("POLITICS"), trade("NULLCAT")]
         first = await write(repo, page)
-        assert first == PageCounts(4, 1, 1, 2, 2)
+        assert first == PageCounts(4, 1, 1, 2, 2, unknown_tickers=(UNKNOWN,))
         second = await write(repo, page)
-        assert second == PageCounts(4, 1, 1, 2, 0)
+        assert second == PageCounts(4, 1, 1, 2, 0, unknown_tickers=(UNKNOWN,))
         assert second.duplicates == 2
         assert await stored(kalshi_conn) == ["NULLCAT", "POLITICS"]
 
@@ -145,6 +145,15 @@ class TestClassification:
 
     async def test_empty_page_writes_nothing(self, repo: TradeRepository):
         assert await write(repo, []) == PageCounts(0, 0, 0, 0, 0)
+
+    async def test_unknown_tickers_are_returned_one_per_trade(
+        self, repo: TradeRepository
+    ):
+        """Decision 5's prefix tally counts trades, so a ticker repeats."""
+        other = "KXOTHER-26AUG27-Y"
+        counts = await write(repo, [trade(UNKNOWN), trade(other), trade(UNKNOWN)])
+        assert counts.unknown_market == 3
+        assert sorted(counts.unknown_tickers) == sorted((UNKNOWN, UNKNOWN, other))
 
     async def test_row_values_round_trip(
         self, repo: TradeRepository, kalshi_conn: psycopg.AsyncConnection[Any]

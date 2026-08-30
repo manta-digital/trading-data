@@ -13,6 +13,8 @@ from kalshi_support.fake_source import (
     make_market,
     make_series,
 )
+from kalshi_support.fake_trade_repository import FakeTradeRepository
+from kalshi_support.fake_trade_source import FakeTradeSource, make_trade
 from psycopg import errors
 
 from manta_trading.data.kalshi.client import KalshiClient
@@ -23,7 +25,11 @@ from manta_trading.data.kalshi.constants import (
     MarketStatusFilter,
     Surface,
 )
+from manta_trading.data.kalshi.models import Trade, TradesPage
 from manta_trading.data.kalshi.sync import CatalogSource
+from manta_trading.data.kalshi.sync_types import epoch
+from manta_trading.data.kalshi.trade_repository import PageCounts, TradeState
+from manta_trading.data.kalshi.trade_types import TradeSource
 from manta_trading.providers.errors import ProviderTransientError
 
 NOW = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
@@ -200,3 +206,117 @@ class TestFakeRepository:
             and state.watermark_ts == NOW
             and state.last_full_sync_at is None
         )
+
+
+# ---------------------------------------------------------------------------
+# Trades fakes (slice 265, Task 4.3a)
+# ---------------------------------------------------------------------------
+
+
+def _as_trade_source(source: TradeSource) -> TradeSource:
+    return source
+
+
+class TestTradeProtocol:
+    def test_client_and_fake_satisfy_trade_source(self):
+        """Pinned at runtime and in the type gate: the real client's
+        ``**query: Unpack[TradesQuery]`` must accept the protocol's keyword
+        calls, and the mypy ``Unpack`` path artifact makes the type gate the
+        least reliable place to learn of a mismatch."""
+        client = KalshiClient(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200))
+        )
+        assert _as_trade_source(client) is client
+        fake = FakeTradeSource()
+        assert _as_trade_source(fake) is fake
+
+
+class TestFakeTradeSource:
+    def _tape(self, source: FakeTradeSource, count: int) -> list[Trade]:
+        rows = [make_trade("M1", NOW + timedelta(seconds=i)) for i in range(count)]
+        source.add_trades(*rows)
+        return rows
+
+    async def test_window_is_strict_after_inclusive_through_newest_first(self):
+        source = FakeTradeSource()
+        rows = self._tape(source, 5)
+        page = await source.get_trades(
+            min_ts=epoch(rows[1].created_time),
+            max_ts=epoch(rows[3].created_time),
+            limit=100,
+        )
+        assert [t.trade_id for t in page.trades] == [rows[3].trade_id, rows[2].trade_id]
+        assert page.cursor == ""
+        assert source.trade_queries[0]["limit"] == 100
+
+    async def test_pages_follow_cursor_and_the_last_is_empty(self):
+        source = FakeTradeSource(page_size=2)
+        rows = self._tape(source, 5)
+        lo, hi = epoch(NOW) - 1, epoch(NOW) + 10
+        pages: list[TradesPage] = []
+        cursor: str | None = None
+        while True:
+            page = await source.get_trades(
+                cursor=cursor, min_ts=lo, max_ts=hi, limit=100
+            )
+            pages.append(page)
+            if not page.cursor:
+                break
+            cursor = page.cursor
+        assert [len(p.trades) for p in pages] == [2, 2, 1]
+        assert [q["cursor"] for q in source.trade_queries] == [None, "2", "4"]
+        assert {t.trade_id for p in pages for t in p.trades} == {
+            r.trade_id for r in rows
+        }
+
+    async def test_cutoff_and_raise_on(self):
+        source = FakeTradeSource()
+        source.set_cutoff(NOW)
+        assert (await source.get_historical_cutoff()).trades_created_ts == NOW
+        source.raise_on("get_trades", ProviderTransientError("503"), at=2)
+        await source.get_trades(min_ts=0, max_ts=1, limit=1)
+        with pytest.raises(ProviderTransientError):
+            await source.get_trades(min_ts=0, max_ts=1, limit=1)
+
+
+class TestFakeTradeRepository:
+    async def test_write_page_classifies_by_declared_sets_and_conflict_ignores(self):
+        repo = FakeTradeRepository()
+        repo.unknown_tickers.add("KXMVE-1")
+        repo.excluded_tickers.add("SPORTS")
+        page = [
+            make_trade("KXMVE-1", NOW),
+            make_trade("SPORTS", NOW),
+            make_trade("POL", NOW),
+        ]
+        async with repo.transaction():
+            first = await repo.write_page(page)
+            second = await repo.write_page(page)
+        assert first == PageCounts(3, 1, 1, 1, 1, unknown_tickers=("KXMVE-1",))
+        assert second == PageCounts(3, 1, 1, 1, 0, unknown_tickers=("KXMVE-1",))
+        assert {ticker for ticker, _, _ in repo.stored} == {"POL"}
+        assert repo.tx_log == ["begin", "commit"]
+
+    async def test_state_row_and_rollback(self):
+        repo = FakeTradeRepository()
+        assert await repo.read_state() is None
+        assert await repo.read_catalog_walk_start() is None
+        async with repo.transaction():
+            await repo.init_state(NOW)
+            await repo.init_state(NOW + timedelta(days=1))
+        assert repo.state == TradeState(NOW, NOW)
+        repo.catalog_walk_start = NOW + timedelta(hours=2)
+        assert await repo.read_catalog_walk_start() == NOW + timedelta(hours=2)
+        with pytest.raises(errors.OperationalError):
+            async with repo.transaction():
+                await repo.advance_watermark(NOW + timedelta(hours=1))
+                raise errors.OperationalError("lost")
+        assert repo.state == TradeState(NOW, NOW)
+        assert repo.tx_log[-1] == "rollback"
+
+    async def test_fail_on_injects_any_exception(self):
+        repo = FakeTradeRepository()
+        repo.fail_on("write_page", errors.OperationalError("lost"), at=2)
+        await repo.write_page([])
+        with pytest.raises(errors.OperationalError):
+            await repo.write_page([])

@@ -518,6 +518,25 @@ def _catalog_summary() -> dict[str, object]:
     return SyncResult(run_id=uuid4(), started_at=NOW).to_dict()
 
 
+def _trade_summary(*, capped: bool = True) -> dict[str, object]:
+    from manta_trading.data.kalshi.trade_types import TradeResult
+
+    result = TradeResult(run_id=uuid4(), started_at=NOW)
+    result.cutoff = datetime(2026, 6, 29, tzinfo=UTC)
+    result.coverage_from = result.cutoff
+    result.watermark_before = datetime(2026, 7, 3, tzinfo=UTC)
+    result.watermark_after = datetime(2026, 7, 3, 7, tzinfo=UTC)
+    result.windows_completed = 7
+    result.requests = 3004
+    result.capped = capped
+    result.trades_fetched = 2_998_113
+    result.trades_written = 1_770_214
+    result.unknown_market = 244_900
+    result.excluded_by_rule = 982_999
+    result.unknown_prefixes = {"KXMVECROSSCATEGORY": 244_900}
+    return result.to_dict()
+
+
 def _pass_result(*reports: PhaseReport) -> PassResult:
     return PassResult(
         run_id=uuid4(),
@@ -535,6 +554,9 @@ class TestPhaseRenderers:
         )
         assert (
             render.PHASE_RENDERERS[PassPhaseName.CANDLES] is render.print_candle_summary
+        )
+        assert (
+            render.PHASE_RENDERERS[PassPhaseName.TRADES] is render.print_trade_summary
         )
 
     def test_every_registered_phase_has_a_renderer(self):
@@ -562,6 +584,48 @@ class TestPhaseRenderers:
         assert "2026-06-25" in out
 
     def test_unregistered_phase_raises_the_named_error(self):
-        bogus = cast(PassPhaseName, "trades")
-        with pytest.raises(render.NoPhaseRendererError, match="trades"):
+        bogus = cast(PassPhaseName, "orderbook")
+        with pytest.raises(render.NoPhaseRendererError, match="orderbook"):
             render.render_phase_summary(bogus, {})
+
+    def test_trade_block_renders_requests_and_capped_on_one_line(self, capsys):
+        """Slice 265, Task 4.6: the deploy check greps this line in the journal."""
+        result = _pass_result(
+            PhaseReport(PassPhaseName.TRADES, SyncOutcome.OK, _trade_summary(), 9)
+        )
+        render.print_pass_summary(result, cmd.EXIT_OK, json_output=False)
+        out = " ".join(capsys.readouterr().out.split())
+        assert "Kalshi trades" in out
+        assert "requests 3,004 (capped)" in out
+        assert "windows 7" in out
+        assert "2026-07-03T00:00:00+00:00 → 2026-07-03T07:00:00+00:00" in out
+        assert "fetched 2,998,113 written 1,770,214 unknown 244,900" in out
+        assert "excluded 982,999 duplicates 0" in out
+        assert "cutoff 2026-06-29" in out
+
+    def test_trade_block_without_the_cap(self, capsys):
+        result = _pass_result(
+            PhaseReport(
+                PassPhaseName.TRADES, SyncOutcome.OK, _trade_summary(capped=False), 9
+            )
+        )
+        render.print_pass_summary(result, cmd.EXIT_OK, json_output=False)
+        out = " ".join(capsys.readouterr().out.split())
+        assert "requests 3,004" in out and "(capped)" not in out
+
+    def test_three_phase_json_names_the_trades_phase_third(self, capsys):
+        """``mt data kalshi pass --json | jq '.phases[2].name'`` → ``"trades"``,
+        and the trade summary round-trips through JSON unchanged."""
+        summary = _trade_summary()
+        result = _pass_result(
+            PhaseReport(PassPhaseName.CATALOG, SyncOutcome.OK, _catalog_summary(), 5),
+            PhaseReport(PassPhaseName.CANDLES, SyncOutcome.OK, _candle_summary(), 7),
+            PhaseReport(PassPhaseName.TRADES, SyncOutcome.OK, summary, 9),
+        )
+        render.print_pass_summary(result, cmd.EXIT_OK, json_output=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["phases"][2]["name"] == "trades"
+        assert payload["phases"][2]["summary"] == json.loads(json.dumps(summary))
+        assert payload["phases"][2]["summary"]["watermark"]["after"] == (
+            "2026-07-03T07:00:00+00:00"
+        )

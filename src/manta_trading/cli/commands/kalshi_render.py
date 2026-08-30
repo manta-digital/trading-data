@@ -115,6 +115,40 @@ def print_candle_summary(summary: dict[str, Any]) -> None:
     )
 
 
+def print_trade_summary(summary: dict[str, Any]) -> None:
+    """A trades phase's counts, from its ``TradeResult.to_dict()`` mapping.
+
+    ``requests`` and ``capped`` share one line — the supervised firing's
+    stdout lands in the journal, and the deploy check greps that line for
+    the cap's only production observation.
+    """
+    from rich import print as rprint
+
+    watermark = summary["watermark"]
+    capped = " (capped)" if summary["capped"] else ""
+    rprint("[bold]Kalshi trades[/bold]")
+    rprint(
+        f"  windows       {summary['windows_completed']:,}    "
+        f"requests {summary['requests']:,}{capped}"
+    )
+    rprint(
+        f"  watermark     {watermark['before'] or 'unset'} → "
+        f"{watermark['after'] or 'unset'}"
+    )
+    rprint(
+        f"  trades        fetched {summary['trades_fetched']:,}  "
+        f"written {summary['trades_written']:,}  "
+        f"unknown {summary['unknown_market']:,}  "
+        f"excluded {summary['excluded_by_rule']:,}  "
+        f"duplicates {summary['duplicates']:,}"
+    )
+    note = "    no completed catalog walk" if summary["catalog_missing"] else ""
+    rprint(
+        f"  cutoff        {summary['cutoff'] or 'unset'}    "
+        f"coverage from {summary['coverage_from'] or 'unset'}{note}"
+    )
+
+
 class NoPhaseRendererError(LookupError):
     """A pass reported a phase this module has no summary renderer for."""
 
@@ -123,6 +157,7 @@ class NoPhaseRendererError(LookupError):
 PHASE_RENDERERS: dict[PassPhaseName, Callable[[dict[str, Any]], None]] = {
     PassPhaseName.CATALOG: print_phase_summary,
     PassPhaseName.CANDLES: print_candle_summary,
+    PassPhaseName.TRADES: print_trade_summary,
 }
 
 
