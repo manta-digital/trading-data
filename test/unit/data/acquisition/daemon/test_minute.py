@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from datetime import date, datetime, timezone
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,6 +20,9 @@ from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.gaps.actionable_gap_selector import GapRow
 
 UTC = timezone.utc
+
+if TYPE_CHECKING:
+    from manta_trading.config import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -809,6 +813,124 @@ class TestHasAnyGapsRefireRegression:
             r.gap_start_utc == history_start and r.gap_end_utc == target_end
             for r in seeded_ranges
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #19: terminal-only gap rows must not freeze trailing seeding
+# ---------------------------------------------------------------------------
+
+
+class TestTrailingSeedAfterTerminalGaps:
+    """Pins the issue-#19 fix: a symbol with bars whose gap rows are ALL
+    terminal (PROVIDER_HOLE / RETRY_EXHAUSTED, no UNKNOWN) was never
+    re-seeded, so its minute data froze at the last fetch (production
+    2026-08-31: ~7,300 active symbols). The gate now seeds the uncovered
+    trailing window — strictly from the gap frontier (MAX(gap_end)) — and
+    never the full history window, so terminal markers behind the frontier
+    stay out of update_data_gaps' containment delete.
+    """
+
+    _HISTORY_START = datetime(2004, 1, 1, tzinfo=UTC)
+
+    def _run_gate(
+        self,
+        preflight_row: tuple,
+        coverage_index: dict | None = None,
+    ) -> tuple[MagicMock, MagicMock]:
+        """Drive _do_minute_symbol past the seed gate with a controlled
+        preflight row (has_bars, has_unknown_gaps, has_any_gaps,
+        gap_frontier). Returns the update_data_gaps and
+        compute_missing_minute_sessions mocks.
+        """
+        mock_update_gaps = MagicMock(return_value=MagicMock(gaps_inserted=0))
+        mock_compute = MagicMock(return_value=[])
+
+        cur = MagicMock()
+        cur.fetchone.return_value = preflight_row
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=cur)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        txn = MagicMock()
+        txn.__enter__ = MagicMock(return_value=txn)
+        txn.__exit__ = MagicMock(return_value=False)
+        conn.transaction.return_value = txn
+        lock_cm = MagicMock()
+        lock_cm.__enter__ = MagicMock(return_value=None)
+        lock_cm.__exit__ = MagicMock(return_value=False)
+        pool = MagicMock()
+        pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.update_data_gaps",
+                mock_update_gaps,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute."
+                "compute_missing_minute_sessions",
+                mock_compute,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute."
+                "_resolve_minute_history_start",
+                return_value=self._HISTORY_START,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute."
+                "pick_most_recent_actionable_gap",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                return_value=0,
+            ),
+        ):
+            _do_minute_symbol(
+                "AAPL",
+                pool=pool,
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                via=FetchEntryPoint.CYCLE,
+                coverage_index=coverage_index,
+            )
+        return mock_update_gaps, mock_compute
+
+    def test_terminal_only_rows_seed_the_trailing_window_from_the_frontier(
+        self,
+    ) -> None:
+        frontier = _dt(2026, 8, 26)
+        upd, comp = self._run_gate(
+            (True, False, True, frontier), coverage_index={"AAPL": set()}
+        )
+        assert upd.call_count == 1
+        # from_ts is the frontier — never history_start, which would put every
+        # terminal row behind it inside the seed's containment delete.
+        assert upd.call_args.args[3] == frontier
+        comp.assert_called_once()
+        assert comp.call_args.args[3] == frontier
+
+    def test_frontier_at_target_end_seeds_nothing(self) -> None:
+        far_future = datetime(2999, 1, 1, tzinfo=UTC)
+        upd, comp = self._run_gate((True, False, True, far_future))
+        upd.assert_not_called()
+        comp.assert_not_called()
+
+    def test_unknown_gaps_still_seed_from_history_start(self) -> None:
+        upd, _ = self._run_gate((True, True, True, _dt(2026, 8, 26)))
+        assert upd.call_args.args[3] == self._HISTORY_START
+
+    def test_no_gap_rows_still_seed_from_history_start(self) -> None:
+        upd, _ = self._run_gate((True, False, False, None))
+        assert upd.call_args.args[3] == self._HISTORY_START
+
+    def test_no_bars_still_seed_from_history_start(self) -> None:
+        upd, _ = self._run_gate((False, False, False, None))
+        assert upd.call_args.args[3] == self._HISTORY_START
 
 
 class TestBarToRow:

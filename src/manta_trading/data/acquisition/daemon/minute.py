@@ -345,24 +345,42 @@ def _do_minute_symbol(
                 "       AS has_unknown_gaps,"
                 "       EXISTS (SELECT 1 FROM data_gaps WHERE symbol = %s"
                 "               AND granularity = 'minute' LIMIT 1)"
-                "       AS has_any_gaps",
-                (symbol, symbol, symbol),
+                "       AS has_any_gaps,"
+                "       (SELECT MAX(gap_end) FROM data_gaps WHERE symbol = %s"
+                "               AND granularity = 'minute') AS gap_frontier",
+                (symbol, symbol, symbol, symbol),
             )
             _row = _cur.fetchone()
         _has_bars = _row[0] if _row else False
         _has_unknown_gaps = _row[1] if _row else False
         _has_any_gaps = _row[2] if _row else False
-        # Seed when: no bars yet, OR no gap rows at all (gap table out of sync
-        # with bars — e.g. after a DB migration or manual gap-row deletion), OR
-        # there are unknown gaps to fill, OR force_reset_terminal requested.
-        _needs_seed = (
+        _gap_frontier = _row[3] if _row else None
+        # Seed the FULL [history_start, target_end] window when: no bars yet,
+        # OR no gap rows at all (gap table out of sync with bars — e.g. after a
+        # DB migration or manual gap-row deletion), OR there are unknown gaps
+        # to fill, OR force_reset_terminal requested.
+        _needs_full_seed = (
             force_reset_terminal
             or not _has_bars
             or not _has_any_gaps
             or _has_unknown_gaps
         )
+        seed_from: datetime | None = None
+        if _needs_full_seed:
+            seed_from = history_start
+        elif _gap_frontier is not None and _gap_frontier < target_end:
+            # Issue #19: every gap row is terminal (PROVIDER_HOLE /
+            # RETRY_EXHAUSTED) and none is UNKNOWN, so the full-seed gate above
+            # never fires again and the symbol's minute data freezes at its
+            # last fetch. Seed ONLY the uncovered trailing window — from the
+            # gap frontier (MAX(gap_end)) forward. The window must stay
+            # trailing: update_data_gaps deletes the rows CONTAINED in its
+            # window and re-inserts missing sessions as UNKNOWN, so a
+            # history_start window here would resurrect every genuine
+            # provider hole behind the frontier.
+            seed_from = _gap_frontier
 
-        if _needs_seed:
+        if seed_from is not None:
             # Coverage-aware seeding (slice 162): when the caller has a coverage
             # index, seed only genuinely-missing sessions instead of a single
             # [history_start, target_end] span. When coverage_index is None (the
@@ -373,7 +391,7 @@ def _do_minute_symbol(
             precomputed_ranges = None
             if coverage_index is not None:
                 precomputed_ranges = compute_missing_minute_sessions(
-                    conn, symbol, coverage_index, history_start, target_end
+                    conn, symbol, coverage_index, seed_from, target_end
                 )
 
             # Seed gap rows and commit before entering the fetch loop.
@@ -386,7 +404,7 @@ def _do_minute_symbol(
                         conn,
                         symbol,
                         "minute",
-                        history_start,
+                        seed_from,
                         target_end,
                         fetch_status_for_unfilled=FetchStatus.UNKNOWN,
                         outcome=LastAttemptOutcome.PARTIAL,
