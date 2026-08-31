@@ -93,6 +93,9 @@ SUMMARY_HEADER = "Kalshi trades"
 SUMMARY_REQUESTS = re.compile(r"requests (?P<requests>[\d,]+)(?P<capped> \(capped\))?")
 SUMMARY_WATERMARK = re.compile(r"watermark\s+(?P<before>\S+) → (?P<after>\S+)")
 HTTP_429 = "kalshi HTTP 429"
+#: A retry that left attempt 1 — the budget is too high (runbook 100); a
+#: handful of first-attempt 429s per pass is the designed behaviour.
+FIRST_ATTEMPT = "attempt 1/"
 HTTP_TRANSIENT = "kalshi HTTP "
 TRANSPORT_ERROR = "kalshi transport error"
 
@@ -337,9 +340,15 @@ class Firing:
         for i, m in enumerate(messages):
             if m.strip() == SUMMARY_HEADER:
                 block = []
-                for line in messages[i + 1 : i + 12]:
+                tail = messages[i + 1 : i + 12]
+                for j, line in enumerate(tail):
                     block.append(line.strip())
                     if line.strip().startswith("cutoff"):
+                        # Rich wraps at 80 columns: the value may be next.
+                        if line.rstrip().endswith("coverage from") and j + 1 < len(
+                            tail
+                        ):
+                            block.append(tail[j + 1].strip())
                         break
                 return "\n".join(block)
         return ""
@@ -471,13 +480,15 @@ def build_report(
         f"(2) requests {requests:,} capped={capped} "
         f"(cap {TRADE_REQUESTS_PER_PASS:,}, Criterion 8)",
     )
-    n429 = len(firing.find(HTTP_429))
+    lines_429 = firing.find(HTTP_429)
+    escalated = [m for _, m in lines_429 if FIRST_ATTEMPT not in m]
     n_transient = len(firing.find(HTTP_TRANSIENT))
     n_transport = len(firing.find(TRANSPORT_ERROR))
     firing.check(
-        n429 == 0,
-        f"(3) HTTP 429 retries {n429} (all transient-status retries "
-        f"{n_transient}, transport errors {n_transport})",
+        not escalated,
+        f"(3) HTTP 429s {len(lines_429)}, none past attempt 1: {not escalated} "
+        f"(all transient-status retries {n_transient}, transport errors "
+        f"{n_transport})",
     )
     before_cov = trades.get("before_coverage")
     firing.check(
