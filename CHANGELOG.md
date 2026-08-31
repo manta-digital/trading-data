@@ -14,9 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.11.0] — 2026-08-30
 
-### Added (slice 265 — Kalshi public trades collection, code complete 2026-08-30; host cutover pending)
+### Added (slice 265 — Kalshi public trades collection)
 - **The Kalshi pass now has three phases: catalog, candlesticks, then
   trades.** The trades phase walks the exchange-wide public trade tape in
   one-hour windows, oldest first, under a single watermark, and stores every

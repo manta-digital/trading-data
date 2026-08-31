@@ -2,13 +2,19 @@
 docType: devlog
 project: trading
 dateCreated: 20260411
-dateUpdated: 20260827
+dateUpdated: 20260830
 ---
 
 # Development Log
 
 A lightweight, append-only record of development activity. Newest entries first.
 Format: `## YYYYMMDD` followed by brief notes (1-3 lines per session). Written from implementor perspective (class names, design decisions, test counts). For user-visible changes see CHANGELOG.md.
+
+---
+
+## 20260830
+
+**Slice 265 — Kalshi public trades collection (0.11.0).** Third pass phase: `TradesPhase` appended to `PASS_PHASES`, `TradeSync` walking the exchange-wide tape in one-hour windows under one watermark (`kalshi.sync_state['trades']`, floor at the cutoff on the first run, `TradesBehindCutoffError` if the watermark falls behind it), `TradeRepository.write_page` classifying and writing each 1,000-trade page in one CTE with per-page transactions, `TRADE_REQUESTS_PER_PASS = 3,000` cap checked before each window. Migration `kalshi_006_trades`: hypertable keyed `(market_ticker, created_time, trade_id UUID)`, 7-day chunks, compression at 14 days. The candle rule became the collection rule — `MT_KALSHI_CANDLE_*` → `MT_KALSHI_COLLECTION_*` with a loud `RenamedSettingError` guard over the environment and the env file; `CandleRule` → `CollectionRule` in `data/kalshi/selection.py`. `status` trades block from persisted state plus the catalog join (four closed-market counts under a documented precedence; never counts `kalshi.trades`). Gates: unit tier 2,523 passed; `integration -k kalshi` 120. Rehearsal on the test cluster: 857,954 fetched = 453,406 written + 83,362 unknown + 321,124 excluded + 62 duplicates; 0.21 s/page insert path, no measurable penalty re-walking a compressed chunk (8.4× compression). Host cutover is one command, `scripts/cutover_265_trades.py`, run by the PM after tagging.
 
 ---
 
