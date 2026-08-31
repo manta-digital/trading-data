@@ -56,6 +56,22 @@ python scripts/test_foundation_manual.py
 - Seed data must be loaded
 - Environment variables configured (.env file)
 
+## Host Operations
+
+### cutover_265_trades.py
+Cuts slice 265 (Kalshi public trades) over to production on manta9000: holds the
+Kalshi timer, runs `deploy/install-production.sh --ref`, renames
+`MT_KALSHI_CANDLE_*` → `MT_KALSHI_COLLECTION_*` in `/etc/manta-trading.env`,
+applies the `kalshi` migration track, fires one supervised pass, writes the
+completion record to `project-documents/user/notes/`, and releases the timer.
+
+**Usage (dev checkout root, after the release tag is pushed):**
+```bash
+uv run python scripts/cutover_265_trades.py v0.11.0
+```
+Exit 0 means every check in the report passed. Each step is check-then-act, so
+a failed run is fixed and re-run with the same command.
+
 ## Other Scripts
 
 ### update-guides
