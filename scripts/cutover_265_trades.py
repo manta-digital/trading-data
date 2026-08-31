@@ -20,8 +20,10 @@ Steps
   1. hold the timer       wait out a running Kalshi pass; stop mt-kalshi-pass.timer
   2. install the ref      deploy/install-production.sh --ref <ref>; verify /opt moved
   3. rename the settings  MT_KALSHI_CANDLE_* -> MT_KALSHI_COLLECTION_* in
-                          /etc/manta-trading.env (backup kept); prove the guard passes
-  4. migrate              mt data migrate apply --track kalshi (from this checkout)
+                          /etc/manta-trading.env (backup kept)
+  4. migrate              mt data migrate apply --track kalshi (from this checkout),
+                          then prove the guard passes: `status` on the new binary
+                          (which reads a column this migration adds — order matters)
   5. first firing         sudo mt-run kalshi, streamed live (journal cursor taken first)
   6. report               Section 9's numbers from that one firing -> user/notes
   7. release the timer    start mt-kalshi-pass.timer again (Persistent=true may
@@ -217,6 +219,11 @@ def production_status() -> dict:
 
 
 def prove_guard_passes() -> dict:
+    """``status`` on the new binary: the rename guard and the schema both hold.
+
+    Runs after the migration — ``read_trade_status`` selects
+    ``sync_state.coverage_from_ts``, which ``kalshi_006_trades`` adds.
+    """
     status = production_status()
     rule = (status.get("candles") or {}).get("rule", {}).get("description", "?")
     print(f"    guard passes on the new binary; rule in force: {rule}")
@@ -583,9 +590,9 @@ def main(argv: list[str]) -> int:
             f"{KALSHI_COLLECTION_ENV_PREFIX}*"
         )
         renamed = rename_settings()
-        prove_guard_passes()
         say(f"4/7 migrate the {MIGRATION_TRACK} track")
         migrate()
+        prove_guard_passes()
         say("5/7 first supervised firing")
         cursor, started = fire()
         say("6/7 report")
