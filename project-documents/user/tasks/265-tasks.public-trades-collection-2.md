@@ -228,7 +228,7 @@ design's expected outputs are drafts to be replaced.
   - [x] Verify no Sports or Mentions trade was stored (design step 4's join
         query returns 0).
   - [x] **Record the per-window wall time** of this first pass — the
-        insert-path, uncompressed figure Task 9.3's first firing is compared
+        insert-path, uncompressed figure Task 9.2's first firing is compared
         against. It is **not** Task 7.5's baseline: a first pass inserts
         every row, a re-walk hits `ON CONFLICT DO NOTHING` on every row, and
         a difference between those two would not attribute to compression.
@@ -236,7 +236,7 @@ design's expected outputs are drafts to be replaced.
         cap is not exercised here**: seeding at `now − 3 hours` gives ~3
         windows ≈ 900 requests, well under `TRADE_REQUESTS_PER_PASS = 3,000`.
         Criterion 8 is proven by part 1's Task 4.3b case 7 and observed in
-        production by Task 9.3.
+        production by Task 9.2.
   - [x] Success: every assertion above holds; outputs captured.
 
 - [x] **Task 7.4: Second pass, duplicates, status** (effort: 2)
@@ -337,77 +337,60 @@ Design *Runbook 100 and CHANGELOG*.
 
 ## Section 9: Production deploy — Project Manager
 
-Design *Verification Walkthrough* steps 8–10, Success Criterion 13. These
-run on manta9000 after PM approval of the slice, and follow runbook 100's
-update procedure.
+Design *Verification Walkthrough* steps 8–10, Success Criterion 13. Three
+steps on manta9000. Two are the Project Manager's hands — cutting the
+release, and reading the report; everything between them is
+`scripts/cutover_265_trades.py`, which performs runbook 100's update
+procedure for this release, fires the first supervised pass, and writes the
+completion record. What the script does and why is in its docstring, not
+repeated here.
 
-- [ ] **Task 9.1: Migrate the host** **[PM]** (effort: 2)
-  - [ ] Release tagging and `install-production.sh --ref` are the PM's
-        release steps under runbook 100's update procedure, **not tasks
-        here** (part 1's Context Summary). This task starts at the installed
-        ref.
-  - [ ] **First**, before any command on the new ref: replace any
-        `MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env` with
-        `MT_KALSHI_COLLECTION_*`. Unset (commented) lines need nothing; the
-        example file shows the new names. This goes first because the guard
-        fires at `Settings` construction for **every** command, and the
-        timer may fire in the gap between install and rename.
-  - [ ] `uv run mt data migrate status --track kalshi` reports 1 pending →
-        `apply` with the maintenance credential → `status` reports 0 pending.
-  - [ ] Success: `mt data migrate status --track kalshi` reports 0 pending
-        and no `MT_KALSHI_CANDLE_` variable remains in the environment file.
+- [ ] **Task 9.1: Cut the release** **[PM]** (effort: 1)
+  - [ ] From the dev checkout (CHANGELOG 0.11.0 and the version bump are
+        already on the branch):
+        ```bash
+        git checkout main
+        git merge --no-ff 265-slice.public-trades-collection -m "Merge slice 265: Kalshi public trades collection"
+        git tag -a v0.11.0 -m "v0.11.0 — Kalshi public trades collection (slice 265)"
+        git push origin main v0.11.0
+        ```
+  - [ ] Success: `git ls-remote origin v0.11.0` prints the tag. The installer
+        clones from GitHub, so the script refuses a ref that is not pushed.
 
-- [ ] **Task 9.2: First supervised firing** **[PM]** (effort: 2)
-  - [ ] `sudo mt-run kalshi` and follow it; the journal's
-        `kalshi pass finished` line shows
-        `phases: catalog=ok candles=ok trades=ok` and `Result=success`
-        (Criterion 13, first half).
-  - [ ] The `kalshi trades phase started … cutoff=… coverage_from=…
-        watermark=…` journal line shows all three equal on this first run,
-        the `trades window` lines walk forward from it, and
-        `mt-run data kalshi status` shows `coverage from` at that cutoff and
-        `tape through` ~7 hours past it with a large lag — this is the
-        observation that proves the **first-run floor is the cutoff**
-        (Criterion 6), which the rehearsal deliberately did not exercise.
-        (`status` does not print the cutoff itself; the journal line is its
-        source.)
-  - [ ] Success: the two outputs above captured for the slice's completion
-        record.
+- [ ] **Task 9.2: Run the cutover** **[PM]** (effort: 1)
+  - [ ] Still on `main` in the dev checkout:
+        `uv run python scripts/cutover_265_trades.py v0.11.0`. One sudo
+        prompt at the start (possibly one more after the firing); the pass
+        streams for ~15 minutes, and Ctrl-C only detaches the view — the
+        script keeps waiting for the unit. In order: hold the timer, install
+        the ref, rename `MT_KALSHI_CANDLE_*` → `MT_KALSHI_COLLECTION_*` in
+        `/etc/manta-trading.env` (backup kept), apply `kalshi_006_trades`,
+        `mt-run kalshi`, write `user/notes/<date>-265-cutover.md`, release
+        the timer. Each step is check-then-act: after a failure, fix the
+        cause and re-run the same command.
+  - [ ] Success: exit 0 — every check in the report is ✅: `Result=success`
+        with `catalog=ok candles=ok trades=ok` (Criterion 13, first half);
+        the first-run floor equals the cutoff (Criterion 6 — the observation
+        the rehearsal could not make); and the five numbers from that one
+        firing: watermark advance (~7 h), `requests ≥ 3,000 (capped)`
+        (Criterion 8), 429 count 0, the `before coverage` baseline (266's
+        input), and the slowest `trades window` under five minutes against
+        the rehearsal's 0.21 s/page. A ❌ on the slowest window means the
+        chunk under the watermark was compressed by the policy — pause it by
+        hypertable name for the remainder of the drain (runbook 100) and
+        resume after; the other checks stand on their own.
 
-- [ ] **Task 9.3: Measure the first firing's deltas** **[PM]** (effort: 2)
-  - [ ] Everything here is read **from the firing that just completed** — no
-        bullet waits on a later one. Record each as a number in the slice's
-        completion record.
-  - [ ] `watermark_ts` advanced by the expected number of windows for a
-        capped pass (~7 hours of tape). **Source for "before":** on this
-        first run it equals `coverage_from_ts` (still in `sync_state`, never
-        moved) and is printed on the `kalshi trades phase started …
-        watermark=` journal line Task 9.2 captured; "after" is
-        `sync_state['trades'].watermark_ts` now, also on the pass's
-        `Kalshi trades` block (`watermark before → after`). The row itself
-        holds only the new value once the firing is done.
-  - [ ] The pass's `Kalshi trades` summary block reports `requests` at or
-        just above `TRADE_REQUESTS_PER_PASS`, marked `(capped)` — the cap's
-        only production observation (Criterion 8). **Source:** the unit runs
-        `mt data kalshi pass` with no flags under `StandardOutput=journal`,
-        so the block `print_trade_summary` writes to stdout (part 1, Task 4.6
-        keeps `requests` and `capped` on one line) is in the journal:
-        `journalctl -u mt-kalshi-pass.service -n 200 | grep -A4 'Kalshi
-        trades'`. Neither the `kalshi pass finished` line nor the
-        `trades window` lines carry these two fields.
-  - [ ] `journalctl -u mt-kalshi-pass.service … | grep -c 'HTTP 429'` for
-        this firing is 0 (retries never left attempt 1).
-  - [ ] `before coverage` from `mt-run data kalshi status`, recorded as the
-        **baseline number** — it is 266's input and should not move
-        thereafter.
-  - [ ] The slowest `trades window` line's wall time, compared against the
-        rehearsal's first-pass timing (Task 7.3 — the same insert path,
-        uncompressed) and its compressed re-walk (Task 7.5). A window taking
-        minutes rather
-        than seconds means the policy compressed the chunk under the
-        watermark — pause it by hypertable name for the remainder of the
-        drain (runbook 100), resume after.
-  - [ ] Success: all five numbers recorded from a single firing.
+- [ ] **Task 9.3: Close the slice from the report** **[agent]** (effort: 2)
+  - [ ] Replace the design's walkthrough steps 8–9 draft expectations with
+        the report's observed output (the 264 pattern) and fill the
+        *Success criteria — where each is proven* rows for 6, 8, and 13.
+  - [ ] Add a `user/notes/000-process-journal.md` entry for anything that
+        outlives the slice — the first-firing timing against the rehearsal's
+        0.21 s/page, and production's unknown-prefix set.
+  - [ ] Set `dateUpdated` on the design, runbook 100, and this file; set the
+        design's `status: complete`.
+  - [ ] Delegate checklist updates for this file to the `task-checker` agent.
+  - [ ] Commit: `docs: close slice 265 from the cutover report`.
 
 **Handoff, not a task — the steady state.** Criterion 13's second half
 (`tape through` advancing ~7 hours per firing until `behind` clears at
@@ -417,5 +400,5 @@ running system over days, and **no task in this file may wait on it** (part
 carried as an explicit follow-up in the slice's completion record and as a
 **266 prerequisite** — 266 should not start against a tape still draining.
 The mechanism it depends on is already proven without waiting: the cap and
-the per-pass advance by part 1's Task 4.3b case 7 and Task 9.3 above, the
+the per-pass advance by part 1's Task 4.3b case 7 and Task 9.2 above, the
 window loop by the rehearsal, and the lag figures by Task 5.3.

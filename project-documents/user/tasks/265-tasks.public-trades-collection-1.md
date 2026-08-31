@@ -681,8 +681,8 @@ Design *Core (`trade_sync.py`) and types (`trade_types.py`)*, *Data Flow*,
         (with `capped` when set), watermark before → after, and
         fetched / written / unknown / excluded / duplicates. **`requests` and
         `capped` share one line** (`requests 3,004 (capped)`): the supervised
-        firing's stdout lands in the journal, and part 2 Task 9.3 greps that
-        line for the cap's only production observation.
+        firing's stdout lands in the journal, and part 2's cutover script
+        (Task 9.2) parses that line for the cap's only production observation.
   - [x] Extend `test/unit/cli/commands/test_data_kalshi.py`: the renderer
         dispatches on the trades phase name; the `TradeResult.to_dict()`
         payload round-trips through `json.dumps`/`loads` unchanged.
