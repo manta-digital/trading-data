@@ -21,8 +21,8 @@ reviewVerdictsAddressed:
   - 265-review.tasks.public-trades-collection.part-2, second round (claude-opus-5, FAIL) — F001 and F008 by merging Tasks 5.1/5.2a into one task with no re-export; F002 the cutoff figure struck from the block (part 1 Task 2.2; Tasks 5.1, 5.4); F003 the integration tests moved to Task 5.3, before rendering; F004 Tasks 7.3–7.5 match the re-walk timings; F005 Task 9.3 names the journal block; F006 Task 8.1; F007 no action — no NFR to gate on; F009–F010 pass
   - 265-review.tasks.public-trades-collection.part-2, third round (claude-opus-5, CONCERNS) — F001 `_iso` moves to `sync_types` as `iso_utc` (Task 5.1); F002 Task 6.1 gains the mid-window abort against a real database; F003 Task 9.3 names the before-watermark source; F004–F005 no action; F006–F009 pass
 dateCreated: 20260829
-dateUpdated: 20260830
-status: in_progress
+dateUpdated: 20260831
+status: complete
 ---
 
 ## Context Summary
@@ -357,8 +357,8 @@ repeated here.
   - [x] Success: `git ls-remote origin v0.11.0` prints the tag. The installer
         clones from GitHub, so the script refuses a ref that is not pushed.
 
-- [ ] **Task 9.2: Run the cutover** **[PM]** (effort: 1)
-  - [ ] Still on `main` in the dev checkout:
+- [x] **Task 9.2: Run the cutover** **[PM]** (effort: 1)
+  - [x] Still on `main` in the dev checkout:
         `uv run python scripts/cutover_265_trades.py v0.11.0`. One sudo
         prompt at the start (possibly one more after the firing); the pass
         streams for ~15 minutes, and Ctrl-C only detaches the view — the
@@ -368,7 +368,7 @@ repeated here.
         `mt-run kalshi`, write `user/notes/<date>-265-cutover.md`, release
         the timer. Each step is check-then-act: after a failure, fix the
         cause and re-run the same command.
-  - [ ] Success: exit 0 — every check in the report is ✅: `Result=success`
+  - [x] Success: exit 0 — every check in the report is ✅: `Result=success`
         with `catalog=ok candles=ok trades=ok` (Criterion 13, first half);
         the first-run floor equals the cutoff (Criterion 6 — the observation
         the rehearsal could not make); and the five numbers from that one
@@ -380,17 +380,17 @@ repeated here.
         hypertable name for the remainder of the drain (runbook 100) and
         resume after; the other checks stand on their own.
 
-- [ ] **Task 9.3: Close the slice from the report** **[agent]** (effort: 2)
-  - [ ] Replace the design's walkthrough steps 8–9 draft expectations with
+- [x] **Task 9.3: Close the slice from the report** **[agent]** (effort: 2)
+  - [x] Replace the design's walkthrough steps 8–9 draft expectations with
         the report's observed output (the 264 pattern) and fill the
         *Success criteria — where each is proven* rows for 6, 8, and 13.
-  - [ ] Add a `user/notes/000-process-journal.md` entry for anything that
+  - [x] Add a `user/notes/000-process-journal.md` entry for anything that
         outlives the slice — the first-firing timing against the rehearsal's
         0.21 s/page, and production's unknown-prefix set.
-  - [ ] Set `dateUpdated` on the design, runbook 100, and this file; set the
+  - [x] Set `dateUpdated` on the design, runbook 100, and this file; set the
         design's `status: complete`.
-  - [ ] Delegate checklist updates for this file to the `task-checker` agent.
-  - [ ] Commit: `docs: close slice 265 from the cutover report`.
+  - [x] Delegate checklist updates for this file to the `task-checker` agent.
+  - [x] Commit: `docs: close slice 265 from the cutover report`.
 
 **Handoff, not a task — the steady state.** Criterion 13's second half
 (`tape through` advancing ~7 hours per firing until `behind` clears at

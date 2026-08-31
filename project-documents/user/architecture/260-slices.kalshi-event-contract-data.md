@@ -25,7 +25,7 @@ status: not_started
 
 4. [x] **(264) Candlestick Collection** — Candle phase added to the pass: per-market watermarked acquisition from market open through close, against the post-sync market set. Resolves the period-selection trade-off (finest-and-derive vs multiple periods); schema keys candles on `(market_ticker, period, timestamp)` with conflict-ignore. Extends `mt data kalshi status` with candle coverage: markets whose candles fall short of close, per the completeness definition. Dependencies: [263]. Effort: 3/5
 
-5. [ ] **(265) Public Trades Collection** — Trades phase added to the pass: cursor-driven trade tape, idempotent on Kalshi's trade id. Extends status with trade-cursor watermark and per-market tape completeness through close. Independent of 264 — the two phases can land in either order. Dependencies: [263]. Effort: 2/5
+5. [x] **(265) Public Trades Collection** — Trades phase added to the pass: cursor-driven trade tape, idempotent on Kalshi's trade id. Extends status with trade-cursor watermark and per-market tape completeness through close. Independent of 264 — the two phases can land in either order. Dependencies: [263]. Effort: 2/5
 
 ## Integration Work
 

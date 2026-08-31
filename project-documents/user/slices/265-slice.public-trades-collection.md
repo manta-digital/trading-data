@@ -7,8 +7,8 @@ dependencies: [263]
 interfaces: [266]
 effort: 3
 dateCreated: 20260828
-dateUpdated: 20260830
-status: in_progress
+dateUpdated: 20260831
+status: complete
 ---
 
 # Slice Design: Public Trades Collection (265)
@@ -387,6 +387,24 @@ Kalshi trades              last phase 2026-08-28 15:24:11 UTC  (3 min ago)
 12. **Compression is live and proven on a real chunk** — a policy on `kalshi.trades` with `compress_after = 14 days`, and the integration test compresses an old chunk with rows identical afterwards; the rehearsal records per-window wall time before and after compressing the chunk under the watermark.
 13. **Production: the timer runs three phases unattended.** After the release is installed and `kalshi_006` applied, the next firing's journal shows `phases: catalog=ok candles=ok trades=ok`, `Result=success`, the trades phase capped at ~3,000 requests; over the following days `mt-run data kalshi status` shows `tape through` advancing ~7 hours per firing until `behind` clears, then staying within two hours of now.
 
+### Success criteria — where each is proven
+
+| # | Criterion | Proven by |
+|---|---|---|
+| 1 | three phases in order | `test_kalshi_pass.py::TestThreePhasePass`; walkthrough 4; host firing `phases=catalog,candles,trades` |
+| 2 | trades land under the key, identity holds | `test_kalshi_trades.py`; rehearsal 857,954 = 453,406 + 83,362 + 321,124 + 62; host 3,207,024 = 842,332 + 460,739 + 1,903,878 + 75 |
+| 3 | second pass writes only what is new | `TestThreePhasePass` second pass; walkthrough 5 (0 written, 31 overlap duplicates, dup-key query 0) |
+| 4 | watermark per window, never mid-window | `test_trade_sync.py` case 6 (fake); `TestThreePhasePass::test_mid_window_abort…` (real DB) |
+| 5 | one rule, configuration, renamed | `test_collection_rule_settings.py`; walkthrough 3 (guard exit 1; rule description unchanged) |
+| 6 | first run starts at the cutoff | `test_trade_sync.py` first-run case; **host firing: cutoff = watermark = coverage_from = 2026-07-01T00:00:00Z** |
+| 7 | window end trails the catalog walk | `test_trade_sync.py`; rehearsal watermark == `last_full_sync_at − 1 min` exactly |
+| 8 | cap in requests, visible | `test_trade_sync.py` case 7; **host firing `requests 3,210 (capped)`, next pass from 07:00** |
+| 9 | unknown markets dropped, counted, prefixes logged | `test_trade_sync.py`; rehearsal and host `trades unknown markets:` lines; 0 stored |
+| 10 | preflight names the missing migration | `test_kalshi_migrations.py`; walkthrough 2 (exit 1 naming `kalshi_006_trades`) |
+| 11 | `status` from the database alone | `test_trade_status.py` (no `kalshi.trades` in any statement); `test_status_imports.py` |
+| 12 | compression live, proven on a real chunk | `TestTradesHypertable`; walkthrough 6 (8.4×; compressed re-walk 69 s/373 vs 68 s/369) |
+| 13 | production timer runs three phases | **host firing `Result=success`, `catalog=ok candles=ok trades=ok`, capped**; second half is the drain handoff (step 10) |
+
 ## Verification Walkthrough
 
 Steps 1–7 run on a UUID-named throwaway database on the test cluster (`MT_TIMESCALE_DB_URL` and `MT_TIMESCALE_MAINTENANCE_URL` pointed at it per command, from a directory with no `.env`; the production URL never enters the shell). Steps 8–10 are on manta9000 and are the PM's. **Rehearsed 2026-08-30** — the outputs below are the observed ones (full record: `user/notes/2026-08-30-265-rehearsal.md`).
@@ -468,20 +486,27 @@ uv run mt data kalshi pass                       # re-walk against the compresse
 
 **7. Abort inside a window leaves the watermark (Criterion 4)** — proven by `test_kalshi_pass.py::TestThreePhasePass::test_mid_window_abort_leaves_the_watermark_and_keeps_the_pages` against a real database (a `ProviderError` after page 2: pages 1–2 committed, `watermark_ts` unchanged, exit 2) and by the unit tier (`test_trade_sync.py` cases 6 and 12); recorded here as the manual analogue, not re-run by hand.
 
-**8. Production deploy (PM).** Runbook 100 *Update procedure*: tag → `install-production.sh --ref` → **first** replace any `MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env` with `MT_KALSHI_COLLECTION_*` (the guard fires for every command; the timer may fire in the gap) → `uv run mt data migrate status --track kalshi` (1 pending) → `apply` (maintenance credential) → `status` 0 pending.
+**8. Production deploy (PM) — observed 2026-08-31, `user/notes/2026-08-31-265-cutover.md`.** Release v0.11.0 (merge `8bf4af6`), then one command from the dev checkout, `uv run python scripts/cutover_265_trades.py v0.11.0`: it held the timer (waiting out a running old-binary pass), ran `install-production.sh --ref v0.11.0` (`mt version 0.11.0`), found no `MT_KALSHI_CANDLE_*` name set in `/etc/manta-trading.env`, applied `kalshi_006_trades` (`kalshi` track 0 pending), proved the guard with `status` on the new binary, fired the pass, wrote the report, and released the timer. The first attempt stopped at the guard proof with `UndefinedColumn: coverage_from_ts` because `status` was called before `migrate apply` — the new binary's `status` reads a column this release's migration adds; the script now proves after migrating.
 
-**9. First supervised firing (Criterion 13).**
+**9. First supervised firing (Criterion 13, first half; Criterion 6) — observed.**
 
-```bash
-sudo mt-run kalshi ; mt-run follow kalshi
-journalctl -u mt-kalshi-pass.service --grep 'kalshi pass finished' -n 1
-#    → … phases: catalog=ok candles=ok trades=ok   (trades capped at ~3,000 requests: ~7 hours of tape, ~10 minutes at the rehearsal's 0.2 s/page)
-journalctl -u mt-kalshi-pass.service --grep 'trades phase started' -n 1    # cutoff=… watermark=… coverage_from=… all equal on the first run — the cutoff floor (Criterion 6)
-journalctl -u mt-kalshi-pass.service -n 200 | grep -A4 'Kalshi trades'     # the pass's summary block: `requests 3,0xx (capped)` on one line
-mt-run data kalshi status                                                  # tape through ≈ cutoff + 7 h  (~60 d behind); before coverage = 266's number
+```
+kalshi pass started run_id=f11b1266-… mode=public budget=300/min phases=catalog,candles,trades
+kalshi trades phase started … cutoff=2026-07-01T00:00:00+00:00 watermark=2026-07-01T00:00:00+00:00 coverage_from=2026-07-01T00:00:00+00:00 rule: traded 24h · categories all · excluding Mentions, Sports · patterns 2
+trades window 2026-07-01T00:00:00+00:00→…T01:00:00 pages 509 fetched 508848 written 113775 unknown 89274 excluded 305799      (92 s)
+… seven windows, 36–162 s each, 0.17–0.21 s/page …
+kalshi trades cap reached: requests=3210 >= 3000; the next pass continues from watermark=2026-07-01T07:00:00+00:00
+trades unknown markets: KXMVESPORTSMULTIGAMEEXTENDED 386,665 · KXMVECROSSCATEGORY 74,074
+kalshi pass finished outcome=ok duration=730274 ms phases: catalog=ok candles=ok trades=ok
+Kalshi trades
+  windows       7    requests 3,210 (capped)
+  watermark     2026-07-01T00:00:00+00:00 → 2026-07-01T07:00:00+00:00
+  trades        fetched 3,207,024  written 842,332  unknown 460,739  excluded 1,903,878  duplicates 75
 ```
 
-**10. The drain, over the following days.** `mt-run data kalshi status` each day: `tape through` advances ~7 hours per firing; `short of close` falls; `before coverage` is constant (266's input). `journalctl … | grep -c 'HTTP 429'` per firing stays at attempt 1. When `behind` clears (~10 days), a steady-state pass is ~800–900 requests and ~3 minutes. If any firing's `trades window` lines show a window taking minutes rather than seconds, the chunk under the watermark was compressed by the policy — the rehearsal measured no penalty on the conflict path, but pause it by hypertable name for the remainder of the drain (runbook 100) and resume after if the insert path proves otherwise.
+`Result=success`, `ExecMainStatus=0`. The three timestamps on the phase-start line are equal — the first-run floor is the cutoff (Criterion 6). HTTP 429s in the firing: 8, all `attempt 1/4` and all on `/markets/candlesticks`; the trades endpoint drew none in 3,210 requests. `mt-run data kalshi status --json` afterwards: `tape_through 2026-07-01T07:00:00Z`, `lag_minutes 87700`, `behind true`, `coverage_from 2026-07-01T00:00:00Z`, `complete_through_close 962`, `partial_history 871`, `short_of_close 410,004` (the whole selected closed universe past the watermark — falls with the drain), **`before_coverage 20,937` — 266's input.**
+
+**10. The drain, over the following days (handoff, not a task).** `mt-run data kalshi status` each day: `tape through` advances 5–7 hours per firing (the July tape runs 215–771 pages per hour-window, about twice the rehearsal's August hour, so the cap buys fewer hours on busy stretches); `short of close` falls; `before coverage` stays 20,937. A 429 that leaves attempt 1 is the budget signal, not the raw count. When `behind` clears (~10 days at ~144 h/day net), a steady-state pass is ~800–900 requests and ~3 minutes. Per-window wall time on production equals the rehearsal's insert path (0.21 s/page, slowest window 162 s); if any firing's `trades window` lines show a window taking minutes rather than seconds, the chunk under the watermark was compressed by the policy — pause it by hypertable name for the remainder of the drain (runbook 100) and resume after.
 
 ## Risk Assessment
 

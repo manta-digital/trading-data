@@ -28,8 +28,8 @@ reviewVerdictsAddressed:
   - 265-review.tasks.public-trades-collection.part-2, second round (claude-opus-5, FAIL) — F002's column question settled in Task 2.2 here; the rest in part 2
   - 265-review.tasks.public-trades-collection.part-1, third round (claude-opus-5, CONCERNS) — F001 `phase_end` and `window_end` named apart in Task 4.2 and in the design's Data Flow; F002 the guard's env-file seam pinned in Task 1.4; F003 Task 3.1; F004 Task 3.3 case 7; F005 Task 4.3a and Task 4.3b case 12; F006 part 2 Task 9.1; F007 Task 3.2; F008 no change; F009–F011 pass
 dateCreated: 20260829
-dateUpdated: 20260830
-status: in_progress
+dateUpdated: 20260831
+status: complete
 ---
 
 ## Context Summary

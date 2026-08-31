@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260825
+dateUpdated: 20260831
 status: in_progress
 ---
 
@@ -19,6 +19,16 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20260831 — 265 cut over: the trades drain runs at the rehearsal's pace on production, and a host section is a script, not a checklist
+
+**Context.** Slice 265 (Kalshi public trades) went to production on manta9000 as v0.11.0. The first supervised firing (`user/notes/2026-08-31-265-cutover.md`) was run by one command, `scripts/cutover_265_trades.py`, after the PM rejected the original three-task, fifteen-bullet [PM] section as "not a human processable task list".
+
+**Decision.** A production-host section of a task file is three steps — cut the release (git only), run one cutover script, close the slice from the report the script writes — and nothing else. Anything an agent can read from the journal, `--json` output, or `systemctl show` is the script's job, and the script writes the completion record itself with a ✅/❌ per check and exit 0 only when all pass. The CHANGELOG cut and version bump are committed on the slice branch so the merge and tag are the PM's only git act. The script's checks encode the design's criteria literally: the first attempt demanded zero HTTP 429s, but the design's step 10 and runbook 100 define the signal as a retry that *leaves attempt 1* (a handful of first-attempt 429s per pass is the budget working); the check was corrected to count escalations.
+
+**Rationale (what the firing showed).** The first-run floor is the cutoff, observed: `cutoff=watermark=coverage_from=2026-07-01T00:00:00Z` on the phase-start line (Criterion 6, which the rehearsal could not exercise). Production insert-path timing equals the rehearsal's: 0.17–0.21 s/page across seven windows, slowest 162 s for 771 pages, against 0.21 s/page rehearsed — so the compressed-chunk lever stays unused. The July tape is roughly twice as dense per hour as the rehearsal's August hour (215–771 pages/window vs 233–346), and the cap therefore buys 5–7 hours of tape per pass depending on which hours it lands on; 7.00 h here. Under the rule, 26% of fetched trades are stored, 59% excluded (Sports and Mentions dominate volume), 14% are multi-leg tape with no catalog market (`KXMVESPORTSMULTIGAMEEXTENDED`, `KXMVECROSSCATEGORY` — dropped and counted, never stored). All eight 429s of the pass were first-attempt retries on `/markets/candlesticks`; the trades endpoint drew none in 3,210 requests. Ordering lesson from the first attempt: the new binary's `status` reads a column the release's migration adds, so a deploy proof that calls `status` must run after `migrate apply` — install → rename → migrate → prove → fire.
+
+**Follow-ups.** Steady-state observation is a handoff, not a task: `tape through` should advance ~5–7 h per firing until `behind` clears in roughly ten days; `before coverage` = 20,937 is 266's input and must not move. 266 does not start against a draining tape. Next host section (266 or any deploy) starts from the cutover-script pattern.
 
 ## 20260825 — 263 implemented: the pass contract landed with one phase, and `mt-run` root invocations were silently dropping most of the environment
 
