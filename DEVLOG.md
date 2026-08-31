@@ -2,13 +2,19 @@
 docType: devlog
 project: trading
 dateCreated: 20260411
-dateUpdated: 20260830
+dateUpdated: 20260831
 ---
 
 # Development Log
 
 A lightweight, append-only record of development activity. Newest entries first.
 Format: `## YYYYMMDD` followed by brief notes (1-3 lines per session). Written from implementor perspective (class names, design decisions, test counts). For user-visible changes see CHANGELOG.md.
+
+---
+
+## 20260831
+
+**0.11.1 — minute seed-gate fix (issue #19).** Post-265-cutover review of `mt data status` found ~7,300 of 13,083 active symbols with frozen minute data: `_do_minute_symbol`'s `_needs_seed` gate (no bars / no gap rows / has UNKNOWN) never fires for a symbol whose rows are all terminal, so one empty trailing-day fetch (`EMPTY` → `PROVIDER_HOLE`) parked a symbol permanently — mass event 2026-08-06/07 (6,384 symbols), then 166–748/week. Fix: the preflight SELECT also reads the gap frontier (`MAX(gap_end)`); when the full-seed gate doesn't fire and frontier < target_end, seed exactly `[frontier, target_end]` — never `history_start`, because `update_data_gaps` deletes rows contained in its window and would resurrect every genuine provider hole. Five regression tests (`TestTrailingSeedAfterTerminalGaps`). Daily is unaffected (no such gate). Recovery of already-parked spans: one `mt data pull 1m --universe --reset --start 2026-06-01` after the release lands (dry-run measured: 1,719 terminal rows in window). Also observed, still open: `minute_5min/15min_ohlcv` caggs materialized only to 2026-08-07 with policies reporting Success.
 
 ---
 

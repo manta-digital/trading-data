@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.1] — 2026-08-31
+
+### Fixed
+- **The minute pass silently stopped fetching symbols whose gap rows were all
+  terminal** ([#19](https://github.com/manta-digital/trading-data/issues/19)).
+  A symbol with bars, at least one `PROVIDER_HOLE`/`RETRY_EXHAUSTED` gap row,
+  and no `UNKNOWN` row was never re-seeded with new trading sessions, so its
+  minute data froze at the last fetch while the nightly pass still logged a
+  `minute fetch:` line for it — ~7,300 of 13,083 active symbols were frozen by
+  2026-08-31, growing weekly. The seed gate now also fires when sessions exist
+  past the symbol's gap frontier (`MAX(gap_end)`), seeding only that trailing
+  window so terminal markers behind the frontier are preserved. Spans already
+  marked `PROVIDER_HOLE` during the freeze are not refetched automatically —
+  recover them once with
+  `mt data pull 1m --universe --reset --start <date>`.
+
 ## [0.11.0] — 2026-08-30
 
 ### Added (slice 265 — Kalshi public trades collection)
