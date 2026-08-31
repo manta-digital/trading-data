@@ -216,7 +216,10 @@ STATUS_CMD = ["data", "kalshi", "status"]
 
 @contextlib.contextmanager
 def _patched_status(
-    settings: MagicMock, status: object, candles: object = None
+    settings: MagicMock,
+    status: object,
+    candles: object = None,
+    trades: object = None,
 ) -> Iterator[None]:
     with (
         patch("manta_trading.cli.app.Settings", return_value=settings),
@@ -228,19 +231,41 @@ def _patched_status(
         patch(
             "manta_trading.data.kalshi.status.read_candle_status", return_value=candles
         ),
+        patch(
+            "manta_trading.data.kalshi.trade_status.read_trade_status",
+            return_value=trades,
+        ),
     ):
         yield
 
 
+def _trade_status(*, behind: bool = False):
+    from datetime import timedelta
+
+    from manta_trading.data.kalshi.trade_status import TradeStatus
+
+    return TradeStatus(
+        last_phase_at=NOW,
+        tape_through=NOW - timedelta(minutes=5),
+        lag=timedelta(minutes=8),
+        behind=behind,
+        coverage_from=datetime(2026, 6, 29, tzinfo=UTC),
+        complete_through_close=412_010,
+        partial_history=6_120,
+        short_of_close=310,
+        before_coverage=1_203_442,
+    )
+
+
 def _candle_status():
-    from manta_trading.data.kalshi.candle_types import CandleRule
+    from manta_trading.data.kalshi.selection import CollectionRule
     from manta_trading.data.kalshi.status import CandleStatus
 
     return CandleStatus(
         period_minutes=1,
         last_phase_at=NOW,
         cutoff_observed=datetime(2026, 6, 25, tzinfo=UTC),
-        rule=CandleRule(True, frozenset(), frozenset({"Sports"}), "MENTION", None),
+        rule=CollectionRule(True, frozenset(), frozenset({"Sports"}), "MENTION", None),
         selected_open=6912,
         markets_tracked=521404,
         open_lagging=0,
@@ -344,7 +369,7 @@ class TestStatus:
             "period 1 min",
             "cutoff 2026-06-25",
             "excluding Sports",
-            "(MT_KALSHI_CANDLE_*)",
+            "(MT_KALSHI_COLLECTION_*)",
             "selected open 6,912",
             "521,404 markets",
             "backlog remaining 412,000",
@@ -352,6 +377,62 @@ class TestStatus:
             "excluded by rule 3,117,908",
         ):
             assert needle in output, needle
+
+    # --- the trades block (slice 265, Task 5.4) ---
+
+    def test_trades_never_collected_line_and_json_null(self):
+        with _patched_status(_settings(), _catalog_status(), _candle_status(), None):
+            rich = runner.invoke(app, STATUS_CMD)
+            as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
+        assert rich.exit_code == cmd.EXIT_OK
+        assert render.NEVER_COLLECTED_TRADES in rich.output
+        assert "Kalshi candlesticks" in rich.output
+        payload = json.loads(as_json.stdout)
+        assert payload["trades"] is None
+        assert payload["candles"]["period_minutes"] == 1
+
+    def test_trade_block_rendered(self):
+        with _patched_status(
+            _settings(), _catalog_status(), _candle_status(), _trade_status()
+        ):
+            result = runner.invoke(app, STATUS_CMD)
+        assert result.exit_code == cmd.EXIT_OK, result.output
+        output = " ".join(result.output.split())
+        for needle in (
+            "Kalshi trades last phase 2026-08-25 12:00:00 UTC",
+            "tape through 2026-08-25 11:55:00 UTC (8 min behind)",
+            "coverage from 2026-06-29 00:00 UTC",
+            "complete through close 412,010",
+            "partial history 6,120",
+            "short of close 310",
+            "before coverage 1,203,442 closed markets",
+            "slice 266",
+        ):
+            assert needle in output, needle
+        assert "cutoff" not in output.split("Kalshi trades")[1]
+
+    def test_trade_block_says_behind(self):
+        with _patched_status(
+            _settings(), _catalog_status(), None, _trade_status(behind=True)
+        ):
+            result = runner.invoke(app, STATUS_CMD)
+        output = " ".join(result.output.split())
+        assert "(8 min behind; behind, past 120 min)" in output
+        assert render.NEVER_COLLECTED in output
+
+    def test_json_nests_trades(self):
+        with _patched_status(
+            _settings(), _catalog_status(), _candle_status(), _trade_status()
+        ):
+            result = runner.invoke(app, [*STATUS_CMD, "--json"])
+        payload = json.loads(result.stdout)
+        trades = payload["trades"]
+        assert trades["tape_through"] == "2026-08-25T11:55:00+00:00"
+        assert trades["lag_minutes"] == 8 and trades["behind"] is False
+        assert trades["coverage_from"] == "2026-06-29T00:00:00+00:00"
+        assert trades["before_coverage"] == 1_203_442
+        assert "cutoff" not in trades
+        assert payload["candles"]["period_minutes"] == 1
 
     def test_json_nests_candles_and_keeps_catalog_keys(self):
         with _patched_status(_settings(), _catalog_status(), _candle_status()):
@@ -518,6 +599,25 @@ def _catalog_summary() -> dict[str, object]:
     return SyncResult(run_id=uuid4(), started_at=NOW).to_dict()
 
 
+def _trade_summary(*, capped: bool = True) -> dict[str, object]:
+    from manta_trading.data.kalshi.trade_types import TradeResult
+
+    result = TradeResult(run_id=uuid4(), started_at=NOW)
+    result.cutoff = datetime(2026, 6, 29, tzinfo=UTC)
+    result.coverage_from = result.cutoff
+    result.watermark_before = datetime(2026, 7, 3, tzinfo=UTC)
+    result.watermark_after = datetime(2026, 7, 3, 7, tzinfo=UTC)
+    result.windows_completed = 7
+    result.requests = 3004
+    result.capped = capped
+    result.trades_fetched = 2_998_113
+    result.trades_written = 1_770_214
+    result.unknown_market = 244_900
+    result.excluded_by_rule = 982_999
+    result.unknown_prefixes = {"KXMVECROSSCATEGORY": 244_900}
+    return result.to_dict()
+
+
 def _pass_result(*reports: PhaseReport) -> PassResult:
     return PassResult(
         run_id=uuid4(),
@@ -535,6 +635,9 @@ class TestPhaseRenderers:
         )
         assert (
             render.PHASE_RENDERERS[PassPhaseName.CANDLES] is render.print_candle_summary
+        )
+        assert (
+            render.PHASE_RENDERERS[PassPhaseName.TRADES] is render.print_trade_summary
         )
 
     def test_every_registered_phase_has_a_renderer(self):
@@ -562,6 +665,48 @@ class TestPhaseRenderers:
         assert "2026-06-25" in out
 
     def test_unregistered_phase_raises_the_named_error(self):
-        bogus = cast(PassPhaseName, "trades")
-        with pytest.raises(render.NoPhaseRendererError, match="trades"):
+        bogus = cast(PassPhaseName, "orderbook")
+        with pytest.raises(render.NoPhaseRendererError, match="orderbook"):
             render.render_phase_summary(bogus, {})
+
+    def test_trade_block_renders_requests_and_capped_on_one_line(self, capsys):
+        """Slice 265, Task 4.6: the deploy check greps this line in the journal."""
+        result = _pass_result(
+            PhaseReport(PassPhaseName.TRADES, SyncOutcome.OK, _trade_summary(), 9)
+        )
+        render.print_pass_summary(result, cmd.EXIT_OK, json_output=False)
+        out = " ".join(capsys.readouterr().out.split())
+        assert "Kalshi trades" in out
+        assert "requests 3,004 (capped)" in out
+        assert "windows 7" in out
+        assert "2026-07-03T00:00:00+00:00 → 2026-07-03T07:00:00+00:00" in out
+        assert "fetched 2,998,113 written 1,770,214 unknown 244,900" in out
+        assert "excluded 982,999 duplicates 0" in out
+        assert "cutoff 2026-06-29" in out
+
+    def test_trade_block_without_the_cap(self, capsys):
+        result = _pass_result(
+            PhaseReport(
+                PassPhaseName.TRADES, SyncOutcome.OK, _trade_summary(capped=False), 9
+            )
+        )
+        render.print_pass_summary(result, cmd.EXIT_OK, json_output=False)
+        out = " ".join(capsys.readouterr().out.split())
+        assert "requests 3,004" in out and "(capped)" not in out
+
+    def test_three_phase_json_names_the_trades_phase_third(self, capsys):
+        """``mt data kalshi pass --json | jq '.phases[2].name'`` → ``"trades"``,
+        and the trade summary round-trips through JSON unchanged."""
+        summary = _trade_summary()
+        result = _pass_result(
+            PhaseReport(PassPhaseName.CATALOG, SyncOutcome.OK, _catalog_summary(), 5),
+            PhaseReport(PassPhaseName.CANDLES, SyncOutcome.OK, _candle_summary(), 7),
+            PhaseReport(PassPhaseName.TRADES, SyncOutcome.OK, summary, 9),
+        )
+        render.print_pass_summary(result, cmd.EXIT_OK, json_output=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["phases"][2]["name"] == "trades"
+        assert payload["phases"][2]["summary"] == json.loads(json.dumps(summary))
+        assert payload["phases"][2]["summary"]["watermark"]["after"] == (
+            "2026-07-03T07:00:00+00:00"
+        )

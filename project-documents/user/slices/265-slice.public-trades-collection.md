@@ -329,6 +329,7 @@ Both intervals render from the constants (`_interval_sql`); the `COMMENT ON` sta
     `partial_history` — `open_time < coverage_from ≤ close_time` (the tape starts mid-life);
     `short_of_close` — `close_time > watermark` (the tape has not reached them yet; large during the drain, ~0 after);
     `before_coverage` — `close_time < coverage_from` — 266's input for trades.
+    The four are a **partition** of the selected closed markets, applied in the precedence *before coverage → short of close → partial history → complete* (a market opened before the floor whose close the tape has not reached is *short of close*, not yet *partial*; a market with no recorded `open_time` is *partial*, never *complete*) — `trade_status.py` raises if the four do not sum to the total.
   - No `excluded_by_rule` here: one rule, one figure, already in the candle block.
   - No `cutoff` here either: the trades cutoff is observed per run, not persisted — the phase logs it at INFO every run (Data Flow step 1) and Decision 6 aborts loudly when the watermark falls behind it — and Decision 10 keeps `status` off the client. (The candle block's `cutoff_observed` reads `sync_state['candlesticks'].watermark_ts`, a slot the trades surface uses for the tape watermark, so that route is not available here.)
 - Rich block:
@@ -388,90 +389,99 @@ Kalshi trades              last phase 2026-08-28 15:24:11 UTC  (3 min ago)
 
 ## Verification Walkthrough
 
-Steps 1–7 run on a UUID-named throwaway database on the test cluster (`MT_TIMESCALE_DB_URL` pointed at it for those commands only; the production URL never enters the shell). Steps 8–10 are on manta9000 and are the PM's. Expected outputs are drafts to be replaced by observed ones at Phase 6.
+Steps 1–7 run on a UUID-named throwaway database on the test cluster (`MT_TIMESCALE_DB_URL` and `MT_TIMESCALE_MAINTENANCE_URL` pointed at it per command, from a directory with no `.env`; the production URL never enters the shell). Steps 8–10 are on manta9000 and are the PM's. **Rehearsed 2026-08-30** — the outputs below are the observed ones (full record: `user/notes/2026-08-30-265-rehearsal.md`).
 
 **1. Throwaway database, migrated, with a small catalog.**
 
 ```bash
-uv run mt data migrate apply --track kalshi          # → … kalshi_006_trades applied
-uv run mt data migrate status --track kalshi         # → 0 pending
+psql "$MT_TIMESCALE_TEST_URL" -c "create database mt_rehearsal_265_<hex>"; psql "$MT_TIMESCALE_DB_URL" -c "create extension if not exists timescaledb"
+uv run mt data migrate apply --track kalshi          # → Applied: kalshi_001_schema … kalshi_006_trades
+uv run mt data migrate status --track kalshi         # → 7 applied, 0 pending
 psql "$MT_TIMESCALE_DB_URL" -c "select hypertable_name, compression_enabled from timescaledb_information.hypertables where hypertable_schema='kalshi'"
 #    → candlesticks | t ;  trades | t
-uv run mt data kalshi sync --settled-since "$(date -u -d '6 hours ago' +%FT%TZ)"     # a catalog to join against
+uv run mt data kalshi sync --settled-since "$(date -u -d '6 hours ago' +%FT%TZ)"     # 259 s: 13,631 series · 209,746 markets · 15,386 settled
 ```
 
 **2. Preflight names a missing migration (Criterion 10).**
 
 ```bash
 psql "$MT_TIMESCALE_DB_URL" -c "delete from schema_migrations where migration_id='kalshi_006_trades'"
-uv run mt data kalshi pass      # → Error: kalshi track has pending migrations: kalshi_006_trades — …  exit 1
-uv run mt data migrate apply --track kalshi
+uv run mt data kalshi pass      # → Error: kalshi track has pending migrations: kalshi_006_trades — mt data migrate apply --track kalshi   exit 1
+uv run mt data migrate apply --track kalshi          # → Applied: kalshi_006_trades
 ```
 
 **3. The rename is loud, and the rule still moves (Criterion 5).**
 
 ```bash
 MT_KALSHI_CANDLE_CATEGORIES=Sports uv run mt data kalshi status
-#    → error naming MT_KALSHI_COLLECTION_*; nonzero exit
+#    → RenamedSettingError: … MT_KALSHI_CANDLE_CATEGORIES is now MT_KALSHI_COLLECTION_CATEGORIES …   exit 1 (a traceback, as every Settings failure)
+# after at least one pass (before it, .candles is null by design):
 uv run mt data kalshi status --json | jq .candles.rule.description
 #    → "traded 24h · categories all · excluding Mentions, Sports · patterns 2"   (unchanged by the rename)
+MT_KALSHI_COLLECTION_CATEGORIES=Sports MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES= uv run mt data kalshi status --json | jq '[.candles.rule.description, .trades.complete_through_close]'
+#    → ["traded 24h · categories Sports · excluding none · patterns 2", 54]   (478 under the default rule — the same rule, re-evaluated)
 ```
 
-**4. First pass: three phases, the first-run floor, the cap (Criteria 1, 2, 6, 8, 9).** The throwaway catalog is hours old, so set the drain start close enough to finish in a few windows — the design's first-run rule is the cutoff (~60 days); for the rehearsal, seed the row by hand at `now − 3 h` and record that this substitutes for step 4's cutoff start, which the host step proves.
+**4. First pass: three phases, the floor, the identity (Criteria 1, 2, 7, 9).** The throwaway catalog is hours old, so seed the row by hand at `now − 3 h` and record that this substitutes for the design's cutoff start (~60 days), which step 9 proves on the host.
 
 ```bash
-psql "$MT_TIMESCALE_DB_URL" -c "insert into kalshi.sync_state (surface, watermark_ts, coverage_from_ts) values ('trades', now() - interval '3 hours', now() - interval '3 hours')"
-uv run mt data kalshi pass --events-file trades-pass1.jsonl
-#    journal: kalshi trades phase started … cutoff=2026-06-29T00:00:00+00:00 coverage_from=… watermark=…
-#             trades window …→… pages 3xx fetched 3xx,xxx written 2xx,xxx unknown 2x,xxx excluded 1xx,xxx   (× 3)
-#             trades unknown markets: KXMVECROSSCATEGORY 8x,xxx
-#             kalshi pass finished outcome=ok … phases: catalog=ok candles=ok trades=ok
-#    summary: fetched = written + unknown + excluded + duplicates   (Criterion 2, checked by eye and by jq)
-psql "$MT_TIMESCALE_DB_URL" -c "select watermark_ts, coverage_from_ts from kalshi.sync_state where surface='trades'"
-#    → watermark = catalog last_full_sync_at − 1 min (Criterion 7); coverage_from unchanged
+psql "$MT_TIMESCALE_DB_URL" -c "insert into kalshi.sync_state (surface, watermark_ts, coverage_from_ts, updated_at) values ('trades', date_trunc('second', now() - interval '3 hours'), date_trunc('second', now() - interval '3 hours'), now())"
+uv run mt data kalshi pass --json --events-file trades-pass1.jsonl > pass1.json      # exit 0; 538 s (catalog 101 s · candles 277 s · trades 159 s)
+#    stderr: kalshi trades phase started … cutoff=2026-07-01T00:00:00+00:00 watermark=2026-08-30T11:24:43+00:00 coverage_from=2026-08-30T11:24:43+00:00 rule: …
+#            trades window 11:24:43→12:24:43 pages 233 fetched 232300 written 139453 unknown 17427 excluded 75420   (34 s)
+#            trades window 12:24:43→13:24:43 pages 281 fetched 280486 written 144393 unknown 28441 excluded 107618  (55 s)
+#            trades window 13:24:43→14:23:44.276 pages 346 fetched 345168 written 169560 unknown 37494 excluded 138086   (71 s; the short last window)
+#            trades unknown markets: KXMVECROSSCATEGORY 82,953 · KXMVECROSSCATEGORY0 409
+#            kalshi pass finished outcome=ok duration=537880 ms phases: catalog=ok candles=ok trades=ok
+jq '.phases[2].summary | (.trades_fetched == .trades_written + .unknown_market + .excluded_by_rule + .duplicates)' pass1.json   # → true
+#    (860 requests, capped false; 857,954 = 453,406 + 83,362 + 321,124 + 62 — the 62 are the two one-second window overlaps)
+psql "$MT_TIMESCALE_DB_URL" -c "select watermark_ts, coverage_from_ts, (select last_full_sync_at - interval '1 minute' from kalshi.sync_state where surface='catalog') from kalshi.sync_state where surface='trades'"
+#    → watermark 14:23:44.276244 = catalog last_full_sync_at − 1 min (Criterion 7); coverage_from unchanged 11:24:43
 psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from kalshi.trades t join kalshi.markets m on m.ticker=t.market_ticker join kalshi.events e using (event_ticker) join kalshi.series s on s.ticker=e.series_ticker where s.category in ('Sports','Mentions')"   # → 0
 ```
 
-**5. Second pass, duplicates, status (Criteria 3, 4, 11).**
+**5. Second pass, duplicates, status, late arrivals (Criteria 3, 4, 11).**
 
 ```bash
 uv run mt data kalshi pass --json | jq '.phases[2].summary | {windows_completed, requests, trades_written, duplicates}'
-#    → one short window; duplicates equal the 1-second overlap's rows; nothing else written twice
-psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from kalshi.trades a join kalshi.trades b using (market_ticker, created_time, trade_id) where a.ctid <> b.ctid"   # → 0
+#    → {1, 61, 26796, 31}: one short window; the 31 duplicates are the one-second overlap's rows; trades phase 6.5 s
+psql "$MT_TIMESCALE_DB_URL" -c "select count(*) from (select market_ticker, created_time, trade_id from kalshi.trades group by 1,2,3 having count(*) > 1) d"   # → 0  (a ctid self-join fails on a compressed chunk)
 uv run mt data kalshi status
-#    Kalshi trades   last phase … (0 min ago)
-#      tape through   … (1 min behind)   coverage from …
-#      closed markets complete through close N   partial history P   short of close 0
-#      before coverage B closed markets (…)
+#    Kalshi trades              last phase 2026-08-30 14:35:41 UTC  (0 min ago)
+#      tape through        2026-08-30 14:32:43 UTC  (3 min behind)        coverage from 2026-08-30 11:24 UTC
+#      closed markets      complete through close 478   partial history 197   short of close 0
+#      before coverage     1,524 closed markets (tape predates the collector; slice 266)
+# late arrivals, in session: seed the watermark back one hour and re-run — the re-walked hour wrote 0 rows (369 pages, 68 s: the uncompressed re-walk baseline)
+psql "$MT_TIMESCALE_DB_URL" -c "update kalshi.sync_state set watermark_ts = watermark_ts - interval '1 hour' where surface='trades'"; uv run mt data kalshi pass --json | jq '.phases[2].summary.trades_written'   # → 5447 (only the tape past the old watermark)
 ```
 
 **6. Compression, and the drain against a compressed chunk (Criterion 12).**
 
 ```bash
 psql "$MT_TIMESCALE_DB_URL" -c "select job_id, scheduled, config from timescaledb_information.jobs where proc_name='policy_compression' and hypertable_schema='kalshi' and hypertable_name='trades'"
-# resolve the id above, then (two statements — a subquery is not a valid CALL argument, journal 20260827):
-psql "$MT_TIMESCALE_DB_URL" -c "call run_job(<job_id from the line above>)"
-psql "$MT_TIMESCALE_DB_URL" -c "select compress_chunk(c) from show_chunks('kalshi.trades') c"     # force the chunk under the watermark compressed
-# seed the watermark back one hour and re-run the pass: the per-window INFO line's wall time is the measurement
+#    → 1001 | t | {"compress_after": "336:00:00"}   — resolve the id here, then (two statements; a subquery is not a valid CALL argument):
+psql "$MT_TIMESCALE_DB_URL" -c "call run_job(1001)"                                                  # nothing 14 days old yet: chunk stays Uncompressed
+psql "$MT_TIMESCALE_DB_URL" -c "select compress_chunk(c) from show_chunks('kalshi.trades') c"       # force it: 123 MB → 14.6 MB (8.4×)
 psql "$MT_TIMESCALE_DB_URL" -c "update kalshi.sync_state set watermark_ts = watermark_ts - interval '1 hour' where surface='trades'"
-uv run mt data kalshi pass                       # → compare the window's duration with step 4's; record both in the rehearsal notes
+uv run mt data kalshi pass                       # re-walk against the compressed chunk: 373 pages in 69 s vs 369 pages in 68 s uncompressed — no material difference; 8,072 new rows landed in the compressed chunk in 2 s
 ```
 
-**7. Abort inside a window leaves the watermark (Criterion 4)** — run the pass with the transport's retry budget exhausted mid-window (inject a `ProviderError` after page 2 via the unit-test fake) and confirm `watermark_ts` unchanged; this is the integration test's job and is recorded here as the manual analogue.
+**7. Abort inside a window leaves the watermark (Criterion 4)** — proven by `test_kalshi_pass.py::TestThreePhasePass::test_mid_window_abort_leaves_the_watermark_and_keeps_the_pages` against a real database (a `ProviderError` after page 2: pages 1–2 committed, `watermark_ts` unchanged, exit 2) and by the unit tier (`test_trade_sync.py` cases 6 and 12); recorded here as the manual analogue, not re-run by hand.
 
-**8. Production deploy (PM).** Runbook 100 *Update procedure*: tag → `install-production.sh --ref` → `uv run mt data migrate status --track kalshi` (1 pending) → `apply` (maintenance credential) → `status` 0 pending → replace `MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env` with `MT_KALSHI_COLLECTION_*` if any are set (the example file shows the new names; unset lines need nothing).
+**8. Production deploy (PM).** Runbook 100 *Update procedure*: tag → `install-production.sh --ref` → **first** replace any `MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env` with `MT_KALSHI_COLLECTION_*` (the guard fires for every command; the timer may fire in the gap) → `uv run mt data migrate status --track kalshi` (1 pending) → `apply` (maintenance credential) → `status` 0 pending.
 
 **9. First supervised firing (Criterion 13).**
 
 ```bash
 sudo mt-run kalshi ; mt-run follow kalshi
 journalctl -u mt-kalshi-pass.service --grep 'kalshi pass finished' -n 1
-#    → … phases: catalog=ok candles=ok trades=ok   (trades capped at ~3,000 requests, ~10–15 min)
-journalctl -u mt-kalshi-pass.service --grep 'trades window' | tail -3          # ~7 windows, June 29 onward
-mt-run data kalshi status                                                     # tape through 2026-06-29 07:00 …  (60 d behind)
+#    → … phases: catalog=ok candles=ok trades=ok   (trades capped at ~3,000 requests: ~7 hours of tape, ~10 minutes at the rehearsal's 0.2 s/page)
+journalctl -u mt-kalshi-pass.service --grep 'trades phase started' -n 1    # cutoff=… watermark=… coverage_from=… all equal on the first run — the cutoff floor (Criterion 6)
+journalctl -u mt-kalshi-pass.service -n 200 | grep -A4 'Kalshi trades'     # the pass's summary block: `requests 3,0xx (capped)` on one line
+mt-run data kalshi status                                                  # tape through ≈ cutoff + 7 h  (~60 d behind); before coverage = 266's number
 ```
 
-**10. The drain, over the following days.** `mt-run data kalshi status` each day: `tape through` advances ~7 days per day; `short of close` falls; `before coverage` is constant (266's number). `journalctl … | grep -c 'HTTP 429'` per firing stays at attempt 1. When `behind` clears (~10 days), a steady-state pass is ~800–900 requests and ~3 minutes. If any firing's `trades window` lines show a window taking minutes rather than seconds, the chunk under the watermark was compressed by the policy — pause it by hypertable name for the remainder of the drain (runbook), resume after.
+**10. The drain, over the following days.** `mt-run data kalshi status` each day: `tape through` advances ~7 hours per firing; `short of close` falls; `before coverage` is constant (266's input). `journalctl … | grep -c 'HTTP 429'` per firing stays at attempt 1. When `behind` clears (~10 days), a steady-state pass is ~800–900 requests and ~3 minutes. If any firing's `trades window` lines show a window taking minutes rather than seconds, the chunk under the watermark was compressed by the policy — the rehearsal measured no penalty on the conflict path, but pause it by hypertable name for the remainder of the drain (runbook 100) and resume after if the insert path proves otherwise.
 
 ## Risk Assessment
 

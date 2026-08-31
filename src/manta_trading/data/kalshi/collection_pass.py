@@ -58,10 +58,11 @@ _OUTCOME_PRECEDENCE = (
 
 
 class PassPhaseName(StrEnum):
-    """The phases a pass can contain; 265 adds ``TRADES``."""
+    """The phases a pass can contain, in execution order."""
 
     CATALOG = "catalog"
     CANDLES = "candles"
+    TRADES = "trades"
 
 
 @dataclass(frozen=True)
@@ -247,7 +248,7 @@ class CandlesPhase:
         from manta_trading.data.kalshi.candle_types import classify_candles
 
         started = time.monotonic()
-        rule = run.settings.candle_rule()
+        rule = run.settings.collection_rule()
         sync = CandleSync(
             run.client,
             CandleRepository(run.conn, rule),
@@ -273,6 +274,48 @@ class CandlesPhase:
         )
 
 
-#: The single registration point for pass phases: 265 appends ``TradesPhase``.
-#: Order is execution order — the catalog is current before candles run.
-PASS_PHASES: tuple[PassPhase, ...] = (CatalogPhase(), CandlesPhase())
+class TradesPhase:
+    """The trades phase — 265's :class:`TradeSync` under the phase contract.
+
+    ``TradesBehindCutoffError`` is deliberately not caught here: it propagates
+    out of the pass (265 Decision 6), and the earlier phases' reports stand.
+    """
+
+    name = PassPhaseName.TRADES
+
+    async def run(self, run: KalshiRun) -> PhaseReport:
+        from manta_trading.data.kalshi.trade_repository import TradeRepository
+        from manta_trading.data.kalshi.trade_sync import TradeSync
+        from manta_trading.data.kalshi.trade_types import classify_trades
+
+        started = time.monotonic()
+        rule = run.settings.collection_rule()
+        sync = TradeSync(
+            run.client,
+            TradeRepository(run.conn, rule),
+            run.sink,
+            rule=rule,
+            run_id=run.run_id,
+            clock=run.clock,
+        )
+        failure: ProviderError | psycopg.OperationalError | None = None
+        try:
+            await sync.run()
+        except ProviderError as exc:
+            failure = exc
+        except psycopg.OperationalError as exc:
+            failure = exc
+            logger.exception("kalshi trades phase storage failure")
+        return PhaseReport(
+            name=self.name,
+            outcome=classify_trades(sync.result, failure),
+            summary=sync.result.to_dict(),
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error=str(failure) if failure is not None else None,
+        )
+
+
+#: The single registration point for pass phases. Order is execution order —
+#: the catalog is current before candles run, and both before the trades tape
+#: is classified against the catalog (265 Decision 5).
+PASS_PHASES: tuple[PassPhase, ...] = (CatalogPhase(), CandlesPhase(), TradesPhase())

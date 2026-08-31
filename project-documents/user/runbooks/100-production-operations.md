@@ -128,8 +128,9 @@ configuration source for the units — no `.env` file exists in
   `MT_KALSHI_REQUESTS_PER_MINUTE` (lower it to ease 429s on `/events`;
   the default public budget is 300/min), and the authenticated pair
   `MT_KALSHI_API_KEY_ID` / `MT_KALSHI_PRIVATE_KEY_PATH` — **both or neither**
-- the Kalshi candle collection rule, five `MT_KALSHI_CANDLE_*` lines (slice
-  264), commented out at their defaults — see *Kalshi* below
+- the Kalshi collection rule, five `MT_KALSHI_COLLECTION_*` lines (slice
+  264; renamed in slice 265 because it governs candles **and** trades),
+  commented out at their defaults — see *Kalshi* below
 
 **Where the Kalshi private key goes.** The pass units set `ProtectHome=true`,
 so a PEM anywhere under `/home` is invisible to the service. Put it beside the
@@ -412,11 +413,11 @@ candlesticks.** The candle phase collects 1-minute candles for the markets
 the **collection rule** selects — by default, markets that traded in the
 last 24 hours, excluding the Sports and Mentions categories and the
 mention/say-titled series elsewhere. The rule is configuration: the five
-`MT_KALSHI_CANDLE_*` lines in `/etc/manta-trading.env` (defaults in the
-skeleton, `deploy/manta-trading.env.example`), and `mt-run data kalshi
-status` prints the rule in force on its `rule` line together with the
-`excluded by rule` count, so a rule change is visible before and after it
-takes effect. `kalshi_005_candlesticks` must be applied during the update; a
+`MT_KALSHI_COLLECTION_*` lines in `/etc/manta-trading.env` (defaults in the
+skeleton, `deploy/manta-trading.env.example`; renamed in slice 265 — see
+below), and `mt-run data kalshi status` prints the
+rule in force on its `rule` line together with the `excluded by rule`
+count, so a rule change is visible before and after it takes effect. `kalshi_005_candlesticks` must be applied during the update; a
 firing between install and apply exits 1 with `kalshi track has pending
 migrations: kalshi_005_candlesticks` — expected, not a defect, and the next
 hour's firing succeeds once the migration is in. **The first firings after
@@ -431,6 +432,46 @@ observed), then settles to the ~70-request steady state. A firing that lands
 while the previous one still runs exits 1 on the run lock — expected. The
 live set is planned **after** the backlog within a pass, so during the drain
 live candles land in the pass's last minutes, not its first.
+
+**The pass has three phases since slice 265: catalog, candlesticks, then
+trades.** The trades phase walks Kalshi's exchange-wide public trade tape in
+one-hour windows, oldest first, under one watermark (`mt-run data kalshi
+status` → `tape through`), and stores every trade whose market the catalog
+knows and the **collection rule** selects into `kalshi.trades`. **One rule
+governs candles and trades**, so its settings were renamed from
+`MT_KALSHI_CANDLE_*` to `MT_KALSHI_COLLECTION_*` — rename any of the five
+you have set in `/etc/manta-trading.env` **before the first firing on the
+new release** (commented-out lines need nothing): while an old
+`MT_KALSHI_CANDLE_*` line is still set, every `mt` command — the pass, and
+`status` and `migrate` too — fails at start naming the new variable, rather
+than silently collecting under the default rule. `kalshi_006_trades` must
+be applied during the update; a firing between install and apply exits 1
+with `kalshi track has pending migrations: kalshi_006_trades` — expected,
+and the next hour's firing succeeds once the migration is in. **The first
+~10 days after the release drain the live tape from Kalshi's trades
+cutoff** (about 60 days back): each hourly firing is capped at 3,000 tape
+requests (~7 hours of tape, ~15 minutes) and `status` shows `tape through`
+advancing ~7 hours per firing and the lag falling; when its `behind` flag
+clears, a steady-state pass is ~800–900 requests and ~3 minutes. A trade
+for a market the catalog does not know — the multi-leg MVE tape, about 8%
+— is counted (`unknown`) and dropped, never stored; the journal's
+`trades unknown markets:` line lists the ticker prefixes so anything that is
+not MVE is visible. Chunks of `kalshi.trades` older than 14 days compress
+under their own policy; see it by hypertable name, never by job ID:
+
+```sql
+select job_id, scheduled, config, last_run_status, last_successful_finish
+from timescaledb_information.jobs j join timescaledb_information.job_stats using (job_id)
+where hypertable_schema = 'kalshi' and hypertable_name = 'trades' and proc_name = 'policy_compression';
+```
+
+Only the chunk under the watermark can ever be met mid-write. If a firing's
+`trades window` journal lines show a window taking minutes rather than
+seconds during the drain, that chunk was compressed by the policy: pause the
+job for the remainder of the drain the same way slice 266 pauses it
+(`alter_job(job_id, scheduled => false)`, the id resolved by the query above
+at the time, with the maintenance credential — the application role cannot
+alter jobs) and resume it after. Never automated.
 
 **A dead terminal drops the view, not the pass.** `sudo mt-run kalshi`
 streams the journal, but the pass is a systemd unit and keeps running if the

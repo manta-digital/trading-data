@@ -45,6 +45,10 @@ EXPECTED_FIXTURES = {
     # slice 264
     "candlesticks_batch",
     "error_400_candles_cap",
+    # slice 265
+    "trades_window",
+    "trades_window_last",
+    "trades_empty",
 }
 
 
@@ -253,6 +257,45 @@ class TestTrades:
             assert str(parsed.count_fp) == raw_trade["count_fp"]
             assert str(parsed.yes_price_dollars) == raw_trade["yes_price_dollars"]
             assert str(parsed.no_price_dollars) == raw_trade["no_price_dollars"]
+
+
+class TestTradesWindow:
+    """Slice 265, Task 4.5: the windowed pages the trades core walks."""
+
+    @pytest.mark.parametrize(
+        ("name", "count", "has_cursor"),
+        [
+            ("trades_window", 100, True),
+            ("trades_window_last", 45, False),
+            ("trades_empty", 0, False),
+        ],
+    )
+    async def test_each_parses_into_a_trades_page(
+        self, name: str, count: int, has_cursor: bool
+    ):
+        client = serve(("/markets/trades", 200, name))
+        page = await client.get_trades(min_ts=1, max_ts=2, limit=100)
+        assert len(page.trades) == count
+        assert bool(page.cursor) is has_cursor
+        for parsed, wire in zip(page.trades, body(name)["trades"], strict=True):
+            assert parsed.trade_id == wire["trade_id"]
+            assert parsed.is_block_trade == wire["is_block_trade"]
+
+    async def test_an_empty_cursor_terminates_the_walk(self):
+        """The fact the core's page loop depends on: the last page carries
+        ``cursor: ""`` and no further request is made."""
+        first = body("trades_window")
+        seen: list[httpx.Request] = []
+        client = serve(
+            ("/markets/trades", 200, "trades_window_last", {"cursor": first["cursor"]}),
+            ("/markets/trades", 200, "trades_window"),
+            seen=seen,
+        )
+        got = await take(client.iter_trades(min_ts=1, max_ts=2, limit=100), 10_000)
+        assert len(got) == 100 + 45
+        assert cursors(seen) == [None, first["cursor"]]
+        assert body("trades_window_last")["cursor"] == ""
+        assert body("trades_empty") == {"cursor": "", "trades": []}
 
 
 class TestHistoricalCutoff:

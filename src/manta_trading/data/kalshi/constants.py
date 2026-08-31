@@ -266,3 +266,34 @@ KALSHI_CANDLE_CHUNK_INTERVAL = timedelta(days=7)
 #: Decision 4: compression policy horizon. Nothing that writes *old* data may
 #: run against compressed chunks; 266's backfill pauses the policy.
 KALSHI_CANDLE_COMPRESS_AFTER = timedelta(days=14)
+
+# ---------------------------------------------------------------------------
+# Public trades collection (slice 265 — each value cites its decision or the
+# design's Discovery Findings, measured live 2026-08-27/28)
+# ---------------------------------------------------------------------------
+
+#: ``GET /markets/trades`` page size: the verified ceiling — 1,001 answers
+#: HTTP 400 (Discovery Findings).
+TRADE_PAGE_LIMIT = 1_000
+#: Decision 1: the exchange-wide tape is walked oldest-first in windows of
+#: this length; one window is ~300–550 pages at the measured volume
+#: (300–550 k trades/hour) and is the unit a phase abort loses — the
+#: watermark advances only after a window is fully walked. The lower bound
+#: of each window steps back by 262's ``WINDOW_OVERLAP`` (``min_ts`` is a
+#: strict "after"); the upsert makes the overlap free.
+TRADE_WINDOW = timedelta(hours=1)
+#: Decision 5: the pass's upper bound trails the catalog phase's walk start
+#: by this much, so every trade classified has had its market walked into
+#: the catalog first.
+TRADE_LATE_ARRIVAL_GUARD = timedelta(minutes=1)
+#: Decision 8: at most this many page requests per pass, checked before each
+#: window — the drain paces itself under the hourly timer.
+TRADE_REQUESTS_PER_PASS = 3_000
+#: ``status``: a tape watermark older than ``now - this`` (two hourly
+#: firings behind) is reported as behind.
+TRADE_LAG_STALE_AFTER = timedelta(hours=2)
+#: Decision 4: ``kalshi.trades`` chunk interval (journal 20260719 rule).
+KALSHI_TRADE_CHUNK_INTERVAL = timedelta(days=7)
+#: Decision 4: compression policy horizon. Nothing that writes *old* data may
+#: run against compressed chunks; 266's backfill pauses the policy.
+KALSHI_TRADE_COMPRESS_AFTER = timedelta(days=14)

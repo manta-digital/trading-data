@@ -72,6 +72,13 @@ CANDLE_BATCH_FAR_CLOSE = timedelta(days=180)
 #: Slice 264: 100 tickers × 360 minutes = 36,000 requested candles, above the
 #: verified 10,000 cap — provokes the HTTP 400 the planner exists to avoid.
 CANDLE_OVER_CAP_WINDOW = timedelta(minutes=360)
+#: Slice 265: one windowed page of the public tape and that window's last
+#: page, plus a window with nothing in it. One minute of the tape holds a few
+#: thousand trades (measured 2026-08-27: 300–550 k/hour), so ``limit=100``
+#: guarantees a cursor on the first page; a window a year out is empty.
+TRADES_WINDOW_SPAN = timedelta(minutes=1)
+TRADES_WINDOW_LIMIT = 100
+TRADES_EMPTY_WINDOW_OFFSET = timedelta(days=365)
 DRY_RUN_PREVIEW_CHARS = 600
 
 
@@ -182,6 +189,43 @@ async def record_trades(rec: Recorder) -> None:
     rec.save("trades_page1")
     await rec.client.get_trades(limit=PAGE_LIMIT, cursor=page.cursor)
     rec.save("trades_page2")
+
+
+async def record_trades_window(rec: Recorder) -> None:
+    """``trades_window`` and ``trades_window_last`` — the first and the last
+    page of the same one-minute window ending at the current minute (the
+    bounds are printed so the pair can be re-recorded)."""
+    start_ts, end_ts = _window_ending_now(TRADES_WINDOW_SPAN)
+    print(
+        f"trades window min_ts={start_ts} max_ts={end_ts} limit={TRADES_WINDOW_LIMIT}"
+    )
+    page = await rec.client.get_trades(
+        min_ts=start_ts, max_ts=end_ts, limit=TRADES_WINDOW_LIMIT
+    )
+    if not page.cursor:
+        raise SystemExit(
+            f"the last minute served {len(page.trades)} trades, under the page "
+            f"limit {TRADES_WINDOW_LIMIT}: no cursor to record; retry in a "
+            "busier minute"
+        )
+    rec.save("trades_window")
+    cursor: str | None = page.cursor
+    while cursor:
+        page = await rec.client.get_trades(
+            min_ts=start_ts, max_ts=end_ts, limit=TRADES_WINDOW_LIMIT, cursor=cursor
+        )
+        cursor = page.cursor
+    rec.save("trades_window_last")
+
+
+async def record_trades_empty(rec: Recorder) -> None:
+    """``trades_empty`` — a one-minute window a year ahead: no trades, no cursor."""
+    start_ts, end_ts = _window_ending_now(TRADES_WINDOW_SPAN)
+    ahead = int(TRADES_EMPTY_WINDOW_OFFSET.total_seconds())
+    await rec.client.get_trades(
+        min_ts=start_ts + ahead, max_ts=end_ts + ahead, limit=TRADES_WINDOW_LIMIT
+    )
+    rec.save("trades_empty")
 
 
 async def record_historical_cutoff(rec: Recorder) -> None:
@@ -337,6 +381,9 @@ RECORDERS: dict[str, Callable[[Recorder], Awaitable[None]]] = {
     "markets": record_markets,
     "candlesticks": record_candlesticks,
     "trades": record_trades,
+    "trades_window": record_trades_window,
+    "trades_window_last": record_trades_window,
+    "trades_empty": record_trades_empty,
     "historical_cutoff": record_historical_cutoff,
     "error_404": record_error_404,
     "markets_settled_window": record_markets_settled_window,

@@ -14,7 +14,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.11.0] — 2026-08-30
+
+### Added (slice 265 — Kalshi public trades collection)
+- **The Kalshi pass now has three phases: catalog, candlesticks, then
+  trades.** The trades phase walks the exchange-wide public trade tape in
+  one-hour windows, oldest first, under a single watermark, and stores every
+  trade whose market the catalog knows and the collection rule selects into
+  the new `kalshi.trades` hypertable. Each 1,000-trade page is classified
+  against the catalog in one SQL statement and committed on its own; the
+  watermark moves only after a window is fully walked, so an interrupted
+  phase re-walks at most one window and never writes a row twice. The first
+  run starts at Kalshi's trades cutoff (~60 days back) and drains forward at
+  3,000 requests per pass — about ten days of hourly firings, each ~15
+  minutes, with `status` showing the lag falling — then settles to ~3
+  minutes a pass. A trade for a market the catalog does not know (the
+  multi-leg MVE tape) is counted and dropped, never stored and never an
+  error; the phase logs the unknown ticker prefixes once per run. No new
+  unit, timer, or command; exit codes are unchanged. A watermark that falls
+  behind the cutoff aborts the phase loudly (slice 266's historical backfill
+  is the remedy) rather than skipping tape.
+- **`mt data kalshi status` gains a trades block** — last phase, tape
+  through (the watermark) with its lag and a *behind* flag past two hours,
+  coverage from, and four counts over the selected closed markets: complete
+  through close, partial history, short of close, before coverage (slice
+  266's input) — from persisted state alone, never by counting trade rows;
+  `--json` nests it under `trades` (`null` until the phase has run).
+- **Migration `kalshi_006_trades`** (track `kalshi`): the `kalshi.trades`
+  hypertable keyed `(market_ticker, created_time, trade_id)` with
+  `trade_id` as UUID (7-day chunks, compression enabled, policy at 14 days),
+  `sync_state.coverage_from_ts`, and the trades clauses of the `sync_state`
+  comments. Apply it with the release; a firing before it is applied exits 1
+  naming the migration.
+- Three recorded fixtures for the windowed tape (`trades_window`,
+  `trades_window_last`, `trades_empty`) and their recorders.
+
+### Changed
+- **Breaking — the collection rule settings are renamed.** The five
+  `MT_KALSHI_CANDLE_*` settings are now `MT_KALSHI_COLLECTION_*`
+  (`MT_KALSHI_COLLECTION_TRADED_ONLY`, `_CATEGORIES`, `_EXCLUDED_CATEGORIES`,
+  `_EXCLUDED_SERIES_PATTERN`, `_EXCLUDED_TITLE_PATTERN`), because one rule
+  now governs candles **and** trades. Operators who set any of the five in
+  `/etc/manta-trading.env` must rename them before the first firing on this
+  release: every `mt` command fails at start while an `MT_KALSHI_CANDLE_*`
+  variable is set (in the environment or a `.env` file), naming the new
+  variable, instead of silently reverting the rule to its defaults. Lines
+  left commented out at their defaults need no change. `TRADED_ONLY` keeps
+  its meaning for candles and does not apply to trades — a trade is proof
+  of trading. Settings' `candle_rule()` is `collection_rule()`,
+  `CandleRule` is `CollectionRule` (in `data/kalshi/selection.py`), and the
+  `status` rule line now reads `(MT_KALSHI_COLLECTION_*)`.
 
 ## [0.10.0] — 2026-08-27
 

@@ -9,8 +9,9 @@ fixture minted for this test (CLAUDE.md, destructive-statement rule).
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 import psycopg
 import pytest
@@ -21,6 +22,8 @@ from manta_trading.data.kalshi import models as km
 from manta_trading.data.kalshi.constants import (
     KALSHI_CANDLE_CHUNK_INTERVAL,
     KALSHI_CANDLE_COMPRESS_AFTER,
+    KALSHI_TRADE_CHUNK_INTERVAL,
+    KALSHI_TRADE_COMPRESS_AFTER,
     CandlePeriod,
     MarketStatus,
     Surface,
@@ -36,6 +39,7 @@ KALSHI_IDS = [
     "kalshi_003_collection_state",
     "kalshi_004_catalog_sync_semantics",
     "kalshi_005_candlesticks",
+    "kalshi_006_trades",
 ]
 BOOTSTRAP_ID = "001_schema_migrations"
 TABLES = {
@@ -46,8 +50,10 @@ TABLES = {
     "awaiting_settlement",
     "market_candle_state",
     "candlesticks",
+    "trades",
 }
 CANDLES_ID = "kalshi_005_candlesticks"
+TRADES_ID = "kalshi_006_trades"
 
 
 @pytest.fixture
@@ -361,7 +367,7 @@ class TestCandlesticksHypertable:
                 "AND hypertable_name = 'candlesticks' "
                 "AND column_name = 'end_period_ts'"
             ).fetchone()
-        assert hypertables == [("candlesticks",)]
+        assert set(hypertables) == {("candlesticks",), ("trades",)}
         assert interval == (KALSHI_CANDLE_CHUNK_INTERVAL,)
 
     def test_compression_settings(self, applied: list[str], ephemeral_db: str):
@@ -410,10 +416,175 @@ class TestCandlesticksHypertable:
         assert "newest stored candle for this market" not in watermark
         # Decision 5.
         assert "first window ever requested" in coverage
-        # Decision 11 — and kalshi_004's catalog and trades clauses survive.
+        # Decision 11 — and kalshi_004's catalog clause survives. (The trades
+        # clause is kalshi_006's from slice 265 on; asserted in
+        # ``TestTradesHypertable``.)
         assert "candlesticks: market_settled_ts of the historical cutoff" in sync
         assert "catalog: settlement_ts upper bound" in sync
-        assert "trades: created_time of the newest stored trade" in sync
+        assert "trades:" in sync
+
+
+def _seed_market(conn: psycopg.Connection, ticker: str) -> None:
+    """A series, an event, and one market — what ``kalshi.trades``' foreign
+    key needs before a row can be written."""
+    _seed_series_and_event(conn)
+    conn.execute(
+        "INSERT INTO kalshi.markets (ticker, event_ticker, status, close_time, raw) "
+        "VALUES (%s, 'S1-E1', %s, %s, '{}'::jsonb)",
+        (ticker, MarketStatus.ACTIVE.value, datetime(2026, 1, 1, tzinfo=UTC)),
+    )
+
+
+class TestTradesHypertable:
+    """``kalshi_006`` (slice 265, Decision 4): hypertable, compression, policy,
+    key, and the ``sync_state`` column — every horizon read back against the
+    constant, the policy resolved by hypertable name, never by job id."""
+
+    def test_in_track_and_reapplies(
+        self, applied: list[str], pool: ConnectionPool[Any]
+    ):
+        assert TRADES_ID in applied
+        assert apply_migrations(pool, TRACKS["kalshi"]) == []
+
+    def test_is_hypertable_with_configured_chunk_interval(
+        self, applied: list[str], ephemeral_db: str
+    ):
+        with psycopg.connect(ephemeral_db) as conn:
+            interval = conn.execute(
+                "SELECT time_interval FROM timescaledb_information.dimensions "
+                "WHERE hypertable_schema = 'kalshi' "
+                "AND hypertable_name = 'trades' "
+                "AND column_name = 'created_time'"
+            ).fetchone()
+        assert interval == (KALSHI_TRADE_CHUNK_INTERVAL,)
+
+    def test_compression_settings(self, applied: list[str], ephemeral_db: str):
+        with psycopg.connect(ephemeral_db) as conn:
+            row = conn.execute(
+                "SELECT segmentby, orderby "
+                "FROM timescaledb_information.hypertable_compression_settings "
+                "WHERE hypertable = 'kalshi.trades'::regclass"
+            ).fetchone()
+        assert row == ("market_ticker", "created_time DESC")
+
+    def test_compression_policy_horizon(self, applied: list[str], ephemeral_db: str):
+        with psycopg.connect(ephemeral_db) as conn:
+            rows = conn.execute(
+                "SELECT (config->>'compress_after')::interval "
+                "FROM timescaledb_information.jobs "
+                "WHERE hypertable_schema = 'kalshi' "
+                "AND hypertable_name = 'trades' "
+                "AND proc_name = 'policy_compression'"
+            ).fetchall()
+        assert rows == [(KALSHI_TRADE_COMPRESS_AFTER,)]
+
+    def test_key_and_foreign_key(self, applied: list[str], ephemeral_db: str):
+        with psycopg.connect(ephemeral_db) as conn:
+            defs = constraint_defs(conn)
+            trade_id = conn.execute(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_schema = 'kalshi' AND table_name = 'trades' "
+                "AND column_name = 'trade_id'"
+            ).fetchone()
+            block = conn.execute(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_schema = 'kalshi' AND table_name = 'trades' "
+                "AND column_name = 'is_block_trade'"
+            ).fetchone()
+        assert (
+            defs["trades_pkey"] == "PRIMARY KEY (market_ticker, created_time, trade_id)"
+        )
+        assert "REFERENCES kalshi.markets(ticker)" in defs["trades_market_ticker_fkey"]
+        assert trade_id == ("uuid",)
+        # Task 2.2: a missing is_block_trade fails the write, never coalesces.
+        assert block == ("NO",)
+
+    def test_sync_state_coverage_from_ts(self, applied: list[str], ephemeral_db: str):
+        with psycopg.connect(ephemeral_db) as conn:
+            column = conn.execute(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_schema = 'kalshi' AND table_name = 'sync_state' "
+                "AND column_name = 'coverage_from_ts'"
+            ).fetchone()
+            conn.execute(
+                "INSERT INTO kalshi.sync_state (surface, watermark_ts) "
+                "VALUES ('catalog', %s)",
+                (datetime(2026, 1, 1, tzinfo=UTC),),
+            )
+            existing = conn.execute(
+                "SELECT coverage_from_ts FROM kalshi.sync_state"
+            ).fetchall()
+        assert column == ("timestamp with time zone",)
+        assert existing == [(None,)]
+
+    def test_comments_carry_the_other_surfaces_forward(
+        self, applied: list[str], ephemeral_db: str
+    ):
+        with psycopg.connect(ephemeral_db) as conn:
+            watermark = column_comment(conn, "kalshi.sync_state", "watermark_ts")
+            cursor = column_comment(conn, "kalshi.sync_state", "cursor")
+            coverage = column_comment(conn, "kalshi.sync_state", "coverage_from_ts")
+        # Decision 1: the tape's window end, not the newest stored trade.
+        assert "trades: the tape is complete through this instant" in watermark
+        assert "created_time of the newest stored trade" not in watermark
+        assert "catalog: settlement_ts upper bound" in watermark
+        assert "candlesticks: market_settled_ts of the historical cutoff" in watermark
+        # Decision 7: windows replace cursor resume for trades too.
+        assert "trades: unused" in cursor
+        assert "catalog: unused" in cursor
+        # Decision 2.
+        assert "set once, never moved" in coverage
+
+    def test_policy_compresses_an_old_chunk_and_rows_survive(
+        self, applied: list[str], ephemeral_db: str
+    ):
+        """Criterion 12: run the policy job on a chunk older than the horizon
+        (job id resolved from the view in its own statement — a subquery is
+        not a valid ``CALL`` argument) and read the rows back identical."""
+        old = datetime.now(UTC).replace(microsecond=0) - (
+            KALSHI_TRADE_COMPRESS_AFTER + timedelta(days=16)
+        )
+        rows = [
+            ("S1-E1-M1", old + timedelta(seconds=i), uuid4(), 3 + i, "0.4", "0.6")
+            for i in range(10)
+        ]
+        query = (
+            "SELECT market_ticker, created_time, trade_id, count_fp, "
+            "yes_price_dollars, no_price_dollars, taker_outcome_side, "
+            "taker_book_side, is_block_trade FROM kalshi.trades ORDER BY created_time"
+        )
+        with psycopg.connect(ephemeral_db, autocommit=True) as conn:
+            _seed_market(conn, "S1-E1-M1")
+            conn.cursor().executemany(
+                "INSERT INTO kalshi.trades (market_ticker, created_time, trade_id, "
+                "count_fp, yes_price_dollars, no_price_dollars, taker_outcome_side, "
+                "taker_book_side, is_block_trade) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'yes', 'bid', FALSE)",
+                rows,
+            )
+            before = conn.execute(query).fetchall()
+            job = conn.execute(
+                "SELECT job_id FROM timescaledb_information.jobs "
+                "WHERE hypertable_schema = 'kalshi' "
+                "AND hypertable_name = 'trades' "
+                "AND proc_name = 'policy_compression'"
+            ).fetchall()
+            assert len(job) == 1
+            conn.execute("CALL run_job(%s)", (job[0][0],))
+            stats = conn.execute(
+                "SELECT chunk_name, compression_status "
+                "FROM chunk_compression_stats('kalshi.trades')"
+            ).fetchall()
+            after = conn.execute(query).fetchall()
+            scheduled = conn.execute(
+                "SELECT scheduled FROM timescaledb_information.jobs WHERE job_id = %s",
+                (job[0][0],),
+            ).fetchone()
+        assert len(before) == len(rows)
+        assert [status for _, status in stats] == ["Compressed"]
+        assert after == before
+        # The policy is left enabled (266 pauses it for a backfill, never here).
+        assert scheduled == (True,)
 
 
 class TestLedgerPreflight:
@@ -459,6 +630,22 @@ class TestLedgerPreflight:
             await open_sync_connection(kalshi_db)
         for migration_id in KALSHI_IDS[-2:]:
             assert migration_id in str(exc.value)
+
+    async def test_missing_trades_migration_named(self, kalshi_db: str):
+        """Slice 265, Criterion 10: ``kalshi_006_trades`` is covered by the
+        preflight through ``TRACKS["kalshi"]`` — the id is read from the
+        migration definition, never spelled here."""
+        trades_id = TRACKS["kalshi"][-1]["id"]
+        assert trades_id.startswith("kalshi_006_")
+        with psycopg.connect(kalshi_db) as conn:
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = %s", (trades_id,)
+            )
+            conn.commit()
+        with pytest.raises(PreflightError) as exc:
+            await open_sync_connection(kalshi_db)
+        assert trades_id in str(exc.value)
+        assert "mt data migrate apply --track kalshi" in str(exc.value)
 
     async def test_bare_database_is_the_same_error(self, ephemeral_db: str):
         """No ``schema_migrations`` table at all: every id is pending — a

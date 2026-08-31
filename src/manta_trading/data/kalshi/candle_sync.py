@@ -37,7 +37,6 @@ from manta_trading.data.kalshi.candle_repository import CandleRepository, StateA
 from manta_trading.data.kalshi.candle_types import (
     CandleItemError,
     CandleResult,
-    CandleRule,
     CandleSource,
 )
 from manta_trading.data.kalshi.constants import (
@@ -57,6 +56,7 @@ from manta_trading.data.kalshi.events import (
     emit_in_thread,
 )
 from manta_trading.data.kalshi.models import Candlestick
+from manta_trading.data.kalshi.selection import CollectionRule
 from manta_trading.data.kalshi.sync_types import epoch
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ class CandleSync:
         repository: CandleRepository | Any,
         sink: SyncEventSink | None = None,
         *,
-        rule: CandleRule,
+        rule: CollectionRule,
         run_id: UUID,
         clock: Callable[[], datetime] = _utc_now,
         period: CandlePeriod = COLLECTED_CANDLE_PERIOD,

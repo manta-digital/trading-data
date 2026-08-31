@@ -29,7 +29,6 @@ from manta_trading.data.kalshi.candle_plan import last_complete_period
 from manta_trading.data.kalshi.candle_sync import NOT_SERVED, CandleSync
 from manta_trading.data.kalshi.candle_types import (
     CandleResult,
-    CandleRule,
     classify_candles,
 )
 from manta_trading.data.kalshi.constants import (
@@ -39,6 +38,7 @@ from manta_trading.data.kalshi.constants import (
     MarketStatus,
 )
 from manta_trading.data.kalshi.events import SyncEventType as T
+from manta_trading.data.kalshi.selection import CollectionRule
 from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.providers.errors import ProviderPermanentError
 
@@ -46,7 +46,7 @@ PERIOD = COLLECTED_CANDLE_PERIOD
 MINUTE = timedelta(minutes=1)
 NOW = datetime(2026, 8, 27, 14, 20, 11, tzinfo=UTC)
 LAST_COMPLETE = last_complete_period(NOW, PERIOD)
-RULE = CandleRule(True, frozenset(), frozenset({"Sports"}), None, None)
+RULE = CollectionRule(True, frozenset(), frozenset({"Sports"}), None, None)
 
 
 class Harness:

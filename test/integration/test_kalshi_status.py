@@ -111,7 +111,11 @@ async def test_candle_block_every_field(
 
     now = datetime.now(UTC)
     span = period_span(COLLECTED_CANDLE_PERIOD)
-    live, series = fixture_markets()
+    live, series = fixture_markets(
+        # ``CLOSES`` is a fixed 2026-08-28 instant that SQL ``now()`` has
+        # passed; the open set must stay open for this test's counts.
+        close_time=now + timedelta(days=1)
+    )
     # POLITICS and NULLCAT are selected live; SPORTS is excluded by rule.
     old_finalized, _ = fixture_markets(
         status=MarketStatus.FINALIZED.value,
@@ -252,3 +256,151 @@ async def test_open_market_complete_through_close_is_not_lagging(
     assert status.closed_short_of_close == 1  # NULLCAT
     assert status.open_lagging == 1  # NULLCAT only
     assert status.open_oldest_watermark == closed_at - span
+
+
+# ---------------------------------------------------------------------------
+# Trades block (slice 265, Task 5.3) — every field, from persisted facts only
+# ---------------------------------------------------------------------------
+
+
+def test_trades_never_collected_is_none(kalshi_db: str):
+    from test_kalshi_candles import RULE_C
+
+    from manta_trading.data.kalshi.trade_status import read_trade_status
+
+    with psycopg.connect(kalshi_db) as conn:
+        assert read_trade_status(conn, RULE_C) is None
+
+
+#: The closed-market fixture set for the four counts: ``(ticker, category,
+#: open offset from the coverage floor, close offset from the watermark)`` —
+#: ``None`` open is a market with no recorded open. The floor is 30 days back,
+#: the watermark one day back, so "after the watermark" is still "closed".
+DAY = timedelta(days=1)
+TRADE_FIXTURES: list[tuple[str, str, timedelta | None, timedelta]] = [
+    ("COMPLETE", "Politics", DAY, -DAY),  # opened after the floor, closed before wm
+    ("PARTIAL", "Politics", -5 * DAY, -2 * DAY),  # opened before the floor
+    ("OPENNULL", "Politics", None, -DAY),  # no recorded open: partial, never complete
+    ("STRADDLE", "Politics", -5 * DAY, timedelta(hours=23)),  # short of close first
+    ("SHORT", "Politics", 2 * DAY, timedelta(hours=23)),  # tape not there yet
+    ("BEFORE", "Politics", -10 * DAY, -30 * DAY),  # closed before the floor
+    ("SPORTS", "Sports", DAY, -DAY),  # excluded by rule C: in none of the four
+    ("STILLOPEN", "Politics", DAY, 2 * DAY),  # closes in the future: not closed
+]
+
+
+async def _seed_trade_status(
+    kalshi_conn: psycopg.AsyncConnection[Any],
+    *,
+    coverage_from: datetime,
+    watermark: datetime,
+    now: datetime,
+) -> None:
+    from kalshi_helpers import write_catalog
+    from test_kalshi_candles import RULE_C
+
+    from manta_trading.data.kalshi.trade_repository import TradeRepository
+
+    template = market_rows("markets_open")[0]
+    markets = [
+        template.model_copy(
+            update={
+                "ticker": ticker,
+                "event_ticker": f"E-{ticker}",
+                "status": MarketStatus.CLOSED.value,
+                "open_time": None if opened is None else coverage_from + opened,
+                "close_time": watermark + closes,
+                "settlement_ts": None,
+                "volume_24h_fp": Decimal(0),
+                "volume_fp": Decimal(50),
+            }
+        )
+        for ticker, _, opened, closes in TRADE_FIXTURES
+    ]
+    from manta_trading.data.kalshi import models as km
+
+    series = [
+        km.Series(ticker=f"E-{ticker}-SERIES", category=category, title=ticker)
+        for ticker, category, _, _ in TRADE_FIXTURES
+    ]
+    await write_catalog(CatalogRepository(kalshi_conn), markets, series)
+    repo = TradeRepository(kalshi_conn, RULE_C)
+    async with repo.transaction():
+        await repo.init_state(coverage_from)
+        await repo.advance_watermark(watermark)
+        await repo.set_last_full_sync(now)
+
+
+async def test_trade_status_fields_and_the_four_counts_partition(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+):
+    from test_kalshi_candles import EVERYTHING, RULE_C
+
+    from manta_trading.data.kalshi.constants import TRADE_LAG_STALE_AFTER
+    from manta_trading.data.kalshi.trade_status import read_trade_status
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    coverage_from = now - 30 * DAY
+    watermark = now - DAY
+    await _seed_trade_status(
+        kalshi_conn, coverage_from=coverage_from, watermark=watermark, now=now
+    )
+
+    with psycopg.connect(kalshi_db) as conn:
+        status = read_trade_status(conn, RULE_C)
+    assert status is not None
+    assert status.last_phase_at == now
+    assert status.tape_through == watermark
+    assert status.coverage_from == coverage_from
+    assert DAY <= status.lag < DAY + timedelta(minutes=5)
+    assert status.behind is True and status.lag > TRADE_LAG_STALE_AFTER
+    assert status.complete_through_close == 1  # COMPLETE
+    assert status.partial_history == 2  # PARTIAL, OPENNULL
+    assert status.short_of_close == 2  # STRADDLE (not partial), SHORT
+    assert status.before_coverage == 1  # BEFORE
+    # The partition: six selected closed markets (SPORTS excluded, STILLOPEN
+    # open), each counted exactly once.
+    assert (
+        status.complete_through_close
+        + status.partial_history
+        + status.short_of_close
+        + status.before_coverage
+        == 6
+    )
+    payload = status.to_dict()
+    assert payload["tape_through"] == watermark.isoformat()
+    assert payload["coverage_from"] == coverage_from.isoformat()
+    assert payload["behind"] is True
+    assert payload["lag_minutes"] >= 24 * 60
+    assert "cutoff" not in payload
+
+    # The counts respect the rule: everything selected, SPORTS joins the
+    # complete bucket and nothing else moves.
+    with psycopg.connect(kalshi_db) as conn:
+        everything = read_trade_status(conn, EVERYTHING)
+    assert everything is not None
+    assert everything.complete_through_close == 2
+    assert everything.partial_history == 2
+    assert everything.short_of_close == 2
+    assert everything.before_coverage == 1
+
+
+async def test_trade_status_is_not_behind_within_the_horizon(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+):
+    from test_kalshi_candles import RULE_C
+
+    from manta_trading.data.kalshi.constants import TRADE_LAG_STALE_AFTER
+    from manta_trading.data.kalshi.trade_status import read_trade_status
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    fresh = now - TRADE_LAG_STALE_AFTER + timedelta(minutes=30)
+    await _seed_trade_status(
+        kalshi_conn, coverage_from=now - 30 * DAY, watermark=fresh, now=now
+    )
+    with psycopg.connect(kalshi_db) as conn:
+        status = read_trade_status(conn, RULE_C)
+    assert status is not None
+    assert status.behind is False
+    assert timedelta(minutes=89) <= status.lag <= timedelta(minutes=95)
+    assert status.to_dict()["lag_minutes"] in range(89, 96)
