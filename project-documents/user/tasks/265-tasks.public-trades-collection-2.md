@@ -345,8 +345,8 @@ procedure for this release, fires the first supervised pass, and writes the
 completion record. What the script does and why is in its docstring, not
 repeated here.
 
-- [ ] **Task 9.1: Cut the release** **[PM]** (effort: 1)
-  - [ ] From the dev checkout (CHANGELOG 0.11.0 and the version bump are
+- [x] **Task 9.1: Cut the release** **[PM]** (effort: 1)
+  - [x] From the dev checkout (CHANGELOG 0.11.0 and the version bump are
         already on the branch):
         ```bash
         git checkout main
@@ -354,7 +354,7 @@ repeated here.
         git tag -a v0.11.0 -m "v0.11.0 — Kalshi public trades collection (slice 265)"
         git push origin main v0.11.0
         ```
-  - [ ] Success: `git ls-remote origin v0.11.0` prints the tag. The installer
+  - [x] Success: `git ls-remote origin v0.11.0` prints the tag. The installer
         clones from GitHub, so the script refuses a ref that is not pushed.
 
 - [ ] **Task 9.2: Run the cutover** **[PM]** (effort: 1)
