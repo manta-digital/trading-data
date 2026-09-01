@@ -12,9 +12,9 @@ any exception on any of the three archive methods.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Unpack
 
+from kalshi_support.failure_injection import FailureInjection
 from kalshi_support.fake_source import FakeCatalogSource
 from kalshi_support.fake_trade_source import FakeTradeSource
 from manta_trading.data.kalshi.client import EventsQuery
@@ -38,12 +38,13 @@ def _archive_index(cursor: str | None) -> int:
     return int(cursor.removeprefix(_CURSOR_PREFIX)) if cursor else 0
 
 
-class FakeHistoricalSource:
+class FakeHistoricalSource(FailureInjection):
     """See the module docstring."""
 
     def __init__(
         self, *, page_size: int | None = None, catalog: FakeCatalogSource | None = None
     ) -> None:
+        super().__init__()
         self.trades = FakeTradeSource(page_size=page_size)
         # ``FakeCatalogSource`` composes this fake for its historical surfaces
         # and passes itself, so one object stands in for the whole client.
@@ -54,16 +55,6 @@ class FakeHistoricalSource:
         self.archive_queries: list[dict[str, object]] = []
         #: Every candles query: ``{"ticker", "start_ts", "end_ts", "period"}``.
         self.candle_queries: list[dict[str, object]] = []
-        self.calls: list[str] = []
-        self._failures: list[
-            tuple[
-                str,
-                BaseException,
-                int | None,
-                Callable[[dict[str, object]], bool] | None,
-            ]
-        ] = []
-        self._counts: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Test-side setup
@@ -83,30 +74,6 @@ class FakeHistoricalSource:
         """Append one page; pages are served in the order added (newest
         first is the caller's responsibility, as it is the API's)."""
         self.archive_pages.append(list(rows))
-
-    def raise_on(
-        self,
-        call: str,
-        exc: BaseException,
-        *,
-        at: int | None = None,
-        when: Callable[[dict[str, object]], bool] | None = None,
-    ) -> None:
-        """Raise ``exc`` on the ``at``-th invocation of ``call`` and/or when
-        ``when(query)`` is true (``call`` is the method name)."""
-        self._failures.append((call, exc, at, when))
-
-    def _record(self, call: str, query: dict[str, object]) -> None:
-        self.calls.append(call)
-        self._counts[call] = self._counts.get(call, 0) + 1
-        for name, exc, at, when in self._failures:
-            if name != call:
-                continue
-            if at is not None and self._counts[call] != at:
-                continue
-            if when is not None and not when(query):
-                continue
-            raise exc
 
     # ------------------------------------------------------------------
     # HistoricalSource

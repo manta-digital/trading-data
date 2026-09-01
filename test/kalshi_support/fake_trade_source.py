@@ -12,10 +12,10 @@ test can script several pages per window with a handful of rows.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime
 from uuid import uuid4
 
+from kalshi_support.failure_injection import FailureInjection
 from kalshi_support.fake_source import load_fixture
 from kalshi_support.samples import TRADE_SAMPLE
 from manta_trading.data.kalshi.models import HistoricalCutoff, Trade, TradesPage
@@ -35,25 +35,16 @@ def make_trade(ticker: str, created: datetime, **overrides: object) -> Trade:
     )
 
 
-class FakeTradeSource:
+class FakeTradeSource(FailureInjection):
     """See the module docstring."""
 
     def __init__(self, *, page_size: int | None = None) -> None:
+        super().__init__()
         self.tape: list[Trade] = []
         self.page_size = page_size
         self.cutoff = HistoricalCutoff.model_validate(load_fixture("historical_cutoff"))
         #: Every trades query: ``{"cursor", "min_ts", "max_ts", "limit"}``.
         self.trade_queries: list[dict[str, object]] = []
-        self.calls: list[str] = []
-        self._failures: list[
-            tuple[
-                str,
-                BaseException,
-                int | None,
-                Callable[[dict[str, object]], bool] | None,
-            ]
-        ] = []
-        self._counts: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Test-side setup
@@ -66,30 +57,6 @@ class FakeTradeSource:
         self.cutoff = self.cutoff.model_copy(
             update={"trades_created_ts": trades_created_ts}
         )
-
-    def raise_on(
-        self,
-        call: str,
-        exc: BaseException,
-        *,
-        at: int | None = None,
-        when: Callable[[dict[str, object]], bool] | None = None,
-    ) -> None:
-        """Raise ``exc`` on the ``at``-th invocation of ``call`` and/or when
-        ``when(query)`` is true (``call`` is the method name)."""
-        self._failures.append((call, exc, at, when))
-
-    def _record(self, call: str, query: dict[str, object]) -> None:
-        self.calls.append(call)
-        self._counts[call] = self._counts.get(call, 0) + 1
-        for name, exc, at, when in self._failures:
-            if name != call:
-                continue
-            if at is not None and self._counts[call] != at:
-                continue
-            if when is not None and not when(query):
-                continue
-            raise exc
 
     # ------------------------------------------------------------------
     # TradeSource

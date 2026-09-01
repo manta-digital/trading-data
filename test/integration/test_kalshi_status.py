@@ -513,7 +513,7 @@ async def test_status_command_json_and_rich_carry_the_historical_line(
     from typer.testing import CliRunner
 
     from manta_trading.cli.app import app
-    from manta_trading.cli.commands.kalshi_render import NEVER_RUN_HISTORICAL
+    from manta_trading.cli.commands.kalshi_status_render import NEVER_RUN_HISTORICAL
     from manta_trading.data.kalshi.trade_repository import TradeRepository
 
     now = datetime.now(UTC).replace(microsecond=0)

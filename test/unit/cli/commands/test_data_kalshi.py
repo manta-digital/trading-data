@@ -21,6 +21,7 @@ from typer.testing import CliRunner
 from manta_trading.cli.app import app
 from manta_trading.cli.commands import kalshi as cmd
 from manta_trading.cli.commands import kalshi_render as render
+from manta_trading.cli.commands import kalshi_status_render as status_render
 from manta_trading.data.kalshi.client import KalshiClient
 from manta_trading.data.kalshi.collection_pass import (
     PassPhaseName,
@@ -377,7 +378,7 @@ class TestStatus:
             rich = runner.invoke(app, STATUS_CMD)
             as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
         assert rich.exit_code == cmd.EXIT_OK
-        assert render.NEVER_COLLECTED in rich.output
+        assert status_render.NEVER_COLLECTED in rich.output
         payload = json.loads(as_json.stdout)
         assert payload["candles"] is None
         assert payload["synced"] is True and "markets_by_status" in payload
@@ -409,7 +410,7 @@ class TestStatus:
             rich = runner.invoke(app, STATUS_CMD)
             as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
         assert rich.exit_code == cmd.EXIT_OK
-        assert render.NEVER_COLLECTED_TRADES in rich.output
+        assert status_render.NEVER_COLLECTED_TRADES in rich.output
         assert "Kalshi candlesticks" in rich.output
         payload = json.loads(as_json.stdout)
         assert payload["trades"] is None
@@ -444,7 +445,7 @@ class TestStatus:
             rich = runner.invoke(app, STATUS_CMD)
             as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
         assert rich.exit_code == cmd.EXIT_OK
-        assert render.NEVER_RUN_HISTORICAL in rich.output
+        assert status_render.NEVER_RUN_HISTORICAL in rich.output
         payload = json.loads(as_json.stdout)
         assert payload["historical"] is None
         assert payload["trades"]["coverage_from"] == "2026-06-29T00:00:00+00:00"
@@ -496,7 +497,7 @@ class TestStatus:
             result = runner.invoke(app, STATUS_CMD)
         output = " ".join(result.output.split())
         assert "(8 min behind; behind, past 120 min)" in output
-        assert render.NEVER_COLLECTED in output
+        assert status_render.NEVER_COLLECTED in output
 
     def test_json_nests_trades(self):
         with _patched_status(

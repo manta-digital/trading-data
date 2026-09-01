@@ -24,9 +24,9 @@ import typer
 
 from manta_trading.cli.commands.kalshi_render import (
     print_pass_summary,
-    print_status,
     print_summary,
 )
+from manta_trading.cli.commands.kalshi_status_render import print_status
 from manta_trading.cli.output import print_error, print_result
 from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
 from manta_trading.data.kalshi.sync_types import SyncOutcome
