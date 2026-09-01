@@ -144,11 +144,13 @@ class CandleRepository:
         )
 
     async def pending_behind_cutoff(
-        self, period: CandlePeriod, cutoff: datetime, limit: int
+        self, period: CandlePeriod, cutoff: datetime, limit: int | None
     ) -> list[PendingMarket]:
         """Selected finalized markets before the cutoff with no state row and
         a known open — the historical phase's candle set (slice 267,
-        Architecture step 1), oldest settlement first, capped per pass.
+        Architecture step 1), oldest settlement first, capped per pass;
+        ``limit=None`` is the whole set (once the tape reached its floor
+        the request cap alone bounds the sub-drain, Decision 9).
         ``BEHIND_CUTOFF_CONDITION`` is composed, never re-spelled, so this
         set and ``count_behind_cutoff`` are the same set by construction.
         Deliberately **not** through ``_pending``: that fragment's
@@ -164,9 +166,9 @@ class CandleRepository:
                 sql.SQL(" AND "),
                 BEHIND_CUTOFF_CONDITION,
                 sql.SQL(
-                    " AND m.open_time IS NOT NULL "
-                    "ORDER BY m.settlement_ts, m.ticker LIMIT %(limit)s"
+                    " AND m.open_time IS NOT NULL ORDER BY m.settlement_ts, m.ticker"
                 ),
+                sql.SQL(" LIMIT %(limit)s") if limit is not None else sql.SQL(""),
             ]
         )
         params: dict[str, object] = {

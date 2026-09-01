@@ -346,6 +346,14 @@ class TestHistoricalSurfaceState:
             await historical.set_cursor("page-1")
         assert await historical.read_cursor() == "page-1"
         assert await historical.read_state() == TradeState(None, None)
+        # Set once (slice 267, Decision 9): the walk's row has NULL instants
+        # until the tape is seeded; init_state fills them and never
+        # overwrites a set one afterwards.
+        async with historical.transaction():
+            await historical.init_state(LIVE_FLOOR, FLOOR)
+            await historical.init_state(LIVE_FLOOR + timedelta(days=9), FLOOR)
+        assert await historical.read_state() == TradeState(LIVE_FLOOR, FLOOR)
+        assert await historical.read_cursor() == "page-1"
 
 
 class _CountingConnection:

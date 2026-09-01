@@ -266,6 +266,15 @@ trade_id)`; watermark advances only after a window's last page committed.
 - `historical_types.py`: `HistoricalCatalogSource` (Decision 9) and
   `HistoricalTradeSource` (Decision 5) — the two adapters that let
   `CatalogSync.ingest_markets` and `TradeSync.drain` run unchanged.
+  **Found during implementation (20260901, Task 6.2):** because the
+  archive walk saves its cursor before the tape is seeded, the historical
+  `sync_state` row exists with NULL instants when the trades step reaches
+  `init_state`; a plain `ON CONFLICT DO NOTHING` would leave the watermark
+  NULL forever (and the walk would rerun every firing). `init_state` is
+  therefore set-once-by-column — `DO UPDATE SET watermark_ts =
+  COALESCE(existing, new)`, likewise `coverage_from_ts` — which fills NULLs
+  and never overwrites a set instant; the live path's behaviour is
+  unchanged (integration-tested on both surfaces).
 - `trade_sync.py`: `_windows` takes a `direction` (forward: `start < end`,
   windows `[w, w+1h)`; backward: `end > floor`, windows `[w−1h, w)`), watermark
   update passes the window's far edge. Everything else shared.

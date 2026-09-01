@@ -373,13 +373,13 @@ Design *State*, *Technical Decision 5* (adapters over 265's abstractions),
 Design *Technical Decision 5*, *Implementation Details* (`trade_sync.py`):
 the window loop is parameterised by direction rather than duplicated.
 
-- [ ] **Task 5.1: `WindowDirection` and `drain`** (effort: 3)
-  - [ ] In `trade_types.py`: `class WindowDirection(StrEnum)`: `FORWARD =
+- [x] **Task 5.1: `WindowDirection` and `drain`** (effort: 3)
+  - [x] In `trade_types.py`: `class WindowDirection(StrEnum)`: `FORWARD =
         "forward"`, `BACKWARD = "backward"`.
-  - [ ] `TradeSync.__init__` gains keyword-only `direction:
+  - [x] `TradeSync.__init__` gains keyword-only `direction:
         WindowDirection = FORWARD` and `cap: int = TRADE_REQUESTS_PER_PASS`.
         The cap check in the loop reads `self.cap`; the log line names it.
-  - [ ] Extract the loop into a public `async def drain(self, start:
+  - [x] Extract the loop into a public `async def drain(self, start:
         datetime, bound: datetime) -> None`. Forward: while `start < bound`,
         window `[start, min(start + TRADE_WINDOW, bound))`, watermark →
         `window_end`. Backward: while `start > bound`, window
@@ -387,42 +387,42 @@ the window loop is parameterised by direction rather than duplicated.
         `window_start` (the far edge, Decision 5). `_window(lo, hi)` is
         called identically in both — the overlap steps `lo` back, `hi` is
         inclusive; nothing else in it changes.
-  - [ ] `run()` keeps the live flow (cutoff, state, catalog bound) and calls
+  - [x] `run()` keeps the live flow (cutoff, state, catalog bound) and calls
         `drain(state.watermark_ts, phase_end)`; it alone calls `_finish`.
         `drain` emits **no** event — the historical core owns its own
         `phase_finished` (part 2, Task 6.2), so the `trades` event is never
         emitted for a backward walk.
-  - [ ] The per-window INFO line reads `{surface} window a→b …` from the
+  - [x] The per-window INFO line reads `{surface} window a→b …` from the
         repository's surface (or a `label` argument), so the journal tells
         the two drains apart.
-  - [ ] Success: the whole existing `test_trade_sync.py` passes with no
+  - [x] Success: the whole existing `test_trade_sync.py` passes with no
         change to any expected query, watermark, or event — the forward path
         is a pure refactor.
 
-- [ ] **Task 5.2: Backward-walk unit tests** (effort: 3)
-  - [ ] In `test/unit/data/kalshi/test_trade_sync.py`, a `TestBackward`
+- [x] **Task 5.2: Backward-walk unit tests** (effort: 3)
+  - [x] In `test/unit/data/kalshi/test_trade_sync.py`, a `TestBackward`
         class over the existing fakes (`FakeTradeSource`,
         `FakeTradeRepository`) — the fake repository is given `surface` so
         its recorded watermark moves can be asserted per surface:
-    1. [ ] windows step **down** from the start by whole hours; the last is
+    1. [x] windows step **down** from the start by whole hours; the last is
        clamped to the bound (`bound` not a whole hour → the last window is
        short, exactly like the forward clamp).
-    2. [ ] the lower bound of every query still steps back by
+    2. [x] the lower bound of every query still steps back by
        `WINDOW_OVERLAP`; `max_ts` is the window's top.
-    3. [ ] the watermark moves once per window, to the window's **start**,
+    3. [x] the watermark moves once per window, to the window's **start**,
        only after the window's last page committed (page fake with
        `page_size` smaller than the window's rows).
-    4. [ ] a provider error mid-window leaves the watermark at the previous
+    4. [x] a provider error mid-window leaves the watermark at the previous
        window's start; an `OperationalError` on `write_page` likewise.
-    5. [ ] `cap` is honoured before each window: with `cap=2` and four
+    5. [x] `cap` is honoured before each window: with `cap=2` and four
        windows of work, `requests == 2`, `capped` is true, and a second
        `drain` from the recorded watermark continues from where it stopped.
-    6. [ ] `start <= bound` drains nothing and reports `windows_completed
+    6. [x] `start <= bound` drains nothing and reports `windows_completed
        == 0`.
-    7. [ ] `drain` emits no `phase_finished` event (the sink stays empty).
-  - [ ] Success: the seven cases pass; the forward suite is unchanged.
+    7. [x] `drain` emits no `phase_finished` event (the sink stays empty).
+  - [x] Success: the seven cases pass; the forward suite is unchanged.
 
-- [ ] **Task 5.3: Section 5 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as the Context Summary, scoped to the files touched.
-  - [ ] Commit: `refactor: parameterise the trades window loop by direction
+- [x] **Task 5.3: Section 5 gates and checkpoint commit** (effort: 1)
+  - [x] Gates as the Context Summary, scoped to the files touched.
+  - [x] Commit: `refactor: parameterise the trades window loop by direction
         (slice 267)`.

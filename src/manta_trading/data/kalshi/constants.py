@@ -247,8 +247,9 @@ CANDLE_BATCH_MAX_TICKERS = 100
 #: fact the planner is built around (Decision 7).
 CANDLE_BATCH_MAX_CANDLES = 10_000
 #: Verified cap on the single-market endpoint (periods in the requested
-#: range). Recorded for completeness only: the phase uses the batch path
-#: exclusively, so nothing under ``data/kalshi`` reads this constant.
+#: range). The live phase uses the batch path exclusively; the historical
+#: phase (267) chunks each market's ``/historical/.../candlesticks`` range
+#: by it.
 CANDLE_SINGLE_MAX_CANDLES = 5_000
 
 #: Decision 5: a market with no state row is fetched from at most this far

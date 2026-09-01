@@ -205,13 +205,20 @@ class TradeRepository:
         """First run only: seed this surface's row. The live phase passes the
         cutoff twice (Decision 2: the tape starts at the cutoff and is
         complete through it); the historical phase passes the live floor and
-        ``HISTORICAL_TRADES_FLOOR`` (slice 267). A no-op when the row exists —
-        ``surface`` is the primary key, so a plain insert would raise on
-        re-entry."""
+        ``HISTORICAL_TRADES_FLOOR`` (slice 267). Set once: an instant already
+        on the row is never overwritten, so re-entry is a no-op. A row that
+        exists with NULL instants is filled — the archive walk creates the
+        historical row through ``set_cursor`` before the tape is seeded
+        (Decision 9: the watermark, set here, is the walk's done marker)."""
         await self._conn.execute(
             "INSERT INTO kalshi.sync_state "
             "(surface, watermark_ts, coverage_from_ts, updated_at) "
-            "VALUES (%s, %s, %s, now()) ON CONFLICT (surface) DO NOTHING",
+            "VALUES (%s, %s, %s, now()) ON CONFLICT (surface) DO UPDATE SET "
+            "watermark_ts = COALESCE(kalshi.sync_state.watermark_ts, "
+            "EXCLUDED.watermark_ts), "
+            "coverage_from_ts = COALESCE(kalshi.sync_state.coverage_from_ts, "
+            "EXCLUDED.coverage_from_ts), "
+            "updated_at = now()",
             (self._surface.value, watermark, coverage_from),
         )
 

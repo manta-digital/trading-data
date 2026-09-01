@@ -135,7 +135,7 @@ class TradeSync:
                 )
             async with self.repository.transaction():
                 await self.repository.set_last_full_sync(phase_start)
-            self._log_unknown_prefixes()
+            self.log_unknown_prefixes()
         except Exception as exc:
             result.error = f"{type(exc).__name__}: {exc}"
             logger.exception("kalshi trades phase aborted")
@@ -270,7 +270,9 @@ class TradeSync:
             prefix = ticker.split(_PREFIX_SEPARATOR, 1)[0]
             prefixes[prefix] = prefixes.get(prefix, 0) + 1
 
-    def _log_unknown_prefixes(self) -> None:
+    def log_unknown_prefixes(self) -> None:
+        """The once-per-phase unknown-market line (Decision 5); the
+        historical core calls it after ``drain`` (slice 267)."""
         prefixes = self.result.unknown_prefixes
         if not prefixes:
             return

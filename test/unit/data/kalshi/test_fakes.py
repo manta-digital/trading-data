@@ -6,6 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from kalshi_support.fake_candle_repository import FakeCandleRepository, FakeMarket
+from kalshi_support.fake_candle_source import make_trade_candle
+from kalshi_support.fake_historical_source import FakeHistoricalSource
 from kalshi_support.fake_repository import FakeCatalogRepository
 from kalshi_support.fake_source import (
     FakeCatalogSource,
@@ -20,11 +23,13 @@ from psycopg import errors
 from manta_trading.data.kalshi.client import KalshiClient
 from manta_trading.data.kalshi.constants import (
     CATALOG_WALK_FILTERS,
+    COLLECTED_CANDLE_PERIOD,
     KALSHI_MVE_FILTER,
     MarketStatus,
     MarketStatusFilter,
     Surface,
 )
+from manta_trading.data.kalshi.historical_types import HistoricalSource
 from manta_trading.data.kalshi.models import Trade, TradesPage
 from manta_trading.data.kalshi.sync import CatalogSource
 from manta_trading.data.kalshi.sync_types import epoch
@@ -320,3 +325,94 @@ class TestFakeTradeRepository:
         await repo.write_page([])
         with pytest.raises(errors.OperationalError):
             await repo.write_page([])
+
+
+class TestHistoricalFakes:
+    """Slice 267, Task 6.3: the historical fakes' own contracts."""
+
+    def test_fake_satisfies_historical_source(self):
+        def as_source(source: HistoricalSource) -> HistoricalSource:
+            return source
+
+        assert as_source(FakeHistoricalSource()) is not None
+
+    async def test_archive_pages_are_served_behind_opaque_cursors(self):
+        source = FakeHistoricalSource()
+        source.add_archive_page(make_market("A", "E"), make_market("B", "E"))
+        source.add_archive_page(make_market("C", "E"))
+        first = await source.get_historical_markets(limit=2, mve_filter="exclude")
+        assert [m.ticker for m in first.markets] == ["A", "B"] and first.cursor
+        last = await source.get_historical_markets(cursor=first.cursor, limit=2)
+        assert [m.ticker for m in last.markets] == ["C"] and last.cursor == ""
+        beyond = await source.get_historical_markets(cursor="archive-9")
+        assert beyond.markets == [] and beyond.cursor == ""
+        assert [q["cursor"] for q in source.archive_queries] == [
+            None,
+            first.cursor,
+            "archive-9",
+        ]
+
+    async def test_candles_are_filtered_to_the_range_and_trades_delegate(self):
+        source = FakeHistoricalSource(page_size=1)
+        source.add_candles(
+            "T", make_trade_candle(NOW), make_trade_candle(NOW + timedelta(minutes=1))
+        )
+        served = await source.get_historical_market_candlesticks(
+            "T",
+            start_ts=epoch(NOW) - 60,
+            end_ts=epoch(NOW),
+            period_interval=COLLECTED_CANDLE_PERIOD,
+        )
+        assert [c.end_period_ts for c in served] == [NOW]
+        source.add_trades(make_trade("POL", NOW), make_trade("POL", NOW - timedelta(1)))
+        page = await source.get_historical_trades(
+            min_ts=epoch(NOW) - 60, max_ts=epoch(NOW), limit=10
+        )
+        assert len(page.trades) == 1 and page.cursor == ""
+        assert source.trade_queries[0]["limit"] == 10
+        source.raise_on("get_historical_trades", ProviderTransientError("503"))
+        with pytest.raises(ProviderTransientError):
+            await source.get_historical_trades(min_ts=1, max_ts=2, limit=1)
+
+    async def test_candle_repository_pending_behind_cutoff(self):
+        repo = FakeCandleRepository()
+        cutoff = NOW
+        for i, ticker in enumerate(["OLDER", "OLD", "AFTER"]):
+            settled = cutoff + timedelta(days=i - 2)  # -2d, -1d, +0d
+            repo.add_market(
+                FakeMarket(
+                    ticker,
+                    settled - timedelta(hours=2),
+                    settled - timedelta(minutes=1),
+                    status=MarketStatus.FINALIZED.value,
+                    settlement_ts=settled,
+                )
+            )
+        period = COLLECTED_CANDLE_PERIOD
+        assert [
+            r.ticker for r in await repo.pending_behind_cutoff(period, cutoff, None)
+        ] == [
+            "OLDER",
+            "OLD",
+        ]
+        assert [
+            r.ticker for r in await repo.pending_behind_cutoff(period, cutoff, 1)
+        ] == ["OLDER"]
+        assert repo.pending_limits == [None, 1]
+        assert await repo.count_behind_cutoff(period, cutoff) == 2
+
+    async def test_trade_repository_surface_cursor_and_live_floor(self):
+        repo = FakeTradeRepository(surface=Surface.HISTORICAL)
+        assert repo.surface is Surface.HISTORICAL
+        assert await repo.read_live_coverage_from() is None
+        repo.live_coverage_from = NOW
+        assert await repo.read_live_coverage_from() == NOW
+        await repo.set_cursor("archive-1")
+        assert await repo.read_cursor() == "archive-1"
+        await repo.set_cursor(None)
+        assert repo.cursor_log == ["archive-1", None]
+        # Set once: a NULL instant is filled, a set one is kept.
+        repo.state = TradeState(None, None)
+        await repo.init_state(NOW, NOW - timedelta(days=1))
+        await repo.init_state(NOW + timedelta(days=9), NOW)
+        assert repo.state == TradeState(NOW, NOW - timedelta(days=1))

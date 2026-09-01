@@ -382,6 +382,9 @@ class TestBehindCutoff:
         await write_catalog(kalshi_repo, markets, series)
         first = await repo.pending_behind_cutoff(PERIOD, CUTOFF, limit=2)
         assert [r.ticker for r in first] == ["H3", "H2"]
+        # ``None``: the whole set, once the tape has reached its floor.
+        every = await repo.pending_behind_cutoff(PERIOD, CUTOFF, limit=None)
+        assert [r.ticker for r in every] == ["H3", "H2", "H1", "H0"]
 
 
 class TestWrites:

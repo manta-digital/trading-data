@@ -50,6 +50,8 @@ class FakeTradeRepository:
         self.unknown_tickers: set[str] = set()
         self.excluded_tickers: set[str] = set()
         self.tx_log: list[str] = []
+        #: Every ``set_cursor`` value, in order — the walk's save points.
+        self.cursor_log: list[str | None] = []
         self.pages: list[PageCounts] = []
         self.watermark_at_write: list[datetime | None] = []
         self._failures: list[tuple[str, BaseException, int]] = []
@@ -127,10 +129,13 @@ class FakeTradeRepository:
 
     async def init_state(self, watermark: datetime, coverage_from: datetime) -> None:
         self._enter("init_state")
-        if self._s.trades is None:
-            self._s.trades = TradeState(
-                watermark_ts=watermark, coverage_from_ts=coverage_from
-            )
+        current = self._s.trades or TradeState(None, None)
+        # Set once, as the real statement: NULL instants are filled, set
+        # ones are never overwritten.
+        self._s.trades = TradeState(
+            watermark_ts=current.watermark_ts or watermark,
+            coverage_from_ts=current.coverage_from_ts or coverage_from,
+        )
 
     async def advance_watermark(self, window_end: datetime) -> None:
         self._enter("advance_watermark")
@@ -157,6 +162,7 @@ class FakeTradeRepository:
     async def set_cursor(self, cursor: str | None) -> None:
         self._enter("set_cursor")
         self._s.cursor = cursor
+        self.cursor_log.append(cursor)
 
     async def write_page(self, rows: Sequence[Trade]) -> PageCounts:
         self._enter("write_page")

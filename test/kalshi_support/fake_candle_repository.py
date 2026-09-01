@@ -63,6 +63,8 @@ class FakeCandleRepository:
         self._s = _State()
         self.tx_log: list[str] = []
         self.writes: list[tuple[str, int]] = []
+        #: Slice 267: the ``limit`` of every ``pending_behind_cutoff`` call.
+        self.pending_limits: list[int | None] = []
         self._failures: list[tuple[str, BaseException, int]] = []
         self._counts: dict[str, int] = {}
 
@@ -186,6 +188,22 @@ class FakeCandleRepository:
                 continue
             if (m.settlement_ts >= cutoff) == since:
                 yield m
+
+    async def pending_behind_cutoff(
+        self, period: CandlePeriod, cutoff: datetime, limit: int | None
+    ) -> list[PendingMarket]:
+        """Slice 267: the behind-cutoff set, oldest settlement first, capped
+        by ``limit`` (``None`` = the whole set). The limit each call asked
+        for is recorded in ``pending_limits``."""
+        self._enter("pending_behind_cutoff")
+        self.pending_limits.append(limit)
+        rows = sorted(
+            self._backlog(period, cutoff, since=False),
+            key=lambda m: (m.settlement_ts or cutoff, m.ticker),
+        )
+        if limit is not None:
+            rows = rows[:limit]
+        return [self._row(m, period) for m in rows]
 
     async def count_backlog_remaining(
         self, period: CandlePeriod, cutoff: datetime
