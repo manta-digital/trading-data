@@ -2821,74 +2821,80 @@ def _pull_fetch_inner(
     json_output: bool,
     verbose: bool = False,
 ) -> None:
-    """Inner fetch loop — assumes QUOTA_BUCKET_VAR is already set."""
+    """Inner fetch loop — assumes QUOTA_BUCKET_VAR is already set.
+
+    One symbol's non-retriable provider response (``ProviderResponseError``)
+    is counted as a failure and the loop continues — the same per-symbol
+    posture as the daemon cycles. A streak of
+    ``PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS`` aborts the run: that is the
+    signature of an account-wide condition (HTTP 402, quota exhausted), where
+    every further request is wasted (2026-08-31 the universe pull died with a
+    traceback on the first 402 instead).
+    """
     import psycopg
+
+    from manta_trading.constants import PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS
+    from manta_trading.data.acquisition.outcomes import ProviderResponseError
+
+    if granularity == "1d":
+        from manta_trading.data.acquisition.daemon.daily import run_daily_refetch
+
+        refetch = run_daily_refetch
+    else:
+        from manta_trading.data.acquisition.daemon.minute import run_minute_refetch
+
+        refetch = run_minute_refetch
 
     # When no explicit window is given, skip symbols already within the
     # staleness threshold — avoids re-downloading full history on every run.
     check_current = start is None and end is None
+    success = 0
+    fetched = 0
+    skipped = 0
+    failed: list[str] = []
+    provider_error_streak = 0
+    aborted: str | None = None
+    with psycopg.connect(settings.timescale_db_url) as conn:
+        for sym in symbols:
+            if check_current and _is_current(conn, sym, granularity):
+                skipped += 1
+                if verbose:
+                    print(f"{sym:<12} {'current':<17}")
+                success += 1
+                continue
+            try:
+                report = refetch(sym, from_date=start, to_date=end)
+            except ProviderResponseError as exc:
+                # Non-retriable provider answer for this symbol: record it and
+                # move on, exactly as _process_minute_symbol does in the cycle.
+                failed.append(sym)
+                provider_error_streak += 1
+                if verbose:
+                    print(f"{sym:<12} {'provider-error':<17} {exc}")
+                if provider_error_streak >= PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS:
+                    aborted = (
+                        f"{provider_error_streak} consecutive provider errors "
+                        f"— aborting; last: {exc}"
+                    )
+                    break
+                continue
+            provider_error_streak = 0
+            fetched += report.success_count + report.partial_count + report.empty_count
+            if report.success_count > 0 or report.partial_count > 0:
+                outcome = "ok"
+                success += 1
+            elif report.empty_count > 0:
+                # No actionable gaps in window — not a failure.
+                outcome = "empty"
+                success += 1
+            else:
+                outcome = "failed"
+                failed.append(sym)
+            if verbose:
+                print(f"{sym:<12} {outcome:<17}")
 
-    if granularity == "1d":
-        from manta_trading.data.acquisition.daemon.daily import (
-            run_daily_refetch,
-        )
-        success = 0
-        fetched = 0
-        skipped = 0
-        failed: list[str] = []
-        with psycopg.connect(settings.timescale_db_url) as conn:
-            for sym in symbols:
-                if check_current and _is_current(conn, sym, granularity):
-                    skipped += 1
-                    if verbose:
-                        print(f"{sym:<12} {'current':<17}")
-                    success += 1
-                    continue
-                report = run_daily_refetch(sym, from_date=start, to_date=end)
-                fetched += report.success_count + report.partial_count + report.empty_count
-                if report.success_count > 0 or report.partial_count > 0:
-                    outcome = "ok"
-                    success += 1
-                elif report.empty_count > 0:
-                    # No gaps to fill — counts as success for reporting purposes.
-                    outcome = "empty"
-                    success += 1
-                else:
-                    outcome = "failed"
-                    failed.append(sym)
-                if verbose:
-                    print(f"{sym:<12} {outcome:<17}")
-    else:
-        # 1m: use minute refetch path.
-        from manta_trading.data.acquisition.daemon.minute import (
-            run_minute_refetch,
-        )
-        success = 0
-        fetched = 0
-        skipped = 0
-        failed = []
-        with psycopg.connect(settings.timescale_db_url) as conn:
-            for sym in symbols:
-                if check_current and _is_current(conn, sym, granularity):
-                    skipped += 1
-                    if verbose:
-                        print(f"{sym:<12} {'current':<17}")
-                    success += 1
-                    continue
-                report = run_minute_refetch(sym, from_date=start, to_date=end)
-                fetched += report.success_count + report.partial_count + report.empty_count
-                if report.success_count > 0 or report.partial_count > 0:
-                    outcome = "ok"
-                    success += 1
-                elif report.empty_count > 0:
-                    # No actionable gaps in window — not a failure.
-                    outcome = "empty"
-                    success += 1
-                else:
-                    outcome = "failed"
-                    failed.append(sym)
-                if verbose:
-                    print(f"{sym:<12} {outcome:<17}")
+    if aborted is not None:
+        print_error(aborted, json_mode=json_output)
 
     if json_output:
         print_result(

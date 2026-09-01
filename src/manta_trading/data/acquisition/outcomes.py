@@ -12,6 +12,7 @@ the daemon lets it propagate to crash the symbol-update.
 from __future__ import annotations
 
 from datetime import datetime
+from http import HTTPStatus
 from typing import Any
 
 from manta_trading.data.acquisition.state import LastAttemptOutcome
@@ -75,6 +76,16 @@ def classify_outcome(
         # EODHD uses 404 to indicate no intraday data exists for this symbol.
         # Treat as empty — caller will mark the gap PROVIDER_HOLE.
         return LastAttemptOutcome.EMPTY
+
+    if status_code == HTTPStatus.PAYMENT_REQUIRED:
+        # EODHD answers 402 when the account's daily request allowance is
+        # spent (server-side; a fresh local QuotaBucket does not mean the
+        # account has budget). Name it, so the operator knows to wait for the
+        # 00:00 UTC reset or buy extra calls rather than "investigate".
+        raise ProviderResponseError(
+            f"EODHD daily API quota exhausted (HTTP {status_code}) for range "
+            f"{range_start!r}–{range_end!r}; the allowance resets at 00:00 UTC."
+        )
 
     if 400 <= status_code < 500:
         # Other 4xx — vendor change or our bug; raise so it surfaces clearly.

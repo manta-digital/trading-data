@@ -92,6 +92,12 @@ class TestClassifyOutcome:
         with pytest.raises(ProviderResponseError):
             self._call(_resp(status))
 
+    def test_http_402_names_the_quota(self) -> None:
+        """EODHD's 402 is the account's daily allowance, not a contract change
+        (2026-08-31 a universe pull died on it mid-run)."""
+        with pytest.raises(ProviderResponseError, match="quota exhausted"):
+            self._call(_resp(402))
+
     def test_http_404_is_empty(self) -> None:
         """EODHD uses 404 to mean no intraday data for the symbol/range."""
         assert self._call(_resp(404)) == LastAttemptOutcome.EMPTY

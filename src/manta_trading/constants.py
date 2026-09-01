@@ -69,6 +69,12 @@ the generic pointer line, never a wrong count.
 MAX_RETRY_COUNT: int = 5
 """Maximum number of fetch retries before a gap is marked RETRY_EXHAUSTED."""
 
+PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS: int = 5
+"""``mt data pull`` aborts after this many consecutive provider (non-retriable
+4xx) errors. One symbol's bad response is skipped and counted; a streak is the
+signature of an account-wide condition (HTTP 402 quota exhausted) where every
+further request is wasted."""
+
 DAILY_STALENESS_THRESHOLD: timedelta = timedelta(days=2)
 """A daily-granularity symbol is STALE if last_attempt_ts is older than this."""
 
@@ -452,15 +458,20 @@ re-materialized (slice 169). At the narrowed 7-day width the coverage caggs
 rejoin the well-behaved group: the floor drops from 731 days to 14.
 """
 
-MINUTE_CAGG_REFRESH_START_OFFSET: timedelta = timedelta(days=1)
+MINUTE_CAGG_REFRESH_START_OFFSET: timedelta = timedelta(days=3)
 """``start_offset`` of the four minute caggs' own refresh policies.
 
-Measured on prod 2026-07-26 (jobs 1002/1003/1007/1008 — all four carry the same
-1-day value). Recorded here as the **parent** window that slice 167's
-hierarchical coverage policy must exceed; ``MINUTE_CAGG_COMPRESS_AFTER``'s
-docstring already depends on this number, and the slice-167 constants test
-asserts the coverage ``start_offset`` against it rather than against a literal.
-Not itself rendered into a migration — migrations 035/037 own those policies.
+Bars are materialized only if their timestamps fall inside
+``[now - start_offset, now - end_offset]`` at policy time. Minute bars arrive
+in two nightly batches (hours old) and a quota-starved night defers a symbol
+by a full day, so the window must be days, not hours: a 2-hour window silently
+froze the 5m/15m caggs for 24 days with the policies reporting Success (issue
+#20). Incremental refresh only touches invalidated regions, so the wider
+window costs ~nothing per run. Also the **parent** window slice 167's
+hierarchical coverage policy must exceed (the constants test asserts the
+coverage ``start_offset`` against it), and it must stay below
+``MINUTE_CAGG_COMPRESS_AFTER``. Rendered into migrations 035 and 053 — one
+value, one source.
 """
 
 MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL: timedelta = timedelta(hours=1)

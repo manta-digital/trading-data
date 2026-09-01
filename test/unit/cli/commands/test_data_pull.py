@@ -257,3 +257,56 @@ class TestDataPullUniverseDelistedFilter:
             )
         assert result.exit_code == 1
         assert "--universe" in result.output
+
+
+class TestPullFetchLoopProviderErrors:
+    """A non-retriable provider answer for one symbol is skipped and counted;
+    a streak aborts the run (issue #19 follow-up: the 2026-08-31 universe pull
+    died with a traceback on the first HTTP 402)."""
+
+    def _run(self, side_effect, symbols):
+        from datetime import date
+
+        from manta_trading.cli.commands.data import _pull_fetch_inner
+
+        conn = MagicMock()
+        conn.__enter__ = lambda s: s
+        conn.__exit__ = MagicMock(return_value=False)
+        with (
+            patch("psycopg.connect", return_value=conn),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.run_minute_refetch",
+                side_effect=side_effect,
+            ) as mock_refetch,
+        ):
+            _pull_fetch_inner(
+                symbols=symbols,
+                granularity="1m",
+                start=date(2026, 6, 1),
+                end=None,
+                settings=_settings(),
+                json_output=False,
+                verbose=True,
+            )
+        return mock_refetch
+
+    def test_one_provider_error_is_skipped_and_the_loop_continues(self, capsys):
+        from manta_trading.data.acquisition.outcomes import ProviderResponseError
+
+        ok = MagicMock(success_count=1, partial_count=0, empty_count=0)
+        mock = self._run([ProviderResponseError("HTTP 403"), ok], ["BAD", "GOOD"])
+        out = capsys.readouterr().out
+        assert mock.call_count == 2
+        assert "BAD" in out and "provider-error" in out
+        assert "1 fetched, 1 failed" in out
+
+    def test_consecutive_provider_errors_abort_the_run(self, capsys):
+        from manta_trading.constants import PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS
+        from manta_trading.data.acquisition.outcomes import ProviderResponseError
+
+        symbols = [f"S{i}" for i in range(PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS + 3)]
+        mock = self._run(ProviderResponseError("quota exhausted (HTTP 402)"), symbols)
+        captured = capsys.readouterr()
+        assert mock.call_count == PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS
+        assert "aborting" in (captured.out + captured.err)
+        assert f"{PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS} failed" in captured.out

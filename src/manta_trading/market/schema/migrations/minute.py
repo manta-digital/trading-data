@@ -26,6 +26,7 @@ from manta_trading.constants import (
     MINUTE_CAGG_COMPRESS_AFTER,
     MINUTE_CAGG_GRANULARITIES,
     MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL,
+    MINUTE_CAGG_REFRESH_START_OFFSET,
     MINUTE_COVERAGE_REFRESH_END_OFFSET,
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_START_OFFSET,
@@ -84,6 +85,10 @@ def _minute_cagg_views_sql_array() -> str:
 def _interval_seconds_sql(td: timedelta) -> str:
     """Render a timedelta as a seconds-based SQL INTERVAL literal (exact)."""
     return f"INTERVAL '{int(td.total_seconds())} seconds'"
+
+
+#: Every minute cagg refresh policy's start_offset, rendered once (035, 053).
+_MINUTE_REFRESH_START_SQL = _interval_seconds_sql(MINUTE_CAGG_REFRESH_START_OFFSET)
 
 
 def _eodhd_type_check_sql() -> str:
@@ -1614,7 +1619,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "(slice 152). Idempotent — policies are added inside a DO block "
             "that checks for existing jobs first."
         ),
-        "sql": """
+        "sql": f"""
             DO $$ BEGIN
                 -- Check uses hypertable_name (available across TimescaleDB versions).
                 IF NOT EXISTS (
@@ -1623,7 +1628,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                       AND proc_name = 'policy_refresh_continuous_aggregate'
                 ) THEN
                     PERFORM add_continuous_aggregate_policy('minute_5min_ohlcv',
-                        start_offset  => INTERVAL '2 hours',
+                        start_offset  => {_MINUTE_REFRESH_START_SQL},
                         end_offset    => INTERVAL '5 minutes',
                         schedule_interval => INTERVAL '5 minutes');
                 END IF;
@@ -1634,7 +1639,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                       AND proc_name = 'policy_refresh_continuous_aggregate'
                 ) THEN
                     PERFORM add_continuous_aggregate_policy('minute_15min_ohlcv',
-                        start_offset  => INTERVAL '2 hours',
+                        start_offset  => {_MINUTE_REFRESH_START_SQL},
                         end_offset    => INTERVAL '15 minutes',
                         schedule_interval => INTERVAL '15 minutes');
                 END IF;
@@ -1645,7 +1650,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                       AND proc_name = 'policy_refresh_continuous_aggregate'
                 ) THEN
                     PERFORM add_continuous_aggregate_policy('minute_hourly_ohlcv',
-                        start_offset  => INTERVAL '1 day',
+                        start_offset  => {_MINUTE_REFRESH_START_SQL},
                         end_offset    => INTERVAL '1 hour',
                         schedule_interval => INTERVAL '1 hour');
                 END IF;
@@ -1656,7 +1661,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                       AND proc_name = 'policy_refresh_continuous_aggregate'
                 ) THEN
                     PERFORM add_continuous_aggregate_policy('minute_4hour_ohlcv',
-                        start_offset  => INTERVAL '1 day',
+                        start_offset  => {_MINUTE_REFRESH_START_SQL},
                         end_offset    => INTERVAL '4 hours',
                         schedule_interval => INTERVAL '1 hour');
                 END IF;
@@ -2273,6 +2278,57 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
 
                 EXECUTE 'COMMENT ON VIEW data_status IS '
                      || quote_literal('{_data_status_doc_comment()}');
+            END $$;
+        """,
+    },
+    {
+        "id": "053_minute_cagg_refresh_offsets_from_constant",
+        "description": (
+            "Set every minute cagg refresh policy's start_offset to "
+            "MINUTE_CAGG_REFRESH_START_OFFSET (issue #20). 037 widened 5m/15m "
+            "from 2h to 1 day, but a restore replay of 035 recreated the "
+            "policies at 2h after 037 had run and the forward-only ledger never "
+            "re-fired it; the 5m/15m caggs then froze for 24 days with the "
+            "policies reporting Success (their window never contained the "
+            "nightly, hours-old bars). Guarded: alters only a policy whose "
+            "start_offset differs from the constant, so it is safe to re-run "
+            "and converges any ledger that replayed 035. 035 now renders the "
+            "same constant, so a future replay cannot regress it."
+        ),
+        "sql": f"""
+            DO $$
+            DECLARE
+                v_view  text;
+                v_end   interval;
+                v_sched interval;
+                cur_start interval;
+            BEGIN
+                FOR v_view, v_end, v_sched IN
+                    SELECT * FROM (VALUES
+                        ('minute_5min_ohlcv',
+                            INTERVAL '5 minutes', INTERVAL '5 minutes'),
+                        ('minute_15min_ohlcv',
+                            INTERVAL '15 minutes', INTERVAL '15 minutes'),
+                        ('minute_hourly_ohlcv',
+                            INTERVAL '1 hour', INTERVAL '1 hour'),
+                        ('minute_4hour_ohlcv',
+                            INTERVAL '4 hours', INTERVAL '1 hour')
+                    ) AS t(view_name, end_off, sched)
+                LOOP
+                    SELECT (config->>'start_offset')::interval INTO cur_start
+                    FROM timescaledb_information.jobs
+                    WHERE hypertable_name = v_view
+                      AND proc_name = 'policy_refresh_continuous_aggregate';
+
+                    IF cur_start IS NOT NULL
+                       AND cur_start <> {_MINUTE_REFRESH_START_SQL} THEN
+                        PERFORM remove_continuous_aggregate_policy(v_view);
+                        PERFORM add_continuous_aggregate_policy(v_view,
+                            start_offset      => {_MINUTE_REFRESH_START_SQL},
+                            end_offset        => v_end,
+                            schedule_interval => v_sched);
+                    END IF;
+                END LOOP;
             END $$;
         """,
     },

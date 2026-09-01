@@ -171,7 +171,9 @@ class TestMigrationsListIntegrity:
         # narrowing) and 052 (their refresh policies). This count is a
         # deliberate-change tripwire: adding a migration must be a conscious
         # act, so bump it in the same commit that adds one.
-        assert len(MIGRATIONS) == 55
+        # 55 -> 56 with 053 (minute cagg refresh offsets from the constant,
+        # issue #20).
+        assert len(MIGRATIONS) == 56
 
 
 # ---------------------------------------------------------------------------
@@ -1022,6 +1024,7 @@ class TestMigration023DailyChunkIntervalFromConstant:
 
 _MIGRATION_051_ID = "051_coverage_cagg_bucket_narrowing"
 _MIGRATION_052_ID = "052_coverage_cagg_refresh_policies_narrowed"
+_MIGRATION_053_ID = "053_minute_cagg_refresh_offsets_from_constant"
 
 
 class _StatementRecorder:
@@ -1204,12 +1207,50 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_052() -> None:
-    """The newest migration must be last (slice 169).
+def test_chain_ends_at_053() -> None:
+    """The newest migration must be last (issue #20 retargeted this from 052).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
     landing a migration before an already-applied production tip must be a
     deliberate, test-breaking act.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_052_ID
+    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_053_ID
+
+
+class TestMigration053MinuteCaggRefreshOffsets:
+    """053 re-issues the refresh-offset widening from one constant (issue #20):
+    a restore replay of 035 had silently reverted 037's widening."""
+
+    def _get(self) -> dict:
+        return next(m for m in MINUTE_MIGRATIONS if m["id"] == _MIGRATION_053_ID)
+
+    def test_targets_all_four_minute_caggs(self) -> None:
+        sql = self._get()["sql"]
+        for view in (
+            "minute_5min_ohlcv",
+            "minute_15min_ohlcv",
+            "minute_hourly_ohlcv",
+            "minute_4hour_ohlcv",
+        ):
+            assert view in sql
+
+    def test_offset_renders_from_constant(self) -> None:
+        from manta_trading.constants import MINUTE_CAGG_REFRESH_START_OFFSET
+
+        seconds = int(MINUTE_CAGG_REFRESH_START_OFFSET.total_seconds())
+        expected = f"INTERVAL '{seconds} seconds'"
+        assert expected in self._get()["sql"]
+        assert "2 hours" not in self._get()["sql"]
+
+    def test_035_renders_the_same_constant(self) -> None:
+        """One value, one source: a replay of 035 must not regress the offset."""
+        from manta_trading.constants import MINUTE_CAGG_REFRESH_START_OFFSET
+
+        m035 = next(
+            m for m in MINUTE_MIGRATIONS if m["id"] == "035_cagg_refresh_policies"
+        )
+        seconds = int(MINUTE_CAGG_REFRESH_START_OFFSET.total_seconds())
+        expected = f"INTERVAL '{seconds} seconds'"
+        assert m035["sql"].count(expected) == 4
+        assert "INTERVAL '2 hours'" not in m035["sql"]
