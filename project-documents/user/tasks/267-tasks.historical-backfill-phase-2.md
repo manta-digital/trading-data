@@ -77,7 +77,8 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
   - [ ] New `historical_sync.py` (≤ ~300 lines; split the candle sub-drain
         into `historical_candles.py` if it does not fit). Constructor:
         `source: HistoricalSource`, `trades: TradeRepository` (built by the
-        phase with `surface=Surface.HISTORICAL`), `candles: CandleRepository`, `catalog: CatalogRepository`, `sink`,
+        phase with `surface=Surface.HISTORICAL`), `candles: CandleRepository`,
+        `catalog: CatalogRepository`, `sink`,
         `*, rule, run_id, cap: int, clock`. `cap` is **passed in** — the core
         never sees the client; the phase computes it (Task 7.1).
   - [ ] `run()`, in order, inside the `TradeSync`-style `try` that records
@@ -117,7 +118,8 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
        `limit` is `HISTORICAL_CANDLE_MARKETS_PER_PASS` while the historical
        row's watermark is above the floor and **unbounded** (`None` → no
        `LIMIT` clause) once `floor_reached` (Decision 9 — the cap alone
-       bounds it then); for each market, **check the cap first** (a market may exceed it by its own requests — Criterion
+       bounds it then); for each market, **check the cap first** (a market may
+       exceed it by its own requests — Criterion
        6), then fetch `[open_time, close_time + period)` in chunks of at
        most `CANDLE_SINGLE_MAX_CANDLES` periods (`candle_plan.periods_in`;
        the constant exists from 264 and gains its first reader — update its
@@ -247,7 +249,8 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
         HISTORICAL_PHASE_MINUTES` and logs `kalshi historical cap=%d
         (%d/min × %d min, mode=%s)` before constructing the core (Criterion
         6's first clause). Repositories: `TradeRepository(run.conn, rule,
-        surface=Surface.HISTORICAL)` and `CandleRepository(run.conn, rule)`, `CatalogRepository(run.conn)`.
+        surface=Surface.HISTORICAL)` and `CandleRepository(run.conn, rule)`,
+        `CatalogRepository(run.conn)`.
   - [ ] `PASS_PHASES` becomes four entries; the registration comment says
         why historical is last (Decision 1).
   - [ ] Tests in `test_collection_pass.py`: the names-and-order case lists
@@ -427,7 +430,8 @@ the rehearsal shell only. Record observed output as you go.
   - [ ] Write `user/notes/2026-MM-DD-267-rehearsal.md` (real date) with the
         captured output, the timings, the archive measurements (replace
         Decision 9's estimate in the design with them — commit that with
-        the note), and the two things the rehearsal did **not** do, each with where the proof lives: the authenticated cap
+        the note), and the two things the rehearsal did **not** do, each with
+        where the proof lives: the authenticated cap
         of 30,000 (proven by Task 7.1's computed-cap test; observed on the
         host by Task 11.2) and a multi-firing descent to the floor (the
         handoff below).
@@ -483,7 +487,8 @@ release and reading the report — with one script between them, as 265.
         fell by exactly that number (Criterion 5); 429 count; total pass
         duration < 45 min (Criterion 6) **for the first firing after the
         walk** — the walk's own firing is reported as its duration and the
-        catalog's growth; the slowest window and slowest market as numbers. Writes `user/notes/<date>-267-cutover.md`.
+        catalog's growth; the slowest window and slowest market as numbers.
+        Writes `user/notes/<date>-267-cutover.md`.
   - [ ] Unit test the report's parsing against a journal excerpt
         (`test/unit/test_cutover_267.py`; the 265 script shipped without
         one — do not repeat that).

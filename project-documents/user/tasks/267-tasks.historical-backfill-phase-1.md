@@ -156,7 +156,8 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
         match the design (and the candles path has no `series_ticker`
         field); the stop margin is positive; `Surface` has four members with
         `historical` last; the floor is timezone-aware UTC and at a whole
-        hour; the per-pass and minutes constants are the design's values; `HISTORICAL_PHASE_MINUTES ×
+        hour; the per-pass and minutes constants are the design's values;
+        `HISTORICAL_PHASE_MINUTES ×
         KALSHI_AUTHENTICATED_RATE_LIMIT.requests_per_minute == 30_000` and
         `× KALSHI_PUBLIC_RATE_LIMIT.requests_per_minute == 9_000` (Decision
         2's two figures, asserted where they are derived).
@@ -269,7 +270,8 @@ tier*: same shapes, same cursor pagination as the live endpoints.
   - [ ] Extend `test/unit/data/kalshi/test_fixtures.py`: the completeness
         list gains the four names; the archive page parses into a
         `MarketsPage` whose every status is in `MarketStatus` and whose
-        `settlement_ts` values are all set; each historical trades page parses into
+        `settlement_ts` values are all set; each historical trades page parses
+        into
         a `TradesPage` (the first with a cursor, the last without); the
         candles fixture parses with OHLC. Include a parity assertion: the
         historical trade's field set equals the live `trades_window`
@@ -314,7 +316,8 @@ Design *State*, *Technical Decision 5* (adapters over 265's abstractions),
         before any row, `init_state(w, f)` writes exactly that row and leaves
         the `trades` row absent, `advance_watermark` on the historical row
         moves **only** it; `read_live_coverage_from` returns `None` with no
-        live row and the value once the live row exists; `set_cursor` round-trips a string
+        live row and the value once the live row exists; `set_cursor`
+        round-trips a string
         and `None` clears it without touching the watermark. Both rows can
         coexist (the CHECK from Section 2).
   - [ ] Success: the cases pass in the integration tier.
