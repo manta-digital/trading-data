@@ -272,7 +272,8 @@ class TradeSync:
 
     def log_unknown_prefixes(self) -> None:
         """The once-per-phase unknown-market line (Decision 5); the
-        historical core calls it after ``drain`` (slice 267)."""
+        historical core calls it after ``drain`` (slice 267), so the line
+        carries ``_label`` — the surface tells the two phases apart."""
         prefixes = self.result.unknown_prefixes
         if not prefixes:
             return
@@ -280,7 +281,7 @@ class TradeSync:
             f"{prefix} {count:,}"
             for prefix, count in sorted(prefixes.items(), key=lambda kv: -kv[1])
         )
-        logger.info("trades unknown markets: %s", listed)
+        logger.info("%s unknown markets: %s", self._label, listed)
 
     # ------------------------------------------------------------------
     # Finish and events (Data Flow step 6)

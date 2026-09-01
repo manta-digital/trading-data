@@ -25,7 +25,7 @@ from kalshi_support.fake_trade_source import make_trade
 from kalshi_support.sync_harness import RecordingSink
 from psycopg import errors
 
-from manta_trading.data.kalshi import historical_candles, historical_sync
+from manta_trading.data.kalshi import historical_candles, historical_sync, trade_sync
 from manta_trading.data.kalshi.candle_plan import period_span
 from manta_trading.data.kalshi.candle_types import CandleItemError
 from manta_trading.data.kalshi.constants import (
@@ -376,6 +376,21 @@ class TestTradesDrain:
         )
         assert result.unknown_prefixes == {"KXMVE": 1}
 
+    async def test_unknown_line_carries_the_historical_label(
+        self, h: Harness, caplog: pytest.LogCaptureFixture
+    ):
+        """The once-per-phase unknown line names this drain's surface, not
+        the live phase's (267 code review)."""
+        h.tape("KXMVE-1", timedelta(minutes=1))
+        with caplog.at_level(logging.INFO, logger=trade_sync.__name__):
+            await h.core.run()
+        lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "unknown markets" in r.getMessage()
+        ]
+        assert lines == ["historical unknown markets: KXMVE 1"]
+
     async def test_candle_abort_precedes_trades_and_leaves_the_row(self):
         """Case 8, first clause."""
         h = Harness()
@@ -494,6 +509,8 @@ class TestArchiveWalk:
         with pytest.raises(ProviderPermanentError):
             await h.core.run()
         assert h.core.result.archive_restarted is False
+        # The rejected request spent budget too (267 code review, telemetry).
+        assert h.core.result.requests == 1
 
 
 class TestEventsAndTypes:

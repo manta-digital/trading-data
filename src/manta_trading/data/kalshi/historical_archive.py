@@ -76,12 +76,13 @@ async def walk_archive(core: HistoricalSync) -> bool:
                 cursor=cursor, limit=MARKETS_PAGE_LIMIT, mve_filter=KALSHI_MVE_FILTER
             )
         except ProviderPermanentError as exc:
+            # The rejected request still spent budget, on the abort path too.
+            result.requests += 1
             if not resuming:
                 raise
             # Design *Risks*: a cursor saved on an earlier firing may be
             # rejected; the upserts are idempotent, so the walk restarts from
             # the first page rather than aborting every firing forever.
-            result.requests += 1
             result.archive_restarted = True
             logger.warning(
                 "kalshi historical archive cursor rejected; restarting the walk "
