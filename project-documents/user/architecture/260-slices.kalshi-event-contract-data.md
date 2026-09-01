@@ -27,13 +27,15 @@ status: not_started
 
 5. [x] **(265) Public Trades Collection** — Trades phase added to the pass: cursor-driven trade tape, idempotent on Kalshi's trade id. Extends status with trade-cursor watermark and per-market tape completeness through close. Independent of 264 — the two phases can land in either order. Dependencies: [263]. Effort: 2/5
 
+6. [ ] **(267) Historical Backfill Phase** — [267-slice.historical-backfill-phase.md](../slices/267-slice.historical-backfill-phase.md) — A fourth phase of the hourly Kalshi pass drains `/historical/trades` backward from the live coverage floor to a ratified floor constant, and fetches candles for the behind-cutoff market set, under its own request cap (1,500/pass) after the live phases. Starts on the first firing after install; no operator step, no waiting on the live drain; progress and the floor are visible in `status`. Replaces the retired 266. Dependencies: [264, 265]. Effort: 3/5
+
 ## Integration Work
 
 
 ## Notes
 
 - Sequencing is driven by the initiative's time-sensitivity: 261 → 262 → 263 is the shortest path to unattended production accumulation of the catalog and settlement record. Candles (264) and trades (265) then extend the running pass; each addition redeploys via the normal pinned-ref update.
-- Slice 266 (Historical Backfill) was removed from the plan by the Project Manager on 2026-08-31; `before coverage` and `behind cutoff, uncollected` remain reported by `status` as known-lost counts with no drain planned.
+- Slice 266 (operator-run Historical Backfill, gated on the live drain finishing) was removed by the Project Manager on 2026-08-31 and replaced by 267, which runs the same backfill as a fourth pass phase with no wait.
 - 264 and 265 are mutually independent. If prioritizing between them, trades are the surface Kalshi is actively migrating behind the historical cutoff.
 - Potential for 263 (notes only, not yet needed — 262 rehearsal and first production run, 2026-08-25):
   - Log each completed settled window's end boundary at INFO (with fetched/written for the window) so an interrupted *replay* (`--settled-since` behind the watermark, which by design never moves the watermark backwards) shows an operator where it stopped, and so the long first-run drain has a progress line on the terminal. Today the remedy is to re-issue the same `--settled-since` (re-walked windows cost no writes) and to watch `mt data kalshi status` / the events file from another shell.
