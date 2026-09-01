@@ -386,28 +386,28 @@ Design *Verification*. Every step is **[agent]** against a throwaway
 database on the 917 test cluster; export `MT_TIMESCALE_DB_URL` for it in
 the rehearsal shell only. Record observed output as you go.
 
-- [ ] **Task 9.1: Throwaway database, migrated, with a catalog** (effort: 2)
-  - [ ] Create the database by generated name; `mt data migrate apply
+- [x] **Task 9.1: Throwaway database, migrated, with a catalog** (effort: 2)
+  - [x] Create the database by generated name; `mt data migrate apply
         --track kalshi` → `kalshi_007_historical_surface` applied, 0
         pending; `mt data kalshi sync --settled-since "$(date -u -d '6
         hours ago' +%FT%TZ)"` for a catalog.
-  - [ ] Seed one behind-cutoff market: the ticker in
+  - [x] Seed one behind-cutoff market: the ticker in
         `historical_candles_market.json`, its market object fetched with
         `KalshiTransport.get_json("/historical/markets/{ticker}")` and
         written with its parent event and series through
         `CatalogRepository.upsert_*` (a ten-line snippet in the note, not a
         script); then run one `mt data kalshi pass` so the candles row
         holds a cutoff, and confirm `status` shows `behind cutoff,
-        uncollected 1`.
-  - [ ] Success: outputs captured; the market is in the behind-cutoff set.
+        uncollected 1` — see the note's substitutions.
+  - [x] Success: outputs captured; the market is in the behind-cutoff set.
 
-- [ ] **Task 9.2: Two passes under a small cap** (effort: 3)
-  - [ ] Seed the live `trades` row as production has it: `coverage_from_ts`
+- [x] **Task 9.2: Two passes under a small cap** (effort: 3)
+  - [x] Seed the live `trades` row as production has it: `coverage_from_ts`
         = the cutoff's `trades_created_ts`, `watermark_ts` the same
         (nothing live to drain). Run the passes at the public default (cap
         9,000) — the archive walk needs most of it (Decision 9's estimate),
         and this is the measurement that replaces the estimate.
-  - [ ] Pass 1 (expect an hour or more — the walk upserts millions of
+  - [x] Pass 1 (expect an hour or more — the walk upserts millions of
         rows): capture the cap line (`cap=9000 (300/min × 30 min,
         mode=public)`), the archive walk's per-page progress and its done
         line **or** its cap-reached line with the cursor saved (then pass 2
@@ -424,19 +424,19 @@ the rehearsal shell only. Record observed output as you go.
         and a state row (Criterion 5); verify the historical watermark is a
         whole hour below the live floor and the live row is unchanged
         (Criteria 3, 7).
-  - [ ] Pass 2 (or 3, if the walk spilled): the watermark descends again
+  - [x] Pass 2 (or 3, if the walk spilled): the watermark descends again
         and no archive request is made (Criterion 9); a re-walk (seed it
         back up one hour) writes 0 rows (Criterion 4's second clause).
         Check in the journal's per-window lines that `unknown` is now the
-        MVE prefixes only — the check that the archive walk did its job.
-  - [ ] `mt data kalshi status` prints the historical line and the trades
+        MVE prefixes only — see the note's substitutions.
+  - [x] `mt data kalshi status` prints the historical line and the trades
         block's `coverage from` equals the historical watermark; capture.
-  - [ ] **Record per-window wall time** for comparison with 265's 0.21
+  - [x] **Record per-window wall time** for comparison with 265's 0.21
         s/page and with the first production firing.
-  - [ ] Success: every assertion holds; outputs captured verbatim.
+  - [x] Success: every assertion holds; outputs captured verbatim.
 
-- [ ] **Task 9.3: Rehearsal note and teardown** (effort: 2)
-  - [ ] Write `user/notes/2026-MM-DD-267-rehearsal.md` (real date) with the
+- [x] **Task 9.3: Rehearsal note and teardown** (effort: 2)
+  - [x] Write `user/notes/2026-MM-DD-267-rehearsal.md` (real date) with the
         captured output, the timings, the archive measurements (replace
         Decision 9's estimate in the design with them — commit that with
         the note), and the two things the rehearsal did **not** do, each with
@@ -444,9 +444,9 @@ the rehearsal shell only. Record observed output as you go.
         of 30,000 (proven by Task 7.1's computed-cap test; observed on the
         host by Task 11.2) and a multi-firing descent to the floor (the
         handoff below).
-  - [ ] Drop the throwaway database by its exact name; confirm
+  - [x] Drop the throwaway database by its exact name; confirm
         `MT_TIMESCALE_DB_URL` is unset from the shell.
-  - [ ] Commit: `docs: record the 267 rehearsal on the test cluster`.
+  - [x] Commit: `docs: record the 267 rehearsal on the test cluster`.
 
 ## Section 10: Documentation and version
 
