@@ -173,7 +173,8 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
         (part 2), where their meaning changes; `client.py:376` by Task 3.1.
     - [ ] Success: `grep -rn "266" src/` finds only the three sites named
         above as later tasks' (`kalshi_render.py`, `trade_status.py`,
-        `client.py`) — and after part 2's Section 7, none; `uv run pytest test/unit/data/kalshi/test_constants.py -q`
+        `client.py`) — and after part 2's Section 7, none; `uv run pytest
+        test/unit/data/kalshi/test_constants.py -q`
         is green (Task 2.2 extends it).
 
 - [ ] **Task 2.2: Constants tests** (effort: 1)
