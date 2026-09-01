@@ -169,13 +169,11 @@ def _parse_bar_ts(ts_str: str) -> datetime:
     ts_str = ts_str.strip()
     if "T" in ts_str or " " in ts_str:
         from datetime import datetime as _dt
-
         try:
             return _dt.fromisoformat(ts_str).replace(tzinfo=timezone.utc)
         except ValueError:
             pass
     # Plain date YYYY-MM-DD
     from datetime import datetime as _dt
-
     d = date.fromisoformat(ts_str[:10])
     return _dt(d.year, d.month, d.day, tzinfo=timezone.utc)

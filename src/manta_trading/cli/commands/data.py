@@ -246,15 +246,7 @@ def migrate_status(
 
     if not settings.timescale_db_url:
         if json_output:
-            print_result(
-                {
-                    "connected": False,
-                    "error": "URL not configured",
-                    "applied": [],
-                    "pending": [],
-                },
-                json_mode=True,
-            )
+            print_result({"connected": False, "error": "URL not configured", "applied": [], "pending": []}, json_mode=True)
         else:
             print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=False)
         raise typer.Exit(1)
@@ -267,10 +259,7 @@ def migrate_status(
             db.close()
     except Exception as exc:
         if json_output:
-            print_result(
-                {"connected": False, "error": str(exc), "applied": [], "pending": []},
-                json_mode=True,
-            )
+            print_result({"connected": False, "error": str(exc), "applied": [], "pending": []}, json_mode=True)
         else:
             print_error(f"Could not connect: {exc}", json_mode=False)
         raise typer.Exit(1)
@@ -415,9 +404,7 @@ def instruments_list(
                 inst.canonical_id,
                 inst.venue,
                 inst.asset_class,
-                "yes"
-                if (not inst.delisted_at_eodhd and inst.delisted_date is None)
-                else "no",
+                "yes" if (not inst.delisted_at_eodhd and inst.delisted_date is None) else "no",
             )
         print_result(table, json_mode=False)
         print_result(f"\n{len(instruments)} instrument(s)", json_mode=False)
@@ -480,9 +467,7 @@ def instruments_rebuild(
         False, "--skip-finnhub", help="Skip Finnhub IPO-date enrichment loop"
     ),
     only_finnhub: bool = typer.Option(
-        False,
-        "--only-finnhub",
-        help="Run only the Finnhub enrichment step; skip all EODHD steps",
+        False, "--only-finnhub", help="Run only the Finnhub enrichment step; skip all EODHD steps"
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON summary"),
 ) -> None:
@@ -493,13 +478,17 @@ def instruments_rebuild(
     settings = ctx.obj["settings"]
 
     if not settings.timescale_db_url:
-        print_error("MT_TIMESCALE_DB_URL not configured", json_mode=json_output)
+        print_error(
+            "MT_TIMESCALE_DB_URL not configured", json_mode=json_output
+        )
         raise typer.Exit(1)
 
     finnhub_key = settings.finnhub_api_key or ""
     if not only_finnhub:
         if not settings.eodhd_api_key:
-            print_error("MT_EODHD_API_KEY not configured", json_mode=json_output)
+            print_error(
+                "MT_EODHD_API_KEY not configured", json_mode=json_output
+            )
             raise typer.Exit(1)
         if not skip_finnhub and not finnhub_key:
             print_error(
@@ -509,7 +498,9 @@ def instruments_rebuild(
             raise typer.Exit(1)
     else:
         if not finnhub_key:
-            print_error("MT_FINNHUB_API_KEY not configured", json_mode=json_output)
+            print_error(
+                "MT_FINNHUB_API_KEY not configured", json_mode=json_output
+            )
             raise typer.Exit(1)
 
     try:
@@ -536,22 +527,14 @@ def instruments_rebuild(
         [("Metric", ""), ("Count", "")],
     )
     for key in (
-        "inserted",
-        "updated",
-        "unchanged",
-        "orphans_deleted",
-        "finnhub_populated",
-        "finnhub_not_found",
-        "finnhub_errors",
+        "inserted", "updated", "unchanged", "orphans_deleted",
+        "finnhub_populated", "finnhub_not_found", "finnhub_errors",
         "non_us_dropped",
     ):
         table.add_row(key, str(summary.get(key, 0)))
     print_result(table, json_mode=False)
     if dry_run:
-        print_result(
-            f"\n[dry-run] would_process: {summary.get('would_process', 0)}",
-            json_mode=False,
-        )
+        print_result(f"\n[dry-run] would_process: {summary.get('would_process', 0)}", json_mode=False)
 
 
 @restore_app.command("assess")
@@ -669,12 +652,8 @@ def restore_run(
 @instruments_app.command("populate-delisted-dates")
 def instruments_populate_delisted_dates(
     ctx: typer.Context,
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Fetch and parse but skip DB writes."
-    ),
-    verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Print per-symbol progress."
-    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Fetch and parse but skip DB writes."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Print per-symbol progress."),
 ) -> None:
     """Populate delisted_date for all delisted instruments via EODHD last-bar fetch.
 
@@ -686,9 +665,7 @@ def instruments_populate_delisted_dates(
 
     from manta_trading.data.acquisition.daemon.runner import QUOTA_BUCKET_VAR
     from manta_trading.data.acquisition.quota import QuotaBucket
-    from manta_trading.data.universe.populate_delisted_dates import (
-        populate_delisted_dates,
-    )
+    from manta_trading.data.universe.populate_delisted_dates import populate_delisted_dates
 
     settings = ctx.obj["settings"]
 
@@ -771,12 +748,8 @@ def calendars_list(
                 "market_open": str(r["market_open_time"]),
                 "market_close": str(r["market_close_time"]),
                 "has_extended_hours": r["has_extended_hours"],
-                "extended_open": str(r["extended_open_time"])
-                if r["extended_open_time"]
-                else None,
-                "extended_close": str(r["extended_close_time"])
-                if r["extended_close_time"]
-                else None,
+                "extended_open": str(r["extended_open_time"]) if r["extended_open_time"] else None,
+                "extended_close": str(r["extended_close_time"]) if r["extended_close_time"] else None,
             }
             for r in rows
         ]
@@ -817,7 +790,9 @@ def calendars_list(
 def calendars_holidays(
     ctx: typer.Context,
     calendar: str = typer.Option(..., "--calendar", help="Calendar ID (e.g. NYSE)"),
-    year: int = typer.Option(None, "--year", help="Year (default: current year)"),
+    year: int = typer.Option(
+        None, "--year", help="Year (default: current year)"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Show holidays for a trading calendar."""
@@ -839,12 +814,8 @@ def calendars_holidays(
                     "date": str(h.holiday_date),
                     "name": h.holiday_name,
                     "market_status": h.market_status.value,
-                    "early_close_time": str(h.early_close_time)
-                    if h.early_close_time
-                    else None,
-                    "late_open_time": str(h.late_open_time)
-                    if h.late_open_time
-                    else None,
+                    "early_close_time": str(h.early_close_time) if h.early_close_time else None,
+                    "late_open_time": str(h.late_open_time) if h.late_open_time else None,
                 }
                 for h in holidays
             ]
@@ -980,6 +951,7 @@ def data_status(
         health_counts, _ = fetch_all_health_counts_with_freshness(conn)
         gaps = fetch_symbol_gaps(conn, symbol) if symbol else []
 
+
     # A no-row result is exactly when a stale-coverage verdict matters most: it
     # may be *why* the rows look absent. Both empty paths carry it rather than
     # reporting "no data" as though it were established fact.
@@ -1011,9 +983,7 @@ def data_status(
     if not status_rows and symbol is not None:
         # Check whether the symbol exists at all (unfiltered) to give a precise message.
         with _conn_factory() as conn:
-            unfiltered = fetch_status_rows(
-                conn, symbol=symbol, health_filter=None, granularity=None
-            )
+            unfiltered = fetch_status_rows(conn, symbol=symbol, health_filter=None, granularity=None)
         if unfiltered:
             # Symbol exists but no rows match the current health/granularity filter.
             applied = []
@@ -1130,9 +1100,7 @@ def data_extend(
     total_inserted = 0
     horizon_warnings: list[str] = []
 
-    with ConnectionPool(
-        settings.timescale_db_url, min_size=1, max_size=2, open=True
-    ) as pool:
+    with ConnectionPool(settings.timescale_db_url, min_size=1, max_size=2, open=True) as pool:
         with pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 if calendar:
@@ -1175,9 +1143,7 @@ def data_extend(
                     )
                     holidays = cur.fetchall()
 
-            start_date = (
-                (max_date + timedelta(days=1)) if max_date else date(current_year, 1, 1)
-            )
+            start_date = (max_date + timedelta(days=1)) if max_date else date(current_year, 1, 1)
             end_date = date(end_year, 12, 31)
 
             if start_date <= end_date:
@@ -1347,16 +1313,8 @@ def daemon_run(
         "--list",
         help="Named list from symbol-lists.yaml (implies --stop-when-done by default).",
     ),
-    minute: bool = typer.Option(
-        False,
-        "--minute",
-        help="Run minute cycles. (Default: both run if neither flag given.)",
-    ),
-    daily: bool = typer.Option(
-        False,
-        "--daily",
-        help="Run daily cycles. (Default: both run if neither flag given.)",
-    ),
+    minute: bool = typer.Option(False, "--minute", help="Run minute cycles. (Default: both run if neither flag given.)"),
+    daily: bool = typer.Option(False, "--daily", help="Run daily cycles. (Default: both run if neither flag given.)"),
     max_credits: int | None = typer.Option(
         None, "--max-credits", help="Exit after spending this many credits."
     ),
@@ -1470,15 +1428,8 @@ def daemon_run(
     def _conn_factory() -> psycopg.Connection:
         return psycopg.connect(settings.timescale_db_url)
 
-    def on_symbol_cb(
-        sym: str,
-        outcome: str,
-        recent_end: "datetime | None",
-        oldest_end: "datetime | None",
-        n: int,
-    ) -> None:
+    def on_symbol_cb(sym: str, outcome: str, recent_end: "datetime | None", oldest_end: "datetime | None", n: int) -> None:
         from datetime import datetime as _dt
-
         ts = _dt.now().strftime("%Y%m%d-%H:%M:%S")
         if recent_end is not None and oldest_end is not None:
             window = f"  {oldest_end.strftime('%Y%m%d')} - {recent_end.strftime('%Y%m%d')}  ({n} chunk{'s' if n != 1 else ''})"
@@ -1510,10 +1461,13 @@ def daemon_run(
     )
 
     from manta_trading.data.maintenance.auto_extend import maybe_extend_trading_sessions
-
-    runner.register_idle_hook(lambda: maybe_extend_trading_sessions(_conn_factory))
+    runner.register_idle_hook(
+        lambda: maybe_extend_trading_sessions(_conn_factory)
+    )
 
     sys.exit(runner.start())
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -1882,12 +1836,7 @@ def ca_show(
         t.add_column("ratio_from", justify="right")
         t.add_column("source")
         for row in splits:
-            t.add_row(
-                str(row["ex_date"]),
-                str(row["ratio_to"]),
-                str(row["ratio_from"]),
-                row["source"],
-            )
+            t.add_row(str(row["ex_date"]), str(row["ratio_to"]), str(row["ratio_from"]), row["source"])
         console.print(t)
     else:
         console.print(f"[dim]No splits for {symbol}[/dim]")
@@ -1899,9 +1848,7 @@ def ca_show(
         t2.add_column("currency")
         t2.add_column("source")
         for row in dividends:
-            t2.add_row(
-                str(row["ex_date"]), str(row["amount"]), row["currency"], row["source"]
-            )
+            t2.add_row(str(row["ex_date"]), str(row["amount"]), row["currency"], row["source"])
         console.print(t2)
     else:
         console.print(f"[dim]No dividends for {symbol}[/dim]")
@@ -1966,12 +1913,7 @@ def ca_list(
     t.add_column("ratio_to", justify="right")
     t.add_column("ratio_from", justify="right")
     for row in splits:
-        t.add_row(
-            row["symbol"],
-            str(row["ex_date"]),
-            str(row["ratio_to"]),
-            str(row["ratio_from"]),
-        )
+        t.add_row(row["symbol"], str(row["ex_date"]), str(row["ratio_to"]), str(row["ratio_from"]))
     console.print(t)
 
     t2 = Table(title="Dividends", show_lines=False)
@@ -1980,9 +1922,7 @@ def ca_list(
     t2.add_column("amount", justify="right")
     t2.add_column("currency")
     for row in dividends:
-        t2.add_row(
-            row["symbol"], str(row["ex_date"]), str(row["amount"]), row["currency"]
-        )
+        t2.add_row(row["symbol"], str(row["ex_date"]), str(row["amount"]), row["currency"])
     console.print(t2)
 
     if overflow:
@@ -2146,7 +2086,9 @@ def data_get(
             )
             raise typer.Exit(1)
 
-    _DAILY_GRAINS = {Granularity.D1, Granularity.W1, Granularity.MO1, Granularity.Q1}
+    _DAILY_GRAINS = {
+        Granularity.D1, Granularity.W1, Granularity.MO1, Granularity.Q1
+    }
 
     try:
         if gran in _DAILY_GRAINS:
@@ -2162,19 +2104,12 @@ def data_get(
         else:
             # Minute-grain: convert dates to datetimes.
             start_dt = _datetime(
-                parsed_start.year,
-                parsed_start.month,
-                parsed_start.day,
+                parsed_start.year, parsed_start.month, parsed_start.day,
                 tzinfo=_tz.utc,
             )
             end_dt = _datetime(
-                parsed_end.year,
-                parsed_end.month,
-                parsed_end.day,
-                23,
-                59,
-                59,
-                tzinfo=_tz.utc,
+                parsed_end.year, parsed_end.month, parsed_end.day,
+                23, 59, 59, tzinfo=_tz.utc,
             )
 
             from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
@@ -2183,9 +2118,7 @@ def data_get(
             try:
                 agg = gran.value if gran != Granularity.M1 else None
                 df = db_m.get_minute_data(
-                    symbol,
-                    start_dt,
-                    end_dt,
+                    symbol, start_dt, end_dt,
                     aggregation=agg,
                     adjusted=not raw,
                 )
@@ -2201,14 +2134,9 @@ def data_get(
         raise typer.Exit(1)
 
     if df.empty:
-        msg = (
-            f"No data for {symbol} {granularity} in range {parsed_start} – {parsed_end}"
-        )
+        msg = f"No data for {symbol} {granularity} in range {parsed_start} – {parsed_end}"
         if json_output:
-            print_result(
-                {"symbol": symbol, "granularity": granularity, "rows": []},
-                json_mode=True,
-            )
+            print_result({"symbol": symbol, "granularity": granularity, "rows": []}, json_mode=True)
         else:
             print_result(msg, json_mode=False)
         return
@@ -2216,7 +2144,6 @@ def data_get(
     # Output modes.
     if csv_output:
         import sys
-
         df.index.name = "trade_date"
         sys.stdout.write(df.to_csv())
         return
@@ -2270,7 +2197,9 @@ def data_get(
 # ---------------------------------------------------------------------------
 
 # Terminal gap statuses that --reset clears.
-_TERMINAL_GAP_STATUSES: frozenset[str] = frozenset({"PROVIDER_HOLE", "RETRY_EXHAUSTED"})
+_TERMINAL_GAP_STATUSES: frozenset[str] = frozenset(
+    {"PROVIDER_HOLE", "RETRY_EXHAUSTED"}
+)
 
 # Granularities accepted by pull (raw sources only).
 _PULL_GRANULARITIES: frozenset[str] = frozenset({"1d", "1m"})
@@ -2307,14 +2236,12 @@ def _resolve_symbols_for_pull(
         )
         raise typer.Exit(1)
 
-    provided = sum(
-        [
-            symbol is not None,
-            symbols_opt is not None,
-            list_name is not None,
-            universe,
-        ]
-    )
+    provided = sum([
+        symbol is not None,
+        symbols_opt is not None,
+        list_name is not None,
+        universe,
+    ])
     if provided == 0:
         print_error(
             "Symbol selection required. Use one of: "
@@ -2367,15 +2294,21 @@ def _resolve_symbols_for_pull(
 @data_app.command("pull")
 def data_pull(
     ctx: typer.Context,
-    granularity: str = typer.Argument(..., help="Granularity to pull: 1d or 1m only."),
-    symbol: str | None = typer.Option(None, "--symbol", help="Single symbol."),
+    granularity: str = typer.Argument(
+        ..., help="Granularity to pull: 1d or 1m only."
+    ),
+    symbol: str | None = typer.Option(
+        None, "--symbol", help="Single symbol."
+    ),
     symbols_opt: str | None = typer.Option(
         None, "--symbols", help="Comma-separated symbols."
     ),
     list_name: str | None = typer.Option(
         None, "--list", help="Named list from symbol-lists.yaml."
     ),
-    universe: bool = typer.Option(False, "--universe", help="All active instruments."),
+    universe: bool = typer.Option(
+        False, "--universe", help="All active instruments."
+    ),
     include_delisted: bool = typer.Option(
         False,
         "--include-delisted",
@@ -2383,7 +2316,9 @@ def data_pull(
     ),
     start: str | None = typer.Option(None, "--start", help="Start date (YYYY-MM-DD)."),
     end: str | None = typer.Option(None, "--end", help="End date (YYYY-MM-DD)."),
-    verify: bool = typer.Option(False, "--verify", help="Report gaps; fetch nothing."),
+    verify: bool = typer.Option(
+        False, "--verify", help="Report gaps; fetch nothing."
+    ),
     reset: bool = typer.Option(
         False,
         "--reset",
@@ -2525,14 +2460,7 @@ def data_pull(
                 f"for {len(symbols)} symbol(s), then fetch."
             )
             if json_output:
-                print_result(
-                    {
-                        "dry_run": True,
-                        "terminal_gaps": len(terminal_gaps),
-                        "symbols": len(symbols),
-                    },
-                    json_mode=True,
-                )
+                print_result({"dry_run": True, "terminal_gaps": len(terminal_gaps), "symbols": len(symbols)}, json_mode=True)
             else:
                 print_result(msg, json_mode=False)
             return
@@ -2680,11 +2608,7 @@ def _pull_query_unknown_gaps(
 
     db_granularity = "daily" if granularity == "1d" else "minute"
 
-    conditions = [
-        "granularity = %s",
-        "symbol = ANY(%s)",
-        "fetch_status NOT IN ('PROVIDER_HOLE', 'RETRY_EXHAUSTED')",
-    ]
+    conditions = ["granularity = %s", "symbol = ANY(%s)", "fetch_status NOT IN ('PROVIDER_HOLE', 'RETRY_EXHAUSTED')"]
     params: list[object] = [db_granularity, symbols]
 
     if start is not None:
@@ -2696,9 +2620,8 @@ def _pull_query_unknown_gaps(
 
     sql = (
         "SELECT symbol, gap_start, gap_end, fetch_status, attempt_count "
-        "FROM data_gaps WHERE "
-        + " AND ".join(conditions)
-        + " ORDER BY symbol, gap_start"
+        "FROM data_gaps WHERE " + " AND ".join(conditions) +
+        " ORDER BY symbol, gap_start"
     )
 
     with psycopg.connect(settings.timescale_db_url) as conn:
@@ -2771,9 +2694,8 @@ def _pull_fetch_terminal_gaps(
 
     sql = (
         "SELECT symbol, gap_start, gap_end, fetch_status, attempt_count "
-        "FROM data_gaps WHERE "
-        + " AND ".join(conditions)
-        + " ORDER BY symbol, gap_start"
+        "FROM data_gaps WHERE " + " AND ".join(conditions) +
+        " ORDER BY symbol, gap_start"
     )
 
     with psycopg.connect(settings.timescale_db_url) as conn:
@@ -3001,7 +2923,8 @@ def _pull_fetch_inner(
     print_result("Pull complete: " + ", ".join(parts) + ".", json_mode=False)
     if failed:
         print_result(
-            "Failed: " + ", ".join(failed[:20]) + (" ..." if len(failed) > 20 else ""),
+            "Failed: " + ", ".join(failed[:20])
+            + (" ..." if len(failed) > 20 else ""),
             json_mode=False,
         )
 
@@ -3012,13 +2935,13 @@ def _pull_fetch_inner(
 
 # All 7 cagg views managed by this project.
 _ALL_CAGG_VIEWS: list[tuple[str, str]] = [
-    ("5m", "minute_5min_ohlcv"),
+    ("5m",  "minute_5min_ohlcv"),
     ("15m", "minute_15min_ohlcv"),
-    ("1h", "minute_hourly_ohlcv"),
-    ("4h", "minute_4hour_ohlcv"),
-    ("1w", "daily_weekly_ohlcv"),
+    ("1h",  "minute_hourly_ohlcv"),
+    ("4h",  "minute_4hour_ohlcv"),
+    ("1w",  "daily_weekly_ohlcv"),
     ("1mo", "daily_monthly_ohlcv"),
-    ("1q", "daily_quarterly_ohlcv"),
+    ("1q",  "daily_quarterly_ohlcv"),
 ]
 
 
@@ -3030,16 +2953,10 @@ def caggs_refresh(
         "--granularity",
         help="Comma-separated granularity tokens to refresh (default: all 7).",
     ),
-    start: str | None = typer.Option(
-        None, "--start", help="Refresh window start (YYYY-MM-DD)."
-    ),
-    end: str | None = typer.Option(
-        None, "--end", help="Refresh window end (YYYY-MM-DD)."
-    ),
+    start: str | None = typer.Option(None, "--start", help="Refresh window start (YYYY-MM-DD)."),
+    end: str | None = typer.Option(None, "--end", help="Refresh window end (YYYY-MM-DD)."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
-    verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Print one line per cagg as it completes."
-    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Print one line per cagg as it completes."),
 ) -> None:
     """Manually refresh continuous aggregates.
 
@@ -3117,17 +3034,13 @@ def caggs_refresh(
                     "%s, %s::timestamptz, %s::timestamptz)",
                     (view_name, start_d, end_d),
                 )
-                results.append(
-                    {"granularity": gran_token, "view": view_name, "status": "ok"}
-                )
+                results.append({"granularity": gran_token, "view": view_name, "status": "ok"})
                 if verbose:
                     print(f"{gran_token:<6} {view_name} ok")
                 logger.info("caggs refresh: %s (%s) done", gran_token, view_name)
             except Exception:
                 logger.exception("caggs refresh: %s (%s) failed", gran_token, view_name)
-                results.append(
-                    {"granularity": gran_token, "view": view_name, "status": "error"}
-                )
+                results.append({"granularity": gran_token, "view": view_name, "status": "error"})
                 if verbose:
                     print(f"{gran_token:<6} {view_name} error")
 
@@ -3293,20 +3206,18 @@ def caggs_status(
                     raw = src_latest - mat_latest
                     lag = raw if raw.total_seconds() > 0 else "current"
 
-                rows.append(
-                    {
-                        "view": view_name,
-                        "granularity": token,
-                        "policy_installed": job_id is not None,
-                        "last_success": last_success,
-                        "last_run_status": last_run_status,
-                        "next_start": next_start,
-                        "schedule": schedule,
-                        "source_latest": src_latest,
-                        "mat_latest": mat_latest,
-                        "lag": lag,
-                    }
-                )
+                rows.append({
+                    "view": view_name,
+                    "granularity": token,
+                    "policy_installed": job_id is not None,
+                    "last_success": last_success,
+                    "last_run_status": last_run_status,
+                    "next_start": next_start,
+                    "schedule": schedule,
+                    "source_latest": src_latest,
+                    "mat_latest": mat_latest,
+                    "lag": lag,
+                })
 
     if json_output:
         data = [
@@ -3318,9 +3229,7 @@ def caggs_status(
                 "last_run_status": r["last_run_status"],
                 "next_start": str(r["next_start"]) if r["next_start"] else None,
                 "schedule": str(r["schedule"]) if r["schedule"] else None,
-                "source_latest": str(r["source_latest"])
-                if r["source_latest"]
-                else None,
+                "source_latest": str(r["source_latest"]) if r["source_latest"] else None,
                 "mat_latest": str(r["mat_latest"]) if r["mat_latest"] else None,
                 "lag": str(r["lag"]) if r["lag"] is not None else None,
             }
@@ -3489,22 +3398,20 @@ def caggs_verify(
                     }
                     for y in r.years
                 ]
-            payload.append(
-                {
-                    "granularity": r.granularity.value,
-                    "view": r.view_name,
-                    "raw_total": r.raw_total,
-                    "cagg_total": r.cagg_total,
-                    "in_parity": r.in_parity,
-                    "chunk_count": r.chunk_summary.chunk_count,
-                    "chunk_interval": (
-                        str(r.chunk_summary.chunk_interval)
-                        if r.chunk_summary.chunk_interval is not None
-                        else None
-                    ),
-                    "rows": report_rows,
-                }
-            )
+            payload.append({
+                "granularity": r.granularity.value,
+                "view": r.view_name,
+                "raw_total": r.raw_total,
+                "cagg_total": r.cagg_total,
+                "in_parity": r.in_parity,
+                "chunk_count": r.chunk_summary.chunk_count,
+                "chunk_interval": (
+                    str(r.chunk_summary.chunk_interval)
+                    if r.chunk_summary.chunk_interval is not None
+                    else None
+                ),
+                "rows": report_rows,
+            })
         print_result(payload, json_mode=True)
         raise typer.Exit(_EXIT_PARITY_FAILURE if any_failure else 0)
 
@@ -3526,13 +3433,8 @@ def caggs_verify(
         if detail:
             table = make_table(
                 "",
-                [
-                    ("Window start", ""),
-                    ("Raw", ""),
-                    ("Cagg", ""),
-                    ("Coverage", ""),
-                    ("Parity", ""),
-                ],
+                [("Window start", ""), ("Raw", ""), ("Cagg", ""),
+                 ("Coverage", ""), ("Parity", "")],
             )
             for w in r.windows:
                 table.add_row(
@@ -3545,13 +3447,8 @@ def caggs_verify(
         else:
             table = make_table(
                 "",
-                [
-                    ("Year", ""),
-                    ("Raw", ""),
-                    ("Cagg", ""),
-                    ("Coverage", ""),
-                    ("Parity", ""),
-                ],
+                [("Year", ""), ("Raw", ""), ("Cagg", ""),
+                 ("Coverage", ""), ("Parity", "")],
             )
             for y in r.years:
                 table.add_row(
@@ -3721,6 +3618,7 @@ def caggs_repair(
         print_result(f"\n{_CAGG_MAINTENANCE_STANDING_RULE}", json_mode=False)
 
 
+
 # ---------------------------------------------------------------------------
 # mt data caggs rebuild-coverage — slice 169 Task G
 # ---------------------------------------------------------------------------
@@ -3812,7 +3710,9 @@ def caggs_rebuild_coverage(
         )
         raise typer.Exit(1) from None
 
-    span = timedelta(days=subwindow_days) if subwindow_days > 0 else REBUILD_SUBWINDOW
+    span = (
+        timedelta(days=subwindow_days) if subwindow_days > 0 else REBUILD_SUBWINDOW
+    )
 
     last_counts = {"refreshed": 0, "skipped": 0}
 

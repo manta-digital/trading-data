@@ -278,8 +278,7 @@ def run_daily_cycle(
     *,
     symbols: list[str] | None = None,
     should_continue: Callable[[], bool] | None = None,
-    on_symbol: Callable[[str, str, "datetime | None", "datetime | None", int], None]
-    | None = None,
+    on_symbol: Callable[[str, str, "datetime | None", "datetime | None", int], None] | None = None,
 ) -> CycleReport:
     """Drive one daily-data acquisition pass over the instrument universe.
 
@@ -327,9 +326,7 @@ def run_daily_cycle(
                     symbol_list = [
                         row.symbol
                         for row in iter_active_instruments(
-                            conn,
-                            ordering="most_stale_first",
-                            granularity=_DAILY_GRANULARITY,
+                            conn, ordering="most_stale_first", granularity=_DAILY_GRANULARITY
                         )
                     ]
 
@@ -337,7 +334,9 @@ def run_daily_cycle(
             # An interrupted pass resumes here at exactly the symbols it never
             # reached; a restart changes nothing, because nothing is tracked.
             with pool.connection() as conn:
-                work = pending_daily_symbols(conn, symbol_list, daily_pass_boundary(t0))
+                work = pending_daily_symbols(
+                    conn, symbol_list, daily_pass_boundary(t0)
+                )
 
             scope_size = len(symbol_list)
             # From here on, `symbol_list` is the *pending* set: every downstream
@@ -415,7 +414,8 @@ def run_daily_cycle(
                     )
                 except QuotaWaitAborted:
                     _logger.info(
-                        "run_daily_cycle: quota wait aborted by shutdown — exiting"
+                        "run_daily_cycle: quota wait aborted by shutdown — "
+                        "exiting"
                     )
             else:
                 for sym in symbol_list:
@@ -564,9 +564,7 @@ def _run_steady_state_cycle(
             report.transient_failure_count += 1
         return report
     except Exception:
-        _logger.exception(
-            "run_daily_cycle[STEADY_STATE]: bulk EOD call failed unexpectedly"
-        )
+        _logger.exception("run_daily_cycle[STEADY_STATE]: bulk EOD call failed unexpectedly")
         for sym in symbol_list:
             report.symbol_outcomes[sym] = str(LastAttemptOutcome.TRANSIENT_FAILURE)
             report.transient_failure_count += 1
@@ -575,9 +573,7 @@ def _run_steady_state_cycle(
     try:
         all_bars: list[dict] = response.json()
     except Exception:
-        _logger.warning(
-            "run_daily_cycle[STEADY_STATE]: failed to parse bulk EOD response"
-        )
+        _logger.warning("run_daily_cycle[STEADY_STATE]: failed to parse bulk EOD response")
         all_bars = []
 
     # Build a symbol → bars mapping (EODHD uses "code" field, e.g. "AAPL.US").
@@ -598,19 +594,13 @@ def _run_steady_state_cycle(
 
             if target_end is None:
                 _logger.warning(
-                    "run_daily_cycle[STEADY_STATE]: no trading sessions for %s — skipping",
-                    sym,
+                    "run_daily_cycle[STEADY_STATE]: no trading sessions for %s — skipping", sym
                 )
                 report.symbol_outcomes[sym] = str(LastAttemptOutcome.TRANSIENT_FAILURE)
                 report.transient_failure_count += 1
                 continue
 
-            target_start = datetime(
-                DAILY_HISTORY_FLOOR.year,
-                DAILY_HISTORY_FLOOR.month,
-                DAILY_HISTORY_FLOOR.day,
-                tzinfo=_UTC,
-            )
+            target_start = datetime(DAILY_HISTORY_FLOOR.year, DAILY_HISTORY_FLOOR.month, DAILY_HISTORY_FLOOR.day, tzinfo=_UTC)
             outcome = (
                 LastAttemptOutcome.SUCCESS if sym_bars else LastAttemptOutcome.EMPTY
             )
@@ -619,24 +609,16 @@ def _run_steady_state_cycle(
             with pool.connection() as conn:
                 with conn.transaction():
                     with advisory_lock(
-                        conn,
-                        sym,
-                        _DAILY_GRANULARITY,
-                        timeout=DAEMON_LOCK_TIMEOUT,
-                    ):
+                            conn, sym, _DAILY_GRANULARITY,
+                            timeout=DAEMON_LOCK_TIMEOUT,
+                        ):
                         if sym_bars:
                             _insert_daily_bars(conn, sym, sym_bars)
                             _update_first_data_date(conn, sym, sym_bars)
                             _update_delisted_date_if_needed(conn, sym, sym_bars)
                         update_data_gaps(
-                            conn,
-                            sym,
-                            _DAILY_GRANULARITY,
-                            target_start,
-                            target_end,
-                            fetch_status,
-                            force_reset_terminal=False,
-                            outcome=outcome,
+                            conn, sym, _DAILY_GRANULARITY, target_start, target_end,
+                            fetch_status, force_reset_terminal=False, outcome=outcome,
                         )
 
             report.symbol_outcomes[sym] = str(outcome)
@@ -647,8 +629,7 @@ def _run_steady_state_cycle(
 
         except psycopg.errors.LockNotAvailable:
             _logger.warning(
-                "run_daily_cycle[STEADY_STATE]: advisory lock timeout for %s — skipping",
-                sym,
+                "run_daily_cycle[STEADY_STATE]: advisory lock timeout for %s — skipping", sym
             )
             report.symbol_outcomes[sym] = str(LastAttemptOutcome.TRANSIENT_FAILURE)
             report.transient_failure_count += 1
@@ -703,9 +684,7 @@ def _process_daily_symbol(
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         _logger.warning(
             "HTTP transient failure for %s daily (retries exhausted): %s via=%s",
-            symbol,
-            exc,
-            via,
+            symbol, exc, via,
         )
         return LastAttemptOutcome.TRANSIENT_FAILURE
     except Exception:
@@ -733,21 +712,12 @@ def _do_daily_symbol(
         return LastAttemptOutcome.TRANSIENT_FAILURE
 
     if window is not None:
-        target_start = datetime(
-            window[0].year, window[0].month, window[0].day, tzinfo=_UTC
-        )
+        target_start = datetime(window[0].year, window[0].month, window[0].day, tzinfo=_UTC)
         # Clamp window end to last completed session.
-        window_end = datetime(
-            window[1].year, window[1].month, window[1].day, tzinfo=_UTC
-        )
+        window_end = datetime(window[1].year, window[1].month, window[1].day, tzinfo=_UTC)
         target_end = min(target_end, window_end)
     else:
-        target_start = datetime(
-            DAILY_HISTORY_FLOOR.year,
-            DAILY_HISTORY_FLOOR.month,
-            DAILY_HISTORY_FLOOR.day,
-            tzinfo=_UTC,
-        )
+        target_start = datetime(DAILY_HISTORY_FLOOR.year, DAILY_HISTORY_FLOOR.month, DAILY_HISTORY_FLOOR.day, tzinfo=_UTC)
 
     # Happy-path via marker (slice 165) — mirrors _do_minute_symbol; without
     # it a successful daily fetch emits no line identifying its entry point.
@@ -785,14 +755,8 @@ def _do_daily_symbol(
                     _update_delisted_date_if_needed(conn, symbol, bars)
 
                 update_data_gaps(
-                    conn,
-                    symbol,
-                    _DAILY_GRANULARITY,
-                    target_start,
-                    target_end,
-                    fetch_status,
-                    force_reset_terminal=force_reset_terminal,
-                    outcome=outcome,
+                    conn, symbol, _DAILY_GRANULARITY, target_start, target_end,
+                    fetch_status, force_reset_terminal=force_reset_terminal, outcome=outcome,
                 )
 
     return outcome
@@ -840,9 +804,7 @@ def run_daily_refetch(
             if to_date is None:
                 with pool.connection() as conn:
                     last_session = _last_completed_session(conn, symbol)
-                to_date = (
-                    last_session.date() if last_session is not None else date.today()
-                )
+                to_date = last_session.date() if last_session is not None else date.today()
 
             window = (from_date, to_date)
             outcome = _do_daily_symbol(
@@ -874,7 +836,9 @@ def run_daily_refetch(
     return report
 
 
-def _last_completed_session(conn: psycopg.Connection, symbol: str) -> datetime | None:
+def _last_completed_session(
+    conn: psycopg.Connection, symbol: str
+) -> datetime | None:
     """Return the session_open_utc of the last completed trading session for symbol's calendar."""
     with conn.cursor() as cur:
         cur.execute(
@@ -900,17 +864,14 @@ def _insert_daily_bars(conn: psycopg.Connection, symbol: str, bars: list[dict]) 
         try:
             bar_date = date.fromisoformat(bar["date"])
             bar_ts = datetime(bar_date.year, bar_date.month, bar_date.day, tzinfo=_UTC)
-            rows.append(
-                (
-                    bar_ts,
-                    symbol,
-                    Decimal(str(bar.get("open", 0))),
-                    Decimal(str(bar.get("high", 0))),
-                    Decimal(str(bar.get("low", 0))),
-                    Decimal(str(bar.get("close", 0))),
-                    int(bar.get("volume") or 0),
-                )
-            )
+            rows.append((
+                bar_ts, symbol,
+                Decimal(str(bar.get("open", 0))),
+                Decimal(str(bar.get("high", 0))),
+                Decimal(str(bar.get("low", 0))),
+                Decimal(str(bar.get("close", 0))),
+                int(bar.get("volume") or 0),
+            ))
         except (KeyError, ValueError):
             _logger.warning("Skipping malformed bar for %s: %r", symbol, bar)
 
@@ -941,9 +902,7 @@ def _insert_daily_bars(conn: psycopg.Connection, symbol: str, bars: list[dict]) 
         """)
 
 
-def _update_first_data_date(
-    conn: psycopg.Connection, symbol: str, bars: list[dict]
-) -> None:
+def _update_first_data_date(conn: psycopg.Connection, symbol: str, bars: list[dict]) -> None:
     dates = [bar["date"] for bar in bars if "date" in bar]
     if not dates:
         return
@@ -954,13 +913,9 @@ def _update_first_data_date(
         )
 
 
-def _update_delisted_date_if_needed(
-    conn: psycopg.Connection, symbol: str, bars: list[dict]
-) -> None:
+def _update_delisted_date_if_needed(conn: psycopg.Connection, symbol: str, bars: list[dict]) -> None:
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT delisted_at_eodhd FROM instruments WHERE symbol = %s", (symbol,)
-        )
+        cur.execute("SELECT delisted_at_eodhd FROM instruments WHERE symbol = %s", (symbol,))
         row = cur.fetchone()
     if row is None or not row[0]:
         return

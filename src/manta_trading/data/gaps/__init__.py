@@ -17,10 +17,7 @@ Public surface re-exported here for convenient import:
 
 from __future__ import annotations
 
-from manta_trading.data.gaps.actionable_gap_selector import (
-    GapRow,
-    pick_most_recent_actionable_gap,
-)
+from manta_trading.data.gaps.actionable_gap_selector import GapRow, pick_most_recent_actionable_gap
 from manta_trading.data.gaps.coalesce_data_gaps import coalesce_data_gaps
 from manta_trading.data.gaps.compute_missing_ranges import (
     GapRange,
@@ -29,9 +26,7 @@ from manta_trading.data.gaps.compute_missing_ranges import (
     fetch_sessions,
     group_sessions_into_ranges,
 )
-from manta_trading.data.gaps.next_trading_session_after import (
-    next_trading_session_after,
-)
+from manta_trading.data.gaps.next_trading_session_after import next_trading_session_after
 from manta_trading.data.gaps.update_data_gaps import UpdateResult, update_data_gaps
 
 __all__ = [

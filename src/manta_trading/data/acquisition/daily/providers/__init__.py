@@ -36,9 +36,10 @@ def build_daily_provider(settings: "Settings") -> IDailyDataProvider:
             from manta_trading.data.acquisition.daily.providers.eodhd import (
                 EODHDDailyProvider,
             )
-
             if not settings.eodhd_api_key:
-                raise ValueError("daily_provider=eodhd requires MT_EODHD_API_KEY")
+                raise ValueError(
+                    "daily_provider=eodhd requires MT_EODHD_API_KEY"
+                )
             return EODHDDailyProvider(api_key=settings.eodhd_api_key)
 
 

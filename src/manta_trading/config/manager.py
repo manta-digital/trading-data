@@ -43,7 +43,9 @@ def _coerce_value(key: str, raw_value: str) -> object:
 
     if key_def.choices is not None and coerced not in key_def.choices:
         allowed = ", ".join(str(c) for c in key_def.choices)
-        raise ValueError(f"Invalid value {raw_value!r} for {key!r}. Allowed: {allowed}")
+        raise ValueError(
+            f"Invalid value {raw_value!r} for {key!r}. Allowed: {allowed}"
+        )
     return coerced
 
 
@@ -71,7 +73,9 @@ def load_config(cwd: str = ".") -> dict[str, object]:
         if k in CONFIG_KEYS:
             merged[k] = v
         else:
-            _logger.warning("Unknown config key '%s' in %s — ignoring", k, project_path)
+            _logger.warning(
+                "Unknown config key '%s' in %s — ignoring", k, project_path
+            )
 
     return merged
 
@@ -82,7 +86,9 @@ def get_config(key: str, cwd: str = ".") -> tuple[object, str]:
     Returns (value, source) where source is "project", "user", or "default".
     """
     if key not in CONFIG_KEYS:
-        raise KeyError(f"Unknown config key: {key!r}. {_available_keys_message()}")
+        raise KeyError(
+            f"Unknown config key: {key!r}. {_available_keys_message()}"
+        )
 
     value = load_config(cwd)[key]
     source = resolve_config_source(key, cwd)
@@ -95,7 +101,9 @@ def resolve_config_source(key: str, cwd: str = ".") -> str:
     Returns "project", "user", or "default".
     """
     if key not in CONFIG_KEYS:
-        raise KeyError(f"Unknown config key: {key!r}. {_available_keys_message()}")
+        raise KeyError(
+            f"Unknown config key: {key!r}. {_available_keys_message()}"
+        )
 
     project_data = _read_toml(project_config_path(cwd))
     if key in project_data:
@@ -121,7 +129,9 @@ def set_config(
     Validates the key name and coerces the value to the declared type.
     """
     if key not in CONFIG_KEYS:
-        raise KeyError(f"Unknown config key: {key!r}. {_available_keys_message()}")
+        raise KeyError(
+            f"Unknown config key: {key!r}. {_available_keys_message()}"
+        )
 
     coerced = _coerce_value(key, value)
 

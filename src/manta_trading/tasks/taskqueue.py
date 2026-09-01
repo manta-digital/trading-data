@@ -52,20 +52,20 @@ class TaskQueue:
         # Use lock to safely modify active_tasks counter
         async with self.task_lock:
             self.active_tasks += 1
-
+        
         try:
             result = await task.coroutine(*task.args, **(task.kwargs or {}))
             if result is None:
                 _logger.warning("Task %s returned None", task)
-                task.result = {"error": "Task returned None"}
-            elif isinstance(result, dict) and "error" in result:
-                _logger.warning("Task %s returned an error: %s", task, result["error"])
+                task.result = {'error': 'Task returned None'}
+            elif isinstance(result, dict) and 'error' in result:
+                _logger.warning("Task %s returned an error: %s", task, result['error'])
                 task.result = result
             else:
                 task.result = result
         except Exception as e:
             _logger.error("Error processing task: %s", e)
-            task.result = {"error": str(e)}
+            task.result = {'error': str(e)}
         finally:
             # Use lock again to safely decrement active_tasks counter
             async with self.task_lock:

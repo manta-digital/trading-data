@@ -164,7 +164,9 @@ def _mat_chunk_interval(
         (view_name,),
     ).fetchone()
     if mat_row is None:
-        raise PreflightError(f"continuous aggregate {view_name!r} not found in catalog")
+        raise PreflightError(
+            f"continuous aggregate {view_name!r} not found in catalog"
+        )
     interval_row = conn.execute(
         "SELECT time_interval FROM timescaledb_information.dimensions "
         "WHERE hypertable_name = %s",
@@ -312,7 +314,7 @@ def _window_parity(
 ) -> tuple[int, int]:
     """Return (raw_count, cagg_count) for one window (parity oracle)."""
     raw_row = conn.execute(
-        f"SELECT COUNT(*) AS n FROM {MINUTE_OHLCV_TABLE} "  # noqa: S608 — module constant
+        f'SELECT COUNT(*) AS n FROM {MINUTE_OHLCV_TABLE} '  # noqa: S608 — module constant
         'WHERE "time" >= %s AND "time" < %s',
         (start, end),
     ).fetchone()
@@ -412,7 +414,9 @@ def _repair_one_cagg(
 
     for i, (start, end) in enumerate(windows, start=1):
         raw_count, cagg_count = _window_parity(conn, view_name, start, end)
-        parity = WindowParity.DONE if raw_count == cagg_count else WindowParity.PENDING
+        parity = (
+            WindowParity.DONE if raw_count == cagg_count else WindowParity.PENDING
+        )
         if parity is WindowParity.DONE:
             already_done += 1
             continue

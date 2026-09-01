@@ -28,19 +28,17 @@ _ALLOWED_TYPES: frozenset[str] = frozenset(t.value for t in EodhdType)
 # (~25k of ~58k rows) without contributing tradable signal.
 # To re-enable a tier, remove it from this set and document the reason in
 # the slice that re-introduces it.
-_EXCLUDED_EXCHANGES: frozenset[str] = frozenset(
-    {
-        "PINK",  # Pink Open Market — minimal disclosure
-        "OTCQX",  # OTC top tier — re-evaluate later if needed
-        "OTCQB",  # OTC venture tier
-        "OTCGREY",  # Grey Market — no quotes, no market makers
-        "OTCCE",  # Caveat Emptor — public-interest concerns
-        "OTCMKTS",  # OTC Markets generic
-        "OTCBB",  # Bulletin Board — defunct since 2014
-        "OTC",  # Generic OTC bucket
-        "NMFQS",  # Mutual fund quotation service
-    }
-)
+_EXCLUDED_EXCHANGES: frozenset[str] = frozenset({
+    "PINK",      # Pink Open Market — minimal disclosure
+    "OTCQX",     # OTC top tier — re-evaluate later if needed
+    "OTCQB",     # OTC venture tier
+    "OTCGREY",   # Grey Market — no quotes, no market makers
+    "OTCCE",     # Caveat Emptor — public-interest concerns
+    "OTCMKTS",   # OTC Markets generic
+    "OTCBB",     # Bulletin Board — defunct since 2014
+    "OTC",       # Generic OTC bucket
+    "NMFQS",     # Mutual fund quotation service
+})
 
 
 def filter_v1_universe(rows: list[dict]) -> list[dict]:

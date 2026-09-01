@@ -98,7 +98,8 @@ class EODHDCorporateActionsProvider:
         raw = await self._fetch(f"/splits/{ticker}")
         if not isinstance(raw, list):
             raise ProviderPermanentError(
-                f"unexpected /splits payload for {ticker}: {type(raw).__name__}"
+                f"unexpected /splits payload for {ticker}: "
+                f"{type(raw).__name__}"
             )
         out: list[Split] = []
         for entry in raw:
@@ -125,7 +126,8 @@ class EODHDCorporateActionsProvider:
         raw = await self._fetch(f"/div/{ticker}")
         if not isinstance(raw, list):
             raise ProviderPermanentError(
-                f"unexpected /div payload for {ticker}: {type(raw).__name__}"
+                f"unexpected /div payload for {ticker}: "
+                f"{type(raw).__name__}"
             )
         out: list[Dividend] = []
         for entry in raw:

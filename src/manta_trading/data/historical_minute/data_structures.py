@@ -27,7 +27,6 @@ class AcquisitionStatus(Enum):
         FAILED: Operation failed with errors
         PARTIALLY_COMPLETED: Operation completed with some failures
     """
-
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -50,7 +49,6 @@ class AcquisitionResult:
         start_time: When the acquisition started
         end_time: When the acquisition ended (None if still running)
     """
-
     symbol: str
     status: AcquisitionStatus
     rows_written: int
@@ -75,13 +73,9 @@ class AcquisitionResult:
     def __post_init__(self):
         """Validate acquisition result values."""
         if self.rows_written < 0:
-            raise ValueError(
-                f"Invalid rows_written: {self.rows_written}. Must be non-negative"
-            )
+            raise ValueError(f"Invalid rows_written: {self.rows_written}. Must be non-negative")
         if self.months_processed < 0:
-            raise ValueError(
-                f"Invalid months_processed: {self.months_processed}. Must be non-negative"
-            )
+            raise ValueError(f"Invalid months_processed: {self.months_processed}. Must be non-negative")
         if self.end_time is not None and self.end_time < self.start_time:
             raise ValueError("end_time must be after start_time")
 
@@ -100,7 +94,6 @@ class BatchAcquisitionResult:
         start_time: When the batch acquisition started
         end_time: When the batch acquisition ended (None if still running)
     """
-
     symbols: list[str]
     results: dict[str, AcquisitionResult] = field(default_factory=dict)
     total_symbols: int = 0
@@ -138,13 +131,9 @@ class BatchAcquisitionResult:
         if self.total_symbols == 0:
             self.total_symbols = len(self.symbols)
         if self.total_symbols < 0:
-            raise ValueError(
-                f"Invalid total_symbols: {self.total_symbols}. Must be non-negative"
-            )
+            raise ValueError(f"Invalid total_symbols: {self.total_symbols}. Must be non-negative")
         if self.successful < 0:
-            raise ValueError(
-                f"Invalid successful: {self.successful}. Must be non-negative"
-            )
+            raise ValueError(f"Invalid successful: {self.successful}. Must be non-negative")
         if self.failed < 0:
             raise ValueError(f"Invalid failed: {self.failed}. Must be non-negative")
         if self.successful + self.failed > self.total_symbols:
@@ -154,7 +143,7 @@ class BatchAcquisitionResult:
 
 
 __all__ = [
-    "AcquisitionStatus",
-    "AcquisitionResult",
-    "BatchAcquisitionResult",
+    'AcquisitionStatus',
+    'AcquisitionResult',
+    'BatchAcquisitionResult',
 ]

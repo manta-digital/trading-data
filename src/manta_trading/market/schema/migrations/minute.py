@@ -91,9 +91,7 @@ def _interval_seconds_sql(td: timedelta) -> str:
 #: Every minute cagg refresh policy's start_offset, rendered once (035, 053).
 _MINUTE_REFRESH_START_SQL = _interval_seconds_sql(MINUTE_CAGG_REFRESH_START_OFFSET)
 #: daily_monthly_ohlcv refresh start_offset, rendered once (035, 054).
-_DAILY_MONTHLY_REFRESH_START_SQL = _interval_seconds_sql(
-    DAILY_MONTHLY_REFRESH_START_OFFSET
-)
+_DAILY_MONTHLY_REFRESH_START_SQL = _interval_seconds_sql(DAILY_MONTHLY_REFRESH_START_OFFSET)
 
 
 def _eodhd_type_check_sql() -> str:
@@ -111,14 +109,12 @@ _COVERAGE_GAP_STATUS_PROVIDER_CONFIRMED_UNFILLABLE = "provider_confirmed_unfilla
 _COVERAGE_GAP_STATUS_RETRY_PENDING = "retry_pending"
 _COVERAGE_GAP_STATUS_RESOLVED = "resolved"
 # Sorted alphabetically to match the original _coverage_status_check_sql output.
-_COVERAGE_STATUS_SORTED = sorted(
-    [
-        _COVERAGE_GAP_STATUS_PROVIDER_CONFIRMED_UNFILLABLE,
-        _COVERAGE_GAP_STATUS_RESOLVED,
-        _COVERAGE_GAP_STATUS_RETRY_PENDING,
-        _COVERAGE_GAP_STATUS_UNKNOWN,
-    ]
-)
+_COVERAGE_STATUS_SORTED = sorted([
+    _COVERAGE_GAP_STATUS_PROVIDER_CONFIRMED_UNFILLABLE,
+    _COVERAGE_GAP_STATUS_RESOLVED,
+    _COVERAGE_GAP_STATUS_RETRY_PENDING,
+    _COVERAGE_GAP_STATUS_UNKNOWN,
+])
 
 
 def _coverage_status_check_sql() -> str:
@@ -136,9 +132,7 @@ def _fetch_status_check_sql() -> str:
 
     Values are sorted alphabetically for deterministic migration text.
     """
-    quoted = ", ".join(
-        f"'{v.value}'" for v in sorted(FetchStatus, key=lambda s: s.value)
-    )
+    quoted = ", ".join(f"'{v.value}'" for v in sorted(FetchStatus, key=lambda s: s.value))
     return f"fetch_status IN ({quoted})"
 
 
@@ -147,9 +141,7 @@ def _outcome_check_sql() -> str:
 
     Values are sorted alphabetically for deterministic migration text.
     """
-    quoted = ", ".join(
-        f"'{v.value}'" for v in sorted(LastAttemptOutcome, key=lambda s: s.value)
-    )
+    quoted = ", ".join(f"'{v.value}'" for v in sorted(LastAttemptOutcome, key=lambda s: s.value))
     return f"last_attempt_outcome IN ({quoted})"
 
 
@@ -377,9 +369,7 @@ def _build_data_status_view_sql(
 
 # Slice 142/143 stub: target_end_ts = NULL (no trading_sessions table yet)
 _DATA_STATUS_VIEW_WITH_DAILY = _build_data_status_view_sql(include_daily_branch=True)
-_DATA_STATUS_VIEW_WITHOUT_DAILY = _build_data_status_view_sql(
-    include_daily_branch=False
-)
+_DATA_STATUS_VIEW_WITHOUT_DAILY = _build_data_status_view_sql(include_daily_branch=False)
 
 # Slice 144 rewrite: target_end_ts from exchange_completed_close CTE
 _DATA_STATUS_VIEW_WITH_DAILY_TS = _build_data_status_view_sql(
@@ -388,7 +378,6 @@ _DATA_STATUS_VIEW_WITH_DAILY_TS = _build_data_status_view_sql(
 _DATA_STATUS_VIEW_WITHOUT_DAILY_TS = _build_data_status_view_sql(
     include_daily_branch=False, include_trading_sessions_cte=True
 )
-
 
 def _data_status_doc_comment() -> str:
     """Render the ``COMMENT ON VIEW data_status`` text for migration 048.
@@ -513,7 +502,9 @@ def _run_trading_sessions_population(conn: Any) -> None:
 
         # Determine earliest seeded year from trading_holidays, fall back to current.
         if holidays:
-            start_year: int = min(h["holiday_date"].year for h in holidays)
+            start_year: int = min(
+                h["holiday_date"].year for h in holidays
+            )
         else:
             start_year = current_year
 
@@ -582,13 +573,9 @@ def _copy_splits_dividends_from_marketdb(conn: Any) -> None:
     try:
         with psycopg.connect(market_db_url) as src:
             with src.cursor() as cur:
-                cur.execute(
-                    "SELECT symbol, ex_date, ratio_to, ratio_from, source, fetched_at FROM splits"
-                )
+                cur.execute("SELECT symbol, ex_date, ratio_to, ratio_from, source, fetched_at FROM splits")
                 splits_rows = cur.fetchall()
-                cur.execute(
-                    "SELECT symbol, ex_date, amount, currency, source, fetched_at FROM dividends"
-                )
+                cur.execute("SELECT symbol, ex_date, amount, currency, source, fetched_at FROM dividends")
                 dividends_rows = cur.fetchall()
     except Exception:
         _log.warning(
@@ -689,15 +676,9 @@ def _setup_and_backfill_compression(conn: Any) -> None:
             skipped += 1
             continue
         if i % 50 == 0 or i == total:
-            _log.info(
-                "compressed %d/%d chunks (%s, %d skipped)", i, total, table, skipped
-            )
+            _log.info("compressed %d/%d chunks (%s, %d skipped)", i, total, table, skipped)
     if total > 0:
-        _log.info(
-            "backfill complete: %d compressed, %d skipped (already compressed)",
-            total - skipped,
-            skipped,
-        )
+        _log.info("backfill complete: %d compressed, %d skipped (already compressed)", total - skipped, skipped)
 
 
 def _setup_minute_cagg_columnstore(conn: Any) -> None:
@@ -1512,8 +1493,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         # which Timescale rejects for continuous-aggregate DDL.
         "requires_autocommit": True,
         "python_fn": lambda conn: [
-            conn.execute(sql)
-            for sql in [
+            conn.execute(sql) for sql in [
                 """
                 CREATE MATERIALIZED VIEW IF NOT EXISTS minute_5min_ohlcv
                 WITH (timescaledb.continuous) AS
@@ -1586,8 +1566,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         ),
         "requires_autocommit": True,
         "python_fn": lambda conn: [
-            conn.execute(sql)
-            for sql in [
+            conn.execute(sql) for sql in [
                 """
                 CREATE MATERIALIZED VIEW IF NOT EXISTS daily_weekly_ohlcv
                 WITH (timescaledb.continuous) AS
@@ -2008,15 +1987,17 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                     PERFORM add_continuous_aggregate_policy(
                         '{MINUTE_COVERAGE_VIEW}',
                         start_offset =>
-                            {
-            _interval_seconds_sql(MINUTE_COVERAGE_REFRESH_START_OFFSET)
-        },
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_START_OFFSET
+                            )},
                         end_offset =>
-                            {_interval_seconds_sql(MINUTE_COVERAGE_REFRESH_END_OFFSET)},
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_END_OFFSET
+                            )},
                         schedule_interval =>
-                            {
-            _interval_seconds_sql(MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL)
-        });
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
                 END IF;
 
                 IF NOT EXISTS (
@@ -2027,15 +2008,17 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                     PERFORM add_continuous_aggregate_policy(
                         '{DAILY_COVERAGE_VIEW}',
                         start_offset =>
-                            {
-            _interval_seconds_sql(DAILY_COVERAGE_REFRESH_START_OFFSET)
-        },
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_START_OFFSET
+                            )},
                         end_offset =>
-                            {_interval_seconds_sql(DAILY_COVERAGE_REFRESH_END_OFFSET)},
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_END_OFFSET
+                            )},
                         schedule_interval =>
-                            {
-            _interval_seconds_sql(DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL)
-        });
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
                 END IF;
             END $$;
         """,
@@ -2262,15 +2245,17 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                     PERFORM add_continuous_aggregate_policy(
                         '{MINUTE_COVERAGE_VIEW}',
                         start_offset =>
-                            {
-            _interval_seconds_sql(MINUTE_COVERAGE_REFRESH_START_OFFSET)
-        },
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_START_OFFSET
+                            )},
                         end_offset =>
-                            {_interval_seconds_sql(MINUTE_COVERAGE_REFRESH_END_OFFSET)},
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_END_OFFSET
+                            )},
                         schedule_interval =>
-                            {
-            _interval_seconds_sql(MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL)
-        });
+                            {_interval_seconds_sql(
+                                MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
                 END IF;
 
                 IF NOT EXISTS (
@@ -2281,15 +2266,17 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                     PERFORM add_continuous_aggregate_policy(
                         '{DAILY_COVERAGE_VIEW}',
                         start_offset =>
-                            {
-            _interval_seconds_sql(DAILY_COVERAGE_REFRESH_START_OFFSET)
-        },
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_START_OFFSET
+                            )},
                         end_offset =>
-                            {_interval_seconds_sql(DAILY_COVERAGE_REFRESH_END_OFFSET)},
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_END_OFFSET
+                            )},
                         schedule_interval =>
-                            {
-            _interval_seconds_sql(DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL)
-        });
+                            {_interval_seconds_sql(
+                                DAILY_COVERAGE_REFRESH_SCHEDULE_INTERVAL
+                            )});
                 END IF;
 
                 EXECUTE 'COMMENT ON VIEW data_status IS '

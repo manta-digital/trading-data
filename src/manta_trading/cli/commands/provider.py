@@ -35,16 +35,14 @@ def provider_list(
     for name in sorted(profiles):
         profile = profiles[name]
         auth = resolve_auth(profile, settings)
-        rows.append(
-            {
-                "name": profile.name,
-                "provider_type": str(profile.provider_type),
-                "description": profile.description,
-                "aliases": ", ".join(profile.aliases) if profile.aliases else "",
-                "auth_valid": auth.is_valid(),
-                "base_url": profile.base_url or "",
-            }
-        )
+        rows.append({
+            "name": profile.name,
+            "provider_type": str(profile.provider_type),
+            "description": profile.description,
+            "aliases": ", ".join(profile.aliases) if profile.aliases else "",
+            "auth_valid": auth.is_valid(),
+            "base_url": profile.base_url or "",
+        })
 
     if json_output:
         print_result(rows, json_mode=True)
@@ -95,27 +93,25 @@ def provider_status(
     for canonical_name in sorted(profiles):
         profile = profiles[canonical_name]
         auth = resolve_auth(profile, settings)
-        results.append(
-            {
-                "name": profile.name,
-                "provider_type": str(profile.provider_type),
-                "base_url": profile.base_url,
-                "api_key_env": profile.api_key_env,
-                "rate_limit": (
-                    {
-                        "requests_per_minute": profile.rate_limit.requests_per_minute,
-                        "daily_limit": profile.rate_limit.daily_limit,
-                    }
-                    if profile.rate_limit
-                    else None
-                ),
-                "aliases": list(profile.aliases),
-                "auth_type": str(profile.auth_type),
-                "auth_valid": auth.is_valid(),
-                "active_source": auth.active_source,
-                "setup_hint": auth.setup_hint,
-            }
-        )
+        results.append({
+            "name": profile.name,
+            "provider_type": str(profile.provider_type),
+            "base_url": profile.base_url,
+            "api_key_env": profile.api_key_env,
+            "rate_limit": (
+                {
+                    "requests_per_minute": profile.rate_limit.requests_per_minute,
+                    "daily_limit": profile.rate_limit.daily_limit,
+                }
+                if profile.rate_limit
+                else None
+            ),
+            "aliases": list(profile.aliases),
+            "auth_type": str(profile.auth_type),
+            "auth_valid": auth.is_valid(),
+            "active_source": auth.active_source,
+            "setup_hint": auth.setup_hint,
+        })
 
     if json_output:
         data = results[0] if name is not None else results

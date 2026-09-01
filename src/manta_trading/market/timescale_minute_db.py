@@ -27,13 +27,15 @@ class TimescaleMinuteDataDB:
 
     # Map canonical Granularity tokens to materialized views (slice 152: raw projection, no _v2)
     AGGREGATION_VIEWS = {
-        "5m": "minute_5min_ohlcv",
+        "5m":  "minute_5min_ohlcv",
         "15m": "minute_15min_ohlcv",
-        "1h": "minute_hourly_ohlcv",
-        "4h": "minute_4hour_ohlcv",
+        "1h":  "minute_hourly_ohlcv",
+        "4h":  "minute_4hour_ohlcv",
     }
 
-    def __init__(self, conninfo: str, *, session: DbSessionSettings = DB_BULK_SESSION):
+    def __init__(
+        self, conninfo: str, *, session: DbSessionSettings = DB_BULK_SESSION
+    ):
         """Initialize TimescaleDB connection with optimized settings.
 
         Args:
@@ -108,12 +110,8 @@ class TimescaleMinuteDataDB:
             return False
 
         adj_columns = (
-            "adj_open",
-            "adj_high",
-            "adj_low",
-            "adj_close",
-            "k_factor",
-            "adjusted_at",
+            "adj_open", "adj_high", "adj_low", "adj_close",
+            "k_factor", "adjusted_at",
         )
         present = [c for c in adj_columns if c in data.columns]
         if present and len(present) != len(adj_columns):
@@ -121,9 +119,7 @@ class TimescaleMinuteDataDB:
             _logger.error(
                 "Partial adjustment columns supplied for %s; missing %s. "
                 "All six (%s) or none must be supplied.",
-                symbol,
-                missing,
-                list(adj_columns),
+                symbol, missing, list(adj_columns),
             )
             return False
         with_adj = len(present) == len(adj_columns)
@@ -156,13 +152,13 @@ class TimescaleMinuteDataDB:
                 copy_data["time"] = copy_data["time"].dt.tz_convert("UTC")
             if with_adj:
                 if copy_data["adjusted_at"].dt.tz is None:
-                    copy_data["adjusted_at"] = copy_data["adjusted_at"].dt.tz_localize(
-                        "UTC"
-                    )
+                    copy_data["adjusted_at"] = copy_data[
+                        "adjusted_at"
+                    ].dt.tz_localize("UTC")
                 else:
-                    copy_data["adjusted_at"] = copy_data["adjusted_at"].dt.tz_convert(
-                        "UTC"
-                    )
+                    copy_data["adjusted_at"] = copy_data[
+                        "adjusted_at"
+                    ].dt.tz_convert("UTC")
 
             astype_map: dict[str, str] = {
                 "open": "float64",
@@ -175,15 +171,13 @@ class TimescaleMinuteDataDB:
             if with_adj:
                 # adj OHLC and k_factor cast to float64 for CSV transit;
                 # PostgreSQL casts to NUMERIC on INSERT.
-                astype_map.update(
-                    {
-                        "adj_open": "float64",
-                        "adj_high": "float64",
-                        "adj_low": "float64",
-                        "adj_close": "float64",
-                        "k_factor": "float64",
-                    }
-                )
+                astype_map.update({
+                    "adj_open": "float64",
+                    "adj_high": "float64",
+                    "adj_low": "float64",
+                    "adj_close": "float64",
+                    "k_factor": "float64",
+                })
             copy_data = copy_data.astype(astype_map)
 
             # Generate CSV buffer
@@ -277,11 +271,9 @@ class TimescaleMinuteDataDB:
             write_time = time.perf_counter() - start_time
             rows_per_sec = len(data) / write_time if write_time > 0 else 0
             _logger.info(
-                "TimescaleDB bulk write: %.3fs (%d rows, %.0f rows/s, adj=%s)",
-                write_time,
-                len(data),
-                rows_per_sec,
-                with_adj,
+                "TimescaleDB bulk write: %.3fs (%d rows, %.0f rows/s, "
+                "adj=%s)",
+                write_time, len(data), rows_per_sec, with_adj,
             )
             return True
 
@@ -313,9 +305,7 @@ class TimescaleMinuteDataDB:
         """
         try:
             if aggregation:
-                df = self._get_aggregated_data(
-                    symbol, start_time, end_time, str(aggregation)
-                )
+                df = self._get_aggregated_data(symbol, start_time, end_time, str(aggregation))
             else:
                 query = """
                     SELECT time, open, high, low, close, volume
@@ -396,9 +386,7 @@ class TimescaleMinuteDataDB:
         query_time = time.perf_counter() - start_query_time
         _logger.info(
             "TimescaleDB aggregated query (%s): %.3fs (%d bars)",
-            aggregation,
-            query_time,
-            len(df),
+            aggregation, query_time, len(df),
         )
         return df
 
@@ -416,9 +404,7 @@ class TimescaleMinuteDataDB:
         )
         df["time"] = pd.to_datetime(df["time"], utc=True)
         df = df.set_index("time")
-        df[["open", "high", "low", "close"]] = df[
-            ["open", "high", "low", "close"]
-        ].astype("float64")
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype("float64")
         df["volume"] = df["volume"].astype("int64")
         return df
 

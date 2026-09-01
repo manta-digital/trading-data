@@ -18,7 +18,6 @@ class RateLimiter:
         def wrapper(*args, **kwargs):
             self.call_queue.put((func, args, kwargs))
             return None
-
         return wrapper
 
     def execute(self):

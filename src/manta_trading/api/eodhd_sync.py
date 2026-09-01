@@ -46,6 +46,7 @@ def redact_token(url: str) -> str:
     return _TOKEN_PATTERN.sub(r"\1REDACTED", url)
 
 
+
 class QuotaBucketMisconfiguredError(RuntimeError):
     """Raised after :data:`MAX_RETRY_COUNT` consecutive 429s on the same call.
 
@@ -125,11 +126,7 @@ def eodhd_get(
         bucket.consume(call_type)
         try:
             resp = client.get(url)
-        except (
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-            httpx.TimeoutException,
-        ) as exc:
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.TimeoutException) as exc:
             # Peer disconnect mid-send. Discard the partial bytes — do
             # not parse, do not persist. The token bucket is NOT
             # refunded for the dropped call (the upstream still
@@ -139,18 +136,13 @@ def eodhd_get(
             if transient_attempt > MAX_RETRY_COUNT:
                 _logger.error(
                     "eodhd_get(%s): transient retries exhausted (%d) — raising",
-                    log_url,
-                    transient_attempt,
+                    log_url, transient_attempt,
                 )
                 raise
             wait = backoff.wait_for(transient_attempt - 1)
             _logger.warning(
                 "eodhd_get(%s): %s — retrying in %.1fs (attempt %d/%d)",
-                log_url,
-                type(exc).__name__,
-                wait,
-                transient_attempt,
-                MAX_RETRY_COUNT,
+                log_url, type(exc).__name__, wait, transient_attempt, MAX_RETRY_COUNT,
             )
             sleep(wait)
             continue
@@ -161,8 +153,7 @@ def eodhd_get(
                 _logger.error(
                     "EODHD 429 escalation — token bucket likely "
                     "misconfigured (%d consecutive 429s on %s)",
-                    consecutive_429,
-                    log_url,
+                    consecutive_429, log_url,
                 )
                 raise QuotaBucketMisconfiguredError(
                     f"{consecutive_429} consecutive 429s for {log_url}"
@@ -171,11 +162,8 @@ def eodhd_get(
             _logger.warning(
                 "eodhd_get(%s): HTTP 429 — sleeping %.1fs (Retry-After=%r) "
                 "(attempt %d/%d)",
-                log_url,
-                wait,
-                resp.headers.get("Retry-After"),
-                consecutive_429,
-                MAX_RETRY_COUNT,
+                log_url, wait, resp.headers.get("Retry-After"),
+                consecutive_429, MAX_RETRY_COUNT,
             )
             sleep(wait)
             continue

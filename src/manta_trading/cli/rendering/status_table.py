@@ -189,9 +189,7 @@ def render_status_summary(report: StatusReport) -> list[Table]:
             tables.append(_make_granularity_table(f"Data Status — {gran}", gran_rows))
     # Any unexpected granularity values get their own table at the end.
     known = {"daily", "minute"}
-    other_grans = sorted(
-        {r.granularity for r in report.rows if r.granularity not in known}
-    )
+    other_grans = sorted({r.granularity for r in report.rows if r.granularity not in known})
     for gran in other_grans:
         gran_rows = [r for r in report.rows if r.granularity == gran]
         tables.append(_make_granularity_table(f"Data Status — {gran}", gran_rows))
@@ -313,7 +311,9 @@ def render_auto_extend_notice(result: AutoExtendResult) -> str | None:
         )
     if result.triggered:
         cal_list = ", ".join(result.calendars_extended)
-        horizons = ", ".join(f"{cal}→{d}" for cal, d in result.horizon_after.items())
+        horizons = ", ".join(
+            f"{cal}→{d}" for cal, d in result.horizon_after.items()
+        )
         return (
             f"Auto-extended trading_sessions for {cal_list}: "
             f"{result.rows_inserted} rows inserted ({horizons})."

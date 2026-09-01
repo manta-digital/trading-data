@@ -23,10 +23,7 @@ from manta_trading.data.base.adjustment_policy import SessionType
 from manta_trading.data.base.instrument_registry import InstrumentRegistry
 from manta_trading.data.base.session_classifier import classify_bar_session
 from manta_trading.data.base.trading_calendar import TradingCalendar
-from manta_trading.data.historical_minute.provider import (
-    RawDataResponse,
-    ValidationResult,
-)
+from manta_trading.data.historical_minute.provider import RawDataResponse, ValidationResult
 
 
 class DataProcessor:
@@ -45,7 +42,7 @@ class DataProcessor:
     def __init__(
         self,
         calendar: TradingCalendar | None = None,
-        registry: InstrumentRegistry | None = None,
+        registry: InstrumentRegistry | None = None
     ):
         """
         Initialize the data processor with required foundation components.
@@ -84,7 +81,7 @@ class DataProcessor:
             KeyError: If 'timestamp' column missing
         """
         # Validate inputs
-        if "timestamp" not in df.columns:
+        if 'timestamp' not in df.columns:
             raise KeyError("DataFrame must have 'timestamp' column")
 
         # Skip gracefully when dependencies are absent (CLI path without calendar)
@@ -102,15 +99,18 @@ class DataProcessor:
 
         # Classify each row using the classify_bar_session function
         session_types = []
-        for timestamp in df["timestamp"]:
+        for timestamp in df['timestamp']:
             session = classify_bar_session(timestamp, self._calendar)
             session_types.append(session.value)
 
-        df["session_type"] = session_types
+        df['session_type'] = session_types
         return df
 
     def enrich_metadata(
-        self, df: pd.DataFrame, provider: str, provider_version: str = "1.0"
+        self,
+        df: pd.DataFrame,
+        provider: str,
+        provider_version: str = "1.0"
     ) -> pd.DataFrame:
         """
         Add metadata columns to the DataFrame.
@@ -127,10 +127,10 @@ class DataProcessor:
             - provider_version: Version of provider integration
             - ingestion_timestamp: UTC timestamp when data was processed
         """
-        df["adjustment_policy"] = "split_adjusted"
-        df["provider"] = provider
-        df["provider_version"] = provider_version
-        df["ingestion_timestamp"] = datetime.now(timezone.utc)
+        df['adjustment_policy'] = 'split_adjusted'
+        df['provider'] = provider
+        df['provider_version'] = provider_version
+        df['ingestion_timestamp'] = datetime.now(timezone.utc)
         return df
 
     def validate_ohlcv(self, df: pd.DataFrame) -> ValidationResult:
@@ -154,76 +154,76 @@ class DataProcessor:
         warnings = []
 
         # Check for required columns
-        required_cols = ["timestamp", "open", "high", "low", "close", "volume"]
+        required_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             return ValidationResult(
                 is_valid=False,
                 errors=[f"Missing required columns: {missing_cols}"],
-                warnings=[],
+                warnings=[]
             )
 
         # Check for null timestamps
-        null_timestamps = df["timestamp"].isnull()
+        null_timestamps = df['timestamp'].isnull()
         if null_timestamps.any():
             null_rows = df.index[null_timestamps].tolist()
             errors.append(f"Null timestamps found in rows: {null_rows}")
 
         # Check for null prices
-        for col in ["open", "high", "low", "close"]:
+        for col in ['open', 'high', 'low', 'close']:
             null_prices = df[col].isnull()
             if null_prices.any():
                 null_rows = df.index[null_prices].tolist()
                 errors.append(f"Null {col} prices found in rows: {null_rows}")
 
         # OHLCV consistency checks (only for rows without nulls)
-        valid_rows = ~(df[["open", "high", "low", "close"]].isnull().any(axis=1))
+        valid_rows = ~(df[['open', 'high', 'low', 'close']].isnull().any(axis=1))
         valid_df = df[valid_rows]
 
         # high >= low
-        invalid_hl = valid_df["high"] < valid_df["low"]
+        invalid_hl = valid_df['high'] < valid_df['low']
         if invalid_hl.any():
             invalid_rows = valid_df.index[invalid_hl].tolist()
             errors.append(f"High < Low in rows: {invalid_rows}")
 
         # high >= open
-        invalid_ho = valid_df["high"] < valid_df["open"]
+        invalid_ho = valid_df['high'] < valid_df['open']
         if invalid_ho.any():
             invalid_rows = valid_df.index[invalid_ho].tolist()
             errors.append(f"High < Open in rows: {invalid_rows}")
 
         # high >= close
-        invalid_hc = valid_df["high"] < valid_df["close"]
+        invalid_hc = valid_df['high'] < valid_df['close']
         if invalid_hc.any():
             invalid_rows = valid_df.index[invalid_hc].tolist()
             errors.append(f"High < Close in rows: {invalid_rows}")
 
         # low <= open
-        invalid_lo = valid_df["low"] > valid_df["open"]
+        invalid_lo = valid_df['low'] > valid_df['open']
         if invalid_lo.any():
             invalid_rows = valid_df.index[invalid_lo].tolist()
             errors.append(f"Low > Open in rows: {invalid_rows}")
 
         # low <= close
-        invalid_lc = valid_df["low"] > valid_df["close"]
+        invalid_lc = valid_df['low'] > valid_df['close']
         if invalid_lc.any():
             invalid_rows = valid_df.index[invalid_lc].tolist()
             errors.append(f"Low > Close in rows: {invalid_rows}")
 
         # Check for negative volume
-        negative_volume = df["volume"] < 0
+        negative_volume = df['volume'] < 0
         if negative_volume.any():
             invalid_rows = df.index[negative_volume].tolist()
             errors.append(f"Negative volume in rows: {invalid_rows}")
 
         # Check for zero volume (warning only - valid but unusual)
-        zero_volume = df["volume"] == 0
+        zero_volume = df['volume'] == 0
         if zero_volume.any():
             warning_rows = df.index[zero_volume].tolist()
             warnings.append(f"Zero volume (unusual but valid) in rows: {warning_rows}")
 
         # Check for duplicate timestamps
-        duplicates = df["timestamp"].duplicated()
+        duplicates = df['timestamp'].duplicated()
         if duplicates.any():
             dup_rows = df.index[duplicates].tolist()
             errors.append(f"Duplicate timestamps in rows: {dup_rows}")
@@ -232,7 +232,9 @@ class DataProcessor:
         return ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings)
 
     def process(
-        self, raw_response: RawDataResponse, provider_instance
+        self,
+        raw_response: RawDataResponse,
+        provider_instance
     ) -> tuple[pd.DataFrame, ValidationResult]:
         """
         Main processing pipeline coordinating all transformation steps.
@@ -289,4 +291,4 @@ class DataProcessor:
             raise
 
 
-__all__ = ["DataProcessor"]
+__all__ = ['DataProcessor']

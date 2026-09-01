@@ -95,7 +95,9 @@ class EODHDMinuteProvider:
         self._requests_per_minute = requests_per_minute
         self._current_usage = 0
         self._client: httpx.AsyncClient | None = None
-        self._rate_limiter = RateLimiter(max_calls=requests_per_minute, period=60.0)
+        self._rate_limiter = RateLimiter(
+            max_calls=requests_per_minute, period=60.0
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -109,7 +111,9 @@ class EODHDMinuteProvider:
             return symbol
         return f"{symbol}.{_DEFAULT_US_SUFFIX}"
 
-    def _build_url(self, symbol: str, start: datetime, end: datetime) -> str:
+    def _build_url(
+        self, symbol: str, start: datetime, end: datetime
+    ) -> str:
         """Construct the full ``/intraday`` URL for one chunk request.
 
         The API key is included in the query string (EODHD's documented
@@ -177,7 +181,9 @@ class EODHDMinuteProvider:
                     symbol,
                     self._log_safe_url(url),
                 )
-                raise RuntimeError(f"EODHD request failed for {symbol}: {exc}") from exc
+                raise RuntimeError(
+                    f"EODHD request failed for {symbol}: {exc}"
+                ) from exc
 
         if response.status_code != 200:
             body_preview = response.text[:300]
@@ -193,7 +199,8 @@ class EODHDMinuteProvider:
                     body_preview,
                 )
             raise RuntimeError(
-                f"EODHD HTTP {response.status_code} for {symbol}: {body_preview}"
+                f"EODHD HTTP {response.status_code} for {symbol}: "
+                f"{body_preview}"
             )
 
         try:
@@ -231,10 +238,14 @@ class EODHDMinuteProvider:
 
         if isinstance(raw_data, dict):
             if "errors" in raw_data:
-                errors.append(f"EODHD validation envelope: {raw_data['errors']!r}")
+                errors.append(
+                    f"EODHD validation envelope: {raw_data['errors']!r}"
+                )
             elif "error" in raw_data:
                 code = raw_data.get("code")
-                errors.append(f"EODHD error (code={code}): {raw_data['error']!r}")
+                errors.append(
+                    f"EODHD error (code={code}): {raw_data['error']!r}"
+                )
             else:
                 errors.append(
                     f"EODHD returned dict instead of list: keys="
@@ -242,22 +253,29 @@ class EODHDMinuteProvider:
                 )
         elif isinstance(raw_data, list):
             if not raw_data:
-                warnings.append("Empty bar list — symbol may not have traded in range")
+                warnings.append(
+                    "Empty bar list — symbol may not have traded in range"
+                )
             else:
                 first = raw_data[0]
                 if not isinstance(first, dict):
                     errors.append(
-                        f"Expected list of dicts, got list of {type(first).__name__}"
+                        f"Expected list of dicts, got list of "
+                        f"{type(first).__name__}"
                     )
                 else:
-                    required = {"timestamp", "open", "high", "low", "close", "volume"}
+                    required = {"timestamp", "open", "high", "low", "close",
+                                "volume"}
                     missing = required - set(first.keys())
                     if missing:
                         errors.append(
-                            f"First bar missing required fields: {sorted(missing)!r}"
+                            f"First bar missing required fields: "
+                            f"{sorted(missing)!r}"
                         )
         else:
-            errors.append(f"Unexpected EODHD response type: {type(raw_data).__name__}")
+            errors.append(
+                f"Unexpected EODHD response type: {type(raw_data).__name__}"
+            )
 
         return ValidationResult(
             is_valid=not errors,
@@ -265,7 +283,9 @@ class EODHDMinuteProvider:
             warnings=warnings,
         )
 
-    def convert_to_standard_format(self, raw_data: RawDataResponse) -> pd.DataFrame:
+    def convert_to_standard_format(
+        self, raw_data: RawDataResponse
+    ) -> pd.DataFrame:
         """Convert EODHD's bar list to the canonical OHLCV DataFrame.
 
         EODHD returns native UTC unix timestamps, so the conversion is a
@@ -274,7 +294,8 @@ class EODHDMinuteProvider:
         the AlphaVantage converter, which had to localise from US/Eastern
         with ``ambiguous="infer"`` to guess during the fall-back DST hour.
         """
-        canonical_cols = ["timestamp", "open", "high", "low", "close", "volume"]
+        canonical_cols = ["timestamp", "open", "high", "low", "close",
+                          "volume"]
         bars = raw_data.raw_data
 
         if not isinstance(bars, list) or not bars:

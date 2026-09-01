@@ -56,11 +56,7 @@ class FinnhubIpoClient:
             try:
                 first_listing_date = date.fromisoformat(ipo_raw)
             except ValueError:
-                _logger.warning(
-                    "FinnhubIpoClient: non-ISO ipo date %r for %s; ignoring",
-                    ipo_raw,
-                    symbol,
-                )
+                _logger.warning("FinnhubIpoClient: non-ISO ipo date %r for %s; ignoring", ipo_raw, symbol)
 
         exchange_raw: str = profile.get("exchange", "") or ""
         # Skip venue-mapper warning for known non-US exchanges — the
@@ -68,10 +64,7 @@ class FinnhubIpoClient:
         # log line would be noise. The mapper still gets called for
         # unknown US exchanges (so genuinely-novel strings still surface).
         if is_non_us_exchange(exchange_raw):
-            venue, trading_calendar_id = (
-                "US",
-                "NYSE",
-            )  # placeholder; row will be deleted
+            venue, trading_calendar_id = "US", "NYSE"  # placeholder; row will be deleted
         else:
             venue, trading_calendar_id = self._venue_mapper(exchange_raw)
 

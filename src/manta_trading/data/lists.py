@@ -74,7 +74,8 @@ def load_lists(config_path: Path) -> dict[str, list[str]]:
 
     if not isinstance(raw, dict) or "lists" not in raw:
         raise ListsConfigError(
-            f"{config_path}: top-level 'lists' key required; got {type(raw).__name__}"
+            f"{config_path}: top-level 'lists' key required; got "
+            f"{type(raw).__name__}"
         )
 
     lists_block = raw["lists"]
@@ -121,7 +122,9 @@ def _resolve_entry(name: str, entry: Any, config_path: Path) -> list[str]:
     rel = source[len(_SOURCE_FILE_PREFIX) :]
     src_path = (config_path.parent / rel).resolve()
     if not src_path.exists():
-        raise ListsConfigError(f"list '{name}': source file not found: {src_path}")
+        raise ListsConfigError(
+            f"list '{name}': source file not found: {src_path}"
+        )
     return _read_symbol_file(src_path)
 
 
@@ -226,7 +229,8 @@ def intersect_with_active(
             missing.append(sym)
     if missing:
         _logger.warning(
-            "symbol-list: %d symbol(s) in list missing or delisted in instruments: %s",
+            "symbol-list: %d symbol(s) in list missing or delisted in "
+            "instruments: %s",
             len(missing),
             ", ".join(missing[:10]) + ("..." if len(missing) > 10 else ""),
         )
@@ -263,7 +267,9 @@ def _extract_components(payload: dict[str, Any]) -> list[str]:
     plain list under ``Components`` for resilience.
     """
     if not isinstance(payload, dict) or "Components" not in payload:
-        raise ListsConfigError("EODHD GSPC.INDX response missing 'Components' key")
+        raise ListsConfigError(
+            "EODHD GSPC.INDX response missing 'Components' key"
+        )
     block = payload["Components"]
     items: list[dict[str, Any]]
     if isinstance(block, dict):
@@ -278,7 +284,9 @@ def _extract_components(payload: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for item in items:
         if not isinstance(item, dict) or "Code" not in item:
-            raise ListsConfigError("EODHD GSPC.INDX component missing 'Code' field")
+            raise ListsConfigError(
+                "EODHD GSPC.INDX component missing 'Code' field"
+            )
         code = item["Code"]
         if not isinstance(code, str) or not code.strip():
             raise ListsConfigError(

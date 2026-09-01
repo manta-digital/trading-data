@@ -86,9 +86,7 @@ def compute_missing_ranges(
         return []
 
     # Step 3 — stored bar timestamps
-    stored = _fetch_stored_timestamps(
-        conn, symbol, granularity, clamped_from, clamped_to
-    )
+    stored = _fetch_stored_timestamps(conn, symbol, granularity, clamped_from, clamped_to)
 
     # Step 4 — set difference
     missing = [s for s in sessions if s not in stored]
@@ -252,11 +250,7 @@ def _date_to_utc(d: object) -> datetime:
     from datetime import date
 
     if isinstance(d, datetime):
-        return (
-            d.replace(tzinfo=timezone.utc)
-            if d.tzinfo is None
-            else d.astimezone(timezone.utc)
-        )
+        return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc)
     if isinstance(d, date):
         return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
     raise TypeError(f"Expected date or datetime, got {type(d)!r}")

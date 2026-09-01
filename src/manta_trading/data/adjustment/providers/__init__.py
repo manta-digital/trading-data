@@ -93,7 +93,8 @@ def build_corporate_actions_provider(
     except ValueError as exc:
         valid = ", ".join(sorted(v.value for v in CorporateActionsProviderName))
         raise ValueError(
-            f"unknown corporate_actions_provider {name!r}; valid options: {valid}"
+            f"unknown corporate_actions_provider {name!r}; "
+            f"valid options: {valid}"
         ) from exc
 
     match provider_name:
@@ -101,7 +102,6 @@ def build_corporate_actions_provider(
             from manta_trading.data.adjustment.providers.eodhd import (
                 EODHDCorporateActionsProvider,
             )
-
             if not settings.eodhd_api_key:
                 raise ValueError(
                     "corporate_actions_provider=eodhd requires "

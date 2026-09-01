@@ -74,7 +74,6 @@ class RawDataResponse:
         raw_data: Provider-specific raw data (typically dict from JSON response)
         metadata: Additional metadata about the fetch (timestamps, pagination info, etc.)
     """
-
     symbol: str
     provider: str
     start_date: datetime
@@ -94,7 +93,6 @@ class RateLimitInfo:
         current_usage: Current number of requests used in current period
         reset_time: Time when rate limit counter resets (None if not applicable)
     """
-
     requests_per_minute: int
     requests_per_day: int | None
     current_usage: int
@@ -103,17 +101,11 @@ class RateLimitInfo:
     def __post_init__(self):
         """Validate rate limit values."""
         if self.requests_per_minute < 0:
-            raise ValueError(
-                f"Invalid requests_per_minute: {self.requests_per_minute}. Must be non-negative"
-            )
+            raise ValueError(f"Invalid requests_per_minute: {self.requests_per_minute}. Must be non-negative")
         if self.requests_per_day is not None and self.requests_per_day < 0:
-            raise ValueError(
-                f"Invalid requests_per_day: {self.requests_per_day}. Must be non-negative or None"
-            )
+            raise ValueError(f"Invalid requests_per_day: {self.requests_per_day}. Must be non-negative or None")
         if self.current_usage < 0:
-            raise ValueError(
-                f"Invalid current_usage: {self.current_usage}. Must be non-negative"
-            )
+            raise ValueError(f"Invalid current_usage: {self.current_usage}. Must be non-negative")
 
 
 @dataclass
@@ -126,7 +118,6 @@ class ValidationResult:
         errors: List of error messages (empty if valid)
         warnings: List of warning messages (non-fatal issues)
     """
-
     is_valid: bool
     errors: list[str]
     warnings: list[str]
@@ -156,7 +147,10 @@ class IMinuteDataProvider(Protocol):
     the value documented by its API (e.g. EODHD = 120, AlphaVantage = 30)."""
 
     async def fetch_minute_data(
-        self, symbol: str, start_date: datetime, end_date: datetime
+        self,
+        symbol: str,
+        start_date: datetime,
+        end_date: datetime
     ) -> RawDataResponse:
         """
         Fetch raw minute data from the provider.
@@ -269,9 +263,9 @@ class IMinuteDataProvider(Protocol):
 
 
 __all__ = [
-    "IMinuteDataProvider",
-    "MinuteProviderName",
-    "RawDataResponse",
-    "RateLimitInfo",
-    "ValidationResult",
+    'IMinuteDataProvider',
+    'MinuteProviderName',
+    'RawDataResponse',
+    'RateLimitInfo',
+    'ValidationResult',
 ]

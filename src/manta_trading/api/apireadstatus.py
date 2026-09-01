@@ -26,17 +26,17 @@ class ErrorHandler:
     Standard error handling utilities for the application.
     Provides consistent methods for error creation, logging, and handling.
     """
-
+    
     @staticmethod
     def create_error(error_type, message=None, details=None):
         """
         Create a standardized error dictionary.
-
+        
         Args:
             error_type: Either an ApiReadStatus enum or a string
             message: Human-readable error message
             details: Additional error details or exception information
-
+            
         Returns:
             dict: Standardized error dictionary
         """
@@ -44,19 +44,19 @@ class ErrorHandler:
             error_code = error_type.value
         else:
             error_code = str(error_type)
-
+            
         error = {
-            "error": error_code,
-            "message": message or f"An error of type {error_code} occurred",
+            'error': error_code,
+            'message': message or f"An error of type {error_code} occurred"
         }
-
+        
         if details:
-            error["details"] = details
-
+            error['details'] = details
+            
         return error
-
+    
     @staticmethod
-    def log_error(error_dict, logger_instance=None, log_level="error"):
+    def log_error(error_dict, logger_instance=None, log_level='error'):
         """
         Log an error dictionary with appropriate level.
 
@@ -66,40 +66,40 @@ class ErrorHandler:
             log_level: Logging level ('error', 'warning', 'info')
         """
         log = logger_instance if logger_instance is not None else _logger
-        message = "%s: %s" % (error_dict.get("error"), error_dict.get("message"))
-        if "details" in error_dict:
-            message += " - %s" % error_dict["details"]
+        message = "%s: %s" % (error_dict.get('error'), error_dict.get('message'))
+        if 'details' in error_dict:
+            message += " - %s" % error_dict['details']
 
-        if log_level == "error":
+        if log_level == 'error':
             log.error("%s", message)
-        elif log_level == "warning":
+        elif log_level == 'warning':
             log.warning("%s", message)
         else:
             log.info("%s", message)
-
+    
     @staticmethod
-    def handle_exception(e, context=None, expected_exceptions=None, log_level="error"):
+    def handle_exception(e, context=None, expected_exceptions=None, log_level='error'):
         """
         Handle an exception and convert it to a standardized error dict.
-
+        
         Args:
             e: The exception
             context: Context information (e.g., symbol, function name)
             expected_exceptions: Dict mapping exception types to ApiReadStatus values
             log_level: Level to log at ('error', 'warning', 'info')
-
+            
         Returns:
             dict: Standardized error dictionary
         """
         error_type = ApiReadStatus.PROCESSING_ERROR
-
+        
         # Map known exception types to corresponding error status
         if expected_exceptions:
             for exc_type, err_status in expected_exceptions.items():
                 if isinstance(e, exc_type):
                     error_type = err_status
                     break
-
+                    
         # Build context string
         context_str = ""
         if context:
@@ -107,26 +107,28 @@ class ErrorHandler:
                 context_str = context
             elif isinstance(context, dict):
                 context_str = " ".join([f"{k}={v}" for k, v in context.items()])
-
+                
         # Create error dict
         error = ErrorHandler.create_error(
-            error_type, message=str(e), details=context_str if context_str else None
+            error_type, 
+            message=str(e),
+            details=context_str if context_str else None
         )
-
+        
         # Log it
         ErrorHandler.log_error(error, log_level=log_level)
-
+        
         return error
-
+        
     @staticmethod
     def is_error(result):
         """
         Check if a result is an error dictionary.
-
+        
         Args:
             result: Result to check
-
+            
         Returns:
             bool: True if result is an error dictionary
         """
-        return isinstance(result, dict) and "error" in result
+        return isinstance(result, dict) and 'error' in result

@@ -17,7 +17,10 @@ from manta_trading.logging import get_logger
 _logger = get_logger(__name__)
 
 
-def classify_bar_session(timestamp: datetime, calendar: TradingCalendar) -> SessionType:
+def classify_bar_session(
+    timestamp: datetime,
+    calendar: TradingCalendar
+) -> SessionType:
     """
     Classify a single bar's session type based on timestamp and trading calendar.
 
@@ -61,7 +64,9 @@ def classify_bar_session(timestamp: datetime, calendar: TradingCalendar) -> Sess
 
 
 def split_bars_by_session(
-    df: pd.DataFrame, calendar: TradingCalendar, timestamp_column: str = "timestamp"
+    df: pd.DataFrame,
+    calendar: TradingCalendar,
+    timestamp_column: str = 'timestamp'
 ) -> Dict[SessionType, pd.DataFrame]:
     """
     Split a DataFrame of bars into separate DataFrames by session type.
@@ -102,8 +107,8 @@ def split_bars_by_session(
 def add_session_column(
     df: pd.DataFrame,
     calendar: TradingCalendar,
-    timestamp_column: str = "timestamp",
-    session_column: str = "session_type",
+    timestamp_column: str = 'timestamp',
+    session_column: str = 'session_type'
 ) -> pd.DataFrame:
     """
     Add a session_type column to a DataFrame.

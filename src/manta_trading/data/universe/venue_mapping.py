@@ -17,17 +17,17 @@ _logger = get_logger(__name__)
 # The first matching entry wins, so more-specific strings must appear first.
 _EXCHANGE_MAP: list[tuple[str, str, str]] = [
     # NYSE ARCA (must precede NYSE to avoid partial match)
-    ("nyse arca", "NYSE_ARCA", "NYSE"),
-    ("nyse mkt", "NYSE_MKT", "NYSE"),
-    ("nyse american", "NYSE_MKT", "NYSE"),
-    ("new york stock", "NYSE", "NYSE"),
-    ("nyse", "NYSE", "NYSE"),
+    ("nyse arca",       "NYSE_ARCA", "NYSE"),
+    ("nyse mkt",        "NYSE_MKT",  "NYSE"),
+    ("nyse american",   "NYSE_MKT",  "NYSE"),
+    ("new york stock",  "NYSE",      "NYSE"),
+    ("nyse",            "NYSE",      "NYSE"),
     # NASDAQ variants
-    ("nasdaq", "NASDAQ", "NASDAQ"),
+    ("nasdaq",          "NASDAQ",    "NASDAQ"),
     # BATS / CBOE BZX
-    ("bats", "BATS", "NYSE"),
-    ("cboe bzx", "BATS", "NYSE"),
-    ("cboe bzx", "BATS", "NYSE"),
+    ("bats",            "BATS",      "NYSE"),
+    ("cboe bzx",        "BATS",      "NYSE"),
+    ("cboe bzx",        "BATS",      "NYSE"),
 ]
 
 _FALLBACK_VENUE = "US"
@@ -124,8 +124,5 @@ def map_finnhub_exchange(exchange: str) -> tuple[str, str]:
             return (venue, calendar)
 
     if exchange:
-        _logger.warning(
-            "map_finnhub_exchange: unrecognized exchange %r; using fallback 'US'",
-            exchange,
-        )
+        _logger.warning("map_finnhub_exchange: unrecognized exchange %r; using fallback 'US'", exchange)
     return (_FALLBACK_VENUE, _FALLBACK_CALENDAR)

@@ -339,13 +339,17 @@ def _fetch_head_partial(
             _MINUTE_HEAD_ONLY_SQL,
             (CycleGranularity.MINUTE, symbol, _as_bound(minute_edge)),
         ).fetchall()
-        result.update({CycleGranularity(f): (s, e) for f, s, e in rows})
+        result.update(
+            {CycleGranularity(f): (s, e) for f, s, e in rows}
+        )
     if daily_edge is not None:
         rows = conn.execute(
             _DAILY_HEAD_ONLY_SQL,
             (CycleGranularity.DAILY, symbol, _as_bound(daily_edge)),
         ).fetchall()
-        result.update({CycleGranularity(f): (s, e) for f, s, e in rows})
+        result.update(
+            {CycleGranularity(f): (s, e) for f, s, e in rows}
+        )
     return result
 
 
