@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 # Host names and paths — the same single source deploy/install-production.sh
 # and deploy/mt-run use; they are host facts, not application values.
@@ -156,8 +157,53 @@ def _migrate_status() -> tuple[list[str], list[str]]:
     )
 
 
+def _env_value(text: str, key: str) -> str:
+    """``key``'s value in dotenv-style text — lenient on comments,
+    ``export``, quotes, and whitespace (CLAUDE.md, parsing)."""
+    for line in text.splitlines():
+        stripped = line.strip().removeprefix("export ").lstrip()
+        if stripped.startswith("#"):
+            continue
+        name, sep, value = stripped.partition("=")
+        if sep and name.strip() == key:
+            return value.strip().strip("'\"")
+    raise CutoverError(f"{key} is not set in the env file")
+
+
+def _url_identity(url: str) -> tuple[str, str, str]:
+    """``(host, port, dbname)``; loopback spellings collapse to one host so
+    ``localhost`` and ``127.0.0.1`` compare equal, nothing looser."""
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        host = "localhost"
+    return host, str(parsed.port or 5432), parsed.path.lstrip("/")
+
+
+def verify_migrate_target(checkout_env: str, production_env: str) -> str:
+    """Refuse to migrate unless the checkout's maintenance URL targets the
+    database the production units use (267 code review; sql.md: verify the
+    target before destructive/DDL work). Returns the database name."""
+    maintenance = _url_identity(
+        _env_value(checkout_env, "MT_TIMESCALE_MAINTENANCE_URL")
+    )
+    application = _url_identity(_env_value(production_env, "MT_TIMESCALE_DB_URL"))
+    if maintenance != application:
+        raise CutoverError(
+            "the checkout .env maintenance URL targets "
+            f"{maintenance[0]}:{maintenance[1]}/{maintenance[2]} but the "
+            f"production units use {application[0]}:{application[1]}/"
+            f"{application[2]} — refusing to migrate a different database"
+        )
+    return maintenance[2]
+
+
 def migrate(migration_id: str) -> None:
     """Apply the kalshi track from this checkout until ``migration_id`` is in."""
+    dbname = verify_migrate_target(
+        Path(".env").read_text(), out(["cat", str(ENV_FILE)], sudo=True)
+    )
+    print(f"    maintenance URL targets the production database ({dbname})")
     applied, pending = _migrate_status()
     if migration_id in applied:
         print(f"    {migration_id} already applied")

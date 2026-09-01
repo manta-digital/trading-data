@@ -72,7 +72,7 @@ JOURNAL_AFTER_WALK: list[tuple[int, str]] = [
         1100,
         "historical window 2026-06-30T22:00:00+00:00→2026-06-30T23:00:00+00:00 pages 100 fetched 99000 written 60000 unknown 9000 excluded 30000",
     ),
-    (1101, "trades unknown markets: KXMVECROSSCATEGORY 29,000"),
+    (1101, "historical unknown markets: KXMVECROSSCATEGORY 29,000"),
     (
         1102,
         "kalshi pass finished outcome=partial duration=1500000 ms phases: catalog=ok candles=ok trades=ok historical=partial",
@@ -93,6 +93,48 @@ def _status(
             "floor": "2026-01-01T00:00:00+00:00",
         },
     }
+
+
+@pytest.fixture(scope="module")
+def common(cutover: Any) -> Any:
+    """``cutover_common``, importable once the ``cutover`` fixture has put
+    ``scripts/`` on ``sys.path``."""
+    import cutover_common
+
+    return cutover_common
+
+
+class TestVerifyMigrateTarget:
+    """``migrate()``'s target check (267 code review, production-db-safety):
+    the checkout's maintenance URL must name the database the production
+    units use, or the script refuses before any DDL."""
+
+    # The real file shapes: comments, an ``export``, quotes, a default port.
+    CHECKOUT = (
+        "# dev checkout .env\n"
+        "export MT_TIMESCALE_MAINTENANCE_URL='postgresql://mig:pw@127.0.0.1:5432/market'\n"
+    )
+    PRODUCTION = "MT_TIMESCALE_DB_URL=postgresql://app:pw@localhost/market\n"
+
+    def test_same_database_passes_and_names_it(self, common: Any):
+        # 127.0.0.1:5432 vs localhost with the default port: equal.
+        assert common.verify_migrate_target(self.CHECKOUT, self.PRODUCTION) == "market"
+
+    def test_wrong_host_refuses(self, common: Any):
+        other = "MT_TIMESCALE_DB_URL=postgresql://app:pw@192.168.1.143:5432/market\n"
+        with pytest.raises(common.CutoverError, match="refusing to migrate"):
+            common.verify_migrate_target(self.CHECKOUT, other)
+
+    def test_wrong_database_name_refuses(self, common: Any):
+        renamed = self.PRODUCTION.replace("/market", "/mt_rehearsal_267")
+        with pytest.raises(common.CutoverError, match="refusing to migrate"):
+            common.verify_migrate_target(self.CHECKOUT, renamed)
+
+    def test_missing_key_refuses(self, common: Any):
+        with pytest.raises(common.CutoverError, match="MT_TIMESCALE_MAINTENANCE_URL"):
+            common.verify_migrate_target("# empty\n", self.PRODUCTION)
+        with pytest.raises(common.CutoverError, match="MT_TIMESCALE_DB_URL"):
+            common.verify_migrate_target(self.CHECKOUT, "")
 
 
 class TestParseFiring:
