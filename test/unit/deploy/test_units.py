@@ -171,3 +171,41 @@ class TestCliDriftGuard:
         result = CliRunner().invoke(app, ["data", "kalshi", "--help"])
         assert result.exit_code == 0, result.output
         assert "pass" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Slice 919: the health check unit + timer
+# ---------------------------------------------------------------------------
+
+HEALTH_SERVICE = "mt-health.service"
+HEALTH_TIMER = "mt-health.timer"
+
+
+class TestHealthUnits:
+    def test_service_runs_the_health_command_as_a_oneshot(self):
+        text = (_REPO_ROOT / "deploy" / "systemd" / HEALTH_SERVICE).read_text()
+        assert "ExecStart=/opt/manta-trading/.venv/bin/mt data health" in text
+        assert "Type=oneshot" in text
+        assert "EnvironmentFile=/etc/manta-trading.env" in text
+        lines = text.splitlines()
+        assert "[Install]" not in lines
+        assert not any(line.startswith("Restart=") for line in lines)
+
+    def test_timer_fires_hourly_at_fifty_past_and_names_the_service(self):
+        text = (_REPO_ROOT / "deploy" / "systemd" / HEALTH_TIMER).read_text()
+        assert "OnCalendar=*-*-* *:50:00 UTC" in text
+        assert f"Unit={HEALTH_SERVICE}" in text
+        assert "Persistent=true" in text
+
+    def test_both_units_are_installed_and_the_timer_is_in_the_cutover_hint(self):
+        text = INSTALLER.read_text()
+        block = _array_block(text, "UNITS")
+        assert HEALTH_SERVICE in block and HEALTH_TIMER in block
+        assert (
+            HEALTH_TIMER in text.split("Cutover (later, explicit)")[1].splitlines()[0]
+        )
+
+    def test_mt_run_status_reports_the_health_unit(self):
+        text = MT_RUN.read_text()
+        assert "systemctl show mt-health.service -p Result" in text
+        assert "== health:" in text

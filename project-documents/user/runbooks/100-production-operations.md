@@ -251,6 +251,22 @@ The dev checkout keeps its own update procedure (`git pull` + `uv sync` on
 
 ---
 
+## Is anything wrong? — the health check (slice 919)
+
+`mt-health.timer` runs `mt data health` hourly at :50 UTC. It is read-only and
+judges raw-data freshness, every continuous aggregate's materialization lag,
+EODHD quota headroom, and Kalshi phase recency against the thresholds in
+`constants.py` (`HEALTH_*`). Any breach exits non-zero, so the unit fails:
+
+```bash
+mt-run status                      # "== health: OK (...)" or "== health: FAILING ..."
+journalctl -u mt-health.service -n 20   # the one FAIL line names the number and the limit
+mt-run data health                 # run it now, same output
+```
+
+`OK` means nothing needs a human. `FAILING` names exactly one measured value
+and its limit per failing check; fix the cause, and the next firing clears it.
+
 ## Running the acquisition passes
 
 Normally, nobody runs them — the timers do. To run one out of schedule

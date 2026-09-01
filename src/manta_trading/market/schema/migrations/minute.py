@@ -26,6 +26,7 @@ from manta_trading.constants import (
     MINUTE_CAGG_COMPRESS_AFTER,
     MINUTE_CAGG_GRANULARITIES,
     MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL,
+    DAILY_MONTHLY_REFRESH_START_OFFSET,
     MINUTE_CAGG_REFRESH_START_OFFSET,
     MINUTE_COVERAGE_REFRESH_END_OFFSET,
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
@@ -89,6 +90,8 @@ def _interval_seconds_sql(td: timedelta) -> str:
 
 #: Every minute cagg refresh policy's start_offset, rendered once (035, 053).
 _MINUTE_REFRESH_START_SQL = _interval_seconds_sql(MINUTE_CAGG_REFRESH_START_OFFSET)
+#: daily_monthly_ohlcv refresh start_offset, rendered once (035, 054).
+_DAILY_MONTHLY_REFRESH_START_SQL = _interval_seconds_sql(DAILY_MONTHLY_REFRESH_START_OFFSET)
 
 
 def _eodhd_type_check_sql() -> str:
@@ -1683,7 +1686,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                       AND proc_name = 'policy_refresh_continuous_aggregate'
                 ) THEN
                     PERFORM add_continuous_aggregate_policy('daily_monthly_ohlcv',
-                        start_offset  => INTERVAL '90 days',
+                        start_offset  => {_DAILY_MONTHLY_REFRESH_START_SQL},
                         end_offset    => INTERVAL '30 days',
                         schedule_interval => INTERVAL '1 day');
                 END IF;
@@ -2329,6 +2332,37 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                             schedule_interval => v_sched);
                     END IF;
                 END LOOP;
+            END $$;
+        """,
+    },
+    {
+        "id": "054_daily_monthly_refresh_window",
+        "description": (
+            "Widen daily_monthly_ohlcv's refresh start_offset to "
+            "DAILY_MONTHLY_REFRESH_START_OFFSET (issue #20): the 90-day value "
+            "left a 60-day window, narrower than two 31-day month buckets, so "
+            "the policy failed with SQLSTATE 22023 on month boundaries. "
+            "Guarded: alters only a policy whose start_offset differs from "
+            "the constant; 035 renders the same constant."
+        ),
+        "sql": f"""
+            DO $$
+            DECLARE
+                cur_start interval;
+            BEGIN
+                SELECT (config->>'start_offset')::interval INTO cur_start
+                FROM timescaledb_information.jobs
+                WHERE hypertable_name = 'daily_monthly_ohlcv'
+                  AND proc_name = 'policy_refresh_continuous_aggregate';
+
+                IF cur_start IS NOT NULL
+                   AND cur_start <> {_DAILY_MONTHLY_REFRESH_START_SQL} THEN
+                    PERFORM remove_continuous_aggregate_policy('daily_monthly_ohlcv');
+                    PERFORM add_continuous_aggregate_policy('daily_monthly_ohlcv',
+                        start_offset      => {_DAILY_MONTHLY_REFRESH_START_SQL},
+                        end_offset        => INTERVAL '30 days',
+                        schedule_interval => INTERVAL '1 day');
+                END IF;
             END $$;
         """,
     },

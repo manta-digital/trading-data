@@ -90,6 +90,12 @@ data_app.add_typer(migrate_app, name="migrate")
 data_app.add_typer(lists_app, name="lists")
 data_app.add_typer(ca_app, name="ca")
 data_app.add_typer(caggs_app, name="caggs")
+
+# `mt data health` lives in its own module (slice 919); registered here so it
+# sits beside status/caggs under `mt data`.
+from manta_trading.cli.commands.health import data_health  # noqa: E402
+
+data_app.command("health")(data_health)
 data_app.add_typer(universes_app, name="universes")
 data_app.add_typer(restore_app, name="restore")
 data_app.add_typer(kalshi_app, name="kalshi")

@@ -75,6 +75,33 @@ PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS: int = 5
 signature of an account-wide condition (HTTP 402 quota exhausted) where every
 further request is wasted."""
 
+# --- mt data health thresholds (slice 919) -------------------------------
+# One command answers "does anything need a human?"; these are the only
+# numbers it judges against. Each is the loosest value that still catches the
+# failure it names within one working day.
+
+HEALTH_MINUTE_RAW_STALE_AFTER: timedelta = timedelta(days=4)
+"""Newest raw ``minute_ohlcv`` bar older than this fails the check. Four days
+spans a weekend plus a Monday holiday; the nightly pass lands the previous
+session, so a healthy Tuesday morning is ~1.5 days behind."""
+
+HEALTH_DAILY_RAW_STALE_AFTER: timedelta = timedelta(days=5)
+"""Newest raw ``daily_ohlcv`` bar older than this fails the check."""
+
+HEALTH_KALSHI_PHASE_STALE_AFTER: timedelta = timedelta(hours=3)
+"""A Kalshi phase (catalog, candles, trades) whose last completion is older
+than this fails the check — the pass fires hourly and a drain pass runs ~15
+minutes, so three hours means two missed firings."""
+
+HEALTH_EODHD_QUOTA_HEADROOM_MIN: int = 20_000
+"""Fail when remaining EODHD requests (daily allowance − used + extra) drop
+below this. The nightly minute firing alone needs ~10–15k; below this the
+next firing starves and symbols park (issue #19)."""
+
+HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
+"""EODHD account endpoint; returns ``apiRequests``, ``dailyRateLimit``,
+``extraLimit``. One call per health run."""
+
 DAILY_STALENESS_THRESHOLD: timedelta = timedelta(days=2)
 """A daily-granularity symbol is STALE if last_attempt_ts is older than this."""
 
@@ -472,6 +499,15 @@ hierarchical coverage policy must exceed (the constants test asserts the
 coverage ``start_offset`` against it), and it must stay below
 ``MINUTE_CAGG_COMPRESS_AFTER``. Rendered into migrations 035 and 053 — one
 value, one source.
+"""
+
+DAILY_MONTHLY_REFRESH_START_OFFSET: timedelta = timedelta(days=120)
+"""``start_offset`` of ``daily_monthly_ohlcv``'s refresh policy. The window is
+``start_offset − end_offset`` (end_offset stays 30 days) and TimescaleDB
+refuses a window narrower than two buckets (SQLSTATE 22023 "refresh window
+too small"); the original 90 days left a 60-day window, shorter than two
+31-day months, so the policy failed on month boundaries (issue #20). 120 days
+leaves 90 — never fewer than two months. Rendered by migrations 035 and 054.
 """
 
 MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL: timedelta = timedelta(hours=1)

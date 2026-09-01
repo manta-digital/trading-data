@@ -1,0 +1,13 @@
+[Unit]
+Description=Fire the health check (hourly)
+Documentation=https://github.com/manta-digital/trading-data
+
+[Timer]
+# Hourly at :50 — after the :20 Kalshi pass and the :05/:35 EODHD firings
+# have had time to finish, so a check reads settled state.
+OnCalendar=*-*-* *:50:00 UTC
+Persistent=true
+Unit=mt-health.service
+
+[Install]
+WantedBy=timers.target

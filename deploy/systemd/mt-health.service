@@ -1,0 +1,26 @@
+[Unit]
+Description=Manta Trading health check (one bounded run, fired by mt-health.timer)
+Documentation=https://github.com/manta-digital/trading-data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=manta-trading
+Group=manta-trading
+WorkingDirectory=/opt/manta-trading
+EnvironmentFile=/etc/manta-trading.env
+# Read-only: raw-data freshness, cagg materialization lag, EODHD quota
+# headroom, Kalshi phase recency. Exits non-zero on any breach, so a failing
+# check is a failed unit — visible in `mt-run status` and `systemctl --failed`.
+ExecStart=/opt/manta-trading/.venv/bin/mt data health
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+# No Restart= — the next timer firing re-checks. No [Install] — the timer
+# gets enabled, not this service.

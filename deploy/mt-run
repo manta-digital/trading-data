@@ -75,6 +75,18 @@ show_status() {
       fi
     fi
   done
+  # The health check is not a pass kind (no start/follow verbs) but its last
+  # result is the one line an operator needs: OK means nothing to look at.
+  local hres hcode
+  hres="$(systemctl show mt-health.service -p Result --value 2>/dev/null || true)"
+  hcode="$(systemctl show mt-health.service -p ExecMainStatus --value 2>/dev/null || true)"
+  if [[ -z "${hres}" ]]; then
+    echo "== health: not installed"
+  elif [[ "${hres}" == "success" ]]; then
+    echo "== health: OK (last check $(systemctl show mt-health.service -p ExecMainExitTimestamp --value))"
+  else
+    echo "== health: FAILING (result=${hres} exit=${hcode}) — journalctl -u mt-health.service -n 20"
+  fi
   echo "== timers:"
   systemctl list-timers 'mt-*' --no-pager | sed 's/^/   /'
 }

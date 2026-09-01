@@ -173,7 +173,8 @@ class TestMigrationsListIntegrity:
         # act, so bump it in the same commit that adds one.
         # 55 -> 56 with 053 (minute cagg refresh offsets from the constant,
         # issue #20).
-        assert len(MIGRATIONS) == 56
+        # 56 -> 57 with 054 (daily_monthly refresh window, issue #20).
+        assert len(MIGRATIONS) == 57
 
 
 # ---------------------------------------------------------------------------
@@ -1025,6 +1026,7 @@ class TestMigration023DailyChunkIntervalFromConstant:
 _MIGRATION_051_ID = "051_coverage_cagg_bucket_narrowing"
 _MIGRATION_052_ID = "052_coverage_cagg_refresh_policies_narrowed"
 _MIGRATION_053_ID = "053_minute_cagg_refresh_offsets_from_constant"
+_MIGRATION_054_ID = "054_daily_monthly_refresh_window"
 
 
 class _StatementRecorder:
@@ -1207,7 +1209,7 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_053() -> None:
+def test_chain_ends_at_054() -> None:
     """The newest migration must be last (issue #20 retargeted this from 052).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
@@ -1215,7 +1217,32 @@ def test_chain_ends_at_053() -> None:
     landing a migration before an already-applied production tip must be a
     deliberate, test-breaking act.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_053_ID
+    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_054_ID
+
+
+class TestMigration054DailyMonthlyRefreshWindow:
+    def _get(self) -> dict:
+        return next(m for m in MINUTE_MIGRATIONS if m["id"] == _MIGRATION_054_ID)
+
+    def test_renders_the_constant_and_keeps_a_two_month_window(self) -> None:
+        from datetime import timedelta
+
+        from manta_trading.constants import DAILY_MONTHLY_REFRESH_START_OFFSET
+
+        seconds = int(DAILY_MONTHLY_REFRESH_START_OFFSET.total_seconds())
+        assert f"INTERVAL '{seconds} seconds'" in self._get()["sql"]
+        # start − end must cover two 31-day buckets, or TimescaleDB raises 22023.
+        assert DAILY_MONTHLY_REFRESH_START_OFFSET - timedelta(days=30) >= timedelta(days=62)
+
+    def test_035_renders_the_same_constant(self) -> None:
+        from manta_trading.constants import DAILY_MONTHLY_REFRESH_START_OFFSET
+
+        m035 = next(
+            m for m in MINUTE_MIGRATIONS if m["id"] == "035_cagg_refresh_policies"
+        )
+        seconds = int(DAILY_MONTHLY_REFRESH_START_OFFSET.total_seconds())
+        assert f"start_offset  => INTERVAL '{seconds} seconds'" in m035["sql"]
+        assert "start_offset  => INTERVAL '90 days'" not in m035["sql"]
 
 
 class TestMigration053MinuteCaggRefreshOffsets:
