@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260831
+dateUpdated: 20260901
 status: in_progress
 ---
 
@@ -1500,3 +1500,43 @@ recorded. Whether Kalshi ever revises a completed candle — the Risk
 Assessment's open question — also remains open: conflict-ignore keeps the
 first version, so a revision would show up as a diff on a deliberate re-fetch,
 which nothing does yet.
+
+## 20260901 — The Kalshi archive walk: measured sizes outrun probes by 600×; parent-lookup cost halves a cold catalog's budget; a served enum will grow under you
+
+Slice 267's design probed three pages of `GET /historical/markets` and
+estimated 8–10 k requests for the archive walk. The rehearsal and the
+cutover measured it: **6,294 pages / 6.29 M markets to the stop point**
+(~1,000 pages per month of settlements), 54 minutes inside one
+authenticated firing, 0.20 s per trade-tape page (insert path, matching
+265's 0.21). Two cost lessons: (1) on a **cold** catalog every page's
+parents cost ~1.3 extra requests (`GET /events?tickers=` batches — the
+rehearsal spent 5,100 of a 9,000 cap on them); on production's warm catalog
+that fell to ~1.4 requests/page total. Budget the joins, not just the
+pages. (2) The walk multiplies downstream sets: `behind cutoff, uncollected`
+went 8 k → **585 k** the moment the archive landed, so the candle backfill
+is 15–30 authenticated firings, not nine. When a walk feeds a second
+queue, re-estimate the queue from the walk's measurement, not the design's.
+
+Also from the same day, twice: **a served enum grows under you.** Kalshi
+began serving market status `amended` on 2026-09-01; the CHECK rendered
+from `MarketStatus` failed the catalog phase loudly (exit 3 hourly) exactly
+as 262 designed, and the fix was one member plus a re-render migration
+(`kalshi_008`). And the historical candles endpoint serves the *legacy*
+field names (`volume`, `price.open`) where the live one serves `volume_fp` /
+`open_dollars` — "same shape" claims from discovery hold only for the
+endpoint they were probed on. Model each wire shape explicitly and map at
+the client; fixture the endpoint you will actually call.
+
+Operationally: the cutover script's terminal died mid-run (sudo
+re-authentication timed out during a 91-minute firing) and it did not
+matter — the firing is a systemd unit, every write is per-page/per-window,
+the cursor and watermarks resume, and the report was reconstructed from the
+journal. Long host steps must assume the terminal dies; the 265/267 pattern
+(check-then-act script + journal-derived report) held. One residue: a
+crashed run leaves the pass timer stopped, and a re-run "as found" would
+keep it stopped — the timer restart deserves its own explicit check.
+
+**Follow-ups:** the first firing after the timer restart proves Criterion
+6's <45-min bound (read `pass finished … duration` from the journal); the
+endpoint costs read 2026-09-01 (`default_cost: 10`, no `/historical/*`
+exceptions) are recorded in the 267 design's Risks.

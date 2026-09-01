@@ -8,7 +8,7 @@ interfaces: []
 effort: 3
 dateCreated: 20260831
 dateUpdated: 20260901
-status: in_progress
+status: complete
 ---
 
 # Slice Design: Historical Backfill Phase (267)
@@ -394,13 +394,32 @@ settled stream since the cutoff, the unknown share is ~30 % (post-cutoff
 settlers), not the MVE-only ~10 % production sees; (4) 0.20 s per tape page,
 insert path, uncompressed — the cutover baseline.
 
-**Host:** criterion 8 from the first firing after install (the cutover
-script's report), then the status line over any later hour; the firing's
-client line reads `mode=authenticated budget=1000/min` and the cap line
-`cap=30000` (Decision 2). Known before the cutover: production's catalog
-phase is `partial` since 2026-09-01 15:22 UTC on two markets served with
-status `amended` (outside `MarketStatus`) — a separate fix; the cutover
-report accepts `catalog=partial` only if the PM says so.
+**Host (done 2026-09-01, `user/notes/2026-09-01-267-cutover.md`).** The
+supervised firing on v0.12.0 (14:09–15:40 MDT, 91 min): client line
+`mode=authenticated budget=1000/min`, cap line `cap=30000`; **the archive
+walk completed in that one firing** — 6,294 pages, 6,294,000 markets,
+6,072,404 written, 0 parent item errors, 54 min — then 1,000 behind-cutoff
+candles and a 46-hour descent to `2026-06-29T02:00Z`;
+`catalog=ok candles=ok trades=ok historical=ok`, exit 0, zero 429s
+(the `amended` status that had made the catalog partial was fixed by
+`kalshi_008` in this release). Criterion 6's <45-min bound is read from the
+first firing after the timer restart (the walk's own firing is exempt by
+design).
+
+### Success criteria — where each is proven
+
+| # | Criterion | Proven |
+|---|---|---|
+| 1 | Four phases, aborts sequence correctly | unit `test_collection_pass.py`; integration `TestFourPhasePass`; firing's `catalog=ok candles=ok trades=ok historical=ok` |
+| 2 | Historical row seeded at the live floor / floor target | unit case 1; rehearsal pass 3; firing's `first run` line |
+| 3 | Backward whole-hour descent, floor stop | unit cases 5–6; `TestBackward`; rehearsal passes 3–5; firing's 46 windows |
+| 4 | fetched = written + unknown + excluded + duplicates; re-walk writes 0 | unit case 7; rehearsal passes 3–5 (re-walk pass 5) |
+| 5 | Behind-cutoff markets stamped, count falls by the number completed | integration `TestBehindCutoff`/`TestFourPhasePass`; rehearsal pass 4 (exact 1,000) |
+| 6 | Cap computed from the budget; pass bounded | unit cap tests (30,000/9,000/300); firing's `cap=30000` + `requests=30,092`; <45 min read from the next firing |
+| 7 | `status` effective floor, buckets partition | unit + integration status tests; rehearsal & firing `coverage_from` = watermark |
+| 8 | First firing `historical=ok\|partial`; status line thereafter | the firing (ok); handoff watch |
+| 9 | Archive walked once, resumed by cursor, no re-walk | unit cases 13–15; rehearsal pass 2 (real resume); firing (done, `pages=0` next) |
+| 10 | Permanent candle error → PARTIAL, retried | unit case 16; integration permanent-error case |
 
 ## Risks
 

@@ -18,7 +18,7 @@ reviewVerdictsAddressed:
   - 267-review.tasks.historical-backfill-phase.part-1, first round (claude-sonnet-5, CONCERNS) — F001's user-facing site assigned to Task 7.4 here
 dateCreated: 20260831
 dateUpdated: 20260901
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -504,26 +504,26 @@ release and reading the report — with one script between them, as 265.
         one — do not repeat that).
   - [x] Commit: `chore: add the 267 cutover script`.
 
-- [ ] **Task 11.2: Cut and run** **[PM]** (effort: 1)
-  - [ ] Merge `267-slice.historical-backfill-phase` into `main`, tag
+- [x] **Task 11.2: Cut and run** **[PM]** (effort: 1)
+  - [x] Merge `267-slice.historical-backfill-phase` into `main`, tag
         `v0.12.0`, push both; then from `main`:
         `uv run python scripts/cutover_267_historical.py v0.12.0`.
-  - [ ] Success: exit 0 — every check in the report ✅. A ❌ on the mode
+  - [x] Success: exit 0 — every check in the report ✅ — script interrupted by a sudo timeout; firing completed, report written from the journal. A ❌ on the mode
         line means the key pair is not in `/etc/manta-trading.env` (the
         collector still ran, at the public cap); fix and let the next firing
         prove it. A ❌ on the slowest market means candle writes into
         compressed chunks are slow — the pause lever in runbook 100.
 
-- [ ] **Task 11.3: Close the slice from the report** **[agent]** (effort: 2)
-  - [ ] Fill the design's *Verification* host paragraph with the observed
+- [x] **Task 11.3: Close the slice from the report** **[agent]** (effort: 2)
+  - [x] Fill the design's *Verification* host paragraph with the observed
         output and a *Success criteria — where each is proven* table for
         1–8; journal entry in `user/notes/000-process-journal.md` for what
         outlives the slice (the first firing's per-window and per-market
         timings; the measured endpoint costs).
-  - [ ] Set `dateUpdated` on the design, runbook 100, and both task files;
+  - [x] Set `dateUpdated` on the design, runbook 100, and both task files;
         the design's `status: complete`. Delegate checklist updates to the
         `task-checker` agent.
-  - [ ] Commit: `docs: close slice 267 from the cutover report`.
+  - [x] Commit: `docs: close slice 267 from the cutover report`.
 
 **Handoff, not a task — the descent to the floor.** Criterion 8's second
 half (the status line's tape range growing downward over the following
