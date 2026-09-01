@@ -72,6 +72,17 @@ uv run python scripts/cutover_265_trades.py v0.11.0
 Exit 0 means every check in the report passed. Each step is check-then-act, so
 a failed run is fixed and re-run with the same command.
 
+### kalshi_endpoint_costs.py
+Prints Kalshi's per-endpoint request costs (`GET /account/endpoint_costs`) as
+JSON. The endpoint is authenticated, so the script exits non-zero — naming the
+missing variables — when the given env file holds no key pair. Read once for
+the 267 design; nothing in the application uses it.
+
+**Usage (on manta9000, where the key is installed):**
+```bash
+sudo uv run python scripts/kalshi_endpoint_costs.py --env-file /etc/manta-trading.env
+```
+
 ## Other Scripts
 
 ### update-guides
