@@ -14,6 +14,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.0] — 2026-09-01
+
+### Added (slice 267 — historical backfill phase)
+- **The Kalshi pass has a fourth phase, `historical`.** After catalog,
+  candlesticks and trades, each hourly firing backfills what Kalshi serves
+  only from its archive: candles for the finalized markets that fell behind
+  the historical cutoff (`/historical/markets/{ticker}/candlesticks`, up to
+  1,000 markets per firing while the tape is still descending, then as many
+  as the budget allows) and the public trade tape **backward** from the live
+  tape's floor toward `HISTORICAL_TRADES_FLOOR` (2026-01-01T00:00Z) through
+  `/historical/trades`, one-hour windows under one request cap. The cap is
+  thirty minutes of the client's rate budget (30,000 requests authenticated,
+  9,000 public), so the phase bounds itself; the pass runs up to ~40 minutes
+  while the drain lasts (~15 authenticated firings), then returns to minutes.
+- **The archive walk.** Before any archived trade is stored, the phase walks
+  `GET /historical/markets` newest-first into the catalog (millions of
+  settled markets the live catalog never saw), resuming from a saved cursor
+  across firings. **The first firing after install runs hours**, not
+  minutes; a timer firing that overlaps it exits 1 on the run lock — expected.
+- **`mt data kalshi status` gains a historical line** — the tape range
+  walking down, the floor, the behind-cutoff candles remaining, the last
+  phase — and the trades block's `coverage from` / `before coverage` now
+  measure against the **effective floor** (the lower of the live floor and
+  the historical watermark), so `before coverage` shrinks as the backfill
+  descends. JSON gains `historical`.
+- **Three client methods** — `get_historical_markets`,
+  `get_historical_trades`, `get_historical_market_candlesticks` — with
+  recorded fixtures. The historical candle endpoint serves legacy key
+  names (`volume`, `open`, …); the client maps them to the live shape.
+- `scripts/kalshi_endpoint_costs.py` prints `GET /account/endpoint_costs`.
+
+### Changed
+- **Migration `kalshi_007_historical_surface`** widens
+  `sync_state_surface_check` to the `historical` surface; apply it during the
+  update (a firing between install and apply exits 1 naming it).
+- An archived market whose candles Kalshi will not serve makes the phase
+  `partial` (exit 3, unit failed) with the ticker in the journal; it is
+  retried every firing rather than aborting the drain.
+
 ## [0.11.3] — 2026-08-31
 
 ### Added (slice 919 — health check)

@@ -342,8 +342,8 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
 
 Criteria 1, 4, 5, 7 against a real database.
 
-- [ ] **Task 8.1: Four-phase pass, end to end** (effort: 3)
-  - [ ] In `test/integration/test_kalshi_pass.py`, extend the pass source
+- [x] **Task 8.1: Four-phase pass, end to end** (effort: 3)
+  - [x] In `test/integration/test_kalshi_pass.py`, extend the pass source
         (`_ThreeSurfaceSource` becomes four) with the historical fixtures:
         one archive page whose markets are **not** in the seeded catalog and
         settle before the floor minus the margin, a historical tape covering
@@ -352,7 +352,7 @@ Criteria 1, 4, 5, 7 against a real database.
         the catalog with the tape's other markets (`write_catalog`), the
         candles row (cutoff after the market's settlement), and the live
         trades row.
-  - [ ] First pass: `phases[].name` is the four names, all `ok`; the
+  - [x] First pass: `phases[].name` is the four names, all `ok`; the
         archive page's markets are in `kalshi.markets` with their parents
         and the trades for them were **written** (Criterion 9); the
         historical row exists at the live floor with the floor target with
@@ -362,10 +362,10 @@ Criteria 1, 4, 5, 7 against a real database.
         identity holds on the summary (Criterion 4); `status --json`'s
         `coverage_from` equals the new watermark and `before_coverage`
         moved by the markets closed in the walked hours (Criterion 7).
-  - [ ] Second pass over the same fixtures writes 0 trade rows and 0
+  - [x] Second pass over the same fixtures writes 0 trade rows and 0
         candles, the live row is byte-identical, and the watermark does not
         move past the floor.
-  - [ ] Abort: a source that raises `ProviderTransientError` on the first
+  - [x] Abort: a source that raises `ProviderTransientError` on the first
         historical candles request leaves catalog, candles, and trades
         reports `ok` with their state intact, historical `provider_abort`,
         exit code `EXIT_BY_OUTCOME[PROVIDER_ABORT]`; the same request
@@ -373,12 +373,12 @@ Criteria 1, 4, 5, 7 against a real database.
         `EXIT_BY_OUTCOME[PARTIAL]`, the ticker in the summary's
         `item_errors`, and the trades watermark still descended (Criterion
         10).
-  - [ ] Success: the four cases pass in the integration tier.
+  - [x] Success: the four cases pass in the integration tier.
 
-- [ ] **Task 8.2: Full-tier run and checkpoint commit** (effort: 1)
-  - [ ] `uv run pytest test/unit -q` and the integration tier both green;
+- [x] **Task 8.2: Full-tier run and checkpoint commit** (effort: 1)
+  - [x] `uv run pytest test/unit -q` and the integration tier both green;
         gates over every file the slice touched.
-  - [ ] Commit: `test: cover the four-phase pass end to end`.
+  - [x] Commit: `test: cover the four-phase pass end to end`.
 
 ## Section 9: Rehearsal on the test cluster
 
