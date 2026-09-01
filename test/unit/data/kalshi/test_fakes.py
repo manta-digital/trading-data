@@ -302,8 +302,8 @@ class TestFakeTradeRepository:
         assert await repo.read_state() is None
         assert await repo.read_catalog_walk_start() is None
         async with repo.transaction():
-            await repo.init_state(NOW)
-            await repo.init_state(NOW + timedelta(days=1))
+            await repo.init_state(NOW, NOW)
+            await repo.init_state(NOW + timedelta(days=1), NOW + timedelta(days=1))
         assert repo.state == TradeState(NOW, NOW)
         repo.catalog_walk_start = NOW + timedelta(hours=2)
         assert await repo.read_catalog_walk_start() == NOW + timedelta(hours=2)

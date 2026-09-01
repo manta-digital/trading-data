@@ -134,7 +134,7 @@ class TradeSync:
         state: TradeState | None = await self.repository.read_state()
         if state is None:
             async with self.repository.transaction():
-                await self.repository.init_state(cutoff)
+                await self.repository.init_state(cutoff, cutoff)
             logger.info(
                 "kalshi trades first run: the stored tape starts at the cutoff %s",
                 cutoff.isoformat(),

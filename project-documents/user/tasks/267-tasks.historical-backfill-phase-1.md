@@ -237,8 +237,8 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
 Design *Implementation Details* (`client.py`), 261 Discovery *Historical
 tier*: same shapes, same cursor pagination as the live endpoints.
 
-- [ ] **Task 3.1: The three `/historical/*` client methods** (effort: 2)
-  - [ ] `get_historical_markets(*, cursor=None, **query:
+- [x] **Task 3.1: The three `/historical/*` client methods** (effort: 2)
+  - [x] `get_historical_markets(*, cursor=None, **query:
         Unpack[MarketsQuery]) -> MarketsPage` — a mirror of `get_markets` on
         `HISTORICAL_MARKETS_PATH`. The endpoint accepts only `tickers`,
         `event_ticker`, `series_ticker`, `mve_filter`, `limit`, `cursor`
@@ -246,42 +246,42 @@ tier*: same shapes, same cursor pagination as the live endpoints.
         keys of `MarketsQuery` are **ignored by the API**, not rejected —
         the same pass-through posture `MarketsQuery`'s docstring already
         takes for `min_updated_ts`.
-  - [ ] `get_historical_trades(*, cursor=None, **query: Unpack[TradesQuery])
+  - [x] `get_historical_trades(*, cursor=None, **query: Unpack[TradesQuery])
         -> TradesPage` — a mirror of `get_trades` on
         `HISTORICAL_TRADES_PATH`; the same `TradesQuery` (no new TypedDict —
         the parameters are the same, Decision 5).
-  - [ ] `get_historical_market_candlesticks(ticker, *, start_ts, end_ts,
+  - [x] `get_historical_market_candlesticks(ticker, *, start_ts, end_ts,
         period_interval) -> list[Candlestick]` — a mirror of
         `get_market_candlesticks` on `HISTORICAL_MARKET_CANDLESTICKS_PATH`,
         parsed through the existing `CandlesticksResponse`; **no
         `series_ticker` argument** and no `include_latest_before_start`.
-  - [ ] Update `get_historical_cutoff`'s docstring (it says the other
+  - [x] Update `get_historical_cutoff`'s docstring (it says the other
         historical methods belong to 266).
-    - [ ] Success: the three methods type-check; the routed unit tests of
+    - [x] Success: the three methods type-check; the routed unit tests of
         Task 3.3 pass.
 
-- [ ] **Task 3.2: Recorder and fixtures** (effort: 2)
-  - [ ] In `scripts/record_kalshi_fixtures.py` add
+- [x] **Task 3.2: Recorder and fixtures** (effort: 2)
+  - [x] In `scripts/record_kalshi_fixtures.py` add
         `record_historical_markets_page` — the first archive page at
         `limit=MARKETS_PAGE_LIMIT`, `mve_filter=exclude`, saved as
         `historical_markets_page` (must carry a cursor); print the page's
         first and last `settlement_ts` so the note can record the order.
-  - [ ] Add `record_historical_trades_window` — reads the cutoff, takes a
+  - [x] Add `record_historical_trades_window` — reads the cutoff, takes a
         one-minute window seven days **before** `trades_created_ts` (a busy
         UTC afternoon minute; print the bounds as `record_trades_window`
         does), limit `TRADES_WINDOW_LIMIT`, saves `historical_trades_window`
         (must carry a cursor, else exit with the same retry message) and,
         after following the cursor to the end, `historical_trades_window_last`.
-  - [ ] Add `record_historical_candles_market` — takes the first ticker of
+  - [x] Add `record_historical_candles_market` — takes the first ticker of
         the page just recorded, requests one day of 1-minute candles around
         that trade through the new candles method, saves
         `historical_candles_market`. Reading the ticker from the fixture
         file (the `_recorded_tickers` helper) keeps the pair consistent.
-  - [ ] Record them: `uv run python scripts/record_kalshi_fixtures.py --only
+  - [x] Record them: `uv run python scripts/record_kalshi_fixtures.py --only
         historical_markets_page`, `--only historical_trades_window`, then
         `--only historical_candles_market`
         (public mode suffices — 261 verified the endpoints unauthenticated).
-  - [ ] Extend `test/unit/data/kalshi/test_fixtures.py`: the completeness
+  - [x] Extend `test/unit/data/kalshi/test_fixtures.py`: the completeness
         list gains the four names; the archive page parses into a
         `MarketsPage` whose every status is in `MarketStatus` and whose
         `settlement_ts` values are all set; each historical trades page parses
@@ -290,12 +290,12 @@ tier*: same shapes, same cursor pagination as the live endpoints.
         candles fixture parses with OHLC. Include a parity assertion: the
         historical trade's field set equals the live `trades_window`
         fixture's (261's "same shape", proven rather than assumed).
-  - [ ] Success: the four files exist under `test/fixtures/kalshi/`; the
+  - [x] Success: the four files exist under `test/fixtures/kalshi/`; the
         fixture tests pass; `--dry-run` for the three recorders prints
         the expected HTTP 200 lines.
 
-- [ ] **Task 3.3: Client endpoint unit tests** (effort: 2)
-  - [ ] In `test/unit/data/kalshi/test_client_endpoints.py`, using the
+- [x] **Task 3.3: Client endpoint unit tests** (effort: 2)
+  - [x] In `test/unit/data/kalshi/test_client_endpoints.py`, using the
         existing routed `Harness`: the markets method hits
         `/historical/markets` with `limit`, `mve_filter`, and `cursor` and
         parses a `MarketsPage`; the trades method hits the historical path
@@ -303,12 +303,12 @@ tier*: same shapes, same cursor pagination as the live endpoints.
         (assert the recorded request URL and query); the candles method hits
         `/historical/markets/{ticker}/candlesticks` with the three params and
         nothing else; an unrouted path is still a permanent error.
-    - [ ] Success: the cases pass against the fixtures Task 3.2 recorded —
+    - [x] Success: the cases pass against the fixtures Task 3.2 recorded —
         no hand-rolled bodies.
 
-- [ ] **Task 3.4: Section 3 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as the Context Summary, scoped to the files touched.
-    - [ ] Commit: `feat: add the three /historical client methods with
+- [x] **Task 3.4: Section 3 gates and checkpoint commit** (effort: 1)
+  - [x] Gates as the Context Summary, scoped to the files touched.
+    - [x] Commit: `feat: add the three /historical client methods with
         fixtures`.
 
 ## Section 4: Repository seams

@@ -143,6 +143,42 @@ class CandleRepository:
             limit=limit,
         )
 
+    async def pending_behind_cutoff(
+        self, period: CandlePeriod, cutoff: datetime, limit: int
+    ) -> list[PendingMarket]:
+        """Selected finalized markets before the cutoff with no state row and
+        a known open — the historical phase's candle set (slice 267,
+        Architecture step 1), oldest settlement first, capped per pass.
+        ``BEHIND_CUTOFF_CONDITION`` is composed, never re-spelled, so this
+        set and ``count_behind_cutoff`` are the same set by construction.
+        Deliberately **not** through ``_pending``: that fragment's
+        ``open_time < phase_start`` / watermark clause describes the live
+        sets; here a state row of any kind removes the market."""
+        selection = selection_sql(self._rule, "ever")
+        statement = sql.Composed(
+            [
+                sql.SQL("SELECT m.ticker, m.open_time, m.close_time, st.watermark_ts "),
+                MARKET_JOIN,
+                sql.SQL("WHERE "),
+                selection.predicate,
+                sql.SQL(" AND "),
+                BEHIND_CUTOFF_CONDITION,
+                sql.SQL(
+                    " AND m.open_time IS NOT NULL "
+                    "ORDER BY m.settlement_ts, m.ticker LIMIT %(limit)s"
+                ),
+            ]
+        )
+        params: dict[str, object] = {
+            **selection.params,
+            "period": int(period),
+            "cutoff": cutoff,
+            "finalized": MarketStatus.FINALIZED.value,
+            "limit": limit,
+        }
+        cursor = await self._conn.execute(statement, params)
+        return [PendingMarket(*row) for row in await cursor.fetchall()]
+
     async def _pending(
         self,
         form: SelectionForm,
