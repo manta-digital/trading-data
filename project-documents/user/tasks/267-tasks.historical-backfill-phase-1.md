@@ -18,8 +18,11 @@ projectState: >
   client already has get_historical_cutoff() and RSA signing (261); no
   other /historical/* method exists. Design 267 has Decisions 2 and 3
   PM-ratified 20260831; slice review CONCERNS addressed (3bbc3d6, 4cafb25).
+reviewVerdictsAddressed:
+  - 267-review.tasks.historical-backfill-phase.part-1, first round (claude-sonnet-5, CONCERNS) — F001 the four remaining slice-266 sites assigned (Task 2.1 comments; Task 7.4 the status line); F002 fixtures now precede the client tests (Tasks 3.2/3.3 swapped); F003 Task 1.2 split into [PM] 1.2 and [agent] 1.3; F004–F005 pass
+  - 267-review.tasks.historical-backfill-phase.part-2, first round (claude-sonnet-5, CONCERNS) — F001 load-test waiver recorded in the Context Summary with its reasoning; F002–F004 pass
 dateCreated: 20260831
-dateUpdated: 20260831
+dateUpdated: 20260901
 status: not_started
 ---
 
@@ -36,8 +39,8 @@ status: not_started
   replaces the retired operator-run slice 266.
 - Source of truth: the slice design at
   `user/slices/267-slice.historical-backfill-phase.md`. Its **Architecture**,
-  **Technical Decisions 1–8**, **Implementation Details**, **Success
-  Criteria 1–8**, **Verification**, and **Risks** are referenced by number
+  **Technical Decisions 1–10**, **Implementation Details**, **Success
+  Criteria 1–10**, **Verification**, and **Risks** are referenced by number
   below rather than restated. Read the design before starting any section.
 - **No new unit, timer, command, or operator step.** The only host facts
   this slice depends on already exist: the key (Decision 2) and the timer.
@@ -84,6 +87,18 @@ status: not_started
 - Host boundary as 265: **[PM]** tasks run on manta9000 with elevation;
   **[agent]** tasks need none. **No task waits on a wall-clock event** — the
   ~15-firing drain is a handoff note at the end of part 2.
+- **No load test, by decision.** Criterion 6's 45-minute bound is a
+  property of Kalshi's live latency, not of this code: the phase bounds
+  itself in **requests** (the cap, computed from the budget and asserted at
+  the unit tier — Tasks 2.2 and 7.1), and the wall-clock figure follows from
+  the provider's response times, which no fixture-driven load test can
+  reproduce. A `test/load/` case timing fakes would assert nothing real.
+  The bound is measured where it can be — once by the rehearsal (Task 9.2)
+  and once by the cutover report (Task 11.1) — and every later firing's
+  duration is in the journal and `mt-run status`. This is the 264 precedent
+  (`264-tasks.candlestick-collection-1.md`, "no load test is required")
+  applied to a threshold that is external, and it is recorded here so the
+  omission is a decision, not a gap.
 - **Effort ceiling.** Two tasks sit at 4: Task 6.2 (`HistoricalSync.run` is
   the design's *one firing* diagram end to end) and Task 6.4 (its unit
   suite). Everything else is ≤ 3.
@@ -111,12 +126,15 @@ it is the one unknown the design asked to be read before anything is built.
         .env` exits non-zero with the message (no key in the dev `.env`);
         ruff clean.
 
-- [ ] **Task 1.2: Read the costs on the host and record them** (effort: 1)
-  - [ ] **[PM]** on manta9000: `sudo uv run python
+- [ ] **Task 1.2: Read the costs on the host** **[PM]** (effort: 1)
+  - [ ] On manta9000: `sudo uv run python
         scripts/kalshi_endpoint_costs.py --env-file /etc/manta-trading.env`
         (root reads the PEM; the file's mode is 0640 root:manta-trading).
         Paste the body back.
-  - [ ] **[agent]** Record in the design's *Risks* first bullet the cost of
+  - [ ] Success: the JSON body is in the conversation.
+
+- [ ] **Task 1.3: Record the costs in the design** **[agent]** (effort: 1)
+  - [ ] Record in the design's *Risks* first bullet the cost of
         `/historical/trades`, `/historical/markets/{ticker}/candlesticks`,
         and — for the comparison — `/markets/trades`. If any historical
         cost exceeds the 10-token default, restate Decision 3's firing count
@@ -145,10 +163,17 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
   - [ ] Fix the two stale comments on `KALSHI_CANDLE_COMPRESS_AFTER` and
         `KALSHI_TRADE_COMPRESS_AFTER` ("266's backfill pauses the policy")
         — Decision 4: the policies stay on; the manual lever is runbook 100.
-        Fix `TradesBehindCutoffError`'s message in `trade_types.py` (it
-        names slice 266 as the remedy; the remedy is now this phase).
-  - [ ] Success: `grep -rn "266" src/` finds nothing that describes future
-        work; `uv run pytest test/unit/data/kalshi/test_constants.py -q`
+        Fix `TradesBehindCutoffError`'s docstring and message in
+        `trade_types.py` (they name slice 266 as the remedy; the remedy is
+        now this phase). Fix the three comments that call the behind-cutoff
+        set "266's input": `candle_sync.py:111`, `candle_repository.py:194`,
+        `candle_selection.py:26` — it is this phase's input. The
+        user-facing `before coverage` line in `kalshi_render.py:318` and the
+        `trade_status.py` docstring are rewritten by Task 7.4 and Task 7.3
+        (part 2), where their meaning changes; `client.py:376` by Task 3.1.
+    - [ ] Success: `grep -rn "266" src/` finds only the three sites named
+        above as later tasks' (`kalshi_render.py`, `trade_status.py`,
+        `client.py`) — and after part 2's Section 7, none; `uv run pytest test/unit/data/kalshi/test_constants.py -q`
         is green (Task 2.2 extends it).
 
 - [ ] **Task 2.2: Constants tests** (effort: 1)
@@ -231,23 +256,10 @@ tier*: same shapes, same cursor pagination as the live endpoints.
         `series_ticker` argument** and no `include_latest_before_start`.
   - [ ] Update `get_historical_cutoff`'s docstring (it says the other
         historical methods belong to 266).
-  - [ ] Success: both methods type-check; the routed unit tests of Task 3.2
-        pass.
+    - [ ] Success: the three methods type-check; the routed unit tests of
+        Task 3.3 pass.
 
-- [ ] **Task 3.2: Client endpoint unit tests** (effort: 2)
-  - [ ] In `test/unit/data/kalshi/test_client_endpoints.py`, using the
-        existing routed `Harness`: the markets method hits
-        `/historical/markets` with `limit`, `mve_filter`, and `cursor` and
-        parses a `MarketsPage`; the trades method hits the historical path
-        with `min_ts`/`max_ts`/`limit`/`cursor` exactly as `get_trades` does
-        (assert the recorded request URL and query); the candles method hits
-        `/historical/markets/{ticker}/candlesticks` with the three params and
-        nothing else; an unrouted path is still a permanent error.
-  - [ ] Success: the cases pass against the fixtures Task 3.3 records (write
-        them against hand-rolled bodies first if the recorder runs later,
-        then switch to the fixture names).
-
-- [ ] **Task 3.3: Recorder and fixtures** (effort: 2)
+- [ ] **Task 3.2: Recorder and fixtures** (effort: 2)
   - [ ] In `scripts/record_kalshi_fixtures.py` add
         `record_historical_markets_page` — the first archive page at
         `limit=MARKETS_PAGE_LIMIT`, `mve_filter=exclude`, saved as
@@ -265,7 +277,8 @@ tier*: same shapes, same cursor pagination as the live endpoints.
         `historical_candles_market`. Reading the ticker from the fixture
         file (the `_recorded_tickers` helper) keeps the pair consistent.
   - [ ] Record them: `uv run python scripts/record_kalshi_fixtures.py --only
-        historical_trades_window` then `--only historical_candles_market`
+        historical_markets_page`, `--only historical_trades_window`, then
+        `--only historical_candles_market`
         (public mode suffices — 261 verified the endpoints unauthenticated).
   - [ ] Extend `test/unit/data/kalshi/test_fixtures.py`: the completeness
         list gains the four names; the archive page parses into a
@@ -277,13 +290,25 @@ tier*: same shapes, same cursor pagination as the live endpoints.
         historical trade's field set equals the live `trades_window`
         fixture's (261's "same shape", proven rather than assumed).
   - [ ] Success: the four files exist under `test/fixtures/kalshi/`; the
-        fixture tests pass; `--dry-run` for both recorders prints the
-        expected HTTP 200 lines.
+        fixture tests pass; `--dry-run` for the three recorders prints
+        the expected HTTP 200 lines.
+
+- [ ] **Task 3.3: Client endpoint unit tests** (effort: 2)
+  - [ ] In `test/unit/data/kalshi/test_client_endpoints.py`, using the
+        existing routed `Harness`: the markets method hits
+        `/historical/markets` with `limit`, `mve_filter`, and `cursor` and
+        parses a `MarketsPage`; the trades method hits the historical path
+        with `min_ts`/`max_ts`/`limit`/`cursor` exactly as `get_trades` does
+        (assert the recorded request URL and query); the candles method hits
+        `/historical/markets/{ticker}/candlesticks` with the three params and
+        nothing else; an unrouted path is still a permanent error.
+    - [ ] Success: the cases pass against the fixtures Task 3.2 recorded —
+        no hand-rolled bodies.
 
 - [ ] **Task 3.4: Section 3 gates and checkpoint commit** (effort: 1)
   - [ ] Gates as the Context Summary, scoped to the files touched.
-  - [ ] Commit: `feat: add /historical trades and candlestick client methods
-        with fixtures`.
+    - [ ] Commit: `feat: add the three /historical client methods with
+        fixtures`.
 
 ## Section 4: Repository seams
 

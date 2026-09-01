@@ -8,13 +8,16 @@ dependencies: [264, 265]
 interfaces: []
 projectState: >
   Part 2 of 2. Starts after part 1's Sections 1-5: endpoint costs
-  recorded, constants and kalshi_007 in, the two client methods and their
-  fixtures recorded, TradeRepository parameterised by surface,
+    recorded, constants and kalshi_007 in, the three client methods and
+  their fixtures recorded, TradeRepository parameterised by surface,
   CandleRepository.pending_behind_cutoff, and TradeSync.drain walking in
   either direction. See part 1's Context Summary for the rules, the gates,
   the branch, and the production-database warning.
+reviewVerdictsAddressed:
+  - 267-review.tasks.historical-backfill-phase.part-2, first round (claude-sonnet-5, CONCERNS) — F001 load-test waiver recorded in part 1's Context Summary; F002–F004 pass
+  - 267-review.tasks.historical-backfill-phase.part-1, first round (claude-sonnet-5, CONCERNS) — F001's user-facing site assigned to Task 7.4 here
 dateCreated: 20260831
-dateUpdated: 20260831
+dateUpdated: 20260901
 status: not_started
 ---
 
@@ -32,7 +35,7 @@ status: not_started
 ## Section 6: `HistoricalSync` — the core
 
 Design *Architecture* (the phase, one firing; state), *Technical Decisions
-1, 2, 4, 6*, *Implementation Details* (`historical_sync.py`).
+1, 2, 4, 6, 9*, *Implementation Details* (`historical_sync.py`).
 
 - [ ] **Task 6.1: `historical_types.py`** (effort: 2)
   - [ ] `HistoricalSource(Protocol)`: `get_historical_markets(*, cursor,
@@ -312,6 +315,12 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
         (`to_dict()` or `null`), with `behind_cutoff_candles_remaining`
         taken from `candles.behind_cutoff_uncollected` — the count is read
         once, in the candle block (design *Implementation Details*).
+  - [ ] Rewrite the existing `before coverage` line in `print_trade_status`
+        (`kalshi_render.py:318`): its caveat "tape predates the collector;
+        slice 266" is the one the design's *Value* section retires — it now
+        reads `closed before the effective floor <coverage_from>`, and
+        `grep -rn "266" src/` finds nothing afterwards (part 1, Task 2.1's
+        success check).
   - [ ] `print_status` gains `historical`; `print_historical_status` prints
         the design's line: `historical tape <tape_to> → <tape_from> (floor
         <floor>) · behind-cutoff candles remaining n · last phase <when>`,
@@ -458,9 +467,10 @@ the rehearsal shell only. Record observed output as you go.
         and `historical tape` in the Kalshi subsection.
 
 - [ ] **Task 10.2: CHANGELOG and version** (effort: 1)
-  - [ ] `## [0.12.0]` with the date: the historical phase, the status line
-        and the effective floor, `kalshi_007`, the two client methods; note
-        that the pass now runs up to ~40 minutes during the drain.
+  - [ ] `## [0.12.0]` with the date: the historical phase, the archive walk
+        into the catalog (the first firing runs hours), the status line and
+        the effective floor, `kalshi_007`, the three client methods; note
+        that the pass then runs up to ~40 minutes during the drain.
         `pyproject.toml` version `0.12.0`.
   - [ ] Commit: `docs: document the historical backfill phase (0.12.0)`.
 
