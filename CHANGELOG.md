@@ -14,6 +14,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.3] — 2026-08-31
+
+### Added (slice 919 — health check)
+- **`mt data health` and `mt-health.timer`.** One read-only command checks
+  raw minute/daily data freshness, every continuous aggregate's
+  materialization lag, EODHD quota headroom (extra calls included), and
+  Kalshi catalog/candles/trades phase recency against named thresholds, one
+  line each, and exits non-zero on any breach. The hourly timer turns a
+  breach into a failed unit, shown by `mt-run status` as `== health:
+  FAILING …`. `OK` means nothing needs a human. Enable with
+  `sudo systemctl enable --now mt-health.timer` after installing (the installer
+  must run twice to pick up new units).
+
+### Fixed
+- **`daily_monthly_ohlcv` refresh policy failed on month boundaries**
+  (SQLSTATE 22023 "refresh window too small": a 60-day window is shorter than
+  two 31-day buckets). Migration `054` widens `start_offset` to 120 days from
+  one constant; 035 renders the same value.
+- **Cagg freshness budget now includes one bucket width.** A policy
+  materializes only complete buckets, so the newest complete bucket trails the
+  raw edge by up to `end_offset + width`; the old budget flagged
+  `daily_weekly_ohlcv` stale six days out of seven (and `/bars` at 1w as
+  `is_stale`). Coverage caggs keep their own budgets.
+
 ## [0.11.2] — 2026-08-31
 
 ### Fixed

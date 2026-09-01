@@ -14,6 +14,10 @@ Format: `## YYYYMMDD` followed by brief notes (1-3 lines per session). Written f
 
 ## 20260831
 
+**0.11.3 — slice 919 `mt data health`.** `cli/commands/health.py`: pure rule functions (`check_raw_freshness`, `check_cagg`, `check_quota`, `check_phase_recency`) over `HEALTH_*` thresholds in `constants.py`; `gather()` is the only I/O (raw `max(time)`, slice-168 `assert_cagg_fresh` ×7 + `check_coverage_freshness`, EODHD `/api/user`, Kalshi status readers). Exit 0/1/2. `mt-health.service` + hourly `.timer` (:50 UTC), installer UNITS, `mt-run status` health line. 12 unit tests + 4 deploy tests. Also: slice 266 retired by the PM and replaced by 267 (historical backfill as a fourth pass phase, no wait) — design only.
+
+---
+
 **0.11.2 — cagg refresh offsets + pull robustness (issues #20, #19).** 5m/15m caggs found frozen since 2026-08-07 with policies reporting Success: 2-hour `start_offset` never overlapped the nightly, hours-old bars; 037 had widened it but the 2026-08-04 restore replay of 035 recreated 2h policies and the forward-only ledger never re-fired 037. Migration `053` sets all four minute caggs from `MINUTE_CAGG_REFRESH_START_OFFSET` (3 days — tolerates a quota-deferred night), guarded and idempotent; 035 renders the constant. `_pull_fetch_inner` collapsed to one loop for daily/minute with per-symbol `ProviderResponseError` skip and a `PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS` abort; 402 message names the quota. Unpark pull (issue #19) completed: 13,081 symbols, 11,886 ok / 1,195 empty / 0 errors, ~94.6k requests; every frozen symbol has bars through 2026-08-28.
 
 ---
