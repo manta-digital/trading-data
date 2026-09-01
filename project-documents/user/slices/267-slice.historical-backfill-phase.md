@@ -9,7 +9,6 @@ effort: 3
 dateCreated: 20260831
 dateUpdated: 20260831
 status: not_started
-review: none
 ---
 
 # Slice Design: Historical Backfill Phase (267)
