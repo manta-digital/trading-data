@@ -14,6 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.2] — 2026-08-31
+
+### Fixed
+- **5m/15m continuous aggregates stopped materializing on 2026-08-07 while
+  their refresh policies reported Success** ([#20](https://github.com/manta-digital/trading-data/issues/20)).
+  Their 2-hour refresh window never contained the nightly, hours-old minute
+  bars; migration 037 had widened it, but a restore replay of 035 recreated
+  the 2-hour policies afterwards. Migration `053` sets every minute cagg's
+  `start_offset` from one constant (`MINUTE_CAGG_REFRESH_START_OFFSET`,
+  3 days), guarded so it converges any ledger that replayed 035; 035 now
+  renders the same constant. The frozen range still needs one operator
+  catch-up: `mt data caggs refresh --granularity 5m,15m,1h,4h --start 2026-06-01`.
+- **`mt data pull` no longer dies on one bad provider response.** A
+  non-retriable 4xx for a symbol is skipped and counted (as the daemon
+  cycles do); a streak of five aborts the run with the reason. EODHD HTTP
+  402 is now reported as "daily API quota exhausted … resets at 00:00 UTC"
+  instead of "investigate provider contract".
+
 ## [0.11.1] — 2026-08-31
 
 ### Fixed

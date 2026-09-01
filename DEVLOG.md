@@ -14,6 +14,10 @@ Format: `## YYYYMMDD` followed by brief notes (1-3 lines per session). Written f
 
 ## 20260831
 
+**0.11.2 — cagg refresh offsets + pull robustness (issues #20, #19).** 5m/15m caggs found frozen since 2026-08-07 with policies reporting Success: 2-hour `start_offset` never overlapped the nightly, hours-old bars; 037 had widened it but the 2026-08-04 restore replay of 035 recreated 2h policies and the forward-only ledger never re-fired 037. Migration `053` sets all four minute caggs from `MINUTE_CAGG_REFRESH_START_OFFSET` (3 days — tolerates a quota-deferred night), guarded and idempotent; 035 renders the constant. `_pull_fetch_inner` collapsed to one loop for daily/minute with per-symbol `ProviderResponseError` skip and a `PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS` abort; 402 message names the quota. Unpark pull (issue #19) completed: 13,081 symbols, 11,886 ok / 1,195 empty / 0 errors, ~94.6k requests; every frozen symbol has bars through 2026-08-28.
+
+---
+
 **0.11.1 — minute seed-gate fix (issue #19).** Post-265-cutover review of `mt data status` found ~7,300 of 13,083 active symbols with frozen minute data: `_do_minute_symbol`'s `_needs_seed` gate (no bars / no gap rows / has UNKNOWN) never fires for a symbol whose rows are all terminal, so one empty trailing-day fetch (`EMPTY` → `PROVIDER_HOLE`) parked a symbol permanently — mass event 2026-08-06/07 (6,384 symbols), then 166–748/week. Fix: the preflight SELECT also reads the gap frontier (`MAX(gap_end)`); when the full-seed gate doesn't fire and frontier < target_end, seed exactly `[frontier, target_end]` — never `history_start`, because `update_data_gaps` deletes rows contained in its window and would resurrect every genuine provider hole. Five regression tests (`TestTrailingSeedAfterTerminalGaps`). Daily is unaffected (no such gate). Recovery of already-parked spans: one `mt data pull 1m --universe --reset --start 2026-06-01` after the release lands (dry-run measured: 1,719 terminal rows in window). Also observed, still open: `minute_5min/15min_ohlcv` caggs materialized only to 2026-08-07 with policies reporting Success.
 
 ---
