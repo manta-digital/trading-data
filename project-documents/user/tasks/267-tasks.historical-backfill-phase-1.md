@@ -316,28 +316,28 @@ tier*: same shapes, same cursor pagination as the live endpoints.
 Design *State*, *Technical Decision 5* (adapters over 265's abstractions),
 *Architecture* step 1 (the behind-cutoff query).
 
-- [ ] **Task 4.1: `TradeRepository` gains a surface** (effort: 2)
-  - [ ] `TradeRepository.__init__(conn, rule, *, surface: Surface =
+- [x] **Task 4.1: `TradeRepository` gains a surface** (effort: 2)
+  - [x] `TradeRepository.__init__(conn, rule, *, surface: Surface =
         Surface.TRADES)`; `read_state`, `advance_watermark`,
         `set_last_full_sync` bind `self._surface` instead of
         `Surface.TRADES`. `write_page` is untouched — the tape is one table.
-  - [ ] `init_state(watermark, coverage_from)` replaces `init_state(cutoff)`
+  - [x] `init_state(watermark, coverage_from)` replaces `init_state(cutoff)`
         (the live caller passes the cutoff twice — one call site in
         `TradeSync._state`). Same `ON CONFLICT DO NOTHING`.
-  - [ ] New `read_live_coverage_from() -> datetime | None`: the live
+  - [x] New `read_live_coverage_from() -> datetime | None`: the live
         `trades` row's `coverage_from_ts`, or `None` when the live phase has
         never run (the historical row is seeded from it — Criterion 2).
-  - [ ] New `read_cursor() -> str | None` and `set_cursor(cursor: str |
+  - [x] New `read_cursor() -> str | None` and `set_cursor(cursor: str |
         None)` on `self._surface` — the archive walk's resume point
         (Decision 9; `sync_state.cursor` exists since kalshi_003 and
         `CatalogRepository._set_state_column` types its value as a
         datetime, so this is its own small statement, `ON CONFLICT` like
         the others). `None` clears it.
-  - [ ] Success: the existing trades unit and integration suites pass
+  - [x] Success: the existing trades unit and integration suites pass
         unchanged apart from the `init_state` signature.
 
-- [ ] **Task 4.2: `TradeRepository` integration tests** (effort: 2)
-  - [ ] In `test/integration/test_kalshi_trades.py`'s state class: a
+- [x] **Task 4.2: `TradeRepository` integration tests** (effort: 2)
+  - [x] In `test/integration/test_kalshi_trades.py`'s state class: a
         repository built with `surface=Surface.HISTORICAL` reads `None`
         before any row, `init_state(w, f)` writes exactly that row and leaves
         the `trades` row absent, `advance_watermark` on the historical row
@@ -346,26 +346,26 @@ Design *State*, *Technical Decision 5* (adapters over 265's abstractions),
         round-trips a string
         and `None` clears it without touching the watermark. Both rows can
         coexist (the CHECK from Section 2).
-  - [ ] Success: the cases pass in the integration tier.
+  - [x] Success: the cases pass in the integration tier.
 
-- [ ] **Task 4.3: `CandleRepository.pending_behind_cutoff`** (effort: 2)
-  - [ ] Beside `pending_backlog`: `pending_behind_cutoff(period, cutoff,
+- [x] **Task 4.3: `CandleRepository.pending_behind_cutoff`** (effort: 2)
+  - [x] Beside `pending_backlog`: `pending_behind_cutoff(period, cutoff,
         limit) -> list[PendingMarket]` — `MARKET_JOIN` + the `"ever"` form +
         `BEHIND_CUTOFF_CONDITION` (composed, never re-spelled) + `m.open_time
         IS NOT NULL`, ordered `settlement_ts, ticker`, `LIMIT %(limit)s`.
         It does **not** go through `_pending` (that fragment's watermark
         clause is for the live sets) — say so in the docstring.
-  - [ ] Its complement, `count_behind_cutoff`, already exists; the phase
+  - [x] Its complement, `count_behind_cutoff`, already exists; the phase
         reports the count after its writes (Criterion 5).
-  - [ ] Success: an integration test in `test/integration/test_kalshi_candles.py`
+  - [x] Success: an integration test in `test/integration/test_kalshi_candles.py`
         — seed three finalized markets before the cutoff (one already
         stamped, one with a NULL `open_time`) and one after: the query
         returns exactly the one unstamped, open-timed, pre-cutoff market;
         `limit=0` returns nothing; the count excludes the stamped one.
 
-- [ ] **Task 4.4: Section 4 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as the Context Summary, scoped to the files touched.
-  - [ ] Commit: `refactor: parameterise TradeRepository by surface and add
+- [x] **Task 4.4: Section 4 gates and checkpoint commit** (effort: 1)
+  - [x] Gates as the Context Summary, scoped to the files touched.
+  - [x] Commit: `refactor: parameterise TradeRepository by surface and add
         the behind-cutoff query`.
 
 ## Section 5: `TradeSync` walks in either direction

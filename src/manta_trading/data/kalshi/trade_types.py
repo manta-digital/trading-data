@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -30,6 +31,17 @@ class TradeSource(Protocol):
     ) -> TradesPage: ...
 
     async def get_historical_cutoff(self) -> HistoricalCutoff: ...
+
+
+class WindowDirection(StrEnum):
+    """Which way ``TradeSync.drain`` walks its one-hour windows (slice 267,
+    Decision 5): the live phase forward from the watermark to the pass bound,
+    the historical phase backward from the live floor to
+    ``HISTORICAL_TRADES_FLOOR``. The watermark moves to each window's far
+    edge in the walk's direction."""
+
+    FORWARD = "forward"
+    BACKWARD = "backward"
 
 
 class TradesBehindCutoffError(Exception):

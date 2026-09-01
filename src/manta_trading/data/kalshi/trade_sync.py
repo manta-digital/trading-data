@@ -9,6 +9,12 @@ watermark advanced once per fully walked window → ``sync_state`` → the
 ``phase_finished`` event. Sequential on the run's single connection
 (Decision 9).
 
+The window loop is :meth:`TradeSync.drain`, public and parameterised by
+:class:`WindowDirection` (slice 267, Decision 5): ``run`` drives it forward
+for the live tape; the historical core drives it backward over a
+``historical``-surface repository and an adapter source, under its own
+request cap, and owns its own event — ``drain`` emits none.
+
 Failure taxonomy: a ``ProviderError`` aborts the phase (``PROVIDER_ABORT``);
 ``psycopg.OperationalError`` aborts it (``STORAGE_ABORT``); every other
 ``psycopg.Error`` propagates as a bug; ``TradesBehindCutoffError`` propagates
@@ -49,6 +55,7 @@ from manta_trading.data.kalshi.trade_types import (
     TradeResult,
     TradesBehindCutoffError,
     TradeSource,
+    WindowDirection,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,12 +84,18 @@ class TradeSync:
         rule: CollectionRule,
         run_id: UUID,
         clock: Callable[[], datetime] = _utc_now,
+        direction: WindowDirection = WindowDirection.FORWARD,
+        cap: int = TRADE_REQUESTS_PER_PASS,
     ) -> None:
         self.source = source
         self.repository = repository
         self._sink: SyncEventSink = sink if sink is not None else NullSyncEventSink()
         self.rule = rule
         self.clock = clock
+        self.direction = direction
+        #: Decision 8 (265) / Decision 2 (267): page requests per run, checked
+        #: before each window — a run exceeds it by at most one window.
+        self.cap = cap
         self.result = TradeResult(run_id=run_id, started_at=clock())
 
     # ------------------------------------------------------------------
@@ -116,7 +129,10 @@ class TradeSync:
                     "kalshi trades phase: no completed catalog walk; nothing fetched"
                 )
             else:
-                await self._windows(state.watermark_ts, walk_start)
+                # Decision 5: the pass bound trails the catalog walk's start.
+                await self.drain(
+                    state.watermark_ts, walk_start - TRADE_LATE_ARRIVAL_GUARD
+                )
             async with self.repository.transaction():
                 await self.repository.set_last_full_sync(phase_start)
             self._log_unknown_prefixes()
@@ -153,28 +169,50 @@ class TradeSync:
         self.result.watermark_after = started.watermark_ts
         return started
 
-    async def _windows(self, watermark: datetime, walk_start: datetime) -> None:
-        """Steps 2–3: windows oldest-first from the watermark up to the pass
-        bound. Two bounds, two names: ``phase_end`` is where the pass stops
-        (Decision 5); ``window_end`` is where one window stops. The cap is
-        checked before each window, so a pass exceeds it by at most one
-        window (Decision 8)."""
-        phase_end = walk_start - TRADE_LATE_ARRIVAL_GUARD
-        start = watermark
-        while start < phase_end:
-            if self.result.requests >= TRADE_REQUESTS_PER_PASS:
+    async def drain(self, start: datetime, bound: datetime) -> None:
+        """Steps 2–3: one-hour windows from ``start`` toward ``bound`` in
+        this instance's direction, the watermark moved to each window's far
+        edge once its last page committed. Forward: ``[start, start+1h)``
+        up to the bound; backward: ``[start-1h, start)`` down to it — the
+        last window is clamped to the bound either way. The cap is checked
+        before each window, so a run exceeds it by at most one window.
+        Emits no event: ``run`` owns the trades event, the historical core
+        its own (slice 267)."""
+        backward = self.direction is WindowDirection.BACKWARD
+        while (start > bound) if backward else (start < bound):
+            if self.result.requests >= self.cap:
                 self.result.capped = True
                 logger.info(
-                    "kalshi trades cap reached: requests=%d >= %d; the next pass "
+                    "kalshi %s cap reached: requests=%d >= %d; the next run "
                     "continues from watermark=%s",
+                    self._label,
                     self.result.requests,
-                    TRADE_REQUESTS_PER_PASS,
+                    self.cap,
                     start.isoformat(),
                 )
                 return
-            window_end = min(start + TRADE_WINDOW, phase_end)
-            await self._window(start, window_end)
-            start = window_end
+            if backward:
+                far_edge = max(start - TRADE_WINDOW, bound)
+                await self._window(far_edge, start)
+            else:
+                far_edge = min(start + TRADE_WINDOW, bound)
+                await self._window(start, far_edge)
+            await self._advance(far_edge)
+            start = far_edge
+
+    @property
+    def _label(self) -> str:
+        """The repository's surface — what tells the two drains apart in the
+        journal (``trades window …`` / ``historical window …``)."""
+        return str(self.repository.surface)
+
+    async def _advance(self, far_edge: datetime) -> None:
+        """Data Flow step 5: the window is fully walked; the watermark moves
+        to its far edge in its own transaction."""
+        async with self.repository.transaction():
+            await self.repository.advance_watermark(far_edge)
+        self.result.watermark_after = far_edge
+        self.result.windows_completed += 1
 
     # ------------------------------------------------------------------
     # One window (Data Flow steps 4–5)
@@ -182,7 +220,8 @@ class TradeSync:
 
     async def _window(self, start: datetime, window_end: datetime) -> None:
         """Page through ``[start − overlap, window_end]``, one transaction
-        per page; the watermark moves only after the last page."""
+        per page. The caller moves the watermark afterwards (``_advance``),
+        so it moves only after the last page — in either direction."""
         result = self.result
         window = PageCounts(0, 0, 0, 0, 0)
         pages = 0
@@ -206,17 +245,14 @@ class TradeSync:
             if not page.cursor:
                 break
             cursor = page.cursor
-        async with self.repository.transaction():
-            await self.repository.advance_watermark(window_end)
-        result.watermark_after = window_end
-        result.windows_completed += 1
         result.trades_fetched += window.fetched
         result.trades_written += window.written
         result.unknown_market += window.unknown_market
         result.excluded_by_rule += window.excluded_by_rule
         result.duplicates += window.duplicates
         logger.info(
-            "trades window %s→%s pages %d fetched %d written %d unknown %d excluded %d",
+            "%s window %s→%s pages %d fetched %d written %d unknown %d excluded %d",
+            self._label,
             start.isoformat(),
             window_end.isoformat(),
             pages,
