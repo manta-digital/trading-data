@@ -317,6 +317,76 @@ class TestPendingSets:
         assert [r.ticker for r in second] == ["B2", "B3"]
 
 
+class TestBehindCutoff:
+    """Slice 267, Task 4.3: ``pending_behind_cutoff`` is the historical
+    phase's candle set — finalized before the cutoff, no state row, an open
+    time — and ``count_behind_cutoff`` is its uncapped complement (which does
+    not require an open time)."""
+
+    async def test_returns_only_the_unstamped_open_timed_pre_cutoff_market(
+        self, kalshi_repo: CatalogRepository, repo: CandleRepository
+    ):
+        template = _template()
+
+        def market(ticker: str, settled: datetime, **overrides: Any) -> km.Market:
+            return template.model_copy(
+                update={
+                    "ticker": ticker,
+                    "event_ticker": "E-H",
+                    "open_time": settled - timedelta(days=1),
+                    **finalized(settled, volume_fp=Decimal(10)),
+                    **overrides,
+                }
+            )
+
+        markets = [
+            market("H-PENDING", CUTOFF - timedelta(days=3)),
+            market("H-STAMPED", CUTOFF - timedelta(days=2)),
+            market("H-NO-OPEN", CUTOFF - timedelta(days=1), open_time=None),
+            market("A-BACKLOG", CUTOFF + timedelta(days=1)),
+        ]
+        series = [km.Series(ticker="E-H-SERIES", category="Politics", title="h")]
+        await write_catalog(kalshi_repo, markets, series)
+        stamped_close = markets[1].close_time
+        async with repo.transaction():
+            await repo.advance_state(
+                PERIOD,
+                [StateAdvance("H-STAMPED", stamped_close + SPAN, stamped_close)],
+            )
+
+        pending = await repo.pending_behind_cutoff(PERIOD, CUTOFF, limit=10)
+        assert [r.ticker for r in pending] == ["H-PENDING"]
+        assert pending[0].watermark_ts is None
+        assert await repo.pending_behind_cutoff(PERIOD, CUTOFF, limit=0) == []
+        # The count excludes the stamped market; the NULL-open market is
+        # counted (it is behind the cutoff) but never fetched (no window).
+        assert await repo.count_behind_cutoff(PERIOD, CUTOFF) == 2
+        assert await repo.count_backlog_remaining(PERIOD, CUTOFF) == 1
+
+    async def test_oldest_settlement_first_under_the_cap(
+        self, kalshi_repo: CatalogRepository, repo: CandleRepository
+    ):
+        template = _template()
+        markets = [
+            template.model_copy(
+                update={
+                    "ticker": f"H{i}",
+                    "event_ticker": "E-H",
+                    "open_time": CUTOFF - timedelta(days=30),
+                    **finalized(CUTOFF - timedelta(days=i + 1), volume_fp=Decimal(10)),
+                }
+            )
+            for i in range(4)
+        ]
+        series = [km.Series(ticker="E-H-SERIES", category="Politics", title="h")]
+        await write_catalog(kalshi_repo, markets, series)
+        first = await repo.pending_behind_cutoff(PERIOD, CUTOFF, limit=2)
+        assert [r.ticker for r in first] == ["H3", "H2"]
+        # ``None``: the whole set, once the tape has reached its floor.
+        every = await repo.pending_behind_cutoff(PERIOD, CUTOFF, limit=None)
+        assert [r.ticker for r in every] == ["H3", "H2", "H1", "H0"]
+
+
 class TestWrites:
     async def test_candle_columns_parity(
         self, kalshi_conn: psycopg.AsyncConnection[Any]

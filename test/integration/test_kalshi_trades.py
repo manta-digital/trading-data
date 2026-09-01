@@ -244,10 +244,10 @@ class TestState:
         self, repo: TradeRepository
     ):
         async with repo.transaction():
-            await repo.init_state(CUTOFF)
+            await repo.init_state(CUTOFF, CUTOFF)
         assert await repo.read_state() == TradeState(CUTOFF, CUTOFF)
         async with repo.transaction():
-            await repo.init_state(CUTOFF + timedelta(days=1))
+            await repo.init_state(CUTOFF + timedelta(days=1), CUTOFF)
         assert await repo.read_state() == TradeState(CUTOFF, CUTOFF)
 
     async def test_advance_watermark_leaves_the_coverage_floor(
@@ -255,7 +255,7 @@ class TestState:
     ):
         window_end = CUTOFF + timedelta(hours=1)
         async with repo.transaction():
-            await repo.init_state(CUTOFF)
+            await repo.init_state(CUTOFF, CUTOFF)
             await repo.advance_watermark(window_end)
             await repo.set_last_full_sync(WALK_START)
         assert await repo.read_state() == TradeState(window_end, CUTOFF)
@@ -270,6 +270,90 @@ class TestState:
         async with kalshi_repo.transaction():
             await kalshi_repo.set_last_full_sync(Surface.CATALOG, WALK_START)
         assert await repo.read_catalog_walk_start() == WALK_START
+
+
+FLOOR = datetime(2026, 1, 1, tzinfo=UTC)
+LIVE_FLOOR = datetime(2026, 7, 1, tzinfo=UTC)
+
+
+class TestHistoricalSurfaceState:
+    """Slice 267, Task 4.2: the same repository over ``surface=HISTORICAL``
+    binds only its own row; the live ``trades`` row is read, never written."""
+
+    @pytest.fixture()
+    def historical(self, kalshi_conn: psycopg.AsyncConnection[Any]) -> TradeRepository:
+        return TradeRepository(kalshi_conn, RULE_C, surface=Surface.HISTORICAL)
+
+    async def test_reads_none_before_any_row(self, historical: TradeRepository):
+        assert historical.surface is Surface.HISTORICAL
+        assert await historical.read_state() is None
+        assert await historical.read_cursor() is None
+        assert await historical.read_live_coverage_from() is None
+
+    async def test_init_state_writes_only_its_row(
+        self, historical: TradeRepository, repo: TradeRepository
+    ):
+        async with historical.transaction():
+            await historical.init_state(LIVE_FLOOR, FLOOR)
+        assert await historical.read_state() == TradeState(LIVE_FLOOR, FLOOR)
+        assert await repo.read_state() is None
+
+    async def test_advance_watermark_moves_only_the_historical_row(
+        self, historical: TradeRepository, repo: TradeRepository
+    ):
+        async with repo.transaction():
+            await repo.init_state(CUTOFF, CUTOFF)
+        async with historical.transaction():
+            await historical.init_state(LIVE_FLOOR, FLOOR)
+            await historical.advance_watermark(LIVE_FLOOR - timedelta(hours=1))
+            await historical.set_last_full_sync(WALK_START)
+        assert await historical.read_state() == TradeState(
+            LIVE_FLOOR - timedelta(hours=1), FLOOR
+        )
+        assert await repo.read_state() == TradeState(CUTOFF, CUTOFF)
+
+    async def test_live_coverage_from_is_the_trades_row(
+        self, historical: TradeRepository, repo: TradeRepository
+    ):
+        assert await historical.read_live_coverage_from() is None
+        async with repo.transaction():
+            await repo.init_state(CUTOFF, LIVE_FLOOR)
+        assert await historical.read_live_coverage_from() == LIVE_FLOOR
+        # And it is the live row, not this surface's own floor.
+        async with historical.transaction():
+            await historical.init_state(LIVE_FLOOR, FLOOR)
+        assert await historical.read_live_coverage_from() == LIVE_FLOOR
+
+    async def test_cursor_round_trips_and_none_clears_it(
+        self, historical: TradeRepository
+    ):
+        async with historical.transaction():
+            await historical.init_state(LIVE_FLOOR, FLOOR)
+            await historical.set_cursor("page-2")
+        assert await historical.read_cursor() == "page-2"
+        assert await historical.read_state() == TradeState(LIVE_FLOOR, FLOOR)
+        async with historical.transaction():
+            await historical.set_cursor(None)
+        assert await historical.read_cursor() is None
+        assert await historical.read_state() == TradeState(LIVE_FLOOR, FLOOR)
+
+    async def test_set_cursor_before_init_creates_the_row(
+        self, historical: TradeRepository
+    ):
+        """``ON CONFLICT`` like the other state statements: a cursor saved on
+        a fresh surface creates its row with no watermark."""
+        async with historical.transaction():
+            await historical.set_cursor("page-1")
+        assert await historical.read_cursor() == "page-1"
+        assert await historical.read_state() == TradeState(None, None)
+        # Set once (slice 267, Decision 9): the walk's row has NULL instants
+        # until the tape is seeded; init_state fills them and never
+        # overwrites a set one afterwards.
+        async with historical.transaction():
+            await historical.init_state(LIVE_FLOOR, FLOOR)
+            await historical.init_state(LIVE_FLOOR + timedelta(days=9), FLOOR)
+        assert await historical.read_state() == TradeState(LIVE_FLOOR, FLOOR)
+        assert await historical.read_cursor() == "page-1"
 
 
 class _CountingConnection:

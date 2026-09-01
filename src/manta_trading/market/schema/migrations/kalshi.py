@@ -454,4 +454,78 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
             GRANT SELECT, INSERT, UPDATE, DELETE ON kalshi.trades TO {APP_ROLE};
         """,
     },
+    {
+        "id": "kalshi_007_historical_surface",
+        "description": (
+            "Widen sync_state_surface_check to the historical surface and add "
+            "its clauses to the sync_state comments"
+        ),
+        # Slice 267, Decision 7. The historical backfill phase keeps its own
+        # ``sync_state`` row (``surface = 'historical'``), so the CHECK that
+        # kalshi_003 rendered from ``Surface`` must admit the new member. On a
+        # fresh apply this migration is a no-op in effect: kalshi_003 renders
+        # ``_surface_check_sql()`` from the *current* enum, which already
+        # includes ``historical``, so the constraint dropped here is
+        # re-created identically. Production still needs it: its constraint
+        # was rendered on 2026-08-25, before ``historical`` existed, and the
+        # enum member alone changes nothing already in the database. DROP IF
+        # EXISTS + ADD keeps it idempotent; the enum stays the single source.
+        #
+        # ``COMMENT ON`` replaces the whole string, so the catalog,
+        # candlesticks, and trades clauses of ``watermark_ts`` and
+        # ``coverage_from_ts`` are carried forward from kalshi_006 verbatim
+        # and only the historical clause is added. ``cursor`` gains one too:
+        # the archive walk is the first user of the column (Decision 9).
+        "sql": f"""
+            ALTER TABLE kalshi.sync_state
+                DROP CONSTRAINT IF EXISTS sync_state_surface_check;
+            ALTER TABLE kalshi.sync_state
+                ADD CONSTRAINT sync_state_surface_check {_surface_check_sql()};
+            COMMENT ON TABLE kalshi.sync_state IS
+                'One row per collection surface (catalog, candlesticks, trades, '
+                'historical).';
+            COMMENT ON COLUMN kalshi.sync_state.watermark_ts IS
+                'catalog: settlement_ts upper bound of the last completed '
+                'settled window - every non-MVE market with settlement_ts '
+                'before this has been captured; NULL until the first window '
+                'completes. trades: the tape is complete through this instant '
+                '(end of the last fully walked window) - NOT the newest '
+                'stored trade (slice 265, Decision 1). candlesticks: '
+                'market_settled_ts of the historical cutoff observed by the '
+                'last candle phase (slice 264, Decision 11). historical: the '
+                'oldest hour fully walked backward; moves DOWN, never past '
+                'coverage_from_ts (slice 267).';
+            COMMENT ON COLUMN kalshi.sync_state.coverage_from_ts IS
+                'trades: the instant the stored tape starts (the trades cutoff '
+                'observed on the first run); set once, never moved (slice 265, '
+                'Decision 2). historical: the target floor '
+                '(HISTORICAL_TRADES_FLOOR), recorded so status can show the '
+                'distance (slice 267). NULL for other surfaces.';
+            COMMENT ON COLUMN kalshi.sync_state.cursor IS
+                'catalog: unused - windows replace cursor resume. trades: '
+                'unused - windows replace cursor resume (slice 265, Decision '
+                '7). historical: the archive walk''s resume cursor while the '
+                'walk is in progress; NULL before it starts and after it '
+                'completes (slice 267, Decision 9).';
+        """,
+    },
+    {
+        "id": "kalshi_008_amended_status",
+        "description": "Widen markets_status_check to the amended market status",
+        # 2026-09-01: Kalshi began serving ``status: "amended"`` (a closed
+        # market with a result and no settlement_ts — a determination under
+        # amendment). The CHECK kalshi_002 rendered from ``MarketStatus``
+        # predates the member, so production's catalog phase skipped those
+        # markets as item errors (exit 3) every hour — the designed loud
+        # failure. ``MarketStatus.AMENDED`` is the one-line fix; this
+        # migration re-renders the constraint from the enum, as kalshi_007
+        # does for sync_state. A fresh apply is a no-op in effect (kalshi_002
+        # already renders the current enum); idempotent by DROP IF EXISTS.
+        "sql": f"""
+            ALTER TABLE kalshi.markets
+                DROP CONSTRAINT IF EXISTS markets_status_check;
+            ALTER TABLE kalshi.markets
+                ADD CONSTRAINT markets_status_check {_status_check_sql()};
+        """,
+    },
 ]

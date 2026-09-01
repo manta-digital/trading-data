@@ -72,6 +72,31 @@ uv run python scripts/cutover_265_trades.py v0.11.0
 Exit 0 means every check in the report passed. Each step is check-then-act, so
 a failed run is fixed and re-run with the same command.
 
+### kalshi_endpoint_costs.py
+Prints Kalshi's per-endpoint request costs (`GET /account/endpoint_costs`) as
+JSON. The endpoint is authenticated, so the script exits non-zero — naming the
+missing variables — when the given env file holds no key pair. Read once for
+the 267 design; nothing in the application uses it.
+
+**Usage (on manta9000, where the key is installed):**
+```bash
+sudo uv run python scripts/kalshi_endpoint_costs.py --env-file /etc/manta-trading.env
+```
+
+### cutover_267_historical.py
+Cuts slice 267 (Kalshi historical backfill phase) over to production: holds
+the Kalshi timer, installs the ref, applies `kalshi_007_historical_surface`,
+fires the first supervised pass (the archive walk — hours; fires again if the
+cap saved a cursor), fires once more after the walk to measure Criterion 6,
+writes the report to `project-documents/user/notes/`, and releases the timer.
+Shared host helpers live in `cutover_common.py`; the report parsing is unit
+tested in `test/unit/test_cutover_267.py`.
+
+**Usage (dev checkout root, after the release tag is pushed):**
+```bash
+uv run python scripts/cutover_267_historical.py v0.12.0
+```
+
 ## Other Scripts
 
 ### update-guides

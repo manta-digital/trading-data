@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20260831
+dateUpdated: 20260901
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -415,7 +415,9 @@ missing, database unreachable, track not applied, lock held) · 2 provider abort
 · 3 partial (item errors — a market whose status the model does not know) · 4
 storage abort. Exit 3 fails the unit **on purpose**: if Kalshi starts serving a
 status outside the known set, every pass fails visibly until the one-line fix
-ships, rather than succeeding while rows are silently skipped.
+ships, rather than succeeding while rows are silently skipped. (It happened on
+2026-09-01: `amended` appeared, the pass went `partial` for a few hours, and
+v0.12.0 admits it with `kalshi_008_amended_status`.)
 
 **Applying the Kalshi schema track** is the normal migration step under
 *Update procedure* — the units never run migrations:
@@ -484,10 +486,50 @@ where hypertable_schema = 'kalshi' and hypertable_name = 'trades' and proc_name 
 Only the chunk under the watermark can ever be met mid-write. If a firing's
 `trades window` journal lines show a window taking minutes rather than
 seconds during the drain, that chunk was compressed by the policy: pause the
-job for the remainder of the drain the same way slice 266 pauses it
+job for the remainder of the drain
 (`alter_job(job_id, scheduled => false)`, the id resolved by the query above
 at the time, with the maintenance credential — the application role cannot
-alter jobs) and resume it after. Never automated.
+alter jobs) and resume it after. Never automated — the historical phase
+below writes into compressed chunks with the policy **on** (the 265
+rehearsal measured no penalty) and only warns; this lever stays yours.
+
+**The pass has four phases since v0.12.0 (slice 267): catalog,
+candlesticks, trades, then historical.** The historical phase backfills
+what Kalshi serves only from its archive, under one request cap sized from
+the client's rate budget — `HISTORICAL_PHASE_MINUTES` (30) of it: **30,000
+requests authenticated, 9,000 public** — so a firing never runs the phase
+longer than about half an hour and the whole pass stays under ~40 minutes
+during the drain. Each firing, in order: (0) **the archive walk, once** —
+`GET /historical/markets` newest-first into the catalog, millions of settled
+markets the live catalog never saw, the cursor saved after every page so the
+cap or an abort resumes it; **the first firing after install runs hours**,
+and a timer firing that lands while it runs exits 1 on the run lock —
+expected, as in the cold start above; (1) candles for the finalized markets
+behind the historical cutoff (`status` → `behind cutoff, uncollected`), up to
+1,000 markets per firing while the tape is still descending and as many as
+the budget allows once it is not; (2) the public trade tape walked
+**backward** in one-hour windows from the live tape's floor toward
+`HISTORICAL_TRADES_FLOOR` (2026-01-01T00:00Z, a constant in
+`data/kalshi/constants.py` — extending the range later is that one edit;
+the phase simply continues downward). About fifteen authenticated firings
+reach the floor. `kalshi_007_historical_surface` must be applied during the
+update; a firing between install and apply exits 1 with `kalshi track has
+pending migrations: kalshi_007_historical_surface` — expected. **Reading the
+status line:** `mt-run data kalshi status` prints
+`Kalshi historical  tape 2026-07-01 → 2026-05-14 (floor 2026-01-01) ·
+behind-cutoff candles remaining 7,994 · last phase …` — the historical tape
+range grows downward every firing until it reads `floor reached`; `archive walk in
+progress` replaces the range while the first walk is still running;
+`Historical: never run` before the first firing. The trades block's
+`coverage from` and `before coverage` measure against the **effective
+floor** (the lower of the live floor and the historical watermark), so
+`before coverage` shrinks as the tape descends. **An archived market whose
+candles Kalshi will not serve** shows as `historical=partial` (exit 3, the
+unit fails) with the ticker in the journal's `historical: <ticker> skipped`
+line; it is retried every firing rather than aborting the drain. A market
+whose candles take longer than 30 s to fetch and write logs
+`kalshi historical slow market …` — the signal that candle writes into a
+compressed chunk are slow; the pause lever above is the remedy, by hand.
 
 **A dead terminal drops the view, not the pass.** `sudo mt-run kalshi`
 streams the journal, but the pass is a systemd unit and keeps running if the
@@ -505,9 +547,10 @@ from timescaledb_information.jobs j join timescaledb_information.job_stats using
 where hypertable_schema = 'kalshi' and hypertable_name = 'candlesticks' and proc_name = 'policy_compression';
 ```
 
-A historical backfill (slice 266) writes months-old rows into compressed
-chunks and must pause that job for its drain (`alter_job(job_id, scheduled
-=> false)`, resolved by the query above at the time) and resume it after.
+The historical phase (slice 267) writes months-old candles into compressed
+chunks with this policy on and only warns when a market is slow; pausing the
+job for a drain (`alter_job(job_id, scheduled => false)`, resolved by the
+query above at the time) and resuming it after remains the manual lever.
 
 **Is the rate budget too high?** The client retries a 429 with backoff and logs
 a WARNING per retry, so the journal answers it directly:

@@ -10,7 +10,11 @@ Neither the client nor the transport is imported (Criterion 11).
 The four closed-market counts partition the selected closed markets, in
 this precedence — a market is counted once, by the first that applies:
 
-1. ``before_coverage`` — closed before the tape starts (266's input);
+1. ``before_coverage`` — closed before the **effective floor**: the live
+   floor, or the historical watermark once the historical phase (267) has
+   walked below it — ``min(trades.coverage_from_ts,
+   historical.watermark_ts)`` (267 Decision 8), so the bucket shrinks as
+   the backfill descends;
 2. ``short_of_close`` — the tape has not reached its close yet;
 3. ``partial_history`` — the tape starts mid-life (opened before the
    coverage floor, or with no recorded open — nothing proves the tape covers
@@ -97,6 +101,16 @@ TRADE_COUNTS = sql.SQL(
 )
 
 
+def _effective_floor(conn: psycopg.Connection[Any], live_floor: datetime) -> datetime:
+    """267 Decision 8: the lower of the live floor and the historical row's
+    watermark (the oldest hour the backfill has fully walked); the live floor
+    alone until the historical row exists with a watermark."""
+    row = conn.execute(STATE_QUERY, {"surface": Surface.HISTORICAL.value}).fetchone()
+    if row is None or row[1] is None:
+        return live_floor
+    return min(live_floor, row[1])
+
+
 def read_trade_status(
     conn: psycopg.Connection[Any], rule: CollectionRule
 ) -> TradeStatus | None:
@@ -104,12 +118,13 @@ def read_trade_status(
     state = conn.execute(STATE_QUERY, {"surface": Surface.TRADES.value}).fetchone()
     if state is None:
         return None
-    last_phase_at, watermark, coverage_from, lag = state
-    if watermark is None or coverage_from is None or lag is None:
+    last_phase_at, watermark, live_floor, lag = state
+    if watermark is None or live_floor is None or lag is None:
         raise RuntimeError(
             "kalshi.sync_state['trades'] exists without a watermark or coverage "
             "floor; the row is written only by the trades phase's init_state"
         )
+    coverage_from = _effective_floor(conn, live_floor)
     ever = selection_sql(rule, "ever")
     statement = TRADE_COUNTS.format(catalog=CATALOG_JOIN, ever=ever.predicate)
     row = conn.execute(

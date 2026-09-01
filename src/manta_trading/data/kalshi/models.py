@@ -181,6 +181,59 @@ class Candlestick(KalshiModel):
     open_interest_fp: Decimal | None = None
 
 
+class LegacyPriceOhlc(KalshiModel):
+    """Nested OHLC as ``GET /historical/markets/{ticker}/candlesticks`` serves
+    it (observed live 20260901, slice 267): the same dollar strings as
+    :class:`PriceOhlc`, under the pre-suffix names (``open`` where the live
+    candle says ``open_dollars``, and so on). Kept apart from ``PriceOhlc``
+    on purpose — one model accepting both spellings would parse a drift on
+    either endpoint silently.
+    """
+
+    open: Decimal | None = None
+    high: Decimal | None = None
+    low: Decimal | None = None
+    close: Decimal | None = None
+    previous: Decimal | None = None
+    mean: Decimal | None = None
+
+    def to_price_ohlc(self) -> PriceOhlc:
+        return PriceOhlc(
+            open_dollars=self.open,
+            high_dollars=self.high,
+            low_dollars=self.low,
+            close_dollars=self.close,
+            previous_dollars=self.previous,
+            mean_dollars=self.mean,
+        )
+
+
+class HistoricalCandlestick(KalshiModel):
+    """One candle of the historical endpoint: ``volume`` and ``open_interest``
+    where the live candle says ``volume_fp`` and ``open_interest_fp``, and
+    legacy-named OHLC objects (slice 267). :meth:`to_candlestick` is the one
+    place the two spellings meet; everything downstream of the client sees a
+    :class:`Candlestick`.
+    """
+
+    end_period_ts: datetime
+    yes_bid: LegacyPriceOhlc
+    yes_ask: LegacyPriceOhlc
+    price: LegacyPriceOhlc
+    volume: Decimal
+    open_interest: Decimal | None = None
+
+    def to_candlestick(self) -> Candlestick:
+        return Candlestick(
+            end_period_ts=self.end_period_ts,
+            yes_bid=self.yes_bid.to_price_ohlc(),
+            yes_ask=self.yes_ask.to_price_ohlc(),
+            price=self.price.to_price_ohlc(),
+            volume_fp=self.volume,
+            open_interest_fp=self.open_interest,
+        )
+
+
 class HistoricalCutoff(KalshiModel):
     """``GET /historical/cutoff`` — the moving live/historical boundary."""
 
@@ -229,6 +282,11 @@ class TradesPage(KalshiModel):
 
 class CandlesticksResponse(KalshiModel):
     candlesticks: list[Candlestick]
+    ticker: str | None = None
+
+
+class HistoricalCandlesticksResponse(KalshiModel):
+    candlesticks: list[HistoricalCandlestick]
     ticker: str | None = None
 
 

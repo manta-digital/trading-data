@@ -19,7 +19,15 @@ import httpx
 import pytest
 
 from manta_trading.data.kalshi.client import KalshiClient
-from manta_trading.data.kalshi.constants import CandlePeriod, MarketStatus
+from manta_trading.data.kalshi.constants import (
+    HISTORICAL_MARKET_CANDLESTICKS_PATH,
+    HISTORICAL_MARKETS_PATH,
+    HISTORICAL_TRADES_PATH,
+    MARKETS_PAGE_LIMIT,
+    CandlePeriod,
+    MarketStatus,
+)
+from manta_trading.data.kalshi.models import MarketsPage, TradesPage
 from manta_trading.providers.errors import ProviderPermanentError
 
 FIXTURE_DIR = Path(__file__).resolve().parents[4] / "test" / "fixtures" / "kalshi"
@@ -49,6 +57,11 @@ EXPECTED_FIXTURES = {
     "trades_window",
     "trades_window_last",
     "trades_empty",
+    # slice 267
+    "historical_markets_page",
+    "historical_trades_window",
+    "historical_trades_window_last",
+    "historical_candles_market",
 }
 
 
@@ -376,3 +389,86 @@ class TestSliceBatchFixtures:
         stamps = [m.settlement_ts for m in page.markets if m.settlement_ts is not None]
         assert len(stamps) == len(page.markets)
         assert max(stamps) - min(stamps) <= SETTLED_WINDOW_SPAN
+
+
+class TestHistoricalFixtures:
+    """Slice 267, Task 3.2: the archive page, one archived-tape window pair,
+    and one archived market's candles — recorded 20260901, public mode."""
+
+    async def test_archive_page_is_a_full_finalized_page_with_a_cursor(self):
+        client = serve((HISTORICAL_MARKETS_PATH, 200, "historical_markets_page"))
+        page = await client.get_historical_markets(limit=MARKETS_PAGE_LIMIT)
+        assert isinstance(page, MarketsPage)
+        assert len(page.markets) == MARKETS_PAGE_LIMIT
+        assert page.cursor
+        assert {m.status for m in page.markets} <= {s.value for s in MarketStatus}
+        assert all(m.settlement_ts is not None for m in page.markets)
+        assert all(m.mve_collection_ticker is None for m in page.markets)
+
+    async def test_archive_page_is_served_coarsely_newest_first(self):
+        """Decision 9's stop rule reads the page's settlement order: the
+        first market settled after the last, with overlap allowed inside."""
+        client = serve((HISTORICAL_MARKETS_PATH, 200, "historical_markets_page"))
+        page = await client.get_historical_markets()
+        stamps = [m.settlement_ts for m in page.markets if m.settlement_ts]
+        assert stamps[0] > stamps[-1]
+
+    @pytest.mark.parametrize(
+        ("name", "has_cursor"),
+        [("historical_trades_window", True), ("historical_trades_window_last", False)],
+    )
+    async def test_each_archived_page_parses_into_a_trades_page(
+        self, name: str, has_cursor: bool
+    ):
+        client = serve((HISTORICAL_TRADES_PATH, 200, name))
+        page = await client.get_historical_trades(min_ts=1, max_ts=2, limit=100)
+        assert isinstance(page, TradesPage)
+        assert len(page.trades) == len(body(name)["trades"]) > 0
+        assert bool(page.cursor) is has_cursor
+        for parsed, wire in zip(page.trades, body(name)["trades"], strict=True):
+            assert parsed.trade_id == wire["trade_id"]
+            assert str(parsed.count_fp) == wire["count_fp"]
+
+    def test_archived_trade_has_the_live_trade_field_set(self):
+        """261 Discovery's "same shape as live trades", proven on the wire."""
+        archived = set(body("historical_trades_window")["trades"][0])
+        live = set(body("trades_window")["trades"][0])
+        assert archived == live
+
+    async def test_candles_parse_with_ohlc_through_the_legacy_shape(self):
+        wire = body("historical_candles_market")
+        client = serve(
+            (
+                HISTORICAL_MARKET_CANDLESTICKS_PATH.format(ticker=wire["ticker"]),
+                200,
+                "historical_candles_market",
+            )
+        )
+        candles = await client.get_historical_market_candlesticks(
+            wire["ticker"], start_ts=1, end_ts=2, period_interval=CandlePeriod.MINUTE
+        )
+        assert len(candles) == len(wire["candlesticks"]) > 0
+        first_wire = wire["candlesticks"][0]
+        # The endpoint serves the legacy names; the client maps them.
+        assert {"volume", "open_interest", "price"} <= set(first_wire)
+        assert "volume_fp" not in first_wire
+        assert set(first_wire["price"]) <= {
+            "open",
+            "high",
+            "low",
+            "close",
+            "previous",
+            "mean",
+        }
+        first = candles[0]
+        assert str(first.volume_fp) == first_wire["volume"]
+        assert str(first.price.close_dollars) == first_wire["price"]["close"]
+        assert str(first.price.open_dollars) == first_wire["price"]["open"]
+        assert str(first.yes_bid.high_dollars) == first_wire["yes_bid"]["high"]
+        assert first.open_interest_fp is not None
+
+    def test_candles_fixture_is_the_recorded_window_around_the_first_trade(self):
+        """The recorder pairs the candles with ``historical_trades_window``'s
+        first trade; the fixture's ticker proves the pair is consistent."""
+        first_trade = body("historical_trades_window")["trades"][0]
+        assert body("historical_candles_market")["ticker"] == first_trade["ticker"]

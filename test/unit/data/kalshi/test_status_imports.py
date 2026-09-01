@@ -10,11 +10,12 @@ import sys
 
 import pytest
 
-#: Slice 264's ``status`` and slice 265's ``trade_status`` — both read the
-#: database only.
+#: Slice 264's ``status``, slice 265's ``trade_status``, slice 267's
+#: ``historical_status`` — all read the database only.
 STATUS_MODULES = (
     "manta_trading.data.kalshi.status",
     "manta_trading.data.kalshi.trade_status",
+    "manta_trading.data.kalshi.historical_status",
 )
 #: Criterion 12 names the client and the transport. (``httpx`` itself is not
 #: on the list: ``constants.py`` has imported it for the timeout policy since

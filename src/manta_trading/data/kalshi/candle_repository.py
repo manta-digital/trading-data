@@ -143,6 +143,44 @@ class CandleRepository:
             limit=limit,
         )
 
+    async def pending_behind_cutoff(
+        self, period: CandlePeriod, cutoff: datetime, limit: int | None
+    ) -> list[PendingMarket]:
+        """Selected finalized markets before the cutoff with no state row and
+        a known open — the historical phase's candle set (slice 267,
+        Architecture step 1), oldest settlement first, capped per pass;
+        ``limit=None`` is the whole set (once the tape reached its floor
+        the request cap alone bounds the sub-drain, Decision 9).
+        ``BEHIND_CUTOFF_CONDITION`` is composed, never re-spelled, so this
+        set and ``count_behind_cutoff`` are the same set by construction.
+        Deliberately **not** through ``_pending``: that fragment's
+        ``open_time < phase_start`` / watermark clause describes the live
+        sets; here a state row of any kind removes the market."""
+        selection = selection_sql(self._rule, "ever")
+        statement = sql.Composed(
+            [
+                sql.SQL("SELECT m.ticker, m.open_time, m.close_time, st.watermark_ts "),
+                MARKET_JOIN,
+                sql.SQL("WHERE "),
+                selection.predicate,
+                sql.SQL(" AND "),
+                BEHIND_CUTOFF_CONDITION,
+                sql.SQL(
+                    " AND m.open_time IS NOT NULL ORDER BY m.settlement_ts, m.ticker"
+                ),
+                sql.SQL(" LIMIT %(limit)s") if limit is not None else sql.SQL(""),
+            ]
+        )
+        params: dict[str, object] = {
+            **selection.params,
+            "period": int(period),
+            "cutoff": cutoff,
+            "finalized": MarketStatus.FINALIZED.value,
+            "limit": limit,
+        }
+        cursor = await self._conn.execute(statement, params)
+        return [PendingMarket(*row) for row in await cursor.fetchall()]
+
     async def _pending(
         self,
         form: SelectionForm,
@@ -191,7 +229,7 @@ class CandleRepository:
 
     async def count_behind_cutoff(self, period: CandlePeriod, cutoff: datetime) -> int:
         """Selected finalized markets before the cutoff with no state row —
-        no longer served live; slice 266's input."""
+        no longer served live; the historical phase's input (slice 267)."""
         return await self._count(period, cutoff, BEHIND_CUTOFF_CONDITION)
 
     async def _count(

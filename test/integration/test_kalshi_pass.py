@@ -19,7 +19,7 @@ from urllib.parse import urlparse, urlunparse
 
 import psycopg
 import pytest
-from kalshi_helpers import apply_kalshi_track, column
+from kalshi_helpers import apply_kalshi_track, column, write_catalog
 from kalshi_support.fake_candle_source import make_candle
 from kalshi_support.fake_source import FakeCatalogSource, make_market
 from kalshi_support.fake_trade_source import make_trade
@@ -31,14 +31,23 @@ from manta_trading.data.kalshi.candle_plan import last_complete_period
 from manta_trading.data.kalshi.client import KalshiClient
 from manta_trading.data.kalshi.constants import (
     COLLECTED_CANDLE_PERIOD,
+    HISTORICAL_PHASE_MINUTES,
+    HISTORICAL_TRADES_FLOOR,
     SYNC_ADVISORY_LOCK_KEY,
     MarketStatus,
     MarketStatusFilter,
     Surface,
 )
 from manta_trading.data.kalshi.db import LOCK_HELD, open_sync_connection
+from manta_trading.data.kalshi.repository import CatalogRepository
 from manta_trading.data.kalshi.sync_types import SyncOutcome
-from manta_trading.providers.errors import ProviderTransientError
+from manta_trading.data.kalshi.trade_repository import TradeRepository
+from manta_trading.data.kalshi.trade_status import read_trade_status
+from manta_trading.providers.errors import (
+    ProviderPermanentError,
+    ProviderTransientError,
+)
+from manta_trading.providers.types import RateLimit
 
 #: The tables the two commands must leave identical (Criterion 1).
 _CATALOG_TABLES = ("series", "events", "markets")
@@ -48,11 +57,20 @@ _CATALOG_TABLES = ("series", "events", "markets")
 _TRADES_CUTOFF_AGO = timedelta(hours=3)
 
 
+#: Slice 267: the historical phase's cap derives from the client budget
+#: (``requests_per_minute × HISTORICAL_PHASE_MINUTES``). One request a minute
+#: gives a cap of 30, so a pass whose live floor is the fake cutoff descends a
+#: couple of dozen empty hours instead of walking to 2026-01-01.
+_PASS_BUDGET = RateLimit(requests_per_minute=1)
+_HISTORICAL_CAP = _PASS_BUDGET.requests_per_minute * HISTORICAL_PHASE_MINUTES
+
+
 def _pass_source(page_size: int | None = None) -> FakeCatalogSource:
     """``_source`` with the trades cutoff ``_TRADES_CUTOFF_AGO`` back."""
     source = _source(page_size)
     cutoff = datetime.now(UTC).replace(microsecond=0) - _TRADES_CUTOFF_AGO
     source.cutoff = source.cutoff.model_copy(update={"trades_created_ts": cutoff})
+    source.rate_limit = _PASS_BUDGET
     return source
 
 
@@ -111,12 +129,16 @@ class TestPassEndToEnd:
         assert summary["phases"][0]["outcome"] == "ok"
         catalog = summary["phases"][0]["summary"]
         assert catalog["phases"]["markets"]["written"] == 3
-        # Every phase wrote its surface's row (264 candlesticks, 265 trades).
+        # Every phase wrote its surface's row (264 candlesticks, 265 trades,
+        # 267 historical — seeded from the live floor in the same pass).
         assert await _sync_state(kalshi_conn) == [
             "(candlesticks,t,t)",
             "(catalog,t,t)",
+            "(historical,t,t)",
             "(trades,t,t)",
         ]
+        historical = summary["phases"][3]["summary"]
+        assert historical["cap"] == _HISTORICAL_CAP and historical["capped"] is True
         assert source.closed is True
 
     async def test_second_pass_writes_nothing(
@@ -156,10 +178,12 @@ class TestPassEndToEnd:
             "run_finished",
             "phase_finished",  # the candle phase (slice 264)
             "phase_finished",  # the trades phase (slice 265)
+            "phase_finished",  # the historical phase (slice 267)
             "pass_finished",
         ]
-        assert events[-3]["phase"] == "candles"
-        assert events[-2]["phase"] == "trades"
+        assert events[-4]["phase"] == "candles"
+        assert events[-3]["phase"] == "trades"
+        assert events[-2]["phase"] == "historical"
         assert len({e["run_id"] for e in events}) == 1
 
 
@@ -344,6 +368,7 @@ class TestTwoPhasePass:
             "catalog",
             "candles",
             "trades",
+            "historical",
         ]
         candles = summary["phases"][1]["summary"]
         assert candles["candles_written"] == 2
@@ -506,6 +531,7 @@ class TestThreePhasePass:
             "catalog",
             "candles",
             "trades",
+            "historical",
         ]
         trades = summary["phases"][2]["summary"]
         assert trades["trades_fetched"] == 3
@@ -560,6 +586,7 @@ class TestThreePhasePass:
             str(SyncOutcome.OK),
             str(SyncOutcome.OK),
             str(SyncOutcome.PROVIDER_ABORT),
+            "skipped",
         ]
         assert "503" in summary["phases"][2]["summary"]["error"]
         assert len(await _trade_rows(kalshi_conn)) == 2
@@ -567,3 +594,226 @@ class TestThreePhasePass:
         assert watermark == cutoff and coverage_from == cutoff
         # The earlier phases' rows stand.
         assert await _sync_state(kalshi_conn, Surface.CATALOG) == ["(catalog,t,t)"]
+
+
+# ---------------------------------------------------------------------------
+# Four phases (slice 267, Task 8.1): the archive walk feeds the catalog, the
+# behind-cutoff market gets its candles, the archived tape is walked down to
+# the floor, and ``status`` measures coverage from the effective floor.
+# ---------------------------------------------------------------------------
+
+FLOOR = HISTORICAL_TRADES_FLOOR
+#: The seeded live floor: three hours above the constant floor, so the
+#: descent is three windows and reaches it in one firing.
+LIVE_FLOOR = FLOOR + timedelta(hours=3)
+
+
+def _archived(ticker: str, settled: datetime) -> Any:
+    """A finalized market rule C selects, served by the archive only."""
+    return make_market(
+        ticker,
+        EVENT,
+        status=MarketStatus.FINALIZED.value,
+        result="yes",
+        open_time=settled - timedelta(days=1),
+        close_time=settled - timedelta(minutes=1),
+        settlement_ts=settled,
+        volume_24h_fp="0.00",
+        volume_fp="50.00",
+    )
+
+
+async def _seed_four_phases(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+) -> tuple[FakeCatalogSource, Any]:
+    """The Task 8.1 fixtures: an archive page of markets the catalog does not
+    know (settled before the floor minus the margin), three hours of archived
+    tape below the seeded live floor with trades for them, one behind-cutoff
+    market with candles, and the live trades row seeded at that floor."""
+    source = _pass_source()
+    source.add_live(MarketStatusFilter.OPEN, _traded_live("A"))
+    cutoff = source.cutoff.trades_created_ts
+    source.trades.add_trades(make_trade("A", cutoff + timedelta(minutes=10)))
+    before_stop = FLOOR - timedelta(days=2)
+    source.historical.add_archive_page(
+        _archived("ARC1", before_stop), _archived("ARC2", before_stop - timedelta(1))
+    )
+    source.historical.add_trades(
+        make_trade("ARC1", FLOOR + timedelta(minutes=30)),
+        make_trade("KXMVE-X", FLOOR + timedelta(minutes=45)),
+        make_trade("ARC2", FLOOR + timedelta(minutes=90)),
+        make_trade("A", FLOOR + timedelta(minutes=150)),
+    )
+    behind = _archived("H", source.cutoff.market_settled_ts - timedelta(days=1))
+    behind = behind.model_copy(update={"open_time": behind.close_time - timedelta(2)})
+    await write_catalog(CatalogRepository(kalshi_conn), [behind])
+    source.historical.add_candles(
+        "H",
+        make_candle(behind.open_time + timedelta(minutes=1)),
+        make_candle(behind.close_time),
+    )
+    rule = _settings(kalshi_db).collection_rule()
+    live = TradeRepository(kalshi_conn, rule)
+    async with live.transaction():
+        await live.init_state(cutoff, LIVE_FLOOR)
+    return source, behind
+
+
+async def _historical_row(conn: psycopg.AsyncConnection[Any]) -> tuple[Any, ...]:
+    cursor = await conn.execute(
+        "SELECT watermark_ts, coverage_from_ts, cursor FROM kalshi.sync_state "
+        "WHERE surface = %s",
+        (Surface.HISTORICAL.value,),
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return row
+
+
+class TestFourPhasePass:
+    async def test_first_pass_walks_the_archive_drains_and_reaches_the_floor(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
+    ):
+        source, behind = await _seed_four_phases(kalshi_db, kalshi_conn)
+        code, summary = await run_pass_cli(kalshi_db, source, capsys)
+        assert code == cmd.EXIT_OK, summary
+        assert [(p["name"], p["outcome"]) for p in summary["phases"]] == [
+            ("catalog", "ok"),
+            ("candles", "ok"),
+            ("trades", "ok"),
+            ("historical", "ok"),
+        ]
+        hist = summary["phases"][3]["summary"]
+        # Criterion 9: the archive page's markets and their parents are in
+        # the catalog, and the archived tape's trades for them were written.
+        assert await column(
+            kalshi_conn,
+            "SELECT ticker FROM kalshi.markets WHERE ticker LIKE 'ARC%%' ORDER BY 1",
+        ) == ["ARC1", "ARC2"]
+        assert hist["archive"]["walked"] is True and hist["archive"]["pages"] == 1
+        assert hist["archive"]["markets_written"] == 2
+        assert await _trade_rows(kalshi_conn) == ["ARC1", "ARC2", "A", "A"]
+        assert hist["unknown_market"] == 1 and hist["unknown_prefixes"] == {"KXMVE": 1}
+        # Criterion 4: the identity on the phase's counts.
+        assert (
+            hist["trades_fetched"]
+            == 4
+            == (
+                hist["trades_written"]
+                + hist["unknown_market"]
+                + hist["excluded_by_rule"]
+                + hist["duplicates"]
+            )
+        )
+        # Criterion 2/3: the row was seeded at the live floor with the floor
+        # target, descended by whole hours, and reached the floor.
+        assert hist["watermark"] == {
+            "before": LIVE_FLOOR.isoformat(),
+            "after": FLOOR.isoformat(),
+        }
+        assert hist["windows_completed"] == 3 and hist["floor_reached"] is True
+        assert await _historical_row(kalshi_conn) == (FLOOR, FLOOR, None)
+        # Criterion 5: the behind-cutoff market has rows and a state row and
+        # left the set. The two archive-walked markets joined the set in the
+        # same firing (Decision 9's consequence) and were stamped too — the
+        # archive serves no candles for them, so no rows, but a state row.
+        candles = summary["phases"][1]["summary"]
+        assert candles["pending"]["backlog"] == 0
+        assert hist["candles"]["markets_completed"] == 3
+        assert hist["candles"]["candles_written"] == 2
+        assert hist["candles"]["markets_remaining"] == 0
+        assert [r for r in await _candle_rows(kalshi_conn) if r.startswith("(H,")]
+        assert not [r for r in await _candle_rows(kalshi_conn) if "ARC" in r]
+        state = await _state(kalshi_conn)
+        assert set(state) - {"A"} == {"ARC1", "ARC2", "H"}  # A: the live phase's
+        assert state["H"] == behind.close_time + timedelta(
+            minutes=int(COLLECTED_CANDLE_PERIOD)
+        )
+        # Criterion 7: status measures coverage from the effective floor.
+        with psycopg.connect(kalshi_db) as conn:
+            status = read_trade_status(conn, _settings(kalshi_db).collection_rule())
+        assert status is not None
+        assert status.coverage_from == FLOOR
+        assert status.before_coverage == 2  # ARC1, ARC2 closed before the floor
+        assert (
+            status.before_coverage
+            + status.short_of_close
+            + status.partial_history
+            + status.complete_through_close
+        ) == 3  # + H; A is still open
+
+    async def test_second_pass_writes_nothing_and_stays_at_the_floor(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
+    ):
+        source, _ = await _seed_four_phases(kalshi_db, kalshi_conn)
+        assert (await run_pass_cli(kalshi_db, source, capsys))[0] == cmd.EXIT_OK
+        live_before = await _trade_state(kalshi_conn)
+        code, summary = await run_pass_cli(kalshi_db, source, capsys)
+        assert code == cmd.EXIT_OK, summary
+        hist = summary["phases"][3]["summary"]
+        assert hist["trades_written"] == 0 and hist["candles"]["candles_written"] == 0
+        assert hist["archive"] == {
+            "walked": True,
+            "pages": 0,
+            "markets_fetched": 0,
+            "markets_written": 0,
+            "restarted": False,
+        }
+        assert hist["floor_reached"] is True and hist["windows_completed"] == 0
+        assert hist["requests"] == 0
+        assert await _historical_row(kalshi_conn) == (FLOOR, FLOOR, None)
+        # The live row's floor is untouched (its watermark follows the live
+        # walk); nothing was written twice.
+        assert (await _trade_state(kalshi_conn))[1] == live_before[1] == LIVE_FLOOR
+        assert await _trade_rows(kalshi_conn) == ["ARC1", "ARC2", "A", "A"]
+        assert await _trade_duplicates(kalshi_conn) == []
+        assert await _duplicates(kalshi_conn) == []
+
+    async def test_transient_candle_error_aborts_and_leaves_the_earlier_phases(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
+    ):
+        source, _ = await _seed_four_phases(kalshi_db, kalshi_conn)
+        source.historical.raise_on(
+            "get_historical_market_candlesticks", ProviderTransientError("503")
+        )
+        code, summary = await run_pass_cli(kalshi_db, source, capsys)
+        assert code == cmd.EXIT_BY_OUTCOME[SyncOutcome.PROVIDER_ABORT]
+        assert [p["outcome"] for p in summary["phases"]] == [
+            "ok",
+            "ok",
+            "ok",
+            str(SyncOutcome.PROVIDER_ABORT),
+        ]
+        assert "503" in summary["phases"][3]["summary"]["error"]
+        assert await _sync_state(kalshi_conn, Surface.CATALOG) == ["(catalog,t,t)"]
+        assert await _sync_state(kalshi_conn, Surface.TRADES) == ["(trades,t,t)"]
+        # The walk completed (row exists, cursor cleared) but the tape was
+        # never seeded or descended; only the live phase's trade stands.
+        assert await _historical_row(kalshi_conn) == (None, None, None)
+        assert await _trade_rows(kalshi_conn) == ["A"]
+
+    async def test_permanent_candle_error_is_partial_and_the_tape_still_descends(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any], capsys
+    ):
+        """Criterion 10."""
+        source, _ = await _seed_four_phases(kalshi_db, kalshi_conn)
+        source.historical.raise_on(
+            "get_historical_market_candlesticks",
+            ProviderPermanentError("404"),
+            when=lambda query: query["ticker"] == "H",
+        )
+        code, summary = await run_pass_cli(kalshi_db, source, capsys)
+        assert code == cmd.EXIT_BY_OUTCOME[SyncOutcome.PARTIAL]
+        assert [p["outcome"] for p in summary["phases"]] == [
+            "ok",
+            "ok",
+            "ok",
+            str(SyncOutcome.PARTIAL),
+        ]
+        hist = summary["phases"][3]["summary"]
+        assert hist["item_errors"] == [{"ticker": "H", "reason": "404"}]
+        assert set(await _state(kalshi_conn)) - {"A"} == {"ARC1", "ARC2"}  # not H
+        assert hist["candles"]["markets_completed"] == 2
+        assert hist["candles"]["markets_remaining"] == 1
+        assert await _historical_row(kalshi_conn) == (FLOOR, FLOOR, None)
+        assert await _trade_rows(kalshi_conn) == ["ARC1", "ARC2", "A", "A"]

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -32,10 +33,22 @@ class TradeSource(Protocol):
     async def get_historical_cutoff(self) -> HistoricalCutoff: ...
 
 
+class WindowDirection(StrEnum):
+    """Which way ``TradeSync.drain`` walks its one-hour windows (slice 267,
+    Decision 5): the live phase forward from the watermark to the pass bound,
+    the historical phase backward from the live floor to
+    ``HISTORICAL_TRADES_FLOOR``. The watermark moves to each window's far
+    edge in the walk's direction."""
+
+    FORWARD = "forward"
+    BACKWARD = "backward"
+
+
 class TradesBehindCutoffError(Exception):
     """The tape watermark is behind the historical cutoff (Decision 6): the
     range between them is no longer served live, and nothing jumps forward.
-    Propagates out of the pass; slice 266's historical backfill is the remedy.
+    Propagates out of the pass; the historical phase (slice 267), which
+    walks ``/historical/trades``, is the remedy.
     """
 
     def __init__(self, watermark: datetime, cutoff: datetime) -> None:
@@ -45,8 +58,8 @@ class TradesBehindCutoffError(Exception):
             f"trades watermark {watermark.isoformat()} is behind the historical "
             f"cutoff {cutoff.isoformat()}: the tape from {watermark.isoformat()} to "
             f"{cutoff.isoformat()} is no longer served live. Nothing was skipped; "
-            "slice 266's historical backfill (/historical/trades) drains that "
-            "range and moves the watermark."
+            "the historical phase (slice 267) drains that range from "
+            "/historical/trades."
         )
 
 

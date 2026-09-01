@@ -27,6 +27,11 @@ from kalshi_support.samples import (
 
 from manta_trading.data.kalshi.client import KalshiClient
 from manta_trading.data.kalshi.constants import (
+    HISTORICAL_MARKET_CANDLESTICKS_PATH,
+    HISTORICAL_MARKETS_PATH,
+    HISTORICAL_TRADES_PATH,
+    KALSHI_MVE_FILTER,
+    MARKETS_PAGE_LIMIT,
     CandlePeriod,
     EventStatusFilter,
     MarketStatusFilter,
@@ -36,8 +41,10 @@ from manta_trading.data.kalshi.models import (
     Event,
     HistoricalCutoff,
     Market,
+    MarketsPage,
     Series,
     Trade,
+    TradesPage,
 )
 from manta_trading.providers.errors import ProviderPermanentError
 
@@ -324,3 +331,91 @@ class TestHistoricalCutoff:
         assert harness.last.url.path == "/trade-api/v2/historical/cutoff"
         assert harness.query() == {}
         assert cutoff.market_settled_ts.year == 2026
+
+
+def fixture_body(name: str) -> dict[str, Any]:
+    return json.loads((FIXTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def historical_harness() -> Harness:
+    """The routed harness plus the three ``/historical/*`` paths, each serving
+    the fixture Task 3.2 recorded — no hand-rolled bodies (slice 267)."""
+    candles = fixture_body("historical_candles_market")
+    return build_harness(
+        {
+            **ROUTES,
+            HISTORICAL_MARKETS_PATH: fixture_body("historical_markets_page"),
+            HISTORICAL_TRADES_PATH: fixture_body("historical_trades_window"),
+            HISTORICAL_MARKET_CANDLESTICKS_PATH.format(
+                ticker=candles["ticker"]
+            ): candles,
+        }
+    )
+
+
+class TestHistoricalEndpoints:
+    """Slice 267, Task 3.3: the three archive methods route, query, and parse
+    exactly as their live mirrors do."""
+
+    async def test_markets_path_query_and_page(self, historical_harness: Harness):
+        page = await historical_harness.client.get_historical_markets(
+            limit=MARKETS_PAGE_LIMIT, mve_filter=KALSHI_MVE_FILTER, cursor="c1"
+        )
+        assert historical_harness.last.url.path == "/trade-api/v2/historical/markets"
+        assert historical_harness.query() == {
+            "limit": str(MARKETS_PAGE_LIMIT),
+            "mve_filter": KALSHI_MVE_FILTER,
+            "cursor": "c1",
+        }
+        assert isinstance(page, MarketsPage)
+        assert len(page.markets) == MARKETS_PAGE_LIMIT and page.cursor
+
+    async def test_trades_query_matches_the_live_method(
+        self, historical_harness: Harness
+    ):
+        client = historical_harness.client
+        await client.get_trades(min_ts=1, max_ts=2, limit=100, cursor="c2")
+        live = historical_harness.query()
+        page = await client.get_historical_trades(
+            min_ts=1, max_ts=2, limit=100, cursor="c2"
+        )
+        assert historical_harness.last.url.path == "/trade-api/v2/historical/trades"
+        assert historical_harness.query() == live
+        assert historical_harness.query() == {
+            "min_ts": "1",
+            "max_ts": "2",
+            "limit": "100",
+            "cursor": "c2",
+        }
+        assert isinstance(page, TradesPage) and isinstance(page.trades[0], Trade)
+
+    async def test_candles_path_and_the_three_params_only(
+        self, historical_harness: Harness
+    ):
+        ticker = fixture_body("historical_candles_market")["ticker"]
+        candles = await historical_harness.client.get_historical_market_candlesticks(
+            ticker,
+            start_ts=1787400000,
+            end_ts=1787486400,
+            period_interval=CandlePeriod.MINUTE,
+        )
+        assert (
+            historical_harness.last.url.path
+            == f"/trade-api/v2/historical/markets/{ticker}/candlesticks"
+        )
+        assert historical_harness.query() == {
+            "start_ts": "1787400000",
+            "end_ts": "1787486400",
+            "period_interval": "1",
+        }
+        assert candles and isinstance(candles[0], Candlestick)
+        assert candles[0].volume_fp > 0
+
+    async def test_unrouted_historical_path_is_permanent_error(
+        self, historical_harness: Harness
+    ):
+        with pytest.raises(ProviderPermanentError):
+            await historical_harness.client.get_historical_market_candlesticks(
+                "NOPE", start_ts=1, end_ts=2, period_interval=CandlePeriod.MINUTE
+            )

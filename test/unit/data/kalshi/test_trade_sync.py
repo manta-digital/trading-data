@@ -24,7 +24,9 @@ from manta_trading.data.kalshi import trade_sync as module
 from manta_trading.data.kalshi.constants import (
     TRADE_LATE_ARRIVAL_GUARD,
     TRADE_PAGE_LIMIT,
+    TRADE_REQUESTS_PER_PASS,
     WINDOW_OVERLAP,
+    Surface,
 )
 from manta_trading.data.kalshi.events import SyncEventType as T
 from manta_trading.data.kalshi.selection import CollectionRule
@@ -34,6 +36,7 @@ from manta_trading.data.kalshi.trade_sync import PHASE, TradeSync
 from manta_trading.data.kalshi.trade_types import (
     TradeResult,
     TradesBehindCutoffError,
+    WindowDirection,
     classify_trades,
 )
 from manta_trading.providers.errors import (
@@ -47,8 +50,11 @@ RULE = CollectionRule(True, frozenset(), frozenset({"Sports"}), None, None)
 
 
 class Harness:
-    def __init__(self, *, page_size: int | None = None) -> None:
+    def __init__(
+        self, *, page_size: int | None = None, cap: int = TRADE_REQUESTS_PER_PASS
+    ) -> None:
         self.now = NOW
+        self.cap = cap
         self.source = FakeTradeSource(page_size=page_size)
         self.repo = FakeTradeRepository()
         self.repo.unknown_tickers.add("KXMVE-1")
@@ -66,6 +72,7 @@ class Harness:
             rule=RULE,
             run_id=self.run_id,
             clock=lambda: self.now,
+            cap=self.cap,
         )
         return self.core
 
@@ -229,11 +236,16 @@ class TestAbortsAndCap:
         )
         assert h.sink.types() == [T.PHASE_FINISHED]
 
-    async def test_cap_stops_before_a_window_and_the_next_run_continues(
-        self, h: Harness, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Case 7 (Criterion 8)."""
-        monkeypatch.setattr(module, "TRADE_REQUESTS_PER_PASS", 2)
+    async def test_cap_stops_before_a_window_and_the_next_run_continues(self):
+        """Case 7 (Criterion 8). The cap is a constructor parameter (slice
+        267 made it one); the default is ``TRADE_REQUESTS_PER_PASS``."""
+        assert (
+            TradeSync(
+                FakeTradeSource(), FakeTradeRepository(), rule=RULE, run_id=uuid4()
+            ).cap
+            == TRADE_REQUESTS_PER_PASS
+        )
+        h = Harness(cap=2)
         h.catalog_walked(5 * HOUR)
         result = await h.core.run()
         assert result.requests == 2
@@ -261,7 +273,7 @@ class TestAbortsAndCap:
             await h.core.run()
         message = str(excinfo.value)
         assert behind.isoformat() in message and h.cutoff.isoformat() in message
-        assert "266" in message
+        assert "historical phase" in message
         assert h.repo.state == TradeState(behind, behind)
         assert h.source.trade_queries == []
         assert h.core.result.error is not None
@@ -380,3 +392,157 @@ class TestTypes:
         assert payload["unknown_prefixes"] == {"KXMVE": 1}
         assert payload["capped"] is False and payload["error"] is None
         assert payload["run_id"] == str(h.run_id)
+
+
+START = datetime(2026, 7, 1, tzinfo=UTC)
+FLOOR = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+class Backward:
+    """A backward core over a ``historical``-surface fake repository whose
+    state row already exists (the historical core seeds it — part 2); the
+    tape is placed by offsets *below* ``START``."""
+
+    def __init__(
+        self, *, page_size: int | None = None, cap: int = TRADE_REQUESTS_PER_PASS
+    ) -> None:
+        self.cap = cap
+        self.source = FakeTradeSource(page_size=page_size)
+        self.repo = FakeTradeRepository(surface=Surface.HISTORICAL)
+        self.repo.state = TradeState(START, FLOOR)
+        self.run_id = uuid4()
+        self.core = self.new_core()
+
+    def new_core(self) -> TradeSync:
+        self.sink = RecordingSink()
+        self.core = TradeSync(
+            self.source,
+            self.repo,
+            self.sink,
+            rule=RULE,
+            run_id=self.run_id,
+            clock=lambda: NOW,
+            direction=WindowDirection.BACKWARD,
+            cap=self.cap,
+        )
+        return self.core
+
+    def tape(self, *below: timedelta) -> None:
+        self.source.add_trades(*(make_trade("POL", START - offset) for offset in below))
+
+    def bounds(self) -> list[tuple[int, int]]:
+        return [(q["min_ts"], q["max_ts"]) for q in self.source.trade_queries]  # type: ignore[misc]
+
+
+class TestBackward:
+    """Slice 267, Task 5.2: ``drain`` in ``WindowDirection.BACKWARD``."""
+
+    async def test_windows_step_down_by_whole_hours_and_the_last_is_clamped(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        """Case 1: the bound is not a whole hour, so the last window is short
+        — the forward clamp, mirrored — and the journal line names the
+        surface."""
+        b = Backward()
+        bound = START - 2 * HOUR - timedelta(minutes=30)
+        with caplog.at_level(logging.INFO, logger=module.__name__):
+            await b.core.drain(START, bound)
+        tops = [START, START - HOUR, START - 2 * HOUR]
+        bottoms = [START - HOUR, START - 2 * HOUR, bound]
+        assert [max_ts for _, max_ts in b.bounds()] == [epoch(t) for t in tops]
+        assert [min_ts for min_ts, _ in b.bounds()] == [
+            epoch(t - WINDOW_OVERLAP) for t in bottoms
+        ]
+        assert b.core.result.windows_completed == 3
+        assert b.repo.state == TradeState(bound, FLOOR)
+        assert b.core.result.watermark_after == bound
+        lines = [r.getMessage() for r in caplog.records]
+        assert any(
+            m.startswith(
+                f"historical window {(START - HOUR).isoformat()}→{START.isoformat()}"
+            )
+            for m in lines
+        )
+
+    async def test_lower_bound_steps_back_by_the_overlap_and_max_is_the_top(self):
+        """Case 2."""
+        b = Backward()
+        await b.core.drain(START, START - HOUR)
+        assert b.bounds() == [(epoch(START - HOUR - WINDOW_OVERLAP), epoch(START))]
+        assert b.source.trade_queries[0]["limit"] == TRADE_PAGE_LIMIT
+
+    async def test_watermark_moves_to_the_window_start_after_its_last_page(self):
+        """Case 3: three pages of one row, the watermark unchanged at every
+        write, then one move to the window's start."""
+        b = Backward(page_size=1)
+        b.tape(timedelta(minutes=1), timedelta(minutes=2), timedelta(minutes=3))
+        await b.core.drain(START, START - HOUR)
+        assert len(b.repo.pages) == 3
+        assert b.repo.watermark_at_write == [START] * 3
+        assert b.repo.state == TradeState(START - HOUR, FLOOR)
+        assert b.repo.tx_log.count("commit") == 3 + 1  # pages, then the move
+
+    @pytest.mark.parametrize("failing", ["source", "repository"])
+    async def test_a_failure_mid_window_leaves_the_previous_window_start(
+        self, failing: str
+    ):
+        """Case 4: window 1 (one row, one request) completes; window 2 has
+        three rows at one per page and fails on its second page — the
+        watermark stays at window 1's start, the committed page stays."""
+        b = Backward(page_size=1)
+        b.tape(timedelta(minutes=30))  # window 1: (START-1h, START]
+        b.tape(
+            HOUR + timedelta(minutes=1),
+            HOUR + timedelta(minutes=2),
+            HOUR + timedelta(minutes=3),
+        )  # window 2
+        if failing == "source":
+            b.source.raise_on("get_trades", ProviderTransientError("503"), at=3)
+            expected: type[Exception] = ProviderTransientError
+        else:
+            b.repo.fail_on("write_page", errors.OperationalError("lost"), at=3)
+            expected = errors.OperationalError
+        with pytest.raises(expected):
+            await b.core.drain(START, START - 2 * HOUR)
+        assert b.repo.state == TradeState(START - HOUR, FLOOR)
+        assert len(b.repo.stored) == 2  # window 1's row + window 2's first page
+        assert b.core.result.windows_completed == 1
+
+    async def test_cap_is_honoured_before_each_window_and_a_second_drain_resumes(
+        self,
+    ):
+        """Case 5: five windows of work under ``cap=2`` — two per drain, the
+        resume continuing from the recorded watermark (the forward case's
+        twin)."""
+        b = Backward(cap=2)
+        bound = START - 5 * HOUR
+        await b.core.drain(START, bound)
+        assert b.core.result.requests == 2
+        assert b.core.result.capped is True
+        assert b.core.result.windows_completed == 2
+        assert b.repo.state == TradeState(START - 2 * HOUR, FLOOR)
+        again = b.new_core()
+        assert b.repo.state is not None and b.repo.state.watermark_ts is not None
+        await again.drain(b.repo.state.watermark_ts, bound)
+        assert b.bounds()[2] == (
+            epoch(START - 3 * HOUR - WINDOW_OVERLAP),
+            epoch(START - 2 * HOUR),
+        )
+        assert again.result.capped is True and again.result.windows_completed == 2
+        assert b.repo.state == TradeState(START - 4 * HOUR, FLOOR)
+
+    @pytest.mark.parametrize("bound", [START, START + HOUR])
+    async def test_start_at_or_below_the_bound_drains_nothing(self, bound: datetime):
+        """Case 6."""
+        b = Backward()
+        await b.core.drain(START, bound)
+        assert b.core.result.windows_completed == 0
+        assert b.core.result.capped is False
+        assert b.source.trade_queries == []
+        assert b.repo.state == TradeState(START, FLOOR)
+
+    async def test_drain_emits_no_event(self):
+        """Case 7: the historical core owns its own ``phase_finished``."""
+        b = Backward()
+        await b.core.drain(START, START - HOUR)
+        assert b.sink.types() == []

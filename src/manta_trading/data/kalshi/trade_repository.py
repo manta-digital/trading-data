@@ -110,7 +110,10 @@ class PageCounts:
 
 @dataclass(frozen=True)
 class TradeState:
-    """``kalshi.sync_state['trades']`` — the tape watermark and its floor."""
+    """A tape surface's ``kalshi.sync_state`` row — the watermark and its
+    floor. For ``trades`` the watermark is the top of the live tape; for
+    ``historical`` (slice 267) it is the bottom of the backfilled range and
+    the floor is ``HISTORICAL_TRADES_FLOOR``."""
 
     watermark_ts: datetime | None
     coverage_from_ts: datetime | None
@@ -154,12 +157,23 @@ def _write_page_statement(
 
 
 class TradeRepository:
-    """SQL for the trades phase over one open async connection."""
+    """SQL for the trades phase over one open async connection.
+
+    ``surface`` selects the ``sync_state`` row the state methods bind
+    (slice 267, Decision 5): ``trades`` for the live phase, ``historical``
+    for the backward drain. ``write_page`` is surface-free — the tape is one
+    table.
+    """
 
     def __init__(
-        self, conn: psycopg.AsyncConnection[Any], rule: CollectionRule
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        rule: CollectionRule,
+        *,
+        surface: Surface = Surface.TRADES,
     ) -> None:
         self._conn = conn
+        self._surface = surface
         # The statement is rule-dependent and the rule is fixed for the run:
         # render it once, bind a page's nine arrays per call.
         self._statement, self._rule_params = _write_page_statement(rule)
@@ -174,38 +188,82 @@ class TradeRepository:
     # State (Data Flow steps 1, 2, 5, 6)
     # ------------------------------------------------------------------
 
+    @property
+    def surface(self) -> Surface:
+        return self._surface
+
     async def read_state(self) -> TradeState | None:
-        """The trades row, or ``None`` on the first run. Its own statement:
-        ``CatalogRepository.get_sync_state`` does not carry
+        """This surface's row, or ``None`` on the first run. Its own
+        statement: ``CatalogRepository.get_sync_state`` does not carry
         ``coverage_from_ts`` (the catalog surface has no coverage floor)."""
-        cursor = await self._conn.execute(
-            "SELECT watermark_ts, coverage_from_ts "
-            "FROM kalshi.sync_state WHERE surface = %s",
-            (Surface.TRADES.value,),
-        )
-        row = await cursor.fetchone()
+        row = await self._read_row("watermark_ts, coverage_from_ts", self._surface)
         if row is None:
             return None
         return TradeState(watermark_ts=row[0], coverage_from_ts=row[1])
 
-    async def init_state(self, cutoff: datetime) -> None:
-        """First run only (Decision 2): the tape starts at the cutoff and is
-        complete through it. A no-op when the row exists — ``surface`` is
-        the primary key, so a plain insert would raise on re-entry."""
+    async def init_state(self, watermark: datetime, coverage_from: datetime) -> None:
+        """First run only: seed this surface's row. The live phase passes the
+        cutoff twice (Decision 2: the tape starts at the cutoff and is
+        complete through it); the historical phase passes the live floor and
+        ``HISTORICAL_TRADES_FLOOR`` (slice 267). Set once: an instant already
+        on the row is never overwritten, so re-entry is a no-op. A row that
+        exists with NULL instants is filled — the archive walk creates the
+        historical row through ``set_cursor`` before the tape is seeded
+        (Decision 9: the watermark, set here, is the walk's done marker)."""
         await self._conn.execute(
             "INSERT INTO kalshi.sync_state "
             "(surface, watermark_ts, coverage_from_ts, updated_at) "
-            "VALUES (%s, %s, %s, now()) ON CONFLICT (surface) DO NOTHING",
-            (Surface.TRADES.value, cutoff, cutoff),
+            "VALUES (%s, %s, %s, now()) ON CONFLICT (surface) DO UPDATE SET "
+            "watermark_ts = COALESCE(kalshi.sync_state.watermark_ts, "
+            "EXCLUDED.watermark_ts), "
+            "coverage_from_ts = COALESCE(kalshi.sync_state.coverage_from_ts, "
+            "EXCLUDED.coverage_from_ts), "
+            "updated_at = now()",
+            (self._surface.value, watermark, coverage_from),
         )
 
-    async def advance_watermark(self, window_end: datetime) -> None:
-        """Data Flow step 5: the tape is complete through ``window_end``."""
-        await self._sync_state.set_watermark(Surface.TRADES, window_end)
+    async def advance_watermark(self, window_edge: datetime) -> None:
+        """Data Flow step 5: the tape is complete through ``window_edge`` —
+        the window's far edge in the walk's direction (slice 267,
+        Decision 5)."""
+        await self._sync_state.set_watermark(self._surface, window_edge)
 
     async def set_last_full_sync(self, phase_start: datetime) -> None:
         """Data Flow step 6."""
-        await self._sync_state.set_last_full_sync(Surface.TRADES, phase_start)
+        await self._sync_state.set_last_full_sync(self._surface, phase_start)
+
+    async def read_live_coverage_from(self) -> datetime | None:
+        """The live ``trades`` row's ``coverage_from_ts`` — where the
+        historical drain starts descending from (slice 267, Criterion 2);
+        ``None`` when the live phase has never run."""
+        row = await self._read_row("coverage_from_ts", Surface.TRADES)
+        return None if row is None else row[0]
+
+    async def read_cursor(self) -> str | None:
+        """This surface's ``sync_state.cursor`` — the archive walk's resume
+        point (slice 267, Decision 9); ``None`` when no walk is in progress."""
+        row = await self._read_row("cursor", self._surface)
+        return None if row is None else row[0]
+
+    async def set_cursor(self, cursor: str | None) -> None:
+        """Save (or, with ``None``, clear) this surface's resume cursor. Its
+        own statement: ``CatalogRepository._set_state_column`` types its
+        value as a datetime."""
+        await self._conn.execute(
+            "INSERT INTO kalshi.sync_state (surface, cursor, updated_at) "
+            "VALUES (%s, %s, now()) ON CONFLICT (surface) DO UPDATE "
+            "SET cursor = EXCLUDED.cursor, updated_at = now()",
+            (self._surface.value, cursor),
+        )
+
+    async def _read_row(
+        self, columns: LiteralString, surface: Surface
+    ) -> tuple[Any, ...] | None:
+        cursor = await self._conn.execute(
+            f"SELECT {columns} FROM kalshi.sync_state WHERE surface = %s",
+            (surface.value,),
+        )
+        return await cursor.fetchone()
 
     async def read_catalog_walk_start(self) -> datetime | None:
         """``sync_state['catalog'].last_full_sync_at`` — what the pass bound

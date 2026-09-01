@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from manta_trading.data.kalshi.constants import Surface
 from manta_trading.data.kalshi.models import Trade
 from manta_trading.data.kalshi.trade_repository import PageCounts, TradeState
 
@@ -32,18 +33,25 @@ class _State:
     trades: TradeState | None = None
     last_full_sync_at: datetime | None = None
     catalog_walk_start: datetime | None = None
+    #: Slice 267: the live ``trades`` row's floor as seen from a
+    #: ``historical`` repository, and this surface's resume cursor.
+    live_coverage_from: datetime | None = None
+    cursor: str | None = None
     stored: set[tuple[str, datetime, str]] = field(default_factory=set)
 
 
 class FakeTradeRepository:
     """See the module docstring."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, surface: Surface = Surface.TRADES) -> None:
+        self.surface = surface
         self._s = _State()
         #: Tickers with no catalog row / known but not selected by the rule.
         self.unknown_tickers: set[str] = set()
         self.excluded_tickers: set[str] = set()
         self.tx_log: list[str] = []
+        #: Every ``set_cursor`` value, in order — the walk's save points.
+        self.cursor_log: list[str | None] = []
         self.pages: list[PageCounts] = []
         self.watermark_at_write: list[datetime | None] = []
         self._failures: list[tuple[str, BaseException, int]] = []
@@ -77,6 +85,18 @@ class FakeTradeRepository:
     def stored(self) -> set[tuple[str, datetime, str]]:
         return self._s.stored
 
+    @property
+    def live_coverage_from(self) -> datetime | None:
+        return self._s.live_coverage_from
+
+    @live_coverage_from.setter
+    def live_coverage_from(self, value: datetime | None) -> None:
+        self._s.live_coverage_from = value
+
+    @property
+    def cursor(self) -> str | None:
+        return self._s.cursor
+
     def fail_on(self, method: str, exc: BaseException, *, at: int = 1) -> None:
         """Raise ``exc`` on the ``at``-th call of ``method``."""
         self._failures.append((method, exc, at))
@@ -107,10 +127,15 @@ class FakeTradeRepository:
         self._enter("read_state")
         return self._s.trades
 
-    async def init_state(self, cutoff: datetime) -> None:
+    async def init_state(self, watermark: datetime, coverage_from: datetime) -> None:
         self._enter("init_state")
-        if self._s.trades is None:
-            self._s.trades = TradeState(watermark_ts=cutoff, coverage_from_ts=cutoff)
+        current = self._s.trades or TradeState(None, None)
+        # Set once, as the real statement: NULL instants are filled, set
+        # ones are never overwritten.
+        self._s.trades = TradeState(
+            watermark_ts=current.watermark_ts or watermark,
+            coverage_from_ts=current.coverage_from_ts or coverage_from,
+        )
 
     async def advance_watermark(self, window_end: datetime) -> None:
         self._enter("advance_watermark")
@@ -125,6 +150,19 @@ class FakeTradeRepository:
     async def read_catalog_walk_start(self) -> datetime | None:
         self._enter("read_catalog_walk_start")
         return self._s.catalog_walk_start
+
+    async def read_live_coverage_from(self) -> datetime | None:
+        self._enter("read_live_coverage_from")
+        return self._s.live_coverage_from
+
+    async def read_cursor(self) -> str | None:
+        self._enter("read_cursor")
+        return self._s.cursor
+
+    async def set_cursor(self, cursor: str | None) -> None:
+        self._enter("set_cursor")
+        self._s.cursor = cursor
+        self.cursor_log.append(cursor)
 
     async def write_page(self, rows: Sequence[Trade]) -> PageCounts:
         self._enter("write_page")
