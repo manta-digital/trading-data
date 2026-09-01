@@ -41,9 +41,13 @@ def _archive_index(cursor: str | None) -> int:
 class FakeHistoricalSource:
     """See the module docstring."""
 
-    def __init__(self, *, page_size: int | None = None) -> None:
+    def __init__(
+        self, *, page_size: int | None = None, catalog: FakeCatalogSource | None = None
+    ) -> None:
         self.trades = FakeTradeSource(page_size=page_size)
-        self.catalog = FakeCatalogSource(load_fixtures=False)
+        # ``FakeCatalogSource`` composes this fake for its historical surfaces
+        # and passes itself, so one object stands in for the whole client.
+        self.catalog = catalog or FakeCatalogSource(load_fixtures=False)
         self.candles_by_ticker: dict[str, list[Candlestick]] = {}
         self.archive_pages: list[list[Market]] = []
         #: Every archive query: ``{"cursor", "limit", "mve_filter"}``.

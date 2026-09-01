@@ -32,6 +32,7 @@ from manta_trading.data.kalshi.constants import (
     MarketStatusFilter,
 )
 from manta_trading.data.kalshi.models import (
+    Candlestick,
     Event,
     EventsPage,
     HistoricalCutoff,
@@ -118,11 +119,15 @@ class FakeCatalogSource:
         self.rate_limit = KALSHI_PUBLIC_RATE_LIMIT
         # Lazy: ``fake_candle_source`` imports ``load_fixture`` from here.
         from kalshi_support.fake_candle_source import FakeCandleSource
+        from kalshi_support.fake_historical_source import FakeHistoricalSource
         from kalshi_support.fake_trade_source import FakeTradeSource
 
         self.candles = FakeCandleSource()
         #: Slice 265: the trades phase's tape and query log, the same way.
         self.trades = FakeTradeSource()
+        #: Slice 267: the archive, the archived tape, and archived candles;
+        #: parents resolve through this very fake.
+        self.historical = FakeHistoricalSource(catalog=self)
         # Recorded traffic.
         self.calls: list[str] = []
         self.markets_queries: list[dict[str, object]] = []
@@ -344,6 +349,43 @@ class FakeCatalogSource:
         self._record("get_trades", {"min_ts": min_ts, "max_ts": max_ts})
         return await self.trades.get_trades(
             cursor=cursor, min_ts=min_ts, max_ts=max_ts, limit=limit
+        )
+
+    # ------------------------------------------------------------------
+    # HistoricalSource (slice 267) — delegated to ``self.historical``.
+    # ------------------------------------------------------------------
+
+    async def get_historical_markets(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        mve_filter: str | None = None,
+    ) -> MarketsPage:
+        self._record("get_historical_markets", {"cursor": cursor})
+        return await self.historical.get_historical_markets(
+            cursor=cursor, limit=limit, mve_filter=mve_filter
+        )
+
+    async def get_historical_trades(
+        self, *, cursor: str | None = None, min_ts: int, max_ts: int, limit: int
+    ) -> TradesPage:
+        self._record("get_historical_trades", {"min_ts": min_ts, "max_ts": max_ts})
+        return await self.historical.get_historical_trades(
+            cursor=cursor, min_ts=min_ts, max_ts=max_ts, limit=limit
+        )
+
+    async def get_historical_market_candlesticks(
+        self,
+        ticker: str,
+        *,
+        start_ts: int,
+        end_ts: int,
+        period_interval: CandlePeriod,
+    ) -> list[Candlestick]:
+        self._record("get_historical_market_candlesticks", {"ticker": ticker})
+        return await self.historical.get_historical_market_candlesticks(
+            ticker, start_ts=start_ts, end_ts=end_ts, period_interval=period_interval
         )
 
     async def aclose(self) -> None:

@@ -245,8 +245,8 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
 Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
 `trade_status.py`/`status.py`), *Technical Decision 8*, Criteria 1, 6, 7.
 
-- [ ] **Task 7.1: `HistoricalPhase` and `PASS_PHASES`** (effort: 2)
-  - [ ] `PassPhaseName.HISTORICAL = "historical"`; `HistoricalPhase` copies
+- [x] **Task 7.1: `HistoricalPhase` and `PASS_PHASES`** (effort: 2)
+  - [x] `PassPhaseName.HISTORICAL = "historical"`; `HistoricalPhase` copies
         `TradesPhase`'s shape and its exact `except` pair. It computes `cap
         = run.client.rate_limit.requests_per_minute ×
         HISTORICAL_PHASE_MINUTES` and logs `kalshi historical cap=%d
@@ -254,18 +254,18 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
         6's first clause). Repositories: `TradeRepository(run.conn, rule,
         surface=Surface.HISTORICAL)` and `CandleRepository(run.conn, rule)`,
         `CatalogRepository(run.conn)`.
-  - [ ] `PASS_PHASES` becomes four entries; the registration comment says
+  - [x] `PASS_PHASES` becomes four entries; the registration comment says
         why historical is last (Decision 1).
-  - [ ] Tests in `test_collection_pass.py`: the names-and-order case lists
+  - [x] Tests in `test_collection_pass.py`: the names-and-order case lists
         four; a trades abort leaves historical `skipped`; a historical abort
         leaves the three earlier reports intact and the pass outcome is the
         abort (Criterion 1); the cap is computed from the run's client
         budget (a fake client with `requests_per_minute=10` → `cap == 300`).
-  - [ ] Success: the cases pass; `mt data kalshi pass --json` on the
+  - [x] Success: the cases pass; `mt data kalshi pass --json` on the
         integration database (Task 8.1) lists four phase names.
 
-- [ ] **Task 7.2: Phase renderer** (effort: 2)
-  - [ ] `print_historical_summary` in `kalshi_render.py` from
+- [x] **Task 7.2: Phase renderer** (effort: 2)
+  - [x] `print_historical_summary` in `kalshi_render.py` from
         `HistoricalResult.to_dict()`: one line `requests n / cap m (capped)`,
         one for the archive (`walked` or `pages · markets · cursor saved`),
         one for candles (`markets completed · requests · candles written ·
@@ -274,14 +274,14 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
         `print_trade_summary`'s order, the item errors one per line as
         `print_candle_summary` prints them, and the `no live trades row`
         note when `trades_row_missing`. Register it in `PHASE_RENDERERS`.
-  - [ ] Test: every `PassPhaseName` has a renderer (extend the existing
+  - [x] Test: every `PassPhaseName` has a renderer (extend the existing
         registry test); the summary renders the Task 6.4 payload without
         error.
-  - [ ] Success: `render_phase_summary(PassPhaseName.HISTORICAL, …)` prints;
+  - [x] Success: `render_phase_summary(PassPhaseName.HISTORICAL, …)` prints;
         the registry test passes.
 
-- [ ] **Task 7.3: The effective floor and `historical_status.py`** (effort: 3)
-  - [ ] New `data/kalshi/historical_status.py` (the `trade_status.py`
+- [x] **Task 7.3: The effective floor and `historical_status.py`** (effort: 3)
+  - [x] New `data/kalshi/historical_status.py` (the `trade_status.py`
         pattern; imports neither client nor transport — extend
         `test_status_imports.py`): `HistoricalStatus(last_phase_at,
         archive_walked, archive_in_progress, tape_from, tape_to, floor,
@@ -290,52 +290,52 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
         `read_historical_status(conn) -> HistoricalStatus | None` reading
         the `historical` row and the live row's `coverage_from_ts`
         (`tape_to`). `None` until the phase has run.
-  - [ ] Decision 8 in `trade_status.py`: `read_trade_status` reads the
+  - [x] Decision 8 in `trade_status.py`: `read_trade_status` reads the
         `historical` row's `watermark_ts` (one more short read) and binds
         `coverage_from = min(trades.coverage_from_ts, historical.watermark_ts)`
         to `TRADE_COUNTS`; `TradeStatus.coverage_from` is that effective
         floor. The partition and its sum check are untouched. Update the
         module docstring's `before_coverage` clause ("closed before the
         effective floor").
-  - [ ] Unit: `test_trade_status.py` and a new `test_historical_status.py`
+  - [x] Unit: `test_trade_status.py` and a new `test_historical_status.py`
         over a fake connection — the effective floor is the live floor
         without a historical row and the minimum with one.
-  - [ ] Integration, `test_kalshi_status.py`: seed a live row and a
+  - [x] Integration, `test_kalshi_status.py`: seed a live row and a
         historical row with a lower watermark and markets closed between
         the two; assert `coverage_from` is the historical watermark,
         `before_coverage` counts only markets closed before it, and the four
         buckets still sum (Criterion 7). `read_historical_status` returns
         every field; `None` with no row.
-  - [ ] Success: unit and integration cases pass; `status.py` is not longer
+  - [x] Success: unit and integration cases pass; `status.py` is not longer
         than it is today.
 
-- [ ] **Task 7.4: Status line, Rich and JSON** (effort: 2)
-  - [ ] `kalshi.py::kalshi_status` reads `read_historical_status(conn)` in
+- [x] **Task 7.4: Status line, Rich and JSON** (effort: 2)
+  - [x] `kalshi.py::kalshi_status` reads `read_historical_status(conn)` in
         the same connection; JSON payload gains `"historical"`
         (`to_dict()` or `null`), with `behind_cutoff_candles_remaining`
         taken from `candles.behind_cutoff_uncollected` — the count is read
         once, in the candle block (design *Implementation Details*).
-  - [ ] Rewrite the existing `before coverage` line in `print_trade_status`
+  - [x] Rewrite the existing `before coverage` line in `print_trade_status`
         (`kalshi_render.py:318`): its caveat "tape predates the collector;
         slice 266" is the one the design's *Value* section retires — it now
         reads `closed before the effective floor <coverage_from>`, and
         `grep -rn "266" src/` finds nothing afterwards (part 1, Task 2.1's
         success check).
-  - [ ] `print_status` gains `historical`; `print_historical_status` prints
+  - [x] `print_status` gains `historical`; `print_historical_status` prints
         the design's line: `historical tape <tape_to> → <tape_from> (floor
         <floor>) · behind-cutoff candles remaining n · last phase <when>`,
         with `floor reached` replacing the arrow form when true, `archive
         walk in progress` replacing the tape range while the cursor is set,
         and `Historical: never run` when `None`.
-  - [ ] Test: in `test/integration/test_kalshi_status.py`, drive
+  - [x] Test: in `test/integration/test_kalshi_status.py`, drive
         `kalshi_status` through the CLI runner against `kalshi_db` — JSON
         has the `historical` key in both states; the Rich line renders.
-  - [ ] Success: `mt data kalshi status --json | jq .historical` on the
+  - [x] Success: `mt data kalshi status --json | jq .historical` on the
         rehearsal database (Section 9) prints the fields.
 
-- [ ] **Task 7.5: Section 7 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as part 1's Context Summary, scoped to the files touched.
-  - [ ] Commit: `feat: add the historical pass phase, its renderer, and the
+- [x] **Task 7.5: Section 7 gates and checkpoint commit** (effort: 1)
+  - [x] Gates as part 1's Context Summary, scoped to the files touched.
+  - [x] Commit: `feat: add the historical pass phase, its renderer, and the
         effective coverage floor in status`.
 
 ## Section 8: End-to-end integration

@@ -112,8 +112,12 @@ class HistoricalSync:
             )
             if await walk_archive(self):
                 # Nothing downstream runs on a partial catalog (Decision 9).
+                # The candle ceiling reads the row as it stands; the row is
+                # seeded only afterwards, so a candles abort leaves it as
+                # it was.
+                existing = await self.trades.read_state()
+                await drain_candles(self, floor_reached=self._at_floor(existing))
                 state = await self._state()
-                await drain_candles(self, floor_reached=self._at_floor(state))
                 if state is not None:
                     await self._trades(state)
             async with self.trades.transaction():
