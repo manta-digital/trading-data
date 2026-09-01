@@ -408,6 +408,14 @@ report accepts `catalog=partial` only if the PM says so.
   `GET /account/endpoint_costs` (authenticated) is the authoritative list; the
   first implementation task reads it once and records the answer in the
   design. A higher cost only lengthens the drain — the 429 backoff carries it.
+  **Read 2026-09-01 on manta9000 with the production key**
+  (`scripts/kalshi_endpoint_costs.py`): `default_cost: 10`, and the list of
+  exceptions names none of the three endpoints this slice uses — so
+  `GET /historical/trades` = **10**,
+  `GET /historical/markets/{ticker}/candlesticks` = **10**, and, for the
+  comparison, `GET /markets/trades` = **10**. (The exceptions are portfolio,
+  RFQ, margin and `cfbenchmarks` endpoints at 2–50.) Decision 3's firing
+  count stands as written.
 - **Candle writes into compressed chunks** may be slow; per-market timing is
   logged and the pause lever exists (Decision 4).
 - **The historical candle shape is the legacy one** (found 20260901, see
