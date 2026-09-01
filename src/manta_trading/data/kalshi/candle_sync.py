@@ -108,7 +108,7 @@ class CandleSync:
             cutoff = (await self.source.get_historical_cutoff()).market_settled_ts
             result.cutoff = cutoff
             # Logged every run, pending or not: the cutoff line is the
-            # signal that 266 (historical backfill) has become urgent.
+            # signal of how much the historical phase (267) has to backfill.
             logger.info(
                 "kalshi candles phase started run_id=%s cutoff=%s candles rule: %s",
                 result.run_id,

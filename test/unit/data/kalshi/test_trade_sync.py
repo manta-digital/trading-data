@@ -261,7 +261,7 @@ class TestAbortsAndCap:
             await h.core.run()
         message = str(excinfo.value)
         assert behind.isoformat() in message and h.cutoff.isoformat() in message
-        assert "266" in message
+        assert "historical phase" in message
         assert h.repo.state == TradeState(behind, behind)
         assert h.source.trade_queries == []
         assert h.core.result.error is not None

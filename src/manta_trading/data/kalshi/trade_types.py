@@ -35,7 +35,8 @@ class TradeSource(Protocol):
 class TradesBehindCutoffError(Exception):
     """The tape watermark is behind the historical cutoff (Decision 6): the
     range between them is no longer served live, and nothing jumps forward.
-    Propagates out of the pass; slice 266's historical backfill is the remedy.
+    Propagates out of the pass; the historical phase (slice 267), which
+    walks ``/historical/trades``, is the remedy.
     """
 
     def __init__(self, watermark: datetime, cutoff: datetime) -> None:
@@ -45,8 +46,8 @@ class TradesBehindCutoffError(Exception):
             f"trades watermark {watermark.isoformat()} is behind the historical "
             f"cutoff {cutoff.isoformat()}: the tape from {watermark.isoformat()} to "
             f"{cutoff.isoformat()} is no longer served live. Nothing was skipped; "
-            "slice 266's historical backfill (/historical/trades) drains that "
-            "range and moves the watermark."
+            "the historical phase (slice 267) drains that range from "
+            "/historical/trades."
         )
 
 

@@ -9,7 +9,7 @@ on 2026-08-24).
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from enum import IntEnum, StrEnum
 
 import httpx
@@ -169,6 +169,8 @@ class Surface(StrEnum):
     CATALOG = "catalog"
     CANDLESTICKS = "candlesticks"
     TRADES = "trades"
+    #: Slice 267: the historical backfill phase's own row (Decision 7).
+    HISTORICAL = "historical"
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +265,9 @@ CANDLE_LAG_STALE_AFTER = timedelta(hours=2)
 
 #: Decision 4: ``kalshi.candlesticks`` chunk interval (journal 20260719 rule).
 KALSHI_CANDLE_CHUNK_INTERVAL = timedelta(days=7)
-#: Decision 4: compression policy horizon. Nothing that writes *old* data may
-#: run against compressed chunks; 266's backfill pauses the policy.
+#: Decision 4: compression policy horizon. The policy stays on while the
+#: historical phase writes old candles (267 Decision 4); the manual pause
+#: lever is runbook 100's.
 KALSHI_CANDLE_COMPRESS_AFTER = timedelta(days=14)
 
 # ---------------------------------------------------------------------------
@@ -294,6 +297,40 @@ TRADE_REQUESTS_PER_PASS = 3_000
 TRADE_LAG_STALE_AFTER = timedelta(hours=2)
 #: Decision 4: ``kalshi.trades`` chunk interval (journal 20260719 rule).
 KALSHI_TRADE_CHUNK_INTERVAL = timedelta(days=7)
-#: Decision 4: compression policy horizon. Nothing that writes *old* data may
-#: run against compressed chunks; 266's backfill pauses the policy.
+#: Decision 4: compression policy horizon. The policy stays on while the
+#: historical phase writes old trades (267 Decision 4 — 265's rehearsal
+#: measured no penalty); the manual pause lever is runbook 100's.
 KALSHI_TRADE_COMPRESS_AFTER = timedelta(days=14)
+
+# ---------------------------------------------------------------------------
+# Historical backfill (slice 267 — each value cites its decision)
+# ---------------------------------------------------------------------------
+
+#: Decision 9: the settled-market archive, paged newest-first in the same
+#: ``MarketsPage`` shape as ``/markets``; it takes no settlement window.
+HISTORICAL_MARKETS_PATH = "/historical/markets"
+#: Decision 5: the archived tape, with the same query parameters as
+#: ``/markets/trades``.
+HISTORICAL_TRADES_PATH = "/historical/trades"
+#: Candles for one market behind the cutoff. No series segment — 261's
+#: Discovery verified the path without one, unlike the live endpoint.
+HISTORICAL_MARKET_CANDLESTICKS_PATH = "/historical/markets/{ticker}/candlesticks"
+#: Decision 2 (PM-ratified 20260831): the phase's request cap is the
+#: client's budget over this many minutes — ``rate_limit.requests_per_minute
+#: × HISTORICAL_PHASE_MINUTES`` (30,000 authenticated, 9,000 public),
+#: computed once at construction, never written as a literal.
+HISTORICAL_PHASE_MINUTES = 30
+#: Decision 9 (Architecture step 1): at most this many behind-cutoff markets
+#: get candles per firing while the trades drain is still descending; once
+#: the floor is reached the sub-drain is bounded by the request cap alone.
+HISTORICAL_CANDLE_MARKETS_PER_PASS = 1_000
+#: Decision 3 (PM-ratified 20260831): the backward trades drain stops at this
+#: instant. Extending the range later is an edit to this one value.
+HISTORICAL_TRADES_FLOOR = datetime(2026, 1, 1, tzinfo=UTC)
+#: Decision 9: the archive walk is done once every market on a page settled
+#: before ``HISTORICAL_TRADES_FLOOR - this`` — margin for the archive's
+#: coarse, minute-level-overlapping order.
+HISTORICAL_ARCHIVE_STOP_MARGIN = timedelta(days=1)
+#: Decision 4: one market's candle fetch-and-write taking longer than this is
+#: logged as slow — the signal to reach for runbook 100's manual lever.
+HISTORICAL_SLOW_MARKET_SECONDS = 30

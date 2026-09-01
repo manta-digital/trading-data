@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
-from psycopg import errors
+from psycopg import errors, sql
 from psycopg_pool import ConnectionPool
 
 from manta_trading.data.kalshi import models as km
@@ -40,6 +40,7 @@ KALSHI_IDS = [
     "kalshi_004_catalog_sync_semantics",
     "kalshi_005_candlesticks",
     "kalshi_006_trades",
+    "kalshi_007_historical_surface",
 ]
 BOOTSTRAP_ID = "001_schema_migrations"
 TABLES = {
@@ -54,6 +55,7 @@ TABLES = {
 }
 CANDLES_ID = "kalshi_005_candlesticks"
 TRADES_ID = "kalshi_006_trades"
+HISTORICAL_ID = "kalshi_007_historical_surface"
 
 
 @pytest.fixture
@@ -587,6 +589,96 @@ class TestTradesHypertable:
         assert scheduled == (True,)
 
 
+def _replace_surface_check(conn: psycopg.Connection, surfaces: list[str]) -> None:
+    """Re-render ``sync_state_surface_check`` over an explicit value list —
+    how production's constraint looks when it predates a ``Surface`` member.
+    The table is this test's own throwaway database (fixture-minted)."""
+    conn.execute(
+        "ALTER TABLE kalshi.sync_state DROP CONSTRAINT sync_state_surface_check"
+    )
+    conn.execute(
+        sql.SQL(
+            "ALTER TABLE kalshi.sync_state ADD CONSTRAINT sync_state_surface_check "
+            "CHECK (surface IN ({}))"
+        ).format(sql.SQL(", ").join(map(sql.Literal, surfaces)))
+    )
+
+
+class TestHistoricalSurface:
+    """``kalshi_007`` (slice 267, Decision 7): the CHECK admits ``historical``,
+    on a fresh database (where kalshi_003 already rendered it) and on the
+    production path (where the constraint predates the member)."""
+
+    def test_in_track_and_reapplies(
+        self, applied: list[str], pool: ConnectionPool[Any]
+    ):
+        assert HISTORICAL_ID in [m["id"] for m in TRACKS["kalshi"]]
+        assert HISTORICAL_ID in applied
+        assert apply_migrations(pool, TRACKS["kalshi"]) == []
+
+    def test_production_path_widens_an_old_constraint(
+        self, applied: list[str], pool: ConnectionPool[Any], ephemeral_db: str
+    ):
+        pre_267 = [s.value for s in Surface if s is not Surface.HISTORICAL]
+        with psycopg.connect(ephemeral_db) as conn:
+            _replace_surface_check(conn, pre_267)
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = %s",
+                (HISTORICAL_ID,),
+            )
+            conn.commit()
+            with pytest.raises(errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO kalshi.sync_state (surface) VALUES (%s)",
+                    (Surface.HISTORICAL.value,),
+                )
+            conn.rollback()
+        assert apply_migrations(pool, TRACKS["kalshi"]) == [HISTORICAL_ID]
+        with psycopg.connect(ephemeral_db) as conn:
+            conn.execute(
+                "INSERT INTO kalshi.sync_state (surface) VALUES (%s)",
+                (Surface.HISTORICAL.value,),
+            )
+            rows = conn.execute(
+                "SELECT surface FROM kalshi.sync_state WHERE surface = %s",
+                (Surface.HISTORICAL.value,),
+            ).fetchall()
+            conn.commit()
+        assert rows == [(Surface.HISTORICAL.value,)]
+
+    def test_comments_carry_the_other_surfaces_forward(
+        self, applied: list[str], ephemeral_db: str
+    ):
+        with psycopg.connect(ephemeral_db) as conn:
+            watermark = column_comment(conn, "kalshi.sync_state", "watermark_ts")
+            coverage = column_comment(conn, "kalshi.sync_state", "coverage_from_ts")
+            cursor = column_comment(conn, "kalshi.sync_state", "cursor")
+            table = conn.execute(
+                "SELECT obj_description('kalshi.sync_state'::regclass, 'pg_class')"
+            ).fetchone()
+        # kalshi_006's three clauses survive verbatim.
+        assert "catalog: settlement_ts upper bound" in watermark
+        assert "trades: the tape is complete through this instant" in watermark
+        assert "candlesticks: market_settled_ts of the historical cutoff" in watermark
+        assert "set once, never moved" in coverage
+        assert "catalog: unused" in cursor and "trades: unused" in cursor
+        # The historical clauses (design *State*).
+        assert "historical: the oldest hour fully walked backward" in watermark
+        assert "moves DOWN, never past coverage_from_ts" in watermark
+        assert "historical: the target floor (HISTORICAL_TRADES_FLOOR)" in coverage
+        assert "historical: the archive walk's resume cursor" in cursor
+        assert table is not None and "historical" in table[0]
+
+    def test_unknown_surface_still_fails_check(
+        self, applied: list[str], ephemeral_db: str
+    ):
+        with psycopg.connect(ephemeral_db) as conn:
+            with pytest.raises(errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO kalshi.sync_state (surface) VALUES ('archive')"
+                )
+
+
 class TestLedgerPreflight:
     """``open_sync_connection`` (slice 264, Decision 8) requires every id in
     the kalshi track, naming the missing ones."""
@@ -635,17 +727,31 @@ class TestLedgerPreflight:
         """Slice 265, Criterion 10: ``kalshi_006_trades`` is covered by the
         preflight through ``TRACKS["kalshi"]`` — the id is read from the
         migration definition, never spelled here."""
-        trades_id = TRACKS["kalshi"][-1]["id"]
-        assert trades_id.startswith("kalshi_006_")
+        track_ids = [m["id"] for m in TRACKS["kalshi"]]
+        assert TRADES_ID in track_ids
         with psycopg.connect(kalshi_db) as conn:
             conn.execute(
-                "DELETE FROM schema_migrations WHERE migration_id = %s", (trades_id,)
+                "DELETE FROM schema_migrations WHERE migration_id = %s", (TRADES_ID,)
             )
             conn.commit()
         with pytest.raises(PreflightError) as exc:
             await open_sync_connection(kalshi_db)
-        assert trades_id in str(exc.value)
+        assert TRADES_ID in str(exc.value)
         assert "mt data migrate apply --track kalshi" in str(exc.value)
+
+    async def test_missing_historical_migration_named(self, kalshi_db: str):
+        """Slice 267: the last id on the track is ``kalshi_007`` and the
+        preflight covers it — read from the definition, never spelled."""
+        last_id = TRACKS["kalshi"][-1]["id"]
+        assert last_id == HISTORICAL_ID
+        with psycopg.connect(kalshi_db) as conn:
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = %s", (last_id,)
+            )
+            conn.commit()
+        with pytest.raises(PreflightError) as exc:
+            await open_sync_connection(kalshi_db)
+        assert last_id in str(exc.value)
 
     async def test_bare_database_is_the_same_error(self, ephemeral_db: str):
         """No ``schema_migrations`` table at all: every id is pending — a

@@ -23,7 +23,8 @@ MARKET_JOIN = CATALOG_JOIN + sql.SQL(
 
 #: Finalized with no state row, on either side of the cutoff (``%(cutoff)s``,
 #: ``%(finalized)s`` bound by the caller): ``BACKLOG`` is still served live
-#: and drains under Decision 6; ``BEHIND_CUTOFF`` is slice 266's input.
+#: and drains under Decision 6; ``BEHIND_CUTOFF`` is the historical phase's
+#: input (slice 267).
 BACKLOG_CONDITION = sql.SQL(
     "m.status = %(finalized)s AND m.settlement_ts >= %(cutoff)s "
     "AND st.market_ticker IS NULL"

@@ -191,7 +191,7 @@ class CandleRepository:
 
     async def count_behind_cutoff(self, period: CandlePeriod, cutoff: datetime) -> int:
         """Selected finalized markets before the cutoff with no state row —
-        no longer served live; slice 266's input."""
+        no longer served live; the historical phase's input (slice 267)."""
         return await self._count(period, cutoff, BEHIND_CUTOFF_CONDITION)
 
     async def _count(
