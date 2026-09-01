@@ -118,8 +118,8 @@ phase completion, `cursor` = the archive walk's resume cursor while the walk
 is in progress, `NULL` before it starts and after it completes (the column
 exists since kalshi_003 and no other surface uses it). The live `trades`
 row is untouched. `status` derives an **effective floor** =
-`min(trades.coverage_from_ts, historical.watermark_ts)` (the live floor until the historical row exists) and the four closed-market
-buckets partition against it, so `before coverage` means what it says —
+`min(trades.coverage_from_ts, historical.watermark_ts)` (the live floor until
+the historical row exists) and the four closed-market buckets partition against it, so `before coverage` means what it says —
 closed before any hour the tape covers — and shrinks as the watermark
 descends. The historical line reports the tape range and the distance to
 `HISTORICAL_TRADES_FLOOR`.
