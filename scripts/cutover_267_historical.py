@@ -17,7 +17,7 @@ cause and re-run. The timer is released again no matter how the run ends.
 Steps
   1. hold the timer       wait out a running pass; stop mt-kalshi-pass.timer
   2. install the ref      deploy/install-production.sh --ref <ref>
-  3. migrate              kalshi_007_historical_surface; `status` on the new binary
+  3. migrate              kalshi_007 + kalshi_008; `status` on the new binary
   4. first firing         sudo mt-run kalshi, streamed. This firing walks the
                           market archive into the catalog — hours. If the cap
                           stops the walk (cursor saved), the script fires again
@@ -63,7 +63,9 @@ from manta_trading.data.kalshi.constants import (
     KALSHI_MODE_AUTHENTICATED,
 )
 
-MIGRATION_ID = "kalshi_007_historical_surface"
+#: The last migration this release adds — kalshi_007 (the historical
+#: surface) and kalshi_008 (the amended status) are both applied by the track.
+MIGRATION_ID = "kalshi_008_amended_status"
 #: Criterion 6: a firing after the archive walk stays under this.
 PASS_BOUND = timedelta(minutes=45)
 #: Decision 2's authenticated figures, derived from the same constants.

@@ -126,22 +126,22 @@ it is the one unknown the design asked to be read before anything is built.
         .env` exits non-zero with the message (no key in the dev `.env`);
         ruff clean.
 
-- [ ] **Task 1.2: Read the costs on the host** **[PM]** (effort: 1)
-  - [ ] On manta9000: `sudo uv run python
+- [x] **Task 1.2: Read the costs on the host** **[PM]** (effort: 1)
+  - [x] On manta9000: `sudo uv run python
         scripts/kalshi_endpoint_costs.py --env-file /etc/manta-trading.env`
         (root reads the PEM; the file's mode is 0640 root:manta-trading).
         Paste the body back.
-  - [ ] Success: the JSON body is in the conversation.
+  - [x] Success: the JSON body is in the conversation.
 
-- [ ] **Task 1.3: Record the costs in the design** **[agent]** (effort: 1)
-  - [ ] Record in the design's *Risks* first bullet the cost of
+- [x] **Task 1.3: Record the costs in the design** **[agent]** (effort: 1)
+  - [x] Record in the design's *Risks* first bullet the cost of
         `/historical/trades`, `/historical/markets/{ticker}/candlesticks`,
         and — for the comparison — `/markets/trades`. If any historical
         cost exceeds the 10-token default, restate Decision 3's firing count
         from the measured cost; the cap constant does not change (it is in
         requests; the 429 backoff absorbs the difference — design *Risks*).
-  - [ ] Commit: `docs: record /historical endpoint costs in the 267 design`.
-  - [ ] Success: the design names the three costs as numbers with the date.
+  - [x] Commit: `docs: record /historical endpoint costs in the 267 design`.
+  - [x] Success: the design names the three costs as numbers with the date.
 
 ## Section 2: Constants and migration `kalshi_007`
 

@@ -45,6 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names (`volume`, `open`, …); the client maps them to the live shape.
 - `scripts/kalshi_endpoint_costs.py` prints `GET /account/endpoint_costs`.
 
+### Fixed
+- **Kalshi's new market status `amended` no longer fails the hourly pass.**
+  From 2026-09-01 Kalshi serves `status: "amended"` (a closed market with a
+  result and no settlement yet); the catalog phase rejected those rows on
+  the `markets_status_check` constraint and reported `partial` (exit 3)
+  every hour. `MarketStatus.AMENDED` and migration `kalshi_008_amended_status`
+  admit it.
+
 ### Changed
 - **Migration `kalshi_007_historical_surface`** widens
   `sync_state_surface_check` to the `historical` surface; apply it during the

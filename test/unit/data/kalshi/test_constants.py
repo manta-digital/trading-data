@@ -25,6 +25,7 @@ class TestEnums:
             "inactive",
             "closed",
             "determined",
+            "amended",
             "finalized",
         ]
 

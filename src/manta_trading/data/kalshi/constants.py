@@ -111,10 +111,16 @@ class MarketStatus(StrEnum):
     paused→``inactive``, closed→``closed``/``determined`` (determined = result
     known, settlement pending), settled→``finalized``.
 
+    The CHECK constraint in the kalshi migration track is derived from this
+    enum (the ``acquisition_state`` precedent in ``data/acquisition/state.py``).
+    An undocumented new status fails the upsert loudly by design — which is how
+    ``amended`` was found: served from 2026-09-01 on closed markets with a
+    ``result`` and no ``settlement_ts`` (a determination under amendment),
+    it failed production's catalog phase (exit 3) until ``kalshi_008``
+    admitted it.
+
     Values are stored as TEXT in ``kalshi.markets.status``; the CHECK
-    constraint in the kalshi migration track is derived from this enum (the
-    ``acquisition_state`` precedent in ``data/acquisition/state.py``). An
-    undocumented new status fails the upsert loudly by design.
+    constraint is re-rendered by a migration whenever a member is added.
     """
 
     INITIALIZED = "initialized"
@@ -122,6 +128,7 @@ class MarketStatus(StrEnum):
     INACTIVE = "inactive"
     CLOSED = "closed"
     DETERMINED = "determined"
+    AMENDED = "amended"
     FINALIZED = "finalized"
 
 

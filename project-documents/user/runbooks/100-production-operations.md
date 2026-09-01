@@ -415,7 +415,9 @@ missing, database unreachable, track not applied, lock held) · 2 provider abort
 · 3 partial (item errors — a market whose status the model does not know) · 4
 storage abort. Exit 3 fails the unit **on purpose**: if Kalshi starts serving a
 status outside the known set, every pass fails visibly until the one-line fix
-ships, rather than succeeding while rows are silently skipped.
+ships, rather than succeeding while rows are silently skipped. (It happened on
+2026-09-01: `amended` appeared, the pass went `partial` for a few hours, and
+v0.12.0 admits it with `kalshi_008_amended_status`.)
 
 **Applying the Kalshi schema track** is the normal migration step under
 *Update procedure* — the units never run migrations:

@@ -41,6 +41,7 @@ KALSHI_IDS = [
     "kalshi_005_candlesticks",
     "kalshi_006_trades",
     "kalshi_007_historical_surface",
+    "kalshi_008_amended_status",
 ]
 BOOTSTRAP_ID = "001_schema_migrations"
 TABLES = {
@@ -56,6 +57,7 @@ TABLES = {
 CANDLES_ID = "kalshi_005_candlesticks"
 TRADES_ID = "kalshi_006_trades"
 HISTORICAL_ID = "kalshi_007_historical_surface"
+AMENDED_ID = "kalshi_008_amended_status"
 
 
 @pytest.fixture
@@ -679,6 +681,60 @@ class TestHistoricalSurface:
                 )
 
 
+class TestAmendedStatus:
+    """``kalshi_008``: the markets CHECK admits ``amended`` — on a fresh
+    database (kalshi_002 renders the current enum) and on the production
+    path (the constraint predates the member)."""
+
+    def test_in_track_and_reapplies(
+        self, applied: list[str], pool: ConnectionPool[Any]
+    ):
+        assert AMENDED_ID in applied
+        assert apply_migrations(pool, TRACKS["kalshi"]) == []
+
+    def test_production_path_widens_an_old_constraint(
+        self, applied: list[str], pool: ConnectionPool[Any], ephemeral_db: str
+    ):
+        pre_fix = [s.value for s in MarketStatus if s is not MarketStatus.AMENDED]
+        with psycopg.connect(ephemeral_db) as conn:
+            conn.execute(
+                "ALTER TABLE kalshi.markets DROP CONSTRAINT markets_status_check"
+            )
+            conn.execute(
+                sql.SQL(
+                    "ALTER TABLE kalshi.markets ADD CONSTRAINT markets_status_check "
+                    "CHECK (status IN ({}))"
+                ).format(sql.SQL(", ").join(map(sql.Literal, pre_fix)))
+            )
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = %s", (AMENDED_ID,)
+            )
+            conn.commit()
+            _seed_series_and_event(conn)
+            with pytest.raises(errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO kalshi.markets (ticker, event_ticker, status, "
+                    "close_time, raw) VALUES ('S1-E1-AM', 'S1-E1', %s, now(), "
+                    "'{}'::jsonb)",
+                    (MarketStatus.AMENDED.value,),
+                )
+            conn.rollback()
+        assert apply_migrations(pool, TRACKS["kalshi"]) == [AMENDED_ID]
+        with psycopg.connect(ephemeral_db) as conn:
+            _seed_series_and_event(conn)
+            conn.execute(
+                "INSERT INTO kalshi.markets (ticker, event_ticker, status, "
+                "close_time, raw) VALUES ('S1-E1-AM', 'S1-E1', %s, now(), "
+                "'{}'::jsonb)",
+                (MarketStatus.AMENDED.value,),
+            )
+            conn.commit()
+            rows = conn.execute(
+                "SELECT status FROM kalshi.markets WHERE ticker = 'S1-E1-AM'"
+            ).fetchall()
+        assert rows == [(MarketStatus.AMENDED.value,)]
+
+
 class TestLedgerPreflight:
     """``open_sync_connection`` (slice 264, Decision 8) requires every id in
     the kalshi track, naming the missing ones."""
@@ -739,11 +795,11 @@ class TestLedgerPreflight:
         assert TRADES_ID in str(exc.value)
         assert "mt data migrate apply --track kalshi" in str(exc.value)
 
-    async def test_missing_historical_migration_named(self, kalshi_db: str):
-        """Slice 267: the last id on the track is ``kalshi_007`` and the
-        preflight covers it — read from the definition, never spelled."""
+    async def test_missing_last_migration_named(self, kalshi_db: str):
+        """The last id on the track (``kalshi_008`` since the amended-status
+        fix) is covered by the preflight — read from the definition."""
         last_id = TRACKS["kalshi"][-1]["id"]
-        assert last_id == HISTORICAL_ID
+        assert last_id == AMENDED_ID
         with psycopg.connect(kalshi_db) as conn:
             conn.execute(
                 "DELETE FROM schema_migrations WHERE migration_id = %s", (last_id,)

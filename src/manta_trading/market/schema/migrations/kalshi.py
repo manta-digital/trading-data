@@ -509,4 +509,23 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
                 'completes (slice 267, Decision 9).';
         """,
     },
+    {
+        "id": "kalshi_008_amended_status",
+        "description": "Widen markets_status_check to the amended market status",
+        # 2026-09-01: Kalshi began serving ``status: "amended"`` (a closed
+        # market with a result and no settlement_ts — a determination under
+        # amendment). The CHECK kalshi_002 rendered from ``MarketStatus``
+        # predates the member, so production's catalog phase skipped those
+        # markets as item errors (exit 3) every hour — the designed loud
+        # failure. ``MarketStatus.AMENDED`` is the one-line fix; this
+        # migration re-renders the constraint from the enum, as kalshi_007
+        # does for sync_state. A fresh apply is a no-op in effect (kalshi_002
+        # already renders the current enum); idempotent by DROP IF EXISTS.
+        "sql": f"""
+            ALTER TABLE kalshi.markets
+                DROP CONSTRAINT IF EXISTS markets_status_check;
+            ALTER TABLE kalshi.markets
+                ADD CONSTRAINT markets_status_check {_status_check_sql()};
+        """,
+    },
 ]
