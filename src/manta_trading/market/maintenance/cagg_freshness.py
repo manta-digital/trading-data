@@ -455,12 +455,72 @@ def _resolve_source_table(view_name: str) -> str:
     return base
 
 
+#: Days budgeted per calendar month / year when a bucket width is expressed in
+#: months ("1 mon", "3 mons") or years: the longest such period, so the budget
+#: never under-counts a bucket.
+_DAYS_PER_MONTH_BUDGET = 31
+_DAYS_PER_YEAR_BUDGET = 366
+
+#: PostgreSQL interval text units → the timedelta each one contributes.
+_INTERVAL_UNIT_DAYS: dict[str, float] = {
+    "year": _DAYS_PER_YEAR_BUDGET,
+    "years": _DAYS_PER_YEAR_BUDGET,
+    "mon": _DAYS_PER_MONTH_BUDGET,
+    "mons": _DAYS_PER_MONTH_BUDGET,
+    "day": 1,
+    "days": 1,
+}
+
+
+def bucket_width_budget(width: str | None) -> timedelta | None:
+    """The longest wall-clock span a bucket-width interval text can cover.
+
+    ``_bucket_width`` deliberately keeps the catalog's string ("7 days",
+    "1 mon", "3 mons", "04:00:00") because month buckets have no fixed length.
+    The freshness *budget* only needs an upper bound, so months and years are
+    counted at their longest. ``None`` in → ``None`` out.
+    """
+    if width is None:
+        return None
+    total = timedelta()
+    tokens = width.split()
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if ":" in token:  # hh:mm:ss tail
+            hours, minutes, seconds = (float(part) for part in token.split(":"))
+            total += timedelta(hours=hours, minutes=minutes, seconds=seconds)
+            i += 1
+            continue
+        unit = tokens[i + 1] if i + 1 < len(tokens) else ""
+        days = _INTERVAL_UNIT_DAYS.get(unit)
+        if days is None:
+            raise ValueError(f"unrecognised bucket width interval text: {width!r}")
+        total += timedelta(days=float(token) * days)
+        i += 2
+    return total
+
+
 def _resolve_threshold(
     start_offset: timedelta | None,
     end_offset: timedelta | None = None,
     view_name: str | None = None,
+    *,
+    bucket_width: timedelta | None = None,
 ) -> timedelta:
-    """The staleness budget: ``min(start_offset, ceiling) + end_offset``.
+    """The staleness budget: ``min(start_offset, ceiling) + end_offset +
+    bucket_width``.
+
+    **Why the width term (2026-08-31, slice 919).** A refresh policy
+    materializes only buckets that lie completely inside its window, whose end
+    is ``now − end_offset``. The newest *complete* bucket therefore starts up to
+    ``end_offset + bucket_width`` behind the bucket the raw edge falls in
+    (``_raw_max`` buckets the raw edge to the same grid, which is the
+    *partial* current bucket). Measured on prod: ``daily_weekly_ohlcv`` with
+    ``end_offset = 7 days`` sits 7–14 days behind by construction, every week,
+    and the pre-919 budget of 8 days flagged it stale six days out of seven.
+    The width is passed by the caller (``_evaluate``), so the formula stays
+    directly testable; ``None`` keeps the pre-919 budget.
 
     **Per-view override (slice 169 D3a).** When ``view_name`` has an entry in
     ``COVERAGE_BUCKET_LAG_BUDGET``, that value is returned instead. Only the two
@@ -501,7 +561,8 @@ def _resolve_threshold(
         if start_offset is None
         else min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)
     )
-    return base if end_offset is None else base + end_offset
+    budget = base if end_offset is None else base + end_offset
+    return budget if bucket_width is None else budget + bucket_width
 
 
 def _now() -> datetime:
@@ -668,7 +729,12 @@ def _evaluate(
             bucket_width=bucket_width,
         )
 
-    threshold = _resolve_threshold(job.start_offset, job.end_offset, view_name)
+    threshold = _resolve_threshold(
+        job.start_offset,
+        job.end_offset,
+        view_name,
+        bucket_width=bucket_width_budget(bucket_width),
+    )
     signals: list[StalenessSignal] = []
 
     lag: timedelta | None = None

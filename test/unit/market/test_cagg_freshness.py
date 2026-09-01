@@ -36,6 +36,7 @@ from manta_trading.market.maintenance.cagg_freshness import (
     _resolve_threshold,
     _restore_probe_timeout,
     assert_cagg_fresh,
+    bucket_width_budget,
     reset_freshness_cache,
 )
 
@@ -1011,3 +1012,52 @@ class TestDetectionFloor:
         # The floor is inspectable rather than implicit: a caller holding the
         # verdict can see the resolution limit of the lag it carries.
         assert self._verdict(timedelta(days=52)).bucket_width == _YEAR_BUCKET
+
+
+class TestBucketWidthBudget:
+    """Slice 919: the budget adds one bucket width — a policy materializes only
+    complete buckets, so the newest complete bucket trails the raw edge's
+    bucket by up to ``end_offset + width`` (prod 2026-08-31: weekly cagg 7–14 d
+    behind by construction against an 8-day budget)."""
+
+    def test_parses_days_months_and_clock_intervals(self) -> None:
+        assert bucket_width_budget("7 days") == timedelta(days=7)
+        assert bucket_width_budget("1 mon") == timedelta(days=31)
+        assert bucket_width_budget("3 mons") == timedelta(days=93)
+        assert bucket_width_budget("04:00:00") == timedelta(hours=4)
+        assert bucket_width_budget("00:05:00") == timedelta(minutes=5)
+        assert bucket_width_budget(None) is None
+
+    def test_unknown_unit_is_an_error_not_a_guess(self) -> None:
+        with pytest.raises(ValueError):
+            bucket_width_budget("2 fortnights")
+
+    def test_weekly_cagg_budget_covers_its_structural_lag(self) -> None:
+        # start 21 d, end 7 d, width 7 d: the ceiling caps start to 1 d, so
+        # 1 + 7 + 7 = 15 d ≥ the 14 d the weekly cagg legitimately trails.
+        budget = _resolve_threshold(
+            timedelta(days=21), timedelta(days=7), bucket_width=timedelta(days=7)
+        )
+        assert budget == MAX_COVERAGE_SOURCE_STALENESS + timedelta(days=14)
+        assert budget >= timedelta(days=14)
+
+    def test_without_a_width_the_budget_is_unchanged(self) -> None:
+        assert _resolve_threshold(timedelta(days=21), timedelta(days=7)) == (
+            MAX_COVERAGE_SOURCE_STALENESS + timedelta(days=7)
+        )
+
+    def test_coverage_override_wins_regardless_of_width(self) -> None:
+        from manta_trading.constants import (
+            COVERAGE_BUCKET_LAG_BUDGET,
+            MINUTE_COVERAGE_VIEW,
+        )
+
+        assert (
+            _resolve_threshold(
+                timedelta(days=365),
+                timedelta(hours=4),
+                MINUTE_COVERAGE_VIEW,
+                bucket_width=timedelta(days=7),
+            )
+            == COVERAGE_BUCKET_LAG_BUDGET[MINUTE_COVERAGE_VIEW]
+        )
