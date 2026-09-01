@@ -450,8 +450,8 @@ the rehearsal shell only. Record observed output as you go.
 
 ## Section 10: Documentation and version
 
-- [ ] **Task 10.1: Runbook 100, Kalshi subsection** (effort: 2)
-  - [ ] The paragraph the design specifies: four phases since this release;
+- [x] **Task 10.1: Runbook 100, Kalshi subsection** (effort: 2)
+  - [x] The paragraph the design specifies: four phases since this release;
         the first firing walks the market archive into the catalog and runs
         hours under the run lock (overlapping firings exit 1, expected);
         the historical phase self-limits to `HISTORICAL_PHASE_MINUTES` of
@@ -463,16 +463,16 @@ the rehearsal shell only. Record observed output as you go.
         with its ticker in the journal and retries each firing; the
         slow-market warning and the manual compression-pause lever
         (unchanged, never automated).
-  - [ ] Success: `grep -n` finds `kalshi_007`, `HISTORICAL_TRADES_FLOOR`,
+  - [x] Success: `grep -n` finds `kalshi_007`, `HISTORICAL_TRADES_FLOOR`,
         and `historical tape` in the Kalshi subsection.
 
-- [ ] **Task 10.2: CHANGELOG and version** (effort: 1)
-  - [ ] `## [0.12.0]` with the date: the historical phase, the archive walk
+- [x] **Task 10.2: CHANGELOG and version** (effort: 1)
+  - [x] `## [0.12.0]` with the date: the historical phase, the archive walk
         into the catalog (the first firing runs hours), the status line and
         the effective floor, `kalshi_007`, the three client methods; note
         that the pass then runs up to ~40 minutes during the drain.
         `pyproject.toml` version `0.12.0`.
-  - [ ] Commit: `docs: document the historical backfill phase (0.12.0)`.
+  - [x] Commit: `docs: document the historical backfill phase (0.12.0)`.
 
 ## Section 11: Production deploy — Project Manager
 

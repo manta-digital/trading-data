@@ -83,6 +83,20 @@ the 267 design; nothing in the application uses it.
 sudo uv run python scripts/kalshi_endpoint_costs.py --env-file /etc/manta-trading.env
 ```
 
+### cutover_267_historical.py
+Cuts slice 267 (Kalshi historical backfill phase) over to production: holds
+the Kalshi timer, installs the ref, applies `kalshi_007_historical_surface`,
+fires the first supervised pass (the archive walk — hours; fires again if the
+cap saved a cursor), fires once more after the walk to measure Criterion 6,
+writes the report to `project-documents/user/notes/`, and releases the timer.
+Shared host helpers live in `cutover_common.py`; the report parsing is unit
+tested in `test/unit/test_cutover_267.py`.
+
+**Usage (dev checkout root, after the release tag is pushed):**
+```bash
+uv run python scripts/cutover_267_historical.py v0.12.0
+```
+
 ## Other Scripts
 
 ### update-guides
