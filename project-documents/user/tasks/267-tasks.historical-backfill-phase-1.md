@@ -131,13 +131,15 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
 
 - [ ] **Task 2.1: Constants** (effort: 1)
   - [ ] In `constants.py`, a new block *Historical backfill (slice 267)*:
+        `HISTORICAL_MARKETS_PATH = "/historical/markets"`,
         `HISTORICAL_TRADES_PATH = "/historical/trades"`,
         `HISTORICAL_MARKET_CANDLESTICKS_PATH =
         "/historical/markets/{ticker}/candlesticks"` (no series segment —
         261 Discovery), `HISTORICAL_PHASE_MINUTES = 30` (Decision 2),
         `HISTORICAL_CANDLE_MARKETS_PER_PASS = 1_000`,
         `HISTORICAL_TRADES_FLOOR = datetime(2026, 1, 1, tzinfo=UTC)`
-        (Decision 3, PM-ratified 20260831), `HISTORICAL_SLOW_MARKET_SECONDS
+        (Decision 3, PM-ratified 20260831), `HISTORICAL_ARCHIVE_STOP_MARGIN
+        = timedelta(days=1)` (Decision 9), `HISTORICAL_SLOW_MARKET_SECONDS
         = 30` (Decision 4). Each cites its decision in its comment.
   - [ ] `Surface.HISTORICAL = "historical"`.
   - [ ] Fix the two stale comments on `KALSHI_CANDLE_COMPRESS_AFTER` and
@@ -150,9 +152,9 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
         is green (Task 2.2 extends it).
 
 - [ ] **Task 2.2: Constants tests** (effort: 1)
-  - [ ] Extend `test/unit/data/kalshi/test_constants.py`: the two paths
+  - [ ] Extend `test/unit/data/kalshi/test_constants.py`: the three paths
         match the design (and the candles path has no `series_ticker`
-        field); `Surface` has four members with `historical` last; the floor
+        field); the stop margin is positive; `Surface` has four members with `historical` last; the floor
         is timezone-aware UTC and at a whole hour; the per-pass and minutes
         constants are the design's values; `HISTORICAL_PHASE_MINUTES ×
         KALSHI_AUTHENTICATED_RATE_LIMIT.requests_per_minute == 30_000` and
@@ -208,8 +210,15 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
 Design *Implementation Details* (`client.py`), 261 Discovery *Historical
 tier*: same shapes, same cursor pagination as the live endpoints.
 
-- [ ] **Task 3.1: `get_historical_trades` and
-      `get_historical_market_candlesticks`** (effort: 2)
+- [ ] **Task 3.1: The three `/historical/*` client methods** (effort: 2)
+  - [ ] `get_historical_markets(*, cursor=None, **query:
+        Unpack[MarketsQuery]) -> MarketsPage` — a mirror of `get_markets` on
+        `HISTORICAL_MARKETS_PATH`. The endpoint accepts only `tickers`,
+        `event_ticker`, `series_ticker`, `mve_filter`, `limit`, `cursor`
+        (Decision 9); document on the method that the settlement-window
+        keys of `MarketsQuery` are **ignored by the API**, not rejected —
+        the same pass-through posture `MarketsQuery`'s docstring already
+        takes for `min_updated_ts`.
   - [ ] `get_historical_trades(*, cursor=None, **query: Unpack[TradesQuery])
         -> TradesPage` — a mirror of `get_trades` on
         `HISTORICAL_TRADES_PATH`; the same `TradesQuery` (no new TypedDict —
@@ -226,7 +235,9 @@ tier*: same shapes, same cursor pagination as the live endpoints.
 
 - [ ] **Task 3.2: Client endpoint unit tests** (effort: 2)
   - [ ] In `test/unit/data/kalshi/test_client_endpoints.py`, using the
-        existing routed `Harness`: the trades method hits the historical path
+        existing routed `Harness`: the markets method hits
+        `/historical/markets` with `limit`, `mve_filter`, and `cursor` and
+        parses a `MarketsPage`; the trades method hits the historical path
         with `min_ts`/`max_ts`/`limit`/`cursor` exactly as `get_trades` does
         (assert the recorded request URL and query); the candles method hits
         `/historical/markets/{ticker}/candlesticks` with the three params and
@@ -237,7 +248,11 @@ tier*: same shapes, same cursor pagination as the live endpoints.
 
 - [ ] **Task 3.3: Recorder and fixtures** (effort: 2)
   - [ ] In `scripts/record_kalshi_fixtures.py` add
-        `record_historical_trades_window` — reads the cutoff, takes a
+        `record_historical_markets_page` — the first archive page at
+        `limit=MARKETS_PAGE_LIMIT`, `mve_filter=exclude`, saved as
+        `historical_markets_page` (must carry a cursor); print the page's
+        first and last `settlement_ts` so the note can record the order.
+  - [ ] Add `record_historical_trades_window` — reads the cutoff, takes a
         one-minute window seven days **before** `trades_created_ts` (a busy
         UTC afternoon minute; print the bounds as `record_trades_window`
         does), limit `TRADES_WINDOW_LIMIT`, saves `historical_trades_window`
@@ -252,12 +267,14 @@ tier*: same shapes, same cursor pagination as the live endpoints.
         historical_trades_window` then `--only historical_candles_market`
         (public mode suffices — 261 verified the endpoints unauthenticated).
   - [ ] Extend `test/unit/data/kalshi/test_fixtures.py`: the completeness
-        list gains the three names; each historical trades page parses into
+        list gains the four names; the archive page parses into a
+        `MarketsPage` whose every status is in `MarketStatus` and whose
+        `settlement_ts` values are all set; each historical trades page parses into
         a `TradesPage` (the first with a cursor, the last without); the
         candles fixture parses with OHLC. Include a parity assertion: the
         historical trade's field set equals the live `trades_window`
         fixture's (261's "same shape", proven rather than assumed).
-  - [ ] Success: the three files exist under `test/fixtures/kalshi/`; the
+  - [ ] Success: the four files exist under `test/fixtures/kalshi/`; the
         fixture tests pass; `--dry-run` for both recorders prints the
         expected HTTP 200 lines.
 
@@ -282,6 +299,12 @@ Design *State*, *Technical Decision 5* (adapters over 265's abstractions),
   - [ ] New `read_live_coverage_from() -> datetime | None`: the live
         `trades` row's `coverage_from_ts`, or `None` when the live phase has
         never run (the historical row is seeded from it — Criterion 2).
+  - [ ] New `read_cursor() -> str | None` and `set_cursor(cursor: str |
+        None)` on `self._surface` — the archive walk's resume point
+        (Decision 9; `sync_state.cursor` exists since kalshi_003 and
+        `CatalogRepository._set_state_column` types its value as a
+        datetime, so this is its own small statement, `ON CONFLICT` like
+        the others). `None` clears it.
   - [ ] Success: the existing trades unit and integration suites pass
         unchanged apart from the `init_state` signature.
 
@@ -291,7 +314,8 @@ Design *State*, *Technical Decision 5* (adapters over 265's abstractions),
         before any row, `init_state(w, f)` writes exactly that row and leaves
         the `trades` row absent, `advance_watermark` on the historical row
         moves **only** it; `read_live_coverage_from` returns `None` with no
-        live row and the value once the live row exists. Both rows can
+        live row and the value once the live row exists; `set_cursor` round-trips a string
+        and `None` clears it without touching the watermark. Both rows can
         coexist (the CHECK from Section 2).
   - [ ] Success: the cases pass in the integration tier.
 

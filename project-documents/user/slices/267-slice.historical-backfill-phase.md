@@ -22,6 +22,17 @@ closed markets whose trades predate the collector (`before coverage`) and 8,394
 selected finalized markets whose candles fell behind the cutoff
 (`behind cutoff, uncollected`) — and nothing fetches it.
 
+**The catalog does not know most of the markets the backfill will meet.**
+Read 2026-08-31 on production: the oldest finalized settlement in
+`kalshi.markets` is 2026-06-25 (the cutoff at the first cold start) and only
+9,835 markets close before 2026-06-01. 265's `write_page` keeps a trade only
+when the catalog has its market (that is how the collection rule is
+applied), so a trades walk into spring 2026 would classify nearly every
+trade `unknown` and store nothing. The phase therefore walks Kalshi's market
+archive (`GET /historical/markets`) into the catalog **before** it walks the
+tape — the same catalog-before-tape rule the live pass already follows
+(265 Decision 5). Decision 9.
+
 The retired slice 266 made the backfill an operator-run drain that had to wait
 for the live trades drain to finish. **This slice replaces it with a fourth
 phase of the existing hourly pass.** The phase starts on the first firing after
@@ -33,7 +44,9 @@ command, or operator step; no waiting on anything; progress is visible in
 ## Value
 
 - Both "known-lost" counts shrink while the phase runs. `behind cutoff,
-  uncollected` falls as markets are stamped; `before coverage` falls as the
+  uncollected` first **grows** — the archive walk adds every pre-cutoff
+  market the catalog never knew (Decision 9) — then falls as markets are
+  stamped; `before coverage` falls as the
   historical watermark descends, because `status` partitions the closed
   markets against the *effective* floor — the oldest hour the tape covers —
   not the live row's floor (Decision 8). A visible floor replaces a permanent
@@ -46,11 +59,14 @@ command, or operator step; no waiting on anything; progress is visible in
 
 ## Technical Scope
 
-**In:** a `HistoricalPhase` appended to `PASS_PHASES` after `trades`; two
-client methods (`get_historical_trades`, `get_historical_market_candlesticks`)
-with recorded fixtures; a `HistoricalTradeSource` adapter so 265's window loop
-and `write_page` are reused unchanged; a bounded per-market candle fetch for
-the behind-cutoff set; one `sync_state` row (`historical`) carrying the
+**In:** a `HistoricalPhase` appended to `PASS_PHASES` after `trades`; three
+client methods (`get_historical_markets`, `get_historical_trades`,
+`get_historical_market_candlesticks`) with recorded fixtures; a one-time,
+resumable walk of the market archive into the catalog through 262's
+`CatalogSync.ingest_markets` (parent resolution included), its cursor kept in
+`sync_state['historical'].cursor`; a `HistoricalTradeSource` adapter so
+265's window loop and `write_page` are reused unchanged; a bounded
+per-market candle fetch for the behind-cutoff set; one `sync_state` row (`historical`) carrying the
 downward trades watermark; migration `kalshi_007` widening the `surface`
 CHECK; a `status` line; the renderer, fixtures, tests, runbook paragraph.
 
@@ -64,6 +80,11 @@ driver; `mt data kalshi pass` from a shell already runs it).
 
 ```
 catalog → candles → trades → historical
+                                ├─ 0. archive walk (until done, once): pages of
+                                │     /historical/markets newest-first, each page
+                                │     through CatalogSync.ingest_markets (parents
+                                │     resolved, upsert); cursor saved per page;
+                                │     stops one day past HISTORICAL_TRADES_FLOOR
                                 ├─ 1. behind-cutoff candles: up to
                                 │     HISTORICAL_CANDLE_MARKETS_PER_PASS markets,
                                 │     /historical/markets/{ticker}/candlesticks,
@@ -79,17 +100,23 @@ catalog → candles → trades → historical
                                       until the phase's request cap is spent
 ```
 
-Requests are counted across both sub-drains against one cap. Candles run first
-because the set is small and finite (8,394 markets, gone in a few firings at
-1,000/pass); the trades drain takes whatever budget remains each firing.
+Requests are counted across the three sub-drains against one cap. The
+archive walk runs first and only until it is done (a few thousand requests
+once — Decision 9); trades never start while it is incomplete, so no trade is
+classified before its market is known. Candles run next under a per-pass
+market ceiling while the trades drain is still descending, and without it
+once `floor_reached` (Decision 9); the trades drain takes whatever budget
+remains each firing.
 
 ### State
 
 `kalshi.sync_state['historical']`: `watermark_ts` = the oldest hour fully
 walked (moves **down**), `coverage_from_ts` = `HISTORICAL_TRADES_FLOOR` (the
 target, recorded so `status` can show distance), `last_full_sync_at` = last
-phase completion. The live `trades` row is untouched. `status` derives an
-**effective floor** = `min(trades.coverage_from_ts, historical.watermark_ts)`
+phase completion, `cursor` = the archive walk's resume cursor while the walk
+is in progress, `NULL` before it starts and after it completes (the column
+exists since kalshi_003 and no other surface uses it). The live `trades`
+row is untouched. `status` derives an **effective floor** = `min(trades.coverage_from_ts, historical.watermark_ts)`
 (the live floor until the historical row exists) and the four closed-market
 buckets partition against it, so `before coverage` means what it says —
 closed before any hour the tape covers — and shrinks as the watermark
@@ -146,10 +173,19 @@ trade_id)`; watermark advances only after a window's last page committed.
    `/historical/trades` with the same parameters; `TradeSync`'s window walker is
    parameterised by direction rather than duplicated. Candles reuse
    `CandleRepository.write_batch` and the existing state stamping.
-6. **Failure semantics identical to `TradesPhase`:** `ProviderError` and
-   `OperationalError` fail the phase (pass exit code unchanged, earlier phases'
-   results intact); the next firing resumes from the watermark. A page that
-   fails mid-window re-walks that window (idempotent).
+6. **Failure semantics as `TradesPhase`, plus one item error.**
+   `ProviderTransientError` and `OperationalError` fail the phase (pass exit
+   code unchanged, earlier phases' results intact); the next firing resumes
+   from the watermark and the cursor. A page that fails mid-window re-walks
+   that window (idempotent). A **`ProviderPermanentError` on one market's
+   candles** (a 404 for an archived ticker, say) is an item error, not an
+   abort — the market is skipped and counted, the phase reports `PARTIAL`
+   (exit 3, the unit shows failed, as 264's candle phase does for an
+   unserved market), and the next firing retries it. *Why:* under a plain
+   abort one unserved market would re-abort every firing forever and the
+   drain would never reach the floor (PM, 20260831). Trades windows and
+   archive pages have no per-item failure: a page parses or its request
+   fails.
 7. **Migration `kalshi_007`** widens `sync_state_surface_check` to include
    `historical` (rendered from `Surface`, as kalshi_001 does) — no other schema
    change.
@@ -162,6 +198,39 @@ trade_id)`; watermark advances only after a window's last page committed.
    floor and showing historical progress only on its own line — the existing
    trades block would then show no movement while the range fills, and a
    market whose trades are fully present would stay bucketed as lost.
+9. **Catalog before tape: walk the market archive first, once. PM-ratified
+   20260831.** `GET /historical/markets` takes only `tickers`,
+   `event_ticker`, `series_ticker`, `mve_filter`, `limit`, `cursor` — no
+   settlement window (docs.kalshi.com and a live probe 20260831: a March
+   `min/max_settled_ts` window returned July markets). So the walk is the
+   archive's own order: pages of `MARKETS_PAGE_LIMIT` with
+   `mve_filter=exclude`, coarsely newest-first (three pages probed
+   20260831: 2026-07-01 23:06 → 20:30 → 17:30, with minute-level overlap
+   inside pages), each page through `CatalogSync.ingest_markets` behind a
+   `HistoricalCatalogSource` adapter (`get_markets` → the archive; events and
+   series pass through unchanged), the cursor saved after every page so an
+   abort or the cap resumes it. **Stop rule:** the walk is done when every
+   market on a page settled before `HISTORICAL_TRADES_FLOOR −
+   HISTORICAL_ARCHIVE_STOP_MARGIN` (one day, covering the observed overlap)
+   — a market settled before the floor cannot have traded after it, so no
+   trade in range belongs to a market beyond that point. The cursor is
+   cleared and `archive_walked` recorded. Cost, estimated from the live
+   catalog's monthly counts (1.59 M finalized in July, 2.17 M in August):
+   ~8–10 k requests including the already-known July–August rows (the
+   upsert leaves them `unchanged`), i.e. one authenticated firing or two
+   public ones, and several million upserts — the first firing after
+   install runs hours, not 40 minutes, and a timer firing that overlaps it
+   exits 1 on the run lock (expected, runbook 100). *Consequence for
+   candles:* the archived markets join the behind-cutoff set (finalized,
+   before the cutoff, no state row, selected), taking it from 8,394 to
+   millions. The per-pass ceiling `HISTORICAL_CANDLE_MARKETS_PER_PASS`
+   applies while the trades drain is descending; once `floor_reached`, the
+   candle sub-drain is bounded by the request cap alone, so the whole
+   budget goes to candles until `status` shows 0 remaining. *Rejected:*
+   resolving unknown tickers page by page from the tape (`tickers=` lookups
+   in batches of 100 — precise but ~60 k requests and a lookup inside the
+   write path); walking by settlement window (not offered by the endpoint).
+
 
 ## Implementation Details
 
@@ -169,19 +238,27 @@ trade_id)`; watermark advances only after a window's last page committed.
   `rate_limit.requests_per_minute × HISTORICAL_PHASE_MINUTES`, computed once
   at phase start from the client's selected budget and logged),
   `HISTORICAL_CANDLE_MARKETS_PER_PASS = 1_000`, `HISTORICAL_TRADES_FLOOR`,
-  `HISTORICAL_SLOW_MARKET_SECONDS = 30`; `Surface.HISTORICAL = "historical"`.
-- `client.py`: `get_historical_trades` (mirror of `get_trades`),
+  `HISTORICAL_ARCHIVE_STOP_MARGIN = timedelta(days=1)` (Decision 9),
+  `HISTORICAL_SLOW_MARKET_SECONDS = 30`; `Surface.HISTORICAL = "historical"`;
+  the three `/historical/*` paths.
+- `client.py`: `get_historical_markets` (mirror of `get_markets`, same
+  `MarketsQuery`), `get_historical_trades` (mirror of `get_trades`),
   `get_historical_market_candlesticks` (mirror of `get_market_candlesticks`);
-  recorder gains both; fixtures `historical_trades_window`,
-  `historical_candles_market`.
+  recorder gains all three; fixtures `historical_markets_page`,
+  `historical_trades_window`, `historical_candles_market`.
+- `historical_types.py`: `HistoricalCatalogSource` (Decision 9) and
+  `HistoricalTradeSource` (Decision 5) — the two adapters that let
+  `CatalogSync.ingest_markets` and `TradeSync.drain` run unchanged.
 - `trade_sync.py`: `_windows` takes a `direction` (forward: `start < end`,
   windows `[w, w+1h)`; backward: `end > floor`, windows `[w−1h, w)`), watermark
   update passes the window's far edge. Everything else shared.
-- `historical_sync.py` (new, ~250 l): `HistoricalSync.run()` — candles
-  sub-drain (query the behind-cutoff set with `LIMIT` per pass, fetch, write,
-  stamp), then trades sub-drain via `TradeSync` in backward mode with a shared
-  request counter and the phase cap; `HistoricalResult.to_dict()` with both
-  sub-drains' counts and `floor_reached: bool`.
+- `historical_sync.py` (new): `HistoricalSync.run()` — archive walk until
+  done (cursor per page, stop rule, Decision 9), then the candles sub-drain
+  (the behind-cutoff set with `LIMIT` per pass until `floor_reached`; fetch,
+  write, stamp; permanent error → item error, Decision 6), then the trades
+  sub-drain via `TradeSync` in backward mode with a shared request counter
+  and the phase cap; `HistoricalResult.to_dict()` with the three sub-drains'
+  counts, `archive_walked: bool`, `floor_reached: bool`, and the item errors.
 - `collection_pass.py`: `PassPhaseName.HISTORICAL`, `HistoricalPhase`,
   `PASS_PHASES` four entries. `kalshi_render.py`: summary block + status line
   (`historical tape 2026-07-01 → 2026-05-14 (floor 2026-01-01) · behind-cutoff
@@ -219,8 +296,19 @@ trade_id)`; watermark advances only after a window's last page committed.
    of selected closed markets whose `close_time` lies in the hours walked
    that firing, and the four buckets still sum to the selected closed total.
 8. Production: the first firing after install shows `catalog=ok candles=ok
-   trades=ok historical=ok`, and the status line shows the tape range growing
-   downward on the following firings — observed, not waited for.
+   trades=ok historical=ok` (or `historical=partial` with named item
+   errors), and the status line shows the tape range growing downward on the
+   following firings — observed, not waited for.
+9. The archive walk runs before any trades request, saves its cursor after
+   every page, resumes from it after an abort or the cap, and once done
+   clears the cursor and reports `archive_walked: true` on every later
+   firing without a request; a trade for a market that only the archive
+   knows is **written**, not counted `unknown`.
+10. A permanent provider error on one market's candles leaves the phase
+    `partial` with that ticker in `item_errors`, every other market of the
+    firing stamped, and the trades sub-drain run; a transient error still
+    aborts.
+
 
 ## Verification
 
@@ -241,3 +329,13 @@ status line over any later hour; the firing's client-construction line reads
 - **Kalshi may rate-limit `/historical/*` separately or lower.** The client's
   existing 429 backoff applies; a sustained escalation shows in the health
   check's Kalshi phase-recency rule and in the journal.
+- **The archive's size and order are estimated, not measured** (Decision 9:
+  three pages probed). The rehearsal records the real page count to the stop
+  point; the walk is resumable and idempotent, so a wrong estimate costs
+  firings, not correctness. If a saved cursor is ever rejected between
+  firings (a 4xx on the resume request), the walk restarts from the first
+  page — upserts make that safe; the restart is logged.
+- **The archive walk's first firing runs hours** (millions of catalog
+  upserts under the run lock); overlapping timer firings exit 1 on the lock
+  until it finishes — the runbook's cold-start paragraph already describes
+  this shape.

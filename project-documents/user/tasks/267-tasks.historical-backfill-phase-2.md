@@ -35,11 +35,18 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
 1, 2, 4, 6*, *Implementation Details* (`historical_sync.py`).
 
 - [ ] **Task 6.1: `historical_types.py`** (effort: 2)
-  - [ ] `HistoricalSource(Protocol)`: `get_historical_trades(*, cursor,
-        min_ts, max_ts, limit) -> TradesPage` and
+  - [ ] `HistoricalSource(Protocol)`: `get_historical_markets(*, cursor,
+        limit, mve_filter) -> MarketsPage`, `get_historical_trades(*,
+        cursor, min_ts, max_ts, limit) -> TradesPage`,
         `get_historical_market_candlesticks(ticker, *, start_ts, end_ts,
-        period_interval) -> list[Candlestick]`. `KalshiClient` satisfies it
-        structurally.
+        period_interval) -> list[Candlestick]`, plus the parent calls
+        `ingest_markets` needs (`get_events`, `get_event`, `get_series`).
+        `KalshiClient` satisfies it structurally.
+  - [ ] `HistoricalCatalogSource`: the Decision 9 adapter — satisfies
+        `sync.CatalogSource` by forwarding `get_markets`/`iter_markets` to
+        the archive and the event/series calls unchanged;
+        `get_series_list` and `get_historical_cutoff` raise
+        `NotImplementedError` naming why (the walk never calls them).
   - [ ] `HistoricalTradeSource`: the adapter Decision 5 names — wraps a
         `HistoricalSource` and exposes `TradeSource`'s `get_trades(...)` by
         forwarding to `get_historical_trades` with the same arguments;
@@ -48,16 +55,21 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
         cutoff). Five lines; it is what lets `TradeSync` run unchanged.
   - [ ] `HistoricalResult` dataclass with `counts()` and `to_dict()`:
         `run_id`, `started_at`, `cap`, `requests`, `capped`,
+        `archive_walked`, `archive_pages`, `archive_markets_fetched`,
+        `archive_markets_written`, `archive_restarted`,
         `candle_markets_completed`, `candle_requests`, `candles_written`,
-        `candle_markets_remaining`, `slow_markets`, `trades_row_missing`,
+        `candle_markets_remaining`, `slow_markets`, `item_errors:
+        list[CandleItemError]` (reuse 264's type), `trades_row_missing`,
         `floor`, `watermark_before`, `watermark_after`, `floor_reached`, the
         trades sub-drain's `windows_completed`, `trades_fetched`,
         `trades_written`, `unknown_market`, `excluded_by_rule`,
         `duplicates`, `unknown_prefixes`, `duration_ms`, `error`. The
         trades figures are copied from the inner `TradeResult` after
         `drain`, not recomputed.
-  - [ ] `classify_historical(result, exc)` — `classify_outcome(False,
-        exc)`, never `PARTIAL` (Decision 6), the `classify_trades` shape.
+  - [ ] `classify_historical(result, exc)` — `classify_outcome(bool(result.
+        item_errors), exc)`: `PARTIAL` when a market was skipped on a
+        permanent error and nothing aborted (Decision 6), the
+        `classify_candles` shape.
   - [ ] Success: mypy/pyright clean; `to_dict` round-trips through
         `json.dumps` (unit test in Task 6.4).
 
@@ -65,21 +77,47 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
   - [ ] New `historical_sync.py` (≤ ~300 lines; split the candle sub-drain
         into `historical_candles.py` if it does not fit). Constructor:
         `source: HistoricalSource`, `trades: TradeRepository` (built by the
-        phase with `surface=Surface.HISTORICAL`), `candles:
-        CandleRepository`, `sink`, `*, rule, run_id, cap: int, clock`.
-        `cap` is **passed in** — the core never sees the client; the phase
-        computes it (Task 7.1).
+        phase with `surface=Surface.HISTORICAL`), `candles: CandleRepository`, `catalog: CatalogRepository`, `sink`,
+        `*, rule, run_id, cap: int, clock`. `cap` is **passed in** — the core
+        never sees the client; the phase computes it (Task 7.1).
   - [ ] `run()`, in order, inside the `TradeSync`-style `try` that records
         `error`, logs `exception`, finishes, and re-raises:
     1. [ ] Log the start line with `run_id`, `cap`, the floor, and the rule.
-    2. [ ] **Candles sub-drain.** The cutoff is the candles surface's stored
+    2. [ ] **Archive walk (Decision 9).** Three states of the historical
+       row: *not started* (no row, or cursor NULL and watermark NULL), *in
+       progress* (cursor set), *done* (cursor NULL, watermark set — the
+       trades sub-drain seeds the watermark only after the walk completes,
+       so the watermark is the done marker and no new column is needed).
+       Done → no request, `archive_walked`. Otherwise build
+       `CatalogSync(HistoricalCatalogSource(source), catalog,
+       sink=NullSyncEventSink(), run_id=run_id)` once; loop: **check the
+       cap**, `get_historical_markets(cursor=…, limit=MARKETS_PAGE_LIMIT,
+       mve_filter=KALSHI_MVE_FILTER)`, count the request, `await
+       sync.ingest_markets(SyncPhase.MARKETS, page.markets)` (parents
+       resolved and upserted by 262's code; its parent requests count too —
+       wrap the source to count), then in one transaction
+       `set_cursor(page.cursor or None)`. Stop when `page.cursor` is empty
+       or every market on the page has `settlement_ts <
+       HISTORICAL_TRADES_FLOOR − HISTORICAL_ARCHIVE_STOP_MARGIN`; on stop
+       clear the cursor and log `archive walk done pages=n markets=m`. Cap
+       hit mid-walk → `capped`, cursor saved, **return before candles and
+       trades** (nothing downstream may run on a partial catalog). A
+       `ProviderPermanentError` on the resume request → log `archive cursor
+       rejected; restarting`, `archive_restarted`, cursor cleared, walk
+       again from the first page (idempotent upserts). Item errors 262
+       raises for unavailable parents stay 262's (counted in `sync.result`
+       and logged; they do not make this phase `PARTIAL` — the market stays
+       unknown, as in the live pass).
+    3. [ ] **Candles sub-drain.** The cutoff is the candles surface's stored
        `watermark_ts` (`CandleRepository`/`CatalogRepository.get_sync_state
        (Surface.CANDLESTICKS)`) — the same instant `status` counts
        `behind cutoff` against, and no request. No candles row → skip the
        sub-drain with an INFO line (the candle phase has never run).
-       Otherwise `pending_behind_cutoff(period, cutoff,
-       HISTORICAL_CANDLE_MARKETS_PER_PASS)`; for each market, **check the
-       cap first** (a market may exceed it by its own requests — Criterion
+       Otherwise `pending_behind_cutoff(period, cutoff, limit)` where
+       `limit` is `HISTORICAL_CANDLE_MARKETS_PER_PASS` while the historical
+       row's watermark is above the floor and **unbounded** (`None` → no
+       `LIMIT` clause) once `floor_reached` (Decision 9 — the cap alone
+       bounds it then); for each market, **check the cap first** (a market may exceed it by its own requests — Criterion
        6), then fetch `[open_time, close_time + period)` in chunks of at
        most `CANDLE_SINGLE_MAX_CANDLES` periods (`candle_plan.periods_in`;
        the constant exists from 264 and gains its first reader — update its
@@ -88,27 +126,33 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
        [StateAdvance(ticker, close_time + period, open_time)])`. Time each
        market with the clock; `WARNING` above
        `HISTORICAL_SLOW_MARKET_SECONDS` and count it in `slow_markets`
-       (Decision 4). After the loop, `candle_markets_remaining =
-       count_behind_cutoff(period, cutoff)`.
-    3. [ ] **State row.** `trades.read_state()`; when `None`,
+       (Decision 4). A `ProviderPermanentError` on one market's request →
+       `item_errors.append(CandleItemError(ticker, str(exc)))`, `logger.
+       error`, continue with the next market; **no state row is written**
+       for it (Decision 6). Any other exception propagates. After the loop,
+       `candle_markets_remaining = count_behind_cutoff(period, cutoff)`.
+    4. [ ] **State row.** `trades.read_state()`; when `None`,
        `read_live_coverage_from()` — `None` means the live phase has never
        run: set `trades_row_missing`, log, and skip the trades sub-drain
        (Criterion 2 needs a live floor to seed from). Otherwise
        `init_state(live_floor, HISTORICAL_TRADES_FLOOR)` in a transaction
        and log both instants (Criterion 2). A row whose `watermark_ts` is
        already ≤ the floor → `floor_reached`, no requests (Criterion 3).
-    4. [ ] **Trades sub-drain.** Build `TradeSync(HistoricalTradeSource
+    5. [ ] **Trades sub-drain.** Build `TradeSync(HistoricalTradeSource
        (source), trades, sink=NullSyncEventSink(), rule=rule,
        run_id=run_id, clock=clock, direction=BACKWARD, cap=cap −
        result.requests)`; `await inner.drain(watermark, HISTORICAL_
        TRADES_FLOOR)`; add its `requests` to the phase's; copy its counts;
        `floor_reached = inner.result.watermark_after <= floor`; log the
        unknown-prefix line through the inner core's method.
-    5. [ ] `set_last_full_sync(phase_start)` on the historical row.
-    6. [ ] `_finish`: `duration_ms`, one `phase_finished` event with
+    6. [ ] `set_last_full_sync(phase_start)` on the historical row.
+    7. [ ] `_finish`: `duration_ms`, one `phase_finished` event with
        `phase="historical"`, `counts()`, `error`.
-  - [ ] Success: Task 6.4's cases pass; the file is under the line
-        guideline; no `except Exception` other than the one that re-raises.
+  - [ ] Success: Task 6.4's cases pass; each file is under the line
+        guideline (the archive walk and the candle sub-drain are natural
+        modules of their own if `historical_sync.py` runs long); the only
+        `except` clauses are the re-raising one and the two
+        `ProviderPermanentError` handlers named above, each with its comment.
 
 - [ ] **Task 6.3: Test fakes** (effort: 2)
   - [ ] `test/kalshi_support/fake_historical_source.py`: `FakeHistoricalSource`
@@ -116,10 +160,15 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
         semantics and query recording (compose or subclass it; do not copy
         its paging), plus `candles_by_ticker: dict[str, list[Candlestick]]`
         served by `get_historical_market_candlesticks` filtered to the
-        requested range, every candle query recorded, and `raise_on` for
-        both methods.
-  - [ ] Extend `FakeTradeRepository` with the surface parameter and
-        `read_live_coverage_from` (a settable attribute); extend
+        requested range, a scripted archive (`archive_pages:
+        list[list[Market]]`, served newest page first with an opaque cursor,
+        plus `FakeCatalogSource`'s event/series answers for parents), every
+        query recorded, and `raise_on` for all three methods.
+  - [ ] Extend `FakeTradeRepository` with the surface parameter,
+        `read_live_coverage_from` (a settable attribute), and the cursor
+        pair; the walk's catalog writes go through the existing
+        `FakeRepository` (262's), so its recorded upserts prove what the
+        archive contributed; extend
         `FakeCandleRepository` with `pending_behind_cutoff` (served from a
         scripted list, honouring `limit`) and a settable candles sync-state
         row. Their self-tests in `test_fakes.py` gain one case each.
@@ -158,9 +207,28 @@ Design *Architecture* (the phase, one firing; state), *Technical Decisions
     10. [ ] exactly one `phase_finished` event, `phase == "historical"`, no
         `trades` event.
     11. [ ] `to_dict` matches the design's fields and round-trips.
-    12. [ ] `classify_historical` is never `PARTIAL` and refuses an
-        unclassified exception.
-  - [ ] Success: the twelve cases pass.
+    12. [ ] `classify_historical`: `PARTIAL` iff item errors and no abort;
+        refuses an unclassified exception.
+    13. [ ] archive walk: three scripted pages, the third entirely older
+        than the floor minus the margin → exactly three archive requests
+        (plus the parent lookups the fake answers), every market of the
+        first two pages upserted through the catalog fake, the cursor saved
+        after pages one and two and NULL at the end, `archive_walked` true;
+        a second run makes no archive request (Criterion 9).
+    14. [ ] archive walk resumes: `cap` smaller than the walk → `capped`,
+        cursor saved, **no candles and no trades request**; the next run
+        starts from the saved cursor (the fake asserts the cursor it
+        received) and finishes.
+    15. [ ] archive cursor rejected on resume (`ProviderPermanentError` on
+        the first request of the run) → `archive_restarted`, the walk
+        starts from page one and completes.
+    16. [ ] a `ProviderPermanentError` on one market's candles → that ticker
+        in `item_errors`, no state row for it, the other markets stamped,
+        the trades sub-drain run, outcome `PARTIAL` (Criterion 10); a
+        `ProviderTransientError` on the same request aborts.
+    17. [ ] once the watermark is at the floor, the candle sub-drain takes
+        every pending market the cap allows (no per-pass ceiling).
+  - [ ] Success: the seventeen cases pass.
 
 - [ ] **Task 6.5: Section 6 gates and checkpoint commit** (effort: 1)
   - [ ] Gates as part 1's Context Summary, scoped to the files touched.
@@ -179,7 +247,7 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
         HISTORICAL_PHASE_MINUTES` and logs `kalshi historical cap=%d
         (%d/min × %d min, mode=%s)` before constructing the core (Criterion
         6's first clause). Repositories: `TradeRepository(run.conn, rule,
-        surface=Surface.HISTORICAL)` and `CandleRepository(run.conn, rule)`.
+        surface=Surface.HISTORICAL)` and `CandleRepository(run.conn, rule)`, `CatalogRepository(run.conn)`.
   - [ ] `PASS_PHASES` becomes four entries; the registration comment says
         why historical is last (Decision 1).
   - [ ] Tests in `test_collection_pass.py`: the names-and-order case lists
@@ -193,11 +261,13 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
 - [ ] **Task 7.2: Phase renderer** (effort: 2)
   - [ ] `print_historical_summary` in `kalshi_render.py` from
         `HistoricalResult.to_dict()`: one line `requests n / cap m (capped)`,
+        one for the archive (`walked` or `pages · markets · cursor saved`),
         one for candles (`markets completed · requests · candles written ·
         remaining · slow`), one for the watermark (`before → after`, `floor
         reached` when true), one for the trades counts in
-        `print_trade_summary`'s order, and the `no live trades row` note
-        when `trades_row_missing`. Register it in `PHASE_RENDERERS`.
+        `print_trade_summary`'s order, the item errors one per line as
+        `print_candle_summary` prints them, and the `no live trades row`
+        note when `trades_row_missing`. Register it in `PHASE_RENDERERS`.
   - [ ] Test: every `PassPhaseName` has a renderer (extend the existing
         registry test); the summary renders the Task 6.4 payload without
         error.
@@ -208,7 +278,9 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
   - [ ] New `data/kalshi/historical_status.py` (the `trade_status.py`
         pattern; imports neither client nor transport — extend
         `test_status_imports.py`): `HistoricalStatus(last_phase_at,
-        tape_from, tape_to, floor, floor_reached)` with `to_dict()`, and
+        archive_walked, archive_in_progress, tape_from, tape_to, floor,
+        floor_reached)` with `to_dict()` (`tape_from` is `None` until the
+        walk is done and the row is seeded), and
         `read_historical_status(conn) -> HistoricalStatus | None` reading
         the `historical` row and the live row's `coverage_from_ts`
         (`tape_to`). `None` until the phase has run.
@@ -240,8 +312,9 @@ Design *Implementation Details* (`collection_pass.py`, `kalshi_render.py`,
   - [ ] `print_status` gains `historical`; `print_historical_status` prints
         the design's line: `historical tape <tape_to> → <tape_from> (floor
         <floor>) · behind-cutoff candles remaining n · last phase <when>`,
-        with `floor reached` replacing the arrow form when true, and
-        `Historical: never run` when `None`.
+        with `floor reached` replacing the arrow form when true, `archive
+        walk in progress` replacing the tape range while the cursor is set,
+        and `Historical: never run` when `None`.
   - [ ] Test: in `test/integration/test_kalshi_status.py`, drive
         `kalshi_status` through the CLI runner against `kalshi_db` — JSON
         has the `historical` key in both states; the Rich line renders.
@@ -260,12 +333,18 @@ Criteria 1, 4, 5, 7 against a real database.
 - [ ] **Task 8.1: Four-phase pass, end to end** (effort: 3)
   - [ ] In `test/integration/test_kalshi_pass.py`, extend the pass source
         (`_ThreeSurfaceSource` becomes four) with the historical fixtures:
-        a historical tape covering three hours below a seeded live floor
-        and one behind-cutoff market's candles. Seed the catalog with the
-        tape's markets (`write_catalog`), the candles row (cutoff after the
-        market's settlement), and the live trades row.
+        one archive page whose markets are **not** in the seeded catalog and
+        settle before the floor minus the margin, a historical tape covering
+        three hours below a seeded live floor that includes trades for those
+        archive-only markets, and one behind-cutoff market's candles. Seed
+        the catalog with the tape's other markets (`write_catalog`), the
+        candles row (cutoff after the market's settlement), and the live
+        trades row.
   - [ ] First pass: `phases[].name` is the four names, all `ok`; the
-        historical row exists at the live floor with the floor target; the
+        archive page's markets are in `kalshi.markets` with their parents
+        and the trades for them were **written** (Criterion 9); the
+        historical row exists at the live floor with the floor target with
+        a NULL cursor; the
         watermark descended by whole hours; the candle market has rows and a
         state row and `count_behind_cutoff` fell by one (Criterion 5); the
         identity holds on the summary (Criterion 4); `status --json`'s
@@ -274,11 +353,15 @@ Criteria 1, 4, 5, 7 against a real database.
   - [ ] Second pass over the same fixtures writes 0 trade rows and 0
         candles, the live row is byte-identical, and the watermark does not
         move past the floor.
-  - [ ] Abort: a source that raises `ProviderError` on the first historical
-        candles request leaves catalog, candles, and trades reports `ok`
-        with their state intact, historical `provider_abort`, exit code
-        `EXIT_BY_OUTCOME[PROVIDER_ABORT]`.
-  - [ ] Success: the three cases pass in the integration tier.
+  - [ ] Abort: a source that raises `ProviderTransientError` on the first
+        historical candles request leaves catalog, candles, and trades
+        reports `ok` with their state intact, historical `provider_abort`,
+        exit code `EXIT_BY_OUTCOME[PROVIDER_ABORT]`; the same request
+        raising `ProviderPermanentError` gives historical `partial`, exit
+        `EXIT_BY_OUTCOME[PARTIAL]`, the ticker in the summary's
+        `item_errors`, and the trades watermark still descended (Criterion
+        10).
+  - [ ] Success: the four cases pass in the integration tier.
 
 - [ ] **Task 8.2: Full-tier run and checkpoint commit** (effort: 1)
   - [ ] `uv run pytest test/unit -q` and the integration tier both green;
@@ -309,11 +392,18 @@ the rehearsal shell only. Record observed output as you go.
 - [ ] **Task 9.2: Two passes under a small cap** (effort: 3)
   - [ ] Seed the live `trades` row as production has it: `coverage_from_ts`
         = the cutoff's `trades_created_ts`, `watermark_ts` the same
-        (nothing live to drain). Set `MT_KALSHI_REQUESTS_PER_MINUTE=10` for
-        the two passes so the computed cap is 300 (the lever is 262's
-        setting; no code path is special-cased for the rehearsal).
-  - [ ] Pass 1: capture the cap line (`cap=300 (10/min × 30 min,
-        mode=public)`), the candle market's completion and timing line, the
+        (nothing live to drain). Run the passes at the public default (cap
+        9,000) — the archive walk needs most of it (Decision 9's estimate),
+        and this is the measurement that replaces the estimate.
+  - [ ] Pass 1 (expect an hour or more — the walk upserts millions of
+        rows): capture the cap line (`cap=9000 (300/min × 30 min,
+        mode=public)`), the archive walk's per-page progress and its done
+        line **or** its cap-reached line with the cursor saved (then pass 2
+        resumes and finishes it — capture the resume line; the trades
+        drain starts only after). **Record the archive's page count to the
+        stop point, the wall time, and the catalog's market count before
+        and after** — the numbers Decision 9 estimated. Then the candle
+        market's completion and timing line, the
         historical start line with both instants (Criterion 2), the
         per-window lines walking down, the cap-reached line, and
         `catalog=ok candles=ok trades=ok historical=ok` (Criterion 1).
@@ -322,8 +412,11 @@ the rehearsal shell only. Record observed output as you go.
         and a state row (Criterion 5); verify the historical watermark is a
         whole hour below the live floor and the live row is unchanged
         (Criteria 3, 7).
-  - [ ] Pass 2: the watermark descends again; a re-walk (seed it back up one
-        hour) writes 0 rows (Criterion 4's second clause).
+  - [ ] Pass 2 (or 3, if the walk spilled): the watermark descends again
+        and no archive request is made (Criterion 9); a re-walk (seed it
+        back up one hour) writes 0 rows (Criterion 4's second clause).
+        Check in the journal's per-window lines that `unknown` is now the
+        MVE prefixes only — the check that the archive walk did its job.
   - [ ] `mt data kalshi status` prints the historical line and the trades
         block's `coverage from` equals the historical watermark; capture.
   - [ ] **Record per-window wall time** for comparison with 265's 0.21
@@ -332,8 +425,9 @@ the rehearsal shell only. Record observed output as you go.
 
 - [ ] **Task 9.3: Rehearsal note and teardown** (effort: 2)
   - [ ] Write `user/notes/2026-MM-DD-267-rehearsal.md` (real date) with the
-        captured output, the timings, and the two things the rehearsal did
-        **not** do, each with where the proof lives: the authenticated cap
+        captured output, the timings, the archive measurements (replace
+        Decision 9's estimate in the design with them — commit that with
+        the note), and the two things the rehearsal did **not** do, each with where the proof lives: the authenticated cap
         of 30,000 (proven by Task 7.1's computed-cap test; observed on the
         host by Task 11.2) and a multi-firing descent to the floor (the
         handoff below).
@@ -345,13 +439,17 @@ the rehearsal shell only. Record observed output as you go.
 
 - [ ] **Task 10.1: Runbook 100, Kalshi subsection** (effort: 2)
   - [ ] The paragraph the design specifies: four phases since this release;
+        the first firing walks the market archive into the catalog and runs
+        hours under the run lock (overlapping firings exit 1, expected);
         the historical phase self-limits to `HISTORICAL_PHASE_MINUTES` of
         the client's budget (30,000 requests authenticated, 9,000 public)
         and stops at `HISTORICAL_TRADES_FLOOR`; how to read the status
         line; extending the floor is one constant edit; `kalshi_007` must
         be applied during the update (the usual exit-1 firing between
-        install and apply); the slow-market warning and the manual
-        compression-pause lever (unchanged, never automated).
+        install and apply); an unserved market shows as `historical=partial`
+        with its ticker in the journal and retries each firing; the
+        slow-market warning and the manual compression-pause lever
+        (unchanged, never automated).
   - [ ] Success: `grep -n` finds `kalshi_007`, `HISTORICAL_TRADES_FLOOR`,
         and `historical tape` in the Kalshi subsection.
 
@@ -373,13 +471,19 @@ release and reading the report — with one script between them, as 265.
         timer), minus the settings rename. Its report checks, from the
         journal of that one firing and `status --json`: the client line
         reads `mode=authenticated budget=1000/min`; the cap line reads
-        `cap=30000`; `catalog=ok candles=ok trades=ok historical=ok`
-        (Criterion 8); the historical row was created at the live floor
-        with the floor target; the watermark descended ≥ 1 hour;
+        `cap=30000`; the archive walk's done line with its page and market
+        counts (or, if the walk was capped, its cursor-saved line — then
+        the rest of the checks read from the *next* firing, which the
+        script waits for through the unit, as it waits for the first);
+        `catalog=ok candles=ok trades=ok historical=ok|partial` (Criterion
+        8; `partial` lists the tickers); the historical row was created at
+        the live floor with the floor target; the watermark descended ≥ 1
+        hour;
         `candle_markets_completed ≤ 1,000` and `behind cutoff, uncollected`
         fell by exactly that number (Criterion 5); 429 count; total pass
-        duration < 45 min (Criterion 6); the slowest window and slowest
-        market as numbers. Writes `user/notes/<date>-267-cutover.md`.
+        duration < 45 min (Criterion 6) **for the first firing after the
+        walk** — the walk's own firing is reported as its duration and the
+        catalog's growth; the slowest window and slowest market as numbers. Writes `user/notes/<date>-267-cutover.md`.
   - [ ] Unit test the report's parsing against a journal excerpt
         (`test/unit/test_cutover_267.py`; the 265 script shipped without
         one — do not repeat that).
@@ -413,6 +517,7 @@ reaching 0 in the first nine) is an observation over hours and days, and no
 task here may wait on it. The mechanisms are proven without waiting: the
 per-firing descent and the floor stop by Task 6.4 cases 5–6 and Task 9.2,
 the cap by Task 7.1 and the first firing's cap line, the stamping by Task
-8.1. The PM watches `mt-run data kalshi status` at any later hour; a
+8.1, the archive walk by Task 6.4 cases 13–15 and the rehearsal's measured
+walk. The PM watches `mt-run data kalshi status` at any later hour; a
 watermark that has not moved across firings while `floor reached` is absent
 is the signal to act on.
