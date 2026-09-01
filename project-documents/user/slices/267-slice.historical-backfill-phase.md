@@ -32,8 +32,12 @@ command, or operator step; no waiting on anything; progress is visible in
 
 ## Value
 
-- The two "known-lost" counts become a shrinking backlog with a visible floor,
-  instead of a permanent caveat on the dataset.
+- Both "known-lost" counts shrink while the phase runs. `behind cutoff,
+  uncollected` falls as markets are stamped; `before coverage` falls as the
+  historical watermark descends, because `status` partitions the closed
+  markets against the *effective* floor — the oldest hour the tape covers —
+  not the live row's floor (Decision 8). A visible floor replaces a permanent
+  caveat.
 - Zero human involvement: the same install that ships the release starts the
   drain; the pass already exists, is supervised, and is resumable.
 - One request budget, sequenced: the phases run one after another inside one
@@ -76,17 +80,21 @@ catalog → candles → trades → historical
 ```
 
 Requests are counted across both sub-drains against one cap. Candles run first
-because the set is small and finite (8,394 markets ≈ 2 days at 200/pass); the
-trades drain takes whatever budget remains each firing and is the long tail.
+because the set is small and finite (8,394 markets, gone in a few firings at
+1,000/pass); the trades drain takes whatever budget remains each firing.
 
 ### State
 
 `kalshi.sync_state['historical']`: `watermark_ts` = the oldest hour fully
 walked (moves **down**), `coverage_from_ts` = `HISTORICAL_TRADES_FLOOR` (the
 target, recorded so `status` can show distance), `last_full_sync_at` = last
-phase completion. The live `trades` row is untouched: `before coverage` keeps
-its meaning (closed before the *live* floor) and the historical line reports
-how much of that range is now covered.
+phase completion. The live `trades` row is untouched. `status` derives an
+**effective floor** = `min(trades.coverage_from_ts, historical.watermark_ts)`
+(the live floor until the historical row exists) and the four closed-market
+buckets partition against it, so `before coverage` means what it says —
+closed before any hour the tape covers — and shrinks as the watermark
+descends. The historical line reports the tape range and the distance to
+`HISTORICAL_TRADES_FLOOR`.
 
 ### Data flow guarantees carried from 265
 
@@ -102,16 +110,29 @@ trade_id)`; watermark advances only after a window's last page committed.
    Sequencing the historical work *after* the live phases inside one process
    removes the contention by construction; observation is per-firing in
    `status`. Nothing waits.
-2. **Own cap, fixed: `HISTORICAL_REQUESTS_PER_PASS = 1,500`.** During the live
-   drain a firing is ≈ 2 min catalog + 1 min candles + ~11 min trades (3,000
-   requests) + ≤ 5 min historical → ≈ 19 min, well inside the hour. After the
-   live drain settles (~3 min), the historical phase still spends only its own
-   cap; raising it is a one-constant change once the PM sees the steady state.
-3. **Floor is a constant the PM ratifies: `HISTORICAL_TRADES_FLOOR =
-   2026-01-01T00:00Z` (recommended).** Six months before the live floor ≈ 2–3×
-   the live drain's volume ≈ 100–150k requests ≈ 3–4 weeks of hourly trickle at
-   the cap. Extending the floor later is one constant edit; the phase simply
-   continues downward from where it stopped.
+2. **The pass runs authenticated; own cap `HISTORICAL_REQUESTS_PER_PASS =
+   10,000`. PM-ratified 20260831.** The PM's Kalshi API key is installed on the
+   host (`/etc/manta-trading/kalshi.pem`, `root:manta-trading 0640`;
+   `MT_KALSHI_API_KEY_ID` and `MT_KALSHI_PRIVATE_KEY_PATH` in
+   `/etc/manta-trading.env`), so the client runs in the signed mode 261 built,
+   on the documented Basic budget (`KALSHI_AUTHENTICATED_RATE_LIMIT`,
+   1,000/min). 10,000 requests ≈ 10 min per firing; with catalog (~2 min),
+   candles (~1 min) and the live trades cap (3,000 ≈ 3 min authenticated) the
+   pass stays under ~20 min during the live drain. The collector still works
+   with no key configured (arch constraint): on the public budget the same cap
+   is ~33 min and the pass still fits the hour. *Rejected:* the earlier draft's
+   1,500/pass — ~5 min of work then 55 idle, stretching the backfill to weeks
+   for no reason; and the Advanced-tier upgrade (a free API call, 30 r/s) —
+   not needed at this volume.
+3. **`HISTORICAL_TRADES_FLOOR = 2026-01-01T00:00Z`. PM-ratified 20260831.**
+   Measured 20260831 through `/historical/trades` (14:00 UTC hour, 1,000
+   trades/page): 2026-01-15 39 pages, 03-15 102, 05-15 148, 06-15 213. Jan–Jun
+   2026 ≈ **450k requests** (±30%) ≈ 400 M trades ≈ 17 GB compressed under
+   the rule (265's 71.5 B/trade × 59% selected). At the cap that is ~45
+   firings — under two days — after the candle set clears. Extending the
+   floor later is one constant edit; the phase continues downward from where
+   it stopped (everything before 2026 is thinner still, and an empty hour costs
+   one request).
 4. **Compression policies stay on.** 265's rehearsal measured no penalty
    inserting into a compressed trades chunk (0.19 vs 0.21 s/page). Candles
    into compressed chunks are unmeasured: the phase logs per-market wall time
@@ -129,11 +150,20 @@ trade_id)`; watermark advances only after a window's last page committed.
 7. **Migration `kalshi_007`** widens `sync_state_surface_check` to include
    `historical` (rendered from `Surface`, as kalshi_001 does) — no other schema
    change.
+8. **`status` measures trade coverage from the effective floor.**
+   `read_trade_status` reads the `historical` row alongside `trades` and passes
+   `min(trades.coverage_from_ts, historical.watermark_ts)` as `coverage_from`
+   to `TRADE_COUNTS`; the four-bucket partition and its sum check are
+   unchanged (one parameter moves), and `TradeStatus.coverage_from` reports
+   the effective floor. *Rejected:* pinning `before coverage` to the live
+   floor and showing historical progress only on its own line — the existing
+   trades block would then show no movement while the range fills, and a
+   market whose trades are fully present would stay bucketed as lost.
 
 ## Implementation Details
 
-- `constants.py`: `HISTORICAL_REQUESTS_PER_PASS = 1_500`,
-  `HISTORICAL_CANDLE_MARKETS_PER_PASS = 200`, `HISTORICAL_TRADES_FLOOR`,
+- `constants.py`: `HISTORICAL_REQUESTS_PER_PASS = 10_000`,
+  `HISTORICAL_CANDLE_MARKETS_PER_PASS = 1_000`, `HISTORICAL_TRADES_FLOOR`,
   `HISTORICAL_SLOW_MARKET_SECONDS = 30`; `Surface.HISTORICAL = "historical"`.
 - `client.py`: `get_historical_trades` (mirror of `get_trades`),
   `get_historical_market_candlesticks` (mirror of `get_market_candlesticks`);
@@ -151,8 +181,9 @@ trade_id)`; watermark advances only after a window's last page committed.
   `PASS_PHASES` four entries. `kalshi_render.py`: summary block + status line
   (`historical tape 2026-07-01 → 2026-05-14 (floor 2026-01-01) · behind-cutoff
   candles remaining 7,994 · last phase 12 min ago`).
-- `trade_status.py`/`status.py`: read the `historical` row and the
-  behind-cutoff count already computed for candles.
+- `trade_status.py`/`status.py`: read the `historical` row, compute the
+  effective floor (Decision 8) and pass it as `coverage_from` to
+  `TRADE_COUNTS`; reuse the behind-cutoff count already computed for candles.
 - Runbook 100: one paragraph — four phases; the historical phase self-limits;
   how to read the status line; the floor constant.
 
@@ -176,9 +207,12 @@ trade_id)`; watermark advances only after a window's last page committed.
    a state row.
 6. The phase never exceeds `HISTORICAL_REQUESTS_PER_PASS` by more than one
    window/one market; the total pass duration during the live drain stays
-   under 25 minutes on production.
-7. The live `trades` row's `coverage_from_ts` and the `before coverage` count
-   are unchanged by any number of historical firings.
+   under 30 minutes on production (authenticated).
+7. The live `trades` row's `coverage_from_ts` is unchanged by any number of
+   historical firings; `status --json` reports `coverage_from` equal to the
+   effective floor, the `before coverage` count falls by exactly the number
+   of selected closed markets whose `close_time` lies in the hours walked
+   that firing, and the four buckets still sum to the selected closed total.
 8. Production: the first firing after install shows `catalog=ok candles=ok
    trades=ok historical=ok`, and the status line shows the tape range growing
    downward on the following firings — observed, not waited for.
@@ -188,14 +222,15 @@ trade_id)`; watermark advances only after a window's last page committed.
 Rehearsal on a throwaway database (265's procedure): seed the live row at
 `now − 3 h`, run two passes, assert criteria 1–7 from journal + `status
 --json`. Host: criterion 8 from the first firing after install, then the
-status line over any later hour. Effort 3/5, ~2–3 days including fixtures and
-the rehearsal.
+status line over any later hour; the firing's client-construction line reads
+`authenticated` (the key is installed before this slice ships — Decision 2).
 
 ## Risks
 
-- **Volume of the historical tape is unmeasured below July.** Mitigated by
-  the cap and the floor constant; the first rehearsal window records
-  pages/hour for one historical hour before the floor is ratified.
+- **`/historical/*` may cost more than the default 10 tokens per request.**
+  `GET /account/endpoint_costs` (authenticated) is the authoritative list; the
+  first implementation task reads it once and records the answer in the
+  design. A higher cost only lengthens the drain — the 429 backoff carries it.
 - **Candle writes into compressed chunks** may be slow; per-market timing is
   logged and the pause lever exists (Decision 4).
 - **Kalshi may rate-limit `/historical/*` separately or lower.** The client's
