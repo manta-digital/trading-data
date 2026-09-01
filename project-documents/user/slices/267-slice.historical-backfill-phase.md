@@ -222,7 +222,27 @@ trade_id)`; watermark advances only after a window's last page committed.
    upsert leaves them `unchanged`), i.e. one authenticated firing or two
    public ones, and several million upserts — the first firing after
    install runs hours, not 40 minutes, and a timer firing that overlaps it
-   exits 1 on the run lock (expected, runbook 100). *Consequence for
+   exits 1 on the run lock (expected, runbook 100).
+   **Measured 20260901 (rehearsal, test cluster, public cap 9,000):** one
+   firing's historical phase walked **3,895 pages = 3,895,000 markets in
+   41 minutes** and reached settlement `2026-03-31T09:02Z` from
+   `2026-07-02T16:47Z` before the cap stopped it — the archive runs at
+   roughly **1,000 pages per month of settlements**, and the parent
+   lookups (`GET /events?tickers=` for events the catalog does not know)
+   took the other ~5,100 requests of the 9,000, so a page costs ~2.3
+   requests, not 1. Extrapolated to the stop point (settled before
+   2025-12-31): **~7,000 pages ≈ 7 M markets ≈ 16,000 requests** — one
+   authenticated firing at the 30,000 cap, two to three public ones. The
+   catalog grew from 217,595 to 4,112,620 markets and the database by
+   10.1 GB (≈ 2.6 KB per market, raw JSONB included), so the whole walk
+   adds **~19 GB to `kalshi.markets` on production** — plan the disk.
+   The consequence for candles is larger than the paragraph above says:
+   `status` showed `behind cutoff, uncollected` go from 1 to **388,788**
+   after that one partial walk (selected, finalized, no state row), so the
+   per-pass ceiling of 1,000 holds the candle sub-drain for ~15 firings
+   and, once the floor is reached, the uncapped sub-drain needs on the
+   order of 800 k–1.5 M requests (one to two per market) — several dozen
+   authenticated firings, not nine. *Consequence for
    candles:* the archived markets join the behind-cutoff set (finalized,
    before the cutoff, no state row, selected), taking it from 8,394 to
    millions. The per-pass ceiling `HISTORICAL_CANDLE_MARKETS_PER_PASS`
@@ -338,11 +358,49 @@ trade_id)`; watermark advances only after a window's last page committed.
 
 ## Verification
 
-Rehearsal on a throwaway database (265's procedure): seed the live row at
-`now − 3 h`, run two passes, assert criteria 1–7 from journal + `status
---json`. Host: criterion 8 from the first firing after install, then the
-status line over any later hour; the firing's client-construction line reads
-`authenticated` (the key is installed before this slice ships — Decision 2).
+**Rehearsal (done 2026-09-01, `user/notes/2026-09-01-267-rehearsal.md`).**
+A throwaway database on the test cluster, driven from a scratch directory
+with no `.env`, the throwaway URL passed per command as
+`MT_TIMESCALE_DB_URL` / `MT_TIMESCALE_MAINTENANCE_URL`:
+
+```
+mt data migrate apply --track kalshi --json        → kalshi_007_historical_surface applied, 0 pending
+mt data kalshi sync --settled-since <6 h ago>      → a 217 k-market catalog (213 s)
+<seed: one archived market with parents; live row init_state(cutoff, cutoff)>   # note, Step 2
+mt data kalshi pass --json --events-file passN.jsonl     × 5
+mt data kalshi status --json ; mt data kalshi status     after each pass
+```
+
+Expected, and observed: pass 1's historical phase is the archive walk only
+(`archive page N: … oldest …` lines, then `cap reached during the archive
+walk pages=3895; cursor saved`); the next pass logs `archive walk resuming
+cursor=…` and its first page is just below the previous last; once the row
+has a watermark, each pass logs `historical candles: … pending=1000 (limit
+1000)`, then `historical window a→b …` lines walking **down** by whole hours
+until `historical cap reached: requests≥cap`, and `status` shows
+`tape <live floor> → <watermark> (floor 2026-01-01) · behind-cutoff candles
+remaining N` with `trades.coverage_from` equal to the watermark and
+`before coverage` falling by the selected markets closed in the walked
+hours. The identity `fetched = written + unknown + excluded + duplicates`
+holds on every pass; a re-walked hour writes 0.
+
+Caveats learned there: (1) the walk was **not** run to its stop point on the
+test cluster (disk) — resume was proven on 200 pages and the walk
+hand-finished; the full walk is first observed on production (cutover
+report); (2) the candles-fixture ticker is a **Sports** market and rule C
+excludes it, so it never enters the behind-cutoff set — Criterion 5 is
+shown on the archive's own markets; (3) on a catalog that has not walked the
+settled stream since the cutoff, the unknown share is ~30 % (post-cutoff
+settlers), not the MVE-only ~10 % production sees; (4) 0.20 s per tape page,
+insert path, uncompressed — the cutover baseline.
+
+**Host:** criterion 8 from the first firing after install (the cutover
+script's report), then the status line over any later hour; the firing's
+client line reads `mode=authenticated budget=1000/min` and the cap line
+`cap=30000` (Decision 2). Known before the cutover: production's catalog
+phase is `partial` since 2026-09-01 15:22 UTC on two markets served with
+status `amended` (outside `MarketStatus`) — a separate fix; the cutover
+report accepts `catalog=partial` only if the PM says so.
 
 ## Risks
 
@@ -360,10 +418,13 @@ status line over any later hour; the firing's client-construction line reads
 - **Kalshi may rate-limit `/historical/*` separately or lower.** The client's
   existing 429 backoff applies; a sustained escalation shows in the health
   check's Kalshi phase-recency rule and in the journal.
-- **The archive's size and order are estimated, not measured** (Decision 9:
-  three pages probed). The rehearsal records the real page count to the stop
-  point; the walk is resumable and idempotent, so a wrong estimate costs
-  firings, not correctness. If a saved cursor is ever rejected between
+- **The archive's size and order were estimated from three pages**
+  (Decision 9). The rehearsal measured one capped firing — 3,895 pages,
+  ~1,000 per month, ~2.6 KB per market — and the estimate is now ~7,000
+  pages and **~19 GB of catalog growth on production**; the walk is
+  resumable and idempotent, so the remaining uncertainty costs firings,
+  not correctness, but the disk is a host fact to check before the
+  cutover. If a saved cursor is ever rejected between
   firings (a 4xx on the resume request), the walk restarts from the first
   page — upserts make that safe; the restart is logged.
 - **The archive walk's first firing runs hours** (millions of catalog

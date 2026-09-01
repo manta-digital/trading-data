@@ -479,8 +479,8 @@ the rehearsal shell only. Record observed output as you go.
 Design *Verification* (host), Criterion 8. Two PM acts — cutting the
 release and reading the report — with one script between them, as 265.
 
-- [ ] **Task 11.1: `scripts/cutover_267_historical.py`** **[agent]** (effort: 3)
-  - [ ] Model it on `cutover_265_trades.py` step for step (hold the timer,
+- [x] **Task 11.1: `scripts/cutover_267_historical.py`** **[agent]** (effort: 3)
+  - [x] Model it on `cutover_265_trades.py` step for step (hold the timer,
         install the ref, migrate, first firing streamed, report, release the
         timer), minus the settings rename. Its report checks, from the
         journal of that one firing and `status --json`: the client line
@@ -499,10 +499,10 @@ release and reading the report — with one script between them, as 265.
         walk** — the walk's own firing is reported as its duration and the
         catalog's growth; the slowest window and slowest market as numbers.
         Writes `user/notes/<date>-267-cutover.md`.
-  - [ ] Unit test the report's parsing against a journal excerpt
+  - [x] Unit test the report's parsing against a journal excerpt
         (`test/unit/test_cutover_267.py`; the 265 script shipped without
         one — do not repeat that).
-  - [ ] Commit: `chore: add the 267 cutover script`.
+  - [x] Commit: `chore: add the 267 cutover script`.
 
 - [ ] **Task 11.2: Cut and run** **[PM]** (effort: 1)
   - [ ] Merge `267-slice.historical-backfill-phase` into `main`, tag
