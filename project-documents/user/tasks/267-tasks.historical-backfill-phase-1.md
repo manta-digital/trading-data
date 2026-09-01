@@ -154,8 +154,8 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
 - [ ] **Task 2.2: Constants tests** (effort: 1)
   - [ ] Extend `test/unit/data/kalshi/test_constants.py`: the three paths
         match the design (and the candles path has no `series_ticker`
-        field); the stop margin is positive; `Surface` has four members with `historical` last; the floor
-        is timezone-aware UTC and at a whole hour; the per-pass and minutes
+        field); the stop margin is positive; `Surface` has four members with
+        `historical` last; the floor is timezone-aware UTC and at a whole hour; the per-pass and minutes
         constants are the design's values; `HISTORICAL_PHASE_MINUTES ×
         KALSHI_AUTHENTICATED_RATE_LIMIT.requests_per_minute == 30_000` and
         `× KALSHI_PUBLIC_RATE_LIMIT.requests_per_minute == 9_000` (Decision

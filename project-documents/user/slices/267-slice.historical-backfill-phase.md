@@ -66,8 +66,9 @@ resumable walk of the market archive into the catalog through 262's
 `CatalogSync.ingest_markets` (parent resolution included), its cursor kept in
 `sync_state['historical'].cursor`; a `HistoricalTradeSource` adapter so
 265's window loop and `write_page` are reused unchanged; a bounded
-per-market candle fetch for the behind-cutoff set; one `sync_state` row (`historical`) carrying the
-downward trades watermark; migration `kalshi_007` widening the `surface`
+per-market candle fetch for the behind-cutoff set; one `sync_state` row
+(`historical`) carrying the downward trades watermark; migration
+`kalshi_007` widening the `surface`
 CHECK; a `status` line; the renderer, fixtures, tests, runbook paragraph.
 
 **Out:** any change to the live phases' behaviour or caps; pausing compression
@@ -116,8 +117,8 @@ target, recorded so `status` can show distance), `last_full_sync_at` = last
 phase completion, `cursor` = the archive walk's resume cursor while the walk
 is in progress, `NULL` before it starts and after it completes (the column
 exists since kalshi_003 and no other surface uses it). The live `trades`
-row is untouched. `status` derives an **effective floor** = `min(trades.coverage_from_ts, historical.watermark_ts)`
-(the live floor until the historical row exists) and the four closed-market
+row is untouched. `status` derives an **effective floor** =
+`min(trades.coverage_from_ts, historical.watermark_ts)` (the live floor until the historical row exists) and the four closed-market
 buckets partition against it, so `before coverage` means what it says —
 closed before any hour the tape covers — and shrinks as the watermark
 descends. The historical line reports the tape range and the distance to
