@@ -76,7 +76,7 @@ catalog → candles → trades → historical
                                       TradeRepository.write_page per page (one
                                       transaction per page, watermark moves per
                                       window — 265's loop, reversed direction),
-                                      until HISTORICAL_REQUESTS_PER_PASS is spent
+                                      until the phase's request cap is spent
 ```
 
 Requests are counted across both sub-drains against one cap. Candles run first
@@ -110,26 +110,29 @@ trade_id)`; watermark advances only after a window's last page committed.
    Sequencing the historical work *after* the live phases inside one process
    removes the contention by construction; observation is per-firing in
    `status`. Nothing waits.
-2. **The pass runs authenticated; own cap `HISTORICAL_REQUESTS_PER_PASS =
-   10,000`. PM-ratified 20260831.** The PM's Kalshi API key is installed on the
+2. **The pass runs authenticated; the cap is thirty minutes of the budget.
+   PM-ratified 20260831.** The PM's Kalshi API key is installed on the
    host (`/etc/manta-trading/kalshi.pem`, `root:manta-trading 0640`;
    `MT_KALSHI_API_KEY_ID` and `MT_KALSHI_PRIVATE_KEY_PATH` in
    `/etc/manta-trading.env`), so the client runs in the signed mode 261 built,
    on the documented Basic budget (`KALSHI_AUTHENTICATED_RATE_LIMIT`,
-   1,000/min). 10,000 requests ≈ 10 min per firing; with catalog (~2 min),
-   candles (~1 min) and the live trades cap (3,000 ≈ 3 min authenticated) the
-   pass stays under ~20 min during the live drain. The collector still works
-   with no key configured (arch constraint): on the public budget the same cap
-   is ~33 min and the pass still fits the hour. *Rejected:* the earlier draft's
-   1,500/pass — ~5 min of work then 55 idle, stretching the backfill to weeks
-   for no reason; and the Advanced-tier upgrade (a free API call, 30 r/s) —
-   not needed at this volume.
+   1,000/min). The cap is still counted in requests (the 264 rule) but sized
+   from the mode's budget: `HISTORICAL_PHASE_MINUTES = 30`, cap = the client's
+   `requests_per_minute × 30` → **30,000 authenticated, 9,000 public** — the
+   phase never runs longer than half an hour in either mode, and with catalog
+   (~2 min), candles (~1 min) and the live trades cap (3,000 ≈ 3 min
+   authenticated) the pass stays under ~40 min during the live drain. The
+   collector still works with no key configured (arch constraint), just
+   slower. *Rejected:* the earlier draft's fixed 1,500/pass — ~5 min of work
+   then 55 idle, stretching the backfill to weeks for no reason; a fixed
+   10,000 — right for one mode, over the hour in the other; and the
+   Advanced-tier upgrade (a free API call, 30 r/s) — not needed at this volume.
 3. **`HISTORICAL_TRADES_FLOOR = 2026-01-01T00:00Z`. PM-ratified 20260831.**
    Measured 20260831 through `/historical/trades` (14:00 UTC hour, 1,000
    trades/page): 2026-01-15 39 pages, 03-15 102, 05-15 148, 06-15 213. Jan–Jun
    2026 ≈ **450k requests** (±30%) ≈ 400 M trades ≈ 17 GB compressed under
-   the rule (265's 71.5 B/trade × 59% selected). At the cap that is ~45
-   firings — under two days — after the candle set clears. Extending the
+   the rule (265's 71.5 B/trade × 59% selected). At the authenticated cap that
+   is ~15 firings — overnight — after the candle set clears. Extending the
    floor later is one constant edit; the phase continues downward from where
    it stopped (everything before 2026 is thinner still, and an empty hour costs
    one request).
@@ -162,7 +165,9 @@ trade_id)`; watermark advances only after a window's last page committed.
 
 ## Implementation Details
 
-- `constants.py`: `HISTORICAL_REQUESTS_PER_PASS = 10_000`,
+- `constants.py`: `HISTORICAL_PHASE_MINUTES = 30` (the request cap is
+  `rate_limit.requests_per_minute × HISTORICAL_PHASE_MINUTES`, computed once
+  at phase start from the client's selected budget and logged),
   `HISTORICAL_CANDLE_MARKETS_PER_PASS = 1_000`, `HISTORICAL_TRADES_FLOOR`,
   `HISTORICAL_SLOW_MARKET_SECONDS = 30`; `Surface.HISTORICAL = "historical"`.
 - `client.py`: `get_historical_trades` (mirror of `get_trades`),
@@ -205,9 +210,9 @@ trade_id)`; watermark advances only after a window's last page committed.
    count has fallen by exactly the number of markets the phase reports
    completed (≤ the per-pass constant), and those markets have candle rows and
    a state row.
-6. The phase never exceeds `HISTORICAL_REQUESTS_PER_PASS` by more than one
-   window/one market; the total pass duration during the live drain stays
-   under 30 minutes on production (authenticated).
+6. The phase logs its computed cap at start (30,000 authenticated / 9,000
+   public) and never exceeds it by more than one window/one market; the total
+   pass duration during the live drain stays under 45 minutes on production.
 7. The live `trades` row's `coverage_from_ts` is unchanged by any number of
    historical firings; `status --json` reports `coverage_from` equal to the
    effective floor, the `before coverage` count falls by exactly the number
