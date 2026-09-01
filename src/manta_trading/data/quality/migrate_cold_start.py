@@ -84,8 +84,7 @@ def _missing_141_migrations(conn) -> list[str]:
     """Return the slice-141 migration IDs not present in schema_migrations."""
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT migration_id FROM schema_migrations "
-            "WHERE migration_id = ANY(%s)",
+            "SELECT migration_id FROM schema_migrations WHERE migration_id = ANY(%s)",
             (list(_REQUIRED_141_MIGRATIONS),),
         )
         present = {r["migration_id"] for r in cur.fetchall()}
@@ -101,9 +100,7 @@ def _instruments_count(conn) -> int:
 
 def _eodhd_type_null_count(conn) -> int:
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) FROM instruments WHERE eodhd_type IS NULL"
-        )
+        cur.execute("SELECT COUNT(*) FROM instruments WHERE eodhd_type IS NULL")
         row = cur.fetchone()
     return int(row[0]) if row else 0
 
@@ -146,8 +143,7 @@ def _probe_eodhd(api_key: str) -> None:
         ) from exc
     except httpx.HTTPError as exc:
         raise PreflightFailed(
-            f"EODHD probe failed: network error contacting "
-            f"{_EODHD_PROBE_HOST}: {exc}"
+            f"EODHD probe failed: network error contacting {_EODHD_PROBE_HOST}: {exc}"
         ) from exc
 
     status = response.status_code
@@ -163,8 +159,7 @@ def _probe_eodhd(api_key: str) -> None:
         )
     if 500 <= status < 600:
         raise PreflightFailed(
-            f"EODHD reports server error (HTTP {status}). "
-            "Retry the cold-start later."
+            f"EODHD reports server error (HTTP {status}). Retry the cold-start later."
         )
 
     try:
@@ -281,9 +276,7 @@ def run_migration(pool: ConnectionPool) -> dict[str, object]:
         conn.commit()
 
     return {
-        "migrations_applied": [
-            mid for mid in applied if mid in _MIGRATION_IDS_142
-        ],
+        "migrations_applied": [mid for mid in applied if mid in _MIGRATION_IDS_142],
         "rows_truncated": truncate_counts,
     }
 
@@ -303,9 +296,7 @@ def run_post_flight(pool: ConnectionPool) -> dict[str, object]:
         status_rows, freshness = query_data_status(
             conn, f"SELECT COUNT(*) FROM {DATA_STATUS_RELATION}"
         )
-        results["data_status_count"] = (
-            int(status_rows[0][0]) if status_rows else 0
-        )
+        results["data_status_count"] = int(status_rows[0][0]) if status_rows else 0
         results["coverage_stale"] = freshness.is_stale
         results["coverage_freshness"] = freshness.describe()
 

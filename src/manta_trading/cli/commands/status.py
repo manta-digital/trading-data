@@ -66,11 +66,13 @@ def status_overview(
     for name in sorted(profiles):
         profile = profiles[name]
         auth = resolve_auth(profile, settings)
-        provider_results.append({
-            "name": profile.name,
-            "auth_valid": auth.is_valid(),
-            "active_source": auth.active_source,
-        })
+        provider_results.append(
+            {
+                "name": profile.name,
+                "auth_valid": auth.is_valid(),
+                "active_source": auth.active_source,
+            }
+        )
 
     # DB connectivity — TimescaleDB only (MarketDB removed in slice 152)
     db_info: dict = {"configured": False, "connected": False}

@@ -173,7 +173,9 @@ class FinnhubClient:
             # DNS) and any HTTPStatusError raised by the policy. JSON decode
             # errors don't apply here yet — we haven't called .json().
             except httpx.HTTPError as exc:
-                _logger.warning("Finnhub fetch_profile %s: transport error — %s", symbol, exc)
+                _logger.warning(
+                    "Finnhub fetch_profile %s: transport error — %s", symbol, exc
+                )
                 return None
 
             if resp.status_code == 403:
@@ -189,9 +191,14 @@ class FinnhubClient:
                     )
                     return None
                 reset = _parse_reset_header(resp)
-                wait = _seconds_until(reset) if reset is not None else _DEGENERATE_429_SLEEP_SECONDS
+                wait = (
+                    _seconds_until(reset)
+                    if reset is not None
+                    else _DEGENERATE_429_SLEEP_SECONDS
+                )
                 _logger.info(
-                    "Finnhub 429 (remaining=0); sleeping %.1fs until window reset", wait,
+                    "Finnhub 429 (remaining=0); sleeping %.1fs until window reset",
+                    wait,
                 )
                 await asyncio.sleep(wait)
                 continue
@@ -201,14 +208,18 @@ class FinnhubClient:
             except httpx.HTTPStatusError as exc:
                 _logger.warning(
                     "Finnhub fetch_profile %s: HTTP %d — %s",
-                    symbol, resp.status_code, exc,
+                    symbol,
+                    resp.status_code,
+                    exc,
                 )
                 return None
 
             try:
                 data: dict[str, Any] = resp.json()
             except ValueError as exc:
-                _logger.warning("Finnhub fetch_profile %s: malformed JSON — %s", symbol, exc)
+                _logger.warning(
+                    "Finnhub fetch_profile %s: malformed JSON — %s", symbol, exc
+                )
                 return None
 
             # Proactive header-aware backoff: if this successful response says
@@ -222,7 +233,8 @@ class FinnhubClient:
                     wait = _seconds_until(reset)
                     if wait > 0:
                         _logger.info(
-                            "Finnhub remaining=0; sleeping %.1fs until window reset", wait,
+                            "Finnhub remaining=0; sleeping %.1fs until window reset",
+                            wait,
                         )
                         await asyncio.sleep(wait)
 

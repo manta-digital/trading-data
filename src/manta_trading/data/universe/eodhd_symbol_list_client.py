@@ -50,7 +50,9 @@ class EodhdSymbolListClient:
         url = f"{_BASE_URL}/exchange-symbol-list/US"
         params = {"api_token": self._api_key, "fmt": "json"}
         async with httpx.AsyncClient() as client:
-            resp = await request_with_retry(client, "GET", url, self._policy, params=params)
+            resp = await request_with_retry(
+                client, "GET", url, self._policy, params=params
+            )
 
         if resp.status_code in (401, 403):
             raise EodhdAccessError(
@@ -90,7 +92,9 @@ class EodhdSymbolListClient:
             params["delisted"] = "1"
 
         async with httpx.AsyncClient() as client:
-            resp = await request_with_retry(client, "GET", url, self._policy, params=params)
+            resp = await request_with_retry(
+                client, "GET", url, self._policy, params=params
+            )
 
         if resp.status_code in (401, 403):
             raise EodhdAccessError(
@@ -109,5 +113,10 @@ class EodhdSymbolListClient:
                 f"EODHD fetch {exchange}: expected list, got {type(data).__name__}"
             )
 
-        _logger.info("EODHD fetch %s%s: %d rows", exchange, " (delisted)" if delisted else "", len(data))
+        _logger.info(
+            "EODHD fetch %s%s: %d rows",
+            exchange,
+            " (delisted)" if delisted else "",
+            len(data),
+        )
         return data  # type: ignore[return-value]

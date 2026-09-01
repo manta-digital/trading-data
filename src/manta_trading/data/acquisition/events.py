@@ -118,8 +118,12 @@ def _serialize_event(event: AcquisitionEvent) -> str:
         "provider": event.provider,
         "timestamp": event.timestamp.isoformat(),
         "rows_written": event.rows_written,
-        "time_range_start": event.time_range_start.isoformat() if event.time_range_start else None,
-        "time_range_end": event.time_range_end.isoformat() if event.time_range_end else None,
+        "time_range_start": event.time_range_start.isoformat()
+        if event.time_range_start
+        else None,
+        "time_range_end": event.time_range_end.isoformat()
+        if event.time_range_end
+        else None,
         "duration_ms": event.duration_ms,
         "error": event.error,
     }

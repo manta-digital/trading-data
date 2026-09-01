@@ -37,7 +37,9 @@ _US_EXCHANGE = "US"
 _SPLIT_DELIMITER = "/"
 
 
-def _build_bulk_url(api_key: str, exchange: str, ca_type: str, target_date: date) -> str:
+def _build_bulk_url(
+    api_key: str, exchange: str, ca_type: str, target_date: date
+) -> str:
     date_str = target_date.isoformat()
     return (
         f"{_BASE_URL}/eod-bulk-last-day/{exchange}"
@@ -64,9 +66,7 @@ def _parse_date(raw: str, ticker: str) -> date:
     try:
         return date.fromisoformat(raw)
     except ValueError as exc:
-        raise ProviderPermanentError(
-            f"malformed date for {ticker}: {raw!r}"
-        ) from exc
+        raise ProviderPermanentError(f"malformed date for {ticker}: {raw!r}") from exc
 
 
 def fetch_bulk_splits(
@@ -126,7 +126,11 @@ def fetch_bulk_splits(
                 exc,
             )
             continue
-        results.append(Split(symbol=symbol, ex_date=ex_date, ratio_to=ratio_to, ratio_from=ratio_from))
+        results.append(
+            Split(
+                symbol=symbol, ex_date=ex_date, ratio_to=ratio_to, ratio_from=ratio_from
+            )
+        )
 
     _logger.info(
         "fetch_bulk_splits(%s, %s): %d records", exchange, target_date, len(results)
@@ -179,7 +183,11 @@ def fetch_bulk_dividends(
         symbol = ticker.split(".")[0] if "." in ticker else ticker
         try:
             ex_date = _parse_date(entry["date"], ticker)
-            raw_amount = entry.get("dividend") or entry.get("value") or entry.get("unadjustedValue")
+            raw_amount = (
+                entry.get("dividend")
+                or entry.get("value")
+                or entry.get("unadjustedValue")
+            )
             if raw_amount is None:
                 raise ProviderPermanentError(
                     f"no dividend amount field in entry for {ticker}"
@@ -193,7 +201,9 @@ def fetch_bulk_dividends(
                 exc,
             )
             continue
-        results.append(Dividend(symbol=symbol, ex_date=ex_date, amount=amount, currency=currency))
+        results.append(
+            Dividend(symbol=symbol, ex_date=ex_date, amount=amount, currency=currency)
+        )
 
     _logger.info(
         "fetch_bulk_dividends(%s, %s): %d records", exchange, target_date, len(results)

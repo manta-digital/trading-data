@@ -20,9 +20,7 @@ SP500_CSV_URL: str = (
 Format: date,tickers — one row per change date, full constituent set per row.
 """
 
-SP500_GITHUB_API_URL: str = (
-    "https://api.github.com/repos/fja05680/sp500/contents/"
-)
+SP500_GITHUB_API_URL: str = "https://api.github.com/repos/fja05680/sp500/contents/"
 """GitHub API URL to list repo contents and find the latest dated historical CSV.
 
 The full history file (back to 1996) has a versioned filename like

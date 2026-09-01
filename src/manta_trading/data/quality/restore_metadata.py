@@ -165,9 +165,7 @@ def assess(conn: psycopg.Connection[Any]) -> Assessment:
     """
     from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
 
-    applied = {
-        r[0] for r in conn.execute("SELECT migration_id FROM schema_migrations")
-    }
+    applied = {r[0] for r in conn.execute("SELECT migration_id FROM schema_migrations")}
     defined = [m["id"] for m in MINUTE_MIGRATIONS]
 
     present_caggs = {

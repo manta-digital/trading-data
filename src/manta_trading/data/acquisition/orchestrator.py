@@ -113,7 +113,9 @@ class AcquisitionResult:
 class ChunkProvider(Protocol):
     """Yields chunks of data for a work item one at a time (async generator)."""
 
-    def fetch_chunks(self, work_item: WorkItem) -> AsyncGenerator[FetchedChunk, None]: ...
+    def fetch_chunks(
+        self, work_item: WorkItem
+    ) -> AsyncGenerator[FetchedChunk, None]: ...
 
 
 class ChunkWriter(Protocol):
@@ -154,23 +156,28 @@ async def run_acquisition_unit(
     # Step 1: Mark attempt timestamp (slimmed shape, slice 142). The
     # outcome column stays NULL until the run finishes — daemons read
     # ``last_attempt_ts`` only for liveness checks.
-    state_repo.upsert(AcquisitionStateRow(
-        symbol=work_item.symbol,
-        granularity=work_item.granularity,
-        provider=work_item.provider,
-        last_attempt_ts=now,
-        last_attempt_outcome=None,
-    ))
+    state_repo.upsert(
+        AcquisitionStateRow(
+            symbol=work_item.symbol,
+            granularity=work_item.granularity,
+            provider=work_item.provider,
+            last_attempt_ts=now,
+            last_attempt_outcome=None,
+        )
+    )
 
     # Step 1b: Emit RUN_STARTED
-    _emit(event_sink, AcquisitionEvent(
-        event_type=AcquisitionEventType.RUN_STARTED,
-        run_id=run_id,
-        symbol=work_item.symbol,
-        granularity=work_item.granularity,
-        provider=work_item.provider,
-        timestamp=now,
-    ))
+    _emit(
+        event_sink,
+        AcquisitionEvent(
+            event_type=AcquisitionEventType.RUN_STARTED,
+            run_id=run_id,
+            symbol=work_item.symbol,
+            granularity=work_item.granularity,
+            provider=work_item.provider,
+            timestamp=now,
+        ),
+    )
 
     chunks_attempted = 0
     chunks_written = 0
@@ -195,25 +202,30 @@ async def run_acquisition_unit(
             final_status = RunStatus.FAILED
             chunks_attempted += 1
 
-            state_repo.upsert(AcquisitionStateRow(
-                symbol=work_item.symbol,
-                granularity=work_item.granularity,
-                provider=work_item.provider,
-                last_attempt_ts=_utcnow(),
-                last_attempt_outcome=LastAttemptOutcome.TRANSIENT_FAILURE,
-            ))
-            _emit(event_sink, AcquisitionEvent(
-                event_type=AcquisitionEventType.CHUNK_FAILED,
-                run_id=run_id,
-                symbol=work_item.symbol,
-                granularity=work_item.granularity,
-                provider=work_item.provider,
-                timestamp=_utcnow(),
-                time_range_start=last_chunk.chunk_start if last_chunk else None,
-                time_range_end=last_chunk.chunk_end if last_chunk else None,
-                duration_ms=_elapsed_ms(chunk_start_ms),
-                error=last_error,
-            ))
+            state_repo.upsert(
+                AcquisitionStateRow(
+                    symbol=work_item.symbol,
+                    granularity=work_item.granularity,
+                    provider=work_item.provider,
+                    last_attempt_ts=_utcnow(),
+                    last_attempt_outcome=LastAttemptOutcome.TRANSIENT_FAILURE,
+                )
+            )
+            _emit(
+                event_sink,
+                AcquisitionEvent(
+                    event_type=AcquisitionEventType.CHUNK_FAILED,
+                    run_id=run_id,
+                    symbol=work_item.symbol,
+                    granularity=work_item.granularity,
+                    provider=work_item.provider,
+                    timestamp=_utcnow(),
+                    time_range_start=last_chunk.chunk_start if last_chunk else None,
+                    time_range_end=last_chunk.chunk_end if last_chunk else None,
+                    duration_ms=_elapsed_ms(chunk_start_ms),
+                    error=last_error,
+                ),
+            )
             break
 
         last_chunk = chunk
@@ -225,25 +237,30 @@ async def run_acquisition_unit(
             last_error = str(exc)
             final_status = RunStatus.FAILED
 
-            state_repo.upsert(AcquisitionStateRow(
-                symbol=work_item.symbol,
-                granularity=work_item.granularity,
-                provider=work_item.provider,
-                last_attempt_ts=_utcnow(),
-                last_attempt_outcome=LastAttemptOutcome.TRANSIENT_FAILURE,
-            ))
-            _emit(event_sink, AcquisitionEvent(
-                event_type=AcquisitionEventType.CHUNK_FAILED,
-                run_id=run_id,
-                symbol=work_item.symbol,
-                granularity=work_item.granularity,
-                provider=work_item.provider,
-                timestamp=_utcnow(),
-                time_range_start=chunk.chunk_start,
-                time_range_end=chunk.chunk_end,
-                duration_ms=_elapsed_ms(chunk_start_ms),
-                error=last_error,
-            ))
+            state_repo.upsert(
+                AcquisitionStateRow(
+                    symbol=work_item.symbol,
+                    granularity=work_item.granularity,
+                    provider=work_item.provider,
+                    last_attempt_ts=_utcnow(),
+                    last_attempt_outcome=LastAttemptOutcome.TRANSIENT_FAILURE,
+                )
+            )
+            _emit(
+                event_sink,
+                AcquisitionEvent(
+                    event_type=AcquisitionEventType.CHUNK_FAILED,
+                    run_id=run_id,
+                    symbol=work_item.symbol,
+                    granularity=work_item.granularity,
+                    provider=work_item.provider,
+                    timestamp=_utcnow(),
+                    time_range_start=chunk.chunk_start,
+                    time_range_end=chunk.chunk_end,
+                    duration_ms=_elapsed_ms(chunk_start_ms),
+                    error=last_error,
+                ),
+            )
             break  # do not attempt further chunks
 
         # Success path: checkpoint state immediately. The slimmed schema no
@@ -255,38 +272,46 @@ async def run_acquisition_unit(
             if chunk_result.rows_written > 0
             else LastAttemptOutcome.EMPTY
         )
-        state_repo.upsert(AcquisitionStateRow(
-            symbol=work_item.symbol,
-            granularity=work_item.granularity,
-            provider=work_item.provider,
-            last_attempt_ts=_utcnow(),
-            last_attempt_outcome=outcome,
-        ))
-        _emit(event_sink, AcquisitionEvent(
-            event_type=AcquisitionEventType.CHUNK_OK,
+        state_repo.upsert(
+            AcquisitionStateRow(
+                symbol=work_item.symbol,
+                granularity=work_item.granularity,
+                provider=work_item.provider,
+                last_attempt_ts=_utcnow(),
+                last_attempt_outcome=outcome,
+            )
+        )
+        _emit(
+            event_sink,
+            AcquisitionEvent(
+                event_type=AcquisitionEventType.CHUNK_OK,
+                run_id=run_id,
+                symbol=work_item.symbol,
+                granularity=work_item.granularity,
+                provider=work_item.provider,
+                timestamp=_utcnow(),
+                rows_written=chunk_result.rows_written,
+                time_range_start=chunk.chunk_start,
+                time_range_end=chunk.chunk_end,
+                duration_ms=_elapsed_ms(chunk_start_ms),
+            ),
+        )
+
+    # Step 3: Emit RUN_FINISHED
+    total_ms = _elapsed_ms(start_time)
+    _emit(
+        event_sink,
+        AcquisitionEvent(
+            event_type=AcquisitionEventType.RUN_FINISHED,
             run_id=run_id,
             symbol=work_item.symbol,
             granularity=work_item.granularity,
             provider=work_item.provider,
             timestamp=_utcnow(),
-            rows_written=chunk_result.rows_written,
-            time_range_start=chunk.chunk_start,
-            time_range_end=chunk.chunk_end,
-            duration_ms=_elapsed_ms(chunk_start_ms),
-        ))
-
-    # Step 3: Emit RUN_FINISHED
-    total_ms = _elapsed_ms(start_time)
-    _emit(event_sink, AcquisitionEvent(
-        event_type=AcquisitionEventType.RUN_FINISHED,
-        run_id=run_id,
-        symbol=work_item.symbol,
-        granularity=work_item.granularity,
-        provider=work_item.provider,
-        timestamp=_utcnow(),
-        duration_ms=total_ms,
-        error=last_error,
-    ))
+            duration_ms=total_ms,
+            error=last_error,
+        ),
+    )
 
     # Step 4: Return result
     return AcquisitionResult(

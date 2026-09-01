@@ -6,12 +6,12 @@ from dateutil.relativedelta import relativedelta
 
 
 class DateTimeHelper:
-    DEFAULT_FORMAT = '%Y-%m-%d %H:%M:%S'
-    DATE_FORMAT = '%Y-%m-%d'
-    API_FORMAT = '%Y%m%dT%H%M'
-    DB_FORMAT_ISO='iso8601'
-    DB_FORMAT = '%Y%m%dT%H%M'
-    DB_FORMAT_SECONDS = '%Y%m%dT%H%M%S'
+    DEFAULT_FORMAT = "%Y-%m-%d %H:%M:%S"
+    DATE_FORMAT = "%Y-%m-%d"
+    API_FORMAT = "%Y%m%dT%H%M"
+    DB_FORMAT_ISO = "iso8601"
+    DB_FORMAT = "%Y%m%dT%H%M"
+    DB_FORMAT_SECONDS = "%Y%m%dT%H%M%S"
 
     @staticmethod
     def toDateTime(timestamp, tz=timezone.utc):
@@ -42,13 +42,13 @@ class DateTimeHelper:
 
         if result is None:
             possible_formats = [
-                '%Y-%m-%d',
-                '%Y%m%dT%H%M%S',
-                '%Y%m%dT%H%M',
-                '%Y/%m/%d',
-                '%d-%m-%Y',
-                '%d/%m/%Y',
-                '%Y-%m-%d %H:%M:%S',
+                "%Y-%m-%d",
+                "%Y%m%dT%H%M%S",
+                "%Y%m%dT%H%M",
+                "%Y/%m/%d",
+                "%d-%m-%Y",
+                "%d/%m/%Y",
+                "%Y-%m-%d %H:%M:%S",
             ]
 
             for fmt in possible_formats:
@@ -83,7 +83,7 @@ class DateTimeHelper:
         return DateTimeHelper.toDateTime(timestamp, tz=None)
 
     @staticmethod
-    def toUtcTimestamp(dt, tz='UTC'):
+    def toUtcTimestamp(dt, tz="UTC"):
         """Convert datetime, string, or int to UTC timestamp."""
         if isinstance(dt, int):
             return dt
@@ -107,7 +107,7 @@ class DateTimeHelper:
         return dt.astimezone(timezone.utc).isoformat()
 
     @staticmethod
-    def asDateTime(dateTest, format='%Y-%m-%d'):
+    def asDateTime(dateTest, format="%Y-%m-%d"):
         if dateTest is None:
             return None
 
@@ -121,7 +121,7 @@ class DateTimeHelper:
             raise ValueError(f"Unexpected type for datetime value: {type(dateTest)}")
 
     @staticmethod
-    def convertToApiFormatString(dt, format=API_FORMAT, tz='US/Eastern'):
+    def convertToApiFormatString(dt, format=API_FORMAT, tz="US/Eastern"):
         """Convert to API or other local/specific format (defaulting to AlphaVantage format)."""
         if isinstance(dt, str):
             dt = DateTimeHelper.parseTimestampAsDatetime(dt)
@@ -136,7 +136,7 @@ class DateTimeHelper:
             return None
         if isinstance(dt, str):
             dt = DateTimeHelper.parseTimestampAsDatetime(dt)
-        if format.lower() == 'iso8601':
+        if format.lower() == "iso8601":
             return dt.astimezone(timezone.utc).isoformat()
         return dt.strftime(format)
 
@@ -178,7 +178,7 @@ class DateTimeHelper:
     def getDefaultDateInterval(date_from, date_to):
         """Get default date interval."""
         if date_from is None:
-            date_from = '2020-01-01'
+            date_from = "2020-01-01"
 
         if date_to is None:
             date_from_obj = datetime.strptime(date_from, "%Y-%m-%d")

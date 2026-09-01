@@ -91,13 +91,13 @@ async def ingest_corporate_actions(
         splits = [s for s in splits if s.ex_date >= since]
         dividends = [d for d in dividends if d.ex_date >= since]
 
-    db_symbol = splits[0].symbol if splits else (
-        dividends[0].symbol if dividends else symbol.split(".")[0]
+    db_symbol = (
+        splits[0].symbol
+        if splits
+        else (dividends[0].symbol if dividends else symbol.split(".")[0])
     )
 
-    splits_added, splits_updated = upsert_splits(
-        str(settings.timescale_db_url), splits
-    )
+    splits_added, splits_updated = upsert_splits(str(settings.timescale_db_url), splits)
     dividends_added, dividends_updated = upsert_dividends(
         str(settings.timescale_db_url), dividends
     )
@@ -121,10 +121,7 @@ def upsert_splits(
 
     import psycopg
 
-    params = [
-        (s.symbol, s.ex_date, s.ratio_to, s.ratio_from)
-        for s in rows
-    ]
+    params = [(s.symbol, s.ex_date, s.ratio_to, s.ratio_from) for s in rows]
     with psycopg.connect(db_url) as conn:
         with conn.cursor() as cur:
             cur.executemany(
@@ -160,10 +157,7 @@ def upsert_dividends(
 
     import psycopg
 
-    params = [
-        (d.symbol, d.ex_date, d.amount, d.currency)
-        for d in rows
-    ]
+    params = [(d.symbol, d.ex_date, d.amount, d.currency) for d in rows]
     with psycopg.connect(db_url) as conn:
         with conn.cursor() as cur:
             cur.executemany(

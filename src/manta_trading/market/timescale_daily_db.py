@@ -23,7 +23,13 @@ from manta_trading.logging import get_logger
 _logger = get_logger(__name__)
 
 _DAILY_GRAINS = {Granularity.D1, Granularity.W1, Granularity.MO1, Granularity.Q1}
-_MINUTE_GRAINS = {Granularity.M1, Granularity.M5, Granularity.M15, Granularity.H1, Granularity.H4}
+_MINUTE_GRAINS = {
+    Granularity.M1,
+    Granularity.M5,
+    Granularity.M15,
+    Granularity.H1,
+    Granularity.H4,
+}
 
 
 class TimescaleDailyDataDB:
@@ -131,10 +137,10 @@ class TimescaleDailyDataDB:
             # source is one of the cagg view names — validated against
             # GRANULARITY_SOURCE whitelist, so use in the query is safe.
             sql = (
-                f'SELECT time_bucket AS trade_date, open, high, low, close, volume'
+                f"SELECT time_bucket AS trade_date, open, high, low, close, volume"
                 f' FROM "{source}"'
-                f' WHERE symbol = %s AND time_bucket >= %s AND time_bucket <= %s'
-                f' ORDER BY time_bucket'
+                f" WHERE symbol = %s AND time_bucket >= %s AND time_bucket <= %s"
+                f" ORDER BY time_bucket"
             )
 
         with pool.connection() as conn:
@@ -155,9 +161,9 @@ class TimescaleDailyDataDB:
         )
         df["trade_date"] = pd.to_datetime(df["trade_date"], utc=True)
         df = df.set_index("trade_date")
-        df[["open", "high", "low", "close"]] = (
-            df[["open", "high", "low", "close"]].astype("float64")
-        )
+        df[["open", "high", "low", "close"]] = df[
+            ["open", "high", "low", "close"]
+        ].astype("float64")
         df["volume"] = df["volume"].astype("int64")
         return df
 

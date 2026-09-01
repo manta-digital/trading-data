@@ -92,7 +92,9 @@ def populate_delisted_dates(
         try:
             resp = eodhd_get(http, url, CallType.EOD)
         except httpx.HTTPStatusError as exc:
-            _logger.error("populate_delisted_dates: HTTP %s for %s", exc.response.status_code, sym)
+            _logger.error(
+                "populate_delisted_dates: HTTP %s for %s", exc.response.status_code, sym
+            )
             error_count += 1
             if on_progress is not None:
                 on_progress(idx, total, sym, None)

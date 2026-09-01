@@ -47,6 +47,7 @@ class Holiday:
         early_close_time: Time of early close (if applicable)
         late_open_time: Time of late open (if applicable)
     """
+
     holiday_date: date
     holiday_name: str
     market_status: MarketStatus
@@ -65,6 +66,7 @@ class TradingHours:
         session_type: Type of session (RTH, ETH, ALL)
         is_trading_day: Whether this is a trading day
     """
+
     session_start: datetime
     session_end: datetime
     session_type: SessionType
@@ -331,7 +333,9 @@ class TradingCalendar:
         early_close = holiday_row["early_close_time"] if holiday_row else None
         late_open = holiday_row["late_open_time"] if holiday_row else None
 
-        result = self._build_trading_hours(trade_date, session_type, early_close, late_open)
+        result = self._build_trading_hours(
+            trade_date, session_type, early_close, late_open
+        )
         self._cache[key] = result
         return result
 

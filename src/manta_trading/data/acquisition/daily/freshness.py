@@ -80,9 +80,11 @@ def _resolve_output_size(
     if last_success_ts is None:
         return OutputSize.FULL
 
-    ref = today if today is not None else datetime.datetime.now(
-        datetime.timezone.utc
-    ).date()
+    ref = (
+        today
+        if today is not None
+        else datetime.datetime.now(datetime.timezone.utc).date()
+    )
     gap = (ref - _utc_date(last_success_ts)).days
     return OutputSize.COMPACT if gap <= recent_days else OutputSize.FULL
 
@@ -119,9 +121,11 @@ def _is_fresh(
     if last_success_ts is None:
         return False
 
-    ref = today if today is not None else datetime.datetime.now(
-        datetime.timezone.utc
-    ).date()
+    ref = (
+        today
+        if today is not None
+        else datetime.datetime.now(datetime.timezone.utc).date()
+    )
     gap = (ref - _utc_date(last_success_ts)).days
     return gap < min_days
 
@@ -154,8 +158,10 @@ def _is_attempt_fresh(
     if last_attempt_ts is None:
         return False
 
-    ref = today if today is not None else datetime.datetime.now(
-        datetime.timezone.utc
-    ).date()
+    ref = (
+        today
+        if today is not None
+        else datetime.datetime.now(datetime.timezone.utc).date()
+    )
     gap = (ref - _utc_date(last_attempt_ts)).days
     return gap < min_days

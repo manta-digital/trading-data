@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
@@ -28,6 +29,7 @@ from manta_trading.data.kalshi.collection_pass import (
     CandlesPhase,
     CatalogPhase,
     CollectionPass,
+    HistoricalPhase,
     PassPhaseName,
     PassResult,
     PhaseReport,
@@ -36,6 +38,7 @@ from manta_trading.data.kalshi.collection_pass import (
 )
 from manta_trading.data.kalshi.constants import Surface
 from manta_trading.data.kalshi.events import SyncEventType as T
+from manta_trading.data.kalshi.models import MarketsPage
 from manta_trading.data.kalshi.run_context import KalshiRun
 from manta_trading.data.kalshi.selection import CollectionRule
 from manta_trading.data.kalshi.sync_types import SyncOutcome
@@ -302,10 +305,12 @@ class TestPassPhases:
             PassPhaseName.CATALOG,
             PassPhaseName.CANDLES,
             PassPhaseName.TRADES,
+            PassPhaseName.HISTORICAL,
         ]
         assert isinstance(PASS_PHASES[0], CatalogPhase)
         assert isinstance(PASS_PHASES[1], CandlesPhase)
         assert isinstance(PASS_PHASES[2], TradesPhase)
+        assert isinstance(PASS_PHASES[3], HistoricalPhase)
 
     async def test_catalog_abort_leaves_the_later_phases_skipped(self):
         catalog = FakePhase(PassPhaseName.CATALOG, SyncOutcome.PROVIDER_ABORT)
@@ -343,6 +348,91 @@ class TestPassPhases:
         ]
         assert result.outcome is SyncOutcome.PROVIDER_ABORT
         assert result.reports[0].error is None
+
+    async def test_trades_abort_leaves_historical_skipped(self):
+        """Slice 267: the fourth phase never runs after a trades abort."""
+        phases = [
+            FakePhase(PassPhaseName.CATALOG),
+            FakePhase(PassPhaseName.CANDLES),
+            FakePhase(PassPhaseName.TRADES, SyncOutcome.PROVIDER_ABORT),
+            FakePhase(PassPhaseName.HISTORICAL),
+        ]
+        result = await CollectionPass(_run(), phases).run()
+        assert phases[3].calls == 0
+        assert [(r.name, r.outcome) for r in result.reports][3] == (
+            PassPhaseName.HISTORICAL,
+            SKIPPED,
+        )
+
+    async def test_historical_abort_leaves_the_three_earlier_reports_intact(self):
+        """Slice 267, Criterion 1: an abort in the last phase is the pass
+        outcome and the earlier phases' reports stand."""
+        phases = [
+            FakePhase(PassPhaseName.CATALOG),
+            FakePhase(PassPhaseName.CANDLES, SyncOutcome.PARTIAL),
+            FakePhase(PassPhaseName.TRADES),
+            FakePhase(PassPhaseName.HISTORICAL, SyncOutcome.STORAGE_ABORT),
+        ]
+        result = await CollectionPass(_run(), phases).run()
+        assert [(r.name, r.outcome) for r in result.reports] == [
+            (PassPhaseName.CATALOG, SyncOutcome.OK),
+            (PassPhaseName.CANDLES, SyncOutcome.PARTIAL),
+            (PassPhaseName.TRADES, SyncOutcome.OK),
+            (PassPhaseName.HISTORICAL, SyncOutcome.STORAGE_ABORT),
+        ]
+        assert result.outcome is SyncOutcome.STORAGE_ABORT
+        assert result.reports[3].error == "boom"
+
+    async def test_historical_cap_is_computed_from_the_client_budget(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ):
+        """Slice 267, Decision 2: ``requests_per_minute × HISTORICAL_PHASE_MINUTES``,
+        logged before the core is built; the core receives the number."""
+        from manta_trading.data.kalshi import historical_sync
+        from manta_trading.data.kalshi.constants import HISTORICAL_PHASE_MINUTES
+        from manta_trading.data.kalshi.historical_types import HistoricalResult
+        from manta_trading.data.kalshi.selection import CollectionRule
+
+        captured: dict[str, Any] = {}
+
+        class StubSync:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                captured.update(kwargs)
+                self.result = HistoricalResult(
+                    kwargs["run_id"], NOW, cap=kwargs["cap"], floor=NOW
+                )
+
+            async def run(self) -> HistoricalResult:
+                return self.result
+
+        monkeypatch.setattr(historical_sync, "HistoricalSync", StubSync)
+        client: Any = MagicMock()
+        client.rate_limit.requests_per_minute = 10
+        client.mode = "authenticated"
+        settings: Any = MagicMock()
+        settings.collection_rule.return_value = CollectionRule(
+            True, frozenset(), frozenset(), None, None
+        )
+        run = KalshiRun(
+            settings=settings,
+            client=client,
+            conn=MagicMock(),
+            sink=RecordingSink(),
+            run_id=uuid4(),
+            clock=lambda: NOW,
+        )
+        with caplog.at_level(logging.INFO):
+            report = await HistoricalPhase().run(run)
+        assert captured["cap"] == 10 * HISTORICAL_PHASE_MINUTES == 300
+        assert report.name is PassPhaseName.HISTORICAL
+        assert report.outcome is SyncOutcome.OK
+        assert report.summary["cap"] == 300
+        line = next(
+            r.getMessage()
+            for r in caplog.records
+            if "historical cap=" in r.getMessage()
+        )
+        assert line == "kalshi historical cap=300 (10/min × 30 min, mode=authenticated)"
 
     async def test_behind_cutoff_propagates_out_of_the_pass(self):
         """265 Decision 6: not caught by the pass; the earlier reports stand."""
@@ -424,6 +514,9 @@ class FakeConn:
     catalog: Any
     candles: FakeCandleRepository
     trades: FakeTradeRepository | None = None
+    #: Slice 267: the historical phase's own ``sync_state`` row, never the
+    #: live one — ``TradeRepository(..., surface=HISTORICAL)`` maps here.
+    historical: FakeTradeRepository | None = None
 
 
 @pytest.fixture
@@ -438,23 +531,39 @@ def two_repositories(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         "manta_trading.data.kalshi.trade_repository.TradeRepository",
-        lambda conn, rule: conn.trades,
+        lambda conn, rule, surface=Surface.TRADES: (
+            conn.trades if surface is Surface.TRADES else conn.historical
+        ),
     )
 
 
 class _ThreeSurfaceSource:
     """The catalog fake plus a trades fake behind one client-shaped object:
-    the real pass hands every phase the same ``KalshiClient``."""
+    the real pass hands every phase the same ``KalshiClient``. Slice 267:
+    the historical surfaces answer empty — an archive of one empty page, an
+    empty archived tape, no candles — so the fourth phase runs to ``ok``."""
 
     def __init__(self, catalog: Any, trades: FakeTradeSource) -> None:
         self._catalog = catalog
         self.trades = trades
+        self.historical_trades = FakeTradeSource()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._catalog, name)
 
     async def get_trades(self, **query: Any) -> Any:
         return await self.trades.get_trades(**query)
+
+    async def get_historical_trades(self, **query: Any) -> Any:
+        return await self.historical_trades.get_trades(**query)
+
+    async def get_historical_markets(self, **query: Any) -> MarketsPage:
+        return MarketsPage(markets=[], cursor="")
+
+    async def get_historical_market_candlesticks(
+        self, ticker: str, **query: Any
+    ) -> list[Any]:
+        return []
 
 
 def _two_phase_run(
@@ -471,7 +580,15 @@ def _two_phase_run(
     return KalshiRun(
         settings=settings,
         client=cast("KalshiClient", client),
-        conn=cast("AsyncConnection[Any]", FakeConn(h.repo, candles, trades)),
+        conn=cast(
+            "AsyncConnection[Any]",
+            FakeConn(
+                h.repo,
+                candles,
+                trades,
+                FakeTradeRepository(surface=Surface.HISTORICAL),
+            ),
+        ),
         sink=h.sink,
         run_id=uuid4(),
         clock=lambda: h.now,
@@ -574,6 +691,7 @@ class TestTradesPhase:
             (PassPhaseName.CATALOG, SyncOutcome.OK),
             (PassPhaseName.CANDLES, SyncOutcome.OK),
             (PassPhaseName.TRADES, SyncOutcome.PROVIDER_ABORT),
+            (PassPhaseName.HISTORICAL, SKIPPED),
         ]
         assert result.outcome is SyncOutcome.PROVIDER_ABORT
         assert result.reports[0].summary["phases"]["markets"]["written"] == 1
@@ -603,7 +721,10 @@ class TestTradesPhase:
         # Both earlier phases ran to completion before the abort.
         assert h.repo.sync_state[Surface.CATALOG].last_full_sync_at is not None
 
-    async def test_three_phase_pass_reports_all_in_order(self, h: Harness):
+    async def test_four_phase_pass_reports_all_in_order(self, h: Harness):
+        """Slice 267: the real ``PASS_PHASES`` end to end over the fakes; the
+        historical phase walks an empty archive and, with no live floor
+        visible to its own fake row, reports the trades row missing."""
         h.live_market("M1")
         repo, source = self._trades(h)
         run = _two_phase_run(h, FakeCandleRepository(), repo, source)
@@ -613,6 +734,17 @@ class TestTradesPhase:
             "catalog",
             "candles",
             "trades",
+            "historical",
         ]
         assert payload["outcome"] == "ok"
         assert payload["phases"][2]["summary"]["watermark"]["after"] is not None
+        historical = payload["phases"][3]["summary"]
+        assert historical["archive"] == {
+            "walked": True,
+            "pages": 1,
+            "markets_fetched": 0,
+            "markets_written": 0,
+            "restarted": False,
+        }
+        assert historical["trades_row_missing"] is True
+        assert historical["cap"] == 300 * 30

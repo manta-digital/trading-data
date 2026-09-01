@@ -19,6 +19,7 @@ class AdjustmentPolicy(Enum):
     RAW: Unadjusted prices as originally reported
     DIVIDEND_ADJUSTED: Prices adjusted for both splits and dividends
     """
+
     SPLIT_ADJUSTED = "split_adjusted"
     RAW = "raw"
     DIVIDEND_ADJUSTED = "dividend_adjusted"
@@ -35,6 +36,7 @@ class SessionType(Enum):
     ETH: Extended Trading Hours (pre-market and after-hours)
     ALL: All trading hours (both RTH and ETH combined)
     """
+
     RTH = "RTH"
     ETH = "ETH"
     ALL = "ALL"
@@ -53,6 +55,7 @@ class DataVersion:
         ingestion_timestamp: When the data was ingested into the database
         provider_version: Version identifier from the data provider
     """
+
     version: str
     ingestion_timestamp: datetime
     provider_version: Optional[str] = None
@@ -73,6 +76,7 @@ class ValidationResult:
         errors: List of error messages for failed validations
         warnings: List of warning messages for suspicious but not invalid data
     """
+
     is_valid: bool
     errors: list[str]
     warnings: list[str] = None
@@ -88,7 +92,7 @@ def validate_ohlcv_consistency(
     high: float,
     low: float,
     close: float,
-    allow_negative: bool = False
+    allow_negative: bool = False,
 ) -> ValidationResult:
     """
     Validate OHLCV data for internal consistency.
@@ -114,14 +118,14 @@ def validate_ohlcv_consistency(
 
     # Check for finite numbers
     prices = [open_price, high, low, close]
-    price_names = ['open', 'high', 'low', 'close']
+    price_names = ["open", "high", "low", "close"]
 
     for price, name in zip(prices, price_names):
         if not isinstance(price, (int, float)):
             errors.append(f"{name} must be a number, got {type(price).__name__}")
         elif not (price == price):  # NaN check
             errors.append(f"{name} is NaN")
-        elif price == float('inf') or price == float('-inf'):
+        elif price == float("inf") or price == float("-inf"):
             errors.append(f"{name} is infinite")
 
     # If we have type errors, don't proceed with value checks

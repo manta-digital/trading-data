@@ -180,10 +180,7 @@ class InstrumentRegistry:
         if key in self._cache:
             return self._cache[key]
 
-        sql = (
-            f"SELECT {_INSTRUMENT_COLS} FROM instruments "
-            "WHERE canonical_id = %s"
-        )
+        sql = f"SELECT {_INSTRUMENT_COLS} FROM instruments WHERE canonical_id = %s"
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, (canonical_id,))
@@ -276,8 +273,15 @@ class InstrumentRegistry:
             f"RETURNING {_INSTRUMENT_COLS}"
         )
         params = (
-            canonical_id, symbol, asset_class, venue, currency,
-            tick_size, lot_size, trading_calendar_id, adjustment_policy,
+            canonical_id,
+            symbol,
+            asset_class,
+            venue,
+            currency,
+            tick_size,
+            lot_size,
+            trading_calendar_id,
+            adjustment_policy,
             metadata,
         )
 

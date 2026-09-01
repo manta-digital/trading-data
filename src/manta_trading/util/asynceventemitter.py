@@ -10,6 +10,7 @@ class AsyncEventEmitter:
     Provides async event handling beyond what is present in asyncio.event.  Attempted to use
     PyPi package asyncio-events, but it is completely unusable (won't import, no stars, no examples)
     """
+
     def __init__(self):
         self.events = {}
 
@@ -27,7 +28,7 @@ class AsyncEventEmitter:
         if event in self.events:
             results = []
             errors = []
-            
+
             for callback in self.events[event]:
                 try:
                     if asyncio.iscoroutinefunction(callback):
@@ -37,10 +38,13 @@ class AsyncEventEmitter:
                     results.append(result)
                 except Exception as e:
                     import traceback
-                    _logger.error("Error in event callback for event '%s': %s", event, str(e))
+
+                    _logger.error(
+                        "Error in event callback for event '%s': %s", event, str(e)
+                    )
                     _logger.debug("%s", traceback.format_exc())
                     errors.append(e)
-            
+
             # Return a tuple of (results, errors) so caller can handle errors if needed
             return results, errors
 

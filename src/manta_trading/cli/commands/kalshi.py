@@ -215,6 +215,7 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
 
     Reads the database only (no API call); reports before any sync has run.
     """
+    from manta_trading.data.kalshi.historical_status import read_historical_status
     from manta_trading.data.kalshi.status import (
         read_candle_status,
         read_catalog_status,
@@ -235,6 +236,7 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
             rule = settings.collection_rule()
             candles = read_candle_status(conn, rule)
             trades = read_trade_status(conn, rule)
+            historical = read_historical_status(conn)
     except psycopg.OperationalError as exc:
         print_error(f"database unreachable: {exc}", json_mode=json_output)
         raise typer.Exit(EXIT_PREFLIGHT) from exc
@@ -247,7 +249,18 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
         payload = {"synced": True, **status.to_dict()}
         payload["candles"] = candles.to_dict() if candles is not None else None
         payload["trades"] = trades.to_dict() if trades is not None else None
+        # The behind-cutoff count is read once, in the candle block.
+        payload["historical"] = (
+            {
+                **historical.to_dict(),
+                "behind_cutoff_candles_remaining": (
+                    candles.behind_cutoff_uncollected if candles is not None else None
+                ),
+            }
+            if historical is not None
+            else None
+        )
         print_result(payload, json_mode=True)
     else:
-        print_status(status, datetime.now(UTC), candles, trades)
+        print_status(status, datetime.now(UTC), candles, trades, historical)
     raise typer.Exit(EXIT_OK)

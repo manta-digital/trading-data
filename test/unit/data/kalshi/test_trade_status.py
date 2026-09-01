@@ -9,14 +9,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from kalshi_support.fake_status_conn import FakeStatusConn
+
 from manta_trading.data.kalshi import trade_status as module
-from manta_trading.data.kalshi.constants import TRADE_LAG_STALE_AFTER
+from manta_trading.data.kalshi.constants import TRADE_LAG_STALE_AFTER, Surface
 from manta_trading.data.kalshi.selection import (
     CATALOG_JOIN,
     CollectionRule,
     selection_sql,
 )
-from manta_trading.data.kalshi.trade_status import TradeStatus
+from manta_trading.data.kalshi.trade_status import TradeStatus, read_trade_status
 
 RULE_C = CollectionRule(
     True, frozenset(), frozenset({"Sports", "Mentions"}), "MENTION|SAY", r"\msay\M"
@@ -77,3 +79,45 @@ class TestToDict:
             "before_coverage": 1_203_442,
             "stale_after_minutes": int(TRADE_LAG_STALE_AFTER.total_seconds() // 60),
         }
+
+
+class TestEffectiveFloor:
+    """Slice 267, Decision 8: ``coverage_from`` bound to the counts is the
+    lower of the live floor and the historical watermark."""
+
+    LIVE_FLOOR = datetime(2026, 7, 1, tzinfo=UTC)
+    LAG = timedelta(minutes=8)
+
+    def _conn(self, historical: tuple[object, ...] | None) -> FakeStatusConn:
+        return FakeStatusConn(
+            {
+                Surface.TRADES.value: (NOW, NOW - self.LAG, self.LIVE_FLOOR, self.LAG),
+                Surface.HISTORICAL.value: historical,
+            },
+            counts=(1, 2, 3, 4, 10),
+        )
+
+    def _bound_floor(self, conn: FakeStatusConn) -> object:
+        return next(p["coverage_from"] for p in conn.params if "coverage_from" in p)
+
+    def test_live_floor_without_a_historical_row(self):
+        conn = self._conn(None)
+        status = read_trade_status(conn.as_connection(), RULE_C)
+        assert status is not None and status.coverage_from == self.LIVE_FLOOR
+        assert self._bound_floor(conn) == self.LIVE_FLOOR
+
+    def test_live_floor_while_the_historical_watermark_is_unset(self):
+        conn = self._conn((NOW, None, None, "archive-3"))
+        status = read_trade_status(conn.as_connection(), RULE_C)
+        assert status is not None and status.coverage_from == self.LIVE_FLOOR
+
+    def test_the_minimum_with_a_historical_watermark(self):
+        below = self.LIVE_FLOOR - timedelta(days=40)
+        conn = self._conn((NOW, below, datetime(2026, 1, 1, tzinfo=UTC), None))
+        status = read_trade_status(conn.as_connection(), RULE_C)
+        assert status is not None and status.coverage_from == below
+        assert self._bound_floor(conn) == below
+        assert [p["surface"] for p in conn.params if "surface" in p] == [
+            Surface.TRADES.value,
+            Surface.HISTORICAL.value,
+        ]

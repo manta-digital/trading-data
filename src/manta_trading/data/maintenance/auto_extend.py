@@ -63,9 +63,7 @@ def maybe_extend_trading_sessions(
     if not bypass_gate and _last_extend_at is not None:
         elapsed = datetime.now() - _last_extend_at
         if elapsed < timedelta(hours=24):
-            _logger.debug(
-                "auto_extend: gated (last ran %s ago)", elapsed
-            )
+            _logger.debug("auto_extend: gated (last ran %s ago)", elapsed)
             return AutoExtendResult(triggered=False)
 
     today = date.today()
@@ -181,9 +179,7 @@ def maybe_extend_trading_sessions(
                     inserted = cur.rowcount
                 conn.commit()
         except Exception as exc:
-            _logger.exception(
-                "auto_extend: INSERT batch failed for %s", cal_id
-            )
+            _logger.exception("auto_extend: INSERT batch failed for %s", cal_id)
             result.error = str(exc)
             any_error = True
             continue

@@ -67,7 +67,11 @@ def universes_ls(
 
     if json_output:
         data = [
-            {"universe": r[0], "members": r[1], "last_refresh": str(r[2]) if r[2] else None}
+            {
+                "universe": r[0],
+                "members": r[1],
+                "last_refresh": str(r[2]) if r[2] else None,
+            }
             for r in rows
         ]
         sys.stdout.write(json.dumps(data, indent=2) + "\n")
@@ -103,7 +107,9 @@ def universes_as_of(
     try:
         parsed_date = date.fromisoformat(as_of_date)
     except ValueError:
-        print_error(f"Invalid date '{as_of_date}', expected YYYY-MM-DD.", json_mode=json_output)
+        print_error(
+            f"Invalid date '{as_of_date}', expected YYYY-MM-DD.", json_mode=json_output
+        )
         raise typer.Exit(1)
 
     sql = """
@@ -143,8 +149,12 @@ def _fetch_sp500_csv() -> str:
         api_resp = httpx.get(SP500_GITHUB_API_URL, timeout=15.0, follow_redirects=True)
         api_resp.raise_for_status()
         entries = api_resp.json()
-        pattern = re.compile(r"S&P 500 Historical Components & Changes\(\d{2}-\d{2}-\d{4}\)\.csv")
-        matches = [e["download_url"] for e in entries if pattern.match(e.get("name", ""))]
+        pattern = re.compile(
+            r"S&P 500 Historical Components & Changes\(\d{2}-\d{2}-\d{4}\)\.csv"
+        )
+        matches = [
+            e["download_url"] for e in entries if pattern.match(e.get("name", ""))
+        ]
         if matches:
             # Sort by filename date descending; filenames contain MM-DD-YYYY.
             matches.sort(reverse=True)
@@ -162,7 +172,9 @@ def _fetch_sp500_csv() -> str:
 @universes_app.command("refresh")
 def universes_refresh(
     ctx: typer.Context,
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show per-row progress"),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show per-row progress"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Fetch the SP500 historical CSV from GitHub and apply any new rows.
@@ -181,11 +193,13 @@ def universes_refresh(
 
     def on_progress(done: int, total: int, change_date: date) -> None:
         if verbose and not json_output:
-            typer.echo(f"  [{done+1}/{total}] {change_date}", err=True)
+            typer.echo(f"  [{done + 1}/{total}] {change_date}", err=True)
 
     try:
         with psycopg.connect(db_url) as conn:
-            imported, skipped = import_sp500_csv(conn, csv_text, on_progress=on_progress)
+            imported, skipped = import_sp500_csv(
+                conn, csv_text, on_progress=on_progress
+            )
     except Exception as exc:
         print_error(f"Import failed: {exc}", json_mode=json_output)
         raise typer.Exit(1) from exc

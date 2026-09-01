@@ -200,8 +200,7 @@ class _TimeoutConnection:
         )
         try:
             conn.execute(
-                f"SET statement_timeout = "
-                f"'{MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT}'"
+                f"SET statement_timeout = '{MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT}'"
             )
             row = conn.execute("SELECT pg_backend_pid() AS pid").fetchone()
             assert row is not None  # pg_backend_pid always returns one row
@@ -273,7 +272,7 @@ def _raw_window_counts(
     counts: list[int] = []
     for start, end in windows:
         raw_row = conn.execute(
-            f'SELECT COUNT(*) AS n FROM {MINUTE_OHLCV_TABLE} '  # noqa: S608 — table is a shared constant
+            f"SELECT COUNT(*) AS n FROM {MINUTE_OHLCV_TABLE} "  # noqa: S608 — table is a shared constant
             'WHERE "time" >= %s AND "time" < %s',
             (start, end),
         ).fetchone()

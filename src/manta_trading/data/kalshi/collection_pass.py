@@ -63,6 +63,7 @@ class PassPhaseName(StrEnum):
     CATALOG = "catalog"
     CANDLES = "candles"
     TRADES = "trades"
+    HISTORICAL = "historical"
 
 
 @dataclass(frozen=True)
@@ -315,7 +316,74 @@ class TradesPhase:
         )
 
 
+class HistoricalPhase:
+    """The historical phase — 267's :class:`HistoricalSync` under the phase
+    contract. The request cap is computed here from the run's client budget
+    (267 Decision 2: ``requests_per_minute × HISTORICAL_PHASE_MINUTES``) and
+    logged before the core is built — the core never sees the client.
+    """
+
+    name = PassPhaseName.HISTORICAL
+
+    async def run(self, run: KalshiRun) -> PhaseReport:
+        from manta_trading.data.kalshi.candle_repository import CandleRepository
+        from manta_trading.data.kalshi.constants import (
+            HISTORICAL_PHASE_MINUTES,
+            Surface,
+        )
+        from manta_trading.data.kalshi.historical_sync import HistoricalSync
+        from manta_trading.data.kalshi.historical_types import classify_historical
+        from manta_trading.data.kalshi.repository import CatalogRepository
+        from manta_trading.data.kalshi.trade_repository import TradeRepository
+
+        started = time.monotonic()
+        rule = run.settings.collection_rule()
+        budget = run.client.rate_limit.requests_per_minute
+        cap = budget * HISTORICAL_PHASE_MINUTES
+        logger.info(
+            "kalshi historical cap=%d (%d/min × %d min, mode=%s)",
+            cap,
+            budget,
+            HISTORICAL_PHASE_MINUTES,
+            run.client.mode,
+        )
+        sync = HistoricalSync(
+            run.client,
+            TradeRepository(run.conn, rule, surface=Surface.HISTORICAL),
+            CandleRepository(run.conn, rule),
+            CatalogRepository(run.conn),
+            run.sink,
+            rule=rule,
+            run_id=run.run_id,
+            cap=cap,
+            clock=run.clock,
+        )
+        failure: ProviderError | psycopg.OperationalError | None = None
+        try:
+            await sync.run()
+        except ProviderError as exc:
+            failure = exc
+        except psycopg.OperationalError as exc:
+            failure = exc
+            logger.exception("kalshi historical phase storage failure")
+        return PhaseReport(
+            name=self.name,
+            outcome=classify_historical(sync.result, failure),
+            summary=sync.result.to_dict(),
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error=str(failure) if failure is not None else None,
+        )
+
+
 #: The single registration point for pass phases. Order is execution order —
 #: the catalog is current before candles run, and both before the trades tape
-#: is classified against the catalog (265 Decision 5).
-PASS_PHASES: tuple[PassPhase, ...] = (CatalogPhase(), CandlesPhase(), TradesPhase())
+#: is classified against the catalog (265 Decision 5); historical is last
+#: (267 Decision 1): it sequences the archive work *after* the live phases
+#: inside one process, which is what removes the rate-budget contention the
+#: retired operator drain waited for, and it self-limits to its own cap.
+PASS_PHASES: tuple[PassPhase, ...] = (
+    CatalogPhase(),
+    CandlesPhase(),
+    TradesPhase(),
+    HistoricalPhase(),
+)

@@ -36,7 +36,7 @@ def _redact(url: str, secret: str) -> str:
 
 def _backoff_seconds(attempt: int) -> float:
     """Exponential backoff capped at 60s. ``attempt`` is 0-indexed."""
-    return min(_BACKOFF_BASE_S * (2 ** attempt), _BACKOFF_CAP_S)
+    return min(_BACKOFF_BASE_S * (2**attempt), _BACKOFF_CAP_S)
 
 
 async def _sleep(seconds: float) -> None:
@@ -143,8 +143,7 @@ async def fetch_with_retry(
                 await _sleep(delay)
                 continue
             raise ProviderTransientError(
-                f"HTTP {status} after {max_retries + 1} attempts: "
-                f"{body_preview}"
+                f"HTTP {status} after {max_retries + 1} attempts: {body_preview}"
             )
 
         # Permanent: any other 4xx (auth, not-found, malformed request).
@@ -154,9 +153,7 @@ async def fetch_with_retry(
             safe_url,
             body_preview,
         )
-        raise ProviderPermanentError(
-            f"HTTP {status}: {body_preview}"
-        )
+        raise ProviderPermanentError(f"HTTP {status}: {body_preview}")
 
     # Loop should always either return or raise; this is unreachable.
     raise ProviderTransientError(
@@ -197,6 +194,5 @@ async def call_with_retry(
             raise
 
     raise ProviderTransientError(
-        f"{description} failed after {max_retries + 1} attempts; "
-        f"last error: {last_exc}"
+        f"{description} failed after {max_retries + 1} attempts; last error: {last_exc}"
     )

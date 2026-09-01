@@ -190,9 +190,7 @@ def _load_windows(
             state = WindowState.REWRITE
         else:
             state = WindowState.SKIP_UNCOMPRESSED
-        windows.append(
-            Window(ws, we, [r["chunk"] for r in chunk_rows], state)
-        )
+        windows.append(Window(ws, we, [r["chunk"] for r in chunk_rows], state))
     return windows
 
 
@@ -236,9 +234,7 @@ def _resolve_paused_job_violations(
             "        AND hypertable_name = ANY(%s)))",
             (table, list(cagg_views)),
         )
-        return [
-            f"job {job_id} ({proc} on {ht})" for job_id, proc, ht in cur.fetchall()
-        ]
+        return [f"job {job_id} ({proc} on {ht})" for job_id, proc, ht in cur.fetchall()]
 
 
 def _rewrite_window(
@@ -386,7 +382,9 @@ def run_rechunk(
         for w in skipped:
             logger.info(
                 "skipping window %s..%s: %d chunk(s) not yet compressed",
-                f"{w.start:%Y-%m-%d}", f"{w.end:%Y-%m-%d}", len(w.chunks),
+                f"{w.start:%Y-%m-%d}",
+                f"{w.end:%Y-%m-%d}",
+                len(w.chunks),
             )
 
         rewritten = 0
@@ -403,15 +401,21 @@ def run_rechunk(
                     rewritten += 1
                     logger.info(
                         "rewrote window %d/%d (%s, %d chunks -> %d, %d rows)",
-                        i, len(todo), f"{w.start:%Y-%m-%d}", len(w.chunks),
-                        1 if rows > 0 else 0, rows,
+                        i,
+                        len(todo),
+                        f"{w.start:%Y-%m-%d}",
+                        len(w.chunks),
+                        1 if rows > 0 else 0,
+                        rows,
                     )
                 else:
                     _compress_window(conn, table, w)
                     compressed_only += 1
                     logger.info(
                         "compressed window %d/%d (%s)",
-                        i, len(todo), f"{w.start:%Y-%m-%d}",
+                        i,
+                        len(todo),
+                        f"{w.start:%Y-%m-%d}",
                     )
 
     return RechunkResult(

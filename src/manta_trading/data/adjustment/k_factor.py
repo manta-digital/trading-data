@@ -87,9 +87,7 @@ class CaSnapshot:
     snapshot_id: str
 
 
-def compute_snapshot_id(
-    splits: Iterable[Split], dividends: Iterable[Dividend]
-) -> str:
+def compute_snapshot_id(splits: Iterable[Split], dividends: Iterable[Dividend]) -> str:
     """Return a stable SHA256 hex digest over ``(splits, dividends)``.
 
     The digest is deterministic across processes and Python restarts. It keys
@@ -101,13 +99,9 @@ def compute_snapshot_id(
     band-based recomputes in slice 144's daemon.
     """
     splits_canon = sorted(
-        (s.ex_date.isoformat(), str(s.ratio_to), str(s.ratio_from))
-        for s in splits
+        (s.ex_date.isoformat(), str(s.ratio_to), str(s.ratio_from)) for s in splits
     )
-    dividends_canon = sorted(
-        (d.ex_date.isoformat(), str(d.amount))
-        for d in dividends
-    )
+    dividends_canon = sorted((d.ex_date.isoformat(), str(d.amount)) for d in dividends)
     payload = json.dumps(
         {"splits": splits_canon, "dividends": dividends_canon},
         separators=(",", ":"),

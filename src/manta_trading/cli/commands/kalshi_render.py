@@ -29,6 +29,7 @@ from manta_trading.data.kalshi.constants import (
 
 if TYPE_CHECKING:
     from manta_trading.data.kalshi.collection_pass import PassResult
+    from manta_trading.data.kalshi.historical_status import HistoricalStatus
     from manta_trading.data.kalshi.status import CandleStatus, CatalogStatus
     from manta_trading.data.kalshi.sync_types import SyncOutcome, SyncResult
     from manta_trading.data.kalshi.trade_status import TradeStatus
@@ -153,6 +154,64 @@ def print_trade_summary(summary: dict[str, Any]) -> None:
     )
 
 
+def print_historical_summary(summary: dict[str, Any]) -> None:
+    """A historical phase's counts, from ``HistoricalResult.to_dict()``.
+
+    ``requests`` and the cap share the first line — the deploy check greps
+    it for the cap's production observation (267 Criterion 6).
+    """
+    from rich import print as rprint
+
+    archive, candles, watermark = (
+        summary["archive"],
+        summary["candles"],
+        summary["watermark"],
+    )
+    capped = " (capped)" if summary["capped"] else ""
+    rprint("[bold]Kalshi historical[/bold]")
+    rprint(f"  requests      {summary['requests']:,} / cap {summary['cap']:,}{capped}")
+    if archive["walked"]:
+        walk = (
+            "walked"
+            if archive["pages"] == 0
+            else (
+                f"walked: pages {archive['pages']:,} · markets "
+                f"{archive['markets_fetched']:,} "
+                f"(written {archive['markets_written']:,})"
+            )
+        )
+    else:
+        walk = (
+            f"pages {archive['pages']:,} · markets {archive['markets_fetched']:,} "
+            "· cursor saved"
+        )
+    restarted = " · restarted" if archive["restarted"] else ""
+    rprint(f"  archive       {walk}{restarted}")
+    rprint(
+        f"  candles       markets completed {candles['markets_completed']:,} · "
+        f"requests {candles['requests']:,} · candles written "
+        f"{candles['candles_written']:,} · remaining {candles['markets_remaining']:,}"
+        f" · slow {candles['slow_markets']:,}"
+    )
+    floor = "  floor reached" if summary["floor_reached"] else ""
+    rprint(
+        f"  watermark     {watermark['before'] or 'unset'} → "
+        f"{watermark['after'] or 'unset'}{floor}    (floor {summary['floor']})"
+    )
+    rprint(
+        f"  trades        fetched {summary['trades_fetched']:,}  "
+        f"written {summary['trades_written']:,}  "
+        f"unknown {summary['unknown_market']:,}  "
+        f"excluded {summary['excluded_by_rule']:,}  "
+        f"duplicates {summary['duplicates']:,}"
+    )
+    rprint(f"  item errors   {len(summary['item_errors']):,}")
+    for error in summary["item_errors"]:
+        rprint(f"    {error['ticker']}: {error['reason']}")
+    if summary["trades_row_missing"]:
+        rprint("    no live trades row: the tape floor is seeded from it")
+
+
 class NoPhaseRendererError(LookupError):
     """A pass reported a phase this module has no summary renderer for."""
 
@@ -162,6 +221,7 @@ PHASE_RENDERERS: dict[PassPhaseName, Callable[[dict[str, Any]], None]] = {
     PassPhaseName.CATALOG: print_phase_summary,
     PassPhaseName.CANDLES: print_candle_summary,
     PassPhaseName.TRADES: print_trade_summary,
+    PassPhaseName.HISTORICAL: print_historical_summary,
 }
 
 
@@ -202,6 +262,7 @@ def print_pass_summary(result: PassResult, exit_code: int, json_output: bool) ->
 
 NEVER_COLLECTED = "Candlesticks: never collected"
 NEVER_COLLECTED_TRADES = "Trades: never collected"
+NEVER_RUN_HISTORICAL = "Historical: never run"
 
 
 def print_status(
@@ -209,6 +270,7 @@ def print_status(
     now: datetime,
     candles: CandleStatus | None,
     trades: TradeStatus | None,
+    historical: HistoricalStatus | None,
 ) -> None:
     from rich import print as rprint
 
@@ -250,6 +312,12 @@ def print_status(
         rprint(f"[bold]{NEVER_COLLECTED_TRADES}[/bold]")
     else:
         print_trade_status(trades, now)
+    if historical is None:
+        rprint(f"[bold]{NEVER_RUN_HISTORICAL}[/bold]")
+    else:
+        # The behind-cutoff count is read once, in the candle block.
+        remaining = candles.behind_cutoff_uncollected if candles else None
+        print_historical_status(historical, now, remaining)
 
 
 def print_candle_status(candles: CandleStatus, now: datetime) -> None:
@@ -315,7 +383,33 @@ def print_trade_status(trades: TradeStatus, now: datetime) -> None:
     )
     rprint(
         f"  before coverage     {trades.before_coverage:,} closed markets "
-        "(tape predates the collector; slice 266)"
+        f"(closed before the effective floor {coverage})"
+    )
+
+
+def print_historical_status(
+    historical: HistoricalStatus, now: datetime, remaining: int | None
+) -> None:
+    """The historical line (design *Implementation Details*): the tape range
+    walking down, the floor, the behind-cutoff candles left, the last phase."""
+    from rich import print as rprint
+
+    def day(value: datetime | None) -> str:
+        return f"{value.astimezone(UTC):%Y-%m-%d}" if value else "unset"
+
+    floor = day(historical.floor)
+    if historical.archive_in_progress:
+        tape = "archive walk in progress"
+    elif historical.floor_reached:
+        tape = f"floor reached ({floor})"
+    else:
+        tape = (
+            f"{day(historical.tape_to)} → {day(historical.tape_from)} (floor {floor})"
+        )
+    left = f"{remaining:,}" if remaining is not None else "n/a"
+    rprint(
+        f"[bold]Kalshi historical[/bold]          tape {tape} · behind-cutoff "
+        f"candles remaining {left} · last phase {_when(historical.last_phase_at, now)}"
     )
 
 

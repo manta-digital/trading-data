@@ -15,7 +15,9 @@ from enum import StrEnum
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from manta_trading.data.acquisition.daemon.types import HEARTBEAT_ALIVE_THRESHOLD_SECONDS
+from manta_trading.data.acquisition.daemon.types import (
+    HEARTBEAT_ALIVE_THRESHOLD_SECONDS,
+)
 
 
 # ---------------------------------------------------------------------------

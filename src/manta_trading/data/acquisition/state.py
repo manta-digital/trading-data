@@ -96,8 +96,7 @@ class AcquisitionStateRow:
 
 # Columns selected in all acquisition_state queries (post-030 shape).
 _COLS = (
-    "symbol, granularity, provider, "
-    "last_attempt_ts, last_attempt_outcome, updated_at"
+    "symbol, granularity, provider, last_attempt_ts, last_attempt_outcome, updated_at"
 )
 
 
@@ -197,9 +196,12 @@ class AcquisitionStateRepository:
         )
         granularity_str = str(granularity) if granularity is not None else None
         params = (
-            symbol, symbol,
-            granularity_str, granularity_str,
-            provider, provider,
+            symbol,
+            symbol,
+            granularity_str,
+            granularity_str,
+            provider,
+            provider,
         )
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:

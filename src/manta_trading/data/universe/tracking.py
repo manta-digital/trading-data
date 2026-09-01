@@ -51,25 +51,25 @@ def parse_sp500_csv(text: str) -> list[tuple[date, set[str]]]:
     for i, row in enumerate(reader):
         if i == 0:
             if not row or row[0].strip().lower() != "date":
-                raise UniverseTrackingError(
-                    f"SP500 CSV header unexpected: {row!r}"
-                )
+                raise UniverseTrackingError(f"SP500 CSV header unexpected: {row!r}")
             continue
 
         if len(row) < 2:
-            raise UniverseTrackingError(f"SP500 CSV row {i+1} has fewer than 2 fields: {row!r}")
+            raise UniverseTrackingError(
+                f"SP500 CSV row {i + 1} has fewer than 2 fields: {row!r}"
+            )
 
         try:
             change_date = date.fromisoformat(row[0].strip())
         except ValueError as exc:
             raise UniverseTrackingError(
-                f"SP500 CSV row {i+1}: unparseable date {row[0]!r}"
+                f"SP500 CSV row {i + 1}: unparseable date {row[0]!r}"
             ) from exc
 
         symbols = {s.strip() for s in row[1].split(",") if s.strip()}
         if not symbols:
             raise UniverseTrackingError(
-                f"SP500 CSV row {i+1} ({change_date}): empty symbol set"
+                f"SP500 CSV row {i + 1} ({change_date}): empty symbol set"
             )
 
         rows.append((change_date, symbols))

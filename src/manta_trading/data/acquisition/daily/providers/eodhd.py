@@ -80,12 +80,10 @@ class EODHDDailyProvider:
 
     def _build_url(self, symbol: str, output_size: str) -> str:
         ticker = _normalise_symbol(symbol)
-        url = (
-            f"{_BASE_URL}/eod/{ticker}"
-            f"?api_token={self._api_key}&fmt=json"
-        )
+        url = f"{_BASE_URL}/eod/{ticker}?api_token={self._api_key}&fmt=json"
         if output_size == "compact":
             from datetime import date, timedelta
+
             since = (date.today() - timedelta(days=_COMPACT_RECENT_DAYS)).isoformat()
             url += f"&from={since}"
         return url
@@ -115,8 +113,7 @@ class EODHDDailyProvider:
 
         if not isinstance(raw, list):
             raise ProviderPermanentError(
-                f"unexpected /eod payload for {symbol}: "
-                f"{type(raw).__name__}"
+                f"unexpected /eod payload for {symbol}: {type(raw).__name__}"
             )
         if not raw:
             # Empty list = no data available for this ticker. Surface as
@@ -170,8 +167,14 @@ class EODHDDailyProvider:
 
 
 _CANONICAL_COLUMNS = [
-    "open", "high", "low", "close", "adjusted_close",
-    "volume", "dividend_amount", "split_coefficient",
+    "open",
+    "high",
+    "low",
+    "close",
+    "adjusted_close",
+    "volume",
+    "dividend_amount",
+    "split_coefficient",
 ]
 
 

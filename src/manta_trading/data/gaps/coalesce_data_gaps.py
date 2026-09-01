@@ -19,7 +19,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from manta_trading.data.gaps.next_trading_session_after import next_trading_session_after
+from manta_trading.data.gaps.next_trading_session_after import (
+    next_trading_session_after,
+)
 
 if TYPE_CHECKING:
     import psycopg
@@ -64,7 +66,9 @@ def _do_coalesce(
                 "gap_start": prev["gap_start"],
                 "gap_end": current["gap_end"],
                 "fetch_status": prev["fetch_status"],
-                "last_attempt_ts": _min_ts(prev["last_attempt_ts"], current["last_attempt_ts"]),
+                "last_attempt_ts": _min_ts(
+                    prev["last_attempt_ts"], current["last_attempt_ts"]
+                ),
                 "attempt_count": max(prev["attempt_count"], current["attempt_count"]),
             }
             merged_count += 1
@@ -130,9 +134,7 @@ def _are_adjacent(
     if prev["fetch_status"] != current["fetch_status"]:
         return False
 
-    next_session = next_trading_session_after(
-        conn, calendar_id, prev["gap_end"].date()
-    )
+    next_session = next_trading_session_after(conn, calendar_id, prev["gap_end"].date())
     if next_session is None:
         return False
 

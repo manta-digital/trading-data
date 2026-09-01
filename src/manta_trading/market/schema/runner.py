@@ -100,7 +100,9 @@ def apply_migrations(
                     (migration["id"], migration["description"]),
                 )
                 conn.commit()
-        _logger.info("Applied migration: %s — %s", migration["id"], migration["description"])
+        _logger.info(
+            "Applied migration: %s — %s", migration["id"], migration["description"]
+        )
         newly_applied.append(migration["id"])
 
     return newly_applied
@@ -125,7 +127,9 @@ def list_migration_state(
     if not _schema_migrations_table_exists(pool):
         return {
             "applied": [],
-            "pending": [{"id": m["id"], "description": m["description"]} for m in migrations],
+            "pending": [
+                {"id": m["id"], "description": m["description"]} for m in migrations
+            ],
         }
 
     with pool.connection() as conn:

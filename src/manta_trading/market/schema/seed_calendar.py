@@ -39,6 +39,7 @@ NASDAQ_CALENDAR: dict = {
 # Easter / Good Friday computation
 # ---------------------------------------------------------------------------
 
+
 def compute_easter(year: int) -> date:
     """Compute Easter Sunday using the Anonymous Gregorian (Butcher's) algorithm."""
     a = year % 19
@@ -57,6 +58,7 @@ def compute_easter(year: int) -> date:
 # ---------------------------------------------------------------------------
 # Holiday generation helpers
 # ---------------------------------------------------------------------------
+
 
 def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
     """Return the *n*-th occurrence of *weekday* (0=Mon) in *month*."""
@@ -86,10 +88,14 @@ def _weekend_adjust(d: date) -> date:
     return d
 
 
-def _holiday(calendar_id: str, d: date, name: str,
-             status: str = "closed",
-             early_close_time: str | None = None,
-             late_open_time: str | None = None) -> dict:
+def _holiday(
+    calendar_id: str,
+    d: date,
+    name: str,
+    status: str = "closed",
+    early_close_time: str | None = None,
+    late_open_time: str | None = None,
+) -> dict:
     """Build a single holiday dict."""
     return {
         "calendar_id": calendar_id,
@@ -104,6 +110,7 @@ def _holiday(calendar_id: str, d: date, name: str,
 # ---------------------------------------------------------------------------
 # Main generation function
 # ---------------------------------------------------------------------------
+
 
 def generate_holidays(
     calendar_id: str,
@@ -158,16 +165,25 @@ def generate_holidays(
         day_before_july4 = july4 - timedelta(days=1)
         if day_before_july4.weekday() < 5:
             holidays.append(
-                _holiday(calendar_id, day_before_july4,
-                         "Day Before Independence Day",
-                         status="early_close", early_close_time="13:00")
+                _holiday(
+                    calendar_id,
+                    day_before_july4,
+                    "Day Before Independence Day",
+                    status="early_close",
+                    early_close_time="13:00",
+                )
             )
 
         # Black Friday (day after Thanksgiving, always a Friday)
         black_friday = thanksgiving + timedelta(days=1)
         holidays.append(
-            _holiday(calendar_id, black_friday, "Black Friday",
-                     status="early_close", early_close_time="13:00")
+            _holiday(
+                calendar_id,
+                black_friday,
+                "Black Friday",
+                status="early_close",
+                early_close_time="13:00",
+            )
         )
 
         # Christmas Eve (13:00) if weekday and not weekend-adjacent
@@ -176,8 +192,13 @@ def generate_holidays(
             # Skip if Christmas itself was adjusted to the 24th (Sat→Fri)
             if christmas != christmas_eve:
                 holidays.append(
-                    _holiday(calendar_id, christmas_eve, "Christmas Eve",
-                             status="early_close", early_close_time="13:00")
+                    _holiday(
+                        calendar_id,
+                        christmas_eve,
+                        "Christmas Eve",
+                        status="early_close",
+                        early_close_time="13:00",
+                    )
                 )
 
     return holidays
@@ -186,6 +207,7 @@ def generate_holidays(
 # ---------------------------------------------------------------------------
 # SQL generation
 # ---------------------------------------------------------------------------
+
 
 def generate_calendar_insert_sql(calendar: dict) -> str:
     """Return an INSERT statement for a single trading_calendars row."""

@@ -96,9 +96,7 @@ def resolve_alias(name_or_alias: str) -> str:
 
     available = sorted(BUILT_IN_PROFILES)
     all_aliases = sorted(
-        alias
-        for p in BUILT_IN_PROFILES.values()
-        for alias in p.aliases
+        alias for p in BUILT_IN_PROFILES.values() for alias in p.aliases
     )
     msg = (
         f"Unknown provider or alias {name_or_alias!r}. "

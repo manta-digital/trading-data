@@ -33,9 +33,7 @@ __all__ = ["create_app", "lifespan", "make_configure_connection"]
 
 
 @asynccontextmanager
-async def lifespan(
-    app: FastAPI, db_url: str | None = None
-) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI, db_url: str | None = None) -> AsyncIterator[None]:
     """Open and close the shared ``ConnectionPool`` over the app lifetime.
 
     Reads ``Settings().timescale_db_url`` at startup. Raises
@@ -52,9 +50,7 @@ async def lifespan(
     settings = Settings()
     resolved_url = db_url or settings.timescale_db_url
     if not resolved_url:
-        raise RuntimeError(
-            "MT_TIMESCALE_DB_URL is required for the API server"
-        )
+        raise RuntimeError("MT_TIMESCALE_DB_URL is required for the API server")
 
     # D9: both policy ceilings are resolved once, here, and held on app.state.
     # Changing an override requires a restart — the same contract as
@@ -201,8 +197,6 @@ def create_app(db_url: str | None = None) -> FastAPI:
         _logger.exception(
             "Unhandled exception on %s %s", request.method, request.url.path
         )
-        return JSONResponse(
-            status_code=500, content={"error": "internal server error"}
-        )
+        return JSONResponse(status_code=500, content={"error": "internal server error"})
 
     return app

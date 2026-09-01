@@ -43,8 +43,7 @@ def adjusted(
         return df
 
     k_by_date = {
-        d: compute_k_factor(symbol, d, ca_snapshot=ca_snapshot)
-        for d in bar_dates
+        d: compute_k_factor(symbol, d, ca_snapshot=ca_snapshot) for d in bar_dates
     }
 
     result = df.copy()

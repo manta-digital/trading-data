@@ -91,9 +91,7 @@ async def get_gaps(
         # query that silently drops a bound.
         start_dt = _window_start_utc(start) if start is not None else None
         end_dt = _window_end_utc(end) if end is not None else None
-        cursor = db.execute(
-            _GAPS_SQL, (symbol, db_gran, db_gran, end_dt, start_dt)
-        )
+        cursor = db.execute(_GAPS_SQL, (symbol, db_gran, db_gran, end_dt, start_dt))
 
         rows = cursor.fetchall()
         return [

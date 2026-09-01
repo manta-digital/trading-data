@@ -326,7 +326,7 @@ async def _seed_trade_status(
     await write_catalog(CatalogRepository(kalshi_conn), markets, series)
     repo = TradeRepository(kalshi_conn, RULE_C)
     async with repo.transaction():
-        await repo.init_state(coverage_from)
+        await repo.init_state(coverage_from, coverage_from)
         await repo.advance_watermark(watermark)
         await repo.set_last_full_sync(now)
 
@@ -404,3 +404,146 @@ async def test_trade_status_is_not_behind_within_the_horizon(
     assert status.behind is False
     assert timedelta(minutes=89) <= status.lag <= timedelta(minutes=95)
     assert status.to_dict()["lag_minutes"] in range(89, 96)
+
+
+# ---------------------------------------------------------------------------
+# Historical line and the effective floor (slice 267, Task 7.3)
+# ---------------------------------------------------------------------------
+
+
+def test_historical_never_run_is_none(kalshi_db: str):
+    from manta_trading.data.kalshi.historical_status import read_historical_status
+
+    with psycopg.connect(kalshi_db) as conn:
+        assert read_historical_status(conn) is None
+
+
+async def test_effective_floor_moves_before_coverage_and_the_partition_holds(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+):
+    """Criterion 7: with a historical watermark below the live floor,
+    ``coverage_from`` is that watermark, ``BEFORE`` (closed a day below the
+    live floor) leaves the before-coverage bucket, and the four still sum."""
+    from test_kalshi_candles import RULE_C
+
+    from manta_trading.data.kalshi.constants import HISTORICAL_TRADES_FLOOR
+    from manta_trading.data.kalshi.historical_status import read_historical_status
+    from manta_trading.data.kalshi.trade_repository import TradeRepository
+    from manta_trading.data.kalshi.trade_status import read_trade_status
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    live_floor = now - 30 * DAY
+    watermark = now - DAY
+    await _seed_trade_status(
+        kalshi_conn, coverage_from=live_floor, watermark=watermark, now=now
+    )
+    historical = TradeRepository(kalshi_conn, RULE_C, surface=Surface.HISTORICAL)
+    descended = live_floor - 40 * DAY
+    async with historical.transaction():
+        await historical.init_state(live_floor, HISTORICAL_TRADES_FLOOR)
+        await historical.advance_watermark(descended)
+        await historical.set_last_full_sync(now)
+
+    with psycopg.connect(kalshi_db) as conn:
+        status = read_trade_status(conn, RULE_C)
+        line = read_historical_status(conn)
+    assert status is not None
+    assert status.coverage_from == descended
+    # BEFORE (opened live_floor - 10d) and PARTIAL (opened live_floor - 5d)
+    # both opened at or after the effective floor and closed before the
+    # watermark: complete now. Only OPENNULL stays partial.
+    assert status.before_coverage == 0
+    assert status.complete_through_close == 3
+    assert status.partial_history == 1
+    assert status.short_of_close == 2
+    assert (
+        status.complete_through_close
+        + status.partial_history
+        + status.short_of_close
+        + status.before_coverage
+        == 6
+    )
+    assert line is not None
+    assert line.last_phase_at == now
+    assert line.archive_walked is True and line.archive_in_progress is False
+    assert line.tape_from == descended and line.tape_to == live_floor
+    assert line.floor == HISTORICAL_TRADES_FLOOR and line.floor_reached is False
+    assert set(line.to_dict()) == {
+        "last_phase_at",
+        "archive_walked",
+        "archive_in_progress",
+        "tape_from",
+        "tape_to",
+        "floor",
+        "floor_reached",
+    }
+
+
+async def test_historical_line_while_the_walk_is_in_progress(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+):
+    from test_kalshi_candles import RULE_C
+
+    from manta_trading.data.kalshi.constants import HISTORICAL_TRADES_FLOOR
+    from manta_trading.data.kalshi.historical_status import read_historical_status
+    from manta_trading.data.kalshi.trade_repository import TradeRepository
+
+    historical = TradeRepository(kalshi_conn, RULE_C, surface=Surface.HISTORICAL)
+    async with historical.transaction():
+        await historical.set_cursor("page-3")
+    with psycopg.connect(kalshi_db) as conn:
+        line = read_historical_status(conn)
+    assert line is not None
+    assert line.archive_in_progress is True and line.archive_walked is False
+    assert line.tape_from is None and line.tape_to is None
+    assert line.floor == HISTORICAL_TRADES_FLOOR and line.floor_reached is False
+
+
+async def test_status_command_json_and_rich_carry_the_historical_line(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+):
+    """Slice 267, Task 7.4: ``mt data kalshi status`` against the throwaway
+    database — ``historical`` is ``null`` before the phase has run and a
+    mapping once its row exists; the Rich line renders in both states. The
+    database URL is passed explicitly to the runner (environment beats the
+    checkout's ``.env``), and the payload proves it was the seeded one."""
+    import json
+
+    from test_kalshi_candles import RULE_C
+    from typer.testing import CliRunner
+
+    from manta_trading.cli.app import app
+    from manta_trading.cli.commands.kalshi_render import NEVER_RUN_HISTORICAL
+    from manta_trading.data.kalshi.trade_repository import TradeRepository
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    await _seed_trade_status(
+        kalshi_conn, coverage_from=now - 30 * DAY, watermark=now - DAY, now=now
+    )
+    async with CatalogRepository(kalshi_conn).transaction():
+        await CatalogRepository(kalshi_conn).set_last_full_sync(Surface.CATALOG, now)
+    runner = CliRunner()
+    env = {"MT_TIMESCALE_DB_URL": kalshi_db}
+    command = ["data", "kalshi", "status"]
+
+    before = runner.invoke(app, [*command, "--json"], env=env)
+    assert before.exit_code == 0, before.output
+    payload = json.loads(before.stdout)
+    assert payload["synced"] is True
+    assert payload["trades"]["before_coverage"] == 1  # the seeded fixture set
+    assert payload["historical"] is None
+    rich = runner.invoke(app, command, env=env)
+    assert NEVER_RUN_HISTORICAL in rich.output
+
+    historical = TradeRepository(kalshi_conn, RULE_C, surface=Surface.HISTORICAL)
+    async with historical.transaction():
+        await historical.set_cursor("page-2")
+        await historical.set_last_full_sync(now)
+    after = runner.invoke(app, [*command, "--json"], env=env)
+    assert after.exit_code == 0, after.output
+    line = json.loads(after.stdout)["historical"]
+    assert line["archive_in_progress"] is True and line["archive_walked"] is False
+    assert line["tape_from"] is None and line["floor_reached"] is False
+    assert line["behind_cutoff_candles_remaining"] is None  # no candles row yet
+    rich = runner.invoke(app, command, env=env)
+    assert "archive walk in progress" in " ".join(rich.output.split())

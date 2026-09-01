@@ -23,12 +23,18 @@ from psycopg_pool import ConnectionPool
 from manta_trading.api.finnhub.finnhubapi import FinnhubAccessError, FinnhubClient
 from manta_trading.api.http_retry import RetryPolicy
 from manta_trading.data.base.instrument_registry import InstrumentRegistry
-from manta_trading.data.universe.eodhd_classification import EodhdType, filter_v1_universe
+from manta_trading.data.universe.eodhd_classification import (
+    EodhdType,
+    filter_v1_universe,
+)
 from manta_trading.data.universe.eodhd_symbol_list_client import (
     EodhdSymbolListClient,
 )
 from manta_trading.data.universe.finnhub_ipo_client import FinnhubIpoClient
-from manta_trading.data.universe.venue_mapping import is_non_us_exchange, map_finnhub_exchange
+from manta_trading.data.universe.venue_mapping import (
+    is_non_us_exchange,
+    map_finnhub_exchange,
+)
 from manta_trading.logging import get_logger
 from manta_trading.market.schema.migrations import TRACKS
 from manta_trading.market.schema.runner import apply_migrations
@@ -100,7 +106,9 @@ async def _run_finnhub_enrichment(
 
                 new_venue = enrichment["venue"]
                 new_calendar = enrichment["trading_calendar_id"]
-                new_canonical = f"{symbol}.{new_venue}" if new_venue != "US" else canonical_id
+                new_canonical = (
+                    f"{symbol}.{new_venue}" if new_venue != "US" else canonical_id
+                )
 
                 if not dry_run:
                     with pool.connection() as conn:
@@ -127,7 +135,9 @@ async def _run_finnhub_enrichment(
                 finnhub_populated += 1
 
             except FinnhubAccessError as exc:
-                _logger.warning("Finnhub 403 during enrichment loop: %s; stopping Finnhub", exc)
+                _logger.warning(
+                    "Finnhub 403 during enrichment loop: %s; stopping Finnhub", exc
+                )
                 finnhub_errors += 1
                 break
             except Exception as exc:
@@ -140,13 +150,18 @@ async def _run_finnhub_enrichment(
         summary["finnhub_errors"] = finnhub_errors
         _logger.info(
             "Finnhub enrichment done: populated=%d not_found=%d errors=%d non_us_dropped=%d",
-            finnhub_populated, finnhub_not_found, finnhub_errors, non_us_dropped,
+            finnhub_populated,
+            finnhub_not_found,
+            finnhub_errors,
+            non_us_dropped,
         )
     finally:
         pool.close()
 
 
-def _build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dict]) -> list[dict]:
+def _build_upsert_rows(
+    eodhd_rows: list[dict], existing_by_symbol: dict[str, dict]
+) -> list[dict]:
     """Convert filtered EODHD rows to upsert dicts, applying D4 canonical_id rules.
 
     - Existing AV-seeded rows: keep their venue/canonical_id/trading_calendar_id.
@@ -176,17 +191,19 @@ def _build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dic
             venue = "US"
             trading_calendar_id = "NYSE"
 
-        rows.append({
-            "canonical_id": canonical_id,
-            "symbol": symbol,
-            "asset_class": "equity" if eodhd_type != EodhdType.INDEX else "index",
-            "venue": venue,
-            "currency": currency,
-            "trading_calendar_id": trading_calendar_id,
-            "eodhd_type": eodhd_type,
-            "eodhd_exchange": eodhd_exchange,
-            "delisted_at_eodhd": delisted_at_eodhd,
-        })
+        rows.append(
+            {
+                "canonical_id": canonical_id,
+                "symbol": symbol,
+                "asset_class": "equity" if eodhd_type != EodhdType.INDEX else "index",
+                "venue": venue,
+                "currency": currency,
+                "trading_calendar_id": trading_calendar_id,
+                "eodhd_type": eodhd_type,
+                "eodhd_exchange": eodhd_exchange,
+                "delisted_at_eodhd": delisted_at_eodhd,
+            }
+        )
     return rows
 
 
@@ -199,7 +216,10 @@ def _load_existing_by_symbol(pool: ConnectionPool) -> dict[str, dict]:
                 "FROM instruments"
             )
             rows = cur.fetchall()
-    return {r[0]: {"canonical_id": r[1], "venue": r[2], "trading_calendar_id": r[3]} for r in rows}
+    return {
+        r[0]: {"canonical_id": r[1], "venue": r[2], "trading_calendar_id": r[3]}
+        for r in rows
+    }
 
 
 def _count_and_sample_orphans(
@@ -294,7 +314,9 @@ async def run_rebuild(
     }
 
     if only_finnhub:
-        _logger.info("only_finnhub=True — skipping EODHD steps; running Finnhub enrichment only")
+        _logger.info(
+            "only_finnhub=True — skipping EODHD steps; running Finnhub enrichment only"
+        )
         await _run_finnhub_enrichment(ipo_client, db_url, summary, dry_run)
         return summary
 
@@ -308,9 +330,14 @@ async def run_rebuild(
         try:
             result = await finnhub_client.fetch_profile(_FINNHUB_PROBE_SYMBOL)
             if result is None:
-                _logger.warning("Finnhub pre-flight: no ipo data for probe symbol; enrichment will proceed but may be limited")
+                _logger.warning(
+                    "Finnhub pre-flight: no ipo data for probe symbol; enrichment will proceed but may be limited"
+                )
         except FinnhubAccessError as exc:
-            _logger.warning("Finnhub pre-flight failed: %s; proceeding with EODHD only (--skip-finnhub semantics)", exc)
+            _logger.warning(
+                "Finnhub pre-flight failed: %s; proceeding with EODHD only (--skip-finnhub semantics)",
+                exc,
+            )
             skip_finnhub = True
 
     pool = _make_pool(db_url)
@@ -320,7 +347,9 @@ async def run_rebuild(
     # phases: 015 before the upsert, 016/017 after the upsert + orphan delete.
     # This is enforced by partitioning TRACKS["minute"] here.
     minute_track = TRACKS["minute"]
-    pre_141_track = [m for m in minute_track if m["id"] not in (_MIGRATION_016, _MIGRATION_017)]
+    pre_141_track = [
+        m for m in minute_track if m["id"] not in (_MIGRATION_016, _MIGRATION_017)
+    ]
     post_upsert_track = minute_track  # full list — runner skips already-applied
 
     try:
@@ -358,7 +387,9 @@ async def run_rebuild(
 
         if dry_run:
             summary["would_process"] = len(all_rows)
-            _logger.info("Dry run: would process %d rows; no DB mutations", len(all_rows))
+            _logger.info(
+                "Dry run: would process %d rows; no DB mutations", len(all_rows)
+            )
             return summary
 
         # ── Step 5: Build upsert rows matching existing by symbol ─────────────
@@ -372,7 +403,12 @@ async def run_rebuild(
         summary["inserted"] = inserted
         summary["updated"] = updated
         summary["unchanged"] = unchanged
-        _logger.info("Upsert complete: inserted=%d updated=%d unchanged=%d", inserted, updated, unchanged)
+        _logger.info(
+            "Upsert complete: inserted=%d updated=%d unchanged=%d",
+            inserted,
+            updated,
+            unchanged,
+        )
 
         # ── Step 7: Orphan delete ─────────────────────────────────────────────
         # Orphans = rows not in the current EODHD payload. Covers both:
@@ -380,9 +416,13 @@ async def run_rebuild(
         #  (b) Previously-EODHD-known rows now absent (criterion 11).
         _logger.info("Step 7: Checking for orphans (rows not in current EODHD payload)")
         current_canonical_ids = {r["canonical_id"] for r in upsert_rows}
-        orphan_count, orphan_sample = _count_and_sample_orphans(pool, current_canonical_ids)
+        orphan_count, orphan_sample = _count_and_sample_orphans(
+            pool, current_canonical_ids
+        )
         sample_str = ", ".join(orphan_sample[:20])
-        print(f"\nOrphans (rows in DB but absent from current EODHD payload): {orphan_count}")
+        print(
+            f"\nOrphans (rows in DB but absent from current EODHD payload): {orphan_count}"
+        )
         if orphan_count > 0:
             print(f"  Sample (first 20): {sample_str}")
             print(f"Deleting orphans in {_ORPHAN_GATE_SECONDS}s... (Ctrl-C to abort)")

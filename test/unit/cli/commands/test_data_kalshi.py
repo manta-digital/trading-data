@@ -220,6 +220,7 @@ def _patched_status(
     status: object,
     candles: object = None,
     trades: object = None,
+    historical: object = None,
 ) -> Iterator[None]:
     with (
         patch("manta_trading.cli.app.Settings", return_value=settings),
@@ -235,8 +236,31 @@ def _patched_status(
             "manta_trading.data.kalshi.trade_status.read_trade_status",
             return_value=trades,
         ),
+        patch(
+            "manta_trading.data.kalshi.historical_status.read_historical_status",
+            return_value=historical,
+        ),
     ):
         yield
+
+
+def _historical_status(*, in_progress: bool = False, floor_reached: bool = False):
+    from manta_trading.data.kalshi.constants import HISTORICAL_TRADES_FLOOR
+    from manta_trading.data.kalshi.historical_status import HistoricalStatus
+
+    tape_to = datetime(2026, 7, 1, tzinfo=UTC)
+    tape_from = (
+        HISTORICAL_TRADES_FLOOR if floor_reached else datetime(2026, 5, 14, tzinfo=UTC)
+    )
+    return HistoricalStatus(
+        last_phase_at=NOW,
+        archive_walked=not in_progress,
+        archive_in_progress=in_progress,
+        tape_from=None if in_progress else tape_from,
+        tape_to=tape_to,
+        floor=HISTORICAL_TRADES_FLOOR,
+        floor_reached=floor_reached,
+    )
 
 
 def _trade_status(*, behind: bool = False):
@@ -406,10 +430,64 @@ class TestStatus:
             "partial history 6,120",
             "short of close 310",
             "before coverage 1,203,442 closed markets",
-            "slice 266",
+            "closed before the effective floor 2026-06-29 00:00 UTC",
         ):
             assert needle in output, needle
         assert "cutoff" not in output.split("Kalshi trades")[1]
+
+    # --- the historical line (slice 267, Task 7.4) ---
+
+    def test_historical_never_run_line_and_json_null(self):
+        with _patched_status(
+            _settings(), _catalog_status(), _candle_status(), _trade_status(), None
+        ):
+            rich = runner.invoke(app, STATUS_CMD)
+            as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
+        assert rich.exit_code == cmd.EXIT_OK
+        assert render.NEVER_RUN_HISTORICAL in rich.output
+        payload = json.loads(as_json.stdout)
+        assert payload["historical"] is None
+        assert payload["trades"]["coverage_from"] == "2026-06-29T00:00:00+00:00"
+
+    def test_historical_line_rendered_and_json(self):
+        with _patched_status(
+            _settings(),
+            _catalog_status(),
+            _candle_status(),
+            _trade_status(),
+            _historical_status(),
+        ):
+            rich = runner.invoke(app, STATUS_CMD)
+            as_json = runner.invoke(app, [*STATUS_CMD, "--json"])
+        assert rich.exit_code == cmd.EXIT_OK, rich.output
+        output = " ".join(rich.output.split())
+        assert (
+            "Kalshi historical tape 2026-07-01 → 2026-05-14 (floor 2026-01-01) · "
+            "behind-cutoff candles remaining 9,203 · last phase" in output
+        )
+        payload = json.loads(as_json.stdout)["historical"]
+        assert payload["tape_from"] == "2026-05-14T00:00:00+00:00"
+        assert payload["floor"] == "2026-01-01T00:00:00+00:00"
+        assert payload["behind_cutoff_candles_remaining"] == 9203
+        assert payload["archive_walked"] is True
+
+    @pytest.mark.parametrize(
+        ("status", "needle"),
+        [
+            (dict(in_progress=True), "tape archive walk in progress"),
+            (dict(floor_reached=True), "tape floor reached (2026-01-01)"),
+        ],
+    )
+    def test_historical_line_forms(self, status: dict[str, bool], needle: str):
+        with _patched_status(
+            _settings(),
+            _catalog_status(),
+            _candle_status(),
+            _trade_status(),
+            _historical_status(**status),
+        ):
+            rich = runner.invoke(app, STATUS_CMD)
+        assert needle in " ".join(rich.output.split())
 
     def test_trade_block_says_behind(self):
         with _patched_status(
@@ -639,6 +717,54 @@ class TestPhaseRenderers:
         assert (
             render.PHASE_RENDERERS[PassPhaseName.TRADES] is render.print_trade_summary
         )
+        assert (
+            render.PHASE_RENDERERS[PassPhaseName.HISTORICAL]
+            is render.print_historical_summary
+        )
+
+    def test_historical_summary_renders_every_form(self, capsys):
+        """Slice 267, Task 7.2: the Task 6.4 payload shape renders, with the
+        cursor-saved, item-error, and missing-live-row lines."""
+        from manta_trading.data.kalshi.candle_types import CandleItemError
+        from manta_trading.data.kalshi.historical_types import HistoricalResult
+
+        result = HistoricalResult(
+            uuid4(), NOW, cap=30_000, floor=datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        result.requests = 30_004
+        result.capped = True
+        result.archive_pages = 812
+        result.archive_markets_fetched = 811_900
+        result.archive_markets_written = 700_000
+        result.candle_markets_completed = 1_000
+        result.candle_requests = 1_403
+        result.candles_written = 2_100_000
+        result.candle_markets_remaining = 7_394
+        result.slow_markets = 2
+        result.item_errors.append(CandleItemError("KXGONE-1", "404"))
+        result.watermark_before = datetime(2026, 7, 1, tzinfo=UTC)
+        result.watermark_after = datetime(2026, 6, 29, 20, tzinfo=UTC)
+        result.windows_completed = 28
+        result.trades_fetched = 1_000
+        result.trades_written = 900
+        result.unknown_market = 100
+        result.trades_row_missing = True
+        render.render_phase_summary(PassPhaseName.HISTORICAL, result.to_dict())
+        out = " ".join(capsys.readouterr().out.split())
+        assert "requests 30,004 / cap 30,000 (capped)" in out
+        assert "archive pages 812 · markets 811,900 · cursor saved" in out
+        assert "candles markets completed 1,000 · requests 1,403" in out
+        assert "remaining 7,394 · slow 2" in out
+        assert "2026-07-01T00:00:00+00:00 → 2026-06-29T20:00:00+00:00" in out
+        assert "trades fetched 1,000 written 900 unknown 100" in out
+        assert "item errors 1 KXGONE-1: 404" in out
+        assert "no live trades row" in out
+        result.archive_walked = True
+        result.archive_pages = 0
+        result.floor_reached = True
+        render.render_phase_summary(PassPhaseName.HISTORICAL, result.to_dict())
+        out = " ".join(capsys.readouterr().out.split())
+        assert "archive walked" in out and "floor reached" in out
 
     def test_every_registered_phase_has_a_renderer(self):
         """A phase added to ``PASS_PHASES`` without a renderer fails here,

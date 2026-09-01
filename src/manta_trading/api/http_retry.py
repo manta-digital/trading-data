@@ -38,7 +38,9 @@ class RetryPolicy:
     )
 
     def timeout(self) -> httpx.Timeout:
-        return httpx.Timeout(connect=self.connect_timeout, read=self.read_timeout, write=10.0, pool=10.0)
+        return httpx.Timeout(
+            connect=self.connect_timeout, read=self.read_timeout, write=10.0, pool=10.0
+        )
 
 
 async def request_with_retry(
@@ -80,10 +82,16 @@ async def request_with_retry(
 
             if resp.status_code in policy.retryable_status_codes:
                 if attempt < policy.retries:
-                    wait = policy.backoff_seconds[min(attempt, len(policy.backoff_seconds) - 1)]
+                    wait = policy.backoff_seconds[
+                        min(attempt, len(policy.backoff_seconds) - 1)
+                    ]
                     _logger.warning(
                         "HTTP %d from %s; retrying in %.0fs (attempt %d/%d)",
-                        resp.status_code, url, wait, attempt + 1, policy.retries,
+                        resp.status_code,
+                        url,
+                        wait,
+                        attempt + 1,
+                        policy.retries,
                     )
                     await asyncio.sleep(wait)
                     continue
@@ -91,13 +99,23 @@ async def request_with_retry(
 
             return resp
 
-        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
+        except (
+            httpx.ConnectTimeout,
+            httpx.ReadTimeout,
+            httpx.RemoteProtocolError,
+        ) as exc:
             last_exc = exc
             if attempt < policy.retries:
-                wait = policy.backoff_seconds[min(attempt, len(policy.backoff_seconds) - 1)]
+                wait = policy.backoff_seconds[
+                    min(attempt, len(policy.backoff_seconds) - 1)
+                ]
                 _logger.warning(
                     "%s from %s; retrying in %.0fs (attempt %d/%d)",
-                    type(exc).__name__, url, wait, attempt + 1, policy.retries,
+                    type(exc).__name__,
+                    url,
+                    wait,
+                    attempt + 1,
+                    policy.retries,
                 )
                 await asyncio.sleep(wait)
             else:
