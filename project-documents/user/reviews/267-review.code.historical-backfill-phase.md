@@ -64,3 +64,11 @@ The `raise_on`/`_record`/`_failures` mechanism is copied verbatim (including doc
 [PASS] Historical sync/migration core logic and test coverage
 
 Archive-walk resume/restart logic, candle chunking, backward trade-drain wiring, cap enforcement, and the two new migrations (idempotent `DROP CONSTRAINT IF EXISTS` + re-render from enums, parameterized queries) are correct and well-covered by `test_historical_sync.py`, `test_historical_status.py`, and `test_kalshi_migrations.py`, including first-run seeding, cursor-rejection restart, slow-market warning, and both fresh-database and pre-existing-constraint migration paths.
+
+## Remediation (2026-09-01)
+
+All six actionable findings addressed on `main`:
+
+- `a89d4e0` — unknown-markets line labeled by surface (+ backward-path test); rejected archive request counted.
+- `c2168e7` — status renderers extracted to `kalshi_status_render.py` (259/181 lines, both under guideline); shared `_trade_counts_line`/`_capped_suffix`; `FailureInjection` base shared by the trade and historical fakes.
+- `37e7cf2` — `migrate()` refuses unless the checkout maintenance URL matches the production units' database (host/port/dbname vs `/etc/manta-trading.env`), with parsing tests; the dead `ENV_FILE` constant is wired into that check rather than deleted.
