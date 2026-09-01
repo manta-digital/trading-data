@@ -36,6 +36,7 @@ from manta_trading.data.kalshi.client import KalshiClient
 from manta_trading.data.kalshi.constants import (
     CANDLE_BATCH_MAX_TICKERS,
     KALSHI_MVE_FILTER,
+    MARKETS_PAGE_LIMIT,
     CandlePeriod,
     MarketStatusFilter,
 )
@@ -79,6 +80,13 @@ CANDLE_OVER_CAP_WINDOW = timedelta(minutes=360)
 TRADES_WINDOW_SPAN = timedelta(minutes=1)
 TRADES_WINDOW_LIMIT = 100
 TRADES_EMPTY_WINDOW_OFFSET = timedelta(days=365)
+#: Slice 267: the archived tape a week behind the trades cutoff — one minute
+#: of a busy UTC afternoon (14:00) so the first page carries a cursor — and
+#: one day of 1-minute candles around that window's first trade (1,440
+#: periods, under the single-market cap).
+HISTORICAL_TRADES_LOOKBACK = timedelta(days=7)
+HISTORICAL_TRADES_WINDOW_HOUR_UTC = 14
+HISTORICAL_CANDLES_SPAN = timedelta(days=1)
 DRY_RUN_PREVIEW_CHARS = 600
 
 
@@ -374,6 +382,80 @@ async def record_candlesticks_batch_over_cap(rec: Recorder) -> None:
     raise SystemExit("expected HTTP 400 over the candle cap; the API returned success")
 
 
+async def record_historical_markets_page(rec: Recorder) -> None:
+    """``historical_markets_page`` (slice 267, Decision 9): the archive's
+    first page exactly as the walk requests it. The first and last
+    ``settlement_ts`` are printed so the note can record the served order."""
+    page = await rec.client.get_historical_markets(
+        limit=MARKETS_PAGE_LIMIT, mve_filter=KALSHI_MVE_FILTER
+    )
+    if not page.cursor:
+        raise SystemExit(
+            f"the archive's first page served {len(page.markets)} markets and no "
+            "cursor; the walk cannot be exercised from it"
+        )
+    stamps = [m.settlement_ts for m in page.markets]
+    print(
+        f"historical markets page: {len(page.markets)} markets, "
+        f"first settlement_ts={stamps[0]} last settlement_ts={stamps[-1]}"
+    )
+    rec.save("historical_markets_page")
+
+
+async def record_historical_trades_window(rec: Recorder) -> None:
+    """``historical_trades_window`` and ``historical_trades_window_last``
+    (slice 267): the first and last page of one minute of the archived tape,
+    seven days behind ``trades_created_ts`` (the bounds are printed so the
+    pair can be re-recorded)."""
+    cutoff = await rec.client.get_historical_cutoff()
+    day = cutoff.trades_created_ts - HISTORICAL_TRADES_LOOKBACK
+    start = day.replace(
+        hour=HISTORICAL_TRADES_WINDOW_HOUR_UTC, minute=0, second=0, microsecond=0
+    )
+    start_ts = int(start.timestamp())
+    end_ts = int((start + TRADES_WINDOW_SPAN).timestamp())
+    print(
+        f"historical trades window min_ts={start_ts} max_ts={end_ts} "
+        f"limit={TRADES_WINDOW_LIMIT}"
+    )
+    page = await rec.client.get_historical_trades(
+        min_ts=start_ts, max_ts=end_ts, limit=TRADES_WINDOW_LIMIT
+    )
+    if not page.cursor:
+        raise SystemExit(
+            f"the archived minute served {len(page.trades)} trades, under the page "
+            f"limit {TRADES_WINDOW_LIMIT}: no cursor to record; retry with a "
+            "busier minute"
+        )
+    rec.save("historical_trades_window")
+    cursor: str | None = page.cursor
+    while cursor:
+        page = await rec.client.get_historical_trades(
+            min_ts=start_ts, max_ts=end_ts, limit=TRADES_WINDOW_LIMIT, cursor=cursor
+        )
+        cursor = page.cursor
+    rec.save("historical_trades_window_last")
+
+
+async def record_historical_candles_market(rec: Recorder) -> None:
+    """``historical_candles_market`` (slice 267): one day of 1-minute candles
+    around the first trade of ``historical_trades_window`` (record that
+    first) — read from the fixture file so the pair stays consistent."""
+    payload = json.loads(
+        (FIXTURE_DIR / "historical_trades_window.json").read_text(encoding="utf-8")
+    )
+    first = payload["trades"][0]
+    traded_at = datetime.fromisoformat(first["created_time"])
+    half = HISTORICAL_CANDLES_SPAN / 2
+    await rec.client.get_historical_market_candlesticks(
+        first["ticker"],
+        start_ts=int((traded_at - half).timestamp()),
+        end_ts=int((traded_at + half).timestamp()),
+        period_interval=CandlePeriod.MINUTE,
+    )
+    rec.save("historical_candles_market")
+
+
 RECORDERS: dict[str, Callable[[Recorder], Awaitable[None]]] = {
     "series_list": record_series_list,
     "series": record_series,
@@ -391,6 +473,10 @@ RECORDERS: dict[str, Callable[[Recorder], Awaitable[None]]] = {
     "events_by_tickers": record_events_by_tickers,
     "candlesticks_batch": record_candlesticks_batch,
     "candlesticks_batch_over_cap": record_candlesticks_batch_over_cap,
+    "historical_markets_page": record_historical_markets_page,
+    "historical_trades_window": record_historical_trades_window,
+    "historical_trades_window_last": record_historical_trades_window,
+    "historical_candles_market": record_historical_candles_market,
 }
 
 

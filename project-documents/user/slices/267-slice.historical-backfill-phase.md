@@ -7,8 +7,8 @@ dependencies: [264, 265]
 interfaces: []
 effort: 3
 dateCreated: 20260831
-dateUpdated: 20260831
-status: not_started
+dateUpdated: 20260901
+status: in_progress
 ---
 
 # Slice Design: Historical Backfill Phase (267)
@@ -248,6 +248,21 @@ trade_id)`; watermark advances only after a window's last page committed.
   `get_historical_market_candlesticks` (mirror of `get_market_candlesticks`);
   recorder gains all three; fixtures `historical_markets_page`,
   `historical_trades_window`, `historical_candles_market`.
+  **Found during implementation (20260901, Task 3.2):** the historical
+  candles endpoint does *not* serve the live candle shape. It serves the
+  legacy key names — `volume`, `open_interest`, and `open/high/low/close/
+  mean/previous` inside `price`/`yes_bid`/`yes_ask` — with the same dollar
+  and fp string values (fixture `historical_candles_market`, 1,423 candles).
+  261's "same shape" finding was made for trades (proven by the fixture
+  parity test) and never checked for candles. Resolution: `models.py` gains
+  `LegacyPriceOhlc`, `HistoricalCandlestick` and
+  `HistoricalCandlesticksResponse`; the client parses through them and maps
+  each candle to a `Candlestick` (`to_candlestick()`), so the repository,
+  the stamping, and the tests downstream see one shape. Kept as separate
+  models rather than aliases on `PriceOhlc`/`Candlestick`, so a drift on
+  either endpoint fails loudly instead of parsing through the other's
+  names. *Pending PM ratification* — the alternative (aliases) is a
+  smaller diff with a silent-parse risk.
 - `historical_types.py`: `HistoricalCatalogSource` (Decision 9) and
   `HistoricalTradeSource` (Decision 5) — the two adapters that let
   `CatalogSync.ingest_markets` and `TradeSync.drain` run unchanged.
@@ -328,6 +343,11 @@ status line over any later hour; the firing's client-construction line reads
   design. A higher cost only lengthens the drain — the 429 backoff carries it.
 - **Candle writes into compressed chunks** may be slow; per-market timing is
   logged and the pause lever exists (Decision 4).
+- **The historical candle shape is the legacy one** (found 20260901, see
+  *Implementation Details*, `client.py`). Mapped in the client; if Kalshi
+  migrates the endpoint to the `_dollars`/`_fp` names the
+  `HistoricalCandlesticksResponse` parse fails loudly (`volume` required)
+  and the fixture is re-recorded — a one-model change.
 - **Kalshi may rate-limit `/historical/*` separately or lower.** The client's
   existing 429 backoff applies; a sustained escalation shows in the health
   check's Kalshi phase-recency rule and in the journal.

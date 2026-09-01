@@ -22,6 +22,9 @@ from manta_trading.data.kalshi.constants import (
     EVENT_PATH,
     EVENTS_PATH,
     HISTORICAL_CUTOFF_PATH,
+    HISTORICAL_MARKET_CANDLESTICKS_PATH,
+    HISTORICAL_MARKETS_PATH,
+    HISTORICAL_TRADES_PATH,
     KALSHI_BASE_URL,
     KALSHI_MAX_RETRIES,
     MARKET_CANDLESTICKS_PATH,
@@ -42,6 +45,7 @@ from manta_trading.data.kalshi.models import (
     Event,
     EventResponse,
     EventsPage,
+    HistoricalCandlesticksResponse,
     HistoricalCutoff,
     Market,
     MarketCandlesticks,
@@ -373,6 +377,68 @@ class KalshiClient:
     async def get_historical_cutoff(self) -> HistoricalCutoff:
         """``GET /historical/cutoff`` — the moving live/historical boundary.
 
-        The remaining ``/historical/*`` fetch methods belong to slice 266.
+        Everything settled or traded before it is served only by the three
+        ``/historical/*`` methods below (slice 267's historical phase).
         """
         return await self._transport.get_model(HISTORICAL_CUTOFF_PATH, HistoricalCutoff)
+
+    async def get_historical_markets(
+        self, *, cursor: str | None = None, **query: Unpack[MarketsQuery]
+    ) -> MarketsPage:
+        """``GET /historical/markets`` — one page of the settled-market archive.
+
+        A mirror of :meth:`get_markets`. The endpoint accepts only
+        ``tickers``, ``event_ticker``, ``series_ticker``, ``mve_filter``,
+        ``limit`` and ``cursor`` (design 267, Decision 9 — verified live
+        20260831); ``MarketsQuery``'s other keys (``status``, the created/
+        close/settled windows, ``min_updated_ts``) are **ignored by the
+        API**, not rejected — the same pass-through posture ``MarketsQuery``
+        already takes for ``min_updated_ts``. Pages come coarsely
+        newest-first with minute-level overlap inside a page.
+        """
+        return await self._transport.get_model(
+            HISTORICAL_MARKETS_PATH, MarketsPage, _with_cursor(query, cursor)
+        )
+
+    async def get_historical_trades(
+        self, *, cursor: str | None = None, **query: Unpack[TradesQuery]
+    ) -> TradesPage:
+        """``GET /historical/trades`` — one page of the archived tape.
+
+        A mirror of :meth:`get_trades` with the same ``TradesQuery`` (design
+        267, Decision 5: the parameters are identical, so the trades window
+        walker runs unchanged over either path).
+        """
+        return await self._transport.get_model(
+            HISTORICAL_TRADES_PATH, TradesPage, _with_cursor(query, cursor)
+        )
+
+    async def get_historical_market_candlesticks(
+        self,
+        ticker: str,
+        *,
+        start_ts: int,
+        end_ts: int,
+        period_interval: CandlePeriod,
+    ) -> list[Candlestick]:
+        """``GET /historical/markets/{ticker}/candlesticks`` — one archived
+        market's candles.
+
+        A mirror of :meth:`get_market_candlesticks` with no series segment
+        and no ``include_latest_before_start`` (261 Discovery, historical
+        tier). The single-market cap ``CANDLE_SINGLE_MAX_CANDLES`` bounds the
+        periods in the requested range; the caller chunks. The wire shape
+        is **not** the live one — legacy key names, observed 20260901 — so
+        it parses through ``HistoricalCandlesticksResponse`` and is mapped
+        here; callers see the same ``Candlestick`` either way.
+        """
+        resp = await self._transport.get_model(
+            HISTORICAL_MARKET_CANDLESTICKS_PATH.format(ticker=ticker),
+            HistoricalCandlesticksResponse,
+            {
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+                "period_interval": int(period_interval),
+            },
+        )
+        return [candle.to_candlestick() for candle in resp.candlesticks]

@@ -23,7 +23,7 @@ reviewVerdictsAddressed:
   - 267-review.tasks.historical-backfill-phase.part-2, first round (claude-sonnet-5, CONCERNS) — F001 load-test waiver recorded in the Context Summary with its reasoning; F002–F004 pass
 dateCreated: 20260831
 dateUpdated: 20260901
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -113,16 +113,16 @@ status: not_started
 Design *Risks*, first item. The answer changes only the drain's length, but
 it is the one unknown the design asked to be read before anything is built.
 
-- [ ] **Task 1.1: `scripts/kalshi_endpoint_costs.py`** **[agent]** (effort: 1)
-  - [ ] A read-only script: `Settings(_env_file=<path from --env-file>)` →
+- [x] **Task 1.1: `scripts/kalshi_endpoint_costs.py`** **[agent]** (effort: 1)
+  - [x] A read-only script: `Settings(_env_file=<path from --env-file>)` →
         `load_credentials(...)` → `KalshiTransport(credentials=...)` →
         `get_json("/account/endpoint_costs", {})` → print the body as JSON.
         Exit non-zero, naming the variable, when the settings hold no key
         pair — the endpoint is authenticated and a public call would 401.
-  - [ ] The path is a constant in the script (`ENDPOINT_COSTS_PATH`) — it is
+  - [x] The path is a constant in the script (`ENDPOINT_COSTS_PATH`) — it is
         read once and nothing under `data/kalshi` uses it, so it does not
         belong in `constants.py`.
-  - [ ] Success: `uv run python scripts/kalshi_endpoint_costs.py --env-file
+  - [x] Success: `uv run python scripts/kalshi_endpoint_costs.py --env-file
         .env` exits non-zero with the message (no key in the dev `.env`);
         ruff clean.
 
@@ -147,8 +147,8 @@ it is the one unknown the design asked to be read before anything is built.
 
 Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
 
-- [ ] **Task 2.1: Constants** (effort: 1)
-  - [ ] In `constants.py`, a new block *Historical backfill (slice 267)*:
+- [x] **Task 2.1: Constants** (effort: 1)
+  - [x] In `constants.py`, a new block *Historical backfill (slice 267)*:
         `HISTORICAL_MARKETS_PATH = "/historical/markets"`,
         `HISTORICAL_TRADES_PATH = "/historical/trades"`,
         `HISTORICAL_MARKET_CANDLESTICKS_PATH =
@@ -159,8 +159,8 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
         (Decision 3, PM-ratified 20260831), `HISTORICAL_ARCHIVE_STOP_MARGIN
         = timedelta(days=1)` (Decision 9), `HISTORICAL_SLOW_MARKET_SECONDS
         = 30` (Decision 4). Each cites its decision in its comment.
-  - [ ] `Surface.HISTORICAL = "historical"`.
-  - [ ] Fix the two stale comments on `KALSHI_CANDLE_COMPRESS_AFTER` and
+  - [x] `Surface.HISTORICAL = "historical"`.
+  - [x] Fix the two stale comments on `KALSHI_CANDLE_COMPRESS_AFTER` and
         `KALSHI_TRADE_COMPRESS_AFTER` ("266's backfill pauses the policy")
         — Decision 4: the policies stay on; the manual lever is runbook 100.
         Fix `TradesBehindCutoffError`'s docstring and message in
@@ -171,14 +171,14 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
         user-facing `before coverage` line in `kalshi_render.py:318` and the
         `trade_status.py` docstring are rewritten by Task 7.4 and Task 7.3
         (part 2), where their meaning changes; `client.py:376` by Task 3.1.
-    - [ ] Success: `grep -rn "266" src/` finds only the three sites named
+    - [x] Success: `grep -rn "266" src/` finds only the three sites named
         above as later tasks' (`kalshi_render.py`, `trade_status.py`,
         `client.py`) — and after part 2's Section 7, none; `uv run pytest
         test/unit/data/kalshi/test_constants.py -q`
         is green (Task 2.2 extends it).
 
-- [ ] **Task 2.2: Constants tests** (effort: 1)
-  - [ ] Extend `test/unit/data/kalshi/test_constants.py`: the three paths
+- [x] **Task 2.2: Constants tests** (effort: 1)
+  - [x] Extend `test/unit/data/kalshi/test_constants.py`: the three paths
         match the design (and the candles path has no `series_ticker`
         field); the stop margin is positive; `Surface` has four members with
         `historical` last; the floor is timezone-aware UTC and at a whole
@@ -187,17 +187,17 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
         KALSHI_AUTHENTICATED_RATE_LIMIT.requests_per_minute == 30_000` and
         `× KALSHI_PUBLIC_RATE_LIMIT.requests_per_minute == 9_000` (Decision
         2's two figures, asserted where they are derived).
-  - [ ] Success: the new cases pass; the existing `test_surface_values` is
+  - [x] Success: the new cases pass; the existing `test_surface_values` is
         updated, not duplicated.
 
-- [ ] **Task 2.3: Migration `kalshi_007_historical_surface`** (effort: 2)
-  - [ ] Append to `KALSHI_MIGRATIONS` in
+- [x] **Task 2.3: Migration `kalshi_007_historical_surface`** (effort: 2)
+  - [x] Append to `KALSHI_MIGRATIONS` in
         `market/schema/migrations/kalshi.py`. SQL, idempotent: `ALTER TABLE
         kalshi.sync_state DROP CONSTRAINT IF EXISTS
         sync_state_surface_check;` then `ADD CONSTRAINT
         sync_state_surface_check {_surface_check_sql()}` — rendered from
         `Surface`, as kalshi_003 does, so the enum stays the single source.
-  - [ ] `COMMENT ON` replaces whole strings: carry the existing catalog,
+  - [x] `COMMENT ON` replaces whole strings: carry the existing catalog,
         candlesticks, and trades clauses of `sync_state.watermark_ts` and
         `sync_state.coverage_from_ts` forward **verbatim** and add the
         historical clause to each — `watermark_ts`: "historical: the oldest
@@ -205,16 +205,16 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
         `coverage_from_ts`: "historical: the target floor
         (HISTORICAL_TRADES_FLOOR), recorded so status can show the distance".
         Update the table comment's surface list.
-  - [ ] Explain in the migration's comment why a fresh apply makes this a
+  - [x] Explain in the migration's comment why a fresh apply makes this a
         no-op (kalshi_003 already renders the widened CHECK) and why
         production still needs it (its constraint was rendered before
         `historical` existed).
-  - [ ] Success: `mt data migrate status --track kalshi` against a throwaway
+  - [x] Success: `mt data migrate status --track kalshi` against a throwaway
         test-cluster database lists `kalshi_007_historical_surface`; apply
         twice is clean.
 
-- [ ] **Task 2.4: Migration integration tests** (effort: 2)
-  - [ ] In `test/integration/test_kalshi_migrations.py`: add the id to the
+- [x] **Task 2.4: Migration integration tests** (effort: 2)
+  - [x] In `test/integration/test_kalshi_migrations.py`: add the id to the
         expected track list and a `HISTORICAL_ID` constant; a
         `TestHistoricalSurface` class with (a) in-track-and-reapplies, (b)
         **the production path**: after the full apply, replace the constraint
@@ -223,13 +223,13 @@ Design *Implementation Details* (`constants.py`), *Technical Decision 7*.
         `INSERT ... surface = 'historical'` succeeds; (c) the three comments
         contain both the carried clauses and the new one; (d) an unknown
         surface still fails the CHECK.
-  - [ ] Success: the class passes in the integration tier; the existing
+  - [x] Success: the class passes in the integration tier; the existing
         `test_check_constraints_derive_from_enums` passes unchanged (it
         iterates `Surface`, so it now covers `historical` for free).
 
-- [ ] **Task 2.5: Section 2 gates and checkpoint commit** (effort: 1)
-  - [ ] Gates as the Context Summary, scoped to the files touched.
-  - [ ] Commit: `feat: add historical surface constants and kalshi_007
+- [x] **Task 2.5: Section 2 gates and checkpoint commit** (effort: 1)
+  - [x] Gates as the Context Summary, scoped to the files touched.
+  - [x] Commit: `feat: add historical surface constants and kalshi_007
         migration (slice 267)`.
 
 ## Section 3: Client methods and fixtures
