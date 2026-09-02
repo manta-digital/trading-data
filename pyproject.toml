@@ -1,6 +1,6 @@
 [project]
 name = "manta-trading-data"
-version = "0.12.0"
+version = "0.12.1"
 description = "manta.digital news and market data management utilities"
 authors = [{name = "Erik Corkran", email = "erik.corkran@manta.digital"}]
 readme = "README.md"

@@ -14,6 +14,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.1] — 2026-09-02
+
+Post-release remediation of the slice 267 code review, plus a rewritten README.
+
+### Fixed
+- **The historical trade drain's unknown-markets log line now names its
+  surface** — `historical unknown markets: …` instead of appearing as the
+  live trades phase. Each `TradeSync` surface labels its own line, so the
+  two drains are distinguishable in the journal.
+- **The archive walk counts a rejected page request before aborting**, so
+  request telemetry adds up on the abort path.
+- **Cutover scripts refuse `migrate` when the maintenance URL does not
+  target production's database** (operator scripts under `scripts/`, not
+  part of the installed package): `cutover_common.migrate()` compares the
+  host/port/dbname identity of `MT_TIMESCALE_MAINTENANCE_URL` against
+  production's `MT_TIMESCALE_DB_URL` and stops before any DDL on a mismatch.
+
+### Changed
+- **README rewritten for the current system**: capability overview, the
+  Kalshi pipeline, the production systemd/`mt-run` operations model, the
+  DML/DDL credential split, and the full environment-variable reference.
+  The old README predated all of Kalshi.
+- Internal: `mt data kalshi status` rendering extracted to its own module;
+  trade-count summary lines and test failure-injection fakes deduplicated.
+  No behavior change.
+
 ## [0.12.0] — 2026-09-01
 
 ### Added (slice 267 — historical backfill phase)
