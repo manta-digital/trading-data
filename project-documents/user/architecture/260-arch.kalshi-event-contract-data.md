@@ -10,8 +10,8 @@ relatedSlices: []
 riskLevel: low
 archIndex: 260
 dateCreated: 20260823
-dateUpdated: 20260826
-status: in_progress
+dateUpdated: 20260901
+status: complete
 ---
 
 # Kalshi Event-Contract Data Architecture
