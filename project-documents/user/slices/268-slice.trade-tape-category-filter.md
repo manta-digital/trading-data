@@ -35,10 +35,18 @@ separate vocabulary (PM decision 2026-09-03).
 
 - **Operational**: removes ~90% of tape write volume (and its WAL, compression,
   and backup churn) at the cost of one env var, without touching candle
-  collection for the same categories.
-- **Reversible in data terms**: unsetting the variable resumes full collection;
-  ranges skipped while excluded remain refetchable from Kalshi's historical
-  trades archive (a future slice if ever wanted — not built here).
+  collection for the same categories. **Write-path only**: the tape is still
+  fetched whole (265 Decision 3 — classification needs the rows), so the
+  request budget, pass duration, and live catch-up rate are unchanged; what
+  drops is stored rows and their WAL (expected steady state after cutover:
+  the 5–15 GB/day baseline, observed over days, not an acceptance gate).
+- **Reversible in configuration, not retroactively in data**: unsetting the
+  variable resumes full collection from that pass forward. Ranges the drains
+  walked while a category was excluded are **not stored and are not recovered
+  by unsetting it**; whether they could later be refetched depends on Kalshi's
+  historical-archive retention, which this slice does not verify or rely on
+  (see Decision 8). The skipped-range loss is deliberate and PM-ratified via
+  this design's approval.
 - **Honest accounting**: filtered trades are a first-class counter in the page
   accounting identity, the phase log lines, the `phase_finished` event, and
   `mt data kalshi status` — never a silent drop.
@@ -56,8 +64,18 @@ separate vocabulary (PM decision 2026-09-03).
 - `mt data kalshi status` trades block: a `trades filter` line (rule in force +
   count of tape-filtered markets), and the four closed-market buckets
   re-scoped to markets whose tape is actually being stored.
-- README env-reference row for the new variable.
-- Cutover: set the variable on the host, restart the daemon, verify.
+- Loud-failure validation of configured category values against the catalog
+  (Decision 9) — a typo can never become a silent no-op.
+- Operator documentation, all three surfaces (F005): README env-reference row,
+  a commented line in `deploy/manta-trading.env.example`, and runbook
+  `100-production-operations.md` (the Kalshi env-line enumeration and the
+  trades-phase description).
+- Architecture amendment (F003): update
+  `260-arch.kalshi-event-contract-data.md` — the *Design Goals*
+  scope-of-complete paragraph and the completeness/caught-up definitions — to
+  the amended wording in Decision 7, as 264/265 did for their PM decisions.
+- Cutover: set the variable on the host, restart the daemon, verify
+  (preconditions and verification in the walkthrough).
 
 **Out of scope**
 - Any candle-path change. `CollectionRule`, `MT_KALSHI_COLLECTION_*`, and
@@ -192,17 +210,85 @@ filter — the shared rule is evaluated first.
      rule-selected (`"ever"` form) markets whose category is in the filter.
    - The four closed-market buckets (`complete_through_close`,
      `partial_history`, `short_of_close`, `before_coverage`) re-scope to
-     rule-selected markets **not** tape-filtered — otherwise a Crypto market
-     would be reported "complete through close" while the filter guarantees
-     its tape is empty. The partition check extends to
+     rule-selected markets **not** tape-filtered — otherwise a market closing
+     after cutover would be reported "complete through close" while the filter
+     guarantees its tape is empty. The partition check extends to
      `before + short + partial + complete + tape_filtered == total`.
    Both the filter line and the JSON payload (`trades.filter` block:
    `excluded_categories`, `tape_filtered_markets`) come from the same
    `Settings` the pass reads, so collection and reporting cannot disagree
    (the 264 Decision 2 invariant).
 
-7. **No new env-rename guard.** The variable is new; nothing is renamed. The
-   265 guard (`MT_KALSHI_CANDLE_*`) is untouched.
+   **Accepted reporting loss** (review F002, explicit): a filtered-category
+   market whose stored tape genuinely reaches its close (e.g. a Crypto market
+   that opened and closed in July 2026, before cutover) also moves out of
+   `complete_through_close` into the tape-filtered bucket. Status cannot tell
+   the two apart without either counting rows in `kalshi.trades` (which the
+   trade-status philosophy forbids — journal 20260720) or persisting the
+   filter-activation instant (new state this slice does not justify). The
+   buckets' job is *"is the collector keeping up on what it intends to
+   store"*; completeness of a filtered category's kept history is a
+   study-material question answered by SQL over the stored tape, not an ops
+   question. The rendered line says so:
+   `tape-filtered N closed markets (stored history kept; completeness not
+   evaluated)`.
+
+7. **Architecture definitions are amended, in writing, by this slice**
+   (review F003). After this slice, two selectors govern the trade tape, so
+   the architecture's scope-of-complete and caught-up definitions are updated
+   to (wording to land in `260-arch.kalshi-event-contract-data.md` as part of
+   this slice, not merely referenced):
+   - *Scope of complete*: "the time-series surfaces are complete for the
+     markets the collection rule selects — except the trade tape, which is
+     additionally scoped by the trades filter
+     (`MT_KALSHI_TRADES_EXCLUDED_CATEGORIES`): a tape-filtered market's trade
+     tape is deliberately not collected and is excluded from tape-completeness
+     evaluation."
+   - *Caught up*: "every market past close is complete, explicitly marked
+     unrecoverable (behind the historical cutoff), or tape-filtered; and
+     open-market surfaces are within one pass interval of now." (Candle and
+     settlement completeness for tape-filtered markets are unchanged — the
+     filter touches only the tape clause.)
+
+8. **The filter applies to both drains, deliberately — and the historical
+   drain's exposure is closed by a cutover precondition, not by code**
+   (review F001). Uniform inheritance stands (Decision 4): a per-surface
+   filter would let the two drains store divergent universes, the failure
+   mode the slice plan warned about. The pre-cutoff exposure is real but
+   bounded and already closed in fact: the historical backward drain reported
+   `floor_reached: true` on 2026-09-03 (trades coverage from 2026-01-01), so
+   there are no windows left for it to skip. The **cutover precondition**
+   makes that timing explicit rather than incidental: do not set the variable
+   in production until `mt data kalshi status` shows the historical tape at
+   `floor reached` (walkthrough step 6). The live drain's catch-up range
+   (tape_through → now at cutover) *will* skip filtered-category trades — that
+   is the intended effect, not a side effect, and per the Value section it is
+   not recoverable by unsetting the variable. Kalshi's historical-archive
+   retention is **not** relied on as a recovery path and is not asserted here
+   (the architecture forbids assuming it; verifying it belongs to a future
+   refetch slice, if one is ever wanted).
+
+9. **A configured category that matches nothing in the catalog fails the
+   phase loudly** (review F004). The membership test is exact and
+   case-sensitive, and the values are venue data, not an enum — so
+   `…=crypto` (lowercase) would otherwise parse, render, log, and filter
+   nothing forever: a silent no-op, the exact failure the "no silent
+   fallbacks" rule targets. Specified handling: at trades-phase start, after
+   the completed-catalog-walk check (the same guard that already no-ops the
+   phase on an empty catalog), every configured category is checked against
+   the catalog's known categories (`SELECT DISTINCT category FROM
+   kalshi.series`); any configured value present in no series row raises a
+   named error (`UnknownTradesFilterCategoryError`) that aborts the phase —
+   config abort, not `PARTIAL`. A *retired* category keeps working: the
+   catalog retains historical series rows, so only a value that has never
+   existed fails. The historical phase performs the same check before its
+   drain. The zero-match risk that remains (a correctly spelled category with
+   genuinely no markets… which cannot happen, since the value comes from
+   series rows) needs no warning path beyond the cutover verification step:
+   `tape_filtered_markets > 0` in status is the named post-cutover check.
+
+10. **No new env-rename guard.** The variable is new; nothing is renamed. The
+    265 guard (`MT_KALSHI_CANDLE_*`) is untouched.
 
 ## Implementation Details
 
@@ -255,16 +341,34 @@ code). Existing journal rows without the key are simply old — no migration.
 `kalshi_status_render.print_trade_status` gains one line, e.g.:
 
 ```
-  trades filter       excluding Crypto (MT_KALSHI_TRADES_EXCLUDED_CATEGORIES) · tape-filtered 1,234 closed markets
+  trades filter       excluding Crypto (MT_KALSHI_TRADES_EXCLUDED_CATEGORIES)
+                      tape-filtered 1,234 closed markets (stored history kept; completeness not evaluated)
 ```
 
-(`none` when the filter is empty; the tape-filtered count renders only when a
+(`none` when the filter is empty; the tape-filtered line renders only when a
 filter is set.) JSON output gains the matching `filter` block.
 
-### README
+### Operator documentation (three surfaces — review F005)
 
-One row in the env reference table beside the `MT_KALSHI_COLLECTION_*` rows,
-stating the candles-continue semantics explicitly.
+- **README**: one row in the env reference table beside the
+  `MT_KALSHI_COLLECTION_*` rows, stating the candles-continue semantics
+  explicitly.
+- **`deploy/manta-trading.env.example`**: a commented
+  `# MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=` line beside the five commented
+  collection-rule lines, with the same one-line semantics note — so a host
+  rebuild from the skeleton surfaces the variable.
+- **Runbook `100-production-operations.md`**: add the variable to the Kalshi
+  env-line enumeration for `/etc/manta-trading.env`, and one sentence in the
+  trades-phase description naming the filter, its counter, and the
+  `tape_filtered_markets > 0` post-cutover check — so a later operator finds
+  the line explained where the production env file is documented.
+
+### Architecture amendment (review F003)
+
+`260-arch.kalshi-event-contract-data.md` is updated in this slice with
+Decision 7's amended scope-of-complete and caught-up wording (the *Design
+Goals* paragraph and the *Completeness definitions* block), the same pattern
+264/265 used to land their PM decisions in the architecture.
 
 ## Integration Points
 
@@ -300,8 +404,17 @@ before this slice and after it write the same tables.
    exactly as today under any filter value.
 8. Already-stored trades of a filtered category remain readable and untouched
    — no statement in this slice deletes or rewrites `kalshi.trades`.
-9. README documents the variable, its default, and the candles-continue
-   semantics.
+9. A configured category present in no `kalshi.series` row aborts the trades
+   and historical phases with `UnknownTradesFilterCategoryError` naming the
+   value — verified by a test configuring `crypto` (lowercase) against a
+   fixture catalog that knows only `Crypto`. A retired-but-once-real category
+   does not abort.
+10. README, `deploy/manta-trading.env.example`, and runbook
+    `100-production-operations.md` all document the variable, its default,
+    and the candles-continue semantics; the runbook names the
+    `tape_filtered_markets > 0` post-cutover check.
+11. `260-arch.kalshi-event-contract-data.md` carries the amended
+    scope-of-complete and caught-up definitions (Decision 7).
 
 ## Verification Walkthrough
 
@@ -333,12 +446,26 @@ WHERE s.category = 'Crypto' AND t.created_time > {T};
 MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=Crypto mt data kalshi status --json \
   | jq .trades.filter
 #    → {"excluded_categories": ["Crypto"], "tape_filtered_markets": N}
+#    N > 0 is the named typo check: 0 with a filter set means the value
+#    matched no category (should be impossible past step 6's error, but it is
+#    the check an operator runs after any hand edit).
 
-# 6. [PM] Production cutover (after merge + release install):
-#    add MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=Crypto to the daemon's
+# 6. A typo fails loudly, never a silent no-op (Decision 9)
+MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=crypto mt data kalshi sync
+#    → aborts: UnknownTradesFilterCategoryError naming 'crypto' and listing
+#      the catalog's known categories (exact wording set in implementation)
+
+# 7. [PM] Production cutover (after merge + release install).
+#    PRECONDITION (Decision 8): the historical drain must be done —
+mt data kalshi status | grep "Kalshi historical"
+#    → tape floor reached (2026-01-01)   ← required before setting the var
+#    Then: add MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=Crypto to the daemon's
 #    environment file, restart the kalshi service, then read back:
 mt data kalshi status          # filter line shows "excluding Crypto"
 journalctl -u <kalshi unit> | grep "trades filter"   # start line confirms
+mt data kalshi status --json | jq .trades.filter.tape_filtered_markets  # > 0
+#    Note: the live catch-up range (tape_through → now) skips Crypto trades
+#    from this moment — deliberate and not recoverable by unsetting.
 #    Follow-up observation (days, not part of acceptance): pg_stat WAL rate
 #    and /data growth drop toward the 5–15 GB/day steady state.
 ```
@@ -357,12 +484,15 @@ Suggested order — each step leaves the tree green:
    repository tests against the fixture catalog (mixed page: unknown /
    rule-excluded / filtered / stored / duplicate rows — one page hitting all
    five buckets; precedence case of a category in both lists).
-4. `TradeSync` totals + log lines + `TradeResult` counter + event; the
+4. `TradeSync` totals + log lines + `TradeResult` counter + event + the
+   Decision 9 category validation (`UnknownTradesFilterCategoryError`); the
    existing scripted-tape fake grows filtered rows. Historical-drain test via
-   the existing 267 harness confirms inheritance.
+   the existing 267 harness confirms inheritance and validation.
 5. `collection_pass.py` construction sites; `trade_status.py` +
    `kalshi_status_render.py` + JSON payload + tests.
-6. README row; cutover steps land in the walkthrough refinement.
+6. Documentation set: README row, `deploy/manta-trading.env.example` line,
+   runbook 100 updates, and the Decision 7 architecture amendment; cutover
+   steps land in the walkthrough refinement.
 
 ### Testing strategy
 
