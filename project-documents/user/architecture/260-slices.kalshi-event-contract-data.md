@@ -3,7 +3,7 @@ docType: slice-plan
 parent: user/architecture/260-arch.kalshi-event-contract-data.md
 project: trading
 dateCreated: 20260824
-dateUpdated: 20260901
+dateUpdated: 20260903
 status: complete
 ---
 
@@ -28,6 +28,8 @@ status: complete
 5. [x] **(265) Public Trades Collection** — Trades phase added to the pass: cursor-driven trade tape, idempotent on Kalshi's trade id. Extends status with trade-cursor watermark and per-market tape completeness through close. Independent of 264 — the two phases can land in either order. Dependencies: [263]. Effort: 2/5
 
 6. [x] **(267) Historical Backfill Phase** — [267-slice.historical-backfill-phase.md](../slices/267-slice.historical-backfill-phase.md) — A fourth phase of the hourly Kalshi pass drains `/historical/trades` backward from the live coverage floor to a ratified floor constant, and fetches candles for the behind-cutoff market set, under its own request cap (30 minutes of the rate budget ≈ 30,000/pass, authenticated with the PM's key) after the live phases, having first walked `GET /historical/markets` into the catalog once so the archived markets' trades classify instead of dropping as unknown. Starts on the first firing after install; no operator step beyond the key already on the host, no waiting on the live drain; progress and the floor are visible in `status`. Replaces the retired 266. Dependencies: [264, 265]. Effort: 3/5
+
+7. [ ] **(268) Trade Tape Category Filter** — A write-path category filter on the trades phase, so the exchange-wide tape stops storing categories the PM has excluded while candles keep collecting them. Motivated by measurement (2026-09-03): Crypto alone is 90.5% of the stored tape (3.67M of 4.05M trades on 2026-07-21) and drove the ~100 GB/day WAL rate behind the 2026-09-02 disk-full incident. New trades-specific configuration (`MT_KALSHI_TRADES_EXCLUDED_CATEGORIES` or as finalized in design) — **deliberately separate from the candle-side `MT_KALSHI_COLLECTION_*` vocabulary (PM decision 2026-09-03)**, because the intended state excludes Crypto trades while continuing Crypto candles. Filter applies at the shared classify-and-write choke point in the trades path so the live drain and the historical backward drain inherit it identically; filtered trades are counted and surfaced in `mt data kalshi status` like unknown-market drops, never an error or partial. Already-stored Crypto trades are **kept** (PM 2026-09-03: study material to judge whether the category is worthwhile). Reversible in data terms: excluded categories remain refetchable from Kalshi's historical archive. No migration; cutover is setting the env var on the host. Dependencies: [265, 267]. Risk: Low. Effort: 2/5
 
 ## Integration Work
 
