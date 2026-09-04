@@ -43,11 +43,13 @@ OLD_RULE_ENV = tuple(
     RENAMED_KALSHI_CANDLE_ENV_PREFIX + name.removeprefix(KALSHI_COLLECTION_ENV_PREFIX)
     for name in RULE_ENV
 )
+#: The trades-tape filter (slice 268) — not part of the collection rule.
+TRADES_FILTER_ENV = "MT_KALSHI_TRADES_EXCLUDED_CATEGORIES"
 
 
 @pytest.fixture(autouse=True)
 def _clean_rule_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in (*RULE_ENV, *OLD_RULE_ENV):
+    for name in (*RULE_ENV, *OLD_RULE_ENV, TRADES_FILTER_ENV):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -102,6 +104,32 @@ class TestCategoryLists:
     def test_programmatic_collection_passes_through(self):
         settings = load(kalshi_collection_categories={"Economics"})
         assert settings.kalshi_collection_categories == frozenset({"Economics"})
+
+
+class TestTradesFilter:
+    """``MT_KALSHI_TRADES_EXCLUDED_CATEGORIES`` (slice 268, Task 1.2)."""
+
+    def test_unset_is_empty_set(self):
+        assert load().kalshi_trades_excluded_categories == frozenset()
+
+    def test_single_value(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv(TRADES_FILTER_ENV, "Crypto")
+        assert load().kalshi_trades_excluded_categories == frozenset({"Crypto"})
+
+    def test_comma_list_with_whitespace(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv(TRADES_FILTER_ENV, "Crypto, Sports")
+        assert load().kalshi_trades_excluded_categories == frozenset(
+            {"Crypto", "Sports"}
+        )
+
+    def test_empty_value_is_empty_set(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv(TRADES_FILTER_ENV, "")
+        assert load().kalshi_trades_excluded_categories == frozenset()
+
+    def test_case_preserved(self, monkeypatch: pytest.MonkeyPatch):
+        # Validation against the catalog is Decision 9's job, not the parser's.
+        monkeypatch.setenv(TRADES_FILTER_ENV, "crypto")
+        assert load().kalshi_trades_excluded_categories == frozenset({"crypto"})
 
 
 class TestBoolAndPatterns:

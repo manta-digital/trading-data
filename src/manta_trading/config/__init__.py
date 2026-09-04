@@ -159,10 +159,19 @@ class Settings(BaseSettings):
     kalshi_collection_excluded_title_pattern: str | None = (
         r"\m(say|says|mention|mentions)\M"
     )
+    # Trades-tape category filter (slice 268, Decisions 1, 2): categories whose
+    # trades are classified and counted but not stored. Deliberately NOT part
+    # of the collection rule — candles for these categories keep collecting.
+    # Empty (the default) means no filtering. Values are validated against the
+    # catalog at phase start (Decision 9), not parsed here.
+    kalshi_trades_excluded_categories: Annotated[frozenset[str], NoDecode] = (
+        frozenset()
+    )
 
     @field_validator(
         "kalshi_collection_categories",
         "kalshi_collection_excluded_categories",
+        "kalshi_trades_excluded_categories",
         mode="before",
     )
     @classmethod
