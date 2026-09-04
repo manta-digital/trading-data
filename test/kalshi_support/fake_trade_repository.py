@@ -43,12 +43,23 @@ class _State:
 class FakeTradeRepository:
     """See the module docstring."""
 
-    def __init__(self, *, surface: Surface = Surface.TRADES) -> None:
+    def __init__(
+        self,
+        *,
+        surface: Surface = Surface.TRADES,
+        trades_excluded: frozenset[str] = frozenset(),
+    ) -> None:
         self.surface = surface
+        #: The trades-tape filter the real repository embeds (slice 268); the
+        #: fake carries it for the sync's start log line and, ticker-wise,
+        #: via ``filtered_tickers`` below.
+        self.trades_excluded = trades_excluded
         self._s = _State()
-        #: Tickers with no catalog row / known but not selected by the rule.
+        #: Tickers with no catalog row / known but not selected by the rule /
+        #: rule-selected but kept out of storage by the trades filter.
         self.unknown_tickers: set[str] = set()
         self.excluded_tickers: set[str] = set()
+        self.filtered_tickers: set[str] = set()
         self.tx_log: list[str] = []
         #: Every ``set_cursor`` value, in order — the walk's save points.
         self.cursor_log: list[str | None] = []
@@ -169,13 +180,16 @@ class FakeTradeRepository:
         state = self._s.trades
         self.watermark_at_write.append(state.watermark_ts if state else None)
         unknown: list[str] = []
-        excluded = selected = written = 0
+        excluded = filtered = selected = written = 0
         for row in rows:
             if row.ticker in self.unknown_tickers:
                 unknown.append(row.ticker)
                 continue
             if row.ticker in self.excluded_tickers:
                 excluded += 1
+                continue
+            if row.ticker in self.filtered_tickers:
+                filtered += 1
                 continue
             selected += 1
             key = (row.ticker, row.created_time, row.trade_id)
@@ -186,6 +200,7 @@ class FakeTradeRepository:
             fetched=len(rows),
             unknown_market=len(unknown),
             excluded_by_rule=excluded,
+            excluded_by_trades_filter=filtered,
             selected=selected,
             written=written,
             unknown_tickers=tuple(unknown),

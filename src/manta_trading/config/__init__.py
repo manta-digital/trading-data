@@ -164,9 +164,7 @@ class Settings(BaseSettings):
     # of the collection rule — candles for these categories keep collecting.
     # Empty (the default) means no filtering. Values are validated against the
     # catalog at phase start (Decision 9), not parsed here.
-    kalshi_trades_excluded_categories: Annotated[frozenset[str], NoDecode] = (
-        frozenset()
-    )
+    kalshi_trades_excluded_categories: Annotated[frozenset[str], NoDecode] = frozenset()
 
     @field_validator(
         "kalshi_collection_categories",

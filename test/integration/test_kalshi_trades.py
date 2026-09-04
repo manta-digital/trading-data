@@ -58,23 +58,30 @@ async def catalog(kalshi_repo: CatalogRepository) -> None:
 
 @pytest.fixture()
 def repo(kalshi_conn: psycopg.AsyncConnection[Any]) -> TradeRepository:
-    return TradeRepository(kalshi_conn, RULE_C)
+    return TradeRepository(kalshi_conn, RULE_C, trades_excluded=frozenset())
 
 
 def with_rule(
     kalshi_conn: psycopg.AsyncConnection[Any], rule: CollectionRule
 ) -> TradeRepository:
-    return TradeRepository(kalshi_conn, rule)
+    return TradeRepository(kalshi_conn, rule, trades_excluded=frozenset())
+
+
+def with_filter(
+    kalshi_conn: psycopg.AsyncConnection[Any], excluded: frozenset[str]
+) -> TradeRepository:
+    return TradeRepository(kalshi_conn, RULE_C, trades_excluded=excluded)
 
 
 async def write(repo: TradeRepository, rows: list[km.Trade]) -> PageCounts:
     async with repo.transaction():
         counts = await repo.write_page(rows)
-    # The full identity, for every case (Criterion 2).
+    # The full identity, for every case (265 Criterion 2; 268 extends it).
     assert counts.fetched == (
         counts.written
         + counts.unknown_market
         + counts.excluded_by_rule
+        + counts.excluded_by_trades_filter
         + counts.duplicates
     )
     return counts
@@ -94,21 +101,21 @@ class TestClassification:
         self, repo: TradeRepository, kalshi_conn: psycopg.AsyncConnection[Any]
     ):
         counts = await write(repo, [trade("SPORTS")])
-        assert counts == PageCounts(1, 0, 1, 0, 0)
+        assert counts == PageCounts(1, 0, 1, 0, 0, 0)
         assert await stored(kalshi_conn) == []
 
     async def test_unknown_market_is_counted_not_stored_not_an_error(
         self, repo: TradeRepository, kalshi_conn: psycopg.AsyncConnection[Any]
     ):
         counts = await write(repo, [trade(UNKNOWN)])
-        assert counts == PageCounts(1, 1, 0, 0, 0, unknown_tickers=(UNKNOWN,))
+        assert counts == PageCounts(1, 1, 0, 0, 0, 0, unknown_tickers=(UNKNOWN,))
         assert await stored(kalshi_conn) == []
 
     async def test_politics_trade_is_written(
         self, repo: TradeRepository, kalshi_conn: psycopg.AsyncConnection[Any]
     ):
         counts = await write(repo, [trade("POLITICS")])
-        assert counts == PageCounts(1, 0, 0, 1, 1)
+        assert counts == PageCounts(1, 0, 0, 0, 1, 1)
         assert await stored(kalshi_conn) == ["POLITICS"]
 
     async def test_second_write_of_the_same_page_is_all_duplicates(
@@ -117,9 +124,9 @@ class TestClassification:
         """Criterion 3: a re-walked page writes nothing and says why."""
         page = [trade("SPORTS"), trade(UNKNOWN), trade("POLITICS"), trade("NULLCAT")]
         first = await write(repo, page)
-        assert first == PageCounts(4, 1, 1, 2, 2, unknown_tickers=(UNKNOWN,))
+        assert first == PageCounts(4, 1, 1, 0, 2, 2, unknown_tickers=(UNKNOWN,))
         second = await write(repo, page)
-        assert second == PageCounts(4, 1, 1, 2, 0, unknown_tickers=(UNKNOWN,))
+        assert second == PageCounts(4, 1, 1, 0, 2, 0, unknown_tickers=(UNKNOWN,))
         assert second.duplicates == 2
         assert await stored(kalshi_conn) == ["NULLCAT", "POLITICS"]
 
@@ -131,7 +138,7 @@ class TestClassification:
         counts = await write(
             with_rule(kalshi_conn, ONLY_SPORTS), [trade("SPORTS"), trade("POLITICS")]
         )
-        assert counts == PageCounts(2, 0, 1, 1, 1)
+        assert counts == PageCounts(2, 0, 1, 0, 1, 1)
         assert await stored(kalshi_conn) == ["SPORTS"]
 
     async def test_a_trade_is_proof_of_trading(
@@ -140,11 +147,11 @@ class TestClassification:
         """The ``"any"`` form: ``QUIET`` has zero volume in the catalog and
         rule C is ``traded_only`` — its trade is stored regardless."""
         counts = await write(repo, [trade("QUIET")])
-        assert counts == PageCounts(1, 0, 0, 1, 1)
+        assert counts == PageCounts(1, 0, 0, 0, 1, 1)
         assert await stored(kalshi_conn) == ["QUIET"]
 
     async def test_empty_page_writes_nothing(self, repo: TradeRepository):
-        assert await write(repo, []) == PageCounts(0, 0, 0, 0, 0)
+        assert await write(repo, []) == PageCounts(0, 0, 0, 0, 0, 0)
 
     async def test_unknown_tickers_are_returned_one_per_trade(
         self, repo: TradeRepository
@@ -177,6 +184,77 @@ class TestClassification:
                 row.is_block_trade,
             )
         ]
+
+
+@pytest.mark.usefixtures("catalog")
+class TestTradesFilter:
+    """Slice 268, Task 3.4: the trades-tape category filter in the one
+    classify-and-write statement, against the fixture catalog. ``Politics``
+    is rule-selected (POLITICS, QUIET) so filtering it exercises the
+    tape-filtered bucket; NULLCAT has a NULL category.
+    """
+
+    async def test_mixed_page_hits_all_five_buckets(
+        self, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        repo = with_filter(kalshi_conn, frozenset({"Politics"}))
+        seed = trade("NULLCAT")
+        assert await write(repo, [seed]) == PageCounts(1, 0, 0, 0, 1, 1)
+        page = [
+            trade(UNKNOWN),  # unknown market
+            trade("SPORTS"),  # excluded by rule
+            trade("POLITICS"),  # excluded by trades filter
+            seed,  # duplicate
+            trade("NULLCAT"),  # stored
+        ]
+        counts = await write(repo, page)
+        assert counts == PageCounts(5, 1, 1, 1, 2, 1, unknown_tickers=(UNKNOWN,))
+        assert counts.duplicates == 1
+
+    async def test_rule_exclusion_wins_over_the_trades_filter(
+        self, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        """Design Success Criterion 3: a category in both the rule's
+        exclusions and the trades filter counts as ``excluded_by_rule``."""
+        repo = with_filter(kalshi_conn, frozenset({"Sports"}))
+        counts = await write(repo, [trade("SPORTS")])
+        assert counts == PageCounts(1, 0, 1, 0, 0, 0)
+        assert counts.excluded_by_trades_filter == 0
+        assert await stored(kalshi_conn) == []
+
+    async def test_null_category_series_stores_under_any_filter(
+        self, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        """``COALESCE(s.category, '')`` is never in the filter list — an
+        uncategorised series' trades store regardless (real SQL, no mock)."""
+        repo = with_filter(kalshi_conn, frozenset({"Politics", "Sports"}))
+        counts = await write(repo, [trade("NULLCAT")])
+        assert counts == PageCounts(1, 0, 0, 0, 1, 1)
+        assert await stored(kalshi_conn) == ["NULLCAT"]
+
+    async def test_empty_filter_reproduces_unset_behavior(
+        self, repo: TradeRepository, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        """Success Criterion 1: with no filter configured, stored rows and
+        counts match the pre-268 statement's, and the new bucket is zero."""
+        page = [trade("SPORTS"), trade(UNKNOWN), trade("POLITICS"), trade("NULLCAT")]
+        counts = await write(repo, page)
+        assert counts == PageCounts(4, 1, 1, 0, 2, 2, unknown_tickers=(UNKNOWN,))
+        assert counts.excluded_by_trades_filter == 0
+        assert await stored(kalshi_conn) == ["NULLCAT", "POLITICS"]
+
+    async def test_filtered_rows_are_not_written(
+        self, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        repo = with_filter(kalshi_conn, frozenset({"Politics"}))
+        counts = await write(repo, [trade("POLITICS"), trade("QUIET")])
+        assert counts == PageCounts(2, 0, 0, 2, 0, 0)
+        rows = await column(
+            kalshi_conn,
+            "SELECT market_ticker FROM kalshi.trades "
+            "WHERE market_ticker IN ('POLITICS', 'QUIET')",
+        )
+        assert rows == []
 
 
 @pytest.mark.usefixtures("catalog")
@@ -213,7 +291,7 @@ class TestLoudFailures:
         """Documents case 7's precondition: the null never touches the
         column on a row the rule drops."""
         counts = await write(repo, [trade("SPORTS", is_block_trade=None)])
-        assert counts == PageCounts(1, 0, 1, 0, 0)
+        assert counts == PageCounts(1, 0, 1, 0, 0, 0)
 
 
 class TestParity:
@@ -282,7 +360,9 @@ class TestHistoricalSurfaceState:
 
     @pytest.fixture()
     def historical(self, kalshi_conn: psycopg.AsyncConnection[Any]) -> TradeRepository:
-        return TradeRepository(kalshi_conn, RULE_C, surface=Surface.HISTORICAL)
+        return TradeRepository(
+            kalshi_conn, RULE_C, trades_excluded=frozenset(), surface=Surface.HISTORICAL
+        )
 
     async def test_reads_none_before_any_row(self, historical: TradeRepository):
         assert historical.surface is Surface.HISTORICAL
@@ -377,7 +457,11 @@ class TestOneStatementPerPage:
         self, kalshi_conn: psycopg.AsyncConnection[Any]
     ):
         counting = _CountingConnection(kalshi_conn)
-        repo = TradeRepository(cast("psycopg.AsyncConnection[Any]", counting), RULE_C)
+        repo = TradeRepository(
+            cast("psycopg.AsyncConnection[Any]", counting),
+            RULE_C,
+            trades_excluded=frozenset(),
+        )
         page = [
             trade(
                 "POLITICS", created_time=(TRADED_AT + timedelta(seconds=i)).isoformat()
@@ -385,7 +469,7 @@ class TestOneStatementPerPage:
             for i in range(1_000)
         ]
         counts = await write(repo, page)
-        assert counts == PageCounts(1_000, 0, 0, 1_000, 1_000)
+        assert counts == PageCounts(1_000, 0, 0, 0, 1_000, 1_000)
         assert counting.statements == 1
         assert await column(kalshi_conn, "SELECT count(*) FROM kalshi.trades") == [
             1_000

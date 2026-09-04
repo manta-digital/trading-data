@@ -293,7 +293,11 @@ class TradesPhase:
         rule = run.settings.collection_rule()
         sync = TradeSync(
             run.client,
-            TradeRepository(run.conn, rule),
+            TradeRepository(
+                run.conn,
+                rule,
+                trades_excluded=run.settings.kalshi_trades_excluded_categories,
+            ),
             run.sink,
             rule=rule,
             run_id=run.run_id,
@@ -349,7 +353,12 @@ class HistoricalPhase:
         )
         sync = HistoricalSync(
             run.client,
-            TradeRepository(run.conn, rule, surface=Surface.HISTORICAL),
+            TradeRepository(
+                run.conn,
+                rule,
+                trades_excluded=run.settings.kalshi_trades_excluded_categories,
+                surface=Surface.HISTORICAL,
+            ),
             CandleRepository(run.conn, rule),
             CatalogRepository(run.conn),
             run.sink,

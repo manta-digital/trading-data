@@ -223,7 +223,7 @@ class TradeSync:
         per page. The caller moves the watermark afterwards (``_advance``),
         so it moves only after the last page — in either direction."""
         result = self.result
-        window = PageCounts(0, 0, 0, 0, 0)
+        window = PageCounts(0, 0, 0, 0, 0, 0)
         pages = 0
         cursor: str | None = None
         while True:
@@ -319,6 +319,9 @@ def _add(total: PageCounts, page: PageCounts) -> PageCounts:
         fetched=total.fetched + page.fetched,
         unknown_market=total.unknown_market + page.unknown_market,
         excluded_by_rule=total.excluded_by_rule + page.excluded_by_rule,
+        excluded_by_trades_filter=(
+            total.excluded_by_trades_filter + page.excluded_by_trades_filter
+        ),
         selected=total.selected + page.selected,
         written=total.written + page.written,
     )

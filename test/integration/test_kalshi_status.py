@@ -324,7 +324,7 @@ async def _seed_trade_status(
         for ticker, category, _, _ in TRADE_FIXTURES
     ]
     await write_catalog(CatalogRepository(kalshi_conn), markets, series)
-    repo = TradeRepository(kalshi_conn, RULE_C)
+    repo = TradeRepository(kalshi_conn, RULE_C, trades_excluded=frozenset())
     async with repo.transaction():
         await repo.init_state(coverage_from, coverage_from)
         await repo.advance_watermark(watermark)
@@ -437,7 +437,9 @@ async def test_effective_floor_moves_before_coverage_and_the_partition_holds(
     await _seed_trade_status(
         kalshi_conn, coverage_from=live_floor, watermark=watermark, now=now
     )
-    historical = TradeRepository(kalshi_conn, RULE_C, surface=Surface.HISTORICAL)
+    historical = TradeRepository(
+        kalshi_conn, RULE_C, trades_excluded=frozenset(), surface=Surface.HISTORICAL
+    )
     descended = live_floor - 40 * DAY
     async with historical.transaction():
         await historical.init_state(live_floor, HISTORICAL_TRADES_FLOOR)
@@ -488,7 +490,9 @@ async def test_historical_line_while_the_walk_is_in_progress(
     from manta_trading.data.kalshi.historical_status import read_historical_status
     from manta_trading.data.kalshi.trade_repository import TradeRepository
 
-    historical = TradeRepository(kalshi_conn, RULE_C, surface=Surface.HISTORICAL)
+    historical = TradeRepository(
+        kalshi_conn, RULE_C, trades_excluded=frozenset(), surface=Surface.HISTORICAL
+    )
     async with historical.transaction():
         await historical.set_cursor("page-3")
     with psycopg.connect(kalshi_db) as conn:
@@ -535,7 +539,9 @@ async def test_status_command_json_and_rich_carry_the_historical_line(
     rich = runner.invoke(app, command, env=env)
     assert NEVER_RUN_HISTORICAL in rich.output
 
-    historical = TradeRepository(kalshi_conn, RULE_C, surface=Surface.HISTORICAL)
+    historical = TradeRepository(
+        kalshi_conn, RULE_C, trades_excluded=frozenset(), surface=Surface.HISTORICAL
+    )
     async with historical.transaction():
         await historical.set_cursor("page-2")
         await historical.set_last_full_sync(now)

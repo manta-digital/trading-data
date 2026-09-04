@@ -197,9 +197,7 @@ class TestTradesFilterSql:
         assert text(selection) == (
             "COALESCE(s.category, '') = ANY(%(trades_excluded_categories)s)"
         )
-        assert selection.params == {
-            "trades_excluded_categories": ["Crypto", "Sports"]
-        }
+        assert selection.params == {"trades_excluded_categories": ["Crypto", "Sports"]}
 
     def test_category_values_never_in_statement_text(self):
         selection = trades_filter_sql(frozenset({"Zq-filtered"}))

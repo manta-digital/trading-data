@@ -97,37 +97,37 @@ Design *Technical Decisions 1, 2*; *Implementation Details: Configuration*.
 
 Design *Technical Decision 3*.
 
-- [ ] **Task 2.1: `trades_filter_sql` and `describe_trades_filter`**
+- [x] **Task 2.1: `trades_filter_sql` and `describe_trades_filter`**
       (effort: 2)
-  - [ ] In `data/kalshi/selection.py`, add
+  - [x] In `data/kalshi/selection.py`, add
         `trades_filter_sql(excluded: frozenset[str]) -> Selection`
         rendering the membership test
         `COALESCE(s.category, '') = ANY(%(trades_excluded_categories)s)`
         with the categories bound as a sorted list. The statement, not
         this function, negates or counts the test.
-  - [ ] Parameter name `trades_excluded_categories` must be disjoint from
+  - [x] Parameter name `trades_excluded_categories` must be disjoint from
         every parameter `selection_sql` can emit, so rule and filter bind
         together in one statement. Verify against the rule's parameter
         names before choosing; if a collision exists, stop and flag it.
-  - [ ] Empty set renders literal `FALSE` (nothing filtered) so the
+  - [x] Empty set renders literal `FALSE` (nothing filtered) so the
         statement shape is constant across configurations.
-  - [ ] Add `describe_trades_filter(excluded: frozenset[str]) -> str`
+  - [x] Add `describe_trades_filter(excluded: frozenset[str]) -> str`
         returning `"none"` for empty, `"excluding Crypto"` /
         `"excluding Crypto, Sports"` (sorted) otherwise — the one
         spelling for log and status lines.
-  - [ ] Success: category values appear only in bound parameters, never
+  - [x] Success: category values appear only in bound parameters, never
         in statement text; both helpers exported beside `selection_sql`.
 
-- [ ] **Task 2.2: Selection unit tests** (effort: 1)
-  - [ ] In `test/unit/data/kalshi/test_selection_sql.py`: empty set →
+- [x] **Task 2.2: Selection unit tests** (effort: 1)
+  - [x] In `test/unit/data/kalshi/test_selection_sql.py`: empty set →
         `FALSE` and empty/absent params; non-empty set → membership SQL
         with sorted bound list; parameter-name disjointness from a
         rendered `selection_sql` for a representative rule;
         `describe_trades_filter` for empty, one, and two categories.
-  - [ ] Success: new tests pass; existing selection tests pass unmodified.
+  - [x] Success: new tests pass; existing selection tests pass unmodified.
 
-- [ ] **Task 2.3: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 2 (e.g.
+- [x] **Task 2.3: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 2 (e.g.
         `feat: render trades filter SQL in selection module`).
 
 ## Section 3: `PageCounts`, the write statement, and construction sites
