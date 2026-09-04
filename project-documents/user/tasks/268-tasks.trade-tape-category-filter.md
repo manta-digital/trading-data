@@ -284,44 +284,44 @@ Test-with deviation, deliberate: 5.1 and 5.2 share the single test task
 5.3 because the renderer has nothing to test until 5.1's status object
 exists, and 5.3 exercises both through the same status/render pair.
 
-- [ ] **Task 5.1: `trade_status.py` — filter facts and re-scoped
+- [x] **Task 5.1: `trade_status.py` — filter facts and re-scoped
       buckets** (effort: 3)
-  - [ ] Read `kalshi_trades_excluded_categories` from the same
+  - [x] Read `kalshi_trades_excluded_categories` from the same
         `Settings` the pass reads (the 264 Decision 2 invariant). Count
         **tape-filtered markets**: closed, rule-selected (`"ever"` form)
         markets whose category is in the filter. Markets only — never
         count rows in `kalshi.trades`.
-  - [ ] Re-scope the four closed-market buckets
+  - [x] Re-scope the four closed-market buckets
         (`complete_through_close`, `partial_history`, `short_of_close`,
         `before_coverage`) to rule-selected markets not tape-filtered;
         extend the partition check to
         `before + short + partial + complete + tape_filtered == total`.
-  - [ ] Success: with an empty filter, every existing number is
+  - [x] Success: with an empty filter, every existing number is
         unchanged and `tape_filtered_markets == 0`; with a filter, the
         extended partition check holds.
 
-- [ ] **Task 5.2: Renderer and JSON payload** (effort: 2)
-  - [ ] `cli/commands/kalshi_status_render.py`: add the `trades filter`
+- [x] **Task 5.2: Renderer and JSON payload** (effort: 2)
+  - [x] `cli/commands/kalshi_status_render.py`: add the `trades filter`
         line — `describe_trades_filter(...)` plus the env var name; when
         a filter is set, a second line
         `tape-filtered N closed markets (stored history kept;
         completeness not evaluated)` (the F002 accepted-loss wording —
         keep it verbatim). `none` when empty, no second line.
-  - [ ] JSON output gains `trades.filter` block:
+  - [x] JSON output gains `trades.filter` block:
         `excluded_categories` (sorted list), `tape_filtered_markets`.
-  - [ ] Success: text and `--json` render from the same status object;
+  - [x] Success: text and `--json` render from the same status object;
         wording matches the design's CLI rendering example.
 
-- [ ] **Task 5.3: Status tests** (effort: 2)
-  - [ ] `test/unit/data/kalshi/test_trade_status.py`: bucket re-scoping,
+- [x] **Task 5.3: Status tests** (effort: 2)
+  - [x] `test/unit/data/kalshi/test_trade_status.py`: bucket re-scoping,
         partition check, empty-filter invariance.
-  - [ ] `test/integration/test_kalshi_status.py`: filter line and JSON
+  - [x] `test/integration/test_kalshi_status.py`: filter line and JSON
         block present with a filter set; `none` and no block content
         change when unset (design Success Criterion 5).
-  - [ ] Success: both test modules pass.
+  - [x] Success: both test modules pass.
 
-- [ ] **Task 5.4: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 5 (e.g.
+- [x] **Task 5.4: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 5 (e.g.
         `feat: surface trades filter in kalshi status`).
 
 ## Section 6: Documentation and architecture amendment

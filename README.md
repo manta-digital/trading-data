@@ -140,6 +140,7 @@ the public rate tier and the default collection rule applies.
 | `MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES` | `Sports,Mentions` | Exclude-list; exclude wins over allow. |
 | `MT_KALSHI_COLLECTION_EXCLUDED_SERIES_PATTERN` | `MENTION\|SAY` | PostgreSQL regex over `series.ticker`, case-sensitive. |
 | `MT_KALSHI_COLLECTION_EXCLUDED_TITLE_PATTERN` | `\m(say\|says\|mention\|mentions)\M` | Regex over `series.title`, case-insensitive. |
+| `MT_KALSHI_TRADES_EXCLUDED_CATEGORIES` | empty | Trades-tape filter: trades of these categories are counted but not stored (empty = no filtering). Candles for the same categories keep collecting under the collection rule. |
 
 > **Renamed variables:** the collection-rule variables were previously named
 > `MT_KALSHI_CANDLE_*`. Every `mt` command now fails at startup while any old

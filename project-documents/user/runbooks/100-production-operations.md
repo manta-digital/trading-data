@@ -131,6 +131,8 @@ configuration source for the units — no `.env` file exists in
 - the Kalshi collection rule, five `MT_KALSHI_COLLECTION_*` lines (slice
   264; renamed in slice 265 because it governs candles **and** trades),
   commented out at their defaults — see *Kalshi* below
+- `MT_KALSHI_TRADES_EXCLUDED_CATEGORIES` (slice 268) — the trades-tape
+  category filter, commented out (empty = off); production intent `Crypto`
 
 **Where the Kalshi private key goes.** The pass units set `ProtectHome=true`,
 so a PEM anywhere under `/home` is invisible to the service. Put it beside the
@@ -470,7 +472,13 @@ and the next hour's firing succeeds once the migration is in. **The first
 cutoff** (about 60 days back): each hourly firing is capped at 3,000 tape
 requests (~7 hours of tape, ~15 minutes) and `status` shows `tape through`
 advancing ~7 hours per firing and the lag falling; when its `behind` flag
-clears, a steady-state pass is ~800–900 requests and ~3 minutes. A trade
+clears, a steady-state pass is ~800–900 requests and ~3 minutes. Since slice 268 the phase also applies the
+**trades-tape category filter** (`MT_KALSHI_TRADES_EXCLUDED_CATEGORIES`):
+rule-selected trades of the named categories are counted
+(`excluded_by_trades_filter` in the per-window `filtered` log figure and
+the phase event) but not stored, while their candles keep collecting —
+after a cutover, verify `mt-run data kalshi status --json` shows
+`trades.filter.tape_filtered_markets > 0` (the named typo check). A trade
 for a market the catalog does not know — the multi-leg MVE tape, about 8%
 — is counted (`unknown`) and dropped, never stored; the journal's
 `trades unknown markets:` line lists the ticker prefixes so anything that is
