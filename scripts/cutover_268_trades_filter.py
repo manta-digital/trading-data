@@ -35,57 +35,28 @@ import json
 import re
 import subprocess
 import sys
-import time
 from datetime import UTC, datetime
-from pathlib import Path
+
+from cutover_common import (
+    ENV_FILE,
+    CutoverError,
+    fire,
+    out,
+    production_status,
+    read_journal,
+    run,
+    say,
+    wait_for_pass_to_end,
+)
 
 from manta_trading.config import KALSHI_TRADES_FILTER_ENV
 
-# Host facts — the same single source deploy/install-production.sh uses.
-ENV_FILE = Path("/etc/manta-trading.env")
-PASS_UNIT = "mt-kalshi-pass.service"
 #: The PM's production intent (design 268, *Configuration*).
 FILTER_VALUE = "Crypto"
 ENV_LINE = f"{KALSHI_TRADES_FILTER_ENV}={FILTER_VALUE}"
 #: The one spelling of the filter description (selection.describe_trades_filter).
 EXPECTED_DESCRIPTION = f"excluding {FILTER_VALUE}"
 START_LINE_ENTRY = f"trades filter: {EXPECTED_DESCRIPTION}"
-POLL_SECONDS = 15
-
-
-class CutoverError(RuntimeError):
-    """A step found the host in a state it will not act on."""
-
-
-def say(text: str) -> None:
-    print(f"\n==> {text}", flush=True)
-
-
-def run(
-    args: list[str], *, sudo: bool = False, check: bool = True, stream: bool = False
-) -> subprocess.CompletedProcess[str]:
-    cmd = (["sudo", *args]) if sudo else args
-    return subprocess.run(cmd, check=check, text=True, capture_output=not stream)
-
-
-def out(args: list[str], *, sudo: bool = False) -> str:
-    return run(args, sudo=sudo).stdout.strip()
-
-
-def unit_active(unit: str) -> bool:
-    state = run(["systemctl", "is-active", unit], check=False).stdout.strip()
-    return state in {"active", "activating"}
-
-
-def wait_for_pass_to_end() -> None:
-    while unit_active(PASS_UNIT):
-        print(f"    a Kalshi pass is running — waiting ({POLL_SECONDS}s) …", flush=True)
-        time.sleep(POLL_SECONDS)
-
-
-def production_status_json() -> dict:
-    raw = out(["mt-run", "data", "kalshi", "status", "--json"], sudo=True)
-    return json.loads(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +67,7 @@ def production_status_json() -> dict:
 def precondition_floor_reached() -> None:
     """Decision 8: never enable the filter while the backfill is still
     descending — the abort happens before anything is touched."""
-    status = production_status_json()
+    status = production_status()
     historical = status.get("historical") or {}
     if historical.get("floor_reached") is not True:
         raise CutoverError(
@@ -115,39 +86,6 @@ def write_env(text: str) -> None:
         text=True,
         check=True,
         stdout=subprocess.DEVNULL,
-    )
-
-
-def journal_cursor() -> str:
-    text = out(["journalctl", "-u", PASS_UNIT, "-n", "0", "--show-cursor", "-q"])
-    match = re.search(r"-- cursor: (\S+)", text)
-    if not match:
-        raise CutoverError(f"could not read a journal cursor from: {text!r}")
-    return match.group(1)
-
-
-def fire_pass() -> str:
-    """Restart the pass unit once, supervised, and return the journal cursor
-    taken before it — the post-cutover start line is what the report reads."""
-    wait_for_pass_to_end()
-    cursor = journal_cursor()
-    print("    sudo mt-run kalshi — streaming; the filter reads from the env file")
-    run(["mt-run", "kalshi"], sudo=True, check=False, stream=True)
-    wait_for_pass_to_end()
-    run(["sudo", "-v"], stream=True)  # the firing may outlive the sudo grace
-    return cursor
-
-
-def journal_after(cursor: str) -> str:
-    return out(
-        [
-            "journalctl",
-            "-u",
-            PASS_UNIT,
-            f"--after-cursor={cursor}",
-            "--no-pager",
-            "-q",
-        ]
     )
 
 
@@ -197,7 +135,7 @@ def apply_env_line() -> None:
 
 
 def report(cursor: str) -> bool:
-    checks: list[tuple[bool, str]] = []
+    firing = read_journal(cursor)
 
     status_text = out(["mt-run", "data", "kalshi", "status"], sudo=True)
     filter_lines = [
@@ -205,36 +143,29 @@ def report(cursor: str) -> bool:
         for line in status_text.splitlines()
         if "trades filter" in line
     ]
-    ok = any(EXPECTED_DESCRIPTION in line for line in filter_lines)
-    checks.append(
-        (ok, f"status filter line: {filter_lines or '(no trades filter line)'}")
+    firing.check(
+        any(EXPECTED_DESCRIPTION in line for line in filter_lines),
+        f"status filter line: {filter_lines or '(no trades filter line)'}",
     )
 
-    journal = journal_after(cursor)
-    ok = START_LINE_ENTRY in journal
-    checks.append(
-        (
-            ok,
-            f"journal start line carries {START_LINE_ENTRY!r}: {ok}",
-        )
+    start_lines = firing.find(START_LINE_ENTRY)
+    firing.check(
+        bool(start_lines),
+        f"journal start line carries {START_LINE_ENTRY!r}: {bool(start_lines)}",
     )
 
-    status = production_status_json()
-    trades_filter = (status.get("trades") or {}).get("filter") or {}
+    trades_filter = (production_status().get("trades") or {}).get("filter") or {}
     count = trades_filter.get("tape_filtered_markets")
-    ok = isinstance(count, int) and count > 0
-    checks.append(
-        (
-            ok,
-            "trades.filter.tape_filtered_markets > 0 (the named typo check): "
-            f"{trades_filter}",
-        )
+    firing.check(
+        isinstance(count, int) and count > 0,
+        "trades.filter.tape_filtered_markets > 0 (the named typo check): "
+        f"{trades_filter}",
     )
 
     print()
-    for ok, text in checks:
+    for ok, text in firing.checks:
         print(f"    {'✅' if ok else '❌'} {text}")
-    return all(ok for ok, _ in checks)
+    return firing.all_ok
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +181,8 @@ def main(argv: list[str]) -> int:
     say(f"2/4 set {ENV_LINE} in {ENV_FILE}")
     apply_env_line()
     say("3/4 fire the pass once, supervised")
-    cursor = fire_pass()
+    wait_for_pass_to_end()  # a timer-launched pass holds the run lock
+    cursor, _started = fire()
     say("4/4 report — walkthrough step 7 checks")
     all_ok = report(cursor)
     print(

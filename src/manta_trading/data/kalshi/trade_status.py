@@ -7,8 +7,11 @@ counts rows in ``kalshi.trades``** (journal 20260720); per-market
 completeness is derived from the single watermark and the coverage floor.
 Neither the client nor the transport is imported (Criterion 11).
 
-The four closed-market counts partition the selected closed markets, in
-this precedence — a market is counted once, by the first that applies:
+Since slice 268 a fifth count, ``tape_filtered_markets``, covers the
+rule-selected closed markets the trades filter keeps off the tape; the four
+buckets below cover the rest, and all five together partition the selected
+closed markets. Within the unfiltered four, precedence — a market is counted
+once, by the first that applies:
 
 1. ``before_coverage`` — closed before the **effective floor**: the live
    floor, or the historical watermark once the historical phase (267) has

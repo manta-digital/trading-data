@@ -20,8 +20,16 @@ reviewVerdictsAddressed:
     from Task 7.4 (release install is out-of-band workflow); F002
     Section 5 test-with deviation now stated as deliberate; F003 Task 4.4
     test tier pinned to integration beside Task 3.4; F004–F007 pass
+  - 268-review.code.trade-tape-category-filter, first round
+    (claude-sonnet-5, CONCERNS, reviewedSha 7483baf) — F001 cutover script
+    rebuilt on cutover_common (CutoverError/run/out/say/fire/read_journal/
+    production_status imported, Firing carries the report checks); F002
+    UnknownTradesFilterCategoryError message now spells the env name via
+    config.KALSHI_TRADES_FILTER_ENV (no cycle); F003 trade_status module
+    docstring names the fifth bucket; F004 resolved by F001 (the bare-dict
+    helper was deleted in favor of the typed common one); F005–F006 pass
 dateCreated: 20260903
-dateUpdated: 20260903
+dateUpdated: 20260904
 status: in_progress
 ---
 

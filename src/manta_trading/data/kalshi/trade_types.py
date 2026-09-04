@@ -17,6 +17,7 @@ from uuid import UUID
 
 import psycopg
 
+from manta_trading.config import KALSHI_TRADES_FILTER_ENV
 from manta_trading.data.kalshi.models import HistoricalCutoff, TradesPage
 from manta_trading.data.kalshi.sync_types import SyncOutcome, classify_outcome, iso_utc
 from manta_trading.providers.errors import ProviderError
@@ -58,7 +59,7 @@ class UnknownTradesFilterCategoryError(Exception):
         self.unknown = tuple(unknown)
         self.known = tuple(known)
         super().__init__(
-            "MT_KALSHI_TRADES_EXCLUDED_CATEGORIES names "
+            f"{KALSHI_TRADES_FILTER_ENV} names "
             f"{', '.join(repr(value) for value in self.unknown)} — present in no "
             "kalshi.series row (the test is exact and case-sensitive, so this "
             "would filter nothing, forever). Known categories: "
