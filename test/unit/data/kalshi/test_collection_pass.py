@@ -531,7 +531,7 @@ def two_repositories(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         "manta_trading.data.kalshi.trade_repository.TradeRepository",
-        lambda conn, rule, surface=Surface.TRADES: (
+        lambda conn, rule, *, trades_excluded, surface=Surface.TRADES: (
             conn.trades if surface is Surface.TRADES else conn.historical
         ),
     )

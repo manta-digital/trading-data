@@ -8,7 +8,7 @@ interfaces: []
 effort: 2
 dateCreated: 20260903
 dateUpdated: 20260903
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: Trade Tape Category Filter (268)
@@ -418,17 +418,26 @@ before this slice and after it write the same tables.
 
 ## Verification Walkthrough
 
-Draft demo script; refined at end of Phase 6.
+Refined at end of Phase 6 to implemented wording. Steps 1, 2, 5, and 6 are
+proven verbatim by the integration tier against a throwaway database
+(`test_kalshi_status.py::test_status_command_renders_the_trades_filter`,
+`test_kalshi_trades.py::TestTradesFilterValidation`,
+`test_trade_sync.py::TestTradesFilterAccounting`); an external verifier can
+run them as written against any dev database seeded with a catalog.
 
 ```bash
 # 1. Filter off (default): status shows none, nothing changes
-mt data kalshi status | grep -A1 "Kalshi trades"
-#    → trades filter       none
+mt data kalshi status | grep "trades filter"
+#    → trades filter       none (MT_KALSHI_TRADES_EXCLUDED_CATEGORIES)
+#    (no tape-filtered line renders while the filter is empty)
 
 # 2. Enable the filter in a shell (dev DB), run one pass
 MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=Crypto mt data kalshi sync
-#    → phase start line: "... rule: ... · trades filter: excluding Crypto"
-#    → window lines: "... fetched F written W unknown U excluded E filtered X"
+#    → phase start line: "kalshi trades phase started run_id=... cutoff=...
+#      watermark=... coverage_from=... rule: ... · trades filter: excluding
+#      Crypto"
+#    → window lines: "trades window {start}→{end} pages P fetched F written W
+#      unknown U excluded E filtered X"
 #    → X > 0 during Crypto trading hours; W excludes all Crypto rows
 
 # 3. Prove nothing Crypto landed after the cutover instant T
@@ -446,24 +455,34 @@ WHERE s.category = 'Crypto' AND t.created_time > {T};
 MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=Crypto mt data kalshi status --json \
   | jq .trades.filter
 #    → {"excluded_categories": ["Crypto"], "tape_filtered_markets": N}
+#    Text form adds, under the filter line:
+#    "tape-filtered N closed markets (stored history kept; completeness not
+#    evaluated)"
 #    N > 0 is the named typo check: 0 with a filter set means the value
 #    matched no category (should be impossible past step 6's error, but it is
 #    the check an operator runs after any hand edit).
 
 # 6. A typo fails loudly, never a silent no-op (Decision 9)
 MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=crypto mt data kalshi sync
-#    → aborts: UnknownTradesFilterCategoryError naming 'crypto' and listing
-#      the catalog's known categories (exact wording set in implementation)
+#    → both the trades and historical phases abort pre-drain with
+#      UnknownTradesFilterCategoryError:
+#      "MT_KALSHI_TRADES_EXCLUDED_CATEGORIES names 'crypto' — present in no
+#      kalshi.series row (the test is exact and case-sensitive, so this would
+#      filter nothing, forever). Known categories: ..."
+#      No watermark or cursor moves; the outcome is never PARTIAL.
 
-# 7. [PM] Production cutover (after merge + release install).
-#    PRECONDITION (Decision 8): the historical drain must be done —
-mt data kalshi status | grep "Kalshi historical"
-#    → tape floor reached (2026-01-01)   ← required before setting the var
-#    Then: add MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=Crypto to the daemon's
-#    environment file, restart the kalshi service, then read back:
-mt data kalshi status          # filter line shows "excluding Crypto"
-journalctl -u <kalshi unit> | grep "trades filter"   # start line confirms
-mt data kalshi status --json | jq .trades.filter.tape_filtered_markets  # > 0
+# 7. [PM] Production cutover (after merge + release install) — scripted:
+sudo python3 scripts/cutover_268_trades_filter.py
+#    The script enforces the PRECONDITION (Decision 8): it aborts unless
+#    `mt-run data kalshi status --json` shows the historical tape at floor
+#    reached (2026-01-01). Then it adds
+#    MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=Crypto to /etc/manta-trading.env,
+#    restarts the kalshi pass timer's service environment, and reports:
+#      - the status filter line ("excluding Crypto")
+#      - the journal's next start line carrying "trades filter: excluding
+#        Crypto" (may be pending until the next hourly firing)
+#      - trades.filter.tape_filtered_markets > 0 from --json (the typo check)
+#    Nonzero exit on any failed check; safe to re-run.
 #    Note: the live catch-up range (tape_through → now) skips Crypto trades
 #    from this moment — deliberate and not recoverable by unsetting.
 #    Follow-up observation (days, not part of acceptance): pg_stat WAL rate

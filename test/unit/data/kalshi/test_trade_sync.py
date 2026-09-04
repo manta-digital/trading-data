@@ -36,6 +36,7 @@ from manta_trading.data.kalshi.trade_sync import PHASE, TradeSync
 from manta_trading.data.kalshi.trade_types import (
     TradeResult,
     TradesBehindCutoffError,
+    UnknownTradesFilterCategoryError,
     WindowDirection,
     classify_trades,
 )
@@ -333,11 +334,74 @@ class TestEventsAndLogs:
         assert f"cutoff={h.cutoff.isoformat()}" in start
         assert f"watermark={h.cutoff.isoformat()}" in start
         assert RULE.describe() in start
+        assert "trades filter: none" in start
         window = next(m for m in messages if m.startswith("trades window"))
         assert window == (
             f"trades window {h.cutoff.isoformat()}→{(h.cutoff + HOUR).isoformat()} "
-            "pages 1 fetched 1 written 1 unknown 0 excluded 0"
+            "pages 1 fetched 1 written 1 unknown 0 excluded 0 filtered 0"
         )
+
+
+class TestTradesFilterAccounting:
+    """Slice 268, Task 4.2: the fifth bucket through totals, logs, result,
+    and event — over the scripted-tape fake."""
+
+    def filtered_harness(self) -> Harness:
+        h = Harness()
+        h.repo.trades_excluded = frozenset({"Crypto"})
+        h.repo.known_categories = {"Crypto"}
+        h.repo.filtered_tickers.add("CRYP")
+        return h
+
+    async def test_filtered_rows_flow_to_totals_logs_and_event(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        h = self.filtered_harness()
+        h.catalog_walked(HOUR)
+        minute = timedelta(minutes=1)
+        h.tape("POL", minute)
+        h.tape("CRYP", 2 * minute, 3 * minute)
+        with caplog.at_level(logging.INFO, logger=module.__name__):
+            result = await h.core.run()
+        assert result.excluded_by_trades_filter == 2
+        assert result.trades_written == 1
+        assert result.trades_fetched == (
+            result.trades_written
+            + result.unknown_market
+            + result.excluded_by_rule
+            + result.excluded_by_trades_filter
+            + result.duplicates
+        )
+        messages = [r.getMessage() for r in caplog.records]
+        start = next(m for m in messages if m.startswith("kalshi trades phase started"))
+        assert "trades filter: excluding Crypto" in start
+        window = next(m for m in messages if m.startswith("trades window"))
+        assert window.endswith("filtered 2")
+        assert result.counts()["excluded_by_trades_filter"] == 2
+        assert result.to_dict()["excluded_by_trades_filter"] == 2
+        assert h.sink.events[0].counts["excluded_by_trades_filter"] == 2
+
+    async def test_zero_filter_reports_zero_everywhere(self, h: Harness):
+        h.catalog_walked(HOUR)
+        h.tape("POL", timedelta(minutes=1))
+        result = await h.core.run()
+        assert result.excluded_by_trades_filter == 0
+        assert result.counts()["excluded_by_trades_filter"] == 0
+        assert result.to_dict()["excluded_by_trades_filter"] == 0
+        assert h.sink.events[0].counts["excluded_by_trades_filter"] == 0
+
+    async def test_unknown_category_aborts_before_any_fetch(self, h: Harness):
+        """268 Decision 9 at the core's level: the check runs after the
+        catalog-walk guard and before the drain — nothing fetched, the
+        watermark untouched. Catalog-vs-SQL behavior is the integration
+        tier's (Task 4.4)."""
+        h.repo.trades_excluded = frozenset({"crypto"})
+        h.repo.known_categories = {"Crypto"}
+        h.catalog_walked(HOUR)
+        with pytest.raises(UnknownTradesFilterCategoryError, match="'crypto'"):
+            await h.core.run()
+        assert h.source.trade_queries == []
+        assert h.repo.state == TradeState(h.cutoff, h.cutoff)
 
 
 class TestTypes:
@@ -380,6 +444,7 @@ class TestTypes:
             "trades_written",
             "unknown_market",
             "excluded_by_rule",
+            "excluded_by_trades_filter",
             "duplicates",
             "unknown_prefixes",
             "duration_ms",

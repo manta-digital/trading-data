@@ -235,7 +235,9 @@ def kalshi_status(ctx: typer.Context, json_output: bool = _JSON_OPTION) -> None:
             # (264 Decision 2), so collection and reporting cannot disagree.
             rule = settings.collection_rule()
             candles = read_candle_status(conn, rule)
-            trades = read_trade_status(conn, rule)
+            trades = read_trade_status(
+                conn, rule, settings.kalshi_trades_excluded_categories
+            )
             historical = read_historical_status(conn)
     except psycopg.OperationalError as exc:
         print_error(f"database unreachable: {exc}", json_mode=json_output)

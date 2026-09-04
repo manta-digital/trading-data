@@ -168,6 +168,10 @@ class HistoricalSync:
         )
 
     async def _trades(self, state: TradeState) -> None:
+        # 268 Decision 9, before the drain — and before the floor-reached
+        # return, so a typo'd filter aborts loudly even once the backfill is
+        # done (the production steady state).
+        await self.trades.assert_trades_filter_known()
         result = self.result
         watermark = state.watermark_ts
         if watermark is None or self._at_floor(state):
@@ -207,6 +211,7 @@ class HistoricalSync:
         result.trades_written = walked.trades_written
         result.unknown_market = walked.unknown_market
         result.excluded_by_rule = walked.excluded_by_rule
+        result.excluded_by_trades_filter = walked.excluded_by_trades_filter
         result.duplicates = walked.duplicates
         result.unknown_prefixes = dict(walked.unknown_prefixes)
         after = walked.watermark_after or watermark

@@ -19,7 +19,9 @@ from manta_trading.data.kalshi.selection import (
     CollectionRule,
     Selection,
     SelectionForm,
+    describe_trades_filter,
     selection_sql,
+    trades_filter_sql,
 )
 
 EMPTY = CollectionRule(
@@ -180,6 +182,52 @@ class TestNullAsymmetry:
             "collection_excluded_series_pattern",
             "collection_excluded_title_pattern",
         }
+
+
+class TestTradesFilterSql:
+    """Slice 268, Task 2.2: the trades-tape filter's membership test."""
+
+    def test_empty_set_is_false_with_no_params(self):
+        selection = trades_filter_sql(frozenset())
+        assert selection.params == {}
+        assert text(selection) == "FALSE"
+
+    def test_membership_sql_with_sorted_bound_list(self):
+        selection = trades_filter_sql(frozenset({"Sports", "Crypto"}))
+        assert text(selection) == (
+            "COALESCE(s.category, '') = ANY(%(trades_excluded_categories)s)"
+        )
+        assert selection.params == {"trades_excluded_categories": ["Crypto", "Sports"]}
+
+    def test_category_values_never_in_statement_text(self):
+        selection = trades_filter_sql(frozenset({"Zq-filtered"}))
+        assert "Zq-filtered" not in text(selection)
+
+    def test_parameter_names_disjoint_from_selection_sql(self):
+        """Rule and filter must bind together in one statement — no
+        parameter name may collide with any ``selection_sql`` can emit."""
+        rule_params = set(selection_sql(RULE_C, "any").params) | set(
+            selection_sql(
+                CollectionRule(True, frozenset({"A"}), frozenset({"B"}), "x", "y"),
+                "ever",
+            ).params
+        )
+        filter_params = set(trades_filter_sql(frozenset({"Crypto"})).params)
+        assert rule_params & filter_params == set()
+
+
+class TestDescribeTradesFilter:
+    def test_empty_is_none(self):
+        assert describe_trades_filter(frozenset()) == "none"
+
+    def test_one_category(self):
+        assert describe_trades_filter(frozenset({"Crypto"})) == "excluding Crypto"
+
+    def test_two_categories_sorted(self):
+        assert (
+            describe_trades_filter(frozenset({"Sports", "Crypto"}))
+            == "excluding Crypto, Sports"
+        )
 
 
 class TestMarketJoin:

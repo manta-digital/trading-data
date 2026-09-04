@@ -9,11 +9,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from manta_trading.config import KALSHI_COLLECTION_ENV_PREFIX
+from manta_trading.config import KALSHI_COLLECTION_ENV_PREFIX, KALSHI_TRADES_FILTER_ENV
 from manta_trading.data.kalshi.constants import (
     KALSHI_SETTLEMENT_STUCK_AFTER,
     TRADE_LAG_STALE_AFTER,
 )
+from manta_trading.data.kalshi.selection import describe_trades_filter
 
 if TYPE_CHECKING:
     from manta_trading.data.kalshi.historical_status import HistoricalStatus
@@ -145,6 +146,16 @@ def print_trade_status(trades: TradeStatus, now: datetime) -> None:
         f"  before coverage     {trades.before_coverage:,} closed markets "
         f"(closed before the effective floor {coverage})"
     )
+    rprint(
+        f"  trades filter       "
+        f"{describe_trades_filter(trades.excluded_categories)} "
+        f"({KALSHI_TRADES_FILTER_ENV})"
+    )
+    if trades.excluded_categories:
+        rprint(
+            f"                      tape-filtered {trades.tape_filtered_markets:,} "
+            "closed markets (stored history kept; completeness not evaluated)"
+        )
 
 
 def print_historical_status(

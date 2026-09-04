@@ -4,7 +4,7 @@ parent: user/architecture/260-arch.kalshi-event-contract-data.md
 project: trading
 dateCreated: 20260824
 dateUpdated: 20260903
-status: complete
+status: in_progress
 ---
 
 # Slice Plan: Kalshi Event-Contract Data

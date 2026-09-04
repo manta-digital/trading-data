@@ -34,7 +34,9 @@ from manta_trading.data.kalshi.selection import (
     CATALOG_TABLES,
     CollectionRule,
     selection_sql,
+    trades_filter_sql,
 )
+from manta_trading.data.kalshi.trade_types import UnknownTradesFilterCategoryError
 
 #: Decision 11: the model→column map — ``(column, Trade attribute)``. The
 #: key columns are mapped too (``Trade.ticker`` is ``market_ticker``);
@@ -73,18 +75,26 @@ class PageAccountingError(ValueError):
 
 @dataclass(frozen=True)
 class PageCounts:
-    """What one ``write_page`` did — five independently sourced numbers.
+    """What one ``write_page`` did — six independently sourced numbers.
 
-    ``fetched`` is what the client handed over (``len(rows)``); the other
-    four come from the statement. ``selected`` is **carried, not derived**:
+    ``fetched`` is what the client handed over (``len(rows)``); the others
+    come from the statement. ``selected`` is **carried, not derived**:
     derived as ``fetched − unknown − excluded`` the identity below could never
     fail, and it exists to catch page rows that never reached ``classified``
     (a join or ``unnest`` arity bug). Criterion 2 is an exact accounting.
+
+    ``excluded_by_trades_filter`` (slice 268, Decision 4) counts rule-selected
+    rows the trades-tape category filter kept out of storage; precedence is
+    unknown → excluded-by-rule → excluded-by-trades-filter → stored/duplicate,
+    so the buckets partition the page. ``selected`` here means selected for
+    storage — rule-selected AND not tape-filtered — keeping ``duplicates``
+    exact under a filter.
     """
 
     fetched: int
     unknown_market: int
     excluded_by_rule: int
+    excluded_by_trades_filter: int
     selected: int
     written: int
     #: The page's tickers with no market row, one per unknown trade — for the
@@ -98,12 +108,17 @@ class PageCounts:
 
     def __post_init__(self) -> None:
         accounted = (
-            self.written + self.unknown_market + self.excluded_by_rule + self.duplicates
+            self.written
+            + self.unknown_market
+            + self.excluded_by_rule
+            + self.excluded_by_trades_filter
+            + self.duplicates
         )
         if self.fetched != accounted:
             raise PageAccountingError(
                 f"page accounting: fetched {self.fetched} != written {self.written} "
                 f"+ unknown {self.unknown_market} + excluded {self.excluded_by_rule} "
+                f"+ filtered {self.excluded_by_trades_filter} "
                 f"+ duplicates {self.duplicates} (selected {self.selected})"
             )
 
@@ -121,9 +136,21 @@ class TradeState:
 
 def _write_page_statement(
     rule: CollectionRule,
+    trades_excluded: frozenset[str],
 ) -> tuple[sql.Composed, dict[str, object]]:
-    """The Decision 5 statement and the rule parameters it binds."""
+    """The Decision 5 statement and the parameters it binds — the rule's and,
+    since slice 268, the trades-tape filter's.
+
+    ``selected`` is computed once in ``classified``; ``flagged`` derives
+    ``tape_filtered`` from it (``known AND selected AND`` the filter's
+    membership test) — the rule predicate is never pasted twice, which is
+    what makes the precedence unknown → excluded-by-rule →
+    excluded-by-trades-filter → stored/duplicate structural. The insert and
+    the returned ``selected`` count both use ``selected AND NOT
+    tape_filtered``, so ``duplicates`` stays exact.
+    """
     selection = selection_sql(rule, "any")
+    trades_filter = trades_filter_sql(trades_excluded)
     columns = [column for column, _ in TRADE_COLUMNS]
     arrays = sql.SQL(", ").join(
         sql.SQL("{}::{}").format(sql.Placeholder(column), sql.SQL(_ARRAY_TYPES[column]))
@@ -135,25 +162,31 @@ def _write_page_statement(
         "SELECT * FROM unnest({arrays}) AS p({names})"
         "), classified AS ("
         "SELECT p.*, m.ticker IS NOT NULL AS known, "
-        "COALESCE({predicate}, FALSE) AS selected "
+        "COALESCE({predicate}, FALSE) AS selected, "
+        "{tape_test} AS tape_test "
         "FROM page p LEFT JOIN ({catalog}) ON m.ticker = p.market_ticker"
+        "), flagged AS ("
+        "SELECT *, known AND selected AND tape_test AS tape_filtered "
+        "FROM classified"
         "), ins AS ("
-        "INSERT INTO kalshi.trades ({names}) SELECT {names} FROM classified "
-        "WHERE selected ON CONFLICT DO NOTHING RETURNING 1"
+        "INSERT INTO kalshi.trades ({names}) SELECT {names} FROM flagged "
+        "WHERE selected AND NOT tape_filtered ON CONFLICT DO NOTHING RETURNING 1"
         ") "
         "SELECT count(*) FILTER (WHERE NOT known), "
         "count(*) FILTER (WHERE known AND NOT selected), "
-        "count(*) FILTER (WHERE selected), "
+        "count(*) FILTER (WHERE tape_filtered), "
+        "count(*) FILTER (WHERE selected AND NOT tape_filtered), "
         "(SELECT count(*) FROM ins), "
         "COALESCE(array_agg(market_ticker) FILTER (WHERE NOT known), ARRAY[]::text[]) "
-        "FROM classified"
+        "FROM flagged"
     ).format(
         arrays=arrays,
         names=names,
         predicate=selection.predicate,
+        tape_test=trades_filter.predicate,
         catalog=CATALOG_TABLES,
     )
-    return statement, selection.params
+    return statement, {**selection.params, **trades_filter.params}
 
 
 class TradeRepository:
@@ -170,15 +203,29 @@ class TradeRepository:
         conn: psycopg.AsyncConnection[Any],
         rule: CollectionRule,
         *,
+        trades_excluded: frozenset[str],
         surface: Surface = Surface.TRADES,
     ) -> None:
         self._conn = conn
         self._surface = surface
-        # The statement is rule-dependent and the rule is fixed for the run:
-        # render it once, bind a page's nine arrays per call.
-        self._statement, self._rule_params = _write_page_statement(rule)
+        # Required keyword, no default (slice 268): a construction site that
+        # forgets the filter must fail to construct, not silently store
+        # filtered categories. The repository is the one carrier of the set —
+        # sync reads it back through the property for its start log line.
+        self._trades_excluded = trades_excluded
+        # The statement is rule- and filter-dependent, both fixed for the
+        # run: render it once, bind a page's nine arrays per call.
+        self._statement, self._rule_params = _write_page_statement(
+            rule, trades_excluded
+        )
         # ``sync_state`` statements are shared with the catalog; one spelling.
         self._sync_state = CatalogRepository(conn)
+
+    @property
+    def trades_excluded(self) -> frozenset[str]:
+        """The trades-tape category filter this repository's statement
+        embeds (slice 268)."""
+        return self._trades_excluded
 
     def transaction(self) -> AbstractAsyncContextManager[psycopg.AsyncTransaction]:
         """A transaction block on the run's connection (caller-owned granularity)."""
@@ -271,6 +318,21 @@ class TradeRepository:
         state = await self._sync_state.get_sync_state(Surface.CATALOG)
         return None if state is None else state.last_full_sync_at
 
+    async def assert_trades_filter_known(self) -> None:
+        """Decision 9 (slice 268), the one spelling of the check for both
+        phases: every configured filter category must appear on some
+        ``kalshi.series`` row, else raise — a typo must never become a
+        silent no-op. An empty filter skips the query entirely."""
+        if not self._trades_excluded:
+            return
+        cursor = await self._conn.execute(
+            "SELECT DISTINCT category FROM kalshi.series WHERE category IS NOT NULL"
+        )
+        known = {row[0] for row in await cursor.fetchall()}
+        unknown = sorted(self._trades_excluded - known)
+        if unknown:
+            raise UnknownTradesFilterCategoryError(unknown, sorted(known))
+
     # ------------------------------------------------------------------
     # Writes (Data Flow step 4)
     # ------------------------------------------------------------------
@@ -284,7 +346,7 @@ class TradeRepository:
         transaction (one per page, Data Flow step 4).
         """
         if not rows:
-            return PageCounts(0, 0, 0, 0, 0)
+            return PageCounts(0, 0, 0, 0, 0, 0)
         arrays: dict[str, object] = {
             column: [getattr(row, attribute) for row in rows]
             for column, attribute in TRADE_COLUMNS
@@ -295,12 +357,15 @@ class TradeRepository:
         counts = await cursor.fetchone()
         if counts is None:
             raise PageAccountingError("write_page statement returned no row")
-        unknown, excluded, selected, written = (int(value) for value in counts[:4])
+        unknown, excluded, filtered, selected, written = (
+            int(value) for value in counts[:5]
+        )
         return PageCounts(
             fetched=len(rows),
             unknown_market=unknown,
             excluded_by_rule=excluded,
+            excluded_by_trades_filter=filtered,
             selected=selected,
             written=written,
-            unknown_tickers=tuple(counts[4]),
+            unknown_tickers=tuple(counts[5]),
         )

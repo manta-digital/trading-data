@@ -44,7 +44,7 @@ from manta_trading.data.kalshi.events import (
     SyncEventType,
     emit_in_thread,
 )
-from manta_trading.data.kalshi.selection import CollectionRule
+from manta_trading.data.kalshi.selection import CollectionRule, describe_trades_filter
 from manta_trading.data.kalshi.sync_types import epoch
 from manta_trading.data.kalshi.trade_repository import (
     PageCounts,
@@ -113,12 +113,15 @@ class TradeSync:
             # remains, and the watermark where the drain stands.
             logger.info(
                 "kalshi trades phase started run_id=%s cutoff=%s watermark=%s "
-                "coverage_from=%s rule: %s",
+                "coverage_from=%s rule: %s · trades filter: %s",
                 result.run_id,
                 cutoff.isoformat(),
                 state.watermark_ts.isoformat(),
                 state.coverage_from_ts.isoformat(),
                 self.rule.describe(),
+                # The repository is the one carrier of the filter (268): the
+                # set logged is the set the write statement embeds.
+                describe_trades_filter(self.repository.trades_excluded),
             )
             walk_start = await self.repository.read_catalog_walk_start()
             if walk_start is None:
@@ -129,6 +132,9 @@ class TradeSync:
                     "kalshi trades phase: no completed catalog walk; nothing fetched"
                 )
             else:
+                # 268 Decision 9, after the catalog-walk guard: a filter
+                # category the catalog has never seen aborts before any drain.
+                await self.repository.assert_trades_filter_known()
                 # Decision 5: the pass bound trails the catalog walk's start.
                 await self.drain(
                     state.watermark_ts, walk_start - TRADE_LATE_ARRIVAL_GUARD
@@ -223,7 +229,7 @@ class TradeSync:
         per page. The caller moves the watermark afterwards (``_advance``),
         so it moves only after the last page — in either direction."""
         result = self.result
-        window = PageCounts(0, 0, 0, 0, 0)
+        window = PageCounts(0, 0, 0, 0, 0, 0)
         pages = 0
         cursor: str | None = None
         while True:
@@ -249,9 +255,11 @@ class TradeSync:
         result.trades_written += window.written
         result.unknown_market += window.unknown_market
         result.excluded_by_rule += window.excluded_by_rule
+        result.excluded_by_trades_filter += window.excluded_by_trades_filter
         result.duplicates += window.duplicates
         logger.info(
-            "%s window %s→%s pages %d fetched %d written %d unknown %d excluded %d",
+            "%s window %s→%s pages %d fetched %d written %d unknown %d "
+            "excluded %d filtered %d",
             self._label,
             start.isoformat(),
             window_end.isoformat(),
@@ -260,6 +268,7 @@ class TradeSync:
             window.written,
             window.unknown_market,
             window.excluded_by_rule,
+            window.excluded_by_trades_filter,
         )
 
     def _tally_unknown(self, tickers: Iterable[str]) -> None:
@@ -319,6 +328,9 @@ def _add(total: PageCounts, page: PageCounts) -> PageCounts:
         fetched=total.fetched + page.fetched,
         unknown_market=total.unknown_market + page.unknown_market,
         excluded_by_rule=total.excluded_by_rule + page.excluded_by_rule,
+        excluded_by_trades_filter=(
+            total.excluded_by_trades_filter + page.excluded_by_trades_filter
+        ),
         selected=total.selected + page.selected,
         written=total.written + page.written,
     )

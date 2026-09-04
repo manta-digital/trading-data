@@ -264,7 +264,12 @@ def _historical_status(*, in_progress: bool = False, floor_reached: bool = False
     )
 
 
-def _trade_status(*, behind: bool = False):
+def _trade_status(
+    *,
+    behind: bool = False,
+    excluded_categories: frozenset[str] = frozenset(),
+    tape_filtered_markets: int = 0,
+):
     from datetime import timedelta
 
     from manta_trading.data.kalshi.trade_status import TradeStatus
@@ -279,6 +284,8 @@ def _trade_status(*, behind: bool = False):
         partial_history=6_120,
         short_of_close=310,
         before_coverage=1_203_442,
+        excluded_categories=excluded_categories,
+        tape_filtered_markets=tape_filtered_markets,
     )
 
 

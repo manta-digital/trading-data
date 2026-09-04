@@ -297,8 +297,8 @@ class TestFakeTradeRepository:
         async with repo.transaction():
             first = await repo.write_page(page)
             second = await repo.write_page(page)
-        assert first == PageCounts(3, 1, 1, 1, 1, unknown_tickers=("KXMVE-1",))
-        assert second == PageCounts(3, 1, 1, 1, 0, unknown_tickers=("KXMVE-1",))
+        assert first == PageCounts(3, 1, 1, 0, 1, 1, unknown_tickers=("KXMVE-1",))
+        assert second == PageCounts(3, 1, 1, 0, 1, 0, unknown_tickers=("KXMVE-1",))
         assert {ticker for ticker, _, _ in repo.stored} == {"POL"}
         assert repo.tx_log == ["begin", "commit"]
 

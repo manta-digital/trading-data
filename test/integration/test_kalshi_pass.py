@@ -653,7 +653,7 @@ async def _seed_four_phases(
         make_candle(behind.close_time),
     )
     rule = _settings(kalshi_db).collection_rule()
-    live = TradeRepository(kalshi_conn, rule)
+    live = TradeRepository(kalshi_conn, rule, trades_excluded=frozenset())
     async with live.transaction():
         await live.init_state(cutoff, LIVE_FLOOR)
     return source, behind
@@ -731,7 +731,9 @@ class TestFourPhasePass:
         )
         # Criterion 7: status measures coverage from the effective floor.
         with psycopg.connect(kalshi_db) as conn:
-            status = read_trade_status(conn, _settings(kalshi_db).collection_rule())
+            status = read_trade_status(
+                conn, _settings(kalshi_db).collection_rule(), frozenset()
+            )
         assert status is not None
         assert status.coverage_from == FLOOR
         assert status.before_coverage == 2  # ARC1, ARC2 closed before the floor

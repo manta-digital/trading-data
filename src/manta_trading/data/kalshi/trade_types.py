@@ -8,6 +8,7 @@ design (Decision 6). Nothing here imports the client or the repository.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -16,6 +17,7 @@ from uuid import UUID
 
 import psycopg
 
+from manta_trading.config import KALSHI_TRADES_FILTER_ENV
 from manta_trading.data.kalshi.models import HistoricalCutoff, TradesPage
 from manta_trading.data.kalshi.sync_types import SyncOutcome, classify_outcome, iso_utc
 from manta_trading.providers.errors import ProviderError
@@ -42,6 +44,27 @@ class WindowDirection(StrEnum):
 
     FORWARD = "forward"
     BACKWARD = "backward"
+
+
+class UnknownTradesFilterCategoryError(Exception):
+    """A configured trades-filter category matches no ``kalshi.series`` row
+    (slice 268, Decision 9): the membership test is exact and case-sensitive,
+    so a typo (``crypto`` for ``Crypto``) would otherwise filter nothing
+    forever — a silent no-op. Config abort: raised before any drain, the
+    phase result is never ``PARTIAL``, and no watermark or cursor moves. A
+    retired category keeps working — the catalog retains historical series
+    rows, so only a value that has never existed fails."""
+
+    def __init__(self, unknown: Sequence[str], known: Sequence[str]) -> None:
+        self.unknown = tuple(unknown)
+        self.known = tuple(known)
+        super().__init__(
+            f"{KALSHI_TRADES_FILTER_ENV} names "
+            f"{', '.join(repr(value) for value in self.unknown)} — present in no "
+            "kalshi.series row (the test is exact and case-sensitive, so this "
+            "would filter nothing, forever). Known categories: "
+            f"{', '.join(self.known)}."
+        )
 
 
 class TradesBehindCutoffError(Exception):
@@ -80,6 +103,7 @@ class TradeResult:
     trades_written: int = 0
     unknown_market: int = 0
     excluded_by_rule: int = 0
+    excluded_by_trades_filter: int = 0
     duplicates: int = 0
     capped: bool = False
     #: Data Flow step 2: no catalog walk has completed, so there is no pass
@@ -100,6 +124,7 @@ class TradeResult:
             "trades_written": self.trades_written,
             "unknown_market": self.unknown_market,
             "excluded_by_rule": self.excluded_by_rule,
+            "excluded_by_trades_filter": self.excluded_by_trades_filter,
             "duplicates": self.duplicates,
             "capped": int(self.capped),
         }
@@ -122,6 +147,7 @@ class TradeResult:
             "trades_written": self.trades_written,
             "unknown_market": self.unknown_market,
             "excluded_by_rule": self.excluded_by_rule,
+            "excluded_by_trades_filter": self.excluded_by_trades_filter,
             "duplicates": self.duplicates,
             "unknown_prefixes": dict(self.unknown_prefixes),
             "duration_ms": self.duration_ms,

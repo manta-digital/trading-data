@@ -193,7 +193,7 @@ def gather(
     catalog = read_catalog_status(conn)
     rule = settings.collection_rule()
     candles = read_candle_status(conn, rule)
-    trades = read_trade_status(conn, rule)
+    trades = read_trade_status(conn, rule, settings.kalshi_trades_excluded_categories)
     for name, last_at in (
         ("kalshi catalog", catalog.last_full_sync_at if catalog else None),
         ("kalshi candles", candles.last_phase_at if candles else None),

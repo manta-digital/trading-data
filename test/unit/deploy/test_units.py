@@ -147,6 +147,8 @@ class TestEnvExample:
             "MT_KALSHI_COLLECTION_EXCLUDED_CATEGORIES",
             "MT_KALSHI_COLLECTION_EXCLUDED_SERIES_PATTERN",
             "MT_KALSHI_COLLECTION_EXCLUDED_TITLE_PATTERN",
+            # the trades-tape category filter (slice 268), empty = off
+            "MT_KALSHI_TRADES_EXCLUDED_CATEGORIES",
         }
         assert all(line.startswith("#") for line in kalshi)
 

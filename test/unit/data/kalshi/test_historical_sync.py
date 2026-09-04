@@ -53,6 +53,7 @@ from manta_trading.data.kalshi.repository import SyncState
 from manta_trading.data.kalshi.selection import CollectionRule
 from manta_trading.data.kalshi.sync_types import SyncOutcome, epoch
 from manta_trading.data.kalshi.trade_repository import TradeState
+from manta_trading.data.kalshi.trade_types import UnknownTradesFilterCategoryError
 from manta_trading.providers.errors import (
     ProviderPermanentError,
     ProviderTransientError,
@@ -547,6 +548,7 @@ class TestEventsAndTypes:
             "trades_written",
             "unknown_market",
             "excluded_by_rule",
+            "excluded_by_trades_filter",
             "duplicates",
             "unknown_prefixes",
             "duration_ms",
@@ -627,3 +629,44 @@ class TestEventsAndTypes:
         assert source.archive_queries == [
             {"cursor": None, "limit": 5, "mve_filter": KALSHI_MVE_FILTER}
         ]
+
+
+class TestTradesFilterInheritance:
+    """Slice 268, Task 4.5 (design Success Criterion 4): the backward drain
+    inherits the trades filter with zero historical-specific drain code —
+    the shared statement filters, the shared ``TradeSync`` counts, and the
+    historical event carries the counter."""
+
+    def filtered_harness(self) -> Harness:
+        h = Harness()
+        h.trades.trades_excluded = frozenset({"Crypto"})
+        h.trades.known_categories = {"Crypto"}
+        h.trades.filtered_tickers.add("CRYP")
+        return h
+
+    async def test_backward_drain_filters_counts_and_reports(self):
+        h = self.filtered_harness()
+        h.tape("CRYP", timedelta(minutes=30))
+        h.tape("POL", timedelta(minutes=40))
+        result = await h.core.run()
+        assert result.excluded_by_trades_filter == 1
+        assert result.trades_written == 1
+        assert {ticker for ticker, _, _ in h.trades.stored} == {"POL"}
+        assert result.counts()["excluded_by_trades_filter"] == 1
+        assert result.to_dict()["excluded_by_trades_filter"] == 1
+        event = h.sink.events[0]
+        assert event.counts["excluded_by_trades_filter"] == 1
+
+    async def test_unknown_category_aborts_before_the_drain(self):
+        """268 Decision 9 in the historical phase: raised pre-drain, even
+        though the archive walk and candles already ran; the tape watermark
+        never moves."""
+        h = Harness()
+        h.trades.trades_excluded = frozenset({"crypto"})
+        h.trades.known_categories = {"Crypto"}
+        h.tape("POL", timedelta(minutes=30))
+        with pytest.raises(UnknownTradesFilterCategoryError, match="'crypto'"):
+            await h.core.run()
+        assert h.source.trade_queries == []
+        assert h.trades.state == TradeState(LIVE_FLOOR, FLOOR)
+        assert h.core.result.error is not None

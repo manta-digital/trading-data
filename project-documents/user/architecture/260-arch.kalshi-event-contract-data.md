@@ -10,8 +10,8 @@ relatedSlices: []
 riskLevel: low
 archIndex: 260
 dateCreated: 20260823
-dateUpdated: 20260901
-status: complete
+dateUpdated: 20260903
+status: in_progress
 ---
 
 # Kalshi Event-Contract Data Architecture
@@ -26,7 +26,7 @@ Initiative 260 adds continuous collection of Kalshi prediction-market data to tr
 
 ## Design Goals
 
-- **Capture before it disappears** — The primary goal is completeness of the record while it is still reachable: full catalog lifecycle (open → close → settlement outcome), candlestick history, and public trades, collected ahead of Kalshi's historical-endpoint migration and retention decisions. **Scope of "complete" (PM decisions 20260824 and 20260826, recorded at slice 262 and 264 design):** the *catalog* is complete for every non-MVE market; the *time-series surfaces* are complete for the markets a configurable **collection rule** selects, not for the whole catalog. The rule exists because measurement showed the unfiltered candle stream to be ~600 GB/year of which 97% is market-maker re-quoting on markets that never trade; the project's default rule keeps markets that traded in the last 24 hours and excludes the Sports and Mentions categories (~31 GB/year compressed), and any operator can set a different rule (`MT_KALSHI_CANDLE_*`) because the collector ships publicly while the collected data cannot be redistributed under Kalshi's API terms. Excluded markets are counted and reported by `mt data kalshi status`, never silently dropped.
+- **Capture before it disappears** — The primary goal is completeness of the record while it is still reachable: full catalog lifecycle (open → close → settlement outcome), candlestick history, and public trades, collected ahead of Kalshi's historical-endpoint migration and retention decisions. **Scope of "complete" (PM decisions 20260824 and 20260826, recorded at slice 262 and 264 design):** the *catalog* is complete for every non-MVE market; the *time-series surfaces* are complete for the markets a configurable **collection rule** selects, not for the whole catalog — except the trade tape, which is additionally scoped by the **trades filter** (`MT_KALSHI_TRADES_EXCLUDED_CATEGORIES`, slice 268): a tape-filtered market's trade tape is deliberately not collected and is excluded from tape-completeness evaluation. The rule exists because measurement showed the unfiltered candle stream to be ~600 GB/year of which 97% is market-maker re-quoting on markets that never trade; the project's default rule keeps markets that traded in the last 24 hours and excludes the Sports and Mentions categories (~31 GB/year compressed), and any operator can set a different rule (`MT_KALSHI_CANDLE_*`) because the collector ships publicly while the collected data cannot be redistributed under Kalshi's API terms. Excluded markets are counted and reported by `mt data kalshi status`, never silently dropped.
 
 - **Faithful catalog, Kalshi's shape** — Store the domain in Kalshi's own hierarchy (series → events → markets) with Kalshi's own identifiers. The catalog is queryable on its own terms; no translation into the equities instrument model is attempted.
 
@@ -83,7 +83,7 @@ A Kalshi collection pass — a bounded run that brings all surfaces up to date a
 - Data-level status is a CLI command (surface finalized at slice design, e.g. `mt data kalshi status`) reading persisted collection state, reachable in production through `mt-run`'s pass-through (`mt-run data kalshi status`). It answers "complete until when?" from per-surface watermarks and the completeness definition below, and reports the awaiting-settlement set with ages, markets with candle coverage short of close, and ranges known-lost behind the historical cutoff.
 - Production runs entirely from the pinned install; the dev checkout retains only its existing runbook roles (operator-run migrations with the maintenance credential, and deploys).
 
-**Completeness definitions** (the analogue of 120's caught-up definitions): a *closed market is complete* when its settlement outcome is recorded, its candles cover open through close, and its trade tape reaches close. The *collector is caught up* when every market past close is complete or explicitly marked unrecoverable (behind the historical cutoff), and open-market surfaces are within one pass interval of now. These definitions are what the status command evaluates.
+**Completeness definitions** (the analogue of 120's caught-up definitions): a *closed market is complete* when its settlement outcome is recorded, its candles cover open through close, and its trade tape reaches close. The *collector is caught up* when every market past close is complete, explicitly marked unrecoverable (behind the historical cutoff), or tape-filtered; and open-market surfaces are within one pass interval of now. (Candle and settlement completeness for tape-filtered markets are unchanged — the filter touches only the tape clause; slice 268.) These definitions are what the status command evaluates.
 
 At completion, event-contract data accumulates with no operational attention, the settlement record is complete for every market the collector has seen close, and downstream consumers (future analysis work, Initiative 180 serving if ever extended) find a coherent relational catalog.
 
