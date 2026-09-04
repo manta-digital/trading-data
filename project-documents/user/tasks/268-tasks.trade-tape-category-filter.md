@@ -22,7 +22,7 @@ reviewVerdictsAddressed:
     test tier pinned to integration beside Task 3.4; F004–F007 pass
 dateCreated: 20260903
 dateUpdated: 20260903
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -67,30 +67,30 @@ status: not_started
 
 Design *Technical Decisions 1, 2*; *Implementation Details: Configuration*.
 
-- [ ] **Task 1.1: Add `kalshi_trades_excluded_categories` to `Settings`**
+- [x] **Task 1.1: Add `kalshi_trades_excluded_categories` to `Settings`**
       (effort: 1)
-  - [ ] In `config/__init__.py`, add field
+  - [x] In `config/__init__.py`, add field
         `kalshi_trades_excluded_categories: Annotated[frozenset[str], NoDecode] = frozenset()`
         beside the five `kalshi_collection_*` fields, env name
         `MT_KALSHI_TRADES_EXCLUDED_CATEGORIES`.
-  - [ ] Add the field name to the existing `_split_category_list`
+  - [x] Add the field name to the existing `_split_category_list`
         validator (comma-separated, whitespace-trimmed, empty string →
         empty set). Do not duplicate the parsing logic.
-  - [ ] Success: `Settings()` with the env unset yields `frozenset()`;
+  - [x] Success: `Settings()` with the env unset yields `frozenset()`;
         `MT_KALSHI_TRADES_EXCLUDED_CATEGORIES="Crypto, Sports"` yields
         `frozenset({"Crypto", "Sports"})`. Values keep their exact case.
 
-- [ ] **Task 1.2: Settings unit tests** (effort: 1)
-  - [ ] In `test/unit/test_collection_rule_settings.py` (where the
+- [x] **Task 1.2: Settings unit tests** (effort: 1)
+  - [x] In `test/unit/test_collection_rule_settings.py` (where the
         category-list parsing tests live), add cases for the new field:
         unset → empty set, single value, comma list with whitespace,
         empty string → empty set, case preserved (`crypto` stays
         `crypto` — validation is Decision 9's job, not the parser's).
-  - [ ] Success: new tests pass; the full settings test module passes
+  - [x] Success: new tests pass; the full settings test module passes
         unmodified otherwise.
 
-- [ ] **Task 1.3: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 1 (e.g.
+- [x] **Task 1.3: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 1 (e.g.
         `feat: add MT_KALSHI_TRADES_EXCLUDED_CATEGORIES setting`).
 
 ## Section 2: Filter SQL rendering in `selection.py`

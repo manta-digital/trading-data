@@ -148,6 +148,35 @@ def selection_sql(rule: CollectionRule, form: SelectionForm) -> Selection:
     return Selection(sql.SQL("({})").format(sql.SQL(" AND ").join(clauses)), params)
 
 
+def trades_filter_sql(excluded: frozenset[str]) -> Selection:
+    """The trades-tape category filter's membership test (slice 268,
+    Decision 3): TRUE when the market's category is named in ``excluded``.
+    The embedding statement, not this function, negates or counts the test.
+
+    Parameter name ``trades_excluded_categories`` is disjoint from every
+    parameter ``selection_sql`` can emit (all ``collection_*``), so rule and
+    filter bind together in one statement. An empty set renders literal
+    ``FALSE`` (nothing filtered) so the statement shape is constant across
+    configurations. ``COALESCE(s.category, '')`` keeps the test two-valued:
+    an uncategorised series is never filtered — ``''`` can only match if an
+    operator configured the empty string, which the settings parser drops.
+    """
+    if not excluded:
+        return Selection(sql.SQL("FALSE"), {})
+    return Selection(
+        sql.SQL("COALESCE(s.category, '') = ANY(%(trades_excluded_categories)s)"),
+        {"trades_excluded_categories": sorted(excluded)},
+    )
+
+
+def describe_trades_filter(excluded: frozenset[str]) -> str:
+    """The one spelling of the filter for log and status lines: ``none``
+    when empty, else ``excluding Crypto, Sports`` (sorted)."""
+    if not excluded:
+        return _NONE
+    return f"excluding {', '.join(sorted(excluded))}"
+
+
 #: The three-table catalog join every rule-dependent query runs over —
 #: aliases ``m`` (markets), ``e`` (events), ``s`` (series); spelled once.
 #: ``CATALOG_TABLES`` is the join without its ``FROM``, so the trades phase
