@@ -66,8 +66,20 @@ START_LINE_ENTRY = f"trades filter: {EXPECTED_DESCRIPTION}"
 
 def precondition_floor_reached() -> None:
     """Decision 8: never enable the filter while the backfill is still
-    descending — the abort happens before anything is touched."""
+    descending — the abort happens before anything is touched. Also proves
+    the installed release carries slice 268: the pre-268 binary silently
+    ignores the env var (pydantic ``extra="ignore"``), so firing it would
+    store filtered categories and fail every report check."""
     status = production_status()
+    trades = status.get("trades") or {}
+    if "filter" not in trades:
+        raise CutoverError(
+            "the installed release does not carry slice 268: `mt-run data "
+            "kalshi status --json` has no trades.filter block, so the running "
+            "binary would silently ignore the variable. Install the release "
+            "on /opt/manta-trading first (ordinary release workflow), then "
+            "re-run. Nothing was changed."
+        )
     historical = status.get("historical") or {}
     if historical.get("floor_reached") is not True:
         raise CutoverError(
