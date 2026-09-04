@@ -30,7 +30,7 @@ reviewVerdictsAddressed:
     helper was deleted in favor of the typed common one); F005–F006 pass
 dateCreated: 20260903
 dateUpdated: 20260904
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -397,10 +397,10 @@ amendment*; Decisions 6, 7.
         env file and the service unit, and every check maps to a
         walkthrough step 7 line.
 
-- [ ] **Task 7.4: [PM] Production cutover** (effort: 1)
-  - [ ] [PM] After the release is installed on manta9000 (ordinary
+- [x] **Task 7.4: [PM] Production cutover** (effort: 1)
+  - [x] [PM] After the release is installed on manta9000 (ordinary
         release workflow, not a task): run
         `scripts/cutover_268_trades_filter.py`; read its report.
-  - [ ] Note (not a gate): WAL rate and `/data` growth are expected to
+  - [x] Note (not a gate): WAL rate and `/data` growth are expected to
         drop toward the 5–15 GB/day steady state over subsequent days —
         observation only, per the design's Value section.
