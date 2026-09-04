@@ -32,6 +32,10 @@ ENV_FILE = ".env"
 #: renderer cites it, and the guard translates old names to new ones.
 KALSHI_COLLECTION_ENV_PREFIX = "MT_KALSHI_COLLECTION_"
 RENAMED_KALSHI_CANDLE_ENV_PREFIX = "MT_KALSHI_CANDLE_"
+#: The trades-tape filter's environment name (slice 268) — the
+#: ``kalshi_trades_excluded_categories`` field under ``env_prefix``; spelled
+#: once for the ``status`` renderer and its tests.
+KALSHI_TRADES_FILTER_ENV = "MT_KALSHI_TRADES_EXCLUDED_CATEGORIES"
 
 #: What pydantic-settings accepts for ``env_file`` / ``_env_file``.
 _EnvFile = str | Path | Sequence[str | Path] | None

@@ -17,6 +17,7 @@ from manta_trading.data.kalshi.selection import (
     CATALOG_JOIN,
     CollectionRule,
     selection_sql,
+    trades_filter_sql,
 )
 from manta_trading.data.kalshi.trade_status import TradeStatus, read_trade_status
 
@@ -30,15 +31,21 @@ class TestDecisionTen:
     def test_no_statement_references_the_trades_table(self):
         """Every figure is ``sync_state`` plus the catalog join."""
         ever = selection_sql(RULE_C, "ever")
+        tape = trades_filter_sql(frozenset({"Crypto"}))
         statements = [
             module.STATE_QUERY.as_string(None),
             module.TRADE_COUNTS.format(
-                catalog=CATALOG_JOIN, ever=ever.predicate
+                catalog=CATALOG_JOIN, ever=ever.predicate, tape_test=tape.predicate
             ).as_string(None),
         ]
         for text in statements:
             assert "kalshi.trades" not in text
-            assert "trades" not in text.replace("%(surface)s", "")
+            # The 268 filter's bound-parameter *name* contains "trades";
+            # the guard is about the table, so strip placeholders first.
+            scrubbed = text.replace("%(surface)s", "").replace(
+                "%(trades_excluded_categories)s", ""
+            )
+            assert "trades" not in scrubbed
         assert "kalshi.sync_state" in statements[0]
         assert "kalshi.markets m" in statements[1]
 
@@ -65,6 +72,8 @@ class TestToDict:
             partial_history=6_120,
             short_of_close=310,
             before_coverage=1_203_442,
+            excluded_categories=frozenset({"Sports", "Crypto"}),
+            tape_filtered_markets=1_234,
         )
         payload = status.to_dict()
         assert payload == {
@@ -77,6 +86,10 @@ class TestToDict:
             "partial_history": 6_120,
             "short_of_close": 310,
             "before_coverage": 1_203_442,
+            "filter": {
+                "excluded_categories": ["Crypto", "Sports"],
+                "tape_filtered_markets": 1_234,
+            },
             "stale_after_minutes": int(TRADE_LAG_STALE_AFTER.total_seconds() // 60),
         }
 
@@ -94,7 +107,7 @@ class TestEffectiveFloor:
                 Surface.TRADES.value: (NOW, NOW - self.LAG, self.LIVE_FLOOR, self.LAG),
                 Surface.HISTORICAL.value: historical,
             },
-            counts=(1, 2, 3, 4, 10),
+            counts=(1, 2, 3, 4, 0, 10),
         )
 
     def _bound_floor(self, conn: FakeStatusConn) -> object:
@@ -102,22 +115,67 @@ class TestEffectiveFloor:
 
     def test_live_floor_without_a_historical_row(self):
         conn = self._conn(None)
-        status = read_trade_status(conn.as_connection(), RULE_C)
+        status = read_trade_status(conn.as_connection(), RULE_C, frozenset())
         assert status is not None and status.coverage_from == self.LIVE_FLOOR
         assert self._bound_floor(conn) == self.LIVE_FLOOR
 
     def test_live_floor_while_the_historical_watermark_is_unset(self):
         conn = self._conn((NOW, None, None, "archive-3"))
-        status = read_trade_status(conn.as_connection(), RULE_C)
+        status = read_trade_status(conn.as_connection(), RULE_C, frozenset())
         assert status is not None and status.coverage_from == self.LIVE_FLOOR
 
     def test_the_minimum_with_a_historical_watermark(self):
         below = self.LIVE_FLOOR - timedelta(days=40)
         conn = self._conn((NOW, below, datetime(2026, 1, 1, tzinfo=UTC), None))
-        status = read_trade_status(conn.as_connection(), RULE_C)
+        status = read_trade_status(conn.as_connection(), RULE_C, frozenset())
         assert status is not None and status.coverage_from == below
         assert self._bound_floor(conn) == below
         assert [p["surface"] for p in conn.params if "surface" in p] == [
             Surface.TRADES.value,
             Surface.HISTORICAL.value,
         ]
+
+
+class TestTradesFilterFacts:
+    """Slice 268, Task 5.3: the filter facts and the extended partition."""
+
+    LIVE_FLOOR = datetime(2026, 7, 1, tzinfo=UTC)
+    LAG = timedelta(minutes=8)
+
+    def _conn(self, counts: tuple[int, ...]) -> FakeStatusConn:
+        return FakeStatusConn(
+            {
+                Surface.TRADES.value: (NOW, NOW - self.LAG, self.LIVE_FLOOR, self.LAG),
+                Surface.HISTORICAL.value: None,
+            },
+            counts=counts,
+        )
+
+    def test_filter_facts_propagate(self):
+        conn = self._conn((1, 2, 3, 4, 5, 15))
+        status = read_trade_status(conn.as_connection(), RULE_C, frozenset({"Crypto"}))
+        assert status is not None
+        assert status.excluded_categories == frozenset({"Crypto"})
+        assert status.tape_filtered_markets == 5
+        assert status.to_dict()["filter"] == {
+            "excluded_categories": ["Crypto"],
+            "tape_filtered_markets": 5,
+        }
+
+    def test_extended_partition_violation_raises(self):
+        import pytest
+
+        conn = self._conn((1, 2, 3, 4, 5, 14))
+        with pytest.raises(RuntimeError, match=r"1 \+ 2 \+ 3 \+ 4 \+ 5"):
+            read_trade_status(conn.as_connection(), RULE_C, frozenset({"Crypto"}))
+
+    def test_empty_filter_reports_zero_and_none_excluded(self):
+        conn = self._conn((1, 2, 3, 4, 0, 10))
+        status = read_trade_status(conn.as_connection(), RULE_C, frozenset())
+        assert status is not None
+        assert status.tape_filtered_markets == 0
+        assert status.excluded_categories == frozenset()
+        assert status.to_dict()["filter"] == {
+            "excluded_categories": [],
+            "tape_filtered_markets": 0,
+        }

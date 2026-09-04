@@ -41,13 +41,21 @@ from manta_trading.data.kalshi.selection import (
     CATALOG_JOIN,
     CollectionRule,
     selection_sql,
+    trades_filter_sql,
 )
 from manta_trading.data.kalshi.sync_types import iso_utc
 
 
 @dataclass(frozen=True)
 class TradeStatus:
-    """The trades block (design *CLI and rendering*)."""
+    """The trades block (design *CLI and rendering*).
+
+    Slice 268: the four closed-market buckets cover rule-selected markets
+    **not** tape-filtered; ``tape_filtered_markets`` counts the filtered
+    closed markets (markets, never trade rows), and the partition check
+    includes it. ``excluded_categories`` is the filter in force — the same
+    ``Settings`` value the pass reads — so text and JSON render from here.
+    """
 
     last_phase_at: datetime | None
     tape_through: datetime
@@ -58,6 +66,8 @@ class TradeStatus:
     partial_history: int
     short_of_close: int
     before_coverage: int
+    excluded_categories: frozenset[str]
+    tape_filtered_markets: int
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -70,6 +80,10 @@ class TradeStatus:
             "partial_history": self.partial_history,
             "short_of_close": self.short_of_close,
             "before_coverage": self.before_coverage,
+            "filter": {
+                "excluded_categories": sorted(self.excluded_categories),
+                "tape_filtered_markets": self.tape_filtered_markets,
+            },
             "stale_after_minutes": int(TRADE_LAG_STALE_AFTER.total_seconds() // 60),
         }
 
@@ -83,21 +97,30 @@ STATE_QUERY = sql.SQL(
 #: One statement, one scan of the join: the rule embeds ``selection_sql``
 #: (never re-spelled). The four buckets are the module docstring's precedence,
 #: spelled so each row satisfies exactly one; ``COALESCE(..., FALSE)`` keeps a
-#: NULL ``open_time`` in *partial*, never in none.
+#: NULL ``open_time`` in *partial*, never in none. Slice 268: the inner
+#: select flags each selected closed market ``tape_filtered`` (the
+#: ``trades_filter_sql`` membership test — never re-spelled either); the four
+#: buckets cover the unfiltered, a fifth count the filtered, and together
+#: they still partition the total.
 TRADE_COUNTS = sql.SQL(
     "SELECT "
-    "count(*) FILTER (WHERE m.close_time < %(coverage_from)s), "
-    "count(*) FILTER (WHERE m.close_time >= %(coverage_from)s "
-    "  AND m.close_time > %(watermark)s), "
-    "count(*) FILTER (WHERE m.close_time >= %(coverage_from)s "
-    "  AND m.close_time <= %(watermark)s "
-    "  AND NOT COALESCE(m.open_time >= %(coverage_from)s, FALSE)), "
-    "count(*) FILTER (WHERE m.close_time >= %(coverage_from)s "
-    "  AND m.close_time <= %(watermark)s "
-    "  AND COALESCE(m.open_time >= %(coverage_from)s, FALSE)), "
+    "count(*) FILTER (WHERE NOT tape_filtered AND close_time < %(coverage_from)s), "
+    "count(*) FILTER (WHERE NOT tape_filtered "
+    "  AND close_time >= %(coverage_from)s "
+    "  AND close_time > %(watermark)s), "
+    "count(*) FILTER (WHERE NOT tape_filtered "
+    "  AND close_time >= %(coverage_from)s "
+    "  AND close_time <= %(watermark)s "
+    "  AND NOT COALESCE(open_time >= %(coverage_from)s, FALSE)), "
+    "count(*) FILTER (WHERE NOT tape_filtered "
+    "  AND close_time >= %(coverage_from)s "
+    "  AND close_time <= %(watermark)s "
+    "  AND COALESCE(open_time >= %(coverage_from)s, FALSE)), "
+    "count(*) FILTER (WHERE tape_filtered), "
     "count(*) "
+    "FROM (SELECT m.close_time, m.open_time, {tape_test} AS tape_filtered "
     "{catalog}"
-    "WHERE {ever} AND m.close_time < now()"
+    "WHERE {ever} AND m.close_time < now()) closed"
 )
 
 
@@ -112,9 +135,15 @@ def _effective_floor(conn: psycopg.Connection[Any], live_floor: datetime) -> dat
 
 
 def read_trade_status(
-    conn: psycopg.Connection[Any], rule: CollectionRule
+    conn: psycopg.Connection[Any],
+    rule: CollectionRule,
+    trades_excluded: frozenset[str],
 ) -> TradeStatus | None:
-    """``None`` until the trades phase has run once (no ``sync_state`` row)."""
+    """``None`` until the trades phase has run once (no ``sync_state`` row).
+
+    ``trades_excluded`` comes from the same ``Settings`` the pass reads (the
+    264 Decision 2 invariant), so filtering and reporting cannot disagree.
+    """
     state = conn.execute(STATE_QUERY, {"surface": Surface.TRADES.value}).fetchone()
     if state is None:
         return None
@@ -126,18 +155,29 @@ def read_trade_status(
         )
     coverage_from = _effective_floor(conn, live_floor)
     ever = selection_sql(rule, "ever")
-    statement = TRADE_COUNTS.format(catalog=CATALOG_JOIN, ever=ever.predicate)
+    trades_filter = trades_filter_sql(trades_excluded)
+    statement = TRADE_COUNTS.format(
+        catalog=CATALOG_JOIN, ever=ever.predicate, tape_test=trades_filter.predicate
+    )
     row = conn.execute(
         statement,
-        {**ever.params, "coverage_from": coverage_from, "watermark": watermark},
+        {
+            **ever.params,
+            **trades_filter.params,
+            "coverage_from": coverage_from,
+            "watermark": watermark,
+        },
     ).fetchone()
     if row is None:
         raise RuntimeError("the trade counts aggregate returned no row")
-    before, short, partial, complete, total = (int(value) for value in row)
-    if before + short + partial + complete != total:
+    before, short, partial, complete, tape_filtered, total = (
+        int(value) for value in row
+    )
+    if before + short + partial + complete + tape_filtered != total:
         raise RuntimeError(
             f"trade status counts do not partition the selected closed markets: "
-            f"{before} + {short} + {partial} + {complete} != {total}"
+            f"{before} + {short} + {partial} + {complete} + {tape_filtered} "
+            f"!= {total}"
         )
     return TradeStatus(
         last_phase_at=last_phase_at,
@@ -149,4 +189,6 @@ def read_trade_status(
         partial_history=partial,
         short_of_close=short,
         before_coverage=before,
+        excluded_categories=trades_excluded,
+        tape_filtered_markets=tape_filtered,
     )

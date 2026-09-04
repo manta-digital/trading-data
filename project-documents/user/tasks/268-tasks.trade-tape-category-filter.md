@@ -209,71 +209,71 @@ Design *Architecture: Data Flow*, *Technical Decisions 4, 5*,
 Design *Technical Decisions 4, 5, 9*; *Implementation Details: Counters
 and events*.
 
-- [ ] **Task 4.1: Totals, log lines, result, event** (effort: 2)
-  - [ ] `data/kalshi/trade_sync.py`: accumulate
+- [x] **Task 4.1: Totals, log lines, result, event** (effort: 2)
+  - [x] `data/kalshi/trade_sync.py`: accumulate
         `excluded_by_trades_filter` into window totals; per-window log
         line gains `filtered %d`; the phase start line appends
         `· trades filter: {describe_trades_filter(...)}` read from the
         repository property (one carrier — do not pass the set
         separately).
-  - [ ] `data/kalshi/trade_types.py`: `TradeResult` gains the counter in
+  - [x] `data/kalshi/trade_types.py`: `TradeResult` gains the counter in
         `counts()` and `to_dict()`, name `excluded_by_trades_filter`
         everywhere, no abbreviations. `phase_finished` event `counts`
         carries it for both `trades` and `historical` (the historical
         core reuses `TradeSync.drain`/`TradeResult`, so verify it needs
         zero historical-specific code rather than adding any).
-  - [ ] Success: a drain over a scripted tape reports the counter in
+  - [x] Success: a drain over a scripted tape reports the counter in
         totals, log lines, `counts()`, `to_dict()`, and the event; old
         journal rows without the key need no migration.
 
-- [ ] **Task 4.2: Sync unit tests** (effort: 2)
-  - [ ] In `test/unit/data/kalshi/test_trade_sync.py`: grow the existing
+- [x] **Task 4.2: Sync unit tests** (effort: 2)
+  - [x] In `test/unit/data/kalshi/test_trade_sync.py`: grow the existing
         scripted-tape fake to emit filtered rows; assert window totals,
         the `filtered %d` line, the start-line filter description, and
         the event payload. Zero-filter run reports 0 everywhere and
         leaves every existing assertion intact.
-  - [ ] Success: tests pass; existing sync tests pass unmodified beyond
+  - [x] Success: tests pass; existing sync tests pass unmodified beyond
         arity.
 
-- [ ] **Task 4.3: `UnknownTradesFilterCategoryError` validation**
+- [x] **Task 4.3: `UnknownTradesFilterCategoryError` validation**
       (effort: 2)
-  - [ ] Per Decision 9: at trades-phase start, after the
+  - [x] Per Decision 9: at trades-phase start, after the
         completed-catalog-walk guard, check every configured category
         against `SELECT DISTINCT category FROM kalshi.series`; any value
         present in no series row raises
         `UnknownTradesFilterCategoryError` naming the value and listing
         the catalog's known categories. Config abort — the phase result
         is never `PARTIAL`. Empty filter skips the check entirely.
-  - [ ] The historical phase performs the same check before its drain.
+  - [x] The historical phase performs the same check before its drain.
         Implement the check once (shared helper), called from both
         phases — do not duplicate the query.
-  - [ ] Success: error type exists, is raised pre-drain by both phases,
+  - [x] Success: error type exists, is raised pre-drain by both phases,
         and aborts the phase without touching watermarks or cursors.
 
-- [ ] **Task 4.4: Validation tests** (effort: 2)
-  - [ ] Against a fixture catalog that knows only `Crypto`: configuring
+- [x] **Task 4.4: Validation tests** (effort: 2)
+  - [x] Against a fixture catalog that knows only `Crypto`: configuring
         `crypto` (lowercase) aborts both the trades and historical
         phases with the error naming `crypto` (design Success
         Criterion 9). A retired-but-once-real category (present only on
         historical series rows) does not abort. Empty filter runs no
         check.
-  - [ ] Success: tests pass. Place them in
+  - [x] Success: tests pass. Place them in
         `test/integration/test_kalshi_trades.py` beside Task 3.4's tests
         (the catalog query needs real SQL).
 
-- [ ] **Task 4.5: Historical-drain inheritance test** (effort: 2)
-  - [ ] Via the existing 267 harness
+- [x] **Task 4.5: Historical-drain inheritance test** (effort: 2)
+  - [x] Via the existing 267 harness
         (`test/unit/data/kalshi/test_historical_sync.py` and/or the
         integration pass tests): a historical drain under a filter
         produces `excluded_by_trades_filter` counts, stores no filtered
         rows, and emits the counter in its `phase_finished` event —
         confirming inheritance with zero historical-specific code
         (design Success Criterion 4).
-  - [ ] Success: test passes; no change to `historical_sync.py` beyond
+  - [x] Success: test passes; no change to `historical_sync.py` beyond
         what Task 4.1 verified as unnecessary.
 
-- [ ] **Task 4.6: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 4 (e.g.
+- [x] **Task 4.6: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 4 (e.g.
         `feat: account and validate trades filter in sync phases`).
 
 ## Section 5: Status command surfaces

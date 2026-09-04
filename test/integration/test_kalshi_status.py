@@ -269,7 +269,7 @@ def test_trades_never_collected_is_none(kalshi_db: str):
     from manta_trading.data.kalshi.trade_status import read_trade_status
 
     with psycopg.connect(kalshi_db) as conn:
-        assert read_trade_status(conn, RULE_C) is None
+        assert read_trade_status(conn, RULE_C, frozenset()) is None
 
 
 #: The closed-market fixture set for the four counts: ``(ticker, category,
@@ -347,7 +347,7 @@ async def test_trade_status_fields_and_the_four_counts_partition(
     )
 
     with psycopg.connect(kalshi_db) as conn:
-        status = read_trade_status(conn, RULE_C)
+        status = read_trade_status(conn, RULE_C, frozenset())
     assert status is not None
     assert status.last_phase_at == now
     assert status.tape_through == watermark
@@ -377,12 +377,100 @@ async def test_trade_status_fields_and_the_four_counts_partition(
     # The counts respect the rule: everything selected, SPORTS joins the
     # complete bucket and nothing else moves.
     with psycopg.connect(kalshi_db) as conn:
-        everything = read_trade_status(conn, EVERYTHING)
+        everything = read_trade_status(conn, EVERYTHING, frozenset())
     assert everything is not None
     assert everything.complete_through_close == 2
     assert everything.partial_history == 2
     assert everything.short_of_close == 2
     assert everything.before_coverage == 1
+
+
+async def test_trade_status_filter_rescopes_buckets_and_extends_the_partition(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+):
+    """Slice 268, Task 5.3: with ``Politics`` filtered, every one of the six
+    selected closed markets is tape-filtered — the four buckets re-scope to
+    the unfiltered (zero) and the extended partition still covers the total.
+    An empty filter leaves every number as the test above proves it."""
+    from test_kalshi_candles import RULE_C
+
+    from manta_trading.data.kalshi.trade_status import read_trade_status
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    await _seed_trade_status(
+        kalshi_conn, coverage_from=now - 30 * DAY, watermark=now - DAY, now=now
+    )
+    with psycopg.connect(kalshi_db) as conn:
+        filtered = read_trade_status(conn, RULE_C, frozenset({"Politics"}))
+        unfiltered = read_trade_status(conn, RULE_C, frozenset())
+    assert filtered is not None
+    assert filtered.tape_filtered_markets == 6
+    assert filtered.complete_through_close == 0
+    assert filtered.partial_history == 0
+    assert filtered.short_of_close == 0
+    assert filtered.before_coverage == 0
+    assert filtered.excluded_categories == frozenset({"Politics"})
+    assert unfiltered is not None
+    assert unfiltered.tape_filtered_markets == 0
+    assert (
+        unfiltered.complete_through_close,
+        unfiltered.partial_history,
+        unfiltered.short_of_close,
+        unfiltered.before_coverage,
+    ) == (1, 2, 2, 1)
+
+
+async def test_status_command_renders_the_trades_filter(
+    kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+):
+    """Slice 268, Task 5.3 (design Success Criterion 5): the filter line and
+    JSON block with a filter set; ``none`` and a zeroed block when unset."""
+    import json
+
+    from typer.testing import CliRunner
+
+    from manta_trading.cli.app import app
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    await _seed_trade_status(
+        kalshi_conn, coverage_from=now - 30 * DAY, watermark=now - DAY, now=now
+    )
+    async with CatalogRepository(kalshi_conn).transaction():
+        await CatalogRepository(kalshi_conn).set_last_full_sync(Surface.CATALOG, now)
+    runner = CliRunner()
+    command = ["data", "kalshi", "status"]
+    base_env = {"MT_TIMESCALE_DB_URL": kalshi_db}
+    filter_env = {**base_env, "MT_KALSHI_TRADES_EXCLUDED_CATEGORIES": "Politics"}
+
+    with_filter = runner.invoke(app, [*command, "--json"], env=filter_env)
+    assert with_filter.exit_code == 0, with_filter.output
+    payload = json.loads(with_filter.stdout)
+    assert payload["trades"]["filter"] == {
+        "excluded_categories": ["Politics"],
+        "tape_filtered_markets": 6,
+    }
+    rich = runner.invoke(app, command, env=filter_env)
+    text = " ".join(rich.output.split())
+    assert (
+        "trades filter excluding Politics (MT_KALSHI_TRADES_EXCLUDED_CATEGORIES)"
+        in text
+    )
+    assert (
+        "tape-filtered 6 closed markets "
+        "(stored history kept; completeness not evaluated)" in text
+    )
+
+    unset = runner.invoke(app, [*command, "--json"], env=base_env)
+    assert unset.exit_code == 0, unset.output
+    payload = json.loads(unset.stdout)
+    assert payload["trades"]["filter"] == {
+        "excluded_categories": [],
+        "tape_filtered_markets": 0,
+    }
+    rich = runner.invoke(app, command, env=base_env)
+    text = " ".join(rich.output.split())
+    assert "trades filter none (MT_KALSHI_TRADES_EXCLUDED_CATEGORIES)" in text
+    assert "tape-filtered" not in text
 
 
 async def test_trade_status_is_not_behind_within_the_horizon(
@@ -399,7 +487,7 @@ async def test_trade_status_is_not_behind_within_the_horizon(
         kalshi_conn, coverage_from=now - 30 * DAY, watermark=fresh, now=now
     )
     with psycopg.connect(kalshi_db) as conn:
-        status = read_trade_status(conn, RULE_C)
+        status = read_trade_status(conn, RULE_C, frozenset())
     assert status is not None
     assert status.behind is False
     assert timedelta(minutes=89) <= status.lag <= timedelta(minutes=95)
@@ -447,7 +535,7 @@ async def test_effective_floor_moves_before_coverage_and_the_partition_holds(
         await historical.set_last_full_sync(now)
 
     with psycopg.connect(kalshi_db) as conn:
-        status = read_trade_status(conn, RULE_C)
+        status = read_trade_status(conn, RULE_C, frozenset())
         line = read_historical_status(conn)
     assert status is not None
     assert status.coverage_from == descended
