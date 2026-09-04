@@ -14,6 +14,12 @@ projectState: >
   5f26bb7, review findings F001-F006 remediated at 779fe63 (verdict
   CONCERNS, passes gate). Crypto is ~90% of stored tape volume; the intended
   production state is Crypto trades filtered, Crypto candles continuing.
+reviewVerdictsAddressed:
+  - 268-review.tasks.trade-tape-category-filter, first round
+    (claude-sonnet-5, CONCERNS) — F001 merge/tag/install bullet removed
+    from Task 7.4 (release install is out-of-band workflow); F002
+    Section 5 test-with deviation now stated as deliberate; F003 Task 4.4
+    test tier pinned to integration beside Task 3.4; F004–F007 pass
 dateCreated: 20260903
 dateUpdated: 20260903
 status: not_started
@@ -251,9 +257,9 @@ and events*.
         Criterion 9). A retired-but-once-real category (present only on
         historical series rows) does not abort. Empty filter runs no
         check.
-  - [ ] Success: tests pass in whichever tier hosts them (the catalog
-        query needs real SQL — integration tier, beside Task 3.4's
-        tests, unless an existing fixture makes the unit tier honest).
+  - [ ] Success: tests pass. Place them in
+        `test/integration/test_kalshi_trades.py` beside Task 3.4's tests
+        (the catalog query needs real SQL).
 
 - [ ] **Task 4.5: Historical-drain inheritance test** (effort: 2)
   - [ ] Via the existing 267 harness
@@ -273,6 +279,10 @@ and events*.
 ## Section 5: Status command surfaces
 
 Design *Technical Decision 6*; *Implementation Details: CLI rendering*.
+
+Test-with deviation, deliberate: 5.1 and 5.2 share the single test task
+5.3 because the renderer has nothing to test until 5.1's status object
+exists, and 5.3 exercises both through the same status/render pair.
 
 - [ ] **Task 5.1: `trade_status.py` — filter facts and re-scoped
       buckets** (effort: 3)
@@ -380,10 +390,9 @@ amendment*; Decisions 6, 7.
         walkthrough step 7 line.
 
 - [ ] **Task 7.4: [PM] Production cutover** (effort: 1)
-  - [ ] [PM] Merge the slice branch, tag and install the release on
-        manta9000.
-  - [ ] [PM] Run `scripts/cutover_268_trades_filter.py`; read its
-        report.
+  - [ ] [PM] After the release is installed on manta9000 (ordinary
+        release workflow, not a task): run
+        `scripts/cutover_268_trades_filter.py`; read its report.
   - [ ] Note (not a gate): WAL rate and `/data` growth are expected to
         drop toward the 5–15 GB/day steady state over subsequent days —
         observation only, per the design's Value section.
