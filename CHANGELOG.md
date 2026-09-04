@@ -14,6 +14,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+Slice 268: a write-path category filter on the Kalshi trades tape.
+
+### Added
+- **`MT_KALSHI_TRADES_EXCLUDED_CATEGORIES`** — name `series.category` values
+  (production intent: `Crypto`, ~90% of stored tape volume) whose trades are
+  classified and counted but **not stored**; candles for the same categories
+  keep collecting under the unchanged `MT_KALSHI_COLLECTION_*` rule. Empty
+  (the default) means no filtering — behavior is bit-for-bit unchanged.
+- A fifth accounting bucket, `excluded_by_trades_filter`, flows through page
+  counts, window log lines (`filtered N`), phase totals, `phase_finished`
+  events, and both the live and historical drains (which share the one
+  write statement).
+- `mt data kalshi status` shows a `trades filter` line (and, when set, the
+  tape-filtered closed-market count); `--json` gains `trades.filter` with
+  `excluded_categories` and `tape_filtered_markets`. The four closed-market
+  buckets re-scope to unfiltered markets and the partition check extends.
+- **Loud typo validation**: a configured category present in no
+  `kalshi.series` row aborts the trades and historical phases pre-drain with
+  `UnknownTradesFilterCategoryError` — a typo (`crypto` for `Crypto`) can
+  never become a silent no-op. Retired-but-once-real categories keep working.
+- `scripts/cutover_268_trades_filter.py` — the production cutover: enforces
+  the historical-floor precondition, sets the variable, fires one supervised
+  pass, and reports the three walkthrough checks.
+
 ## [0.12.1] — 2026-09-02
 
 Post-release remediation of the slice 267 code review, plus a rewritten README.

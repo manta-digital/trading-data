@@ -162,9 +162,11 @@ def trades_filter_sql(excluded: frozenset[str]) -> Selection:
     operator configured the empty string, which the settings parser drops.
     """
     if not excluded:
-        return Selection(sql.SQL("FALSE"), {})
+        return Selection(sql.Composed([sql.SQL("FALSE")]), {})
     return Selection(
-        sql.SQL("COALESCE(s.category, '') = ANY(%(trades_excluded_categories)s)"),
+        sql.Composed(
+            [sql.SQL("COALESCE(s.category, '') = ANY(%(trades_excluded_categories)s)")]
+        ),
         {"trades_excluded_categories": sorted(excluded)},
     )
 

@@ -329,52 +329,52 @@ exists, and 5.3 exercises both through the same status/render pair.
 Design *Implementation Details: Operator documentation, Architecture
 amendment*; Decisions 6, 7.
 
-- [ ] **Task 6.1: README env-reference row** (effort: 1)
-  - [ ] One row beside the `MT_KALSHI_COLLECTION_*` rows:
+- [x] **Task 6.1: README env-reference row** (effort: 1)
+  - [x] One row beside the `MT_KALSHI_COLLECTION_*` rows:
         variable, default (empty = no filtering), and the
         candles-continue semantics stated explicitly.
-- [ ] **Task 6.2: `deploy/manta-trading.env.example` line** (effort: 1)
-  - [ ] Commented `# MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=` beside the
+- [x] **Task 6.2: `deploy/manta-trading.env.example` line** (effort: 1)
+  - [x] Commented `# MT_KALSHI_TRADES_EXCLUDED_CATEGORIES=` beside the
         five commented collection-rule lines, with the same one-line
         semantics note.
-- [ ] **Task 6.3: Runbook `100-production-operations.md`** (effort: 1)
-  - [ ] Add the variable to the Kalshi env-line enumeration for
+- [x] **Task 6.3: Runbook `100-production-operations.md`** (effort: 1)
+  - [x] Add the variable to the Kalshi env-line enumeration for
         `/etc/manta-trading.env`; one sentence in the trades-phase
         description naming the filter, its counter, and the
         `tape_filtered_markets > 0` post-cutover check.
-- [ ] **Task 6.4: Architecture amendment (Decision 7)** (effort: 1)
-  - [ ] In `260-arch.kalshi-event-contract-data.md`, land Decision 7's
+- [x] **Task 6.4: Architecture amendment (Decision 7)** (effort: 1)
+  - [x] In `260-arch.kalshi-event-contract-data.md`, land Decision 7's
         amended wording verbatim: the *Design Goals* scope-of-complete
         paragraph and the completeness/caught-up definitions (the
         264/265 amendment pattern). Bump the doc's `dateUpdated`.
-- [ ] **Task 6.5: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 6 (e.g.
+- [x] **Task 6.5: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 6 (e.g.
         `docs: document trades filter across operator surfaces`).
 
 ## Section 7: Full validation, walkthrough, and cutover
 
-- [ ] **Task 7.1: Full validation pass** (effort: 2)
-  - [ ] Unit tier and integration tier run separately (known-flake
+- [x] **Task 7.1: Full validation pass** (effort: 2)
+  - [x] Unit tier and integration tier run separately (known-flake
         policy); mypy in the established single invocation covering the
         kalshi src paths and tests together; `ruff` scoped to files
         changed on this branch (`git diff --name-only main`).
-  - [ ] Verify design Success Criterion 1 end-to-end: with the env
+  - [x] Verify design Success Criterion 1 end-to-end: with the env
         unset, the full suite passes with no changes beyond
         `PageCounts` construction arity.
-  - [ ] Success: all tiers green; any flake re-run in isolation before
+  - [x] Success: all tiers green; any flake re-run in isolation before
         investigation.
 
-- [ ] **Task 7.2: Refine the verification walkthrough** (effort: 1)
-  - [ ] Update the slice design's *Verification Walkthrough* to match
+- [x] **Task 7.2: Refine the verification walkthrough** (effort: 1)
+  - [x] Update the slice design's *Verification Walkthrough* to match
         implemented reality (exact log wording, error text, JSON paths).
         Keep the Decision 8 precondition step (historical `floor
         reached` before setting the variable in production) and the
         typo-failure demo (walkthrough steps 6–7).
-  - [ ] Success: every command in the walkthrough runs as written
+  - [x] Success: every command in the walkthrough runs as written
         against a dev database; commit with the final code checkpoint.
 
-- [ ] **Task 7.3: Cutover script** (effort: 2)
-  - [ ] Write `scripts/cutover_268_trades_filter.py` following the
+- [x] **Task 7.3: Cutover script** (effort: 2)
+  - [x] Write `scripts/cutover_268_trades_filter.py` following the
         `scripts/cutover_265_trades.py` pattern: (1) precondition —
         abort unless `mt data kalshi status` shows the historical tape
         at `floor reached` (Decision 8); (2) add
@@ -385,7 +385,7 @@ amendment*; Decisions 6, 7.
         `trades.filter.tape_filtered_markets > 0` from `--json`
         (the named post-cutover typo check). Print each check's result;
         nonzero exit on any failure.
-  - [ ] Success: script is idempotent (safe to re-run), touches only the
+  - [x] Success: script is idempotent (safe to re-run), touches only the
         env file and the service unit, and every check maps to a
         walkthrough step 7 line.
 

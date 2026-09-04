@@ -11,7 +11,7 @@ riskLevel: low
 archIndex: 260
 dateCreated: 20260823
 dateUpdated: 20260903
-status: complete
+status: in_progress
 ---
 
 # Kalshi Event-Contract Data Architecture
