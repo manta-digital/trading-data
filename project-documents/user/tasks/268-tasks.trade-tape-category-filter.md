@@ -135,28 +135,28 @@ Design *Technical Decision 3*.
 Design *Architecture: Data Flow*, *Technical Decisions 4, 5*,
 *Implementation Details: The statement*.
 
-- [ ] **Task 3.1: Fifth `PageCounts` bucket** (effort: 1)
-  - [ ] In `data/kalshi/trade_repository.py`, add
+- [x] **Task 3.1: Fifth `PageCounts` bucket** (effort: 1)
+  - [x] In `data/kalshi/trade_repository.py`, add
         `excluded_by_trades_filter: int` to `PageCounts`. Extend the
         `__post_init__` identity to
         `fetched == written + unknown_market + excluded_by_rule +
         excluded_by_trades_filter + duplicates`; keep `selected` carried,
         not derived. Extend the `PageAccountingError` message to name the
         new term.
-  - [ ] Success: constructing a violating `PageCounts` raises
+  - [x] Success: constructing a violating `PageCounts` raises
         `PageAccountingError` whose message includes the filtered count.
 
-- [ ] **Task 3.2: `PageCounts` unit tests** (effort: 1)
-  - [ ] In `test/unit/data/kalshi/test_trade_repository.py`: identity
+- [x] **Task 3.2: `PageCounts` unit tests** (effort: 1)
+  - [x] In `test/unit/data/kalshi/test_trade_repository.py`: identity
         holds with a nonzero filtered count; identity violation via the
         filtered term raises; zero filtered count reproduces today's
         behavior. Update existing constructions for the new arity.
-  - [ ] Success: tests pass; only construction-arity changes to existing
+  - [x] Success: tests pass; only construction-arity changes to existing
         tests, no semantic changes.
 
-- [ ] **Task 3.3: Extend `_write_page_statement` and the repository
+- [x] **Task 3.3: Extend `_write_page_statement` and the repository
       constructor** (effort: 3)
-  - [ ] `_write_page_statement(rule, trades_excluded)`: in the
+  - [x] `_write_page_statement(rule, trades_excluded)`: in the
         `classified` CTE compute `selected` once and derive
         `tape_filtered` from it (`known AND selected AND` the Task 2.1
         membership test) — never paste the rule predicate twice. Insert
@@ -165,11 +165,11 @@ Design *Architecture: Data Flow*, *Technical Decisions 4, 5*,
         becomes `selected AND NOT tape_filtered`. Precedence per design:
         unknown → excluded-by-rule → excluded-by-trades-filter →
         stored/duplicate.
-  - [ ] Change the constructor to
+  - [x] Change the constructor to
         `TradeRepository(conn, rule, *, trades_excluded, surface=…)` —
         required keyword, no default — and expose `trades_excluded` as a
         read-only property.
-  - [ ] Update the only two production construction sites,
+  - [x] Update the only two production construction sites,
         `TradesPhase.run` and `HistoricalPhase.run` in
         `data/kalshi/collection_pass.py`, to pass
         `settings.kalshi_trades_excluded_categories`. Update test
@@ -177,31 +177,31 @@ Design *Architecture: Data Flow*, *Technical Decisions 4, 5*,
         `test/unit/data/kalshi/test_collection_pass.py`, and any other
         caller `grep -rn "TradeRepository(" ` finds) with an explicit
         `trades_excluded=frozenset()` unless the test is about the filter.
-  - [ ] Success: no `TradeRepository` construction anywhere omits
+  - [x] Success: no `TradeRepository` construction anywhere omits
         `trades_excluded`; unit tier passes.
 
-- [ ] **Task 3.4: Repository integration tests (fixture catalog)**
+- [x] **Task 3.4: Repository integration tests (fixture catalog)**
       (effort: 3)
-  - [ ] In `test/integration/test_kalshi_trades.py`, against the fixture
+  - [x] In `test/integration/test_kalshi_trades.py`, against the fixture
         catalog (throwaway database only):
-    - [ ] Mixed page hitting all five buckets in one write: unknown /
+    - [x] Mixed page hitting all five buckets in one write: unknown /
           rule-excluded / tape-filtered / stored / duplicate rows; the
           extended identity holds.
-    - [ ] Precedence: a category named in both the rule's exclusions and
+    - [x] Precedence: a category named in both the rule's exclusions and
           the trades filter counts as `excluded_by_rule`, never
           `excluded_by_trades_filter` (design Success Criterion 3).
-    - [ ] NULL-category series: its trades store under any filter value
+    - [x] NULL-category series: its trades store under any filter value
           (`COALESCE` to `''`, never in the filter) — must run against
           real SQL, not a mock.
-    - [ ] Empty filter: rows stored and counts are identical to a run of
+    - [x] Empty filter: rows stored and counts are identical to a run of
           the pre-change statement shape (bit-for-bit unset behavior,
           Success Criterion 1); `excluded_by_trades_filter == 0`.
-    - [ ] Filtered rows are not written: re-query the fixture
+    - [x] Filtered rows are not written: re-query the fixture
           `kalshi.trades` for the filtered category after the write → 0.
-  - [ ] Success: integration tier for `test_kalshi_trades.py` passes.
+  - [x] Success: integration tier for `test_kalshi_trades.py` passes.
 
-- [ ] **Task 3.5: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 3 (e.g.
+- [x] **Task 3.5: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 3 (e.g.
         `feat: filter trades tape by category in write statement`).
 
 ## Section 4: `TradeSync`, `TradeResult`, event, and loud validation

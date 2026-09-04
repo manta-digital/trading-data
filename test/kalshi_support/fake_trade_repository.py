@@ -26,6 +26,7 @@ from datetime import datetime
 from manta_trading.data.kalshi.constants import Surface
 from manta_trading.data.kalshi.models import Trade
 from manta_trading.data.kalshi.trade_repository import PageCounts, TradeState
+from manta_trading.data.kalshi.trade_types import UnknownTradesFilterCategoryError
 
 
 @dataclass
@@ -60,6 +61,9 @@ class FakeTradeRepository:
         self.unknown_tickers: set[str] = set()
         self.excluded_tickers: set[str] = set()
         self.filtered_tickers: set[str] = set()
+        #: What ``assert_trades_filter_known`` validates against — the fake's
+        #: stand-in for ``SELECT DISTINCT category FROM kalshi.series``.
+        self.known_categories: set[str] = set(trades_excluded)
         self.tx_log: list[str] = []
         #: Every ``set_cursor`` value, in order — the walk's save points.
         self.cursor_log: list[str | None] = []
@@ -174,6 +178,18 @@ class FakeTradeRepository:
         self._enter("set_cursor")
         self._s.cursor = cursor
         self.cursor_log.append(cursor)
+
+    async def assert_trades_filter_known(self) -> None:
+        # Mirrors the real check (268 Decision 9) over ``known_categories``;
+        # an empty filter skips it, exactly as the real method skips its query.
+        self._enter("assert_trades_filter_known")
+        if not self.trades_excluded:
+            return
+        unknown = sorted(self.trades_excluded - self.known_categories)
+        if unknown:
+            raise UnknownTradesFilterCategoryError(
+                unknown, sorted(self.known_categories)
+            )
 
     async def write_page(self, rows: Sequence[Trade]) -> PageCounts:
         self._enter("write_page")

@@ -16,6 +16,7 @@ from uuid import uuid4
 import psycopg
 import pytest
 from kalshi_helpers import column, write_catalog
+from kalshi_support.fake_trade_source import FakeTradeSource
 from kalshi_support.samples import TRADE_SAMPLE
 from psycopg import errors
 from test_kalshi_candles import ONLY_SPORTS, RULE_C, fixture_markets
@@ -30,6 +31,8 @@ from manta_trading.data.kalshi.trade_repository import (
     TradeRepository,
     TradeState,
 )
+from manta_trading.data.kalshi.trade_sync import TradeSync
+from manta_trading.data.kalshi.trade_types import UnknownTradesFilterCategoryError
 
 CUTOFF = datetime(2026, 6, 25, tzinfo=UTC)
 TRADED_AT = datetime(2026, 8, 27, 14, 0, tzinfo=UTC)
@@ -255,6 +258,91 @@ class TestTradesFilter:
             "WHERE market_ticker IN ('POLITICS', 'QUIET')",
         )
         assert rows == []
+
+
+class TestTradesFilterValidation:
+    """Slice 268, Task 4.4 (Decision 9): the configured categories are
+    checked against the real catalog's ``SELECT DISTINCT category`` — beside
+    Task 3.4 because the query needs real SQL."""
+
+    @pytest.fixture()
+    async def crypto_catalog(self, kalshi_repo: CatalogRepository) -> None:
+        """A catalog that knows only ``Crypto`` (a live market) and
+        ``Elections`` (retired: a series row with no market or event)."""
+        template = fixture_markets()[0][0]
+        market = template.model_copy(
+            update={"ticker": "CRYPTO", "event_ticker": "E-CRYPTO"}
+        )
+        series = [
+            km.Series(ticker="E-CRYPTO-SERIES", category="Crypto", title="BTC?"),
+            km.Series(ticker="OLD-SERIES", category="Elections", title="Old"),
+        ]
+        await write_catalog(kalshi_repo, [market], series)
+
+    @pytest.mark.usefixtures("crypto_catalog")
+    async def test_lowercase_typo_raises_naming_value_and_known(
+        self, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        """Design Success Criterion 9: ``crypto`` against a catalog that
+        knows only ``Crypto`` — exact and case-sensitive."""
+        repo = with_filter(kalshi_conn, frozenset({"crypto"}))
+        with pytest.raises(UnknownTradesFilterCategoryError, match="'crypto'") as info:
+            await repo.assert_trades_filter_known()
+        assert "Crypto" in str(info.value)
+
+    @pytest.mark.usefixtures("crypto_catalog")
+    async def test_trades_phase_aborts_pre_drain_on_a_typo(
+        self, kalshi_conn: psycopg.AsyncConnection[Any], kalshi_repo: CatalogRepository
+    ):
+        """The live core over the real repository: the abort happens after
+        the catalog-walk guard and before any fetch or watermark move."""
+        async with kalshi_repo.transaction():
+            await kalshi_repo.set_last_full_sync(Surface.CATALOG, WALK_START)
+        source = FakeTradeSource()
+        repo = with_filter(kalshi_conn, frozenset({"crypto"}))
+        sync = TradeSync(source, repo, rule=RULE_C, run_id=uuid4())
+        with pytest.raises(UnknownTradesFilterCategoryError):
+            await sync.run()
+        assert source.trade_queries == []
+        state = await repo.read_state()
+        assert state is not None
+        assert state.watermark_ts == source.cutoff.trades_created_ts
+
+    @pytest.mark.usefixtures("crypto_catalog")
+    async def test_historical_surface_raises_the_same_error(
+        self, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        historical = TradeRepository(
+            kalshi_conn,
+            RULE_C,
+            trades_excluded=frozenset({"crypto"}),
+            surface=Surface.HISTORICAL,
+        )
+        with pytest.raises(UnknownTradesFilterCategoryError):
+            await historical.assert_trades_filter_known()
+
+    @pytest.mark.usefixtures("crypto_catalog")
+    async def test_retired_category_does_not_abort(
+        self, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        """``Elections`` exists only on a market-less series row — the
+        catalog retains history, so a retired category keeps working."""
+        repo = with_filter(kalshi_conn, frozenset({"Elections"}))
+        await repo.assert_trades_filter_known()
+
+    async def test_empty_filter_runs_no_check(
+        self, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        """No catalog at all and an empty filter: the check is skipped
+        entirely — zero statements executed."""
+        counting = _CountingConnection(kalshi_conn)
+        repo = TradeRepository(
+            cast("psycopg.AsyncConnection[Any]", counting),
+            RULE_C,
+            trades_excluded=frozenset(),
+        )
+        await repo.assert_trades_filter_known()
+        assert counting.statements == 0
 
 
 @pytest.mark.usefixtures("catalog")

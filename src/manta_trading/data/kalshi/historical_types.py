@@ -186,6 +186,7 @@ class HistoricalResult:
     trades_written: int = 0
     unknown_market: int = 0
     excluded_by_rule: int = 0
+    excluded_by_trades_filter: int = 0
     duplicates: int = 0
     unknown_prefixes: dict[str, int] = field(default_factory=dict)
     duration_ms: int = 0
@@ -211,6 +212,7 @@ class HistoricalResult:
             "trades_written": self.trades_written,
             "unknown_market": self.unknown_market,
             "excluded_by_rule": self.excluded_by_rule,
+            "excluded_by_trades_filter": self.excluded_by_trades_filter,
             "duplicates": self.duplicates,
         }
 
@@ -248,6 +250,7 @@ class HistoricalResult:
             "trades_written": self.trades_written,
             "unknown_market": self.unknown_market,
             "excluded_by_rule": self.excluded_by_rule,
+            "excluded_by_trades_filter": self.excluded_by_trades_filter,
             "duplicates": self.duplicates,
             "unknown_prefixes": dict(self.unknown_prefixes),
             "duration_ms": self.duration_ms,

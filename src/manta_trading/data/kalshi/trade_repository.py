@@ -36,6 +36,7 @@ from manta_trading.data.kalshi.selection import (
     selection_sql,
     trades_filter_sql,
 )
+from manta_trading.data.kalshi.trade_types import UnknownTradesFilterCategoryError
 
 #: Decision 11: the model→column map — ``(column, Trade attribute)``. The
 #: key columns are mapped too (``Trade.ticker`` is ``market_ticker``);
@@ -316,6 +317,21 @@ class TradeRepository:
         trails (Decision 5); ``None`` when the catalog has never walked."""
         state = await self._sync_state.get_sync_state(Surface.CATALOG)
         return None if state is None else state.last_full_sync_at
+
+    async def assert_trades_filter_known(self) -> None:
+        """Decision 9 (slice 268), the one spelling of the check for both
+        phases: every configured filter category must appear on some
+        ``kalshi.series`` row, else raise — a typo must never become a
+        silent no-op. An empty filter skips the query entirely."""
+        if not self._trades_excluded:
+            return
+        cursor = await self._conn.execute(
+            "SELECT DISTINCT category FROM kalshi.series WHERE category IS NOT NULL"
+        )
+        known = {row[0] for row in await cursor.fetchall()}
+        unknown = sorted(self._trades_excluded - known)
+        if unknown:
+            raise UnknownTradesFilterCategoryError(unknown, sorted(known))
 
     # ------------------------------------------------------------------
     # Writes (Data Flow step 4)
