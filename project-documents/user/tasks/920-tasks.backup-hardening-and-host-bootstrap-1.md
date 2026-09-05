@@ -46,6 +46,17 @@ status: not_started
 - Integration-tier tests needing a database use `MT_TIMESCALE_TEST_URL`
   (export from `.env`, strip quotes). The test cluster on hammerhead has
   `archive_mode=off`; tests must not assume archiving there.
+- **Composition, not extension, for the cron-invoked scripts** (task
+  breakdown deviation from the design's D5 wording, recorded in the design):
+  the 915 glue scripts the live crontab invokes (`archive_health_cron.sh`,
+  `cron_weekly_base.sh`) and the inner `check_archive_health.sh` are **not
+  modified**. New scripts wrap them: `check_backup_health.sh` runs
+  `check_archive_health.sh` for the four database checks and adds the six
+  new ones; `backup_health_cron.sh` and `cron_weekly_backup.sh` are the
+  cron.d glue. So merging to `main` cannot break the live crontab lines —
+  they keep calling untouched scripts until the cutover installs cron.d and
+  Task 8.6 deletes them. Changes to shared tools (`prune_wal_archive.sh`)
+  are additive and argument-compatible.
 - Rules in force: no defaults for host paths or intervals — one constant
   each; never read a DB URL from ambient environment inside a tool; every
   new alarm must be observed firing before it counts as delivered; PM host
@@ -54,104 +65,118 @@ status: not_started
   `shellcheck` (install via apt if absent) to touched files.
 - Delivers (file 1): six named health failures on two flags, the atomic
   compressed archive command, prune `-x .zst`, `setup-backup.sh` with
-  `--check`, the hourly WAL push, and the guarded weekly reconcile.
+  `--check`, the hourly WAL push, and the guarded weekly reconcile. Task
+  numbers cited from file 2 refer to this numbering.
 - Next planned slice after 920: none queued; PM decides.
 
 ## Section 1: Health-check named failures and the second flag
 
 Design *D5*, *D6*. Read-only additions first, so the alarms exist before
-anything they guard changes (D11 step 1).
+anything they guard changes (D11 step 1). `check_archive_health.sh` and
+`archive_health_cron.sh` are not edited (see Context Summary).
 
-- [ ] **Task 1.1: New arguments and constants in `check_archive_health.sh`**
-      (effort: 1)
-  - [ ] Add required arguments `--wal-dir <dir>`, `--stamp <path>`,
-        `--stale-after <minutes>`, `--system-stamp <path>`,
-        `--base-dir <dir>`. Missing any of them is a usage error (exit 2)
-        naming the argument, matching the existing `--db-url` refusal.
-  - [ ] Add named constants beside `MAX_UNARCHIVED_BYTES` /
-        `MIN_FREE_PCT`: `WAL_SEGMENT_BYTES=16777216`,
+- [ ] **Task 1.1: `scripts/wal_segment_name.py` — segment-name arithmetic
+      in one place** (effort: 1)
+  - [ ] Small stdlib-only module with a CLI: `next <segment-name>` prints
+        the following segment name (timeline preserved, 24 hex chars,
+        log-file rollover at `…FF` → next log, zero padded);
+        `from-lsn <tli> <lsn>` prints the segment holding an LSN (the
+        arithmetic `prune_wal_archive.sh` currently inlines — move it
+        here and have the prune call the module, so it exists once).
+  - [ ] Refuse malformed names (wrong length, non-hex) with exit 2.
+  - [ ] Success: `prune_wal_archive.sh` no longer contains inline Python;
+        existing prune tests pass unchanged.
+
+- [ ] **Task 1.2: Segment-name unit tests** (effort: 1)
+  - [ ] `test/unit/test_wal_segment_name.py` with **literal** expected
+        values written independently of the code: `000000010000121700000083`
+        → `…84`; `0000000100001217000000FF` → `000000010000121800000000`;
+        timeline `00000002` preserved; `from-lsn 1 1217/83A00000` →
+        `000000010000121700000083`; malformed input refused.
+  - [ ] Success: tests pass.
+
+- [ ] **Task 1.3: `scripts/check_backup_health.sh` — wrapper and
+      constants** (effort: 1)
+  - [ ] Required arguments `--db-url`, `--pgdata`, `--wal-dir`, `--stamp`,
+        `--stale-after <minutes>`, `--system-stamp`, `--base-dir`; missing
+        any is a usage error (exit 2) naming it.
+  - [ ] Runs `check_archive_health.sh --db-url --pgdata` first and keeps
+        its output lines verbatim, then appends its own checks.
+  - [ ] Named constants at the top: `WAL_SEGMENT_BYTES=16777216`,
         `TMP_LEFTOVER_MAX_AGE_MIN=10`, `SYSTEM_BACKUP_STALE_DAYS=2`,
-        `WEEKLY_BASE_STALE_DAYS=9`, `PRUNE_CANARY=.prune-canary.tmp`.
-  - [ ] Update the header comment's check list to name all ten checks and
-        which flag each feeds (D6).
-  - [ ] Success: script runs the existing four checks unchanged when all
-        arguments are supplied; refuses when any is missing.
+        `WEEKLY_BASE_STALE_DAYS=9`, `PRUNE_CANARY=.prune-canary.tmp`; a
+        single array mapping each of the ten check names to its class
+        (`archive` or `stale`) — the one place the classes are defined.
+  - [ ] Header comment lists all ten checks with their class and flag.
+  - [ ] Success: with all arguments and a healthy target the output is the
+        inner script's PASS line plus `FLAGS archive=0 stale=0`, exit 0.
 
-- [ ] **Task 1.2: `prune_permission` canary** (effort: 1)
+- [ ] **Task 1.4: `prune_permission` canary** (effort: 1)
   - [ ] Create then delete `$WAL_DIR/$PRUNE_CANARY` as the invoking user;
-        either failure appends `prune_permission: …` naming the directory
-        and the user (`id -un`). A `trap … EXIT` removes the canary on
-        every exit path.
-  - [ ] Success: with the ACL present the check passes; with a directory
-        the user cannot write, `FAIL prune_permission` is printed.
+        either failure appends `FAIL prune_permission: …` naming the
+        directory and `id -un`. A `trap … EXIT` removes the canary on every
+        exit path.
+  - [ ] Success: passes with the ACL present; `FAIL prune_permission` on a
+        directory the user cannot write.
 
-- [ ] **Task 1.3: `archive_wedged` and `archive_tmp_leftover`** (effort: 2)
-  - [ ] Derive the next-to-archive segment name: when `pg_stat_archiver`
-        reports a current failure use `last_failed_wal`, otherwise
-        `last_archived_wal` + 1 (the name arithmetic already exists in the
-        backlog query — reuse its decoding, do not duplicate it; a small
-        SQL expression returning the next name is acceptable).
+- [ ] **Task 1.5: `archive_wedged` and `archive_tmp_leftover`** (effort: 2)
+  - [ ] Next-to-archive name: read `last_archived_wal`, `last_failed_wal`,
+        and the current-failure boolean from `pg_stat_archiver` (one
+        query); when failing use `last_failed_wal`, otherwise
+        `wal_segment_name.py next <last_archived_wal>`. No name arithmetic
+        in shell or SQL.
   - [ ] `archive_wedged`: FAIL if `$WAL_DIR/<next>` exists with size ≠
         `WAL_SEGMENT_BYTES` and `$WAL_DIR/<next>.zst` does not exist.
   - [ ] `archive_tmp_leftover`: FAIL if any `*.tmp` in `$WAL_DIR` is older
         than `TMP_LEFTOVER_MAX_AGE_MIN` (`find -mmin`).
-  - [ ] Success: both checks print their named FAIL line on a planted
-        fault and nothing otherwise.
+  - [ ] Success: both print their named FAIL on a planted fault only.
 
-- [ ] **Task 1.4: `offsite_wal_stale`, `system_backup_stale`,
-      `weekly_base_stale`** (effort: 1)
-  - [ ] `offsite_wal_stale`: FAIL if `--stamp` is missing or older than
-        `--stale-after` minutes.
-  - [ ] `system_backup_stale`: FAIL if `--system-stamp` is missing or
-        older than `SYSTEM_BACKUP_STALE_DAYS`.
-  - [ ] `weekly_base_stale`: FAIL if the newest `YYYYMMDD` directory under
-        `--base-dir` is older than `WEEKLY_BASE_STALE_DAYS` (compare the
-        directory name as a date, not its mtime — a prune touches mtime).
-  - [ ] Success: each prints its named FAIL line when its input is aged.
+- [ ] **Task 1.6: `offsite_wal_stale`, `system_backup_stale`,
+      `weekly_base_stale`, and the summary line** (effort: 1)
+  - [ ] `offsite_wal_stale`: `--stamp` missing or older than
+        `--stale-after` minutes. `system_backup_stale`: `--system-stamp`
+        missing or older than `SYSTEM_BACKUP_STALE_DAYS`.
+        `weekly_base_stale`: newest `YYYYMMDD` directory under
+        `--base-dir` older than `WEEKLY_BASE_STALE_DAYS`, comparing the
+        name as a date (a prune touches mtime).
+  - [ ] Final line `FLAGS archive=<n> stale=<m>` counted from the class
+        array; exit 1 on any FAIL.
+  - [ ] Success: each prints its named FAIL when its input is aged; the
+        counts match the classes.
 
-- [ ] **Task 1.5: Two-flag output contract** (effort: 1)
-  - [ ] Print `FAIL <name>: …` lines as today, then a final summary line
-        `FLAGS archive=<n> stale=<m>` giving the count per class:
-        `archive` = the seven local-integrity checks (four existing plus
-        `prune_permission`, `archive_wedged`, `archive_tmp_leftover`);
-        `stale` = the three `*_stale` checks. Exit 1 on any FAIL.
-  - [ ] Success: the class of every check is defined in exactly one
-        place (an array or case at the top), not repeated per check.
+- [ ] **Task 1.7: `scripts/backup_health_cron.sh` — two-flag glue**
+      (effort: 1)
+  - [ ] Same shape as `archive_health_cron.sh` (grep the URL from
+        `--env-file`, never source): required `--env-file`, `--pgdata`,
+        `--wal-dir`, `--stamp`, `--stale-after`, `--system-stamp`,
+        `--base-dir`, `--flag`, `--stale-flag`, `--log`.
+  - [ ] From the summary line: write `--flag` (archive) when `archive>0`,
+        `--stale-flag` when `stale>0`; remove each when its count is 0. An
+        uncheckable run writes the archive flag, as today.
+  - [ ] One `logger -t manta-backup` line per flag transition naming the
+        flag and the FAIL names; one log line per run.
+  - [ ] Success: the existing `cron_weekly_base.sh`/`cron_weekly_backup.sh`
+        gate reads only the archive flag path.
 
-- [ ] **Task 1.6: `archive_health_cron.sh` writes two flags** (effort: 1)
-  - [ ] Add required `--wal-dir`, `--stamp`, `--stale-after`,
-        `--system-stamp`, `--base-dir`, `--stale-flag <path>`; pass the
-        first five through. Keep `--flag` as the archive flag.
-  - [ ] From the summary line: write `--flag` when `archive>0`, write
-        `--stale-flag` when `stale>0`, remove each when its count is 0.
-        An uncheckable run (URL missing, DB unreachable) writes the
-        archive flag as today.
-  - [ ] Emit one `logger -t manta-backup` line on every flag transition
-        (created or cleared), naming the flag and the FAIL names.
-  - [ ] Success: `cron_weekly_base.sh` is untouched by this task and still
-        gates only on `--health-flag` (the archive flag).
+- [ ] **Task 1.8: Health-check tests** (effort: 2)
+  - [ ] `test/unit/test_backup_health.py` (no DB; inner check stubbed on
+        `PATH` printing a chosen PASS/FAIL set): argument refusal for every
+        required argument on both new scripts; each of the six file-based
+        checks against `tmp_path` fixtures — read-only dir, a 1000-byte
+        file at a **literal** next segment name with the stub reporting
+        that `last_archived_wal`, a 20-minute-old `x.zst.tmp`, aged stamps,
+        `base/20260101` only; class counts on the `FLAGS` line; the glue
+        writes the stale flag and not the archive flag for
+        `FLAGS archive=0 stale=1` and the reverse.
+  - [ ] `test/integration/test_backup_health_live.py` (test cluster via
+        `MT_TIMESCALE_TEST_URL`): one run against a healthy `tmp_path`
+        layout asserting the inner script's lines pass through and
+        `archive_mode_off` (the test cluster's state) is classed `archive`.
+  - [ ] Success: unit tier passes; integration test passes in isolation.
 
-- [ ] **Task 1.7: Health-check tests** (effort: 2)
-  - [ ] In `test/unit/test_backup_cron_glue.py` (no DB): argument refusal
-        for each new required argument on both scripts; the glue writes
-        the stale flag and not the archive flag when the check output
-        reports `FLAGS archive=0 stale=1` (stub the inner check via a
-        fake script on `PATH` or a `--check-cmd` seam consistent with how
-        the existing `test_uncheckable_is_an_alarm_not_silence` works).
-  - [ ] In `test/integration/` (test cluster, `MT_TIMESCALE_TEST_URL`):
-        run `check_archive_health.sh` against `tmp_path` directories and
-        assert each named line: canary in a read-only dir, a planted
-        short file at the next segment name (compute from the same query
-        the script uses), a 20-minute-old `x.zst.tmp`, an aged stamp, an
-        aged system stamp, a `base/20260101` only. `archive_mode_off`
-        will also fire on the test cluster; assert it is present and
-        classed `archive`.
-  - [ ] Success: unit tier passes; integration tests pass in isolation
-        (run the tier separately per project convention).
-
-- [ ] **Task 1.8: Checkpoint commit** (effort: 1)
+- [ ] **Task 1.9: Checkpoint commit** (effort: 1)
   - [ ] Commit Section 1 (e.g.
-        `feat: name six new archive-health failures on two flags`).
+        `feat: add check_backup_health with six named failures on two flags`).
 
 ## Section 2: Compression measurement (go/no-go)
 
@@ -192,8 +217,10 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         cron.d template path, the restic repo prefix `system`.
   - [ ] Reporting helper: each item calls `report OK|DRIFT|MISSING <item>
         [<expected> <actual>]`; in `--check` mode the script changes
-        nothing and exits 1 if any item is not `OK`; in apply mode each
-        step acts only when its check is not `OK` and re-reports.
+        nothing and exits 1 if any item is not `OK`. In apply mode each
+        step acts only when its check is not `OK`, prints `APPLIED <item>`,
+        then re-reports. A run that changes nothing therefore prints zero
+        `APPLIED` lines — that is the idempotence assertion Task 8.2 makes.
   - [ ] Success: `sudo deploy/setup-backup.sh --check …` on manta9000
         runs to the end and prints one line per item (items from later
         tasks appear as they are added).
@@ -218,14 +245,19 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
   - [ ] Report `DRIFT` if `postgresql.conf` (path from `--cluster`) still
         contains an uncommented `archive_command` line — the hand edit the
         runbook says to remove.
-  - [ ] Success: on manta9000 `--check` shows `archive_command` as `DRIFT`
-        (hand form → D2 form) until apply; after apply, `OK` and a `.zst`
-        (or atomic raw) segment lands on the next switch — verified in
-        file 2, not here.
+  - [ ] Also assert `pg_settings.sourcefile` for the three settings ends
+        in `postgresql.auto.conf` (the script runs as `postgres`, so the
+        column is visible); report `DRIFT <name> source` otherwise.
+  - [ ] Success: on manta9000 **`--check` only** shows `archive_command`
+        as `DRIFT` (hand form → D2 form) and `archive_command source` as
+        `DRIFT` (`postgresql.conf`). Apply mode is exercised in Task 3.7
+        with a stubbed `psql`, never against production before Section 8.
 
 - [ ] **Task 3.4: Step 5 — cron.d rendering** (effort: 2)
   - [ ] Create `deploy/cron.d/manta-trading-backup` template with the six
-        entries of D7 and placeholders for checkout, env file, backup
+        entries of D7 (glue names: `backup_health_cron.sh`,
+        `sync_wal_offsite.sh`, `cron_nightly_metadata.sh`,
+        `cron_weekly_backup.sh`, `cron_system_backup.sh` ×2) and placeholders for checkout, env file, backup
         root, cron user, interval schedule (`0 * * * *` when
         `WAL_OFFSITE_INTERVAL_MIN=60`; render `*/N * * * *` for N < 60,
         refuse other values), `--stale-after` = 3 × interval, push
@@ -242,8 +274,9 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         those keys on drift; never touch `backup_device_uuid`,
         `snapshot_size`, `snapshot_count`. Report the device UUID as info.
   - [ ] Success: `--check` on manta9000 reports `DRIFT count_weekly 2 3`
-        before apply and `OK` after; the file's other keys are unchanged
-        (compare a `jq del(managed keys)` projection before/after).
+        (check only; no apply before Section 8). Apply mode is exercised in
+        Task 3.7 on a copy of the live file: managed keys change, a
+        `jq del(managed keys)` projection is byte-identical before/after.
 
 - [ ] **Task 3.6: Steps 7–8 — restic repository and leftover crontab
       lines** (effort: 1)
@@ -263,12 +296,14 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         argument refusal for each required argument; refusal when not
         root (assert the message names `sudo`); the cron.d template
         renders the six entries with substituted paths for an interval of
-        60 and of 15, and refuses 45; the timeshift `jq` merge, run as a
-        standalone function via a `--render-timeshift <in> <out>` test
-        seam or by extracting the merge into a small sourced helper,
-        leaves non-managed keys byte-identical.
-  - [ ] `shellcheck deploy/setup-backup.sh scripts/check_archive_health.sh
-        scripts/archive_health_cron.sh` clean.
+        60 and of 15, refuses 45, ends with a newline, and contains no
+        unescaped `%`; the timeshift `jq` merge (extracted into
+        `deploy/lib/timeshift_merge.sh`, sourced by the script) leaves
+        non-managed keys byte-identical on a copy of the live file; step 4
+        with a stubbed `psql` on `PATH` issues `ALTER SYSTEM SET` only for
+        drifted settings and never a restart, and a second run issues none.
+  - [ ] `shellcheck deploy/setup-backup.sh scripts/check_backup_health.sh
+        scripts/backup_health_cron.sh` clean.
   - [ ] Success: tests pass; shellcheck reports nothing.
 
 - [ ] **Task 3.8: Checkpoint commit** (effort: 1)
@@ -278,7 +313,11 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
 ## Section 4: Compressed archive path — prune, restore, runbook
 
 Design *D2*, *D3*. Skip the `.zst` parts if Task 2.1 said no-go; the
-atomic-write parts still apply.
+atomic-write parts still apply. D3's "four coupled changes in one commit"
+rule is met at the level that matters: nothing here takes effect on the
+host until `setup-backup.sh` applies `ARCHIVE_COMMAND` in Task 8.2, and by
+then Sections 3–5 are all on `main`. Intermediate commits are inert because
+the live crontab keeps calling the untouched 915 scripts.
 
 - [ ] **Task 4.1: `prune_wal_archive.sh` — `-x .zst` and deletion count**
       (effort: 1)
@@ -346,37 +385,47 @@ Design *D4*, *D4a*.
         stamp; stubbed to succeed → stamp exists.
   - [ ] Success: tests pass.
 
-- [ ] **Task 5.3: `cron_weekly_base.sh` — guarded reconcile** (effort: 3)
-  - [ ] New required `--remote-wal`, `--lock` (same lock as the push, so
-        the push cannot run mid-reconcile). Constant
-        `MAX_DELETE_MARGIN=50`.
-  - [ ] Order after the base backup: (1) catch-up `rclone copy` of the
-        WAL dir (reuse `sync_wal_offsite.sh`, do not duplicate); (2)
-        `rclone check --one-way --exclude '*.tmp'`, abort on differences;
-        (3) local prune, capturing its `PRUNED` line; (4) guards:
-        `mountpoint -q` on the backup root, WAL dir non-empty, the segment
-        named by `pg_stat_archiver.last_archived_wal` present locally (with
-        or without `.zst`), the oldest retained manifest's start segment
-        present locally; (5) `rclone sync … --max-delete $((wal + MARGIN))`
-        of the WAL dir, then delete each offsite `base/<date>` prefix not
-        present locally, logging every removal; (6) final `rclone check
-        --one-way` of the WAL dir.
-  - [ ] Every guard failure prints `reconcile refused: <reason>` and exits
-        non-zero **before** step 5.
-  - [ ] Success: the script never reaches `rclone sync` on a failed
-        guard (tests below); the `weekly_base_stale` alarm from Section 1
-        covers a refused run.
+- [ ] **Task 5.3: `scripts/reconcile_guards.sh` — the refusal contract**
+      (effort: 2)
+  - [ ] Sourced helper (or standalone script) with required `--db-url`,
+        `--backup-root`, `--wal-dir`, `--base-dir`. Four guards, each a
+        function returning a reason: `mountpoint -q` on the backup root;
+        WAL dir non-empty; the segment named by
+        `pg_stat_archiver.last_archived_wal` present locally (with or
+        without `.zst`); the oldest retained manifest's start segment
+        (via `wal_segment_name.py from-lsn`) present locally.
+  - [ ] Any failure prints `reconcile refused: <reason>` and exits
+        non-zero; all pass prints `reconcile guards passed`.
+  - [ ] Success: unit tests in Task 5.5 exercise each guard alone.
 
-- [ ] **Task 5.4: Reconcile tests** (effort: 2)
+- [ ] **Task 5.4: `scripts/cron_weekly_backup.sh` — ordered reconcile**
+      (effort: 2)
+  - [ ] New glue replacing `cron_weekly_base.sh` (which stays untouched
+        until Task 8.6): same arguments plus `--remote-wal`, `--lock`
+        (the push's lock, so the push cannot run mid-reconcile). Constant
+        `MAX_DELETE_MARGIN=50`. Keeps the archive-flag refusal as its
+        first line.
+  - [ ] Order after the base backup: (1) catch-up push via
+        `sync_wal_offsite.sh`; (2) `rclone check --one-way --exclude
+        '*.tmp'`, abort on differences; (3) local prune, capturing its
+        `PRUNED` line; (4) `reconcile_guards.sh`; (5) `rclone sync …
+        --max-delete $((wal + MARGIN))` of the WAL dir, then delete each
+        offsite `base/<date>` prefix absent locally, logging every removal;
+        (6) final `rclone check --one-way` of the WAL dir.
+  - [ ] Success: `rclone sync` is unreachable on a failed guard or a
+        failed check; `weekly_base_stale` covers a refused run.
+
+- [ ] **Task 5.5: Reconcile tests** (effort: 2)
   - [ ] Unit (no network; rclone/psql stubbed on `PATH` recording their
-        argv): empty WAL dir → refused before sync; non-mountpoint root →
-        refused; missing last-archived segment → refused; prune reporting
-        `wal=3` → the recorded sync argv carries `--max-delete 53`; a
-        differing check → abort before prune.
+        argv): each guard alone — empty WAL dir, non-mountpoint root,
+        missing last-archived segment, missing manifest start segment —
+        refused with its reason; prune reporting `wal=3` → the recorded
+        sync argv carries `--max-delete 53`; a differing check → abort
+        before prune; the archive flag present → refused before anything.
   - [ ] Success: tests pass; no stub is ever invoked with `sync` on a
         refused path.
 
-- [ ] **Task 5.5: Scratch-prefix reconcile rehearsal against real B2**
+- [ ] **Task 5.6: Scratch-prefix reconcile rehearsal against real B2**
       (effort: 2)
   - [ ] Using `b2:$BUCKET/scratch-920/` (create, then delete at the end):
         a `tmp` WAL dir with 30 fake segments; run the reconcile steps
@@ -387,7 +436,7 @@ Design *D4*, *D4a*.
   - [ ] Success: `rclone lsf b2:$BUCKET/scratch-920/` is empty at the end
         and the observations are recorded in the runbook's drill table.
 
-- [ ] **Task 5.6: Checkpoint commit** (effort: 1)
+- [ ] **Task 5.7: Checkpoint commit** (effort: 1)
   - [ ] Commit Section 5 (e.g.
         `feat: hourly WAL offsite push and guarded weekly reconcile`).
 

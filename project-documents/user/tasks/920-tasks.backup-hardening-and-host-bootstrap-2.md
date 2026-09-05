@@ -44,10 +44,10 @@ Design *D9*.
         with the D9 reason.
   - [ ] Include set as constants in the backup script (Task 6.2): `/etc`,
         `/root`, `/var/spool/cron/crontabs`, `/home/manta`.
-  - [ ] Measure the would-be snapshot size with `restic backup --dry-run
-        --one-file-system` (root, real repo after Task 6.3 init; or `du`
-        with the excludes applied if the repo does not exist yet) and
-        record it in D9.
+  - [ ] Measure the would-be snapshot size with `du -xs` over the include
+        set with the exclude patterns applied (the restic repository does
+        not exist until the cutover initializes it; a true `--dry-run`
+        number is taken in Task 9.5) and record it in D9.
   - [ ] Ask the PM, with the measured number, whether `Pictures` (67 G)
         and `ai` (60 G) are included; record the answer and reason in
         the exclude file and in runbook 210. Proceed with the PM's
@@ -145,7 +145,8 @@ Design *D6*, *D7*, *D8*, *D10*, *Implementation Notes*.
   - [ ] One-line "amended by 920" pointer in the 916 design's cron
         decision (decision 4 in its decisions list).
   - [ ] Add the `install-production.sh --ref <branch>` origin-resolution
-        defect to the issue tracker (out of scope here; one issue).
+        defect to the issue tracker — deliberately outside this slice's
+        scope to fix, recorded so it is not lost; one issue, no code.
   - [ ] Success: all three edits committed; the design's Implementation
         Notes list matches what changed.
 
@@ -155,51 +156,86 @@ Design *D6*, *D7*, *D8*, *D10*, *Implementation Notes*.
 
 ## Section 8: Production cutover
 
-Design *D11*. All of file 1 and Sections 6–7 are merged to `main` and the
-host checkout is on `main` before this section starts (ordinary workflow,
-not a task). `wal_compression` and `archive_command` are reload-only and
-`archive_mode` is already on, so no restart is expected; the script's
-report is the authority.
+Design *D11*. Precondition, verified by Task 8.1: file 1 and Sections 6–7
+are on `main` and the host checkout is at that `main`. The merge cannot
+disturb the live crontab: its three lines call the untouched 915 scripts
+(Context Summary, file 1). `wal_compression` and `archive_command` are
+reload-only and `archive_mode` is already on, so no restart is expected;
+the script's report is the authority.
 
 - [ ] **Task 8.1: Pre-cutover `--check` on manta9000** (effort: 1)
+  - [ ] Confirm `git -C ~/source/repos/manta/trading-data rev-parse HEAD`
+        equals `origin/main` and the last line of
+        `/data/backup/archive-health.log` is a PASS from the last half
+        hour (the 915 crontab is still alive).
   - [ ] Run `sudo deploy/setup-backup.sh --check …` from the host
-        checkout. Expect `DRIFT` for `archive_command`, cron.d (missing),
-        `count_weekly`, restic repo (`MISSING`, password not yet in
-        `.env`), leftover crontab lines; `OK` for ACL, directories,
-        `wal_compression`, `archive_mode`.
-  - [ ] Success: the report matches the expectation above; anything else
-        is investigated before Task 8.2.
+        checkout. Expected report: `MISSING restic`, `MISSING system/`
+        directory, `MISSING` cron.d file, `MISSING` restic repo (password
+        not yet in `.env`); `DRIFT archive_command`,
+        `DRIFT archive_command source` (`postgresql.conf`),
+        `DRIFT count_weekly 2 3`, `DRIFT` leftover crontab lines; `OK` for
+        the ACL, `base/ wal/ metadata/`, `wal_compression`, `archive_mode`.
+  - [ ] Success: the report matches; any other line is investigated
+        before Task 8.2.
 
 - [ ] **Task 8.2: [PM] Cutover — one script, one report** (effort: 1)
   - [ ] [PM] Put `MT_BACKUP_RESTIC_PASSWORD` into the host checkout's
         `.env` (from the password manager; also stored there).
-  - [ ] [PM] `sudo -v`, then `sudo deploy/setup-backup.sh --checkout
-        … --env-file … --backup-root /data/backup --cluster 17/main`;
-        read the report. If any item says `PENDING RESTART`, stop the
+  - [ ] [PM] `sudo -v`, then `sudo deploy/setup-backup.sh --checkout …
+        --env-file … --backup-root /data/backup --cluster 17/main`; read
+        the report. If any item says `PENDING RESTART`, stop the
         acquisition timers per runbook 100, restart PostgreSQL, resume.
+  - [ ] [PM] Run the same command a second time: zero `APPLIED` lines,
+        every item `OK` (success criterion 1's idempotence half).
   - [ ] [PM] Remove the three 915 lines from `crontab -e` (the
-        `@reboot rclone mount` line stays).
-  - [ ] [PM] Remove the hand-set `archive_command` line from
-        `/etc/postgresql/17/main/postgresql.conf` (report names it).
+        `@reboot rclone mount` line stays). Remove the hand-set
+        `archive_command` line from `/etc/postgresql/17/main/postgresql.conf`.
+  - [ ] [PM] In the B2 console, set the lifecycle rule from runbook 200
+        (delete versions older than 30 days on `wal/` and `base/`); paste
+        the resulting rule JSON into the runbook.
   - [ ] Success: `sudo deploy/setup-backup.sh --check …` exits 0, every
         item `OK`. Success criterion 1.
 
-- [ ] **Task 8.3: First live evidence** (effort: 1)
+- [ ] **Task 8.3: Settings evidence** (effort: 1)
+  - [ ] `SELECT name, setting, sourcefile FROM pg_settings WHERE name IN
+        ('archive_mode','archive_command','wal_compression')` as
+        `postgres`: values equal the script constants, every `sourcefile`
+        ends in `postgresql.auto.conf`. Success criterion 2.
   - [ ] `SELECT pg_switch_wal()`; within a minute a `.zst` segment (or
         atomic raw, per Task 2.1) appears, no `.tmp` remains,
-        `last_archived_wal` advanced. Success criteria 2, 3, 4.
-  - [ ] Wait for the next `:30` health run or invoke
-        `archive_health_cron.sh` by hand with the cron.d arguments:
-        `PASS`, no flags present, `journalctl -t manta-backup` shows the
-        run.
-  - [ ] Run `sync_wal_offsite.sh` by hand with the cron.d arguments; the
-        first push uploads the whole archive (record duration); the
-        stamp exists.
+        `last_archived_wal` advanced. `getfacl` shows both `manta`
+        entries. Success criteria 3 and 4.
   - [ ] Success: recorded in runbook 200's drill table.
 
-- [ ] **Task 8.4: Checkpoint commit** (effort: 1)
+- [ ] **Task 8.4: Cron-driven evidence (required, not by hand)**
+      (effort: 1)
+  - [ ] `journalctl -t CRON --since '-5 min'` shows
+        `RELOAD (/etc/cron.d/manta-trading-backup)` and no `bad` or
+        `error` line for it.
+  - [ ] Wait for the next `:00` or `:30` boundary (at most 30 minutes):
+        `journalctl -t CRON` shows `(manta) CMD (… backup_health_cron.sh …)`,
+        the health log gains a PASS line, no flags exist, and
+        `journalctl -t manta-backup` shows the run.
+  - [ ] Wait for the next `:00` (at most 60 minutes): the CRON journal
+        shows `sync_wal_offsite.sh` firing, and the offsite stamp's mtime
+        is from a run nobody launched by hand. The first push uploads the
+        whole archive; record its duration from the log.
+  - [ ] Success: two distinct cron.d entries observed executing from
+        cron; success criterion 6's "during normal operation" holds.
+
+- [ ] **Task 8.5: Checkpoint commit** (effort: 1)
   - [ ] Commit the measurements (e.g.
         `docs: record 920 cutover observations`).
+
+- [ ] **Task 8.6: Delete the superseded 915 glue** (effort: 1)
+  - [ ] Only after Task 8.4: delete `scripts/archive_health_cron.sh` and
+        `scripts/cron_weekly_base.sh`, their cases in
+        `test/unit/test_backup_cron_glue.py`, and every runbook reference
+        (`grep -rn` both names under `project-documents/user/runbooks`
+        and `scripts/` returns nothing).
+  - [ ] Success: unit tier passes; `crontab -l` and `/etc/cron.d` contain
+        no reference to either name; commit (e.g.
+        `refactor: remove 915 cron glue superseded by cron.d`).
 
 ## Section 9: Drills — alarms, PITR both paths, reconcile, restic
 
@@ -210,13 +246,14 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
 - [ ] **Task 9.1: Alarm drill — six new failures fire and clear**
       (effort: 2)
   - [ ] For each row of walkthrough step 3 (ACL revoked [root]; wedge
-        planted [postgres]; stale `.tmp` [postgres]; aged push stamp;
-        aged restic stamp [root]; scratch `--base-dir` with only
-        `20260801/`): plant, run the check, observe the named `FAIL` and
+        planted [postgres] at the name `wal_segment_name.py next
+        <last_archived_wal>` prints; stale `.tmp` [postgres]; aged push
+        stamp; aged restic stamp [root]; scratch `--base-dir` with only
+        `20260801/`): plant, run `check_backup_health.sh`, observe the named `FAIL` and
         which flag appears; repair (re-run `setup-backup.sh` for the ACL;
         `mv` planted files aside; delete aged-stamp copies), observe
         `PASS` and both flags gone.
-  - [ ] With only `BACKUP-STALE` present, run `cron_weekly_base.sh` with
+  - [ ] With only `BACKUP-STALE` present, run `cron_weekly_backup.sh` with
         the real `--health-flag` path and a deliberately nonexistent
         `--env-file`: it must get past the flag check and fail on the
         missing env file (that error is the evidence the flag did not
@@ -243,7 +280,7 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
         success criterion 7.
 
 - [ ] **Task 9.4: Watched first offsite reconcile** (effort: 2)
-  - [ ] Run `cron_weekly_base.sh` by hand with the cron.d arguments while
+  - [ ] Run `cron_weekly_backup.sh` by hand with the cron.d arguments while
         watching the log (the base backup runs first, ~2.5 h; the
         reconcile follows). Confirm the guards print their passes, the
         sync's `--max-delete` value, and `removed base/20260816
@@ -255,11 +292,13 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
 - [ ] **Task 9.5: restic first snapshot and restore drill** (effort: 2)
   - [ ] `sudo scripts/cron_system_backup.sh …` with the cron.d arguments;
         record duration and repository size. `sudo … --check` passes.
+  - [ ] Record a true `restic backup --dry-run` size first (the D9 number
+        Task 6.1 estimated with `du`).
   - [ ] Restore `latest` with `--include /etc/postgresql --include
         /etc/timeshift --include /var/spool/cron/crontabs --include
-        /home/manta/source/repos/manta/trading-data/project-documents`
-        into `/data/restore-test/restic`; `diff -r` each against live is
-        clean. Remove the restore directory.
+        /home/manta/source/repos/manta/trading-data/deploy` (a subtree not
+        edited during this task) into `/data/restore-test/restic`;
+        `diff -r` each against live is clean. Remove the restore directory.
   - [ ] Success: success criterion 12.
 
 - [ ] **Task 9.6: Checkpoint commit** (effort: 1)
@@ -297,6 +336,8 @@ Design *D10*, *Success Criteria* 13.
         Verification Walkthrough to the as-executed commands and numbers;
         update the 900 slice-plan entry 21 to `[x]` with a one-line
         completion note; CHANGELOG entry.
-  - [ ] Task files: mark every item; `status: complete`.
+  - [ ] Task files: mark every item; `status: complete`. The task
+        breakdown's composition deviation (new wrapper scripts instead of
+        editing the 915 ones) is already recorded in the design's D5.
   - [ ] Success: `cf check` reports no inconsistency for slice 920; final
         commit (e.g. `docs: close slice 920 — backup hardening cut over`).

@@ -317,7 +317,16 @@ not a guess.
 
 ### D5 — Health check: six new named failures, each demonstrated firing
 
-`check_archive_health.sh` keeps its four checks and gains:
+`check_archive_health.sh` keeps its four checks. **Amended at task
+breakdown (2026-09-05):** the six new checks live in a new wrapper,
+`check_backup_health.sh`, which runs the 915 script for the database checks
+and appends its own, and the cron.d glue is likewise new
+(`backup_health_cron.sh`, `cron_weekly_backup.sh`). Reason: the live user
+crontab invokes the 915 scripts from the host checkout, which is also the
+development checkout tracking `main`; changing their required arguments
+would break the half-hourly check silently the moment the branch merged.
+Wrapping leaves them untouched until cron.d is observed firing, after which
+they are deleted. The six checks:
 
 | Name | Detects | How |
 |---|---|---|
@@ -708,13 +717,16 @@ for the backup sections; end with `setup-backup.sh --check` green and
 ## Implementation Notes
 
 - New files: `deploy/setup-backup.sh`, `deploy/cron.d/manta-trading-backup`,
-  `deploy/restic-excludes.txt`, `scripts/sync_wal_offsite.sh`,
-  `scripts/cron_system_backup.sh`, `runbooks/210-host-bootstrap.md`.
-- Changed: `scripts/check_archive_health.sh` (+6 checks, `--wal-dir`,
-  `--stamp`, `--stale-after`, `--system-stamp`), `scripts/archive_health_cron.sh`
-  (passes them; writes two flags), `scripts/prune_wal_archive.sh` (`-x .zst`,
-  prints the deletion count the reconcile consumes),
-  `scripts/cron_weekly_base.sh` (guarded offsite reconcile),
+  `deploy/restic-excludes.txt`, `deploy/lib/timeshift_merge.sh`,
+  `scripts/wal_segment_name.py` (segment-name arithmetic, shared with the
+  prune), `scripts/check_backup_health.sh`, `scripts/backup_health_cron.sh`,
+  `scripts/reconcile_guards.sh`, `scripts/cron_weekly_backup.sh`,
+  `scripts/sync_wal_offsite.sh`, `scripts/cron_system_backup.sh`,
+  `runbooks/210-host-bootstrap.md`. Deleted after cutover:
+  `scripts/archive_health_cron.sh`, `scripts/cron_weekly_base.sh`.
+- Changed (argument-compatible only): `scripts/prune_wal_archive.sh`
+  (`-x .zst`, prints the deletion count the reconcile consumes, segment
+  arithmetic moved to `wal_segment_name.py`),
   `runbooks/200-backup-and-restore.md` (archive shape, restore_command,
   two-flag alarm table, cron.d replacing Step 7's user-crontab text,
   mixed-archive note), `runbooks/__readme.md` (210 row), `README`/env
