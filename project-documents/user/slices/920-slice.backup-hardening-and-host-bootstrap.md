@@ -76,7 +76,7 @@ Measured on `manta9000` 2026-09-05 (this design's baseline):
 2. Archived-segment compression (`zstd`) — `archive_command`,
    `restore_command`, prune, health check, and runbook change together.
 3. WAL offsite to B2, continuous, with offsite retention that mirrors local.
-4. Health-check additions: five new named failures, each demonstrated firing.
+4. Health-check additions: six new named failures, each demonstrated firing.
 5. restic system-backup layer for `/etc`, `/root`, crontabs, and
    `/home/manta` (with excludes) to B2, layered with two local timeshift
    snapshots.
@@ -128,7 +128,11 @@ external binaries. `mt` is the product's verification surface; the host's is
   2026-08-23 process-journal ADR ("the dev checkout retains exactly two
   operational roles: migrations and the deploy script") to three roles; the
   amendment lands as a dated journal entry (Implementation Notes), not as a
-  silent citation.
+  silent citation. The alternative — scripts run from the pinned `/opt`
+  checkout with the maintenance credential in a root-only env file outside
+  home — is cleaner and is recorded as future work; it is not taken here
+  because it reverses 913's decision to keep that credential out of `/etc`
+  files, which is the PM's call, not a maintenance slice's.
 - One new key: `MT_BACKUP_RESTIC_PASSWORD` (D9).
 
 ---
@@ -295,7 +299,23 @@ This is also what purges the superseded offsite bases (`20260816`,
 retained locally. No hand purge. `base/20260823` was measured absent
 2026-09-05 — that cleanup item is already closed.
 
-### D5 — Health check: five new named failures, each demonstrated firing
+### D4a — Retention: `--keep-days 7` derived from capacity, not inherited from the emergency edit
+
+`/data` is 1.8 TB and also holds timeshift's two snapshots (~35 GB each).
+Retention must fit at the incident rate, not the steady state:
+
+| Rate | 7 days: 2 bases + WAL | 21 days: 4 bases + WAL | Fits 1.8 TB? |
+|---|---|---|---|
+| 16 GiB/day (measured now) | ~200 + 112 = ~310 GB | ~400 + 336 = ~740 GB | both |
+| ~100 GB/day (2026-09 drain) | ~200 + 700 = ~900 GB | ~400 + 2,100 = ~2.5 TB | **7 only** |
+
+Seven days is the longest window that survives the drain rate with the
+`wal_disk_low` 15 % floor intact; 21 days was never viable once Kalshi
+landed. Compression (D3) widens the margin but the number is set without
+it. The runbook keeps this table so the next rate change is a re-derivation,
+not a guess.
+
+### D5 — Health check: six new named failures, each demonstrated firing
 
 `check_archive_health.sh` keeps its four checks and gains:
 
@@ -306,13 +326,15 @@ retained locally. No hand purge. `base/20260823` was measured absent
 | `archive_tmp_leftover` | an interrupted atomic write (D2 shape) | FAIL if any `*.tmp` in `--wal-dir` is older than 10 minutes |
 | `offsite_wal_stale` | the hourly push has stopped | FAIL if the `--stamp` file is missing or older than `--stale-after` (3 × interval: three missed runs) |
 | `system_backup_stale` | the restic tier has stopped (D9) | FAIL if the restic success stamp is missing or older than 2 days (one missed nightly run plus margin) |
+| `weekly_base_stale` | the weekly job aborted or stopped (its new guards are abort paths) | FAIL if the newest dated `base/<date>` directory is older than 9 days |
 
 Each threshold is a named constant at the top of the script, as the existing
 two are. Following 915's success criterion 2: **an alarm is not delivered
-until it has been observed firing** — each of the five is triggered
+until it has been observed firing** — each of the six is triggered
 deliberately in the walkthrough (revoke the ACL, plant a short file at the
 next segment name, plant a stale `.tmp`, age the push stamp, age the restic
-stamp) and restored.
+stamp, point `--base-dir` at a scratch directory holding one old dated
+directory) and restored.
 
 The remedy for each named failure goes into the runbook's "If archiving
 breaks" section in the same table shape: name → cause → fix. The wedge fix is
@@ -328,15 +350,19 @@ failures (`prune_permission`, `archive_wedged`, `archive_tmp_leftover`) feed
 that flag: each means the chain on disk is suspect, and a base backup taken
 on a suspect chain is what the gate exists to prevent.
 
-`offsite_wal_stale` and `system_backup_stale` are **not** archive-integrity
-conditions — a B2 outage says nothing about the local chain — so they write
-a second flag, `/data/backup/OFFSITE-BROKEN`, which does not gate the weekly
-base backup. Blocking a healthy local tier because a remote tier is degraded
+`offsite_wal_stale`, `system_backup_stale`, and `weekly_base_stale` are
+**not** archive-integrity conditions — a B2 outage says nothing about the
+local chain, and a stale base must not block the job that would fix it — so
+they write a second flag, `/data/backup/BACKUP-STALE`, which does not gate
+the weekly base backup. Blocking a healthy local tier because a remote tier is degraded
 would trade a backup for an alarm; the alarm alone is the right response.
-Both flags are named in the runbook's alarm table, both clear on the next
-healthy check, and the check logs every transition via `logger -t
-manta-backup` so `journalctl -t manta-backup` shows the history without
-reading the flag files.
+Both flags have the same delivery, which is honestly stated: a file the
+runbook's quick reference tells the operator to `ls` (`/data/backup/*-STALE
+/data/backup/*-BROKEN`), plus one `logger -t manta-backup` line per
+transition so `journalctl -t manta-backup` shows the history. Nothing pushes
+either flag to a person; this host has no mail transport (919) and choosing
+a notification channel is a separate decision this slice does not make.
+Both clear on the next healthy check.
 
 ### D7 — Cron schedule becomes a root-installed `/etc/cron.d` file
 
@@ -407,7 +433,7 @@ nobody "fixes" it back.
   non-zero `backup`/`forget` exit ends the run non-zero, appends the reason
   to `--log`, emits one `logger -t manta-backup` line, and leaves the
   `--stamp` untouched; the health check's `system_backup_stale` (D5) then
-  raises `OFFSITE-BROKEN` (D6) within two days. Success touches the stamp.
+  raises `BACKUP-STALE` (D6) within two days. Success touches the stamp.
   Nothing relies on cron mail: this host has none (919).
 - **Encryption is the control that makes include-by-default safe.** Home
   contains `~/.ssh`, the dev checkout's `.env` (maintenance URL, B2 keys,
@@ -504,8 +530,8 @@ every 30 min: check_archive_health.sh
    archive_mode_off | archiver_failing | unarchived_backlog | wal_disk_low
    + prune_permission | archive_wedged | archive_tmp_leftover
    → /data/backup/ARCHIVE-BROKEN (weekly base refuses while present)
-   offsite_wal_stale | system_backup_stale
-   → /data/backup/OFFSITE-BROKEN (alarm only; never gates the base backup)
+   offsite_wal_stale | system_backup_stale | weekly_base_stale
+   → /data/backup/BACKUP-STALE (alarm only; never gates the base backup)
 
 /etc /root crontabs /home/manta ── daily restic (root) ──▶ b2:$BUCKET/system/
 / (minus home, PGDATA, libvirt, root) ── weekly timeshift ──▶ /data (2 kept)
@@ -545,10 +571,10 @@ Recovery paths gained:
 7. A PITR restore whose `restore_command` reads segments pulled **from B2**
    (not the local archive) succeeds — the offsite chain is proven, not
    assumed.
-8. Each of the five new named failures has been observed firing on a
+8. Each of the six new named failures has been observed firing on a
    deliberate fault and clearing on repair, with the fault, the FAIL line,
-   the flag it raised (`ARCHIVE-BROKEN` or `OFFSITE-BROKEN`), and the fix
-   recorded in the runbook. With only `OFFSITE-BROKEN` present,
+   the flag it raised (`ARCHIVE-BROKEN` or `BACKUP-STALE`), and the fix
+   recorded in the runbook. With only `BACKUP-STALE` present,
    `cron_weekly_base.sh` still runs; the weekly reconcile's guards have
    been observed refusing (empty scratch `--wal-dir`) before any `rclone
    sync`, deleting nothing offsite.
@@ -603,12 +629,13 @@ Run `./scripts/check_archive_health.sh --db-url "$MAINT" --pgdata … --wal-dir 
 | ACL revoked | `sudo setfacl -x u:manta /data/backup/wal` | `FAIL prune_permission` |
 | wedge planted | `sudo -u postgres head -c 1000 /dev/zero > /data/backup/wal/<next-segment>` | `FAIL archive_wedged` |
 | stale tmp | `sudo -u postgres touch -d '-20 min' /data/backup/wal/X.zst.tmp` | `FAIL archive_tmp_leftover` |
-| push stopped | `touch -d '-4 hours' /data/backup/wal-offsite.stamp` | `FAIL offsite_wal_stale` → `OFFSITE-BROKEN` only |
-| restic stopped | `sudo touch -d '-3 days' /data/backup/system-backup.stamp` | `FAIL system_backup_stale` → `OFFSITE-BROKEN` only |
+| push stopped | `touch -d '-4 hours' /data/backup/wal-offsite.stamp` | `FAIL offsite_wal_stale` → `BACKUP-STALE` only |
+| restic stopped | `sudo touch -d '-3 days' /data/backup/system-backup.stamp` | `FAIL system_backup_stale` → `BACKUP-STALE` only |
+| weekly job stopped | `--base-dir` at a scratch dir containing only `20260801/` | `FAIL weekly_base_stale` → `BACKUP-STALE` only |
 
 Repair each (re-run the setup script for the ACL; `mv` the planted files
 aside) and confirm `PASS`, and that both flags clear. While only
-`OFFSITE-BROKEN` is present, run `cron_weekly_base.sh` by hand and confirm it
+`BACKUP-STALE` is present, run `cron_weekly_base.sh` by hand and confirm it
 does not refuse. Then point the weekly job at an empty scratch `--wal-dir`
 and confirm it aborts before the sync with the guard's message.
 
@@ -683,7 +710,7 @@ for the backup sections; end with `setup-backup.sh --check` green and
 - New files: `deploy/setup-backup.sh`, `deploy/cron.d/manta-trading-backup`,
   `deploy/restic-excludes.txt`, `scripts/sync_wal_offsite.sh`,
   `scripts/cron_system_backup.sh`, `runbooks/210-host-bootstrap.md`.
-- Changed: `scripts/check_archive_health.sh` (+5 checks, `--wal-dir`,
+- Changed: `scripts/check_archive_health.sh` (+6 checks, `--wal-dir`,
   `--stamp`, `--stale-after`, `--system-stamp`), `scripts/archive_health_cron.sh`
   (passes them; writes two flags), `scripts/prune_wal_archive.sh` (`-x .zst`,
   prints the deletion count the reconcile consumes),
