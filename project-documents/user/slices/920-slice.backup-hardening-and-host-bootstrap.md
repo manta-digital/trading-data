@@ -170,6 +170,7 @@ Items the script owns, in step order:
 | 5 | Cron schedule | install `/etc/cron.d/manta-trading-backup` from `deploy/cron.d/manta-trading-backup` with paths substituted (D7) | file content equals rendered template |
 | 6 | Timeshift | `jq` merge of managed keys into `/etc/timeshift/timeshift.json` (D8) | each managed key equals expected |
 | 7 | restic repository | `restic init` if `restic cat config` fails (D9) | `restic cat config` succeeds |
+| 7a | Reconcile arm file | report `<backup-root>/RECONCILE-ARMED` (`OK`/`MISSING`); never created by the script — the watched first reconcile creates it (amended at task breakdown: this is how "the first run is watched, not scheduled" is enforced rather than hoped) | stat |
 | 8 | Leftover user-crontab lines | `DRIFT` if `crontab -l -u <cron-user>` still contains any 915 script name (D7); the script never edits the user crontab | grep |
 
 Step 4 supersedes the hand-edited `archive_command` in `postgresql.conf`
@@ -288,6 +289,12 @@ weekly base's moment and nothing after. Offsite WAL closes that.
   said). The sync itself runs with `--max-delete N`, where N is the count
   the prune just reported plus a fixed margin constant, so a discrepancy
   larger than the prune explains fails the run instead of deleting.
+- **The destructive step is armed by hand, once.** The weekly job runs
+  steps 1–4 unconditionally but performs the sync/delete step only while
+  `<backup-root>/RECONCILE-ARMED` exists; otherwise it logs
+  `reconcile skipped: not armed` and exits 0. The operator creates the file
+  after watching the first reconcile (walkthrough step 7); a rebuilt host
+  starts unarmed. `setup-backup.sh --check` reports the file's state.
 - **Offsite retention equals local retention.** One `--keep-days` governs
   both. The alternative — a longer offsite window — costs little in B2 but
   needs a second retention computation with its own oldest-segment logic,
