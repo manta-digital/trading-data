@@ -108,14 +108,17 @@ Design *D6*, *D7*, *D8*, *D10*, *Implementation Notes*.
         backstop instructions (console steps, prefixes, 30 days).
   - [ ] Drill record gains rows for every drill in Section 9 (filled in
         there).
-  - [ ] Success: every named failure in `check_archive_health.sh` appears
-        in the runbook table (a unit test greps both and asserts the set
-        equality).
+  - [ ] Add the arm-file procedure: what `RECONCILE-ARMED` gates, that
+        only the watched first reconcile (Task 9.4) creates it, and that a
+        rebuilt host starts unarmed.
+  - [ ] Success: all ten named failures from `check_backup_health.sh`'s
+        class array (file 1, Task 1.3) appear in the runbook table (the
+        Task 7.2 test asserts the set equality).
 
 - [ ] **Task 7.2: Alarm-table consistency test** (effort: 1)
-  - [ ] Unit test: the set of `FAIL <name>` names the script can emit
-        (parse its case/array from Task 1.5) equals the set of names in
-        the runbook's alarm table.
+  - [ ] Unit test: the set of names in `scripts/check_backup_health.sh`'s
+        class array (file 1, Task 1.3 — all ten, four inherited plus six
+        new) equals the set of names in the runbook's alarm table.
   - [ ] Success: test passes.
 
 - [ ] **Task 7.3: Runbook 210 — host bootstrap** (effort: 2)
@@ -175,6 +178,9 @@ the script's report is the authority.
         `DRIFT archive_command source` (`postgresql.conf`),
         `DRIFT count_weekly 2 3`, `DRIFT` leftover crontab lines; `OK` for
         the ACL, `base/ wal/ metadata/`, `wal_compression`, `archive_mode`.
+  - [ ] Record the pre-cutover timeshift baseline:
+        `jq '.backup_device_uuid, .count_weekly, .exclude'
+        /etc/timeshift/timeshift.json` into the drill notes.
   - [ ] Success: the report matches; any other line is investigated
         before Task 8.2.
 
@@ -185,16 +191,20 @@ the script's report is the authority.
         --env-file … --backup-root /data/backup --cluster 17/main`; read
         the report. If any item says `PENDING RESTART`, stop the
         acquisition timers per runbook 100, restart PostgreSQL, resume.
-  - [ ] [PM] Run the same command a second time: zero `APPLIED` lines,
-        every item `OK` (success criterion 1's idempotence half).
+  - [ ] [PM] Run the same command a second time: **zero `APPLIED`
+        lines** (success criterion 1's idempotence half). `DRIFT` is still
+        expected on `archive_command source` and the leftover crontab
+        lines, and `MISSING` on `RECONCILE-ARMED`, until the bullets below
+        remove or create them.
   - [ ] [PM] Remove the three 915 lines from `crontab -e` (the
         `@reboot rclone mount` line stays). Remove the hand-set
         `archive_command` line from `/etc/postgresql/17/main/postgresql.conf`.
   - [ ] [PM] In the B2 console, set the lifecycle rule from runbook 200
         (delete versions older than 30 days on `wal/` and `base/`); paste
         the resulting rule JSON into the runbook.
-  - [ ] Success: `sudo deploy/setup-backup.sh --check …` exits 0, every
-        item `OK`. Success criterion 1.
+  - [ ] Success: `sudo deploy/setup-backup.sh --check …` reports every
+        item `OK` except `MISSING RECONCILE-ARMED` (armed in Task 9.4).
+        Success criterion 1's `--check` clause is closed in Task 9.4.
 
 - [ ] **Task 8.3: Settings evidence** (effort: 1)
   - [ ] `SELECT name, setting, sourcefile FROM pg_settings WHERE name IN
@@ -205,11 +215,16 @@ the script's report is the authority.
         atomic raw, per Task 2.1) appears, no `.tmp` remains,
         `last_archived_wal` advanced. `getfacl` shows both `manta`
         entries. Success criteria 3 and 4.
+  - [ ] `jq '.backup_device_uuid, .count_weekly, .exclude'
+        /etc/timeshift/timeshift.json`: UUID identical to the Task 8.1
+        baseline, `count_weekly` 2, the four excludes. Success criterion 11.
   - [ ] Success: recorded in runbook 200's drill table.
 
 - [ ] **Task 8.4: Cron-driven evidence (required, not by hand)**
       (effort: 1)
-  - [ ] `journalctl -t CRON --since '-5 min'` shows
+  - [ ] `cat /etc/cron.d/manta-trading-backup` shows the six entries of
+        D7 with the expected user fields (success criterion 10);
+        `journalctl -t CRON --since '-5 min'` shows
         `RELOAD (/etc/cron.d/manta-trading-backup)` and no `bad` or
         `error` line for it.
   - [ ] Wait for the next `:00` or `:30` boundary (at most 30 minutes):
@@ -287,7 +302,11 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
         base/20260817`; then `rclone lsd b2:$BUCKET/base/` lists only the
         locally retained dates and `rclone check --one-way` of the WAL dir
         reports 0 differences.
-  - [ ] Success: success criteria 6 and 9.
+  - [ ] The first hand run happens **unarmed**: guards pass, the log
+        shows `reconcile skipped: not armed`, B2 unchanged. Then `touch
+        /data/backup/RECONCILE-ARMED` and run again, watching the sync.
+  - [ ] Success: success criteria 6 and 9; `setup-backup.sh --check` now
+        exits 0 with every item `OK` (success criterion 1 closed).
 
 - [ ] **Task 9.5: restic first snapshot and restore drill** (effort: 2)
   - [ ] `sudo scripts/cron_system_backup.sh …` with the cron.d arguments;
@@ -320,12 +339,20 @@ Design *D10*, *Success Criteria* 13.
         restic prefix, and `--checkout` pointing at a clone of `main`.
         Every deviation from the runbook is a runbook bug: fix the
         runbook, not the run.
-  - [ ] End state: `setup-backup.sh --check` green, a segment switch lands
-        a `.zst` in the throwaway archive, `check_archive_health.sh`
-        PASS. Then tear down: remove the archive root, cron.d file,
-        `ALTER SYSTEM RESET` the three settings + reload (restart if the
-        report said so), delete the scratch restic prefix, remove restic
-        if it was absent before.
+  - [ ] Before the run: copy `/etc/timeshift/timeshift.json` aside if it
+        exists. Hammerhead has no timeshift installed (measured
+        2026-09-05); step 6 must report `MISSING timeshift` and **never
+        create the file** (it cannot know the device UUID). Record that
+        behavior in runbook 210 as the expected result on a host without
+        timeshift.
+  - [ ] End state: `setup-backup.sh --check` green apart from the
+        expected `MISSING` items (timeshift, `RECONCILE-ARMED`), a segment
+        switch lands a `.zst` in the throwaway archive,
+        `check_backup_health.sh` PASS. Then tear down: remove the archive
+        root (which removes its ACL), cron.d file, `ALTER SYSTEM RESET`
+        the three settings + reload (restart if the report said so),
+        restore the timeshift copy if one was taken, delete the scratch
+        restic prefix, remove restic if it was absent before.
   - [ ] Record host, date, durations, and every runbook fix in the
         acceptance section of runbook 210.
   - [ ] Success: success criterion 13; hammerhead's `pg_lsclusters` and

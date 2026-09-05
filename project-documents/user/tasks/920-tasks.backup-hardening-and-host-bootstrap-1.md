@@ -100,8 +100,12 @@ anything they guard changes (D11 step 1). `check_archive_health.sh` and
   - [ ] Required arguments `--db-url`, `--pgdata`, `--wal-dir`, `--stamp`,
         `--stale-after <minutes>`, `--system-stamp`, `--base-dir`; missing
         any is a usage error (exit 2) naming it.
-  - [ ] Runs `check_archive_health.sh --db-url --pgdata` first and keeps
-        its output lines verbatim, then appends its own checks.
+  - [ ] Runs `check_archive_health.sh --db-url --pgdata` first with its
+        exit code **captured** (`|| inner_rc=$?`, not allowed to abort the
+        wrapper under `set -e`), passes its output lines through verbatim,
+        folds its FAIL lines into the `archive` class, and always continues
+        to its own six checks and the `FLAGS` line. An unhealthy archive is
+        exactly when the stale checks must still run.
   - [ ] Named constants at the top: `WAL_SEGMENT_BYTES=16777216`,
         `TMP_LEFTOVER_MAX_AGE_MIN=10`, `SYSTEM_BACKUP_STALE_DAYS=2`,
         `WEEKLY_BASE_STALE_DAYS=9`, `PRUNE_CANARY=.prune-canary.tmp`; a
@@ -284,12 +288,31 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         keys and the `system` prefix; `restic cat config` succeeds → `OK`;
         else `restic init` in apply mode. `MT_BACKUP_RESTIC_PASSWORD`
         missing from the env file is `MISSING` and blocks this step only.
+  - [ ] Step 7a: report the reconcile arm file
+        `<backup-root>/RECONCILE-ARMED` as `OK` when present, `MISSING`
+        otherwise; **never create it** — Task 9.4's watched run does, by
+        hand. (Its absence is expected `MISSING` until then.)
   - [ ] Step 8: `DRIFT` if `crontab -l -u $CRON_USER` contains any of
         `archive_health_cron.sh`, `cron_nightly_metadata.sh`,
         `cron_weekly_base.sh`. The script never edits the user crontab.
   - [ ] Success: `--check` on manta9000 reports step 7 `MISSING` (no
         password yet) and step 8 `DRIFT` (lines present) — both expected
         before cutover.
+
+- [ ] **Task 3.6a: `--rehearse <dir>` and an apply-mode rehearsal**
+      (effort: 1)
+  - [ ] Add `--rehearse <dir>`: cron.d renders to `<dir>/cron.d`, the
+        timeshift file read/written is `<dir>/timeshift.json` (copy the
+        live one in first), step 4 prints `SKIPPED step 4 (rehearse)` and
+        touches no cluster, the restic prefix becomes `system-rehearse`.
+        Everything else runs for real against the given `--backup-root`.
+  - [ ] Run it as root on manta9000 with a throwaway
+        `--backup-root /data/backup-rehearse-920` and the real env file:
+        first run prints `APPLIED` for steps 1 (if restic absent), 2, 3, 5,
+        6, 7; the second run prints **zero** `APPLIED` lines. Then remove
+        the throwaway root and the `system-rehearse` prefix in B2.
+  - [ ] Success: apply-mode idempotence is proven before the PM depends
+        on it in Task 8.2; the rehearsal leaves no trace.
 
 - [ ] **Task 3.7: `setup-backup.sh` tests** (effort: 2)
   - [ ] In `test/unit/test_setup_backup.py` (subprocess, no root, no DB):
@@ -408,10 +431,13 @@ Design *D4*, *D4a*.
   - [ ] Order after the base backup: (1) catch-up push via
         `sync_wal_offsite.sh`; (2) `rclone check --one-way --exclude
         '*.tmp'`, abort on differences; (3) local prune, capturing its
-        `PRUNED` line; (4) `reconcile_guards.sh`; (5) `rclone sync …
-        --max-delete $((wal + MARGIN))` of the WAL dir, then delete each
-        offsite `base/<date>` prefix absent locally, logging every removal;
-        (6) final `rclone check --one-way` of the WAL dir.
+        `PRUNED` line; (4) `reconcile_guards.sh`; (5) **only if the arm
+        file `--armed <path>` exists**: `rclone sync … --max-delete
+        $((wal + MARGIN))` of the WAL dir, then delete each offsite
+        `base/<date>` prefix absent locally, logging every removal;
+        otherwise log `reconcile skipped: not armed (<path>)` and exit 0
+        after step 4 — the destructive step never runs unwatched; (6)
+        final `rclone check --one-way` of the WAL dir.
   - [ ] Success: `rclone sync` is unreachable on a failed guard or a
         failed check; `weekly_base_stale` covers a refused run.
 
@@ -421,7 +447,9 @@ Design *D4*, *D4a*.
         missing last-archived segment, missing manifest start segment —
         refused with its reason; prune reporting `wal=3` → the recorded
         sync argv carries `--max-delete 53`; a differing check → abort
-        before prune; the archive flag present → refused before anything.
+        before prune; the archive flag present → refused before anything;
+        arm file absent → guards run, `sync` never invoked, exit 0 with
+        the skip line.
   - [ ] Success: tests pass; no stub is ever invoked with `sync` on a
         refused path.
 
