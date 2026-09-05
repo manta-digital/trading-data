@@ -224,11 +224,17 @@ weekly base's moment and nothing after. Offsite WAL closes that.
   it touches the `--stamp` file; the health check reads its age (D5). At
   16 GiB/day raw the upload is ~40 minutes/day on the measured 40 Mbps
   uplink; compressed, proportionally less.
-- **Weekly reconcile**, appended to `cron_weekly_base.sh` after the local
-  prune: `rclone sync` of the WAL directory (propagates the prune's deletions
-  offsite) and deletion of any `base/<date>` prefix offsite that no longer
-  exists locally, then `rclone check --one-way` over the WAL directory —
-  checksum verification, same standard as the base tier.
+- **Weekly reconcile**, in `cron_weekly_base.sh`, ordered so a lagging
+  push can never let the local prune delete a segment that was never
+  uploaded: (1) catch-up `rclone copy` of the WAL directory, (2) `rclone
+  check --one-way` — abort the run if it reports differences, (3) local
+  prune, (4) `rclone sync` of the WAL directory and deletion of any
+  `base/<date>` prefix offsite that no longer exists locally. Offsite
+  therefore holds exactly what local holds, and nothing older, with no
+  operator action. As a server-side backstop needing no host at all, the
+  runbook records a B2 bucket lifecycle rule (delete versions older than
+  30 days) on the `wal/` and `base/` prefixes; it is set once in the B2
+  console and catches the case where the host itself is gone for weeks.
 - **Offsite retention equals local retention.** One `--keep-days` governs
   both. The alternative — a longer offsite window — costs little in B2 but
   needs a second retention computation with its own oldest-segment logic,
