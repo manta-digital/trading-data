@@ -15,6 +15,8 @@
 # backup is always kept regardless of age.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # No /usr/bin wrapper on this host (same as pg_verifybackup).
 PG_ARCHIVECLEANUP="/usr/lib/postgresql/17/bin/pg_archivecleanup"
 
@@ -62,18 +64,10 @@ MANIFEST="$BASE_DIR/$OLDEST_RETAINED/backup_manifest"
 [ -r "$MANIFEST" ] || { echo "error: cannot read $MANIFEST" >&2; exit 1; }
 
 # The manifest's WAL-Ranges start is the earliest WAL this backup needs.
-# Anything older in the archive serves no retained backup.
-OLDEST_SEGMENT=$(python3 - "$MANIFEST" <<'EOF'
-import json, sys
-with open(sys.argv[1]) as f:
-    manifest = json.load(f)
-r = manifest["WAL-Ranges"][0]
-tli, start = r["Timeline"], r["Start-LSN"]
-high, low = (int(p, 16) for p in start.split("/"))
-seg_size = 16 * 1024 * 1024
-print(f"{tli:08X}{high:08X}{low // seg_size:08X}")
-EOF
-)
+# Anything older in the archive serves no retained backup. The segment-name
+# arithmetic lives in wal_segment_name.py (shared with the health check).
+read -r OLDEST_TLI OLDEST_LSN < <(jq -r '.["WAL-Ranges"][0] | "\(.Timeline) \(.["Start-LSN"])"' "$MANIFEST")
+OLDEST_SEGMENT=$("$SCRIPT_DIR/wal_segment_name.py" from-lsn "$OLDEST_TLI" "$OLDEST_LSN")
 
 echo "oldest retained backup: $OLDEST_RETAINED (needs WAL from $OLDEST_SEGMENT)"
 "$PG_ARCHIVECLEANUP" -d "$WAL_DIR" "$OLDEST_SEGMENT" 2>&1 | tail -3

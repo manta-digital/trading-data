@@ -15,8 +15,8 @@ projectState: >
   wal_compression=zstd, ACL applied by hand, WAL 16 GiB/day, 0 bytes of
   WAL offsite, B2 holds two superseded bases, restic not installed.
 dateCreated: 20260905
-dateUpdated: 20260905
-status: not_started
+dateUpdated: 20260906
+status: in_progress
 ---
 
 ## Context Summary
@@ -75,131 +75,131 @@ Design *D5*, *D6*. Read-only additions first, so the alarms exist before
 anything they guard changes (D11 step 1). `check_archive_health.sh` and
 `archive_health_cron.sh` are not edited (see Context Summary).
 
-- [ ] **Task 1.1: `scripts/wal_segment_name.py` — segment-name arithmetic
+- [x] **Task 1.1: `scripts/wal_segment_name.py` — segment-name arithmetic
       in one place** (effort: 1)
-  - [ ] Small stdlib-only module with a CLI: `next <segment-name>` prints
+  - [x] Small stdlib-only module with a CLI: `next <segment-name>` prints
         the following segment name (timeline preserved, 24 hex chars,
         log-file rollover at `…FF` → next log, zero padded);
         `from-lsn <tli> <lsn>` prints the segment holding an LSN (the
         arithmetic `prune_wal_archive.sh` currently inlines — move it
         here and have the prune call the module, so it exists once).
-  - [ ] Refuse malformed names (wrong length, non-hex) with exit 2.
-  - [ ] Success: `prune_wal_archive.sh` no longer contains inline Python;
+  - [x] Refuse malformed names (wrong length, non-hex) with exit 2.
+  - [x] Success: `prune_wal_archive.sh` no longer contains inline Python;
         existing prune tests pass unchanged.
 
-- [ ] **Task 1.2: Segment-name unit tests** (effort: 1)
-  - [ ] `test/unit/test_wal_segment_name.py` with **literal** expected
+- [x] **Task 1.2: Segment-name unit tests** (effort: 1)
+  - [x] `test/unit/test_wal_segment_name.py` with **literal** expected
         values written independently of the code: `000000010000121700000083`
         → `…84`; `0000000100001217000000FF` → `000000010000121800000000`;
         timeline `00000002` preserved; `from-lsn 1 1217/83A00000` →
         `000000010000121700000083`; malformed input refused.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 1.3: `scripts/check_backup_health.sh` — wrapper and
+- [x] **Task 1.3: `scripts/check_backup_health.sh` — wrapper and
       constants** (effort: 1)
-  - [ ] Required arguments `--db-url`, `--pgdata`, `--wal-dir`, `--stamp`,
+  - [x] Required arguments `--db-url`, `--pgdata`, `--wal-dir`, `--stamp`,
         `--stale-after <minutes>`, `--system-stamp`, `--base-dir`; missing
         any is a usage error (exit 2) naming it.
-  - [ ] Runs `check_archive_health.sh --db-url --pgdata` first with its
+  - [x] Runs `check_archive_health.sh --db-url --pgdata` first with its
         exit code **captured** (`|| inner_rc=$?`, not allowed to abort the
         wrapper under `set -e`), passes its output lines through verbatim,
         folds its FAIL lines into the `archive` class, and always continues
         to its own six checks and the `FLAGS` line. An unhealthy archive is
         exactly when the stale checks must still run.
-  - [ ] Named constants at the top: `WAL_SEGMENT_BYTES=16777216`,
+  - [x] Named constants at the top: `WAL_SEGMENT_BYTES=16777216`,
         `TMP_LEFTOVER_MAX_AGE_MIN=10`, `SYSTEM_BACKUP_STALE_DAYS=2`,
         `WEEKLY_BASE_STALE_DAYS=9`, `PRUNE_CANARY=.prune-canary.tmp`; a
         single array mapping each of the ten check names to its class
         (`archive` or `stale`) — the one place the classes are defined.
-  - [ ] Header comment lists all ten checks with their class and flag.
-  - [ ] Success: with all arguments and a healthy target the output is the
+  - [x] Header comment lists all ten checks with their class and flag.
+  - [x] Success: with all arguments and a healthy target the output is the
         inner script's PASS line plus `FLAGS archive=0 stale=0`, exit 0.
 
-- [ ] **Task 1.3a: Wrapper tests** (effort: 1)
-  - [ ] Create `test/unit/test_backup_health.py` (subprocess; the inner
+- [x] **Task 1.3a: Wrapper tests** (effort: 1)
+  - [x] Create `test/unit/test_backup_health.py` (subprocess; the inner
         `check_archive_health.sh` stubbed on `PATH` printing a chosen
         PASS/FAIL set and exit code): argument refusal for every required
         argument; inner PASS passes through; inner exit 1 with two FAIL
         lines → both lines present, `FLAGS archive=2 stale=0`, wrapper
         continues to its own checks.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 1.4: `prune_permission` canary** (effort: 1)
-  - [ ] Create then delete `$WAL_DIR/$PRUNE_CANARY` as the invoking user;
+- [x] **Task 1.4: `prune_permission` canary** (effort: 1)
+  - [x] Create then delete `$WAL_DIR/$PRUNE_CANARY` as the invoking user;
         either failure appends `FAIL prune_permission: …` naming the
         directory and `id -un`. A `trap … EXIT` removes the canary on every
         exit path.
-  - [ ] Success: passes with the ACL present; `FAIL prune_permission` on a
+  - [x] Success: passes with the ACL present; `FAIL prune_permission` on a
         directory the user cannot write.
 
-- [ ] **Task 1.5: `archive_wedged` and `archive_tmp_leftover`** (effort: 2)
-  - [ ] Next-to-archive name: read `last_archived_wal`, `last_failed_wal`,
+- [x] **Task 1.5: `archive_wedged` and `archive_tmp_leftover`** (effort: 2)
+  - [x] Next-to-archive name: read `last_archived_wal`, `last_failed_wal`,
         and the current-failure boolean from `pg_stat_archiver` (one
         query); when failing use `last_failed_wal`, otherwise
         `wal_segment_name.py next <last_archived_wal>`. No name arithmetic
         in shell or SQL.
-  - [ ] `archive_wedged`: FAIL if `$WAL_DIR/<next>` exists with size ≠
+  - [x] `archive_wedged`: FAIL if `$WAL_DIR/<next>` exists with size ≠
         `WAL_SEGMENT_BYTES` and `$WAL_DIR/<next>.zst` does not exist.
-  - [ ] `archive_tmp_leftover`: FAIL if any `*.tmp` in `$WAL_DIR` is older
+  - [x] `archive_tmp_leftover`: FAIL if any `*.tmp` in `$WAL_DIR` is older
         than `TMP_LEFTOVER_MAX_AGE_MIN` (`find -mmin`).
-  - [ ] Success: both print their named FAIL on a planted fault only.
+  - [x] Success: both print their named FAIL on a planted fault only.
 
-- [ ] **Task 1.5a: Canary, wedge, and tmp-leftover tests** (effort: 1)
-  - [ ] In `test_backup_health.py`, `tmp_path` fixtures: read-only dir →
+- [x] **Task 1.5a: Canary, wedge, and tmp-leftover tests** (effort: 1)
+  - [x] In `test_backup_health.py`, `tmp_path` fixtures: read-only dir →
         `FAIL prune_permission` and no canary left behind; a 1000-byte
         file at a **literal** next segment name with the stubbed inner
         query reporting that `last_archived_wal` → `FAIL archive_wedged`;
         the same with a `.zst` sibling present → no FAIL; a 20-minute-old
         `x.zst.tmp` → `FAIL archive_tmp_leftover`; a fresh one → none.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 1.6: `offsite_wal_stale`, `system_backup_stale`,
+- [x] **Task 1.6: `offsite_wal_stale`, `system_backup_stale`,
       `weekly_base_stale`, and the summary line** (effort: 1)
-  - [ ] `offsite_wal_stale`: `--stamp` missing or older than
+  - [x] `offsite_wal_stale`: `--stamp` missing or older than
         `--stale-after` minutes. `system_backup_stale`: `--system-stamp`
         missing or older than `SYSTEM_BACKUP_STALE_DAYS`.
         `weekly_base_stale`: newest `YYYYMMDD` directory under
         `--base-dir` older than `WEEKLY_BASE_STALE_DAYS`, comparing the
         name as a date (a prune touches mtime).
-  - [ ] Final line `FLAGS archive=<n> stale=<m>` counted from the class
+  - [x] Final line `FLAGS archive=<n> stale=<m>` counted from the class
         array; exit 1 on any FAIL.
-  - [ ] Success: each prints its named FAIL when its input is aged; the
+  - [x] Success: each prints its named FAIL when its input is aged; the
         counts match the classes.
 
-- [ ] **Task 1.6a: Stale-check and summary-line tests** (effort: 1)
-  - [ ] In `test_backup_health.py`: aged push stamp, missing system
+- [x] **Task 1.6a: Stale-check and summary-line tests** (effort: 1)
+  - [x] In `test_backup_health.py`: aged push stamp, missing system
         stamp, `base/20260101` only → each named FAIL and
         `FLAGS archive=0 stale=<n>`; a mixed fault set → both counts
         correct; healthy → `FLAGS archive=0 stale=0` and exit 0.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 1.7: `scripts/backup_health_cron.sh` — two-flag glue**
+- [x] **Task 1.7: `scripts/backup_health_cron.sh` — two-flag glue**
       (effort: 1)
-  - [ ] Same shape as `archive_health_cron.sh` (grep the URL from
+  - [x] Same shape as `archive_health_cron.sh` (grep the URL from
         `--env-file`, never source): required `--env-file`, `--pgdata`,
         `--wal-dir`, `--stamp`, `--stale-after`, `--system-stamp`,
         `--base-dir`, `--flag`, `--stale-flag`, `--log`.
-  - [ ] From the summary line: write `--flag` (archive) when `archive>0`,
+  - [x] From the summary line: write `--flag` (archive) when `archive>0`,
         `--stale-flag` when `stale>0`; remove each when its count is 0. An
         uncheckable run writes the archive flag, as today.
-  - [ ] One `logger -t manta-backup` line per flag transition naming the
+  - [x] One `logger -t manta-backup` line per flag transition naming the
         flag and the FAIL names; one log line per run.
-  - [ ] Success: the existing `cron_weekly_base.sh`/`cron_weekly_backup.sh`
+  - [x] Success: the existing `cron_weekly_base.sh`/`cron_weekly_backup.sh`
         gate reads only the archive flag path.
 
-- [ ] **Task 1.8: Glue tests and one live run** (effort: 1)
-  - [ ] Unit (checker stubbed on `PATH`): glue argument refusal; the glue
+- [x] **Task 1.8: Glue tests and one live run** (effort: 1)
+  - [x] Unit (checker stubbed on `PATH`): glue argument refusal; the glue
         writes the stale flag and not the archive flag for
         `FLAGS archive=0 stale=1` and the reverse; both cleared on
         `archive=0 stale=0`; an uncheckable run writes the archive flag.
-  - [ ] `test/integration/test_backup_health_live.py` (test cluster via
+  - [x] `test/integration/test_backup_health_live.py` (test cluster via
         `MT_TIMESCALE_TEST_URL`): one run against a healthy `tmp_path`
         layout asserting the inner script's lines pass through and
         `archive_mode_off` (the test cluster's state) is classed `archive`.
-  - [ ] Success: unit tier passes; integration test passes in isolation.
+  - [x] Success: unit tier passes; integration test passes in isolation.
 
-- [ ] **Task 1.9: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 1 (e.g.
+- [x] **Task 1.9: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 1 (e.g.
         `feat: add check_backup_health with six named failures on two flags`).
 
 ## Section 2: Compression measurement (go/no-go)

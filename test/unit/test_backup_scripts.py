@@ -19,6 +19,7 @@ _SCRIPTS = {
     "backup_metadata": _REPO_ROOT / "scripts" / "backup_metadata.sh",
     "backup_prod": _REPO_ROOT / "scripts" / "backup_prod.sh",
     "check_archive_health": _REPO_ROOT / "scripts" / "check_archive_health.sh",
+    "check_backup_health": _REPO_ROOT / "scripts" / "check_backup_health.sh",
 }
 # Scripts taking the --db-url/--dest argument pair (check_archive_health has
 # no destination, so its refusal cases are separate below).
