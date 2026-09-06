@@ -440,9 +440,9 @@ the live crontab keeps calling the untouched 915 scripts.
 Design *D4*, *D4a*.
 
 - [ ] **Task 5.1: `scripts/sync_wal_offsite.sh`** (effort: 2)
-  - [ ] Required `--wal-dir`, `--remote`, `--stamp`, `--timeout <min>`,
+  - [x] Required `--wal-dir`, `--remote`, `--stamp`, `--timeout <min>`,
         `--lock <path>`. Constants: `MIN_AGE=2m`, `BWLIMIT=""` (off).
-  - [ ] `flock -n "$LOCK"`: if held, print `skipped: previous run active`
+  - [x] `flock -n "$LOCK"`: if held, print `skipped: previous run active`
         and exit 0. Run `timeout "${TIMEOUT}m" rclone copy "$WAL_DIR"
         "$REMOTE" --min-age "$MIN_AGE" --exclude '*.tmp'` (+ `--bwlimit`
         when set). On success `touch "$STAMP"`; on failure exit non-zero,
@@ -451,33 +451,33 @@ Design *D4*, *D4a*.
         (as `manta`, real credentials, additive only) uploads the current
         archive and touches the stamp; a second run uploads nothing new.
 
-- [ ] **Task 5.2: Push tests** (effort: 1)
-  - [ ] Unit (no network): argument refusal; lock held → exit 0 with the
+- [x] **Task 5.2: Push tests** (effort: 1)
+  - [x] Unit (no network): argument refusal; lock held → exit 0 with the
         skip message; rclone stubbed on `PATH` to fail → non-zero and no
         stamp; stubbed to succeed → stamp exists.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 5.3: `scripts/reconcile_guards.sh` — the refusal contract**
+- [x] **Task 5.3: `scripts/reconcile_guards.sh` — the refusal contract**
       (effort: 2)
-  - [ ] Sourced helper (or standalone script) with required `--db-url`,
+  - [x] Sourced helper (or standalone script) with required `--db-url`,
         `--backup-root`, `--wal-dir`, `--base-dir`. Four guards, each a
         function returning a reason: `mountpoint -q` on the backup root;
         WAL dir non-empty; the segment named by
         `pg_stat_archiver.last_archived_wal` present locally (with or
         without `.zst`); the oldest retained manifest's start segment
         (via `wal_segment_name.py from-lsn`) present locally.
-  - [ ] Any failure prints `reconcile refused: <reason>` and exits
+  - [x] Any failure prints `reconcile refused: <reason>` and exits
         non-zero; all pass prints `reconcile guards passed`.
-  - [ ] Success: unit tests in Task 5.5 exercise each guard alone.
+  - [x] Success: unit tests in Task 5.5 exercise each guard alone.
 
-- [ ] **Task 5.4: `scripts/cron_weekly_backup.sh` — ordered reconcile**
+- [x] **Task 5.4: `scripts/cron_weekly_backup.sh` — ordered reconcile**
       (effort: 2)
-  - [ ] New glue replacing `cron_weekly_base.sh` (which stays untouched
+  - [x] New glue replacing `cron_weekly_base.sh` (which stays untouched
         until Task 8.6): same arguments plus `--remote-wal`, `--lock`
         (the push's lock, so the push cannot run mid-reconcile). Constant
         `MAX_DELETE_MARGIN=50`. Keeps the archive-flag refusal as its
         first line.
-  - [ ] Order after the base backup: (1) catch-up push via
+  - [x] Order after the base backup: (1) catch-up push via
         `sync_wal_offsite.sh`; (2) `rclone check --one-way --exclude
         '*.tmp'`, abort on differences; (3) local prune, capturing its
         `PRUNED` line; (4) `reconcile_guards.sh`; (5) **only if the arm
@@ -487,11 +487,11 @@ Design *D4*, *D4a*.
         otherwise log `reconcile skipped: not armed (<path>)` and exit 0
         after step 4 — the destructive step never runs unwatched; (6)
         final `rclone check --one-way` of the WAL dir.
-  - [ ] Success: `rclone sync` is unreachable on a failed guard or a
+  - [x] Success: `rclone sync` is unreachable on a failed guard or a
         failed check; `weekly_base_stale` covers a refused run.
 
-- [ ] **Task 5.5: Reconcile tests** (effort: 2)
-  - [ ] Unit (no network; rclone/psql stubbed on `PATH` recording their
+- [x] **Task 5.5: Reconcile tests** (effort: 2)
+  - [x] Unit (no network; rclone/psql stubbed on `PATH` recording their
         argv): each guard alone — empty WAL dir, non-mountpoint root,
         missing last-archived segment, missing manifest start segment —
         refused with its reason; prune reporting `wal=3` → the recorded
@@ -499,22 +499,22 @@ Design *D4*, *D4a*.
         before prune; the archive flag present → refused before anything;
         arm file absent → guards run, `sync` never invoked, exit 0 with
         the skip line.
-  - [ ] Success: tests pass; no stub is ever invoked with `sync` on a
+  - [x] Success: tests pass; no stub is ever invoked with `sync` on a
         refused path.
 
-- [ ] **Task 5.6: Scratch-prefix reconcile rehearsal against real B2**
+- [x] **Task 5.6: Scratch-prefix reconcile rehearsal against real B2**
       (effort: 2)
-  - [ ] Using `b2:$BUCKET/scratch-920/` (create, then delete at the end):
+  - [x] Using `b2:$BUCKET/scratch-920/` (create, then delete at the end):
         a `tmp` WAL dir with 30 fake segments; run the reconcile steps
         1–6 pointed at it with `--base-dir` holding one manifest whose
         start segment is among them; delete 5 local files and re-run —
         offsite loses exactly 5; then empty the local dir and re-run —
         refused, offsite unchanged. Delete the scratch prefix.
-  - [ ] Success: `rclone lsf b2:$BUCKET/scratch-920/` is empty at the end
+  - [x] Success: `rclone lsf b2:$BUCKET/scratch-920/` is empty at the end
         and the observations are recorded in the runbook's drill table.
 
-- [ ] **Task 5.7: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 5 (e.g.
+- [x] **Task 5.7: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 5 (e.g.
         `feat: hourly WAL offsite push and guarded weekly reconcile`).
 
 Continue in `920-tasks.backup-hardening-and-host-bootstrap-2.md`.
