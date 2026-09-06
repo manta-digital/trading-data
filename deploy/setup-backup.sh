@@ -54,7 +54,7 @@ PG_OWNER=postgres:postgres
 WAL_DIR_MODE=775
 BACKUP_SUBDIRS=(base wal metadata system)
 ARM_FILE=RECONCILE-ARMED
-WAL_REMOTE_PREFIX=b2
+RCLONE_REMOTE=b2            # the rclone remote name; wal/ and base/ prefixes hang off <remote>:<bucket>
 LEGACY_CRON_SCRIPTS=(archive_health_cron.sh cron_nightly_metadata.sh cron_weekly_base.sh)
 
 usage() {
@@ -91,8 +91,8 @@ PGDATA="$PG_DATA_ROOT/$CLUSTER"
 PG_CONF="$PG_CONF_ROOT/$CLUSTER/postgresql.conf"
 ARCHIVE_COMMAND=${ARCHIVE_COMMAND_TEMPLATE//@WAL_DIR@/$WAL_DIR}
 BUCKET=$({ grep '^MT_BACKUP_S3_BUCKET=' "$ENV_FILE" || true; } | head -1 | sed 's/^[^=]*=//' | tr -d '"')
-[ -n "$BUCKET" ] || die "MT_BACKUP_S3_BUCKET not in $ENV_FILE (the WAL remote cannot be rendered)"
-WAL_REMOTE="$WAL_REMOTE_PREFIX:$BUCKET/wal"
+[ -n "$BUCKET" ] || die "MT_BACKUP_S3_BUCKET not in $ENV_FILE (the offsite remote cannot be rendered)"
+REMOTE_PREFIX="$RCLONE_REMOTE:$BUCKET"
 if [ -n "$REHEARSE" ]; then
   mkdir -p "$REHEARSE"
   CRON_TARGET="$REHEARSE/cron.d"; TIMESHIFT_CONFIG="$REHEARSE/timeshift.json"; RESTIC_PREFIX="$RESTIC_PREFIX_REHEARSE"
@@ -177,7 +177,7 @@ step "Step 5/8: $CRON_TARGET"
 RENDERED=$(mktemp); trap 'rm -f "$RENDERED"' EXIT
 "$LIB_DIR/render_cron.sh" --template "$CRON_TEMPLATE" --interval "$WAL_OFFSITE_INTERVAL_MIN" \
   --checkout "$CHECKOUT" --env-file "$ENV_FILE" --backup-root "$BACKUP_ROOT" --cron-user "$CRON_USER" \
-  --pgdata "$PGDATA" --keep-days "$KEEP_DAYS" --wal-remote "$WAL_REMOTE" --restic-prefix "$RESTIC_PREFIX" \
+  --pgdata "$PGDATA" --keep-days "$KEEP_DAYS" --remote-prefix "$REMOTE_PREFIX" --restic-prefix "$RESTIC_PREFIX" \
   --out "$RENDERED"
 cron_ok() { cmp -s "$RENDERED" "$CRON_TARGET"; }
 cron_install() { install -m 0644 -o root -g root "$RENDERED" "$CRON_TARGET"; }

@@ -455,7 +455,7 @@ def _render(
         "--cron-user", "manta",
         "--pgdata", "/var/lib/postgresql/17/main",
         "--keep-days", "7",
-        "--wal-remote", "b2:bucket-x/wal",
+        "--remote-prefix", "b2:bucket-x",
         "--restic-prefix", "system",
     ]  # fmt: skip
     if out is not None:

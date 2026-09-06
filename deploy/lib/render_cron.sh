@@ -10,7 +10,7 @@
 # Usage:
 #   render_cron.sh --template <file> --interval <minutes> --checkout <dir> \
 #       --env-file <path> --backup-root <dir> --cron-user <user> --pgdata <dir> \
-#       --keep-days <n> --wal-remote <rclone-path> --restic-prefix <name> [--out <file>]
+#       --keep-days <n> --remote-prefix <rclone-path> --restic-prefix <name> [--out <file>]
 #
 # Without --out the rendered text goes to stdout. All other arguments are
 # required. Called by setup-backup.sh, which owns the interval constant.
@@ -23,12 +23,12 @@ PUSH_TIMEOUT_SLACK_MIN=1
 MAX_INTERVAL_MIN=60
 
 usage() {
-  echo "usage: $0 --template <file> --interval <minutes> --checkout <dir> --env-file <path> --backup-root <dir> --cron-user <user> --pgdata <dir> --keep-days <n> --wal-remote <rclone-path> --restic-prefix <name> [--out <file>]" >&2
+  echo "usage: $0 --template <file> --interval <minutes> --checkout <dir> --env-file <path> --backup-root <dir> --cron-user <user> --pgdata <dir> --keep-days <n> --remote-prefix <rclone-path> --restic-prefix <name> [--out <file>]" >&2
 }
 die() { echo "error: $*" >&2; exit "${2:-1}"; }
 
 TEMPLATE=""; INTERVAL=""; CHECKOUT=""; ENV_FILE=""; BACKUP_ROOT=""; CRON_USER=""
-PGDATA=""; KEEP_DAYS=""; WAL_REMOTE=""; RESTIC_PREFIX=""; OUT=""
+PGDATA=""; KEEP_DAYS=""; REMOTE_PREFIX=""; RESTIC_PREFIX=""; OUT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --template)      TEMPLATE="${2:-}"; shift 2 ;;
@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
     --cron-user)     CRON_USER="${2:-}"; shift 2 ;;
     --pgdata)        PGDATA="${2:-}"; shift 2 ;;
     --keep-days)     KEEP_DAYS="${2:-}"; shift 2 ;;
-    --wal-remote)    WAL_REMOTE="${2:-}"; shift 2 ;;
+    --remote-prefix) REMOTE_PREFIX="${2:-}"; shift 2 ;;
     --restic-prefix) RESTIC_PREFIX="${2:-}"; shift 2 ;;
     --out)           OUT="${2:-}"; shift 2 ;;
     *) usage; die "unknown argument: $1" 2 ;;
@@ -47,7 +47,7 @@ while [ $# -gt 0 ]; do
 done
 for pair in "--template:$TEMPLATE" "--interval:$INTERVAL" "--checkout:$CHECKOUT" \
             "--env-file:$ENV_FILE" "--backup-root:$BACKUP_ROOT" "--cron-user:$CRON_USER" \
-            "--pgdata:$PGDATA" "--keep-days:$KEEP_DAYS" "--wal-remote:$WAL_REMOTE" \
+            "--pgdata:$PGDATA" "--keep-days:$KEEP_DAYS" "--remote-prefix:$REMOTE_PREFIX" \
             "--restic-prefix:$RESTIC_PREFIX"; do
   [ -n "${pair#*:}" ] || { usage; die "${pair%%:*} is required" 2; }
 done
@@ -75,7 +75,7 @@ CONTENT=${CONTENT//@BACKUP_ROOT@/$BACKUP_ROOT}
 CONTENT=${CONTENT//@CRON_USER@/$CRON_USER}
 CONTENT=${CONTENT//@PGDATA@/$PGDATA}
 CONTENT=${CONTENT//@KEEP_DAYS@/$KEEP_DAYS}
-CONTENT=${CONTENT//@WAL_REMOTE@/$WAL_REMOTE}
+CONTENT=${CONTENT//@REMOTE_PREFIX@/$REMOTE_PREFIX}
 CONTENT=${CONTENT//@RESTIC_PREFIX@/$RESTIC_PREFIX}
 CONTENT=${CONTENT//@PUSH_SCHEDULE@/$PUSH_SCHEDULE}
 CONTENT=${CONTENT//@STALE_AFTER@/$STALE_AFTER}

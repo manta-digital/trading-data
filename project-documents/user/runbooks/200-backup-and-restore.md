@@ -405,6 +405,7 @@ whatever its age), then `pg_archivecleanup`s WAL older than the oldest
 | PITR both directions (sentinel) | 2026-08-18 | ~14m extract + ~1m replay per direction; absent-before / present-after |
 | Offsite round trip | 2026-08-17/18 | up 4h44m–5h06m, down 2h05m, checksums 0 differences (rclone ≥ 1.75 required) |
 | Alarm fire + self-recovery | 2026-08-18 | FAIL within one check; backlog drained unaided in <20 s |
+| Offsite reconcile rehearsal (slice 920 Task 5.6) against a scratch prefix `b2:<bucket>/scratch-920/` with a 50-file fake archive under `/data`, the real cluster for the guards, `cron_weekly_backup.sh --skip-base-backup` | 2026-09-06 | Unarmed run: push 50, check 0 differences, prune 0, `reconcile guards passed`, `reconcile skipped: not armed`, exit 0, offsite 50. Armed run after deleting 5 local files: `rclone sync --max-delete 50` left offsite at exactly 45, final check 0 differences. Armed run with the local directory emptied: `reconcile refused: WAL directory … is empty`, exit 1, offsite still 45. Two earlier runs with a mis-built fixture (manifest start segment newer than every file) had the prune remove all files and the guards refuse — offsite untouched both times. Scratch prefix purged; `rclone lsf` of it empty |
 
 **Repeat expectation: re-run the restore drill (Step 6, at least the count
 checks and one cagg signature) and one PITR direction every quarter, or
