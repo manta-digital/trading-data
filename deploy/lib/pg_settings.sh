@@ -10,11 +10,13 @@
 # or its conf.d is DRIFT: the hand edit the runbook says to remove.
 #
 # Usage:
-#   pg_settings.sh [--check] --conf <postgresql.conf> --set name=value ... \
-#       [--forbid-conf-line <name> ...]
+#   pg_settings.sh [--check] [--as-user <os-user>] --conf <postgresql.conf> \
+#       --set name=value ... [--forbid-conf-line <name> ...]
 #
-# Runs `psql` from PATH against the cluster the environment selects (the
-# caller sets PGCLUSTER and runs this as postgres). Output lines:
+# Runs `psql` from PATH against the cluster PGCLUSTER selects. With
+# --as-user, every psql call is wrapped in `runuser -u <user> --` (the
+# script itself keeps running as the caller, typically root: postgres cannot
+# read a library under an operator's home). Output lines:
 #   OK <name> | DRIFT <name> <expected> <actual> | APPLIED <name> |
 #   PENDING RESTART <name> | DRIFT <name> source <expected> <actual> |
 #   DRIFT <name> conf-line <file>:<line> | MISSING pg-settings <reason>
@@ -25,17 +27,18 @@ AUTO_CONF=postgresql.auto.conf
 CONF_D=conf.d
 
 usage() {
-  echo "usage: $0 [--check] --conf <postgresql.conf> --set name=value [--set ...] [--forbid-conf-line <name> ...]" >&2
+  echo "usage: $0 [--check] [--as-user <os-user>] --conf <postgresql.conf> --set name=value [--set ...] [--forbid-conf-line <name> ...]" >&2
 }
 die() { echo "error: $*" >&2; exit "${2:-1}"; }
 
-CHECK=0; CONF=""
+CHECK=0; CONF=""; AS_USER=""
 declare -A EXPECTED=()
 NAMES=(); FORBIDDEN=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --check) CHECK=1; shift ;;
-    --conf)  CONF="${2:-}"; shift 2 ;;
+    --check)   CHECK=1; shift ;;
+    --as-user) AS_USER="${2:-}"; [ -n "$AS_USER" ] || { usage; die "--as-user needs a user" 2; }; shift 2 ;;
+    --conf)    CONF="${2:-}"; shift 2 ;;
     --set)
       [ -n "${2:-}" ] && [[ "$2" == *=* ]] || { usage; die "--set needs name=value" 2; }
       NAMES+=("${2%%=*}"); EXPECTED["${2%%=*}"]="${2#*=}"; shift 2 ;;
@@ -47,6 +50,11 @@ done
 [ -n "$CONF" ] || { usage; die "--conf is required" 2; }
 [ "${#NAMES[@]}" -gt 0 ] || { usage; die "at least one --set is required" 2; }
 
+PSQL=(psql)
+if [ -n "$AS_USER" ]; then
+  PSQL=(runuser -u "$AS_USER" -- env ${PGCLUSTER:+PGCLUSTER="$PGCLUSTER"} psql)
+fi
+
 NOT_OK=0
 report() { echo "$*"; case "${1%% *}" in OK|APPLIED|INFO) ;; *) NOT_OK=$((NOT_OK + 1)) ;; esac; }
 
@@ -56,7 +64,7 @@ sql_list() { local out=""; for n in "${NAMES[@]}"; do out+="${out:+,}'$n'"; done
 declare -A SETTING=() SOURCE=() PENDING=()
 query_settings() {
   local rows
-  rows=$(psql -X -At -F'|' -v ON_ERROR_STOP=1 -d postgres -c "
+  rows=$("${PSQL[@]}" -X -At -F'|' -v ON_ERROR_STOP=1 -d postgres -c "
 SELECT name, setting, COALESCE(sourcefile, ''), pending_restart
   FROM pg_settings WHERE name IN ($(sql_list)) ORDER BY name;" 2>&1) \
     || { report "MISSING pg-settings psql failed: $(paste -sd ' ' <<< "$rows")"; return 1; }
@@ -90,7 +98,7 @@ if [ "$CHECK" -eq 0 ] && [ "${#DRIFTED[@]}" -gt 0 ]; then
     v="${EXPECTED[$n]//\'/\'\'}"
     STATEMENTS+=(-c "ALTER SYSTEM SET $n = '$v';")
   done
-  psql -X -q -v ON_ERROR_STOP=1 -d postgres "${STATEMENTS[@]}" -c "SELECT pg_reload_conf();" >/dev/null
+  "${PSQL[@]}" -X -q -v ON_ERROR_STOP=1 -d postgres "${STATEMENTS[@]}" -c "SELECT pg_reload_conf();" >/dev/null
   for n in "${DRIFTED[@]}"; do echo "APPLIED $n"; done
   # Re-report from a fresh read: the tally restarts with what is true now.
   NOT_OK=0

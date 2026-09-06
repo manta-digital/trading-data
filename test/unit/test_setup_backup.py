@@ -427,6 +427,29 @@ class TestPgSettings:
         pg["conf"].write_text("#archive_command = ''\n")
         assert _pg_run(pg, "--check").returncode == 0
 
+    def test_as_user_wraps_every_psql_call_in_runuser(
+        self, pg: dict[str, Path]
+    ) -> None:
+        # runuser stub: record the user, then run the wrapped command.
+        _stub(
+            pg["bin"],
+            "runuser",
+            f'echo "runuser $2" >> {str(pg["log"])!r}\nshift 3\nexec "$@"\n',
+        )
+        pg["fixture"].write_text(
+            _pg_rows(
+                "cp %p /old/%f", "/etc/postgresql/17/main/conf.d/915-archiving.conf"
+            )
+        )
+        pg["after"].write_text(
+            _pg_rows(_ARCHIVE_CMD, "/etc/postgresql/17/main/postgresql.auto.conf")
+        )
+        result = _pg_run(pg, "--as-user", "postgres")
+        assert result.returncode == 0, result.stdout + result.stderr
+        statements = _statements(pg)
+        assert statements.count("runuser postgres") == 3  # query, apply, re-query
+        assert f"ALTER SYSTEM SET archive_command = '{_ARCHIVE_CMD}';" in statements
+
     def test_psql_failure_is_missing(self, pg: dict[str, Path]) -> None:
         _stub(pg["bin"], "psql", "echo 'psql: error: connection refused' >&2; exit 2\n")
         result = _pg_run(pg, "--check")

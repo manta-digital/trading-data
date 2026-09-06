@@ -164,10 +164,12 @@ step "Step 4/8: PostgreSQL settings ($CLUSTER)"
 if [ -n "$REHEARSE" ]; then
   report "SKIPPED step-4 (rehearse)"
 else
-  # As postgres when root (peer auth, superuser for ALTER SYSTEM); as the
-  # invoking user otherwise, which only --check permits.
-  PG_RUNNER=(); [ "$(id -u)" -ne 0 ] || PG_RUNNER=(runuser -u postgres --)
-  run_lib "${PG_RUNNER[@]}" env PGCLUSTER="$CLUSTER" "$LIB_DIR/pg_settings.sh" "${CHECK_FLAG[@]}" \
+  # psql runs as postgres when root (peer auth, superuser for ALTER SYSTEM);
+  # the library itself stays the caller's process — postgres cannot read a
+  # checkout under an operator's home. Non-root (only --check permits it):
+  # psql as the invoking user.
+  PG_AS_USER=(); [ "$(id -u)" -ne 0 ] || PG_AS_USER=(--as-user postgres)
+  run_lib env PGCLUSTER="$CLUSTER" "$LIB_DIR/pg_settings.sh" "${CHECK_FLAG[@]}" "${PG_AS_USER[@]}" \
     --conf "$PG_CONF" --set "archive_mode=$ARCHIVE_MODE" --set "archive_command=$ARCHIVE_COMMAND" \
     --set "wal_compression=$WAL_COMPRESSION" --forbid-conf-line archive_command
 fi
