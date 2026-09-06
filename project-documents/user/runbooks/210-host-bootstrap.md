@@ -158,8 +158,8 @@ sudo systemctl start mt-daily-pass.timer mt-minute-pass.timer mt-kalshi-pass.tim
 Only when Step 7 reported them:
 
 ```bash
-crontab -e     # delete the lines naming archive_health_cron.sh, cron_nightly_metadata.sh, cron_weekly_base.sh; keep "@reboot rclone mount"
-crontab -l | grep -c 'archive_health_cron\|cron_nightly_metadata\|cron_weekly_base'   # 0
+crontab -e     # delete every line that invokes trading-data/scripts/ (the 915-era backup entries); keep "@reboot rclone mount"
+crontab -l | grep -c 'trading-data/scripts'   # 0
 sudo rm /etc/postgresql/17/main/conf.d/915-archiving.conf     # the hand-set archive lines; postgresql.auto.conf now holds them
 sudo systemctl reload postgresql@17-main
 ```

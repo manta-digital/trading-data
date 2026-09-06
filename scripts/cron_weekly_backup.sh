@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # cron_weekly_backup.sh — cron.d glue for the weekly base backup and the
-# guarded offsite reconcile (slice 920, D4; replaces cron_weekly_base.sh).
+# guarded offsite reconcile (slice 920, D4; replaces the 915 weekly glue).
 #
 # Refuses to run while the archive-health flag exists (a base backup taken on
 # a suspect chain is what the gate prevents). Then, in an order that makes it
