@@ -7,8 +7,8 @@ dependencies: [915, 916]
 interfaces: [917, 919]
 effort: 3
 dateCreated: 20260905
-dateUpdated: 20260905
-status: not_started
+dateUpdated: 20260906
+status: in_progress
 ---
 
 # Slice Design: Backup Hardening and Host Bootstrap (920)
@@ -217,6 +217,14 @@ not worth their restore-path complexity, and the design falls back to
 uncompressed atomic archiving (D2 without `zstd`), which still delivers the
 wedge fix and offsite WAL. The measured ratio goes into the runbook either
 way.
+
+**Measured 2026-09-06: ratio 1.88× over 200 segments, 56 ms/segment.**
+Sample: the 200 newest raw segments in `/data/backup/wal`
+(`0000000100001243000000B6` … `00000001000012440000007D`), copied to a
+scratch directory under `/data`, `zstd -T2 -q` on each: 3,355,443,200 raw
+bytes → 1,783,134,864 compressed. Wall-clock 56 ms per segment, well inside
+the archiver's budget at ~1,000 segments/day. Decision: **go** — every "if
+go" item in Sections 3–5 applies.
 
 If adopted, four things change together, in one commit, because a restore
 that finds `.zst` files with a `cp`-shaped `restore_command` fails at the

@@ -206,22 +206,22 @@ anything they guard changes (D11 step 1). `check_archive_health.sh` and
 
 Design *D3*.
 
-- [ ] **Task 2.1: Measure the archived-segment compression ratio**
+- [x] **Task 2.1: Measure the archived-segment compression ratio**
       (effort: 1)
-  - [ ] On manta9000, copy the 200 newest raw segments from
+  - [x] On manta9000, copy the 200 newest raw segments from
         `/data/backup/wal` to a scratch directory under `/data`
         (read-only against the archive), run `zstd -T2 -q` on each, and
         compute total raw bytes / total compressed bytes. Also record
         wall-clock per segment.
-  - [ ] Write the result as a dated row in the design's D3 section
+  - [x] Write the result as a dated row in the design's D3 section
         ("Measured YYYY-MM-DD: ratio N.Nx over 200 segments, M ms/segment")
         and the decision: **go** if ≥ 1.5×, otherwise **no-go**.
-  - [ ] Remove the scratch directory.
-  - [ ] Success: the design carries the number and the decision; every
+  - [x] Remove the scratch directory.
+  - [x] Success: the design carries the number and the decision; every
         later task in Sections 3–5 that says "if go" follows it.
 
-- [ ] **Task 2.2: Checkpoint commit** (effort: 1)
-  - [ ] Commit (e.g. `docs: record 920 archive compression measurement`).
+- [x] **Task 2.2: Checkpoint commit** (effort: 1)
+  - [x] Commit (e.g. `docs: record 920 archive compression measurement`).
 
 ## Section 3: `deploy/setup-backup.sh`
 
