@@ -1,0 +1,22 @@
+# /etc/cron.d/manta-trading-backup — the backup tier's schedule (slice 920, D7).
+#
+# RENDERED BY deploy/setup-backup.sh FROM deploy/cron.d/manta-trading-backup.
+# Do not edit here: change the template or the script's constants and re-run
+# `sudo deploy/setup-backup.sh`. `--check` reports DRIFT if this file differs
+# from a fresh render. Every at-sign-delimited token is substituted by the script; the
+# push schedule, --stale-after (3 x interval), and --timeout (interval - 1)
+# are all derived from one constant, WAL_OFFSITE_INTERVAL_MIN.
+#
+# No mail transport on this host: every job redirects its output to a log
+# under the backup root, and the health check turns failures into flag files.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+# m h dom mon dow  user  command
+*/30 * * * * @CRON_USER@ @CHECKOUT@/scripts/backup_health_cron.sh --env-file @ENV_FILE@ --pgdata @PGDATA@ --wal-dir @BACKUP_ROOT@/wal --stamp @BACKUP_ROOT@/wal-offsite.stamp --stale-after @STALE_AFTER@ --system-stamp @BACKUP_ROOT@/system-backup.stamp --base-dir @BACKUP_ROOT@/base --flag @BACKUP_ROOT@/ARCHIVE-BROKEN --stale-flag @BACKUP_ROOT@/BACKUP-STALE --log @BACKUP_ROOT@/backup-health.log >/dev/null 2>&1
+@PUSH_SCHEDULE@ @CRON_USER@ @CHECKOUT@/scripts/sync_wal_offsite.sh --wal-dir @BACKUP_ROOT@/wal --remote @WAL_REMOTE@ --stamp @BACKUP_ROOT@/wal-offsite.stamp --timeout @PUSH_TIMEOUT@ --lock @BACKUP_ROOT@/wal-offsite.lock >> @BACKUP_ROOT@/wal-offsite.log 2>&1
+0 2 * * * @CRON_USER@ @CHECKOUT@/scripts/cron_nightly_metadata.sh --env-file @ENV_FILE@ --dest @BACKUP_ROOT@/metadata >> @BACKUP_ROOT@/metadata.log 2>&1
+0 3 * * 0 @CRON_USER@ @CHECKOUT@/scripts/cron_weekly_backup.sh --env-file @ENV_FILE@ --base-dir @BACKUP_ROOT@/base --wal-dir @BACKUP_ROOT@/wal --keep-days @KEEP_DAYS@ --health-flag @BACKUP_ROOT@/ARCHIVE-BROKEN --remote-wal @WAL_REMOTE@ --lock @BACKUP_ROOT@/wal-offsite.lock --armed @BACKUP_ROOT@/RECONCILE-ARMED >> @BACKUP_ROOT@/base.log 2>&1
+0 4 * * * root @CHECKOUT@/scripts/cron_system_backup.sh --mode backup --env-file @ENV_FILE@ --repo-prefix @RESTIC_PREFIX@ --exclude-file @CHECKOUT@/deploy/restic-excludes.txt --stamp @BACKUP_ROOT@/system-backup.stamp --log @BACKUP_ROOT@/system-backup.log >/dev/null 2>&1
+0 5 1 * * root @CHECKOUT@/scripts/cron_system_backup.sh --mode check --env-file @ENV_FILE@ --repo-prefix @RESTIC_PREFIX@ --log @BACKUP_ROOT@/system-backup.log >/dev/null 2>&1

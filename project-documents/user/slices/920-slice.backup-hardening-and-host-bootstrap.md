@@ -164,7 +164,7 @@ Items the script owns, in step order:
 | Step | Item | Mechanism | Idempotence test |
 |---|---|---|---|
 | 1 | Packages | `apt-get install restic` if absent | `dpkg -s` |
-| 2 | Archive directories | `mkdir -p` `base/ wal/ metadata/ system/` under `--backup-root`; `wal/` owner `postgres:postgres` 0755 | stat |
+| 2 | Archive directories | `mkdir -p` `base/ wal/ metadata/ system/` under `--backup-root`; `wal/` owner `postgres:postgres` **0775** (amended 2026-09-06 at implementation: the group bits are the ACL mask, so 0755 would cap step 3's named entry at `r-x` — the measured live mode is 775 for this reason) | stat |
 | 3 | WAL archive ACL | `setfacl -m u:<cron-user>:rwx -m d:u:<cron-user>:rwx wal/` | `getfacl` contains both entries |
 | 4 | PostgreSQL settings | `ALTER SYSTEM SET` as `postgres` for `archive_mode`, `archive_command` (D3), `wal_compression`, then `pg_ctl reload` | `pg_settings.setting` equals expected; `pending_restart` reported |
 | 5 | Cron schedule | install `/etc/cron.d/manta-trading-backup` from `deploy/cron.d/manta-trading-backup` with paths substituted (D7) | file content equals rendered template |

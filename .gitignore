@@ -176,3 +176,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .context-forge.local.toml
+
+# slice 920: deploy/lib holds the setup-backup.sh step libraries (not a build output)
+!deploy/lib/

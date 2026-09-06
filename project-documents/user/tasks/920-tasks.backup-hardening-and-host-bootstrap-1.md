@@ -228,56 +228,56 @@ Design *D3*.
 Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
 `--check` first so every later step is testable as it lands.
 
-- [ ] **Task 3.1: Skeleton, arguments, `--check`, reporting** (effort: 2)
-  - [ ] Create `deploy/setup-backup.sh` in the `install-production.sh`
+- [x] **Task 3.1: Skeleton, arguments, `--check`, reporting** (effort: 2)
+  - [x] Create `deploy/setup-backup.sh` in the `install-production.sh`
         mould: root check, `die`/`step` helpers, required arguments
         `--checkout`, `--env-file`, `--backup-root`, `--cluster`, no
         defaults; `--check` flag.
-  - [ ] Constants block at the top, one definition each:
+  - [x] Constants block at the top, one definition each:
         `WAL_OFFSITE_INTERVAL_MIN=60`, `KEEP_DAYS=7`, `CRON_USER=manta`,
         `ARCHIVE_COMMAND` (D2 form, or the uncompressed atomic form if
         Task 2.1 said no-go), `WAL_COMPRESSION=zstd`,
         `TIMESHIFT_COUNT_WEEKLY=2`, the timeshift exclude list, the
         cron.d template path, the restic repo prefix `system`.
-  - [ ] Reporting helper: each item calls `report OK|DRIFT|MISSING <item>
+  - [x] Reporting helper: each item calls `report OK|DRIFT|MISSING <item>
         [<expected> <actual>]`; in `--check` mode the script changes
         nothing and exits 1 if any item is not `OK`. In apply mode each
         step acts only when its check is not `OK`, prints `APPLIED <item>`,
         then re-reports. A run that changes nothing therefore prints zero
         `APPLIED` lines — that is the idempotence assertion Task 8.2 makes.
-  - [ ] Success: `sudo deploy/setup-backup.sh --check …` on manta9000
+  - [x] Success: `sudo deploy/setup-backup.sh --check …` on manta9000
         runs to the end and prints one line per item (items from later
         tasks appear as they are added).
 
-- [ ] **Task 3.1a: Skeleton tests** (effort: 1)
-  - [ ] Create `test/unit/test_setup_backup.py` (subprocess, no root, no
+- [x] **Task 3.1a: Skeleton tests** (effort: 1)
+  - [x] Create `test/unit/test_setup_backup.py` (subprocess, no root, no
         DB): argument refusal for each required argument; refusal when
         not root (message names `sudo`); `--check` with a scratch
         `--backup-root` exits 1 and prints `MISSING` lines, never
         `APPLIED`.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 3.2: Steps 1–3 — packages, directories, ACL** (effort: 1)
-  - [ ] Step 1: `restic` installed (`dpkg -s`), install if missing.
-  - [ ] Step 2: `base/ wal/ metadata/ system/` under `--backup-root`;
+- [x] **Task 3.2: Steps 1–3 — packages, directories, ACL** (effort: 1)
+  - [x] Step 1: `restic` installed (`dpkg -s`), install if missing.
+  - [x] Step 2: `base/ wal/ metadata/ system/` under `--backup-root`;
         `wal/` owner `postgres:postgres` mode 0755.
-  - [ ] Step 3: `setfacl -m u:$CRON_USER:rwx -m d:u:$CRON_USER:rwx wal/`;
+  - [x] Step 3: `setfacl -m u:$CRON_USER:rwx -m d:u:$CRON_USER:rwx wal/`;
         check via `getfacl` for both the access and default entries.
-  - [ ] Success: `--check` reports all three `OK` on manta9000 (they are
+  - [x] Success: `--check` reports all three `OK` on manta9000 (they are
         already applied by hand) and `MISSING`/`DRIFT` on a scratch root.
 
 - [ ] **Task 3.3: Step 4 — PostgreSQL settings via `ALTER SYSTEM`**
       (effort: 2)
-  - [ ] As `postgres` (`runuser -u postgres -- psql`), compare
+  - [x] As `postgres` (`runuser -u postgres -- psql`), compare
         `pg_settings.setting` for `archive_mode`, `archive_command`,
         `wal_compression` against the constants; apply with
         `ALTER SYSTEM SET` only on drift, then `SELECT pg_reload_conf()`.
-  - [ ] After reload, re-read `pg_settings.pending_restart`; report any
+  - [x] After reload, re-read `pg_settings.pending_restart`; report any
         `PENDING RESTART` item by name. **Never restart.**
-  - [ ] Report `DRIFT` if `postgresql.conf` (path from `--cluster`) still
+  - [x] Report `DRIFT` if `postgresql.conf` (path from `--cluster`) still
         contains an uncommented `archive_command` line — the hand edit the
         runbook says to remove.
-  - [ ] Also assert `pg_settings.sourcefile` for the three settings ends
+  - [x] Also assert `pg_settings.sourcefile` for the three settings ends
         in `postgresql.auto.conf` (the script runs as `postgres`, so the
         column is visible); report `DRIFT <name> source` otherwise.
   - [ ] Success: on manta9000 **`--check` only** shows `archive_command`
@@ -285,18 +285,18 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         `DRIFT` (`postgresql.conf`). Apply mode is exercised in Task 3.7
         with a stubbed `psql`, never against production before Section 8.
 
-- [ ] **Task 3.3a: PostgreSQL-step tests** (effort: 1)
-  - [ ] With a stubbed `psql` on `PATH` that answers `pg_settings` queries
+- [x] **Task 3.3a: PostgreSQL-step tests** (effort: 1)
+  - [x] With a stubbed `psql` on `PATH` that answers `pg_settings` queries
         from a fixture and records statements: drifted settings → exactly
         those `ALTER SYSTEM SET` statements plus one `pg_reload_conf()`,
         never a restart command; matching settings → no statements; a
         `sourcefile` not ending in `postgresql.auto.conf` →
         `DRIFT <name> source`; `pending_restart = t` → `PENDING RESTART`
         line.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 3.4: Step 5 — cron.d rendering** (effort: 2)
-  - [ ] Create `deploy/cron.d/manta-trading-backup` template with the six
+- [x] **Task 3.4: Step 5 — cron.d rendering** (effort: 2)
+  - [x] Create `deploy/cron.d/manta-trading-backup` template with the six
         entries of D7 (glue names: `backup_health_cron.sh`,
         `sync_wal_offsite.sh`, `cron_nightly_metadata.sh`,
         `cron_weekly_backup.sh`, `cron_system_backup.sh` ×2) and placeholders for checkout, env file, backup
@@ -304,57 +304,57 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         `WAL_OFFSITE_INTERVAL_MIN=60`; render `*/N * * * *` for N < 60,
         refuse other values), `--stale-after` = 3 × interval, push
         `--timeout` = interval − 1 minute, and the flag/stamp paths.
-  - [ ] Render with `sed` (or `envsubst`) into `/etc/cron.d/manta-trading-backup`
+  - [x] Render with `sed` (or `envsubst`) into `/etc/cron.d/manta-trading-backup`
         0644 root; `--check` compares rendered content byte-for-byte.
-  - [ ] Success: the interval number appears in exactly one place in the
+  - [x] Success: the interval number appears in exactly one place in the
         repo (`grep -rn WAL_OFFSITE_INTERVAL_MIN` returns the constant and
         its uses only); a rendered file diff is empty on re-run.
 
-- [ ] **Task 3.4a: cron.d rendering tests** (effort: 1)
-  - [ ] Render to a temp path for an interval of 60 and of 15: six
+- [x] **Task 3.4a: cron.d rendering tests** (effort: 1)
+  - [x] Render to a temp path for an interval of 60 and of 15: six
         entries, substituted paths, expected user fields, `--stale-after`
         = 3 × interval, `--timeout` = interval − 1, trailing newline, no
         unescaped `%`; interval 45 refused.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 3.5: Step 6 — timeshift managed keys** (effort: 1)
-  - [ ] With `jq`, read `/etc/timeshift/timeshift.json`, compare managed
+- [x] **Task 3.5: Step 6 — timeshift managed keys** (effort: 1)
+  - [x] With `jq`, read `/etc/timeshift/timeshift.json`, compare managed
         keys (`schedule_*`, `count_weekly`, `exclude`), write back only
         those keys on drift; never touch `backup_device_uuid`,
         `snapshot_size`, `snapshot_count`. Report the device UUID as info.
-  - [ ] Success: `--check` on manta9000 reports `DRIFT count_weekly 2 3`
+  - [x] Success: `--check` on manta9000 reports `DRIFT count_weekly 2 3`
         (check only; no apply before Section 8). Apply mode is exercised in
         Task 3.7 on a copy of the live file: managed keys change, a
         `jq del(managed keys)` projection is byte-identical before/after.
 
-- [ ] **Task 3.5a: Timeshift-merge tests** (effort: 1)
-  - [ ] `deploy/lib/timeshift_merge.sh` on a copy of the live file:
+- [x] **Task 3.5a: Timeshift-merge tests** (effort: 1)
+  - [x] `deploy/lib/timeshift_merge.sh` on a copy of the live file:
         managed keys change to the constants; the `jq del(managed keys)`
         projection is byte-identical; a file already conformant is
         unchanged byte-for-byte; a missing file is reported `MISSING` and
         not created.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 3.6: Steps 7–8 — restic repository and leftover crontab
+- [x] **Task 3.6: Steps 7–8 — restic repository and leftover crontab
       lines** (effort: 1)
-  - [ ] Step 7: build the repo URL from the env file's `MT_BACKUP_S3_*`
+  - [x] Step 7: build the repo URL from the env file's `MT_BACKUP_S3_*`
         keys and the `system` prefix; `restic cat config` succeeds → `OK`;
         else `restic init` in apply mode. `MT_BACKUP_RESTIC_PASSWORD`
         missing from the env file is `MISSING` and blocks this step only.
-  - [ ] Step 7a: report the reconcile arm file
+  - [x] Step 7a: report the reconcile arm file
         `<backup-root>/RECONCILE-ARMED` as `OK` when present, `MISSING`
         otherwise; **never create it** — Task 9.4's watched run does, by
         hand. (Its absence is expected `MISSING` until then.)
-  - [ ] Step 8: `DRIFT` if `crontab -l -u $CRON_USER` contains any of
+  - [x] Step 8: `DRIFT` if `crontab -l -u $CRON_USER` contains any of
         `archive_health_cron.sh`, `cron_nightly_metadata.sh`,
         `cron_weekly_base.sh`. The script never edits the user crontab.
-  - [ ] Success: `--check` on manta9000 reports step 7 `MISSING` (no
+  - [x] Success: `--check` on manta9000 reports step 7 `MISSING` (no
         password yet) and step 8 `DRIFT` (lines present) — both expected
         before cutover.
 
 - [ ] **Task 3.6a: `--rehearse <dir>` and an apply-mode rehearsal**
       (effort: 1)
-  - [ ] Add `--rehearse <dir>`: cron.d renders to `<dir>/cron.d`, the
+  - [x] Add `--rehearse <dir>`: cron.d renders to `<dir>/cron.d`, the
         timeshift file read/written is `<dir>/timeshift.json` (copy the
         live one in first), step 4 prints `SKIPPED step 4 (rehearse)` and
         touches no cluster, the restic prefix becomes `system-rehearse`.
@@ -367,19 +367,19 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
   - [ ] Success: apply-mode idempotence is proven before the PM depends
         on it in Task 8.2; the rehearsal leaves no trace.
 
-- [ ] **Task 3.7: Steps 7–8 tests and shellcheck** (effort: 1)
-  - [ ] With a stubbed `restic` on `PATH`: `cat config` failing →
+- [x] **Task 3.7: Steps 7–8 tests and shellcheck** (effort: 1)
+  - [x] With a stubbed `restic` on `PATH`: `cat config` failing →
         `MISSING` in check mode and `restic init` in apply mode; missing
         password → `MISSING` and no restic call; arm file present/absent
         → `OK`/`MISSING` and never created; a fixture crontab containing a
         915 script name → `DRIFT`.
-  - [ ] `shellcheck deploy/setup-backup.sh deploy/lib/timeshift_merge.sh
+  - [x] `shellcheck deploy/setup-backup.sh deploy/lib/timeshift_merge.sh
         scripts/check_backup_health.sh scripts/backup_health_cron.sh`
         clean.
-  - [ ] Success: tests pass; shellcheck reports nothing.
+  - [x] Success: tests pass; shellcheck reports nothing.
 
-- [ ] **Task 3.8: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 3 (e.g.
+- [x] **Task 3.8: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 3 (e.g.
         `feat: add deploy/setup-backup.sh with --check drift mode`).
 
 ## Section 4: Compressed archive path — prune, restore, runbook
