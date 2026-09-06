@@ -418,10 +418,11 @@ the health check's `--stale-after` (3 ×) and the push's `--timeout` (−1 min).
 `cat /etc/cron.d/manta-trading-backup` is the literal, argument-complete
 form of every job — copy a line from there to run a job by hand.
 
-**One-time removal of the 915 user-crontab lines.** The three entries the
-2026-08-18 install put in `crontab -e` (`archive_health_cron.sh`,
-`cron_nightly_metadata.sh`, `cron_weekly_base.sh`) must be deleted once
-cron.d is installed, or the jobs run twice. The script never edits the user
+**One-time removal of the 915 user-crontab lines (done 2026-09-06).** The
+three entries the 2026-08-18 install put in `crontab -e` (half-hourly health
+check, nightly metadata, weekly base) must be deleted once cron.d is
+installed, or the jobs run twice; their two glue scripts were deleted from
+the repository after cron.d was observed firing. The script never edits the user
 crontab; `--check` reports `DRIFT user-crontab still runs: …` while they
 remain. Keep the `@reboot rclone mount google-drive:` line.
 
@@ -475,9 +476,9 @@ at any time.
 | Alarm fire + self-recovery | 2026-08-18 | FAIL within one check; backlog drained unaided in <20 s |
 | Offsite reconcile rehearsal (slice 920 Task 5.6) against a scratch prefix `b2:<bucket>/scratch-920/` with a 50-file fake archive under `/data`, the real cluster for the guards, `cron_weekly_backup.sh --skip-base-backup` | 2026-09-06 | Unarmed run: push 50, check 0 differences, prune 0, `reconcile guards passed`, `reconcile skipped: not armed`, exit 0, offsite 50. Armed run after deleting 5 local files: `rclone sync --max-delete 50` left offsite at exactly 45, final check 0 differences. Armed run with the local directory emptied: `reconcile refused: WAL directory … is empty`, exit 1, offsite still 45. Two earlier runs with a mis-built fixture (manifest start segment newer than every file) had the prune remove all files and the guards refuse — offsite untouched both times. Scratch prefix purged; `rclone lsf` of it empty |
 
-| 920 cutover settings evidence (Task 8.3) | pending | (filled in at the cutover) |
-| 920 cron-driven evidence — health check and push fired from cron.d (Task 8.4) | pending | (filled in at the cutover; first full push duration) |
-| 920 alarm drill — six new failures fire and clear, two-flag gate behaviour (Task 9.1) | pending | (filled in after the cutover) |
+| 920 cutover settings evidence (Task 8.3) | 2026-09-06 | `setup-backup.sh` applied 13:17 local (run 1: `APPLIED` restic, `dir-system`, cron.d, `count_weekly`, restic-repo; after the `--as-user` fix, `APPLIED archive_command`; run 2: `SUMMARY applied=0`). `pg_settings`: `archive_mode=on`, `wal_compression=zstd`, `archive_command` = the D2 form; `sourcefile` postgresql.auto.conf for `archive_command` (`archive_mode` still reported from `conf.d/915-archiving.conf` until that file was removed). `pg_switch_wal()` at 13:23: `…1244…F2.zst` landed within 6 s, no `.tmp`, `last_archived_wal` advanced; the three `.zst` segments are 1.4–6.3 MB each (16 MiB raw). `getfacl`: `user:manta:rwx` + `default:user:manta:rwx`. timeshift: UUID `277accd4-…` unchanged, `count_weekly` 2, the four excludes |
+| 920 cron-driven evidence — health check and push fired from cron.d (Task 8.4) | 2026-09-06 | `/etc/cron.d/manta-trading-backup` has the six D7 entries (4 × manta, 2 × root), installed 13:17. cron logged no `RELOAD` line at its default log level; the evidence is the firing: 13:30:01 `journalctl -t CRON` shows `(manta) CMD (… backup_health_cron.sh …)`, `backup-health.log` gained its first line, `BACKUP-STALE` appeared, `journalctl -t manta-backup` shows the raise. 14:00:01 push: `journalctl -t CRON` shows `(manta) CMD (… sync_wal_offsite.sh …)` and `wal-offsite.log` gained `skipped: previous run active` — the by-hand full first push (started 10:08) still held the lock, so the overlap guard was observed live from cron. Two distinct cron.d entries executed by cron. First cron-touched stamp mtime: (recorded once the full push completes) |
+| 920 alarm drill — six new failures fire and clear, two-flag gate behaviour (Task 9.1) | 2026-09-06 | Real conditions first: the 13:30 cron.d run raised `BACKUP-STALE` for `offsite_wal_stale` + `system_backup_stale` (no push/restic stamp yet), journal `BACKUP-STALE raised: …`. Planted as `manta` via the ACL at 13:30: 1000-byte file at `wal_segment_name.py next` of `last_archived_wal` (…1244…FA) + `drill.zst.tmp` aged 20 min → `FAIL archive_wedged`, `FAIL archive_tmp_leftover`, `ARCHIVE-BROKEN` written by the glue, journal `ARCHIVE-BROKEN raised: …`; `cron_weekly_backup.sh` with the cron.d arguments refused on the flag before reading its env file. `mv` the planted file aside + `rm` the `.tmp` → next glue run removed `ARCHIVE-BROKEN`, journal `ARCHIVE-BROKEN cleared`; with only `BACKUP-STALE` present the weekly job got past the flag and failed on a deliberately nonexistent `--env-file`. Ad hoc: scratch `--base-dir` with only `20260801/` → `FAIL weekly_base_stale` (36 days); push stamp aged 4 h → `FAIL offsite_wal_stale` (240 min); restic stamp aged 3 days → `FAIL system_backup_stale` (4320 min); fresh stamps → `FLAGS archive=0 stale=0`. **`prune_permission` (ACL revoke) needs root — pending PM.** Nit found: the glue's `raised:` journal line lists every FAIL name, not only the flag's class |
 | 920 PITR across the mixed raw/`.zst` archive, local (Task 9.2) | pending | (filled in after the cutover) |
 | 920 PITR from B2-sourced WAL only (Task 9.3) | pending | (filled in after the cutover) |
 | 920 watched first offsite reconcile — unarmed, then armed (Task 9.4) | pending | (filled in after the cutover; expect `removed base/20260816 base/20260817`) |

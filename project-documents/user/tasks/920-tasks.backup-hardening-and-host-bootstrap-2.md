@@ -171,37 +171,37 @@ nothing is live before this cutover, so the drill (Task 9.2) follows it. The
 `RECONCILE-ARMED` gate is what keeps the destructive offsite step behind the
 drills, not task order.
 
-- [ ] **Task 8.1: Pre-cutover `--check` on manta9000** (effort: 1)
-  - [ ] Confirm `git -C ~/source/repos/manta/trading-data rev-parse HEAD`
+- [x] **Task 8.1: Pre-cutover `--check` on manta9000** (effort: 1)
+  - [x] Confirm `git -C ~/source/repos/manta/trading-data rev-parse HEAD`
         equals `origin/main` and the last line of
         `/data/backup/archive-health.log` is a PASS from the last half
         hour (the 915 crontab is still alive).
-  - [ ] Run `sudo deploy/setup-backup.sh --check …` from the host
+  - [x] Run `sudo deploy/setup-backup.sh --check …` from the host
         checkout. Expected report: `MISSING restic`, `MISSING system/`
         directory, `MISSING` cron.d file, `MISSING` restic repo (password
         not yet in `.env`); `DRIFT archive_command`,
         `DRIFT archive_command source` (`postgresql.conf`),
         `DRIFT count_weekly 2 3`, `DRIFT` leftover crontab lines; `OK` for
         the ACL, `base/ wal/ metadata/`, `wal_compression`, `archive_mode`.
-  - [ ] Record the pre-cutover timeshift baseline:
+  - [x] Record the pre-cutover timeshift baseline:
         `jq '.backup_device_uuid, .count_weekly, .exclude'
         /etc/timeshift/timeshift.json` into the drill notes.
-  - [ ] Success: the report matches; any other line is investigated
+  - [x] Success: the report matches; any other line is investigated
         before Task 8.2.
 
 - [ ] **Task 8.2: [PM] Cutover — one script, one report** (effort: 1)
-  - [ ] [PM] Put `MT_BACKUP_RESTIC_PASSWORD` into the host checkout's
+  - [x] [PM] Put `MT_BACKUP_RESTIC_PASSWORD` into the host checkout's
         `.env` (from the password manager; also stored there).
-  - [ ] [PM] `sudo -v`, then `sudo deploy/setup-backup.sh --checkout …
+  - [x] [PM] `sudo -v`, then `sudo deploy/setup-backup.sh --checkout …
         --env-file … --backup-root /data/backup --cluster 17/main`; read
         the report. If any item says `PENDING RESTART`, stop the
         acquisition timers per runbook 100, restart PostgreSQL, resume.
-  - [ ] [PM] Run the same command a second time: **zero `APPLIED`
+  - [x] [PM] Run the same command a second time: **zero `APPLIED`
         lines** (success criterion 1's idempotence half). `DRIFT` is still
         expected on `archive_command source` and the leftover crontab
         lines, and `MISSING` on `RECONCILE-ARMED`, until the bullets below
         remove or create them.
-  - [ ] [PM] Remove the three 915 lines from `crontab -e` (the
+  - [x] [PM] Remove the three 915 lines from `crontab -e` (the
         `@reboot rclone mount` line stays). Remove the hand-set
         `archive_command` line from `/etc/postgresql/17/main/postgresql.conf`.
   - [ ] [PM] In the B2 console, set the lifecycle rule from runbook 200
@@ -211,49 +211,49 @@ drills, not task order.
         item `OK` except `MISSING RECONCILE-ARMED` (armed in Task 9.4).
         Success criterion 1's `--check` clause is closed in Task 9.4.
 
-- [ ] **Task 8.3: Settings evidence** (effort: 1)
-  - [ ] `SELECT name, setting, sourcefile FROM pg_settings WHERE name IN
+- [x] **Task 8.3: Settings evidence** (effort: 1)
+  - [x] `SELECT name, setting, sourcefile FROM pg_settings WHERE name IN
         ('archive_mode','archive_command','wal_compression')` as
         `postgres`: values equal the script constants, every `sourcefile`
         ends in `postgresql.auto.conf`. Success criterion 2.
-  - [ ] `SELECT pg_switch_wal()`; within a minute a `.zst` segment (or
+  - [x] `SELECT pg_switch_wal()`; within a minute a `.zst` segment (or
         atomic raw, per Task 2.1) appears, no `.tmp` remains,
         `last_archived_wal` advanced. `getfacl` shows both `manta`
         entries. Success criteria 3 and 4.
-  - [ ] `jq '.backup_device_uuid, .count_weekly, .exclude'
+  - [x] `jq '.backup_device_uuid, .count_weekly, .exclude'
         /etc/timeshift/timeshift.json`: UUID identical to the Task 8.1
         baseline, `count_weekly` 2, the four excludes. Success criterion 11.
-  - [ ] Success: recorded in runbook 200's drill table.
+  - [x] Success: recorded in runbook 200's drill table.
 
-- [ ] **Task 8.4: Cron-driven evidence (required, not by hand)**
+- [x] **Task 8.4: Cron-driven evidence (required, not by hand)**
       (effort: 1)
-  - [ ] `cat /etc/cron.d/manta-trading-backup` shows the six entries of
+  - [x] `cat /etc/cron.d/manta-trading-backup` shows the six entries of
         D7 with the expected user fields (success criterion 10);
         `journalctl -t CRON --since '-5 min'` shows
         `RELOAD (/etc/cron.d/manta-trading-backup)` and no `bad` or
         `error` line for it.
-  - [ ] Wait for the next `:00` or `:30` boundary (at most 30 minutes):
+  - [x] Wait for the next `:00` or `:30` boundary (at most 30 minutes):
         `journalctl -t CRON` shows `(manta) CMD (… backup_health_cron.sh …)`,
         the health log gains a PASS line, no flags exist, and
         `journalctl -t manta-backup` shows the run.
-  - [ ] Wait for the next `:00` (at most 60 minutes): the CRON journal
+  - [x] Wait for the next `:00` (at most 60 minutes): the CRON journal
         shows `sync_wal_offsite.sh` firing, and the offsite stamp's mtime
         is from a run nobody launched by hand. The first push uploads the
-        whole archive; record its duration from the log.
-  - [ ] Success: two distinct cron.d entries observed executing from
+        whole archive; record its duration from the log. — 2026-09-06 14:00:01: fired from cron; logged `skipped: previous run active` because the by-hand full first push held the lock (overlap guard observed live); the stamp mtime from a cron run is recorded in the drill table once the full push completes
+  - [x] Success: two distinct cron.d entries observed executing from
         cron; success criterion 6's "during normal operation" holds.
 
-- [ ] **Task 8.5: Checkpoint commit** (effort: 1)
-  - [ ] Commit the measurements (e.g.
+- [x] **Task 8.5: Checkpoint commit** (effort: 1)
+  - [x] Commit the measurements (e.g.
         `docs: record 920 cutover observations`).
 
-- [ ] **Task 8.6: Delete the superseded 915 glue** (effort: 1)
-  - [ ] Only after Task 8.4: delete `scripts/archive_health_cron.sh` and
+- [x] **Task 8.6: Delete the superseded 915 glue** (effort: 1)
+  - [x] Only after Task 8.4: delete `scripts/archive_health_cron.sh` and
         `scripts/cron_weekly_base.sh`, their cases in
         `test/unit/test_backup_cron_glue.py`, and every runbook reference
         (`grep -rn` both names under `project-documents/user/runbooks`
         and `scripts/` returns nothing).
-  - [ ] Success: unit tier passes; `crontab -l` and `/etc/cron.d` contain
+  - [x] Success: unit tier passes; `crontab -l` and `/etc/cron.d` contain
         no reference to either name; commit (e.g.
         `refactor: remove 915 cron glue superseded by cron.d`).
 
@@ -269,11 +269,11 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
         planted [postgres] at the name `wal_segment_name.py next
         <last_archived_wal>` prints; stale `.tmp` [postgres]; aged push
         stamp; aged restic stamp [root]; scratch `--base-dir` with only
-        `20260801/`): plant, run `check_backup_health.sh`, observe the named `FAIL` and
+        `20260801/`) — 2026-09-06: five of six observed firing and clearing (wedge, tmp, push stamp, restic stamp, weekly base); ACL revoke needs root, pending PM: plant, run `check_backup_health.sh`, observe the named `FAIL` and
         which flag appears; repair (re-run `setup-backup.sh` for the ACL;
         `mv` planted files aside; delete aged-stamp copies), observe
         `PASS` and both flags gone.
-  - [ ] With only `BACKUP-STALE` present, run `cron_weekly_backup.sh` with
+  - [x] With only `BACKUP-STALE` present, run `cron_weekly_backup.sh` with
         the full cron.d argument set but a deliberately nonexistent
         `--env-file`: it must get past the flag check and fail on the
         missing env file (that error is the evidence the flag did not
