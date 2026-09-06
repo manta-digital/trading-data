@@ -5,7 +5,7 @@ parent: user/slices/915-slice.backup-and-restore-procedures.md
 relatedSlices: [913, 915]
 host: <prod_host>
 dateCreated: 20260816
-dateUpdated: 20260822
+dateUpdated: 20260906
 status: in_progress
 ---
 
@@ -128,27 +128,42 @@ Stop the daemon before restarting. If this restart interrupts acquisition during
 the week of the slice-169 criterion-18 check, that check simply gets re-run the
 following Monday — it is one query, not a blocker.
 
-Prepare the destination first:
-
-```bash
-mkdir -p /data/backup/wal          # /data is manta-owned
-sudo chown postgres:postgres /data/backup/wal
-sudo chmod 755 /data/backup/wal    # operator needs traversal for PITR; only
-                                   # postgres can write. NOT 700 — see below
-```
-
-Edit `/etc/postgresql/17/main/postgresql.conf`:
+**Applied by `deploy/setup-backup.sh` step 4 (slice 920, 2026-09).** The
+directory, its ownership (`postgres:postgres` 0775 — the group bits are the
+ACL mask, see Step 7), and the three settings below are check-then-act items
+of that script; run `sudo deploy/setup-backup.sh --check …` to audit them and
+without `--check` to apply. The settings go in via `ALTER SYSTEM`
+(`postgresql.auto.conf`), which takes precedence over `postgresql.conf` and
+its `conf.d`:
 
 ```
 archive_mode = on
-archive_command = 'test ! -f /data/backup/wal/%f && cp %p /data/backup/wal/%f && chmod 644 /data/backup/wal/%f'
+wal_compression = zstd
+archive_command = 'test ! -f /data/backup/wal/%f.zst && zstd -q -T2 %p -o /data/backup/wal/%f.zst.tmp && mv /data/backup/wal/%f.zst.tmp /data/backup/wal/%f.zst && chmod 644 /data/backup/wal/%f.zst'
 ```
+
+(The command string above is copied from the script's `ARCHIVE_COMMAND_TEMPLATE`
+constant with the backup root filled in; a unit test asserts the two match.)
+Atomic: the segment is written to `%f.zst.tmp` and renamed, so a disk-full or
+kill mid-write leaves only a `.tmp` (named by the `archive_tmp_leftover`
+check), never a short file under the final name that `test ! -f` would then
+honour as "already archived" — the 2026-09-02 wedge. Compressed: measured
+1.88× over 200 segments at 56 ms/segment (slice 920 D3).
+
+**Remove the hand-set lines once `--check` is green.** Before slice 920,
+`archive_mode` and `archive_command` were set by hand in
+`/etc/postgresql/17/main/conf.d/915-archiving.conf`. `postgresql.auto.conf`
+overrides them, so they are inert, but the file lies about the effective
+value and `--check` reports `DRIFT archive_command conf-line` until they are
+gone: delete the two lines (or the file), then `sudo systemctl reload
+postgresql@17-main`.
 
 Leave `wal_level = replica`. **Never set it to `minimal`** — that silently
 breaks archiving and `pg_basebackup` both.
 
 The `test ! -f` is what stops an existing segment being overwritten. A command
-that overwrites can corrupt the archive.
+that overwrites can corrupt the archive. (With the atomic form above it tests
+the final `.zst` name; the only file that can be partial is the `.tmp`.)
 
 The `chmod 644` makes each segment operator-readable, so a PITR restore runs
 as `manta` without root. Learned the hard way 2026-08-18: a default ACL on
@@ -157,7 +172,11 @@ masking strips the named-user entry on every new file. WAL is no more
 sensitive than the base backups, which are already operator-readable.
 `archive_command` is reload-only (`systemctl reload`), no restart.
 
-Stop the daemon, restart Postgres, bring it back:
+Only a change to `archive_mode` itself needs a restart (`--check` reports
+`PENDING RESTART archive_mode`; the script never restarts). On a host where
+archiving is already on, `archive_command` and `wal_compression` take effect
+on the reload the script performs. First-time enable: stop the daemon,
+restart Postgres, bring it back:
 
 ```bash
 sudo systemctl restart postgresql@17-main
@@ -178,8 +197,10 @@ psql "$MAINT" -c "SELECT archived_count, last_archived_wal, failed_count, last_f
 ls -la /data/backup/wal/ | tail -5
 ```
 
-Expect `archived_count` climbing, `last_failed_wal` NULL, and files present in
-the directory. The counter alone is not evidence — check the directory.
+Expect `archived_count` climbing, `last_failed_wal` NULL (or, after the
+2026-09-02 incident, still naming segment `…1217…83` — see the quick
+reference), and `.zst` files present in the directory. The counter alone is
+not evidence — check the directory.
 
 ### If archiving breaks
 
@@ -401,13 +422,21 @@ Exactly the Step 6 drill procedure, plus three lines in the restored
 `postgresql.conf` and one signal file:
 
 ```
-restore_command = 'cp /data/backup/wal/%f %p'
+restore_command = 'test -f /data/backup/wal/%f.zst && zstd -dq /data/backup/wal/%f.zst -o %p || cp /data/backup/wal/%f %p'
 recovery_target_time = '<target>'   # compares against COMMIT timestamps
 recovery_target_action = 'promote'
 max_worker_processes = 64   # archive recovery refuses to start below the
                             # primary's setting (51 measured); crash recovery
                             # (Step 6) does not check this
 ```
+
+**The archive is mixed** (slice 920): raw segments archived before the
+2026-09 cutover and `.zst` segments after it, until the last raw segment ages
+past the 7-day retention window — seven days after the cutover date in the
+drill record. The `restore_command` above handles both shapes and stays in
+this form permanently; a `cp`-only command fails on the first `.zst` segment
+at the worst possible moment. Compression ratio measured 1.88× (D3), so a
+week of WAL restores from roughly half the bytes it did before.
 
 Then `touch <datadir>/recovery.signal` and start. The startup log shows
 `recovery stopping before commit of transaction ...` at the target and the
@@ -428,3 +457,6 @@ onward do not). The weekly cadence keeps this true automatically.
 | Whole cluster lost | Restore newest base backup (Step 6), replay WAL from `/data/backup/wal` |
 | Need a specific point in time | Step 6 + the PITR section above |
 | Local disk gone | Pull from B2 first (measured: 84.5 GB in 2h05m with rclone ≥1.75; v1.60 hangs on large objects), then as above |
+| `FAIL archive_wedged` (a short raw file sits at the next-to-archive name, no `.zst` sibling — the 2026-09-02 shape) | **Never delete it.** First confirm the source still holds the segment: `ls /var/lib/postgresql/17/main/pg_wal/<name>` (as root). If present, `mv` the partial aside (`/data/backup/wal-partial-<seg>.<reason>`, outside `wal/`) and the archiver re-archives it on its next attempt. If the source has recycled it, the partial is the only copy of that segment's first bytes: keep it, and treat every base backup before that segment as the restore floor |
+| `FAIL archive_tmp_leftover` (a `*.tmp` older than 10 min in `wal/`) | An atomic write that never finished (disk full, kill). Check `df -h /data`; remove the `.tmp` — the archiver rewrites the segment from `pg_wal` on its next attempt because the final name never appeared |
+| `pg_stat_archiver.last_failed_wal` names `…1217…83` long after recovery | Expected. The view is cumulative, not a current-state flag; it keeps the last failure until a newer one. The health check compares `last_failed_time` against `last_archived_time`, so this alone never fires `archiver_failing`. The quarantined partial from that incident stays at `/data/backup/wal-partial-0083.disk-full` |

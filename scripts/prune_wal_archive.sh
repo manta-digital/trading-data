@@ -19,6 +19,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # No /usr/bin wrapper on this host (same as pg_verifybackup).
 PG_ARCHIVECLEANUP="/usr/lib/postgresql/17/bin/pg_archivecleanup"
+# Archived segments are compressed since slice 920 (D3); the extension is
+# stripped before the age comparison, a no-op on raw names, so a mixed
+# archive (raw before the cutover, .zst after) prunes correctly.
+ARCHIVE_EXT=.zst
 
 usage() {
   echo "usage: $0 --base-dir <dir> --wal-dir <dir> --keep-days <n>" >&2
@@ -44,6 +48,10 @@ if [ "${#BACKUPS[@]}" -eq 0 ]; then
   exit 1
 fi
 
+count_archive_files() { find "$WAL_DIR" -maxdepth 1 -type f | wc -l; }
+WAL_BEFORE=$(count_archive_files)
+BASE_PRUNED=0
+
 CUTOFF=$(date -d "-${KEEP_DAYS} days" +%Y%m%d)
 NEWEST="${BACKUPS[-1]}"
 
@@ -56,6 +64,7 @@ for b in "${BACKUPS[@]}"; do
   else
     echo "pruning base backup $BASE_DIR/$b (older than $KEEP_DAYS days)"
     rm -rf "${BASE_DIR:?}/$b"
+    BASE_PRUNED=$((BASE_PRUNED + 1))
   fi
 done
 
@@ -70,5 +79,8 @@ read -r OLDEST_TLI OLDEST_LSN < <(jq -r '.["WAL-Ranges"][0] | "\(.Timeline) \(.[
 OLDEST_SEGMENT=$("$SCRIPT_DIR/wal_segment_name.py" from-lsn "$OLDEST_TLI" "$OLDEST_LSN")
 
 echo "oldest retained backup: $OLDEST_RETAINED (needs WAL from $OLDEST_SEGMENT)"
-"$PG_ARCHIVECLEANUP" -d "$WAL_DIR" "$OLDEST_SEGMENT" 2>&1 | tail -3
-echo "prune done: $(ls "$BASE_DIR" | wc -l) backups retained, $(ls "$WAL_DIR" | wc -l) archive files remain"
+"$PG_ARCHIVECLEANUP" -d -x "$ARCHIVE_EXT" "$WAL_DIR" "$OLDEST_SEGMENT" 2>&1 | tail -3
+WAL_AFTER=$(count_archive_files)
+echo "prune done: ${#RETAINED[@]} backups retained, $WAL_AFTER archive files remain"
+# Machine-readable last line: the weekly reconcile sizes its --max-delete from it.
+echo "PRUNED wal=$((WAL_BEFORE - WAL_AFTER)) base=$BASE_PRUNED"

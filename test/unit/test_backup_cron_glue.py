@@ -142,3 +142,64 @@ def test_nightly_glue_refuses_missing_arguments() -> None:
     result = _run("cron_nightly_metadata.sh")
     assert result.returncode != 0
     assert "--env-file" in result.stderr
+
+
+class TestPruneMixedArchive:
+    """Slice 920, Task 4.2: a mixed raw/.zst archive prunes by segment name
+    with the extension stripped, against the real pg_archivecleanup."""
+
+    def test_prunes_raw_and_zst_below_cutoff_and_reports_counts(
+        self, tmp_path: Path
+    ) -> None:
+        base = tmp_path / "base"
+        wal = tmp_path / "wal"
+        wal.mkdir()
+        _make_backup(base, "20250101", "11A6/50000028")
+        _make_backup(base, "20250110", "11A6/73000028")  # cutoff segment …73
+        old_raw = ("70", "71")
+        old_zst = ("72",)
+        new_raw = ("73",)
+        new_zst = ("74", "75")
+        for seg in old_raw + new_raw:
+            (wal / f"00000001000011A6000000{seg}").touch()
+        for seg in old_zst + new_zst:
+            (wal / f"00000001000011A6000000{seg}.zst").touch()
+        # A backup-history file older than the cutoff (pg_archivecleanup keeps
+        # history files: only segment names are eligible), and the health
+        # check's canary (a non-segment name it must ignore).
+        (wal / "00000001000011A600000071.00000028.backup").touch()
+        (wal / ".prune-canary.tmp").touch()
+
+        result = _run(
+            "prune_wal_archive.sh",
+            "--base-dir", str(base),
+            "--wal-dir", str(wal),
+            "--keep-days", "21",
+        )  # fmt: skip
+        assert result.returncode == 0, result.stderr
+        remaining = sorted(p.name for p in wal.iterdir())
+        assert remaining == [
+            ".prune-canary.tmp",
+            "00000001000011A600000071.00000028.backup",
+            "00000001000011A600000073",
+            "00000001000011A600000074.zst",
+            "00000001000011A600000075.zst",
+        ], remaining
+        assert not (base / "20250101").exists()
+        # 2 old raw + 1 old .zst pruned; the .backup history file is kept.
+        assert result.stdout.rstrip().splitlines()[-1] == "PRUNED wal=3 base=1"
+
+    def test_pruned_line_is_zero_when_nothing_is_old(self, tmp_path: Path) -> None:
+        base = tmp_path / "base"
+        wal = tmp_path / "wal"
+        wal.mkdir()
+        _make_backup(base, "20250110", "11A6/73000028")
+        (wal / "00000001000011A600000073.zst").touch()
+        result = _run(
+            "prune_wal_archive.sh",
+            "--base-dir", str(base),
+            "--wal-dir", str(wal),
+            "--keep-days", "21",
+        )  # fmt: skip
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.rstrip().splitlines()[-1] == "PRUNED wal=0 base=0"

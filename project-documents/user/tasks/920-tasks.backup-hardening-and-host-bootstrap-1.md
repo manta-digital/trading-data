@@ -391,48 +391,48 @@ host until `setup-backup.sh` applies `ARCHIVE_COMMAND` in Task 8.2, and by
 then Sections 3–5 are all on `main`. Intermediate commits are inert because
 the live crontab keeps calling the untouched 915 scripts.
 
-- [ ] **Task 4.1: `prune_wal_archive.sh` — `-x .zst` and deletion count**
+- [x] **Task 4.1: `prune_wal_archive.sh` — `-x .zst` and deletion count**
       (effort: 1)
-  - [ ] Pass `-x .zst` to `pg_archivecleanup` (constant
+  - [x] Pass `-x .zst` to `pg_archivecleanup` (constant
         `ARCHIVE_EXT=.zst` at the top; empty string when no-go).
-  - [ ] Print a machine-readable last line `PRUNED wal=<n> base=<m>`
+  - [x] Print a machine-readable last line `PRUNED wal=<n> base=<m>`
         (count archive files before/after, dated dirs removed) for the
         reconcile in Section 5 to consume.
-  - [ ] Success: existing prune tests pass; the new line is present.
+  - [x] Success: existing prune tests pass; the new line is present.
 
-- [ ] **Task 4.2: Mixed-archive prune verification** (effort: 1)
-  - [ ] Extend `test_prunes_by_manifest_and_keeps_newest` (or add a
+- [x] **Task 4.2: Mixed-archive prune verification** (effort: 1)
+  - [x] Extend `test_prunes_by_manifest_and_keeps_newest` (or add a
         sibling) with a `tmp_path` archive holding raw names, `.zst`
         names, and a `.backup` history file across the cutoff; assert
         that older raw **and** older `.zst` files are removed, newer of
         both kept, `.prune-canary.tmp` ignored, and the `PRUNED` line
         counts match.
-  - [ ] Success: test passes against the real `pg_archivecleanup`.
+  - [x] Success: test passes against the real `pg_archivecleanup`.
 
-- [ ] **Task 4.3: Runbook 200 — archive shape and `restore_command`**
+- [x] **Task 4.3: Runbook 200 — archive shape and `restore_command`**
       (effort: 1)
-  - [ ] Replace Step 4's hand-edit instructions with "applied by
+  - [x] Replace Step 4's hand-edit instructions with "applied by
         `setup-backup.sh` step 4" and the D2 command verbatim (from the
         script's constant — copy, do not retype); add the "remove the
         hand-set `postgresql.conf` line" step.
-  - [ ] PITR section: the D3 `restore_command` handling both shapes, the
+  - [x] PITR section: the D3 `restore_command` handling both shapes, the
         mixed-archive note with the date raw segments age out, and the
         measured compression ratio.
-  - [ ] Recovery quick reference: the wedge remedy (`mv` the partial
+  - [x] Recovery quick reference: the wedge remedy (`mv` the partial
         aside; confirm the source still has the segment in `pg_wal`
         first; never delete) and why `last_failed_wal` stays populated.
-  - [ ] Success: `grep -c 'zstd -dq' 200-backup-and-restore.md` ≥ 1; the
+  - [x] Success: `grep -c 'zstd -dq' 200-backup-and-restore.md` ≥ 1; the
         archive command string in the runbook equals the script constant
         (a test in Task 4.4 asserts this).
 
-- [ ] **Task 4.4: Runbook/script consistency test** (effort: 1)
-  - [ ] Unit test: extract `ARCHIVE_COMMAND` from `deploy/setup-backup.sh`
+- [x] **Task 4.4: Runbook/script consistency test** (effort: 1)
+  - [x] Unit test: extract `ARCHIVE_COMMAND` from `deploy/setup-backup.sh`
         and assert the exact string appears in
         `runbooks/200-backup-and-restore.md`, so the two cannot drift.
-  - [ ] Success: test passes.
+  - [x] Success: test passes.
 
-- [ ] **Task 4.5: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 4 (e.g.
+- [x] **Task 4.5: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 4 (e.g.
         `feat: prune and restore path for compressed atomic WAL archive`).
 
 ## Section 5: WAL offsite — hourly push and guarded weekly reconcile

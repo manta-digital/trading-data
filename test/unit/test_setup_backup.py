@@ -698,3 +698,35 @@ class TestResticRepo:
 
     def test_requires_a_command(self, restic: dict[str, Path]) -> None:
         assert _restic(restic).returncode == 2
+
+
+# --- Runbook / script consistency (Task 4.4) ----------------------------------
+
+_RUNBOOK = (
+    _REPO_ROOT / "project-documents" / "user" / "runbooks" / "200-backup-and-restore.md"
+)
+
+
+def _archive_command_from_script(wal_dir: str) -> str:
+    """The script's constant, rendered the way step 4 renders it."""
+    text = _SETUP.read_text(encoding="utf-8")
+    matches = [
+        line
+        for line in text.splitlines()
+        if line.startswith("ARCHIVE_COMMAND_TEMPLATE=")
+    ]
+    assert len(matches) == 1, matches
+    template = matches[0].split("=", 1)[1].strip("'")
+    return template.replace("@WAL_DIR@", wal_dir)
+
+
+class TestRunbookConsistency:
+    def test_runbook_carries_the_scripts_archive_command_verbatim(self) -> None:
+        command = _archive_command_from_script("/data/backup/wal")
+        assert "@WAL_DIR@" not in command
+        assert f"archive_command = '{command}'" in _RUNBOOK.read_text(encoding="utf-8")
+
+    def test_runbook_restore_command_handles_both_shapes(self) -> None:
+        text = _RUNBOOK.read_text(encoding="utf-8")
+        assert text.count("zstd -dq") >= 1
+        assert "|| cp /data/backup/wal/%f %p" in text
