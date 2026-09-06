@@ -470,12 +470,13 @@ nobody "fixes" it back.
 | `/home/manta/.cache`, `.npm`, `.local/share/uv`, `.vscode` | ~21 G | yes | caches |
 | `/home/manta/pCloudDrive`, `GoogleDrive` | FUSE mounts | yes (`--one-file-system`) | remote already |
 | `**/.venv`, `**/node_modules` | — | yes | rebuildable |
-| `/home/manta/Pictures` (67 G), `/home/manta/ai` (60 G) | 127 G | **PM decides** at task time | first-run size is the deciding measurement |
+| `/home/manta/Pictures` | 67 G | no — included | PM decision 2026-09-06 |
+| `/home/manta/ai` | 60 G | yes | PM decision 2026-09-06 |
 
 Everything else in home is included by default: the rule is *exclude what
 is derivable, keep what is not*, the same split as 915's metadata tier.
-Estimated first snapshot ~150 GB before the PM decision; B2 at ~$6/TB-month
-makes the choice a convenience question, not a cost one.
+Estimated first snapshot ~90 GB; B2 at ~$6/TB-month makes the choice a
+convenience question, not a cost one.
 
 - **Restore proof**: the walkthrough restores `/etc/postgresql`,
   `/etc/timeshift`, the crontab spool, and one home subtree into a scratch

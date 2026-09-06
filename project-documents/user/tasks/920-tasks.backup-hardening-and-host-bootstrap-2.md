@@ -48,11 +48,9 @@ Design *D9*.
         set with the exclude patterns applied (the restic repository does
         not exist until the cutover initializes it; a true `--dry-run`
         number is taken in Task 9.5) and record it in D9.
-  - [ ] Ask the PM, with the measured number, whether `Pictures` (67 G)
-        and `ai` (60 G) are included; record the answer and reason in
-        the exclude file and in runbook 210. Proceed with the PM's
-        answer; if none is given in the session, include both (the
-        design's default rule: keep what is not derivable) and say so.
+  - [ ] PM decision (2026-09-06): **include** `~/Pictures`, **exclude**
+        `~/ai`. Add `/home/manta/ai` to the exclude file with that
+        provenance; record both in runbook 210.
   - [ ] Success: exclude file exists; D9 carries the measured size and
         the PM decision.
 
