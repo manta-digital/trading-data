@@ -163,6 +163,13 @@ Used by the backup scripts under `scripts/`, not by `mt` itself.
 `MT_BACKUP_S3_ENDPOINT`, `MT_BACKUP_S3_KEY_ID`, `MT_BACKUP_S3_APPLICATION_KEY`,
 `MT_BACKUP_S3_BUCKET`.
 
+`MT_BACKUP_RESTIC_PASSWORD` — the restic repository password for the nightly
+system backup (`/etc`, `/root`, crontabs, `/home/manta` to the same bucket
+under `system/`; slice 920). Lives in the dev checkout's `.env` beside the
+S3 keys, **not** in `/etc/manta-trading.env`. Losing it loses every system
+backup: keep a copy in the password manager (runbook 210 lists it as a
+bootstrap input).
+
 ### Test / CI
 
 | Variable | Description |

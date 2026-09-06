@@ -483,6 +483,11 @@ nobody "fixes" it back.
 
 Everything else in home is included by default: the rule is *exclude what
 is derivable, keep what is not*, the same split as 915's metadata tier.
+**Measured 2026-09-06 (Task 6.1, `du -xs` with the exclude file applied):**
+`/home/manta` 113,296,816 KiB ≈ 108 GB (Pictures included, `ai` excluded,
+Trash already emptied); `/etc` 10 MB; `/root` and the crontabs are
+root-only and unmeasured here — the true `restic backup --dry-run` number
+is taken in Task 9.5.
 Estimated first snapshot ~90 GB; B2 at ~$6/TB-month makes the choice a
 convenience question, not a cost one.
 

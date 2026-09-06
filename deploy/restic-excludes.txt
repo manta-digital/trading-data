@@ -1,0 +1,24 @@
+# restic-excludes.txt — what the nightly system backup leaves out (slice 920, D9).
+#
+# Rule: exclude what is derivable, keep what is not. The include set is
+# /etc, /root, /var/spool/cron/crontabs, /home/manta (constants in
+# scripts/cron_system_backup.sh). Sizes from the 2026-09-05 measurement.
+# restic reads this with --exclude-file; one pattern per line, # comments.
+
+# it is the bin (107 GB at measurement; emptied 2026-09-05)
+/home/manta/.local/share/Trash
+# re-downloadable (46 GB)
+/home/manta/.local/share/Steam
+# caches (~21 GB together)
+/home/manta/.cache
+/home/manta/.npm
+/home/manta/.local/share/uv
+/home/manta/.vscode
+# FUSE mounts of remote drives — remote already (--one-file-system also skips them)
+/home/manta/pCloudDrive
+/home/manta/GoogleDrive
+# rebuildable from lockfiles
+**/.venv
+**/node_modules
+# PM decision 2026-09-06: exclude ~/ai (60 GB); ~/Pictures (67 GB) stays included
+/home/manta/ai

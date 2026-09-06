@@ -12,8 +12,8 @@ projectState: >
   archive path, and WAL offsite, all in a worktree and not yet applied to
   manta9000.
 dateCreated: 20260905
-dateUpdated: 20260905
-status: not_started
+dateUpdated: 20260906
+status: in_progress
 ---
 
 ## Context Summary
@@ -36,61 +36,61 @@ status: not_started
 
 Design *D9*.
 
-- [ ] **Task 6.1: `deploy/restic-excludes.txt` and the include set**
+- [x] **Task 6.1: `deploy/restic-excludes.txt` and the include set**
       (effort: 1)
-  - [ ] Create the exclude file from the design's D9 table: Trash, Steam,
+  - [x] Create the exclude file from the design's D9 table: Trash, Steam,
         `.cache`, `.npm`, `.local/share/uv`, `.vscode`, `pCloudDrive`,
         `GoogleDrive`, `**/.venv`, `**/node_modules`. Comment each line
         with the D9 reason.
-  - [ ] Include set as constants in the backup script (Task 6.2): `/etc`,
+  - [x] Include set as constants in the backup script (Task 6.2): `/etc`,
         `/root`, `/var/spool/cron/crontabs`, `/home/manta`.
-  - [ ] Measure the would-be snapshot size with `du -xs` over the include
+  - [x] Measure the would-be snapshot size with `du -xs` over the include
         set with the exclude patterns applied (the restic repository does
         not exist until the cutover initializes it; a true `--dry-run`
         number is taken in Task 9.5) and record it in D9.
-  - [ ] PM decision (2026-09-06): **include** `~/Pictures`, **exclude**
+  - [x] PM decision (2026-09-06): **include** `~/Pictures`, **exclude**
         `~/ai`. Add `/home/manta/ai` to the exclude file with that
         provenance; record both in runbook 210.
-  - [ ] Success: exclude file exists; D9 carries the measured size and
+  - [x] Success: exclude file exists; D9 carries the measured size and
         the PM decision.
 
-- [ ] **Task 6.2: `scripts/cron_system_backup.sh`** (effort: 2)
-  - [ ] Required `--env-file`, `--repo-prefix`, `--exclude-file`,
+- [x] **Task 6.2: `scripts/cron_system_backup.sh`** (effort: 2)
+  - [x] Required `--env-file`, `--repo-prefix`, `--exclude-file`,
         `--stamp`, `--log`, `--lock`. Reads `MT_BACKUP_S3_*` and
         `MT_BACKUP_RESTIC_PASSWORD` by grep, exports them only into the
         restic environment (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
         `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`), never echoes them.
-  - [ ] `flock -n`; `restic unlock`; `restic backup --one-file-system
+  - [x] `flock -n`; `restic unlock`; `restic backup --one-file-system
         --exclude-file … <include set>`; `restic forget --keep-daily 7
         --keep-weekly 4 --keep-monthly 3 --prune`. Any non-zero step:
         append reason to `--log`, `logger -t manta-backup`, exit non-zero,
         stamp untouched. Success: `touch "$STAMP"`.
-  - [ ] Add `--check` mode running `restic check --read-data-subset=5%`
+  - [x] Add `--check` mode running `restic check --read-data-subset=5%`
         (the monthly cron.d entry uses it).
-  - [ ] Success: `shellcheck` clean; a missing password in the env file
+  - [x] Success: `shellcheck` clean; a missing password in the env file
         exits non-zero naming `MT_BACKUP_RESTIC_PASSWORD` without running
         restic.
 
-- [ ] **Task 6.3: restic tests** (effort: 1)
-  - [ ] Unit (restic stubbed on `PATH`): argument refusal; missing
+- [x] **Task 6.3: restic tests** (effort: 1)
+  - [x] Unit (restic stubbed on `PATH`): argument refusal; missing
         password → no restic invocation; stub failure on `backup` →
         non-zero, no stamp, log line present; success → stamp; the
         argv recorded by the stub never contains the secret values (the
         secrets travel by environment only).
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **Task 6.4: Operator docs for the new key** (effort: 1)
-  - [ ] Add `MT_BACKUP_RESTIC_PASSWORD` to the README env table and to
+- [x] **Task 6.4: Operator docs for the new key** (effort: 1)
+  - [x] Add `MT_BACKUP_RESTIC_PASSWORD` to the README env table and to
         `deploy/manta-trading.env.example` as a commented line stating it
         belongs in the dev checkout's `.env`, not the service env file.
         Add the restic tier to the CHANGELOG `[Unreleased]`.
-  - [ ] Success: `grep -rn MT_BACKUP_RESTIC_PASSWORD` finds only
+  - [x] Success: `grep -rn MT_BACKUP_RESTIC_PASSWORD` finds only
         `scripts/cron_system_backup.sh`, `deploy/setup-backup.sh`, their
         unit tests, the README, the env example, and the runbooks; the
         env-example line is commented; no hit contains a value.
 
-- [ ] **Task 6.5: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 6 (e.g. `feat: add restic system backup tier`).
+- [x] **Task 6.5: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 6 (e.g. `feat: add restic system backup tier`).
 
 ## Section 7: Runbooks and recorded amendments
 

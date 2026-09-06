@@ -16,6 +16,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Slice 920: backup hardening and host bootstrap (in progress; nothing applied
+to manta9000 until the cutover).
+
+### Added
+- `deploy/setup-backup.sh` — one root-run, check-then-act provisioner for the
+  backup tier with `--check` drift mode (restic package, archive directories
+  and ACL, PostgreSQL settings via `ALTER SYSTEM`, `/etc/cron.d`, timeshift
+  managed keys, restic repository). Step libraries under `deploy/lib/`.
+- `scripts/check_backup_health.sh` + `scripts/backup_health_cron.sh` — six
+  new named failures on two flags (`ARCHIVE-BROKEN` gates the weekly base;
+  `BACKUP-STALE` is alarm-only); `scripts/wal_segment_name.py` holds the
+  segment-name arithmetic once.
+- Atomic, zstd-compressed `archive_command` (measured 1.88×); prune passes
+  `-x .zst` and prints `PRUNED wal=n base=m`.
+- WAL offsite: `scripts/sync_wal_offsite.sh` (hourly push), `scripts/reconcile_guards.sh`,
+  `scripts/cron_weekly_backup.sh` (guarded weekly mirror, armed by
+  `RECONCILE-ARMED` only).
+- restic system backup tier: `scripts/cron_system_backup.sh`,
+  `deploy/restic-excludes.txt`, new `MT_BACKUP_RESTIC_PASSWORD` in the dev
+  checkout `.env`.
+
+---
+
 Slice 268: a write-path category filter on the Kalshi trades tape.
 
 ### Added
