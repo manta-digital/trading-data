@@ -96,33 +96,33 @@ Design *D9*.
 
 Design *D6*, *D7*, *D8*, *D10*, *Implementation Notes*.
 
-- [ ] **Task 7.1: Runbook 200 — alarms, cron.d, retention** (effort: 2)
-  - [ ] Alarm table with all ten named failures: name → cause → flag
+- [x] **Task 7.1: Runbook 200 — alarms, cron.d, retention** (effort: 2)
+  - [x] Alarm table with all ten named failures: name → cause → flag
         (`ARCHIVE-BROKEN` / `BACKUP-STALE`) → fix. State plainly that
         neither flag is pushed anywhere and give the `ls` and
         `journalctl -t manta-backup` lines.
-  - [ ] Step 7 rewritten: cron.d file installed by `setup-backup.sh`, the
+  - [x] Step 7 rewritten: cron.d file installed by `setup-backup.sh`, the
         six entries, "backups stay on cron (916) — now script-managed
         (920)", and the one-time removal of the user-crontab lines.
-  - [ ] Add the D4a retention capacity table and the B2 lifecycle-rule
+  - [x] Add the D4a retention capacity table and the B2 lifecycle-rule
         backstop instructions (console steps, prefixes, 30 days).
-  - [ ] Drill record gains rows for every drill in Section 9 (filled in
+  - [x] Drill record gains rows for every drill in Section 9 (filled in
         there).
-  - [ ] Add the arm-file procedure: what `RECONCILE-ARMED` gates, that
+  - [x] Add the arm-file procedure: what `RECONCILE-ARMED` gates, that
         only the watched first reconcile (Task 9.4) creates it, and that a
         rebuilt host starts unarmed.
-  - [ ] Success: all ten named failures from `check_backup_health.sh`'s
+  - [x] Success: all ten named failures from `check_backup_health.sh`'s
         class array (file 1, Task 1.3) appear in the runbook table (the
         Task 7.2 test asserts the set equality).
 
-- [ ] **Task 7.2: Alarm-table consistency test** (effort: 1)
-  - [ ] Unit test: the set of names in `scripts/check_backup_health.sh`'s
+- [x] **Task 7.2: Alarm-table consistency test** (effort: 1)
+  - [x] Unit test: the set of names in `scripts/check_backup_health.sh`'s
         class array (file 1, Task 1.3 — all ten, four inherited plus six
         new) equals the set of names in the runbook's alarm table.
-  - [ ] Success: test passes.
+  - [x] Success: test passes.
 
-- [ ] **Task 7.3: Runbook 210 — host bootstrap** (effort: 2)
-  - [ ] Create `runbooks/210-host-bootstrap.md` (frontmatter per
+- [x] **Task 7.3: Runbook 210 — host bootstrap** (effort: 2)
+  - [x] Create `runbooks/210-host-bootstrap.md` (frontmatter per
         conventions) with the D10 ordered procedure from bare Ubuntu
         26.04 + PostgreSQL 17 + TimescaleDB to a drift-free host: packages,
         dev checkout clone, `.env` values from the password manager (list
@@ -130,32 +130,32 @@ Design *D6*, *D7*, *D8*, *D10*, *Implementation Notes*.
         restore from B2 (pointer to 200), `setup-backup.sh`, restart if
         reported, crontab-line removal, `--check` green, first restic
         snapshot, health PASS. Every `sudo` is a step.
-  - [ ] Timeshift section: snapshots live on `/data`, count 2, the
+  - [x] Timeshift section: snapshots live on `/data`, count 2, the
         exclude history (the 2026-09-03 include→exclude flip), device
         UUID reported by `--check`.
-  - [ ] Acceptance-test section with placeholders for the Task 10.1 run.
-  - [ ] Add the 210 row to `runbooks/__readme.md`.
-  - [ ] Success: the runbook contains no step of the form "fix
+  - [x] Acceptance-test section with placeholders for the Task 10.1 run.
+  - [x] Add the 210 row to `runbooks/__readme.md`.
+  - [x] Success: the runbook contains no step of the form "fix
         permissions" or "adjust as needed"; each step has a command and
         an expected output.
 
-- [ ] **Task 7.4: Recorded amendments** (effort: 1)
-  - [ ] Dated entry in `user/notes/000-process-journal.md`: the dev
+- [x] **Task 7.4: Recorded amendments** (effort: 1)
+  - [x] Dated entry in `user/notes/000-process-journal.md`: the dev
         checkout's third operational role (the backup tier, because the
         maintenance credential stays out of `/etc` per 913), and the
         backup cron lines becoming script-managed via cron.d. Record the
         `/opt` alternative as future work with the reason it is deferred.
-  - [ ] One-line "amended by 920" pointer in the 916 design's cron
+  - [x] One-line "amended by 920" pointer in the 916 design's cron
         decision (decision 4 in its decisions list).
-  - [ ] File the `install-production.sh --ref <branch>` origin-resolution
+  - [x] File the `install-production.sh --ref <branch>` origin-resolution
         defect with `gh issue create` on the GitHub remote — deliberately
         outside this slice's scope to fix, recorded so it is not lost; one
         issue, no code.
-  - [ ] Success: all three edits committed; the design's Implementation
+  - [x] Success: all three edits committed; the design's Implementation
         Notes list matches what changed.
 
-- [ ] **Task 7.5: Checkpoint commit** (effort: 1)
-  - [ ] Commit Section 7 (e.g.
+- [x] **Task 7.5: Checkpoint commit** (effort: 1)
+  - [x] Commit Section 7 (e.g.
         `docs: add host-bootstrap runbook and 920 alarm table`).
 
 ## Section 8: Production cutover

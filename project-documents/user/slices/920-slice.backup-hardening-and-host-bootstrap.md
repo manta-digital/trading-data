@@ -625,56 +625,82 @@ Recovery paths gained:
 
 ## Verification Walkthrough
 
-Draft; refined after Phase 6. All steps on `manta9000` unless stated. `MAINT`
-and `BUCKET` as in `200-backup-and-restore.md`.
+Refined 2026-09-06 to the as-implemented commands (Sections 1–7 of the task
+files; steps 1–4 and 7–8 re-verified at the cutover and drills, Sections
+8–9). All steps on `manta9000` unless stated. `MAINT` and `BUCKET` as in
+`200-backup-and-restore.md`; `CHECKOUT=~/source/repos/manta/trading-data`,
+`ENV=$CHECKOUT/.env`.
 
 ### 1. Provision and prove idempotence
 
 ```bash
 sudo -v
-sudo deploy/setup-backup.sh --checkout ~/source/repos/manta/trading-data \
-  --env-file ~/source/repos/manta/trading-data/.env \
-  --backup-root /data/backup --cluster 17/main
-sudo deploy/setup-backup.sh <same args>            # expect every step "already"
-sudo deploy/setup-backup.sh <same args> --check     # expect all OK, exit 0
+sudo $CHECKOUT/deploy/setup-backup.sh --checkout $CHECKOUT --env-file $ENV --backup-root /data/backup --cluster 17/main
+sudo $CHECKOUT/deploy/setup-backup.sh <same args>            # expect: SUMMARY applied=0 …
+sudo $CHECKOUT/deploy/setup-backup.sh <same args> --check     # expect: every line OK except MISSING arm-file (until step 7), exit 1 for that alone
 ```
 
-Expect `PENDING RESTART` only if `archive_mode` changed (it is already on;
-none expected). `archive_command` is reload-only.
+Report vocabulary: `OK <item>` / `DRIFT <item> <expected> <actual>` /
+`MISSING <item>` / `APPLIED <item>` / `PENDING RESTART <name>` / `INFO …` /
+`SKIPPED …`, then `SUMMARY applied=<n> not-ok=<m> mode=<check|apply>`;
+exit 1 whenever `not-ok` > 0. `PENDING RESTART` appears only if
+`archive_mode` changed (it is already on; none expected). Pre-cutover state
+measured 2026-09-06 with a non-root `--check` against the live root:
+`MISSING package-restic`, `MISSING dir-system`, `OK wal-dir-owner-mode`,
+`OK wal-acl-manta`, `MISSING cron.d`, `DRIFT count_weekly 2 3`,
+`MISSING restic-repo`, `MISSING arm-file`, `DRIFT user-crontab still runs:
+archive_health_cron.sh cron_nightly_metadata.sh cron_weekly_base.sh`
+(PostgreSQL items need root to read).
 
 ### 2. The archive command is atomic and compressed
 
 ```bash
 psql "$MAINT" -c "SELECT pg_switch_wal();"; sleep 5
-ls -la /data/backup/wal | tail -3          # newest is *.zst, no *.tmp
+ls -t /data/backup/wal | head -3          # newest is *.zst, no *.tmp
 psql "$MAINT" -c "SELECT last_archived_wal, last_archived_time FROM pg_stat_archiver;"
 ```
 
 ### 3. Each new alarm fires and clears
 
-Run `./scripts/check_archive_health.sh --db-url "$MAINT" --pgdata … --wal-dir /data/backup/wal --stamp /data/backup/wal-offsite.stamp` after each fault; expect the named `FAIL` line, then `PASS` after repair.
+The checker is `scripts/check_backup_health.sh` (wrapping the 915
+`check_archive_health.sh`); run it with the argument set from the `*/30`
+line of `/etc/cron.d/manta-trading-backup` after each fault. Expect the
+named `FAIL` line and `FLAGS archive=<n> stale=<m>`; after repair, the
+inner `PASS` line and `FLAGS archive=0 stale=0`. The cron glue
+(`backup_health_cron.sh`) turns `archive>0` into `ARCHIVE-BROKEN` and
+`stale>0` into `BACKUP-STALE`, one `logger -t manta-backup` line per
+transition.
 
 | Fault | Command | Expect |
 |---|---|---|
-| ACL revoked | `sudo setfacl -x u:manta /data/backup/wal` | `FAIL prune_permission` |
-| wedge planted | `sudo -u postgres head -c 1000 /dev/zero > /data/backup/wal/<next-segment>` | `FAIL archive_wedged` |
-| stale tmp | `sudo -u postgres touch -d '-20 min' /data/backup/wal/X.zst.tmp` | `FAIL archive_tmp_leftover` |
+| ACL revoked | `sudo setfacl -x u:manta /data/backup/wal` | `FAIL prune_permission` → `ARCHIVE-BROKEN` |
+| wedge planted | `sudo -u postgres sh -c 'head -c 1000 /dev/zero > /data/backup/wal/'$(scripts/wal_segment_name.py next <last_archived_wal>)` | `FAIL archive_wedged` → `ARCHIVE-BROKEN` |
+| stale tmp | `sudo -u postgres touch -d '-20 min' /data/backup/wal/X.zst.tmp` | `FAIL archive_tmp_leftover` → `ARCHIVE-BROKEN` |
 | push stopped | `touch -d '-4 hours' /data/backup/wal-offsite.stamp` | `FAIL offsite_wal_stale` → `BACKUP-STALE` only |
 | restic stopped | `sudo touch -d '-3 days' /data/backup/system-backup.stamp` | `FAIL system_backup_stale` → `BACKUP-STALE` only |
 | weekly job stopped | `--base-dir` at a scratch dir containing only `20260801/` | `FAIL weekly_base_stale` → `BACKUP-STALE` only |
 
+Unit-level proof already in place (2026-09-06): every row above has a
+`tmp_path` test in `test/unit/test_backup_health.py` (49 tests), and the
+live wrapper run against the test cluster classes its `archive_mode_off`
+as `archive` (`test/integration/test_backup_health_live.py`).
+
 Repair each (re-run the setup script for the ACL; `mv` the planted files
-aside) and confirm `PASS`, and that both flags clear. While only
-`BACKUP-STALE` is present, run `cron_weekly_base.sh` by hand and confirm it
-does not refuse. Then point the weekly job at an empty scratch `--wal-dir`
-and confirm it aborts before the sync with the guard's message.
+aside) and confirm both flags clear. While only `BACKUP-STALE` is present,
+run `cron_weekly_backup.sh` with the cron.d arguments and a nonexistent
+`--env-file`: it must fail on the env file, not the flag. With
+`ARCHIVE-BROKEN` planted it must refuse on the flag before anything else.
 
 ### 4. Offsite WAL is present and checksum-verified
 
 ```bash
-./scripts/sync_wal_offsite.sh --wal-dir /data/backup/wal --remote b2:$BUCKET/wal --stamp /data/backup/wal-offsite.stamp
-rclone check /data/backup/wal b2:$BUCKET/wal --one-way --exclude '*.tmp'   # 0 differences
+scripts/sync_wal_offsite.sh --wal-dir /data/backup/wal --remote b2:$BUCKET/wal --stamp /data/backup/wal-offsite.stamp --timeout 59 --lock /data/backup/wal-offsite.lock
+scripts/sync_wal_offsite.sh <same args> --verify        # rclone check --one-way: 0 differences
 ```
+
+Both are the exact lines cron.d renders (`--timeout` = interval − 1). First
+full push started by hand 2026-09-06 10:08 local from the worktree (Task
+5.1); duration recorded in runbook 200's drill table when it completes.
 
 ### 5. PITR across the mixed archive (local)
 
@@ -695,31 +721,34 @@ Recovery reaches the target using only B2-sourced segments.
 
 ### 7. Offsite reconcile purges the superseded bases
 
-Run the weekly job by hand (or wait for Sunday), then:
+Run the `0 3 * * 0` line from cron.d by hand, unarmed first, then armed:
 
 ```bash
+<the cron.d weekly line>                                   # expect: reconcile guards passed / reconcile skipped: not armed
+touch /data/backup/RECONCILE-ARMED
+<the cron.d weekly line>                                   # expect: --- 5. offsite mirror (armed; max-delete <n>) … removing offsite base b2:…/base/20260816 … 20260817 … --- 6. final offsite check
 rclone lsd b2:$BUCKET/base/     # only locally retained dates
-tail -5 /data/backup/base.log   # "offsite reconcile: removed base/20260816 base/20260817", check 0 differences
 ```
+
+Rehearsed 2026-09-06 against `b2:$BUCKET/scratch-920/` with a 50-file fake
+archive (runbook 200 drill record): armed run after 5 local deletions left
+offsite at exactly 45; an emptied local directory was refused with offsite
+untouched. `cron_weekly_backup.sh --skip-base-backup` is the drill form.
 
 ### 8. Cron, timeshift, restic
 
 ```bash
-cat /etc/cron.d/manta-trading-backup; crontab -l | grep -c cron_weekly_base   # 0
-jq '.count_weekly, .exclude' /etc/timeshift/timeshift.json
-sudo scripts/cron_system_backup.sh --env-file … --repo-prefix system --exclude-file deploy/restic-excludes.txt
-sudo restic -r <repo> snapshots; sudo restic -r <repo> check
-sudo restic -r <repo> restore latest --target /data/restore-test/restic --include /etc/postgresql --include /var/spool/cron/crontabs
-diff -r /etc/postgresql /data/restore-test/restic/etc/postgresql   # clean
+cat /etc/cron.d/manta-trading-backup; crontab -l | grep -c cron_weekly_base   # six entries; 0
+jq '.count_weekly, .exclude' /etc/timeshift/timeshift.json                  # "2"; the four excludes
+sudo scripts/cron_system_backup.sh --env-file $ENV --repo-prefix system --exclude-file $CHECKOUT/deploy/restic-excludes.txt --stamp /data/backup/system-backup.stamp --log /data/backup/system-backup.log --lock /data/backup/system-backup.lock
+sudo deploy/lib/restic_repo.sh --env-file $ENV --prefix system run -- snapshots
+sudo scripts/cron_system_backup.sh --check --env-file $ENV --repo-prefix system --log /data/backup/system-backup.log --lock /data/backup/system-backup.lock
 ```
 
 ### 9. Bootstrap acceptance
 
-On hammerhead, from a clean state, follow `210-host-bootstrap.md` verbatim
-for the backup sections; end with `setup-backup.sh --check` green and
-`check_archive_health.sh` PASS; tear down. Record durations in the runbook.
-
----
+Runbook 210 followed verbatim on hammerhead (PM go) or a fresh VM; its
+acceptance-record table is the evidence (Task 10.1).
 
 ## Risks
 
@@ -737,21 +766,35 @@ for the backup sections; end with `setup-backup.sh --check` green and
 
 ## Implementation Notes
 
-- New files: `deploy/setup-backup.sh`, `deploy/cron.d/manta-trading-backup`,
-  `deploy/restic-excludes.txt`, `deploy/lib/timeshift_merge.sh`,
-  `scripts/wal_segment_name.py` (segment-name arithmetic, shared with the
-  prune), `scripts/check_backup_health.sh`, `scripts/backup_health_cron.sh`,
-  `scripts/reconcile_guards.sh`, `scripts/cron_weekly_backup.sh`,
-  `scripts/sync_wal_offsite.sh`, `scripts/cron_system_backup.sh`,
-  `runbooks/210-host-bootstrap.md`. Deleted after cutover:
-  `scripts/archive_health_cron.sh`, `scripts/cron_weekly_base.sh`.
+- New files (as implemented, 2026-09-06): `deploy/setup-backup.sh`,
+  `deploy/cron.d/manta-trading-backup`, `deploy/restic-excludes.txt`, and
+  under `deploy/lib/` one library per check-then-act step so each is
+  unit-testable without root — `pg_settings.sh` (ALTER SYSTEM on drift,
+  reload, never restart), `render_cron.sh` (the interval renders schedule,
+  `--stale-after`, `--timeout`), `timeshift_merge.sh`, `restic_repo.sh`
+  (the one place the restic environment is assembled; also `run -- …` for
+  the cron job); `scripts/wal_segment_name.py` (segment-name arithmetic,
+  shared with the prune and the guards), `scripts/check_backup_health.sh`,
+  `scripts/backup_health_cron.sh`, `scripts/reconcile_guards.sh`,
+  `scripts/cron_weekly_backup.sh` (`--remote-base` explicit so a drill can
+  never purge real offsite bases; `--skip-base-backup` for the reconcile
+  drill), `scripts/sync_wal_offsite.sh` (owns every rclone operation on the
+  WAL remote: copy, `--verify`, `--sync-max-delete`), `scripts/cron_system_backup.sh`
+  (`--check` mode, `--lock`), `runbooks/210-host-bootstrap.md`; unit tests
+  `test/unit/test_{wal_segment_name,backup_health,setup_backup,wal_offsite,system_backup}.py`
+  and `test/integration/test_backup_health_live.py`; `.gitignore` un-ignores
+  `deploy/lib/`. Deleted after cutover: `scripts/archive_health_cron.sh`,
+  `scripts/cron_weekly_base.sh`.
 - Changed (argument-compatible only): `scripts/prune_wal_archive.sh`
-  (`-x .zst`, prints the deletion count the reconcile consumes, segment
-  arithmetic moved to `wal_segment_name.py`),
+  (`-x .zst`, prints `PRUNED wal=n base=m` for the reconcile, segment
+  arithmetic moved to `wal_segment_name.py`, manifest read via `jq`),
   `runbooks/200-backup-and-restore.md` (archive shape, restore_command,
   two-flag alarm table, cron.d replacing Step 7's user-crontab text,
-  mixed-archive note), `runbooks/__readme.md` (210 row), `README`/env
-  example (restic key).
+  retention table, B2 lifecycle backstop, arm-file procedure, mixed-archive
+  note, drill rows), `runbooks/__readme.md` (210 row), `README`/env example
+  (restic key), `CHANGELOG.md`, the 916 design (decision 4 pointer),
+  `notes/000-process-journal.md` (2026-09-06 entry). GitHub issue #21 records
+  the `install-production.sh --ref <branch>` resolution defect.
 - Amendments recorded where the amended decisions live: a dated
   `000-process-journal.md` entry (dev checkout's third role: the backup
   tier; backup cron lines become script-managed via cron.d), and a one-line

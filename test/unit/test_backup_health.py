@@ -508,3 +508,36 @@ class TestGlueFlags:
         assert glue.flag.exists()
         assert "cannot_check" in glue.flag.read_text()
         assert "something exploded" in glue.flag.read_text()
+
+
+# --- Runbook alarm table ↔ class array (Task 7.2) ------------------------------
+
+_RUNBOOK = (
+    _REPO_ROOT / "project-documents" / "user" / "runbooks" / "200-backup-and-restore.md"
+)
+
+
+def _class_array_names() -> set[str]:
+    text = _SCRIPT.read_text(encoding="utf-8")
+    block = text[
+        text.index("declare -A CHECK_CLASS=(") : text.index(")\nUNLISTED_CLASS")
+    ]
+    return {
+        line.strip()[1:].split("]")[0]
+        for line in block.splitlines()
+        if line.strip().startswith("[")
+    }
+
+
+def _runbook_alarm_names() -> set[str]:
+    names = set()
+    for line in _RUNBOOK.read_text(encoding="utf-8").splitlines():
+        if line.startswith("| `") and "→ `" in line:
+            names.add(line.split("`")[1])
+    return names
+
+
+def test_runbook_alarm_table_names_exactly_the_class_array() -> None:
+    script_names = _class_array_names()
+    assert len(script_names) == 10, script_names
+    assert _runbook_alarm_names() == script_names

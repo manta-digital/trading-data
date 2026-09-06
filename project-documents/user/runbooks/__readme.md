@@ -2,7 +2,7 @@
 docType: index
 project: trading-data
 dateCreated: 20260823
-dateUpdated: 20260823
+dateUpdated: 20260906
 status: current
 ---
 
@@ -13,7 +13,8 @@ Read this first. One line per runbook: what it covers and when to open it.
 | Runbook | What it covers | Open it when… |
 |---|---|---|
 | [100-production-operations.md](100-production-operations.md) | **Start here.** Operating production: quick-reference command table, systemd units, install/update, run/pause/resume passes, rollback | you want to run, check, update, or pause anything in production |
-| [200-backup-and-restore.md](200-backup-and-restore.md) | PostgreSQL backups: WAL archiving, weekly base, B2 offsite, restore drill, the ARCHIVE-BROKEN alarm | restoring data, or the ARCHIVE-BROKEN flag appeared |
+| [200-backup-and-restore.md](200-backup-and-restore.md) | PostgreSQL backups: WAL archiving (compressed, atomic), weekly base, B2 offsite WAL + reconcile, restore drill, the ARCHIVE-BROKEN / BACKUP-STALE flags | restoring data, or a `*-BROKEN` / `*-STALE` flag appeared under `/data/backup` |
+| [210-host-bootstrap.md](210-host-bootstrap.md) | Bare Ubuntu + PostgreSQL to a production, backed-up, drift-free host: `setup-backup.sh`, restic, timeshift, the inputs only the password manager holds | rebuilding or adding a host, or `setup-backup.sh --check` reports drift |
 | [300-cagg-maintenance-pausing.md](300-cagg-maintenance-pausing.md) | Pausing/resuming TimescaleDB cagg refresh jobs safely during repairs | you are about to pause a refresh job, or just resumed one |
 | [310-coverage-cagg-rebuild.md](310-coverage-cagg-rebuild.md) | Rebuilding the slice-167 coverage caggs from scratch | a coverage cagg is wrong/empty and refresh alone cannot fix it |
 | [400-test-database-cluster.md](400-test-database-cluster.md) | The dedicated test PG cluster: setup, credentials, MT_TIMESCALE_TEST_URL | tests fail wanting a test database, or the test cluster needs work |
@@ -34,7 +35,7 @@ catch-up refresh.
 
 ## Naming
 
-`{index}-{name}.md`, grouped by hundreds: 1xx operating production, 2xx backup,
+`{index}-{name}.md`, grouped by hundreds: 1xx operating production, 2xx backup and host provisioning,
 3xx TimescaleDB cagg maintenance, 4xx test infrastructure. Renamed 2026-08-23 —
 older documents referencing `production-deploy.md`, `backup-and-restore.md`,
 etc. mean the files above.

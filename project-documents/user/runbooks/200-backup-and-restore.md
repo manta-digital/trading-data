@@ -2,14 +2,14 @@
 docType: runbook
 project: trading-data
 parent: user/slices/915-slice.backup-and-restore-procedures.md
-relatedSlices: [913, 915]
+relatedSlices: [913, 915, 920]
 host: <prod_host>
 dateCreated: 20260816
 dateUpdated: 20260906
 status: in_progress
 ---
 
-# Runbook — Backup and Restore (slice 915)
+# Runbook — Backup and Restore (slices 915, 920)
 
 Run every step **on the prod host, from the prod checkout**
 (`~/source/repos/manta/trading-data`). Steps are ordered; each is standalone.
@@ -202,28 +202,63 @@ Expect `archived_count` climbing, `last_failed_wal` NULL (or, after the
 reference), and `.zst` files present in the directory. The counter alone is
 not evidence — check the directory.
 
-### If archiving breaks
+### If archiving breaks — the alarms (slice 920)
 
 Postgres retains every unarchived segment. If `archive_command` fails, `pg_wal`
 grows until the filesystem fills and **the server halts**. This is the one way
 this work can cause an outage.
 
-Check with the health script — it names the failing condition and exits
-non-zero (run it ad hoc, and Step 7 schedules it):
+Every half hour cron.d runs `scripts/backup_health_cron.sh`, which runs
+`scripts/check_backup_health.sh` (wrapping the 915 `check_archive_health.sh`
+for the four database checks and adding six of its own). Each failure is a
+named `FAIL` line; the last line is always `FLAGS archive=<n> stale=<m>`.
+Run it ad hoc with the cron.d arguments (`cat /etc/cron.d/manta-trading-backup`
+for the literal line) to see the current state.
+
+**Two flag files, nothing else.** Neither flag is pushed to a person — this
+host has no mail transport. Look for them:
 
 ```bash
-./scripts/check_archive_health.sh --db-url "$MAINT" --pgdata /var/lib/postgresql/17/main
+ls -la /data/backup/*-BROKEN /data/backup/*-STALE 2>/dev/null   # nothing listed = healthy
+journalctl -t manta-backup --since '-7 days'                    # one line per flag raise/clear, per failed push/backup
 ```
 
-Or by hand:
+- **`/data/backup/ARCHIVE-BROKEN`** — the local chain is suspect. The weekly
+  job refuses to take a base backup while it exists (a backup on a suspect
+  chain is what the gate prevents). Also written when the check cannot run
+  at all (no URL in the env file, checker crashed): unreachable is an alarm.
+- **`/data/backup/BACKUP-STALE`** — a tier has stopped succeeding. Alarm only;
+  it does **not** gate the weekly base backup (blocking a healthy local tier
+  because a remote tier is degraded would trade a backup for an alarm).
+
+Both clear on the next healthy check. The ten named failures:
+
+| Name | Class → flag | Cause | Fix |
+|---|---|---|---|
+| `archive_mode_off` | archive → `ARCHIVE-BROKEN` | `archive_mode` is not `on` | `sudo deploy/setup-backup.sh …` (step 4) — a restart is reported as `PENDING RESTART`, never performed |
+| `archiver_failing` | archive → `ARCHIVE-BROKEN` | the most recent archive attempt failed (`last_failed_time` newer than `last_archived_time`) | fix the destination (space, permissions, a wedge below); the archiver drains its backlog on its own. Do not delete from `pg_wal` by hand |
+| `unarchived_backlog` | archive → `ARCHIVE-BROKEN` | more than 4 GiB of WAL awaiting archive | as above; watch `df -h /data` |
+| `wal_disk_low` | archive → `ARCHIVE-BROKEN` | the `pg_wal` filesystem is below 15% free | free space; then the archiver catches up |
+| `prune_permission` | archive → `ARCHIVE-BROKEN` | the cron user cannot create+delete a file in `wal/` (the ACL is gone or masked) | `sudo deploy/setup-backup.sh …` (step 3 re-applies the ACL; step 2 the 0775 mode the mask needs) |
+| `archive_wedged` | archive → `ARCHIVE-BROKEN` | a short raw file sits at the next-to-archive name with no `.zst` sibling (the 2026-09-02 shape) | see the quick reference: confirm `pg_wal` still holds it, `mv` it aside, never delete |
+| `archive_tmp_leftover` | archive → `ARCHIVE-BROKEN` | a `*.tmp` in `wal/` older than 10 min — an atomic write that never finished | `df -h /data`; remove the `.tmp`; the archiver rewrites the segment |
+| `offsite_wal_stale` | stale → `BACKUP-STALE` | `wal-offsite.stamp` missing or older than 3 × the push interval (three missed hourly pushes) | `tail /data/backup/wal-offsite.log`; run the push line from cron.d by hand; check B2 credentials/reachability |
+| `system_backup_stale` | stale → `BACKUP-STALE` | `system-backup.stamp` missing or older than 2 days | `tail /data/backup/system-backup.log`; run the restic line from cron.d by hand as root; a stale restic lock is cleared by the job itself (`restic unlock`) |
+| `weekly_base_stale` | stale → `BACKUP-STALE` | newest `base/<YYYYMMDD>` is older than 9 days (the weekly job aborted — its guards are abort paths — or never ran) | `tail /data/backup/base.log` for the refusal reason; fix it; run the weekly line by hand |
+
+Thresholds are named constants at the top of `check_backup_health.sh`
+(`WAL_SEGMENT_BYTES`, `TMP_LEFTOVER_MAX_AGE_MIN`, `SYSTEM_BACKUP_STALE_DAYS`,
+`WEEKLY_BASE_STALE_DAYS`) and `check_archive_health.sh`
+(`MAX_UNARCHIVED_BYTES`, `MIN_FREE_PCT`). The class of each name lives in one
+array in `check_backup_health.sh`; a unit test asserts this table names the
+same ten.
+
+By hand, the underlying query:
 
 ```bash
-psql "$MAINT" -c "SELECT last_failed_wal, last_failed_time, failed_count FROM pg_stat_archiver;"
+psql "$MAINT" -c "SELECT last_archived_wal, last_failed_wal, last_failed_time, failed_count FROM pg_stat_archiver;"
 df -h /data
 ```
-
-If `last_failed_wal` is non-null: fix the destination (permissions, space), and
-the archiver drains its backlog on its own. Do not delete from `pg_wal` by hand.
 
 ---
 
@@ -356,44 +391,77 @@ copy can be deleted.** It is torn, unverified, and superseded.
 
 ---
 
-## Step 7 — Schedule it (INSTALLED 2026-08-18)
+## Step 7 — Schedule it (cron.d, slice 920)
 
-Cron, not systemd. **Decided 2026-08-22 (slice 916): backups stay on cron** —
-cron is installed and proven, and acquisition's move to systemd timers does not
-pull the backup jobs with it. If the crontab's comment still describes this as
-an open question, update it to: `# Backups stay on cron (decided 2026-08-22,
-slice 916); acquisition runs on systemd timers.` (The crontab is PM-owned host
-config — the PM applies that edit, not automation.)
-Installed in the `manta` crontab (absolute paths — cron loads no shell
-profile). Three entries, all thin glue scripts that grep credentials from the
-named `.env` and call the explicit-argument tools:
+Backups stay on cron — decided 2026-08-22 (slice 916): cron is installed and
+proven, and acquisition's move to systemd timers does not pull the backup
+jobs with it. **Amended by slice 920:** the schedule is no longer hand-edited
+into the `manta` crontab; it is the root-owned file
+`/etc/cron.d/manta-trading-backup`, rendered by `deploy/setup-backup.sh`
+(step 5) from `deploy/cron.d/manta-trading-backup` with the checkout, env
+file, backup root, and cron user substituted. Change the template or the
+script's constants and re-run the script; `--check` reports `DRIFT cron.d`
+when the installed file differs from a fresh render. Six entries:
 
-```cron
-*/30 * * * * .../scripts/archive_health_cron.sh --env-file .../.env --pgdata /var/lib/postgresql/17/main --flag /data/backup/ARCHIVE-BROKEN --log /data/backup/archive-health.log >/dev/null 2>&1
-0 2 * * *    .../scripts/cron_nightly_metadata.sh --env-file .../.env --dest /data/backup/metadata >> /data/backup/metadata.log 2>&1
-0 3 * * 0    .../scripts/cron_weekly_base.sh --env-file .../.env --base-dir /data/backup/base --wal-dir /data/backup/wal --keep-days 21 --health-flag /data/backup/ARCHIVE-BROKEN >> /data/backup/base.log 2>&1
+| When | User | Job |
+|---|---|---|
+| `*/30 * * * *` | manta | `backup_health_cron.sh` — the ten checks, two flags (above) |
+| `0 * * * *` (from `WAL_OFFSITE_INTERVAL_MIN=60`) | manta | `sync_wal_offsite.sh` — additive `rclone copy` of `wal/` to `b2:$BUCKET/wal`, touches `wal-offsite.stamp` |
+| `0 2 * * *` | manta | `cron_nightly_metadata.sh` (unchanged from 915) |
+| `0 3 * * 0` | manta | `cron_weekly_backup.sh --keep-days 7` — base backup, catch-up push, check, prune, guards, and (only while `RECONCILE-ARMED` exists) the offsite mirror |
+| `0 4 * * *` | root | `cron_system_backup.sh` — restic snapshot of `/etc`, `/root`, crontabs, `/home/manta` |
+| `0 5 1 * *` | root | `cron_system_backup.sh --check` — `restic check --read-data-subset=5%` |
+
+The push interval appears in exactly one place in the repository
+(`WAL_OFFSITE_INTERVAL_MIN` in `setup-backup.sh`); it renders the schedule,
+the health check's `--stale-after` (3 ×) and the push's `--timeout` (−1 min).
+`cat /etc/cron.d/manta-trading-backup` is the literal, argument-complete
+form of every job — copy a line from there to run a job by hand.
+
+**One-time removal of the 915 user-crontab lines.** The three entries the
+2026-08-18 install put in `crontab -e` (`archive_health_cron.sh`,
+`cron_nightly_metadata.sh`, `cron_weekly_base.sh`) must be deleted once
+cron.d is installed, or the jobs run twice. The script never edits the user
+crontab; `--check` reports `DRIFT user-crontab still runs: …` while they
+remain. Keep the `@reboot rclone mount google-drive:` line.
+
+**Retention (slice 920 D4a):** `--keep-days 7`, derived from capacity at the
+incident rate, not from the 21 days 915 chose at the steady-state rate:
+
+| Rate | 7 days: 2 bases + WAL | 21 days: 4 bases + WAL | Fits 1.8 TB `/data`? |
+|---|---|---|---|
+| 16 GiB/day (measured 2026-09-05) | ~200 + 112 = ~310 GB | ~400 + 336 = ~740 GB | both |
+| ~100 GB/day (the 2026-09 drain) | ~200 + 700 = ~900 GB | ~400 + 2,100 = ~2.5 TB | **7 only** |
+
+`/data` also holds timeshift's two snapshots (~35 GB each). Offsite retention
+equals local retention — one knob — because the weekly reconcile mirrors
+`wal/` and purges every `base/<date>` prefix that is no longer retained
+locally. Watch `df -h /data` on the monthly pass anyway.
+
+**B2 lifecycle rule (server-side backstop, set once by the PM at cutover):**
+catches the case where the host itself is gone for weeks and nothing
+reconciles. In the B2 console: Buckets → `manta.trading.data` → Lifecycle
+Settings → "Use custom lifecycle rules" → add one rule per prefix, `wal/`
+and `base/`, "Keep prior versions for this number of days: 30" (deletes
+hidden/prior versions older than 30 days; it never touches the current
+version of a live object). Paste the resulting rule JSON below when set:
+
+```
+(rule JSON — filled in at the cutover, Task 8.2)
 ```
 
-(`...` = `/home/manta/source/repos/manta/trading-data`; run `crontab -l` for
-the literal lines.) Nothing re-invokes acquisition on this host (measured),
-so there is no collision to schedule around.
-
-**How a failure surfaces (the alarm):** the half-hourly health check writes
-the flag file **`/data/backup/ARCHIVE-BROKEN`** naming the failed condition,
-and `cron_weekly_base.sh` **refuses to take a base backup while the flag
-exists** — so a broken archive turns into a missing weekly backup and a loud
-file, not a silent gap. The flag clears itself on the first healthy check.
-If you see the flag: read it, fix the destination (permissions or space),
-and the archiver drains its own backlog — demonstrated 2026-08-18: broke the
-directory, alarm fired within one check, restore of permissions drained the
-2-segment backlog unaided in under 20 seconds.
-
-**Retention (implemented):** `prune_wal_archive.sh` runs after each weekly
-backup: keeps 21 days of dated base backups (never fewer than the newest,
-whatever its age), then `pg_archivecleanup`s WAL older than the oldest
-*retained* backup's manifest start. Sized against measured WAL rates (idle
-0.18 GiB/day, active ~3–8 GiB/day): three weeks is at most ~170 GB against
-759 GB free. Watch `df -h /data` on the monthly pass anyway.
+**The reconcile arm file `/data/backup/RECONCILE-ARMED`.** The weekly job
+runs its base backup, catch-up push, checksum check, prune, and the four
+guards every week regardless; it performs the destructive step — `rclone
+sync --max-delete <pruned + 50>` of `wal/` and the purge of offsite
+`base/<date>` prefixes absent locally — **only while this file exists**.
+Otherwise it logs `reconcile skipped: not armed` and exits 0. Nothing
+creates the file but a person: after watching the first reconcile by hand
+(unarmed run: guards pass, `skipped`; then `touch` the file and run again
+watching the sync — the 920 drill), `touch /data/backup/RECONCILE-ARMED`.
+A rebuilt host starts unarmed; `setup-backup.sh --check` reports the file's
+state as `MISSING arm-file` until it is created. Remove the file to disarm
+at any time.
 
 ---
 
@@ -406,6 +474,14 @@ whatever its age), then `pg_archivecleanup`s WAL older than the oldest
 | Offsite round trip | 2026-08-17/18 | up 4h44m–5h06m, down 2h05m, checksums 0 differences (rclone ≥ 1.75 required) |
 | Alarm fire + self-recovery | 2026-08-18 | FAIL within one check; backlog drained unaided in <20 s |
 | Offsite reconcile rehearsal (slice 920 Task 5.6) against a scratch prefix `b2:<bucket>/scratch-920/` with a 50-file fake archive under `/data`, the real cluster for the guards, `cron_weekly_backup.sh --skip-base-backup` | 2026-09-06 | Unarmed run: push 50, check 0 differences, prune 0, `reconcile guards passed`, `reconcile skipped: not armed`, exit 0, offsite 50. Armed run after deleting 5 local files: `rclone sync --max-delete 50` left offsite at exactly 45, final check 0 differences. Armed run with the local directory emptied: `reconcile refused: WAL directory … is empty`, exit 1, offsite still 45. Two earlier runs with a mis-built fixture (manifest start segment newer than every file) had the prune remove all files and the guards refuse — offsite untouched both times. Scratch prefix purged; `rclone lsf` of it empty |
+
+| 920 cutover settings evidence (Task 8.3) | pending | (filled in at the cutover) |
+| 920 cron-driven evidence — health check and push fired from cron.d (Task 8.4) | pending | (filled in at the cutover; first full push duration) |
+| 920 alarm drill — six new failures fire and clear, two-flag gate behaviour (Task 9.1) | pending | (filled in after the cutover) |
+| 920 PITR across the mixed raw/`.zst` archive, local (Task 9.2) | pending | (filled in after the cutover) |
+| 920 PITR from B2-sourced WAL only (Task 9.3) | pending | (filled in after the cutover) |
+| 920 watched first offsite reconcile — unarmed, then armed (Task 9.4) | pending | (filled in after the cutover; expect `removed base/20260816 base/20260817`) |
+| 920 restic first snapshot, `--dry-run` size, check, restore diff (Task 9.5) | pending | (filled in after the cutover) |
 
 **Repeat expectation: re-run the restore drill (Step 6, at least the count
 checks and one cagg signature) and one PITR direction every quarter, or

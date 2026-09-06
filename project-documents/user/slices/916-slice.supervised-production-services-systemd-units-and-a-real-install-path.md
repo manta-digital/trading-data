@@ -61,6 +61,7 @@ the gating ones on 2026-08-22; the rest are resolved here as design decisions.
    apply: this is a checkout + `uv sync`, the same mechanism the dev checkout
    already uses, not a PyPI tool install.)
 4. **Slice 915's three backup cron entries stay on cron.** No timer migration.
+   *Amended by 920 (2026-09-06): still cron, but script-managed — rendered into `/etc/cron.d/manta-trading-backup` by `deploy/setup-backup.sh`; the user-crontab lines are removed once at the 920 cutover.*
    The two documents that point at slice 916 by name (the crontab comment and
    `backup-and-restore.md`) get updated to record that the question is answered:
    they stay.

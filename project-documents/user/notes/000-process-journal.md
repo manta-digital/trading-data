@@ -1540,3 +1540,33 @@ keep it stopped — the timer restart deserves its own explicit check.
 6's <45-min bound (read `pass finished … duration` from the journal); the
 endpoint costs read 2026-09-01 (`default_cost: 10`, no `/historical/*`
 exceptions) are recorded in the 267 design's Risks.
+
+## 20260906 — The dev checkout gains a third role; backup cron becomes script-managed; `/opt` for the backup tier is deferred
+
+Slice 920 amends the 2026-08-23 decision 4 (the host's three roles:
+production `/opt` checkout, dev checkout, backup cron). The dev checkout at
+`~/source/repos/manta/trading-data` is now explicitly the **backup tier's
+checkout**: every `/etc/cron.d/manta-trading-backup` line invokes `scripts/`
+from it, with its `.env` as the credential file. Reason: the backup tier
+needs the maintenance URL and the B2 keys, and slice 913 keeps the DDL
+credential out of `/etc/manta-trading.env`; putting the backup jobs under
+`/opt` would need a second, root-only maintenance env file and a second
+checkout to keep pinned. Consequence, stated plainly: checking out a branch
+in the dev checkout changes what cron runs at the next half hour — which is
+why 920 was implemented in a git worktree and merged before its cutover, and
+why the 915 glue the live crontab invokes was wrapped, not edited.
+
+The backup schedule itself moves from the PM-owned user crontab (916's
+decision) to a root-installed cron.d file rendered by `deploy/setup-backup.sh`
+from a template in the repo. Host config that a script can render and
+`--check` can audit is no longer hand-edited config; the user crontab keeps
+only what no script manages (`@reboot rclone mount`).
+
+**Deferred, with reason:** moving the backup tier under `/opt` with a
+root-only `/etc/manta-trading-maint.env` (0600 root) would remove the third
+role and the branch-checkout hazard. Deferred because it needs its own
+credential-separation decision (a second env file with the DDL credential on
+the host, which 913 argued against), a pinned-ref update procedure for the
+backup scripts, and a cutover of six cron lines — none of which the 920
+hardening needed. Revisit when the dev checkout stops being a place work
+happens.
