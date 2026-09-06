@@ -86,8 +86,10 @@ Design *D9*.
         `deploy/manta-trading.env.example` as a commented line stating it
         belongs in the dev checkout's `.env`, not the service env file.
         Add the restic tier to the CHANGELOG `[Unreleased]`.
-  - [ ] Success: `grep -rn MT_BACKUP_RESTIC_PASSWORD` finds the script,
-        the README, the env example, and the runbooks only.
+  - [ ] Success: `grep -rn MT_BACKUP_RESTIC_PASSWORD` finds only
+        `scripts/cron_system_backup.sh`, `deploy/setup-backup.sh`, their
+        unit tests, the README, the env example, and the runbooks; the
+        env-example line is commented; no hit contains a value.
 
 - [ ] **Task 6.5: Checkpoint commit** (effort: 1)
   - [ ] Commit Section 6 (e.g. `feat: add restic system backup tier`).
@@ -133,7 +135,7 @@ Design *D6*, *D7*, *D8*, *D10*, *Implementation Notes*.
   - [ ] Timeshift section: snapshots live on `/data`, count 2, the
         exclude history (the 2026-09-03 include→exclude flip), device
         UUID reported by `--check`.
-  - [ ] Acceptance-test section with placeholders for the Section 9 run.
+  - [ ] Acceptance-test section with placeholders for the Task 10.1 run.
   - [ ] Add the 210 row to `runbooks/__readme.md`.
   - [ ] Success: the runbook contains no step of the form "fix
         permissions" or "adjust as needed"; each step has a command and
@@ -147,9 +149,10 @@ Design *D6*, *D7*, *D8*, *D10*, *Implementation Notes*.
         `/opt` alternative as future work with the reason it is deferred.
   - [ ] One-line "amended by 920" pointer in the 916 design's cron
         decision (decision 4 in its decisions list).
-  - [ ] Add the `install-production.sh --ref <branch>` origin-resolution
-        defect to the issue tracker — deliberately outside this slice's
-        scope to fix, recorded so it is not lost; one issue, no code.
+  - [ ] File the `install-production.sh --ref <branch>` origin-resolution
+        defect with `gh issue create` on the GitHub remote — deliberately
+        outside this slice's scope to fix, recorded so it is not lost; one
+        issue, no code.
   - [ ] Success: all three edits committed; the design's Implementation
         Notes list matches what changed.
 
@@ -164,7 +167,11 @@ are on `main` and the host checkout is at that `main`. The merge cannot
 disturb the live crontab: its three lines call the untouched 915 scripts
 (Context Summary, file 1). `wal_compression` and `archive_command` are
 reload-only and `archive_mode` is already on, so no restart is expected;
-the script's report is the authority.
+the script's report is the authority. D11 step 3 asked for the mixed-archive
+PITR drill "before proceeding" to offsite work; with the worktree constraint
+nothing is live before this cutover, so the drill (Task 9.2) follows it. The
+`RECONCILE-ARMED` gate is what keeps the destructive offsite step behind the
+drills, not task order.
 
 - [ ] **Task 8.1: Pre-cutover `--check` on manta9000** (effort: 1)
   - [ ] Confirm `git -C ~/source/repos/manta/trading-data rev-parse HEAD`
@@ -269,13 +276,14 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
         `mv` planted files aside; delete aged-stamp copies), observe
         `PASS` and both flags gone.
   - [ ] With only `BACKUP-STALE` present, run `cron_weekly_backup.sh` with
-        the real `--health-flag` path and a deliberately nonexistent
+        the full cron.d argument set but a deliberately nonexistent
         `--env-file`: it must get past the flag check and fail on the
         missing env file (that error is the evidence the flag did not
         gate it). Then plant `ARCHIVE-BROKEN` and repeat: it must refuse
         on the flag before anything else. Remove the planted flag.
-  - [ ] Success: six FAIL lines and two flag behaviors observed; success
-        criterion 8.
+  - [ ] Success: six FAIL lines and two flag behaviors observed — the
+        alarm half of success criterion 8; its guard-refusal half was
+        proven in file 1, Task 5.6.
 
 - [ ] **Task 9.2: PITR drill across the mixed archive (local)** (effort: 3)
   - [ ] Runbook 200 Step 6 + PITR section with the new `restore_command`:

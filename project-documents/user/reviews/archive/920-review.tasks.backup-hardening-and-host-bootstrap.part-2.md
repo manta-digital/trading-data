@@ -10,63 +10,68 @@ aiModel: claude-opus-5
 status: complete
 dateCreated: 20260905
 dateUpdated: 20260905
-reviewedSha: 0fa2b51a74f69909dbc244b4dc4892a280e05ccf
+reviewedSha: aabaf1d9127dd5f4157ae70a2da9cf7417d37bd8
 findings:
   - id: F001
     severity: concern
-    category: test-coverage
-    summary: "No task observes a cron.d entry actually executing from cron"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:191-198"
+    category: sequencing
+    summary: "Task 8.2's idempotence check asserts \"every item OK\" before the DRIFT sources are removed"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:188-197"
   - id: F002
     severity: concern
-    category: correctness
-    summary: "Task 8.1's expected pre-cutover report contradicts the measured host state"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:166-171"
+    category: sequencing
+    summary: "cron.d installs the weekly reconcile on a schedule at cutover, before the drills — the first reconcile can fire unwatched"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:181-197"
   - id: F003
     severity: concern
-    category: test-coverage
-    summary: "Criterion 1's second-run idempotence is claimed but never executed"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:185-186"
+    category: coverage-gap
+    summary: "Success criterion 11 (timeshift) has no verification task; \"device UUID unchanged\" cannot be demonstrated"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:199-212"
   - id: F004
     severity: concern
     category: correctness
-    summary: "Task 6.1 points its size measurement at a repo that cannot exist yet, via a wrong task reference"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:47-56"
+    summary: "Task 10.1's hammerhead teardown does not revert the timeshift merge or the ACL"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:323-332"
   - id: F005
     severity: concern
-    category: test-coverage
-    summary: "Criterion 2's `postgresql.auto.conf` sourcing has no verifying step"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:188-190"
+    category: traceability
+    summary: "Tasks 7.1 and 7.2 point the alarm-table consistency test at the wrong script and the wrong task"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:111-118"
   - id: F006
     severity: note
-    category: completeness
-    summary: "The B2 lifecycle-rule backstop is documented but never set"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:107-109"
+    category: correctness
+    summary: "Task 6.4's grep assertion is contradicted by file 1's Task 3.6 and by Task 6.3"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:89-90"
   - id: F007
     severity: note
-    category: correctness
-    summary: "Task 9.5 diffs a restored copy of an actively-edited tree against live"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:258-262"
+    category: traceability
+    summary: "Task 9.1 claims criterion 8 in full, but its reconcile-guard half is proven in file 1"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:262-263"
   - id: F008
     severity: note
-    category: scope
-    summary: "Task 7.4's issue-tracker entry is outside the slice's stated scope"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:139-152"
+    category: traceability
+    summary: "Two stale cross-references"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:133"
   - id: F009
-    severity: pass
-    category: completeness
-    summary: "Every success criterion traces to a task"
-    location: "project-documents/user/slices/920-slice.backup-hardening-and-host-bootstrap.md:600-660"
+    severity: note
+    category: coverage-gap
+    summary: "Task 10.1's bootstrap acceptance runs the four-check script, not the ten-check wrapper"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:323-325"
   - id: F010
     severity: pass
-    category: sequencing
-    summary: "Checkpoints distributed, test tasks adjacent, no wait-blocked work"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:95-97"
+    category: coverage
+    summary: "Criteria 1–9, 12, and 13 each trace to a named verifying task"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:181-332"
   - id: F011
     severity: pass
+    category: task-quality
+    summary: "Task sizing, test-with pattern, and commit distribution"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:47-93"
+  - id: F012
+    severity: pass
     category: test-coverage
-    summary: "No restated NFR, so no load test or CI gate is owed"
-    location: "project-documents/user/slices/920-slice.backup-hardening-and-host-bootstrap.md:1-120"
+    summary: "No NFR restated by the parent slice, so no load-test or CI-gating task is required"
+    location: "project-documents/user/slices/920-slice.backup-hardening-and-host-bootstrap.md"
 ---
 
 # Review: tasks — slice 920
@@ -76,60 +81,50 @@ findings:
 
 ## Findings
 
-### [CONCERN] No task observes a cron.d entry actually executing from cron
+### [CONCERN] Task 8.2's idempotence check asserts "every item OK" before the DRIFT sources are removed
 
-The cutover replaces three working user-crontab lines with six brand-new `/etc/cron.d/manta-trading-backup` entries (design D7). Task 8.3 says "Wait for the next `:30` health run **or** invoke `archive_health_cron.sh` by hand with the cron.d arguments" — the `or` makes the by-hand path sufficient, and every other new entry (`sync_wal_offsite.sh`, `cron_system_backup.sh`, the monthly `restic check`) is likewise only ever run by hand in Tasks 8.3, 9.4, and 9.5.
+Task 8.2's third bullet tells the PM to re-run the script and expect "zero `APPLIED` lines, every item `OK`", but the fourth bullet — removing the three 915 user-crontab lines and the hand-set `archive_command` line from `postgresql.conf` — has not happened yet. Per slice D1, step 8 reports leftover crontab lines as `DRIFT` ("success criterion 1 cannot pass until the cutover step is done"), and file 1's Task 3.3 reports `DRIFT archive_command source` while the `postgresql.conf` line remains. The second run will therefore print at least two `DRIFT` lines and exit non-zero. A PM following this literally stops mid-cutover on an expected-but-undocumented failure. Split the assertion: second run = zero `APPLIED` lines (idempotence), with `DRIFT` on step 4's source and step 8 expected; move "every item OK" to the final success bullet only (where it already correctly lives at line 196).
 
-Failure scenario: the rendered cron.d file is missing a trailing newline, or has a wrong user field, or a `%` in the `archive_command`-adjacent arguments is unescaped — cron silently ignores the file or the line. Every by-hand run in Sections 8–9 passes, `--check` is green (Task 3.4 compares rendered content, not execution), and the slice closes. The alarms that would catch it (`offsite_wal_stale`, `system_backup_stale`) are themselves cron-driven, so nothing fires. Production is back to the day-one failure mode this slice exists to remove: a scheduled backup job that never runs and never says so.
+### [CONCERN] cron.d installs the weekly reconcile on a schedule at cutover, before the drills — the first reconcile can fire unwatched
 
-Fix: make the `:30` health run a required observation, not an alternative — after cutover, `grep CRON /var/log/syslog` (or `journalctl -t CRON`) for each of the six entries firing, and confirm the offsite stamp mtime advanced from a run the operator did not launch. The `:30` boundary is at most 30 minutes away, so this stays measurable in-session and does not become a calendar wait.
+Task 8.2 installs `/etc/cron.d/manta-trading-backup`, which includes `cron_weekly_backup.sh` at `0 3 * * 0` (D7). The slice's Risks section requires "The first run is watched, not scheduled," and D11 orders the first offsite reconcile — the first destructive offsite action — after the local and B2 PITR drills. Nothing in Section 8 or 9 prevents the scheduled Sunday entry from firing between the cutover (8.2) and the watched hand-run (9.4). If the cutover session lands on a Saturday, the first `rclone sync --max-delete` against B2 runs unobserved and before criteria 5 and 7 are proven. Add an explicit guard to Task 8.2 or 9.4: either the weekly entry is commented out in the rendered cron.d file until Task 9.4 completes, or Task 9.4 is a precondition on the cutover session's day-of-week (the former is preferable — the latter is a calendar dependency).
 
-### [CONCERN] Task 8.1's expected pre-cutover report contradicts the measured host state
+### [CONCERN] Success criterion 11 (timeshift) has no verification task; "device UUID unchanged" cannot be demonstrated
 
-Task 8.1 expects `DRIFT` for `archive_command`, cron.d, `count_weekly`, restic repo, and leftover crontab lines; and `OK` for "ACL, **directories**, `wal_compression`, `archive_mode`". Its success criterion is "the report matches the expectation above; anything else is investigated before Task 8.2."
+Slice criterion 11 requires `/etc/timeshift/timeshift.json` to show `count_weekly = 2` and the four excludes, with `backup_device_uuid` unchanged. No task in either file cites criterion 11, and Section 8's evidence tasks (8.3 settings, 8.4 cron) do not touch timeshift. It is covered only implicitly by Task 8.2's `--check` exit 0. Crucially, "unchanged" is a before/after comparison and Task 8.1's expected pre-cutover report (line 176) records only `DRIFT count_weekly 2 3` — the live UUID is never captured, so after the merge there is no baseline to compare against. Add a bullet to Task 8.1 recording the pre-cutover `jq '.backup_device_uuid, .count_weekly, .exclude'` output, and to Task 8.3 (or a new 8.3b) asserting the post-cutover values against it, citing criterion 11. Criterion 10's "six entries" is likewise only implicit via `--check`'s byte-for-byte template comparison (file 1, Task 3.4) — a one-line `cat /etc/cron.d/manta-trading-backup` assertion in Task 8.4 would close it cheaply.
 
-Two items in the script's step list will not match. `deploy/setup-backup.sh` step 1 checks the `restic` package (file 1, Task 3.2) — `dpkg -s restic` on manta9000 today reports not installed, so that item is `MISSING`, and Task 8.1 does not list it. Step 2 requires `base/ wal/ metadata/ system/` under `--backup-root`; `ls -d /data/backup/*` shows `base`, `wal`, `metadata` only — `system/` does not exist, so "directories" is not `OK` either. The slice's own baseline table already states "restic not installed."
+### [CONCERN] Task 10.1's hammerhead teardown does not revert the timeshift merge or the ACL
 
-Failure scenario: the operator runs Task 8.1, sees two unexpected non-OK items, and per the task's own success wording must stop and investigate before the PM cutover — a false stall on the one task whose purpose is to confirm the host is in the expected state. Amend the expectation to `MISSING restic` and `MISSING system/`.
+The acceptance run executes `setup-backup.sh` in apply mode on hammerhead, which per D1/D8 merges managed keys into `/etc/timeshift/timeshift.json` (`schedule_*`, `count_weekly=2`, the four excludes) and applies `setfacl` to the throwaway WAL directory. Teardown covers the archive root, cron.d file, PostgreSQL settings, scratch restic prefix, and the restic package — but not timeshift. The success line ("hammerhead's `pg_lsclusters` and settings match their pre-run values") does not cover it either, so the run silently and permanently rewrites the test host's snapshot policy. Add a pre-run copy of hammerhead's `timeshift.json` and a restore step in teardown (or, better, have the acceptance run skip step 6 on a host where timeshift is not under management and record that as a runbook 210 note).
 
-### [CONCERN] Criterion 1's second-run idempotence is claimed but never executed
+### [CONCERN] Tasks 7.1 and 7.2 point the alarm-table consistency test at the wrong script and the wrong task
 
-Success criterion 1 has two clauses: the script runs to completion **and a second run changes nothing (every step reports "already")**, plus `--check` exits 0. Walkthrough step 1 accordingly runs apply, apply again, then `--check`. Task 8.2 runs apply exactly once and then `--check`, and its success line asserts "Success criterion 1."
+Task 7.1's success says "every named failure in `check_archive_health.sh` appears in the runbook table," and Task 7.2 says to parse "its case/array from Task 1.5." Both references are wrong given file 1's composition decision: `check_archive_health.sh` is the untouched 915 script emitting only four names; the ten-name set the runbook table must match lives in the wrapper `check_backup_health.sh`, in the class array defined by file 1's **Task 1.3** ("a single array mapping each of the ten check names to its class"), not Task 1.5 (which adds only `archive_wedged` and `archive_tmp_leftover`). As written, a junior implementer greps a four-name script and the test asserts the wrong set equality. Retarget both to `scripts/check_backup_health.sh` and Task 1.3's class array.
 
-Failure scenario: a step is written apply-always rather than check-then-act — e.g. step 5 rewrites `/etc/cron.d/manta-trading-backup` unconditionally, or step 4 issues `ALTER SYSTEM SET` on every run. `--check` still reports `OK` (the end state is correct), so the missing idempotence is invisible; the defect surfaces later as a bootstrap-runbook re-run that bumps `pg_settings` or rewrites a file the operator is mid-edit on. Add the second apply run to Task 8.2 between the apply and the `--check`.
+### [NOTE] Task 6.4's grep assertion is contradicted by file 1's Task 3.6 and by Task 6.3
 
-### [CONCERN] Task 6.1 points its size measurement at a repo that cannot exist yet, via a wrong task reference
+The success line expects `grep -rn MT_BACKUP_RESTIC_PASSWORD` to find "the script, the README, the env example, and the runbooks only." But `deploy/setup-backup.sh` step 7 reads that key from the env file (file 1, Task 3.6), and Task 6.3's unit test asserts the missing-password path names it — so the grep will legitimately also hit a second script and at least one test file. Either widen the expected set or drop the "only" and assert non-absence from `deploy/manta-trading.env.example`'s uncommented lines instead.
 
-Task 6.1 says to measure the snapshot size with `restic backup --dry-run` against the "real repo after **Task 6.3** init". Task 6.3 is the restic *test* task; nothing in it initializes a repository. The repo is initialized by `setup-backup.sh` step 7 (file 1, Task 3.6), which only runs against the real host at cutover — Task 8.2 — and requires `MT_BACKUP_RESTIC_PASSWORD`, which the PM does not place in `.env` until that same task. Section 6 therefore cannot take the `--dry-run` path at all.
+### [NOTE] Task 9.1 claims criterion 8 in full, but its reconcile-guard half is proven in file 1
 
-Failure scenario: the implementer follows the citation, finds no repo, and either fabricates a number or blocks; downstream, the PM's `Pictures`/`ai` include decision (67 G + 60 G) is made on the `du` fallback while the task's own success line says "D9 carries the measured size." Correct the reference to the `du`-with-excludes path as the primary method for Section 6, and if a true `--dry-run` number is wanted, add it as a bullet on Task 9.5, where the repo exists.
+Criterion 8 has two halves: the six alarms firing and clearing, and "the weekly reconcile's guards have been observed refusing (empty scratch `--wal-dir`) before any `rclone sync`, deleting nothing offsite." Task 9.1 covers the six alarms and the two flag-gating behaviors; the guard-refusal half is actually covered by file 1's Task 5.6 (scratch-prefix rehearsal: "empty the local dir and re-run — refused, offsite unchanged"). Coverage is complete, but the citation is misleading — add a pointer to Task 5.6 so a later auditor does not read Task 9.1 as the whole of criterion 8.
 
-### [CONCERN] Criterion 2's `postgresql.auto.conf` sourcing has no verifying step
+### [NOTE] Two stale cross-references
 
-Criterion 2 requires the three settings to show the expected values **"all sourced from `postgresql.auto.conf`"** and the hand-set `postgresql.conf` line gone. Task 8.3's first bullet cites "Success criteria 2, 3, 4" but its checks (`pg_switch_wal()`, a `.zst` lands, no `.tmp`, `last_archived_wal` advanced) demonstrate only criterion 3. The value half of criterion 2 is covered indirectly by Task 8.2's green `--check` (file 1, Task 3.3 compares `pg_settings.setting` and flags an uncommented `postgresql.conf` line as DRIFT), but nothing anywhere queries `pg_settings.source`.
+Task 7.3 asks for "an acceptance-test section with placeholders for the Section 9 run," but the acceptance run is Task 10.1 in Section 10; Section 9 is the drills. Separately, Task 7.4 (line 147-149) says to file the `install-production.sh --ref` defect "to the issue tracker" without naming one — there is no `project-documents/user/issues/` directory, and the repo's only tracker is the GitHub remote (`manta-digital/trading-data`). Name it explicitly (e.g. `gh issue create`) so the step is unambiguously completable. Filing the issue is a small addition beyond the slice's Implementation Notes but is consistent with the out-of-scope list ("this slice does not touch that script") and is not scope creep.
 
-Failure scenario: the PM comments out rather than deletes the hand-set `postgresql.conf` line and a later hand edit reinstates it, or an include file elsewhere in `/etc/postgresql/17/main/conf.d/` sets `archive_command`. The effective value still matches the constant, `--check` is green, and the file that "wins" is not the one the slice claims. One `SELECT name, setting, source FROM pg_settings WHERE name IN (...)` in Task 8.3 closes it — and the criterion citations on that bullet should be corrected to 3 alone.
+### [NOTE] Task 10.1's bootstrap acceptance runs the four-check script, not the ten-check wrapper
 
-### [NOTE] The B2 lifecycle-rule backstop is documented but never set
+End state names `check_archive_health.sh` PASS. This is faithful to slice D10, which uses the same name, but D10 predates the D5 amendment that moved the six new checks into `check_backup_health.sh`. As written, the replacement-host acceptance test validates only the four inherited 915 checks — the new alarms are never exercised on a host built from repo + runbook alone, which is the whole point of the test. Suggest `check_backup_health.sh` (with the throwaway paths) and a matching correction to runbook 210's final step in Task 7.3.
 
-D4 specifies a B2 bucket lifecycle rule (delete versions older than 30 days on the `wal/` and `base/` prefixes) as "a server-side backstop needing no host at all" for the case where the host is gone for weeks. Task 7.1 writes the console steps into runbook 200; no task actually sets the rule, and no success criterion covers it. A backstop that exists only as runbook prose is not a backstop. Consider a `[PM]` bullet on Task 8.2 or 9.4 to set it and paste the resulting rule back into the runbook.
+### [PASS] Criteria 1–9, 12, and 13 each trace to a named verifying task
 
-### [NOTE] Task 9.5 diffs a restored copy of an actively-edited tree against live
+Criterion 1 → 8.2; 2 → 8.3; 3 and 4 → 8.3; 5 → 9.2; 6 → 8.4 and 9.4 (with the "interval appears exactly once" half in file 1's Task 3.4); 7 → 9.3; 8 → 9.1 (+5.6); 9 → 9.4; 12 → 9.5; 13 → 10.1. No task in Section 6–10 fails to trace back to a decision (D6–D11) or a success criterion; I found no scope creep.
 
-The chosen home subtree is `.../trading-data/project-documents` — the tree these very tasks write into (runbook drill records, task checkboxes, the design's status). The snapshot and the `diff -r` happen in one task, so the window is short, but any checklist update or drill-table edit between them turns criterion 12 into a spurious failure. A stable subtree (or `git stash`-free read-only path such as `~/.ssh` metadata or `/home/manta/source/repos/manta/trading-data/deploy`) would prove the same thing without the race.
+### [PASS] Task sizing, test-with pattern, and commit distribution
 
-### [NOTE] Task 7.4's issue-tracker entry is outside the slice's stated scope
+Implementation tasks are immediately followed by their tests (6.2→6.3, 7.1→7.2), each task carries a concrete success line with a runnable assertion, and no task exceeds effort 3. Commit checkpoints appear at the end of every section (6.5, 7.5, 8.5, 9.6) plus 8.6 and 10.2, matching the project's per-section checkpoint convention rather than batching at the end. No task waits on a calendar — Task 9.4 hand-runs the weekly job rather than waiting for Sunday, and Task 8.4's waits are bounded at 30 and 60 minutes with the reason stated.
 
-The slice explicitly places the `install-production.sh --ref <branch>` origin-resolution defect out of scope. Filing it as an issue is a reasonable, cheap way to not lose it, and it traces to no success criterion — flagged only so it is a deliberate addition rather than drift. No action needed if intentional.
+### [PASS] No NFR restated by the parent slice, so no load-test or CI-gating task is required
 
-### [PASS] Every success criterion traces to a task
-
-Criteria 1–4 → Tasks 8.2/8.3 (with the gaps noted above); 5 → 9.2; 6, 9 → 9.4 (plus file 1's Task 3.4 for the single-interval-constant clause); 7 → 9.3; 8 → 9.1 (both flag behaviours, plus file 1's Task 5.5 for the guard-refusal clause); 10 → 8.2 via `--check` steps 5 and 8; 11 → 8.2 via step 6; 12 → 9.5, including all four restore targets; 13 → 7.3 + 10.1. No task in file 2 lacks a criterion or design decision to trace back to.
-
-### [PASS] Checkpoints distributed, test tasks adjacent, no wait-blocked work
-
-Commits land at 6.5, 7.5, 8.4, 9.6, and 10.2 — one per section, not batched. Tests immediately follow their implementation (6.2 → 6.3; 7.1 → 7.2), matching file 1's pattern. Every drill plants its own fault or ages its own stamp, and Task 10.1 carries an in-session fallback (fresh VM) if the PM declines hammerhead, so nothing waits on a calendar. Task 8.2 is a single script invocation plus a printed report with only operator-only items as checklist bullets, per the standing PM-host-step rule.
-
-### [PASS] No restated NFR, so no load test or CI gate is owed
-
-The slice states measured host quantities (16 GiB/day WAL, uplink throughput, zstd CPU) as design inputs, not as non-functional requirements to be enforced. It restates no NFR from a parent, so the `test/load/` + CI-gating requirement does not apply here; the acceptance instruments are `setup-backup.sh --check` and `check_archive_health.sh`, both of which have tasks.
+The slice design states no performance or throughput NFR — its measured numbers (16 GiB/day WAL, ~40 min/day uplink, compression ratio ≥1.5×) are sizing inputs and a go/no-go gate, not restated non-functional requirements. `test/load/` exists in this repo but is correctly untouched by this breakdown; the D3 ratio measurement (file 1, Task 2.1) is a one-time host measurement, not a repeatable load test, and does not need CI gating.

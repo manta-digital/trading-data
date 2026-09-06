@@ -115,6 +115,15 @@ anything they guard changes (D11 step 1). `check_archive_health.sh` and
   - [ ] Success: with all arguments and a healthy target the output is the
         inner script's PASS line plus `FLAGS archive=0 stale=0`, exit 0.
 
+- [ ] **Task 1.3a: Wrapper tests** (effort: 1)
+  - [ ] Create `test/unit/test_backup_health.py` (subprocess; the inner
+        `check_archive_health.sh` stubbed on `PATH` printing a chosen
+        PASS/FAIL set and exit code): argument refusal for every required
+        argument; inner PASS passes through; inner exit 1 with two FAIL
+        lines → both lines present, `FLAGS archive=2 stale=0`, wrapper
+        continues to its own checks.
+  - [ ] Success: tests pass.
+
 - [ ] **Task 1.4: `prune_permission` canary** (effort: 1)
   - [ ] Create then delete `$WAL_DIR/$PRUNE_CANARY` as the invoking user;
         either failure appends `FAIL prune_permission: …` naming the
@@ -135,6 +144,15 @@ anything they guard changes (D11 step 1). `check_archive_health.sh` and
         than `TMP_LEFTOVER_MAX_AGE_MIN` (`find -mmin`).
   - [ ] Success: both print their named FAIL on a planted fault only.
 
+- [ ] **Task 1.5a: Canary, wedge, and tmp-leftover tests** (effort: 1)
+  - [ ] In `test_backup_health.py`, `tmp_path` fixtures: read-only dir →
+        `FAIL prune_permission` and no canary left behind; a 1000-byte
+        file at a **literal** next segment name with the stubbed inner
+        query reporting that `last_archived_wal` → `FAIL archive_wedged`;
+        the same with a `.zst` sibling present → no FAIL; a 20-minute-old
+        `x.zst.tmp` → `FAIL archive_tmp_leftover`; a fresh one → none.
+  - [ ] Success: tests pass.
+
 - [ ] **Task 1.6: `offsite_wal_stale`, `system_backup_stale`,
       `weekly_base_stale`, and the summary line** (effort: 1)
   - [ ] `offsite_wal_stale`: `--stamp` missing or older than
@@ -147,6 +165,13 @@ anything they guard changes (D11 step 1). `check_archive_health.sh` and
         array; exit 1 on any FAIL.
   - [ ] Success: each prints its named FAIL when its input is aged; the
         counts match the classes.
+
+- [ ] **Task 1.6a: Stale-check and summary-line tests** (effort: 1)
+  - [ ] In `test_backup_health.py`: aged push stamp, missing system
+        stamp, `base/20260101` only → each named FAIL and
+        `FLAGS archive=0 stale=<n>`; a mixed fault set → both counts
+        correct; healthy → `FLAGS archive=0 stale=0` and exit 0.
+  - [ ] Success: tests pass.
 
 - [ ] **Task 1.7: `scripts/backup_health_cron.sh` — two-flag glue**
       (effort: 1)
@@ -162,16 +187,11 @@ anything they guard changes (D11 step 1). `check_archive_health.sh` and
   - [ ] Success: the existing `cron_weekly_base.sh`/`cron_weekly_backup.sh`
         gate reads only the archive flag path.
 
-- [ ] **Task 1.8: Health-check tests** (effort: 2)
-  - [ ] `test/unit/test_backup_health.py` (no DB; inner check stubbed on
-        `PATH` printing a chosen PASS/FAIL set): argument refusal for every
-        required argument on both new scripts; each of the six file-based
-        checks against `tmp_path` fixtures — read-only dir, a 1000-byte
-        file at a **literal** next segment name with the stub reporting
-        that `last_archived_wal`, a 20-minute-old `x.zst.tmp`, aged stamps,
-        `base/20260101` only; class counts on the `FLAGS` line; the glue
+- [ ] **Task 1.8: Glue tests and one live run** (effort: 1)
+  - [ ] Unit (checker stubbed on `PATH`): glue argument refusal; the glue
         writes the stale flag and not the archive flag for
-        `FLAGS archive=0 stale=1` and the reverse.
+        `FLAGS archive=0 stale=1` and the reverse; both cleared on
+        `archive=0 stale=0`; an uncheckable run writes the archive flag.
   - [ ] `test/integration/test_backup_health_live.py` (test cluster via
         `MT_TIMESCALE_TEST_URL`): one run against a healthy `tmp_path`
         layout asserting the inner script's lines pass through and
@@ -229,6 +249,14 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         runs to the end and prints one line per item (items from later
         tasks appear as they are added).
 
+- [ ] **Task 3.1a: Skeleton tests** (effort: 1)
+  - [ ] Create `test/unit/test_setup_backup.py` (subprocess, no root, no
+        DB): argument refusal for each required argument; refusal when
+        not root (message names `sudo`); `--check` with a scratch
+        `--backup-root` exits 1 and prints `MISSING` lines, never
+        `APPLIED`.
+  - [ ] Success: tests pass.
+
 - [ ] **Task 3.2: Steps 1–3 — packages, directories, ACL** (effort: 1)
   - [ ] Step 1: `restic` installed (`dpkg -s`), install if missing.
   - [ ] Step 2: `base/ wal/ metadata/ system/` under `--backup-root`;
@@ -257,6 +285,16 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         `DRIFT` (`postgresql.conf`). Apply mode is exercised in Task 3.7
         with a stubbed `psql`, never against production before Section 8.
 
+- [ ] **Task 3.3a: PostgreSQL-step tests** (effort: 1)
+  - [ ] With a stubbed `psql` on `PATH` that answers `pg_settings` queries
+        from a fixture and records statements: drifted settings → exactly
+        those `ALTER SYSTEM SET` statements plus one `pg_reload_conf()`,
+        never a restart command; matching settings → no statements; a
+        `sourcefile` not ending in `postgresql.auto.conf` →
+        `DRIFT <name> source`; `pending_restart = t` → `PENDING RESTART`
+        line.
+  - [ ] Success: tests pass.
+
 - [ ] **Task 3.4: Step 5 — cron.d rendering** (effort: 2)
   - [ ] Create `deploy/cron.d/manta-trading-backup` template with the six
         entries of D7 (glue names: `backup_health_cron.sh`,
@@ -272,6 +310,13 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         repo (`grep -rn WAL_OFFSITE_INTERVAL_MIN` returns the constant and
         its uses only); a rendered file diff is empty on re-run.
 
+- [ ] **Task 3.4a: cron.d rendering tests** (effort: 1)
+  - [ ] Render to a temp path for an interval of 60 and of 15: six
+        entries, substituted paths, expected user fields, `--stale-after`
+        = 3 × interval, `--timeout` = interval − 1, trailing newline, no
+        unescaped `%`; interval 45 refused.
+  - [ ] Success: tests pass.
+
 - [ ] **Task 3.5: Step 6 — timeshift managed keys** (effort: 1)
   - [ ] With `jq`, read `/etc/timeshift/timeshift.json`, compare managed
         keys (`schedule_*`, `count_weekly`, `exclude`), write back only
@@ -281,6 +326,14 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         (check only; no apply before Section 8). Apply mode is exercised in
         Task 3.7 on a copy of the live file: managed keys change, a
         `jq del(managed keys)` projection is byte-identical before/after.
+
+- [ ] **Task 3.5a: Timeshift-merge tests** (effort: 1)
+  - [ ] `deploy/lib/timeshift_merge.sh` on a copy of the live file:
+        managed keys change to the constants; the `jq del(managed keys)`
+        projection is byte-identical; a file already conformant is
+        unchanged byte-for-byte; a missing file is reported `MISSING` and
+        not created.
+  - [ ] Success: tests pass.
 
 - [ ] **Task 3.6: Steps 7–8 — restic repository and leftover crontab
       lines** (effort: 1)
@@ -314,19 +367,15 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
   - [ ] Success: apply-mode idempotence is proven before the PM depends
         on it in Task 8.2; the rehearsal leaves no trace.
 
-- [ ] **Task 3.7: `setup-backup.sh` tests** (effort: 2)
-  - [ ] In `test/unit/test_setup_backup.py` (subprocess, no root, no DB):
-        argument refusal for each required argument; refusal when not
-        root (assert the message names `sudo`); the cron.d template
-        renders the six entries with substituted paths for an interval of
-        60 and of 15, refuses 45, ends with a newline, and contains no
-        unescaped `%`; the timeshift `jq` merge (extracted into
-        `deploy/lib/timeshift_merge.sh`, sourced by the script) leaves
-        non-managed keys byte-identical on a copy of the live file; step 4
-        with a stubbed `psql` on `PATH` issues `ALTER SYSTEM SET` only for
-        drifted settings and never a restart, and a second run issues none.
-  - [ ] `shellcheck deploy/setup-backup.sh scripts/check_backup_health.sh
-        scripts/backup_health_cron.sh` clean.
+- [ ] **Task 3.7: Steps 7–8 tests and shellcheck** (effort: 1)
+  - [ ] With a stubbed `restic` on `PATH`: `cat config` failing →
+        `MISSING` in check mode and `restic init` in apply mode; missing
+        password → `MISSING` and no restic call; arm file present/absent
+        → `OK`/`MISSING` and never created; a fixture crontab containing a
+        915 script name → `DRIFT`.
+  - [ ] `shellcheck deploy/setup-backup.sh deploy/lib/timeshift_merge.sh
+        scripts/check_backup_health.sh scripts/backup_health_cron.sh`
+        clean.
   - [ ] Success: tests pass; shellcheck reports nothing.
 
 - [ ] **Task 3.8: Checkpoint commit** (effort: 1)

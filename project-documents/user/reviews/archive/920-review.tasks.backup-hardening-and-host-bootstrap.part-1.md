@@ -4,141 +4,118 @@ layer: project
 reviewType: tasks
 slice: backup-hardening-and-host-bootstrap
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 sourceDocument: project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md
 aiModel: claude-opus-5
 status: complete
 dateCreated: 20260905
 dateUpdated: 20260905
-reviewedSha: 0fa2b51a74f69909dbc244b4dc4892a280e05ccf
+reviewedSha: aabaf1d9127dd5f4157ae70a2da9cf7417d37bd8
 findings:
   - id: F001
-    severity: fail
-    category: sequencing
-    summary: "Merging file 1 to `main` breaks the live cron lines before the cutover replaces them"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:158-162"
+    severity: concern
+    category: correctness
+    summary: "Wrapper spec omits the inner check's non-zero exit; the six new checks never run when a legacy check fails"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:103"
   - id: F002
     severity: concern
-    category: coverage-gap
-    summary: "Success criterion 1's idempotence half is never executed"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:184-185"
+    category: sequencing
+    summary: "Apply mode's first real execution is the production cutover"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:181"
   - id: F003
     severity: concern
-    category: verification-gap
-    summary: "Nothing observes the cron.d entries actually firing under cron"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:191-198"
+    category: correctness
+    summary: "Task 7.1's completeness check greps the wrong script, and Task 7.2 cites the wrong task"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:111"
   - id: F004
     severity: concern
-    category: sequencing
-    summary: "D3's \"four things change together, in one commit\" rule is split across two section commits"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:274-276"
-  - id: F005
-    severity: concern
     category: test-coverage
-    summary: "Segment-name arithmetic has no independent test; the integration test is circular"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:141-148"
+    summary: "Success criterion 11's \"device UUID is unchanged\" has no verifying task"
+    location: "project-documents/user/slices/920-slice.backup-hardening-and-host-bootstrap.md:601"
+  - id: F005
+    severity: note
+    category: correctness
+    summary: "The reconcile's `rclone sync` step does not specify `--exclude '*.tmp'`"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:411"
   - id: F006
-    severity: concern
-    category: ambiguity
-    summary: "Section 3 success criteria read as instructions to apply changes to production before the cutover"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:221-224"
+    severity: note
+    category: test-coverage
+    summary: "Two of the six cron.d entries are never observed firing before the 915 lines are deleted"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:210"
   - id: F007
     severity: note
-    category: task-sizing
-    summary: "Task 5.3 is the one task that should probably be split"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:349-368"
+    category: task-scoping
+    summary: "`deploy/lib/timeshift_merge.sh` is introduced in a test task rather than its implementation task"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:271"
   - id: F008
     severity: note
-    category: coverage-gap
-    summary: "Criterion 2's \"sourced from `postgresql.auto.conf`\" is inferred, not asserted"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:210-224"
+    category: scope-creep
+    summary: "Two small items outside the slice's stated scope"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-2.md:139"
   - id: F009
     severity: pass
-    category: traceability
-    summary: "All 13 success criteria trace to tasks; no scope creep found"
-    location: "project-documents/user/slices/920-slice.backup-hardening-and-host-bootstrap.md:560-620"
+    category: requirements-coverage
+    summary: "All 13 success criteria trace to at least one task"
+    location: "project-documents/user/slices/920-slice.backup-hardening-and-host-bootstrap.md:561-620"
   - id: F010
     severity: pass
-    category: process
-    summary: "Commit checkpoints are distributed, and tests mostly follow their implementation"
-    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:152-155"
+    category: sequencing
+    summary: "Sequencing respects D11, tests sit with their implementation, and commits are distributed"
+    location: "project-documents/user/tasks/920-tasks.backup-hardening-and-host-bootstrap-1.md:70"
   - id: F011
-    severity: note
-    category: nfr
-    summary: "No NFR is restated by this slice, so no load test or CI gating task is required"
-    location: "project-documents/user/slices/920-slice.backup-hardening-and-host-bootstrap.md"
+    severity: pass
+    category: test-coverage
+    summary: "No load-test task is required, and CI gating is not applicable to this repo"
+    location: ".github/workflows/ci.yml:1-10"
 ---
 
 # Review: tasks — slice 920
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS
 **Model:** claude-opus-5
 
 ## Findings
 
-### [FAIL] Merging file 1 to `main` breaks the live cron lines before the cutover replaces them
+### [CONCERN] Wrapper spec omits the inner check's non-zero exit; the six new checks never run when a legacy check fails
 
-Section 8's preamble states "All of file 1 and Sections 6–7 are merged to `main` and the host checkout is on `main` before this section starts (ordinary workflow, not a task)". File 1's Context Summary correctly identifies that the host checkout at `/home/manta/source/repos/manta/trading-data` *is what cron runs* — but applies that constraint only to the worktree, not to the merge.
+Task 1.3 says only "Runs `check_archive_health.sh --db-url --pgdata` first and keeps its output lines verbatim, then appends its own checks." `scripts/check_archive_health.sh:100-104` exits 1 whenever any of its four checks fails, and the 915 scripts (which Task 1.3 tells the implementer to follow) all use `set -euo pipefail`. A junior implementer following the task literally produces a wrapper that aborts on the inner script's exit 1, so `prune_permission`, `archive_wedged`, `archive_tmp_leftover`, `offsite_wal_stale`, `system_backup_stale`, `weekly_base_stale`, and the `FLAGS` summary line are never evaluated in exactly the state where they matter most — an already-unhealthy archive. Task 1.7's "an uncheckable run writes the archive flag" then masks it: `BACKUP-STALE` conditions would be permanently invisible whenever `ARCHIVE-BROKEN` is set. Task 1.8's integration test (which runs against the `archive_mode=off` test cluster) would catch this, but the acceptance path should not depend on a test discovering a requirement the task never stated. Add an explicit bullet: capture the inner script's exit code (`set +e` around the call or `|| inner_rc=$?`), pass its lines through, fold its failures into the `archive` class, and always emit the `FLAGS` line.
 
-The live user crontab today is:
+### [CONCERN] Apply mode's first real execution is the production cutover
 
-```
-*/30 … archive_health_cron.sh --env-file … --pgdata … --flag … --log … >/dev/null 2>&1
-0 3 * * 0 … cron_weekly_base.sh --env-file … --base-dir … --wal-dir … --keep-days 7 --health-flag …
-```
+Every task in Section 3 restricts itself to `--check` on manta9000 (Tasks 3.2, 3.3, 3.5 each say "check only; no apply before Section 8"), and Task 3.7 exercises apply only with a stubbed `psql` and a copy of `timeshift.json`. Task 10.1 — the clean-state run that actually exercises apply for steps 1–3, 5, 6, 7 end to end — happens *after* the production cutover. So Task 8.2 is the first time `setfacl`, the cron.d render-and-install, the `jq` write-back to the live `/etc/timeshift/timeshift.json`, and `restic init` run for real, on production, under PM hands. This traces to D11's ordering (bootstrap last), so it is not a design deviation, but it is cheap to de-risk: add a task after 3.6 that runs the script in *apply* mode against a throwaway `--backup-root` (steps 1–3 and 7 with a scratch restic prefix; cron.d rendered to a temp path) and asserts a second run prints zero `APPLIED` lines. That also pre-validates success criterion 1's idempotence half before the PM depends on it.
 
-Task 1.6 makes `--wal-dir`, `--stamp`, `--stale-after`, `--system-stamp`, `--base-dir`, `--stale-flag` **required** on `archive_health_cron.sh`; Task 5.3 makes `--remote-wal` and `--lock` **required** on `cron_weekly_base.sh`. Verified in `scripts/archive_health_cron.sh:33-37` and `scripts/cron_weekly_base.sh:31-35`: a missing required argument exits 2 *before* the log line is appended and *before* any flag is written.
+### [CONCERN] Task 7.1's completeness check greps the wrong script, and Task 7.2 cites the wrong task
 
-Failure scenario: file 1 merges Friday; the cutover (Task 8.2) happens Monday. From the next half-hour onward the health check exits 2, its output is discarded by the crontab's `>/dev/null 2>&1`, no log line is written, and `ARCHIVE-BROKEN` is neither raised nor cleared — the archive is unmonitored and nothing says so. This is precisely the silent-failure class the slice was written to eliminate. On Sunday 03:00 `cron_weekly_base.sh` exits 2 on `--remote-wal`, so the weekly base backup is skipped; `weekly_base_stale` cannot report it because the health check is also dead.
+Task 7.1's success criterion is "every named failure in `check_archive_health.sh` appears in the runbook table". That script is deliberately never modified (file 1's Context Summary) and emits only the four 915 names; the six new names live in `check_backup_health.sh`. As written, the test would pass with none of the six new alarms documented — which is precisely the alarm table success criterion 8 depends on. Task 7.2 compounds this by saying the name set is parsed "from Task 1.5", while the authoritative single array mapping all ten names to their class is defined in Task 1.3. Fix both to name `scripts/check_backup_health.sh` and its class array (Task 1.3), and state that the expected set is all ten names.
 
-Remedy: the breakage window must become an explicit, bounded task — e.g. merge and cutover in the same session as an ordered task pair, or a pre-merge task in Section 8 that installs `/etc/cron.d/manta-trading-backup` and removes the user lines *before* the new script versions land in the host checkout. "Ordinary workflow, not a task" is exactly what makes this invisible.
+### [CONCERN] Success criterion 11's "device UUID is unchanged" has no verifying task
 
-### [CONCERN] Success criterion 1's idempotence half is never executed
+Criterion 11 has three parts: `count_weekly = 2`, the four excludes, and `backup_device_uuid` unchanged. The first two are covered by Task 8.2's green `--check`. The third is not: Task 3.5 says the script "reports the device UUID as info", but Task 8.1's expected pre-cutover report does not list it and Task 8.2 does not compare it, so nothing on the host establishes that the `jq` write-back preserved it. Task 3.7's byte-identical-projection test covers the mechanism on a *copy*, not the live file. Add the UUID to Task 8.1's recorded pre-check report and a one-line before/after comparison to Task 8.3, alongside the settings and `getfacl` evidence.
 
-Criterion 1 has two parts: the script runs to completion **and a second run changes nothing (every step reports "already")**, plus `--check` exits 0. Task 8.2's success line runs the script once and then `--check`, and claims "Success criterion 1". No task performs the second *apply* run that the walkthrough's step 1 spells out (`sudo deploy/setup-backup.sh <same args>` a second time). A `--check` pass does not prove apply-mode idempotence: a step that unconditionally re-runs `setfacl`, re-renders the cron.d file, or re-issues `ALTER SYSTEM` would still leave `--check` green. Add the second apply run and the "already"/`OK` expectation to Task 8.2.
+### [NOTE] The reconcile's `rclone sync` step does not specify `--exclude '*.tmp'`
 
-Related vocabulary gap: Task 3.1 (file 1:193-196) defines the report tokens as `OK|DRIFT|MISSING` only; the criterion's "already" wording has no counterpart in the script contract, so a junior implementer has no defined output to assert against.
+Task 5.4 specifies `--exclude '*.tmp'` on step 2's `rclone check` and Task 5.1 specifies it on the hourly `rclone copy`, but step 5's `rclone sync … --max-delete` carries no exclude. The sync would then mirror `%f.zst.tmp` partials and the `.prune-canary.tmp` (Task 1.4 creates it in `--wal-dir`) into `b2:$BUCKET/wal`, and the later `--one-way` check excludes `*.tmp` so the discrepancy stays invisible. Harmless to the restore chain, but it puts junk offsite and contradicts D5's stated "`rclone check` excludes it" reasoning. Add the same exclude to step 5 (and to step 6's check for symmetry).
 
-### [CONCERN] Nothing observes the cron.d entries actually firing under cron
+### [NOTE] Two of the six cron.d entries are never observed firing before the 915 lines are deleted
 
-Every post-cutover check invokes the scripts *by hand* "with the cron.d arguments". Task 8.3 offers "Wait for the next `:30` health run **or** invoke `archive_health_cron.sh` by hand", and the `or` makes the cron-driven observation optional; Tasks 9.4 and 9.5 both run their jobs by hand. `/etc/cron.d` is a brand-new delivery mechanism for this host (D7 replaces the user crontab), and its classic failure modes are exactly the ones hand-invocation cannot catch: the per-line user field, cron's minimal `PATH` (these scripts call `rclone`, `restic`, `flock`, `zstd`, `setfacl`, `jq`, `pg_archivecleanup`), and a missing trailing newline in the rendered file.
+Task 8.4 observes `backup_health_cron.sh` (`:00`/`:30`) and `sync_wal_offsite.sh` (hourly) executing from cron, then Task 8.6 deletes the 915 glue. The `cron_nightly_metadata.sh` (02:00), `cron_weekly_backup.sh` (Sunday 03:00), and `cron_system_backup.sh` (04:00) entries are only ever run by hand (Tasks 9.4, 9.5). A malformed user field or path in one of those three rendered lines would surface a day to a week after the predecessor was removed. The `RELOAD … no bad/error line` assertion in 8.4's first bullet is a partial guard. Consider adding a bullet to Task 8.4 asserting `crontab -T`-equivalent validation of every rendered line, or observing the 02:00 nightly entry firing before Task 8.6.
 
-Failure scenario: cutover completes, `--check` is green, every drill passes by hand, and the hourly `rclone` push never runs under cron because `rclone` is not on cron's `PATH`. `offsite_wal_stale` fires three hours later into `BACKUP-STALE` — a file nobody is told to `ls` until the runbook says so — and the just-signed-off slice ships with the offsite tier dead. Criterion 6's "the offsite stamp is younger than one interval **during normal operation**" is the criterion this misses: add a task that waits for one real cron-driven push and one real `:30` health run and asserts the stamp age and log line.
+### [NOTE] `deploy/lib/timeshift_merge.sh` is introduced in a test task rather than its implementation task
 
-### [CONCERN] D3's "four things change together, in one commit" rule is split across two section commits
+The design's Implementation Notes list `deploy/lib/timeshift_merge.sh` as a new file. Task 3.5 (the implementation) does not mention it; the extraction appears only parenthetically inside Task 3.7's test bullet ("extracted into `deploy/lib/timeshift_merge.sh`, sourced by the script"). An implementer working Task 3.5 in isolation writes the merge inline and Task 3.7 then becomes a refactor plus a test. Move the file's creation into Task 3.5.
 
-D3 states the rule and its reason plainly: `archive_command`, `restore_command`, the prune's `-x .zst`, and the health check's size expectations "change together, in one commit, because a restore that finds `.zst` files with a `cp`-shaped `restore_command` fails at the worst moment". The breakdown puts `ARCHIVE_COMMAND` in Section 3's commit (Task 3.8) and the prune `-x` plus the runbook `restore_command` in Section 4's commit (Task 4.5).
+### [NOTE] Two small items outside the slice's stated scope
 
-In practice deployment is deferred to Section 8, so the exposure is small — but the task file never says so, and the host checkout tracks `main` (see the FAIL above), which is how an intermediate commit becomes an effective state. Either merge Sections 3 and 4 into a single checkpoint for the four coupled pieces, or state explicitly in Section 4's preamble why the split is safe (nothing is applied to the host until Task 8.2) so the deviation is a recorded decision rather than a drift from the design.
+Task 7.4's third bullet files an issue for the `install-production.sh --ref` origin-resolution defect, which the slice explicitly places out of scope; Task 6.4 adds CHANGELOG entries not named in the slice. Both are recording-only, cost nothing, and prevent loss of a known defect — flagged for completeness, not for removal.
 
-### [CONCERN] Segment-name arithmetic has no independent test; the integration test is circular
+### [PASS] All 13 success criteria trace to at least one task
 
-The slice's Implementation Notes call this out directly: "Unit coverage for the health check's segment-name arithmetic via a bats-style fixture directory is worth one task." Task 1.3 implements "next segment name" derivation (`last_archived_wal` + 1, or `last_failed_wal` when failing) — arithmetic with real edge cases (log-file rollover at segment `FF`, timeline prefix, zero padding). Task 1.7's integration test then plants "a short file at the next segment name (**compute from the same query the script uses**)".
+Mapping: 1 → Task 8.2; 2 → Tasks 8.2 (removes the hand-set `postgresql.conf` line), 8.3, 3.3 (`sourcefile` assertion); 3 → Task 8.3; 4 → Tasks 8.3, 1.4; 5 → Task 9.2; 6 → Tasks 8.4, 9.4, 3.4 (single-constant grep); 7 → Task 9.3; 8 → Tasks 9.1 and 5.6 (the empty-`--wal-dir` refusal half); 9 → Task 9.4; 10 → Tasks 3.4, 8.2, 8.6; 11 → Tasks 3.5, 8.2 (partial — see the device-UUID finding); 12 → Task 9.5; 13 → Tasks 7.3, 10.1. No task lacks a criterion or a design decision it traces to.
 
-Failure scenario: the SQL expression rolls `000000010000121700000 0FF` to `…12170000000100` instead of `…1218 00000000`. The test computes the same wrong name, plants a file there, sees `FAIL archive_wedged`, and passes — while in production the wedge check silently examines a name PostgreSQL will never write, and `archive_wedged` never fires. Add the fixture-based unit task the design asked for, with expected names written as literals independent of the script.
+### [PASS] Sequencing respects D11, tests sit with their implementation, and commits are distributed
 
-### [CONCERN] Section 3 success criteria read as instructions to apply changes to production before the cutover
+Order matches D11 exactly: read-only alarms (Section 1) → compression measurement (Section 2) → `setup-backup.sh` and archive path (Sections 3–4) → offsite (Section 5) → restic and runbooks (6–7) → cutover (8) → drills (9) → bootstrap acceptance (10). Dependencies hold in one direction: Task 1.1's `wal_segment_name.py` precedes its consumers (Tasks 1.5, 4.1, 5.3, 9.1); Task 2.1's go/no-go precedes every "if go" branch (Tasks 3.1, 4.1); Task 8.6's deletion is explicitly gated on Task 8.4; no cycles. Test-with pattern is honored (1.1→1.2, 1.3–1.7→1.8, 3.1–3.6→3.7, 4.1→4.2, 4.3→4.4, 5.1→5.2, 5.3/5.4→5.5, 6.2→6.3, 7.1→7.2). Checkpoint commits land at 1.9, 2.2, 3.8, 4.5, 5.7, 6.5, 7.5, 8.5, 8.6, 9.6, and 10.2 — one per section, none batched at the end. Task sizes are consistent (effort 1–3, largest being the two PITR drills and the hammerhead run, which are irreducible); no task needs splitting or merging. The worktree constraint that keeps the live crontab on `main` until cutover is stated once in file 1's Context Summary and honored throughout.
 
-Task 3.3's success: "on manta9000 `--check` shows `archive_command` as `DRIFT` (hand form → D2 form) **until apply; after apply, `OK`**". Task 3.5's success (file 1:244-246): "`--check` on manta9000 reports `DRIFT count_weekly 2 3` before apply and **`OK` after**". Both are Section 3 tasks, executed from the worktree while the host is meant to stay untouched until Section 8 — and Task 8.1 (file 2:164-171) explicitly *expects* `DRIFT` for `archive_command` and `count_weekly` at pre-cutover time.
+### [PASS] No load-test task is required, and CI gating is not applicable to this repo
 
-A junior implementer following Task 3.5 literally will run the script in apply mode against `/etc/timeshift/timeshift.json` and `ALTER SYSTEM` on the production cluster during Section 3, then find Task 8.1's expected report no longer matches and be told to "investigate before Task 8.2". Rewrite both success lines to be `--check`-only against production plus apply-mode verification against a scratch `--backup-root`/test cluster, as Task 3.2 already does correctly ("`MISSING`/`DRIFT` on a scratch root").
-
-### [NOTE] Task 5.3 is the one task that should probably be split
-
-Effort 3 covering: two new required arguments, a six-step reordering of the weekly job, reuse of `sync_wal_offsite.sh`, `rclone check` abort, consuming the prune's `PRUNED` line, four independent guards, `--max-delete` arithmetic, offsite `base/<date>` deletion with logging, and a final verify. The four guards (`mountpoint`, non-empty, `last_archived_wal` present, oldest manifest's start segment present) are separable, individually testable, and are the part of the job where a mistake deletes the offsite chain. Splitting into "guards + refusal contract" and "reconcile ordering + guarded sync" would let Task 5.4's guard tests land against a smaller surface. Every other task is appropriately sized; none are too granular.
-
-### [NOTE] Criterion 2's "sourced from `postgresql.auto.conf`" is inferred, not asserted
-
-Task 3.3 compares `pg_settings.setting` and separately reports `DRIFT` if `postgresql.conf` still has an uncommented `archive_command`. Criterion 2 additionally requires all three settings be *sourced from* `postgresql.auto.conf` — one `pg_settings.sourcefile` assertion. Cheap to add to Task 3.3's check and to Task 8.3's evidence; without it, an `include`d conf fragment or a `postgresql.conf` line the grep pattern misses could hold the effective value while the value comparison still passes.
-
-### [PASS] All 13 success criteria trace to tasks; no scope creep found
-
-Mapping: 1→8.2 (with the idempotence gap above); 2→3.3+8.2+8.3; 3→8.3; 4→3.2+8.3; 5→9.2; 6→3.4+9.4; 7→9.3; 8→9.1+5.4+5.5; 9→9.4; 10→3.4+3.6+8.2; 11→3.5; 12→9.5; 13→7.3+10.1. Every task traces back: the two that are not named by a criterion — Task 2.1 (compression measurement) and Task 5.5 (scratch-prefix reconcile rehearsal) — are required by D3's go/no-go and by criterion 8's "guards have been observed refusing … deleting nothing offsite" respectively. Task 7.4's issue-tracker entry for the `install-production.sh --ref` defect is recording, not touching the out-of-scope script. No circular dependencies; the section order matches D11's steps 1→7.
-
-### [PASS] Commit checkpoints are distributed, and tests mostly follow their implementation
-
-Ten checkpoints, one per section (1.8, 2.2, 3.8, 4.5, 5.6, 6.5, 7.5, 8.4, 9.6, 10.2) — matching the project's per-section commit convention, none batched at the end. Test-with pattern holds for Tasks 4.1/4.2, 4.3/4.4, 5.1/5.2, 5.3/5.4, 6.2/6.3, 7.1/7.2. Sections 1 and 3 batch their tests (1.7 after six implementation tasks; 3.7 after six steps of one script) — acceptable here since both are single-script sections whose steps share one argument parser, but per-task tests would tighten the feedback loop on Tasks 1.3 and 3.4 specifically.
-
-### [NOTE] No NFR is restated by this slice, so no load test or CI gating task is required
-
-Confirmed by search: the slice design contains no NFR restatement or performance requirement. Its quantitative content (D4a's retention capacity table, the 40 Mbps uplink and B2 cost estimates, `zstd -T2` CPU) is sizing rationale, not a threshold anything is required to meet. The `test/load/` requirement and its CI-gating corollary therefore do not apply to slice 920 — the absence of a load-test task here is correct, not a gap.
+The slice restates no application-level NFR of the kind covered by `test/load/` (which holds NFR suites for slices 146, 167, 169, 187). Its numeric budgets are host-operational — the ≥1.5× compression ratio, `zstd -T2` CPU, uplink throughput, first-snapshot size — and each has a measurement task (Task 2.1 for the ratio, Task 6.1 and 9.5 for restic size, Task 8.4 for first-push duration) with results recorded in the design and runbook. `.github/workflows/ci.yml` is publish-on-tag only and runs no test job, so there is no CI gate for a new tier to be wired into; the unit tests added by Tasks 1.2, 1.8, 3.7, 4.2, 4.4, 5.2, 5.5, 6.3, and 7.2 all land under `test/unit/` and are picked up by the existing `scripts/run_tests.py unit` tier with no allowlist change (they require no environment variables).

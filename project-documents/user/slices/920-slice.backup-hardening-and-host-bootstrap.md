@@ -743,8 +743,10 @@ for the backup sections; end with `setup-backup.sh --check` green and
   tier; backup cron lines become script-managed via cron.d), and a one-line
   "amended by 920" pointer in the 916 design's cron decision.
 - Every PM host step is a script invocation with a printed report, per the
-  standing rule; the only checklist items are the two the script cannot do:
-  the PostgreSQL restart (if any) and removing the user-crontab lines.
+  standing rule; the only checklist items are the ones the script cannot
+  do: the PostgreSQL restart (if any), removing the user-crontab lines,
+  placing `MT_BACKUP_RESTIC_PASSWORD` in `.env` (D9), and the B2 console
+  lifecycle rule (D4).
 - Shell scripts get the same discipline as the 915 set: `set -euo pipefail`,
   explicit arguments, named constants at the top, no ambient credentials.
   Unit coverage for the health check's segment-name arithmetic via a bats-
