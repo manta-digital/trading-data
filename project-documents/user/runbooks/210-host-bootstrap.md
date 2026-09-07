@@ -6,7 +6,7 @@ relatedSlices: [913, 915, 916, 917, 919, 920]
 host: <prod_host>
 dateCreated: 20260906
 dateUpdated: 20260907
-status: in_progress
+status: complete
 ---
 
 # Runbook — Host Bootstrap (slice 920)
@@ -285,4 +285,4 @@ found is a runbook bug, fixed here.
 | Step 13 | `PASS archive healthy (mode=on, unarchived_bytes=96)`, `FLAGS archive=0 stale=3` — the three stale checks are inherent to a host that has never pushed, run restic, or taken a base |
 | Restart of the test cluster needed? | yes, once (archive_mode off → on), plus once at teardown |
 | Runbook fixes made during the run | (1) 24.04 apt versions: restic 0.16.4 (works), rclone 1.60 (install from rclone.org — Step 1 amended); (2) the env DB URL must be reachable from the host itself — `pg_hba` refused the test role from its own address; Step 3 amended; (3) `crontab -l -u <user>` with no crontab was reported `MISSING user-crontab` — script fixed to treat "no crontab for" as clean; (4) `(disabled)` archive_command pre-restart re-applied every run — script fixed. Also: rclone `b2:` remote (Step 4) was not configured, so the hourly push would fail here — acceptable for a throwaway run, noted |
-| Teardown verified (`pg_lsclusters`, settings reset, cron.d gone, archive root gone, restic prefix deleted) | (pending — `~/accept-920/teardown.sh`) |
+| Teardown verified (`pg_lsclusters`, settings reset, cron.d gone, archive root gone, restic prefix deleted) | 2026-09-07 10:08 (`teardown.sh`, 9 s): `archive_mode=off`, `archive_command=(disabled)`, `wal_compression=off`, cluster online, cron.d and `/srv/backup-accept-920` gone, restic removed; `b2:…/system-accept-920` purged and the env file removed from the host |

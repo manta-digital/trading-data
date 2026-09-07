@@ -8,7 +8,7 @@ interfaces: [917, 919]
 effort: 3
 dateCreated: 20260905
 dateUpdated: 20260907
-status: in_progress
+status: complete
 ---
 
 # Slice Design: Backup Hardening and Host Bootstrap (920)
@@ -770,8 +770,12 @@ errors in 56 s; restore of the four subtrees diffs clean against live.
 
 ### 9. Bootstrap acceptance
 
-Runbook 210 followed verbatim on hammerhead (PM go) or a fresh VM; its
-acceptance-record table is the evidence (Task 10.1).
+Runbook 210's root steps run as one script on hammerhead (Ubuntu 24.04,
+PM-run with sudo, 2026-09-07): two applies, one restart, `.zst` on the first
+segment switch, `--check` green apart from the expected timeshift and
+arm-file items, health `PASS`; four runbook/script bugs found and fixed;
+torn down to the pre-run state. The acceptance-record table in runbook 210
+is the evidence (Task 10.1).
 
 ## Risks
 

@@ -13,7 +13,7 @@ projectState: >
   manta9000.
 dateCreated: 20260905
 dateUpdated: 20260906
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -334,24 +334,24 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
 
 Design *D10*, *Success Criteria* 13.
 
-- [ ] **Task 10.1: Acceptance run on hammerhead (PM go) or a VM**
+- [x] **Task 10.1: Acceptance run on hammerhead (PM go) or a VM**
       (effort: 3)
-  - [ ] Ask the PM for go on hammerhead (one restart of the test cluster).
+  - [x] Ask the PM for go on hammerhead (one restart of the test cluster).
         If the answer is no, use a fresh Ubuntu 26.04 VM with PostgreSQL
         17 + TimescaleDB installed per runbook 400's package steps. Either
         way, proceed in this session with the chosen host.
-  - [ ] Follow `210-host-bootstrap.md` verbatim for the backup sections
+  - [x] Follow `210-host-bootstrap.md` verbatim for the backup sections
         from clean state, with a throwaway `--backup-root`, a scratch
         restic prefix, and `--checkout` pointing at a clone of `main`.
         Every deviation from the runbook is a runbook bug: fix the
         runbook, not the run.
-  - [ ] Before the run: copy `/etc/timeshift/timeshift.json` aside if it
+  - [x] Before the run: copy `/etc/timeshift/timeshift.json` aside if it
         exists. Hammerhead has no timeshift installed (measured
         2026-09-05); step 6 must report `MISSING timeshift` and **never
         create the file** (it cannot know the device UUID). Record that
         behavior in runbook 210 as the expected result on a host without
         timeshift.
-  - [ ] End state: `setup-backup.sh --check` green apart from the
+  - [x] End state: `setup-backup.sh --check` green apart from the
         expected `MISSING` items (timeshift, `RECONCILE-ARMED`), a segment
         switch lands a `.zst` in the throwaway archive,
         `check_backup_health.sh` PASS. Then tear down: remove the archive
@@ -359,18 +359,18 @@ Design *D10*, *Success Criteria* 13.
         the three settings + reload (restart if the report said so),
         restore the timeshift copy if one was taken, delete the scratch
         restic prefix, remove restic if it was absent before.
-  - [ ] Record host, date, durations, and every runbook fix in the
+  - [x] Record host, date, durations, and every runbook fix in the
         acceptance section of runbook 210.
-  - [ ] Success: success criterion 13; hammerhead's `pg_lsclusters` and
+  - [x] Success: success criterion 13; hammerhead's `pg_lsclusters` and
         settings match their pre-run values.
 
-- [ ] **Task 10.2: Close-out** (effort: 1)
-  - [ ] Set the design's `status: complete` and `dateUpdated`; refine the
+- [x] **Task 10.2: Close-out** (effort: 1)
+  - [x] Set the design's `status: complete` and `dateUpdated`; refine the
         Verification Walkthrough to the as-executed commands and numbers;
         update the 900 slice-plan entry 21 to `[x]` with a one-line
         completion note; CHANGELOG entry.
-  - [ ] Task files: mark every item; `status: complete`. The task
+  - [x] Task files: mark every item; `status: complete`. The task
         breakdown's composition deviation (new wrapper scripts instead of
         editing the 915 ones) is already recorded in the design's D5.
-  - [ ] Success: `cf check` reports no inconsistency for slice 920; final
+  - [x] Success: `cf check` reports no inconsistency for slice 920; final
         commit (e.g. `docs: close slice 920 — backup hardening cut over`).
