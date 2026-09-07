@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(nothing yet)
+
+## [0.13.0] — 2026-09-07
+
 Slice 920: backup hardening and host bootstrap. Cut over on manta9000
 2026-09-06 (cron.d, compressed atomic archive, hourly WAL offsite, restic);
 alarm, PITR (mixed archive and B2-only), reconcile, and restic drills
