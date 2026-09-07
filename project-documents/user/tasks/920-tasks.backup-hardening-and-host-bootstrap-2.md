@@ -283,32 +283,32 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
         alarm half of success criterion 8; its guard-refusal half was
         proven in file 1, Task 5.6.
 
-- [ ] **Task 9.2: PITR drill across the mixed archive (local)** (effort: 3)
-  - [ ] Runbook 200 Step 6 + PITR section with the new `restore_command`:
+- [x] **Task 9.2: PITR drill across the mixed archive (local)** (effort: 3)
+  - [x] Runbook 200 Step 6 + PITR section with the new `restore_command`:
         sentinel row committed now (after cutover), restore to just
         before and just after; the recovery log must show `.zst` segments
         being restored (and raw ones from before cutover if the target
         window spans it). Tear down `/data/restore-test`.
-  - [ ] Success: absent-before / present-after; success criterion 5.
+  - [x] Success: absent-before / present-after; success criterion 5.
 
-- [ ] **Task 9.3: PITR drill from B2-sourced WAL** (effort: 3)
-  - [ ] `rclone copy` the segment range the drill needs from
+- [x] **Task 9.3: PITR drill from B2-sourced WAL** (effort: 3)
+  - [x] `rclone copy` the segment range the drill needs from
         `b2:$BUCKET/wal` into `/data/restore-test/wal-b2`; set
         `restore_command` to read from that directory only (the local
         archive path must not appear in it); repeat one direction of
         Task 9.2. Tear down.
-  - [ ] Success: recovery reaches the target using only B2 segments;
+  - [x] Success: recovery reaches the target using only B2 segments;
         success criterion 7.
 
-- [ ] **Task 9.4: Watched first offsite reconcile** (effort: 2)
-  - [ ] Run `cron_weekly_backup.sh` by hand with the cron.d arguments while
+- [x] **Task 9.4: Watched first offsite reconcile** (effort: 2)
+  - [x] Run `cron_weekly_backup.sh` by hand with the cron.d arguments while
         watching the log (the base backup runs first, ~2.5 h; the
         reconcile follows). Confirm the guards print their passes, the
         sync's `--max-delete` value, and `removed base/20260816
         base/20260817`; then `rclone lsd b2:$BUCKET/base/` lists only the
         locally retained dates and `rclone check --one-way` of the WAL dir
         reports 0 differences.
-  - [ ] The first hand run happens **unarmed**: guards pass, the log
+  - [x] The first hand run happens **unarmed**: guards pass, the log
         shows `reconcile skipped: not armed`, B2 unchanged. Then `touch
         /data/backup/RECONCILE-ARMED` and run again, watching the sync.
   - [ ] Success: success criteria 6 and 9; `setup-backup.sh --check` now
