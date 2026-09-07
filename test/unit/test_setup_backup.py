@@ -227,6 +227,26 @@ class TestSetupCheckMode:
         _check(host2)
         assert not (host2["root"] / "RECONCILE-ARMED").exists()
 
+    def test_restic_prefix_override_reaches_cron_d_render(
+        self, host: dict[str, Path]
+    ) -> None:
+        # The rendered cron.d (via --rehearse) must carry the scratch prefix.
+        host["rehearse"].mkdir()
+        (host["rehearse"] / "cron.d").write_text("stale\n")
+        result = _check(host, "--restic-prefix", "system-accept")
+        assert "DRIFT cron.d" in result.stdout
+        assert "--repo-prefix system-accept " in subprocess.run(
+            [
+                str(_LIB / "render_cron.sh"),
+                "--template", str(_TEMPLATE), "--interval", "60",
+                "--checkout", str(host["checkout"]), "--env-file", str(host["env"]),
+                "--backup-root", str(host["root"]), "--cron-user", "manta",
+                "--pgdata", "/x", "--keep-days", "7", "--remote-prefix", "b2:bucket-x",
+                "--restic-prefix", "system-accept",
+            ],
+            capture_output=True, text=True,
+        ).stdout  # fmt: skip
+
     def test_leftover_crontab_line_is_drift(self, host: dict[str, Path]) -> None:
         _stub(
             host["bin"],

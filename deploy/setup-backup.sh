@@ -12,7 +12,12 @@
 #
 # Usage:
 #   sudo deploy/setup-backup.sh --checkout <dir> --env-file <path> \
-#       --backup-root <dir> --cluster <ver/name> [--check] [--rehearse <dir>]
+#       --backup-root <dir> --cluster <ver/name> [--check] [--rehearse <dir>] \
+#       [--restic-prefix <name>]
+#
+# --restic-prefix <name>: use a scratch restic repository prefix instead of
+# the production one — for the bootstrap acceptance run on a second host
+# (runbook 210), so its snapshots never land in the real repository.
 #
 # --rehearse <dir>: cron.d renders to <dir>/cron.d, the timeshift file
 # read/written is <dir>/timeshift.json, step 4 is skipped, the restic prefix
@@ -58,7 +63,7 @@ RCLONE_REMOTE=b2            # the rclone remote name; wal/ and base/ prefixes ha
 LEGACY_CRON_SCRIPTS=(archive_health_cron.sh cron_nightly_metadata.sh cron_weekly_base.sh)
 
 usage() {
-  echo "usage: sudo $0 --checkout <dir> --env-file <path> --backup-root <dir> --cluster <ver/name> [--check] [--rehearse <dir>]" >&2
+  echo "usage: sudo $0 --checkout <dir> --env-file <path> --backup-root <dir> --cluster <ver/name> [--check] [--rehearse <dir>] [--restic-prefix <name>]" >&2
 }
 die() { echo "ERROR: $*" >&2; exit "${2:-1}"; }
 step() { echo; echo "==> $*"; }
@@ -73,6 +78,7 @@ while [ $# -gt 0 ]; do
     --cluster)     CLUSTER="${2:-}"; shift 2 ;;
     --check)       CHECK=1; shift ;;
     --rehearse)    REHEARSE="${2:-}"; [ -n "$REHEARSE" ] || { usage; die "--rehearse needs a directory" 2; }; shift 2 ;;
+    --restic-prefix) RESTIC_PREFIX="${2:-}"; [ -n "$RESTIC_PREFIX" ] || { usage; die "--restic-prefix needs a name" 2; }; shift 2 ;;
     --help|-h)     usage; exit 0 ;;
     *) usage; die "unknown argument: $1" 2 ;;
   esac
