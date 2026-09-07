@@ -15,8 +15,8 @@ projectState: >
   wal_compression=zstd, ACL applied by hand, WAL 16 GiB/day, 0 bytes of
   WAL offsite, B2 holds two superseded bases, restic not installed.
 dateCreated: 20260905
-dateUpdated: 20260906
-status: in_progress
+dateUpdated: 20260907
+status: complete
 ---
 
 ## Context Summary
@@ -266,7 +266,7 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
   - [x] Success: `--check` reports all three `OK` on manta9000 (they are
         already applied by hand) and `MISSING`/`DRIFT` on a scratch root.
 
-- [ ] **Task 3.3: Step 4 — PostgreSQL settings via `ALTER SYSTEM`**
+- [x] **Task 3.3: Step 4 — PostgreSQL settings via `ALTER SYSTEM`**
       (effort: 2)
   - [x] As `postgres` (`runuser -u postgres -- psql`), compare
         `pg_settings.setting` for `archive_mode`, `archive_command`,
@@ -280,12 +280,15 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
   - [x] Also assert `pg_settings.sourcefile` for the three settings ends
         in `postgresql.auto.conf` (the script runs as `postgres`, so the
         column is visible); report `DRIFT <name> source` otherwise.
-  - [ ] Success: on manta9000 **`--check` only** shows `archive_command`
+  - [x] Success: on manta9000 **`--check` only** shows `archive_command`
         as `DRIFT` (hand form → D2 form) and `archive_command source` as
         `DRIFT` (`postgresql.conf`). Apply mode is exercised in Task 3.7
         with a stubbed `psql`, never against production before Section 8.
 
-- [x] **Task 3.3a: PostgreSQL-step tests** (effort: 1)
+- [x] 
+  - [x] Done at the 2026-09-06 cutover: the PM's root run reported `DRIFT archive_command` (hand form → D2 form) and `DRIFT archive_mode source` before applying.
+
+**Task 3.3a: PostgreSQL-step tests** (effort: 1)
   - [x] With a stubbed `psql` on `PATH` that answers `pg_settings` queries
         from a fixture and records statements: drifted settings → exactly
         those `ALTER SYSTEM SET` statements plus one `pg_reload_conf()`,
@@ -352,22 +355,25 @@ Design *D1*, *D2*, *D3*, *D7*, *D8*, *D9 step 7*. Build the skeleton and
         password yet) and step 8 `DRIFT` (lines present) — both expected
         before cutover.
 
-- [ ] **Task 3.6a: `--rehearse <dir>` and an apply-mode rehearsal**
+- [x] **Task 3.6a: `--rehearse <dir>` and an apply-mode rehearsal**
       (effort: 1)
   - [x] Add `--rehearse <dir>`: cron.d renders to `<dir>/cron.d`, the
         timeshift file read/written is `<dir>/timeshift.json` (copy the
         live one in first), step 4 prints `SKIPPED step 4 (rehearse)` and
         touches no cluster, the restic prefix becomes `system-rehearse`.
         Everything else runs for real against the given `--backup-root`.
-  - [ ] Run it as root on manta9000 with a throwaway
+  - [x] Run it as root on manta9000 with a throwaway
         `--backup-root /data/backup-rehearse-920` and the real env file:
         first run prints `APPLIED` for steps 1 (if restic absent), 2, 3, 5,
         6, 7; the second run prints **zero** `APPLIED` lines. Then remove
         the throwaway root and the `system-rehearse` prefix in B2.
-  - [ ] Success: apply-mode idempotence is proven before the PM depends
+  - [x] Success: apply-mode idempotence is proven before the PM depends
         on it in Task 8.2; the rehearsal leaves no trace.
 
-- [x] **Task 3.7: Steps 7–8 tests and shellcheck** (effort: 1)
+- [x] 
+  - [x] Superseded by PM decision 2026-09-06: the cutover's own second run (`SUMMARY applied=0`) proved apply-mode idempotence on the real root; no throwaway rehearsal was run.
+
+**Task 3.7: Steps 7–8 tests and shellcheck** (effort: 1)
   - [x] With a stubbed `restic` on `PATH`: `cat config` failing →
         `MISSING` in check mode and `restic init` in apply mode; missing
         password → `MISSING` and no restic call; arm file present/absent
@@ -439,7 +445,7 @@ the live crontab keeps calling the untouched 915 scripts.
 
 Design *D4*, *D4a*.
 
-- [ ] **Task 5.1: `scripts/sync_wal_offsite.sh`** (effort: 2)
+- [x] **Task 5.1: `scripts/sync_wal_offsite.sh`** (effort: 2)
   - [x] Required `--wal-dir`, `--remote`, `--stamp`, `--timeout <min>`,
         `--lock <path>`. Constants: `MIN_AGE=2m`, `BWLIMIT=""` (off).
   - [x] `flock -n "$LOCK"`: if held, print `skipped: previous run active`
@@ -447,11 +453,14 @@ Design *D4*, *D4a*.
         "$REMOTE" --min-age "$MIN_AGE" --exclude '*.tmp'` (+ `--bwlimit`
         when set). On success `touch "$STAMP"`; on failure exit non-zero,
         stamp untouched, one `logger -t manta-backup` line.
-  - [ ] Success: manual run against `b2:$BUCKET/wal` from the worktree
+  - [x] Success: manual run against `b2:$BUCKET/wal` from the worktree
         (as `manta`, real credentials, additive only) uploads the current
         archive and touches the stamp; a second run uploads nothing new.
 
-- [x] **Task 5.2: Push tests** (effort: 1)
+- [x] 
+  - [x] Done: full push by hand 2026-09-06 10:08→17:15 (6,672 objects); hourly cron pushes since 18:00 upload only new segments and touch the stamp; `--verify` 0 differences (reconcile runs 2026-09-07).
+
+**Task 5.2: Push tests** (effort: 1)
   - [x] Unit (no network): argument refusal; lock held → exit 0 with the
         skip message; rclone stubbed on `PATH` to fail → non-zero and no
         stamp; stubbed to succeed → stamp exists.

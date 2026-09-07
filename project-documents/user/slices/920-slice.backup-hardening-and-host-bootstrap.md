@@ -7,7 +7,7 @@ dependencies: [915, 916]
 interfaces: [917, 919]
 effort: 3
 dateCreated: 20260905
-dateUpdated: 20260906
+dateUpdated: 20260907
 status: in_progress
 ---
 
@@ -625,9 +625,9 @@ Recovery paths gained:
 
 ## Verification Walkthrough
 
-Refined 2026-09-06 to the as-implemented commands (Sections 1–7 of the task
-files; steps 1–4 and 7–8 re-verified at the cutover and drills, Sections
-8–9). All steps on `manta9000` unless stated. `MAINT` and `BUCKET` as in
+Refined 2026-09-07 to the as-executed commands and numbers (cutover
+2026-09-06 13:17 local; drills 2026-09-06/07; details in runbook 200's drill
+record). All steps on `manta9000` unless stated. `MAINT` and `BUCKET` as in
 `200-backup-and-restore.md`; `CHECKOUT=~/source/repos/manta/trading-data`,
 `ENV=$CHECKOUT/.env`.
 
@@ -650,7 +650,12 @@ measured 2026-09-06 with a non-root `--check` against the live root:
 `OK wal-acl-manta`, `MISSING cron.d`, `DRIFT count_weekly 2 3`,
 `MISSING restic-repo`, `MISSING arm-file`, `DRIFT user-crontab still runs:
 archive_health_cron.sh cron_nightly_metadata.sh cron_weekly_base.sh`
-(PostgreSQL items need root to read).
+(PostgreSQL items need root to read). **As executed:** first root apply
+13:17 (`applied=5`), second `applied=0`; after the PM removed the conf.d
+file the root `--check` showed `PENDING RESTART archive_mode` — a matching
+value from another file had never been persisted (fixed: source drift also
+applies); one more apply (`APPLIED archive_mode`), then root `--check`
+**all OK, `applied=0 not-ok=0`, exit 0** (2026-09-07 ~09:25).
 
 ### 2. The archive command is atomic and compressed
 
@@ -706,6 +711,11 @@ full push started by hand 2026-09-06 10:08 local from the worktree (Task
 
 Runbook 200 Step 6 + PITR section with the new `restore_command`. Sentinel
 committed after the cutover; target before and after; absent/present.
+**Executed 2026-09-07:** base 20260906 (extraction 990 s), 833 segments
+restored in ~90 s across both shapes, paused before the sentinel's commit
+(absent), replayed to after it (present). Two drill-config facts learned:
+empty the restored `postgresql.auto.conf`, and set
+`max_locks_per_transaction = 2048` alongside `max_worker_processes = 64`.
 
 ### 6. PITR from B2 only
 
@@ -717,7 +727,10 @@ rclone copy b2:$BUCKET/wal /data/restore-test/wal-b2 --min-size 1 --include '<ra
 # restore_command = '… /data/restore-test/wal-b2/%f.zst …'
 ```
 
-Recovery reaches the target using only B2-sourced segments.
+Recovery reaches the target using only B2-sourced segments. **Executed
+2026-09-07:** 839 files pulled (9.5 GB, ~2 min), restore reached the
+after-sentinel target from the pulled directory alone (833 segments). Pull
+past the target's segment, not up to it.
 
 ### 7. Offsite reconcile purges the superseded bases
 
@@ -734,6 +747,12 @@ Rehearsed 2026-09-06 against `b2:$BUCKET/scratch-920/` with a 50-file fake
 archive (runbook 200 drill record): armed run after 5 local deletions left
 offsite at exactly 45; an emptied local directory was refused with offsite
 untouched. `cron_weekly_backup.sh --skip-base-backup` is the drill form.
+**Executed on production 2026-09-07:** unarmed run refused once (base
+20260830 had no local chain start), aborted once on a false "missing"
+(fixed: checks skip segments younger than their push), then passed and
+skipped; armed run purged `base/20260816`, `20260817`, `20260830`
+(`--max-delete 50`, sync 10 min), final check 0 differences;
+`rclone lsf --dirs-only b2:$BUCKET/base/` → `20260903/ 20260906/`.
 
 ### 8. Cron, timeshift, restic
 
@@ -744,6 +763,10 @@ sudo scripts/cron_system_backup.sh --env-file $ENV --repo-prefix system --exclud
 sudo deploy/lib/restic_repo.sh --env-file $ENV --prefix system run -- snapshots
 sudo scripts/cron_system_backup.sh --check --env-file $ENV --repo-prefix system --log /data/backup/system-backup.log --lock /data/backup/system-backup.lock
 ```
+
+**Executed 2026-09-07:** first snapshot taken by the 04:00 cron entry
+(5 h 9 min; 262,541 files, 107.6 GiB); `check --read-data-subset=5%` no
+errors in 56 s; restore of the four subtrees diffs clean against live.
 
 ### 9. Bootstrap acceptance
 

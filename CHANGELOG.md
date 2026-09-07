@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Slice 920: backup hardening and host bootstrap (in progress; nothing applied
-to manta9000 until the cutover).
+Slice 920: backup hardening and host bootstrap. Cut over on manta9000
+2026-09-06 (cron.d, compressed atomic archive, hourly WAL offsite, restic);
+alarm, PITR (mixed archive and B2-only), reconcile, and restic drills
+recorded in runbook 200.
 
 ### Added
 - `deploy/setup-backup.sh` — one root-run, check-then-act provisioner for the
