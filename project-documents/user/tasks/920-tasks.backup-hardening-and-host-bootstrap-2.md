@@ -189,7 +189,7 @@ drills, not task order.
   - [x] Success: the report matches; any other line is investigated
         before Task 8.2.
 
-- [ ] **Task 8.2: [PM] Cutover — one script, one report** (effort: 1)
+- [x] **Task 8.2: [PM] Cutover — one script, one report** (effort: 1)
   - [x] [PM] Put `MT_BACKUP_RESTIC_PASSWORD` into the host checkout's
         `.env` (from the password manager; also stored there).
   - [x] [PM] `sudo -v`, then `sudo deploy/setup-backup.sh --checkout …
@@ -207,7 +207,7 @@ drills, not task order.
   - [ ] [PM] In the B2 console, set the lifecycle rule from runbook 200
         (delete versions older than 30 days on `wal/` and `base/`); paste
         the resulting rule JSON into the runbook.
-  - [ ] Success: `sudo deploy/setup-backup.sh --check …` reports every
+  - [x] Success: `sudo deploy/setup-backup.sh --check …` reports every
         item `OK` except `MISSING RECONCILE-ARMED` (armed in Task 9.4).
         Success criterion 1's `--check` clause is closed in Task 9.4.
 
@@ -311,7 +311,7 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
   - [x] The first hand run happens **unarmed**: guards pass, the log
         shows `reconcile skipped: not armed`, B2 unchanged. Then `touch
         /data/backup/RECONCILE-ARMED` and run again, watching the sync.
-  - [ ] Success: success criteria 6 and 9; `setup-backup.sh --check` now
+  - [x] Success: success criteria 6 and 9; `setup-backup.sh --check` now
         exits 0 with every item `OK` (success criterion 1 closed).
 
 - [ ] **Task 9.5: restic first snapshot and restore drill** (effort: 2)
