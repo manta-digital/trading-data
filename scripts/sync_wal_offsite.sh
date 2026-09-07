@@ -20,10 +20,15 @@
 # job's case). The whole rclone call runs under `timeout --timeout` minutes so
 # a hung endpoint can never queue waiting processes.
 #
+# --min-age <rclone duration> overrides the default MIN_AGE for one call: the
+# weekly job passes the time elapsed since its catch-up push began (plus the
+# default), so a segment archived mid-run is not reported missing by a check
+# that runs minutes after the push it is checking.
+#
 # Usage:
 #   sync_wal_offsite.sh --wal-dir <dir> --remote <rclone-path> --stamp <file> \
 #       --timeout <minutes> --lock <file> [--lock-wait <minutes>] \
-#       [--verify | --sync-max-delete <n>]
+#       [--min-age <duration>] [--verify | --sync-max-delete <n>]
 set -euo pipefail
 
 MIN_AGE=2m
@@ -32,7 +37,7 @@ LOGGER_TAG=manta-backup
 SKIP_MESSAGE="skipped: previous run active"
 
 usage() {
-  echo "usage: $0 --wal-dir <dir> --remote <rclone-path> --stamp <file> --timeout <minutes> --lock <file> [--lock-wait <minutes>] [--verify | --sync-max-delete <n>]" >&2
+  echo "usage: $0 --wal-dir <dir> --remote <rclone-path> --stamp <file> --timeout <minutes> --lock <file> [--lock-wait <minutes>] [--min-age <duration>] [--verify | --sync-max-delete <n>]" >&2
 }
 die() { echo "error: $*" >&2; exit "${2:-1}"; }
 
@@ -45,6 +50,7 @@ while [ $# -gt 0 ]; do
     --timeout)         TIMEOUT_MIN="${2:-}"; shift 2 ;;
     --lock)            LOCK="${2:-}"; shift 2 ;;
     --lock-wait)       LOCK_WAIT_MIN="${2:-}"; shift 2 ;;
+    --min-age)         MIN_AGE="${2:-}"; [ -n "$MIN_AGE" ] || { usage; die "--min-age needs a duration" 2; }; shift 2 ;;
     --verify)          MODE=check; shift ;;
     --sync-max-delete) MODE=sync; MAX_DELETE="${2:-}"; shift 2 ;;
     *) usage; die "unknown argument: $1" 2 ;;

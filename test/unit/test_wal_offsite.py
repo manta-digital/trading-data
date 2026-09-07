@@ -180,6 +180,11 @@ class TestPush:
         (push["bin"].parent / "check-fail").touch()
         assert _push(push, "--verify").returncode != 0
 
+    def test_min_age_override(self, push: dict[str, Path]) -> None:
+        result = _push(push, "--verify", "--min-age", "722s")
+        assert result.returncode == 0, result.stderr
+        assert "--min-age 722s --exclude *.tmp" in _calls(push["log"])[0]
+
     def test_sync_carries_max_delete(self, push: dict[str, Path]) -> None:
         result = _push(push, "--sync-max-delete", "53")
         assert result.returncode == 0, result.stderr
@@ -435,6 +440,10 @@ class TestWeeklyReconcile:
             "purge",
             "check",
         ]
+        # Both checks skip everything younger than their push/sync plus 120 s.
+        for call in (c for c in _calls(weekly["log"]) if c.startswith("check ")):
+            age = int(call.split("--min-age ")[1].split("s")[0])
+            assert 120 <= age < 180, call
         sync = [c for c in _calls(weekly["log"]) if c.startswith("sync ")][0]
         assert "--max-delete 53 " in sync
         assert "purge b2:bucket-x/base/20250101" in _calls(weekly["log"])

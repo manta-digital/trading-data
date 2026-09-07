@@ -33,6 +33,10 @@ PATH="$PATH:$SCRIPT_DIR"
 
 # A discrepancy larger than the prune explains fails the sync instead of deleting.
 MAX_DELETE_MARGIN=50
+# The push skips segments younger than this; a check must skip everything
+# younger than (its push's start + this), or a segment archived mid-run is a
+# false "missing" (observed 2026-09-07: every weekly run would have aborted).
+PUSH_MIN_AGE_SEC=120
 # The catch-up push may have a week of segments to move; the hourly push's
 # lock is waited for, not skipped.
 CATCHUP_TIMEOUT_MIN=180
@@ -90,10 +94,15 @@ else
   backup_prod.sh --db-url "$DB_URL" --dest "$BASE_DIR/$DATE_STAMP" --remote "$REMOTE_BASE/$DATE_STAMP"
 fi
 
+# check_since <epoch>: verify offsite against everything older than the push
+# that started at <epoch>.
+check_since() { "${WAL_SYNC[@]}" --verify --min-age "$(( $(date +%s) - $1 + PUSH_MIN_AGE_SEC ))s"; }
+
 echo "--- 1. catch-up push"
+PUSH_START=$(date +%s)
 "${WAL_SYNC[@]}"
 echo "--- 2. offsite check before prune"
-"${WAL_SYNC[@]}" --verify || die "offsite WAL differs from local before prune; not pruning (see rclone output above)"
+check_since "$PUSH_START" || die "offsite WAL differs from local before prune; not pruning (see rclone output above)"
 echo "--- 3. local prune"
 PRUNE_OUTPUT=$(prune_wal_archive.sh --base-dir "$BASE_DIR" --wal-dir "$WAL_DIR" --keep-days "$KEEP_DAYS")
 echo "$PRUNE_OUTPUT"
@@ -111,6 +120,7 @@ if [ ! -e "$ARMED" ]; then
 fi
 
 echo "--- 5. offsite mirror (armed; max-delete $((PRUNED_WAL + MAX_DELETE_MARGIN)))"
+SYNC_START=$(date +%s)
 "${WAL_SYNC[@]}" --sync-max-delete $((PRUNED_WAL + MAX_DELETE_MARGIN))
 mapfile -t OFFSITE_BASES < <(rclone lsf --dirs-only "$REMOTE_BASE" | tr -d / | grep -E '^[0-9]{8}$' || true)
 for b in "${OFFSITE_BASES[@]}"; do
@@ -121,5 +131,5 @@ for b in "${OFFSITE_BASES[@]}"; do
   fi
 done
 echo "--- 6. final offsite check"
-"${WAL_SYNC[@]}" --verify || die "offsite WAL differs from local after reconcile"
+check_since "$SYNC_START" || die "offsite WAL differs from local after reconcile"
 echo "=== weekly backup done: $(date -Is) ==="

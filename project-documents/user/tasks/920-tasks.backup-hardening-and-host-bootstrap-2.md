@@ -263,9 +263,9 @@ Design *Verification Walkthrough* steps 3–8, *Success Criteria* 5–9, 12.
 Each drill is observed, then recorded in runbook 200's drill table with
 date, duration, and outcome. Faults needing `postgres` or root are marked.
 
-- [ ] **Task 9.1: Alarm drill — six new failures fire and clear**
+- [x] **Task 9.1: Alarm drill — six new failures fire and clear**
       (effort: 2)
-  - [ ] For each row of walkthrough step 3 (ACL revoked [root]; wedge
+  - [x] For each row of walkthrough step 3 (ACL revoked [root]; wedge
         planted [postgres] at the name `wal_segment_name.py next
         <last_archived_wal>` prints; stale `.tmp` [postgres]; aged push
         stamp; aged restic stamp [root]; scratch `--base-dir` with only
@@ -279,7 +279,7 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
         missing env file (that error is the evidence the flag did not
         gate it). Then plant `ARCHIVE-BROKEN` and repeat: it must refuse
         on the flag before anything else. Remove the planted flag.
-  - [ ] Success: six FAIL lines and two flag behaviors observed — the
+  - [x] Success: six FAIL lines and two flag behaviors observed — the
         alarm half of success criterion 8; its guard-refusal half was
         proven in file 1, Task 5.6.
 

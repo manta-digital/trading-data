@@ -343,6 +343,19 @@ operator can connect):
 local all all trust
 ```
 
+**Since slice 920, empty the restored `postgresql.auto.conf` first.** The
+production settings now live in `postgresql.auto.conf` (`ALTER SYSTEM`),
+which the base backup carries and which overrides `postgresql.conf` — so a
+restored tree started as-is would have `archive_mode = on` and the
+production `archive_command`, and could write into the live archive. The
+915 drills did not have this hazard because the settings were in `conf.d`,
+which the backup does not carry.
+
+```bash
+: > /data/restore-test/postgresql.auto.conf     # must be empty before every start
+grep -c archive /data/restore-test/postgresql.auto.conf   # 0
+```
+
 Then `touch /data/restore-test/pg_ident.conf` and start:
 
 ```bash
@@ -443,9 +456,15 @@ locally. Watch `df -h /data` on the monthly pass anyway.
 catches the case where the host itself is gone for weeks and nothing
 reconciles. In the B2 console: Buckets → `manta.trading.data` → Lifecycle
 Settings → "Use custom lifecycle rules" → add one rule per prefix, `wal/`
-and `base/`, "Keep prior versions for this number of days: 30" (deletes
-hidden/prior versions older than 30 days; it never touches the current
-version of a live object). Paste the resulting rule JSON below when set:
+and `base/`, preset **"Keep prior versions for this number of days: 30"**
+— that is `daysFromHidingToDeleting = 30` with `daysFromUploadingToHiding`
+**unset**. It physically deletes versions the reconcile already hid (an
+rclone delete on B2 hides, it does not remove) 30 days later, and never
+touches the current version of a live object. **Do not set "days till
+hide"**: that hides every current object N days after upload — a hard cap
+on how long a dead host's last backups survive, the opposite of a backstop.
+No rules on `metadata/` or `system/` (rclone sync and restic manage their
+own; restic must never have current files hidden from under it). Paste the resulting rule JSON below when set:
 
 ```
 (rule JSON — filled in at the cutover, Task 8.2)
@@ -478,8 +497,8 @@ at any time.
 
 | 920 cutover settings evidence (Task 8.3) | 2026-09-06 | `setup-backup.sh` applied 13:17 local (run 1: `APPLIED` restic, `dir-system`, cron.d, `count_weekly`, restic-repo; after the `--as-user` fix, `APPLIED archive_command`; run 2: `SUMMARY applied=0`). `pg_settings`: `archive_mode=on`, `wal_compression=zstd`, `archive_command` = the D2 form; `sourcefile` postgresql.auto.conf for `archive_command` (`archive_mode` still reported from `conf.d/915-archiving.conf` until that file was removed). `pg_switch_wal()` at 13:23: `…1244…F2.zst` landed within 6 s, no `.tmp`, `last_archived_wal` advanced; the three `.zst` segments are 1.4–6.3 MB each (16 MiB raw). `getfacl`: `user:manta:rwx` + `default:user:manta:rwx`. timeshift: UUID `277accd4-…` unchanged, `count_weekly` 2, the four excludes |
 | 920 cron-driven evidence — health check and push fired from cron.d (Task 8.4) | 2026-09-06 | `/etc/cron.d/manta-trading-backup` has the six D7 entries (4 × manta, 2 × root), installed 13:17. cron logged no `RELOAD` line at its default log level; the evidence is the firing: 13:30:01 `journalctl -t CRON` shows `(manta) CMD (… backup_health_cron.sh …)`, `backup-health.log` gained its first line, `BACKUP-STALE` appeared, `journalctl -t manta-backup` shows the raise. 14:00:01 push: `journalctl -t CRON` shows `(manta) CMD (… sync_wal_offsite.sh …)` and `wal-offsite.log` gained `skipped: previous run active` — the by-hand full first push (started 10:08) still held the lock, so the overlap guard was observed live from cron. Two distinct cron.d entries executed by cron. First cron-touched stamp mtime: (recorded once the full push completes) |
-| 920 alarm drill — six new failures fire and clear, two-flag gate behaviour (Task 9.1) | 2026-09-06 | Real conditions first: the 13:30 cron.d run raised `BACKUP-STALE` for `offsite_wal_stale` + `system_backup_stale` (no push/restic stamp yet), journal `BACKUP-STALE raised: …`. Planted as `manta` via the ACL at 13:30: 1000-byte file at `wal_segment_name.py next` of `last_archived_wal` (…1244…FA) + `drill.zst.tmp` aged 20 min → `FAIL archive_wedged`, `FAIL archive_tmp_leftover`, `ARCHIVE-BROKEN` written by the glue, journal `ARCHIVE-BROKEN raised: …`; `cron_weekly_backup.sh` with the cron.d arguments refused on the flag before reading its env file. `mv` the planted file aside + `rm` the `.tmp` → next glue run removed `ARCHIVE-BROKEN`, journal `ARCHIVE-BROKEN cleared`; with only `BACKUP-STALE` present the weekly job got past the flag and failed on a deliberately nonexistent `--env-file`. Ad hoc: scratch `--base-dir` with only `20260801/` → `FAIL weekly_base_stale` (36 days); push stamp aged 4 h → `FAIL offsite_wal_stale` (240 min); restic stamp aged 3 days → `FAIL system_backup_stale` (4320 min); fresh stamps → `FLAGS archive=0 stale=0`. **`prune_permission` (ACL revoke) needs root — pending PM.** Nit found: the glue's `raised:` journal line lists every FAIL name, not only the flag's class |
-| 920 PITR across the mixed raw/`.zst` archive, local (Task 9.2) | pending | (filled in after the cutover) |
+| 920 alarm drill — six new failures fire and clear, two-flag gate behaviour (Task 9.1) | 2026-09-06 | Real conditions first: the 13:30 cron.d run raised `BACKUP-STALE` for `offsite_wal_stale` + `system_backup_stale` (no push/restic stamp yet), journal `BACKUP-STALE raised: …`. Planted as `manta` via the ACL at 13:30: 1000-byte file at `wal_segment_name.py next` of `last_archived_wal` (…1244…FA) + `drill.zst.tmp` aged 20 min → `FAIL archive_wedged`, `FAIL archive_tmp_leftover`, `ARCHIVE-BROKEN` written by the glue, journal `ARCHIVE-BROKEN raised: …`; `cron_weekly_backup.sh` with the cron.d arguments refused on the flag before reading its env file. `mv` the planted file aside + `rm` the `.tmp` → next glue run removed `ARCHIVE-BROKEN`, journal `ARCHIVE-BROKEN cleared`; with only `BACKUP-STALE` present the weekly job got past the flag and failed on a deliberately nonexistent `--env-file`. Ad hoc: scratch `--base-dir` with only `20260801/` → `FAIL weekly_base_stale` (36 days); push stamp aged 4 h → `FAIL offsite_wal_stale` (240 min); restic stamp aged 3 days → `FAIL system_backup_stale` (4320 min); fresh stamps → `FLAGS archive=0 stale=0`. `prune_permission`: 2026-09-07 06:41 PM ran `sudo setfacl -x u:manta /data/backup/wal` → `FAIL prune_permission: manta cannot create /data/backup/wal/.prune-canary.tmp …`; `sudo deploy/setup-backup.sh …` → `APPLIED wal-acl-manta`, `OK wal-acl-manta`. **All six observed.** Nit found: the glue's `raised:` journal line lists every FAIL name, not only the flag's class |
+| 920 PITR across the mixed raw/`.zst` archive, local (Task 9.2) | 2026-09-07 | Base 20260906 (taken 03:00 Sunday by the last 915 cron run; 100 GB `base.tar.gz`), extraction 990 s. Sentinel `pitr_sentinel_920` committed 06:36:31.355 local, bracketed 06:36:31.307 / 06:36:33.402. Drill conf: the two-shape `restore_command` verbatim, `recovery_target_action = 'pause'`, plus `max_locks_per_transaction = 2048` (archive recovery refused without it — the primary sets it via `ALTER SYSTEM`, which the emptied `postgresql.auto.conf` no longer carries). Replay: 833 segments restored in ~90 s (raw before the 13:17 cutover, `.zst` after — both shapes served by one command), `recovery stopping before commit of transaction 74991502`, paused; `to_regclass('pitr_sentinel_920')` NULL, last replayed commit 06:36:30.636. Stop, target → after, start: one more segment, `recovery stopping before commit of transaction 74991504`, row present. Absent-before / present-after |
 | 920 PITR from B2-sourced WAL only (Task 9.3) | pending | (filled in after the cutover) |
 | 920 watched first offsite reconcile — unarmed, then armed (Task 9.4) | pending | (filled in after the cutover; expect `removed base/20260816 base/20260817`) |
 | 920 restic first snapshot, `--dry-run` size, check, restore diff (Task 9.5) | pending | (filled in after the cutover) |
@@ -506,6 +525,9 @@ recovery_target_action = 'promote'
 max_worker_processes = 64   # archive recovery refuses to start below the
                             # primary's setting (51 measured); crash recovery
                             # (Step 6) does not check this
+max_locks_per_transaction = 2048   # same rule (2026-09-07 drill: primary is 2048,
+                            # set via ALTER SYSTEM, so emptying the restored
+                            # postgresql.auto.conf drops it — put it here)
 ```
 
 **The archive is mixed** (slice 920): raw segments archived before the
