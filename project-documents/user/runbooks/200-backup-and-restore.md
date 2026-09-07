@@ -156,7 +156,12 @@ honour as "already archived" — the 2026-09-02 wedge. Compressed: measured
 overrides them, so they are inert, but the file lies about the effective
 value and `--check` reports `DRIFT archive_command conf-line` until they are
 gone: delete the two lines (or the file), then `sudo systemctl reload
-postgresql@17-main`.
+postgresql@17-main`, **then run the script once more in apply mode**. A
+setting whose value already matched at the first run but was served from the
+removed file is only persisted into `postgresql.auto.conf` by that second
+run (the script applies on value drift *or* source drift). Skipping it
+leaves `PENDING RESTART archive_mode` in `--check` — and archiving would
+switch off at the next restart. Found 2026-09-07 on manta9000.
 
 Leave `wal_level = replica`. **Never set it to `minimal`** — that silently
 breaks archiving and `pg_basebackup` both.
