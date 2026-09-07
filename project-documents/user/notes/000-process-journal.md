@@ -1570,3 +1570,36 @@ the host, which 913 argued against), a pinned-ref update procedure for the
 backup scripts, and a cutover of six cron lines — none of which the 920
 hardening needed. Revisit when the dev checkout stops being a place work
 happens.
+
+## 20260907 — Slice 920 closed; the automation gap is the next decision, not a footnote
+
+920 delivered what it promised (see the 900 plan entry and runbook 200's
+drill record), and its execution is the clearest measurement yet of the
+project's real bottleneck. The PM's assessment at the end of the run: "it
+isn't just this slice, it's probably the last 10; progress is painfully
+slow, automation is nonexistent; otherwise I'll have to put this project on
+hold, it simply takes far too much attention."
+
+What the slice needed from the PM, counted: nine sudo invocations on
+manta9000 (cutover ×3, `--check` ×3, ACL drill, conf.d removal, restart
+avoided), one `git push`, one B2 console change, one machine restart and
+three commands on hammerhead, and five decisions. Every host step was
+already scripted; the round-trips existed because the AI has no
+non-interactive sudo, so each root step became a chat hand-off, a wait, and
+a paste-back — and hand-offs to another host were first given as a chat
+list, which the PM rightly rejected ("no human in the known universe is
+going to remember those"). Two of the slice's real bugs (the un-persisted
+`archive_mode`, the `(disabled)` re-apply) were found only because a human
+was in that loop, which is the argument *for* scripted, logged root runs
+the AI executes and a human audits after — not for keeping the human in
+the loop.
+
+**Decision taken:** the PM grants the automation identity full sudo on
+manta9000 (2026-09-07), with the standing rule that host work is
+check-then-act scripts that log to a file and are committed; a wrecked
+machine ends the engagement. Follow-ups for the next planning pass: (1) a
+sudoers rule scoped to named scripts rather than `ALL`, once the set is
+known; (2) hammerhead reachable by the same identity so acceptance runs
+need no hop; (3) every slice's cutover written as one script the AI runs
+end to end, with the PM's involvement reduced to reading a report — the
+915/920 pattern, but without the hand-off.
