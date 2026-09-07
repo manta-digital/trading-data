@@ -256,6 +256,11 @@ class TestSetupCheckMode:
         result = _check(host)
         assert "DRIFT user-crontab still runs: cron_weekly_base.sh" in result.stdout
 
+    def test_user_without_a_crontab_is_ok(self, host: dict[str, Path]) -> None:
+        _stub(host["bin"], "crontab", "echo 'no crontab for manta' >&2; exit 1\n")
+        result = _check(host)
+        assert "OK user-crontab" in result.stdout
+
     def test_clean_crontab_is_ok(self, host: dict[str, Path]) -> None:
         _stub(
             host["bin"],
@@ -447,6 +452,17 @@ class TestPgSettings:
         result = _pg_run(pg)
         assert result.returncode == 1
         assert "PENDING RESTART archive_command" in result.stdout
+        assert _statements(pg) == []
+
+    def test_disabled_archive_command_is_pending_restart_not_drift(
+        self, pg: dict[str, Path]
+    ) -> None:
+        auto = "/etc/postgresql/17/main/postgresql.auto.conf"
+        pg["fixture"].write_text(_pg_rows("(disabled)", auto, pending="f"))
+        result = _pg_run(pg)
+        assert result.returncode == 1
+        assert "PENDING RESTART archive_command" in result.stdout
+        assert "DRIFT archive_command" not in result.stdout
         assert _statements(pg) == []
 
     def test_hand_line_in_conf_d_is_drift(self, pg: dict[str, Path]) -> None:

@@ -213,7 +213,9 @@ fi
 
 # --- Step 8: leftover user-crontab lines (reported, never edited) -------------
 step "Step 8/8: user crontab of $CRON_USER"
-if USER_CRON=$(crontab -l -u "$CRON_USER" 2>/dev/null); then
+CRON_ERR=""
+if USER_CRON=$(crontab -l -u "$CRON_USER" 2>&1) || { CRON_ERR="$USER_CRON"; USER_CRON=""; case "$CRON_ERR" in *"no crontab for"*) true ;; *) false ;; esac; }; then
+  # A user with no crontab at all is the clean state, not an unreadable one.
   LEFT=""
   for s in "${LEGACY_CRON_SCRIPTS[@]}"; do grep -q "$s" <<< "$USER_CRON" && LEFT+="${LEFT:+ }$s"; done
   if [ -n "$LEFT" ]; then
@@ -222,7 +224,7 @@ if USER_CRON=$(crontab -l -u "$CRON_USER" 2>/dev/null); then
     report "OK user-crontab"
   fi
 else
-  report "MISSING user-crontab (cannot read crontab of $CRON_USER as $(id -un))"
+  report "MISSING user-crontab (cannot read crontab of $CRON_USER as $(id -un): ${CRON_ERR:-$USER_CRON})"
 fi
 
 # --- Summary -------------------------------------------------------------------

@@ -5,7 +5,7 @@ parent: user/slices/920-slice.backup-hardening-and-host-bootstrap.md
 relatedSlices: [913, 915, 916, 917, 919, 920]
 host: <prod_host>
 dateCreated: 20260906
-dateUpdated: 20260906
+dateUpdated: 20260907
 status: in_progress
 ---
 
@@ -60,8 +60,9 @@ a backup root that lives on the root filesystem, which is what an unmounted
 
 ```bash
 sudo apt install -y git jq zstd acl rclone restic postgresql-client-17
-restic version        # restic 0.18.1 …
-rclone version | head -1   # rclone v1.75 or newer — v1.60 hangs on large B2 objects (runbook 200)
+restic version        # restic 0.18.1 … on Ubuntu 26.04; 0.16.4 on 24.04 (works with the repository)
+rclone version | head -1   # rclone v1.75 or newer — v1.60 hangs on large B2 objects (runbook 200).
+                           # Ubuntu 24.04's apt ships 1.60: install from https://rclone.org/install.sh instead
 jq --version; zstd --version | head -1; getfacl --version | head -1
 curl -LsSf https://astral.sh/uv/install.sh | sh && uv --version
 ```
@@ -86,6 +87,11 @@ grep -o '^MT_BACKUP_RESTIC_PASSWORD=' "$ENV"                     # the name prin
 MAINT=$(grep '^MT_TIMESCALE_MAINTENANCE_URL' "$ENV" | sed 's/^[^=]*=//' | tr -d '"')
 psql "$MAINT" -Atc "select 1"                                    # 1
 ```
+
+The URL must be reachable **from this host** (the half-hourly health check
+runs here): a `pg_hba.conf` that admits the role only from another machine's
+address fails with `no pg_hba.conf entry for host …` — use `127.0.0.1` (the
+default `pg_hba` admits it) or add a line. Found on hammerhead 2026-09-07.
 
 Never `source .env` (a `$` in a password gets shell-expanded); every script
 greps its keys out, as above.
@@ -138,7 +144,12 @@ then `SUMMARY applied=<n> not-ok=<m>` where the not-OK lines are exactly:
 | `DRIFT user-crontab still runs: …` | only if 915-era crontab lines exist; Step 9 |
 
 Run it a second time: **`SUMMARY applied=0`** — nothing changes on a
-re-run. Anything else in either report is investigated before continuing.
+re-run. One exception, only on a host where archiving was off: until the
+Step 8 restart, PostgreSQL shows `archive_command` as `(disabled)`, which
+the script reports as `PENDING RESTART archive_command` (not drift, not
+re-applied; before 2026-09-07 it was re-applied on every run). After the
+restart a third run prints `applied=0`. Anything else in either report is
+investigated before continuing.
 
 ## Step 8 — Restart PostgreSQL, only if reported (sudo)
 
@@ -264,12 +275,14 @@ found is a runbook bug, fixed here.
 
 | Field | Value |
 |---|---|
-| Host, date | (pending) |
-| Step 7 first run: `APPLIED` items, `SUMMARY` line, duration | (pending) |
-| Step 7 second run: `SUMMARY applied=0` | (pending) |
-| Expected `MISSING` on this host | `timeshift-config` (no timeshift), `arm-file` |
-| Step 11: `.zst` landed, no `.tmp` | (pending) |
-| Step 13: `FLAGS archive=0 stale=…` observed | (pending) |
-| Restart of the test cluster needed? | (pending) |
-| Runbook fixes made during the run | (pending) |
-| Teardown verified (`pg_lsclusters`, settings reset, cron.d gone, archive root gone, restic prefix deleted) | (pending) |
+| Host, date | hammerhead (192.168.1.143), Ubuntu **24.04.4** (not 26.04), PostgreSQL 17 test cluster, no `/data` mount, no timeshift, no restic/rclone before; 2026-09-07 10:02 local |
+| How | `~/accept-920/accept.sh` (the root steps of this runbook as one script, run once by the PM with sudo; log in `~/accept-920/accept.log`), throwaway `--backup-root /srv/backup-accept-920`, `--restic-prefix system-accept-920`, env file with the S3 keys + restic password + a DB URL for the local test cluster |
+| Step 7 first run | 6 s. `APPLIED`: `dir-base`, `dir-wal`, `dir-metadata`, `dir-system`, `wal-dir-owner-mode`, `wal-acl-manta`, `archive_mode`, `archive_command`, `wal_compression`, `cron.d`, `restic-repo` (11); not-OK: `PENDING RESTART archive_mode`, `DRIFT archive_mode source '(none)'`, `MISSING timeshift-config`, `MISSING arm-file`, plus two runbook bugs below |
+| Step 7 second run | 2 s. `applied=2` — `archive_command` showed `(disabled)` before the restart and was re-applied (script bug, fixed: now `PENDING RESTART`) |
+| Expected `MISSING` on this host | `timeshift-config` (no timeshift — the script did **not** create the file), `arm-file` |
+| Step 11 | `pg_switch_wal()` after the restart: `00000001000000130000003F.zst` (380 KB) landed within 6 s, no `.tmp` |
+| Step 10 `--check` after the restart | every item `OK` except the two expected `MISSING` (and the crontab bug below); no `PENDING RESTART` |
+| Step 13 | `PASS archive healthy (mode=on, unarchived_bytes=96)`, `FLAGS archive=0 stale=3` — the three stale checks are inherent to a host that has never pushed, run restic, or taken a base |
+| Restart of the test cluster needed? | yes, once (archive_mode off → on), plus once at teardown |
+| Runbook fixes made during the run | (1) 24.04 apt versions: restic 0.16.4 (works), rclone 1.60 (install from rclone.org — Step 1 amended); (2) the env DB URL must be reachable from the host itself — `pg_hba` refused the test role from its own address; Step 3 amended; (3) `crontab -l -u <user>` with no crontab was reported `MISSING user-crontab` — script fixed to treat "no crontab for" as clean; (4) `(disabled)` archive_command pre-restart re-applied every run — script fixed. Also: rclone `b2:` remote (Step 4) was not configured, so the hourly push would fail here — acceptable for a throwaway run, noted |
+| Teardown verified (`pg_lsclusters`, settings reset, cron.d gone, archive root gone, restic prefix deleted) | (pending — `~/accept-920/teardown.sh`) |

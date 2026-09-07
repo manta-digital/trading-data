@@ -25,6 +25,7 @@ set -euo pipefail
 
 AUTO_CONF=postgresql.auto.conf
 CONF_D=conf.d
+DISABLED_VALUE='(disabled)'
 
 usage() {
   echo "usage: $0 [--check] [--as-user <os-user>] --conf <postgresql.conf> --set name=value [--set ...] [--forbid-conf-line <name> ...]" >&2
@@ -86,6 +87,11 @@ compare_settings() {
   for n in "${NAMES[@]}"; do
     if [ -z "${SETTING[$n]+x}" ]; then
       report "MISSING $n not in pg_settings"
+    elif [ "${SETTING[$n]}" = "$DISABLED_VALUE" ]; then
+      # pg_settings shows archive_command as "(disabled)" while archive_mode
+      # is off; the real value cannot be read until the restart that turns
+      # archiving on, so this is a restart item, not drift.
+      report "PENDING RESTART $n (shown as $DISABLED_VALUE until archive_mode takes effect)"
     elif [ "${SETTING[$n]}" != "${EXPECTED[$n]}" ]; then
       report "DRIFT $n '${EXPECTED[$n]}' '${SETTING[$n]}'"
       DRIFTED+=("$n")
