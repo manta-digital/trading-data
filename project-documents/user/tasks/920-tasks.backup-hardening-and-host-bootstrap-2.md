@@ -315,9 +315,9 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
         exits 0 with every item `OK` (success criterion 1 closed).
 
 - [ ] **Task 9.5: restic first snapshot and restore drill** (effort: 2)
-  - [ ] `sudo scripts/cron_system_backup.sh …` with the cron.d arguments;
+  - [x] `sudo scripts/cron_system_backup.sh …` with the cron.d arguments;
         record duration and repository size. `sudo … --check` passes.
-  - [ ] Record a true `restic backup --dry-run` size first (the D9 number
+  - [x] Record a true `restic backup --dry-run` size first (the D9 number
         Task 6.1 estimated with `du`).
   - [ ] Restore `latest` with `--include /etc/postgresql --include
         /etc/timeshift --include /var/spool/cron/crontabs --include
