@@ -77,16 +77,21 @@ SELECT name, setting, COALESCE(sourcefile, ''), pending_restart
 query_settings || exit 1
 
 DRIFTED=()
+# A setting is applied when its value drifts OR when it is served from any
+# file but postgresql.auto.conf: a value that merely matches (say, from a
+# hand-edited conf.d file) is not persisted, and removing that file later
+# would silently revert it at the next restart (found 2026-09-07: archive_mode).
 compare_settings() {
   DRIFTED=()
   for n in "${NAMES[@]}"; do
     if [ -z "${SETTING[$n]+x}" ]; then
       report "MISSING $n not in pg_settings"
-    elif [ "${SETTING[$n]}" = "${EXPECTED[$n]}" ]; then
-      report "OK $n"
-    else
+    elif [ "${SETTING[$n]}" != "${EXPECTED[$n]}" ]; then
       report "DRIFT $n '${EXPECTED[$n]}' '${SETTING[$n]}'"
       DRIFTED+=("$n")
+    else
+      report "OK $n"
+      case "${SOURCE[$n]}" in */$AUTO_CONF) ;; *) DRIFTED+=("$n") ;; esac
     fi
   done
 }

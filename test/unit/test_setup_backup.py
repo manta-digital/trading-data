@@ -393,6 +393,27 @@ class TestPgSettings:
         )
         assert expected in result.stdout
 
+    def test_matching_value_from_other_file_is_persisted_by_alter_system(
+        self, pg: dict[str, Path]
+    ) -> None:
+        # archive_mode = on, but served from conf.d: apply must ALTER SYSTEM it
+        # so the value survives removal of that file (2026-09-07 finding).
+        auto = "/etc/postgresql/17/main/postgresql.auto.conf"
+        pg["fixture"].write_text(
+            _pg_rows(_ARCHIVE_CMD, auto).replace(
+                f"archive_mode|on|{auto}",
+                "archive_mode|on|/etc/postgresql/17/main/conf.d/915-archiving.conf",
+            )
+        )
+        pg["after"].write_text(_pg_rows(_ARCHIVE_CMD, auto))
+        result = _pg_run(pg)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert _statements(pg) == [
+            "ALTER SYSTEM SET archive_mode = 'on';",
+            "SELECT pg_reload_conf();",
+        ]
+        assert "APPLIED archive_mode" in result.stdout
+
     def test_pending_restart_is_reported_never_acted_on(
         self, pg: dict[str, Path]
     ) -> None:
