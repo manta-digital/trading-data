@@ -41,14 +41,15 @@ done
 [ -n "$COMMAND" ] || { usage; die "one of check, init, run is required" 2; }
 [ -r "$ENV_FILE" ] || die "env file not readable: $ENV_FILE"
 
-env_value() { { grep "^$1=" "$ENV_FILE" || true; } | head -1 | sed 's/^[^=]*=//' | tr -d '"'; }
+# shellcheck source=env_value.sh
+. "$(cd "$(dirname "$0")" && pwd)/env_value.sh"
 
 declare -A ENV_VALUES=()
 for key in "${S3_KEYS[@]}"; do
-  ENV_VALUES[$key]=$(env_value "$key")
+  ENV_VALUES[$key]=$(env_value "$ENV_FILE" "$key")
   [ -n "${ENV_VALUES[$key]}" ] || { echo "MISSING restic-env $key not in $ENV_FILE"; exit 1; }
 done
-PASSWORD=$(env_value "$PASSWORD_KEY")
+PASSWORD=$(env_value "$ENV_FILE" "$PASSWORD_KEY")
 [ -n "$PASSWORD" ] || { echo "MISSING restic-password $PASSWORD_KEY not in $ENV_FILE"; exit 1; }
 REPO="s3:${ENV_VALUES[MT_BACKUP_S3_ENDPOINT]%/}/${ENV_VALUES[MT_BACKUP_S3_BUCKET]}/$PREFIX"
 

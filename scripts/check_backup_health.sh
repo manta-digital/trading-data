@@ -19,6 +19,9 @@
 #   system_backup_stale   stale    BACKUP-STALE    --system-stamp missing or older than the limit
 #   weekly_base_stale     stale    BACKUP-STALE    newest base/<YYYYMMDD> older than the limit
 #
+# When anything failed, the line before FLAGS is `FAILED archive=<names,csv>
+# stale=<names,csv>` so the glue's journal lines name each flag's own failures.
+#
 # Usage:
 #   check_backup_health.sh --db-url <url> --pgdata <dir> --wal-dir <dir> \
 #       --stamp <file> --stale-after <minutes> --system-stamp <file> --base-dir <dir>
@@ -173,18 +176,21 @@ fi
 
 # --- Report: our own FAIL lines (the inner's were already printed), then the
 # per-class counts over every failure by name.
-ARCHIVE_COUNT=0; STALE_COUNT=0
+ARCHIVE_COUNT=0; STALE_COUNT=0; ARCHIVE_NAMES=""; STALE_NAMES=""
 for f in "${FAILURES[@]}"; do
   name="${f%%:*}"
   class="${CHECK_CLASS[$name]:-$UNLISTED_CLASS}"
   case "$class" in
-    archive) ARCHIVE_COUNT=$((ARCHIVE_COUNT + 1)) ;;
-    stale)   STALE_COUNT=$((STALE_COUNT + 1)) ;;
+    archive) ARCHIVE_COUNT=$((ARCHIVE_COUNT + 1)); ARCHIVE_NAMES+="${ARCHIVE_NAMES:+,}$name" ;;
+    stale)   STALE_COUNT=$((STALE_COUNT + 1)); STALE_NAMES+="${STALE_NAMES:+,}$name" ;;
   esac
 done
 INNER_FAIL_COUNT=$(grep -c '^FAIL ' <<< "$INNER_OUTPUT" || true)
 for f in "${FAILURES[@]:$INNER_FAIL_COUNT}"; do
   echo "FAIL $f"
 done
+# Two machine-readable lines for the cron glue: names per class (only when
+# something failed), then the counts line, always last.
+[ "$((ARCHIVE_COUNT + STALE_COUNT))" -eq 0 ] || echo "FAILED archive=$ARCHIVE_NAMES stale=$STALE_NAMES"
 echo "FLAGS archive=$ARCHIVE_COUNT stale=$STALE_COUNT"
 [ "$((ARCHIVE_COUNT + STALE_COUNT))" -eq 0 ]

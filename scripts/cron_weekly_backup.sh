@@ -27,6 +27,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../deploy/lib/env_value.sh
+. "$SCRIPT_DIR/../deploy/lib/env_value.sh"
 # Sibling tools resolve by name, with this script's own directory as the last
 # place searched, so a stub earlier on PATH stands in for them under test.
 PATH="$PATH:$SCRIPT_DIR"
@@ -77,7 +79,7 @@ if [ -e "$HEALTH_FLAG" ]; then
   die "$HEALTH_FLAG exists — WAL archiving is unhealthy; refusing to take a base backup until it is fixed (see runbook)"
 fi
 
-DB_URL=$(grep '^MT_TIMESCALE_MAINTENANCE_URL' "$ENV_FILE" | sed 's/^[^=]*=//' | tr -d '"')
+DB_URL=$(env_value "$ENV_FILE" MT_TIMESCALE_MAINTENANCE_URL)
 [ -n "$DB_URL" ] || die "MT_TIMESCALE_MAINTENANCE_URL not in $ENV_FILE"
 
 # Replication is admitted from localhost only.
@@ -91,7 +93,8 @@ echo "=== weekly backup run: $(date -Is) ==="
 if [ "$SKIP_BASE" -eq 1 ]; then
   echo "--- base backup skipped (--skip-base-backup: reconcile only)"
 else
-  backup_prod.sh --db-url "$DB_URL" --dest "$BASE_DIR/$DATE_STAMP" --remote "$REMOTE_BASE/$DATE_STAMP"
+  backup_prod.sh --db-url "$DB_URL" --dest "$BASE_DIR/$DATE_STAMP" --remote "$REMOTE_BASE/$DATE_STAMP" \
+    || die "base backup failed (backup_prod.sh exit $?); nothing pruned or reconciled"
 fi
 
 # check_since <epoch>: verify offsite against everything older than the push
@@ -104,7 +107,8 @@ PUSH_START=$(date +%s)
 echo "--- 2. offsite check before prune"
 check_since "$PUSH_START" || die "offsite WAL differs from local before prune; not pruning (see rclone output above)"
 echo "--- 3. local prune"
-PRUNE_OUTPUT=$(prune_wal_archive.sh --base-dir "$BASE_DIR" --wal-dir "$WAL_DIR" --keep-days "$KEEP_DAYS")
+PRUNE_OUTPUT=$(prune_wal_archive.sh --base-dir "$BASE_DIR" --wal-dir "$WAL_DIR" --keep-days "$KEEP_DAYS") \
+  || die "prune failed (prune_wal_archive.sh exit $?); not reconciling"
 echo "$PRUNE_OUTPUT"
 PRUNED_LINE=$(grep '^PRUNED wal=[0-9]* base=[0-9]*$' <<< "$PRUNE_OUTPUT" | tail -1)
 [ -n "$PRUNED_LINE" ] || die "prune printed no PRUNED line; not reconciling"

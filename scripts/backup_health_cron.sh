@@ -22,6 +22,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../deploy/lib/env_value.sh
+. "$SCRIPT_DIR/../deploy/lib/env_value.sh"
 # Sibling tools resolve by name, with this script's own directory as the last
 # place searched, so a stub earlier on PATH stands in for them under test.
 PATH="$PATH:$SCRIPT_DIR"
@@ -57,7 +59,7 @@ for pair in "--env-file:$ENV_FILE" "--pgdata:$PGDATA_DIR" "--wal-dir:$WAL_DIR" \
   [ -n "${pair#*:}" ] || { echo "error: ${pair%%:*} is required" >&2; usage; exit 2; }
 done
 
-DB_URL=$(grep '^MT_TIMESCALE_MAINTENANCE_URL' "$ENV_FILE" 2>/dev/null | sed 's/^[^=]*=//' | tr -d '"')
+DB_URL=$(env_value "$ENV_FILE" MT_TIMESCALE_MAINTENANCE_URL 2>/dev/null)
 if [ -z "$DB_URL" ]; then
   OUTPUT="FAIL cannot_check: MT_TIMESCALE_MAINTENANCE_URL not found in $ENV_FILE"
 else
@@ -81,12 +83,14 @@ fi
 NOW=$(date -Is)
 echo "$NOW $(tr '\n' ' ' <<< "$OUTPUT")" >> "$LOG"
 
-# Names of the failures in one class, for the flag file and the journal line.
+# fail_names <class>: the failed check names of one class, from the checker's
+# `FAILED archive=<a,b> stale=<c>` line, for the journal line of that flag.
 fail_names() {
-  grep '^FAIL ' <<< "$OUTPUT" | sed 's/^FAIL \([^:]*\):.*/\1/' | paste -sd ' '
+  local line; line=$(grep '^FAILED ' <<< "$OUTPUT" | tail -1)
+  line=${line#*"$1="}; line=${line%% *}; echo "${line//,/ }"
 }
 
-# set_flag <path> <count> <title>: write the flag when count>0, remove it
+# set_flag <path> <count> <title> <class>: write the flag when count>0, remove it
 # otherwise. The flag's own prior existence is the transition memory: a
 # journal line is written only when it appears or disappears.
 set_flag() {
@@ -99,14 +103,14 @@ set_flag() {
       echo "detected: $NOW"
       echo "$OUTPUT"
     } > "$path"
-    [ "$was_raised" -eq 1 ] || logger -t "$LOGGER_TAG" "$(basename "$path") raised: $(fail_names)"
+    [ "$was_raised" -eq 1 ] || logger -t "$LOGGER_TAG" "$(basename "$path") raised: $(fail_names "$4")"
   else
     rm -f "$path"
     [ "$was_raised" -eq 0 ] || logger -t "$LOGGER_TAG" "$(basename "$path") cleared"
   fi
 }
 
-set_flag "$FLAG" "$ARCHIVE_COUNT" "$ARCHIVE_FLAG_TITLE"
-set_flag "$STALE_FLAG" "$STALE_COUNT" "$STALE_FLAG_TITLE"
+set_flag "$FLAG" "$ARCHIVE_COUNT" "$ARCHIVE_FLAG_TITLE" archive
+set_flag "$STALE_FLAG" "$STALE_COUNT" "$STALE_FLAG_TITLE" stale
 
 [ "$((ARCHIVE_COUNT + STALE_COUNT))" -eq 0 ]

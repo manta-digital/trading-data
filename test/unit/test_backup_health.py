@@ -324,6 +324,10 @@ class TestSummaryLine:
             "system_backup_stale",
         ]
         assert _flags_line(result.stdout) == "FLAGS archive=2 stale=2"
+        assert (
+            "FAILED archive=archive_mode_off,archive_wedged "
+            "stale=offsite_wal_stale,system_backup_stale"
+        ) in result.stdout.splitlines()
 
     def test_summary_is_always_the_last_line(self, healthy: Layout) -> None:
         healthy.stub_inner(["FAIL archiver_failing: x"], 1)
@@ -448,6 +452,7 @@ class TestGlueFlags:
             [
                 _INNER_PASS,
                 "FAIL offsite_wal_stale: stamp is 200 min old",
+                "FAILED archive= stale=offsite_wal_stale",
                 "FLAGS archive=0 stale=1",
             ],
             1,
@@ -463,7 +468,12 @@ class TestGlueFlags:
         self, glue: GlueLayout
     ) -> None:
         glue.stub_checker(
-            ["FAIL archive_wedged: short segment", "FLAGS archive=1 stale=0"], 1
+            [
+                "FAIL archive_wedged: short segment",
+                "FAILED archive=archive_wedged stale=",
+                "FLAGS archive=1 stale=0",
+            ],
+            1,
         )
         result = glue.run()
         assert result.returncode == 1
@@ -485,7 +495,14 @@ class TestGlueFlags:
         ]
 
     def test_journal_line_only_on_transition(self, glue: GlueLayout) -> None:
-        glue.stub_checker(["FAIL archive_wedged: x", "FLAGS archive=1 stale=0"], 1)
+        glue.stub_checker(
+            [
+                "FAIL archive_wedged: x",
+                "FAILED archive=archive_wedged stale=",
+                "FLAGS archive=1 stale=0",
+            ],
+            1,
+        )
         glue.run()
         glue.run()
         assert glue.journal_lines() == ["ARCHIVE-BROKEN raised: archive_wedged"]
@@ -541,3 +558,26 @@ def test_runbook_alarm_table_names_exactly_the_class_array() -> None:
     script_names = _class_array_names()
     assert len(script_names) == 10, script_names
     assert _runbook_alarm_names() == script_names
+
+
+class TestGlueMixedClasses:
+    def test_each_flag_journal_line_names_only_its_own_class(
+        self, glue: GlueLayout
+    ) -> None:
+        glue.stub_checker(
+            [
+                "FAIL archive_wedged: x",
+                "FAIL offsite_wal_stale: y",
+                "FAIL system_backup_stale: z",
+                "FAILED archive=archive_wedged "
+                "stale=offsite_wal_stale,system_backup_stale",
+                "FLAGS archive=1 stale=2",
+            ],
+            1,
+        )
+        result = glue.run()
+        assert result.returncode == 1
+        assert sorted(glue.journal_lines()) == [
+            "ARCHIVE-BROKEN raised: archive_wedged",
+            "BACKUP-STALE raised: offsite_wal_stale system_backup_stale",
+        ]

@@ -33,6 +33,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
+# shellcheck source=lib/env_value.sh
+. "$LIB_DIR/env_value.sh"
 
 # --- Constants: the one definition of every number, name, and path -----------
 WAL_OFFSITE_INTERVAL_MIN=60   # renders the push schedule, --stale-after (3x), --timeout (-1)
@@ -96,7 +98,7 @@ WAL_DIR="$BACKUP_ROOT/wal"
 PGDATA="$PG_DATA_ROOT/$CLUSTER"
 PG_CONF="$PG_CONF_ROOT/$CLUSTER/postgresql.conf"
 ARCHIVE_COMMAND=${ARCHIVE_COMMAND_TEMPLATE//@WAL_DIR@/$WAL_DIR}
-BUCKET=$({ grep '^MT_BACKUP_S3_BUCKET=' "$ENV_FILE" || true; } | head -1 | sed 's/^[^=]*=//' | tr -d '"')
+BUCKET=$(env_value "$ENV_FILE" MT_BACKUP_S3_BUCKET)
 [ -n "$BUCKET" ] || die "MT_BACKUP_S3_BUCKET not in $ENV_FILE (the offsite remote cannot be rendered)"
 REMOTE_PREFIX="$RCLONE_REMOTE:$BUCKET"
 if [ -n "$REHEARSE" ]; then
@@ -127,7 +129,7 @@ run_lib() {
   fi
 }
 # Act only when the item is not OK; report both the action and the re-check.
-apply() { # apply <item> <check-fn> <act-fn>
+apply() { # apply <item> <check-fn> <not-ok-word> <detail> <act-fn>
   if "$2"; then report "OK $1"; return; fi
   if [ "$CHECK" -eq 1 ]; then report "${3:-MISSING} $1${4:+ $4}"; return; fi
   "$5"; report "APPLIED $1"

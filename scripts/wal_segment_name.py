@@ -75,8 +75,9 @@ def segment_from_lsn(tli_text: str, lsn: str) -> str:
     low = _hex(low_text, "LSN low part")
     if not (0 <= low < LOG_FILE_BYTES):
         raise MalformedInput(f"LSN low part out of range: {lsn!r}")
-    tli = int(tli_text) if tli_text.isdigit() else _hex(tli_text, "timeline")
-    return format_segment(tli, high, low // WAL_SEGMENT_BYTES)
+    if not tli_text.isdigit():
+        raise MalformedInput(f"timeline must be a decimal integer: {tli_text!r}")
+    return format_segment(int(tli_text), high, low // WAL_SEGMENT_BYTES)
 
 
 def main(argv: list[str]) -> int:
