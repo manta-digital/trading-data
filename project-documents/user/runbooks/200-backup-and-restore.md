@@ -471,9 +471,10 @@ on how long a dead host's last backups survive, the opposite of a backstop.
 No rules on `metadata/` or `system/` (rclone sync and restic manage their
 own; restic must never have current files hidden from under it). Paste the resulting rule JSON below when set:
 
-```
-(rule JSON — filled in at the cutover, Task 8.2)
-```
+Set by the PM 2026-09-07 in the console: two rules, prefixes `wal/` and
+`base/`, "days till hide" **blank**, "days till delete" (after hiding) 30.
+(First attempt had "days till hide" = 30 as well — corrected the same day;
+see the warning above.)
 
 **The reconcile arm file `/data/backup/RECONCILE-ARMED`.** The weekly job
 runs its base backup, catch-up push, checksum check, prune, and the four

@@ -204,7 +204,7 @@ drills, not task order.
   - [x] [PM] Remove the three 915 lines from `crontab -e` (the
         `@reboot rclone mount` line stays). Remove the hand-set
         `archive_command` line from `/etc/postgresql/17/main/postgresql.conf`.
-  - [ ] [PM] In the B2 console, set the lifecycle rule from runbook 200
+  - [x] [PM] In the B2 console, set the lifecycle rule from runbook 200
         (delete versions older than 30 days on `wal/` and `base/`); paste
         the resulting rule JSON into the runbook.
   - [x] Success: `sudo deploy/setup-backup.sh --check …` reports every
