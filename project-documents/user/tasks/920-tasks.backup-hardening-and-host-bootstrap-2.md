@@ -314,20 +314,20 @@ date, duration, and outcome. Faults needing `postgres` or root are marked.
   - [x] Success: success criteria 6 and 9; `setup-backup.sh --check` now
         exits 0 with every item `OK` (success criterion 1 closed).
 
-- [ ] **Task 9.5: restic first snapshot and restore drill** (effort: 2)
+- [x] **Task 9.5: restic first snapshot and restore drill** (effort: 2)
   - [x] `sudo scripts/cron_system_backup.sh …` with the cron.d arguments;
         record duration and repository size. `sudo … --check` passes.
   - [x] Record a true `restic backup --dry-run` size first (the D9 number
         Task 6.1 estimated with `du`).
-  - [ ] Restore `latest` with `--include /etc/postgresql --include
+  - [x] Restore `latest` with `--include /etc/postgresql --include
         /etc/timeshift --include /var/spool/cron/crontabs --include
         /home/manta/source/repos/manta/trading-data/deploy` (a subtree not
         edited during this task) into `/data/restore-test/restic`;
         `diff -r` each against live is clean. Remove the restore directory.
-  - [ ] Success: success criterion 12.
+  - [x] Success: success criterion 12.
 
-- [ ] **Task 9.6: Checkpoint commit** (effort: 1)
-  - [ ] Commit the drill records (e.g.
+- [x] **Task 9.6: Checkpoint commit** (effort: 1)
+  - [x] Commit the drill records (e.g.
         `docs: record 920 alarm, PITR, reconcile, and restic drills`).
 
 ## Section 10: Bootstrap acceptance and close-out
