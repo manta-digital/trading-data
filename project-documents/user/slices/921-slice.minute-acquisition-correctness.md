@@ -7,7 +7,7 @@ dependencies: [919]
 interfaces: [162, 165, 912]
 effort: 3
 dateCreated: 20260907
-dateUpdated: 20260907
+dateUpdated: 20260908
 status: not_started
 ---
 
@@ -38,6 +38,10 @@ against a day-granular coverage index and hands the missing sessions to
 `group_sessions_into_ranges`, which sets each range's `gap_end_utc` to the
 **last missing session's `session_open_utc`** (13:30 UTC). The chunk loop in
 `_do_minute_symbol` passes `gap_end` straight to EODHD as `to`.
+
+The 140 architecture's gap function (§"Gap function", step 6) specifies the
+range as `(session_open_utc(T_first), session_close_utc(T_last))`. The code
+has never implemented the second half; every minute range ends at an open.
 
 EODHD honors `to` exactly. Probed 2026-09-08 00:05 UTC against `AAPL.US`:
 
@@ -89,8 +93,8 @@ failed is not an alarm.
 
 - Minute data is collected again: full sessions for every active symbol,
   and the six weeks of truncated days are refetched.
-- The two remaining #19 mechanisms (session-open parking, quota-starved
-  retry exhaustion) are removed at the root, not worked around.
+- The two remaining #19 mechanisms (session-open parking, retries consumed
+  without a provider answer) are removed at the root, not worked around.
 - The health check measures the quantity that failed (bars per session),
   so this class of failure fails a unit within one firing.
 - #19 and #20 close with recorded measurements.
@@ -99,41 +103,93 @@ failed is not an alarm.
 
 **In scope**
 
-1. **Range end** — a minute session range ends at the UTC midnight after the
-   last missing session's `session_date`. Applied in
-   `compute_missing_minute_sessions` (minute path only; the daily path's
-   `compute_missing_ranges` is unchanged, its provider takes dates). The
-   trailing-tolerance comment in `_do_minute_symbol` already assumes this
-   anchoring.
-2. **Repair** — one script, `scripts/repair_921_minute_sessions.py`, run
-   once with the maintenance credential, that:
-   - resets every session-open-ended terminal row (15,785 `PROVIDER_HOLE`,
-     8,267 `RETRY_EXHAUSTED`) to UNKNOWN with the corrected end;
-     midnight-ended legacy rows (1,321) are genuine holes and stay;
-   - seeds every truncated symbol-day since 2026-07-16 — signature:
-     `max(time)` for the (symbol, session_date) `≤ session_open_utc` — as
-     UNKNOWN rows with corrected ends, grouped into contiguous ranges;
-   - prints the counts before and after and refuses to run twice (the
-     second run finds nothing to do and says so).
-   The nightly firings then do the fetching; the script does not call the
-   provider.
-3. **Quota priority** — the minute cycle runs two phases over the active
-   universe: *trailing* (every symbol's gaps whose `gap_end` falls within
-   `MINUTE_TRAILING_PRIORITY_WINDOW`, one chunk each) and then *backfill*
-   (everything else, `most_stale_first` as today). The first HTTP 402 aborts
-   the pass with outcome `quota_exhausted` and a journal line naming the
-   phase and the count of symbols not attempted; no gap row is touched for
-   an unanswered request. Both constants live in `constants.py`.
-4. **Health** — `mt data health` gains `minute session mass`: the bar count
-   and the active-symbol count for the last completed session, judged
-   against the median of the previous `HEALTH_MINUTE_MASS_BASELINE_SESSIONS`
-   sessions with floor `HEALTH_MINUTE_MASS_MIN_RATIO`. The `eodhd quota`
-   floor check is removed — its consequence is what the mass check
-   measures. `check_raw_freshness` labels the timestamp it prints correctly
-   (today it prints local time with a `UTC` suffix).
+1. **Range end conforms to the 140 contract** — a minute session range ends
+   at `session_close_utc` of its last missing session, as 140 step 6
+   specifies. Applied in `compute_missing_minute_sessions` (the minute
+   caller); `group_sessions_into_ranges` and the daily path are unchanged
+   (the daily provider takes dates, so the daily deviation has no effect and
+   is left for initiative 140). **The provider window is a fetch-layer
+   mapping**: `_do_minute_symbol` requests `[chunk_start, day_end(chunk_end)]`
+   where `day_end` is the UTC midnight after `chunk_end`'s date, so
+   extended-hours bars (AAPL 2026-08-27: 08:00–23:59 UTC) keep landing as
+   they did under the midnight-anchored legacy rows. `chunk_end` itself, the
+   gap accounting, and the classified range stay as they are.
+2. **Repair through the single writer** — `scripts/repair_921_minute_sessions.py`
+   (`--check` / `--apply`, `cutover_common` pattern) walks the active
+   universe and, per symbol, in one transaction under
+   `advisory_lock(conn, symbol, "minute", timeout=DAEMON_LOCK_TIMEOUT)` —
+   the daemon's own helper — calls
+   `update_data_gaps(conn, symbol, "minute", REPAIR_921_WINDOW_START,
+   now_midnight, fetch_status_for_unfilled=UNKNOWN, outcome=PARTIAL,
+   force_reset_terminal=True, precomputed_ranges=…)` — the published reset
+   path `mt data pull --reset` already uses. `precomputed_ranges` comes from
+   `compute_missing_minute_sessions` with the symbol's **truncated days**
+   (signature: `max(time)` for the session date `≤ session_open_utc`)
+   removed from its coverage set, so they are seeded as missing. The window
+   starts at `REPAIR_921_WINDOW_START = 2026-07-16` (the day the seeder
+   shipped); the 1,321 midnight-ended legacy rows inside it are reset too
+   (bounded, and refetched once with correct ends — a genuine hole comes
+   back as `PROVIDER_HOLE`). Rows before the window are untouched. The
+   script writes no SQL of its own against `data_gaps`.
+   Serialization: the advisory lock is the same one the daemon takes, so an
+   overlap blocks for `DAEMON_LOCK_TIMEOUT` then skips and reports the
+   symbol; the script additionally refuses to start while
+   `mt-minute-pass.service` or `mt-daily-pass.service` is active.
+   Idempotent: a second `--apply` recomputes the same rows (carry-forward
+   keeps attempt counts) and reports zero net change; a run that dies
+   partway has committed per symbol and is resumed by rerunning. The script
+   never calls the provider.
+3. **Quota priority and a stated failure policy** — the minute cycle runs
+   two phases over the active universe: *trailing* (every symbol's gaps
+   whose `gap_end ≥ now − MINUTE_TRAILING_PRIORITY_WINDOW` (7 days), one
+   chunk each) then *backfill* (everything else, `most_stale_first` as
+   today). Rules, each unit-tested:
+   - **No response, no accounting.** `attempt_count` and `fetch_status`
+     move only on a classified provider response (200 or 404). 402, 429
+     exhaustion, 5xx, timeout, and connection reset touch no gap row. This
+     is the general rule that closes the "7,755 rows exhausted without an
+     answer" path, whatever the exact accounting turns out to be.
+   - **402 aborts the pass immediately** (deterministic: the allowance is
+     gone until 00:00 UTC).
+   - **Any other provider failure** keeps today's per-symbol handling
+     (skip, `TRANSIENT_FAILURE`), and `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES`
+     (5, the `PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS` pattern) consecutive
+     symbol failures abort the pass — a 5xx storm or timeout cascade ends in
+     five symbols, not 13,000.
+   - The pass outcome is `MinutePassOutcome` (`StrEnum` beside
+     `LastAttemptOutcome` in `state.py`): `COMPLETE`, `QUOTA_EXHAUSTED`,
+     `PROVIDER_UNAVAILABLE`. The journal line names the phase and the count
+     of symbols not attempted. Exit code: 0 when the trailing phase
+     completed (an abort during backfill is the designed steady state), 3
+     when the abort fell inside the trailing phase, which is the failure
+     that matters.
+   Cross-firing budget, stated: the 00:35 UTC daily pass spends ~12k
+   requests first; the trailing phase needs ~13k (one chunk per active
+   symbol); against a 100k allowance the current session lands every night
+   by construction, and the backfill takes whatever the three later firings
+   have left.
+4. **Health measures mass, with absolute thresholds** (919's style: the
+   loosest value that catches the failure within a working day; no
+   baseline, so no poisoned window). New check `minute session mass`:
+   - **Judged session:** the newest `trading_sessions` row for
+     `HEALTH_MINUTE_SESSION_CALENDAR = "NYSE"` (11,692 of 13,081 active
+     instruments) whose `session_close_utc + HEALTH_MINUTE_SESSION_COLLECTION_LAG`
+     is in the past, with the lag `8 h` — the 01:05 UTC firing plus its run.
+     From 04:00 UTC the judged session is the previous trading day; before
+     that, the one before. Weekends and holidays fall out of the calendar.
+   - **Thresholds:** bars in the judged session
+     `≥ HEALTH_MINUTE_SESSION_MIN_BARS = 1,000,000` (measured healthy
+     1.9–2.0M on 2026-08-24..27, broken 45k) and symbols with
+     `≥ HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS = 30` bars
+     `≥ HEALTH_MINUTE_SESSION_MIN_SYMBOLS = 5,000` (measured 7,259 on
+     2026-08-27, ~0 since 2026-08-31).
+   - One line: `OK   minute session mass   2026-09-08: 1,991,311 bars, 7,259 symbols ≥30 bars; floors 1,000,000 / 5,000`.
+   The `eodhd quota` floor check is removed — its consequence is what this
+   check measures. `check_raw_freshness` prints the timestamp in UTC (today
+   it prints local time with a `UTC` suffix).
 5. **Closeout** — #19 and #20 closed with the measurements above and below;
-   runbook 100 gains the truncation-signature query and the repair script's
-   `--check` invocation; `CHANGELOG` entry.
+   runbook 100 gains the truncation-signature query and
+   `repair_921_minute_sessions.py --check`; `CHANGELOG` entry.
 
 **Out of scope**
 
@@ -141,6 +197,9 @@ failed is not an alarm.
   (optional per the issue; recorded there as deferred).
 - Delisting-aware `data status` health and exact minute `last_bar` (#14).
 - The Kalshi pass's `partial` exit 3 failing its unit hourly (separate).
+- The daily path's range end (returns `session_open_utc` for both ends,
+  harmless with a date-based provider) — noted to initiative 140, not fixed
+  here.
 
 ## Dependencies
 
@@ -148,13 +207,15 @@ failed is not an alarm.
 
 - Slice 919 (`mt data health`, `mt-health.timer`) — the check is added to
   its `gather()`/`render()` structure.
-- Slice 162/165 seeding code paths — modified, not replaced.
+- Slice 145's `update_data_gaps` single-writer contract and slice 162/165
+  seeding code paths — consumed and corrected, not replaced.
 
 ### Interfaces Required
 
 - `trading_sessions(session_date, session_open_utc, session_close_utc)` per
   calendar; `instruments.trading_calendar_id`.
 - `minute_4hour_ohlcv` as the coverage source (unchanged).
+- `data/locking.advisory_lock` and `DAEMON_LOCK_TIMEOUT`.
 - EODHD intraday `from`/`to` semantics as probed above (exact).
 
 ## Architecture
@@ -163,79 +224,110 @@ failed is not an alarm.
 
 | Component | Change |
 |---|---|
-| `data/gaps/minute_coverage.py` | `compute_missing_minute_sessions` maps each range's end to the next UTC midnight after the last session's `session_date` (one helper, `session_range_end`, used by the repair script too). |
-| `data/gaps/compute_missing_ranges.py` | unchanged; `group_sessions_into_ranges` keeps returning session opens — the minute caller post-processes. |
-| `data/acquisition/daemon/minute.py` | two-phase cycle; 402 abort; attempt accounting fix; `_do_minute_symbol` gains a `phase` bound on which gaps `pick_most_recent_actionable_gap` may return. |
+| `data/gaps/minute_coverage.py` | `compute_missing_minute_sessions` returns ranges ending at `session_close_utc` of the last missing session (140 step 6); accepts a per-symbol set of days to treat as uncovered (used by the repair). |
+| `data/gaps/compute_missing_ranges.py` | unchanged. |
+| `data/acquisition/daemon/minute.py` | provider window `day_end(chunk_end)`; two-phase cycle; no-response-no-accounting; 402 abort; consecutive-failure breaker; `MinutePassOutcome`. |
 | `data/gaps/actionable_gap_selector.py` | optional `min_gap_end` filter for the trailing phase. |
-| `cli/commands/health.py` | `check_minute_session_mass`; quota check removed; timestamp label fix. |
-| `constants.py` | `MINUTE_TRAILING_PRIORITY_WINDOW`, `HEALTH_MINUTE_MASS_BASELINE_SESSIONS`, `HEALTH_MINUTE_MASS_MIN_RATIO`. |
-| `scripts/repair_921_minute_sessions.py` | one-time repair with `--check` and `--apply`, `cutover_common` pattern. |
-| `scripts/cutover_921_minute_sessions.py` | the cutover: preconditions (installed version, quota just reset), repair `--apply`, and the next-morning report query. |
+| `data/acquisition/state.py` | `MinutePassOutcome`. |
+| `cli/commands/health.py` | `check_minute_session_mass`; quota check removed; UTC label fix. |
+| `constants.py` | `MINUTE_TRAILING_PRIORITY_WINDOW`, `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES`, `HEALTH_MINUTE_SESSION_*` (five), `REPAIR_921_WINDOW_START`. |
+| `scripts/repair_921_minute_sessions.py` | one-time repair via the single writer, `--check` / `--apply`. |
+| `scripts/cutover_921_minute_sessions.py` | preconditions (installed version, no pass active, quota just reset), repair `--apply`, next-morning report. |
+
+### Consumers of minute `gap_end` (every reader, and what changes)
+
+The row's end moves from 13:30 UTC to 20:00 UTC on the same date. Each
+consumer, checked in code:
+
+| Consumer | Effect |
+|---|---|
+| `coalesce_data_gaps._are_adjacent` | compares `next_trading_session_after(prev.gap_end.date())` with `current.gap_start.date()` — dates only; same date as before, so adjacency is unchanged. (A midnight end would have broken this; that is why the range end is the session close, not midnight.) |
+| `actionable_gap_selector` | `gap_end <= to_ts` with `to_ts = now_midnight`; 20:00 ≤ 00:00 next day, unchanged. Gains the trailing-phase `min_gap_end` filter. |
+| `update_data_gaps` (`_delete_intersecting`, carry-forward by `gap_start`) | window intersection and carry-forward keyed on `gap_start`; unchanged. |
+| `_do_minute_symbol` chunk loop, `_advance_minute_gap`, trailing tolerance | `chunk_end == gap_end` by construction is kept; the provider `to` is `day_end(chunk_end)`; the tolerance compares dates — unchanged. `classify_outcome` receives the same requested range it does today. |
+| `_do_minute_symbol` frontier gate (`MAX(gap_end) < target_end`) | 20:00 of the last session < next midnight; fires as before. |
+| `api_server/routes/gaps.py`, `models/responses.py` (slices 184/185/187) | rows are returned as stored; minute windows now read `[open, close]` per the 140 contract instead of `[open, open]`. No code change; the response shape is unchanged. |
+| `cli/commands/data.py` (`mt data gaps`, `gap_end <= %s` filters), `rendering/status_table.py`, `maintenance/status_queries.py`, `quality/data_gaps.py` | display and filter on the stored value; no code change. |
+| `market/schema/migrations/minute.py` | schema only; no change. |
 
 ### Data Flow
 
 Nightly firing after this slice:
 
-1. Seed: for each active symbol, missing sessions → ranges ending at the
-   next UTC midnight → UNKNOWN rows.
+1. Seed: for each active symbol, missing sessions → ranges
+   `[open(T_first), close(T_last)]` → UNKNOWN rows.
 2. Trailing phase: for each active symbol, the newest actionable gap with
-   `gap_end ≥ now − MINUTE_TRAILING_PRIORITY_WINDOW`, one chunk, full day
+   `gap_end ≥ now − 7 d`, one chunk, requested to `day_end`, full day
    returned by the provider, row deleted on success.
 3. Backfill phase: remaining actionable gaps, `most_stale_first`, until the
-   pass's cycle budget or the first 402.
-4. On 402: pass ends with `quota_exhausted`; journal names the phase and the
-   untouched symbol count; no `attempt_count` changes for unanswered rows.
-5. Health at :50: the last completed session's mass against the baseline.
+   first 402 or five consecutive provider failures.
+4. On abort: outcome `QUOTA_EXHAUSTED` / `PROVIDER_UNAVAILABLE`; journal
+   names the phase and the untouched symbol count; unanswered rows are
+   untouched.
+5. Health at :50: the judged session's bar and symbol mass against the
+   floors.
 
 ## Technical Decisions
 
-1. **Range end is the next UTC midnight, not `session_close_utc`.** Extended
-   hours bars run to 23:59 UTC for liquid symbols (AAPL 2026-08-27: 08:00 to
-   23:59) and the legacy rows that worked were midnight-anchored. Closing at
-   20:00 would silently drop after-hours bars the store already holds.
+1. **The range end is the 140 contract, not a third semantics.** The code
+   deviates from 140 today (open for both ends); this slice conforms the
+   minute path. Extended-hours bars are a provider-window concern and are
+   handled where the request is built, so the shared `data_gaps` contract
+   is not touched and the coalescer's date-based adjacency keeps working.
 2. **Coverage stays day-granular.** A "day covered only if the afternoon
    bucket exists" rule would re-seed illiquid symbols every pass and spend
    quota forever (the 22-year re-seed slice 162 exists to prevent). The fix
    is at the range end; the repair handles history once.
-3. **Repair resets by shape, not by symbol list.** Every session-open-ended
-   terminal row was produced by a truncated request and is suspect; every
-   midnight-ended one predates the defect's exposure. The shape is the
-   evidence, so the rule is one predicate and is auditable in SQL.
-4. **402 aborts the pass.** Skipping 13,000 symbols one by one after the
-   quota is gone costs 35 minutes, produces 7,000 ERROR lines, and (as
-   measured) consumed retries. Nothing useful happens after the first 402.
-5. **Quota floor check removed rather than retuned.** No floor is right when
-   normal operation is designed to use the whole allowance; the mass check
-   measures the consequence that matters.
-6. **Repair is a script, not a migration.** It is data, it runs once, and it
+3. **The repair uses the single writer and its lock.** No bespoke SQL
+   against `data_gaps`; the reset is `force_reset_terminal=True` over a
+   dated window, the seed is the seeder with truncated days marked
+   uncovered. Resetting the legacy rows inside the window is the price of
+   using the published path unchanged, and it is bounded (1,321 rows).
+4. **No response, no accounting** is the rule; 402 and the breaker are
+   applications of it. Skipping 13,000 symbols one by one after the quota
+   is gone costs 35 minutes, produces 7,000 ERROR lines, and (as measured)
+   consumed retries. Nothing useful happens after the first 402.
+5. **Absolute floors, not a baseline.** Every session since 2026-08-31
+   holds ~45k bars; any trailing median would certify the broken state.
+   Floors at half the measured healthy mass catch a 2% day on the first
+   run and survive an illiquid Friday.
+6. **Quota floor check removed rather than retuned.** No floor is right when
+   normal operation is designed to use the whole allowance.
+7. **Repair is a script, not a migration.** It is data, it runs once, and it
    must be scheduled against the quota reset; migrations are neither.
 
 ## Success Criteria
 
 1. `compute_missing_minute_sessions` returns ranges whose `gap_end_utc` is
-   the UTC midnight after the last missing session's date, proven by a unit
-   test whose fixture is real `trading_sessions` rows (13:30/20:00 UTC opens
-   and closes, 14:30 in winter).
-2. The repair script's `--check` reports the truncated symbol-days,
-   zero-width rows, and session-open-ended terminal rows; after `--apply`
-   the same `--check` reports zero of each pending and refuses to apply
-   again.
+   `session_close_utc` of the last missing session, proven by a unit test
+   whose fixture is real `trading_sessions` rows (13:30/20:00 UTC in
+   summer, 14:30/21:00 in winter). The chunk loop's provider `to` is the
+   UTC midnight after `chunk_end` (unit test on the built URL).
+2. `repair_921_minute_sessions.py --check` reports truncated symbol-days,
+   zero-width rows, and session-open-ended terminal rows; `--apply` goes
+   through `update_data_gaps` under the advisory lock (asserted by a test
+   with a fake writer); a second `--apply` reports zero net change; the
+   script refuses to start while a pass unit is active.
 3. After the repair and two nightly firings: truncated symbol-days
-   (`max(time) ≤ session_open_utc`) for the last five sessions across
-   active symbols = 0; bars for the last completed session ≥ 1.5M.
-4. A pass whose first provider response is 402 ends with
-   `quota_exhausted`, touches no gap row, and increments no
-   `attempt_count` (unit test with a fake client; a second test proves the
-   promotion path that exhausted 7,755 rows on 2026-09-07 no longer fires
-   without a response).
-5. Every active symbol's trailing gap is requested before any backfill
+   (`max(time) ≤ session_open_utc`) for the last five NYSE sessions across
+   active symbols = 0; bars for the judged session ≥ 1,000,000.
+4. Unanswered requests change nothing: unit tests for 402, 5xx, timeout,
+   and connection reset each assert no `attempt_count` or `fetch_status`
+   change; a test reproduces the 2026-09-07 promotion path and proves it
+   no longer fires without a response.
+5. A first-response 402 ends the pass with `QUOTA_EXHAUSTED`; five
+   consecutive symbol failures end it with `PROVIDER_UNAVAILABLE`; the exit
+   code is 3 only when the trailing phase was incomplete (unit tests on
+   the outcome and the exit mapping).
+6. Every active symbol's trailing gap is requested before any backfill
    chunk (unit test on the phase order; the journal shows
    `trailing phase complete: N symbols` before the first backfill line).
-6. `mt data health` fails `minute session mass` on a fixture where the last
-   session holds 2% of baseline bars and passes on production after the
-   repair; the quota floor line is gone; the health unit records at least
-   one `healthy` run after 23:00 UTC.
-7. Issues #19 and #20 are closed with the measurements; runbook 100 carries
+7. `mt data health` fails `minute session mass` on a fixture where the
+   judged session holds 45k bars and passes on one with 1.99M; the judged
+   session is yesterday's from 04:00 UTC and the day before earlier; the
+   quota floor line is gone; production records at least one `healthy`
+   run after 23:00 UTC.
+8. Issues #19 and #20 are closed with the measurements; runbook 100 carries
    the signature query.
 
 ### Verification Walkthrough
@@ -246,6 +338,7 @@ Before install (baseline, read-only, any host with the DB URL):
 uv run python scripts/repair_921_minute_sessions.py --check
 # truncated symbol-days since 2026-07-16: N
 # zero-width minute gap rows: N   session-open-ended terminal rows: N
+# pass units active: none
 ```
 
 Cutover, run by the automation identity just after 00:00 UTC:
@@ -253,16 +346,17 @@ Cutover, run by the automation identity just after 00:00 UTC:
 ```
 sudo scripts/cutover_921_minute_sessions.py
 # 1. install-production.sh --ref v0.14.0 (twice if units changed)
-# 2. repair --apply (prints before/after counts)
-# 3. next firing is the 00:35 UTC daily, then 01:05 UTC minute — trailing phase
+# 2. preconditions: no pass active, quota reset in the last 30 min
+# 3. repair --apply (prints before/after counts per predicate)
+# 4. next firings: 00:35 UTC daily, 01:05 UTC minute — trailing phase
 ```
 
 Next morning:
 
 ```
 mt-run status                      # == health: OK
-journalctl -u mt-minute-pass.service --since "6 hours ago" | grep -E "trailing phase|quota_exhausted|backfill phase"
-uv run mt data health              # OK  minute session mass  <bars> bars / <symbols> symbols (baseline …)
+journalctl -u mt-minute-pass.service --since "6 hours ago" | grep -E "trailing phase|QUOTA_EXHAUSTED|PROVIDER_UNAVAILABLE|backfill phase"
+uv run mt data health              # OK  minute session mass  <date>: <bars> bars, <symbols> symbols ≥30 bars; floors 1,000,000 / 5,000
 uv run python scripts/repair_921_minute_sessions.py --check   # zero pending
 ```
 
@@ -273,15 +367,28 @@ Then close #19 and #20 with the two `--check` outputs and the health line.
 - **Quota.** The repair seeds roughly 24k rows plus the existing 70k
   UNKNOWN backlog; the trailing phase guarantees the current session lands
   each night, and the backfill drains behind it at whatever the allowance
-  leaves. Mitigation: the trailing window and the abort-on-402 mean a slow
-  drain is visible, not silent.
-- **A wrong reset predicate re-fetches genuine holes.** Mitigation: the
-  predicate is by row shape and the `--check` output is reviewed before
-  `--apply`; midnight-ended rows are never touched.
+  leaves. A slow drain is visible in the journal's abort line, not silent.
+- **A wrong reset window re-fetches genuine holes.** Bounded by the dated
+  window (1,321 legacy rows) and reviewed in `--check` output before
+  `--apply`; rows before 2026-07-16 are never touched.
 
 ## Implementation Notes
 
-Order: (1) range-end fix and its test; (2) attempt accounting under 402 with
-the reproducing test, then the abort; (3) two-phase cycle; (4) health check;
-(5) repair and cutover scripts, dry-run against production `--check`;
-(6) release, cutover, measure, close the issues. Commit at each section.
+Order: (1) range-end conformance and provider-window mapping with tests;
+(2) no-response-no-accounting with the reproducing test, then the 402
+abort and the breaker; (3) two-phase cycle and `MinutePassOutcome`;
+(4) health check; (5) repair and cutover scripts, `--check` against
+production; (6) release, cutover, measure, close the issues. Commit at each
+section.
+
+## Review Response (2026-09-08)
+
+| Finding | Change |
+|---|---|
+| F001 repair bypasses the single writer | Scope 2 and Decision 3: the repair calls `update_data_gaps(..., force_reset_terminal=True)` per symbol under the daemon's advisory lock; refuses to run while a pass is active; per-symbol commits; idempotent. |
+| F002 range end deviates from 140 | Scope 1 and Decision 1: the minute range now ends at `session_close_utc` per 140 step 6 (the code was the deviation); the full-day provider window is a fetch-layer mapping, not a contract change. |
+| F003 consumers unanalyzed | New "Consumers of minute `gap_end`" table covering the coalescer, selector, writer, chunk loop, gate, API, and CLI readers. |
+| F004 mass check under-specified, poisoned baseline | Scope 4: absolute floors with values and their measurements, a calendar-based judged session with an 8 h collection lag, no baseline. |
+| F005 only 402 has a policy | Scope 3: no-response-no-accounting for every provider failure, 402 abort, consecutive-failure breaker, repair partial-failure behavior. |
+| F006 intra-pass only | Scope 3: cross-firing budget stated with numbers. |
+| F007 magic string | `MinutePassOutcome` `StrEnum` in `state.py`, exit mapping defined. |
