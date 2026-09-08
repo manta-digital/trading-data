@@ -1603,3 +1603,31 @@ known; (2) hammerhead reachable by the same identity so acceptance runs
 need no hop; (3) every slice's cutover written as one script the AI runs
 end to end, with the PM's involvement reduced to reading a report — the
 915/920 pattern, but without the hand-off.
+
+## 20260907 — Issues #19/#20 re-measured; the minute universe is at 2% and health says OK
+
+The PM's ordering for the next planning pass put the two open production
+bugs first. Re-measured read-only against production before writing the
+slice: #20 is fixed (every cagg fresh, 053/054 applied). #19's frontier
+gate works (9,279 of 9,354 gap-bearing active symbols have their frontier in
+the current week) — and the data is worse than before the fix: ~45k minute
+bars/day since 2026-08-31 against ~2.0M/day through 2026-08-27, 8–9.5k of
+~10.8k symbol-days per session holding ≤3 bars, AAPL one bar a day.
+
+Root cause, proven with a three-call provider probe after the 00:00 UTC
+quota reset: the slice-162 seeder ends every session range at the last
+session's `session_open_utc`, the fetch passes that as EODHD `to`, and
+EODHD honors `to` exactly — one bar for a lone trailing session, an empty
+body (→ `PROVIDER_HOLE`, the #19 parking) for a symbol with no bar at the
+opening minute. The day then reads as covered in the 4h-cagg index and is
+never re-seeded. Latent since 2026-07-16; universal since the 0.11.1 gate
+and reset routed every symbol through it on 2026-08-31.
+
+Two lessons recorded for the 900 plan: (1) slice 919's minute check judged
+the newest bar's age and reported OK while the universe collected 2% —
+health must measure mass, not edge; (2) the quota floor check fails every
+evening by construction, and a permanently failed unit is silence. Both
+are 921's scope, along with quota priority (trailing sessions before deep
+backfill, 402 aborts the pass, no retries consumed without an answer) and a
+one-time repair by row shape. Slice 921 overview is entry 22 of the plan;
+design at `921-slice.minute-acquisition-correctness.md`.
