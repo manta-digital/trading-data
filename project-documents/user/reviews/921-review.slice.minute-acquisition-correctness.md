@@ -4,100 +4,109 @@ layer: project
 reviewType: slice
 slice: minute-acquisition-correctness
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 sourceDocument: project-documents/user/slices/921-slice.minute-acquisition-correctness.md
 aiModel: claude-opus-5
 status: complete
 dateCreated: 20260908
 dateUpdated: 20260908
-reviewedSha: 1eab485f66fe4a21cbc4993224165b038470c4d8
+reviewedSha: b3ab98950c5f19eceead171dbcdc584a2e5cc146
 findings:
   - id: F001
-    severity: fail
-    category: architecture-boundary
-    summary: "Repair script writes `data_gaps` without naming the single-writer/locking path"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:108-118"
+    severity: concern
+    category: correctness
+    summary: "`minute session mass` floors and collection lag are derived from a full 20:00 UTC close and misfire on early-close sessions"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:171-189"
   - id: F002
     severity: concern
-    category: contract-change
-    summary: "Minute range end deviates from the architecture's documented range normalization with no escalation"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:192-197"
+    category: under-specification
+    summary: "The mass check's measurement source and read cost are unspecified"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:180-186"
   - id: F003
     severity: concern
-    category: hidden-dependency
-    summary: "Consumers of minute `gap_end` are not analyzed; `coalesce_data_gaps` adjacency is a concrete break"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:166-168"
+    category: operator-surface
+    summary: "Exit 0 for a backfill-phase `PROVIDER_UNAVAILABLE` abort contradicts the project's exit-3 partial convention and hides a provider outage"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:159-165"
   - id: F004
     severity: concern
-    category: under-specification
-    summary: "`minute session mass` is under-specified and its baseline is poisoned by the defect window"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:127-133"
+    category: integration
+    summary: "Interaction with slice 912's cycle-end stamping on an aborted pass is unstated"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:262-266"
   - id: F005
-    severity: concern
-    category: error-handling
-    summary: "Only HTTP 402 has a stated failure policy in the new two-phase cycle"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:120-126"
-  - id: F006
     severity: note
     category: scope
-    summary: "Quota prioritization is intra-pass only"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:180-187"
-  - id: F007
+    summary: "Two documented deviations from the 900 slice-plan entry"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:106-116"
+  - id: F006
     severity: note
-    category: no-magic-strings
-    summary: "`quota_exhausted` should be a named constant, not a literal"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:186"
+    category: architectural-boundary
+    summary: "Signature extensions to 140-owned functions are not escalated the way the daily-path deviation is"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:227-230"
+  - id: F007
+    severity: pass
+    category: alignment
+    summary: "Dependency direction and maintenance-band placement are correct"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:204-219"
   - id: F008
     severity: pass
-    category: alignment
-    summary: "Maintenance-band scope is correct and corrective"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md#technical-scope"
+    category: error-handling
+    summary: "Failure modes for the new I/O paths are enumerated with explicit handling, not TBD"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:142-165"
   - id: F009
     severity: pass
+    category: correctness
+    summary: "Every reader of the changed value is analyzed before the change"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:238-252"
+  - id: F010
+    severity: pass
     category: alignment
-    summary: "Dependency direction and verification surface"
-    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:139-152"
+    summary: "No magic strings; new dispatch values are typed and centralized"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:233"
 ---
 
 # Review: slice — slice 921
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS
 **Model:** claude-opus-5
 
 ## Findings
 
-### [FAIL] Repair script writes `data_gaps` without naming the single-writer/locking path
+### [CONCERN] `minute session mass` floors and collection lag are derived from a full 20:00 UTC close and misfire on early-close sessions
 
-Scope item 2 has `scripts/repair_921_minute_sessions.py` reset ~24k terminal rows to UNKNOWN and seed new UNKNOWN rows with corrected ends, and Decision 6 (line 210) justifies it as a script rather than a migration — but nowhere does the design state *how* those rows are written. 900-arch's maintenance-band constraints name slice 145's `update_data_gaps`-as-single-writer rule as the canonical contract a maintenance slice consumes rather than redefines; 140-arch (`#### update_data_gaps … — transactional writer`) specifies a single transaction under a PostgreSQL advisory lock on `(symbol, granularity)`, with `force_reset_terminal=True` as the *published* mechanism for clearing `PROVIDER_HOLE`/`RETRY_EXHAUSTED` (the path `mt data refetch` already uses). A bespoke script issuing direct `UPDATE`/`INSERT` against `data_gaps` bypasses both the writer and the lock. The cutover (line 256) runs `--apply` just after 00:00 UTC, ~35 minutes before the 00:35 daily and 01:05 minute firings — an overrun puts the repair's writes in a race with a daemon holding the advisory lock for the same scope, corrupting the exact accounting this slice exists to fix. The design must state either "the repair calls `update_data_gaps(..., force_reset_terminal=True)` per symbol scope" or, if it cannot, why a direct writer is safe and how it serializes against the daemon.
+Both halves of the new check are anchored to a regular session. The `8 h` lag is justified as "the 01:05 UTC firing plus its run" — which only holds for a 20:00 UTC close (→ judged from 04:00 UTC). On an NYSE early close (13:00 ET → 17:00 UTC in summer, 18:00 in winter), `session_close_utc + 8 h` puts the judged session in scope from 01:00/02:00 UTC, i.e. at or before the 01:05 firing has finished collecting it. The threshold has the same shape: a 210-minute early close is ~54% of a 390-minute session, so the healthy 1.9–2.0M mass becomes ~1.05M against a `HEALTH_MINUTE_SESSION_MIN_BARS = 1,000,000` floor — inside noise of the floor, and below it once the reduced liquidity of a half-day (Black Friday, July 3, Christmas Eve) is included. Decision 5 (line 290-293) argues the floors "survive an illiquid Friday" but never mentions early closes, even though slice 144 materializes `session_close_utc` with early-close overrides precisely so consumers can see them. Failure scenario: on the Friday after Thanksgiving the pass works correctly, the judged session holds ~950k bars, `mt data health` fails `minute session mass`, `mt-health.timer` fails hourly, and the operator learns to ignore the unit — the exact "a unit that is always failed is not an alarm" failure this slice exists to remove (line 89-90).
 
-### [CONCERN] Minute range end deviates from the architecture's documented range normalization with no escalation
+### [CONCERN] The mass check's measurement source and read cost are unspecified
 
-140-arch specifies that missing-session ranges are "normalized as `[session_open_utc, session_close_utc]` per session" (step 6: `(symbol, granularity, session_open_utc(T_first), session_close_utc(T_last))`) for both the daily and minute data tables. Technical Decision 1 adopts a third semantics — next UTC midnight — and states it as "not `session_close_utc`", which is a knowing deviation from the owning initiative's specified contract, yet the doc never cites that specification or records an escalation. 900-arch is explicit: "A fix that requires changing a contract is escalated to the owning initiative rather than absorbed here." The extended-hours rationale is convincing; what is missing is the acknowledgement that this changes a 140-owned contract and the resulting split — daily rows ending at session close, minute rows at midnight — for a shared table.
+Scope item 4 states the two measured quantities ("bars in the judged session", "symbols with `≥ 30` bars") and their floors, but never names the relation they are read from. The Component Structure table (line 232) lists only `cli/commands/health.py` as changed, and Interfaces Required (line 217) names `minute_4hour_ohlcv` only as the *coverage* source for the seeder. This matters because the 140 architecture records a measured latency cliff on exactly this table family — a single-symbol `MIN(time)/MAX(time)` on raw `minute_ohlcv` took 10m47s (140-slices §166), and the `data_status` bars summary had to be moved off the raw hypertable onto a coverage cagg to meet its NFR (§167). Failure scenario: the implementer reads the count from raw `minute_ohlcv` with a `time BETWEEN open AND close` predicate across ~13k symbols; the hourly `mt-health.timer` firing takes minutes or trips a statement timeout, and the check exits 2 (919's "could not run"), failing the unit for a reason unrelated to data mass. State the source relation (e.g. summing `minute_count` from `minute_4hour_ohlcv` over the session's buckets) and the read bound.
 
-### [CONCERN] Consumers of minute `gap_end` are not analyzed; `coalesce_data_gaps` adjacency is a concrete break
+### [CONCERN] Exit 0 for a backfill-phase `PROVIDER_UNAVAILABLE` abort contradicts the project's exit-3 partial convention and hides a provider outage
 
-The Component Structure table changes `compute_missing_minute_sessions`'s output shape and lists only the seeder, the daemon, the selector, health, and the scripts. 140-arch defines `coalesce_data_gaps` adjacency as `next_trading_session_after(A.gap_end) == B.gap_start` with `B.gap_start` a `session_open_utc` — a `gap_end` at UTC midnight is not a session boundary, so adjacent minute rows will either stop coalescing (unbounded row growth in `data_gaps`) or coalesce incorrectly. The doc does not mention `coalesce_data_gaps` at all, nor the serving-side consumers that report gap ranges to API clients (slices 184/185/187), whose reported minute coverage windows shift by up to ten hours. At minimum the design needs a line per consumer stating "unchanged because …" or "adjusted by …".
+The exit mapping is "0 when the trailing phase completed … 3 when the abort fell inside the trailing phase". This folds two very different outcomes into exit 0: `QUOTA_EXHAUSTED` during backfill (genuinely the designed steady state, per the cross-firing budget at lines 166-170) and `PROVIDER_UNAVAILABLE` — five consecutive 5xx/timeout/connection-reset failures. The project's established convention, cited by this very document as out-of-scope context (line 199) and stated in slices 262/263/264 and runbook 100, is that a partial pass exits 3 and fails the unit *on purpose* so a degraded provider is visible rather than silent. Failure scenario: EODHD begins returning 5xx at 01:20 UTC after the trailing phase completes; every subsequent firing that day ends `PROVIDER_UNAVAILABLE` after five symbols, exits 0, `mt-run status` shows the minute pass green, and the backfill of the 94k-row repair backlog silently stops draining — visible only as a journal line nobody is obliged to read. Either give `PROVIDER_UNAVAILABLE` a non-zero exit regardless of phase, or state explicitly why this pass departs from the exit-3 convention the rest of the system uses.
 
-### [CONCERN] `minute session mass` is under-specified and its baseline is poisoned by the defect window
+### [CONCERN] Interaction with slice 912's cycle-end stamping on an aborted pass is unstated
 
-Three constants are named (`HEALTH_MINUTE_MASS_BASELINE_SESSIONS`, `HEALTH_MINUTE_MASS_MIN_RATIO`, `MINUTE_TRAILING_PRIORITY_WINDOW`) with no values, unlike sibling slice 919, which states every threshold inline (4 d / 5 d / 20k / 3 h) and justifies them as "the loosest values that catch each failure within a working day". Two consequences follow from the omission. First, the baseline is "the median of the previous N sessions" — at cutover every one of those sessions holds ~45k bars against a healthy ~2.0M, so the new check certifies a 2%-collection production as healthy until the window rolls past 2026-08-31; Success Criterion 6 ("passes on production after the repair") is satisfied trivially by a poisoned baseline. Second, the check runs at :50 hourly against "the last completed session", but that session's bars are only fetched by the following night's pass — without a stated collection-lag tolerance the check fails for most of the hours of every day by construction, which is precisely the "a unit that is always failed is not an alarm" pathology this slice removes the quota check for (line 82).
+Frontmatter lists `interfaces: [912]` and the Component table changes `data/acquisition/daemon/minute.py`, but neither the Dependencies section (lines 204-219) nor the Data Flow abort step says what an aborted pass does to slice 912's `last_minute_cycle_end_utc` — the stamp 912 introduced as the cadence gate and the `--stop-when-done` termination condition — or to `acquisition_state.last_attempt_outcome` for symbols in the un-attempted tail. The "no response, no accounting" rule (lines 145-151) is scoped to `attempt_count` and `fetch_status` on `data_gaps` rows only. Failure scenario: a 402 abort at 01:06 UTC stamps `last_minute_cycle_end_utc` as if the cycle completed; a hand-run `mt data daemon run --minute --stop-when-done` later that morning sees a satisfied cadence gate and exits reporting drained work without fetching anything — 912's issue #6 behavior reintroduced through a path 912 never contemplated. Name the stamping behavior for each `MinutePassOutcome`.
 
-### [CONCERN] Only HTTP 402 has a stated failure policy in the new two-phase cycle
+### [NOTE] Two documented deviations from the 900 slice-plan entry
 
-Scope item 3 and Decision 4 fully specify the 402 path (abort, `quota_exhausted`, no gap row touched, no `attempt_count` increment). The other failure modes on the same new I/O path are unstated: request timeout/hang, connection reset mid-response, HTTP 429, and provider 5xx storms. The measured pathology being fixed — "still ran 35 minutes, skipping one symbol at a time … 7,755 rows promoted to `RETRY_EXHAUSTED` without a provider answer" — is not unique to 402; a 5xx storm or a timeout cascade reproduces it exactly, and the trailing phase now guarantees every active symbol is touched every pass, widening the blast radius. Similarly, the repair script's failure modes are unenumerated: what state exists if `--apply` dies partway (the "refuses to run twice" idempotency claim at line 117 assumes a completed apply), and whether the reset+seed is one transaction or many.
+The plan entry (900-slices.foundation-cleanup.md:72) specifies scope (1) as "minute session ranges end at the UTC midnight after the last session's date" and scope (4) as thresholds "against a trailing baseline". The design instead ends the range at `session_close_utc` (conforming to 140 §Gap function step 6, verified against the architecture) and pushes midnight to a fetch-layer provider window, and replaces the trailing baseline with absolute floors. Both deviations are the better call — the plan's midnight end would have broken `coalesce_data_gaps._are_adjacent` (correctly identified at line 244), and a trailing baseline would certify the broken 45k state (Decision 5) — and both are recorded in the Review Response table. Noting only so the plan entry gets reconciled rather than left contradicting the design it points at.
 
-### [NOTE] Quota prioritization is intra-pass only
+### [NOTE] Signature extensions to 140-owned functions are not escalated the way the daily-path deviation is
 
-The trailing/backfill ordering is defined inside the minute cycle, but the 100k/day allowance is shared with the 00:35 daily pass, which runs first, and with the two later minute firings. The design's own measurement (line 74) attributes starvation to spend ordering *across* firings. The trailing phase is small enough (~13k one-chunk requests) that this is probably adequate, but the doc should say so rather than leave the cross-pass ordering unaddressed.
+The 900 architecture requires that a maintenance slice "consumes the interfaces its target layer already publishes … It does not redefine them. A fix that requires changing a contract is escalated to the owning initiative" (900-arch:27). The slice honors this for the daily-path range end (escalated to 140, Out of scope line 200-202), but it also adds a per-symbol uncovered-days parameter to `compute_missing_minute_sessions` and an optional `min_gap_end` filter to `actionable_gap_selector` — both 140-owned surfaces — without the same explicit escalation note. These are additive, backward-compatible parameters serving a corrective fix, so this reads as within the band's latitude rather than a violation; it is worth one sentence saying so, so a later reader does not have to re-derive the judgment.
 
-### [NOTE] `quota_exhausted` should be a named constant, not a literal
+### [PASS] Dependency direction and maintenance-band placement are correct
 
-900-arch's "No magic strings" principle requires dispatch and status values to be enums or typed constants defined once. The new pass outcome appears only as a quoted string in the Data Flow and in Success Criterion 4; the constants row (line 170) lists the three thresholds but not the outcome value. Worth one word in the design given the health/journal/`mt-run status` surfaces that will match on it.
+The slice depends on 919 (same band) and consumes — rather than reopens — slices 145, 162, and 165, which is exactly the arrangement the 900 architecture's maintenance-band extension sanctions (900-arch:22-29): a maintenance slice comes after the work it corrects and may touch the acquisition and data-quality layers another initiative delivered. The "prerequisite for 100-180" dependency statement applies to the 900-909 foundation slices, not here, and the slice does not claim otherwise.
 
-### [PASS] Maintenance-band scope is correct and corrective
+### [PASS] Failure modes for the new I/O paths are enumerated with explicit handling, not TBD
 
-All five in-scope items repair behavior that is already specified and demonstrably wrong (truncated fetches, retries consumed without a provider answer, a health check measuring the wrong quantity, a UTC-labelled local timestamp), which is exactly the "corrective, not additive" test 900-arch sets for the 900-999 band. Touching acquisition and data-quality modules owned by initiatives 120/140 is explicitly permitted by the 2026-08-03 scope extension. The Out of Scope list correctly pushes delisting-aware status (#14), mat-chunk recompression, and the Kalshi `partial` exit elsewhere.
+Every provider outcome has a stated policy: 402 aborts the pass, 429 exhaustion/5xx/timeout/connection reset touch no gap row and count toward a five-failure breaker, and 200/404 are the only states that move accounting. The repair script's failure modes are equally concrete — advisory-lock contention blocks for `DAEMON_LOCK_TIMEOUT` then skips and reports the symbol, per-symbol commits make a mid-run death resumable, a second `--apply` is a no-op, and it refuses to start while a pass unit is active. Success criteria 4 and 5 bind each mode to a unit test. The one deferred item (the exact current accounting path that promoted 7,755 rows) is bounded by a general rule plus a reproducing test rather than left as an open question.
 
-### [PASS] Dependency direction and verification surface
+### [PASS] Every reader of the changed value is analyzed before the change
 
-`dependencies: [919]` with `interfaces: [162, 165, 912]` has the maintenance slice depending on the work it corrects, which 900-arch states is the expected direction for this band (the "900 precedes 100-180" statement covers foundation slices only). The health check is added into 919's existing `gather()`/`render()` structure rather than as a parallel mechanism, and every outcome is reachable through `mt` (`mt data health`, `--check`, `mt-run status`), satisfying "CLI is the verification surface". Thresholds land in `constants.py` per the centralized-configuration goal, and Decision 5 removes a check rather than tuning it to a value that would mask the condition — consistent with "Explicit failure".
+The "Consumers of minute `gap_end`" table walks the coalescer, the selector, the single writer, the chunk loop, the frontier gate, the API response models (184/185/187), and the CLI/rendering readers, stating for each why the 13:30→20:00 move is safe. The coalescer entry in particular shows the design reasoning about why the range end is the session close and not midnight, which is what makes the 140-conformance choice defensible rather than incidental.
+
+### [PASS] No magic strings; new dispatch values are typed and centralized
+
+`MinutePassOutcome` is a `StrEnum` beside `LastAttemptOutcome` in `state.py`, and all six new tunables (`MINUTE_TRAILING_PRIORITY_WINDOW`, `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES`, the five `HEALTH_MINUTE_SESSION_*`, `REPAIR_921_WINDOW_START`) land in `constants.py` with their measured justification. This satisfies the 900 architecture's "No magic strings" principle and 919's "one named threshold in `constants.py`" pattern.

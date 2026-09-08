@@ -159,10 +159,24 @@ failed is not an alarm.
    - The pass outcome is `MinutePassOutcome` (`StrEnum` beside
      `LastAttemptOutcome` in `state.py`): `COMPLETE`, `QUOTA_EXHAUSTED`,
      `PROVIDER_UNAVAILABLE`. The journal line names the phase and the count
-     of symbols not attempted. Exit code: 0 when the trailing phase
-     completed (an abort during backfill is the designed steady state), 3
-     when the abort fell inside the trailing phase, which is the failure
-     that matters.
+     of symbols not attempted. Exit code follows the project's partial-pass
+     convention (exit 3 fails the unit on purpose, as the Kalshi pass and
+     runbook 100 do): `COMPLETE` → 0; `QUOTA_EXHAUSTED` after the trailing
+     phase completed → 0, because spending the allowance on backfill is the
+     designed steady state and a green unit is the truthful report;
+     `QUOTA_EXHAUSTED` inside the trailing phase → 3;
+     `PROVIDER_UNAVAILABLE` → 3 in either phase, so a provider outage that
+     stalls the backfill drain fails the unit rather than hiding in a
+     journal line.
+   - **Slice 912's cycle stamp.** `RunnerState.last_minute_cycle_end_utc`
+     is an in-process busy-loop guard; 912 states that whether work remains
+     is derived from `acquisition_state`, never from that timestamp. An
+     aborted pass stamps the cycle end exactly as a completed one does, so
+     `--stop-when-done` exits instead of re-running into the same 402, and
+     nothing is derived from the stamp. `acquisition_state` rows for the
+     un-attempted tail are untouched — "no response, no accounting" covers
+     `last_attempt_outcome` and `last_attempt_ts` as well as the gap rows —
+     so a later hand run finds the work still pending.
    Cross-firing budget, stated: the 00:35 UTC daily pass spends ~12k
    requests first; the trailing phase needs ~13k (one chunk per active
    symbol); against a 100k allowance the current session lands every night
@@ -173,17 +187,41 @@ failed is not an alarm.
    baseline, so no poisoned window). New check `minute session mass`:
    - **Judged session:** the newest `trading_sessions` row for
      `HEALTH_MINUTE_SESSION_CALENDAR = "NYSE"` (11,692 of 13,081 active
-     instruments) whose `session_close_utc + HEALTH_MINUTE_SESSION_COLLECTION_LAG`
-     is in the past, with the lag `8 h` — the 01:05 UTC firing plus its run.
-     From 04:00 UTC the judged session is the previous trading day; before
-     that, the one before. Weekends and holidays fall out of the calendar.
-   - **Thresholds:** bars in the judged session
-     `≥ HEALTH_MINUTE_SESSION_MIN_BARS = 1,000,000` (measured healthy
-     1.9–2.0M on 2026-08-24..27, broken 45k) and symbols with
-     `≥ HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS = 30` bars
+     instruments) whose **collecting firing has finished**: the pass that
+     lands a session is the first 01:05 UTC minute firing after its close,
+     so the session is judged once
+     `next_0105_utc_after(session_close_utc) + HEALTH_MINUTE_SESSION_COLLECTION_LAG`
+     (`3 h`, the trailing phase measured at ~35 min plus margin) is in the
+     past — 04:05 UTC the next day for a regular close and for an early
+     close alike (NYSE 2026 early closes: 07-02 17:00 UTC, 11-27 and 12-24
+     18:00 UTC; the 01:05 firing is the collecting one either way).
+     Weekends and holidays fall out of the calendar. The firing time is the
+     `mt-minute-pass.timer` `OnCalendar` value, held once in `constants.py`
+     and rendered into the unit, not duplicated.
+   - **Thresholds, scaled to the session's length:** the floors are
+     per-minute rates applied to the judged session's
+     `session_close_utc − session_open_utc` (390 min regular, 210 min at
+     an early close), so a half-day is judged against half the mass:
+     `HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE = 2,500` (measured healthy
+     1.99M / 390 ≈ 5,100 per minute on 2026-08-27; broken 45k / 390 ≈ 115)
+     and symbols with `≥ HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS = 30` bars
      `≥ HEALTH_MINUTE_SESSION_MIN_SYMBOLS = 5,000` (measured 7,259 on
-     2026-08-27, ~0 since 2026-08-31).
-   - One line: `OK   minute session mass   2026-09-08: 1,991,311 bars, 7,259 symbols ≥30 bars; floors 1,000,000 / 5,000`.
+     2026-08-27, ~0 since 2026-08-31; the symbol count does not scale with
+     session length, and 30 bars is reachable in a 210-minute session by
+     every symbol that reaches it in 390).
+   - **Measurement source and read bound:** both quantities are read from
+     `minute_4hour_ohlcv` — `SUM(minute_count)` and
+     `COUNT(*) FILTER (WHERE symbol-sum ≥ 30)` over the buckets whose
+     `time_bucket` falls in `[session_open_utc, session_close_utc)`, grouped
+     by symbol — never from raw `minute_ohlcv` (140-slices §166/§167
+     recorded the raw-table latency cliff). One session is ~41k cagg rows
+     (measured 2026-08-27), a sub-second read; the check runs under
+     `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT`'s sibling
+     `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT = "30s"` and exits 2 on
+     timeout like every 919 check. The cagg's own freshness is already
+     judged by the `cagg minute_4hour_ohlcv` line, so a stale cagg fails
+     there, not as a false mass reading.
+   - One line: `OK   minute session mass   2026-09-08 (390 min): 1,991,311 bars, 7,259 symbols ≥30 bars; floors 975,000 / 5,000`.
    The `eodhd quota` floor check is removed — its consequence is what this
    check measures. `check_raw_freshness` prints the timestamp in UTC (today
    it prints local time with a `UTC` suffix).
@@ -217,6 +255,13 @@ failed is not an alarm.
 - `minute_4hour_ohlcv` as the coverage source (unchanged).
 - `data/locking.advisory_lock` and `DAEMON_LOCK_TIMEOUT`.
 - EODHD intraday `from`/`to` semantics as probed above (exact).
+- Two 140-owned signatures gain optional, backward-compatible parameters
+  (`compute_missing_minute_sessions` takes a per-symbol set of days to
+  treat as uncovered; `pick_most_recent_actionable_gap` takes
+  `min_gap_end`). Existing callers are unchanged and no published contract
+  moves, so this is within the maintenance band's latitude (900-arch:27)
+  and is recorded here rather than escalated; the daily-path range end,
+  which would change a contract, is escalated (Out of scope).
 
 ## Architecture
 
@@ -230,7 +275,8 @@ failed is not an alarm.
 | `data/gaps/actionable_gap_selector.py` | optional `min_gap_end` filter for the trailing phase. |
 | `data/acquisition/state.py` | `MinutePassOutcome`. |
 | `cli/commands/health.py` | `check_minute_session_mass`; quota check removed; UTC label fix. |
-| `constants.py` | `MINUTE_TRAILING_PRIORITY_WINDOW`, `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES`, `HEALTH_MINUTE_SESSION_*` (five), `REPAIR_921_WINDOW_START`. |
+| `constants.py` | `MINUTE_TRAILING_PRIORITY_WINDOW`, `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES`, `MINUTE_PASS_FIRING_TIMES_UTC` (rendered into `mt-minute-pass.timer`), `HEALTH_MINUTE_SESSION_*` (calendar, collection lag, bars-per-minute floor, symbol floor, per-symbol bar floor, statement timeout), `REPAIR_921_WINDOW_START`. |
+| `deploy/systemd/mt-minute-pass.timer` | `OnCalendar` rendered from the constant by `install-production.sh` so the health check and the timer cannot disagree. |
 | `scripts/repair_921_minute_sessions.py` | one-time repair via the single writer, `--check` / `--apply`. |
 | `scripts/cutover_921_minute_sessions.py` | preconditions (installed version, no pass active, quota just reset), repair `--apply`, next-morning report. |
 
@@ -323,10 +369,12 @@ Nightly firing after this slice:
    chunk (unit test on the phase order; the journal shows
    `trailing phase complete: N symbols` before the first backfill line).
 7. `mt data health` fails `minute session mass` on a fixture where the
-   judged session holds 45k bars and passes on one with 1.99M; the judged
-   session is yesterday's from 04:00 UTC and the day before earlier; the
-   quota floor line is gone; production records at least one `healthy`
-   run after 23:00 UTC.
+   judged session holds 45k bars and passes on one with 1.99M and on a
+   210-minute early-close fixture with 1.05M; the judged session is
+   yesterday's from 04:05 UTC and the day before earlier, for regular and
+   early closes alike; the read is against `minute_4hour_ohlcv` (asserted
+   by the test's query capture); the quota floor line is gone; production
+   records at least one `healthy` run after 23:00 UTC.
 8. Issues #19 and #20 are closed with the measurements; runbook 100 carries
    the signature query.
 
@@ -392,3 +440,14 @@ section.
 | F005 only 402 has a policy | Scope 3: no-response-no-accounting for every provider failure, 402 abort, consecutive-failure breaker, repair partial-failure behavior. |
 | F006 intra-pass only | Scope 3: cross-firing budget stated with numbers. |
 | F007 magic string | `MinutePassOutcome` `StrEnum` in `state.py`, exit mapping defined. |
+
+Round 2 (CONCERNS, reviewed b3ab989):
+
+| Finding | Change |
+|---|---|
+| F001 early closes | Scope 4: the judged session is keyed to the collecting firing (04:05 UTC next day for every close), and the bar floor is a per-minute rate applied to the session's real length; the firing time is one constant rendered into the timer. |
+| F002 measurement source | Scope 4: read from `minute_4hour_ohlcv` (`SUM(minute_count)`, ~41k rows per session, sub-second), never raw `minute_ohlcv`; own statement timeout; exit 2 on timeout. |
+| F003 exit 0 hides an outage | Scope 3: `PROVIDER_UNAVAILABLE` exits 3 in either phase; only a post-trailing `QUOTA_EXHAUSTED` exits 0, with the reason stated. |
+| F004 912 stamping | Scope 3: an abort stamps the in-process cycle end like a completed pass (busy-loop guard only, per 912); `acquisition_state` for the un-attempted tail is untouched. |
+| F005 plan entry drift | 900 plan entry 22 reconciled to the design (session close + fetch-layer day window; absolute floors). |
+| F006 signature extensions | Interfaces Required: recorded as additive, backward-compatible, within the band's latitude. |
