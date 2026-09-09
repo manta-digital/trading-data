@@ -16,7 +16,7 @@ projectState: >
   closeout. Version 0.13.0 on main.
 dateCreated: 20260908
 dateUpdated: 20260909
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -96,72 +96,72 @@ Design *Scope 1*, *Decision 1*, *SC1*. The minute range must end at
 and the daily path are **not** modified — the change lives in
 `compute_missing_minute_sessions`, the minute caller.
 
-- [ ] **Task 1.1: Fetch session closes alongside opens** (effort: 2)
-  - [ ] `fetch_sessions` in `data/gaps/compute_missing_ranges.py` returns a
+- [x] **Task 1.1: Fetch session closes alongside opens** (effort: 2)
+  - [x] `fetch_sessions` in `data/gaps/compute_missing_ranges.py` returns a
         list of `session_open_utc` values only. Add a sibling that returns the
         open→close mapping for the same window and calendar join, so the
         minute caller can resolve a close without a second query per range.
-  - [ ] Keep `fetch_sessions` and its return type unchanged — the daily path
+  - [x] Keep `fetch_sessions` and its return type unchanged — the daily path
         and `compute_missing_ranges` call it and must not move.
-  - [ ] The new function selects `session_open_utc, session_close_utc` from
+  - [x] The new function selects `session_open_utc, session_close_utc` from
         `trading_sessions` joined to `instruments` on `trading_calendar_id`,
         ordered by open, with the same bind-parameter treatment as
         `fetch_sessions` (no interpolation).
-  - [ ] Success: the new function exists with a docstring stating that the
+  - [x] Success: the new function exists with a docstring stating that the
         minute range end is the close per 140 step 6; `fetch_sessions`'s
         signature and body are byte-identical to before.
-- [ ] **Task 1.2: `compute_missing_minute_sessions` ends ranges at the close**
+- [x] **Task 1.2: `compute_missing_minute_sessions` ends ranges at the close**
       (effort: 2)
-  - [ ] After `group_sessions_into_ranges` returns, rewrite each `GapRange`'s
+  - [x] After `group_sessions_into_ranges` returns, rewrite each `GapRange`'s
         `gap_end_utc` from the last missing session's open to that session's
         `session_close_utc`, using the mapping from Task 1.1.
-  - [ ] A session whose close is missing from the mapping (a calendar row with
+  - [x] A session whose close is missing from the mapping (a calendar row with
         a null close) must fail explicitly — log at ERROR and drop that range,
         never fall back to the open. Silently keeping the open reintroduces
         the defect this slice exists to fix.
-  - [ ] `gap_start_utc` stays the first missing session's `session_open_utc`.
-  - [ ] Success: for one missing session the returned range is
+  - [x] `gap_start_utc` stays the first missing session's `session_open_utc`.
+  - [x] Success: for one missing session the returned range is
         `[open, close]` of that session; for a contiguous run it is
         `[open(first), close(last)]`; the grouping/contiguity behavior is
         otherwise unchanged.
-- [ ] **Task 1.3: Tests for the range end** (effort: 2)
-  - [ ] Extend `test/unit/data/gaps/test_minute_coverage.py` following its
+- [x] **Task 1.3: Tests for the range end** (effort: 2)
+  - [x] Extend `test/unit/data/gaps/test_minute_coverage.py` following its
         existing mocked-connection pattern.
-  - [ ] Fixture rows must be real `trading_sessions` values in both DST
+  - [x] Fixture rows must be real `trading_sessions` values in both DST
         regimes: 13:30/20:00 UTC in summer and 14:30/21:00 UTC in winter
         (SC1). A fixture that only uses one regime does not prove the close
         is read rather than computed as open + a fixed offset.
-  - [ ] Cases: single missing session; a contiguous run of three; two runs
+  - [x] Cases: single missing session; a contiguous run of three; two runs
         separated by a covered day; an early-close session (a shorter
         open→close span in the fixture) ending at its real close; a null
         close logging at ERROR and dropping the range.
-  - [ ] Success: `uv run pytest test/unit/data/gaps -q` passes; a test asserts
+  - [x] Success: `uv run pytest test/unit/data/gaps -q` passes; a test asserts
         the exact `gap_end_utc` value against the fixture's close, not against
         an offset from the open.
-- [ ] **Task 1.4: Provider window reaches the end of the day** (effort: 2)
-  - [ ] In `_do_minute_symbol`'s chunk loop (`data/acquisition/daemon/minute.py`),
+- [x] **Task 1.4: Provider window reaches the end of the day** (effort: 2)
+  - [x] In `_do_minute_symbol`'s chunk loop (`data/acquisition/daemon/minute.py`),
         the EODHD URL's `to` becomes the UTC midnight **after** `chunk_end`'s
         date, so extended-hours bars keep landing (AAPL 2026-08-27 traded
         08:00–23:59 UTC). Scope 1: this is a fetch-layer mapping.
-  - [ ] `chunk_end` itself, `_advance_minute_gap`'s arguments, the range passed
+  - [x] `chunk_end` itself, `_advance_minute_gap`'s arguments, the range passed
         to `classify_outcome`, and the trailing-tolerance comparison are
         unchanged — only the value serialized into the URL moves.
-  - [ ] The day-end helper is a named module-level function with a docstring
+  - [x] The day-end helper is a named module-level function with a docstring
         explaining why the request window exceeds the gap window; do not
         inline the arithmetic at the URL.
-  - [ ] Success: for `chunk_end = 2026-09-03 20:00 UTC` the URL's `to` is the
+  - [x] Success: for `chunk_end = 2026-09-03 20:00 UTC` the URL's `to` is the
         epoch of `2026-09-04 00:00 UTC`; `from` is still `chunk_start`'s epoch.
-- [ ] **Task 1.5: Tests for the provider window** (effort: 2)
-  - [ ] Add to `test/unit/data/acquisition/daemon/test_minute.py`, using the
+- [x] **Task 1.5: Tests for the provider window** (effort: 2)
+  - [x] Add to `test/unit/data/acquisition/daemon/test_minute.py`, using the
         harness already in that directory.
-  - [ ] Capture the built URL and assert both epoch parameters (SC1). Cases:
+  - [x] Capture the built URL and assert both epoch parameters (SC1). Cases:
         a trailing single-session gap; a multi-day chunk; a chunk whose
         `chunk_end` is already at midnight (the day-end helper must not add a
         second day).
-  - [ ] Assert `classify_outcome` receives the un-extended `[chunk_start,
+  - [x] Assert `classify_outcome` receives the un-extended `[chunk_start,
         chunk_end]` range, so classification semantics do not shift with the
         request window.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
+  - [x] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
 
 ### Consumers of the moved `gap_end`
 
@@ -170,30 +170,30 @@ Design *"Consumers of minute `gap_end`"* table. The row's end moves from
 consumer is unaffected; these two tasks prove it rather than assuming it,
 and ride into the same checkpoint.
 
-- [ ] **Task 1.6: Coalescer adjacency regression test** (effort: 1)
-  - [ ] `coalesce_data_gaps._are_adjacent` compares
+- [x] **Task 1.6: Coalescer adjacency regression test** (effort: 1)
+  - [x] `coalesce_data_gaps._are_adjacent` compares
         `next_trading_session_after(prev.gap_end.date())` with
         `current.gap_start.date()` — dates only.
-  - [ ] Add a case to `test/unit/data/gaps/test_coalesce_data_gaps.py` with
+  - [x] Add a case to `test/unit/data/gaps/test_coalesce_data_gaps.py` with
         two consecutive-session minute rows ending at session closes, and
         assert they still coalesce.
-  - [ ] Success: the new case passes; it fails if `gap_end` is moved to the
+  - [x] Success: the new case passes; it fails if `gap_end` is moved to the
         next UTC midnight (record that in the test's docstring — it is why the
         range end is the close and not midnight, Decision 1).
-- [ ] **Task 1.7: Selector and frontier-gate regression tests** (effort: 1)
-  - [ ] `pick_most_recent_actionable_gap` filters `gap_end <= to_ts` with
+- [x] **Task 1.7: Selector and frontier-gate regression tests** (effort: 1)
+  - [x] `pick_most_recent_actionable_gap` filters `gap_end <= to_ts` with
         `to_ts = now_midnight`; a 20:00 end must still be selected.
-  - [ ] `_do_minute_symbol`'s frontier gate compares
+  - [x] `_do_minute_symbol`'s frontier gate compares
         `MAX(gap_end) < target_end`; a 20:00 frontier must still trigger the
         trailing seed.
-  - [ ] Add both cases to the existing selector and minute daemon test files.
-  - [ ] Success: both pass without changing the production code under test.
-- [ ] **Task 1.8: Section 1 checkpoint** (effort: 1)
-  - [ ] Run `uv run pytest test/unit -q` and `uv run mypy` over the touched
+  - [x] Add both cases to the existing selector and minute daemon test files.
+  - [x] Success: both pass without changing the production code under test.
+- [x] **Task 1.8: Section 1 checkpoint** (effort: 1)
+  - [x] Run `uv run pytest test/unit -q` and `uv run mypy` over the touched
         source and test paths in a single invocation.
-  - [ ] `ruff format` the files this section touched only.
-  - [ ] Commit: `fix: end minute gap ranges at the session close (921)`.
-  - [ ] Success: unit tier green, working tree clean.
+  - [x] `ruff format` the files this section touched only.
+  - [x] Commit: `fix: end minute gap ranges at the session close (921)`.
+  - [x] Success: unit tier green, working tree clean.
 
 ## Section 2: No response, no accounting
 
