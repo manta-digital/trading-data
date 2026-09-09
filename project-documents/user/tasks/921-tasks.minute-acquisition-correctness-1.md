@@ -203,34 +203,34 @@ There are **two** paths that violate this and each needs its own fix: the seed
 in `update_data_gaps`, and the chunk loop's handling of a `TRANSIENT_FAILURE`
 that `classify_outcome` returned rather than raised.
 
-- [ ] **Task 2.1: Reproduce the 2026-09-07 seed promotion path** (effort: 3)
-  - [ ] Read `update_data_gaps.py` Step 5: `attempt_count = prior_count + 1`
+- [x] **Task 2.1: Reproduce the 2026-09-07 seed promotion path** (effort: 3)
+  - [x] Read `update_data_gaps.py` Step 5: `attempt_count = prior_count + 1`
         and promotion to `RETRY_EXHAUSTED` at `MAX_RETRY_COUNT` happen on the
         **seed**, with no provider call in the transaction.
-  - [ ] Write a test in `test/unit/data/gaps/test_update_data_gaps.py` that
+  - [x] Write a test in `test/unit/data/gaps/test_update_data_gaps.py` that
         seeds the same range four times with no fetch between seeds and
         asserts the current (wrong) behavior: the row reaches
         `RETRY_EXHAUSTED` with `attempt_count == MAX_RETRY_COUNT`. Mark it
         with a docstring naming the 7,755 rows promoted on 2026-09-07.
-  - [ ] Do not fix anything in this task. Its output is the evidence that the
+  - [x] Do not fix anything in this task. Its output is the evidence that the
         seed path is one of the two accounting defects.
-  - [ ] Success: the test passes against unmodified code, documenting the
+  - [x] Success: the test passes against unmodified code, documenting the
         defect.
-- [ ] **Task 2.2: Seeding no longer consumes retries** (effort: 3)
-  - [ ] Change the seed path so re-seeding a range that was never answered by
+- [x] **Task 2.2: Seeding no longer consumes retries** (effort: 3)
+  - [x] Change the seed path so re-seeding a range that was never answered by
         the provider carries the prior `attempt_count` forward **unchanged**
         instead of incrementing it, and therefore cannot promote to
         `RETRY_EXHAUSTED`.
-  - [ ] `update_data_gaps`'s signature, `UpdateResult` fields, and the daily
+  - [x] `update_data_gaps`'s signature, `UpdateResult` fields, and the daily
         path's use of it must keep working; if the daily path depends on the
         increment, gate the new behavior on granularity explicitly with a
         comment rather than changing daily silently.
-  - [ ] Success: the Task 2.1 test is inverted (four seeds leave the row
+  - [x] Success: the Task 2.1 test is inverted (four seeds leave the row
         UNKNOWN at its original count) and every existing
         `test_update_data_gaps.py` case still passes.
-- [ ] **Task 2.3: A response-less `TRANSIENT_FAILURE` writes nothing**
+- [x] **Task 2.3: A response-less `TRANSIENT_FAILURE` writes nothing**
       (effort: 3)
-  - [ ] **The chunk loop is the second defect.** `classify_outcome` *returns*
+  - [x] **The chunk loop is the second defect.** `classify_outcome` *returns*
         `TRANSIENT_FAILURE` (it does not raise) for HTTP 429, any 5xx, an
         unparseable body, and EODHD's 200-with-`{"error": …}` quirk
         (`outcomes.py:71-76, 100-113`). The chunk loop then calls
@@ -238,27 +238,27 @@ that `classify_outcome` returned rather than raised.
         fetch_status=FAILED_RETRYABLE)` and `_record_minute_attempt`, which
         increments `attempt_count`, can promote to `RETRY_EXHAUSTED`, and
         writes `acquisition_state`. That is accounting without an answer.
-  - [ ] Distinguish the two kinds of `TRANSIENT_FAILURE` at the point of
+  - [x] Distinguish the two kinds of `TRANSIENT_FAILURE` at the point of
         classification — a transport/status failure (no usable answer) versus
         a 200 whose body was classified. Carry the distinction as a value, not
         by re-inspecting `response.status_code` at the call site.
-  - [ ] **Fence the daily path.** `classify_outcome` is shared: `minute.py:456`
+  - [x] **Fence the daily path.** `classify_outcome` is shared: `minute.py:456`
         and `daily.py:737` both call it. State which mechanism carries the
         distinction — a new return value, a sidecar, or a new enum member —
         and keep `daily.py:737`'s behavior unmoved. Widening the return type
         in place would break or silently change the daily acquisition path,
         which this slice's Out of scope leaves alone.
-  - [ ] In the chunk loop, a no-answer failure skips both `_advance_minute_gap`
+  - [x] In the chunk loop, a no-answer failure skips both `_advance_minute_gap`
         and `_record_minute_attempt` and breaks out of the symbol's chunk loop
         (there is no point requesting the next chunk from a provider that just
         failed). The row is left exactly as it was for the next pass.
-  - [ ] A classified 200 (SUCCESS / PARTIAL / EMPTY) and a 404 keep today's
+  - [x] A classified 200 (SUCCESS / PARTIAL / EMPTY) and a 404 keep today's
         behavior unchanged.
-  - [ ] Success: `_advance_minute_gap` is unreachable without a classified
+  - [x] Success: `_advance_minute_gap` is unreachable without a classified
         provider answer; the change is in the chunk loop and the
         classification, not in `_advance_minute_gap`'s own branches.
-- [ ] **Task 2.4: Tests for accounting on each failure mode** (effort: 3)
-  - [ ] In `test/unit/data/acquisition/daemon/test_minute.py`, one test per
+- [x] **Task 2.4: Tests for accounting on each failure mode** (effort: 3)
+  - [x] In `test/unit/data/acquisition/daemon/test_minute.py`, one test per
         failure mode — HTTP 402, HTTP 500, HTTP 429 after retry exhaustion, a
         read timeout, and a connection reset — each asserting that **no**
         `data_gaps` row's `attempt_count`, `fetch_status`, or
@@ -266,17 +266,17 @@ that `classify_outcome` returned rather than raised.
         `acquisition_state.last_attempt_outcome` / `last_attempt_ts` are
         likewise untouched for the un-answered symbol (SC4, and Scope 3's 912
         clause).
-  - [ ] One test asserts the converse: a classified 200 and a 404 **do** move
+  - [x] One test asserts the converse: a classified 200 and a 404 **do** move
         `attempt_count` exactly as today, so the rule did not disable
         accounting.
-  - [ ] One test covers the 200-with-`{"error": …}` body: it is a classified
+  - [x] One test covers the 200-with-`{"error": …}` body: it is a classified
         response but carries no data — assert the behavior chosen in Task 2.3
         and state the reasoning in the test docstring.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes;
+  - [x] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes;
         SC4 is demonstrable from the test names.
-- [ ] **Task 2.5: Section 2 checkpoint** (effort: 1)
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `fix: move minute gap accounting only on a provider answer (921)`.
+- [x] **Task 2.5: Section 2 checkpoint** (effort: 1)
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `fix: move minute gap accounting only on a provider answer (921)`.
 
 ## Section 3: Two-phase minute cycle
 
