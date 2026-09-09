@@ -295,7 +295,12 @@ class TestUpdateDataGapsPrecomputedRanges:
         assert result.gaps_inserted == 0
 
     def test_carry_forward_preserved_for_precomputed_range(self) -> None:
-        """A re-seed over a prior status carries forward attempt_count."""
+        """A re-seed over a prior status carries forward attempt_count.
+
+        Slice 921 Decision 4: the minute seed carries the prior count forward
+        UNCHANGED. It ran before any provider call, so incrementing here would
+        count a retry the provider was never asked to supply.
+        """
         prior = [
             {
                 "gap_start": _dt(2024, 6, 10),
@@ -317,7 +322,7 @@ class TestUpdateDataGapsPrecomputedRanges:
             if "INSERT INTO data_gaps" in sql
         ]
         assert len(insert_calls) == 1
-        assert insert_calls[0][6] == 3  # carried forward 2 -> 3
+        assert insert_calls[0][6] == 2  # carried forward 2 -> 2, not 2 -> 3
 
     def test_omitting_precomputed_ranges_keeps_legacy_single_span_behavior(
         self,
@@ -354,3 +359,207 @@ class TestUpdateDataGapsPrecomputedRanges:
         """The guard keys on the parameter being supplied, not on it being non-empty."""
         with pytest.raises(ValueError, match="fetch_status_for_unfilled"):
             self._call_minute(precomputed_ranges=[], fetch_status=None)
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 Section 2 — the seed path consumes retries with no provider answer
+# ---------------------------------------------------------------------------
+
+
+class _FakeDataGaps:
+    """A minimal in-memory ``data_gaps`` honoring the three statements the
+    seed path issues: the prior-row SELECT, the containment DELETE, and the
+    INSERT ... ON CONFLICT DO UPDATE. Enough to run ``update_data_gaps``
+    repeatedly and watch a row's ``attempt_count`` evolve across seeds.
+    """
+
+    def __init__(self) -> None:
+        # (gap_start, gap_end) -> {"fetch_status", "attempt_count"}
+        self.rows: dict[tuple[datetime, datetime], dict] = {}
+
+    def cursor(self) -> "_FakeCursor":
+        return _FakeCursor(self)
+
+    def execute(self, sql: str, params: tuple) -> list[tuple]:
+        normalized = " ".join(sql.split())
+        if normalized.startswith("SELECT gap_start, gap_end, fetch_status"):
+            _symbol, _gran, from_ts, to_ts = params
+            return [
+                (start, end, row["fetch_status"], row["attempt_count"])
+                for (start, end), row in sorted(self.rows.items())
+                if start >= from_ts and end <= to_ts
+            ]
+        if normalized.startswith("DELETE FROM data_gaps"):
+            _symbol, _gran, from_ts, to_ts = params
+            for key in [k for k in self.rows if k[0] >= from_ts and k[1] <= to_ts]:
+                del self.rows[key]
+            return []
+        if normalized.startswith("INSERT INTO data_gaps"):
+            (
+                _symbol,
+                _gran,
+                gap_start,
+                gap_end,
+                fetch_status,
+                _last_attempt_ts,
+                attempt_count,
+            ) = params
+            self.rows[(gap_start, gap_end)] = {
+                "fetch_status": fetch_status,
+                "attempt_count": attempt_count,
+            }
+            return []
+        # acquisition_state and any other statement: no stored state needed.
+        return []
+
+
+class _FakeCursor:
+    def __init__(self, store: _FakeDataGaps) -> None:
+        self._store = store
+        self._result: list[tuple] = []
+        self.rowcount = 0
+
+    def __enter__(self) -> "_FakeCursor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: tuple = ()) -> None:
+        self._result = self._store.execute(sql, params)
+        self.rowcount = len(self._result)
+
+    def fetchall(self) -> list[tuple]:
+        return self._result
+
+    def fetchone(self) -> tuple | None:
+        return self._result[0] if self._result else None
+
+
+def _seed_once(
+    store: _FakeDataGaps,
+    gap_range: GapRange,
+    from_ts: datetime,
+    to_ts: datetime,
+) -> UpdateResult:
+    """One coverage-aware minute seed — exactly what the daemon issues when
+    the seed gate fires, with NO provider call anywhere in the transaction."""
+    conn = MagicMock()
+    conn.cursor = MagicMock(side_effect=store.cursor)
+    return update_data_gaps(
+        conn,
+        "AAPL",
+        "minute",
+        from_ts,
+        to_ts,
+        FetchStatus.UNKNOWN,
+        outcome=LastAttemptOutcome.PARTIAL,
+        precomputed_ranges=[gap_range],
+    )
+
+
+class TestSeedingDoesNotConsumeRetries:
+    """Slice 921 Tasks 2.1/2.2 — seeding no longer burns retries.
+
+    The defect: ``update_data_gaps`` Step 5 computed
+    ``attempt_count = prior_count + 1`` and promoted to ``RETRY_EXHAUSTED`` at
+    ``MAX_RETRY_COUNT`` on the SEED, with no provider response anywhere in the
+    transaction. The minute daemon re-seeds every cycle, so a symbol the
+    provider was never asked about burned a retry per cycle and reached a
+    terminal status on its own. That is the path that promoted 7,755 rows to
+    RETRY_EXHAUSTED on production 2026-09-07 — no fetch had failed for them;
+    the seeder counted them out.
+
+    These tests are the Task 2.1 reproduction with its assertions inverted:
+    the same four-plus seeds with no fetch between them must now leave the row
+    UNKNOWN at its original count.
+    """
+
+    _FROM = datetime(2026, 9, 1, tzinfo=UTC)
+    _TO = datetime(2026, 9, 30, tzinfo=UTC)
+    _RANGE = GapRange(
+        "AAPL",
+        "minute",
+        datetime(2026, 9, 3, 13, 30, tzinfo=UTC),
+        datetime(2026, 9, 3, 20, 0, tzinfo=UTC),
+    )
+    _KEY = (_RANGE.gap_start_utc, _RANGE.gap_end_utc)
+
+    def test_reseeding_never_increments_attempt_count(self) -> None:
+        store = _FakeDataGaps()
+        counts: list[int] = []
+        for _ in range(MAX_RETRY_COUNT + 2):
+            _seed_once(store, self._RANGE, self._FROM, self._TO)
+            counts.append(store.rows[self._KEY]["attempt_count"])
+        # A never-answered range stays at zero however often it is re-seeded.
+        assert counts == [0] * (MAX_RETRY_COUNT + 2)
+
+    def test_reseeding_alone_cannot_promote_to_retry_exhausted(self) -> None:
+        store = _FakeDataGaps()
+        results = [
+            _seed_once(store, self._RANGE, self._FROM, self._TO)
+            for _ in range(MAX_RETRY_COUNT + 2)
+        ]
+        row = store.rows[self._KEY]
+        assert row["fetch_status"] == str(FetchStatus.UNKNOWN)
+        assert all(r.gaps_promoted_exhausted == 0 for r in results)
+
+    def test_a_prior_fetch_count_is_carried_forward_unchanged(self) -> None:
+        """A row the provider HAS answered keeps the count that fetch earned;
+        re-seeding neither resets it nor advances it toward exhaustion."""
+        store = _FakeDataGaps()
+        # Stand in for a real fetch attempt recorded by _record_minute_attempt.
+        store.rows[self._KEY] = {
+            "fetch_status": str(FetchStatus.UNKNOWN),
+            "attempt_count": 3,
+        }
+        for _ in range(MAX_RETRY_COUNT):
+            _seed_once(store, self._RANGE, self._FROM, self._TO)
+        row = store.rows[self._KEY]
+        assert row["attempt_count"] == 3
+        assert row["fetch_status"] == str(FetchStatus.UNKNOWN)
+
+    def test_the_daily_path_still_increments_on_its_post_fetch_call(self) -> None:
+        """The daily callers invoke update_data_gaps AFTER their fetch, so
+        their increment IS backed by a provider answer and must not move
+        (daily.py:619 and :757). Only the pre-fetch minute seed changed."""
+        conn = MagicMock()
+        cursors = [_CapturingCursor() for _ in range(20)]
+        cursors[0]._fetchall_val = [
+            (
+                self._RANGE.gap_start_utc,
+                self._RANGE.gap_end_utc,
+                str(FetchStatus.UNKNOWN),
+                2,
+            )
+        ]
+        cursor_iter = iter(cursors)
+        conn.cursor = MagicMock(side_effect=lambda: next(cursor_iter))
+        with patch(
+            "manta_trading.data.gaps.update_data_gaps.compute_missing_ranges",
+            return_value=[
+                GapRange(
+                    "AAPL",
+                    "daily",
+                    self._RANGE.gap_start_utc,
+                    self._RANGE.gap_end_utc,
+                )
+            ],
+        ):
+            update_data_gaps(
+                conn,
+                "AAPL",
+                "daily",
+                self._FROM,
+                self._TO,
+                FetchStatus.UNKNOWN,
+                outcome=LastAttemptOutcome.PARTIAL,
+            )
+        inserts = [
+            params
+            for cur in cursors
+            for sql, params in cur.executes
+            if "INSERT INTO data_gaps" in sql
+        ]
+        assert len(inserts) == 1
+        assert inserts[0][6] == 3, "daily still carries 2 -> 3"

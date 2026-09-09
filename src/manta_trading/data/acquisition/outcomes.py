@@ -130,6 +130,62 @@ def classify_outcome(
         return LastAttemptOutcome.PARTIAL
 
 
+def response_carries_an_answer(response: Any) -> bool:
+    """True when ``response`` is a classified provider ANSWER, not a failure.
+
+    Slice 921 Decision 4 / Scope 3: gap accounting moves only on a provider
+    answer. ``classify_outcome`` collapses two very different situations into
+    the same ``TRANSIENT_FAILURE`` return value:
+
+    - **No answer at all** — HTTP 429, any 5xx, an unexpected status class, a
+      body that would not parse, and EODHD's 200-with-``{"error": …}`` quirk.
+      The provider told us nothing about the range, so ``attempt_count``,
+      ``fetch_status`` and ``acquisition_state`` must not move.
+    - **An answer we could read** — HTTP 200 with a parseable list body, and
+      HTTP 404 (EODHD's "no intraday data for this symbol"). These are real
+      statements about the range and DO move accounting, exactly as before.
+
+    This is a SIDECAR rather than a widened return type on purpose:
+    ``classify_outcome`` is shared with the daily acquisition path
+    (``daily.py:737``), which slice 921 leaves alone. Its signature, return
+    type and every branch are unchanged, so nothing daily does can shift.
+    Only ``minute.py``'s chunk loop consults this function.
+
+    Args:
+        response: The same object handed to ``classify_outcome`` — anything
+                  with ``.status_code`` and ``.json()``.
+
+    Returns:
+        True if accounting may move for this response; False if the provider
+        gave no usable answer and the gap row must be left exactly as it was.
+    """
+    status_code: int = response.status_code
+
+    if status_code == 429 or status_code >= 500:
+        return False
+
+    if status_code == 404:
+        # EODHD's documented "no intraday data exists" — a real answer.
+        return True
+
+    if status_code != 200:
+        # 4xx other than 404 never reaches here (classify_outcome raises), and
+        # 1xx/3xx are not answers about the range.
+        return False
+
+    try:
+        body = response.json()
+    except Exception:  # noqa: BLE001 — an unreadable body is not an answer
+        return False
+
+    # The 200-with-{"error": …} quirk is a failure wearing a 200.
+    if isinstance(body, dict) and "error" in body:
+        return False
+
+    # Any other non-list body is a shape we cannot read as bars.
+    return isinstance(body, list)
+
+
 def outcome_to_fetch_status(outcome: LastAttemptOutcome) -> FetchStatus | None:
     """Map a LastAttemptOutcome to a FetchStatus for unfilled gap rows.
 
@@ -169,11 +225,13 @@ def _parse_bar_ts(ts_str: str) -> datetime:
     ts_str = ts_str.strip()
     if "T" in ts_str or " " in ts_str:
         from datetime import datetime as _dt
+
         try:
             return _dt.fromisoformat(ts_str).replace(tzinfo=timezone.utc)
         except ValueError:
             pass
     # Plain date YYYY-MM-DD
     from datetime import datetime as _dt
+
     d = date.fromisoformat(ts_str[:10])
     return _dt(d.year, d.month, d.day, tzinfo=timezone.utc)

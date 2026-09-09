@@ -32,6 +32,7 @@ from manta_trading.data.acquisition.outcomes import (
     ProviderResponseError,
     classify_outcome,
     outcome_to_fetch_status,
+    response_carries_an_answer,
 )
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.acquisition.symbols import iter_active_instruments
@@ -483,6 +484,28 @@ def _do_minute_symbol(
         )
         response = eodhd_get(http, url, CallType.INTRADAY)
         outcome = classify_outcome(response, chunk_start, chunk_end)
+
+        # Slice 921 Decision 4: no response, no accounting. classify_outcome
+        # RETURNS (does not raise) TRANSIENT_FAILURE for HTTP 429, any 5xx, an
+        # unparseable body and EODHD's 200-with-{"error": …} quirk. Writing
+        # accounting for those consumed retries the provider never answered
+        # and could promote a live gap to RETRY_EXHAUSTED. Leave the row
+        # exactly as it was and stop: there is no point asking the next chunk
+        # of a provider that just failed to answer this one.
+        if not response_carries_an_answer(response):
+            _logger.warning(
+                "minute fetch: %s chunk [%s → %s] got no usable answer "
+                "(HTTP %s) — leaving gap accounting untouched and ending the "
+                "symbol's chunk loop",
+                symbol,
+                chunk_start,
+                chunk_end,
+                response.status_code,
+            )
+            last_outcome = outcome
+            if first_chunk_outcome is None:
+                first_chunk_outcome = outcome
+            break
 
         bars: list[dict] = []
         if outcome not in (

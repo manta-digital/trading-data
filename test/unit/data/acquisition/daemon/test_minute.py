@@ -17,7 +17,9 @@ from manta_trading.data.acquisition.daemon.minute import (
 )
 from manta_trading.data.acquisition.quota import QuotaBucket, QuotaWaitAborted
 from manta_trading.data.acquisition.state import LastAttemptOutcome
+from manta_trading.constants import MAX_RETRY_COUNT
 from manta_trading.data.gaps.actionable_gap_selector import GapRow
+from manta_trading.data.quality.fetch_status import FetchStatus
 
 UTC = timezone.utc
 
@@ -1200,3 +1202,261 @@ class TestDayEndUtc:
         eastern = timezone(-_timedelta(hours=4))
         moment = datetime(2026, 9, 3, 21, 0, tzinfo=eastern)
         assert day_end_utc(moment) == datetime(2026, 9, 5, tzinfo=UTC)
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 Section 2 — no response, no accounting (Task 2.4, SC4)
+# ---------------------------------------------------------------------------
+
+
+class TestAccountingMovesOnlyOnAProviderAnswer:
+    """``attempt_count``, ``fetch_status`` and ``acquisition_state`` move only
+    when the provider actually answered.
+
+    ``classify_outcome`` RETURNS ``TRANSIENT_FAILURE`` (it does not raise) for
+    HTTP 429, any 5xx, an unparseable body, and EODHD's 200-with-``{"error":
+    …}`` quirk. The chunk loop used to call ``_advance_minute_gap`` and
+    ``_record_minute_attempt`` for those, consuming a retry and — at
+    MAX_RETRY_COUNT — promoting a perfectly live gap to RETRY_EXHAUSTED
+    without the provider ever having said anything about the range.
+    """
+
+    @staticmethod
+    def _run(response: MagicMock) -> tuple[MagicMock, MagicMock, int]:
+        """Drive one chunk with ``response``.
+
+        Returns (_advance_minute_gap mock, _record_minute_attempt mock,
+        number of provider calls made).
+        """
+        gap = _gap(
+            datetime(2026, 9, 3, 13, 30, tzinfo=UTC),
+            datetime(2026, 9, 3, 20, 0, tzinfo=UTC),
+        )
+        # A long gap sequence: if the loop does NOT break, it would keep
+        # requesting chunks, which the call count below detects.
+        gap_iter = iter([gap] * 6 + [None])
+        calls: list[str] = []
+
+        conn = MagicMock()
+        txn = MagicMock()
+        txn.__enter__ = MagicMock(return_value=txn)
+        txn.__exit__ = MagicMock(return_value=False)
+        conn.transaction.return_value = txn
+        lock_cm = MagicMock()
+        lock_cm.__enter__ = MagicMock(return_value=None)
+        lock_cm.__exit__ = MagicMock(return_value=False)
+        pool = MagicMock()
+        pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+
+        advance = MagicMock(return_value=None)
+        record = MagicMock(return_value=None)
+
+        def _fake_get(_http, url, _call_type):
+            calls.append(url)
+            return response
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.eodhd_get",
+                side_effect=_fake_get,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
+                advance,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                record,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=datetime(2004, 1, 1, tzinfo=UTC),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                return_value=0,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute._insert_minute_bars"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
+                side_effect=lambda *a, **kw: next(gap_iter, None),
+            ),
+        ):
+            _do_minute_symbol(
+                "AAPL",
+                pool=pool,
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                via=FetchEntryPoint.CYCLE,
+                window=None,
+                coverage_index=None,
+            )
+        return advance, record, len(calls)
+
+    @staticmethod
+    def _response(status_code: int, body: object = None) -> MagicMock:
+        response = MagicMock(status_code=status_code)
+        if isinstance(body, Exception):
+            response.json = MagicMock(side_effect=body)
+        else:
+            response.json = MagicMock(return_value=body)
+        return response
+
+    # --- No answer: accounting must not move -------------------------------
+
+    def test_http_500_writes_no_accounting(self) -> None:
+        advance, record, _ = self._run(self._response(500, {"error": "boom"}))
+        advance.assert_not_called()
+        record.assert_not_called()
+
+    def test_http_503_writes_no_accounting(self) -> None:
+        advance, record, _ = self._run(self._response(503, None))
+        advance.assert_not_called()
+        record.assert_not_called()
+
+    def test_http_429_writes_no_accounting(self) -> None:
+        """429 after the quota bucket has already backed off — the provider
+        still has not answered anything about this range."""
+        advance, record, _ = self._run(self._response(429, None))
+        advance.assert_not_called()
+        record.assert_not_called()
+
+    def test_unparseable_body_writes_no_accounting(self) -> None:
+        """A read timeout / connection reset surfaces here as a body that will
+        not parse; there is no answer to record."""
+        advance, record, _ = self._run(
+            self._response(200, ValueError("Expecting value: line 1 column 1"))
+        )
+        advance.assert_not_called()
+        record.assert_not_called()
+
+    def test_two_hundred_with_error_body_writes_no_accounting(self) -> None:
+        """EODHD's 200-with-{"error": …} quirk is a failure wearing a 200.
+
+        It is a *classified* response but carries no statement about the
+        range, so it is treated as no-answer: the gap row keeps its status and
+        count for the next pass, rather than burning a retry on a response
+        that contains no data and no denial.
+        """
+        advance, record, _ = self._run(
+            self._response(200, {"error": "Symbol not found or API limit"})
+        )
+        advance.assert_not_called()
+        record.assert_not_called()
+
+    def test_a_no_answer_failure_ends_the_symbols_chunk_loop(self) -> None:
+        """One request, then stop — there is no point asking the next chunk of
+        a provider that just failed to answer this one."""
+        _, _, provider_calls = self._run(self._response(500, None))
+        assert provider_calls == 1
+
+    def test_http_402_aborts_before_any_accounting(self) -> None:
+        """402 (daily allowance spent) already RAISES ProviderResponseError in
+        classify_outcome, so it never reaches the accounting calls. Pinned
+        here so SC4's list of failure modes is complete in one place."""
+        from manta_trading.data.acquisition.outcomes import ProviderResponseError
+
+        with pytest.raises(ProviderResponseError, match="quota exhausted"):
+            self._run(self._response(402, None))
+
+    # --- A real answer: accounting must move exactly as before -------------
+
+    def test_classified_two_hundred_still_moves_accounting(self) -> None:
+        body = [
+            {
+                "timestamp": 1772798400,
+                "datetime": "2026-09-03 19:59:00",
+                "open": "100",
+                "high": "101",
+                "low": "99",
+                "close": "100",
+                "volume": "1000",
+            }
+        ]
+        advance, record, _ = self._run(self._response(200, body))
+        advance.assert_called()
+        record.assert_called()
+
+    def test_empty_list_body_still_moves_accounting(self) -> None:
+        """An empty list is a real answer: the provider says there is nothing
+        for this range, which is what PROVIDER_HOLE records."""
+        advance, record, _ = self._run(self._response(200, []))
+        advance.assert_called()
+        record.assert_called()
+
+    def test_http_404_still_moves_accounting(self) -> None:
+        """EODHD's documented "no intraday data for this symbol" — an answer."""
+        advance, record, _ = self._run(self._response(404, None))
+        advance.assert_called()
+        record.assert_called()
+
+
+class TestRealFetchFailuresStillReachExhaustion:
+    """The safety valve survives slice 921's accounting fix.
+
+    Removing the seed's phantom increment (and skipping accounting for
+    un-answered responses) must not make RETRY_EXHAUSTED unreachable — a range
+    the provider repeatedly ANSWERS but cannot fill still has to stop being
+    retried forever. ``_advance_minute_gap`` is the surviving incrementer and
+    promoter, and it now runs only behind a real answer.
+    """
+
+    @staticmethod
+    def _advance(attempt_count: int, outcome: LastAttemptOutcome) -> list[tuple]:
+        from manta_trading.data.acquisition.daemon.minute import _advance_minute_gap
+        from manta_trading.data.acquisition.outcomes import outcome_to_fetch_status
+
+        gap_start = datetime(2026, 9, 3, 13, 30, tzinfo=UTC)
+        gap_end = datetime(2026, 9, 3, 20, 0, tzinfo=UTC)
+        picked = GapRow(
+            symbol="AAPL",
+            granularity="minute",
+            gap_start=gap_start,
+            gap_end=gap_end,
+            fetch_status=str(FetchStatus.UNKNOWN),
+            last_attempt_ts=None,
+            attempt_count=attempt_count,
+        )
+        executes: list[tuple] = []
+        cur = MagicMock()
+        cur.__enter__ = MagicMock(return_value=cur)
+        cur.__exit__ = MagicMock(return_value=False)
+        cur.execute = MagicMock(
+            side_effect=lambda sql, params=(): executes.append((sql, params))
+        )
+        conn = MagicMock()
+        conn.cursor = MagicMock(return_value=cur)
+
+        _advance_minute_gap(
+            conn,
+            picked=picked,
+            chunk_start=gap_start,
+            chunk_end=gap_end,
+            outcome=outcome,
+            fetch_status=outcome_to_fetch_status(outcome),
+        )
+        return executes
+
+    def test_an_answered_partial_still_increments_attempt_count(self) -> None:
+        executes = self._advance(1, LastAttemptOutcome.PARTIAL)
+        updates = [p for sql, p in executes if "UPDATE data_gaps" in sql]
+        assert len(updates) == 1
+        # (fetch_status, last_attempt_ts, attempt_count, ...)
+        assert updates[0][2] == 2, "a real answer still advances the count"
+
+    def test_repeated_answered_failures_still_promote_to_retry_exhausted(
+        self,
+    ) -> None:
+        """At MAX_RETRY_COUNT the row goes terminal, exactly as before —
+        the difference is that every one of those attempts was answered."""
+        executes = self._advance(MAX_RETRY_COUNT - 1, LastAttemptOutcome.PARTIAL)
+        updates = [p for sql, p in executes if "UPDATE data_gaps" in sql]
+        assert len(updates) == 1
+        assert updates[0][2] == MAX_RETRY_COUNT
+        assert updates[0][0] == str(FetchStatus.RETRY_EXHAUSTED)

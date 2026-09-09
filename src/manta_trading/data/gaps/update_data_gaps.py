@@ -29,6 +29,11 @@ from manta_trading.data.quality.fetch_status import FetchStatus
 if TYPE_CHECKING:
     import psycopg
 
+# The granularity whose update_data_gaps call is a pre-fetch SEED rather than a
+# post-fetch record (slice 921 Decision 4). Named once here so the seed-vs-fetch
+# distinction is not a bare string scattered through the insert path.
+_MINUTE_GRANULARITY = "minute"
+
 
 @dataclass(frozen=True)
 class UpdateResult:
@@ -185,14 +190,26 @@ def _do_update(
     gaps_promoted_exhausted = 0
     now_utc = datetime.now(tz=timezone.utc)
 
+    # Slice 921 Decision 4: attempt_count moves only on a classified provider
+    # response. The DAILY callers (daily.py:619 and :757) invoke this function
+    # AFTER their fetch, so their increment is backed by an answer and must not
+    # move. The MINUTE daemon invokes it as a pure seed BEFORE any fetch
+    # (minute.py:431), so incrementing there counts retries the provider was
+    # never asked to supply — the path that promoted 7,755 rows to
+    # RETRY_EXHAUSTED on production 2026-09-07. The minute path therefore
+    # carries the prior count forward unchanged; a real fetch still increments
+    # it and can still promote, via _advance_minute_gap (minute.py:777-786),
+    # which slice 921 gates behind an actual provider answer.
+    seed_consumes_retry = granularity != _MINUTE_GRANULARITY
+
     if fetch_status_for_unfilled is not None:
         for gap in gap_ranges:
             # Carry forward: find a prior row that overlaps this gap start
             prior_count = _best_prior_count(carry_forward, gap.gap_start_utc)
-            attempt_count = prior_count + 1
+            attempt_count = prior_count + 1 if seed_consumes_retry else prior_count
 
             status = fetch_status_for_unfilled
-            if attempt_count >= MAX_RETRY_COUNT:
+            if seed_consumes_retry and attempt_count >= MAX_RETRY_COUNT:
                 status = FetchStatus.RETRY_EXHAUSTED
                 gaps_promoted_exhausted += 1
 
