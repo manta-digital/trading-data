@@ -459,8 +459,8 @@ Design *Scope 5*, Verification Walkthrough, *SC3*, *SC7*, *SC8*. One command
 for the PM, then a report. **No task here waits on a nightly firing** — the
 cutover script fires the passes itself and measures immediately.
 
-- [ ] **Task 7.1: `--verify` mode on the repair script** (effort: 3)
-  - [ ] Add a read-only `--verify` mode that prints every acceptance
+- [x] **Task 7.1: `--verify` mode on the repair script** (effort: 3)
+  - [x] Add a read-only `--verify` mode that prints every acceptance
         measurement on demand, so verification is an action rather than a
         wait: truncated symbol-days over the last five NYSE sessions across
         active symbols (SC3, expected 0); bars and symbols-with-≥30-bars for
@@ -468,76 +468,76 @@ cutover script fires the passes itself and measures immediately.
         the health check's computed 975,000 floor, see Task 5.5); the
         `minute session mass` health line; and the pending counts `--check`
         reports.
-  - [ ] **Reuse, do not re-implement.** The judged-session selector
+  - [x] **Reuse, do not re-implement.** The judged-session selector
         (Task 5.2), the mass query (Task 5.4), and the rule function
         (Task 5.5) are imported and called — `--verify` must not carry its own
         `SUM(minute_count)` query or its own judged-session logic. Two
         implementations of one measurement drift (an inclusive vs. exclusive
         close, a stale calendar literal) and the cutover then certifies a
         number `mt data health` does not reproduce.
-  - [ ] Success: one invocation prints every SC3/SC7 number with its
+  - [x] Success: one invocation prints every SC3/SC7 number with its
         pass/fail against the stated bar, and the mass figures come from the
         health check's own code path.
-- [ ] **Task 7.2: Tests for `--verify`** (effort: 2)
-  - [ ] Assert `--verify` writes nothing, and that each measurement is
+- [x] **Task 7.2: Tests for `--verify`** (effort: 2)
+  - [x] Assert `--verify` writes nothing, and that each measurement is
         reported against the right bar (the 1,000,000 acceptance bar, not the
         health floor).
-  - [ ] Assert the reuse: the health check's judged-session selector, mass
+  - [x] Assert the reuse: the health check's judged-session selector, mass
         query, and rule function are the ones invoked (patch them and observe
         the call), so a second implementation cannot slip in.
-  - [ ] Success: `uv run pytest test/unit/test_repair_921.py -q` passes.
-- [ ] **Task 7.3: `scripts/cutover_921_minute_sessions.py`** (effort: 3)
-  - [ ] Built on `cutover_common`: preflight the ref, install via
+  - [x] Success: `uv run pytest test/unit/test_repair_921.py -q` passes.
+- [x] **Task 7.3: `scripts/cutover_921_minute_sessions.py`** (effort: 3)
+  - [x] Built on `cutover_common`: preflight the ref, install via
         `install-production.sh` (twice if units changed), verify no pass unit
         is active, verify the EODHD allowance reset recently (the repair must
         run just after 00:00 UTC so the following firings have budget), then
         run the repair `--apply` printing before/after counts per predicate.
-  - [ ] **Then fire the passes rather than waiting for the timers.**
+  - [x] **Then fire the passes rather than waiting for the timers.**
         `cutover_common` already has the cursor → run-unit → wait → read-journal
         pattern (`fire`, `wait_for_pass_to_end`, `journal_cursor`,
         `read_journal`); use it to run the daily pass and then the minute pass,
         and read back from the journal: the trailing-phase completion line,
         the symbol count, and any `QUOTA_EXHAUSTED` / `PROVIDER_UNAVAILABLE`
         abort (SC6).
-  - [ ] **One firing is not enough, and the task must say so.** The trailing
+  - [x] **One firing is not enough, and the task must say so.** The trailing
         phase is bounded to one chunk per symbol per cycle (file 1, Task 3.4)
         and takes the newest actionable gap, so a symbol left with two
         in-window ranges by the repair needs more than one pass. Fire the
         minute pass repeatedly until `--verify` reports no pending trailing
         work, bounded by the quota — a `QUOTA_EXHAUSTED` outcome ends the loop
         and is reported, not retried.
-  - [ ] Finish by running `repair_921_minute_sessions.py --verify` and
+  - [x] Finish by running `repair_921_minute_sessions.py --verify` and
         printing its report, so the cutover's own output carries the SC3
         numbers.
-  - [ ] Check-then-act throughout, and log every action it takes — the script
+  - [x] Check-then-act throughout, and log every action it takes — the script
         runs with root privileges and must be auditable afterward.
-  - [ ] Success: the whole cutover is one command producing one report,
+  - [x] Success: the whole cutover is one command producing one report,
         including the post-firing measurements; no step asks the PM to run
         something by hand or to come back tomorrow.
-- [ ] **Task 7.4: Tests for the cutover script** (effort: 2)
-  - [ ] Following `test_cutover_267.py`: each precondition failure aborts
+- [x] **Task 7.4: Tests for the cutover script** (effort: 2)
+  - [x] Following `test_cutover_267.py`: each precondition failure aborts
         before any write; the happy path calls the repair with `--apply`
         exactly once, then fires each pass once, then calls `--verify`.
-  - [ ] Success: `uv run pytest test/unit -q -k cutover_921` passes.
-- [ ] **Task 7.5: Runbook and CHANGELOG** (effort: 2)
-  - [ ] Runbook 100 gains the truncation-signature query,
+  - [x] Success: `uv run pytest test/unit -q -k cutover_921` passes.
+- [x] **Task 7.5: Runbook and CHANGELOG** (effort: 2)
+  - [x] Runbook 100 gains the truncation-signature query,
         `repair_921_minute_sessions.py --check` and `--verify` as the standing
         diagnostics for this failure class, the `minute session mass` check's
         meaning and floors, and the manual invocation for the Task 5.8 load
         test.
-  - [ ] CHANGELOG entry covering the range-end fix, the accounting rule, the
+  - [x] CHANGELOG entry covering the range-end fix, the accounting rule, the
         two-phase cycle, the health check, and the removal of the quota floor
         check.
-  - [ ] Success: a reader who has never seen this slice can run the
+  - [x] Success: a reader who has never seen this slice can run the
         diagnostics from the runbook alone.
-- [ ] **Task 7.6: Pre-release checkpoint** (effort: 1)
-  - [ ] **Commit before tagging.** The cutover script's first step is
+- [x] **Task 7.6: Pre-release checkpoint** (effort: 1)
+  - [x] **Commit before tagging.** The cutover script's first step is
         `install-production.sh --ref v0.14.0`, which installs from a checkout
         at that ref — so the script, its tests, and the CHANGELOG entry must
         be in the commit the tag points at.
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `feat: add the 921 cutover script and changelog entry`.
-  - [ ] Success: nothing from Sections 5–7 is uncommitted when Task 7.7 runs.
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `feat: add the 921 cutover script and changelog entry`.
+  - [x] Success: nothing from Sections 5–7 is uncommitted when Task 7.7 runs.
 - [ ] **Task 7.7: Release and cutover** (effort: 2)
   - [ ] Full test tiers green, version bumped, tagged, released.
   - [ ] Run the cutover script; it applies the repair and fires both passes,
