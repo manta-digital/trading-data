@@ -189,10 +189,21 @@ much data the session holds.
         `test/load/test_169_coverage_freshness_probe_nfr.py` are the
         precedents, the latter asserting its sibling probe "stays well inside
         its budget".
-  - [ ] Add `test/load/test_921_minute_session_mass_nfr.py` against the
-        `prod_shaped_db` fixture in `test/load/conftest.py`, asserting the mass
-        read completes well inside
-        `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT`.
+  - [ ] **`prod_shaped_db` as it stands cannot measure this.**
+        `_seed_prod_shape` seeds one bar per symbol per 7-day bucket starting
+        in 2010, and no load-tier fixture seeds `trading_sessions` at all. The
+        mass query filters buckets to a judged session's
+        `[open, close)` window, so against that fixture the window is
+        effectively empty, the test passes in milliseconds, and the NFR is
+        never exercised.
+  - [ ] Add `test/load/test_921_minute_session_mass_nfr.py` with a fixture
+        that can actually load the query: NYSE `trading_sessions` rows for a
+        recent session plus a dense cagg population for it — on the order of
+        the measured ~41k cagg rows across ~11k symbols. Extend
+        `prod_shaped_db` or add a sibling fixture; say which.
+  - [ ] State an explicit budget number rather than "fast", as
+        `test_169_coverage_freshness_probe_nfr.py` does, and assert the read
+        completes well inside `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT`.
   - [ ] **CI does not run tests.** `.github/workflows/ci.yml` is publish-on-tag
         only (a repo-wide gap tracked as slice 907), so the gate is a
         documented manual run. State the invocation in the test module
@@ -314,8 +325,11 @@ days must be re-seeded. The repair writes **no SQL of its own** against
         and only those; that carry-forward (`_best_prior_count`, keyed on
         `gap_start`) preserves `attempt_count` so a second `--apply` is
         genuinely zero net change; that pre-window rows survive.
-  - [ ] Add an integration-tier test using the repo's `MT_TIMESCALE_TEST_URL`
-        fixture convention: seed a production-shaped `data_gaps` fixture
+  - [ ] Add `test/integration/test_repair_921_live.py`, using
+        `test/integration/conftest.py`'s `migrated_db` fixture (its
+        `ephemeral_db` sibling and `test_gaps_window_sql.py` are the
+        `data_gaps` precedents) under `MT_TIMESCALE_TEST_URL`: seed a
+        production-shaped `data_gaps` fixture
         spanning the window boundary (pre-window rows, in-window terminal
         rows, a straddling row, truncated symbol-days), run `--apply` twice,
         and assert row-level equality between the two runs and that pre-window
@@ -351,12 +365,23 @@ cutover script fires the passes itself and measures immediately.
         the health check's computed 975,000 floor, see Task 5.5); the
         `minute session mass` health line; and the pending counts `--check`
         reports.
+  - [ ] **Reuse, do not re-implement.** The judged-session selector
+        (Task 5.2), the mass query (Task 5.4), and the rule function
+        (Task 5.5) are imported and called — `--verify` must not carry its own
+        `SUM(minute_count)` query or its own judged-session logic. Two
+        implementations of one measurement drift (an inclusive vs. exclusive
+        close, a stale calendar literal) and the cutover then certifies a
+        number `mt data health` does not reproduce.
   - [ ] Success: one invocation prints every SC3/SC7 number with its
-        pass/fail against the stated bar.
+        pass/fail against the stated bar, and the mass figures come from the
+        health check's own code path.
 - [ ] **Task 7.2: Tests for `--verify`** (effort: 2)
   - [ ] Assert `--verify` writes nothing, and that each measurement is
         reported against the right bar (the 1,000,000 acceptance bar, not the
         health floor).
+  - [ ] Assert the reuse: the health check's judged-session selector, mass
+        query, and rule function are the ones invoked (patch them and observe
+        the call), so a second implementation cannot slip in.
   - [ ] Success: `uv run pytest test/unit/test_repair_921.py -q` passes.
 - [ ] **Task 7.3: `scripts/cutover_921_minute_sessions.py`** (effort: 3)
   - [ ] Built on `cutover_common`: preflight the ref, install via
@@ -371,6 +396,13 @@ cutover script fires the passes itself and measures immediately.
         and read back from the journal: the trailing-phase completion line,
         the symbol count, and any `QUOTA_EXHAUSTED` / `PROVIDER_UNAVAILABLE`
         abort (SC6).
+  - [ ] **One firing is not enough, and the task must say so.** The trailing
+        phase is bounded to one chunk per symbol per cycle (file 1, Task 3.4)
+        and takes the newest actionable gap, so a symbol left with two
+        in-window ranges by the repair needs more than one pass. Fire the
+        minute pass repeatedly until `--verify` reports no pending trailing
+        work, bounded by the quota — a `QUOTA_EXHAUSTED` outcome ends the loop
+        and is reported, not retried.
   - [ ] Finish by running `repair_921_minute_sessions.py --verify` and
         printing its report, so the cutover's own output carries the SC3
         numbers.
@@ -413,13 +445,23 @@ cutover script fires the passes itself and measures immediately.
         the `--verify` measurements.
 - [ ] **Task 7.8: Confirm the acceptance criteria from the cutover report**
       (effort: 2)
+  - [ ] **Know which judged session is being read.** The cutover runs just
+        after 00:00 UTC, when the health check's judged session is still D-2
+        (D-1's collecting firing at 01:05 plus the 3 h lag has not passed).
+        Read the mass figure for the session the fired passes actually
+        collected, and state that in the report — otherwise `--verify` shows a
+        sub-1,000,000 mass for an uncollected session and this task stops on a
+        false failure.
   - [ ] From the Task 7.7 report, confirm: truncated symbol-days over the last
         five NYSE sessions = 0; bars for the judged session ≥ 1,000,000 (SC3);
         `OK minute session mass` with the measured line; the journal shows
         `trailing phase complete: N symbols` before any backfill line (SC6).
   - [ ] The one genuinely time-bound observation — at least one `healthy`
         production run after 23:00 UTC (SC7) — is recorded as a follow-up
-        note against the issue, not as a task blocking the slice.
+        note against the issue, not as a task blocking the slice. Make it an
+        explicit named artifact: a comment on #19 stating the outstanding SC7
+        clause and the check-back instruction, so the slice cannot close with
+        it silently lost.
   - [ ] If any criterion misses, record the measurement and stop — do not
         apply a speculative fix without the actual evidence.
   - [ ] Success: every measurement recorded in the slice notes.
@@ -447,3 +489,15 @@ cutover script fires the passes itself and measures immediately.
 | F007 nothing fetches candidate sessions; no empty verdict | Task 5.4 owns the `trading_sessions` read; Task 5.2 states the no-candidate verdict as an explicit non-OK or exit 2, never a silent pass. |
 | F008 floor stated as both values | Task 5.5 states the floor is computed and that 1,000,000 is a separate, stricter cutover bar that must not reach `health.py`; Task 7.1 repeats the distinction. |
 | F009 Section 6 batched its tests | Split: Task 5.3 tests the selector, Task 5.7 the rule and rendering; Section 6 keeps unit tests (6.6) and adds the integration test (6.7). |
+
+## Review Response (2026-09-09, tasks re-review part 2 — CONCERNS)
+
+| Finding | Change |
+|---|---|
+| F001 load fixture cannot exercise the read | Task 5.8 states why `prod_shaped_db` as seeded (one bar per symbol per 7-day bucket from 2010, no `trading_sessions` at all) leaves the window empty, and requires a fixture with NYSE sessions plus a dense recent session (~41k cagg rows across ~11k symbols) and an explicit budget number. |
+| F002 SC3 unreachable in one firing | Task 7.3 fires the minute pass until `--verify` reports no pending trailing work, bounded by quota; Task 7.8 states that the cutover's judged session is D-2 just after 00:00 UTC and that the report must name the session the fired passes collected, so a false failure is not mistaken for a broken fix. |
+| F003 `--verify` re-measures instead of reusing | Task 7.1 requires importing the health check's judged-session selector, mass query, and rule function; Task 7.2 asserts the reuse by patching them. |
+| F004 `--verify` beyond the design's script contract | Design component table updated to `--check` / `--apply` / `--verify` with the reason recorded. |
+| F005 timer deviation not in the design | Design component table updated: the unit file stays authoritative and a `configparser` guard test holds it in agreement with the constant, with the reason recorded. |
+| F006 SC7 observation has no owning artifact | Task 7.8 makes it an explicit comment on #19 stating the outstanding clause and the check-back instruction. |
+| F007 Task 6.7 unnamed file/fixture | Now names `test/integration/test_repair_921_live.py` and `migrated_db`, citing `test_gaps_window_sql.py` as the `data_gaps` precedent. |

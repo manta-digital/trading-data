@@ -8,70 +8,65 @@ verdict: CONCERNS
 sourceDocument: project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md
 aiModel: claude-opus-5
 status: complete
-dateCreated: 20260908
-dateUpdated: 20260908
-reviewedSha: 7ebbe871afef43aa69bd1fd598e35e25194ee377
+dateCreated: 20260909
+dateUpdated: 20260909
+reviewedSha: 0110652f6cedbde18062c2518ad6f56ebfe12fd1
 findings:
   - id: F001
     severity: concern
-    category: commit-checkpoints
-    summary: "Section 8's only commit checkpoint lands after the release it should precede"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:267-292"
+    category: test-coverage
+    summary: "Load-tier test names a fixture that cannot exercise the session-mass read"
+    location: "test/load/conftest.py:89-112"
   - id: F002
     severity: concern
-    category: test-coverage
-    summary: "The repair's database behavior is only ever exercised against a fake writer"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:211-224"
+    category: correctness
+    summary: "SC3 is defined after two nightly firings; the cutover fires once and Task 7.8 treats the result as final"
+    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:361-424"
   - id: F003
     severity: concern
-    category: correctness
-    summary: "Gap rows straddling `REPAIR_921_WINDOW_START` are neither reset nor excluded"
-    location: "src/manta_trading/data/gaps/update_data_gaps.py:295-313"
+    category: duplication
+    summary: "`--verify` re-measures session mass without being told to reuse the health check's code"
+    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:345-357"
   - id: F004
-    severity: concern
-    category: task-sequencing
-    summary: "Tasks 8.4 and 8.5 are wait-blocked on wall-clock events"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:267-282"
+    severity: note
+    category: scope
+    summary: "`--verify` is an addition beyond the design's script specification"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:196-200"
   - id: F005
-    severity: concern
-    category: test-coverage
-    summary: "No load-tier task for the health check's stated read bound"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:93-105"
+    severity: note
+    category: traceability
+    summary: "Timer-rendering deviation is recorded in the tasks but not in the design"
+    location: "project-documents/user/slices/921-slice.minute-acquisition-correctness.md:243"
   - id: F006
-    severity: concern
-    category: task-clarity
-    summary: "Task 6.7's rendering mechanism is unspecified and its success criterion is untestable as stated"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:144-153"
+    severity: note
+    category: acceptance
+    summary: "SC7's production-observation clause has no owning task"
+    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:420-422"
   - id: F007
-    severity: concern
-    category: completeness
-    summary: "Nothing fetches the candidate sessions, and \"no session qualifies\" has no stated verdict"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:79-117"
+    severity: note
+    category: completability
+    summary: "Task 6.7 does not name its test file or fixture"
+    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:309-328"
   - id: F008
-    severity: note
-    category: consistency
-    summary: "The health floor is stated as both 975,000 and 1,000,000"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:111-117"
+    severity: pass
+    category: coverage
+    summary: "Success-criteria coverage is complete and traceable across both files"
+    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:60-70"
   - id: F009
-    severity: note
-    category: test-with-pattern
-    summary: "Section 6 batches its tests at Task 6.6 rather than following each implementation task"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:132-143"
+    severity: pass
+    category: correctness
+    summary: "Task 6.3's code claim is accurate and the risk is real"
+    location: "src/manta_trading/data/gaps/update_data_gaps.py:295-313"
   - id: F010
     severity: pass
-    category: criteria-coverage
-    summary: "Every success criterion this file owns has a task, and no task is untraceable"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:57-292"
+    category: ci
+    summary: "Load-test CI gating is explicit, not assumed"
+    location: ".github/workflows/ci.yml:1-8"
   - id: F011
     severity: pass
-    category: correctness
-    summary: "Removing the quota check has no dependents outside `health.py`, so Task 6.5's conditional resolves cleanly"
-    location: "src/manta_trading/cli/commands/health.py:145-190"
-  - id: F012
-    severity: pass
-    category: task-sequencing
-    summary: "Section 7 is correctly gated on the range-end fix landing first"
-    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:29-32"
+    category: sequencing
+    summary: "Commit checkpoints are distributed and the pre-tag ordering is correct"
+    location: "project-documents/user/tasks/921-tasks.minute-acquisition-correctness-2.md:399-405"
 ---
 
 # Review: tasks — slice 921
@@ -81,64 +76,52 @@ findings:
 
 ## Findings
 
-### [CONCERN] Section 8's only commit checkpoint lands after the release it should precede
+### [CONCERN] Load-tier test names a fixture that cannot exercise the session-mass read
 
-Sections 6 and 7 each end with an explicit checkpoint (Task 6.8, Task 7.7). Section 8 has one commit, Task 8.7 (`docs: record the 921 cutover measurements and close #19/#20`), placed after Task 8.4 ("version bumped, tagged, released"), Task 8.5 and Task 8.6.
+Task 5.8 (tasks file line 183) specifies `test/load/test_921_minute_session_mass_nfr.py` over `prod_shaped_db`, asserting the mass read "completes well inside `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT`". `_seed_prod_shape` seeds minute bars at `datetime(FIRST_YEAR + y, 1, 2, 14, 31) + COVERAGE_BUCKET_INTERVAL * b` — one bar per symbol per 7-day bucket, `FIRST_YEAR = 2010`, `YEAR_COUNT = 10` (conftest.py:56-64, 100-112), with `COVERAGE_BUCKET_INTERVAL = timedelta(days=7)` (constants.py:366). No load-tier fixture seeds `trading_sessions` at all (grep over `test/load/*.py` returns nothing).
 
-Failure scenario: an implementer follows the order literally. `scripts/cutover_921_minute_sessions.py` (Task 8.1), its tests (8.2), and the CHANGELOG entry (8.3) are still uncommitted when Task 8.4 tags `v0.14.0`. The cutover script's own first step is `install-production.sh --ref v0.14.0`, which installs from a checkout at that ref — a ref that does not contain the script being run, and a release whose CHANGELOG omits the entry Task 8.3 wrote. Add a checkpoint after Task 8.3 (`feat: add the 921 cutover script and changelog entry`) and leave 8.7 for the measurements and closeout only.
+Failure scenario: the mass query filters `minute_4hour_ohlcv` buckets to `[session_open_utc, session_close_utc)` of a judged session. Against `prod_shaped_db` no recent session exists in the calendar, and even a 2010-era seeded date yields at most one bar per symbol in the window — nowhere near the ~41k cagg rows per session the slice's read bound is about. The test passes in milliseconds over an effectively empty window, the NFR is never measured, and a real regression in the grouped read ships green. The task must name what the fixture needs (a dense recent session across ~11k symbols plus NYSE `trading_sessions` rows — a new fixture or an extension to `prod_shaped_db`) and state an explicit budget number, as `test_169_coverage_freshness_probe_nfr.py` does.
 
-### [CONCERN] The repair's database behavior is only ever exercised against a fake writer
+### [CONCERN] SC3 is defined after two nightly firings; the cutover fires once and Task 7.8 treats the result as final
 
-Task 7.5 specifies unit tests with "a fake writer; no live database". Every claim SC2 makes that the fake cannot reach is a property of `update_data_gaps` itself: that `force_reset_terminal=True` over `[REPAIR_921_WINDOW_START, now_midnight]` resets the terminal rows and only those; that carry-forward (`_best_prior_count`, keyed on `gap_start`, update_data_gaps.py:316) preserves `attempt_count` so a second `--apply` is genuinely zero net change; that rows before the window survive. The repo has an integration tier (`test/integration/`) and the fixture convention (`MT_TIMESCALE_TEST_URL`) for exactly this.
+The slice states SC3 as "After the repair and two nightly firings: truncated symbol-days … for the last five NYSE sessions = 0; bars for the judged session ≥ 1,000,000." Task 7.3 fires the daily pass and then the minute pass once each; Task 7.8 confirms SC3 from that single report and says to "stop" if a criterion misses. File 1's Task 3.4 bounds the trailing phase to **one chunk per symbol per cycle**, and the trailing selector takes the *newest* actionable gap.
 
-Failure scenario: `--apply` runs against production, the fake-writer suite green, and the second `--apply` is not idempotent because carry-forward keys on a `gap_start` the recomputed range no longer matches — every repaired row restarts at `attempt_count = 0` (or, worse, re-increments toward `RETRY_EXHAUSTED`), and nothing in Task 7.5 could have caught it. Add an integration-tier task after Task 7.5: seed a prod-shaped `data_gaps` fixture spanning the window boundary, run `--apply` twice, assert row-level equality and the pre-window rows byte-identical.
+Failure scenario: the repair re-seeds truncated days back to 2026-07-16. Where a non-truncated day interleaves the last five sessions, a symbol ends up with two or more separate in-window gap ranges; one fired minute pass fetches only the newest, so "truncated symbol-days over the last five sessions = 0" is unreachable in one firing. Compounding it, the cutover runs just after 00:00 UTC, at which time the health check's judged session is D-2 (D-1's collecting firing, 01:05 + 3 h, has not passed) — a session the just-fired trailing pass may not have reached, so `--verify` reports a sub-1,000,000 mass and Task 7.8 stops on a false failure. Either have the cutover fire the minute pass until `--verify` shows no pending trailing work (bounded by quota/`QUOTA_EXHAUSTED`), or state in Task 7.8 which residual is expected after one firing and how it is distinguished from a broken fix.
 
-### [CONCERN] Gap rows straddling `REPAIR_921_WINDOW_START` are neither reset nor excluded
+### [CONCERN] `--verify` re-measures session mass without being told to reuse the health check's code
 
-`_delete_intersecting` is named and documented as an intersection (`"Delete all data_gaps rows whose [gap_start, gap_end] intersects [from_ts, to_ts]"`) but its SQL is containment: `gap_start >= %s AND gap_end <= %s`. Task 7.4 passes `from_ts = REPAIR_921_WINDOW_START` and treats "rows before the window are untouched" as the only boundary case; no task considers a row that starts before 2026-07-16 and ends inside the window.
+Task 7.1 has `--verify` print "bars and symbols-with-≥30-bars for the judged session" and "the `minute session mass` health line", but nowhere says these must come from Task 5.4's query and Task 5.5's rule function. Task 7.2's test only asserts the right *bar* (1,000,000 vs the computed 975,000 floor), not the shared implementation.
 
-Failure scenario: a symbol carries one coalesced UNKNOWN range from 2026-05 to 2026-08 (the coalescer merges consecutive sessions, and the design records 57,663 UNKNOWN backfill rows plus 1,321 legacy rows in play). The delete skips it because `gap_start < from_ts`. The seed then computes missing sessions from the *cagg coverage index* — which knows nothing about that row — and inserts fresh UNKNOWN rows for the in-window sessions the surviving row already covers. The symbol ends with overlapping gap rows, and those sessions get fetched twice against a quota the slice is explicitly rationing. Task 7.3's `--check` should count boundary-straddling rows, and Task 7.4 should state what happens to them (skip the symbol and report, or widen the window to the row's start).
+Failure scenario: a junior implementer writes a second `SUM(minute_count)` query in `scripts/repair_921_minute_sessions.py` with its own judged-session logic. The two drift — e.g. the script's window is inclusive of `session_close_utc` while `health.py` uses `[open, close)`, or the script keeps a NYSE literal after the calendar constant changes — and the cutover report certifies SC3/SC7 with a number `mt data health` does not reproduce. This is the DRY rule in CLAUDE.md and exactly the "two implementations of one measurement" trap. Task 7.1 should require importing the health check's judged-session selector, query, and rule function, and Task 7.2 should assert the reuse.
 
-### [CONCERN] Tasks 8.4 and 8.5 are wait-blocked on wall-clock events
+### [NOTE] `--verify` is an addition beyond the design's script specification
 
-Task 8.4 says "Run the cutover script just after 00:00 UTC"; Task 8.5 says "After two nightly firings, confirm…", and Task 8.6 (close #19/#20) depends on 8.5. The standing rule on this project is that no task may wait on tonight or tomorrow — work is sized by what is measurable now.
+The design's component table specifies `repair_921_minute_sessions.py` with `--check` / `--apply` only, and the Verification Walkthrough verifies the next morning with `--check` plus `mt data health`. Task 7.1 adds a third mode. The addition is well-motivated (it converts a wait into an action, per the no-wait-blocked-tasks rule) and the Review Response table records it under F004, but the design's script contract still reads two modes. Reconcile the design so the two documents do not diverge — the same class of drift the design's own round-2 F005 called out.
 
-Failure scenario: the branch sits at 90% for two calendar days with three tasks unstartable and nothing to check off, and the "two nightly firings" precondition silently becomes "whenever someone remembers to look". `cutover_common` already exposes a `fire` helper and the cutover script runs with root, so the passes can be triggered directly after the quota reset rather than waited for. Restructure 8.5 into a `--verify` mode of `repair_921_minute_sessions.py` that prints every SC3/SC6/SC7 measurement on demand; the act of running it is the task, not the wait.
+### [NOTE] Timer-rendering deviation is recorded in the tasks but not in the design
 
-### [CONCERN] No load-tier task for the health check's stated read bound
+Design Scope 4 and the component table say `mt-minute-pass.timer`'s `OnCalendar` is "rendered from the constant by `install-production.sh`". Task 5.9 deliberately keeps the unit file authoritative and substitutes a `configparser` guard test, with a well-argued rationale (verified: `install-production.sh` installs units verbatim in a bash loop at lines 172-175, and `test/unit/deploy/test_units.py` parses the repo's unit files). The task says to "note the deviation", but the design text is unchanged. The timer's current values (01:05, 13:05 UTC) match Task 5.1's constant, so the guard is implementable as written; only the design needs the reconciliation.
 
-The slice restates a read NFR for the new check — "One session is ~41k cagg rows (measured 2026-08-27), a sub-second read" — under `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT = "30s"` with exit 2 on timeout, citing the §166/§167 raw-table latency cliff. The project's convention for exactly this claim is a load-tier test: `test/load/test_169_coverage_freshness_probe_nfr.py:108` asserts the sibling `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT` probe "stays well inside its budget" precisely because a timeout degrades to a refusal rather than a pass. Tasks 6.3 and 6.6 cover only a mocked query-text assertion and a simulated timeout.
+### [NOTE] SC7's production-observation clause has no owning task
 
-Failure scenario: the grouped `SUM(minute_count)` read over `[session_open_utc, session_close_utc)` regresses when the cagg's chunk layout changes; on production it exceeds 30 s, the check exits 2, and `mt data health` reports *unavailable* — indistinguishable to an operator from the silence this slice exists to end, with no test to catch it. Add a `test/load/test_921_minute_session_mass_nfr.py` task against `prod_shaped_db`. Note that CI gating is a repo-wide gap (`.github/workflows/ci.yml` runs no test job; tracked as slice 907), so the gate is the documented manual run — the load-test task should say so explicitly rather than leaving it implicit.
+SC7 ends with "production records at least one `healthy` run after 23:00 UTC". Task 7.8 records this as a follow-up note against the issue rather than a blocking task. Given the no-wait-blocked-tasks rule this is the right call, and the cutover does exercise `mt data health` in production via `--verify` — but it means the slice can be marked complete with one SC clause outstanding. Make the follow-up an explicit named artifact (a line on the issue with a check-back instruction) so it is not lost at closeout.
 
-### [CONCERN] Task 6.7's rendering mechanism is unspecified and its success criterion is untestable as stated
+### [NOTE] Task 6.7 does not name its test file or fixture
 
-`deploy/install-production.sh:173` installs each unit verbatim (`install -m 0644 … "${UNIT_SRC_DIR}/${unit}" "${UNIT_DIR}/${unit}"`) from a bash loop. Task 6.7 says to render `OnCalendar` from `MINUTE_PASS_FIRING_TIMES_UTC` but does not say how a bash installer reads a Python constant, what becomes of `deploy/systemd/mt-minute-pass.timer` (a `.in` template? a sed target?), or when in the install sequence the venv is available to evaluate it. Its success criterion — "`test/unit/deploy/test_units.py` asserts the installed unit's `OnCalendar` lines match the constant" — names an artifact a unit-tier test cannot see; that file explicitly runs with "no database, no systemd, no network" and parses the repo's unit files.
+Task 6.6 names `test/unit/test_repair_921.py` and its style precedent; Task 6.7 says only "the repo's `MT_TIMESCALE_TEST_URL` fixture convention". The tier exists with usable fixtures (`test/integration/conftest.py` provides `ephemeral_db` / `migrated_db`, and `test_gaps_window_sql.py` is a `data_gaps` precedent), so nothing blocks the work — but a junior implementer has to discover both the path and the fixture name. Name them, as every other test task in the file does.
 
-Failure scenario: a junior implements the rendering, the repo unit file becomes a template with a placeholder, `test_units.py`'s existing `configparser` parse of that file breaks or silently asserts against the placeholder, and the drift guard the task exists to create never actually guards anything. Either specify the template mechanism and fail-loud read explicitly, or — simpler, and what the existing file already does for the Kalshi pair — keep the unit authoritative and make the guard a unit test asserting the `.timer`'s parsed `OnCalendar` values equal the constant.
+### [PASS] Success-criteria coverage is complete and traceable across both files
 
-### [CONCERN] Nothing fetches the candidate sessions, and "no session qualifies" has no stated verdict
+SC2 → Tasks 6.1–6.7 (each `--check` predicate, the advisory-lock and `force_reset_terminal` assertions, the idempotency proof); SC3 → 7.1/7.8; SC7 → 5.1–5.7 (45k FAIL, 1.99M PASS, 210-minute early-close PASS, the query-capture assertion against `minute_4hour_ohlcv`, the removed quota line); SC8 → 7.5/7.9. No task lacks a criterion: 5.6's quota removal is Decision 6, 5.9 is Scope 4's timer/check agreement, 6.3 is a prerequisite for SC2's idempotency claim. Verified against the codebase: `check_quota`, `fetch_quota`, and `HEALTH_EODHD_QUOTA_HEADROOM_MIN` occur only in `health.py:37,108,145,188-190` and `constants.py:96,101` plus tests and history docs, so Task 5.6's "removal is unconditional" claim holds.
 
-Task 6.2 is explicitly I/O-free ("takes `now` and the candidate sessions as arguments"), Task 6.3 is the mass query only, and Task 6.4 is a pure rule plus "wire it into `gather()`". No task owns the `trading_sessions` read for `HEALTH_MINUTE_SESSION_CALENDAR` that produces those candidates. Nor does any task say what the check returns when the selection yields nothing — an empty `trading_sessions` window, a calendar rename, or a long holiday stretch.
+### [PASS] Task 6.3's code claim is accurate and the risk is real
 
-Failure scenario: `trading_sessions` is not populated forward past some date; the judged-session selector returns `None`; `gather()` (health.py:159) either raises and takes the whole `mt data health` command to exit 2 for an unrelated reason, or the rule function defaults to `ok=True` — a silent fallback, and the check that exists to catch silence goes silent. Assign the fetch to Task 6.3 or 6.4 and state the verdict for "no judged session" (per the project's no-silent-fallback rule, an explicit non-OK or exit 2, never a pass).
+`_delete_intersecting`'s docstring says "Delete all data_gaps rows whose [gap_start, gap_end] intersects [from_ts, to_ts]" while its SQL is `gap_start >= %s AND gap_end <= %s` — containment, not intersection. A coalesced UNKNOWN row starting before `REPAIR_921_WINDOW_START` and ending inside the window survives the reset while the seeder re-inserts the same in-window sessions, producing overlapping rows and double-fetching against the rationed quota. Task 6.3 correctly makes this a decide-and-record task before 6.5 implements it, has `--check` count the rows (6.4), and explicitly forbids changing the shared helper's semantics in this slice.
 
-### [NOTE] The health floor is stated as both 975,000 and 1,000,000
+### [PASS] Load-test CI gating is explicit, not assumed
 
-Task 6.4 correctly derives `2,500 × 390 = 975,000`, matching the design's example output line; Task 8.5 uses "≥ 1,000,000" for the production acceptance measurement, as does the design's Verification Walkthrough. The two serve different purposes (computed health floor vs. a stricter one-time cutover bar) but are never distinguished, so a junior reconciling them may hardcode either. Say so in one line in Task 6.4.
+Task 5.8 states that CI runs no test job and that the gate is a documented manual invocation recorded in the test module docstring and runbook 100 (Task 7.5). Verified: `.github/workflows/ci.yml` is `on: push: tags: ["v*"]` with a single `publish` job — no test execution anywhere in `.github/workflows/`. Adding a CI wiring task here would be scope creep against a repo-wide gap already tracked as slice 907; naming the gap and the manual invocation is the correct handling.
 
-### [NOTE] Section 6 batches its tests at Task 6.6 rather than following each implementation task
+### [PASS] Commit checkpoints are distributed and the pre-tag ordering is correct
 
-File 1's Sections 1, 3 and 5 pair each implementation task with a test task (1.2→1.3, 1.4→1.5, 3.2→3.3, 5.2→5.3). Section 6 stacks five implementation tasks (6.1–6.5) before Task 6.6's combined test task, and Section 7 stacks 7.3–7.4 before 7.5. Tasks 6.1 and 6.3 carry inline assertions so the exposure is bounded, but splitting 6.6 into a selector test after 6.2 and a rule/rendering test after 6.4 would make each unit independently verifiable at its own boundary.
-
-### [PASS] Every success criterion this file owns has a task, and no task is untraceable
-
-SC2 → Tasks 7.3/7.4/7.5 (the `--check` predicates, `update_data_gaps` under `advisory_lock`, the fake-writer assertion, the unit-active refusal). SC3 → Task 8.5. SC7 → Tasks 6.1–6.6 for the fixtures, the query capture, the 04:04/04:05 boundary and the removed quota line, with the "healthy run after 23:00 UTC" clause in 8.5. SC8 → Tasks 8.3 and 8.6. SC1/SC4/SC5/SC6 are file 1's and are correctly not duplicated here. In the other direction, every task cites a Scope or Decision item that exists — including Task 6.7, which traces to Scope 4's "the check and the timer cannot disagree". No scope creep found.
-
-### [PASS] Removing the quota check has no dependents outside `health.py`, so Task 6.5's conditional resolves cleanly
-
-Task 6.5 hedges ("`fetch_quota` if it has no other caller", "if removing the quota check leaves `data_health` no longer needing the HTTP client"). Checked against the tree: `fetch_quota`, `check_quota` and `HEALTH_EODHD_QUOTA_HEADROOM_MIN` appear only at health.py:37/108/114/145/188/190 and constants.py:96; `gather()` has exactly one caller (health.py:248); `deploy/mt-run` reads only the service exit code, not check names; and no runbook references the `eodhd quota` line. The only other mention is 919's design record, which is history and should not be edited. The httpx client and `settings.eodhd_api_key` requirement can both be dropped outright.
-
-### [PASS] Section 7 is correctly gated on the range-end fix landing first
-
-The Context Summary states the one ordering constraint that actually matters and gives the reason: "Do not start Section 7 (repair) before Sections 1–5 are merged-ready. The repair reseeds gap rows that the fixed code must then fetch correctly; running it against the old range-end code re-creates the same truncation." Task 7.2's additive parameter on `compute_missing_minute_sessions` also correctly lands after file 1's Section 1 rewrote that function's range end, so the two changes to the same function are ordered rather than colliding.
+Checkpoints land at 5.10, 6.9, 7.6, and 7.10 — one per section, matching the project's confirmed per-section granularity, with each gated on unit tier + mypy + scoped `ruff format`. Task 7.6 correctly commits the cutover script, its tests, and the CHANGELOG *before* Task 7.7 tags, since `install-production.sh --ref v0.14.0` installs from the tagged checkout — the ordering defect from the previous round is fixed, and 7.6's success criterion ("nothing from Sections 5–7 is uncommitted when 7.7 runs") makes it checkable.

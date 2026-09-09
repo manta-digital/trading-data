@@ -242,6 +242,12 @@ that `classify_outcome` returned rather than raised.
         classification — a transport/status failure (no usable answer) versus
         a 200 whose body was classified. Carry the distinction as a value, not
         by re-inspecting `response.status_code` at the call site.
+  - [ ] **Fence the daily path.** `classify_outcome` is shared: `minute.py:456`
+        and `daily.py:737` both call it. State which mechanism carries the
+        distinction — a new return value, a sidecar, or a new enum member —
+        and keep `daily.py:737`'s behavior unmoved. Widening the return type
+        in place would break or silently change the daily acquisition path,
+        which this slice's Out of scope leaves alone.
   - [ ] In the chunk loop, a no-answer failure skips both `_advance_minute_gap`
         and `_record_minute_attempt` and breaks out of the symbol's chunk loop
         (there is no point requesting the next chunk from a provider that just
@@ -346,6 +352,11 @@ which phase aborted — there is nothing to condition on until the phases exist.
         the direct regression for Task 3.3. Fixture: a symbol with a
         successful trailing fetch and a stale coverage index; assert the
         backfill phase does not request that day again.
+  - [ ] A `caplog` assertion covers SC6's second half: the
+        `trailing phase complete: N symbols` line is emitted before the first
+        backfill line. It is the operator's only in-production evidence that
+        the trailing phase ran to completion, and it is what the design's
+        Verification Walkthrough greps for.
   - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
 - [ ] **Task 3.6: Section 3 checkpoint** (effort: 1)
   - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
@@ -367,8 +378,9 @@ exit code.
   - [ ] No string literal for these values may appear anywhere else — journal
         lines, exit mapping, and tests all reference the enum (Decision 7).
   - [ ] Success: `test/unit/data/acquisition/test_state.py` covers the members
-        and their string values; `grep` for the literal strings outside
-        `state.py` returns only the enum definition.
+        and their string values; `grep` for the literal strings returns
+        matches in
+        `state.py`'s enum definition and nowhere else.
 - [ ] **Task 4.2: Failure kind survives `_process_minute_symbol`** (effort: 2)
   - [ ] **The problem, measured from the code.** `_process_minute_symbol`
         collapses five distinct `except` handlers —
@@ -379,14 +391,28 @@ exit code.
         cannot tell a provider outage from a database one, and a breaker built
         on that value would abort with `PROVIDER_UNAVAILABLE` on a Postgres
         pool exhaustion.
-  - [ ] Extend what `_process_minute_symbol` returns (or let a typed exception
-        reach the cycle) so the failure **kind** is explicit: provider
-        quota, provider failure, database failure, or a classified response.
-        Do not infer the kind from the outcome enum or a log message.
+  - [ ] **The handlers are only half of it.** 5xx and 429 never raise —
+        `classify_outcome` returns `TRANSIENT_FAILURE` for them, so
+        `_do_minute_symbol` returns *normally* through the `try`, not through
+        any handler. The breaker's headline trigger therefore does not reach
+        the cycle at all unless the Task 2.3 distinction is threaded up the
+        **normal return path**: `_do_minute_symbol`'s return →
+        `_process_minute_symbol`'s return → `run_minute_cycle`.
+  - [ ] Extend both paths — what `_process_minute_symbol` returns on a normal
+        return, and what its five `except` handlers return (or let a typed
+        exception reach the cycle) — so the failure **kind** is explicit:
+        provider quota, provider failure, database failure, or a classified
+        response. Do not infer the kind from the outcome enum or a log
+        message.
   - [ ] Every existing caller and test of `_process_minute_symbol` must be
-        updated in this task, not left to fail in the next one.
-  - [ ] Success: a `PoolTimeout` and an `httpx.ReadTimeout` are
-        distinguishable by the cycle without inspecting an exception message.
+        updated in this task, not left to fail in the next one. **Re-green the
+        daemon test module before starting Task 4.3** — this task changes a
+        signature across every caller, and the abort and breaker layer on top
+        of it.
+  - [ ] Success: a `PoolTimeout`, an `httpx.ReadTimeout`, and a **returned**
+        HTTP 500 are all distinguishable by the cycle without inspecting an
+        exception message — the 500 case is the one the handler-only reading
+        of this task would miss.
 - [ ] **Task 4.3: 402 aborts the pass** (effort: 2)
   - [ ] `classify_outcome` raises `ProviderResponseError` for 402 with a
         distinct message. Give the quota case a distinguishable exception (a
@@ -428,7 +454,11 @@ exit code.
         there.
   - [ ] State what a `--forever` runner that ran several minute cycles exits
         with: the last cycle's outcome, or the worst seen. Pick one and write
-        the reason in a comment.
+        the reason in a comment. **This is a low-stakes choice** —
+        `mt-minute-pass.service`'s `ExecStart` runs
+        `mt data daemon run --minute --stop-when-done`, so `--forever` is a
+        hand-run/dev path and neither choice affects the unit's exit code in
+        production. Do not treat it as blocking.
   - [ ] **There is no shared exit-code constant in this project.** The nearest
         precedent is `EXIT_BY_OUTCOME`, a dict local to
         `cli/commands/kalshi.py:54` over `EXIT_OK`/`EXIT_SYNC_PARTIAL`/…;
@@ -475,3 +505,17 @@ exit code.
 | F008 Section 2 had no commit checkpoint | Its two regression tests folded into Section 1 as Tasks 1.6/1.7, riding the Task 1.8 checkpoint. |
 | F009 floor stated as both 975,000 and 1,000,000 | Distinguished in file 2, Tasks 5.5 and 7.1: 975,000 is the computed health floor, 1,000,000 the stricter one-time cutover acceptance bar. |
 | F010 tests batched in Sections 4 and 6 | Section 4 now tests after the abort/breaker (Task 4.5) and again after the exit mapping (Task 4.7); file 2's Section 5 tests after the selector (Task 5.3) and after the rule (Task 5.7). |
+
+## Review Response (2026-09-09, tasks re-review part 1 — CONCERNS)
+
+Both FAIL findings from the first round are resolved. Remaining concerns and
+notes applied:
+
+| Finding | Change |
+|---|---|
+| F001 breaker's 5xx/429 trigger never reaches the exception path | Task 4.2 now states that 5xx and 429 return *normally* through `_do_minute_symbol` and requires the failure kind to be threaded up the normal return path as well as the handlers; its success criterion adds a returned-500 case. |
+| F002 Task 2.3 changes a shared classifier without fencing daily | Task 2.3 gains the fence: `classify_outcome` is called by `minute.py:456` and `daily.py:737`; the mechanism must be named and `daily.py:737`'s behavior must not move. |
+| F003 SC6's journal line untested | Task 3.5 adds a `caplog` assertion that `trailing phase complete: N symbols` precedes the first backfill line. |
+| F004 grep criterion self-contradictory | Task 4.1 reworded: grep returns matches in `state.py`'s enum definition and nowhere else. |
+| F005 `--forever` decision overstated | Task 4.6 records that `ExecStart` uses `--stop-when-done`, so `--forever` is a hand-run path and the choice is not blocking. |
+| F006 Section 4 stacks three tasks before a test | Task 4.2 now requires re-greening the daemon test module before Task 4.3 layers the abort on top of the signature change. |

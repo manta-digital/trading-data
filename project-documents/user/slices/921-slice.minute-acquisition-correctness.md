@@ -7,7 +7,7 @@ dependencies: [919]
 interfaces: [162, 165, 912]
 effort: 3
 dateCreated: 20260907
-dateUpdated: 20260908
+dateUpdated: 20260909
 status: not_started
 ---
 
@@ -276,8 +276,8 @@ failed is not an alarm.
 | `data/acquisition/state.py` | `MinutePassOutcome`. |
 | `cli/commands/health.py` | `check_minute_session_mass`; quota check removed; UTC label fix. |
 | `constants.py` | `MINUTE_TRAILING_PRIORITY_WINDOW`, `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES`, `MINUTE_PASS_FIRING_TIMES_UTC` (rendered into `mt-minute-pass.timer`), `HEALTH_MINUTE_SESSION_*` (calendar, collection lag, bars-per-minute floor, symbol floor, per-symbol bar floor, statement timeout), `REPAIR_921_WINDOW_START`. |
-| `deploy/systemd/mt-minute-pass.timer` | `OnCalendar` rendered from the constant by `install-production.sh` so the health check and the timer cannot disagree. |
-| `scripts/repair_921_minute_sessions.py` | one-time repair via the single writer, `--check` / `--apply`. |
+| `deploy/systemd/mt-minute-pass.timer` | `OnCalendar` and `MINUTE_PASS_FIRING_TIMES_UTC` are held in agreement by a unit test that parses the timer, so the health check and the timer cannot disagree. (Task-breakdown revision: the unit file stays authoritative rather than being rendered by `install-production.sh`, which installs units verbatim from a bash loop and has no venv at that point; a `configparser` guard in `test/unit/deploy/test_units.py` catches the same drift at the same place the Kalshi units are already asserted.) |
+| `scripts/repair_921_minute_sessions.py` | one-time repair via the single writer, `--check` / `--apply` / `--verify`. (Task-breakdown revision: `--verify` is a read-only mode printing the SC3/SC7 acceptance measurements on demand — reusing the health check's own selector, query, and rule function — so verification is an action the cutover performs rather than a wait for the next morning.) |
 | `scripts/cutover_921_minute_sessions.py` | preconditions (installed version, no pass active, quota just reset), repair `--apply`, next-morning report. |
 
 ### Consumers of minute `gap_end` (every reader, and what changes)
