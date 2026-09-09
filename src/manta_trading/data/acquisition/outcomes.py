@@ -28,6 +28,19 @@ class ProviderResponseError(Exception):
     """
 
 
+class ProviderQuotaExhausted(ProviderResponseError):
+    """The provider reports its daily allowance spent (EODHD HTTP 402).
+
+    A subclass rather than a flag on the message, so a caller distinguishes
+    quota exhaustion from a vendor-contract 4xx with ``except`` rather than a
+    substring check — a message is a human label and matching on it is exactly
+    the fragile pattern this project forbids. Every existing
+    ``except ProviderResponseError`` still catches it, so the per-symbol skip
+    behavior of the daily path and the operator commands is unchanged; only
+    callers that name this class specifically act on it (slice 921 Task 4.3).
+    """
+
+
 # Mapping from LastAttemptOutcome → FetchStatus for unfilled gap rows.
 # 'success' maps to None — no unfilled rows; range is fully covered.
 _OUTCOME_TO_FETCH_STATUS: dict[LastAttemptOutcome, FetchStatus | None] = {
@@ -82,7 +95,7 @@ def classify_outcome(
         # spent (server-side; a fresh local QuotaBucket does not mean the
         # account has budget). Name it, so the operator knows to wait for the
         # 00:00 UTC reset or buy extra calls rather than "investigate".
-        raise ProviderResponseError(
+        raise ProviderQuotaExhausted(
             f"EODHD daily API quota exhausted (HTTP {status_code}) for range "
             f"{range_start!r}–{range_end!r}; the allowance resets at 00:00 UTC."
         )

@@ -51,9 +51,11 @@ def test_daily_cycle_due_false_before_start_offset():
 
 def test_daily_cycle_due_true_after_start_offset_with_no_history():
     state = RunnerState(last_daily_cycle_end_utc=None)
-    after_offset = datetime.now(UTC).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ) + DAILY_CYCLE_START_OFFSET + timedelta(seconds=1)
+    after_offset = (
+        datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        + DAILY_CYCLE_START_OFFSET
+        + timedelta(seconds=1)
+    )
     assert daily_cycle_due(state, after_offset) is True
 
 
@@ -143,17 +145,21 @@ def test_ca_update_due_false_before_grace():
 
 
 def test_ca_update_due_true_when_row_missing():
-    after_grace = datetime.now(UTC).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ) + DAILY_CYCLE_START_OFFSET + timedelta(seconds=1)
+    after_grace = (
+        datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        + DAILY_CYCLE_START_OFFSET
+        + timedelta(seconds=1)
+    )
     conn = _conn_returning_row(None)
     assert ca_update_due(conn, after_grace) is True
 
 
 def test_ca_update_due_true_when_last_attempt_ts_is_null():
-    after_grace = datetime.now(UTC).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ) + DAILY_CYCLE_START_OFFSET + timedelta(seconds=1)
+    after_grace = (
+        datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        + DAILY_CYCLE_START_OFFSET
+        + timedelta(seconds=1)
+    )
     conn = _conn_returning_row((None,))
     # MUST NOT call .date() on None.
     assert ca_update_due(conn, after_grace) is True
@@ -287,9 +293,7 @@ def _make_runner(
 
 def test_runner_terminates_when_drained_after_one_pass():
     # Use a clock past midnight + grace so daily is due and runs once.
-    after_grace = datetime.now(UTC).replace(
-        hour=12, minute=0, second=0, microsecond=0
-    )
+    after_grace = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
     runner, daily_func, minute_func, _ = _make_runner(
         clock_at=after_grace,
         granularities=frozenset({"daily"}),
@@ -358,7 +362,8 @@ def test_runner_max_credits_exhausted_exits():
     cm.__enter__ = MagicMock(return_value=conn)
     cm.__exit__ = MagicMock(return_value=False)
     runner = Runner(
-        config=config, bucket=bucket,
+        config=config,
+        bucket=bucket,
         conn_factory=MagicMock(return_value=cm),
         run_daily_cycle=daily_func,
         run_minute_cycle=MagicMock(),
@@ -377,9 +382,7 @@ def test_runner_sigterm_flag_breaks_loop():
         runner._should_exit = True
 
     daily_func.side_effect = force_exit_after_first_call
-    after_grace = datetime.now(UTC).replace(
-        hour=12, minute=0, second=0, microsecond=0
-    )
+    after_grace = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
     config = RunnerConfig(
         scope=SCOPE_ALL_ACTIVE,
         granularities=frozenset({"daily"}),
@@ -390,7 +393,8 @@ def test_runner_sigterm_flag_breaks_loop():
     cm.__enter__ = MagicMock(return_value=conn)
     cm.__exit__ = MagicMock(return_value=False)
     runner = Runner(
-        config=config, bucket=bucket,
+        config=config,
+        bucket=bucket,
         conn_factory=MagicMock(return_value=cm),
         run_daily_cycle=daily_func,
         run_minute_cycle=MagicMock(),
@@ -409,9 +413,7 @@ def test_runner_should_continue_passes_through_to_cycle():
         captured["should_continue"] = kwargs.get("should_continue")
 
     daily_func = MagicMock(side_effect=daily_with_capture)
-    after_grace = datetime.now(UTC).replace(
-        hour=12, minute=0, second=0, microsecond=0
-    )
+    after_grace = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
     config = RunnerConfig(
         scope=SCOPE_ALL_ACTIVE,
         granularities=frozenset({"daily"}),
@@ -422,7 +424,8 @@ def test_runner_should_continue_passes_through_to_cycle():
     cm.__enter__ = MagicMock(return_value=conn)
     cm.__exit__ = MagicMock(return_value=False)
     runner = Runner(
-        config=config, bucket=bucket,
+        config=config,
+        bucket=bucket,
         conn_factory=MagicMock(return_value=cm),
         run_daily_cycle=daily_func,
         run_minute_cycle=MagicMock(),
@@ -444,9 +447,7 @@ def test_runner_sets_quota_bucket_var_during_start():
         captured["bucket"] = QUOTA_BUCKET_VAR.get()
 
     daily_func = MagicMock(side_effect=daily_capture)
-    after_grace = datetime.now(UTC).replace(
-        hour=12, minute=0, second=0, microsecond=0
-    )
+    after_grace = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
     config = RunnerConfig(
         scope=SCOPE_ALL_ACTIVE,
         granularities=frozenset({"daily"}),
@@ -457,7 +458,8 @@ def test_runner_sets_quota_bucket_var_during_start():
     cm.__enter__ = MagicMock(return_value=conn)
     cm.__exit__ = MagicMock(return_value=False)
     runner = Runner(
-        config=config, bucket=bucket,
+        config=config,
+        bucket=bucket,
         conn_factory=MagicMock(return_value=cm),
         run_daily_cycle=daily_func,
         run_minute_cycle=MagicMock(),
@@ -470,9 +472,7 @@ def test_runner_sets_quota_bucket_var_during_start():
 
 
 def test_runner_explicit_symbols_passed_to_cycle():
-    after_grace = datetime.now(UTC).replace(
-        hour=12, minute=0, second=0, microsecond=0
-    )
+    after_grace = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
     daily_func = MagicMock()
     bucket = _bucket()
     config = RunnerConfig(
@@ -485,7 +485,8 @@ def test_runner_explicit_symbols_passed_to_cycle():
     cm.__enter__ = MagicMock(return_value=conn)
     cm.__exit__ = MagicMock(return_value=False)
     runner = Runner(
-        config=config, bucket=bucket,
+        config=config,
+        bucket=bucket,
         conn_factory=MagicMock(return_value=cm),
         run_daily_cycle=daily_func,
         run_minute_cycle=MagicMock(),
@@ -495,3 +496,101 @@ def test_runner_explicit_symbols_passed_to_cycle():
     assert daily_func.call_count == 1
     args, kwargs = daily_func.call_args
     assert kwargs["symbols"] == ["AAPL", "MSFT"]
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 — a minute pass's outcome reaches the process exit code
+# ---------------------------------------------------------------------------
+
+
+def _minute_report(outcome, *, trailing_completed: bool) -> CycleReport:
+    report = CycleReport()
+    report.minute_pass_outcome = outcome
+    report.minute_trailing_completed = trailing_completed
+    return report
+
+
+def test_a_trailing_phase_quota_abort_exits_three():
+    """The allowance ran out before the current session was collected."""
+    from manta_trading.data.acquisition.state import MinutePassOutcome
+
+    minute_func = MagicMock(
+        return_value=_minute_report(
+            MinutePassOutcome.QUOTA_EXHAUSTED, trailing_completed=False
+        )
+    )
+    runner, _, minute_func, _ = _make_runner(
+        granularities=frozenset({"minute"}), minute_func=minute_func
+    )
+    assert runner.start() == 3
+
+
+def test_a_post_trailing_quota_abort_exits_zero():
+    """The designed steady state — the session is collected and the rest of
+    the allowance went to backfill."""
+    from manta_trading.data.acquisition.state import MinutePassOutcome
+
+    minute_func = MagicMock(
+        return_value=_minute_report(
+            MinutePassOutcome.QUOTA_EXHAUSTED, trailing_completed=True
+        )
+    )
+    runner, _, minute_func, _ = _make_runner(
+        granularities=frozenset({"minute"}), minute_func=minute_func
+    )
+    assert runner.start() == 0
+
+
+def test_provider_unavailable_exits_three():
+    from manta_trading.data.acquisition.state import MinutePassOutcome
+
+    minute_func = MagicMock(
+        return_value=_minute_report(
+            MinutePassOutcome.PROVIDER_UNAVAILABLE, trailing_completed=True
+        )
+    )
+    runner, _, minute_func, _ = _make_runner(
+        granularities=frozenset({"minute"}), minute_func=minute_func
+    )
+    assert runner.start() == 3
+
+
+def test_a_complete_minute_pass_exits_zero():
+    from manta_trading.data.acquisition.state import MinutePassOutcome
+
+    minute_func = MagicMock(
+        return_value=_minute_report(MinutePassOutcome.COMPLETE, trailing_completed=True)
+    )
+    runner, _, minute_func, _ = _make_runner(
+        granularities=frozenset({"minute"}), minute_func=minute_func
+    )
+    assert runner.start() == 0
+
+
+def test_an_aborted_pass_still_stamps_the_cycle_end():
+    """The stamp is an in-process busy-loop guard only — slice 912 derives
+    remaining work from acquisition_state, so withholding it on an abort would
+    spin the loop rather than preserve any information."""
+    from manta_trading.data.acquisition.state import MinutePassOutcome
+
+    minute_func = MagicMock(
+        return_value=_minute_report(
+            MinutePassOutcome.PROVIDER_UNAVAILABLE, trailing_completed=False
+        )
+    )
+    runner, _, minute_func, _ = _make_runner(
+        granularities=frozenset({"minute"}), minute_func=minute_func
+    )
+    runner.start()
+    assert runner._state.last_minute_cycle_end_utc is not None
+
+
+def test_a_raised_minute_cycle_still_stamps_and_exits_zero():
+    """A crash is already logged by the loop's handler; it has no pass outcome
+    to map, so it must not invent one."""
+    minute_func = MagicMock(side_effect=RuntimeError("boom"))
+    runner, _, minute_func, _ = _make_runner(
+        granularities=frozenset({"minute"}), minute_func=minute_func
+    )
+    assert runner.start() == 0
+    assert runner._state.last_minute_cycle_end_utc is not None

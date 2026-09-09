@@ -8,20 +8,34 @@ from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
+import httpx
+import psycopg
 import pytest
+from psycopg_pool import PoolTimeout
 
 from manta_trading.constants import FetchEntryPoint
 from manta_trading.data.acquisition.daemon.minute import (
+    MINUTE_EXIT_OK,
+    MINUTE_EXIT_PASS_INCOMPLETE,
+    MinuteSymbolResult,
     _do_minute_symbol,
+    minute_pass_exit_code,
     run_minute_cycle,
     run_minute_refetch,
 )
 from manta_trading.data.acquisition.quota import QuotaBucket, QuotaWaitAborted
-from manta_trading.data.acquisition.state import LastAttemptOutcome
+from manta_trading.data.acquisition.daemon.daily import CycleReport
+from manta_trading.data.acquisition.state import (
+    LastAttemptOutcome,
+    MinuteFailureKind,
+    MinutePassOutcome,
+)
 from manta_trading.constants import (
     MAX_RETRY_COUNT,
+    MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES,
     MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
     MINUTE_TRAILING_PRIORITY_WINDOW,
+    MinutePassPhase,
 )
 from manta_trading.data.gaps.actionable_gap_selector import GapRow
 from manta_trading.data.quality.fetch_status import FetchStatus
@@ -534,7 +548,7 @@ class TestDoMinuteSymbolExtensions:
             coverage_index={"AAPL": set()},
             update_gaps_result=MagicMock(gaps_inserted=7),
         )
-        gaps_seeded = result[4]
+        gaps_seeded = result.gaps_seeded
         assert gaps_seeded == 7
 
     def test_coalesce_called_on_refetch_path_too(self) -> None:
@@ -564,7 +578,11 @@ class TestViaMarkerThreading:
             _process_minute_symbol,
         )
 
-        mock_do = MagicMock(return_value=(LastAttemptOutcome.SUCCESS, None, None, 0, 0))
+        mock_do = MagicMock(
+            return_value=MinuteSymbolResult(
+                LastAttemptOutcome.SUCCESS, None, None, 0, 0
+            )
+        )
         with patch(
             "manta_trading.data.acquisition.daemon.minute._do_minute_symbol",
             mock_do,
@@ -592,14 +610,17 @@ class TestViaMarkerThreading:
                 "manta_trading.data.acquisition.daemon.minute._logger"
             ) as mock_logger,
         ):
-            outcome, *_ = _process_minute_symbol(
+            result = _process_minute_symbol(
                 "AAPL",
                 pool=MagicMock(),
                 http=MagicMock(),
                 settings=_FakeSettings(),
                 via=FetchEntryPoint.REFETCH,
             )
-        assert outcome == LastAttemptOutcome.TRANSIENT_FAILURE
+        assert result.outcome == LastAttemptOutcome.TRANSIENT_FAILURE
+        # An unknown fault is not evidence about the provider (slice 921), so
+        # the last-resort handler must not tag it PROVIDER and trip the breaker.
+        assert result.failure_kind is MinuteFailureKind.DATABASE
         logged_args = mock_logger.exception.call_args.args
         assert "refetch" in logged_args
 
@@ -620,7 +641,9 @@ class TestRunMinuteRefetch:
         outcome: LastAttemptOutcome = LastAttemptOutcome.SUCCESS,
         coverage_index: dict | None = None,
     ) -> tuple:
-        mock_do_minute = MagicMock(return_value=(outcome, None, None, 0, 0))
+        mock_do_minute = MagicMock(
+            return_value=MinuteSymbolResult(outcome, None, None, 0, 0)
+        )
         # The resolver returns 2010-01-01 (later than the EODHD horizon) so
         # tests can assert the per-symbol floor flows through.
         mock_resolve = MagicMock(return_value=datetime(2010, 1, 1, tzinfo=timezone.utc))
@@ -830,7 +853,7 @@ class TestHasAnyGapsRefireRegression:
                 coverage_index=coverage_index,
             )
 
-        assert result[4] == 0  # gaps_seeded reported via update_data_gaps mock (0 here)
+        assert result.gaps_seeded == 0  # reported via the update_data_gaps mock
         first_call_kwargs = mock_update_gaps.call_args_list[0].kwargs
         seeded_ranges = first_call_kwargs["precomputed_ranges"]
         assert seeded_ranges is not None
@@ -1796,3 +1819,480 @@ class TestMinutePassPhases:
             ["AAPL", "MSFT"], gaps, should_continue=flag
         )
         assert all(max_chunks is not None for _s, _f, max_chunks, _seed in phase_calls)
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 Section 4 — the failure kind survives (Task 4.2)
+# ---------------------------------------------------------------------------
+
+
+class TestFailureKindSurvivesProcessMinuteSymbol:
+    """A PoolTimeout, an httpx.ReadTimeout and a RETURNED HTTP 500 must be
+    distinguishable by the cycle without inspecting an exception message.
+
+    The 500 is the case a handler-only reading of this misses:
+    ``classify_outcome`` RETURNS TRANSIENT_FAILURE for 5xx and 429, so the
+    symbol exits ``_do_minute_symbol`` normally and never touches an
+    ``except`` clause. Without the kind on the normal return path the
+    breaker's headline trigger would never reach the cycle at all.
+    """
+
+    @staticmethod
+    def _process_with(side_effect) -> MinuteSymbolResult:
+        from manta_trading.data.acquisition.daemon.minute import (
+            _process_minute_symbol,
+        )
+
+        with patch(
+            "manta_trading.data.acquisition.daemon.minute._do_minute_symbol",
+            side_effect=side_effect,
+        ):
+            return _process_minute_symbol(
+                "AAPL",
+                pool=MagicMock(),
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                via=FetchEntryPoint.CYCLE,
+            )
+
+    def test_pool_timeout_is_a_database_kind(self) -> None:
+        result = self._process_with(PoolTimeout("pool exhausted"))
+        assert result.failure_kind is MinuteFailureKind.DATABASE
+
+    def test_lock_timeout_is_a_database_kind(self) -> None:
+        result = self._process_with(psycopg.errors.LockNotAvailable("locked"))
+        assert result.failure_kind is MinuteFailureKind.DATABASE
+
+    def test_read_timeout_is_a_provider_kind(self) -> None:
+        result = self._process_with(httpx.ReadTimeout("timed out"))
+        assert result.failure_kind is MinuteFailureKind.PROVIDER
+
+    def test_quota_exhaustion_is_its_own_kind(self) -> None:
+        from manta_trading.data.acquisition.outcomes import ProviderQuotaExhausted
+
+        result = self._process_with(ProviderQuotaExhausted("402"))
+        assert result.failure_kind is MinuteFailureKind.PROVIDER_QUOTA
+
+    def test_other_four_xx_is_a_provider_kind(self) -> None:
+        from manta_trading.data.acquisition.outcomes import ProviderResponseError
+
+        result = self._process_with(ProviderResponseError("418 teapot"))
+        assert result.failure_kind is MinuteFailureKind.PROVIDER
+
+    def test_a_returned_five_hundred_is_a_provider_kind(self) -> None:
+        """The normal-return case — no exception is raised anywhere."""
+        response = MagicMock(status_code=500, json=MagicMock(return_value=None))
+        gap = _gap(
+            datetime(2026, 9, 3, 13, 30, tzinfo=UTC),
+            datetime(2026, 9, 3, 20, 0, tzinfo=UTC),
+        )
+        gap_iter = iter([gap, None])
+        conn = MagicMock()
+        txn = MagicMock()
+        txn.__enter__ = MagicMock(return_value=txn)
+        txn.__exit__ = MagicMock(return_value=False)
+        conn.transaction.return_value = txn
+        lock_cm = MagicMock()
+        lock_cm.__enter__ = MagicMock(return_value=None)
+        lock_cm.__exit__ = MagicMock(return_value=False)
+        pool = MagicMock()
+        pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.eodhd_get",
+                return_value=response,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=datetime(2004, 1, 1, tzinfo=UTC),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                return_value=0,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute._insert_minute_bars"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
+                side_effect=lambda *a, **kw: next(gap_iter, None),
+            ),
+        ):
+            out = _do_minute_symbol(
+                "AAPL",
+                pool=pool,
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                via=FetchEntryPoint.CYCLE,
+                window=None,
+                coverage_index=None,
+            )
+        assert out.failure_kind is MinuteFailureKind.PROVIDER
+
+    def test_a_classified_response_carries_no_failure_kind(self) -> None:
+        """A symbol that reached a real answer resets the breaker."""
+        result = self._process_with(
+            [
+                MinuteSymbolResult(
+                    LastAttemptOutcome.SUCCESS,
+                    None,
+                    None,
+                    1,
+                    0,
+                )
+            ]
+        )
+        assert result.failure_kind is MinuteFailureKind.NONE
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 Section 4 — abort and breaker (Task 4.5)
+# ---------------------------------------------------------------------------
+
+
+class TestPassAbortAndBreaker:
+    """A pass stops when every further request would be wasted.
+
+    Two conditions: the provider says the daily allowance is spent (HTTP 402),
+    or MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES symbols in a row fail for
+    a provider-side reason. A DATABASE-kind failure must do neither — a
+    Postgres pool exhaustion is not evidence that EODHD is down.
+    """
+
+    @staticmethod
+    def _run_pass(
+        symbols: list[str],
+        results_by_symbol: Mapping[str, MinuteSymbolResult],
+    ) -> tuple[CycleReport, list[str]]:
+        """Run a full pass with _process_minute_symbol stubbed per symbol.
+
+        Returns (report, symbols_attempted_in_order).
+        """
+        attempted: list[str] = []
+
+        def _fake_process(symbol: str, **_kwargs) -> MinuteSymbolResult:
+            attempted.append(symbol)
+            return results_by_symbol.get(
+                symbol,
+                MinuteSymbolResult(LastAttemptOutcome.SUCCESS, None, None, 1, 0),
+            )
+
+        with ExitStack() as stack:
+
+            def mp(target: str, **kwargs) -> MagicMock:
+                return stack.enter_context(patch(target, **kwargs))
+
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_FakeSettings(),
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._process_minute_symbol",
+                side_effect=_fake_process,
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.build_minute_coverage_index",
+                return_value={},
+            )
+            pool_cls = mp("manta_trading.data.acquisition.daemon.minute.ConnectionPool")
+            http_cls = mp("manta_trading.data.acquisition.daemon.minute.httpx.Client")
+            pool = MagicMock()
+            pool_cls.return_value.__enter__ = MagicMock(return_value=pool)
+            pool_cls.return_value.__exit__ = MagicMock(return_value=False)
+            conn = MagicMock()
+            pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+            pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+            http = MagicMock()
+            http_cls.return_value.__enter__ = MagicMock(return_value=http)
+            http_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+            report = run_minute_cycle(symbols=symbols)
+
+        return report, attempted
+
+    @staticmethod
+    def _failure(kind: MinuteFailureKind) -> MinuteSymbolResult:
+        return MinuteSymbolResult(
+            LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0, kind
+        )
+
+    def test_a_402_on_the_first_symbol_ends_the_pass(self) -> None:
+        """SC5: no further provider call after the quota is reported spent."""
+        symbols = [f"SYM{i}" for i in range(10)]
+        report, attempted = self._run_pass(
+            symbols, {"SYM0": self._failure(MinuteFailureKind.PROVIDER_QUOTA)}
+        )
+        assert attempted == ["SYM0"], "the pass must stop at the 402"
+        assert report.minute_pass_outcome is MinutePassOutcome.QUOTA_EXHAUSTED
+
+    def test_five_consecutive_provider_failures_end_the_pass(self) -> None:
+        symbols = [f"SYM{i}" for i in range(20)]
+        failing = {
+            f"SYM{i}": self._failure(MinuteFailureKind.PROVIDER)
+            for i in range(MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES)
+        }
+        report, attempted = self._run_pass(symbols, failing)
+        assert len(attempted) == MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES
+        assert report.minute_pass_outcome is MinutePassOutcome.PROVIDER_UNAVAILABLE
+
+    def test_five_consecutive_database_failures_do_not_end_the_pass(self) -> None:
+        """The misattribution regression. A Postgres pool exhaustion is not
+        evidence about the provider; aborting on it would stop collecting data
+        because of our own contention."""
+        symbols = [f"SYM{i}" for i in range(10)]
+        failing = {
+            f"SYM{i}": self._failure(MinuteFailureKind.DATABASE)
+            for i in range(MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES)
+        }
+        report, attempted = self._run_pass(symbols, failing)
+        # Both phases walked all ten symbols.
+        assert len(attempted) == 20
+        assert report.minute_pass_outcome is MinutePassOutcome.COMPLETE
+
+    def test_scattered_failures_never_trip_the_breaker(self) -> None:
+        """Four failures, a classified answer, then four more — the streak
+        resets, so a long pass with intermittent trouble still completes."""
+        symbols = [f"SYM{i}" for i in range(10)]
+        cap = MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES
+        failing = {
+            f"SYM{i}": self._failure(MinuteFailureKind.PROVIDER)
+            for i in list(range(cap - 1)) + list(range(cap, 2 * cap - 1))
+        }
+        # SYM4 (index cap-1) is left as the default SUCCESS, resetting the run.
+        report, attempted = self._run_pass(symbols, failing)
+        assert len(attempted) == 20
+        assert report.minute_pass_outcome is MinutePassOutcome.COMPLETE
+
+    def test_a_database_failure_does_not_reset_the_streak(self) -> None:
+        """Only a real provider answer clears it. A DB fault is silent
+        evidence — neither for nor against the provider being up."""
+        symbols = [f"SYM{i}" for i in range(20)]
+        results = {
+            "SYM0": self._failure(MinuteFailureKind.PROVIDER),
+            "SYM1": self._failure(MinuteFailureKind.PROVIDER),
+            "SYM2": self._failure(MinuteFailureKind.DATABASE),
+            "SYM3": self._failure(MinuteFailureKind.PROVIDER),
+            "SYM4": self._failure(MinuteFailureKind.PROVIDER),
+            "SYM5": self._failure(MinuteFailureKind.PROVIDER),
+        }
+        report, attempted = self._run_pass(symbols, results)
+        assert report.minute_pass_outcome is MinutePassOutcome.PROVIDER_UNAVAILABLE
+        assert len(attempted) == 6
+
+    def test_the_outcome_carries_the_phase_it_aborted_in(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        symbols = [f"SYM{i}" for i in range(10)]
+        with caplog.at_level(
+            logging.ERROR, logger="manta_trading.data.acquisition.daemon.minute"
+        ):
+            report, _ = self._run_pass(
+                symbols, {"SYM0": self._failure(MinuteFailureKind.PROVIDER_QUOTA)}
+            )
+        assert report.minute_pass_outcome is MinutePassOutcome.QUOTA_EXHAUSTED
+        assert report.minute_trailing_completed is False
+        abort_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "minute pass aborted" in r.getMessage()
+        ]
+        assert len(abort_lines) == 1
+        assert str(MinutePassPhase.TRAILING) in abort_lines[0]
+        assert str(MinutePassOutcome.QUOTA_EXHAUSTED) in abort_lines[0]
+        assert "9 not attempted" in abort_lines[0]
+
+    def test_a_402_in_the_backfill_phase_records_the_trailing_phase_completed(
+        self,
+    ) -> None:
+        """The exit mapping needs this: a 402 after the trailing phase is the
+        designed steady state, not a failure to collect the current session."""
+        symbols = ["AAPL", "MSFT"]
+        calls = {"n": 0}
+
+        def _fake_process(symbol: str, **kwargs) -> MinuteSymbolResult:
+            calls["n"] += 1
+            # Fail only once the backfill phase has started (seed=False).
+            if kwargs.get("seed") is False:
+                return self._failure(MinuteFailureKind.PROVIDER_QUOTA)
+            return MinuteSymbolResult(LastAttemptOutcome.SUCCESS, None, None, 1, 0)
+
+        with ExitStack() as stack:
+
+            def mp(target: str, **kw) -> MagicMock:
+                return stack.enter_context(patch(target, **kw))
+
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_FakeSettings(),
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._process_minute_symbol",
+                side_effect=_fake_process,
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.build_minute_coverage_index",
+                return_value={},
+            )
+            pool_cls = mp("manta_trading.data.acquisition.daemon.minute.ConnectionPool")
+            http_cls = mp("manta_trading.data.acquisition.daemon.minute.httpx.Client")
+            pool = MagicMock()
+            pool_cls.return_value.__enter__ = MagicMock(return_value=pool)
+            pool_cls.return_value.__exit__ = MagicMock(return_value=False)
+            conn = MagicMock()
+            pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+            pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+            http = MagicMock()
+            http_cls.return_value.__enter__ = MagicMock(return_value=http)
+            http_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+            report = run_minute_cycle(symbols=symbols)
+
+        assert report.minute_pass_outcome is MinutePassOutcome.QUOTA_EXHAUSTED
+        assert report.minute_trailing_completed is True
+
+    def test_a_completed_pass_reports_complete(self) -> None:
+        report, attempted = self._run_pass(["AAPL", "MSFT"], {})
+        assert report.minute_pass_outcome is MinutePassOutcome.COMPLETE
+        assert report.minute_trailing_completed is True
+        assert len(attempted) == 4
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 Section 4 — the exit mapping (Task 4.7)
+# ---------------------------------------------------------------------------
+
+
+class TestMinutePassExitMapping:
+    """The process exit code is one lookup, so an operator (and the systemd
+    unit) sees the same number for the same condition every time."""
+
+    def test_complete_exits_zero(self) -> None:
+        assert (
+            minute_pass_exit_code(MinutePassOutcome.COMPLETE, trailing_completed=True)
+            == MINUTE_EXIT_OK
+        )
+
+    def test_quota_exhausted_inside_the_trailing_phase_exits_three(self) -> None:
+        """The allowance ran out before every symbol's current session was
+        attempted — the data the firing exists to collect is missing."""
+        assert (
+            minute_pass_exit_code(
+                MinutePassOutcome.QUOTA_EXHAUSTED, trailing_completed=False
+            )
+            == MINUTE_EXIT_PASS_INCOMPLETE
+        )
+
+    def test_quota_exhausted_after_the_trailing_phase_exits_zero(self) -> None:
+        """The designed steady state: the current session is collected and the
+        rest of the allowance went to backfill. Alerting here would alert
+        nightly."""
+        assert (
+            minute_pass_exit_code(
+                MinutePassOutcome.QUOTA_EXHAUSTED, trailing_completed=True
+            )
+            == MINUTE_EXIT_OK
+        )
+
+    @pytest.mark.parametrize("trailing_completed", [True, False])
+    def test_provider_unavailable_exits_three_in_either_phase(
+        self, trailing_completed: bool
+    ) -> None:
+        assert (
+            minute_pass_exit_code(
+                MinutePassOutcome.PROVIDER_UNAVAILABLE,
+                trailing_completed=trailing_completed,
+            )
+            == MINUTE_EXIT_PASS_INCOMPLETE
+        )
+
+    def test_every_outcome_has_a_code(self) -> None:
+        """A new MinutePassOutcome member must not silently exit 0."""
+        for outcome in MinutePassOutcome:
+            for trailing in (True, False):
+                assert isinstance(
+                    minute_pass_exit_code(outcome, trailing_completed=trailing), int
+                )
+
+
+class TestRunnerCarriesTheExitCode:
+    """The path from the cycle's report to sys.exit — none existed before."""
+
+    @staticmethod
+    def _runner_with(reports: list[object]):
+        from manta_trading.data.acquisition.daemon.runner import Runner
+
+        return Runner, iter(reports)
+
+    def test_worst_seen_survives_a_later_clean_cycle(self) -> None:
+        """The --forever multi-cycle rule. A process that missed a session and
+        then had a clean cycle has still missed that session; exiting 0 would
+        erase the only signal of it."""
+        from manta_trading.data.acquisition.daemon.runner import Runner
+
+        runner = Runner.__new__(Runner)
+        runner._minute_exit_code = MINUTE_EXIT_OK
+
+        bad = CycleReport()
+        bad.minute_pass_outcome = MinutePassOutcome.PROVIDER_UNAVAILABLE
+        bad.minute_trailing_completed = False
+        good = CycleReport()
+        good.minute_pass_outcome = MinutePassOutcome.COMPLETE
+        good.minute_trailing_completed = True
+
+        runner._record_minute_pass_outcome(bad)
+        runner._record_minute_pass_outcome(good)
+        assert runner._minute_exit_code == MINUTE_EXIT_PASS_INCOMPLETE
+
+    def test_a_clean_pass_leaves_the_code_at_zero(self) -> None:
+        from manta_trading.data.acquisition.daemon.runner import Runner
+
+        runner = Runner.__new__(Runner)
+        runner._minute_exit_code = MINUTE_EXIT_OK
+        report = CycleReport()
+        report.minute_pass_outcome = MinutePassOutcome.COMPLETE
+        report.minute_trailing_completed = True
+        runner._record_minute_pass_outcome(report)
+        assert runner._minute_exit_code == MINUTE_EXIT_OK
+
+    def test_a_daily_only_report_leaves_the_code_untouched(self) -> None:
+        """CycleReport is shared; a daily report carries no minute outcome."""
+        from manta_trading.data.acquisition.daemon.runner import Runner
+
+        runner = Runner.__new__(Runner)
+        runner._minute_exit_code = MINUTE_EXIT_OK
+        runner._record_minute_pass_outcome(CycleReport())
+        assert runner._minute_exit_code == MINUTE_EXIT_OK
+
+    def test_a_raised_cycle_leaves_the_code_untouched(self) -> None:
+        from manta_trading.data.acquisition.daemon.runner import Runner
+
+        runner = Runner.__new__(Runner)
+        runner._minute_exit_code = MINUTE_EXIT_OK
+        runner._record_minute_pass_outcome(None)
+        assert runner._minute_exit_code == MINUTE_EXIT_OK
+
+    def test_a_post_trailing_quota_abort_does_not_raise_the_code(self) -> None:
+        from manta_trading.data.acquisition.daemon.runner import Runner
+
+        runner = Runner.__new__(Runner)
+        runner._minute_exit_code = MINUTE_EXIT_OK
+        report = CycleReport()
+        report.minute_pass_outcome = MinutePassOutcome.QUOTA_EXHAUSTED
+        report.minute_trailing_completed = True
+        runner._record_minute_pass_outcome(report)
+        assert runner._minute_exit_code == MINUTE_EXIT_OK

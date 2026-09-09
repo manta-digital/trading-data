@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -17,6 +18,7 @@ from manta_trading.constants import (
     DB_BULK_SESSION,
     EODHD_INTRADAY_HORIZON,
     MAX_RETRY_COUNT,
+    MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES,
     MINUTE_SEED_PROGRESS_LOG_INTERVAL,
     MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
     MINUTE_TRAILING_PRIORITY_WINDOW,
@@ -32,12 +34,17 @@ from manta_trading.data.acquisition.daemon.daily import (
 )
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.acquisition.outcomes import (
+    ProviderQuotaExhausted,
     ProviderResponseError,
     classify_outcome,
     outcome_to_fetch_status,
     response_carries_an_answer,
 )
-from manta_trading.data.acquisition.state import LastAttemptOutcome
+from manta_trading.data.acquisition.state import (
+    LastAttemptOutcome,
+    MinuteFailureKind,
+    MinutePassOutcome,
+)
 from manta_trading.data.acquisition.symbols import iter_active_instruments
 
 from manta_trading.data.gaps import (
@@ -60,6 +67,80 @@ _UTC = timezone.utc
 _EODHD_BASE = "https://eodhd.com/api"
 _REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
 _PROVIDER_MAX_CHUNK_DAYS: int = 120
+
+
+# --- Process exit codes for a minute pass (slice 921 Task 4.6) -------------
+# There is no project-wide exit-code constant; the nearest precedent is
+# EXIT_BY_OUTCOME in cli/commands/kalshi.py:48-58, which this follows: named
+# constants plus ONE lookup table, never scattered conditionals and never a
+# bare literal at the exit site.
+
+MINUTE_EXIT_OK = 0
+"""The pass did what the firing exists to do."""
+
+MINUTE_EXIT_PASS_INCOMPLETE = 3
+"""The pass ended without collecting the current session. Chosen as 3 to match
+kalshi.py's EXIT_SYNC_PARTIAL — the same meaning at the same code."""
+
+
+def minute_pass_exit_code(
+    outcome: MinutePassOutcome, *, trailing_completed: bool
+) -> int:
+    """Map a pass outcome to the process exit code.
+
+    ``QUOTA_EXHAUSTED`` is the one outcome whose code depends on WHEN it
+    happened, which is why it cannot be a plain dict lookup on the outcome
+    alone:
+
+    - **After the trailing phase completed** the current session is already
+      collected and the remaining allowance was being spent on backfill. That
+      is the designed steady state, not a fault — exit 0. Alerting on it would
+      alert nightly.
+    - **Inside the trailing phase** the allowance ran out before every symbol's
+      current session was attempted, so the data the firing exists to collect
+      is missing — exit 3.
+
+    ``PROVIDER_UNAVAILABLE`` is a fault in either phase: a provider-failure
+    streak means requests are being spent to learn the same thing.
+    """
+    if outcome is MinutePassOutcome.COMPLETE:
+        return MINUTE_EXIT_OK
+    if outcome is MinutePassOutcome.QUOTA_EXHAUSTED and trailing_completed:
+        return MINUTE_EXIT_OK
+    return _MINUTE_EXIT_BY_OUTCOME[outcome]
+
+
+_MINUTE_EXIT_BY_OUTCOME: dict[MinutePassOutcome, int] = {
+    MinutePassOutcome.COMPLETE: MINUTE_EXIT_OK,
+    MinutePassOutcome.QUOTA_EXHAUSTED: MINUTE_EXIT_PASS_INCOMPLETE,
+    MinutePassOutcome.PROVIDER_UNAVAILABLE: MINUTE_EXIT_PASS_INCOMPLETE,
+}
+
+# Every outcome must have a code — a new member cannot silently exit 0.
+assert set(_MINUTE_EXIT_BY_OUTCOME) == set(MinutePassOutcome), (
+    "the minute exit mapping is not exhaustive — update it after adding a "
+    "MinutePassOutcome member"
+)
+
+
+@dataclass(frozen=True)
+class MinuteSymbolResult:
+    """What one symbol's minute fetch produced (slice 921 Task 4.2).
+
+    Replaces the bare 5-tuple ``_do_minute_symbol`` and
+    ``_process_minute_symbol`` used to return. The added field is
+    ``failure_kind``: the cycle must tell a provider outage from a database
+    fault to run a breaker, and neither the outcome enum nor an exception
+    message can carry that. Naming the fields also means the tuple's five
+    positional members stop being decoded by index at every call site.
+    """
+
+    outcome: LastAttemptOutcome
+    first_chunk_end: datetime | None
+    last_chunk_end: datetime | None
+    chunk_count: int
+    gaps_seeded: int
+    failure_kind: MinuteFailureKind = MinuteFailureKind.NONE
 
 
 def day_end_utc(moment: datetime) -> datetime:
@@ -210,7 +291,7 @@ def run_minute_cycle(
             # and never reached the current session.
             trailing_floor = datetime.now(_UTC) - MINUTE_TRAILING_PRIORITY_WINDOW
 
-            trailing_scanned, may_continue = _run_minute_phase(
+            trailing_scanned, trailing_outcome = _run_minute_phase(
                 symbol_list,
                 phase=MinutePassPhase.TRAILING,
                 pool=pool,
@@ -226,11 +307,14 @@ def run_minute_cycle(
             )
             _logger.info("trailing phase complete: %d symbols", trailing_scanned)
 
-            # A shutdown request or an aborted quota wait ends the PASS, not
-            # just the phase — the backfill walk would otherwise start issuing
-            # requests the operator has already asked the process to stop.
-            if may_continue:
-                _run_minute_phase(
+            # Only a phase that walked its whole scope hands over to the next
+            # one. A fault ends the pass because every further request is
+            # wasted; a shutdown (None) ends it because the operator said so.
+            pass_outcome = trailing_outcome or MinutePassOutcome.COMPLETE
+            trailing_completed = trailing_outcome is MinutePassOutcome.COMPLETE
+
+            if trailing_completed:
+                _, backfill_outcome = _run_minute_phase(
                     symbol_list,
                     phase=MinutePassPhase.BACKFILL,
                     pool=pool,
@@ -245,9 +329,31 @@ def run_minute_cycle(
                     # Task 3.3 option (a): seeding belongs to the trailing walk.
                     seed=False,
                 )
+                pass_outcome = backfill_outcome or MinutePassOutcome.COMPLETE
+
+            report.minute_pass_outcome = pass_outcome
+            report.minute_trailing_completed = trailing_completed
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report
+
+
+def _failed(kind: MinuteFailureKind) -> MinuteSymbolResult:
+    """A symbol that produced no fetch, tagged with WHY (slice 921 Task 4.2).
+
+    Every handler in ``_process_minute_symbol`` returned the same bare tuple,
+    so the cycle could not tell a provider outage from a Postgres pool
+    exhaustion — and a breaker built on that value would abort the pass with
+    PROVIDER_UNAVAILABLE on a database fault.
+    """
+    return MinuteSymbolResult(
+        outcome=LastAttemptOutcome.TRANSIENT_FAILURE,
+        first_chunk_end=None,
+        last_chunk_end=None,
+        chunk_count=0,
+        gaps_seeded=0,
+        failure_kind=kind,
+    )
 
 
 def _run_minute_phase(
@@ -264,7 +370,7 @@ def _run_minute_phase(
     min_gap_end: datetime | None,
     max_chunks: int | None,
     seed: bool,
-) -> tuple[int, bool]:
+) -> tuple[int, MinutePassOutcome | None]:
     """Walk the universe once for one phase.
 
     Both phases of a minute pass share this walk (slice 921 SC6) — they differ
@@ -274,15 +380,21 @@ def _run_minute_phase(
     progress logging identical between phases rather than duplicated.
 
     Returns:
-        (symbols_scanned, may_continue). ``may_continue`` is False when the
-        walk stopped for a reason that ends the whole PASS rather than just
-        this phase — a shutdown request or an aborted quota wait. Starting the
-        next phase after either would issue requests the operator has already
-        asked the process to stop making.
+        ``(symbols_scanned, outcome)``. COMPLETE means the phase walked the
+        whole scope and the next phase may run. QUOTA_EXHAUSTED and
+        PROVIDER_UNAVAILABLE are faults that end the PASS — every further
+        request would be wasted. ``None`` means the phase stopped at the
+        operator's request (a shutdown, or an aborted quota wait): the pass
+        also ends, but nothing failed, so it must not colour the exit code.
     """
     symbols_scanned = 0
     gaps_seeded_total = 0
-    may_continue = True
+    outcome_of_phase = MinutePassOutcome.COMPLETE
+    consecutive_provider_failures = 0
+    # A shutdown request or an aborted quota wait stops the pass WITHOUT being
+    # a fault — the operator asked for it — so it is tracked separately from
+    # outcome_of_phase, which drives the exit code.
+    stopped_early = False
 
     for sym in symbol_list:
         if should_continue is not None and not should_continue():
@@ -293,10 +405,10 @@ def _run_minute_phase(
                 symbols_scanned,
                 len(symbol_list) - symbols_scanned,
             )
-            may_continue = False
+            stopped_early = True
             break
         try:
-            outcome, cs, ce, n_chunks, gaps_seeded = _process_minute_symbol(
+            result = _process_minute_symbol(
                 sym,
                 pool=pool,
                 http=http,
@@ -316,23 +428,72 @@ def _run_minute_phase(
                 symbols_scanned,
                 len(symbol_list) - symbols_scanned,
             )
-            may_continue = False
+            stopped_early = True
             break
 
-        report.symbol_outcomes[sym] = str(outcome)
-        if outcome == LastAttemptOutcome.SUCCESS:
+        # --- Slice 921 Tasks 4.3/4.4: abort conditions, before tallying ---
+        if result.failure_kind is MinuteFailureKind.PROVIDER_QUOTA:
+            # HTTP 402: the daily allowance is spent. Every further request
+            # this pass makes is wasted, so end it here rather than walking
+            # the remaining universe one 402 at a time.
+            # The symbol that hit the 402 WAS attempted, so it counts as
+            # scanned — otherwise the line understates the work done and
+            # overstates what is left, which is what an operator acts on.
+            _logger.error(
+                "minute pass aborted: %s in the %s phase — "
+                "%d symbols scanned, %d not attempted",
+                MinutePassOutcome.QUOTA_EXHAUSTED,
+                phase,
+                symbols_scanned + 1,
+                len(symbol_list) - symbols_scanned - 1,
+            )
+            outcome_of_phase = MinutePassOutcome.QUOTA_EXHAUSTED
+            break
+
+        if result.failure_kind is MinuteFailureKind.PROVIDER:
+            consecutive_provider_failures += 1
+        elif result.failure_kind is MinuteFailureKind.NONE:
+            # Only a real provider ANSWER clears the streak. A database fault
+            # neither increments nor resets it: it is not evidence either way.
+            consecutive_provider_failures = 0
+
+        if (
+            consecutive_provider_failures
+            >= MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES
+        ):
+            _logger.error(
+                "minute pass aborted: %s in the %s phase after %d consecutive "
+                "provider failures — %d symbols scanned, %d not attempted",
+                MinutePassOutcome.PROVIDER_UNAVAILABLE,
+                phase,
+                consecutive_provider_failures,
+                symbols_scanned + 1,
+                len(symbol_list) - symbols_scanned - 1,
+            )
+            outcome_of_phase = MinutePassOutcome.PROVIDER_UNAVAILABLE
+
+        report.symbol_outcomes[sym] = str(result.outcome)
+        if result.outcome == LastAttemptOutcome.SUCCESS:
             report.success_count += 1
-        elif outcome == LastAttemptOutcome.PARTIAL:
+        elif result.outcome == LastAttemptOutcome.PARTIAL:
             report.partial_count += 1
-        elif outcome == LastAttemptOutcome.EMPTY:
+        elif result.outcome == LastAttemptOutcome.EMPTY:
             report.empty_count += 1
         else:
             report.transient_failure_count += 1
         if on_symbol is not None:
-            on_symbol(sym, str(outcome), cs, ce, n_chunks)
+            on_symbol(
+                sym,
+                str(result.outcome),
+                result.first_chunk_end,
+                result.last_chunk_end,
+                result.chunk_count,
+            )
 
         symbols_scanned += 1
-        gaps_seeded_total += gaps_seeded
+        gaps_seeded_total += result.gaps_seeded
+        if outcome_of_phase is not MinutePassOutcome.COMPLETE:
+            break
         if symbols_scanned % MINUTE_SEED_PROGRESS_LOG_INTERVAL == 0:
             _logger.info(
                 "minute %s: %d/%d symbols scanned, %d gap rows seeded",
@@ -348,7 +509,10 @@ def _run_minute_phase(
         symbols_scanned,
         gaps_seeded_total,
     )
-    return symbols_scanned, may_continue
+    if stopped_early and outcome_of_phase is MinutePassOutcome.COMPLETE:
+        # Signal "do not start the next phase" without claiming a fault.
+        return symbols_scanned, None
+    return symbols_scanned, outcome_of_phase
 
 
 def _process_minute_symbol(
@@ -363,7 +527,7 @@ def _process_minute_symbol(
     min_gap_end: datetime | None = None,
     max_chunks: int | None = None,
     seed: bool = True,
-) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
+) -> MinuteSymbolResult:
     try:
         return _do_minute_symbol(
             symbol,
@@ -381,6 +545,13 @@ def _process_minute_symbol(
         # Shutdown, not a failure — must reach the cycle loop, so it cannot
         # fall through to the except Exception below.
         raise
+    except ProviderQuotaExhausted as exc:
+        # HTTP 402: the account's daily allowance is spent, so every further
+        # request this pass makes is wasted. Reported as its own kind; the
+        # cycle ends the pass on it (slice 921 Task 4.3). Caught before the
+        # ProviderResponseError handler below, which is its base class.
+        _logger.error("EODHD quota exhausted at %s minute via=%s: %s", symbol, via, exc)
+        return _failed(MinuteFailureKind.PROVIDER_QUOTA)
     except ProviderResponseError as exc:
         # Non-404 4xx from EODHD — unexpected but skip this symbol rather than
         # crashing the entire cycle. Log at ERROR so it surfaces for investigation.
@@ -390,19 +561,21 @@ def _process_minute_symbol(
             exc,
             via,
         )
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
+        return _failed(MinuteFailureKind.PROVIDER)
     except psycopg.errors.LockNotAvailable:
         _logger.warning(
             "Advisory lock timeout for %s minute — skipping via=%s", symbol, via
         )
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
+        # A lock held by another writer is a LOCAL condition. Counting it as
+        # provider evidence would abort the pass on our own contention.
+        return _failed(MinuteFailureKind.DATABASE)
     except PoolTimeout:
         _logger.warning(
             "DB pool timeout for %s minute — DB unreachable, skipping via=%s",
             symbol,
             via,
         )
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
+        return _failed(MinuteFailureKind.DATABASE)
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         _logger.warning(
             "HTTP transient failure for %s minute (retries exhausted): %s via=%s",
@@ -410,10 +583,13 @@ def _process_minute_symbol(
             exc,
             via,
         )
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
+        return _failed(MinuteFailureKind.PROVIDER)
     except Exception:
+        # Last-resort boundary so one symbol cannot crash the pass. The cause
+        # is unknown, so it is NOT attributed to the provider — an unknown
+        # fault must not trip a breaker that exists to stop wasting credits.
         _logger.exception("Transient failure for %s minute via=%s", symbol, via)
-        return LastAttemptOutcome.TRANSIENT_FAILURE, None, None, 0, 0
+        return _failed(MinuteFailureKind.DATABASE)
 
 
 def _do_minute_symbol(
@@ -430,7 +606,7 @@ def _do_minute_symbol(
     min_gap_end: datetime | None = None,
     max_chunks: int | None = None,
     seed: bool = True,
-) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
+) -> MinuteSymbolResult:
     now_midnight = datetime.now(_UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     with pool.connection() as conn:
         default_history_start = _resolve_minute_history_start(
@@ -464,6 +640,7 @@ def _do_minute_symbol(
     )
 
     last_outcome = LastAttemptOutcome.SUCCESS
+    failure_kind = MinuteFailureKind.NONE
     first_chunk_end: datetime | None = None
     first_chunk_outcome: LastAttemptOutcome | None = None
     last_chunk_end: datetime | None = None
@@ -633,6 +810,11 @@ def _do_minute_symbol(
         # exactly as it was and stop: there is no point asking the next chunk
         # of a provider that just failed to answer this one.
         if not response_carries_an_answer(response):
+            # The breaker's headline trigger arrives HERE, not through any
+            # except handler: classify_outcome returns (never raises) for 5xx
+            # and 429, so the symbol exits normally. The kind must therefore
+            # ride the normal return path too (slice 921 Task 4.2).
+            failure_kind = MinuteFailureKind.PROVIDER
             _logger.warning(
                 "minute fetch: %s chunk [%s → %s] got no usable answer "
                 "(HTTP %s) — leaving gap accounting untouched and ending the "
@@ -706,7 +888,14 @@ def _do_minute_symbol(
     display_outcome = (
         first_chunk_outcome if first_chunk_outcome is not None else last_outcome
     )
-    return display_outcome, first_chunk_end, last_chunk_end, chunk_count, gaps_seeded
+    return MinuteSymbolResult(
+        outcome=display_outcome,
+        first_chunk_end=first_chunk_end,
+        last_chunk_end=last_chunk_end,
+        chunk_count=chunk_count,
+        gaps_seeded=gaps_seeded,
+        failure_kind=failure_kind,
+    )
 
 
 def run_minute_refetch(
@@ -777,7 +966,7 @@ def run_minute_refetch(
                 )
 
             window = (resolved_from, resolved_to)
-            outcome, _, __, ___, ____ = _do_minute_symbol(
+            refetch_result = _do_minute_symbol(
                 symbol,
                 pool=pool,
                 http=http,
@@ -787,6 +976,7 @@ def run_minute_refetch(
                 coverage_index=coverage_index,
                 via=FetchEntryPoint.REFETCH,
             )
+            outcome = refetch_result.outcome
             report.symbol_outcomes[symbol] = str(outcome)
             if outcome == LastAttemptOutcome.SUCCESS:
                 report.success_count += 1

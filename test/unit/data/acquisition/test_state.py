@@ -19,6 +19,8 @@ from manta_trading.data.acquisition.state import (
     AcquisitionStateRow,
     Granularity,
     LastAttemptOutcome,
+    MinuteFailureKind,
+    MinutePassOutcome,
 )
 
 
@@ -384,13 +386,15 @@ class TestAcquisitionStateRepositoryIntegration:
         self, acq_repo: AcquisitionStateRepository
     ):
         for sym in ["AAPL", "MSFT"]:
-            acq_repo.upsert(AcquisitionStateRow(
-                symbol=sym,
-                granularity=Granularity.DAILY,
-                provider="test_provider",
-                last_attempt_ts=_NOW,
-                last_attempt_outcome=LastAttemptOutcome.SUCCESS,
-            ))
+            acq_repo.upsert(
+                AcquisitionStateRow(
+                    symbol=sym,
+                    granularity=Granularity.DAILY,
+                    provider="test_provider",
+                    last_attempt_ts=_NOW,
+                    last_attempt_outcome=LastAttemptOutcome.SUCCESS,
+                )
+            )
 
         result = acq_repo.list(provider="test_provider")
         symbols = {r.symbol for r in result}
@@ -398,13 +402,15 @@ class TestAcquisitionStateRepositoryIntegration:
 
     def test_list_combined_filters(self, acq_repo: AcquisitionStateRepository):
         for gran in [Granularity.DAILY, Granularity.MINUTE]:
-            acq_repo.upsert(AcquisitionStateRow(
-                symbol="AAPL",
-                granularity=gran,
-                provider="test_provider",
-                last_attempt_ts=_NOW,
-                last_attempt_outcome=LastAttemptOutcome.SUCCESS,
-            ))
+            acq_repo.upsert(
+                AcquisitionStateRow(
+                    symbol="AAPL",
+                    granularity=gran,
+                    provider="test_provider",
+                    last_attempt_ts=_NOW,
+                    last_attempt_outcome=LastAttemptOutcome.SUCCESS,
+                )
+            )
 
         result = acq_repo.list(
             symbol="AAPL",
@@ -413,3 +419,58 @@ class TestAcquisitionStateRepositoryIntegration:
         )
         assert len(result) == 1
         assert result[0].granularity == Granularity.MINUTE
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 — pass-level outcome and failure kind (Task 4.1)
+# ---------------------------------------------------------------------------
+
+
+class TestMinutePassOutcome:
+    """How a whole minute pass ended. Never persisted — it exists so the exit
+    code is a lookup rather than a reconstruction from counts or log text."""
+
+    def test_members_and_values(self) -> None:
+        assert MinutePassOutcome.COMPLETE == "complete"
+        assert MinutePassOutcome.QUOTA_EXHAUSTED == "quota_exhausted"
+        assert MinutePassOutcome.PROVIDER_UNAVAILABLE == "provider_unavailable"
+
+    def test_the_enum_is_exactly_these_three(self) -> None:
+        assert {m.value for m in MinutePassOutcome} == {
+            "complete",
+            "quota_exhausted",
+            "provider_unavailable",
+        }
+
+    def test_it_is_distinct_from_the_per_symbol_outcome(self) -> None:
+        """LastAttemptOutcome describes ONE symbol's fetch and is stored in
+        acquisition_state; conflating the two would write a pass-level value
+        into a per-symbol column."""
+        assert not {m.value for m in MinutePassOutcome} & {
+            m.value for m in LastAttemptOutcome
+        }
+
+
+class TestMinuteFailureKind:
+    """Why one symbol failed. Carried as its own value on both the normal
+    return path and the exception handlers, because the outcome enum cannot
+    tell a provider outage from a database fault."""
+
+    def test_members_and_values(self) -> None:
+        assert MinuteFailureKind.NONE == "none"
+        assert MinuteFailureKind.PROVIDER == "provider"
+        assert MinuteFailureKind.PROVIDER_QUOTA == "provider_quota"
+        assert MinuteFailureKind.DATABASE == "database"
+
+    def test_the_enum_is_exactly_these_four(self) -> None:
+        assert {m.value for m in MinuteFailureKind} == {
+            "none",
+            "provider",
+            "provider_quota",
+            "database",
+        }
+
+    def test_database_is_not_a_provider_kind(self) -> None:
+        """The distinction the breaker depends on: a Postgres pool exhaustion
+        must never be counted as evidence that the provider is down."""
+        assert MinuteFailureKind.DATABASE is not MinuteFailureKind.PROVIDER
