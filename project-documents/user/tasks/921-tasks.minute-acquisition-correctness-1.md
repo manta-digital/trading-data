@@ -285,21 +285,21 @@ lands before any backfill chunk is requested. **This section comes before the
 outcome and exit-code work** because the exit mapping is defined in terms of
 which phase aborted — there is nothing to condition on until the phases exist.
 
-- [ ] **Task 3.1: Constants for the failure policy** (effort: 1)
-  - [ ] Add to `constants.py`, each with a docstring giving its measurement or
+- [x] **Task 3.1: Constants for the failure policy** (effort: 1)
+  - [x] Add to `constants.py`, each with a docstring giving its measurement or
         precedent: `MINUTE_TRAILING_PRIORITY_WINDOW` (7 days),
         `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES` (5, following
         `PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS`).
-  - [ ] Success: `test/unit/test_constants.py` asserts the values and types.
-- [ ] **Task 3.2: `min_gap_end` filter on the gap selector** (effort: 1)
-  - [ ] `pick_most_recent_actionable_gap` gains an optional `min_gap_end`
+  - [x] Success: `test/unit/test_constants.py` asserts the values and types.
+- [x] **Task 3.2: `min_gap_end` filter on the gap selector** (effort: 1)
+  - [x] `pick_most_recent_actionable_gap` gains an optional `min_gap_end`
         parameter that adds a `gap_end >= %s` predicate. Existing callers pass
         nothing and behave identically (an additive, backward-compatible
         signature change, recorded in the design's Interfaces Required).
-  - [ ] Success: `test/unit/data/gaps/test_actionable_gap_selector.py` covers
+  - [x] Success: `test/unit/data/gaps/test_actionable_gap_selector.py` covers
         the filtered and unfiltered forms.
-- [ ] **Task 3.3: Decide and record how the backfill phase seeds** (effort: 2)
-  - [ ] **The problem, measured from the code.** `_do_minute_symbol`'s seed
+- [x] **Task 3.3: Decide and record how the backfill phase seeds** (effort: 2)
+  - [x] **The problem, measured from the code.** `_do_minute_symbol`'s seed
         gate is `_needs_full_seed = force_reset_terminal or not _has_bars or
         not _has_any_gaps or _has_unknown_gaps`. With a ~70k-row UNKNOWN
         backlog, `_has_unknown_gaps` is true for nearly every symbol, so a
@@ -309,20 +309,20 @@ which phase aborted — there is nothing to condition on until the phases exist.
         just fetched as uncovered, and re-inserts it as UNKNOWN. The backfill
         phase's selector (no `min_gap_end`, `ORDER BY gap_end DESC`) then
         picks exactly that row first.
-  - [ ] Left unaddressed this costs ~13,000 redundant `/intraday` calls at 5
+  - [x] Left unaddressed this costs ~13,000 redundant `/intraday` calls at 5
         credits each — roughly 65k of the 100k daily allowance spent
         re-fetching the day just fetched, which is the resource this slice
         exists to protect.
-  - [ ] Choose one mechanism and record the reasoning in the task file and in
+  - [x] Choose one mechanism and record the reasoning in the task file and in
         a code comment: (a) the backfill phase does not seed at all — seeding
         belongs to the trailing walk, and the backfill walk consumes only
         existing actionable rows; or (b) the coverage index is refreshed
         between the phases so the just-fetched day reads as covered. Option
         (a) costs no extra query and matches "seed once per cycle"; option (b)
         pays a universe-wide cagg scan a second time per cycle.
-  - [ ] Whichever is chosen, `run_minute_refetch` and the single-symbol path
+  - [x] Whichever is chosen, `run_minute_refetch` and the single-symbol path
         must be unaffected.
-  - [ ] Success: the mechanism is written down with its cost before Task 3.4
+  - [x] Success: the mechanism is written down with its cost before Task 3.4
         implements it; no symbol can be fetched twice in one cycle by
         construction, not by luck of ordering.
 
@@ -359,42 +359,42 @@ which phase aborted — there is nothing to condition on until the phases exist.
   `_do_minute_symbol`'s own gate. `run_minute_refetch` and the single-symbol
   operator path call `_do_minute_symbol` directly and never set it, so they
   seed exactly as they do today.
-- [ ] **Task 3.4: Trailing and backfill phases** (effort: 3)
-  - [ ] `run_minute_cycle` walks the active universe once with
+- [x] **Task 3.4: Trailing and backfill phases** (effort: 3)
+  - [x] `run_minute_cycle` walks the active universe once with
         `min_gap_end = now - MINUTE_TRAILING_PRIORITY_WINDOW` and **one chunk
         per symbol**, then walks it again for backfill with today's
         `most_stale_first` ordering and no `min_gap_end`, seeding per the
         Task 3.3 decision.
-  - [ ] The one-chunk bound belongs to the trailing phase, not to
+  - [x] The one-chunk bound belongs to the trailing phase, not to
         `_do_minute_symbol` generally — pass it explicitly so the backfill
         phase and `run_minute_refetch` are unchanged.
-  - [ ] `should_continue` (the SIGTERM hook) is honored between symbols in
+  - [x] `should_continue` (the SIGTERM hook) is honored between symbols in
         both phases and between the phases.
-  - [ ] The current phase is tracked as a value the cycle can report, since
+  - [x] The current phase is tracked as a value the cycle can report, since
         Section 4's exit mapping and journal line both depend on it.
-  - [ ] Log `trailing phase complete: N symbols` before the first backfill
+  - [x] Log `trailing phase complete: N symbols` before the first backfill
         line (SC6).
-  - [ ] Success: no backfill chunk is requested until every active symbol's
+  - [x] Success: no backfill chunk is requested until every active symbol's
         trailing gap has been attempted.
-- [ ] **Task 3.5: Tests for phase order and no double-fetch** (effort: 3)
-  - [ ] A test with a symbol set holding both trailing and old gaps asserts
+- [x] **Task 3.5: Tests for phase order and no double-fetch** (effort: 3)
+  - [x] A test with a symbol set holding both trailing and old gaps asserts
         the request order: every trailing request precedes every backfill
         request (SC6).
-  - [ ] A test asserts the trailing phase issues at most one chunk per symbol
+  - [x] A test asserts the trailing phase issues at most one chunk per symbol
         even when a symbol has several actionable trailing gaps.
-  - [ ] **A test asserts no symbol-day is requested twice in one cycle** —
+  - [x] **A test asserts no symbol-day is requested twice in one cycle** —
         the direct regression for Task 3.3. Fixture: a symbol with a
         successful trailing fetch and a stale coverage index; assert the
         backfill phase does not request that day again.
-  - [ ] A `caplog` assertion covers SC6's second half: the
+  - [x] A `caplog` assertion covers SC6's second half: the
         `trailing phase complete: N symbols` line is emitted before the first
         backfill line. It is the operator's only in-production evidence that
         the trailing phase ran to completion, and it is what the design's
         Verification Walkthrough greps for.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
-- [ ] **Task 3.6: Section 3 checkpoint** (effort: 1)
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `feat: run the minute cycle in trailing then backfill phases (921)`.
+  - [x] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
+- [x] **Task 3.6: Section 3 checkpoint** (effort: 1)
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `feat: run the minute cycle in trailing then backfill phases (921)`.
 
 ## Section 4: Pass outcome, abort, and exit codes
 
