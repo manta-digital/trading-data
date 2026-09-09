@@ -379,6 +379,17 @@ how often the daemon reports `seeded N/<total> symbols, M gaps` during a
 long-running cycle.
 """
 
+REPAIR_921_WINDOW_START: date = date(2026, 7, 16)
+"""Earliest session the slice-921 minute repair touches.
+
+The day the coverage-aware seeder shipped, and therefore the first day whose
+minute ranges could have been cut at the session open. Rows before it were
+seeded by the legacy midnight-anchored path, are not truncated by this
+mechanism, and are deliberately never touched: re-seeding them would reset
+genuine provider holes accumulated over years of backfill and spend the
+rationed quota re-fetching them.
+"""
+
 MINUTE_TRAILING_PRIORITY_WINDOW: timedelta = timedelta(days=7)
 """How far back a minute gap counts as "trailing" for the priority phase
 (slice 921).

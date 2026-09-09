@@ -127,9 +127,9 @@ failed is not an alarm.
    (signature: `max(time)` for the session date `≤ session_open_utc`)
    removed from its coverage set, so they are seeded as missing. The window
    starts at `REPAIR_921_WINDOW_START = 2026-07-16` (the day the seeder
-   shipped); the 1,321 midnight-ended legacy rows inside it are reset too
-   (bounded, and refetched once with correct ends — a genuine hole comes
-   back as `PROVIDER_HOLE`). Rows before the window are untouched. The
+   shipped). Rows before the window are untouched. *(Measured 20260909:
+   there are **no** midnight-ended legacy rows inside the window — all 1,321
+   fall before 2026-07-16, so nothing legacy is reset.)* The
    script writes no SQL of its own against `data_gaps`.
    Serialization: the advisory lock is the same one the daemon takes, so an
    overlap blocks for `DAEMON_LOCK_TIMEOUT` then skips and reports the
@@ -327,8 +327,8 @@ Nightly firing after this slice:
 3. **The repair uses the single writer and its lock.** No bespoke SQL
    against `data_gaps`; the reset is `force_reset_terminal=True` over a
    dated window, the seed is the seeder with truncated days marked
-   uncovered. Resetting the legacy rows inside the window is the price of
-   using the published path unchanged, and it is bounded (1,321 rows).
+   uncovered. *(Measured 20260909: no legacy rows fall inside the window, so
+   this price is not paid at all.)*
 4. **No response, no accounting** is the rule; 402 and the breaker are
    applications of it. Skipping 13,000 symbols one by one after the quota
    is gone costs 35 minutes, produces 7,000 ERROR lines, and (as measured)
@@ -417,8 +417,10 @@ Then close #19 and #20 with the two `--check` outputs and the health line.
   each night, and the backfill drains behind it at whatever the allowance
   leaves. A slow drain is visible in the journal's abort line, not silent.
 - **A wrong reset window re-fetches genuine holes.** Bounded by the dated
-  window (1,321 legacy rows) and reviewed in `--check` output before
-  `--apply`; rows before 2026-07-16 are never touched.
+  window and reviewed in `--check` output before `--apply`; rows before
+  2026-07-16 are never touched. *(Measured 20260909: the window contains no
+  legacy rows, and the integration test pins that a pre-window
+  `PROVIDER_HOLE` keeps its status and attempt count.)*
 
 ## Implementation Notes
 
@@ -428,6 +430,34 @@ abort and the breaker; (3) two-phase cycle and `MinutePassOutcome`;
 (4) health check; (5) repair and cutover scripts, `--check` against
 production; (6) release, cutover, measure, close the issues. Commit at each
 section.
+
+## Implementation Correction (2026-09-09, Task 6.8 — production baseline)
+
+The read-only `--check` against production corrects two of this design's
+figures and exposed one defect in the repair script itself.
+
+**No legacy rows fall inside the repair window.** This document said the 1,321
+midnight-ended legacy rows are "inside" `REPAIR_921_WINDOW_START` and are
+reset as "the price of using the published path unchanged". Measured: zero.
+They all predate 2026-07-16. The three places that stated otherwise are
+corrected inline; the repair neither resets them nor can be judged on it.
+
+**Straddling rows affect 1,147 symbols, not a corner case.** Task 6.3 called
+them "plausible in production". At 8.8% of the universe, the decision to widen
+the repair window rather than skip the symbol is load-bearing — skipping would
+have left 1,147 symbols un-repaired behind a hand-worked exception list.
+
+**`--check` could not finish before this task measured it.** The per-symbol
+truncation probe costs 0.5–0.9 s (a lateral join into `minute_ohlcv`), so the
+first production run timed out at ~5,750 of 13,083 symbols and a full walk
+projected to ~2.5 hours. Replaced with one grouped universe-wide query
+(`build_truncated_day_index`, the shape `build_minute_coverage_index` already
+uses): 258 s. A pre-cutover gate nobody can afford to run is not a gate.
+
+**The baseline itself** (SC3 before-image, exit 0, nothing written):
+13,083 symbols scanned; 10,119 needing repair; 52,700 truncated symbol-days;
+4,418 zero-width rows; 348 session-open-ended terminal rows; 0 midnight-ended
+legacy rows; 1,147 rows straddling the window start.
 
 ## Implementation Correction (2026-09-09, Task 5.8)
 

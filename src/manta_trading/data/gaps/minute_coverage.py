@@ -197,6 +197,7 @@ def compute_missing_minute_sessions(
     coverage_index: dict[str, set[date]],
     from_ts: datetime,
     to_ts: datetime,
+    uncovered_days: set[date] | None = None,
 ) -> list[GapRange]:
     """Return GapRanges for trading sessions missing from the coverage index.
 
@@ -210,6 +211,14 @@ def compute_missing_minute_sessions(
                         — caller is responsible for the None fail-safe branch).
         from_ts:        Window start (UTC, inclusive) — typically history_start.
         to_ts:          Window end (UTC, inclusive) — typically today.
+        uncovered_days: Days to treat as MISSING even though the coverage index
+                        contains them (slice 921). The coverage index is built
+                        from the coarse cagg, which reports a day as covered
+                        when it holds any bar at all — so a session truncated
+                        to its single opening bar reads as covered and is never
+                        re-fetched. The repair passes the symbol's truncated
+                        days here so those sessions are seeded. Omitting it
+                        (every pre-921 caller) behaves exactly as before.
 
     Returns:
         Ordered list of GapRange objects (earliest first). Empty list if the
@@ -224,6 +233,8 @@ def compute_missing_minute_sessions(
         return []
 
     covered_days = coverage_index.get(symbol, set())
+    if uncovered_days:
+        covered_days = covered_days - uncovered_days
     missing = [s for s in sessions if s.date() not in covered_days]
     if not missing:
         return []

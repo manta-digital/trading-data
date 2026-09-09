@@ -316,7 +316,20 @@ def _delete_intersecting(
     from_ts: datetime,
     to_ts: datetime,
 ) -> None:
-    """Delete all data_gaps rows whose [gap_start, gap_end] intersects [from_ts, to_ts]."""
+    """Delete data_gaps rows CONTAINED in [from_ts, to_ts].
+
+    Contained, not intersecting — the predicate is
+    ``gap_start >= from_ts AND gap_end <= to_ts``. The name and this
+    docstring said "intersects" until slice 921 measured the difference: a row
+    that straddles ``from_ts`` survives this delete, and a caller that then
+    seeds fresh rows for the in-window sessions that row already covers ends
+    up with overlapping rows and fetches those sessions twice.
+
+    The behavior is deliberately left alone (it is shared with the daily
+    path); callers that care must widen their window to contain the
+    straddling row. ``scripts/repair_921_minute_sessions.py`` does exactly
+    that.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """

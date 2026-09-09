@@ -277,6 +277,36 @@ days must be re-seeded. The repair writes **no SQL of its own** against
         docstring and say so.
   - [ ] Success: the decision and its reasoning are written down before
         Task 6.5 implements it.
+
+  **Decision (recorded 20260909): widen that symbol's window back to the
+  straddling row's `gap_start`.** Skipping the symbol was the alternative and
+  is rejected.
+
+  *Why widening.* Skipping leaves the symbol un-repaired — its truncated days
+  stay truncated — and produces a list of exceptions someone has to work
+  through by hand, which is the manual load this initiative exists to remove.
+  Worse, the skip list would be populated exactly by the symbols with the most
+  backfill history, i.e. the ones whose data matters most. Widening repairs
+  them in the same pass with no manual step.
+
+  *Why it is safe.* Widening moves `from_ts` back to the straddling row's own
+  `gap_start`, so `_delete_intersecting`'s containment predicate now covers
+  that row and it is deleted rather than surviving alongside fresh overlapping
+  inserts. The sessions it covered are then recomputed from the coverage index
+  like any other, so nothing is lost. The widened window is bounded by that
+  row's extent — not by history_start — so genuine provider holes further back
+  are never pulled into the reset.
+
+  *What it costs.* The widened span's sessions are re-diffed against the
+  coverage index. Sessions that are genuinely covered stay covered and are not
+  re-fetched, so the extra quota cost is only for sessions that were already
+  missing — work the next cycle would have done anyway.
+
+  *`_delete_intersecting` is not changed.* Its SQL is containment while its
+  docstring says "intersects". It is shared with the daily path, and changing
+  the semantics is out of scope for this slice; the docstring is corrected to
+  describe what the SQL actually does, and the repair works within that
+  behavior rather than around it.
 - [ ] **Task 6.4: `scripts/repair_921_minute_sessions.py --check`** (effort: 3)
   - [ ] Follow the `cutover_common` script pattern: explicit arguments, named
         constants at the top, database URL taken from the configured setting
@@ -348,6 +378,42 @@ days must be re-seeded. The repair writes **no SQL of its own** against
         read-only against production and record the output in the slice's
         notes. This is the before-image for SC3 and the issue closeout.
   - [ ] Success: counts recorded; nothing written.
+
+  **Baseline recorded 20260909 (read-only against production, exit 0):**
+
+  ```
+  repair window starts       2026-07-16
+  symbols scanned            13,083
+  symbols needing repair     10,119
+  truncated symbol-days      52,700
+  zero-width gap rows         4,418
+  session-open terminal rows    348
+  midnight-ended legacy rows      0
+  rows straddling the start   1,147
+  ```
+
+  Three observations that correct assumptions made earlier in the slice:
+
+  1. **Straddling rows are not a corner case — 1,147 symbols have one.**
+     Task 6.3 called them "plausible in production"; they affect 8.8% of the
+     universe. The decision to widen the window rather than skip the symbol
+     is load-bearing: skipping would have left 1,147 symbols un-repaired and
+     produced a hand-worked exception list.
+
+  2. **There are no midnight-ended legacy rows inside the window.** The design
+     expected 1,321 of them (§"Technical Scope" 2 and §"Verification"). They
+     are all outside `REPAIR_921_WINDOW_START`, so the repair neither needs to
+     reset them nor can be judged on having done so. The design's wording is
+     corrected accordingly.
+
+  3. **`--check` was too slow to finish before this task measured it.** The
+     first production run timed out at ~5,750 of 13,083 symbols: the
+     per-symbol truncation probe costs 0.5-0.9 s each (a lateral join into
+     `minute_ohlcv`), ~2.5 h over the universe. Replaced with
+     `build_truncated_day_index`, one grouped query over the whole universe —
+     the same shape `build_minute_coverage_index` uses for the same reason —
+     measured at 258 s. A `--check` that takes hours is one nobody runs
+     before a cutover.
 - [ ] **Task 6.9: Section 6 checkpoint** (effort: 1)
   - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
   - [ ] Commit: `feat: add the 921 minute-session repair script (921)`.

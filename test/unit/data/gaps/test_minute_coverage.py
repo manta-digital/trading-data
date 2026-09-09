@@ -260,6 +260,7 @@ def _patched_run(
     coverage_index: dict[str, set[date]],
     symbol: str = "AAPL",
     session_closes: dict[datetime, datetime] | None = None,
+    uncovered_days: set[date] | None = None,
 ):
     conn = MagicMock()
     closes = _closes_for(sessions) if session_closes is None else session_closes
@@ -278,7 +279,12 @@ def _patched_run(
         ),
     ):
         return compute_missing_minute_sessions(
-            conn, symbol, coverage_index, lifecycle_from, lifecycle_to
+            conn,
+            symbol,
+            coverage_index,
+            lifecycle_from,
+            lifecycle_to,
+            uncovered_days=uncovered_days,
         )
 
 
@@ -693,3 +699,106 @@ class TestFetchSessionBounds:
         assert params == ("AAPL", from_ts, to_ts)
         assert "AAPL" not in sql, "the symbol must never be interpolated"
         assert "session_close_utc" in sql
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 Task 6.2 — days forced uncovered for the repair
+# ---------------------------------------------------------------------------
+
+
+class TestUncoveredDaysOverride:
+    """The repair must be able to re-seed a day the coverage index calls
+    covered.
+
+    The index is built from the coarse cagg, which reports a day as covered
+    when it holds ANY bar. A session truncated to its single opening bar —
+    the 2026-07-16 onward failure this slice repairs — therefore reads as
+    fully covered and would never be re-fetched. Passing the day as uncovered
+    is how the repair reaches it.
+    """
+
+    def test_a_covered_day_passed_as_uncovered_is_seeded(self) -> None:
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21), _dt(2026, 7, 22)]
+        # Every day is covered as far as the cagg is concerned.
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        result = _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=opens[-1] + timedelta(hours=7),
+            sessions=opens,
+            coverage_index=coverage_index,
+            uncovered_days={opens[1].date()},
+        )
+        assert len(result) == 1
+        assert result[0].gap_start_utc == opens[1]
+        assert result[0].gap_end_utc == opens[1] + _REGULAR_SPAN
+
+    def test_several_uncovered_days_group_into_contiguous_ranges(self) -> None:
+        opens = [_dt(2026, 7, day) for day in (20, 21, 22, 23)]
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        result = _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=opens[-1] + timedelta(hours=7),
+            sessions=opens,
+            coverage_index=coverage_index,
+            uncovered_days={opens[1].date(), opens[2].date()},
+        )
+        assert len(result) == 1
+        assert result[0].gap_start_utc == opens[1]
+        assert result[0].gap_end_utc == opens[2] + _REGULAR_SPAN
+
+    def test_omitting_the_parameter_is_unchanged(self) -> None:
+        """Every pre-921 caller passes nothing and must behave as before."""
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21)]
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        assert (
+            _patched_run(
+                lifecycle_from=opens[0],
+                lifecycle_to=opens[-1] + timedelta(hours=7),
+                sessions=opens,
+                coverage_index=coverage_index,
+            )
+            == []
+        )
+
+    def test_an_empty_set_is_treated_as_no_override(self) -> None:
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21)]
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        assert (
+            _patched_run(
+                lifecycle_from=opens[0],
+                lifecycle_to=opens[-1] + timedelta(hours=7),
+                sessions=opens,
+                coverage_index=coverage_index,
+                uncovered_days=set(),
+            )
+            == []
+        )
+
+    def test_an_uncovered_day_with_no_session_changes_nothing(self) -> None:
+        """A day the calendar has no session for cannot be seeded — the diff
+        runs over sessions, not over dates."""
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21)]
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        result = _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=opens[-1] + timedelta(hours=7),
+            sessions=opens,
+            coverage_index=coverage_index,
+            uncovered_days={date(2026, 7, 25)},  # a Saturday, no session
+        )
+        assert result == []
+
+    def test_it_does_not_mutate_the_caller_s_coverage_index(self) -> None:
+        """The index is shared across every symbol in a cycle; subtracting in
+        place would silently un-cover that day for everyone after it."""
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21)]
+        covered = {o.date() for o in opens}
+        coverage_index = {"AAPL": covered}
+        _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=opens[-1] + timedelta(hours=7),
+            sessions=opens,
+            coverage_index=coverage_index,
+            uncovered_days={opens[0].date()},
+        )
+        assert coverage_index["AAPL"] == covered
