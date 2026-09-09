@@ -14,7 +14,7 @@ projectState: >
   file 1's Sections 1-4 are complete and committed on the slice branch.
 dateCreated: 20260908
 dateUpdated: 20260909
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -76,8 +76,8 @@ Design *Scope 4*, *Decision 5*, *Decision 6*, *SC7*. The failure this slice
 fixes was invisible because the check judged the newest bar's age, not how
 much data the session holds.
 
-- [ ] **Task 5.1: Health constants** (effort: 1)
-  - [ ] Add to `constants.py`, each with a docstring stating the measurement
+- [x] **Task 5.1: Health constants** (effort: 1)
+  - [x] Add to `constants.py`, each with a docstring stating the measurement
         behind the value: `HEALTH_MINUTE_SESSION_CALENDAR` ("NYSE"),
         `HEALTH_MINUTE_SESSION_COLLECTION_LAG` (3 h),
         `HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE` (2,500 — half the measured
@@ -86,76 +86,76 @@ much data the session holds.
         `HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS` (30),
         `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT` ("30s", sibling of
         `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT`).
-  - [ ] Add `MINUTE_PASS_FIRING_TIMES_UTC` holding both firing times currently
+  - [x] Add `MINUTE_PASS_FIRING_TIMES_UTC` holding both firing times currently
         written in `deploy/systemd/mt-minute-pass.timer` (01:05, 13:05), as
         the single source both the timer guard and the health check read
         (Scope 4 — the check and the timer cannot be allowed to disagree).
-  - [ ] Success: `test/unit/test_constants.py` asserts every value and type;
+  - [x] Success: `test/unit/test_constants.py` asserts every value and type;
         no health threshold appears as a literal in `health.py`.
-- [ ] **Task 5.2: Judged-session selection** (effort: 3)
-  - [ ] A pure function selects the session to judge: the newest
+- [x] **Task 5.2: Judged-session selection** (effort: 3)
+  - [x] A pure function selects the session to judge: the newest
         `trading_sessions` row for `HEALTH_MINUTE_SESSION_CALENDAR` whose
         collecting firing has finished — the first `MINUTE_PASS_FIRING_TIMES_UTC`
         entry after its `session_close_utc`, plus
         `HEALTH_MINUTE_SESSION_COLLECTION_LAG`, is in the past.
-  - [ ] This resolves to 04:05 UTC the next day for a regular close and for an
+  - [x] This resolves to 04:05 UTC the next day for a regular close and for an
         early close alike. Weekends and holidays fall out because they are not
         calendar rows.
-  - [ ] The function takes `now` and the candidate sessions as arguments (no
+  - [x] The function takes `now` and the candidate sessions as arguments (no
         I/O), so the boundary is directly testable.
-  - [ ] **State the no-candidate verdict.** If the selection yields nothing —
+  - [x] **State the no-candidate verdict.** If the selection yields nothing —
         an empty `trading_sessions` window, a calendar rename, a long holiday
         stretch — the check must report an explicit non-OK result (or exit 2),
         never `ok=True`. A silent pass here is exactly the silence this slice
         exists to end; the project's no-silent-fallback rule applies.
-  - [ ] Success: given a fixture calendar, the judged session is yesterday's
+  - [x] Success: given a fixture calendar, the judged session is yesterday's
         from 04:05 UTC onward and the day before that earlier — asserted at
         04:04 and 04:05 for both a 20:00 and a 17:00 close (SC7); an empty
         candidate list produces the stated non-OK verdict.
-- [ ] **Task 5.3: Tests for judged-session selection** (effort: 2)
-  - [ ] Boundary cases at 04:04 and 04:05 UTC for a regular (20:00) and an
+- [x] **Task 5.3: Tests for judged-session selection** (effort: 2)
+  - [x] Boundary cases at 04:04 and 04:05 UTC for a regular (20:00) and an
         early (17:00) close; a weekend and a holiday gap; the empty-candidate
         verdict from Task 5.2.
-  - [ ] Success: `uv run pytest test/unit/cli/commands/test_data_health.py -q`
+  - [x] Success: `uv run pytest test/unit/cli/commands/test_data_health.py -q`
         passes.
-- [ ] **Task 5.4: Candidate fetch and mass measurement query** (effort: 3)
-  - [ ] **This task owns the `trading_sessions` read** that produces Task
+- [x] **Task 5.4: Candidate fetch and mass measurement query** (effort: 3)
+  - [x] **This task owns the `trading_sessions` read** that produces Task
         5.2's candidates: sessions for `HEALTH_MINUTE_SESSION_CALENDAR`, newest
         first, bounded to a small recent window (enough to cover a holiday
         stretch, not the whole calendar). Nothing else fetches them.
-  - [ ] Read both mass quantities from `minute_4hour_ohlcv` —
+  - [x] Read both mass quantities from `minute_4hour_ohlcv` —
         `SUM(minute_count)` for total bars, and the count of symbols whose
         per-symbol sum is `≥ HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS` — over
         buckets whose `time_bucket` falls in
         `[session_open_utc, session_close_utc)`.
-  - [ ] Never read raw `minute_ohlcv` (Scope 4, the 140-slices §166/§167
+  - [x] Never read raw `minute_ohlcv` (Scope 4, the 140-slices §166/§167
         latency cliff). Run under
         `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT`; a timeout exits 2 like
         every other 919 check — it does not report a false mass.
-  - [ ] The cagg's own freshness is judged by the existing
+  - [x] The cagg's own freshness is judged by the existing
         `cagg minute_4hour_ohlcv` line; do not duplicate that check here.
-  - [ ] Success: the mass read is a single grouped query; the table name comes
+  - [x] Success: the mass read is a single grouped query; the table name comes
         from the existing granularity-source constant, not a literal.
-- [ ] **Task 5.5: `check_minute_session_mass` rule and rendering** (effort: 2)
-  - [ ] A pure rule function in `health.py` takes the judged session, its
+- [x] **Task 5.5: `check_minute_session_mass` rule and rendering** (effort: 2)
+  - [x] A pure rule function in `health.py` takes the judged session, its
         length in minutes, the measured bars and symbol count, and returns a
         `HealthCheck` named `minute session mass`.
-  - [ ] Floors scale with the session's real length:
+  - [x] Floors scale with the session's real length:
         `HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE × (close − open) in minutes`
         (390 regular → 975,000; 210 early close → 525,000). The symbol floor
         does not scale.
-  - [ ] **The floor is computed, never hardcoded.** The design's Verification
+  - [x] **The floor is computed, never hardcoded.** The design's Verification
         Walkthrough and file 2's Task 7.5 use `≥ 1,000,000` as a *stricter
         one-time cutover acceptance bar*; that number is not this check's
         floor and must not be written into `health.py`.
-  - [ ] The detail line names the session date, its length, both measured
+  - [x] The detail line names the session date, its length, both measured
         values, and both floors — the design's example line is the format.
-  - [ ] Wire it into `gather()` alongside the existing checks.
-  - [ ] Success: a 390-minute session is judged against 975,000 bars, a
+  - [x] Wire it into `gather()` alongside the existing checks.
+  - [x] Success: a 390-minute session is judged against 975,000 bars, a
         210-minute session against 525,000.
-- [ ] **Task 5.6: Remove the quota floor check and fix the UTC label**
+- [x] **Task 5.6: Remove the quota floor check and fix the UTC label**
       (effort: 1)
-  - [ ] Delete `check_quota`, its `gather()` call, `fetch_quota`, and
+  - [x] Delete `check_quota`, its `gather()` call, `fetch_quota`, and
         `HEALTH_EODHD_QUOTA_HEADROOM_MIN`. Its consequence is what Task 5.5
         now measures, and no floor is right when normal operation is designed
         to consume the whole allowance (Decision 6). Verified during review:
@@ -163,25 +163,25 @@ much data the session holds.
         has one caller, `deploy/mt-run` reads only the service exit code, and
         no runbook references the `eodhd quota` line — so the removal is
         unconditional. Leave 919's design record alone; it is history.
-  - [ ] The httpx client and the `settings.eodhd_api_key` precondition in
+  - [x] The httpx client and the `settings.eodhd_api_key` precondition in
         `data_health` can both be dropped outright.
-  - [ ] `check_raw_freshness` prints the timestamp in local time with a `UTC`
+  - [x] `check_raw_freshness` prints the timestamp in local time with a `UTC`
         suffix; convert to UTC before formatting.
-  - [ ] Success: `mt data health --json` no longer carries an `eodhd quota`
+  - [x] Success: `mt data health --json` no longer carries an `eodhd quota`
         entry; existing tests referencing it are updated, not deleted wholesale.
-- [ ] **Task 5.7: Tests for the mass check** (effort: 3)
-  - [ ] In `test/unit/cli/commands/test_data_health.py`: FAIL on a fixture
+- [x] **Task 5.7: Tests for the mass check** (effort: 3)
+  - [x] In `test/unit/cli/commands/test_data_health.py`: FAIL on a fixture
         session holding 45k bars; PASS on 1.99M with 7,259 symbols; PASS on a
         210-minute early-close fixture holding 1.05M (SC7).
-  - [ ] A test captures the executed query and asserts it targets
+  - [x] A test captures the executed query and asserts it targets
         `minute_4hour_ohlcv` and not `minute_ohlcv` (SC7).
-  - [ ] A test asserts a statement timeout exits 2 rather than reporting a
+  - [x] A test asserts a statement timeout exits 2 rather than reporting a
         low mass.
-  - [ ] A test asserts no check named `eodhd quota` is produced, and that
+  - [x] A test asserts no check named `eodhd quota` is produced, and that
         `data_health` runs without an EODHD key configured.
-  - [ ] Success: `uv run pytest test/unit/cli -q` passes.
-- [ ] **Task 5.8: Load-tier test for the read bound** (effort: 2)
-  - [ ] The slice states a read NFR — one session is ~41k cagg rows, a
+  - [x] Success: `uv run pytest test/unit/cli -q` passes.
+- [x] **Task 5.8: Load-tier test for the read bound** (effort: 2)
+  - [x] The slice states a read NFR — one session is ~41k cagg rows, a
         sub-second read — and degrades to exit 2 on timeout, which an operator
         cannot distinguish from the silence this slice ends. The project's
         convention for exactly this claim is a load-tier test:
@@ -189,46 +189,48 @@ much data the session holds.
         `test/load/test_169_coverage_freshness_probe_nfr.py` are the
         precedents, the latter asserting its sibling probe "stays well inside
         its budget".
-  - [ ] **`prod_shaped_db` as it stands cannot measure this.**
+  - [x] **`prod_shaped_db` as it stands cannot measure this.**
         `_seed_prod_shape` seeds one bar per symbol per 7-day bucket starting
         in 2010, and no load-tier fixture seeds `trading_sessions` at all. The
         mass query filters buckets to a judged session's
         `[open, close)` window, so against that fixture the window is
         effectively empty, the test passes in milliseconds, and the NFR is
         never exercised.
-  - [ ] Add `test/load/test_921_minute_session_mass_nfr.py` with a fixture
+  - [x] Add `test/load/test_921_minute_session_mass_nfr.py` with a fixture
         that can actually load the query: NYSE `trading_sessions` rows for a
         recent session plus a dense cagg population for it — on the order of
         the measured ~41k cagg rows across ~11k symbols. Extend
         `prod_shaped_db` or add a sibling fixture; say which.
-  - [ ] State an explicit budget number rather than "fast", as
+  - [x] State an explicit budget number rather than "fast", as
         `test_169_coverage_freshness_probe_nfr.py` does, and assert the read
         completes well inside `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT`.
-  - [ ] **CI does not run tests.** `.github/workflows/ci.yml` is publish-on-tag
+  - [x] **CI does not run tests.** `.github/workflows/ci.yml` is publish-on-tag
         only (a repo-wide gap tracked as slice 907), so the gate is a
         documented manual run. State the invocation in the test module
         docstring and in runbook 100, rather than assuming a CI job.
-  - [ ] Success: the load test passes locally and its invocation is written
+  - [x] Success: the load test passes locally and its invocation is written
         down where an operator will find it.
-- [ ] **Task 5.9: Timer/constant drift guard** (effort: 2)
-  - [ ] **Keep the unit file authoritative.** `install-production.sh:173`
+
+  **Load test production defects:** The load test exposed two defects the unit tier could not reach: (1) `fetch_candidate_sessions` returned only future-dated sessions because `trading_sessions` is populated ~2 years ahead, which would have caused the check to report "no completed session to judge" on every production run; (2) the mass filter dropped the cagg bucket the session opens inside, because 4-hour buckets align to the day and not the session, uncounting ~38% of every session's bars — this defect originated in the design's own wording and is corrected in the slice document's new "Implementation Correction" section. Both are pinned by unit regression tests.
+- [x] **Task 5.9: Timer/constant drift guard** (effort: 2)
+  - [x] **Keep the unit file authoritative.** `install-production.sh:173`
         installs each unit verbatim from a bash loop; making it render a
         Python constant would need a template mechanism, a venv at install
         time, and a fail-loud read, and would break
         `test/unit/deploy/test_units.py`'s `configparser` parse of the repo's
         unit files. It also cannot be asserted from the unit tier, which runs
         with no systemd.
-  - [ ] Instead, add a guard test to `test/unit/deploy/test_units.py` that
+  - [x] Instead, add a guard test to `test/unit/deploy/test_units.py` that
         parses `deploy/systemd/mt-minute-pass.timer` and asserts its
         `OnCalendar` values equal `MINUTE_PASS_FIRING_TIMES_UTC`. That is the
         same shape as the existing Kalshi unit assertions and catches the
         drift Scope 4 cares about — the health check and the timer disagreeing.
-  - [ ] Note the deviation from the design's "rendered into the unit" wording
+  - [x] Note the deviation from the design's "rendered into the unit" wording
         and the reason, so the design and the tasks do not silently diverge.
-  - [ ] Success: editing either the timer or the constant alone fails the test.
-- [ ] **Task 5.10: Section 5 checkpoint** (effort: 1)
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `feat: judge minute session mass in mt data health (921)`.
+  - [x] Success: editing either the timer or the constant alone fails the test.
+- [x] **Task 5.10: Section 5 checkpoint** (effort: 1)
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `feat: judge minute session mass in mt data health (921)`.
 
 ## Section 6: Repair through the single writer
 
