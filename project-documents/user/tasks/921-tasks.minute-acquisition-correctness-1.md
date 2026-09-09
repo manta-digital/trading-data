@@ -16,7 +16,7 @@ projectState: >
   closeout. Version 0.13.0 on main.
 dateCreated: 20260908
 dateUpdated: 20260909
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -405,18 +405,18 @@ already correct for 402 (the raise happens before any write) — what is missing
 is the **abort**, the outcome, and a path from that outcome to the process
 exit code.
 
-- [ ] **Task 4.1: `MinutePassOutcome` enum** (effort: 1)
-  - [ ] Add `MinutePassOutcome` as a `StrEnum` beside `LastAttemptOutcome` in
+- [x] **Task 4.1: `MinutePassOutcome` enum** (effort: 1)
+  - [x] Add `MinutePassOutcome` as a `StrEnum` beside `LastAttemptOutcome` in
         `data/acquisition/state.py`, with members `COMPLETE`,
         `QUOTA_EXHAUSTED`, `PROVIDER_UNAVAILABLE`.
-  - [ ] No string literal for these values may appear anywhere else — journal
+  - [x] No string literal for these values may appear anywhere else — journal
         lines, exit mapping, and tests all reference the enum (Decision 7).
-  - [ ] Success: `test/unit/data/acquisition/test_state.py` covers the members
+  - [x] Success: `test/unit/data/acquisition/test_state.py` covers the members
         and their string values; `grep` for the literal strings returns
         matches in
         `state.py`'s enum definition and nowhere else.
-- [ ] **Task 4.2: Failure kind survives `_process_minute_symbol`** (effort: 2)
-  - [ ] **The problem, measured from the code.** `_process_minute_symbol`
+- [x] **Task 4.2: Failure kind survives `_process_minute_symbol`** (effort: 2)
+  - [x] **The problem, measured from the code.** `_process_minute_symbol`
         collapses five distinct `except` handlers —
         `ProviderResponseError`, `psycopg.errors.LockNotAvailable`,
         `PoolTimeout`, `httpx.HTTPError`/`TimeoutException`, and a bare
@@ -425,60 +425,60 @@ exit code.
         cannot tell a provider outage from a database one, and a breaker built
         on that value would abort with `PROVIDER_UNAVAILABLE` on a Postgres
         pool exhaustion.
-  - [ ] **The handlers are only half of it.** 5xx and 429 never raise —
+  - [x] **The handlers are only half of it.** 5xx and 429 never raise —
         `classify_outcome` returns `TRANSIENT_FAILURE` for them, so
         `_do_minute_symbol` returns *normally* through the `try`, not through
         any handler. The breaker's headline trigger therefore does not reach
         the cycle at all unless the Task 2.3 distinction is threaded up the
         **normal return path**: `_do_minute_symbol`'s return →
         `_process_minute_symbol`'s return → `run_minute_cycle`.
-  - [ ] Extend both paths — what `_process_minute_symbol` returns on a normal
+  - [x] Extend both paths — what `_process_minute_symbol` returns on a normal
         return, and what its five `except` handlers return (or let a typed
         exception reach the cycle) — so the failure **kind** is explicit:
         provider quota, provider failure, database failure, or a classified
         response. Do not infer the kind from the outcome enum or a log
         message.
-  - [ ] Every existing caller and test of `_process_minute_symbol` must be
+  - [x] Every existing caller and test of `_process_minute_symbol` must be
         updated in this task, not left to fail in the next one. **Re-green the
         daemon test module before starting Task 4.3** — this task changes a
         signature across every caller, and the abort and breaker layer on top
         of it.
-  - [ ] Success: a `PoolTimeout`, an `httpx.ReadTimeout`, and a **returned**
+  - [x] Success: a `PoolTimeout`, an `httpx.ReadTimeout`, and a **returned**
         HTTP 500 are all distinguishable by the cycle without inspecting an
         exception message — the 500 case is the one the handler-only reading
         of this task would miss.
-- [ ] **Task 4.3: 402 aborts the pass** (effort: 2)
-  - [ ] `classify_outcome` raises `ProviderResponseError` for 402 with a
+- [x] **Task 4.3: 402 aborts the pass** (effort: 2)
+  - [x] `classify_outcome` raises `ProviderResponseError` for 402 with a
         distinct message. Give the quota case a distinguishable exception (a
         subclass, or a typed attribute — not a message-substring check, which
         is a fragile label) so the cycle can tell quota exhaustion from a
         vendor-contract 4xx.
-  - [ ] The cycle ends the pass immediately with
+  - [x] The cycle ends the pass immediately with
         `MinutePassOutcome.QUOTA_EXHAUSTED`, recording which phase it was in.
-  - [ ] Other non-404 4xx keep today's per-symbol skip behavior.
-  - [ ] Success: a 402 on the first symbol ends the pass with no further
+  - [x] Other non-404 4xx keep today's per-symbol skip behavior.
+  - [x] Success: a 402 on the first symbol ends the pass with no further
         provider calls (SC5).
-- [ ] **Task 4.4: Consecutive-failure breaker** (effort: 2)
-  - [ ] `run_minute_cycle` counts consecutive symbols whose failure kind
+- [x] **Task 4.4: Consecutive-failure breaker** (effort: 2)
+  - [x] `run_minute_cycle` counts consecutive symbols whose failure kind
         (Task 4.2) is *provider failure* — 5xx, timeout, connection reset,
         429 exhaustion — and aborts with
         `MinutePassOutcome.PROVIDER_UNAVAILABLE` at
         `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES`.
-  - [ ] The counter resets on any symbol that reaches a classified provider
+  - [x] The counter resets on any symbol that reaches a classified provider
         response, so scattered failures across a long pass never trip it.
-  - [ ] Database failure kinds never increment the counter.
-  - [ ] Success: five consecutive 5xx symbols end the pass; five consecutive
+  - [x] Database failure kinds never increment the counter.
+  - [x] Success: five consecutive 5xx symbols end the pass; five consecutive
         `PoolTimeout` symbols do not; four failures, a success, then four more
         do not.
-- [ ] **Task 4.5: Tests for abort and breaker** (effort: 2)
-  - [ ] Cases: first-response 402 → `QUOTA_EXHAUSTED` with no second provider
+- [x] **Task 4.5: Tests for abort and breaker** (effort: 2)
+  - [x] Cases: first-response 402 → `QUOTA_EXHAUSTED` with no second provider
         call; five consecutive 5xx → `PROVIDER_UNAVAILABLE`; five consecutive
         `PoolTimeout` → pass continues (the misattribution regression);
         four-fail / success / four-fail → pass completes.
-  - [ ] A test asserts the outcome carries the phase it aborted in.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition -q` passes.
-- [ ] **Task 4.6: Outcome-to-exit plumbing** (effort: 3)
-  - [ ] **Name the path, because none exists today.** `run_minute_cycle`
+  - [x] A test asserts the outcome carries the phase it aborted in.
+  - [x] Success: `uv run pytest test/unit/data/acquisition -q` passes.
+- [x] **Task 4.6: Outcome-to-exit plumbing** (effort: 3)
+  - [x] **Name the path, because none exists today.** `run_minute_cycle`
         returns a `CycleReport` (defined in `daemon/daily.py:69` and shared
         with the daily path); `Runner.start()` returns its own int;
         `daemon_run` ends at `sys.exit(runner.start())` (`data.py:1470`).
@@ -486,44 +486,44 @@ exit code.
         exit without adding a minute-only field to the shared `CycleReport` —
         if the report must carry it, say so and state what the daily path puts
         there.
-  - [ ] State what a `--forever` runner that ran several minute cycles exits
+  - [x] State what a `--forever` runner that ran several minute cycles exits
         with: the last cycle's outcome, or the worst seen. Pick one and write
         the reason in a comment. **This is a low-stakes choice** —
         `mt-minute-pass.service`'s `ExecStart` runs
         `mt data daemon run --minute --stop-when-done`, so `--forever` is a
         hand-run/dev path and neither choice affects the unit's exit code in
         production. Do not treat it as blocking.
-  - [ ] **There is no shared exit-code constant in this project.** The nearest
+  - [x] **There is no shared exit-code constant in this project.** The nearest
         precedent is `EXIT_BY_OUTCOME`, a dict local to
         `cli/commands/kalshi.py:54` over `EXIT_OK`/`EXIT_SYNC_PARTIAL`/…;
         `cli/commands/data.py` uses per-command private ints. Follow the
         Kalshi precedent: define the minute pass's exit codes as named
         constants and a single `dict[MinutePassOutcome, int]` mapping, not
         scattered conditionals and not a bare `3`.
-  - [ ] Mapping: `COMPLETE` → 0; `QUOTA_EXHAUSTED` after the trailing phase
+  - [x] Mapping: `COMPLETE` → 0; `QUOTA_EXHAUSTED` after the trailing phase
         completed → 0 (spending the allowance on backfill is the designed
         steady state); `QUOTA_EXHAUSTED` inside the trailing phase → 3;
         `PROVIDER_UNAVAILABLE` → 3 in either phase.
-  - [ ] On abort, log one line naming the outcome, the phase, and the count of
+  - [x] On abort, log one line naming the outcome, the phase, and the count of
         symbols not attempted (Scope 3).
-  - [ ] An aborted pass stamps `RunnerState.last_minute_cycle_end_utc` exactly
+  - [x] An aborted pass stamps `RunnerState.last_minute_cycle_end_utc` exactly
         as a completed pass does — it is an in-process busy-loop guard only,
         and slice 912 derives remaining work from `acquisition_state`
         (Scope 3's 912 clause). Add a comment citing 912 at the stamp.
-  - [ ] Success: the exit code is produced by one lookup table; `grep` finds
+  - [x] Success: the exit code is produced by one lookup table; `grep` finds
         no bare `3` in the minute pass path.
-- [ ] **Task 4.7: Tests for the exit mapping** (effort: 2)
-  - [ ] Cases: trailing-phase 402 → exit 3; post-trailing 402 → exit 0;
+- [x] **Task 4.7: Tests for the exit mapping** (effort: 2)
+  - [x] Cases: trailing-phase 402 → exit 3; post-trailing 402 → exit 0;
         `PROVIDER_UNAVAILABLE` in the trailing phase → exit 3; in the backfill
         phase → exit 3; `COMPLETE` → exit 0 (SC5).
-  - [ ] A test asserts the aborted pass stamped the cycle end and left
+  - [x] A test asserts the aborted pass stamped the cycle end and left
         `acquisition_state` rows for un-attempted symbols untouched.
-  - [ ] A test covers the `--forever` multi-cycle rule chosen in Task 4.6.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition -q` passes.
-- [ ] **Task 4.8: Section 4 checkpoint** (effort: 1)
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `feat: abort the minute pass on quota exhaustion or a failure storm (921)`.
-  - [ ] Continue with file 2, Section 5 (health check).
+  - [x] A test covers the `--forever` multi-cycle rule chosen in Task 4.6.
+  - [x] Success: `uv run pytest test/unit/data/acquisition -q` passes.
+- [x] **Task 4.8: Section 4 checkpoint** (effort: 1)
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `feat: abort the minute pass on quota exhaustion or a failure storm (921)`.
+  - [x] Continue with file 2, Section 5 (health check).
 
 ## Review Response (2026-09-09, tasks review part 1 — FAIL)
 
