@@ -211,9 +211,9 @@ failed is not an alarm.
      every symbol that reaches it in 390).
    - **Measurement source and read bound:** both quantities are read from
      `minute_4hour_ohlcv` — `SUM(minute_count)` and
-     `COUNT(*) FILTER (WHERE symbol-sum ≥ 30)` over the buckets whose
-     `time_bucket` falls in `[session_open_utc, session_close_utc)`, grouped
-     by symbol — never from raw `minute_ohlcv` (140-slices §166/§167
+     `COUNT(*) FILTER (WHERE symbol-sum ≥ 30)` over the buckets that OVERLAP
+     `[session_open_utc, session_close_utc)`, grouped by symbol — never from
+     raw `minute_ohlcv` (140-slices §166/§167
      recorded the raw-table latency cliff). One session is ~41k cagg rows
      (measured 2026-08-27), a sub-second read; the check runs under
      `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT`'s sibling
@@ -428,6 +428,43 @@ abort and the breaker; (3) two-phase cycle and `MinutePassOutcome`;
 (4) health check; (5) repair and cutover scripts, `--check` against
 production; (6) release, cutover, measure, close the issues. Commit at each
 section.
+
+## Implementation Correction (2026-09-09, Task 5.8)
+
+Two defects in the health check were found by the Section 5 load test and are
+recorded here because one of them was in this design's own wording.
+
+**The bucket filter was specified wrongly.** This document said the mass is
+read "over the buckets whose `time_bucket` falls in `[session_open_utc,
+session_close_utc)`". Implemented literally, that is wrong: TimescaleDB's
+4-hour buckets are aligned to the **day**, not to the session, so a regular
+13:30–20:00 UTC session opens partway through the 12:00 bucket, whose
+`time_bucket` (12:00) is before the open. The filter dropped that bucket
+whole — the first ~2.5 hours of every regular session, ~38% of its bars.
+Measured on the load fixture: 990,000 of 1,980,000 seeded bars counted.
+
+In production this would not have failed loudly. A healthy ~5,100 bars/min
+would have been reported as ~3,100/min, still above the 2,500 floor — so the
+check would have run permanently near its threshold, turning ordinary
+variation into false FAILs and masking a genuine partial degradation. The
+scope wording above is corrected to "the buckets that OVERLAP" the session,
+and the query now reaches back one bucket width (from
+`GRANULARITY_BAR_MINUTES`, never a literal). Two unit tests pin it, one for
+the opening bucket and one confirming the bucket starting at the close stays
+excluded.
+
+**The candidate read had to exclude sessions that have not closed.**
+`trading_sessions` is populated ~2 years ahead
+(`TRADING_SESSIONS_EXTENSION_YEARS`, kept current by
+`maybe_extend_trading_sessions`), so reading "the newest rows" returns only
+future-dated sessions, none of which can ever be judged. The check would have
+reported `no completed session to judge` on every run in production — a
+permanent FAIL carrying no information, which is the same silence this slice
+exists to end. The candidate query now bounds on `session_close_utc <= now`.
+
+Neither defect was reachable from the unit tier, which hand-builds candidate
+lists and mocks the cursor. Both required a fixture with a real calendar and
+real cagg buckets, which is what Task 5.8 exists for.
 
 ## Review Response (2026-09-08)
 

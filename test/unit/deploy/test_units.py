@@ -16,6 +16,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from manta_trading.constants import MINUTE_PASS_FIRING_TIMES_UTC
+
 _REPO_ROOT = Path(__file__).parents[3]
 _SYSTEMD = _REPO_ROOT / "deploy" / "systemd"
 SERVICE_NAME = "mt-kalshi-pass.service"
@@ -211,3 +213,65 @@ class TestHealthUnits:
         text = MT_RUN.read_text()
         assert "systemctl show mt-health.service -p Result" in text
         assert "== health:" in text
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 — the minute timer and the health check must not drift apart
+# ---------------------------------------------------------------------------
+
+MINUTE_PASS_TIMER = _REPO_ROOT / "deploy" / "systemd" / "mt-minute-pass.timer"
+
+
+class TestMinutePassTimerMatchesTheConstant:
+    """``MINUTE_PASS_FIRING_TIMES_UTC`` and ``mt-minute-pass.timer`` state the
+    same firing times, and this test fails if either moves alone.
+
+    The health check derives when a session's collecting firing has finished
+    from that constant. If the timer said something else, the check would
+    judge a session the pass had not collected yet (or wait past one it had)
+    and report a verdict about the wrong day — a stale answer that looks
+    exactly like a healthy one, which is the silence slice 921 exists to end.
+
+    **Deviation from the design, recorded deliberately.** The design says the
+    times are "rendered into the unit" from the constant. They are not: the
+    unit file stays authoritative and this guard asserts the two agree.
+    ``install-production.sh`` installs each unit verbatim from a bash loop, so
+    rendering would need a template mechanism and a Python venv at install
+    time — before one exists — and would break this module's ``configparser``
+    parse of the repo's unit files. A guard test catches the same drift with
+    none of that machinery.
+    """
+
+    @staticmethod
+    def _on_calendar_lines() -> list[str]:
+        return [
+            line.strip()
+            for line in MINUTE_PASS_TIMER.read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith("OnCalendar=")
+        ]
+
+    def test_the_timer_file_exists(self) -> None:
+        assert MINUTE_PASS_TIMER.is_file()
+
+    def test_every_firing_time_in_the_constant_appears_in_the_timer(self) -> None:
+        lines = self._on_calendar_lines()
+        for firing in MINUTE_PASS_FIRING_TIMES_UTC:
+            expected = f"OnCalendar=*-*-* {firing.hour:02d}:{firing.minute:02d}:00 UTC"
+            assert expected in lines, (
+                f"{expected} is in MINUTE_PASS_FIRING_TIMES_UTC but not in "
+                f"{MINUTE_PASS_TIMER.name}"
+            )
+
+    def test_the_timer_declares_no_firing_the_constant_does_not_know_about(
+        self,
+    ) -> None:
+        """The other direction: an OnCalendar the constant has never heard of
+        would collect a session the health check never waits for."""
+        expected = {
+            f"OnCalendar=*-*-* {firing.hour:02d}:{firing.minute:02d}:00 UTC"
+            for firing in MINUTE_PASS_FIRING_TIMES_UTC
+        }
+        assert set(self._on_calendar_lines()) == expected
+
+    def test_the_counts_match(self) -> None:
+        assert len(self._on_calendar_lines()) == len(MINUTE_PASS_FIRING_TIMES_UTC)

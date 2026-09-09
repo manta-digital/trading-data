@@ -7,7 +7,7 @@ grace periods used by the data acquisition and quality pipelines.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Final
 
@@ -93,10 +93,68 @@ HEALTH_KALSHI_PHASE_STALE_AFTER: timedelta = timedelta(hours=3)
 than this fails the check — the pass fires hourly and a drain pass runs ~15
 minutes, so three hours means two missed firings."""
 
-HEALTH_EODHD_QUOTA_HEADROOM_MIN: int = 20_000
-"""Fail when remaining EODHD requests (daily allowance − used + extra) drop
-below this. The nightly minute firing alone needs ~10–15k; below this the
-next firing starves and symbols park (issue #19)."""
+# --- mt data health: minute session mass (slice 921) ----------------------
+# The 2026-09-07 failure was invisible because the check judged the newest
+# bar's AGE, not how much data the session holds: the universe was collecting
+# ~45k bars/day for ~10.8k symbols against ~2.0M/day through 2026-08-27, and
+# `mt data health` still reported minute data OK. These thresholds judge the
+# quantity that failed.
+
+HEALTH_MINUTE_SESSION_CALENDAR: str = "NYSE"
+"""Trading calendar whose sessions the minute-mass check judges.
+
+One calendar, not the union: the equity universe this platform collects is
+overwhelmingly US-listed and shares NYSE's session bounds, so a single
+calendar gives one unambiguous judged session per day. A symbol on another
+calendar is still collected; it is simply not what this check measures."""
+
+HEALTH_MINUTE_SESSION_COLLECTION_LAG: timedelta = timedelta(hours=3)
+"""Grace after the collecting firing before its session is judged.
+
+A session is only judged once the pass that collects it has had time to
+finish. Sized from the measured pass duration plus headroom; with the 01:05
+UTC firing this puts a regular 20:00 close's verdict at 04:05 the next day.
+Matches HEALTH_KALSHI_PHASE_STALE_AFTER's three-hour convention."""
+
+HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE: int = 2_500
+"""Fail when the judged session holds fewer bars per session-minute.
+
+Half the measured healthy rate: 2026-08-27 collected ~5,100 bars per session
+minute across the universe. Half leaves room for a genuinely quiet session or
+a partial provider outage while still catching the 2026-09-07 collapse, which
+ran roughly two orders of magnitude below this."""
+
+HEALTH_MINUTE_SESSION_MIN_SYMBOLS: int = 5_000
+"""Fail when fewer symbols reached HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS bars
+in the judged session.
+
+Measured against 7,259 symbols on a healthy session. The floor sits well below
+that so ordinary delistings and quiet names do not trip it, and well above the
+collapsed state, where the truncation left most symbols at a single bar."""
+
+HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS: int = 30
+"""Bars a symbol needs in the judged session to count toward the symbol floor.
+
+Thirty minutes of a 390-minute session. Low enough to include thinly traded
+names that genuinely have few bars, high enough to exclude the one-bar
+signature of the session-open truncation this slice removes."""
+
+HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT: str = "30s"
+"""PostgreSQL statement_timeout for the minute-mass read.
+
+Sibling of CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT. The read is a grouped scan
+of one session's buckets in the coarse minute cagg, never raw minute_ohlcv
+(the §166/§167 latency cliff). On timeout the check exits 2 like every other
+919 check rather than reporting a mass it did not measure."""
+
+MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(1, 5), time(13, 5))
+"""When the minute acquisition pass fires, as UTC times of day.
+
+Single source of truth, read by BOTH the health check (to know when a
+session's collecting firing has finished) and the timer drift guard (to assert
+deploy/systemd/mt-minute-pass.timer still says the same thing). The check and
+the timer disagreeing is exactly how a stale verdict becomes invisible, so
+they are not allowed to hold separate copies of these times."""
 
 HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
 """EODHD account endpoint; returns ``apiRequests``, ``dailyRateLimit``,

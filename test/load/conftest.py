@@ -34,7 +34,7 @@ directory, including this one.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import psycopg
 import pytest
@@ -242,4 +242,159 @@ def dense_minute_db(ephemeral_db: str) -> str:
                             )
                         )
         conn.commit()
+    return ephemeral_db
+
+
+# --- minute-session-mass fixture (slice 921 Task 5.8) ------------------------
+
+MASS_SYMBOL_COUNT = 11_000
+"""Symbols carrying bars in the judged session, matching the ~11k active
+minute universe measured on production."""
+
+MASS_BUCKETS_PER_SYMBOL = 2
+"""4-hour cagg buckets a symbol occupies within one regular session.
+
+A 13:30-20:00 UTC session intersects exactly two 4-hour buckets — the one
+starting at 12:00 and the one starting at 16:00 — because the buckets are
+aligned to the day, not to the session. 11,000 symbols x 2 buckets is ~22,000
+cagg rows; the ~41k measured on production spans a wider active universe, and
+what the NFR is about is the aggregate scan over a full session's rows, which
+this reproduces at the right order of magnitude.
+"""
+
+MASS_SESSION_DATE = date(2026, 9, 8)
+MASS_SESSION_OPEN = datetime(2026, 9, 8, 13, 30, tzinfo=UTC)
+MASS_SESSION_CLOSE = datetime(2026, 9, 8, 20, 0, tzinfo=UTC)
+
+MASS_BARS_PER_SYMBOL_PER_BUCKET = 90
+"""Raw minute bars seeded per symbol per bucket, all inside the session.
+
+11,000 x 2 x 90 = ~1.98M bars, the healthy session mass measured on
+2026-08-27, and 5,077 per session-minute against the 2,500 floor. The count
+matters because the check sums ``minute_count``: a fixture with the right ROW
+count but a trivial bar count would exercise the scan without exercising the
+aggregate the check actually reads, and would sit under the floor the check
+judges against.
+"""
+
+MASS_BUCKET_STARTS_UTC = (12, 16)
+"""Hour of each 4-hour bucket the session intersects.
+
+Bars are seeded INSIDE ``[session_open, session_close)`` rather than at
+offsets from the open: the cagg's buckets are aligned to the day, so
+open + 4h * n walks straight out of the session window and the bars land in
+buckets the mass query never reads.
+"""
+
+
+def _seed_session_mass_shape(url: str) -> None:
+    """Seed one dense NYSE session: calendar, sessions, instruments, bars.
+
+    ``prod_shaped_db`` cannot measure this NFR — it seeds one bar per symbol
+    per 7-day bucket from 2010 and no ``trading_sessions`` at all, so the mass
+    query's ``[session_open, session_close)`` window is empty against it, the
+    read returns in milliseconds and the bound is never exercised. Hence this
+    sibling fixture rather than an extension of that one: the two want
+    opposite shapes (breadth of history vs. density inside one session).
+    """
+    with psycopg.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO trading_calendars "
+                "(calendar_id, exchange_name, timezone, market_open, "
+                " market_close, has_extended_hours) "
+                "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                (
+                    "NYSE",
+                    "New York Stock Exchange",
+                    "America/New_York",
+                    "09:30",
+                    "16:00",
+                    True,
+                ),
+            )
+            # A short run of sessions so the judged-session selection has real
+            # candidates to choose between, with the dense one newest.
+            for offset in range(5):
+                session_date = MASS_SESSION_DATE - timedelta(days=offset)
+                cur.execute(
+                    "INSERT INTO trading_sessions "
+                    "(calendar_id, session_date, session_open_utc, "
+                    " session_close_utc) VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT DO NOTHING",
+                    (
+                        "NYSE",
+                        session_date,
+                        MASS_SESSION_OPEN - timedelta(days=offset),
+                        MASS_SESSION_CLOSE - timedelta(days=offset),
+                    ),
+                )
+
+            with cur.copy(
+                "COPY instruments "
+                "(canonical_id, symbol, asset_class, venue, "
+                " trading_calendar_id, delisted_at_eodhd, "
+                " eodhd_type, eodhd_exchange) FROM STDIN"
+            ) as copy:
+                for i in range(MASS_SYMBOL_COUNT):
+                    sym = symbol_name(i)
+                    copy.write_row(
+                        (
+                            f"EQ:{sym}",
+                            sym,
+                            "equity",
+                            "US",
+                            "NYSE",
+                            False,
+                            "Common Stock",
+                            "US",
+                        )
+                    )
+
+            # Bars inside the session window, spread across the two 4-hour
+            # buckets it intersects. Each group starts at the later of the
+            # bucket start and the session open, so every bar lands within
+            # [session_open, session_close) — the window the mass query reads.
+            with cur.copy(
+                "COPY minute_ohlcv "
+                "(time, symbol, open, high, low, close, volume) FROM STDIN"
+            ) as copy:
+                bases = [
+                    max(
+                        MASS_SESSION_OPEN.replace(hour=hour, minute=0),
+                        MASS_SESSION_OPEN,
+                    )
+                    for hour in MASS_BUCKET_STARTS_UTC
+                ]
+                for i in range(MASS_SYMBOL_COUNT):
+                    sym = symbol_name(i)
+                    for base in bases:
+                        for minute in range(MASS_BARS_PER_SYMBOL_PER_BUCKET):
+                            copy.write_row(
+                                (
+                                    base + timedelta(minutes=minute),
+                                    sym,
+                                    10.0,
+                                    10.0,
+                                    10.0,
+                                    10.0,
+                                    100,
+                                )
+                            )
+        conn.commit()
+
+
+@pytest.fixture
+def session_mass_db(ephemeral_db: str) -> str:
+    """Ephemeral DB holding one production-shaped trading session.
+
+    Refreshes only the 4-hour cagg — the mass check reads that view and
+    nothing else, so materializing the coverage caggs would add minutes for
+    nothing.
+    """
+    _apply_schema(ephemeral_db)
+    _seed_session_mass_shape(ephemeral_db)
+    with psycopg.connect(ephemeral_db, autocommit=True) as conn:
+        view = GRANULARITY_SOURCE[Granularity.H4]
+        conn.execute(f"CALL refresh_continuous_aggregate('{view}', NULL, NULL)")
     return ephemeral_db
