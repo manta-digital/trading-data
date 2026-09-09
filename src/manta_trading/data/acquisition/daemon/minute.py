@@ -58,6 +58,34 @@ _REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
 _PROVIDER_MAX_CHUNK_DAYS: int = 120
 
 
+def day_end_utc(moment: datetime) -> datetime:
+    """Return the UTC midnight that ENDS ``moment``'s UTC date.
+
+    Slice 921, Scope 1: the gap range ends at ``session_close_utc``, but the
+    provider request must reach the end of the day. EODHD honors ``to``
+    exactly and 1-minute bars are published for extended hours — AAPL traded
+    08:00-23:59 UTC on 2026-08-27 — so a request ending at the 20:00 close
+    would silently drop pre- and post-market bars that the midnight-anchored
+    legacy rows used to collect.
+
+    This widening is a FETCH-LAYER MAPPING only: ``chunk_end``, the range
+    handed to ``classify_outcome``, ``_advance_minute_gap``'s arguments, and
+    the trailing-tolerance comparison all keep the un-extended value, so gap
+    accounting and classification semantics do not shift with the request
+    window.
+
+    A ``moment`` already at UTC midnight is returned unchanged — it is
+    already that date's end boundary, and adding a day would request an extra
+    calendar day of bars.
+    """
+    midnight = moment.astimezone(_UTC).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    if moment.astimezone(_UTC) == midnight:
+        return midnight
+    return midnight + timedelta(days=1)
+
+
 def _resolve_minute_history_start(
     conn: psycopg.Connection,
     symbol: str,
@@ -450,7 +478,8 @@ def _do_minute_symbol(
         url = (
             f"{_EODHD_BASE}/intraday/{_normalise(symbol)}"
             f"?api_token={settings.eodhd_api_key}&fmt=json&interval=1m"
-            f"&from={int(chunk_start.timestamp())}&to={int(chunk_end.timestamp())}"
+            f"&from={int(chunk_start.timestamp())}"
+            f"&to={int(day_end_utc(chunk_end).timestamp())}"
         )
         response = eodhd_get(http, url, CallType.INTRADAY)
         outcome = classify_outcome(response, chunk_start, chunk_end)

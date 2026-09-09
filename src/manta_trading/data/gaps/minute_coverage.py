@@ -23,6 +23,7 @@ from manta_trading.constants import (
 from manta_trading.data.gaps.compute_missing_ranges import (
     GapRange,
     clamp_to_lifecycle,
+    fetch_session_bounds,
     fetch_sessions,
     group_sessions_into_ranges,
 )
@@ -227,4 +228,48 @@ def compute_missing_minute_sessions(
     if not missing:
         return []
 
-    return group_sessions_into_ranges(symbol, "minute", missing, sessions)
+    ranges = group_sessions_into_ranges(symbol, "minute", missing, sessions)
+    session_closes = fetch_session_bounds(conn, symbol, clamped_from, clamped_to)
+    return _end_ranges_at_session_close(ranges, session_closes)
+
+
+def _end_ranges_at_session_close(
+    ranges: list[GapRange],
+    session_closes: dict[datetime, datetime],
+) -> list[GapRange]:
+    """Rewrite each range's end from the last missing session's open to its close.
+
+    Slice 921 / initiative 140 gap-function step 6: a minute range spans
+    ``[session_open_utc(first missing), session_close_utc(last missing)]``.
+    ``group_sessions_into_ranges`` (shared with the daily path, unchanged)
+    ends every range at the last missing session's OPEN, so the minute fetch
+    asked the provider for a one-minute window and stored one bar per session.
+
+    A session with no close in the mapping (a NULL ``session_close_utc``, or a
+    calendar row that disappeared between the two queries) drops its range and
+    logs at ERROR. Keeping the open as a fallback would silently reintroduce
+    the defect this exists to fix.
+    """
+    ended: list[GapRange] = []
+    for gap_range in ranges:
+        close = session_closes.get(gap_range.gap_end_utc)
+        if close is None:
+            _logger.error(
+                "compute_missing_minute_sessions: %s has no session_close_utc "
+                "for session %s — dropping range [%s, %s]; the range end must "
+                "be the session close (140 step 6), never the open",
+                gap_range.symbol,
+                gap_range.gap_end_utc,
+                gap_range.gap_start_utc,
+                gap_range.gap_end_utc,
+            )
+            continue
+        ended.append(
+            GapRange(
+                symbol=gap_range.symbol,
+                granularity=gap_range.granularity,
+                gap_start_utc=gap_range.gap_start_utc,
+                gap_end_utc=close,
+            )
+        )
+    return ended

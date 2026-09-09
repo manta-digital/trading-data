@@ -44,6 +44,7 @@ class TestCoalesceDataGaps:
         rows: list[dict],
         calendar_id: str = "US",
         next_session_map: dict | None = None,
+        granularity: str = "daily",
     ) -> tuple[int, list[dict]]:
         """Run coalesce and return (merge_count, resulting_rows).
 
@@ -52,12 +53,12 @@ class TestCoalesceDataGaps:
         conn = _make_conn()
         inserted: list[dict] = []
 
-        def _fake_next_session(
-            c: object, cal_id: str, after_date: date
-        ) -> date | None:
+        def _fake_next_session(c: object, cal_id: str, after_date: date) -> date | None:
             return (next_session_map or {}).get(after_date)
 
-        def _fake_insert(c: object, sym: str, gran: str, result_rows: list[dict]) -> None:
+        def _fake_insert(
+            c: object, sym: str, gran: str, result_rows: list[dict]
+        ) -> None:
             inserted.extend(result_rows)
 
         with (
@@ -81,8 +82,7 @@ class TestCoalesceDataGaps:
                 side_effect=_fake_insert,
             ),
         ):
-
-            count = coalesce_data_gaps(conn, "AAPL", "daily")
+            count = coalesce_data_gaps(conn, "AAPL", granularity)
 
         return count, inserted
 
@@ -176,3 +176,66 @@ class TestCoalesceDataGaps:
         )
         assert count == 1
         assert inserted[0]["attempt_count"] == 5
+
+
+class TestMinuteRowsEndingAtSessionClose:
+    """Slice 921 Task 1.6 — the moved minute ``gap_end`` must still coalesce.
+
+    ``_are_adjacent`` compares ``next_trading_session_after(prev.gap_end.date())``
+    with ``current.gap_start.date()`` — DATES only. Moving the minute range end
+    from the session open (13:30/14:30 UTC) to the session close (20:00/21:00
+    UTC) keeps it on the same calendar date, so adjacency is unaffected.
+
+    This is why Decision 1 makes the range end the session close and NOT the
+    next UTC midnight: a midnight end would push ``gap_end.date()`` onto the
+    following day, ``next_trading_session_after`` would return the session
+    after that, and consecutive rows would stop merging — this test fails if
+    the ends are moved to midnight.
+    """
+
+    def test_consecutive_minute_rows_ending_at_closes_still_coalesce(self) -> None:
+        # 2026-01-12 and 2026-01-13, winter regime: 14:30 open, 21:00 close.
+        r1 = _row(
+            datetime(2026, 1, 12, 14, 30, tzinfo=UTC),
+            datetime(2026, 1, 12, 21, 0, tzinfo=UTC),
+        )
+        r2 = _row(
+            datetime(2026, 1, 13, 14, 30, tzinfo=UTC),
+            datetime(2026, 1, 13, 21, 0, tzinfo=UTC),
+        )
+        count, inserted = TestCoalesceDataGaps()._run(
+            [r1, r2],
+            next_session_map={date(2026, 1, 12): date(2026, 1, 13)},
+            granularity="minute",
+        )
+        assert count == 1
+        assert len(inserted) == 1
+        assert inserted[0]["gap_start"] == datetime(2026, 1, 12, 14, 30, tzinfo=UTC)
+        assert inserted[0]["gap_end"] == datetime(2026, 1, 13, 21, 0, tzinfo=UTC)
+
+    def test_a_midnight_end_would_break_adjacency(self) -> None:
+        """Pins the counterfactual named in the class docstring.
+
+        Same two sessions, but with the first row ended at the next UTC
+        midnight instead of the close: ``gap_end.date()`` becomes 2026-01-13,
+        whose next session is 2026-01-14, which does not match the second
+        row's 2026-01-13 start — so the rows do NOT merge.
+        """
+        r1 = _row(
+            datetime(2026, 1, 12, 14, 30, tzinfo=UTC),
+            datetime(2026, 1, 13, 0, 0, tzinfo=UTC),
+        )
+        r2 = _row(
+            datetime(2026, 1, 13, 14, 30, tzinfo=UTC),
+            datetime(2026, 1, 13, 21, 0, tzinfo=UTC),
+        )
+        count, inserted = TestCoalesceDataGaps()._run(
+            [r1, r2],
+            next_session_map={
+                date(2026, 1, 12): date(2026, 1, 13),
+                date(2026, 1, 13): date(2026, 1, 14),
+            },
+            granularity="minute",
+        )
+        assert count == 0
+        assert inserted == []

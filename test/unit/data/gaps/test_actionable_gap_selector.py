@@ -50,7 +50,15 @@ class TestPickMostRecentActionableGap:
         assert result.gap_end == _dt(2024, 6, 30)
 
     def test_returns_gap_row_for_failed_retryable_status(self) -> None:
-        row = ("AAPL", "daily", _dt(2024, 3, 1), _dt(2024, 3, 31), "FAILED_RETRYABLE", _dt(2024, 4, 1), 2)
+        row = (
+            "AAPL",
+            "daily",
+            _dt(2024, 3, 1),
+            _dt(2024, 3, 31),
+            "FAILED_RETRYABLE",
+            _dt(2024, 4, 1),
+            2,
+        )
         conn = _make_conn(row)
         result = pick_most_recent_actionable_gap(
             conn, "AAPL", "daily", _dt(2024, 1, 1), _dt(2024, 12, 31)
@@ -91,3 +99,57 @@ class TestPickMostRecentActionableGap:
         assert "minute" in params
         assert from_ts in params
         assert to_ts in params
+
+
+class TestSessionCloseEndsAreStillSelected:
+    """Slice 921 Task 1.7 — the moved minute ``gap_end`` must still be picked.
+
+    The selector filters ``gap_end <= to_ts``, and the minute daemon passes
+    ``to_ts = now_midnight`` (today's UTC midnight). A minute row now ends at
+    its session close — 20:00 UTC in summer, 21:00 in winter — on a session
+    date strictly before today, so it remains at or below today's midnight and
+    is still returned. Only a row ending on today's own date past midnight
+    would be excluded, and the minute window never produces one because the
+    seed's ``target_end`` is that same midnight.
+    """
+
+    def _row(self, gap_end: datetime) -> tuple:
+        return (
+            "AAPL",
+            "minute",
+            datetime(gap_end.year, gap_end.month, gap_end.day, 13, 30, tzinfo=UTC),
+            gap_end,
+            str(FetchStatus.UNKNOWN),
+            None,
+            1,
+        )
+
+    @pytest.mark.parametrize(
+        ("label", "gap_end"),
+        [
+            ("summer close", datetime(2026, 7, 15, 20, 0, tzinfo=UTC)),
+            ("winter close", datetime(2026, 1, 15, 21, 0, tzinfo=UTC)),
+        ],
+    )
+    def test_session_close_end_is_returned(self, label: str, gap_end: datetime) -> None:
+        conn = _make_conn(self._row(gap_end))
+        now_midnight = datetime(2026, 9, 9, tzinfo=UTC)
+        result = pick_most_recent_actionable_gap(
+            conn, "AAPL", "minute", datetime(2004, 1, 1, tzinfo=UTC), now_midnight
+        )
+        assert result is not None, label
+        assert result.gap_end == gap_end
+
+    def test_window_upper_bound_is_still_now_midnight(self) -> None:
+        """The bound the SQL compares against is unchanged by slice 921."""
+        conn = _make_conn(None)
+        now_midnight = datetime(2026, 9, 9, tzinfo=UTC)
+        pick_most_recent_actionable_gap(
+            conn, "AAPL", "minute", datetime(2004, 1, 1, tzinfo=UTC), now_midnight
+        )
+        cur = conn.cursor.return_value.__enter__.return_value
+        sql, params = cur.execute.call_args[0]
+        assert "gap_end <= %s" in sql
+        assert params[-1] == now_midnight
+        # A 20:00 close on any date before today satisfies gap_end <= midnight.
+        assert datetime(2026, 9, 8, 20, 0, tzinfo=UTC) <= now_midnight

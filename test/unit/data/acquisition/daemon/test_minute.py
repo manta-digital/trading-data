@@ -198,9 +198,7 @@ class TestRunMinuteCycle:
                 ),
             )
 
-            report = run_minute_cycle(
-                symbols=symbols, should_continue=should_continue
-            )
+            report = run_minute_cycle(symbols=symbols, should_continue=should_continue)
 
         return report, pick_mock, update_mock, coalesce_mock, advance_mock
 
@@ -529,8 +527,7 @@ class TestDoMinuteSymbolExtensions:
         ) as mock_logger:
             self._run_do_minute()
         via_calls = [
-            call for call in mock_logger.info.call_args_list
-            if "cycle" in call.args
+            call for call in mock_logger.info.call_args_list if "cycle" in call.args
         ]
         assert via_calls, "no INFO line carried via='cycle' on the happy path"
 
@@ -543,9 +540,7 @@ class TestViaMarkerThreading:
             _process_minute_symbol,
         )
 
-        mock_do = MagicMock(
-            return_value=(LastAttemptOutcome.SUCCESS, None, None, 0, 0)
-        )
+        mock_do = MagicMock(return_value=(LastAttemptOutcome.SUCCESS, None, None, 0, 0))
         with patch(
             "manta_trading.data.acquisition.daemon.minute._do_minute_symbol",
             mock_do,
@@ -730,6 +725,11 @@ class TestHasAnyGapsRefireRegression:
         # _needs_seed fires purely on that trigger — coverage_index is what
         # must recreate only the real hole.
         sessions = [_dt(2024, 6, 10), _dt(2024, 6, 11), _dt(2024, 6, 12)]
+        # Slice 921: the range end is the session close, so the diff needs the
+        # open->close mapping as well (09:30-16:00 ET == 13:30-20:00 UTC EDT).
+        session_closes = {
+            session: session.replace(hour=20, minute=0) for session in sessions
+        }
         coverage_index = {"AAPL": {_dt(2024, 6, 10).date(), _dt(2024, 6, 12).date()}}
 
         mock_update_gaps = MagicMock(return_value=MagicMock(gaps_inserted=0))
@@ -780,8 +780,9 @@ class TestHasAnyGapsRefireRegression:
                 "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
                 side_effect=lambda *a, **kw: next(gap_iter, None),
             ),
-            # Real compute_missing_minute_sessions runs; only clamp_to_lifecycle
-            # and fetch_sessions (its DB I/O boundary) are patched.
+            # Real compute_missing_minute_sessions runs; only clamp_to_lifecycle,
+            # fetch_sessions and fetch_session_bounds (its DB I/O boundary) are
+            # patched.
             patch(
                 "manta_trading.data.gaps.minute_coverage.clamp_to_lifecycle",
                 return_value=(history_start, target_end),
@@ -789,6 +790,10 @@ class TestHasAnyGapsRefireRegression:
             patch(
                 "manta_trading.data.gaps.minute_coverage.fetch_sessions",
                 return_value=sessions,
+            ),
+            patch(
+                "manta_trading.data.gaps.minute_coverage.fetch_session_bounds",
+                return_value=session_closes,
             ),
         ):
             result = _do_minute_symbol(
@@ -806,8 +811,9 @@ class TestHasAnyGapsRefireRegression:
         seeded_ranges = first_call_kwargs["precomputed_ranges"]
         assert seeded_ranges is not None
         assert len(seeded_ranges) == 1
+        # The recreated hole spans the missing session open to its close (921).
         assert seeded_ranges[0].gap_start_utc == _dt(2024, 6, 11)
-        assert seeded_ranges[0].gap_end_utc == _dt(2024, 6, 11)
+        assert seeded_ranges[0].gap_end_utc == session_closes[_dt(2024, 6, 11)]
         # Never the legacy full-history span
         assert not any(
             r.gap_start_utc == history_start and r.gap_end_utc == target_end
@@ -932,6 +938,26 @@ class TestTrailingSeedAfterTerminalGaps:
         upd, _ = self._run_gate((False, False, False, None))
         assert upd.call_args.args[3] == self._HISTORY_START
 
+    # --- Slice 921 Task 1.7: the frontier gate against a session-close end ---
+
+    def test_session_close_frontier_still_triggers_the_trailing_seed(self) -> None:
+        """The gate is ``MAX(gap_end) < target_end`` with target_end = today's
+        UTC midnight. A minute row now ends at its session close, so the
+        frontier is 20:00 (summer) or 21:00 (winter) on a past session date —
+        still strictly below today's midnight, so the trailing seed fires
+        exactly as it did when the frontier sat at the session open."""
+        for label, frontier in (
+            ("summer close", datetime(2026, 7, 15, 20, 0, tzinfo=UTC)),
+            ("winter close", datetime(2026, 1, 15, 21, 0, tzinfo=UTC)),
+        ):
+            upd, comp = self._run_gate(
+                (True, False, True, frontier), coverage_index={"AAPL": set()}
+            )
+            assert upd.call_count == 1, label
+            assert upd.call_args.args[3] == frontier, label
+            comp.assert_called_once()
+            assert comp.call_args.args[3] == frontier, label
+
 
 class TestBarToRow:
     """Per-bar conversion guard: a malformed provider bar is skipped with a
@@ -1009,3 +1035,168 @@ class TestBarToRow:
         )
         _insert_minute_bars(conn, "CVR", [self.GOOD, {**self.GOOD, "open": None}])
         assert len(copy_rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 — the provider window reaches the end of the day (Task 1.5, SC1)
+# ---------------------------------------------------------------------------
+
+
+class TestProviderWindowReachesDayEnd:
+    """The EODHD request's ``to`` is the UTC midnight AFTER ``chunk_end``'s date.
+
+    EODHD honors ``to`` exactly, and 1-minute bars exist for extended hours
+    (AAPL traded 08:00-23:59 UTC on 2026-08-27). A request ending at the
+    20:00 session close would drop the pre- and post-market bars the
+    midnight-anchored legacy rows collected, so the fetch layer widens the
+    request while ``chunk_end`` and everything downstream of it stay put.
+    """
+
+    @staticmethod
+    def _capture(gap: GapRow) -> tuple[list[str], MagicMock]:
+        """Run one chunk of ``_do_minute_symbol``, returning (urls, classify_mock)."""
+        urls: list[str] = []
+        gap_iter = iter([gap, None])
+
+        conn = MagicMock()
+        txn = MagicMock()
+        txn.__enter__ = MagicMock(return_value=txn)
+        txn.__exit__ = MagicMock(return_value=False)
+        conn.transaction.return_value = txn
+        lock_cm = MagicMock()
+        lock_cm.__enter__ = MagicMock(return_value=None)
+        lock_cm.__exit__ = MagicMock(return_value=False)
+        pool = MagicMock()
+        pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+
+        response = MagicMock(status_code=200, json=MagicMock(return_value=[]))
+
+        def _fake_get(_http, url, _call_type):
+            urls.append(url)
+            return response
+
+        classify = MagicMock(return_value=LastAttemptOutcome.SUCCESS)
+        resolved_start = datetime(2004, 1, 1, tzinfo=UTC)
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.eodhd_get",
+                side_effect=_fake_get,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.classify_outcome",
+                classify,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.outcome_to_fetch_status",
+                return_value=None,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=resolved_start,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                return_value=0,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute._insert_minute_bars"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
+                side_effect=lambda *a, **kw: next(gap_iter, None),
+            ),
+        ):
+            _do_minute_symbol(
+                "AAPL",
+                pool=pool,
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                via=FetchEntryPoint.CYCLE,
+                window=None,
+                coverage_index=None,
+            )
+        return urls, classify
+
+    @staticmethod
+    def _epochs(url: str) -> tuple[int, int]:
+        from urllib.parse import parse_qs, urlparse
+
+        query = parse_qs(urlparse(url).query)
+        return int(query["from"][0]), int(query["to"][0])
+
+    def test_trailing_single_session_requests_through_the_day_end(self) -> None:
+        # One session, ending at its 20:00 UTC close (slice 921 range end).
+        chunk_start = datetime(2026, 9, 3, 13, 30, tzinfo=UTC)
+        chunk_end = datetime(2026, 9, 3, 20, 0, tzinfo=UTC)
+        urls, _ = self._capture(_gap(chunk_start, chunk_end))
+        assert len(urls) == 1
+        from_epoch, to_epoch = self._epochs(urls[0])
+        assert from_epoch == int(chunk_start.timestamp())
+        assert to_epoch == int(datetime(2026, 9, 4, tzinfo=UTC).timestamp())
+
+    def test_multi_day_chunk_requests_through_the_last_day_end(self) -> None:
+        chunk_start = datetime(2026, 9, 1, 13, 30, tzinfo=UTC)
+        chunk_end = datetime(2026, 9, 3, 20, 0, tzinfo=UTC)
+        urls, _ = self._capture(_gap(chunk_start, chunk_end))
+        from_epoch, to_epoch = self._epochs(urls[0])
+        assert from_epoch == int(chunk_start.timestamp())
+        assert to_epoch == int(datetime(2026, 9, 4, tzinfo=UTC).timestamp())
+
+    def test_chunk_end_already_at_midnight_does_not_add_a_second_day(self) -> None:
+        # Legacy midnight-anchored rows must not gain an extra calendar day.
+        chunk_start = datetime(2026, 9, 3, tzinfo=UTC)
+        chunk_end = datetime(2026, 9, 4, tzinfo=UTC)
+        urls, _ = self._capture(_gap(chunk_start, chunk_end))
+        _, to_epoch = self._epochs(urls[0])
+        assert to_epoch == int(chunk_end.timestamp())
+
+    def test_classify_outcome_receives_the_unextended_range(self) -> None:
+        """The widened request must not shift classification semantics."""
+        chunk_start = datetime(2026, 9, 3, 13, 30, tzinfo=UTC)
+        chunk_end = datetime(2026, 9, 3, 20, 0, tzinfo=UTC)
+        _, classify = self._capture(_gap(chunk_start, chunk_end))
+        classify.assert_called_once()
+        _response, classified_start, classified_end = classify.call_args.args
+        assert classified_start == chunk_start
+        assert classified_end == chunk_end
+
+
+class TestDayEndUtc:
+    """``day_end_utc`` in isolation — the named helper the URL uses."""
+
+    def test_intraday_moment_rolls_to_the_next_midnight(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import day_end_utc
+
+        assert day_end_utc(datetime(2026, 9, 3, 20, 0, tzinfo=UTC)) == datetime(
+            2026, 9, 4, tzinfo=UTC
+        )
+
+    def test_midnight_is_returned_unchanged(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import day_end_utc
+
+        midnight = datetime(2026, 9, 4, tzinfo=UTC)
+        assert day_end_utc(midnight) == midnight
+
+    def test_non_utc_input_is_normalised_before_the_day_boundary(self) -> None:
+        from datetime import timedelta as _timedelta
+
+        from manta_trading.data.acquisition.daemon.minute import day_end_utc
+
+        # 2026-09-03 21:00-04:00 == 2026-09-04 01:00 UTC, so the UTC day end
+        # is 2026-09-05, not 2026-09-04.
+        eastern = timezone(-_timedelta(hours=4))
+        moment = datetime(2026, 9, 3, 21, 0, tzinfo=eastern)
+        assert day_end_utc(moment) == datetime(2026, 9, 5, tzinfo=UTC)

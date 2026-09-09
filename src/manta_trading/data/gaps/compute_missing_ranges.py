@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import psycopg
@@ -86,7 +86,9 @@ def compute_missing_ranges(
         return []
 
     # Step 3 — stored bar timestamps
-    stored = _fetch_stored_timestamps(conn, symbol, granularity, clamped_from, clamped_to)
+    stored = _fetch_stored_timestamps(
+        conn, symbol, granularity, clamped_from, clamped_to
+    )
 
     # Step 4 — set difference
     missing = [s for s in sessions if s not in stored]
@@ -172,6 +174,50 @@ def fetch_sessions(
         return [row[0] for row in cur.fetchall()]
 
 
+def fetch_session_bounds(
+    conn: "psycopg.Connection[object]",
+    symbol: str,
+    from_ts: datetime,
+    to_ts: datetime,
+) -> dict[datetime, datetime]:
+    """Return {session_open_utc: session_close_utc} for sessions in the window.
+
+    Sibling of ``fetch_sessions`` for callers that need the session close as
+    well as the open.  Slice 921: a minute gap range must END at the last
+    missing session's ``session_close_utc`` (initiative 140 gap-function step
+    6) — ending it at the open makes the provider request a one-minute window.
+    ``fetch_sessions`` is left untouched so the daily path does not move; this
+    function lets the minute caller resolve every close from one query rather
+    than one query per range.
+
+    A session row whose ``session_close_utc`` is NULL is omitted from the
+    mapping — the caller must treat a missing key as an explicit failure and
+    must never fall back to the open.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ts.session_open_utc, ts.session_close_utc
+              FROM trading_sessions ts
+              JOIN instruments i
+                ON i.trading_calendar_id = ts.calendar_id
+             WHERE i.symbol = %s
+               AND ts.session_open_utc >= %s
+               AND ts.session_open_utc <= %s
+             ORDER BY ts.session_open_utc
+            """,
+            (symbol, from_ts, to_ts),
+        )
+        # fetchall() on a Connection[object] yields untyped rows; annotate so
+        # the null-close filter below is actually type-checked.
+        rows = cast("list[tuple[datetime, datetime | None]]", cur.fetchall())
+        return {
+            session_open: session_close
+            for session_open, session_close in rows
+            if session_close is not None
+        }
+
+
 def _fetch_stored_timestamps(
     conn: "psycopg.Connection[object]",
     symbol: str,
@@ -250,7 +296,11 @@ def _date_to_utc(d: object) -> datetime:
     from datetime import date
 
     if isinstance(d, datetime):
-        return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc)
+        return (
+            d.replace(tzinfo=timezone.utc)
+            if d.tzinfo is None
+            else d.astimezone(timezone.utc)
+        )
     if isinstance(d, date):
         return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
     raise TypeError(f"Expected date or datetime, got {type(d)!r}")
