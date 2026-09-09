@@ -23,8 +23,10 @@ from typing import TYPE_CHECKING, cast
 from manta_trading.constants import REPAIR_921_WINDOW_START
 from manta_trading.logging import get_logger
 
+import psycopg
+
 if TYPE_CHECKING:
-    import psycopg
+    pass
 
 _logger = get_logger(__name__)
 
@@ -34,6 +36,27 @@ _UTC = timezone.utc
 #: inside the window are terminal verdicts reached from truncated fetches, so
 #: they are as wrong as the UNKNOWN ones and must not stay terminal.
 TERMINAL_STATUSES = ("PROVIDER_HOLE", "RETRY_EXHAUSTED")
+
+#: Budget for the universe-wide truncation scan.
+#:
+#: Measured at 7.9 s against production on 2026-09-09 (13,083 symbols, six
+#: weeks of sessions, 52,649 truncated symbol-days found). The budget is two
+#: orders of magnitude above that on purpose: the cost is dominated by how
+#: many minute_ohlcv chunks the plan touches, and the failure mode this guards
+#: is a plan that stops excluding chunks and reverts to scanning 22 years of
+#: history — which is what happened before the direct `m.time` bound below
+#: (a single-symbol scan hit the session timeout). An analytical scan run by
+#: an operator needs its own budget rather than the serving session default.
+TRUNCATION_SCAN_TIMEOUT = "600s"
+
+
+class RepairScanTimeout(RuntimeError):
+    """The truncation scan exceeded its budget.
+
+    Raised rather than returning an empty index: an unmeasured universe must
+    never be reported as a clean one, which is the silent-pass failure this
+    slice exists to remove.
+    """
 
 
 @dataclass(frozen=True)
@@ -143,6 +166,7 @@ def build_truncated_day_index(
     conn: "psycopg.Connection[object]",
     *,
     since: datetime | None = None,
+    symbols: list[str] | None = None,
 ) -> dict[str, frozenset[date]]:
     """Return {symbol: truncated session dates} for the WHOLE universe.
 
@@ -156,11 +180,32 @@ def build_truncated_day_index(
     when the newest bar stored for that session is at or before the session's
     open. The predicate lives in one place — this function and its per-symbol
     sibling both spell it, and ``test_repair_921.py`` asserts they agree.
+
+    ``symbols`` narrows the scan. Without it the query spans the whole
+    universe, which is what ``--check`` wants; a ``--symbol``-limited run must
+    pass its list, or it pays a universe-wide scan to answer a one-symbol
+    question (and hits the session's statement timeout doing it).
+
+    Raises:
+        RepairScanTimeout: the scan exceeded ``TRUNCATION_SCAN_TIMEOUT``. The
+            caller must report it rather than treating an unmeasured universe
+            as a clean one.
     """
     start = since or window_start_utc()
+    predicate = ""
+    params: list[object] = [start, start]
+    if symbols is not None:
+        predicate = "               AND m.symbol = ANY(%s)\n"
+        params.append(list(symbols))
+
     with conn.cursor() as cur:
-        cur.execute(
-            """
+        # This is a deliberate analytical scan over six weeks of minute bars,
+        # not a serving query: it needs its own budget rather than the
+        # session default, which cancelled it in testing.
+        cur.execute(f"SET LOCAL statement_timeout = '{TRUNCATION_SCAN_TIMEOUT}'")
+        try:
+            cur.execute(
+                """
             SELECT m.symbol, ts.session_date
               FROM trading_sessions ts
               JOIN instruments i
@@ -171,11 +216,26 @@ def build_truncated_day_index(
                AND m.time  <  ts.session_close_utc
              WHERE ts.session_open_utc >= %s
                AND ts.session_close_utc <= now()
-             GROUP BY m.symbol, ts.session_date, ts.session_open_utc
+               -- Bound m.time DIRECTLY as well as through the session join.
+               -- The join predicate alone reaches minute_ohlcv only through
+               -- trading_sessions, so TimescaleDB cannot exclude chunks and
+               -- the plan scans EVERY chunk of 22 years of history (measured
+               -- 2026-09-09: even a single-symbol scan did this). This
+               -- redundant-looking bound is what makes chunk exclusion apply.
+               AND m.time  >= %s
+"""
+                + predicate
+                + """             GROUP BY m.symbol, ts.session_date, ts.session_open_utc
             HAVING max(m.time) <= ts.session_open_utc
             """,
-            (start,),
-        )
+                tuple(params),
+            )
+        except psycopg.errors.QueryCanceled as exc:
+            raise RepairScanTimeout(
+                "the truncation scan exceeded "
+                f"{TRUNCATION_SCAN_TIMEOUT}. Narrow it with --symbol, or raise "
+                "TRUNCATION_SCAN_TIMEOUT if the universe has grown."
+            ) from exc
         index: dict[str, set[date]] = {}
         rows = cast("list[tuple[str, date]]", cur.fetchall())
         for symbol, session_date in rows:

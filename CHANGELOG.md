@@ -16,7 +16,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(nothing yet)
+### Fixed
+
+- **Minute bars were being collected one per session instead of a full day.**
+  Since 2026-07-16 every minute gap range ended at the trading session's
+  *open* rather than its close, and EODHD honors that bound exactly — so each
+  nightly session was requested as a one-minute window and stored a single
+  bar. The universe was collecting ~45,000 bars a day against ~2,000,000
+  before the defect. Ranges now end at the session close, and the provider
+  request reaches the end of the day so extended-hours bars keep landing.
+  A repair script re-seeds the six weeks of truncated sessions
+  (52,700 symbol-days across 10,119 symbols, measured 2026-09-09).
+
+- **Retries were consumed without the provider ever being asked.** Re-seeding
+  a symbol incremented its `attempt_count` and could promote a live gap to
+  `RETRY_EXHAUSTED` with no provider call in the transaction — 7,755 rows were
+  retired this way on 2026-09-07. Separately, an HTTP 429, a 5xx, an
+  unreadable body, or EODHD's 200-with-`{"error": …}` quirk also moved the
+  accounting. Gap accounting now moves only on a real provider answer.
+
+- **A nightly pass could spend its whole run on backfill and never collect the
+  current session.** The minute pass now walks the universe in two phases:
+  every symbol's current session first (one chunk each), then deep history.
+  A pass that runs out of quota or wall clock has already collected the day
+  that matters.
+
+- **A spent EODHD allowance no longer costs a full run of wasted requests.**
+  The pass stops on HTTP 402, and on five consecutive provider failures,
+  instead of walking the remaining ~13,000 symbols one failure at a time. The
+  process exit code distinguishes "ran out of allowance after collecting the
+  session" (success) from "never collected the session" (failure), so the
+  systemd unit fails only when something actually needs a human.
+
+### Added
+
+- **`mt data health` now judges how much data the last completed trading
+  session holds**, not just how old the newest bar is. The 2026-09-07 collapse
+  was invisible to an age-based check: every session still had bars, one per
+  symbol. The new `minute session mass` line reports bars per session-minute
+  and how many symbols reached a usable bar count, against floors derived from
+  a measured healthy session.
+
+- **`scripts/repair_921_minute_sessions.py`** — `--check` (read-only),
+  `--apply`, and `--verify`. Standing diagnostics for this failure class; see
+  runbook 100.
+
+### Removed
+
+- **The `eodhd quota` health check.** Normal operation is designed to consume
+  the whole daily allowance on backfill, so no headroom floor was right — it
+  reported FAIL in 65 of 71 runs over three days while nothing was wrong. What
+  mattered about a starved night was its consequence, which the new session
+  mass check measures directly. `mt data health` no longer requires an EODHD
+  API key.
 
 ## [0.13.0] — 2026-09-07
 

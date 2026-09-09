@@ -30,15 +30,23 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import psycopg
 
+from manta_trading.cli.commands.minute_session_mass import (
+    check_minute_session_mass,
+    fetch_candidate_sessions,
+    fetch_session_mass,
+    select_judged_session,
+)
 from manta_trading.config import Settings
 from manta_trading.constants import (
     DAEMON_LOCK_TIMEOUT,
-    FetchEntryPoint,
+    HEALTH_MINUTE_SESSION_MIN_SYMBOLS,
+    HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS,
     REPAIR_921_WINDOW_START,
+    FetchEntryPoint,
 )
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.acquisition.symbols import iter_active_instruments
@@ -48,6 +56,7 @@ from manta_trading.data.gaps.minute_coverage import (
 )
 from manta_trading.data.gaps.repair_921 import (
     CheckReport,
+    RepairScanTimeout,
     build_truncated_day_index,
     inspect_symbol,
     repair_window_for,
@@ -66,6 +75,18 @@ EXIT_REFUSED = 2
 
 #: Progress cadence for the universe walk.
 PROGRESS_EVERY = 250
+
+#: SC3's acceptance bar for the judged session's bar count.
+#:
+#: Deliberately STRICTER than the health check's computed floor
+#: (HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE x session minutes = 975,000 for a
+#: regular session). The health floor is the loosest value that still catches a
+#: collapse on any ordinary day; this is a one-time cutover bar, and a cutover
+#: that only just clears the alarm threshold has not demonstrated the fix.
+VERIFY_MIN_SESSION_BARS = 1_000_000
+
+#: Sessions --verify checks for residual truncation (SC3, expected 0).
+VERIFY_TRAILING_SESSIONS = 5
 
 
 def _unit_active(unit: str) -> bool:
@@ -117,8 +138,11 @@ def run_check(conn: psycopg.Connection, symbols: list[str]) -> CheckReport:
     report = CheckReport()
     # One grouped query for the whole universe: the per-symbol probe measured
     # 0.5-0.9 s each against production, which is ~2.5 h over 13k symbols.
-    print("  measuring truncated days across the universe ...", file=sys.stderr)
-    truncated_index = build_truncated_day_index(conn)
+    print(
+        f"  measuring truncated days across {len(symbols):,} symbols ...",
+        file=sys.stderr,
+    )
+    truncated_index = build_truncated_day_index(conn, symbols=symbols)
     for index, symbol in enumerate(symbols, start=1):
         findings = inspect_symbol(conn, symbol, truncated_index=truncated_index)
         report.symbols_scanned += 1
@@ -193,7 +217,7 @@ def run_apply(conn: psycopg.Connection, symbols: list[str]) -> tuple[int, int]:
     now_midnight = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     repaired = 0
     seeded = 0
-    truncated_index = build_truncated_day_index(conn)
+    truncated_index = build_truncated_day_index(conn, symbols=symbols)
     for index, symbol in enumerate(symbols, start=1):
         try:
             inserted = repair_symbol(
@@ -215,6 +239,67 @@ def run_apply(conn: psycopg.Connection, symbols: list[str]) -> tuple[int, int]:
     return repaired, seeded
 
 
+def run_verify(conn: psycopg.Connection, symbols: list[str]) -> bool:
+    """Print every SC3/SC7 acceptance number. Returns True when all pass.
+
+    **Reuses the health check's own code path.** The judged-session selector,
+    the mass query and the rule function are imported and called, never
+    re-implemented: two implementations of one measurement drift — an
+    inclusive vs. exclusive close, a stale calendar literal — and the cutover
+    would then certify a number ``mt data health`` does not reproduce.
+    """
+    now = datetime.now(UTC)
+    passed = True
+
+    # --- SC3: no truncated symbol-days remain in recent sessions -----------
+    recent_start = now - timedelta(days=VERIFY_TRAILING_SESSIONS * 2)
+    truncated_index = build_truncated_day_index(
+        conn, since=recent_start, symbols=symbols
+    )
+    active = set(symbols)
+    residual = sum(len(days) for sym, days in truncated_index.items() if sym in active)
+    ok = residual == 0
+    passed = passed and ok
+    print(
+        f"[{'PASS' if ok else 'FAIL'}] truncated symbol-days in the last "
+        f"{VERIFY_TRAILING_SESSIONS} sessions: {residual:,} (bar: 0)"
+    )
+
+    # --- SC3/SC7: the judged session's mass, via the health check's code ---
+    judged = select_judged_session(fetch_candidate_sessions(conn, now=now), now=now)
+    if judged is None:
+        print("[FAIL] no completed session to judge")
+        return False
+
+    mass = fetch_session_mass(conn, judged)
+    ok = mass.total_bars >= VERIFY_MIN_SESSION_BARS
+    passed = passed and ok
+    print(
+        f"[{'PASS' if ok else 'FAIL'}] judged session "
+        f"{judged.session_open_utc:%Y-%m-%d} bars: {mass.total_bars:,} "
+        f"(bar: {VERIFY_MIN_SESSION_BARS:,})"
+    )
+
+    ok = mass.symbols_meeting_min_bars >= HEALTH_MINUTE_SESSION_MIN_SYMBOLS
+    passed = passed and ok
+    print(
+        f"[{'PASS' if ok else 'FAIL'}] symbols with "
+        f"\u2265{HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS} bars: "
+        f"{mass.symbols_meeting_min_bars:,} "
+        f"(bar: {HEALTH_MINUTE_SESSION_MIN_SYMBOLS:,})"
+    )
+
+    # --- SC7: the health line itself, verbatim from the health check -------
+    health_ok, health_detail = check_minute_session_mass(judged, mass)
+    passed = passed and health_ok
+    print(f"[{'PASS' if health_ok else 'FAIL'}] minute session mass: {health_detail}")
+
+    # --- The pending counts --check reports --------------------------------
+    report = run_check(conn, symbols)
+    print(report.render())
+    return passed
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -229,12 +314,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     url = _database_url()
+    try:
+        return _run(args, url)
+    except RepairScanTimeout as exc:
+        # An unmeasured universe must never be reported as a clean one.
+        print(f"scan refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+
+def _run(args: argparse.Namespace, url: str) -> int:
     with psycopg.connect(url) as conn:
         symbols = args.symbol or _active_symbols(conn)
         print(f"slice 921 minute-session repair — {len(symbols):,} symbols")
         print(f"window starts {REPAIR_921_WINDOW_START} (rows before it are untouched)")
 
-        if args.check or args.verify:
+        if args.verify:
+            return EXIT_OK if run_verify(conn, symbols) else EXIT_REFUSED
+
+        if args.check:
             report = run_check(conn, symbols)
             print(report.render())
             return EXIT_OK

@@ -303,6 +303,51 @@ export MT_TIMESCALE_TEST_URL=...   # the dedicated test cluster, never productio
 MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_921_minute_session_mass_nfr.py
 ```
 
+### Minute sessions collected but truncated (slice 921)
+
+The failure class: a session is *present* but holds a single bar, at the
+session open. Age-based checks pass, `data status` looks normal, and the only
+symptom is that the day is nearly empty.
+
+**Is it happening?** One query — the truncation signature is `max(time)` for a
+session at or before that session's open:
+
+```sql
+SELECT ts.session_date, max(m.time) AS newest, ts.session_open_utc
+  FROM trading_sessions ts
+  JOIN instruments i ON i.trading_calendar_id = ts.calendar_id
+  JOIN minute_ohlcv m ON m.symbol = i.symbol
+   AND m.time >= ts.session_open_utc AND m.time < ts.session_close_utc
+ WHERE i.symbol = 'AAPL'
+   AND ts.session_close_utc <= now()
+ GROUP BY ts.session_date, ts.session_open_utc
+HAVING max(m.time) <= ts.session_open_utc
+ ORDER BY ts.session_date DESC LIMIT 10;
+```
+
+**The standing diagnostics.** Both are read-only and safe against production
+from any host that has the URL:
+
+```bash
+# Counts across the active universe: truncated symbol-days, zero-width rows,
+# session-open-ended terminal rows, rows straddling the repair window start.
+uv run python scripts/repair_921_minute_sessions.py --check
+
+# Every acceptance measurement with its pass/fail bar, including the same
+# `minute session mass` verdict `mt data health` reports.
+uv run python scripts/repair_921_minute_sessions.py --verify
+```
+
+`--check` walks ~13k symbols in about five minutes; the truncation measurement
+itself is one grouped query (~260 s).
+
+**Repairing.** `--apply` re-seeds the affected sessions through
+`update_data_gaps` under the daemon's advisory lock — it writes no `data_gaps`
+SQL of its own and never calls the provider; the next pass does the fetching.
+It refuses to run while `mt-minute-pass.service` or `mt-daily-pass.service` is
+active, and commits per symbol, so a run that dies is resumed by rerunning.
+Rows before 2026-07-16 are never touched.
+
 ## Running the acquisition passes
 
 Normally, nobody runs them — the timers do. To run one out of schedule

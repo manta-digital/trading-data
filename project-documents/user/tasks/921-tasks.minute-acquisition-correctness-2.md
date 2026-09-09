@@ -238,26 +238,26 @@ Design *Scope 2*, *Decision 3*, *Decision 7*, *SC2*. Six weeks of truncated
 days must be re-seeded. The repair writes **no SQL of its own** against
 `data_gaps` — it calls `update_data_gaps` under the daemon's advisory lock.
 
-- [ ] **Task 6.1: Repair window constant and truncation signature** (effort: 1)
-  - [ ] Add `REPAIR_921_WINDOW_START` (2026-07-16, the day the coverage seeder
+- [x] **Task 6.1: Repair window constant and truncation signature** (effort: 1)
+  - [x] Add `REPAIR_921_WINDOW_START` (2026-07-16, the day the coverage seeder
         shipped) to `constants.py` with a docstring saying why that date and
         that rows before it are never touched.
-  - [ ] Define the truncation signature in one place: a symbol-day is
+  - [x] Define the truncation signature in one place: a symbol-day is
         truncated when `max(time)` for that session date is
         `≤ session_open_utc`. Both the `--check` report and the coverage
         adjustment must use that one definition.
-  - [ ] Success: the predicate exists once and is referenced, not restated.
-- [ ] **Task 6.2: `compute_missing_minute_sessions` accepts uncovered days**
+  - [x] Success: the predicate exists once and is referenced, not restated.
+- [x] **Task 6.2: `compute_missing_minute_sessions` accepts uncovered days**
       (effort: 2)
-  - [ ] Add an optional parameter taking a per-symbol set of days to treat as
+  - [x] Add an optional parameter taking a per-symbol set of days to treat as
         uncovered, subtracted from the coverage set before the diff. Existing
         callers pass nothing and are unaffected (additive and
         backward-compatible, per the design's Interfaces Required).
-  - [ ] Success: with a day passed as uncovered, that session appears in the
+  - [x] Success: with a day passed as uncovered, that session appears in the
         returned ranges even though the coverage index contains it; tests
         added to `test/unit/data/gaps/test_minute_coverage.py`.
-- [ ] **Task 6.3: Decide what happens to window-straddling rows** (effort: 2)
-  - [ ] **The problem, measured from the code.** `_delete_intersecting`
+- [x] **Task 6.3: Decide what happens to window-straddling rows** (effort: 2)
+  - [x] **The problem, measured from the code.** `_delete_intersecting`
         (`update_data_gaps.py:295`) is *named and documented* as an
         intersection but its SQL is containment:
         `gap_start >= %s AND gap_end <= %s`. A coalesced UNKNOWN row that
@@ -267,15 +267,15 @@ days must be re-seeded. The repair writes **no SQL of its own** against
         row, inserts fresh UNKNOWN rows for the in-window sessions the
         surviving row already covers. The symbol ends with overlapping gap
         rows and those sessions are fetched twice against the rationed quota.
-  - [ ] This is plausible in production: the coalescer merges consecutive
+  - [x] This is plausible in production: the coalescer merges consecutive
         sessions, and the design records 57,663 UNKNOWN backfill rows spanning
         2022–2025 plus 1,321 legacy rows.
-  - [ ] Decide and record: skip the symbol and report it, or widen that
+  - [x] Decide and record: skip the symbol and report it, or widen that
         symbol's window to the straddling row's `gap_start`. Do **not** change
         `_delete_intersecting`'s semantics as part of this slice — it is
         shared with the daily path; if its docstring is simply wrong, fix the
         docstring and say so.
-  - [ ] Success: the decision and its reasoning are written down before
+  - [x] Success: the decision and its reasoning are written down before
         Task 6.5 implements it.
 
   **Decision (recorded 20260909): widen that symbol's window back to the
@@ -307,57 +307,57 @@ days must be re-seeded. The repair writes **no SQL of its own** against
   the semantics is out of scope for this slice; the docstring is corrected to
   describe what the SQL actually does, and the repair works within that
   behavior rather than around it.
-- [ ] **Task 6.4: `scripts/repair_921_minute_sessions.py --check`** (effort: 3)
-  - [ ] Follow the `cutover_common` script pattern: explicit arguments, named
+- [x] **Task 6.4: `scripts/repair_921_minute_sessions.py --check`** (effort: 3)
+  - [x] Follow the `cutover_common` script pattern: explicit arguments, named
         constants at the top, database URL taken from the configured setting
         and never from ambient environment.
-  - [ ] `--check` is read-only and reports, over the active universe since
+  - [x] `--check` is read-only and reports, over the active universe since
         `REPAIR_921_WINDOW_START`: truncated symbol-days, zero-width minute
         gap rows, session-open-ended terminal rows (`PROVIDER_HOLE` and
         `RETRY_EXHAUSTED`), midnight-ended legacy rows inside the window,
         **rows straddling the window start** (Task 6.3), and whether either
         pass unit is active.
-  - [ ] `--check` must be safe to run against production from any host with
+  - [x] `--check` must be safe to run against production from any host with
         the URL (Verification Walkthrough).
-  - [ ] Success: running `--check` prints the counts and exits 0 without
+  - [x] Success: running `--check` prints the counts and exits 0 without
         writing anything.
-- [ ] **Task 6.5: `--apply` through `update_data_gaps`** (effort: 3)
-  - [ ] Per symbol, one transaction, under
+- [x] **Task 6.5: `--apply` through `update_data_gaps`** (effort: 3)
+  - [x] Per symbol, one transaction, under
         `advisory_lock(conn, symbol, "minute", timeout=DAEMON_LOCK_TIMEOUT)` —
         the daemon's own helper, so an overlapping pass blocks and then the
         symbol is skipped and reported, never written concurrently.
-  - [ ] Call `update_data_gaps(conn, symbol, "minute", REPAIR_921_WINDOW_START,
+  - [x] Call `update_data_gaps(conn, symbol, "minute", REPAIR_921_WINDOW_START,
         now_midnight, fetch_status_for_unfilled=UNKNOWN, outcome=PARTIAL,
         force_reset_terminal=True, precomputed_ranges=…)` where the ranges
         come from `compute_missing_minute_sessions` with the symbol's
         truncated days passed as uncovered (Task 6.2).
-  - [ ] Apply the Task 6.3 decision for straddling rows.
-  - [ ] Commit per symbol so a run that dies partway is resumed by rerunning.
-  - [ ] Refuse to start while `mt-minute-pass.service` or
+  - [x] Apply the Task 6.3 decision for straddling rows.
+  - [x] Commit per symbol so a run that dies partway is resumed by rerunning.
+  - [x] Refuse to start while `mt-minute-pass.service` or
         `mt-daily-pass.service` is active.
-  - [ ] The script never calls the provider.
-  - [ ] Success: a second `--apply` reports zero net change; rows before the
+  - [x] The script never calls the provider.
+  - [x] Success: a second `--apply` reports zero net change; rows before the
         window are untouched (SC2).
-- [ ] **Task 6.6: Unit tests for the repair script** (effort: 3)
-  - [ ] Unit tests in `test/unit/test_repair_921.py`, following
+- [x] **Task 6.6: Unit tests for the repair script** (effort: 3)
+  - [x] Unit tests in `test/unit/test_repair_921.py`, following
         `test_cutover_267.py`'s style (fake writer; no live database).
-  - [ ] A test with a fake `update_data_gaps` asserts it is called with
+  - [x] A test with a fake `update_data_gaps` asserts it is called with
         `force_reset_terminal=True` and inside the advisory lock, and that the
         script issues no other write against `data_gaps` (SC2).
-  - [ ] A test asserts the script exits non-zero and writes nothing when a
+  - [x] A test asserts the script exits non-zero and writes nothing when a
         pass unit reports active.
-  - [ ] A test asserts the truncated-day predicate matches the signature from
+  - [x] A test asserts the truncated-day predicate matches the signature from
         Task 6.1 against fixture rows on both sides of the boundary.
-  - [ ] Success: `uv run pytest test/unit/test_repair_921.py -q` passes.
-- [ ] **Task 6.7: Integration test for the repair's database behavior**
+  - [x] Success: `uv run pytest test/unit/test_repair_921.py -q` passes.
+- [x] **Task 6.7: Integration test for the repair's database behavior**
       (effort: 3)
-  - [ ] **A fake writer cannot reach what SC2 actually claims.** Every SC2
+  - [x] **A fake writer cannot reach what SC2 actually claims.** Every SC2
         property is a property of `update_data_gaps` itself: that
         `force_reset_terminal=True` over the window resets the terminal rows
         and only those; that carry-forward (`_best_prior_count`, keyed on
         `gap_start`) preserves `attempt_count` so a second `--apply` is
         genuinely zero net change; that pre-window rows survive.
-  - [ ] Add `test/integration/test_repair_921_live.py`, using
+  - [x] Add `test/integration/test_repair_921_live.py`, using
         `test/integration/conftest.py`'s `migrated_db` fixture (its
         `ephemeral_db` sibling and `test_gaps_window_sql.py` are the
         `data_gaps` precedents) under `MT_TIMESCALE_TEST_URL`: seed a
@@ -366,18 +366,18 @@ days must be re-seeded. The repair writes **no SQL of its own** against
         rows, a straddling row, truncated symbol-days), run `--apply` twice,
         and assert row-level equality between the two runs and that pre-window
         rows are byte-identical to their seeded values.
-  - [ ] Failure this catches: carry-forward keys on a `gap_start` the
+  - [x] Failure this catches: carry-forward keys on a `gap_start` the
         recomputed range no longer matches, so every repaired row restarts at
         `attempt_count = 0` or re-increments toward `RETRY_EXHAUSTED` — and
         the fake-writer suite stays green throughout.
-  - [ ] Success: the integration test passes; running it twice in a row is
+  - [x] Success: the integration test passes; running it twice in a row is
         idempotent.
-- [ ] **Task 6.8: Run `--check` against production and record the baseline**
+- [x] **Task 6.8: Run `--check` against production and record the baseline**
       (effort: 1)
-  - [ ] Run `uv run python scripts/repair_921_minute_sessions.py --check`
+  - [x] Run `uv run python scripts/repair_921_minute_sessions.py --check`
         read-only against production and record the output in the slice's
         notes. This is the before-image for SC3 and the issue closeout.
-  - [ ] Success: counts recorded; nothing written.
+  - [x] Success: counts recorded; nothing written.
 
   **Baseline recorded 20260909 (read-only against production, exit 0):**
 
@@ -406,17 +406,52 @@ days must be re-seeded. The repair writes **no SQL of its own** against
      reset them nor can be judged on having done so. The design's wording is
      corrected accordingly.
 
-  3. **`--check` was too slow to finish before this task measured it.** The
+  3. **Live state at baseline time (20260909 ~12:00 MDT).** Minute
+     acquisition has been collecting nothing since 2026-09-04: the raw
+     `minute_ohlcv` edge is 2026-09-04 18:00 and the 4-hour cagg edge
+     2026-09-04 06:00, while the 07:05 MDT firing that morning ran 1 h 57 m
+     and consumed 6.1 GB. `mt data health` on the branch build reports
+     `UNHEALTHY: 2 of 15` — the pre-existing `minute data` age check plus the
+     new `minute session mass` line:
+
+     ```
+     FAIL minute data          newest bar 2026-09-05 00:00 UTC (4.7 d ago)
+     FAIL minute session mass  session 2026-09-08: 0 bars, 0/min (floor 2,500);
+                               0 symbols with >=30 bars (floor 5,000)
+     ```
+
+     This is the slice's premise confirmed on live data: the mass line names
+     *what* is wrong where the age check only says the data is old. It is
+     also why the cutover's acceptance numbers must come from a post-firing
+     measurement — the current session genuinely holds nothing, so `--verify`
+     correctly FAILs every bar until the repair and the passes have run.
+
+     **The journal shows Section 4's premise happening verbatim.** The
+     currently-deployed (pre-slice) daemon logged
+     `ProviderResponseError ... quota exhausted (HTTP 402) ... via=cycle`
+     **22,270 times** in the last day's passes, walking the universe
+     alphabetically to ZYME one 402 at a time and running 1 h 57 m to collect
+     nothing. Under this slice the first 402 ends the pass with
+     `QUOTA_EXHAUSTED`, and — because the trailing phase runs first — it ends
+     it *after* the current session has been attempted rather than before.
+     This is the single best piece of evidence that Sections 3 and 4 are
+     aimed at the right failure.
+
+  4. **`--check` was too slow to finish before this task measured it.** The
      first production run timed out at ~5,750 of 13,083 symbols: the
      per-symbol truncation probe costs 0.5-0.9 s each (a lateral join into
      `minute_ohlcv`), ~2.5 h over the universe. Replaced with
      `build_truncated_day_index`, one grouped query over the whole universe —
-     the same shape `build_minute_coverage_index` uses for the same reason —
-     measured at 258 s. A `--check` that takes hours is one nobody runs
-     before a cutover.
-- [ ] **Task 6.9: Section 6 checkpoint** (effort: 1)
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `feat: add the 921 minute-session repair script (921)`.
+     the same shape `build_minute_coverage_index` uses for the same reason.
+     That first measured 258 s; a later `EXPLAIN` showed the plan was scanning
+     **every** `minute_ohlcv` chunk across 22 years, because the time bound
+     reached the table only through the `trading_sessions` join. Bounding
+     `m.time` directly as well restores chunk exclusion: **7.9 s** for the
+     same 9,603 symbols and 52,649 truncated days. A `--check` that takes
+     hours is one nobody runs before a cutover.
+- [x] **Task 6.9: Section 6 checkpoint** (effort: 1)
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `feat: add the 921 minute-session repair script (921)`.
 
 ## Section 7: Cutover, release, and closeout
 

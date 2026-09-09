@@ -461,3 +461,287 @@ class TestTruncationPredicateHasOneDefinition:
 
         findings = repair_921.inspect_symbol(conn, "NOSUCH", truncated_index={})
         assert findings.truncated_days == frozenset()
+
+
+class TestVerifyMode:
+    """``--verify`` turns acceptance from a wait into an action.
+
+    Its whole value is that the numbers it certifies are the numbers
+    ``mt data health`` reports. Two implementations of one measurement drift —
+    an inclusive vs. exclusive close, a stale calendar literal — and the
+    cutover would sign off on a figure the health check does not reproduce.
+    """
+
+    @staticmethod
+    def _run_verify(repair: Any, **overrides: Any) -> tuple[bool, Any]:
+        """Run --verify with the health-check seams patched; return (result, mocks)."""
+        from manta_trading.cli.commands.minute_session_mass import (
+            SessionMass,
+            TradingSessionBounds,
+        )
+
+        session = TradingSessionBounds(
+            session_open_utc=datetime(2026, 9, 8, 13, 30, tzinfo=UTC),
+            session_close_utc=datetime(2026, 9, 8, 20, 0, tzinfo=UTC),
+        )
+        mass = overrides.get(
+            "mass", SessionMass(total_bars=1_989_000, symbols_meeting_min_bars=7_259)
+        )
+        mocks = {
+            "select": MagicMock(return_value=overrides.get("session", session)),
+            "fetch_candidates": MagicMock(return_value=[session]),
+            "fetch_mass": MagicMock(return_value=mass),
+            "rule": MagicMock(
+                return_value=(overrides.get("health_ok", True), "detail")
+            ),
+            "truncated": MagicMock(return_value=overrides.get("truncated", {})),
+        }
+        conn = MagicMock()
+
+        with (
+            patch.object(repair, "select_judged_session", mocks["select"]),
+            patch.object(repair, "fetch_candidate_sessions", mocks["fetch_candidates"]),
+            patch.object(repair, "fetch_session_mass", mocks["fetch_mass"]),
+            patch.object(repair, "check_minute_session_mass", mocks["rule"]),
+            patch.object(repair, "build_truncated_day_index", mocks["truncated"]),
+            patch.object(repair, "run_check", return_value=repair.CheckReport()),
+        ):
+            result = repair.run_verify(conn, ["AAPL"])
+        return result, mocks
+
+    def test_it_uses_the_health_checks_judged_session_selector(
+        self, repair: Any
+    ) -> None:
+        _, mocks = self._run_verify(repair)
+        mocks["select"].assert_called_once()
+
+    def test_it_uses_the_health_checks_mass_query(self, repair: Any) -> None:
+        _, mocks = self._run_verify(repair)
+        mocks["fetch_mass"].assert_called_once()
+
+    def test_it_uses_the_health_checks_rule_function(self, repair: Any) -> None:
+        """The `minute session mass` line must be the health check's own
+        verdict, not a restatement of it."""
+        _, mocks = self._run_verify(repair)
+        mocks["rule"].assert_called_once()
+
+    def test_it_writes_nothing(self, repair: Any) -> None:
+        conn = MagicMock()
+        from manta_trading.cli.commands.minute_session_mass import (
+            SessionMass,
+            TradingSessionBounds,
+        )
+
+        session = TradingSessionBounds(
+            session_open_utc=datetime(2026, 9, 8, 13, 30, tzinfo=UTC),
+            session_close_utc=datetime(2026, 9, 8, 20, 0, tzinfo=UTC),
+        )
+        with (
+            patch.object(repair, "select_judged_session", return_value=session),
+            patch.object(repair, "fetch_candidate_sessions", return_value=[session]),
+            patch.object(
+                repair,
+                "fetch_session_mass",
+                return_value=SessionMass(1_989_000, 7_259),
+            ),
+            patch.object(repair, "check_minute_session_mass", return_value=(True, "d")),
+            patch.object(repair, "build_truncated_day_index", return_value={}),
+            patch.object(repair, "run_check", return_value=repair.CheckReport()),
+        ):
+            repair.run_verify(conn, ["AAPL"])
+        executed = " ".join(
+            str(call.args[0])
+            for call in conn.cursor.return_value.__enter__.return_value.execute.call_args_list
+            if call.args
+        ).upper()
+        for statement in ("INSERT", "UPDATE ", "DELETE"):
+            assert statement not in executed
+
+    def test_the_bar_count_is_judged_against_the_acceptance_bar(
+        self, repair: Any, capsys: Any
+    ) -> None:
+        """Not the health floor. 975,000 clears the alarm threshold but does
+        not demonstrate the fix, so the cutover bar is stricter."""
+        from manta_trading.cli.commands.minute_session_mass import SessionMass
+
+        # Between the health floor (975,000) and the acceptance bar.
+        result, _ = self._run_verify(
+            repair, mass=SessionMass(total_bars=980_000, symbols_meeting_min_bars=7_259)
+        )
+        out = capsys.readouterr().out
+        assert "FAIL" in out
+        assert f"{repair.VERIFY_MIN_SESSION_BARS:,}" in out
+        assert result is False
+
+    def test_the_acceptance_bar_is_stricter_than_the_health_floor(
+        self, repair: Any
+    ) -> None:
+        from manta_trading.constants import (
+            HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE,
+        )
+
+        regular_session_minutes = 390
+        health_floor = (
+            HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE * regular_session_minutes
+        )
+        assert health_floor == 975_000
+        assert repair.VERIFY_MIN_SESSION_BARS > health_floor
+
+    def test_residual_truncation_is_judged_against_zero(
+        self, repair: Any, capsys: Any
+    ) -> None:
+        result, _ = self._run_verify(
+            repair, truncated={"AAPL": frozenset({date(2026, 9, 8)})}
+        )
+        out = capsys.readouterr().out
+        assert "FAIL" in out
+        assert "(bar: 0)" in out
+        assert result is False
+
+    def test_a_clean_run_passes_every_bar(self, repair: Any, capsys: Any) -> None:
+        result, _ = self._run_verify(repair)
+        out = capsys.readouterr().out
+        assert "FAIL" not in out
+        assert result is True
+
+    def test_truncation_outside_the_active_universe_is_not_counted(
+        self, repair: Any
+    ) -> None:
+        """A delisted symbol's old truncation is not the cutover's business."""
+        result, _ = self._run_verify(
+            repair, truncated={"DELISTED": frozenset({date(2026, 9, 8)})}
+        )
+        assert result is True
+
+    def test_no_judgeable_session_fails_rather_than_passing(
+        self, repair: Any, capsys: Any
+    ) -> None:
+        result, _ = self._run_verify(repair, session=None)
+        assert result is False
+        assert "no completed session to judge" in capsys.readouterr().out
+
+
+class TestScanScopeAndTimeout:
+    """Two defects found by running --verify against production.
+
+    (1) ``--verify --symbol AAPL`` ran the UNIVERSE-wide truncation scan, so a
+    one-symbol question paid a 13,083-symbol answer and exceeded the session's
+    statement timeout. (2) The resulting QueryCanceled escaped as a traceback
+    rather than a message an operator can act on.
+    """
+
+    @staticmethod
+    def _conn() -> MagicMock:
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__ = MagicMock(return_value=cur)
+        cur.__exit__ = MagicMock(return_value=False)
+        cur.fetchall = MagicMock(return_value=[])
+        conn.cursor = MagicMock(return_value=cur)
+        return conn
+
+    def test_the_scan_bounds_the_bar_time_directly(self) -> None:
+        """The redundant-looking `m.time >= %s` is what makes TimescaleDB
+        exclude chunks.
+
+        Bounding the time only through the trading_sessions join leaves the
+        planner scanning EVERY chunk of 22 years of minute_ohlcv — measured
+        2026-09-09, a single-symbol scan hit the statement timeout that way,
+        and 0.10 s with this predicate. Delete it and the repair becomes
+        unrunnable, silently and only against production-sized history.
+        """
+        from manta_trading.data.gaps.repair_921 import (
+            build_truncated_day_index,
+            window_start_utc,
+        )
+
+        conn = self._conn()
+        build_truncated_day_index(conn)
+        sql_text, params = conn.cursor.return_value.execute.call_args.args
+        assert "AND m.time  >= %s" in sql_text
+        # The window start is bound twice: once for the session, once for the
+        # bar time, so chunk exclusion applies.
+        assert list(params).count(window_start_utc()) == 2
+
+    def test_a_symbol_list_narrows_the_scan(self) -> None:
+        from manta_trading.data.gaps.repair_921 import build_truncated_day_index
+
+        conn = self._conn()
+        build_truncated_day_index(conn, symbols=["AAPL", "MSFT"])
+        sql_text, params = conn.cursor.return_value.execute.call_args.args
+        assert "m.symbol = ANY(%s)" in sql_text
+        assert ["AAPL", "MSFT"] in params
+
+    def test_no_symbol_list_scans_the_universe(self) -> None:
+        from manta_trading.data.gaps.repair_921 import build_truncated_day_index
+
+        conn = self._conn()
+        build_truncated_day_index(conn)
+        sql_text, _ = conn.cursor.return_value.execute.call_args.args
+        assert "m.symbol = ANY(%s)" not in sql_text
+
+    def test_the_scan_sets_its_own_statement_timeout(self) -> None:
+        """An analytical scan run by an operator needs its own budget, not the
+        serving session's."""
+        from manta_trading.data.gaps.repair_921 import (
+            TRUNCATION_SCAN_TIMEOUT,
+            build_truncated_day_index,
+        )
+
+        conn = self._conn()
+        build_truncated_day_index(conn)
+        executed = " ".join(
+            str(call.args[0])
+            for call in conn.cursor.return_value.execute.call_args_list
+            if call.args
+        )
+        assert "statement_timeout" in executed
+        assert TRUNCATION_SCAN_TIMEOUT in executed
+
+    def test_a_cancelled_scan_raises_rather_than_returning_empty(self) -> None:
+        """An unmeasured universe reported as a clean one is exactly the
+        silent pass this slice removes."""
+        import psycopg
+
+        from manta_trading.data.gaps.repair_921 import (
+            RepairScanTimeout,
+            build_truncated_day_index,
+        )
+
+        conn = self._conn()
+        cur = conn.cursor.return_value
+        cur.execute = MagicMock(
+            side_effect=[None, psycopg.errors.QueryCanceled("timeout")]
+        )
+        with pytest.raises(RepairScanTimeout, match="truncation scan exceeded"):
+            build_truncated_day_index(conn)
+
+    def test_the_timeout_message_names_the_way_out(self) -> None:
+        import psycopg
+
+        from manta_trading.data.gaps.repair_921 import (
+            RepairScanTimeout,
+            build_truncated_day_index,
+        )
+
+        conn = self._conn()
+        cur = conn.cursor.return_value
+        cur.execute = MagicMock(
+            side_effect=[None, psycopg.errors.QueryCanceled("timeout")]
+        )
+        with pytest.raises(RepairScanTimeout) as exc:
+            build_truncated_day_index(conn)
+        assert "--symbol" in str(exc.value)
+
+    def test_a_scan_timeout_exits_refused_not_a_traceback(
+        self, repair: Any, capsys: Any
+    ) -> None:
+        from manta_trading.data.gaps.repair_921 import RepairScanTimeout
+
+        with (
+            patch.object(repair, "_database_url", return_value="postgresql://x/y"),
+            patch.object(repair, "_run", side_effect=RepairScanTimeout("too slow")),
+        ):
+            code = repair.main(["--check"])
+        assert code == repair.EXIT_REFUSED
+        assert "scan refused" in capsys.readouterr().err

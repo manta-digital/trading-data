@@ -236,8 +236,8 @@ def migrate(migration_id: str) -> None:
     print(f"    {MIGRATION_TRACK} track: 0 pending")
 
 
-def journal_cursor() -> str:
-    text = out(["journalctl", "-u", PASS_UNIT, "-n", "0", "--show-cursor", "-q"])
+def journal_cursor(unit: str = PASS_UNIT) -> str:
+    text = out(["journalctl", "-u", unit, "-n", "0", "--show-cursor", "-q"])
     match = re.search(r"-- cursor: (\S+)", text)
     if not match:
         raise CutoverError(f"could not read a journal cursor from: {text!r}")
@@ -259,10 +259,42 @@ def fire() -> tuple[str, str]:
     return cursor, started
 
 
-def unit_result() -> tuple[str, str]:
-    result = out(["systemctl", "show", PASS_UNIT, "-p", "Result", "--value"])
-    status = out(["systemctl", "show", PASS_UNIT, "-p", "ExecMainStatus", "--value"])
+def unit_result(unit: str = PASS_UNIT) -> tuple[str, str]:
+    result = out(["systemctl", "show", unit, "-p", "Result", "--value"])
+    status = out(["systemctl", "show", unit, "-p", "ExecMainStatus", "--value"])
     return result, status
+
+
+def wait_for_unit_to_end(unit: str) -> None:
+    """Block while ``unit`` is active. Sibling of ``wait_for_pass_to_end`` for
+    the minute/daily acquisition units (slice 921)."""
+    while unit_active(unit):
+        print(f"    {unit} is running — waiting ({POLL_SECONDS}s) …", flush=True)
+        time.sleep(POLL_SECONDS)
+
+
+def fire_unit(unit: str, mt_run_args: list[str]) -> tuple[str, str]:
+    """One supervised firing of an arbitrary pass unit (slice 921).
+
+    Sibling of ``fire`` — same cursor → run → wait shape, but for the minute
+    and daily acquisition units rather than the Kalshi one. Returns the
+    journal cursor taken before the firing and the start instant.
+    """
+    cursor = journal_cursor(unit)
+    started = datetime.now(UTC).isoformat(timespec="seconds")
+    print(
+        f"    sudo mt-run {' '.join(mt_run_args)} — streaming; Ctrl-C only "
+        "detaches, the script keeps waiting"
+    )
+    run(["mt-run", *mt_run_args], sudo=True, check=False, stream=True)
+    wait_for_unit_to_end(unit)
+    run(["sudo", "-v"], stream=True)  # the firing may outlive the sudo grace period
+    return cursor, started
+
+
+def read_unit_journal(cursor: str, unit: str) -> "Firing":
+    """``read_journal`` for an arbitrary unit (slice 921)."""
+    return _read_journal_for(cursor, unit)
 
 
 # ---------------------------------------------------------------------------
@@ -296,11 +328,15 @@ class Firing:
 
 
 def read_journal(cursor: str) -> Firing:
+    return _read_journal_for(cursor, PASS_UNIT)
+
+
+def _read_journal_for(cursor: str, unit: str) -> Firing:
     raw = out(
         [
             "journalctl",
             "-u",
-            PASS_UNIT,
+            unit,
             f"--after-cursor={cursor}",
             "-o",
             "json",
