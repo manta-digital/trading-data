@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
@@ -153,3 +153,85 @@ class TestSessionCloseEndsAreStillSelected:
         assert params[-1] == now_midnight
         # A 20:00 close on any date before today satisfies gap_end <= midnight.
         assert datetime(2026, 9, 8, 20, 0, tzinfo=UTC) <= now_midnight
+
+
+class TestMinGapEndFilter:
+    """Slice 921 Task 3.2 — an optional floor on ``gap_end``.
+
+    The trailing phase passes ``now - MINUTE_TRAILING_PRIORITY_WINDOW`` so it
+    attempts every symbol's current session before any deep backfill chunk is
+    requested. The parameter is additive: every pre-921 caller omits it and
+    gets byte-identical SQL.
+    """
+
+    _FROM = datetime(2004, 1, 1, tzinfo=UTC)
+    _TO = datetime(2026, 9, 9, tzinfo=UTC)
+
+    def test_omitting_the_floor_adds_no_predicate(self) -> None:
+        conn = _make_conn(None)
+        pick_most_recent_actionable_gap(conn, "AAPL", "minute", self._FROM, self._TO)
+        cur = conn.cursor.return_value.__enter__.return_value
+        sql, params = cur.execute.call_args[0]
+        assert "gap_end >= %s" not in sql
+        assert params == ("AAPL", "minute", ANY, self._FROM, self._TO)
+
+    def test_supplying_the_floor_adds_the_predicate_and_binds_it(self) -> None:
+        conn = _make_conn(None)
+        floor = datetime(2026, 9, 2, tzinfo=UTC)
+        pick_most_recent_actionable_gap(
+            conn, "AAPL", "minute", self._FROM, self._TO, min_gap_end=floor
+        )
+        cur = conn.cursor.return_value.__enter__.return_value
+        sql, params = cur.execute.call_args[0]
+        assert "gap_end >= %s" in sql
+        assert params[-1] == floor
+        # The floor is a bind parameter, never interpolated into the text.
+        assert str(floor) not in sql
+
+    def test_the_floor_does_not_disturb_the_other_predicates(self) -> None:
+        conn = _make_conn(None)
+        floor = datetime(2026, 9, 2, tzinfo=UTC)
+        pick_most_recent_actionable_gap(
+            conn, "AAPL", "minute", self._FROM, self._TO, min_gap_end=floor
+        )
+        cur = conn.cursor.return_value.__enter__.return_value
+        sql, _ = cur.execute.call_args[0]
+        assert "fetch_status = ANY" in sql
+        assert "gap_start >= %s" in sql
+        assert "gap_end <= %s" in sql
+        assert "ORDER BY gap_end DESC" in sql
+        assert "LIMIT 1" in sql
+
+    def test_a_row_inside_the_floor_is_still_returned(self) -> None:
+        gap_end = datetime(2026, 9, 8, 20, 0, tzinfo=UTC)
+        row = (
+            "AAPL",
+            "minute",
+            datetime(2026, 9, 8, 13, 30, tzinfo=UTC),
+            gap_end,
+            str(FetchStatus.UNKNOWN),
+            None,
+            1,
+        )
+        result = pick_most_recent_actionable_gap(
+            _make_conn(row),
+            "AAPL",
+            "minute",
+            self._FROM,
+            self._TO,
+            min_gap_end=datetime(2026, 9, 2, tzinfo=UTC),
+        )
+        assert result is not None
+        assert result.gap_end == gap_end
+
+    def test_an_explicit_none_floor_behaves_as_omitted(self) -> None:
+        """None means "no floor", not "a floor of NULL" — the predicate must
+        be absent rather than comparing against NULL, which matches nothing."""
+        conn = _make_conn(None)
+        pick_most_recent_actionable_gap(
+            conn, "AAPL", "minute", self._FROM, self._TO, min_gap_end=None
+        )
+        cur = conn.cursor.return_value.__enter__.return_value
+        sql, params = cur.execute.call_args[0]
+        assert "gap_end >= %s" not in sql
+        assert len(params) == 5

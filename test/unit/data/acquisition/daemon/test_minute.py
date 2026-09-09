@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
@@ -17,7 +18,11 @@ from manta_trading.data.acquisition.daemon.minute import (
 )
 from manta_trading.data.acquisition.quota import QuotaBucket, QuotaWaitAborted
 from manta_trading.data.acquisition.state import LastAttemptOutcome
-from manta_trading.constants import MAX_RETRY_COUNT
+from manta_trading.constants import (
+    MAX_RETRY_COUNT,
+    MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
+    MINUTE_TRAILING_PRIORITY_WINDOW,
+)
 from manta_trading.data.gaps.actionable_gap_selector import GapRow
 from manta_trading.data.quality.fetch_status import FetchStatus
 
@@ -214,51 +219,68 @@ class TestRunMinuteCycle:
             ["AAPL"], gaps
         )
 
-        # 1 initial seed via update_data_gaps
-        assert update_mock.call_count == 1
-        # 3 chunks → 3 _advance_minute_gap calls
+        # Slice 921: a pass is two phases over the same symbol. The TRAILING
+        # phase seeds and takes one chunk; the BACKFILL phase does not seed and
+        # takes the rest, so the three chunks are split 1 + 2 across the pass.
+        assert update_mock.call_count == 1, "only the trailing phase seeds"
         assert advance_mock.call_count == 3
-        assert coalesce_mock.call_count == 1
-        # 3 gaps returned + 1 None to terminate
+        assert coalesce_mock.call_count == 2, "one per phase"
+        # trailing: 1 gap; backfill: 2 gaps + the None that terminates it.
         assert pick_mock.call_count == 4
 
-    def test_coalesce_called_once_after_loop(self) -> None:
+    def test_coalesce_called_after_each_phases_chunk_loop(self) -> None:
         gaps = [_gap(_dt(2024, 1, 1), _dt(2024, 3, 31)), None]
         _, _, _, coalesce_mock, _ = self._run(["AAPL"], gaps)
-        assert coalesce_mock.call_count == 1
+        # One per phase (slice 921): the trailing walk takes the gap, the
+        # backfill walk finds none, and both coalesce after their loop.
+        assert coalesce_mock.call_count == 2
 
     def test_success_count(self) -> None:
         report, _, _, _, _ = self._run(
             ["AAPL"], [None], outcome=LastAttemptOutcome.SUCCESS
         )
-        assert report.success_count == 1
+        # The symbol is walked once per phase (slice 921), so a single-symbol
+        # pass records it twice.
+        assert report.success_count == 2
 
     def test_multiple_symbols_each_get_own_gap_loop(self) -> None:
         # Two symbols; each gets None immediately
-        gaps = [None, None]
+        gaps = [None, None, None, None]
         report, _, update_mock, coalesce_mock, _ = self._run(["AAPL", "MSFT"], gaps)
-        # Each symbol does 1 initial update_data_gaps call
+        # Each symbol seeds once, in the trailing phase only (slice 921).
         assert update_mock.call_count == 2
-        # Each symbol does 1 coalesce
-        assert coalesce_mock.call_count == 2
+        # Two symbols x two phases.
+        assert coalesce_mock.call_count == 4
 
     def test_seed_progress_accumulates_gaps_seeded_across_symbols(self, caplog) -> None:
         """slice 162: seed-phase progress sums gaps_inserted across all symbols
         and emits a completion INFO line with the accumulated total."""
         import logging
 
-        gaps = [None, None, None]
+        gaps = [None] * 6
         with caplog.at_level(
             logging.INFO, logger="manta_trading.data.acquisition.daemon.minute"
         ):
             self._run(["AAPL", "MSFT", "GOOG"], gaps, gaps_inserted=3)
 
-        complete_lines = [
-            r.message for r in caplog.records if "minute seed: complete" in r.message
+        # Slice 921: the completion line is per phase and names it. Seeding
+        # happens in the trailing phase only, so that is where the total lands.
+        trailing_lines = [
+            r.message
+            for r in caplog.records
+            if "minute trailing: complete" in r.message
         ]
-        assert len(complete_lines) == 1
-        assert "3 symbols" in complete_lines[0]
-        assert "9 gap rows seeded" in complete_lines[0]
+        assert len(trailing_lines) == 1
+        assert "3 symbols" in trailing_lines[0]
+        assert "9 gap rows seeded" in trailing_lines[0]
+
+        backfill_lines = [
+            r.message
+            for r in caplog.records
+            if "minute backfill: complete" in r.message
+        ]
+        assert len(backfill_lines) == 1
+        assert "0 gap rows seeded" in backfill_lines[0]
 
     def test_should_continue_false_mid_symbol_exits_between_chunks(self) -> None:
         """Shutdown mid-symbol stops after the current chunk, not after the
@@ -1460,3 +1482,317 @@ class TestRealFetchFailuresStillReachExhaustion:
         assert len(updates) == 1
         assert updates[0][2] == MAX_RETRY_COUNT
         assert updates[0][0] == str(FetchStatus.RETRY_EXHAUSTED)
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 Section 3 — trailing then backfill (Task 3.5, SC6)
+# ---------------------------------------------------------------------------
+
+
+class TestMinutePassPhases:
+    """A minute pass attempts every symbol's current session before it
+    requests a single backfill chunk.
+
+    The failure this prevents: on 2026-09-07 the 13:05 UTC pass walked the
+    universe once in ``most_stale_first`` order, spent its whole run on deep
+    backfill, and never reached the current session — so the nightly minute
+    data simply did not arrive.
+    """
+
+    @staticmethod
+    def _run_cycle(
+        symbols: list[str],
+        gaps_by_symbol: Mapping[str, Sequence[GapRow | None]],
+        *,
+        should_continue=None,
+    ) -> tuple[list[str], list[tuple], MagicMock]:
+        """Run a full pass, recording the (symbol, min_gap_end, max_chunks,
+        seed) of every _process_minute_symbol call and every requested URL.
+
+        Returns (requested_urls, phase_calls, update_data_gaps_mock).
+        """
+        urls: list[str] = []
+        phase_calls: list[tuple] = []
+        pending = {sym: list(gaps) for sym, gaps in gaps_by_symbol.items()}
+
+        real_process = None
+
+        def _fake_pick(_conn, symbol, _gran, _from, _to, min_gap_end=None):
+            queue = pending.get(symbol, [])
+            while queue:
+                gap = queue.pop(0)
+                if gap is None:
+                    return None
+                if min_gap_end is not None and gap.gap_end < min_gap_end:
+                    # Outside the trailing floor — put it back for backfill.
+                    queue.insert(0, gap)
+                    return None
+                return gap
+            return None
+
+        def _fake_get(_http, url, _call_type):
+            urls.append(url)
+            return MagicMock(
+                status_code=200,
+                json=MagicMock(
+                    return_value=[
+                        {
+                            "timestamp": 1704196200,
+                            "datetime": "2026-09-08 19:59:00",
+                            "open": "100",
+                            "high": "101",
+                            "low": "99",
+                            "close": "100",
+                            "volume": "1000",
+                        }
+                    ]
+                ),
+            )
+
+        with ExitStack() as stack:
+
+            def mp(target: str, **kwargs) -> MagicMock:
+                return stack.enter_context(patch(target, **kwargs))
+
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_FakeSettings(),
+            )
+            update_mock = mp(
+                "manta_trading.data.acquisition.daemon.minute.update_data_gaps",
+                return_value=MagicMock(gaps_inserted=0),
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.build_minute_coverage_index",
+                return_value={},
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.compute_missing_minute_sessions",
+                return_value=[],
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=datetime(2004, 1, 1, tzinfo=UTC),
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
+                return_value=None,
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                return_value=None,
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                return_value=0,
+            )
+            mp("manta_trading.data.acquisition.daemon.minute._insert_minute_bars")
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.eodhd_get",
+                side_effect=_fake_get,
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
+                side_effect=_fake_pick,
+            )
+
+            lock_cm = MagicMock()
+            lock_cm.__enter__ = MagicMock(return_value=None)
+            lock_cm.__exit__ = MagicMock(return_value=False)
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            )
+
+            # Record the knobs each phase passes, then run the real function.
+            from manta_trading.data.acquisition.daemon import minute as minute_mod
+
+            real_process = minute_mod._process_minute_symbol
+
+            def _spy(symbol, **kwargs):
+                phase_calls.append(
+                    (
+                        symbol,
+                        kwargs.get("min_gap_end"),
+                        kwargs.get("max_chunks"),
+                        kwargs.get("seed"),
+                    )
+                )
+                return real_process(symbol, **kwargs)
+
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._process_minute_symbol",
+                side_effect=_spy,
+            )
+
+            pool_cls = mp("manta_trading.data.acquisition.daemon.minute.ConnectionPool")
+            http_cls = mp("manta_trading.data.acquisition.daemon.minute.httpx.Client")
+            pool = MagicMock()
+            pool_cls.return_value.__enter__ = MagicMock(return_value=pool)
+            pool_cls.return_value.__exit__ = MagicMock(return_value=False)
+            conn = MagicMock()
+            txn = MagicMock()
+            txn.__enter__ = MagicMock(return_value=txn)
+            txn.__exit__ = MagicMock(return_value=False)
+            conn.transaction.return_value = txn
+            cur = MagicMock()
+            cur.__enter__ = MagicMock(return_value=cur)
+            cur.__exit__ = MagicMock(return_value=False)
+            # (has_bars, has_unknown_gaps, has_any_gaps, gap_frontier)
+            cur.fetchone.return_value = (True, True, True, None)
+            conn.cursor.return_value = cur
+            pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+            pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+            http = MagicMock()
+            http_cls.return_value.__enter__ = MagicMock(return_value=http)
+            http_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+            run_minute_cycle(symbols=symbols, should_continue=should_continue)
+
+        return urls, phase_calls, update_mock
+
+    @staticmethod
+    def _trailing_gap() -> GapRow:
+        """A gap inside MINUTE_TRAILING_PRIORITY_WINDOW."""
+        end = datetime.now(UTC) - timedelta(days=1)
+        return GapRow(
+            symbol="AAPL",
+            granularity="minute",
+            gap_start=end - timedelta(hours=7),
+            gap_end=end,
+            fetch_status="UNKNOWN",
+            last_attempt_ts=None,
+            attempt_count=0,
+        )
+
+    @staticmethod
+    def _old_gap() -> GapRow:
+        """A gap well outside the trailing window."""
+        end = datetime.now(UTC) - timedelta(days=400)
+        return GapRow(
+            symbol="AAPL",
+            granularity="minute",
+            gap_start=end - timedelta(hours=7),
+            gap_end=end,
+            fetch_status="UNKNOWN",
+            last_attempt_ts=None,
+            attempt_count=0,
+        )
+
+    def test_every_trailing_request_precedes_every_backfill_request(self) -> None:
+        """SC6: no backfill chunk is requested until every active symbol's
+        trailing gap has been attempted."""
+        gaps = {
+            "AAPL": [self._trailing_gap(), self._old_gap(), None],
+            "MSFT": [self._trailing_gap(), self._old_gap(), None],
+        }
+        _, phase_calls, _ = self._run_cycle(["AAPL", "MSFT"], gaps)
+        phases = [
+            "trailing" if max_chunks is not None else "backfill"
+            for _sym, _floor, max_chunks, _seed in phase_calls
+        ]
+        # Every trailing call comes before every backfill call.
+        assert phases == ["trailing", "trailing", "backfill", "backfill"]
+
+    def test_the_trailing_phase_passes_the_window_floor(self) -> None:
+        gaps = {"AAPL": [self._trailing_gap(), None]}
+        _, phase_calls, _ = self._run_cycle(["AAPL"], gaps)
+        trailing = [c for c in phase_calls if c[2] is not None]
+        assert len(trailing) == 1
+        floor = trailing[0][1]
+        assert floor is not None
+        expected = datetime.now(UTC) - MINUTE_TRAILING_PRIORITY_WINDOW
+        assert abs((floor - expected).total_seconds()) < 60
+
+    def test_the_backfill_phase_passes_no_floor_and_no_chunk_bound(self) -> None:
+        gaps = {"AAPL": [self._trailing_gap(), self._old_gap(), None]}
+        _, phase_calls, _ = self._run_cycle(["AAPL"], gaps)
+        backfill = [c for c in phase_calls if c[2] is None]
+        assert len(backfill) == 1
+        _sym, floor, max_chunks, _seed = backfill[0]
+        assert floor is None
+        assert max_chunks is None
+
+    def test_the_trailing_phase_takes_at_most_one_chunk_per_symbol(self) -> None:
+        """Even with several actionable trailing gaps, the trailing walk takes
+        one chunk and moves on — a single symbol's backlog must not delay the
+        current session of every symbol behind it."""
+        several = [self._trailing_gap() for _ in range(4)]
+        gaps = {"AAPL": [*several, None], "MSFT": [self._trailing_gap(), None]}
+        _, phase_calls, _ = self._run_cycle(["AAPL", "MSFT"], gaps)
+        trailing = [c for c in phase_calls if c[2] is not None]
+        assert all(
+            max_chunks == MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL
+            for _s, _f, max_chunks, _seed in trailing
+        )
+
+    def test_only_the_trailing_phase_seeds(self) -> None:
+        """Task 3.3 option (a): the backfill walk consumes existing rows only,
+        so no symbol-day can be requested twice in one pass."""
+        gaps = {"AAPL": [self._trailing_gap(), self._old_gap(), None]}
+        _, phase_calls, update_mock = self._run_cycle(["AAPL"], gaps)
+        seeds = [seed for _s, _f, _m, seed in phase_calls]
+        assert seeds == [True, False]
+        # The seed itself ran exactly once for the symbol, in the trailing walk.
+        assert update_mock.call_count == 1
+
+    def test_a_stale_coverage_index_cannot_cause_a_second_fetch(self) -> None:
+        """The direct Task 3.3 regression.
+
+        Fixture: a symbol whose trailing session was just fetched, with a
+        coverage index that (as at cycle start) still reports that day as
+        uncovered. Because the backfill phase does not seed, the day is never
+        re-inserted and never re-requested — the guarantee holds by
+        construction, not by the index happening to be fresh.
+        """
+        trailing = self._trailing_gap()
+        gaps = {"AAPL": [trailing, None]}
+        urls, phase_calls, update_mock = self._run_cycle(["AAPL"], gaps)
+        # Exactly one provider request for the trailing session.
+        assert len(urls) == 1
+        # The backfill phase ran, and seeded nothing.
+        assert [seed for _s, _f, _m, seed in phase_calls] == [True, False]
+        assert update_mock.call_count == 1
+
+    def test_trailing_phase_complete_is_logged_before_any_backfill_line(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """SC6's second half, and what the design's Verification Walkthrough
+        greps for — the operator's only in-production evidence that the
+        trailing phase ran to completion."""
+        import logging
+
+        gaps = {
+            "AAPL": [self._trailing_gap(), self._old_gap(), None],
+            "MSFT": [self._trailing_gap(), None],
+        }
+        with caplog.at_level(
+            logging.INFO, logger="manta_trading.data.acquisition.daemon.minute"
+        ):
+            self._run_cycle(["AAPL", "MSFT"], gaps)
+
+        messages = [r.message for r in caplog.records]
+        complete = [
+            i for i, m in enumerate(messages) if "trailing phase complete:" in m
+        ]
+        assert len(complete) == 1
+        assert "2 symbols" in messages[complete[0]]
+
+        backfill_lines = [i for i, m in enumerate(messages) if "minute backfill" in m]
+        assert backfill_lines, "the backfill phase must log"
+        assert complete[0] < min(backfill_lines)
+
+    def test_a_shutdown_in_the_trailing_phase_skips_backfill_entirely(self) -> None:
+        """A shutdown request ends the PASS. Starting the backfill walk would
+        issue requests the operator already asked the process to stop."""
+        polls = {"n": 0}
+
+        def flag() -> bool:
+            polls["n"] += 1
+            return polls["n"] <= 1
+
+        gaps = {"AAPL": [self._trailing_gap(), None], "MSFT": [None]}
+        _, phase_calls, _ = self._run_cycle(
+            ["AAPL", "MSFT"], gaps, should_continue=flag
+        )
+        assert all(max_chunks is not None for _s, _f, max_chunks, _seed in phase_calls)

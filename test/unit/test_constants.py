@@ -34,7 +34,10 @@ from manta_trading.constants import (
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_START_OFFSET,
     MINUTE_COVERAGE_VIEW,
+    MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES,
     MINUTE_STALENESS_THRESHOLD,
+    MINUTE_TRAILING_PRIORITY_WINDOW,
+    PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS,
     TRADING_DAYS_PER_CALENDAR_DAY,
     Granularity,
 )
@@ -348,3 +351,25 @@ def test_range_cap_inputs_are_sane() -> None:
     assert API_MAX_BARS_PER_REQUEST == 75_000
     assert INTRADAY_MINUTES_PER_TRADING_DAY == 960
     assert 0 < TRADING_DAYS_PER_CALENDAR_DAY < 1
+
+
+# --- Slice 921: minute pass phasing and failure policy ---------------------
+
+
+def test_minute_trailing_priority_window_type_and_value() -> None:
+    assert isinstance(MINUTE_TRAILING_PRIORITY_WINDOW, timedelta)
+    assert MINUTE_TRAILING_PRIORITY_WINDOW == timedelta(days=7)
+
+
+def test_minute_pass_max_consecutive_provider_failures_type_and_value() -> None:
+    assert isinstance(MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES, int)
+    assert MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES == 5
+
+
+def test_minute_failure_cap_matches_its_stated_precedent() -> None:
+    """The docstring cites PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS as its
+    precedent; if one moves without the other, the citation is stale."""
+    assert (
+        MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES
+        == PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS
+    )

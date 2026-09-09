@@ -18,7 +18,10 @@ from manta_trading.constants import (
     EODHD_INTRADAY_HORIZON,
     MAX_RETRY_COUNT,
     MINUTE_SEED_PROGRESS_LOG_INTERVAL,
+    MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
+    MINUTE_TRAILING_PRIORITY_WINDOW,
     FetchEntryPoint,
+    MinutePassPhase,
 )
 from manta_trading.market.db_session import make_configure_connection
 from manta_trading.data.acquisition.quota import CallType, QuotaWaitAborted
@@ -142,6 +145,14 @@ def run_minute_cycle(
 ) -> CycleReport:
     """Drive one minute-data acquisition pass over the instrument universe.
 
+    The pass walks the universe TWICE (slice 921 SC6): a **trailing** phase
+    that attempts every symbol's current session first — floored at
+    ``MINUTE_TRAILING_PRIORITY_WINDOW``, bounded to
+    ``MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL`` per symbol, and the only phase
+    that seeds — then a **backfill** phase over everything older with neither
+    bound and no seeding. A pass that runs out of quota or wall clock has
+    therefore already collected the day that matters.
+
     Reads MT_TIMESCALE_DB_URL and MT_EODHD_API_KEY from the environment.
     Per-symbol transient failures are caught and recorded; HTTP 4xx (non-429)
     propagates and crashes the cycle.
@@ -191,65 +202,153 @@ def run_minute_cycle(
                     "seeding will use existing gap rows only (no full-window fallback)"
                 )
 
-            symbols_scanned = 0
-            gaps_seeded_total = 0
-            for sym in symbol_list:
-                if should_continue is not None and not should_continue():
-                    _logger.info(
-                        "run_minute_cycle: should_continue=False — exiting "
-                        "between symbols (processed=%d, remaining=%d)",
-                        report.total,
-                        len(symbol_list) - report.total,
-                    )
-                    break
-                try:
-                    outcome, cs, ce, n_chunks, gaps_seeded = _process_minute_symbol(
-                        sym,
-                        pool=pool,
-                        http=http,
-                        settings=settings,
-                        coverage_index=coverage_index,
-                        via=FetchEntryPoint.CYCLE,
-                        should_continue=should_continue,
-                    )
-                except QuotaWaitAborted:
-                    _logger.info(
-                        "run_minute_cycle: quota wait aborted by shutdown — "
-                        "exiting (processed=%d, remaining=%d)",
-                        report.total,
-                        len(symbol_list) - report.total,
-                    )
-                    break
-                report.symbol_outcomes[sym] = str(outcome)
-                if outcome == LastAttemptOutcome.SUCCESS:
-                    report.success_count += 1
-                elif outcome == LastAttemptOutcome.PARTIAL:
-                    report.partial_count += 1
-                elif outcome == LastAttemptOutcome.EMPTY:
-                    report.empty_count += 1
-                else:
-                    report.transient_failure_count += 1
-                if on_symbol is not None:
-                    on_symbol(sym, str(outcome), cs, ce, n_chunks)
+            # Slice 921 SC6: two phases over the same universe. The TRAILING
+            # phase attempts every symbol's current session (one chunk each)
+            # before any backfill chunk is requested, so a pass that runs out
+            # of quota or time has already collected the day that matters. The
+            # 2026-09-07 13:05 UTC pass spent its whole run on deep backfill
+            # and never reached the current session.
+            trailing_floor = datetime.now(_UTC) - MINUTE_TRAILING_PRIORITY_WINDOW
 
-                symbols_scanned += 1
-                gaps_seeded_total += gaps_seeded
-                if symbols_scanned % MINUTE_SEED_PROGRESS_LOG_INTERVAL == 0:
-                    _logger.info(
-                        "minute seed: %d/%d symbols scanned, %d gap rows seeded",
-                        symbols_scanned,
-                        len(symbol_list),
-                        gaps_seeded_total,
-                    )
-
-            _logger.info(
-                "minute seed: complete — %d symbols, %d gap rows seeded",
-                symbols_scanned,
-                gaps_seeded_total,
+            trailing_scanned, may_continue = _run_minute_phase(
+                symbol_list,
+                phase=MinutePassPhase.TRAILING,
+                pool=pool,
+                http=http,
+                settings=settings,
+                coverage_index=coverage_index,
+                report=report,
+                should_continue=should_continue,
+                on_symbol=on_symbol,
+                min_gap_end=trailing_floor,
+                max_chunks=MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
+                seed=True,
             )
+            _logger.info("trailing phase complete: %d symbols", trailing_scanned)
+
+            # A shutdown request or an aborted quota wait ends the PASS, not
+            # just the phase — the backfill walk would otherwise start issuing
+            # requests the operator has already asked the process to stop.
+            if may_continue:
+                _run_minute_phase(
+                    symbol_list,
+                    phase=MinutePassPhase.BACKFILL,
+                    pool=pool,
+                    http=http,
+                    settings=settings,
+                    coverage_index=coverage_index,
+                    report=report,
+                    should_continue=should_continue,
+                    on_symbol=on_symbol,
+                    min_gap_end=None,
+                    max_chunks=None,
+                    # Task 3.3 option (a): seeding belongs to the trailing walk.
+                    seed=False,
+                )
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report
+
+
+def _run_minute_phase(
+    symbol_list: list[str],
+    *,
+    phase: MinutePassPhase,
+    pool: ConnectionPool,
+    http: httpx.Client,
+    settings: Settings,
+    coverage_index: dict[str, set[date]] | None,
+    report: CycleReport,
+    should_continue: Callable[[], bool] | None,
+    on_symbol: Callable[[str, str, datetime | None, datetime | None, int], None] | None,
+    min_gap_end: datetime | None,
+    max_chunks: int | None,
+    seed: bool,
+) -> tuple[int, bool]:
+    """Walk the universe once for one phase.
+
+    Both phases of a minute pass share this walk (slice 921 SC6) — they differ
+    only in the three knobs the caller supplies: the trailing floor, the
+    per-symbol chunk bound, and whether the phase seeds. Sharing the loop keeps
+    the outcome tallying, the SIGTERM hook, the quota-abort handling and the
+    progress logging identical between phases rather than duplicated.
+
+    Returns:
+        (symbols_scanned, may_continue). ``may_continue`` is False when the
+        walk stopped for a reason that ends the whole PASS rather than just
+        this phase — a shutdown request or an aborted quota wait. Starting the
+        next phase after either would issue requests the operator has already
+        asked the process to stop making.
+    """
+    symbols_scanned = 0
+    gaps_seeded_total = 0
+    may_continue = True
+
+    for sym in symbol_list:
+        if should_continue is not None and not should_continue():
+            _logger.info(
+                "run_minute_cycle[%s]: should_continue=False — exiting "
+                "between symbols (scanned=%d, remaining=%d)",
+                phase,
+                symbols_scanned,
+                len(symbol_list) - symbols_scanned,
+            )
+            may_continue = False
+            break
+        try:
+            outcome, cs, ce, n_chunks, gaps_seeded = _process_minute_symbol(
+                sym,
+                pool=pool,
+                http=http,
+                settings=settings,
+                coverage_index=coverage_index,
+                via=FetchEntryPoint.CYCLE,
+                should_continue=should_continue,
+                min_gap_end=min_gap_end,
+                max_chunks=max_chunks,
+                seed=seed,
+            )
+        except QuotaWaitAborted:
+            _logger.info(
+                "run_minute_cycle[%s]: quota wait aborted by shutdown — "
+                "exiting (scanned=%d, remaining=%d)",
+                phase,
+                symbols_scanned,
+                len(symbol_list) - symbols_scanned,
+            )
+            may_continue = False
+            break
+
+        report.symbol_outcomes[sym] = str(outcome)
+        if outcome == LastAttemptOutcome.SUCCESS:
+            report.success_count += 1
+        elif outcome == LastAttemptOutcome.PARTIAL:
+            report.partial_count += 1
+        elif outcome == LastAttemptOutcome.EMPTY:
+            report.empty_count += 1
+        else:
+            report.transient_failure_count += 1
+        if on_symbol is not None:
+            on_symbol(sym, str(outcome), cs, ce, n_chunks)
+
+        symbols_scanned += 1
+        gaps_seeded_total += gaps_seeded
+        if symbols_scanned % MINUTE_SEED_PROGRESS_LOG_INTERVAL == 0:
+            _logger.info(
+                "minute %s: %d/%d symbols scanned, %d gap rows seeded",
+                phase,
+                symbols_scanned,
+                len(symbol_list),
+                gaps_seeded_total,
+            )
+
+    _logger.info(
+        "minute %s: complete — %d symbols, %d gap rows seeded",
+        phase,
+        symbols_scanned,
+        gaps_seeded_total,
+    )
+    return symbols_scanned, may_continue
 
 
 def _process_minute_symbol(
@@ -261,6 +360,9 @@ def _process_minute_symbol(
     via: FetchEntryPoint,
     coverage_index: dict[str, set[date]] | None = None,
     should_continue: Callable[[], bool] | None = None,
+    min_gap_end: datetime | None = None,
+    max_chunks: int | None = None,
+    seed: bool = True,
 ) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     try:
         return _do_minute_symbol(
@@ -271,6 +373,9 @@ def _process_minute_symbol(
             coverage_index=coverage_index,
             via=via,
             should_continue=should_continue,
+            min_gap_end=min_gap_end,
+            max_chunks=max_chunks,
+            seed=seed,
         )
     except QuotaWaitAborted:
         # Shutdown, not a failure — must reach the cycle loop, so it cannot
@@ -322,6 +427,9 @@ def _do_minute_symbol(
     window: tuple[date, date] | None = None,
     coverage_index: dict[str, set[date]] | None = None,
     should_continue: Callable[[], bool] | None = None,
+    min_gap_end: datetime | None = None,
+    max_chunks: int | None = None,
+    seed: bool = True,
 ) -> tuple[LastAttemptOutcome, datetime | None, datetime | None, int, int]:
     now_midnight = datetime.now(_UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     with pool.connection() as conn:
@@ -395,7 +503,21 @@ def _do_minute_symbol(
             or _has_unknown_gaps
         )
         seed_from: datetime | None = None
-        if _needs_full_seed:
+        if not seed:
+            # Slice 921 Task 3.3, option (a): the BACKFILL phase does not seed.
+            # Seeding belongs to the trailing walk, which ran first. A second
+            # seed would recompute coverage from the CYCLE-START index, which
+            # still reports the session the trailing phase just fetched as
+            # uncovered, re-insert it as UNKNOWN, and hand it straight back to
+            # this phase's selector (ORDER BY gap_end DESC picks it first) —
+            # ~13,000 redundant /intraday calls at 5 credits each, roughly 65k
+            # of the 100k daily allowance spent re-fetching the day just
+            # fetched. With no second seed there is no row to re-pick, so the
+            # double fetch is impossible by construction rather than by
+            # ordering. This is a property of the PHASE: run_minute_refetch and
+            # the single-symbol operator path never pass it and seed as before.
+            pass
+        elif _needs_full_seed:
             seed_from = history_start
         elif _gap_frontier is not None and _gap_frontier < target_end:
             # Issue #19: every gap row is terminal (PROVIDER_HOLE /
@@ -444,6 +566,19 @@ def _do_minute_symbol(
     # conn is returned to pool here — chunk loop uses fresh connections per chunk.
 
     while True:
+        # Slice 921: the TRAILING phase bounds itself to one chunk per symbol
+        # so a single symbol's deep backlog cannot delay the current session of
+        # every symbol behind it. The bound belongs to the phase, not to
+        # _do_minute_symbol generally — the backfill phase and
+        # run_minute_refetch pass nothing and walk as many chunks as they have.
+        if max_chunks is not None and chunk_count >= max_chunks:
+            _logger.debug(
+                "minute fetch: %s — reached this phase's chunk bound (%d)",
+                symbol,
+                max_chunks,
+            )
+            break
+
         # A deep backfill walks ~69 chunks per symbol; checking only between
         # symbols left Ctrl-C unanswered for 10+ minutes (20260807). Exiting
         # here is identical to the gap-is-None break: per-chunk commits make
@@ -461,7 +596,12 @@ def _do_minute_symbol(
         # filled some).  Advisory lock re-acquired per transaction.
         with pool.connection() as chunk_conn:
             gap = pick_most_recent_actionable_gap(
-                chunk_conn, symbol, "minute", history_start, target_end
+                chunk_conn,
+                symbol,
+                "minute",
+                history_start,
+                target_end,
+                min_gap_end=min_gap_end,
             )
             if gap is None:
                 break

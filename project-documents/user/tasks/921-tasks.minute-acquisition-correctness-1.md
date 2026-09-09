@@ -325,6 +325,40 @@ which phase aborted — there is nothing to condition on until the phases exist.
   - [ ] Success: the mechanism is written down with its cost before Task 3.4
         implements it; no symbol can be fetched twice in one cycle by
         construction, not by luck of ordering.
+
+  **Decision (recorded 20260909): option (a) — the backfill phase does not
+  seed.** Seeding belongs to the trailing walk, which runs first; the backfill
+  walk consumes only gap rows that already exist.
+
+  *Why (a).* The double-fetch becomes impossible by construction rather than
+  by ordering: with no second seed there is no re-inserted row for the
+  backfill selector to pick, so correctness does not depend on the coverage
+  index being fresh, on `ORDER BY gap_end DESC`, or on the trailing phase
+  having succeeded. Option (b) — refreshing the coverage index between phases
+  — reaches the same guarantee only while the refresh itself succeeds: the
+  index builder fails safe to `None` on a stale cagg or a statement timeout
+  (`build_minute_coverage_index`, slice 168), and on that path the backfill
+  phase would fall back to the cycle-start index and re-seed exactly the day
+  just fetched. A correctness property that degrades when a query times out
+  is the wrong shape for the resource this slice exists to protect.
+
+  *Cost.* Option (a) costs nothing: one universe-wide cagg scan per cycle,
+  unchanged from today. Option (b) pays a second scan per cycle (measured ~3 s
+  for the universe query, per `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT`'s
+  note) for a weaker guarantee.
+
+  *What (a) gives up.* A session that becomes missing *between* the two phases
+  is not seeded until the next cycle. That is acceptable and in fact correct:
+  the trailing phase has already attempted every symbol's current session, so
+  a newly-missing row inside the trailing window is one the pass just handled,
+  and a newly-missing older row is backfill work by definition. It waits one
+  cycle, and the cycles fire twice daily (01:05 and 13:05 UTC).
+
+  *Scope of the change.* The no-seed behavior is a property of the backfill
+  **phase**, passed explicitly into `_do_minute_symbol` — not a change to
+  `_do_minute_symbol`'s own gate. `run_minute_refetch` and the single-symbol
+  operator path call `_do_minute_symbol` directly and never set it, so they
+  seed exactly as they do today.
 - [ ] **Task 3.4: Trailing and backfill phases** (effort: 3)
   - [ ] `run_minute_cycle` walks the active universe once with
         `min_gap_end = now - MINUTE_TRAILING_PRIORITY_WINDOW` and **one chunk

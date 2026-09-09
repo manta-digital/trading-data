@@ -321,6 +321,43 @@ how often the daemon reports `seeded N/<total> symbols, M gaps` during a
 long-running cycle.
 """
 
+MINUTE_TRAILING_PRIORITY_WINDOW: timedelta = timedelta(days=7)
+"""How far back a minute gap counts as "trailing" for the priority phase
+(slice 921).
+
+The minute cycle walks the universe twice: a trailing phase that attempts
+every symbol's gaps ending within this window (one chunk each), then a
+backfill phase for everything older. Sized from the failure it exists to
+prevent: on 2026-09-07 the 13:05 UTC pass spent its whole run on deep
+backfill and never reached the current session, so the nightly data simply
+did not arrive. A week is wide enough to absorb a multi-day outage or a long
+holiday weekend and still re-attempt those sessions at priority, and narrow
+enough that the trailing phase stays one chunk per active symbol (~13k
+requests) rather than growing into a second backfill.
+"""
+
+MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL: int = 1
+"""Chunks the trailing phase requests per symbol before moving on (slice 921).
+
+One. The trailing phase exists to attempt every symbol's current session
+before any deep backfill, so it must not linger on one symbol's backlog — at
+~13k active symbols, a second chunk each is another ~13k requests (65k
+credits) ahead of the symbols still waiting for their first. Anything deeper
+is backfill work and belongs to the backfill phase, which is unbounded.
+"""
+
+MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES: int = 5
+"""Consecutive provider failures that abort a minute pass (slice 921).
+
+Precedent and value: ``PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS``. One symbol's
+failed response is skipped and counted; a streak is the signature of an
+account- or provider-wide condition (quota exhaustion, an EODHD outage) where
+every further request spends credits to learn the same thing. Counted only
+for failures the provider caused — a database or lock failure must not trip
+it, which is why the failure kind is threaded up the return path rather than
+inferred from a collapsed TRANSIENT_FAILURE.
+"""
+
 MINUTE_CAGG_CHUNK_INTERVAL: timedelta = timedelta(days=70)
 """TimescaleDB ``chunk_time_interval`` for the four minute continuous
 aggregates' materialized hypertables (slice 163).
@@ -870,6 +907,26 @@ class FetchEntryPoint(StrEnum):
     REFETCH = "refetch"
     """Single-shot operator command (`run_minute_refetch` / `run_daily_refetch`,
     i.e. `mt data pull 1m|1d`)."""
+
+
+class MinutePassPhase(StrEnum):
+    """Which phase of a minute pass is running (slice 921).
+
+    A minute pass walks the active universe twice: TRAILING attempts every
+    symbol's current session first (bounded to
+    ``MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL`` and floored at
+    ``MINUTE_TRAILING_PRIORITY_WINDOW``), then BACKFILL walks everything older
+    without either bound. The phase is a value, not a log string: the pass
+    outcome and the process exit code both depend on WHICH phase aborted, so
+    it must be comparable rather than reconstructed from log text.
+    """
+
+    TRAILING = "trailing"
+    """Current-session priority walk. Seeds; one chunk per symbol."""
+
+    BACKFILL = "backfill"
+    """Deep-history walk. Does not seed (the trailing walk already did) and is
+    unbounded in chunks per symbol."""
 
 
 class CycleGranularity(StrEnum):
