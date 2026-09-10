@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.2] - 2026-09-10
+
+### Fixed
+- The minute pass logs `trailing phase complete` only when the trailing
+  phase actually completed; an aborted or stopped phase says so, and the
+  cutover's stop trigger shares that line's text with the daemon.
+- A minute pass whose cycle raised now exits `PASS_INCOMPLETE` instead of 0.
+- The 921 cutover log carries the repair and `--verify` output, and a
+  preflight that cannot read the EODHD balance refuses in plain words.
+
+---
+
 ## [0.14.1] - 2026-09-10
 
 ### Fixed
