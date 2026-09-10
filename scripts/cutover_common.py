@@ -130,7 +130,9 @@ def release_timer(was_active: bool) -> None:
 
 
 def install(ref: str, commit: str) -> str:
-    run(["deploy/install-production.sh", "--ref", ref], sudo=True, stream=True)
+    # Absolute so the sudoers rule (deploy/sudoers.d/manta-ops) can name it.
+    installer = Path(__file__).resolve().parents[1] / "deploy/install-production.sh"
+    run([str(installer), "--ref", ref], sudo=True, stream=True)
     installed = out(
         ["-u", SERVICE_USER, "git", "-C", str(INSTALL_DIR), "rev-parse", "HEAD"],
         sudo=True,
