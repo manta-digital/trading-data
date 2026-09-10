@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(nothing yet)
+
+---
+
+## [0.14.1] - 2026-09-10
+
 ### Fixed
 - Minute acquisition no longer closes a session's gap row on a response that
   holds no bar inside the session. The 2026-09-10 cutover (issue #22) showed
