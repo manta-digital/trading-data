@@ -2296,3 +2296,355 @@ class TestRunnerCarriesTheExitCode:
         report.minute_trailing_completed = True
         runner._record_minute_pass_outcome(report)
         assert runner._minute_exit_code == MINUTE_EXIT_OK
+
+
+class TestChunkJudgedBySessions:
+    """Slice 921 / #22: a chunk's gap row survives until its sessions hold bars.
+
+    On 2026-09-10 the 01:21 UTC firing asked for the 09-09 session before
+    EODHD had published it. The response held one bar — the 09-08 session's
+    20:00 ET after-hours bar, which EODHD dates 00:00 UTC 09-09 — and
+    ``classify_outcome``'s date comparison called that SUCCESS, so
+    ``_advance_minute_gap`` deleted the row. The chunk is now judged per
+    session, so that response is PARTIAL and the row is kept.
+    """
+
+    OPEN = datetime(2026, 9, 9, 13, 30, tzinfo=UTC)
+    CLOSE = datetime(2026, 9, 9, 20, 0, tzinfo=UTC)
+
+    @staticmethod
+    def _bar(ts: datetime) -> dict:
+        return {
+            "timestamp": int(ts.timestamp()),
+            "datetime": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "open": 1,
+            "high": 1,
+            "low": 1,
+            "close": 1,
+            "volume": 1,
+        }
+
+    def _run(self, bars: list[dict]) -> tuple[MagicMock, MagicMock]:
+        """One chunk over the 09-09 session; returns (advance_mock, logger_mock)."""
+        gap_iter = iter([_gap(self.OPEN, self.CLOSE), None])
+        conn = MagicMock()
+        txn = MagicMock()
+        txn.__enter__ = MagicMock(return_value=txn)
+        txn.__exit__ = MagicMock(return_value=False)
+        conn.transaction.return_value = txn
+        lock_cm = MagicMock()
+        lock_cm.__enter__ = MagicMock(return_value=None)
+        lock_cm.__exit__ = MagicMock(return_value=False)
+        pool = MagicMock()
+        pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+        response = MagicMock(status_code=200, json=MagicMock(return_value=bars))
+        advance = MagicMock(return_value=None)
+        logger = MagicMock()
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.eodhd_get",
+                return_value=response,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.fetch_session_bounds",
+                return_value={self.OPEN: self.CLOSE},
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
+                advance,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=datetime(2004, 1, 1, tzinfo=UTC),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                return_value=0,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute._insert_minute_bars"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
+                side_effect=lambda *a, **kw: next(gap_iter, None),
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute._logger", logger),
+        ):
+            _do_minute_symbol(
+                "AAPL",
+                pool=pool,
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                via=FetchEntryPoint.CYCLE,
+                window=None,
+                coverage_index=None,
+            )
+        return advance, logger
+
+    def test_spillover_only_response_keeps_the_row(self) -> None:
+        spillover = self._bar(datetime(2026, 9, 9, 0, 0, tzinfo=UTC))
+        advance, logger = self._run([spillover])
+        advance.assert_called_once()
+        assert advance.call_args.kwargs["outcome"] is LastAttemptOutcome.PARTIAL
+        assert advance.call_args.kwargs["fetch_status"] is FetchStatus.UNKNOWN
+        unpublished = [
+            c for c in logger.info.call_args_list if "not published" in c.args[0]
+        ]
+        assert len(unpublished) == 1
+        assert "2026-09-09" in unpublished[0].args[4]
+
+    def test_full_session_deletes_the_row(self) -> None:
+        bars = [self._bar(self.OPEN + timedelta(minutes=m)) for m in range(1, 391)]
+        advance, logger = self._run(bars)
+        assert advance.call_args.kwargs["outcome"] is LastAttemptOutcome.SUCCESS
+        assert advance.call_args.kwargs["fetch_status"] is None
+        assert not [
+            c for c in logger.info.call_args_list if "not published" in c.args[0]
+        ]
+
+    def test_last_bar_before_the_chunk_end_is_still_success(self) -> None:
+        """The weekend tail: bars stop at Friday's close, chunk ends Sunday."""
+        friday_close = datetime(2026, 9, 11, 20, 0, tzinfo=UTC)
+        sunday = datetime(2026, 9, 13, tzinfo=UTC)
+        gap_iter = iter([_gap(self.OPEN, sunday), None])
+        friday_open = friday_close.replace(hour=13, minute=30)
+        bounds = {self.OPEN: self.CLOSE, friday_open: friday_close}
+        bars = [self._bar(self.OPEN + timedelta(minutes=1))] + [
+            self._bar(friday_close.replace(hour=13, minute=31))
+        ]
+        advance = MagicMock(return_value=None)
+        conn = MagicMock()
+        txn = MagicMock()
+        txn.__enter__ = MagicMock(return_value=txn)
+        txn.__exit__ = MagicMock(return_value=False)
+        conn.transaction.return_value = txn
+        lock_cm = MagicMock()
+        lock_cm.__enter__ = MagicMock(return_value=None)
+        lock_cm.__exit__ = MagicMock(return_value=False)
+        pool = MagicMock()
+        pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+        response = MagicMock(status_code=200, json=MagicMock(return_value=bars))
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.eodhd_get",
+                return_value=response,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.fetch_session_bounds",
+                return_value=bounds,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._advance_minute_gap",
+                advance,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._record_minute_attempt",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=datetime(2004, 1, 1, tzinfo=UTC),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                return_value=0,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute._insert_minute_bars"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
+                side_effect=lambda *a, **kw: next(gap_iter, None),
+            ),
+        ):
+            _do_minute_symbol(
+                "AAPL",
+                pool=pool,
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                via=FetchEntryPoint.CYCLE,
+                window=None,
+                coverage_index=None,
+            )
+        # classify_outcome alone would say PARTIAL (last bar 09-11 < 09-13).
+        assert advance.call_args.kwargs["outcome"] is LastAttemptOutcome.SUCCESS
+
+
+class TestTruncatedDayAwareSeeding:
+    """Slice 921 / #22: the trailing seed treats truncated days as uncovered.
+
+    The coverage index reports a day as covered when it holds any bar, so the
+    4,278 sessions the 2026-09-10 firing truncated to one spillover bar were
+    never re-seeded. The trailing walk now passes the repair's truncated-day
+    index as ``uncovered_days``; the backfill walk (which does not seed)
+    receives nothing.
+    """
+
+    DAY = date(2026, 9, 9)
+
+    def test_do_minute_symbol_forwards_uncovered_days_to_the_seed(self) -> None:
+        conn = MagicMock()
+        txn = MagicMock()
+        txn.__enter__ = MagicMock(return_value=txn)
+        txn.__exit__ = MagicMock(return_value=False)
+        conn.transaction.return_value = txn
+        cur = MagicMock()
+        cur.__enter__ = MagicMock(return_value=cur)
+        cur.__exit__ = MagicMock(return_value=False)
+        # (has_bars, has_unknown_gaps, has_any_gaps, gap_frontier): full seed.
+        cur.fetchone.return_value = (True, True, True, None)
+        conn.cursor.return_value = cur
+        pool = MagicMock()
+        pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+        lock_cm = MagicMock()
+        lock_cm.__enter__ = MagicMock(return_value=None)
+        lock_cm.__exit__ = MagicMock(return_value=False)
+        compute = MagicMock(return_value=[])
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.compute_missing_minute_sessions",
+                compute,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.update_data_gaps",
+                return_value=MagicMock(gaps_inserted=0),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._resolve_minute_history_start",
+                return_value=datetime(2004, 1, 1, tzinfo=UTC),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.advisory_lock",
+                return_value=lock_cm,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.pick_most_recent_actionable_gap",
+                return_value=None,
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.coalesce_data_gaps",
+                return_value=0,
+            ),
+        ):
+            _do_minute_symbol(
+                "AAPL",
+                pool=pool,
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                via=FetchEntryPoint.CYCLE,
+                coverage_index={"AAPL": {self.DAY}},
+                uncovered_days=frozenset({self.DAY}),
+            )
+        compute.assert_called_once()
+        assert compute.call_args.kwargs["uncovered_days"] == {self.DAY}
+
+    def test_run_minute_phase_hands_each_symbol_its_own_days(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import _run_minute_phase
+
+        process = MagicMock(
+            return_value=MinuteSymbolResult(
+                outcome=LastAttemptOutcome.SUCCESS,
+                first_chunk_end=None,
+                last_chunk_end=None,
+                chunk_count=0,
+                gaps_seeded=0,
+                failure_kind=MinuteFailureKind.NONE,
+            )
+        )
+        with patch(
+            "manta_trading.data.acquisition.daemon.minute._process_minute_symbol",
+            process,
+        ):
+            _run_minute_phase(
+                ["AAPL", "MSFT"],
+                phase=MinutePassPhase.TRAILING,
+                pool=MagicMock(),
+                http=MagicMock(),
+                settings=cast("Settings", _FakeSettings()),
+                coverage_index={},
+                report=CycleReport(),
+                should_continue=None,
+                on_symbol=None,
+                min_gap_end=None,
+                max_chunks=1,
+                seed=True,
+                truncated_index={"AAPL": frozenset({self.DAY})},
+            )
+        by_symbol = {
+            c.args[0]: c.kwargs["uncovered_days"] for c in process.call_args_list
+        }
+        assert by_symbol == {"AAPL": frozenset({self.DAY}), "MSFT": None}
+
+    def test_scan_timeout_is_logged_and_the_cycle_seeds_without_it(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import _build_truncated_index
+        from manta_trading.data.gaps.repair_921 import RepairScanTimeout
+
+        logger = MagicMock()
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.build_truncated_day_index",
+                side_effect=RepairScanTimeout("scan exceeded 600s"),
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute._logger", logger),
+        ):
+            assert _build_truncated_index(MagicMock(), since=datetime.now(UTC)) is None
+        logger.exception.assert_called_once()
+        assert "truncated-day scan" in logger.exception.call_args.args[0]
+
+    def test_only_the_trailing_phase_receives_the_index(self) -> None:
+        phases: list[tuple[MinutePassPhase, object]] = []
+
+        def _fake_phase(_symbols, *, phase, truncated_index=None, **_kw):
+            phases.append((phase, truncated_index))
+            return 1, MinutePassOutcome.COMPLETE
+
+        with ExitStack() as stack:
+
+            def mp(target: str, **kwargs) -> MagicMock:
+                return stack.enter_context(patch(target, **kwargs))
+
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_FakeSettings(),
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.build_minute_coverage_index",
+                return_value={},
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.build_truncated_day_index",
+                return_value={"AAPL": frozenset({self.DAY})},
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._run_minute_phase",
+                side_effect=_fake_phase,
+            )
+            pool_cls = mp("manta_trading.data.acquisition.daemon.minute.ConnectionPool")
+            http_cls = mp("manta_trading.data.acquisition.daemon.minute.httpx.Client")
+            pool = MagicMock()
+            pool_cls.return_value.__enter__ = MagicMock(return_value=pool)
+            pool_cls.return_value.__exit__ = MagicMock(return_value=False)
+            http_cls.return_value.__enter__ = MagicMock(return_value=MagicMock())
+            http_cls.return_value.__exit__ = MagicMock(return_value=False)
+            run_minute_cycle(symbols=["AAPL"])
+
+        assert [p for p, _ in phases] == [
+            MinutePassPhase.TRAILING,
+            MinutePassPhase.BACKFILL,
+        ]
+        assert phases[0][1] == {"AAPL": frozenset({self.DAY})}
+        assert phases[1][1] is None

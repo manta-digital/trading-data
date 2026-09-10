@@ -188,13 +188,14 @@ failed is not an alarm.
    - **Judged session:** the newest `trading_sessions` row for
      `HEALTH_MINUTE_SESSION_CALENDAR = "NYSE"` (11,692 of 13,081 active
      instruments) whose **collecting firing has finished**: the pass that
-     lands a session is the first 01:05 UTC minute firing after its close,
+     lands a session is the first 04:05 UTC minute firing after its close,
      so the session is judged once
-     `next_0105_utc_after(session_close_utc) + HEALTH_MINUTE_SESSION_COLLECTION_LAG`
+     `next_0405_utc_after(session_close_utc) + HEALTH_MINUTE_SESSION_COLLECTION_LAG`
      (`3 h`, the trailing phase measured at ~35 min plus margin) is in the
-     past — 04:05 UTC the next day for a regular close and for an early
+     past — 07:05 UTC the next day for a regular close and for an early
      close alike (NYSE 2026 early closes: 07-02 17:00 UTC, 11-27 and 12-24
-     18:00 UTC; the 01:05 firing is the collecting one either way).
+     18:00 UTC; the 04:05 firing is the collecting one either way — it is
+     the first firing after EODHD publishes the day, see #22).
      Weekends and holidays fall out of the calendar. The firing time is the
      `mt-minute-pass.timer` `OnCalendar` value, held once in `constants.py`
      and rendered into the unit, not duplicated.
@@ -371,7 +372,7 @@ Nightly firing after this slice:
 7. `mt data health` fails `minute session mass` on a fixture where the
    judged session holds 45k bars and passes on one with 1.99M and on a
    210-minute early-close fixture with 1.05M; the judged session is
-   yesterday's from 04:05 UTC and the day before earlier, for regular and
+   yesterday's from 07:05 UTC and the day before earlier, for regular and
    early closes alike; the read is against `minute_4hour_ohlcv` (asserted
    by the test's query capture); the quota floor line is gone; production
    records at least one `healthy` run after 23:00 UTC.
@@ -396,7 +397,7 @@ sudo scripts/cutover_921_minute_sessions.py
 # 1. install-production.sh --ref v0.14.0 (twice if units changed)
 # 2. preconditions: no pass active, quota reset in the last 30 min
 # 3. repair --apply (prints before/after counts per predicate)
-# 4. next firings: 00:35 UTC daily, 01:05 UTC minute — trailing phase
+# 4. next firings: 00:35 UTC daily, 04:05 UTC minute — trailing phase
 ```
 
 Next morning:
@@ -518,3 +519,40 @@ Round 2 (CONCERNS, reviewed b3ab989):
 | F004 912 stamping | Scope 3: an abort stamps the in-process cycle end like a completed pass (busy-loop guard only, per 912); `acquisition_state` for the un-attempted tail is untouched. |
 | F005 plan entry drift | 900 plan entry 22 reconciled to the design (session close + fetch-layer day window; absolute floors). |
 | F006 signature extensions | Interfaces Required: recorded as additive, backward-compatible, within the band's latitude. |
+
+## Cutover findings (2026-09-10, issue #22)
+
+The v0.14.0 cutover reproduced the truncated-symbol-day defect under the new
+code. Evidence (`minute_ohlcv.created_at` and the unit journal) and the fix
+scope are in issue #22; the four causes, each fixed in Section 8 of the tasks:
+
+1. **Provider publication lag.** EODHD publishes US 1-minute data 2-3 hours
+   after after-hours close (00:00 UTC). The 01:05 UTC firing asked for the
+   session before it existed; the 13:05 firing is the one that collected it.
+   The first firing is now 04:05 UTC (`MINUTE_PASS_FIRING_TIMES_UTC`), and
+   the judged session follows: 07:05 UTC the next day for any close.
+2. **Date-granularity SUCCESS.** `classify_outcome` compares the latest bar's
+   date with the range end's date; EODHD dates the 20:00 ET after-hours bar
+   of session D-1 as 00:00 UTC on day D, so one spillover bar satisfied the
+   row for D and it was deleted. A minute chunk is now judged per session — a
+   bar strictly after the open, at or before the close — in
+   `daemon/minute_sessions.py`, the same predicate as the repair's
+   truncated-day index.
+3. **The four-day trailing tolerance.** A shortfall of one session promoted
+   PARTIAL to SUCCESS for symbols with no spillover bar. Session judgement
+   subsumes it and the block is gone.
+4. **One bar reads as coverage.** The coarse coverage index reports a day as
+   covered when it holds any bar, so the 4,278 one-bar sessions were never
+   re-seeded by the next firing. The trailing walk now builds the truncated-day
+   index since the trailing floor and passes it as `uncovered_days`.
+
+Two operational findings from the same run: `--verify` reads the health cagg,
+which is `materialized_only` and refreshed hourly, so it must report WAIT (not
+a verdict) while the newest judged-session bar postdates the last refresh; and
+a minute firing is unbounded (backfill runs to quota), so the cutover stops the
+unit once `trailing phase complete` appears and writes its narration to a file
+under `project-documents/user/notes/`.
+
+Design figures corrected by this run: the trailing phase was assumed to
+collect the session that closed that day from the 01:05 firing; it cannot
+before ~03:00 UTC. Task 7.8's judged-session statement is 07:05 UTC.

@@ -53,6 +53,14 @@ from manta_trading.data.gaps import (
     pick_most_recent_actionable_gap,
     update_data_gaps,
 )
+from manta_trading.data.acquisition.daemon.minute_sessions import (
+    judge_chunk_by_sessions,
+)
+from manta_trading.data.gaps.compute_missing_ranges import fetch_session_bounds
+from manta_trading.data.gaps.repair_921 import (
+    RepairScanTimeout,
+    build_truncated_day_index,
+)
 from manta_trading.data.gaps.minute_coverage import (
     build_minute_coverage_index,
     build_symbol_minute_coverage,
@@ -290,10 +298,13 @@ def run_minute_cycle(
             # 2026-09-07 13:05 UTC pass spent its whole run on deep backfill
             # and never reached the current session.
             trailing_floor = datetime.now(_UTC) - MINUTE_TRAILING_PRIORITY_WINDOW
+            with pool.connection() as conn:
+                truncated_index = _build_truncated_index(conn, since=trailing_floor)
 
             trailing_scanned, trailing_outcome = _run_minute_phase(
                 symbol_list,
                 phase=MinutePassPhase.TRAILING,
+                truncated_index=truncated_index,
                 pool=pool,
                 http=http,
                 settings=settings,
@@ -338,6 +349,31 @@ def run_minute_cycle(
     return report
 
 
+def _build_truncated_index(
+    conn: psycopg.Connection, *, since: datetime
+) -> dict[str, frozenset[date]] | None:
+    """Truncated symbol-days since ``since`` for the trailing seed, or None.
+
+    Slice 921 / #22: the coverage index reports a day as covered when it
+    holds any bar, so a session truncated to one bar (the 2026-09-10 cutover
+    left 4,278 of them) is never re-seeded. The repair's index sees exactly
+    those days; the trailing walk passes them as ``uncovered_days``. Fails
+    safe the way a None coverage index does: on a scan timeout, log at ERROR
+    and seed without it — the health check still reports the truncation, and
+    the repair script remains the operator's path.
+    """
+    try:
+        return build_truncated_day_index(conn, since=since)
+    except RepairScanTimeout:
+        _logger.exception(
+            "run_minute_cycle: truncated-day scan since %s timed out — "
+            "seeding without it this cycle; truncated sessions will not be "
+            "re-fetched until a cycle's scan completes or the repair runs",
+            since,
+        )
+        return None
+
+
 def _failed(kind: MinuteFailureKind) -> MinuteSymbolResult:
     """A symbol that produced no fetch, tagged with WHY (slice 921 Task 4.2).
 
@@ -370,6 +406,7 @@ def _run_minute_phase(
     min_gap_end: datetime | None,
     max_chunks: int | None,
     seed: bool,
+    truncated_index: dict[str, frozenset[date]] | None = None,
 ) -> tuple[int, MinutePassOutcome | None]:
     """Walk the universe once for one phase.
 
@@ -419,6 +456,7 @@ def _run_minute_phase(
                 min_gap_end=min_gap_end,
                 max_chunks=max_chunks,
                 seed=seed,
+                uncovered_days=(truncated_index or {}).get(sym),
             )
         except QuotaWaitAborted:
             _logger.info(
@@ -527,6 +565,7 @@ def _process_minute_symbol(
     min_gap_end: datetime | None = None,
     max_chunks: int | None = None,
     seed: bool = True,
+    uncovered_days: frozenset[date] | None = None,
 ) -> MinuteSymbolResult:
     try:
         return _do_minute_symbol(
@@ -540,6 +579,7 @@ def _process_minute_symbol(
             min_gap_end=min_gap_end,
             max_chunks=max_chunks,
             seed=seed,
+            uncovered_days=uncovered_days,
         )
     except QuotaWaitAborted:
         # Shutdown, not a failure — must reach the cycle loop, so it cannot
@@ -606,6 +646,7 @@ def _do_minute_symbol(
     min_gap_end: datetime | None = None,
     max_chunks: int | None = None,
     seed: bool = True,
+    uncovered_days: frozenset[date] | None = None,
 ) -> MinuteSymbolResult:
     now_midnight = datetime.now(_UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     with pool.connection() as conn:
@@ -718,8 +759,16 @@ def _do_minute_symbol(
             # never a silent full-window re-seed beyond what already happens today.
             precomputed_ranges = None
             if coverage_index is not None:
+                # Slice 921 / #22: a session truncated to a single bar reads
+                # as covered in the coarse cagg, so without this the seed
+                # never re-creates its row and the truncation is permanent.
                 precomputed_ranges = compute_missing_minute_sessions(
-                    conn, symbol, coverage_index, seed_from, target_end
+                    conn,
+                    symbol,
+                    coverage_index,
+                    seed_from,
+                    target_end,
+                    uncovered_days=set(uncovered_days) if uncovered_days else None,
                 )
 
             # Seed gap rows and commit before entering the fetch loop.
@@ -839,22 +888,32 @@ def _do_minute_symbol(
             except Exception:
                 bars = []
 
-        # Trailing-weekend / trailing-holiday tolerance: classify_outcome
-        # marks the response PARTIAL whenever the latest bar's date is
-        # before chunk_end's date. For minute granularity, chunk_end is
-        # set from gap.gap_end which is anchored to UTC midnight of the
-        # current calendar day, so a Sunday chunk_end will *never* be
-        # reached by EODHD (which only returns weekday session bars).
-        # Without this override the chunk re-fetches forever, never
-        # adding bars (all duplicates), with attempt_count climbing.
-        # If we got bars and the latest one is within a small calendar
-        # tolerance of chunk_end, accept it as SUCCESS — the
-        # unreachable trailing window is non-trading time, not data
-        # the provider is withholding.
-        if outcome == LastAttemptOutcome.PARTIAL and bars:
-            latest = _latest_bar_dt(bars)
-            if latest is not None and (chunk_end.date() - latest.date()).days <= 4:
-                outcome = LastAttemptOutcome.SUCCESS
+        # Slice 921 / #22: judge the chunk by the SESSIONS it covers, not by
+        # the latest bar's date. EODHD dates session D-1's 20:00 ET
+        # after-hours bar as 00:00 UTC on day D, so a response holding only
+        # that spillover bar satisfied classify_outcome's date comparison and
+        # the row for D's session was deleted with no session bars behind it
+        # (the 2026-09-10 cutover, 4,278 symbols). A session counts only when
+        # a bar lands in (open, close]. This also subsumes the former
+        # trailing-weekend tolerance: a weekend or holiday tail has no session
+        # to be missing, so a chunk whose sessions are all covered is SUCCESS
+        # however far its last bar sits before chunk_end.
+        with pool.connection() as bounds_conn:
+            session_bounds = fetch_session_bounds(
+                bounds_conn, symbol, chunk_start, chunk_end
+            )
+        outcome, unpublished = judge_chunk_by_sessions(
+            outcome, bars, session_bounds, chunk_end
+        )
+        if unpublished:
+            _logger.info(
+                "minute fetch: %s chunk [%s → %s] carried bars but none inside "
+                "session(s) %s — provider has not published them; row kept",
+                symbol,
+                chunk_start,
+                chunk_end,
+                ", ".join(f"{s:%Y-%m-%d}" for s in unpublished),
+            )
 
         fetch_status = outcome_to_fetch_status(outcome)
         last_outcome = outcome
@@ -989,30 +1048,6 @@ def run_minute_refetch(
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report
-
-
-def _latest_bar_dt(bars: list[dict]) -> datetime | None:
-    """Return the latest UTC datetime found in EODHD minute bars, or None.
-
-    Mirrors the timestamp parsing in _insert_minute_bars but skips the rest.
-    Used by the daemon to decide when a PARTIAL outcome is really SUCCESS
-    against a chunk_end that lands on a non-trading day.
-    """
-    latest: datetime | None = None
-    for bar in bars:
-        try:
-            ts_epoch = bar.get("timestamp")
-            if ts_epoch is not None:
-                ts = datetime.fromtimestamp(int(ts_epoch), tz=_UTC)
-            else:
-                ts = datetime.fromisoformat(bar.get("datetime", "")).replace(
-                    tzinfo=_UTC
-                )
-        except (KeyError, ValueError, TypeError):
-            continue
-        if latest is None or ts > latest:
-            latest = ts
-    return latest
 
 
 def _advance_minute_gap(

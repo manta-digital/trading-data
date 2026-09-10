@@ -112,8 +112,8 @@ HEALTH_MINUTE_SESSION_COLLECTION_LAG: timedelta = timedelta(hours=3)
 """Grace after the collecting firing before its session is judged.
 
 A session is only judged once the pass that collects it has had time to
-finish. Sized from the measured pass duration plus headroom; with the 01:05
-UTC firing this puts a regular 20:00 close's verdict at 04:05 the next day.
+finish. Sized from the measured pass duration plus headroom; with the 04:05
+UTC firing this puts a regular 20:00 close's verdict at 07:05 the next day.
 Matches HEALTH_KALSHI_PHASE_STALE_AFTER's three-hour convention."""
 
 HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE: int = 2_500
@@ -147,14 +147,22 @@ of one session's buckets in the coarse minute cagg, never raw minute_ohlcv
 (the §166/§167 latency cliff). On timeout the check exits 2 like every other
 919 check rather than reporting a mass it did not measure."""
 
-MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(1, 5), time(13, 5))
+MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(4, 5), time(13, 5))
 """When the minute acquisition pass fires, as UTC times of day.
 
 Single source of truth, read by BOTH the health check (to know when a
 session's collecting firing has finished) and the timer drift guard (to assert
 deploy/systemd/mt-minute-pass.timer still says the same thing). The check and
 the timer disagreeing is exactly how a stale verdict becomes invisible, so
-they are not allowed to hold separate copies of these times."""
+they are not allowed to hold separate copies of these times.
+
+The first firing sits AFTER the provider publishes the day. EODHD: "for US
+tickers, 1-minute data is updated 2-3 hours after the end of after-hours
+trading" (20:00 ET = 00:00 UTC), so nothing before ~03:00 UTC can collect the
+session just closed. Measured 2026-09-10 (issue #22): a pass at 01:21 UTC got
+the whole 09-08 session and one after-hours spillover bar for 09-09; a pass
+at 11:27 UTC got 09-09 in full. 04:05 leaves an hour over the provider's
+upper bound; the 13:05 firing is unchanged."""
 
 HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
 """EODHD account endpoint; returns ``apiRequests``, ``dailyRateLimit``,

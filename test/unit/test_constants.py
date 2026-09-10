@@ -418,7 +418,7 @@ def test_minute_session_statement_timeout_type_and_value() -> None:
 def test_minute_pass_firing_times_type_and_values() -> None:
     assert isinstance(MINUTE_PASS_FIRING_TIMES_UTC, tuple)
     assert all(isinstance(t, time) for t in MINUTE_PASS_FIRING_TIMES_UTC)
-    assert MINUTE_PASS_FIRING_TIMES_UTC == (time(1, 5), time(13, 5))
+    assert MINUTE_PASS_FIRING_TIMES_UTC == (time(4, 5), time(13, 5))
 
 
 def test_minute_session_thresholds_sit_below_their_measurements() -> None:

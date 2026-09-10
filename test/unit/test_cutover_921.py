@@ -38,6 +38,26 @@ def cutover() -> Any:
     return module
 
 
+@pytest.fixture(autouse=True)
+def _no_side_effects(cutover: Any, tmp_path: Path) -> Any:
+    """No unit test may reach a real command (#22: an un-patched seam ran
+    ``sudo mt-run minute`` from pytest), write the narration file into the
+    repo, or sleep between verify polls."""
+    import cutover_common
+
+    def _forbidden(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError(f"real subprocess in a unit test: {args[0]!r}")
+
+    with (
+        patch.object(cutover_common.subprocess, "run", side_effect=_forbidden),
+        patch.object(cutover_common, "_LOG_FILE", None),
+        patch.object(cutover, "start_log", return_value=tmp_path / "cutover.log"),
+        patch.object(cutover_common.time, "sleep"),
+        patch.object(cutover.time, "sleep"),
+    ):
+        yield
+
+
 class _Firing:
     """Stand-in for cutover_common.Firing."""
 
@@ -124,6 +144,11 @@ def _happy_path(cutover: Any, *, verify_text: str = "[PASS] all good"):
         patch.object(cutover, "fire_unit", side_effect=_fake_fire),
         patch.object(
             cutover,
+            "fire_unit_until",
+            side_effect=lambda unit, args, _p: (*_fake_fire(unit, args), True),
+        ),
+        patch.object(
+            cutover,
             "read_unit_journal",
             return_value=_Firing({cutover.TRAILING_COMPLETE: _match("13083")}),
         ),
@@ -166,6 +191,11 @@ class TestHappyPath:
             patch.object(cutover, "fire_unit", side_effect=_fake_fire),
             patch.object(
                 cutover,
+                "fire_unit_until",
+                side_effect=lambda unit, args, _p: (*_fake_fire(unit, args), True),
+            ),
+            patch.object(
+                cutover,
                 "read_unit_journal",
                 return_value=_Firing({cutover.TRAILING_COMPLETE: _match("1")}),
             ),
@@ -197,6 +227,7 @@ class TestHappyPath:
             patch.object(cutover, "install", install_mock),
             patch.object(cutover, "_repair", return_value="[PASS]"),
             patch.object(cutover, "fire_unit", return_value=("c", "s")),
+            patch.object(cutover, "fire_unit_until", return_value=("c", "s", True)),
             patch.object(
                 cutover,
                 "read_unit_journal",
@@ -238,6 +269,11 @@ class TestRepeatedMinuteFirings:
             patch.object(cutover, "install"),
             patch.object(cutover, "_repair", side_effect=_fake_repair),
             patch.object(cutover, "fire_unit", side_effect=_fake_fire),
+            patch.object(
+                cutover,
+                "fire_unit_until",
+                side_effect=lambda unit, args, _p: (*_fake_fire(unit, args), True),
+            ),
             patch.object(cutover, "read_unit_journal", return_value=_Firing(matches)),
             patch.object(cutover, "unit_result", return_value=("success", "0")),
             patch.object(cutover, "run"),
@@ -286,6 +322,7 @@ class TestTimersAreHeldAndReleased:
             patch.object(cutover, "install"),
             patch.object(cutover, "_repair", return_value="[PASS]"),
             patch.object(cutover, "fire_unit", return_value=("c", "s")),
+            patch.object(cutover, "fire_unit_until", return_value=("c", "s", True)),
             patch.object(
                 cutover,
                 "read_unit_journal",
@@ -342,6 +379,7 @@ class TestBudgetGate:
             patch.object(cutover, "install"),
             patch.object(cutover, "_repair", repair),
             patch.object(cutover, "fire_unit", return_value=("c", "s")),
+            patch.object(cutover, "fire_unit_until", return_value=("c", "s", True)),
             patch.object(
                 cutover,
                 "read_unit_journal",
@@ -403,3 +441,86 @@ class TestBudgetGate:
         response.raise_for_status = MagicMock()
         with patch.object(httpx, "get", return_value=response):
             assert cutover._remaining_credits() == 593_142
+
+
+class TestBoundedFiringAndRecord:
+    """#22: the first cutover's firing ran ten hours (backfill is unbounded)
+    and its only record was terminal scrollback."""
+
+    @staticmethod
+    def _fire(
+        cutover: Any, *, lines: list[Any], active: list[bool]
+    ) -> tuple[bool, list[list[str]]]:
+        import cutover_common
+
+        stopped: list[list[str]] = []
+        line_iter = iter(lines)
+        active_iter = iter(active)
+
+        def _fake_run(args, **kwargs):
+            if args[:2] == ["systemctl", "stop"]:
+                stopped.append(args)
+            return MagicMock(stdout="")
+
+        with (
+            patch.object(cutover_common, "journal_cursor", return_value="cur"),
+            patch.object(
+                cutover_common,
+                "journal_line_since",
+                side_effect=lambda *a: next(line_iter),
+            ),
+            patch.object(
+                cutover_common, "unit_active", side_effect=lambda _u: next(active_iter)
+            ),
+            patch.object(cutover_common, "run", side_effect=_fake_run),
+        ):
+            _cursor, _started, reached = cutover_common.fire_unit_until(
+                "mt-minute-pass.service", ["minute"], cutover.TRAILING_COMPLETE
+            )
+        return reached, stopped
+
+    def test_the_minute_firing_stops_once_the_trailing_phase_completes(
+        self, cutover: Any
+    ) -> None:
+        # Unit stays active; the line appears on the second poll.
+        reached, stopped = self._fire(
+            cutover,
+            lines=[None, _match("13083"), _match("13083")],
+            active=[True, True, True, False, False],
+        )
+        assert reached is True
+        assert stopped == [["systemctl", "stop", "mt-minute-pass.service"]]
+
+    def test_a_firing_that_ends_without_the_line_is_not_stopped(
+        self, cutover: Any
+    ) -> None:
+        reached, stopped = self._fire(cutover, lines=[None, None], active=[False])
+        assert reached is False
+        assert stopped == []
+
+    def test_say_tees_to_the_log_file(self, tmp_path: Path) -> None:
+        import cutover_common
+
+        path = cutover_common.start_log(tmp_path / "logs" / "921.log")
+        cutover_common.say("hello")
+        cutover_common.say("world")
+        text = path.read_text()
+        assert "==> hello" in text and "==> world" in text
+
+    def test_verify_is_repolled_while_the_cagg_is_stale(self, cutover: Any) -> None:
+        answers = iter(["[WAIT] stale", "[WAIT] stale", "[PASS] fresh"])
+        with patch.object(cutover, "_repair", side_effect=lambda _m: next(answers)):
+            text = cutover._verify_when_fresh()
+        assert text == "[PASS] fresh"
+
+    def test_verify_wait_is_bounded(self, cutover: Any) -> None:
+        with patch.object(cutover, "_repair", return_value="[WAIT] stale") as repair:
+            text = cutover._verify_when_fresh()
+        assert "[WAIT]" in text
+        assert repair.call_count == cutover.VERIFY_WAIT_POLLS + 1
+
+    def test_a_wait_verdict_never_counts_as_acceptance(self, cutover: Any) -> None:
+        code, _repair_calls, _fires, _install = _happy_path(
+            cutover, verify_text="[WAIT] stale"
+        )
+        assert code == 1

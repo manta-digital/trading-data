@@ -14,7 +14,7 @@ cases are unit-tested without a database; only ``fetch_*`` touches I/O.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import psycopg
@@ -69,8 +69,9 @@ def collecting_firing_finished_at(
 
     The first configured firing at or after the session close, plus the
     collection lag. For a regular 20:00 UTC close and an early 17:00 close
-    alike this resolves to 01:05 + 3 h = 04:05 UTC the next day, because both
-    closes fall between the 13:05 and the following 01:05 firing.
+    alike this resolves to 04:05 + 3 h = 07:05 UTC the next day, because both
+    closes fall between the 13:05 and the following 04:05 firing (which is
+    the first one after EODHD publishes the day — see the constant).
 
     Firing times come from ``MINUTE_PASS_FIRING_TIMES_UTC``, the same constant
     the timer drift guard asserts against ``mt-minute-pass.timer`` — the check
@@ -98,7 +99,7 @@ def select_judged_session(
 ) -> TradingSessionBounds | None:
     """Return the newest session whose collecting firing has finished.
 
-    Pure: takes ``now`` and the candidates, does no I/O, so the 04:04/04:05
+    Pure: takes ``now`` and the candidates, does no I/O, so the 07:04/07:05
     boundary is directly testable.
 
     Weekends and holidays need no special case — they are not
@@ -256,9 +257,14 @@ def check_minute_session_mass(
         bars_per_minute >= min_bars_per_minute
         and mass.symbols_meeting_min_bars >= min_symbols
     )
+    # psycopg hands back timestamptz in the connection's zone (America/Denver
+    # in production), so format in UTC or the label lies (#22: "07:30-14:00
+    # UTC" for a 13:30-20:00 session).
+    open_utc = session.session_open_utc.astimezone(UTC)
+    close_utc = session.session_close_utc.astimezone(UTC)
     return ok, (
-        f"session {session.session_open_utc:%Y-%m-%d} "
-        f"({session.session_open_utc:%H:%M}-{session.session_close_utc:%H:%M} UTC): "
+        f"session {open_utc:%Y-%m-%d} "
+        f"({open_utc:%H:%M}-{close_utc:%H:%M} UTC): "
         f"{mass.total_bars:,} bars, {bars_per_minute:,.0f}/min "
         f"(floor {min_bars_per_minute:,}); "
         f"{mass.symbols_meeting_min_bars:,} symbols with "

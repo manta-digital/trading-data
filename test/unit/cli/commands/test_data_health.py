@@ -192,33 +192,33 @@ class TestJudgedSessionSelection:
     """A session is judged only once the firing that collects it has finished.
 
     Both a regular 20:00 UTC close and an early 17:00 close are collected by
-    the next 01:05 firing, so both become judgeable at 04:05 UTC the next day
-    (01:05 + the 3 h collection lag) — the SC7 boundary.
+    the next 04:05 firing, so both become judgeable at 07:05 UTC the next day
+    (04:05 + the 3 h collection lag) — the SC7 boundary.
     """
 
     REGULAR = _session("2026-09-08", (13, 30), (20, 0))
     EARLY = _session("2026-09-08", (13, 30), (17, 0))
     PRIOR = _session("2026-09-07", (13, 30), (20, 0))
 
-    def test_a_regular_close_is_not_judged_at_0404(self) -> None:
-        now = datetime(2026, 9, 9, 4, 4, tzinfo=UTC)
+    def test_a_regular_close_is_not_judged_at_0704(self) -> None:
+        now = datetime(2026, 9, 9, 7, 4, tzinfo=UTC)
         judged = select_judged_session([self.REGULAR, self.PRIOR], now=now)
         assert judged == self.PRIOR, "the day before is still the judged one"
 
-    def test_a_regular_close_is_judged_at_0405(self) -> None:
-        now = datetime(2026, 9, 9, 4, 5, tzinfo=UTC)
+    def test_a_regular_close_is_judged_at_0705(self) -> None:
+        now = datetime(2026, 9, 9, 7, 5, tzinfo=UTC)
         judged = select_judged_session([self.REGULAR, self.PRIOR], now=now)
         assert judged == self.REGULAR
 
-    def test_an_early_close_is_not_judged_at_0404(self) -> None:
+    def test_an_early_close_is_not_judged_at_0704(self) -> None:
         """An early close does NOT become judgeable sooner — it is collected by
-        the same 01:05 firing, so it waits for the same instant."""
-        now = datetime(2026, 9, 9, 4, 4, tzinfo=UTC)
+        the same 04:05 firing, so it waits for the same instant."""
+        now = datetime(2026, 9, 9, 7, 4, tzinfo=UTC)
         judged = select_judged_session([self.EARLY, self.PRIOR], now=now)
         assert judged == self.PRIOR
 
-    def test_an_early_close_is_judged_at_0405(self) -> None:
-        now = datetime(2026, 9, 9, 4, 5, tzinfo=UTC)
+    def test_an_early_close_is_judged_at_0705(self) -> None:
+        now = datetime(2026, 9, 9, 7, 5, tzinfo=UTC)
         judged = select_judged_session([self.EARLY, self.PRIOR], now=now)
         assert judged == self.EARLY
 
@@ -246,17 +246,17 @@ class TestJudgedSessionSelection:
 
 
 class TestCollectingFiringFinishedAt:
-    def test_a_regular_close_resolves_to_0405_next_day(self) -> None:
+    def test_a_regular_close_resolves_to_0705_next_day(self) -> None:
         finished = collecting_firing_finished_at(
             _session("2026-09-08", (13, 30), (20, 0))
         )
-        assert finished == datetime(2026, 9, 9, 4, 5, tzinfo=UTC)
+        assert finished == datetime(2026, 9, 9, 7, 5, tzinfo=UTC)
 
     def test_an_early_close_resolves_to_the_same_instant(self) -> None:
         finished = collecting_firing_finished_at(
             _session("2026-09-08", (13, 30), (17, 0))
         )
-        assert finished == datetime(2026, 9, 9, 4, 5, tzinfo=UTC)
+        assert finished == datetime(2026, 9, 9, 7, 5, tzinfo=UTC)
 
     def test_a_close_before_the_1305_firing_uses_that_firing(self) -> None:
         """A hypothetical session closing at 12:00 UTC is collected by the

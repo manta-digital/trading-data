@@ -579,6 +579,99 @@ cutover script fires the passes itself and measures immediately.
   - [ ] Commit: `docs: record the 921 cutover measurements and close #19/#20`.
   - [ ] Success: slice branch ready to merge into the integration target.
 
+## Section 8: Cutover findings — issue #22
+
+The v0.14.0 cutover on 2026-09-10 reproduced the truncated-symbol-day defect
+under the new code: firing #1 (01:21 UTC) wrote one after-hours spillover bar
+dated 2026-09-09 on 4,278 symbols and closed their gap rows; firing #2
+(11:27 UTC) collected 09-09 correctly but skipped those symbols because a
+one-bar day reads as covered. Root causes and evidence are in issue #22. Task
+7.7 is not accepted; Tasks 7.7-7.10 re-run after this section ships as 0.14.1.
+
+- [x] **Task 8.1: Judge a minute chunk by session bars, not by bar dates** (effort: 3)
+  - [x] New pure function `sessions_without_bars(bars, session_bounds)` in
+        `data/acquisition/daemon/minute_sessions.py`: given the provider's
+        bars and `{session_open_utc: session_close_utc}` for the chunk, return
+        the opens of every session (with close ≤ chunk end) holding no bar in
+        `(open, close]`. Same predicate as the repair's truncated-day index
+        ("newest bar at or before the open" = not collected); state that in
+        both docstrings.
+  - [x] In `_do_minute_symbol`, after `classify_outcome` and the body parse:
+        read `fetch_session_bounds(conn, symbol, chunk_start, chunk_end)`; when
+        the response carried bars and any session is unsatisfied, the outcome
+        is PARTIAL (row kept, attempt counted) and one INFO line names the
+        sessions the provider has not published; when every session is
+        satisfied the outcome is SUCCESS even if the last bar's date is before
+        the chunk end. A chunk with no session in its bounds keeps
+        `classify_outcome`'s verdict.
+  - [x] Delete the four-day "trailing-weekend tolerance" block — session
+        judgement subsumes it (a weekend tail has no session to be missing).
+  - [x] Success: a chunk whose only day-D bar is the 00:00 UTC spillover is
+        PARTIAL; a chunk with D-1 bars and no D bars is PARTIAL; a full
+        session is SUCCESS.
+- [x] **Task 8.2: Unit tests for the session judgement** (effort: 2)
+  - [x] `sessions_without_bars`: spillover-only bar; no bars in the last
+        session; two sessions with one empty; every session covered with the
+        last bar before chunk end; empty bounds; bars in EODHD's real shape
+        (`timestamp` epoch and `datetime` string, both forms).
+  - [x] `_do_minute_symbol` through `TestProviderWindowReachesDayEnd`'s
+        pattern: spillover-only response leaves the gap row (no DELETE) and
+        logs the unpublished session; full response deletes it. Replace the
+        tolerance tests with session-judgement equivalents.
+  - [x] Success: `pytest test/unit/data/acquisition/daemon -q` green.
+- [x] **Task 8.3: Truncated-day-aware seeding in the trailing phase** (effort: 2)
+  - [x] `run_minute_cycle` builds `build_truncated_day_index(conn, since=trailing_floor)`
+        once per cycle next to the coverage index and threads it through
+        `_run_minute_phase` → `_process_minute_symbol` → `_do_minute_symbol`
+        → `compute_missing_minute_sessions(uncovered_days=...)` for the
+        seeding (trailing) phase only. `RepairScanTimeout` logs at ERROR and
+        the cycle proceeds without the index — the same fail-safe shape as a
+        None coverage index, and stated as such in the log line.
+  - [x] Tests: a symbol whose only day-D bar is at the open is re-seeded and
+        fetched; the backfill phase receives nothing; a scan timeout is logged
+        and the cycle continues.
+  - [x] Success: the 4,278 spillover-only symbols are re-fetched by the next
+        trailing walk without a manual repair.
+- [x] **Task 8.4: Move the first firing after the provider publishes** (effort: 1)
+  - [x] EODHD: "for US tickers, 1-minute data is updated 2-3 hours after the
+        end of after-hours trading" (00:00 UTC). `MINUTE_PASS_FIRING_TIMES_UTC`
+        becomes `(04:05, 13:05)`; `deploy/systemd/mt-minute-pass.timer`
+        matches (the drift guard enforces it); the constant's docstring
+        records the provider statement and the measured 2026-09-10 evidence.
+  - [x] Update the judge-time docstrings, `test_data_health` expectations
+        (verdict at 07:05 UTC), runbook 100, the slice doc, and CHANGELOG.
+  - [x] Success: `test_constants` drift guard and `test_data_health` green;
+        no remaining "01:05" in code or docs except history.
+- [x] **Task 8.5: Verify reads fresh numbers and labels UTC** (effort: 2)
+  - [x] `--verify` refreshes `minute_4hour_ohlcv` over the judged session's
+        buckets (`refresh_continuous_aggregate`, autocommit) before reusing
+        the health path, so a verify run minutes after a pass does not report
+        the cagg's hour-old view. If the connection role cannot refresh,
+        `--verify` says so and exits non-zero rather than judging stale data.
+  - [x] The health line and `--verify` format session bounds after
+        `.astimezone(UTC)`; the connection's `America/Denver` session
+        currently prints "07:30-14:00 UTC".
+  - [x] Tests: label is UTC regardless of tzinfo; refresh is invoked with
+        the session's bucket span; refusal path when refresh raises.
+- [x] **Task 8.6: Bound the cutover firing and keep its record** (effort: 2)
+  - [x] `cutover_common.wait_for_journal_line(unit, cursor, pattern)`;
+        the 921 cutover waits for `trailing phase complete`, then stops the
+        unit — backfill belongs to the timers, not the cutover. A firing that
+        aborts before that line still ends via `wait_for_unit_to_end`.
+  - [x] `say()` tees to `$MANTA_DATA_DIR/cutover/921-<UTC stamp>.log`; the
+        final report names the file. Announce before each `sudo -v` so a
+        password prompt after a long firing is not mistaken for a hang.
+  - [x] Tests: journal-line wait returns on match and on unit exit; the log
+        file receives every `say` line.
+- [ ] **Task 8.7: Section 8 checkpoint** (effort: 1)
+  - [x] Unit tier green; slice 921 integration tests green; mypy at baseline
+        on touched files; `ruff format` scoped to touched files and the diff
+        checked against `main` for sweep.
+  - [x] Slice doc: add "Cutover findings (2026-09-10)" citing #22 and the four
+        causes; Task 7.8's judged-session statement updated for 04:05.
+  - [ ] Commit: `fix: judge minute chunks by session bars and fire after the provider publishes (921, #22)`.
+  - [ ] Success: 0.14.1 ready for the PM to tag; Task 7.7 re-run from it.
+
 ## Review Response (2026-09-09, tasks review part 2 — CONCERNS)
 
 | Finding | Change |

@@ -38,8 +38,28 @@ class CutoverError(RuntimeError):
     """A step found the host in a state it will not act on."""
 
 
+_LOG_FILE: Path | None = None
+
+
+def start_log(path: Path) -> Path:
+    """Tee every ``say`` line into ``path`` (slice 921 / #22).
+
+    The first 921 cutover's only record was terminal scrollback across two
+    ten-hour firings. The narration is the cutover's report; it gets a file.
+    """
+    global _LOG_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"cutover log opened {datetime.now(UTC).isoformat()}\n")
+    _LOG_FILE = path
+    return path
+
+
 def say(text: str) -> None:
-    print(f"\n==> {text}", flush=True)
+    line = f"\n==> {text}"
+    print(line, flush=True)
+    if _LOG_FILE is not None:
+        with _LOG_FILE.open("a") as handle:
+            handle.write(line + "\n")
 
 
 def run(
@@ -273,6 +293,74 @@ def wait_for_unit_to_end(unit: str) -> None:
         time.sleep(POLL_SECONDS)
 
 
+def journal_line_since(
+    unit: str, cursor: str, pattern: re.Pattern[str]
+) -> re.Match[str] | None:
+    """First match of ``pattern`` in ``unit``'s journal after ``cursor``."""
+    text = out(
+        [
+            "journalctl",
+            "-u",
+            unit,
+            "--after-cursor",
+            cursor,
+            "-q",
+            "--no-pager",
+            "-o",
+            "cat",
+        ]
+    )
+    return pattern.search(text)
+
+
+def wait_for_unit_or_line(unit: str, cursor: str, pattern: re.Pattern[str]) -> bool:
+    """Block until ``pattern`` appears in the journal or ``unit`` ends.
+
+    Returns True when the line was seen (the unit may still be running),
+    False when the unit ended without it. Slice 921 / #22: a minute firing is
+    unbounded — after its trailing phase it backfills until quota runs out —
+    so a cutover that waits for the unit to END waits for days. It waits for
+    the line it needs instead.
+    """
+    while unit_active(unit):
+        if journal_line_since(unit, cursor, pattern) is not None:
+            return True
+        print(f"    {unit} is running — waiting ({POLL_SECONDS}s) …", flush=True)
+        time.sleep(POLL_SECONDS)
+    return journal_line_since(unit, cursor, pattern) is not None
+
+
+def stop_unit(unit: str) -> None:
+    """``systemctl stop`` and wait for the unit to be gone."""
+    run(["systemctl", "stop", unit], sudo=True)
+    wait_for_unit_to_end(unit)
+
+
+def fire_unit_until(
+    unit: str, mt_run_args: list[str], pattern: re.Pattern[str]
+) -> tuple[str, str, bool]:
+    """Fire ``unit`` and stop it once ``pattern`` shows in its journal.
+
+    Returns (journal cursor, start instant, pattern seen). The unit is left
+    alone when it ends before the line appears — the journal then explains
+    why. Sibling of ``fire_unit``, which waits for the unit itself to end.
+    """
+    cursor = journal_cursor(unit)
+    started = datetime.now(UTC).isoformat(timespec="seconds")
+    print(
+        f"    sudo mt-run {' '.join(mt_run_args)} — streaming; Ctrl-C only "
+        "detaches, the script keeps waiting"
+    )
+    run(["mt-run", *mt_run_args], sudo=True, check=False, stream=True)
+    reached = wait_for_unit_or_line(unit, cursor, pattern)
+    if reached and unit_active(unit):
+        say(f"  {pattern.pattern!r} reached — stopping {unit}; the timers own the rest")
+        stop_unit(unit)
+    print("    sudo -v — a password prompt here is normal after a long firing")
+    run(["sudo", "-v"], stream=True)  # the firing may outlive the sudo grace period
+    return cursor, started, reached
+
+
 def fire_unit(unit: str, mt_run_args: list[str]) -> tuple[str, str]:
     """One supervised firing of an arbitrary pass unit (slice 921).
 
@@ -288,6 +376,7 @@ def fire_unit(unit: str, mt_run_args: list[str]) -> tuple[str, str]:
     )
     run(["mt-run", *mt_run_args], sudo=True, check=False, stream=True)
     wait_for_unit_to_end(unit)
+    print("    sudo -v — a password prompt here is normal after a long firing")
     run(["sudo", "-v"], stream=True)  # the firing may outlive the sudo grace period
     return cursor, started
 

@@ -16,7 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(nothing yet)
+### Fixed
+- Minute acquisition no longer closes a session's gap row on a response that
+  holds no bar inside the session. The 2026-09-10 cutover (issue #22) showed
+  EODHD's 20:00 ET after-hours bar, dated 00:00 UTC the next day, satisfying
+  the date-level check for a session the provider had not published yet;
+  4,278 symbols were left with one bar for 2026-09-09. A chunk is now judged
+  per session (a bar strictly after the open, at or before the close), which
+  also retires the four-day "trailing weekend" tolerance that let a one-day
+  shortfall count as success.
+- The trailing walk re-seeds sessions the coarse coverage index reports as
+  covered but the truncated-day index reports as truncated, so a one-bar
+  session is re-fetched on the next pass instead of needing the repair script.
+- The first minute firing moved from 01:05 to 04:05 UTC: EODHD publishes US
+  1-minute data 2-3 hours after after-hours close (00:00 UTC), so the 01:05
+  firing could never collect the day just closed. The health check's judged
+  session follows: a regular close is judged from 07:05 UTC the next day.
+- The minute session-mass line labels session bounds in UTC regardless of the
+  connection's timezone.
 
 ---
 

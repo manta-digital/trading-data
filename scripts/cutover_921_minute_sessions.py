@@ -34,6 +34,8 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -41,6 +43,9 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from cutover_common import (  # noqa: E402
+    NOTES_DIR,
+    fire_unit_until,
+    start_log,
     CutoverError,
     fire_unit,
     install,
@@ -73,6 +78,12 @@ MIN_CREDITS_TO_START = 100_000
 #: several passes may be needed; this bounds a pathological loop. Reaching it
 #: is reported as a FAIL, not retried past.
 MAX_MINUTE_FIRINGS = 6
+
+#: --verify answers WAIT while the health cagg's hourly refresh has not caught
+#: up with the firing's bars (#22). Poll it this often, this many times — the
+#: refresh policy runs every hour, so five 15-minute polls always span one.
+VERIFY_WAIT_SECONDS = 15 * 60
+VERIFY_WAIT_POLLS = 5
 
 #: Journal markers the firings are read back for (SC6).
 TRAILING_COMPLETE = re.compile(r"trailing phase complete: (\d+) symbols")
@@ -163,7 +174,12 @@ def _release_timers(held: list[str]) -> None:
 def _fire_minute_pass(index: int) -> tuple[bool, str | None]:
     """One minute firing. Returns (trailing phase completed, abort outcome)."""
     say(f"  minute firing {index}")
-    cursor, _started = fire_unit(MINUTE_UNIT, ["minute"])
+    # #22: a firing is unbounded (backfill runs until quota); the cutover
+    # needs only its trailing phase, so the unit is stopped once that line
+    # lands and the timers own the backfill.
+    cursor, _started, _reached = fire_unit_until(
+        MINUTE_UNIT, ["minute"], TRAILING_COMPLETE
+    )
     firing = read_unit_journal(cursor, MINUTE_UNIT)
 
     trailing = firing.first(TRAILING_COMPLETE)
@@ -181,6 +197,21 @@ def _fire_minute_pass(index: int) -> tuple[bool, str | None]:
     return trailing is not None, abort.group(1) if abort else None
 
 
+def _verify_when_fresh() -> str:
+    """--verify, re-polled while it reports WAIT (#22); returns the last text."""
+    text = _repair("--verify")
+    polls = 0
+    while "[WAIT]" in text and polls < VERIFY_WAIT_POLLS:
+        polls += 1
+        say(
+            f"  verify is waiting for the cagg refresh — poll {polls}/"
+            f"{VERIFY_WAIT_POLLS} in {VERIFY_WAIT_SECONDS // 60} min"
+        )
+        time.sleep(VERIFY_WAIT_SECONDS)
+        text = _repair("--verify")
+    return text
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ref", required=True, help="Git ref to install.")
@@ -192,6 +223,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     say("slice 921 cutover — minute acquisition correctness")
+    log_path = start_log(
+        NOTES_DIR / f"921-cutover-{datetime.now(UTC):%Y%m%dT%H%M%SZ}.log"
+    )
+    say(f"  narration is written to {log_path}")
 
     say("preflight")
     commit = preflight(args.ref)
@@ -226,20 +261,21 @@ def main(argv: list[str] | None = None) -> int:
             if aborted:
                 say(f"  stopping: the pass reported {aborted}")
                 break
-            verify_text = _repair("--verify")
-            if "FAIL" not in verify_text:
+            verify_text = _verify_when_fresh()
+            if "FAIL" not in verify_text and "[WAIT]" not in verify_text:
                 say(f"  every acceptance bar met after {index} firing(s)")
                 break
         else:
             say(f"  reached the {MAX_MINUTE_FIRINGS}-firing ceiling")
 
         say("acceptance")
-        report = _repair("--verify")
-        ok = "FAIL" not in report and aborted is None
+        report = _verify_when_fresh()
+        ok = "FAIL" not in report and "[WAIT]" not in report and aborted is None
     finally:
         _release_timers(held)
 
     say("CUTOVER COMPLETE" if ok else "CUTOVER INCOMPLETE — read the FAIL lines")
+    say(f"  full narration: {log_path}")
     return 0 if ok else 1
 
 

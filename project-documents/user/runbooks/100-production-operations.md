@@ -27,7 +27,7 @@ production tooling.
 | Unit | What | When | On failure |
 |---|---|---|---|
 | `mt-daily-pass.service` | one bounded daily acquisition pass | timer: **00:35 & 12:35 UTC** | next timer firing resumes it |
-| `mt-minute-pass.service` | one bounded minute acquisition pass | timer: **01:05 & 13:05 UTC** | next timer firing resumes it |
+| `mt-minute-pass.service` | one bounded minute acquisition pass | timer: **04:05 & 13:05 UTC** | next timer firing resumes it |
 | `mt-kalshi-pass.service` | one bounded Kalshi collection pass | timer: **hourly at :20 UTC** | next timer firing resumes it |
 | `mt-serve.service` | API server (port 8100) | always on, starts at boot | auto-restart in 10s |
 
@@ -89,7 +89,7 @@ would either do nothing or install a second, unrelated copy.
 | `mt-daily-pass.service` | oneshot pass | `mt data daemon run --daily --stop-when-done` |
 | `mt-daily-pass.timer` | timer | fires the daily pass at **00:35 and 12:35 UTC** |
 | `mt-minute-pass.service` | oneshot pass | `mt data daemon run --minute --stop-when-done` |
-| `mt-minute-pass.timer` | timer | fires the minute pass at **01:05 and 13:05 UTC** |
+| `mt-minute-pass.timer` | timer | fires the minute pass at **04:05 and 13:05 UTC** |
 | `mt-kalshi-pass.service` | oneshot pass | `mt data kalshi pass` — every registered Kalshi phase, in order |
 | `mt-kalshi-pass.timer` | timer | fires the Kalshi pass **hourly at :20 UTC** |
 | `mt-serve.service` | long-running | the API server; `Restart=on-failure` |
@@ -282,7 +282,8 @@ the universe collected ~45k bars/day against ~2.0M/day through 2026-08-27.
 The judged session is the newest NYSE session whose collecting firing has
 finished: the first `MINUTE_PASS_FIRING_TIMES_UTC` entry after its close, plus
 `HEALTH_MINUTE_SESSION_COLLECTION_LAG`. In practice a session becomes judgeable
-at 04:05 UTC the next day, for a regular and an early close alike. A FAIL
+at 07:05 UTC the next day, for a regular and an early close alike (the 04:05
+firing is the first after EODHD publishes the day, 2-3 h past 00:00 UTC). A FAIL
 reading `no completed session to judge` means the calendar has no qualifying
 row — check `trading_sessions` and the calendar id, not the acquisition pass.
 

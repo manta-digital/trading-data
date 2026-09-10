@@ -27,6 +27,8 @@ import pytest
 
 from manta_trading.constants import REPAIR_921_WINDOW_START
 from manta_trading.data.gaps.repair_921 import (
+    CaggFreshness,
+    cagg_freshness_for_session,
     SymbolFindings,
     repair_window_for,
     window_start_utc,
@@ -495,10 +497,20 @@ class TestVerifyMode:
                 return_value=(overrides.get("health_ok", True), "detail")
             ),
             "truncated": MagicMock(return_value=overrides.get("truncated", {})),
+            "freshness": MagicMock(
+                return_value=overrides.get(
+                    "freshness",
+                    CaggFreshness(
+                        last_refresh=datetime(2026, 9, 9, 5, 0, tzinfo=UTC),
+                        newest_bar_written=datetime(2026, 9, 9, 4, 30, tzinfo=UTC),
+                    ),
+                )
+            ),
         }
         conn = MagicMock()
 
         with (
+            patch.object(repair, "cagg_freshness_for_session", mocks["freshness"]),
             patch.object(repair, "select_judged_session", mocks["select"]),
             patch.object(repair, "fetch_candidate_sessions", mocks["fetch_candidates"]),
             patch.object(repair, "fetch_session_mass", mocks["fetch_mass"]),
@@ -546,6 +558,11 @@ class TestVerifyMode:
             ),
             patch.object(repair, "check_minute_session_mass", return_value=(True, "d")),
             patch.object(repair, "build_truncated_day_index", return_value={}),
+            patch.object(
+                repair,
+                "cagg_freshness_for_session",
+                return_value=CaggFreshness(last_refresh=None, newest_bar_written=None),
+            ),
             patch.object(repair, "run_check", return_value=repair.CheckReport()),
         ):
             repair.run_verify(conn, ["AAPL"])
@@ -745,3 +762,72 @@ class TestScanScopeAndTimeout:
             code = repair.main(["--check"])
         assert code == repair.EXIT_REFUSED
         assert "scan refused" in capsys.readouterr().err
+
+
+class TestVerifyWaitsForTheCagg:
+    """#22: --verify read "1 bar" minutes after a pass had written 50,806,
+    because the health cagg is materialized-only and refreshed hourly. The
+    probe compares the cagg's last refresh with the session's newest
+    ``created_at``; a stale cagg is a WAIT, never a verdict."""
+
+    def test_a_bar_written_after_the_last_refresh_is_stale(self) -> None:
+        assert CaggFreshness(
+            last_refresh=datetime(2026, 9, 10, 11, 12, tzinfo=UTC),
+            newest_bar_written=datetime(2026, 9, 10, 11, 30, tzinfo=UTC),
+        ).stale
+
+    def test_a_refresh_after_the_newest_bar_is_fresh(self) -> None:
+        assert not CaggFreshness(
+            last_refresh=datetime(2026, 9, 10, 12, 12, tzinfo=UTC),
+            newest_bar_written=datetime(2026, 9, 10, 11, 30, tzinfo=UTC),
+        ).stale
+
+    def test_no_refresh_on_record_with_bars_is_stale(self) -> None:
+        assert CaggFreshness(
+            last_refresh=None,
+            newest_bar_written=datetime(2026, 9, 10, 11, 30, tzinfo=UTC),
+        ).stale
+
+    def test_no_bars_at_all_is_not_stale(self) -> None:
+        """Nothing to materialize — the mass read (zero) is the truth."""
+        assert not CaggFreshness(last_refresh=None, newest_bar_written=None).stale
+
+    def test_the_probe_reads_the_job_stats_and_the_session_chunk(self) -> None:
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__ = MagicMock(return_value=cur)
+        cur.__exit__ = MagicMock(return_value=False)
+        conn.cursor.return_value = cur
+        refresh = datetime(2026, 9, 10, 11, 12, tzinfo=UTC)
+        newest = datetime(2026, 9, 10, 11, 30, tzinfo=UTC)
+        cur.fetchone.side_effect = [(refresh,), (newest,)]
+        open_ = datetime(2026, 9, 9, 13, 30, tzinfo=UTC)
+        close = datetime(2026, 9, 9, 20, 0, tzinfo=UTC)
+        result = cagg_freshness_for_session(conn, "minute_4hour_ohlcv", open_, close)
+        assert result == CaggFreshness(last_refresh=refresh, newest_bar_written=newest)
+        jobs_sql, jobs_params = cur.execute.call_args_list[0].args
+        assert "policy_refresh_continuous_aggregate" in jobs_sql
+        assert jobs_params == ("minute_4hour_ohlcv",)
+        bars_sql, bars_params = cur.execute.call_args_list[1].args
+        assert "max(created_at)" in bars_sql
+        assert bars_params == (open_, close)
+
+    def test_verify_reports_wait_and_does_not_judge(
+        self, repair: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        stale = CaggFreshness(
+            last_refresh=datetime(2026, 9, 10, 11, 12, tzinfo=UTC),
+            newest_bar_written=datetime(2026, 9, 10, 11, 30, tzinfo=UTC),
+        )
+        result, mocks = TestVerifyMode._run_verify(repair, freshness=stale)
+        assert result is False
+        mocks["fetch_mass"].assert_not_called()
+        assert "[WAIT]" in capsys.readouterr().out
+
+    def test_verify_judges_when_fresh(
+        self, repair: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result, mocks = TestVerifyMode._run_verify(repair)
+        assert result is True
+        mocks["fetch_mass"].assert_called_once()
+        assert "[WAIT]" not in capsys.readouterr().out

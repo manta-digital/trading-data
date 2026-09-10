@@ -162,6 +162,66 @@ def find_truncated_days(
         return frozenset(session_date for (session_date,) in rows)
 
 
+@dataclass(frozen=True)
+class CaggFreshness:
+    """When the health cagg was last refreshed against when the judged
+    session's newest bar was written (slice 921 / #22)."""
+
+    last_refresh: datetime | None
+    newest_bar_written: datetime | None
+
+    @property
+    def stale(self) -> bool:
+        """True when a bar landed after the last refresh — the cagg has not
+        materialized it yet, so a mass read would judge the previous state."""
+        if self.newest_bar_written is None:
+            return False
+        return self.last_refresh is None or self.last_refresh < self.newest_bar_written
+
+
+def cagg_freshness_for_session(
+    conn: "psycopg.Connection[object]",
+    cagg: str,
+    session_open: datetime,
+    session_close: datetime,
+) -> CaggFreshness:
+    """Compare the cagg's last refresh with the session's newest ``created_at``.
+
+    ``--verify`` reuses the health check's read of ``minute_4hour_ohlcv``,
+    which is ``materialized_only`` and refreshed hourly. Run minutes after a
+    pass, that read reports the cagg's hour-old view — the 2026-09-10 cutover
+    read "1 bar" for a session that held 50,806 in ``minute_ohlcv``. Neither
+    application role owns the cagg, so the probe cannot refresh it; it can
+    tell the operator to wait. The bar scan is bounded to the session's
+    chunk by the ``time`` predicate.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT stats.last_successful_finish
+              FROM timescaledb_information.jobs AS job
+              JOIN timescaledb_information.job_stats AS stats USING (job_id)
+             WHERE job.proc_name = 'policy_refresh_continuous_aggregate'
+               AND job.hypertable_name = %s
+            """,
+            (cagg,),
+        )
+        job_row = cast("tuple[datetime | None] | None", cur.fetchone())
+        last_refresh = job_row[0] if job_row else None
+        cur.execute(
+            """
+            SELECT max(created_at)
+              FROM minute_ohlcv
+             WHERE time >= %s
+               AND time <= %s
+            """,
+            (session_open, session_close),
+        )
+        bar_row = cast("tuple[datetime | None] | None", cur.fetchone())
+        newest = bar_row[0] if bar_row else None
+    return CaggFreshness(last_refresh=last_refresh, newest_bar_written=newest)
+
+
 def build_truncated_day_index(
     conn: "psycopg.Connection[object]",
     *,

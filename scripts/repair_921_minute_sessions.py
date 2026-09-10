@@ -43,10 +43,12 @@ from manta_trading.cli.commands.minute_session_mass import (
 from manta_trading.config import Settings
 from manta_trading.constants import (
     DAEMON_LOCK_TIMEOUT,
+    GRANULARITY_SOURCE,
     HEALTH_MINUTE_SESSION_MIN_SYMBOLS,
     HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS,
     REPAIR_921_WINDOW_START,
     FetchEntryPoint,
+    Granularity,
 )
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.acquisition.symbols import iter_active_instruments
@@ -55,6 +57,7 @@ from manta_trading.data.gaps.minute_coverage import (
     compute_missing_minute_sessions,
 )
 from manta_trading.data.gaps.repair_921 import (
+    cagg_freshness_for_session,
     CheckReport,
     RepairScanTimeout,
     build_truncated_day_index,
@@ -269,6 +272,24 @@ def run_verify(conn: psycopg.Connection, symbols: list[str]) -> bool:
     judged = select_judged_session(fetch_candidate_sessions(conn, now=now), now=now)
     if judged is None:
         print("[FAIL] no completed session to judge")
+        return False
+
+    # #22: the mass read is the health check's, against a materialized-only
+    # cagg refreshed hourly. Bars written since its last refresh are invisible
+    # to it, so a verify run straight after a pass must wait, not judge.
+    freshness = cagg_freshness_for_session(
+        conn,
+        GRANULARITY_SOURCE[Granularity.H4],
+        judged.session_open_utc,
+        judged.session_close_utc,
+    )
+    if freshness.stale:
+        print(
+            f"[WAIT] {GRANULARITY_SOURCE[Granularity.H4]} last refreshed "
+            f"{freshness.last_refresh}, newest judged-session bar written "
+            f"{freshness.newest_bar_written} — the hourly refresh has not caught "
+            "up; re-run --verify after it"
+        )
         return False
 
     mass = fetch_session_mass(conn, judged)

@@ -5,7 +5,7 @@ Documentation=https://github.com/manta-digital/trading-data
 [Timer]
 # Staggered 30 minutes behind mt-daily-pass.timer so the two passes never
 # start simultaneously (both compete for the same provider quota bucket).
-OnCalendar=*-*-* 01:05:00 UTC
+OnCalendar=*-*-* 04:05:00 UTC
 OnCalendar=*-*-* 13:05:00 UTC
 # Fire a schedule missed while the host was down (post-reboot catch-up).
 Persistent=true
