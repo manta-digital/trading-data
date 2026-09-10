@@ -915,17 +915,26 @@ def _do_minute_symbol(
             session_bounds = fetch_session_bounds(
                 bounds_conn, symbol, chunk_start, chunk_end
             )
-        outcome, unpublished = judge_chunk_by_sessions(
-            outcome, bars, session_bounds, chunk_end
-        )
-        if unpublished:
+        judgement = judge_chunk_by_sessions(outcome, bars, session_bounds, chunk_end)
+        outcome = judgement.outcome
+        if judgement.unpublished:
             _logger.info(
                 "minute fetch: %s chunk [%s → %s] carried bars but none inside "
                 "session(s) %s — provider has not published them; row kept",
                 symbol,
                 chunk_start,
                 chunk_end,
-                ", ".join(f"{s:%Y-%m-%d}" for s in unpublished),
+                ", ".join(f"{s:%Y-%m-%d}" for s in judgement.unpublished),
+            )
+        if judgement.empty:
+            _logger.info(
+                "minute fetch: %s chunk [%s → %s] carried bars but none inside "
+                "session(s) %s, closed beyond the publication lag — recorded as "
+                "PROVIDER_HOLE",
+                symbol,
+                chunk_start,
+                chunk_end,
+                ", ".join(f"{s:%Y-%m-%d}" for s in judgement.empty),
             )
 
         fetch_status = outcome_to_fetch_status(outcome)
@@ -949,6 +958,12 @@ def _do_minute_symbol(
                         outcome=outcome,
                         fetch_status=fetch_status,
                     )
+                    if outcome is LastAttemptOutcome.SUCCESS and judgement.empty:
+                        _record_empty_sessions(
+                            chunk_conn,
+                            symbol,
+                            [(s, session_bounds[s]) for s in judgement.empty],
+                        )
                     _record_minute_attempt(chunk_conn, symbol, outcome)
 
     with pool.connection() as chunk_conn:
@@ -1061,6 +1076,40 @@ def run_minute_refetch(
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report
+
+
+def _record_empty_sessions(
+    conn: psycopg.Connection,
+    symbol: str,
+    sessions: list[tuple[datetime, datetime]],
+) -> None:
+    """Persist PROVIDER_HOLE for sessions the provider answered with no bars.
+
+    The judgement must outlive this chunk: the coarse coverage index still
+    reports the day covered (an after-hours bar sits on it), and only a
+    terminal row keeps the seed and the repair's truncated-day index from
+    asking for the session again on every walk (#22). Caller holds the
+    advisory lock inside the chunk's transaction.
+    """
+    now_utc = datetime.now(tz=_UTC)
+    with conn.cursor() as cur:
+        for session_open, session_close in sessions:
+            cur.execute(
+                """
+                INSERT INTO data_gaps
+                    (symbol, granularity, gap_start, gap_end,
+                     fetch_status, last_attempt_ts, attempt_count)
+                VALUES (%s, 'minute', %s, %s, %s, %s, 1)
+                ON CONFLICT DO NOTHING
+                """,
+                (
+                    symbol,
+                    session_open,
+                    session_close,
+                    str(FetchStatus.PROVIDER_HOLE),
+                    now_utc,
+                ),
+            )
 
 
 def _advance_minute_gap(

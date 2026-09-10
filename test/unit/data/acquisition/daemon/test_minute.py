@@ -2316,10 +2316,23 @@ class TestChunkJudgedBySessions:
             "volume": 1,
         }
 
-    def _run(self, bars: list[dict]) -> tuple[MagicMock, MagicMock]:
-        """One chunk over the 09-09 session; returns (advance_mock, logger_mock)."""
-        gap_iter = iter([_gap(self.OPEN, self.CLOSE), None])
+    def _run(
+        self,
+        bars: list[dict],
+        *,
+        bounds: dict[datetime, datetime] | None = None,
+        gap: tuple[datetime, datetime] | None = None,
+    ) -> tuple[MagicMock, MagicMock, list[str]]:
+        """One chunk over one session; returns (advance, logger, executed SQL)."""
+        bounds = bounds or {self.OPEN: self.CLOSE}
+        gap = gap or (self.OPEN, self.CLOSE)
+        gap_iter = iter([_gap(*gap), None])
         conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__ = MagicMock(return_value=cur)
+        cur.__exit__ = MagicMock(return_value=False)
+        cur.fetchone.return_value = (True, False, True, None)
+        conn.cursor.return_value = cur
         txn = MagicMock()
         txn.__enter__ = MagicMock(return_value=txn)
         txn.__exit__ = MagicMock(return_value=False)
@@ -2341,7 +2354,7 @@ class TestChunkJudgedBySessions:
             ),
             patch(
                 "manta_trading.data.acquisition.daemon.minute.fetch_session_bounds",
-                return_value={self.OPEN: self.CLOSE},
+                return_value=bounds,
             ),
             patch("manta_trading.data.acquisition.daemon.minute.update_data_gaps"),
             patch(
@@ -2380,23 +2393,43 @@ class TestChunkJudgedBySessions:
                 window=None,
                 coverage_index=None,
             )
-        return advance, logger
+        executes = [str(c.args[0]) for c in cur.execute.call_args_list if c.args]
+        return advance, logger, executes
 
-    def test_spillover_only_response_keeps_the_row(self) -> None:
-        spillover = self._bar(datetime(2026, 9, 9, 0, 0, tzinfo=UTC))
-        advance, logger = self._run([spillover])
-        advance.assert_called_once()
+    def test_spillover_only_for_a_recent_session_keeps_the_row(self) -> None:
+        """Closed within the publication lag: not published yet — PARTIAL."""
+        now = datetime.now(UTC)
+        recent_close = now - timedelta(hours=1)
+        recent_open = recent_close - timedelta(hours=6, minutes=30)
+        spillover = self._bar(recent_open.replace(hour=0, minute=0))
+        advance, logger, executes = self._run(
+            [spillover],
+            bounds={recent_open: recent_close},
+            gap=(recent_open, recent_close),
+        )
         assert advance.call_args.kwargs["outcome"] is LastAttemptOutcome.PARTIAL
         assert advance.call_args.kwargs["fetch_status"] is FetchStatus.UNKNOWN
-        unpublished = [
-            c for c in logger.info.call_args_list if "not published" in c.args[0]
+        assert [c for c in logger.info.call_args_list if "not published" in c.args[0]]
+        assert not [sql for sql in executes if "PROVIDER_HOLE" in sql]
+
+    def test_spillover_only_for_an_old_session_records_a_hole(self) -> None:
+        """Closed long ago (2026-09-09 vs a real now): the provider answered
+        and had nothing — SUCCESS, and a PROVIDER_HOLE row so nothing asks
+        again."""
+        spillover = self._bar(datetime(2026, 9, 9, 0, 0, tzinfo=UTC))
+        advance, logger, executes = self._run([spillover])
+        assert advance.call_args.kwargs["outcome"] is LastAttemptOutcome.SUCCESS
+        holes = [
+            sql
+            for sql in executes
+            if "PROVIDER_HOLE" in sql or "INSERT INTO data_gaps" in sql
         ]
-        assert len(unpublished) == 1
-        assert "2026-09-09" in unpublished[0].args[4]
+        assert holes, "the empty session must be persisted as PROVIDER_HOLE"
+        assert [c for c in logger.info.call_args_list if "PROVIDER_HOLE" in c.args[0]]
 
     def test_full_session_deletes_the_row(self) -> None:
         bars = [self._bar(self.OPEN + timedelta(minutes=m)) for m in range(1, 391)]
-        advance, logger = self._run(bars)
+        advance, logger, _ = self._run(bars)
         assert advance.call_args.kwargs["outcome"] is LastAttemptOutcome.SUCCESS
         assert advance.call_args.kwargs["fetch_status"] is None
         assert not [

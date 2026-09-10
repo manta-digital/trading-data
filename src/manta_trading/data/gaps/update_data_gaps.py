@@ -329,6 +329,11 @@ def _delete_intersecting(
     path); callers that care must widen their window to contain the
     straddling row. ``scripts/repair_921_minute_sessions.py`` does exactly
     that.
+
+    Terminal rows (PROVIDER_HOLE, RETRY_EXHAUSTED) survive: they are the
+    pipeline's recorded judgement that the provider has nothing for that
+    span, and a reseed that erased them re-asked every one (#22). Clearing
+    them is an explicit act — ``force_reset_terminal`` in step 2.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -338,8 +343,16 @@ def _delete_intersecting(
                AND granularity = %s
                AND gap_start >= %s
                AND gap_end <= %s
+               AND fetch_status NOT IN (%s, %s)
             """,
-            (symbol, granularity, from_ts, to_ts),
+            (
+                symbol,
+                granularity,
+                from_ts,
+                to_ts,
+                str(FetchStatus.PROVIDER_HOLE),
+                str(FetchStatus.RETRY_EXHAUSTED),
+            ),
         )
 
 

@@ -54,6 +54,9 @@ def _no_side_effects(cutover: Any, tmp_path: Path) -> Any:
         patch.object(cutover, "start_log", return_value=tmp_path / "cutover.log"),
         patch.object(cutover_common.time, "sleep"),
         patch.object(cutover.time, "sleep"),
+        # The budget preflight reads the live EODHD balance; a unit test must
+        # never depend on it (it did, and failed the day the balance dipped).
+        patch.object(cutover, "_remaining_credits", return_value=500_000),
     ):
         yield
 

@@ -390,8 +390,14 @@ class _FakeDataGaps:
                 if start >= from_ts and end <= to_ts
             ]
         if normalized.startswith("DELETE FROM data_gaps"):
-            _symbol, _gran, from_ts, to_ts = params
-            for key in [k for k in self.rows if k[0] >= from_ts and k[1] <= to_ts]:
+            _symbol, _gran, from_ts, to_ts, *kept_statuses = params
+            for key in [
+                k
+                for k, row in self.rows.items()
+                if k[0] >= from_ts
+                and k[1] <= to_ts
+                and row["fetch_status"] not in kept_statuses
+            ]:
                 del self.rows[key]
             return []
         if normalized.startswith("INSERT INTO data_gaps"):
@@ -563,3 +569,48 @@ class TestSeedingDoesNotConsumeRetries:
         ]
         assert len(inserts) == 1
         assert inserts[0][6] == 3, "daily still carries 2 -> 3"
+
+
+class TestReseedingKeepsTerminalRows:
+    """#22: a PROVIDER_HOLE / RETRY_EXHAUSTED row is the pipeline's judgement
+    that the provider has nothing for that span. A reseed that deleted it
+    re-asked every judged-empty session on every walk."""
+
+    def test_a_provider_hole_inside_the_window_survives_a_reseed(self) -> None:
+        conn = _FakeDataGaps()
+        hole = (
+            datetime(2026, 9, 2, 13, 30, tzinfo=UTC),
+            datetime(2026, 9, 2, 20, 0, tzinfo=UTC),
+        )
+        conn.rows[hole] = {
+            "fetch_status": str(FetchStatus.PROVIDER_HOLE),
+            "attempt_count": 3,
+        }
+        unknown = (
+            datetime(2026, 9, 3, 13, 30, tzinfo=UTC),
+            datetime(2026, 9, 3, 20, 0, tzinfo=UTC),
+        )
+        conn.rows[unknown] = {
+            "fetch_status": str(FetchStatus.UNKNOWN),
+            "attempt_count": 1,
+        }
+        update_data_gaps(
+            conn,  # type: ignore[arg-type]
+            "AAA",
+            "minute",
+            datetime(2026, 9, 1, tzinfo=UTC),
+            datetime(2026, 9, 10, tzinfo=UTC),
+            fetch_status_for_unfilled=FetchStatus.UNKNOWN,
+            outcome=LastAttemptOutcome.PARTIAL,
+            precomputed_ranges=[
+                GapRange(
+                    symbol="AAA",
+                    granularity="minute",
+                    gap_start_utc=unknown[0],
+                    gap_end_utc=unknown[1],
+                )
+            ],
+        )
+        assert conn.rows[hole]["fetch_status"] == str(FetchStatus.PROVIDER_HOLE)
+        assert conn.rows[hole]["attempt_count"] == 3
+        assert unknown in conn.rows

@@ -197,6 +197,7 @@ def repair_symbol(
         window_start,
         now_midnight,
         uncovered_days=set(findings.truncated_days),
+        respect_terminal_rows=False,
     )
 
     with conn.transaction():

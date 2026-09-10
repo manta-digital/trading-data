@@ -20,6 +20,7 @@ from manta_trading.constants import (
     MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT,
     Granularity,
 )
+from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.gaps.compute_missing_ranges import (
     GapRange,
     clamp_to_lifecycle,
@@ -198,6 +199,7 @@ def compute_missing_minute_sessions(
     from_ts: datetime,
     to_ts: datetime,
     uncovered_days: set[date] | None = None,
+    respect_terminal_rows: bool = True,
 ) -> list[GapRange]:
     """Return GapRanges for trading sessions missing from the coverage index.
 
@@ -211,6 +213,11 @@ def compute_missing_minute_sessions(
                         — caller is responsible for the None fail-safe branch).
         from_ts:        Window start (UTC, inclusive) — typically history_start.
         to_ts:          Window end (UTC, inclusive) — typically today.
+        respect_terminal_rows: Skip sessions a PROVIDER_HOLE / RETRY_EXHAUSTED
+                        row covers (the default — the daemon's seed). The
+                        repair passes False: it resets those rows in the
+                        same write (``force_reset_terminal``), so the ranges
+                        must include the sessions they cover.
         uncovered_days: Days to treat as MISSING even though the coverage index
                         contains them (slice 921). The coverage index is built
                         from the coarse cagg, which reports a day as covered
@@ -235,13 +242,69 @@ def compute_missing_minute_sessions(
     covered_days = coverage_index.get(symbol, set())
     if uncovered_days:
         covered_days = covered_days - uncovered_days
-    missing = [s for s in sessions if s.date() not in covered_days]
+    session_closes = fetch_session_bounds(conn, symbol, clamped_from, clamped_to)
+    # A session a terminal row already covers has been judged: the provider
+    # had nothing for it. Re-seeding it as UNKNOWN re-asks at 5 credits a
+    # time and was how a quiet session of an illiquid name became a
+    # permanent "truncated" day (#22).
+    terminal = (
+        fetch_terminal_rows(conn, symbol, clamped_from, clamped_to)
+        if respect_terminal_rows
+        else []
+    )
+    missing = [
+        s
+        for s in sessions
+        if s.date() not in covered_days
+        and not _covered_by_terminal_row(s, session_closes.get(s), terminal)
+    ]
     if not missing:
         return []
 
     ranges = group_sessions_into_ranges(symbol, "minute", missing, sessions)
-    session_closes = fetch_session_bounds(conn, symbol, clamped_from, clamped_to)
     return _end_ranges_at_session_close(ranges, session_closes)
+
+
+def fetch_terminal_rows(
+    conn: psycopg.Connection[object],
+    symbol: str,
+    from_ts: datetime,
+    to_ts: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """``(gap_start, gap_end)`` of the symbol's PROVIDER_HOLE / RETRY_EXHAUSTED
+    minute rows that intersect ``[from_ts, to_ts]``."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT gap_start, gap_end
+              FROM data_gaps
+             WHERE symbol = %s
+               AND granularity = 'minute'
+               AND fetch_status IN (%s, %s)
+               AND gap_end   >= %s
+               AND gap_start <= %s
+            """,
+            (
+                symbol,
+                str(FetchStatus.PROVIDER_HOLE),
+                str(FetchStatus.RETRY_EXHAUSTED),
+                from_ts,
+                to_ts,
+            ),
+        )
+        return cast("list[tuple[datetime, datetime]]", cur.fetchall())
+
+
+def _covered_by_terminal_row(
+    session_open: datetime,
+    session_close: datetime | None,
+    terminal: list[tuple[datetime, datetime]],
+) -> bool:
+    if session_close is None:
+        return False
+    return any(
+        start <= session_open and end >= session_close for start, end in terminal
+    )
 
 
 def _end_ranges_at_session_close(

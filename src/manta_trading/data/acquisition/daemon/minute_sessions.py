@@ -16,8 +16,10 @@ truncated session is.
 from __future__ import annotations
 
 from bisect import bisect_right
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
+from manta_trading.constants import MINUTE_PROVIDER_PUBLICATION_LAG
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 
 _UTC = UTC
@@ -63,29 +65,53 @@ def sessions_without_bars(
     return missing
 
 
+@dataclass(frozen=True)
+class SessionJudgement:
+    """What a response said about the sessions its chunk covered."""
+
+    outcome: LastAttemptOutcome
+    #: Sessions with no bar that closed within the publication lag — ask again.
+    unpublished: list[datetime] = field(default_factory=list)
+    #: Sessions with no bar that closed longer ago — the provider answered and
+    #: had nothing; record a hole so nothing asks again.
+    empty: list[datetime] = field(default_factory=list)
+
+
 def judge_chunk_by_sessions(
     outcome: LastAttemptOutcome,
     bars: list[dict],
     session_bounds: dict[datetime, datetime],
     chunk_end: datetime,
-) -> tuple[LastAttemptOutcome, list[datetime]]:
+    *,
+    now: datetime | None = None,
+    publication_lag: timedelta = MINUTE_PROVIDER_PUBLICATION_LAG,
+) -> SessionJudgement:
     """Refine ``classify_outcome``'s verdict for a minute chunk.
 
-    Returns the outcome to account and the sessions found empty. A response
-    that carried bars is SUCCESS when every judged session holds one, and
-    PARTIAL when any does not — regardless of the latest bar's date, which
-    is what ``classify_outcome`` looked at. A chunk with no judgeable session
-    (a legacy row spanning only non-trading time) keeps the classifier's
-    verdict, as does any outcome that carried no bars.
+    A response that carried bars is judged per session. Every judged session
+    holding a bar: SUCCESS. A session without one is ``unpublished`` when it
+    closed within ``publication_lag`` of ``now`` — the outcome is PARTIAL so
+    the row stays open — and ``empty`` otherwise: the provider has had time
+    to publish and answered with nothing for it, which is what an illiquid
+    name's quiet session looks like (AAA on 2026-09-02 held one after-hours
+    bar and no trade). Empty sessions do not hold the outcome back; the
+    caller records them as PROVIDER_HOLE so neither the seed nor the repair
+    asks for them again. A chunk with no judgeable session, or an outcome
+    that carried no bars, is returned unchanged.
     """
     if outcome not in (LastAttemptOutcome.SUCCESS, LastAttemptOutcome.PARTIAL):
-        return outcome, []
+        return SessionJudgement(outcome)
     if not bars:
-        return outcome, []
+        return SessionJudgement(outcome)
     judged = [open_ for open_, close in session_bounds.items() if close <= chunk_end]
     if not judged:
-        return outcome, []
+        return SessionJudgement(outcome)
     missing = sessions_without_bars(bars, session_bounds, chunk_end)
-    if missing:
-        return LastAttemptOutcome.PARTIAL, missing
-    return LastAttemptOutcome.SUCCESS, []
+    if not missing:
+        return SessionJudgement(LastAttemptOutcome.SUCCESS)
+    moment = now or datetime.now(_UTC)
+    unpublished = [s for s in missing if session_bounds[s] + publication_lag > moment]
+    empty = [s for s in missing if s not in unpublished]
+    if unpublished:
+        return SessionJudgement(LastAttemptOutcome.PARTIAL, unpublished, empty)
+    return SessionJudgement(LastAttemptOutcome.SUCCESS, [], empty)

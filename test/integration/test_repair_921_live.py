@@ -173,6 +173,8 @@ def _apply_once(conn: psycopg.Connection, *, window_start: datetime) -> None:
         window_start,
         now_midnight,
         uncovered_days={IN_WINDOW_DAYS[0]},
+        # As the script does: the same write force-resets terminal rows.
+        respect_terminal_rows=False,
     )
     with conn.transaction():
         update_data_gaps(

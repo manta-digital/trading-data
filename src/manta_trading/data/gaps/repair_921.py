@@ -20,7 +20,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, cast
 
-from manta_trading.constants import REPAIR_921_WINDOW_START
+from manta_trading.constants import (
+    MINUTE_PROVIDER_PUBLICATION_LAG,
+    REPAIR_921_WINDOW_START,
+)
 from manta_trading.logging import get_logger
 
 import psycopg
@@ -48,6 +51,19 @@ TERMINAL_STATUSES = ("PROVIDER_HOLE", "RETRY_EXHAUSTED")
 #: (a single-symbol scan hit the session timeout). An analytical scan run by
 #: an operator needs its own budget rather than the serving session default.
 TRUNCATION_SCAN_TIMEOUT = "600s"
+
+#: Shared by both truncation predicates: a session a terminal row covers has
+#: been judged empty and is not truncated (#22).
+TERMINAL_SQL_UNIVERSE = """               AND NOT EXISTS (
+                       SELECT 1
+                         FROM data_gaps g
+                        WHERE g.symbol = m.symbol
+                          AND g.granularity = 'minute'
+                          AND g.fetch_status IN ('PROVIDER_HOLE', 'RETRY_EXHAUSTED')
+                          AND g.gap_start <= ts.session_open_utc
+                          AND g.gap_end   >= ts.session_close_utc
+                   )
+"""
 
 
 class RepairScanTimeout(RuntimeError):
@@ -136,6 +152,8 @@ def find_truncated_days(
     covered", so this predicate is what makes the session visible again. A
     day with no bar at all is not truncated; it is simply uncovered, and the
     coverage index already reports that.
+    Nor is a session a terminal gap row covers (judged empty), nor one that
+    closed within ``MINUTE_PROVIDER_PUBLICATION_LAG`` (not published yet).
 
     Both ``--check``'s report and ``--apply``'s coverage adjustment call this;
     the predicate is never restated elsewhere.
@@ -163,12 +181,21 @@ def find_truncated_days(
                    ) AS bars ON TRUE
              WHERE i.symbol = %s
                AND ts.session_open_utc >= %s
-               AND ts.session_close_utc <= now()
+               AND ts.session_close_utc <= now() - %s
                AND bars.day_bars > 0
                AND bars.newest_in_session IS NULL
+               AND NOT EXISTS (
+                       SELECT 1
+                         FROM data_gaps g
+                        WHERE g.symbol = i.symbol
+                          AND g.granularity = 'minute'
+                          AND g.fetch_status IN ('PROVIDER_HOLE', 'RETRY_EXHAUSTED')
+                          AND g.gap_start <= ts.session_open_utc
+                          AND g.gap_end   >= ts.session_close_utc
+                   )
              ORDER BY ts.session_date
             """,
-            (symbol, start),
+            (symbol, start, MINUTE_PROVIDER_PUBLICATION_LAG),
         )
         rows = cast("list[tuple[date]]", cur.fetchall())
         return frozenset(session_date for (session_date,) in rows)
@@ -269,7 +296,11 @@ def build_truncated_day_index(
     # The direct time bound exists for chunk exclusion; it starts a day early
     # so a session's 00:00 UTC spillover bar is still seen when ``since`` is
     # a mid-day instant (the daemon passes its trailing floor).
-    params: list[object] = [start, start - timedelta(days=1)]
+    params: list[object] = [
+        start,
+        MINUTE_PROVIDER_PUBLICATION_LAG,
+        start - timedelta(days=1),
+    ]
     if symbols is not None:
         predicate = "               AND m.symbol = ANY(%s)\n"
         params.append(list(symbols))
@@ -291,7 +322,7 @@ def build_truncated_day_index(
                AND m.time  >= (ts.session_date::timestamp AT TIME ZONE 'UTC')
                AND m.time  <  ((ts.session_date + 1)::timestamp AT TIME ZONE 'UTC')
              WHERE ts.session_open_utc >= %s
-               AND ts.session_close_utc <= now()
+               AND ts.session_close_utc <= now() - %s
                -- Bound m.time DIRECTLY as well as through the session join.
                -- The join predicate alone reaches minute_ohlcv only through
                -- trading_sessions, so TimescaleDB cannot exclude chunks and
@@ -300,6 +331,7 @@ def build_truncated_day_index(
                -- redundant-looking bound is what makes chunk exclusion apply.
                AND m.time  >= %s
 """
+                + TERMINAL_SQL_UNIVERSE
                 + predicate
                 + """             GROUP BY m.symbol, ts.session_date,
                       ts.session_open_utc, ts.session_close_utc

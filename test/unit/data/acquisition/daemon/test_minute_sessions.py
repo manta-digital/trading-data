@@ -107,51 +107,78 @@ class TestSessionsWithoutBars:
 
 
 class TestJudgeChunkBySessions:
-    def test_spillover_only_success_becomes_partial(self) -> None:
-        outcome, missing = judge_chunk_by_sessions(
-            LastAttemptOutcome.SUCCESS, [SPILLOVER_09], {OPEN_09: CLOSE_09}, CLOSE_09
-        )
-        assert outcome is LastAttemptOutcome.PARTIAL
-        assert missing == [OPEN_09]
+    LATE = CLOSE_09 + timedelta(hours=1)  # within the publication lag
+    LONG_AGO = CLOSE_09 + timedelta(days=2)  # well past it
 
-    def test_previous_day_bars_partial_stays_partial(self) -> None:
-        bars = _session_bars(OPEN_08, CLOSE_08)
-        outcome, missing = judge_chunk_by_sessions(
-            LastAttemptOutcome.PARTIAL, bars, BOUNDS, CLOSE_09
+    def test_spillover_only_within_the_lag_is_unpublished(self) -> None:
+        j = judge_chunk_by_sessions(
+            LastAttemptOutcome.SUCCESS,
+            [SPILLOVER_09],
+            {OPEN_09: CLOSE_09},
+            CLOSE_09,
+            now=self.LATE,
         )
-        assert outcome is LastAttemptOutcome.PARTIAL
-        assert missing == [OPEN_09]
+        assert j.outcome is LastAttemptOutcome.PARTIAL
+        assert j.unpublished == [OPEN_09] and j.empty == []
+
+    def test_spillover_only_past_the_lag_is_an_empty_session(self) -> None:
+        """AAA 2026-09-02: an illiquid name with no in-session trade. The
+        provider answered; the session is a hole, not a pending fetch."""
+        j = judge_chunk_by_sessions(
+            LastAttemptOutcome.SUCCESS,
+            [SPILLOVER_09],
+            {OPEN_09: CLOSE_09},
+            CLOSE_09,
+            now=self.LONG_AGO,
+        )
+        assert j.outcome is LastAttemptOutcome.SUCCESS
+        assert j.empty == [OPEN_09] and j.unpublished == []
+
+    def test_previous_day_bars_within_the_lag_stay_partial(self) -> None:
+        bars = _session_bars(OPEN_08, CLOSE_08)
+        j = judge_chunk_by_sessions(
+            LastAttemptOutcome.PARTIAL, bars, BOUNDS, CLOSE_09, now=self.LATE
+        )
+        assert j.outcome is LastAttemptOutcome.PARTIAL
+        assert j.unpublished == [OPEN_09]
+
+    def test_mixed_unpublished_and_empty_holds_the_row(self) -> None:
+        """One session past the lag, one inside it: the row stays open for
+        the unpublished one; the empty one is still reported for a hole."""
+        open_10 = datetime(2026, 9, 10, 13, 30, tzinfo=UTC)
+        close_10 = datetime(2026, 9, 10, 20, 0, tzinfo=UTC)
+        bounds = {OPEN_09: CLOSE_09, open_10: close_10}
+        j = judge_chunk_by_sessions(
+            LastAttemptOutcome.PARTIAL,
+            [SPILLOVER_09],
+            bounds,
+            close_10,
+            now=close_10 + timedelta(hours=1),
+        )
+        assert j.outcome is LastAttemptOutcome.PARTIAL
+        assert j.unpublished == [open_10] and j.empty == [OPEN_09]
 
     def test_all_sessions_covered_promotes_partial_to_success(self) -> None:
         """Replaces the weekend tolerance: last bar before a Sunday chunk end."""
         sunday = datetime(2026, 9, 13, tzinfo=UTC)
         bars = _session_bars(OPEN_08, CLOSE_08) + _session_bars(OPEN_09, CLOSE_09)
-        outcome, missing = judge_chunk_by_sessions(
-            LastAttemptOutcome.PARTIAL, bars, BOUNDS, sunday
-        )
-        assert outcome is LastAttemptOutcome.SUCCESS
-        assert missing == []
+        j = judge_chunk_by_sessions(LastAttemptOutcome.PARTIAL, bars, BOUNDS, sunday)
+        assert j.outcome is LastAttemptOutcome.SUCCESS
+        assert j.unpublished == [] and j.empty == []
 
     def test_no_judgeable_session_keeps_the_classifier_verdict(self) -> None:
         bars = _session_bars(OPEN_08, CLOSE_08)
         for verdict in (LastAttemptOutcome.SUCCESS, LastAttemptOutcome.PARTIAL):
-            outcome, missing = judge_chunk_by_sessions(verdict, bars, {}, CLOSE_09)
-            assert outcome is verdict
-            assert missing == []
+            j = judge_chunk_by_sessions(verdict, bars, {}, CLOSE_09)
+            assert j.outcome is verdict and j.unpublished == [] and j.empty == []
 
     def test_outcomes_without_bars_pass_through(self) -> None:
-        for verdict in (
-            LastAttemptOutcome.EMPTY,
-            LastAttemptOutcome.TRANSIENT_FAILURE,
-        ):
-            outcome, missing = judge_chunk_by_sessions(
-                verdict, [], {OPEN_09: CLOSE_09}, CLOSE_09
-            )
-            assert outcome is verdict
-            assert missing == []
+        for verdict in (LastAttemptOutcome.EMPTY, LastAttemptOutcome.TRANSIENT_FAILURE):
+            j = judge_chunk_by_sessions(verdict, [], {OPEN_09: CLOSE_09}, CLOSE_09)
+            assert j.outcome is verdict and j.empty == []
 
     def test_success_with_an_empty_body_passes_through(self) -> None:
-        outcome, _ = judge_chunk_by_sessions(
+        j = judge_chunk_by_sessions(
             LastAttemptOutcome.SUCCESS, [], {OPEN_09: CLOSE_09}, CLOSE_09
         )
-        assert outcome is LastAttemptOutcome.SUCCESS
+        assert j.outcome is LastAttemptOutcome.SUCCESS

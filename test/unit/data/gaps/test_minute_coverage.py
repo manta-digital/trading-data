@@ -261,10 +261,15 @@ def _patched_run(
     symbol: str = "AAPL",
     session_closes: dict[datetime, datetime] | None = None,
     uncovered_days: set[date] | None = None,
+    terminal_rows: list[tuple[datetime, datetime]] | None = None,
 ):
     conn = MagicMock()
     closes = _closes_for(sessions) if session_closes is None else session_closes
     with (
+        patch(
+            "manta_trading.data.gaps.minute_coverage.fetch_terminal_rows",
+            return_value=terminal_rows or [],
+        ),
         patch(
             "manta_trading.data.gaps.minute_coverage.clamp_to_lifecycle",
             return_value=(lifecycle_from, lifecycle_to),
@@ -802,3 +807,36 @@ class TestUncoveredDaysOverride:
             uncovered_days={opens[0].date()},
         )
         assert coverage_index["AAPL"] == covered
+
+
+class TestTerminalRowsAreNotReseeded:
+    """#22: a session a PROVIDER_HOLE / RETRY_EXHAUSTED row covers has been
+    judged; seeding it again re-asks the provider on every walk."""
+
+    def test_a_terminal_covered_session_is_skipped(self) -> None:
+        opens = [_dt(2026, 9, 1), _dt(2026, 9, 2), _dt(2026, 9, 3)]
+        closes = _closes_for(opens)
+        result = _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=closes[opens[-1]],
+            sessions=opens,
+            coverage_index={"AAPL": set()},
+            terminal_rows=[(opens[1], closes[opens[1]])],
+        )
+        seeded = {r.gap_start_utc for r in result}
+        assert opens[1] not in seeded
+        assert opens[0] in seeded and opens[2] in seeded
+
+    def test_a_terminal_row_that_only_overlaps_does_not_cover(self) -> None:
+        opens = [_dt(2026, 9, 1), _dt(2026, 9, 2)]
+        closes = _closes_for(opens)
+        # Ends an hour before the close: the session is not judged, seed it.
+        partial = (opens[1], closes[opens[1]] - timedelta(hours=1))
+        result = _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=closes[opens[-1]],
+            sessions=opens,
+            coverage_index={"AAPL": set()},
+            terminal_rows=[partial],
+        )
+        assert any(r.gap_start_utc <= opens[1] <= r.gap_end_utc for r in result)

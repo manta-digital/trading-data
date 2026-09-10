@@ -684,8 +684,11 @@ class TestScanScopeAndTimeout:
         # earlier so a session's 00:00 UTC spillover bar stays in view (#22).
         from datetime import timedelta
 
+        from manta_trading.constants import MINUTE_PROVIDER_PUBLICATION_LAG
+
         assert params[0] == window_start_utc()
-        assert params[1] == window_start_utc() - timedelta(days=1)
+        assert params[1] == MINUTE_PROVIDER_PUBLICATION_LAG
+        assert params[2] == window_start_utc() - timedelta(days=1)
 
     def test_a_symbol_list_narrows_the_scan(self) -> None:
         from manta_trading.data.gaps.repair_921 import build_truncated_day_index
@@ -838,3 +841,24 @@ class TestVerifyWaitsForTheCagg:
         assert result is True
         mocks["fetch_mass"].assert_called_once()
         assert "[WAIT]" not in capsys.readouterr().out
+
+
+class TestJudgedEmptySessionsAreNotTruncated:
+    """#22: a session a terminal row covers was judged empty by the pipeline;
+    counting it as truncated re-asks forever. And a session that closed within
+    the publication lag may simply not be published yet."""
+
+    def test_both_predicates_exclude_terminal_covered_sessions(self) -> None:
+        from manta_trading.data.gaps.repair_921 import (
+            build_truncated_day_index,
+            find_truncated_days,
+        )
+
+        per_symbol = TestTruncationPredicateHasOneDefinition._sql_of(find_truncated_days, "AAPL")
+        universe = TestTruncationPredicateHasOneDefinition._sql_of(build_truncated_day_index)
+        for sql_text in (per_symbol, universe):
+            assert "NOT EXISTS" in sql_text
+            assert "'PROVIDER_HOLE', 'RETRY_EXHAUSTED'" in sql_text
+            assert "g.gap_start <= ts.session_open_utc" in sql_text
+            assert "g.gap_end   >= ts.session_close_utc" in sql_text
+            assert "ts.session_close_utc <= now() - %s" in sql_text

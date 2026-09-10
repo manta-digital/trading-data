@@ -147,6 +147,17 @@ of one session's buckets in the coarse minute cagg, never raw minute_ohlcv
 (the §166/§167 latency cliff). On timeout the check exits 2 like every other
 919 check rather than reporting a mass it did not measure."""
 
+MINUTE_PROVIDER_PUBLICATION_LAG: timedelta = timedelta(hours=6)
+"""How long after a session's close EODHD may still be publishing its bars.
+
+EODHD: US 1-minute data is updated 2-3 hours after after-hours close. A
+session missing from a response that carried bars is therefore one of two
+things, told apart only by the clock: closed less recently than this — the
+provider answered and the session had no trades (an illiquid name; recorded
+as PROVIDER_HOLE so nothing asks again) — or closed more recently — not
+published yet (the row stays open and the next firing asks again). Double
+the documented upper bound. Measured 2026-09-10 (#22)."""
+
 MINUTE_TRAILING_COMPLETE_LINE: str = "trailing phase complete: {count} symbols"
 """The journal line the minute pass emits ONLY when its trailing phase walked
 the whole universe. The 921 cutover stops the firing on this line, so the
