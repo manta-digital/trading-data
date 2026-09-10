@@ -13,6 +13,8 @@ Cmnd_Alias MT_UNITS = \
     /usr/bin/systemctl stop mt-daily-pass.timer,    /usr/bin/systemctl start mt-daily-pass.timer, \
     /usr/bin/systemctl stop mt-kalshi-pass.service, /usr/bin/systemctl start mt-kalshi-pass.service, \
     /usr/bin/systemctl stop mt-kalshi-pass.timer,   /usr/bin/systemctl start mt-kalshi-pass.timer, \
+    /usr/bin/systemctl start --no-block mt-minute-pass.service, \
+    /usr/bin/systemctl start --no-block mt-daily-pass.service, \
     /usr/bin/systemctl restart mt-serve.service
 Cmnd_Alias MT_RUN     = /usr/local/bin/mt-run
 Cmnd_Alias MT_INSTALL = /home/manta/source/repos/manta/trading-data/deploy/install-production.sh

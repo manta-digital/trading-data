@@ -457,9 +457,14 @@ class TestBoundedFiringAndRecord:
         line_iter = iter(lines)
         active_iter = iter(active)
 
+        started: list[list[str]] = []
+
         def _fake_run(args, **kwargs):
             if args[:2] == ["systemctl", "stop"]:
                 stopped.append(args)
+            if args[:2] == ["systemctl", "start"]:
+                started.append(args)
+            assert args[0] != "mt-run", "mt-run blocks until the unit ends"
             return MagicMock(stdout="")
 
         with (
@@ -477,6 +482,9 @@ class TestBoundedFiringAndRecord:
             _cursor, _started, reached = cutover_common.fire_unit_until(
                 "mt-minute-pass.service", ["minute"], cutover.TRAILING_COMPLETE
             )
+        assert started == [
+            ["systemctl", "start", "--no-block", "mt-minute-pass.service"]
+        ]
         return reached, stopped
 
     def test_the_minute_firing_stops_once_the_trailing_phase_completes(

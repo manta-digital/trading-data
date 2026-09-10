@@ -354,17 +354,16 @@ def fire_unit_until(
     """
     cursor = journal_cursor(unit)
     started = datetime.now(UTC).isoformat(timespec="seconds")
-    print(
-        f"    sudo mt-run {' '.join(mt_run_args)} — streaming; Ctrl-C only "
-        "detaches, the script keeps waiting"
-    )
-    run(["mt-run", *mt_run_args], sudo=True, check=False, stream=True)
+    # NOT ``mt-run``: it streams the journal and returns only when the unit
+    # ENDS, which for a backfill-bound minute firing is days — the 0.14.1
+    # cutover sat inside it for two hours after the trailing line. Start the
+    # unit without blocking and watch the journal for the line instead.
+    print(f"    systemctl start --no-block {unit}; follow with: mt-run follow")
+    run(["systemctl", "start", "--no-block", unit], sudo=True)
     reached = wait_for_unit_or_line(unit, cursor, pattern)
     if reached and unit_active(unit):
         say(f"  {pattern.pattern!r} reached — stopping {unit}; the timers own the rest")
         stop_unit(unit)
-    print("    sudo -v — a password prompt here is normal after a long firing")
-    run(["sudo", "-v"], stream=True)  # the firing may outlive the sudo grace period
     return cursor, started, reached
 
 
