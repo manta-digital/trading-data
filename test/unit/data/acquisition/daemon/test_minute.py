@@ -2278,14 +2278,6 @@ class TestRunnerCarriesTheExitCode:
         runner._record_minute_pass_outcome(CycleReport())
         assert runner._minute_exit_code == MINUTE_EXIT_OK
 
-    def test_a_raised_cycle_leaves_the_code_untouched(self) -> None:
-        from manta_trading.data.acquisition.daemon.runner import Runner
-
-        runner = Runner.__new__(Runner)
-        runner._minute_exit_code = MINUTE_EXIT_OK
-        runner._record_minute_pass_outcome(None)
-        assert runner._minute_exit_code == MINUTE_EXIT_OK
-
     def test_a_post_trailing_quota_abort_does_not_raise_the_code(self) -> None:
         from manta_trading.data.acquisition.daemon.runner import Runner
 
@@ -2648,3 +2640,93 @@ class TestTruncatedDayAwareSeeding:
         ]
         assert phases[0][1] == {"AAPL": frozenset({self.DAY})}
         assert phases[1][1] is None
+
+
+class TestTrailingCompletionLineIsASignal:
+    """#22 review F001: the completion line stops the cutover's firing, so it
+    is emitted only when the trailing phase actually completed."""
+
+    @staticmethod
+    def _cycle_with_trailing(outcome: MinutePassOutcome | None) -> MagicMock:
+        logger = MagicMock()
+
+        def _fake_phase(_symbols, *, phase, **_kw):
+            if phase is MinutePassPhase.TRAILING:
+                return 500, outcome
+            return 0, MinutePassOutcome.COMPLETE
+
+        with ExitStack() as stack:
+
+            def mp(target: str, **kwargs) -> MagicMock:
+                return stack.enter_context(patch(target, **kwargs))
+
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_FakeSettings(),
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.build_minute_coverage_index",
+                return_value={},
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute.build_truncated_day_index",
+                return_value={},
+            )
+            mp(
+                "manta_trading.data.acquisition.daemon.minute._run_minute_phase",
+                side_effect=_fake_phase,
+            )
+            mp("manta_trading.data.acquisition.daemon.minute._logger", new=logger)
+            pool_cls = mp("manta_trading.data.acquisition.daemon.minute.ConnectionPool")
+            http_cls = mp("manta_trading.data.acquisition.daemon.minute.httpx.Client")
+            pool_cls.return_value.__enter__ = MagicMock(return_value=MagicMock())
+            pool_cls.return_value.__exit__ = MagicMock(return_value=False)
+            http_cls.return_value.__enter__ = MagicMock(return_value=MagicMock())
+            http_cls.return_value.__exit__ = MagicMock(return_value=False)
+            run_minute_cycle(symbols=["AAPL"])
+        return logger
+
+    @staticmethod
+    def _info_lines(logger: MagicMock) -> list[str]:
+        return [
+            c.args[0] % tuple(c.args[1:]) if len(c.args) > 1 else c.args[0]
+            for c in logger.info.call_args_list
+        ]
+
+    def test_a_completed_phase_emits_the_constant(self) -> None:
+        from manta_trading.constants import MINUTE_TRAILING_COMPLETE_LINE
+
+        lines = self._info_lines(self._cycle_with_trailing(MinutePassOutcome.COMPLETE))
+        assert MINUTE_TRAILING_COMPLETE_LINE.format(count=500) in lines
+
+    def test_a_quota_aborted_phase_does_not(self) -> None:
+        lines = self._info_lines(
+            self._cycle_with_trailing(MinutePassOutcome.QUOTA_EXHAUSTED)
+        )
+        assert not [ln for ln in lines if ln.startswith("trailing phase complete")]
+        assert any(ln.startswith("trailing phase ended early") for ln in lines)
+
+    def test_a_shutdown_does_not(self) -> None:
+        lines = self._info_lines(self._cycle_with_trailing(None))
+        assert not [ln for ln in lines if ln.startswith("trailing phase complete")]
+
+
+class TestACrashedPassIsIncomplete:
+    """#22 review F004: a cycle that raised never reported, and the old path
+    let the unit exit 0 for a pass that collected nothing."""
+
+    def test_a_none_report_exits_pass_incomplete(self) -> None:
+        from manta_trading.data.acquisition.daemon.runner import Runner
+
+        runner = Runner.__new__(Runner)
+        runner._minute_exit_code = MINUTE_EXIT_OK
+        runner._record_minute_pass_outcome(None)
+        assert runner._minute_exit_code == MINUTE_EXIT_PASS_INCOMPLETE
+
+    def test_a_daily_only_report_still_leaves_the_code_alone(self) -> None:
+        from manta_trading.data.acquisition.daemon.runner import Runner
+
+        runner = Runner.__new__(Runner)
+        runner._minute_exit_code = MINUTE_EXIT_OK
+        runner._record_minute_pass_outcome(CycleReport())
+        assert runner._minute_exit_code == MINUTE_EXIT_OK

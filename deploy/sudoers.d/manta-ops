@@ -1,12 +1,21 @@
 # Limited root for the operator account running the cutover scripts
 # (scripts/cutover_common.py). Exactly the commands those scripts issue,
-# nothing wider; every one is a named unit, the installed mt-run wrapper,
-# or the install script from the operator's checkout.
+# nothing wider: named units, the installed mt-run wrapper, the install
+# script from the operator's checkout, one file read, one git read as the
+# service user. sudoers forbids wildcards inside arguments, so each unit is
+# spelled out; add a line when deploy/systemd gains a unit.
 #
 # Install:  sudo install -m 0440 -o root -g root deploy/sudoers.d/manta-ops /etc/sudoers.d/manta-ops && sudo visudo -c
-Cmnd_Alias MT_UNITS   = /usr/bin/systemctl stop mt-*, /usr/bin/systemctl start mt-*, /usr/bin/systemctl restart mt-*, /usr/bin/systemctl is-active mt-*
-Cmnd_Alias MT_RUN     = /usr/local/bin/mt-run *
-Cmnd_Alias MT_INSTALL = /home/manta/source/repos/manta/trading-data/deploy/install-production.sh --ref *
+Cmnd_Alias MT_UNITS = \
+    /usr/bin/systemctl stop mt-minute-pass.service, /usr/bin/systemctl start mt-minute-pass.service, \
+    /usr/bin/systemctl stop mt-minute-pass.timer,   /usr/bin/systemctl start mt-minute-pass.timer, \
+    /usr/bin/systemctl stop mt-daily-pass.service,  /usr/bin/systemctl start mt-daily-pass.service, \
+    /usr/bin/systemctl stop mt-daily-pass.timer,    /usr/bin/systemctl start mt-daily-pass.timer, \
+    /usr/bin/systemctl stop mt-kalshi-pass.service, /usr/bin/systemctl start mt-kalshi-pass.service, \
+    /usr/bin/systemctl stop mt-kalshi-pass.timer,   /usr/bin/systemctl start mt-kalshi-pass.timer, \
+    /usr/bin/systemctl restart mt-serve.service
+Cmnd_Alias MT_RUN     = /usr/local/bin/mt-run
+Cmnd_Alias MT_INSTALL = /home/manta/source/repos/manta/trading-data/deploy/install-production.sh
 Cmnd_Alias MT_READ    = /usr/bin/cat /etc/manta-trading.env
 Cmnd_Alias MT_GIT     = /usr/bin/git -C /opt/manta-trading rev-parse HEAD
 

@@ -36,6 +36,8 @@ import re
 import sys
 import time
 from datetime import UTC, datetime
+
+from manta_trading.constants import MINUTE_TRAILING_COMPLETE_LINE
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -45,6 +47,7 @@ if str(SCRIPTS) not in sys.path:
 from cutover_common import (  # noqa: E402
     NOTES_DIR,
     fire_unit_until,
+    log_text,
     start_log,
     CutoverError,
     fire_unit,
@@ -86,7 +89,10 @@ VERIFY_WAIT_SECONDS = 15 * 60
 VERIFY_WAIT_POLLS = 5
 
 #: Journal markers the firings are read back for (SC6).
-TRAILING_COMPLETE = re.compile(r"trailing phase complete: (\d+) symbols")
+# Built from the emitter's own text so the two cannot drift (#22 review F003).
+TRAILING_COMPLETE = re.compile(
+    re.escape(MINUTE_TRAILING_COMPLETE_LINE).replace(re.escape("{count}"), r"(\d+)")
+)
 PASS_ABORTED = re.compile(r"minute pass aborted: (\S+)")
 
 
@@ -100,6 +106,7 @@ def _repair(mode: str) -> str:
     )
     output = (result.stdout or "") + (result.stderr or "")
     print(output)
+    log_text(output)  # the acceptance numbers are the report (#22 review F002)
     if result.returncode not in (0,):
         say(f"  {mode} exited {result.returncode}")
     return output
@@ -113,16 +120,23 @@ def _remaining_credits() -> int:
     from manta_trading.constants import HEALTH_EODHD_USER_ENDPOINT
 
     settings = Settings()
-    response = httpx.get(
-        HEALTH_EODHD_USER_ENDPOINT,
-        params={"api_token": settings.eodhd_api_key, "fmt": "json"},
-        timeout=30.0,
-    )
-    response.raise_for_status()
-    body = response.json()
-    return (
-        int(body["dailyRateLimit"]) - int(body["apiRequests"]) + int(body["extraLimit"])
-    )
+    try:
+        response = httpx.get(
+            HEALTH_EODHD_USER_ENDPOINT,
+            params={"api_token": settings.eodhd_api_key, "fmt": "json"},
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        body = response.json()
+        return (
+            int(body["dailyRateLimit"])
+            - int(body["apiRequests"])
+            + int(body["extraLimit"])
+        )
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        # A preflight that cannot read the balance must refuse in the
+        # script's own voice, not a traceback (#22 review F008).
+        raise CutoverError(f"could not read the EODHD balance: {exc!r}") from exc
 
 
 def _refuse_without_budget() -> None:

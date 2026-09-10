@@ -524,3 +524,23 @@ class TestBoundedFiringAndRecord:
             cutover, verify_text="[WAIT] stale"
         )
         assert code == 1
+
+
+class TestStopTriggerSharesTheEmittersText:
+    """#22 review F003: the cutover stops the firing on the trailing-complete
+    line, so its pattern is built from the constant the daemon logs."""
+
+    def test_the_pattern_matches_the_constant_as_emitted(self, cutover: Any) -> None:
+        from manta_trading.constants import MINUTE_TRAILING_COMPLETE_LINE
+
+        line = MINUTE_TRAILING_COMPLETE_LINE.format(count=13083)
+        match = cutover.TRAILING_COMPLETE.search(f"... minute: {line}")
+        assert match is not None and match.group(1) == "13083"
+
+    def test_an_early_ended_phase_does_not_match(self, cutover: Any) -> None:
+        assert (
+            cutover.TRAILING_COMPLETE.search(
+                "trailing phase ended early: quota_exhausted after 500 symbols"
+            )
+            is None
+        )

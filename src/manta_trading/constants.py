@@ -147,6 +147,12 @@ of one session's buckets in the coarse minute cagg, never raw minute_ohlcv
 (the §166/§167 latency cliff). On timeout the check exits 2 like every other
 919 check rather than reporting a mass it did not measure."""
 
+MINUTE_TRAILING_COMPLETE_LINE: str = "trailing phase complete: {count} symbols"
+"""The journal line the minute pass emits ONLY when its trailing phase walked
+the whole universe. The 921 cutover stops the firing on this line, so the
+emitter (``run_minute_cycle``) and the matcher (``cutover_921_minute_sessions``)
+share the text here rather than each holding a copy (#22 review F003)."""
+
 MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(4, 5), time(13, 5))
 """When the minute acquisition pass fires, as UTC times of day.
 

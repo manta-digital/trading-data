@@ -1,10 +1,13 @@
 [Unit]
-Description=Fire the minute acquisition pass (staggered 30 min behind the daily pass)
+Description=Fire the minute acquisition pass (after EODHD publishes; 30 min behind the daily pass)
 Documentation=https://github.com/manta-digital/trading-data
 
 [Timer]
-# Staggered 30 minutes behind mt-daily-pass.timer so the two passes never
-# start simultaneously (both compete for the same provider quota bucket).
+# 04:05: EODHD publishes US 1-minute data 2-3 h after after-hours close
+# (00:00 UTC); an earlier firing cannot collect the session just closed
+# (#22). 13:05: 30 minutes behind the 12:35 daily pass so the two never
+# start simultaneously (both draw on the same provider quota). Both times
+# are held in MINUTE_PASS_FIRING_TIMES_UTC; a drift-guard test compares.
 OnCalendar=*-*-* 04:05:00 UTC
 OnCalendar=*-*-* 13:05:00 UTC
 # Fire a schedule missed while the host was down (post-reboot catch-up).

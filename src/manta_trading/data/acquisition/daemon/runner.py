@@ -39,6 +39,7 @@ from manta_trading.constants import (
 from manta_trading.data.acquisition.daemon.cadence import daily_pass_boundary
 from manta_trading.data.acquisition.daemon.minute import (
     MINUTE_EXIT_OK,
+    MINUTE_EXIT_PASS_INCOMPLETE,
     minute_pass_exit_code,
 )
 from manta_trading.data.acquisition.quota import CallType, QuotaBucket
@@ -474,10 +475,22 @@ class Runner:
     def _record_minute_pass_outcome(self, report: object | None) -> None:
         """Fold one minute pass's outcome into this process's exit code.
 
-        A report that is None (the cycle raised) or that carries no minute
-        outcome (a daily-only report) leaves the code unchanged — only a pass
-        that actually reported how it ended can colour the exit.
+        A report that carries no minute outcome (a daily-only report) leaves
+        the code unchanged. A report that is None means the cycle RAISED — a
+        crashed pass certainly did not collect the current session, so it
+        exits PASS_INCOMPLETE rather than riding the old silent 0 (#22
+        review F004).
         """
+        if report is None:
+            _logger.warning(
+                "runner: minute pass crashed before reporting — process will "
+                "exit %d",
+                MINUTE_EXIT_PASS_INCOMPLETE,
+            )
+            self._minute_exit_code = max(
+                self._minute_exit_code, MINUTE_EXIT_PASS_INCOMPLETE
+            )
+            return
         outcome = getattr(report, "minute_pass_outcome", None)
         if outcome is None:
             return

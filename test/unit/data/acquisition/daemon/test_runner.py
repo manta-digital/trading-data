@@ -585,12 +585,17 @@ def test_an_aborted_pass_still_stamps_the_cycle_end():
     assert runner._state.last_minute_cycle_end_utc is not None
 
 
-def test_a_raised_minute_cycle_still_stamps_and_exits_zero():
-    """A crash is already logged by the loop's handler; it has no pass outcome
-    to map, so it must not invent one."""
+def test_a_raised_minute_cycle_still_stamps_and_exits_pass_incomplete():
+    """A crash is logged by the loop's handler and, since it collected no
+    session, exits PASS_INCOMPLETE rather than the old silent 0 (#22 review
+    F004). The cycle-end stamp is still written so the loop cannot spin."""
+    from manta_trading.data.acquisition.daemon.minute import (
+        MINUTE_EXIT_PASS_INCOMPLETE,
+    )
+
     minute_func = MagicMock(side_effect=RuntimeError("boom"))
     runner, _, minute_func, _ = _make_runner(
         granularities=frozenset({"minute"}), minute_func=minute_func
     )
-    assert runner.start() == 0
+    assert runner.start() == MINUTE_EXIT_PASS_INCOMPLETE
     assert runner._state.last_minute_cycle_end_utc is not None

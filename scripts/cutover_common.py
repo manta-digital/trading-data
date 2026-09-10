@@ -57,9 +57,14 @@ def start_log(path: Path) -> Path:
 def say(text: str) -> None:
     line = f"\n==> {text}"
     print(line, flush=True)
+    log_text(line)
+
+
+def log_text(text: str) -> None:
+    """Append raw text (a subprocess's output) to the narration file, if open."""
     if _LOG_FILE is not None:
         with _LOG_FILE.open("a") as handle:
-            handle.write(line + "\n")
+            handle.write(text.rstrip("\n") + "\n")
 
 
 def run(

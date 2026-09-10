@@ -20,6 +20,7 @@ from manta_trading.constants import (
     MAX_RETRY_COUNT,
     MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES,
     MINUTE_SEED_PROGRESS_LOG_INTERVAL,
+    MINUTE_TRAILING_COMPLETE_LINE,
     MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
     MINUTE_TRAILING_PRIORITY_WINDOW,
     FetchEntryPoint,
@@ -316,7 +317,19 @@ def run_minute_cycle(
                 max_chunks=MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
                 seed=True,
             )
-            _logger.info("trailing phase complete: %d symbols", trailing_scanned)
+            # The completion line is a signal (the cutover stops the firing on
+            # it), so it is emitted only when the phase actually completed;
+            # an aborted or stopped phase says so instead (#22 review F001).
+            if trailing_outcome is MinutePassOutcome.COMPLETE:
+                _logger.info(
+                    MINUTE_TRAILING_COMPLETE_LINE.format(count=trailing_scanned)
+                )
+            else:
+                _logger.info(
+                    "trailing phase ended early: %s after %d symbols",
+                    trailing_outcome.value if trailing_outcome else "shutdown",
+                    trailing_scanned,
+                )
 
             # Only a phase that walked its whole scope hands over to the next
             # one. A fault ends the pass because every further request is

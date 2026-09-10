@@ -215,7 +215,7 @@ def data_health(
     ctx: typer.Context,
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
-    """Check data freshness, cagg lag, EODHD quota, and Kalshi phase recency.
+    """Check data freshness, cagg lag, minute session mass, and Kalshi phase recency.
 
     Exit 0 when every check passes, 1 when any fails, 2 when the checks could
     not run (no database URL, unreachable database or provider).
