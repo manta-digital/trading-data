@@ -663,14 +663,14 @@ one-bar day reads as covered. Root causes and evidence are in issue #22. Task
         password prompt after a long firing is not mistaken for a hang.
   - [x] Tests: journal-line wait returns on match and on unit exit; the log
         file receives every `say` line.
-- [ ] **Task 8.7: Section 8 checkpoint** (effort: 1)
+- [x] **Task 8.7: Section 8 checkpoint** (effort: 1)
   - [x] Unit tier green; slice 921 integration tests green; mypy at baseline
         on touched files; `ruff format` scoped to touched files and the diff
         checked against `main` for sweep.
   - [x] Slice doc: add "Cutover findings (2026-09-10)" citing #22 and the four
         causes; Task 7.8's judged-session statement updated for 04:05.
-  - [ ] Commit: `fix: judge minute chunks by session bars and fire after the provider publishes (921, #22)`.
-  - [ ] Success: 0.14.1 ready for the PM to tag; Task 7.7 re-run from it.
+  - [x] Commit: `fix: judge minute chunks by session bars and fire after the provider publishes (921, #22)`.
+  - [x] Success: 0.14.1 ready for the PM to tag; Task 7.7 re-run from it.
 
 ## Review Response (2026-09-09, tasks review part 2 — CONCERNS)
 
