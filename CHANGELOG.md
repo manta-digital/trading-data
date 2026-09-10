@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.3] - 2026-09-10
+
+### Fixed
+- A minute session whose only bar is the prior day's after-hours spillover
+  (00:00 UTC) now counts as truncated, so the repair resets it and the
+  trailing seed re-fetches it; previously it was invisible to both while the
+  coarse coverage index reported the day covered (59,276 symbol-days since
+  2026-07-16).
+- The repair reads the coverage index in UTC, matching the daemon.
+
+---
+
 ## [0.14.2] - 2026-09-10
 
 ### Fixed
