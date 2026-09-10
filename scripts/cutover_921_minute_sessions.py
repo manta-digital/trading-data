@@ -7,10 +7,14 @@ and print the acceptance numbers. Nothing here asks the Project Manager to run
 a step by hand or to come back tomorrow — the measurements are in this run's
 own report.
 
-**Timing.** Run just after 00:00 UTC. The repair itself needs no quota, but
-the firings it triggers do, and EODHD's daily allowance resets at 00:00 UTC.
-Starting late means the passes run against a spent allowance and the
-acceptance numbers measure a starved night rather than the fix.
+**Timing.** Run whenever there is provider budget — the script checks and
+tells you. The repair itself needs no quota, but the firings it triggers do.
+When the daily allowance is the only source, that means running just after
+its 00:00 UTC reset; when extra calls are in the account (``extraLimit``),
+the reset does not matter and any time is fine. The preflight prints the
+remaining balance and refuses below ``MIN_CREDITS_TO_START`` rather than
+letting the passes produce acceptance numbers that measure a starved
+account instead of the fix.
 
 **Why the minute pass fires more than once.** The trailing phase takes ONE
 chunk per symbol per cycle (file 1, Task 3.4) and picks the newest actionable
@@ -55,6 +59,16 @@ DAILY_TIMER = "mt-daily-pass.timer"
 
 REPAIR_SCRIPT = "scripts/repair_921_minute_sessions.py"
 
+#: Credits the cutover wants available before it fires anything.
+#:
+#: The trailing phase costs ~65,000 for the full active universe (13,083
+#: symbols x 1 chunk x EODHD_INTRADAY_CALL_COST), and the acceptance numbers
+#: are meaningless if the passes 402 partway through. Half again on top leaves
+#: room for the daily pass and some backfill. Below this the script refuses
+#: and says what it found, rather than producing a report that measures a
+#: spent allowance.
+MIN_CREDITS_TO_START = 100_000
+
 #: Ceiling on minute firings. The trailing phase is one chunk per symbol, so
 #: several passes may be needed; this bounds a pathological loop. Reaching it
 #: is reported as a FAIL, not retried past.
@@ -78,6 +92,42 @@ def _repair(mode: str) -> str:
     if result.returncode not in (0,):
         say(f"  {mode} exited {result.returncode}")
     return output
+
+
+def _remaining_credits() -> int:
+    """Remaining EODHD credits: daily allowance minus used, plus extras."""
+    import httpx
+
+    from manta_trading.config import Settings
+    from manta_trading.constants import HEALTH_EODHD_USER_ENDPOINT
+
+    settings = Settings()
+    response = httpx.get(
+        HEALTH_EODHD_USER_ENDPOINT,
+        params={"api_token": settings.eodhd_api_key, "fmt": "json"},
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    body = response.json()
+    return (
+        int(body["dailyRateLimit"]) - int(body["apiRequests"]) + int(body["extraLimit"])
+    )
+
+
+def _refuse_without_budget() -> None:
+    """Check-then-act on the provider allowance.
+
+    The firings are what produce the acceptance numbers; running them against
+    a spent account measures the starvation, not the fix.
+    """
+    remaining = _remaining_credits()
+    say(f"  EODHD credits remaining: {remaining:,}")
+    if remaining < MIN_CREDITS_TO_START:
+        raise CutoverError(
+            f"only {remaining:,} EODHD credits remain, below the "
+            f"{MIN_CREDITS_TO_START:,} this cutover wants. Either wait for the "
+            "00:00 UTC daily reset or add extra calls to the account."
+        )
 
 
 def _refuse_if_a_pass_is_running() -> None:
@@ -147,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     commit = preflight(args.ref)
     say(f"  {args.ref} is {commit[:12]}")
     _refuse_if_a_pass_is_running()
+    _refuse_without_budget()
 
     held = _hold_timers()
     try:

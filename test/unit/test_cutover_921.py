@@ -320,3 +320,86 @@ class TestTimersAreHeldAndReleased:
             " ".join(call.args[0]) for call in run_mock.call_args_list if call.args
         ]
         assert any("start mt-minute-pass.timer" in c for c in commands)
+
+
+class TestBudgetGate:
+    """The firings produce the acceptance numbers, so running them against a
+    spent account measures the starvation rather than the fix.
+
+    This replaced a "run just after 00:00 UTC" instruction in the docstring.
+    A timing rule a human has to honour is not a check — it is a hope; and it
+    was wrong whenever extra calls are in the account, where the daily reset
+    does not matter at all.
+    """
+
+    @staticmethod
+    def _run_with_credits(cutover: Any, remaining: int):
+        repair = MagicMock(return_value="[PASS]")
+        with (
+            patch.object(cutover, "preflight", return_value="abc"),
+            patch.object(cutover, "unit_active", return_value=False),
+            patch.object(cutover, "_remaining_credits", return_value=remaining),
+            patch.object(cutover, "install"),
+            patch.object(cutover, "_repair", repair),
+            patch.object(cutover, "fire_unit", return_value=("c", "s")),
+            patch.object(
+                cutover,
+                "read_unit_journal",
+                return_value=_Firing({cutover.TRAILING_COMPLETE: _match("1")}),
+            ),
+            patch.object(cutover, "unit_result", return_value=("success", "0")),
+            patch.object(cutover, "run"),
+        ):
+            try:
+                code = cutover.main(["--ref", "v0.14.0"])
+            except Exception as exc:  # noqa: BLE001 — the test inspects it
+                return exc, repair
+        return code, repair
+
+    def test_it_refuses_below_the_floor_before_writing(self, cutover: Any) -> None:
+        from cutover_common import CutoverError
+
+        result, repair = self._run_with_credits(cutover, 40_000)
+        assert isinstance(result, CutoverError)
+        assert "40,000" in str(result)
+        repair.assert_not_called()
+
+    def test_the_refusal_names_both_ways_out(self, cutover: Any) -> None:
+        result, _ = self._run_with_credits(cutover, 1_000)
+        assert "00:00 UTC" in str(result)
+        assert "extra calls" in str(result)
+
+    def test_ample_credit_proceeds(self, cutover: Any) -> None:
+        code, repair = self._run_with_credits(cutover, 593_142)
+        assert code == 0
+        assert repair.called
+
+    def test_exactly_the_floor_proceeds(self, cutover: Any) -> None:
+        code, _ = self._run_with_credits(cutover, cutover.MIN_CREDITS_TO_START)
+        assert code == 0
+
+    def test_the_floor_covers_a_full_trailing_phase(self, cutover: Any) -> None:
+        """13,083 symbols x 1 chunk x 5 credits = 65,415 for the trailing
+        phase alone; the floor must clear that with room for the daily pass."""
+        from manta_trading.constants import EODHD_INTRADAY_CALL_COST
+
+        trailing_cost = 13_083 * 1 * EODHD_INTRADAY_CALL_COST
+        assert cutover.MIN_CREDITS_TO_START > trailing_cost
+
+    def test_remaining_credits_counts_extras(self, cutover: Any) -> None:
+        """extraLimit is the whole reason the 00:00 UTC rule can be dropped."""
+        with patch.object(cutover, "httpx", create=True):
+            pass
+        import httpx
+
+        response = MagicMock()
+        response.json = MagicMock(
+            return_value={
+                "apiRequests": 6_858,
+                "dailyRateLimit": 100_000,
+                "extraLimit": 500_000,
+            }
+        )
+        response.raise_for_status = MagicMock()
+        with patch.object(httpx, "get", return_value=response):
+            assert cutover._remaining_credits() == 593_142
