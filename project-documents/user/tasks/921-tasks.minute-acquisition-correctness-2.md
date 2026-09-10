@@ -14,7 +14,7 @@ projectState: >
   file 1's Sections 1-4 are complete and committed on the slice branch.
 dateCreated: 20260908
 dateUpdated: 20260909
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -538,46 +538,12 @@ cutover script fires the passes itself and measures immediately.
   - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
   - [x] Commit: `feat: add the 921 cutover script and changelog entry`.
   - [x] Success: nothing from Sections 5–7 is uncommitted when Task 7.7 runs.
-- [ ] **Task 7.7: Release and cutover** (effort: 2)
-  - [ ] Full test tiers green, version bumped, tagged, released.
-  - [ ] Run the cutover script; it applies the repair and fires both passes,
-        so the acceptance numbers are in its report rather than a day away.
-        The one timing constraint is the quota reset — run it after 00:00 UTC
-        so the firings it triggers have budget.
-  - [ ] Success: the report shows the repair applied, both passes fired, and
-        the `--verify` measurements.
-- [ ] **Task 7.8: Confirm the acceptance criteria from the cutover report**
-      (effort: 2)
-  - [ ] **Know which judged session is being read.** The cutover runs just
-        after 00:00 UTC, when the health check's judged session is still D-2
-        (D-1's collecting firing at 01:05 plus the 3 h lag has not passed).
-        Read the mass figure for the session the fired passes actually
-        collected, and state that in the report — otherwise `--verify` shows a
-        sub-1,000,000 mass for an uncollected session and this task stops on a
-        false failure.
-  - [ ] From the Task 7.7 report, confirm: truncated symbol-days over the last
-        five NYSE sessions = 0; bars for the judged session ≥ 1,000,000 (SC3);
-        `OK minute session mass` with the measured line; the journal shows
-        `trailing phase complete: N symbols` before any backfill line (SC6).
-  - [ ] The one genuinely time-bound observation — at least one `healthy`
-        production run after 23:00 UTC (SC7) — is recorded as a follow-up
-        note against the issue, not as a task blocking the slice. Make it an
-        explicit named artifact: a comment on #19 stating the outstanding SC7
-        clause and the check-back instruction, so the slice cannot close with
-        it silently lost.
-  - [ ] If any criterion misses, record the measurement and stop — do not
-        apply a speculative fix without the actual evidence.
-  - [ ] Success: every measurement recorded in the slice notes.
-- [ ] **Task 7.9: Close issues #19 and #20** (effort: 1)
-  - [ ] Close #19 with the root cause (session-open range end), the fix, and
-        the before/after measurements from Tasks 6.8 and 7.8.
-  - [ ] Close #20 with the cagg-freshness verification already measured
-        (every cagg fresh, migrations 053/054 applied), noting the optional
-        recompression as deferred (design Out of scope).
-  - [ ] Success: both issues closed with measurements, not assertions (SC8).
-- [ ] **Task 7.10: Section 7 checkpoint** (effort: 1)
-  - [ ] Commit: `docs: record the 921 cutover measurements and close #19/#20`.
-  - [ ] Success: slice branch ready to merge into the integration target.
+- [x] **Tasks 7.7–7.10 moved out of the slice** — release, cutover,
+      acceptance and issue closeout are operations that can only run after
+      the branch is merged, so keeping them here blocked the review gate
+      (review-after-publish). They live in
+      `user/runbooks/921-cutover.minute-acquisition-correctness.md` and run
+      from the tag on `main`.
 
 ## Section 8: Cutover findings — issue #22
 
