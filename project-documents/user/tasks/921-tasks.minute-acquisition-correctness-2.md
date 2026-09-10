@@ -663,3 +663,16 @@ one-bar day reads as covered. Root causes and evidence are in issue #22. Task
 | F005 timer deviation not in the design | Design component table updated: the unit file stays authoritative and a `configparser` guard test holds it in agreement with the constant, with the reason recorded. |
 | F006 SC7 observation has no owning artifact | Task 7.8 makes it an explicit comment on #19 stating the outstanding clause and the check-back instruction. |
 | F007 Task 6.7 unnamed file/fixture | Now names `test/integration/test_repair_921_live.py` and `migrated_db`, citing `test_gaps_window_sql.py` as the `data_gaps` precedent. |
+
+## Review Response (2026-09-10, code review — CONCERNS, commit 635fa50)
+
+| Finding | Change |
+|---|---|
+| F001 completion line logged on abort/stop | Emitted only when the trailing outcome is COMPLETE; other outcomes log `trailing phase ended early: <outcome> after N symbols`. |
+| F002 cutover log omits acceptance numbers | `_repair` output is teed into the narration file via `cutover_common.log_text`. |
+| F003 stop trigger duplicates a log literal | `MINUTE_TRAILING_COMPLETE_LINE` in `constants.py` is the single text; the daemon formats it, the cutover derives its regex from it; a test pins both. |
+| F004 crashed pass exits 0 | A None report maps to `MINUTE_EXIT_PASS_INCOMPLETE`; the old "exits zero" tests replaced. |
+| F005/F006 stale docstring, timer comment | Corrected; the timer comment now states the EODHD publication reason for 04:05. |
+| F007 loop edge semantics | Recorded here as deliberate: the ceiling reports whatever the final verify says; a post-trailing quota abort is INCOMPLETE for the cutover (it wants a clean acceptance run) even though the daemon exits 0; a crashed firing is stopped by the verify loop, not by its own absence of lines. |
+| F008 preflight tracebacks | `_remaining_credits` raises `CutoverError` on HTTP/shape errors. |
+| F009 minute.py length | Deferred; extraction candidates noted. |
