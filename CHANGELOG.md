@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.4] - 2026-09-10
+
+### Fixed
+- A minute session the provider answers with no bars, once its publication
+  lag (6 h) has passed, is recorded as `PROVIDER_HOLE` and never re-asked:
+  reseeds keep terminal rows and skip the sessions they cover, and the
+  truncated-day measurement excludes them and any session closed within the
+  lag. Illiquid names' quiet sessions no longer read as permanently truncated.
+
+---
+
 ## [0.14.3] - 2026-09-10
 
 ### Fixed
