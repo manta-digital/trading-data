@@ -23,6 +23,7 @@ from manta_trading.constants import (
 from manta_trading.data.gaps.compute_missing_ranges import (
     GapRange,
     clamp_to_lifecycle,
+    fetch_session_bounds,
     fetch_sessions,
     group_sessions_into_ranges,
 )
@@ -196,6 +197,7 @@ def compute_missing_minute_sessions(
     coverage_index: dict[str, set[date]],
     from_ts: datetime,
     to_ts: datetime,
+    uncovered_days: set[date] | None = None,
 ) -> list[GapRange]:
     """Return GapRanges for trading sessions missing from the coverage index.
 
@@ -209,6 +211,14 @@ def compute_missing_minute_sessions(
                         — caller is responsible for the None fail-safe branch).
         from_ts:        Window start (UTC, inclusive) — typically history_start.
         to_ts:          Window end (UTC, inclusive) — typically today.
+        uncovered_days: Days to treat as MISSING even though the coverage index
+                        contains them (slice 921). The coverage index is built
+                        from the coarse cagg, which reports a day as covered
+                        when it holds any bar at all — so a session truncated
+                        to its single opening bar reads as covered and is never
+                        re-fetched. The repair passes the symbol's truncated
+                        days here so those sessions are seeded. Omitting it
+                        (every pre-921 caller) behaves exactly as before.
 
     Returns:
         Ordered list of GapRange objects (earliest first). Empty list if the
@@ -223,8 +233,54 @@ def compute_missing_minute_sessions(
         return []
 
     covered_days = coverage_index.get(symbol, set())
+    if uncovered_days:
+        covered_days = covered_days - uncovered_days
     missing = [s for s in sessions if s.date() not in covered_days]
     if not missing:
         return []
 
-    return group_sessions_into_ranges(symbol, "minute", missing, sessions)
+    ranges = group_sessions_into_ranges(symbol, "minute", missing, sessions)
+    session_closes = fetch_session_bounds(conn, symbol, clamped_from, clamped_to)
+    return _end_ranges_at_session_close(ranges, session_closes)
+
+
+def _end_ranges_at_session_close(
+    ranges: list[GapRange],
+    session_closes: dict[datetime, datetime],
+) -> list[GapRange]:
+    """Rewrite each range's end from the last missing session's open to its close.
+
+    Slice 921 / initiative 140 gap-function step 6: a minute range spans
+    ``[session_open_utc(first missing), session_close_utc(last missing)]``.
+    ``group_sessions_into_ranges`` (shared with the daily path, unchanged)
+    ends every range at the last missing session's OPEN, so the minute fetch
+    asked the provider for a one-minute window and stored one bar per session.
+
+    A session with no close in the mapping (a NULL ``session_close_utc``, or a
+    calendar row that disappeared between the two queries) drops its range and
+    logs at ERROR. Keeping the open as a fallback would silently reintroduce
+    the defect this exists to fix.
+    """
+    ended: list[GapRange] = []
+    for gap_range in ranges:
+        close = session_closes.get(gap_range.gap_end_utc)
+        if close is None:
+            _logger.error(
+                "compute_missing_minute_sessions: %s has no session_close_utc "
+                "for session %s — dropping range [%s, %s]; the range end must "
+                "be the session close (140 step 6), never the open",
+                gap_range.symbol,
+                gap_range.gap_end_utc,
+                gap_range.gap_start_utc,
+                gap_range.gap_end_utc,
+            )
+            continue
+        ended.append(
+            GapRange(
+                symbol=gap_range.symbol,
+                granularity=gap_range.granularity,
+                gap_start_utc=gap_range.gap_start_utc,
+                gap_end_utc=close,
+            )
+        )
+    return ended

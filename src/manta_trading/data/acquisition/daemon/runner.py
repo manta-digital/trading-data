@@ -37,6 +37,11 @@ from manta_trading.constants import (
     CycleGranularity,
 )
 from manta_trading.data.acquisition.daemon.cadence import daily_pass_boundary
+from manta_trading.data.acquisition.daemon.minute import (
+    MINUTE_EXIT_OK,
+    MINUTE_EXIT_PASS_INCOMPLETE,
+    minute_pass_exit_code,
+)
 from manta_trading.data.acquisition.quota import CallType, QuotaBucket
 from manta_trading.logging import get_logger
 
@@ -358,6 +363,19 @@ class Runner:
         self._sleep = sleep
         self._state = RunnerState()
         self._should_exit: bool = False
+        # Slice 921: the worst minute-pass exit code seen this process.
+        #
+        # The --forever multi-cycle rule: WORST SEEN, not last seen. A
+        # long-running process that failed to collect a session and then had a
+        # clean cycle has still missed that session, and exiting 0 would erase
+        # the only signal of it. "Last seen" would make the exit code depend on
+        # when the operator happened to stop the process.
+        #
+        # Low stakes either way: mt-minute-pass.service's ExecStart runs
+        # `mt data daemon run --minute --stop-when-done`, so --forever is a
+        # hand-run/dev path and this never affects the unit's exit code in
+        # production.
+        self._minute_exit_code: int = MINUTE_EXIT_OK
         # A quota wait must observe shutdown: sleeps resume after signal
         # handlers (PEP 475), so without this a daily-window wait outlives
         # any number of Ctrl-Cs. Reads the flag at call time via closure.
@@ -453,6 +471,42 @@ class Runner:
             CycleGranularity.MINUTE in granularities
             and self._state.last_minute_cycle_end_utc is None
         )
+
+    def _record_minute_pass_outcome(self, report: object | None) -> None:
+        """Fold one minute pass's outcome into this process's exit code.
+
+        A report that carries no minute outcome (a daily-only report) leaves
+        the code unchanged. A report that is None means the cycle RAISED — a
+        crashed pass certainly did not collect the current session, so it
+        exits PASS_INCOMPLETE rather than riding the old silent 0 (#22
+        review F004).
+        """
+        if report is None:
+            _logger.warning(
+                "runner: minute pass crashed before reporting — process will "
+                "exit %d",
+                MINUTE_EXIT_PASS_INCOMPLETE,
+            )
+            self._minute_exit_code = max(
+                self._minute_exit_code, MINUTE_EXIT_PASS_INCOMPLETE
+            )
+            return
+        outcome = getattr(report, "minute_pass_outcome", None)
+        if outcome is None:
+            return
+        trailing_completed = getattr(report, "minute_trailing_completed", False)
+        code = minute_pass_exit_code(
+            outcome, trailing_completed=trailing_completed
+        )
+        if code != MINUTE_EXIT_OK:
+            _logger.warning(
+                "runner: minute pass ended %s (trailing phase completed=%s) "
+                "— process will exit %d",
+                outcome,
+                trailing_completed,
+                code,
+            )
+        self._minute_exit_code = max(self._minute_exit_code, code)
 
     def _exit_or_wait(
         self,
@@ -561,7 +615,7 @@ class Runner:
 
         while True:
             if self._check_should_exit():
-                return 0
+                return self._minute_exit_code
 
             now = self._clock()
             did_anything = False
@@ -579,7 +633,7 @@ class Runner:
                 _logger.exception("runner: ca_update_due check failed — continuing")
 
             if self._check_should_exit():
-                return 0
+                return self._minute_exit_code
 
             # Daily cycle
             if CycleGranularity.DAILY in granularities and daily_cycle_due(
@@ -609,7 +663,7 @@ class Runner:
                 did_anything = True
 
             if self._check_should_exit():
-                return 0
+                return self._minute_exit_code
 
             # Minute cycle
             if CycleGranularity.MINUTE in granularities and minute_cycle_due(
@@ -618,13 +672,20 @@ class Runner:
                 _logger.info("runner: starting minute cycle")
                 self._state.last_minute_cycle_start_utc = now
                 try:
-                    self._run_minute_cycle(
+                    minute_report = self._run_minute_cycle(
                         symbols=symbols_arg,
                         should_continue=self._should_continue,
                     )
                 except Exception:
                     _logger.exception("runner: run_minute_cycle raised")
+                    minute_report = None
+                # Slice 921: an ABORTED pass stamps the cycle end exactly as a
+                # completed one does. This stamp is an in-process busy-loop
+                # guard only — slice 912 derives remaining work from
+                # acquisition_state, not from this field — so withholding it
+                # would spin the loop rather than preserve any information.
                 self._state.last_minute_cycle_end_utc = self._clock()
+                self._record_minute_pass_outcome(minute_report)
                 did_anything = True
                 # Minute never reports drained (912 D4): a symbol with no
                 # actionable gap comes back EMPTY, which is indistinguishable
@@ -642,7 +703,7 @@ class Runner:
                     else RunnerIdleReason.NOTHING_DUE
                 )
                 if self._exit_or_wait(reason, granularities):
-                    return 0
+                    return self._minute_exit_code
                 sleep_until_next_due_event(
                     self._state,
                     self._clock(),

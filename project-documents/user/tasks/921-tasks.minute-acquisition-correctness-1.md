@@ -16,7 +16,7 @@ projectState: >
   closeout. Version 0.13.0 on main.
 dateCreated: 20260908
 dateUpdated: 20260909
-status: not_started
+status: complete
 ---
 
 ## Context Summary
@@ -96,72 +96,72 @@ Design *Scope 1*, *Decision 1*, *SC1*. The minute range must end at
 and the daily path are **not** modified — the change lives in
 `compute_missing_minute_sessions`, the minute caller.
 
-- [ ] **Task 1.1: Fetch session closes alongside opens** (effort: 2)
-  - [ ] `fetch_sessions` in `data/gaps/compute_missing_ranges.py` returns a
+- [x] **Task 1.1: Fetch session closes alongside opens** (effort: 2)
+  - [x] `fetch_sessions` in `data/gaps/compute_missing_ranges.py` returns a
         list of `session_open_utc` values only. Add a sibling that returns the
         open→close mapping for the same window and calendar join, so the
         minute caller can resolve a close without a second query per range.
-  - [ ] Keep `fetch_sessions` and its return type unchanged — the daily path
+  - [x] Keep `fetch_sessions` and its return type unchanged — the daily path
         and `compute_missing_ranges` call it and must not move.
-  - [ ] The new function selects `session_open_utc, session_close_utc` from
+  - [x] The new function selects `session_open_utc, session_close_utc` from
         `trading_sessions` joined to `instruments` on `trading_calendar_id`,
         ordered by open, with the same bind-parameter treatment as
         `fetch_sessions` (no interpolation).
-  - [ ] Success: the new function exists with a docstring stating that the
+  - [x] Success: the new function exists with a docstring stating that the
         minute range end is the close per 140 step 6; `fetch_sessions`'s
         signature and body are byte-identical to before.
-- [ ] **Task 1.2: `compute_missing_minute_sessions` ends ranges at the close**
+- [x] **Task 1.2: `compute_missing_minute_sessions` ends ranges at the close**
       (effort: 2)
-  - [ ] After `group_sessions_into_ranges` returns, rewrite each `GapRange`'s
+  - [x] After `group_sessions_into_ranges` returns, rewrite each `GapRange`'s
         `gap_end_utc` from the last missing session's open to that session's
         `session_close_utc`, using the mapping from Task 1.1.
-  - [ ] A session whose close is missing from the mapping (a calendar row with
+  - [x] A session whose close is missing from the mapping (a calendar row with
         a null close) must fail explicitly — log at ERROR and drop that range,
         never fall back to the open. Silently keeping the open reintroduces
         the defect this slice exists to fix.
-  - [ ] `gap_start_utc` stays the first missing session's `session_open_utc`.
-  - [ ] Success: for one missing session the returned range is
+  - [x] `gap_start_utc` stays the first missing session's `session_open_utc`.
+  - [x] Success: for one missing session the returned range is
         `[open, close]` of that session; for a contiguous run it is
         `[open(first), close(last)]`; the grouping/contiguity behavior is
         otherwise unchanged.
-- [ ] **Task 1.3: Tests for the range end** (effort: 2)
-  - [ ] Extend `test/unit/data/gaps/test_minute_coverage.py` following its
+- [x] **Task 1.3: Tests for the range end** (effort: 2)
+  - [x] Extend `test/unit/data/gaps/test_minute_coverage.py` following its
         existing mocked-connection pattern.
-  - [ ] Fixture rows must be real `trading_sessions` values in both DST
+  - [x] Fixture rows must be real `trading_sessions` values in both DST
         regimes: 13:30/20:00 UTC in summer and 14:30/21:00 UTC in winter
         (SC1). A fixture that only uses one regime does not prove the close
         is read rather than computed as open + a fixed offset.
-  - [ ] Cases: single missing session; a contiguous run of three; two runs
+  - [x] Cases: single missing session; a contiguous run of three; two runs
         separated by a covered day; an early-close session (a shorter
         open→close span in the fixture) ending at its real close; a null
         close logging at ERROR and dropping the range.
-  - [ ] Success: `uv run pytest test/unit/data/gaps -q` passes; a test asserts
+  - [x] Success: `uv run pytest test/unit/data/gaps -q` passes; a test asserts
         the exact `gap_end_utc` value against the fixture's close, not against
         an offset from the open.
-- [ ] **Task 1.4: Provider window reaches the end of the day** (effort: 2)
-  - [ ] In `_do_minute_symbol`'s chunk loop (`data/acquisition/daemon/minute.py`),
+- [x] **Task 1.4: Provider window reaches the end of the day** (effort: 2)
+  - [x] In `_do_minute_symbol`'s chunk loop (`data/acquisition/daemon/minute.py`),
         the EODHD URL's `to` becomes the UTC midnight **after** `chunk_end`'s
         date, so extended-hours bars keep landing (AAPL 2026-08-27 traded
         08:00–23:59 UTC). Scope 1: this is a fetch-layer mapping.
-  - [ ] `chunk_end` itself, `_advance_minute_gap`'s arguments, the range passed
+  - [x] `chunk_end` itself, `_advance_minute_gap`'s arguments, the range passed
         to `classify_outcome`, and the trailing-tolerance comparison are
         unchanged — only the value serialized into the URL moves.
-  - [ ] The day-end helper is a named module-level function with a docstring
+  - [x] The day-end helper is a named module-level function with a docstring
         explaining why the request window exceeds the gap window; do not
         inline the arithmetic at the URL.
-  - [ ] Success: for `chunk_end = 2026-09-03 20:00 UTC` the URL's `to` is the
+  - [x] Success: for `chunk_end = 2026-09-03 20:00 UTC` the URL's `to` is the
         epoch of `2026-09-04 00:00 UTC`; `from` is still `chunk_start`'s epoch.
-- [ ] **Task 1.5: Tests for the provider window** (effort: 2)
-  - [ ] Add to `test/unit/data/acquisition/daemon/test_minute.py`, using the
+- [x] **Task 1.5: Tests for the provider window** (effort: 2)
+  - [x] Add to `test/unit/data/acquisition/daemon/test_minute.py`, using the
         harness already in that directory.
-  - [ ] Capture the built URL and assert both epoch parameters (SC1). Cases:
+  - [x] Capture the built URL and assert both epoch parameters (SC1). Cases:
         a trailing single-session gap; a multi-day chunk; a chunk whose
         `chunk_end` is already at midnight (the day-end helper must not add a
         second day).
-  - [ ] Assert `classify_outcome` receives the un-extended `[chunk_start,
+  - [x] Assert `classify_outcome` receives the un-extended `[chunk_start,
         chunk_end]` range, so classification semantics do not shift with the
         request window.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
+  - [x] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
 
 ### Consumers of the moved `gap_end`
 
@@ -170,30 +170,30 @@ Design *"Consumers of minute `gap_end`"* table. The row's end moves from
 consumer is unaffected; these two tasks prove it rather than assuming it,
 and ride into the same checkpoint.
 
-- [ ] **Task 1.6: Coalescer adjacency regression test** (effort: 1)
-  - [ ] `coalesce_data_gaps._are_adjacent` compares
+- [x] **Task 1.6: Coalescer adjacency regression test** (effort: 1)
+  - [x] `coalesce_data_gaps._are_adjacent` compares
         `next_trading_session_after(prev.gap_end.date())` with
         `current.gap_start.date()` — dates only.
-  - [ ] Add a case to `test/unit/data/gaps/test_coalesce_data_gaps.py` with
+  - [x] Add a case to `test/unit/data/gaps/test_coalesce_data_gaps.py` with
         two consecutive-session minute rows ending at session closes, and
         assert they still coalesce.
-  - [ ] Success: the new case passes; it fails if `gap_end` is moved to the
+  - [x] Success: the new case passes; it fails if `gap_end` is moved to the
         next UTC midnight (record that in the test's docstring — it is why the
         range end is the close and not midnight, Decision 1).
-- [ ] **Task 1.7: Selector and frontier-gate regression tests** (effort: 1)
-  - [ ] `pick_most_recent_actionable_gap` filters `gap_end <= to_ts` with
+- [x] **Task 1.7: Selector and frontier-gate regression tests** (effort: 1)
+  - [x] `pick_most_recent_actionable_gap` filters `gap_end <= to_ts` with
         `to_ts = now_midnight`; a 20:00 end must still be selected.
-  - [ ] `_do_minute_symbol`'s frontier gate compares
+  - [x] `_do_minute_symbol`'s frontier gate compares
         `MAX(gap_end) < target_end`; a 20:00 frontier must still trigger the
         trailing seed.
-  - [ ] Add both cases to the existing selector and minute daemon test files.
-  - [ ] Success: both pass without changing the production code under test.
-- [ ] **Task 1.8: Section 1 checkpoint** (effort: 1)
-  - [ ] Run `uv run pytest test/unit -q` and `uv run mypy` over the touched
+  - [x] Add both cases to the existing selector and minute daemon test files.
+  - [x] Success: both pass without changing the production code under test.
+- [x] **Task 1.8: Section 1 checkpoint** (effort: 1)
+  - [x] Run `uv run pytest test/unit -q` and `uv run mypy` over the touched
         source and test paths in a single invocation.
-  - [ ] `ruff format` the files this section touched only.
-  - [ ] Commit: `fix: end minute gap ranges at the session close (921)`.
-  - [ ] Success: unit tier green, working tree clean.
+  - [x] `ruff format` the files this section touched only.
+  - [x] Commit: `fix: end minute gap ranges at the session close (921)`.
+  - [x] Success: unit tier green, working tree clean.
 
 ## Section 2: No response, no accounting
 
@@ -203,34 +203,34 @@ There are **two** paths that violate this and each needs its own fix: the seed
 in `update_data_gaps`, and the chunk loop's handling of a `TRANSIENT_FAILURE`
 that `classify_outcome` returned rather than raised.
 
-- [ ] **Task 2.1: Reproduce the 2026-09-07 seed promotion path** (effort: 3)
-  - [ ] Read `update_data_gaps.py` Step 5: `attempt_count = prior_count + 1`
+- [x] **Task 2.1: Reproduce the 2026-09-07 seed promotion path** (effort: 3)
+  - [x] Read `update_data_gaps.py` Step 5: `attempt_count = prior_count + 1`
         and promotion to `RETRY_EXHAUSTED` at `MAX_RETRY_COUNT` happen on the
         **seed**, with no provider call in the transaction.
-  - [ ] Write a test in `test/unit/data/gaps/test_update_data_gaps.py` that
+  - [x] Write a test in `test/unit/data/gaps/test_update_data_gaps.py` that
         seeds the same range four times with no fetch between seeds and
         asserts the current (wrong) behavior: the row reaches
         `RETRY_EXHAUSTED` with `attempt_count == MAX_RETRY_COUNT`. Mark it
         with a docstring naming the 7,755 rows promoted on 2026-09-07.
-  - [ ] Do not fix anything in this task. Its output is the evidence that the
+  - [x] Do not fix anything in this task. Its output is the evidence that the
         seed path is one of the two accounting defects.
-  - [ ] Success: the test passes against unmodified code, documenting the
+  - [x] Success: the test passes against unmodified code, documenting the
         defect.
-- [ ] **Task 2.2: Seeding no longer consumes retries** (effort: 3)
-  - [ ] Change the seed path so re-seeding a range that was never answered by
+- [x] **Task 2.2: Seeding no longer consumes retries** (effort: 3)
+  - [x] Change the seed path so re-seeding a range that was never answered by
         the provider carries the prior `attempt_count` forward **unchanged**
         instead of incrementing it, and therefore cannot promote to
         `RETRY_EXHAUSTED`.
-  - [ ] `update_data_gaps`'s signature, `UpdateResult` fields, and the daily
+  - [x] `update_data_gaps`'s signature, `UpdateResult` fields, and the daily
         path's use of it must keep working; if the daily path depends on the
         increment, gate the new behavior on granularity explicitly with a
         comment rather than changing daily silently.
-  - [ ] Success: the Task 2.1 test is inverted (four seeds leave the row
+  - [x] Success: the Task 2.1 test is inverted (four seeds leave the row
         UNKNOWN at its original count) and every existing
         `test_update_data_gaps.py` case still passes.
-- [ ] **Task 2.3: A response-less `TRANSIENT_FAILURE` writes nothing**
+- [x] **Task 2.3: A response-less `TRANSIENT_FAILURE` writes nothing**
       (effort: 3)
-  - [ ] **The chunk loop is the second defect.** `classify_outcome` *returns*
+  - [x] **The chunk loop is the second defect.** `classify_outcome` *returns*
         `TRANSIENT_FAILURE` (it does not raise) for HTTP 429, any 5xx, an
         unparseable body, and EODHD's 200-with-`{"error": …}` quirk
         (`outcomes.py:71-76, 100-113`). The chunk loop then calls
@@ -238,27 +238,27 @@ that `classify_outcome` returned rather than raised.
         fetch_status=FAILED_RETRYABLE)` and `_record_minute_attempt`, which
         increments `attempt_count`, can promote to `RETRY_EXHAUSTED`, and
         writes `acquisition_state`. That is accounting without an answer.
-  - [ ] Distinguish the two kinds of `TRANSIENT_FAILURE` at the point of
+  - [x] Distinguish the two kinds of `TRANSIENT_FAILURE` at the point of
         classification — a transport/status failure (no usable answer) versus
         a 200 whose body was classified. Carry the distinction as a value, not
         by re-inspecting `response.status_code` at the call site.
-  - [ ] **Fence the daily path.** `classify_outcome` is shared: `minute.py:456`
+  - [x] **Fence the daily path.** `classify_outcome` is shared: `minute.py:456`
         and `daily.py:737` both call it. State which mechanism carries the
         distinction — a new return value, a sidecar, or a new enum member —
         and keep `daily.py:737`'s behavior unmoved. Widening the return type
         in place would break or silently change the daily acquisition path,
         which this slice's Out of scope leaves alone.
-  - [ ] In the chunk loop, a no-answer failure skips both `_advance_minute_gap`
+  - [x] In the chunk loop, a no-answer failure skips both `_advance_minute_gap`
         and `_record_minute_attempt` and breaks out of the symbol's chunk loop
         (there is no point requesting the next chunk from a provider that just
         failed). The row is left exactly as it was for the next pass.
-  - [ ] A classified 200 (SUCCESS / PARTIAL / EMPTY) and a 404 keep today's
+  - [x] A classified 200 (SUCCESS / PARTIAL / EMPTY) and a 404 keep today's
         behavior unchanged.
-  - [ ] Success: `_advance_minute_gap` is unreachable without a classified
+  - [x] Success: `_advance_minute_gap` is unreachable without a classified
         provider answer; the change is in the chunk loop and the
         classification, not in `_advance_minute_gap`'s own branches.
-- [ ] **Task 2.4: Tests for accounting on each failure mode** (effort: 3)
-  - [ ] In `test/unit/data/acquisition/daemon/test_minute.py`, one test per
+- [x] **Task 2.4: Tests for accounting on each failure mode** (effort: 3)
+  - [x] In `test/unit/data/acquisition/daemon/test_minute.py`, one test per
         failure mode — HTTP 402, HTTP 500, HTTP 429 after retry exhaustion, a
         read timeout, and a connection reset — each asserting that **no**
         `data_gaps` row's `attempt_count`, `fetch_status`, or
@@ -266,17 +266,17 @@ that `classify_outcome` returned rather than raised.
         `acquisition_state.last_attempt_outcome` / `last_attempt_ts` are
         likewise untouched for the un-answered symbol (SC4, and Scope 3's 912
         clause).
-  - [ ] One test asserts the converse: a classified 200 and a 404 **do** move
+  - [x] One test asserts the converse: a classified 200 and a 404 **do** move
         `attempt_count` exactly as today, so the rule did not disable
         accounting.
-  - [ ] One test covers the 200-with-`{"error": …}` body: it is a classified
+  - [x] One test covers the 200-with-`{"error": …}` body: it is a classified
         response but carries no data — assert the behavior chosen in Task 2.3
         and state the reasoning in the test docstring.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes;
+  - [x] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes;
         SC4 is demonstrable from the test names.
-- [ ] **Task 2.5: Section 2 checkpoint** (effort: 1)
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `fix: move minute gap accounting only on a provider answer (921)`.
+- [x] **Task 2.5: Section 2 checkpoint** (effort: 1)
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `fix: move minute gap accounting only on a provider answer (921)`.
 
 ## Section 3: Two-phase minute cycle
 
@@ -285,21 +285,21 @@ lands before any backfill chunk is requested. **This section comes before the
 outcome and exit-code work** because the exit mapping is defined in terms of
 which phase aborted — there is nothing to condition on until the phases exist.
 
-- [ ] **Task 3.1: Constants for the failure policy** (effort: 1)
-  - [ ] Add to `constants.py`, each with a docstring giving its measurement or
+- [x] **Task 3.1: Constants for the failure policy** (effort: 1)
+  - [x] Add to `constants.py`, each with a docstring giving its measurement or
         precedent: `MINUTE_TRAILING_PRIORITY_WINDOW` (7 days),
         `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES` (5, following
         `PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS`).
-  - [ ] Success: `test/unit/test_constants.py` asserts the values and types.
-- [ ] **Task 3.2: `min_gap_end` filter on the gap selector** (effort: 1)
-  - [ ] `pick_most_recent_actionable_gap` gains an optional `min_gap_end`
+  - [x] Success: `test/unit/test_constants.py` asserts the values and types.
+- [x] **Task 3.2: `min_gap_end` filter on the gap selector** (effort: 1)
+  - [x] `pick_most_recent_actionable_gap` gains an optional `min_gap_end`
         parameter that adds a `gap_end >= %s` predicate. Existing callers pass
         nothing and behave identically (an additive, backward-compatible
         signature change, recorded in the design's Interfaces Required).
-  - [ ] Success: `test/unit/data/gaps/test_actionable_gap_selector.py` covers
+  - [x] Success: `test/unit/data/gaps/test_actionable_gap_selector.py` covers
         the filtered and unfiltered forms.
-- [ ] **Task 3.3: Decide and record how the backfill phase seeds** (effort: 2)
-  - [ ] **The problem, measured from the code.** `_do_minute_symbol`'s seed
+- [x] **Task 3.3: Decide and record how the backfill phase seeds** (effort: 2)
+  - [x] **The problem, measured from the code.** `_do_minute_symbol`'s seed
         gate is `_needs_full_seed = force_reset_terminal or not _has_bars or
         not _has_any_gaps or _has_unknown_gaps`. With a ~70k-row UNKNOWN
         backlog, `_has_unknown_gaps` is true for nearly every symbol, so a
@@ -309,58 +309,92 @@ which phase aborted — there is nothing to condition on until the phases exist.
         just fetched as uncovered, and re-inserts it as UNKNOWN. The backfill
         phase's selector (no `min_gap_end`, `ORDER BY gap_end DESC`) then
         picks exactly that row first.
-  - [ ] Left unaddressed this costs ~13,000 redundant `/intraday` calls at 5
+  - [x] Left unaddressed this costs ~13,000 redundant `/intraday` calls at 5
         credits each — roughly 65k of the 100k daily allowance spent
         re-fetching the day just fetched, which is the resource this slice
         exists to protect.
-  - [ ] Choose one mechanism and record the reasoning in the task file and in
+  - [x] Choose one mechanism and record the reasoning in the task file and in
         a code comment: (a) the backfill phase does not seed at all — seeding
         belongs to the trailing walk, and the backfill walk consumes only
         existing actionable rows; or (b) the coverage index is refreshed
         between the phases so the just-fetched day reads as covered. Option
         (a) costs no extra query and matches "seed once per cycle"; option (b)
         pays a universe-wide cagg scan a second time per cycle.
-  - [ ] Whichever is chosen, `run_minute_refetch` and the single-symbol path
+  - [x] Whichever is chosen, `run_minute_refetch` and the single-symbol path
         must be unaffected.
-  - [ ] Success: the mechanism is written down with its cost before Task 3.4
+  - [x] Success: the mechanism is written down with its cost before Task 3.4
         implements it; no symbol can be fetched twice in one cycle by
         construction, not by luck of ordering.
-- [ ] **Task 3.4: Trailing and backfill phases** (effort: 3)
-  - [ ] `run_minute_cycle` walks the active universe once with
+
+  **Decision (recorded 20260909): option (a) — the backfill phase does not
+  seed.** Seeding belongs to the trailing walk, which runs first; the backfill
+  walk consumes only gap rows that already exist.
+
+  *Why (a).* The double-fetch becomes impossible by construction rather than
+  by ordering: with no second seed there is no re-inserted row for the
+  backfill selector to pick, so correctness does not depend on the coverage
+  index being fresh, on `ORDER BY gap_end DESC`, or on the trailing phase
+  having succeeded. Option (b) — refreshing the coverage index between phases
+  — reaches the same guarantee only while the refresh itself succeeds: the
+  index builder fails safe to `None` on a stale cagg or a statement timeout
+  (`build_minute_coverage_index`, slice 168), and on that path the backfill
+  phase would fall back to the cycle-start index and re-seed exactly the day
+  just fetched. A correctness property that degrades when a query times out
+  is the wrong shape for the resource this slice exists to protect.
+
+  *Cost.* Option (a) costs nothing: one universe-wide cagg scan per cycle,
+  unchanged from today. Option (b) pays a second scan per cycle (measured ~3 s
+  for the universe query, per `MINUTE_COVERAGE_INDEX_STATEMENT_TIMEOUT`'s
+  note) for a weaker guarantee.
+
+  *What (a) gives up.* A session that becomes missing *between* the two phases
+  is not seeded until the next cycle. That is acceptable and in fact correct:
+  the trailing phase has already attempted every symbol's current session, so
+  a newly-missing row inside the trailing window is one the pass just handled,
+  and a newly-missing older row is backfill work by definition. It waits one
+  cycle, and the cycles fire twice daily (01:05 and 13:05 UTC).
+
+  *Scope of the change.* The no-seed behavior is a property of the backfill
+  **phase**, passed explicitly into `_do_minute_symbol` — not a change to
+  `_do_minute_symbol`'s own gate. `run_minute_refetch` and the single-symbol
+  operator path call `_do_minute_symbol` directly and never set it, so they
+  seed exactly as they do today.
+- [x] **Task 3.4: Trailing and backfill phases** (effort: 3)
+  - [x] `run_minute_cycle` walks the active universe once with
         `min_gap_end = now - MINUTE_TRAILING_PRIORITY_WINDOW` and **one chunk
         per symbol**, then walks it again for backfill with today's
         `most_stale_first` ordering and no `min_gap_end`, seeding per the
         Task 3.3 decision.
-  - [ ] The one-chunk bound belongs to the trailing phase, not to
+  - [x] The one-chunk bound belongs to the trailing phase, not to
         `_do_minute_symbol` generally — pass it explicitly so the backfill
         phase and `run_minute_refetch` are unchanged.
-  - [ ] `should_continue` (the SIGTERM hook) is honored between symbols in
+  - [x] `should_continue` (the SIGTERM hook) is honored between symbols in
         both phases and between the phases.
-  - [ ] The current phase is tracked as a value the cycle can report, since
+  - [x] The current phase is tracked as a value the cycle can report, since
         Section 4's exit mapping and journal line both depend on it.
-  - [ ] Log `trailing phase complete: N symbols` before the first backfill
+  - [x] Log `trailing phase complete: N symbols` before the first backfill
         line (SC6).
-  - [ ] Success: no backfill chunk is requested until every active symbol's
+  - [x] Success: no backfill chunk is requested until every active symbol's
         trailing gap has been attempted.
-- [ ] **Task 3.5: Tests for phase order and no double-fetch** (effort: 3)
-  - [ ] A test with a symbol set holding both trailing and old gaps asserts
+- [x] **Task 3.5: Tests for phase order and no double-fetch** (effort: 3)
+  - [x] A test with a symbol set holding both trailing and old gaps asserts
         the request order: every trailing request precedes every backfill
         request (SC6).
-  - [ ] A test asserts the trailing phase issues at most one chunk per symbol
+  - [x] A test asserts the trailing phase issues at most one chunk per symbol
         even when a symbol has several actionable trailing gaps.
-  - [ ] **A test asserts no symbol-day is requested twice in one cycle** —
+  - [x] **A test asserts no symbol-day is requested twice in one cycle** —
         the direct regression for Task 3.3. Fixture: a symbol with a
         successful trailing fetch and a stale coverage index; assert the
         backfill phase does not request that day again.
-  - [ ] A `caplog` assertion covers SC6's second half: the
+  - [x] A `caplog` assertion covers SC6's second half: the
         `trailing phase complete: N symbols` line is emitted before the first
         backfill line. It is the operator's only in-production evidence that
         the trailing phase ran to completion, and it is what the design's
         Verification Walkthrough greps for.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
-- [ ] **Task 3.6: Section 3 checkpoint** (effort: 1)
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `feat: run the minute cycle in trailing then backfill phases (921)`.
+  - [x] Success: `uv run pytest test/unit/data/acquisition/daemon -q` passes.
+- [x] **Task 3.6: Section 3 checkpoint** (effort: 1)
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `feat: run the minute cycle in trailing then backfill phases (921)`.
 
 ## Section 4: Pass outcome, abort, and exit codes
 
@@ -371,18 +405,18 @@ already correct for 402 (the raise happens before any write) — what is missing
 is the **abort**, the outcome, and a path from that outcome to the process
 exit code.
 
-- [ ] **Task 4.1: `MinutePassOutcome` enum** (effort: 1)
-  - [ ] Add `MinutePassOutcome` as a `StrEnum` beside `LastAttemptOutcome` in
+- [x] **Task 4.1: `MinutePassOutcome` enum** (effort: 1)
+  - [x] Add `MinutePassOutcome` as a `StrEnum` beside `LastAttemptOutcome` in
         `data/acquisition/state.py`, with members `COMPLETE`,
         `QUOTA_EXHAUSTED`, `PROVIDER_UNAVAILABLE`.
-  - [ ] No string literal for these values may appear anywhere else — journal
+  - [x] No string literal for these values may appear anywhere else — journal
         lines, exit mapping, and tests all reference the enum (Decision 7).
-  - [ ] Success: `test/unit/data/acquisition/test_state.py` covers the members
+  - [x] Success: `test/unit/data/acquisition/test_state.py` covers the members
         and their string values; `grep` for the literal strings returns
         matches in
         `state.py`'s enum definition and nowhere else.
-- [ ] **Task 4.2: Failure kind survives `_process_minute_symbol`** (effort: 2)
-  - [ ] **The problem, measured from the code.** `_process_minute_symbol`
+- [x] **Task 4.2: Failure kind survives `_process_minute_symbol`** (effort: 2)
+  - [x] **The problem, measured from the code.** `_process_minute_symbol`
         collapses five distinct `except` handlers —
         `ProviderResponseError`, `psycopg.errors.LockNotAvailable`,
         `PoolTimeout`, `httpx.HTTPError`/`TimeoutException`, and a bare
@@ -391,60 +425,60 @@ exit code.
         cannot tell a provider outage from a database one, and a breaker built
         on that value would abort with `PROVIDER_UNAVAILABLE` on a Postgres
         pool exhaustion.
-  - [ ] **The handlers are only half of it.** 5xx and 429 never raise —
+  - [x] **The handlers are only half of it.** 5xx and 429 never raise —
         `classify_outcome` returns `TRANSIENT_FAILURE` for them, so
         `_do_minute_symbol` returns *normally* through the `try`, not through
         any handler. The breaker's headline trigger therefore does not reach
         the cycle at all unless the Task 2.3 distinction is threaded up the
         **normal return path**: `_do_minute_symbol`'s return →
         `_process_minute_symbol`'s return → `run_minute_cycle`.
-  - [ ] Extend both paths — what `_process_minute_symbol` returns on a normal
+  - [x] Extend both paths — what `_process_minute_symbol` returns on a normal
         return, and what its five `except` handlers return (or let a typed
         exception reach the cycle) — so the failure **kind** is explicit:
         provider quota, provider failure, database failure, or a classified
         response. Do not infer the kind from the outcome enum or a log
         message.
-  - [ ] Every existing caller and test of `_process_minute_symbol` must be
+  - [x] Every existing caller and test of `_process_minute_symbol` must be
         updated in this task, not left to fail in the next one. **Re-green the
         daemon test module before starting Task 4.3** — this task changes a
         signature across every caller, and the abort and breaker layer on top
         of it.
-  - [ ] Success: a `PoolTimeout`, an `httpx.ReadTimeout`, and a **returned**
+  - [x] Success: a `PoolTimeout`, an `httpx.ReadTimeout`, and a **returned**
         HTTP 500 are all distinguishable by the cycle without inspecting an
         exception message — the 500 case is the one the handler-only reading
         of this task would miss.
-- [ ] **Task 4.3: 402 aborts the pass** (effort: 2)
-  - [ ] `classify_outcome` raises `ProviderResponseError` for 402 with a
+- [x] **Task 4.3: 402 aborts the pass** (effort: 2)
+  - [x] `classify_outcome` raises `ProviderResponseError` for 402 with a
         distinct message. Give the quota case a distinguishable exception (a
         subclass, or a typed attribute — not a message-substring check, which
         is a fragile label) so the cycle can tell quota exhaustion from a
         vendor-contract 4xx.
-  - [ ] The cycle ends the pass immediately with
+  - [x] The cycle ends the pass immediately with
         `MinutePassOutcome.QUOTA_EXHAUSTED`, recording which phase it was in.
-  - [ ] Other non-404 4xx keep today's per-symbol skip behavior.
-  - [ ] Success: a 402 on the first symbol ends the pass with no further
+  - [x] Other non-404 4xx keep today's per-symbol skip behavior.
+  - [x] Success: a 402 on the first symbol ends the pass with no further
         provider calls (SC5).
-- [ ] **Task 4.4: Consecutive-failure breaker** (effort: 2)
-  - [ ] `run_minute_cycle` counts consecutive symbols whose failure kind
+- [x] **Task 4.4: Consecutive-failure breaker** (effort: 2)
+  - [x] `run_minute_cycle` counts consecutive symbols whose failure kind
         (Task 4.2) is *provider failure* — 5xx, timeout, connection reset,
         429 exhaustion — and aborts with
         `MinutePassOutcome.PROVIDER_UNAVAILABLE` at
         `MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES`.
-  - [ ] The counter resets on any symbol that reaches a classified provider
+  - [x] The counter resets on any symbol that reaches a classified provider
         response, so scattered failures across a long pass never trip it.
-  - [ ] Database failure kinds never increment the counter.
-  - [ ] Success: five consecutive 5xx symbols end the pass; five consecutive
+  - [x] Database failure kinds never increment the counter.
+  - [x] Success: five consecutive 5xx symbols end the pass; five consecutive
         `PoolTimeout` symbols do not; four failures, a success, then four more
         do not.
-- [ ] **Task 4.5: Tests for abort and breaker** (effort: 2)
-  - [ ] Cases: first-response 402 → `QUOTA_EXHAUSTED` with no second provider
+- [x] **Task 4.5: Tests for abort and breaker** (effort: 2)
+  - [x] Cases: first-response 402 → `QUOTA_EXHAUSTED` with no second provider
         call; five consecutive 5xx → `PROVIDER_UNAVAILABLE`; five consecutive
         `PoolTimeout` → pass continues (the misattribution regression);
         four-fail / success / four-fail → pass completes.
-  - [ ] A test asserts the outcome carries the phase it aborted in.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition -q` passes.
-- [ ] **Task 4.6: Outcome-to-exit plumbing** (effort: 3)
-  - [ ] **Name the path, because none exists today.** `run_minute_cycle`
+  - [x] A test asserts the outcome carries the phase it aborted in.
+  - [x] Success: `uv run pytest test/unit/data/acquisition -q` passes.
+- [x] **Task 4.6: Outcome-to-exit plumbing** (effort: 3)
+  - [x] **Name the path, because none exists today.** `run_minute_cycle`
         returns a `CycleReport` (defined in `daemon/daily.py:69` and shared
         with the daily path); `Runner.start()` returns its own int;
         `daemon_run` ends at `sys.exit(runner.start())` (`data.py:1470`).
@@ -452,44 +486,44 @@ exit code.
         exit without adding a minute-only field to the shared `CycleReport` —
         if the report must carry it, say so and state what the daily path puts
         there.
-  - [ ] State what a `--forever` runner that ran several minute cycles exits
+  - [x] State what a `--forever` runner that ran several minute cycles exits
         with: the last cycle's outcome, or the worst seen. Pick one and write
         the reason in a comment. **This is a low-stakes choice** —
         `mt-minute-pass.service`'s `ExecStart` runs
         `mt data daemon run --minute --stop-when-done`, so `--forever` is a
         hand-run/dev path and neither choice affects the unit's exit code in
         production. Do not treat it as blocking.
-  - [ ] **There is no shared exit-code constant in this project.** The nearest
+  - [x] **There is no shared exit-code constant in this project.** The nearest
         precedent is `EXIT_BY_OUTCOME`, a dict local to
         `cli/commands/kalshi.py:54` over `EXIT_OK`/`EXIT_SYNC_PARTIAL`/…;
         `cli/commands/data.py` uses per-command private ints. Follow the
         Kalshi precedent: define the minute pass's exit codes as named
         constants and a single `dict[MinutePassOutcome, int]` mapping, not
         scattered conditionals and not a bare `3`.
-  - [ ] Mapping: `COMPLETE` → 0; `QUOTA_EXHAUSTED` after the trailing phase
+  - [x] Mapping: `COMPLETE` → 0; `QUOTA_EXHAUSTED` after the trailing phase
         completed → 0 (spending the allowance on backfill is the designed
         steady state); `QUOTA_EXHAUSTED` inside the trailing phase → 3;
         `PROVIDER_UNAVAILABLE` → 3 in either phase.
-  - [ ] On abort, log one line naming the outcome, the phase, and the count of
+  - [x] On abort, log one line naming the outcome, the phase, and the count of
         symbols not attempted (Scope 3).
-  - [ ] An aborted pass stamps `RunnerState.last_minute_cycle_end_utc` exactly
+  - [x] An aborted pass stamps `RunnerState.last_minute_cycle_end_utc` exactly
         as a completed pass does — it is an in-process busy-loop guard only,
         and slice 912 derives remaining work from `acquisition_state`
         (Scope 3's 912 clause). Add a comment citing 912 at the stamp.
-  - [ ] Success: the exit code is produced by one lookup table; `grep` finds
+  - [x] Success: the exit code is produced by one lookup table; `grep` finds
         no bare `3` in the minute pass path.
-- [ ] **Task 4.7: Tests for the exit mapping** (effort: 2)
-  - [ ] Cases: trailing-phase 402 → exit 3; post-trailing 402 → exit 0;
+- [x] **Task 4.7: Tests for the exit mapping** (effort: 2)
+  - [x] Cases: trailing-phase 402 → exit 3; post-trailing 402 → exit 0;
         `PROVIDER_UNAVAILABLE` in the trailing phase → exit 3; in the backfill
         phase → exit 3; `COMPLETE` → exit 0 (SC5).
-  - [ ] A test asserts the aborted pass stamped the cycle end and left
+  - [x] A test asserts the aborted pass stamped the cycle end and left
         `acquisition_state` rows for un-attempted symbols untouched.
-  - [ ] A test covers the `--forever` multi-cycle rule chosen in Task 4.6.
-  - [ ] Success: `uv run pytest test/unit/data/acquisition -q` passes.
-- [ ] **Task 4.8: Section 4 checkpoint** (effort: 1)
-  - [ ] Unit tier and mypy green; `ruff format` scoped to touched files.
-  - [ ] Commit: `feat: abort the minute pass on quota exhaustion or a failure storm (921)`.
-  - [ ] Continue with file 2, Section 5 (health check).
+  - [x] A test covers the `--forever` multi-cycle rule chosen in Task 4.6.
+  - [x] Success: `uv run pytest test/unit/data/acquisition -q` passes.
+- [x] **Task 4.8: Section 4 checkpoint** (effort: 1)
+  - [x] Unit tier and mypy green; `ruff format` scoped to touched files.
+  - [x] Commit: `feat: abort the minute pass on quota exhaustion or a failure storm (921)`.
+  - [x] Continue with file 2, Section 5 (health check).
 
 ## Review Response (2026-09-09, tasks review part 1 — FAIL)
 

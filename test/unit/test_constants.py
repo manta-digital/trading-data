@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 import pytest
 
@@ -33,8 +33,18 @@ from manta_trading.constants import (
     MINUTE_COVERAGE_REFRESH_END_OFFSET,
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_START_OFFSET,
+    HEALTH_MINUTE_SESSION_CALENDAR,
+    HEALTH_MINUTE_SESSION_COLLECTION_LAG,
+    HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE,
+    HEALTH_MINUTE_SESSION_MIN_SYMBOLS,
+    HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT,
+    HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS,
     MINUTE_COVERAGE_VIEW,
+    MINUTE_PASS_FIRING_TIMES_UTC,
+    MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES,
     MINUTE_STALENESS_THRESHOLD,
+    MINUTE_TRAILING_PRIORITY_WINDOW,
+    PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS,
     TRADING_DAYS_PER_CALENDAR_DAY,
     Granularity,
 )
@@ -348,3 +358,81 @@ def test_range_cap_inputs_are_sane() -> None:
     assert API_MAX_BARS_PER_REQUEST == 75_000
     assert INTRADAY_MINUTES_PER_TRADING_DAY == 960
     assert 0 < TRADING_DAYS_PER_CALENDAR_DAY < 1
+
+
+# --- Slice 921: minute pass phasing and failure policy ---------------------
+
+
+def test_minute_trailing_priority_window_type_and_value() -> None:
+    assert isinstance(MINUTE_TRAILING_PRIORITY_WINDOW, timedelta)
+    assert MINUTE_TRAILING_PRIORITY_WINDOW == timedelta(days=7)
+
+
+def test_minute_pass_max_consecutive_provider_failures_type_and_value() -> None:
+    assert isinstance(MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES, int)
+    assert MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES == 5
+
+
+def test_minute_failure_cap_matches_its_stated_precedent() -> None:
+    """The docstring cites PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS as its
+    precedent; if one moves without the other, the citation is stale."""
+    assert (
+        MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES
+        == PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS
+    )
+
+
+# --- Slice 921: minute session mass health thresholds ----------------------
+
+
+def test_minute_session_calendar_type_and_value() -> None:
+    assert isinstance(HEALTH_MINUTE_SESSION_CALENDAR, str)
+    assert HEALTH_MINUTE_SESSION_CALENDAR == "NYSE"
+
+
+def test_minute_session_collection_lag_type_and_value() -> None:
+    assert isinstance(HEALTH_MINUTE_SESSION_COLLECTION_LAG, timedelta)
+    assert HEALTH_MINUTE_SESSION_COLLECTION_LAG == timedelta(hours=3)
+
+
+def test_minute_session_min_bars_per_minute_type_and_value() -> None:
+    assert isinstance(HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE, int)
+    assert HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE == 2_500
+
+
+def test_minute_session_min_symbols_type_and_value() -> None:
+    assert isinstance(HEALTH_MINUTE_SESSION_MIN_SYMBOLS, int)
+    assert HEALTH_MINUTE_SESSION_MIN_SYMBOLS == 5_000
+
+
+def test_minute_session_symbol_min_bars_type_and_value() -> None:
+    assert isinstance(HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS, int)
+    assert HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS == 30
+
+
+def test_minute_session_statement_timeout_type_and_value() -> None:
+    assert isinstance(HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT, str)
+    assert HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT == "30s"
+
+
+def test_minute_pass_firing_times_type_and_values() -> None:
+    assert isinstance(MINUTE_PASS_FIRING_TIMES_UTC, tuple)
+    assert all(isinstance(t, time) for t in MINUTE_PASS_FIRING_TIMES_UTC)
+    assert MINUTE_PASS_FIRING_TIMES_UTC == (time(4, 5), time(13, 5))
+
+
+def test_minute_session_thresholds_sit_below_their_measurements() -> None:
+    """Each floor's docstring cites a measured healthy value; the floor must
+    stay below it, or the check fails on a healthy session."""
+    measured_bars_per_minute = 5_100  # 2026-08-27, universe-wide
+    measured_symbols = 7_259  # same session
+    assert HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE < measured_bars_per_minute
+    assert HEALTH_MINUTE_SESSION_MIN_SYMBOLS < measured_symbols
+
+
+def test_symbol_min_bars_is_a_fraction_of_a_regular_session() -> None:
+    """A regular session is 390 minutes; the per-symbol floor must be well
+    inside it or thinly traded names fail for being thin, not for being
+    truncated."""
+    regular_session_minutes = 390
+    assert 1 < HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS < regular_session_minutes

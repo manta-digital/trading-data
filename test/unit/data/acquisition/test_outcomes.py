@@ -17,6 +17,7 @@ from manta_trading.data.acquisition.outcomes import (
     ProviderResponseError,
     classify_outcome,
     outcome_to_fetch_status,
+    response_carries_an_answer,
 )
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.quality.fetch_status import FetchStatus
@@ -76,14 +77,22 @@ class TestClassifyOutcome:
         assert self._call(_resp(429)) == LastAttemptOutcome.TRANSIENT_FAILURE
 
     def test_json_decode_error_is_transient(self) -> None:
-        assert self._call(_resp(200, json_raises=True)) == LastAttemptOutcome.TRANSIENT_FAILURE
+        assert (
+            self._call(_resp(200, json_raises=True))
+            == LastAttemptOutcome.TRANSIENT_FAILURE
+        )
 
     def test_200_with_error_dict_is_transient(self) -> None:
         """EODHD quirk: {"error": "..."} with 200 status → transient."""
-        assert self._call(_resp(200, {"error": "Unknown symbol"})) == LastAttemptOutcome.TRANSIENT_FAILURE
+        assert (
+            self._call(_resp(200, {"error": "Unknown symbol"}))
+            == LastAttemptOutcome.TRANSIENT_FAILURE
+        )
 
     def test_200_non_list_body_is_transient(self) -> None:
-        assert self._call(_resp(200, {"data": []})) == LastAttemptOutcome.TRANSIENT_FAILURE
+        assert (
+            self._call(_resp(200, {"data": []})) == LastAttemptOutcome.TRANSIENT_FAILURE
+        )
 
     # --- 4xx other than 429 and 404 raises ---
 
@@ -143,10 +152,15 @@ class TestOutcomeToFetchStatus:
         assert outcome_to_fetch_status(LastAttemptOutcome.SUCCESS) is None
 
     def test_partial_maps_to_unknown(self) -> None:
-        assert outcome_to_fetch_status(LastAttemptOutcome.PARTIAL) == FetchStatus.UNKNOWN
+        assert (
+            outcome_to_fetch_status(LastAttemptOutcome.PARTIAL) == FetchStatus.UNKNOWN
+        )
 
     def test_empty_maps_to_provider_hole(self) -> None:
-        assert outcome_to_fetch_status(LastAttemptOutcome.EMPTY) == FetchStatus.PROVIDER_HOLE
+        assert (
+            outcome_to_fetch_status(LastAttemptOutcome.EMPTY)
+            == FetchStatus.PROVIDER_HOLE
+        )
 
     def test_transient_failure_maps_to_failed_retryable(self) -> None:
         assert (
@@ -159,3 +173,74 @@ class TestOutcomeToFetchStatus:
         for outcome in LastAttemptOutcome:
             # Should not raise KeyError
             _ = outcome_to_fetch_status(outcome)
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 — response_carries_an_answer (the accounting gate)
+# ---------------------------------------------------------------------------
+
+
+class TestResponseCarriesAnAnswer:
+    """Separates the two situations ``classify_outcome`` collapses into
+    ``TRANSIENT_FAILURE``: a provider that said nothing, versus one whose
+    answer we could read. Only the latter may move gap accounting.
+    """
+
+    @pytest.mark.parametrize(
+        "status_code",
+        [429, 500, 502, 503, 504],
+    )
+    def test_transport_and_status_failures_are_not_answers(
+        self, status_code: int
+    ) -> None:
+        assert response_carries_an_answer(_resp(status_code, None)) is False
+
+    def test_unparseable_body_is_not_an_answer(self) -> None:
+        assert response_carries_an_answer(_resp(200, json_raises=True)) is False
+
+    def test_two_hundred_with_error_key_is_not_an_answer(self) -> None:
+        assert response_carries_an_answer(_resp(200, {"error": "API limit"})) is False
+
+    def test_unexpected_body_shape_is_not_an_answer(self) -> None:
+        assert response_carries_an_answer(_resp(200, {"data": []})) is False
+
+    @pytest.mark.parametrize("status_code", [100, 301, 304])
+    def test_unexpected_status_classes_are_not_answers(self, status_code: int) -> None:
+        assert response_carries_an_answer(_resp(status_code, None)) is False
+
+    def test_two_hundred_with_a_list_body_is_an_answer(self) -> None:
+        assert response_carries_an_answer(_resp(200, [_bar("2026-09-03")])) is True
+
+    def test_two_hundred_with_an_empty_list_is_an_answer(self) -> None:
+        """The provider stated there is nothing for the range — that IS an
+        answer, and the one PROVIDER_HOLE records."""
+        assert response_carries_an_answer(_resp(200, [])) is True
+
+    def test_four_oh_four_is_an_answer(self) -> None:
+        """EODHD's documented "no intraday data exists for this symbol"."""
+        assert response_carries_an_answer(_resp(404, None)) is True
+
+    def test_it_agrees_with_classify_outcome_on_every_answer(self) -> None:
+        """Every response this gate admits must also classify without raising
+        — otherwise the chunk loop would record an outcome it never got."""
+        for response in (
+            _resp(200, [_bar("2026-09-03")]),
+            _resp(200, []),
+            _resp(404, None),
+        ):
+            assert response_carries_an_answer(response) is True
+            classify_outcome(response, _dt(2026, 9, 3), _dt(2026, 9, 3))
+
+    def test_classify_outcome_is_unchanged_for_the_no_answer_cases(self) -> None:
+        """The gate is a sidecar: classify_outcome still returns exactly what
+        it did for these, so the daily path (daily.py:737) cannot shift."""
+        for response in (
+            _resp(429, None),
+            _resp(500, None),
+            _resp(200, json_raises=True),
+            _resp(200, {"error": "API limit"}),
+        ):
+            assert (
+                classify_outcome(response, _dt(2026, 9, 3), _dt(2026, 9, 3))
+                is LastAttemptOutcome.TRANSIENT_FAILURE
+            )

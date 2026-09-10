@@ -11,8 +11,14 @@ was doing by hand on 2026-08-31, each of which had a silent failure behind it:
   minute freeze of issue #19 was invisible to ``data status`` health;
 - continuous-aggregate freshness (slice 168's verdicts) — the 24-day 5m/15m
   freeze of issue #20 sat behind policies reporting Success;
-- EODHD quota headroom — a starved night parks symbols (issue #19);
-- Kalshi phase recency — a stalled pass shows here within three hours.
+- Kalshi phase recency — a stalled pass shows here within three hours;
+- minute session mass (slice 921) — how much data the last completed session
+  actually holds. Age could not see the 2026-09-07 collapse: every session had
+  bars, one per symbol at the session open, so freshness passed while the
+  universe collected ~45k bars/day against ~2.0M/day. This replaced the EODHD
+  quota-headroom floor, which had to go because normal operation is designed
+  to consume the whole daily allowance — no floor is right, and what mattered
+  about a starved night was this consequence.
 
 The measurement functions are pure (values in, verdict out) so the rules are
 unit-tested without a database; ``gather`` is the only I/O.
@@ -25,17 +31,20 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import httpx
 import psycopg
 import typer
 from psycopg import sql
 
 from manta_trading.cli.output import print_error, print_result
+from manta_trading.cli.commands.minute_session_mass import (
+    check_minute_session_mass,
+    fetch_candidate_sessions,
+    fetch_session_mass,
+    select_judged_session,
+)
 from manta_trading.constants import (
     DAILY_OHLCV_TABLE,
     HEALTH_DAILY_RAW_STALE_AFTER,
-    HEALTH_EODHD_QUOTA_HEADROOM_MIN,
-    HEALTH_EODHD_USER_ENDPOINT,
     HEALTH_KALSHI_PHASE_STALE_AFTER,
     HEALTH_MINUTE_RAW_STALE_AFTER,
     MINUTE_OHLCV_TABLE,
@@ -95,7 +104,11 @@ def check_raw_freshness(
     return HealthCheck(
         name,
         ok,
-        f"newest bar {newest:%Y-%m-%d %H:%M} UTC ({_ago(now, newest)}); "
+        # Format in UTC explicitly: a naive strftime prints the process's
+        # local time under a "UTC" suffix, which is a wrong label, not a
+        # cosmetic one.
+        f"newest bar {newest.astimezone(UTC):%Y-%m-%d %H:%M} UTC "
+        f"({_ago(now, newest)}); "
         f"limit {threshold.days} d",
     )
 
@@ -103,19 +116,6 @@ def check_raw_freshness(
 def check_cagg(view_name: str, is_fresh: bool, detail: str) -> HealthCheck:
     """A slice-168 freshness verdict, one per cagg."""
     return HealthCheck(f"cagg {view_name}", is_fresh, detail)
-
-
-def check_quota(
-    used: int, daily_limit: int, extra: int, *, headroom_min: int
-) -> HealthCheck:
-    """Remaining EODHD requests today must clear the headroom floor."""
-    remaining = daily_limit - used + extra
-    return HealthCheck(
-        "eodhd quota",
-        remaining >= headroom_min,
-        f"{remaining:,} remaining ({used:,}/{daily_limit:,} used, extra {extra:,}); "
-        f"floor {headroom_min:,}",
-    )
 
 
 def check_phase_recency(
@@ -142,25 +142,10 @@ def _newest(conn: psycopg.Connection[Any], table: str) -> datetime | None:
     return row[0] if row else None
 
 
-def fetch_quota(http: httpx.Client, api_key: str) -> tuple[int, int, int]:
-    """(used, daily_limit, extra) from EODHD's account endpoint."""
-    response = http.get(
-        HEALTH_EODHD_USER_ENDPOINT, params={"api_token": api_key, "fmt": "json"}
-    )
-    response.raise_for_status()
-    body = response.json()
-    return (
-        int(body["apiRequests"]),
-        int(body["dailyRateLimit"]),
-        int(body["extraLimit"]),
-    )
-
-
 def gather(
     conn: psycopg.Connection[Any],
     settings: Any,
     *,
-    http: httpx.Client,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> list[HealthCheck]:
     """Run every check against live sources. The only function here with I/O."""
@@ -185,10 +170,15 @@ def gather(
     for verdict in check_coverage_freshness(conn).verdicts:
         checks.append(check_cagg(verdict.view_name, verdict.is_fresh, verdict.detail))
 
-    used, limit, extra = fetch_quota(http, settings.eodhd_api_key)
-    checks.append(
-        check_quota(used, limit, extra, headroom_min=HEALTH_EODHD_QUOTA_HEADROOM_MIN)
-    )
+    # Slice 921 Decision 6: the EODHD quota floor is gone. Normal operation is
+    # DESIGNED to consume the whole daily allowance on backfill, so no floor is
+    # right — a threshold that fires nightly is noise. What mattered about a
+    # starved night was its consequence, and the session-mass check below
+    # measures that consequence directly.
+    judged = select_judged_session(fetch_candidate_sessions(conn, now=at), now=at)
+    mass = fetch_session_mass(conn, judged) if judged is not None else None
+    ok, detail = check_minute_session_mass(judged, mass)
+    checks.append(HealthCheck("minute session mass", ok, detail))
 
     catalog = read_catalog_status(conn)
     rule = settings.collection_rule()
@@ -225,28 +215,29 @@ def data_health(
     ctx: typer.Context,
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
-    """Check data freshness, cagg lag, EODHD quota, and Kalshi phase recency.
+    """Check data freshness, cagg lag, minute session mass, and Kalshi phase recency.
 
     Exit 0 when every check passes, 1 when any fails, 2 when the checks could
     not run (no database URL, unreachable database or provider).
     """
     settings = ctx.obj["settings"]
-    if not settings.timescale_db_url or not settings.eodhd_api_key:
+    # No EODHD key is needed any more: with the quota check gone (slice 921
+    # Decision 6) every remaining check reads the database.
+    if not settings.timescale_db_url:
         print_error(
-            "MT_TIMESCALE_DB_URL and MT_EODHD_API_KEY must be configured.",
+            "MT_TIMESCALE_DB_URL must be configured.",
             json_mode=json_output,
         )
         raise typer.Exit(EXIT_UNAVAILABLE)
     try:
-        with (
-            psycopg.connect(
-                str(settings.timescale_db_url),
-                connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
-            ) as conn,
-            httpx.Client(timeout=30.0) as http,
-        ):
-            checks = gather(conn, settings, http=http)
-    except (psycopg.OperationalError, httpx.HTTPError) as exc:
+        with psycopg.connect(
+            str(settings.timescale_db_url),
+            connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+        ) as conn:
+            checks = gather(conn, settings)
+    except (psycopg.OperationalError, psycopg.errors.QueryCanceled) as exc:
+        # QueryCanceled is the session-mass statement timeout: exit 2 (could
+        # not run) rather than reporting a mass we did not measure.
         print_error(f"health check could not run: {exc}", json_mode=json_output)
         raise typer.Exit(EXIT_UNAVAILABLE) from exc
 

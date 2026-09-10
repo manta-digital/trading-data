@@ -127,9 +127,9 @@ failed is not an alarm.
    (signature: `max(time)` for the session date `≤ session_open_utc`)
    removed from its coverage set, so they are seeded as missing. The window
    starts at `REPAIR_921_WINDOW_START = 2026-07-16` (the day the seeder
-   shipped); the 1,321 midnight-ended legacy rows inside it are reset too
-   (bounded, and refetched once with correct ends — a genuine hole comes
-   back as `PROVIDER_HOLE`). Rows before the window are untouched. The
+   shipped). Rows before the window are untouched. *(Measured 20260909:
+   there are **no** midnight-ended legacy rows inside the window — all 1,321
+   fall before 2026-07-16, so nothing legacy is reset.)* The
    script writes no SQL of its own against `data_gaps`.
    Serialization: the advisory lock is the same one the daemon takes, so an
    overlap blocks for `DAEMON_LOCK_TIMEOUT` then skips and reports the
@@ -188,13 +188,14 @@ failed is not an alarm.
    - **Judged session:** the newest `trading_sessions` row for
      `HEALTH_MINUTE_SESSION_CALENDAR = "NYSE"` (11,692 of 13,081 active
      instruments) whose **collecting firing has finished**: the pass that
-     lands a session is the first 01:05 UTC minute firing after its close,
+     lands a session is the first 04:05 UTC minute firing after its close,
      so the session is judged once
-     `next_0105_utc_after(session_close_utc) + HEALTH_MINUTE_SESSION_COLLECTION_LAG`
+     `next_0405_utc_after(session_close_utc) + HEALTH_MINUTE_SESSION_COLLECTION_LAG`
      (`3 h`, the trailing phase measured at ~35 min plus margin) is in the
-     past — 04:05 UTC the next day for a regular close and for an early
+     past — 07:05 UTC the next day for a regular close and for an early
      close alike (NYSE 2026 early closes: 07-02 17:00 UTC, 11-27 and 12-24
-     18:00 UTC; the 01:05 firing is the collecting one either way).
+     18:00 UTC; the 04:05 firing is the collecting one either way — it is
+     the first firing after EODHD publishes the day, see #22).
      Weekends and holidays fall out of the calendar. The firing time is the
      `mt-minute-pass.timer` `OnCalendar` value, held once in `constants.py`
      and rendered into the unit, not duplicated.
@@ -211,9 +212,9 @@ failed is not an alarm.
      every symbol that reaches it in 390).
    - **Measurement source and read bound:** both quantities are read from
      `minute_4hour_ohlcv` — `SUM(minute_count)` and
-     `COUNT(*) FILTER (WHERE symbol-sum ≥ 30)` over the buckets whose
-     `time_bucket` falls in `[session_open_utc, session_close_utc)`, grouped
-     by symbol — never from raw `minute_ohlcv` (140-slices §166/§167
+     `COUNT(*) FILTER (WHERE symbol-sum ≥ 30)` over the buckets that OVERLAP
+     `[session_open_utc, session_close_utc)`, grouped by symbol — never from
+     raw `minute_ohlcv` (140-slices §166/§167
      recorded the raw-table latency cliff). One session is ~41k cagg rows
      (measured 2026-08-27), a sub-second read; the check runs under
      `CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT`'s sibling
@@ -327,8 +328,8 @@ Nightly firing after this slice:
 3. **The repair uses the single writer and its lock.** No bespoke SQL
    against `data_gaps`; the reset is `force_reset_terminal=True` over a
    dated window, the seed is the seeder with truncated days marked
-   uncovered. Resetting the legacy rows inside the window is the price of
-   using the published path unchanged, and it is bounded (1,321 rows).
+   uncovered. *(Measured 20260909: no legacy rows fall inside the window, so
+   this price is not paid at all.)*
 4. **No response, no accounting** is the rule; 402 and the breaker are
    applications of it. Skipping 13,000 symbols one by one after the quota
    is gone costs 35 minutes, produces 7,000 ERROR lines, and (as measured)
@@ -371,7 +372,7 @@ Nightly firing after this slice:
 7. `mt data health` fails `minute session mass` on a fixture where the
    judged session holds 45k bars and passes on one with 1.99M and on a
    210-minute early-close fixture with 1.05M; the judged session is
-   yesterday's from 04:05 UTC and the day before earlier, for regular and
+   yesterday's from 07:05 UTC and the day before earlier, for regular and
    early closes alike; the read is against `minute_4hour_ohlcv` (asserted
    by the test's query capture); the quota floor line is gone; production
    records at least one `healthy` run after 23:00 UTC.
@@ -396,7 +397,7 @@ sudo scripts/cutover_921_minute_sessions.py
 # 1. install-production.sh --ref v0.14.0 (twice if units changed)
 # 2. preconditions: no pass active, quota reset in the last 30 min
 # 3. repair --apply (prints before/after counts per predicate)
-# 4. next firings: 00:35 UTC daily, 01:05 UTC minute — trailing phase
+# 4. next firings: 00:35 UTC daily, 04:05 UTC minute — trailing phase
 ```
 
 Next morning:
@@ -417,8 +418,10 @@ Then close #19 and #20 with the two `--check` outputs and the health line.
   each night, and the backfill drains behind it at whatever the allowance
   leaves. A slow drain is visible in the journal's abort line, not silent.
 - **A wrong reset window re-fetches genuine holes.** Bounded by the dated
-  window (1,321 legacy rows) and reviewed in `--check` output before
-  `--apply`; rows before 2026-07-16 are never touched.
+  window and reviewed in `--check` output before `--apply`; rows before
+  2026-07-16 are never touched. *(Measured 20260909: the window contains no
+  legacy rows, and the integration test pins that a pre-window
+  `PROVIDER_HOLE` keeps its status and attempt count.)*
 
 ## Implementation Notes
 
@@ -428,6 +431,71 @@ abort and the breaker; (3) two-phase cycle and `MinutePassOutcome`;
 (4) health check; (5) repair and cutover scripts, `--check` against
 production; (6) release, cutover, measure, close the issues. Commit at each
 section.
+
+## Implementation Correction (2026-09-09, Task 6.8 — production baseline)
+
+The read-only `--check` against production corrects two of this design's
+figures and exposed one defect in the repair script itself.
+
+**No legacy rows fall inside the repair window.** This document said the 1,321
+midnight-ended legacy rows are "inside" `REPAIR_921_WINDOW_START` and are
+reset as "the price of using the published path unchanged". Measured: zero.
+They all predate 2026-07-16. The three places that stated otherwise are
+corrected inline; the repair neither resets them nor can be judged on it.
+
+**Straddling rows affect 1,147 symbols, not a corner case.** Task 6.3 called
+them "plausible in production". At 8.8% of the universe, the decision to widen
+the repair window rather than skip the symbol is load-bearing — skipping would
+have left 1,147 symbols un-repaired behind a hand-worked exception list.
+
+**`--check` could not finish before this task measured it.** The per-symbol
+truncation probe costs 0.5–0.9 s (a lateral join into `minute_ohlcv`), so the
+first production run timed out at ~5,750 of 13,083 symbols and a full walk
+projected to ~2.5 hours. Replaced with one grouped universe-wide query
+(`build_truncated_day_index`, the shape `build_minute_coverage_index` already
+uses): 258 s. A pre-cutover gate nobody can afford to run is not a gate.
+
+**The baseline itself** (SC3 before-image, exit 0, nothing written):
+13,083 symbols scanned; 10,119 needing repair; 52,700 truncated symbol-days;
+4,418 zero-width rows; 348 session-open-ended terminal rows; 0 midnight-ended
+legacy rows; 1,147 rows straddling the window start.
+
+## Implementation Correction (2026-09-09, Task 5.8)
+
+Two defects in the health check were found by the Section 5 load test and are
+recorded here because one of them was in this design's own wording.
+
+**The bucket filter was specified wrongly.** This document said the mass is
+read "over the buckets whose `time_bucket` falls in `[session_open_utc,
+session_close_utc)`". Implemented literally, that is wrong: TimescaleDB's
+4-hour buckets are aligned to the **day**, not to the session, so a regular
+13:30–20:00 UTC session opens partway through the 12:00 bucket, whose
+`time_bucket` (12:00) is before the open. The filter dropped that bucket
+whole — the first ~2.5 hours of every regular session, ~38% of its bars.
+Measured on the load fixture: 990,000 of 1,980,000 seeded bars counted.
+
+In production this would not have failed loudly. A healthy ~5,100 bars/min
+would have been reported as ~3,100/min, still above the 2,500 floor — so the
+check would have run permanently near its threshold, turning ordinary
+variation into false FAILs and masking a genuine partial degradation. The
+scope wording above is corrected to "the buckets that OVERLAP" the session,
+and the query now reaches back one bucket width (from
+`GRANULARITY_BAR_MINUTES`, never a literal). Two unit tests pin it, one for
+the opening bucket and one confirming the bucket starting at the close stays
+excluded.
+
+**The candidate read had to exclude sessions that have not closed.**
+`trading_sessions` is populated ~2 years ahead
+(`TRADING_SESSIONS_EXTENSION_YEARS`, kept current by
+`maybe_extend_trading_sessions`), so reading "the newest rows" returns only
+future-dated sessions, none of which can ever be judged. The check would have
+reported `no completed session to judge` on every run in production — a
+permanent FAIL carrying no information, which is the same silence this slice
+exists to end. The candidate query now bounds on `session_close_utc <= now`.
+
+Neither defect was reachable from the unit tier, which hand-builds candidate
+lists and mocks the cursor. Both required a fixture with a real calendar and
+real cagg buckets, which is what Task 5.8 exists for.
 
 ## Review Response (2026-09-08)
 
@@ -451,3 +519,40 @@ Round 2 (CONCERNS, reviewed b3ab989):
 | F004 912 stamping | Scope 3: an abort stamps the in-process cycle end like a completed pass (busy-loop guard only, per 912); `acquisition_state` for the un-attempted tail is untouched. |
 | F005 plan entry drift | 900 plan entry 22 reconciled to the design (session close + fetch-layer day window; absolute floors). |
 | F006 signature extensions | Interfaces Required: recorded as additive, backward-compatible, within the band's latitude. |
+
+## Cutover findings (2026-09-10, issue #22)
+
+The v0.14.0 cutover reproduced the truncated-symbol-day defect under the new
+code. Evidence (`minute_ohlcv.created_at` and the unit journal) and the fix
+scope are in issue #22; the four causes, each fixed in Section 8 of the tasks:
+
+1. **Provider publication lag.** EODHD publishes US 1-minute data 2-3 hours
+   after after-hours close (00:00 UTC). The 01:05 UTC firing asked for the
+   session before it existed; the 13:05 firing is the one that collected it.
+   The first firing is now 04:05 UTC (`MINUTE_PASS_FIRING_TIMES_UTC`), and
+   the judged session follows: 07:05 UTC the next day for any close.
+2. **Date-granularity SUCCESS.** `classify_outcome` compares the latest bar's
+   date with the range end's date; EODHD dates the 20:00 ET after-hours bar
+   of session D-1 as 00:00 UTC on day D, so one spillover bar satisfied the
+   row for D and it was deleted. A minute chunk is now judged per session — a
+   bar strictly after the open, at or before the close — in
+   `daemon/minute_sessions.py`, the same predicate as the repair's
+   truncated-day index.
+3. **The four-day trailing tolerance.** A shortfall of one session promoted
+   PARTIAL to SUCCESS for symbols with no spillover bar. Session judgement
+   subsumes it and the block is gone.
+4. **One bar reads as coverage.** The coarse coverage index reports a day as
+   covered when it holds any bar, so the 4,278 one-bar sessions were never
+   re-seeded by the next firing. The trailing walk now builds the truncated-day
+   index since the trailing floor and passes it as `uncovered_days`.
+
+Two operational findings from the same run: `--verify` reads the health cagg,
+which is `materialized_only` and refreshed hourly, so it must report WAIT (not
+a verdict) while the newest judged-session bar postdates the last refresh; and
+a minute firing is unbounded (backfill runs to quota), so the cutover stops the
+unit once `trailing phase complete` appears and writes its narration to a file
+under `project-documents/user/notes/`.
+
+Design figures corrected by this run: the trailing phase was assumed to
+collect the session that closed that day from the 01:05 firing; it cannot
+before ~03:00 UTC. Task 7.8's judged-session statement is 07:05 UTC.

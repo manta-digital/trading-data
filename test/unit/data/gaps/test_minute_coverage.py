@@ -8,6 +8,7 @@ the diff/grouping logic with real data.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,7 @@ import psycopg
 import pytest
 
 from manta_trading.constants import GRANULARITY_SOURCE, Granularity
+from manta_trading.data.gaps.compute_missing_ranges import fetch_session_bounds
 from manta_trading.data.gaps.minute_coverage import (
     build_minute_coverage_index,
     build_symbol_minute_coverage,
@@ -223,7 +225,8 @@ class TestBuildSymbolMinuteCoverage:
         cur = conn.cursor.return_value
         build_symbol_minute_coverage(conn, "AAPL")
         query_calls = [
-            call for call in cur.execute.call_args_list
+            call
+            for call in cur.execute.call_args_list
             if call.args and "GROUP BY" in call.args[0]
         ]
         assert len(query_calls) == 1
@@ -238,6 +241,17 @@ class TestBuildSymbolMinuteCoverage:
 # ---------------------------------------------------------------------------
 
 
+# Real trading_sessions values in both DST regimes (slice 921 SC1). The close
+# must be READ, never computed as open + a fixed offset: EST and EDT sessions
+# differ in UTC, and an early close differs in span.
+_REGULAR_SPAN = timedelta(minutes=390)
+
+
+def _closes_for(sessions: list[datetime]) -> dict[datetime, datetime]:
+    """Default open→close mapping: a regular 6.5-hour session per open."""
+    return {s: s + _REGULAR_SPAN for s in sessions}
+
+
 def _patched_run(
     *,
     lifecycle_from: datetime,
@@ -245,8 +259,11 @@ def _patched_run(
     sessions: list[datetime],
     coverage_index: dict[str, set[date]],
     symbol: str = "AAPL",
+    session_closes: dict[datetime, datetime] | None = None,
+    uncovered_days: set[date] | None = None,
 ):
     conn = MagicMock()
+    closes = _closes_for(sessions) if session_closes is None else session_closes
     with (
         patch(
             "manta_trading.data.gaps.minute_coverage.clamp_to_lifecycle",
@@ -256,9 +273,18 @@ def _patched_run(
             "manta_trading.data.gaps.minute_coverage.fetch_sessions",
             return_value=sessions,
         ),
+        patch(
+            "manta_trading.data.gaps.minute_coverage.fetch_session_bounds",
+            return_value=closes,
+        ),
     ):
         return compute_missing_minute_sessions(
-            conn, symbol, coverage_index, lifecycle_from, lifecycle_to
+            conn,
+            symbol,
+            coverage_index,
+            lifecycle_from,
+            lifecycle_to,
+            uncovered_days=uncovered_days,
         )
 
 
@@ -281,7 +307,8 @@ class TestComputeMissingMinuteSessions:
         )
         assert len(result) == 1
         assert result[0].gap_start_utc == s2
-        assert result[0].gap_end_utc == s3
+        # Slice 921: the range ends at the last missing session's CLOSE.
+        assert result[0].gap_end_utc == s3 + _REGULAR_SPAN
 
     def test_fully_covered_returns_empty(self) -> None:
         sessions = [_dt(2024, 1, 2), _dt(2024, 1, 3)]
@@ -305,7 +332,7 @@ class TestComputeMissingMinuteSessions:
         )
         assert len(result) == 1
         assert result[0].gap_start_utc == sessions[0]
-        assert result[0].gap_end_utc == sessions[-1]
+        assert result[0].gap_end_utc == sessions[-1] + _REGULAR_SPAN
 
     def test_delisted_clamp_limits_sessions(self) -> None:
         # clamp_to_lifecycle is patched directly, so the delisted clamp is
@@ -319,7 +346,7 @@ class TestComputeMissingMinuteSessions:
             sessions=sessions,
             coverage_index=coverage_index,
         )
-        assert result[-1].gap_end_utc == sessions[-1]
+        assert result[-1].gap_end_utc == sessions[-1] + _REGULAR_SPAN
 
     def test_no_lifecycle_anchor_returns_empty(self) -> None:
         conn = MagicMock()
@@ -460,3 +487,318 @@ class TestCoverageFreshnessGuard:
             "AAPL": {date(2024, 1, 2)},
             "MSFT": {date(2024, 1, 2)},
         }
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 — the minute range ends at the session close (Task 1.3, SC1)
+# ---------------------------------------------------------------------------
+
+
+class TestMinuteRangeEndsAtSessionClose:
+    """The range end is the last missing session's ``session_close_utc``.
+
+    Root cause this covers: ``group_sessions_into_ranges`` ends every range at
+    the last missing session's OPEN, and ``_do_minute_symbol`` passes that as
+    EODHD's ``to``. EODHD honors ``to`` exactly, so a trailing session was
+    fetched as a one-minute window and returned a single bar — the 70,298
+    UNKNOWN / 42,775 zero-width rows measured on 2026-09-07.
+
+    Fixtures use real ``trading_sessions`` values in BOTH DST regimes —
+    13:30/20:00 UTC in summer (EDT) and 14:30/21:00 UTC in winter (EST). A
+    single-regime fixture cannot distinguish a close that is read from one
+    computed as the open plus a fixed offset.
+    """
+
+    # Summer (EDT): 09:30–16:00 ET == 13:30–20:00 UTC.
+    _SUMMER_OPEN = 13
+    _SUMMER_CLOSE = 20
+    # Winter (EST): 09:30–16:00 ET == 14:30–21:00 UTC.
+    _WINTER_OPEN = 14
+    _WINTER_CLOSE = 21
+
+    @staticmethod
+    def _summer(day: int) -> tuple[datetime, datetime]:
+        return (
+            datetime(2026, 7, day, 13, 30, tzinfo=UTC),
+            datetime(2026, 7, day, 20, 0, tzinfo=UTC),
+        )
+
+    @staticmethod
+    def _winter(day: int) -> tuple[datetime, datetime]:
+        return (
+            datetime(2026, 1, day, 14, 30, tzinfo=UTC),
+            datetime(2026, 1, day, 21, 0, tzinfo=UTC),
+        )
+
+    def test_single_missing_summer_session_spans_open_to_close(self) -> None:
+        open_utc, close_utc = self._summer(15)
+        result = _patched_run(
+            lifecycle_from=open_utc,
+            lifecycle_to=close_utc,
+            sessions=[open_utc],
+            coverage_index={},
+            session_closes={open_utc: close_utc},
+        )
+        assert len(result) == 1
+        assert result[0].gap_start_utc == open_utc
+        # Asserted against the fixture's close value, not open + an offset.
+        assert result[0].gap_end_utc == close_utc
+        assert result[0].gap_end_utc.hour == self._SUMMER_CLOSE
+
+    def test_single_missing_winter_session_spans_open_to_close(self) -> None:
+        open_utc, close_utc = self._winter(15)
+        result = _patched_run(
+            lifecycle_from=open_utc,
+            lifecycle_to=close_utc,
+            sessions=[open_utc],
+            coverage_index={},
+            session_closes={open_utc: close_utc},
+        )
+        assert len(result) == 1
+        assert result[0].gap_start_utc == open_utc
+        assert result[0].gap_end_utc == close_utc
+        assert result[0].gap_end_utc.hour == self._WINTER_CLOSE
+        assert result[0].gap_start_utc.hour == self._WINTER_OPEN
+
+    def test_contiguous_run_spans_first_open_to_last_close(self) -> None:
+        bounds = [self._summer(day) for day in (13, 14, 15)]
+        sessions = [open_utc for open_utc, _ in bounds]
+        result = _patched_run(
+            lifecycle_from=sessions[0],
+            lifecycle_to=bounds[-1][1],
+            sessions=sessions,
+            coverage_index={},
+            session_closes=dict(bounds),
+        )
+        assert len(result) == 1
+        assert result[0].gap_start_utc == bounds[0][0]
+        assert result[0].gap_end_utc == bounds[-1][1]
+
+    def test_two_runs_separated_by_a_covered_day_each_end_at_their_close(
+        self,
+    ) -> None:
+        bounds = [self._winter(12), self._winter(13), self._winter(14)]
+        sessions = [open_utc for open_utc, _ in bounds]
+        # The middle session is covered, splitting the run in two.
+        coverage_index = {"AAPL": {sessions[1].date()}}
+        result = _patched_run(
+            lifecycle_from=sessions[0],
+            lifecycle_to=bounds[-1][1],
+            sessions=sessions,
+            coverage_index=coverage_index,
+            session_closes=dict(bounds),
+        )
+        assert len(result) == 2
+        assert (result[0].gap_start_utc, result[0].gap_end_utc) == bounds[0]
+        assert (result[1].gap_start_utc, result[1].gap_end_utc) == bounds[2]
+
+    def test_early_close_session_ends_at_its_real_close(self) -> None:
+        # 2026-07-03 half day: 09:30–13:00 ET == 13:30–17:00 UTC.
+        open_utc = datetime(2026, 7, 3, 13, 30, tzinfo=UTC)
+        early_close = datetime(2026, 7, 3, 17, 0, tzinfo=UTC)
+        result = _patched_run(
+            lifecycle_from=open_utc,
+            lifecycle_to=early_close,
+            sessions=[open_utc],
+            coverage_index={},
+            session_closes={open_utc: early_close},
+        )
+        assert len(result) == 1
+        assert result[0].gap_end_utc == early_close
+        regular_close = open_utc + _REGULAR_SPAN
+        assert result[0].gap_end_utc != regular_close, (
+            "an early close proves the close is read, not open + a fixed span"
+        )
+
+    def test_missing_close_logs_error_and_drops_the_range(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # A NULL session_close_utc is dropped from fetch_session_bounds, so the
+        # open has no close. Keeping the open would silently reintroduce the
+        # one-minute provider window this slice exists to remove.
+        open_utc, _ = self._summer(15)
+        with caplog.at_level(logging.ERROR):
+            result = _patched_run(
+                lifecycle_from=open_utc,
+                lifecycle_to=open_utc,
+                sessions=[open_utc],
+                coverage_index={},
+                session_closes={},
+            )
+        assert result == []
+        assert "session_close_utc" in caplog.text
+        assert "AAPL" in caplog.text
+
+    def test_one_run_without_a_close_does_not_drop_the_others(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        bounds = [self._winter(12), self._winter(13), self._winter(14)]
+        sessions = [open_utc for open_utc, _ in bounds]
+        coverage_index = {"AAPL": {sessions[1].date()}}
+        # The FIRST run's close is missing; the second must still be returned.
+        with caplog.at_level(logging.ERROR):
+            result = _patched_run(
+                lifecycle_from=sessions[0],
+                lifecycle_to=bounds[-1][1],
+                sessions=sessions,
+                coverage_index=coverage_index,
+                session_closes={bounds[2][0]: bounds[2][1]},
+            )
+        assert len(result) == 1
+        assert (result[0].gap_start_utc, result[0].gap_end_utc) == bounds[2]
+
+
+class TestFetchSessionBounds:
+    """``fetch_session_bounds`` is the query that supplies those closes."""
+
+    @staticmethod
+    def _conn(rows: Sequence[tuple[datetime, datetime | None]]) -> MagicMock:
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__ = MagicMock(return_value=cur)
+        cur.__exit__ = MagicMock(return_value=False)
+        cur.fetchall = MagicMock(return_value=rows)
+        conn.cursor = MagicMock(return_value=cur)
+        return conn
+
+    def test_returns_open_to_close_mapping(self) -> None:
+        rows = [
+            (
+                datetime(2026, 7, 15, 13, 30, tzinfo=UTC),
+                datetime(2026, 7, 15, 20, 0, tzinfo=UTC),
+            ),
+            (
+                datetime(2026, 1, 15, 14, 30, tzinfo=UTC),
+                datetime(2026, 1, 15, 21, 0, tzinfo=UTC),
+            ),
+        ]
+        result = fetch_session_bounds(
+            self._conn(rows),
+            "AAPL",
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 12, 31, tzinfo=UTC),
+        )
+        assert result == dict(rows)
+
+    def test_null_close_is_omitted_rather_than_defaulted(self) -> None:
+        open_utc = datetime(2026, 7, 15, 13, 30, tzinfo=UTC)
+        result = fetch_session_bounds(
+            self._conn([(open_utc, None)]),
+            "AAPL",
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 12, 31, tzinfo=UTC),
+        )
+        assert result == {}, "a null close must not become a usable range end"
+
+    def test_symbol_and_window_are_bound_parameters(self) -> None:
+        conn = self._conn([])
+        from_ts = datetime(2026, 1, 1, tzinfo=UTC)
+        to_ts = datetime(2026, 12, 31, tzinfo=UTC)
+        fetch_session_bounds(conn, "AAPL", from_ts, to_ts)
+        sql, params = conn.cursor.return_value.execute.call_args.args
+        assert params == ("AAPL", from_ts, to_ts)
+        assert "AAPL" not in sql, "the symbol must never be interpolated"
+        assert "session_close_utc" in sql
+
+
+# ---------------------------------------------------------------------------
+# Slice 921 Task 6.2 — days forced uncovered for the repair
+# ---------------------------------------------------------------------------
+
+
+class TestUncoveredDaysOverride:
+    """The repair must be able to re-seed a day the coverage index calls
+    covered.
+
+    The index is built from the coarse cagg, which reports a day as covered
+    when it holds ANY bar. A session truncated to its single opening bar —
+    the 2026-07-16 onward failure this slice repairs — therefore reads as
+    fully covered and would never be re-fetched. Passing the day as uncovered
+    is how the repair reaches it.
+    """
+
+    def test_a_covered_day_passed_as_uncovered_is_seeded(self) -> None:
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21), _dt(2026, 7, 22)]
+        # Every day is covered as far as the cagg is concerned.
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        result = _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=opens[-1] + timedelta(hours=7),
+            sessions=opens,
+            coverage_index=coverage_index,
+            uncovered_days={opens[1].date()},
+        )
+        assert len(result) == 1
+        assert result[0].gap_start_utc == opens[1]
+        assert result[0].gap_end_utc == opens[1] + _REGULAR_SPAN
+
+    def test_several_uncovered_days_group_into_contiguous_ranges(self) -> None:
+        opens = [_dt(2026, 7, day) for day in (20, 21, 22, 23)]
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        result = _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=opens[-1] + timedelta(hours=7),
+            sessions=opens,
+            coverage_index=coverage_index,
+            uncovered_days={opens[1].date(), opens[2].date()},
+        )
+        assert len(result) == 1
+        assert result[0].gap_start_utc == opens[1]
+        assert result[0].gap_end_utc == opens[2] + _REGULAR_SPAN
+
+    def test_omitting_the_parameter_is_unchanged(self) -> None:
+        """Every pre-921 caller passes nothing and must behave as before."""
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21)]
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        assert (
+            _patched_run(
+                lifecycle_from=opens[0],
+                lifecycle_to=opens[-1] + timedelta(hours=7),
+                sessions=opens,
+                coverage_index=coverage_index,
+            )
+            == []
+        )
+
+    def test_an_empty_set_is_treated_as_no_override(self) -> None:
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21)]
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        assert (
+            _patched_run(
+                lifecycle_from=opens[0],
+                lifecycle_to=opens[-1] + timedelta(hours=7),
+                sessions=opens,
+                coverage_index=coverage_index,
+                uncovered_days=set(),
+            )
+            == []
+        )
+
+    def test_an_uncovered_day_with_no_session_changes_nothing(self) -> None:
+        """A day the calendar has no session for cannot be seeded — the diff
+        runs over sessions, not over dates."""
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21)]
+        coverage_index = {"AAPL": {o.date() for o in opens}}
+        result = _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=opens[-1] + timedelta(hours=7),
+            sessions=opens,
+            coverage_index=coverage_index,
+            uncovered_days={date(2026, 7, 25)},  # a Saturday, no session
+        )
+        assert result == []
+
+    def test_it_does_not_mutate_the_caller_s_coverage_index(self) -> None:
+        """The index is shared across every symbol in a cycle; subtracting in
+        place would silently un-cover that day for everyone after it."""
+        opens = [_dt(2026, 7, 20), _dt(2026, 7, 21)]
+        covered = {o.date() for o in opens}
+        coverage_index = {"AAPL": covered}
+        _patched_run(
+            lifecycle_from=opens[0],
+            lifecycle_to=opens[-1] + timedelta(hours=7),
+            sessions=opens,
+            coverage_index=coverage_index,
+            uncovered_days={opens[0].date()},
+        )
+        assert coverage_index["AAPL"] == covered

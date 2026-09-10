@@ -7,7 +7,7 @@ grace periods used by the data acquisition and quality pipelines.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Final
 
@@ -93,10 +93,82 @@ HEALTH_KALSHI_PHASE_STALE_AFTER: timedelta = timedelta(hours=3)
 than this fails the check — the pass fires hourly and a drain pass runs ~15
 minutes, so three hours means two missed firings."""
 
-HEALTH_EODHD_QUOTA_HEADROOM_MIN: int = 20_000
-"""Fail when remaining EODHD requests (daily allowance − used + extra) drop
-below this. The nightly minute firing alone needs ~10–15k; below this the
-next firing starves and symbols park (issue #19)."""
+# --- mt data health: minute session mass (slice 921) ----------------------
+# The 2026-09-07 failure was invisible because the check judged the newest
+# bar's AGE, not how much data the session holds: the universe was collecting
+# ~45k bars/day for ~10.8k symbols against ~2.0M/day through 2026-08-27, and
+# `mt data health` still reported minute data OK. These thresholds judge the
+# quantity that failed.
+
+HEALTH_MINUTE_SESSION_CALENDAR: str = "NYSE"
+"""Trading calendar whose sessions the minute-mass check judges.
+
+One calendar, not the union: the equity universe this platform collects is
+overwhelmingly US-listed and shares NYSE's session bounds, so a single
+calendar gives one unambiguous judged session per day. A symbol on another
+calendar is still collected; it is simply not what this check measures."""
+
+HEALTH_MINUTE_SESSION_COLLECTION_LAG: timedelta = timedelta(hours=3)
+"""Grace after the collecting firing before its session is judged.
+
+A session is only judged once the pass that collects it has had time to
+finish. Sized from the measured pass duration plus headroom; with the 04:05
+UTC firing this puts a regular 20:00 close's verdict at 07:05 the next day.
+Matches HEALTH_KALSHI_PHASE_STALE_AFTER's three-hour convention."""
+
+HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE: int = 2_500
+"""Fail when the judged session holds fewer bars per session-minute.
+
+Half the measured healthy rate: 2026-08-27 collected ~5,100 bars per session
+minute across the universe. Half leaves room for a genuinely quiet session or
+a partial provider outage while still catching the 2026-09-07 collapse, which
+ran roughly two orders of magnitude below this."""
+
+HEALTH_MINUTE_SESSION_MIN_SYMBOLS: int = 5_000
+"""Fail when fewer symbols reached HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS bars
+in the judged session.
+
+Measured against 7,259 symbols on a healthy session. The floor sits well below
+that so ordinary delistings and quiet names do not trip it, and well above the
+collapsed state, where the truncation left most symbols at a single bar."""
+
+HEALTH_MINUTE_SESSION_SYMBOL_MIN_BARS: int = 30
+"""Bars a symbol needs in the judged session to count toward the symbol floor.
+
+Thirty minutes of a 390-minute session. Low enough to include thinly traded
+names that genuinely have few bars, high enough to exclude the one-bar
+signature of the session-open truncation this slice removes."""
+
+HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT: str = "30s"
+"""PostgreSQL statement_timeout for the minute-mass read.
+
+Sibling of CAGG_FRESHNESS_PROBE_STATEMENT_TIMEOUT. The read is a grouped scan
+of one session's buckets in the coarse minute cagg, never raw minute_ohlcv
+(the §166/§167 latency cliff). On timeout the check exits 2 like every other
+919 check rather than reporting a mass it did not measure."""
+
+MINUTE_TRAILING_COMPLETE_LINE: str = "trailing phase complete: {count} symbols"
+"""The journal line the minute pass emits ONLY when its trailing phase walked
+the whole universe. The 921 cutover stops the firing on this line, so the
+emitter (``run_minute_cycle``) and the matcher (``cutover_921_minute_sessions``)
+share the text here rather than each holding a copy (#22 review F003)."""
+
+MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(4, 5), time(13, 5))
+"""When the minute acquisition pass fires, as UTC times of day.
+
+Single source of truth, read by BOTH the health check (to know when a
+session's collecting firing has finished) and the timer drift guard (to assert
+deploy/systemd/mt-minute-pass.timer still says the same thing). The check and
+the timer disagreeing is exactly how a stale verdict becomes invisible, so
+they are not allowed to hold separate copies of these times.
+
+The first firing sits AFTER the provider publishes the day. EODHD: "for US
+tickers, 1-minute data is updated 2-3 hours after the end of after-hours
+trading" (20:00 ET = 00:00 UTC), so nothing before ~03:00 UTC can collect the
+session just closed. Measured 2026-09-10 (issue #22): a pass at 01:21 UTC got
+the whole 09-08 session and one after-hours spillover bar for 09-09; a pass
+at 11:27 UTC got 09-09 in full. 04:05 leaves an hour over the provider's
+upper bound; the 13:05 firing is unchanged."""
 
 HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
 """EODHD account endpoint; returns ``apiRequests``, ``dailyRateLimit``,
@@ -319,6 +391,54 @@ MINUTE_SEED_PROGRESS_LOG_INTERVAL: int = 250
 The universe-wide seed pass (slice 162) runs silently otherwise; this bounds
 how often the daemon reports `seeded N/<total> symbols, M gaps` during a
 long-running cycle.
+"""
+
+REPAIR_921_WINDOW_START: date = date(2026, 7, 16)
+"""Earliest session the slice-921 minute repair touches.
+
+The day the coverage-aware seeder shipped, and therefore the first day whose
+minute ranges could have been cut at the session open. Rows before it were
+seeded by the legacy midnight-anchored path, are not truncated by this
+mechanism, and are deliberately never touched: re-seeding them would reset
+genuine provider holes accumulated over years of backfill and spend the
+rationed quota re-fetching them.
+"""
+
+MINUTE_TRAILING_PRIORITY_WINDOW: timedelta = timedelta(days=7)
+"""How far back a minute gap counts as "trailing" for the priority phase
+(slice 921).
+
+The minute cycle walks the universe twice: a trailing phase that attempts
+every symbol's gaps ending within this window (one chunk each), then a
+backfill phase for everything older. Sized from the failure it exists to
+prevent: on 2026-09-07 the 13:05 UTC pass spent its whole run on deep
+backfill and never reached the current session, so the nightly data simply
+did not arrive. A week is wide enough to absorb a multi-day outage or a long
+holiday weekend and still re-attempt those sessions at priority, and narrow
+enough that the trailing phase stays one chunk per active symbol (~13k
+requests) rather than growing into a second backfill.
+"""
+
+MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL: int = 1
+"""Chunks the trailing phase requests per symbol before moving on (slice 921).
+
+One. The trailing phase exists to attempt every symbol's current session
+before any deep backfill, so it must not linger on one symbol's backlog — at
+~13k active symbols, a second chunk each is another ~13k requests (65k
+credits) ahead of the symbols still waiting for their first. Anything deeper
+is backfill work and belongs to the backfill phase, which is unbounded.
+"""
+
+MINUTE_PASS_MAX_CONSECUTIVE_PROVIDER_FAILURES: int = 5
+"""Consecutive provider failures that abort a minute pass (slice 921).
+
+Precedent and value: ``PULL_MAX_CONSECUTIVE_PROVIDER_ERRORS``. One symbol's
+failed response is skipped and counted; a streak is the signature of an
+account- or provider-wide condition (quota exhaustion, an EODHD outage) where
+every further request spends credits to learn the same thing. Counted only
+for failures the provider caused — a database or lock failure must not trip
+it, which is why the failure kind is threaded up the return path rather than
+inferred from a collapsed TRANSIENT_FAILURE.
 """
 
 MINUTE_CAGG_CHUNK_INTERVAL: timedelta = timedelta(days=70)
@@ -870,6 +990,26 @@ class FetchEntryPoint(StrEnum):
     REFETCH = "refetch"
     """Single-shot operator command (`run_minute_refetch` / `run_daily_refetch`,
     i.e. `mt data pull 1m|1d`)."""
+
+
+class MinutePassPhase(StrEnum):
+    """Which phase of a minute pass is running (slice 921).
+
+    A minute pass walks the active universe twice: TRAILING attempts every
+    symbol's current session first (bounded to
+    ``MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL`` and floored at
+    ``MINUTE_TRAILING_PRIORITY_WINDOW``), then BACKFILL walks everything older
+    without either bound. The phase is a value, not a log string: the pass
+    outcome and the process exit code both depend on WHICH phase aborted, so
+    it must be comparable rather than reconstructed from log text.
+    """
+
+    TRAILING = "trailing"
+    """Current-session priority walk. Seeds; one chunk per symbol."""
+
+    BACKFILL = "backfill"
+    """Deep-history walk. Does not seed (the trailing walk already did) and is
+    unbounded in chunks per symbol."""
 
 
 class CycleGranularity(StrEnum):

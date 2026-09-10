@@ -30,7 +30,10 @@ from manta_trading.data.acquisition.outcomes import (
     classify_outcome,
     outcome_to_fetch_status,
 )
-from manta_trading.data.acquisition.state import LastAttemptOutcome
+from manta_trading.data.acquisition.state import (
+    LastAttemptOutcome,
+    MinutePassOutcome,
+)
 from manta_trading.data.acquisition.symbols import iter_active_instruments
 
 from manta_trading.data.gaps import coalesce_data_gaps, update_data_gaps
@@ -85,6 +88,27 @@ class CycleReport:
     """Scope members with no ``instruments`` row (912 review F008). Separate
     from the count above because it means the request was wrong, not the
     reference data."""
+
+    minute_pass_outcome: "MinutePassOutcome | None" = None
+    """How a MINUTE pass ended (slice 921). The process exit code is a lookup
+    on this value, so it must be carried rather than reconstructed from counts
+    or log text.
+
+    **Always None on a daily report.** Task 4.6 asked what the daily path puts
+    here: nothing. The abort conditions this names — an EODHD 402 on the
+    intraday endpoint, and a minute-pass provider-failure streak — are
+    properties of the minute pass, and the daily cycle has neither a phase
+    structure nor a breaker. A daily consumer that reads this gets None and
+    must fall back to its own exit convention, exactly as before this field
+    existed. Adding it here rather than to a minute-only report keeps
+    ``run_minute_cycle``'s return type unchanged for every existing caller."""
+
+    minute_trailing_completed: bool = False
+    """True when a minute pass's TRAILING phase walked its whole scope
+    (slice 921). The exit mapping needs it: QUOTA_EXHAUSTED *after* the
+    trailing phase is the designed steady state (exit 0), while the same
+    outcome *inside* it means the current session was never collected
+    (exit 3). Always False on a daily report."""
 
     nothing_actionable: bool = False
     """True when the cycle derived an empty work list and made no provider

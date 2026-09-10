@@ -27,7 +27,7 @@ production tooling.
 | Unit | What | When | On failure |
 |---|---|---|---|
 | `mt-daily-pass.service` | one bounded daily acquisition pass | timer: **00:35 & 12:35 UTC** | next timer firing resumes it |
-| `mt-minute-pass.service` | one bounded minute acquisition pass | timer: **01:05 & 13:05 UTC** | next timer firing resumes it |
+| `mt-minute-pass.service` | one bounded minute acquisition pass | timer: **04:05 & 13:05 UTC** | next timer firing resumes it |
 | `mt-kalshi-pass.service` | one bounded Kalshi collection pass | timer: **hourly at :20 UTC** | next timer firing resumes it |
 | `mt-serve.service` | API server (port 8100) | always on, starts at boot | auto-restart in 10s |
 
@@ -89,7 +89,7 @@ would either do nothing or install a second, unrelated copy.
 | `mt-daily-pass.service` | oneshot pass | `mt data daemon run --daily --stop-when-done` |
 | `mt-daily-pass.timer` | timer | fires the daily pass at **00:35 and 12:35 UTC** |
 | `mt-minute-pass.service` | oneshot pass | `mt data daemon run --minute --stop-when-done` |
-| `mt-minute-pass.timer` | timer | fires the minute pass at **01:05 and 13:05 UTC** |
+| `mt-minute-pass.timer` | timer | fires the minute pass at **04:05 and 13:05 UTC** |
 | `mt-kalshi-pass.service` | oneshot pass | `mt data kalshi pass` — every registered Kalshi phase, in order |
 | `mt-kalshi-pass.timer` | timer | fires the Kalshi pass **hourly at :20 UTC** |
 | `mt-serve.service` | long-running | the API server; `Restart=on-failure` |
@@ -257,7 +257,7 @@ The dev checkout keeps its own update procedure (`git pull` + `uv sync` on
 
 `mt-health.timer` runs `mt data health` hourly at :50 UTC. It is read-only and
 judges raw-data freshness, every continuous aggregate's materialization lag,
-EODHD quota headroom, and Kalshi phase recency against the thresholds in
+Kalshi phase recency, and **minute session mass** against the thresholds in
 `constants.py` (`HEALTH_*`). Any breach exits non-zero, so the unit fails:
 
 ```bash
@@ -268,6 +268,86 @@ mt-run data health                 # run it now, same output
 
 `OK` means nothing needs a human. `FAILING` names exactly one measured value
 and its limit per failing check; fix the cause, and the next firing clears it.
+
+### `minute session mass` (slice 921)
+
+This check judges how much data the last completed trading session actually
+holds — bars per session-minute, and how many symbols reached a usable number
+of bars — rather than how old the newest bar is.
+
+It exists because age could not see the 2026-09-07 failure. Every session
+still had bars, one per symbol at the session open, so freshness passed while
+the universe collected ~45k bars/day against ~2.0M/day through 2026-08-27.
+
+The judged session is the newest NYSE session whose collecting firing has
+finished: the first `MINUTE_PASS_FIRING_TIMES_UTC` entry after its close, plus
+`HEALTH_MINUTE_SESSION_COLLECTION_LAG`. In practice a session becomes judgeable
+at 07:05 UTC the next day, for a regular and an early close alike (the 04:05
+firing is the first after EODHD publishes the day, 2-3 h past 00:00 UTC). A FAIL
+reading `no completed session to judge` means the calendar has no qualifying
+row — check `trading_sessions` and the calendar id, not the acquisition pass.
+
+**The EODHD quota-headroom check was removed with this slice.** Normal
+operation is designed to consume the whole daily allowance on backfill, so no
+floor was right — 99,996 of 100,000 used was a healthy reading. What mattered
+about a starved night was its consequence, which this check now measures
+directly.
+
+**Load test for the read bound.** The mass read degrades to exit 2 on a
+statement timeout, which an operator cannot distinguish from silence, so the
+bound is checked by a load-tier test. CI runs no test job (tracked as slice
+907), so this is a manual gate — run it after any change to the mass query,
+the cagg shape, or `HEALTH_MINUTE_SESSION_STATEMENT_TIMEOUT`:
+
+```bash
+export MT_TIMESCALE_TEST_URL=...   # the dedicated test cluster, never production
+MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_921_minute_session_mass_nfr.py
+```
+
+### Minute sessions collected but truncated (slice 921)
+
+The failure class: a session is *present* but holds a single bar, at the
+session open. Age-based checks pass, `data status` looks normal, and the only
+symptom is that the day is nearly empty.
+
+**Is it happening?** One query — the truncation signature is `max(time)` for a
+session at or before that session's open:
+
+```sql
+SELECT ts.session_date, max(m.time) AS newest, ts.session_open_utc
+  FROM trading_sessions ts
+  JOIN instruments i ON i.trading_calendar_id = ts.calendar_id
+  JOIN minute_ohlcv m ON m.symbol = i.symbol
+   AND m.time >= ts.session_open_utc AND m.time < ts.session_close_utc
+ WHERE i.symbol = 'AAPL'
+   AND ts.session_close_utc <= now()
+ GROUP BY ts.session_date, ts.session_open_utc
+HAVING max(m.time) <= ts.session_open_utc
+ ORDER BY ts.session_date DESC LIMIT 10;
+```
+
+**The standing diagnostics.** Both are read-only and safe against production
+from any host that has the URL:
+
+```bash
+# Counts across the active universe: truncated symbol-days, zero-width rows,
+# session-open-ended terminal rows, rows straddling the repair window start.
+uv run python scripts/repair_921_minute_sessions.py --check
+
+# Every acceptance measurement with its pass/fail bar, including the same
+# `minute session mass` verdict `mt data health` reports.
+uv run python scripts/repair_921_minute_sessions.py --verify
+```
+
+`--check` walks ~13k symbols in about five minutes; the truncation measurement
+itself is one grouped query (~260 s).
+
+**Repairing.** `--apply` re-seeds the affected sessions through
+`update_data_gaps` under the daemon's advisory lock — it writes no `data_gaps`
+SQL of its own and never calls the provider; the next pass does the fetching.
+It refuses to run while `mt-minute-pass.service` or `mt-daily-pass.service` is
+active, and commits per symbol, so a run that dies is resumed by rerunning.
+Rows before 2026-07-16 are never touched.
 
 ## Running the acquisition passes
 
