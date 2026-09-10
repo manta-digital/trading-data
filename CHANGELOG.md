@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.5] - 2026-09-10
+
+### Fixed
+- The minute pass scans 60 days for truncated sessions before seeding, so
+  the repair's rows are fetched instead of erased by the next walk.
+
+---
+
 ## [0.14.4] - 2026-09-10
 
 ### Fixed
