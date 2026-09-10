@@ -110,7 +110,6 @@ def preflight(ref: str) -> str:
             f"ref {ref!r} is not on origin — the installer clones from GitHub; "
             "push it first"
         )
-    run(["sudo", "-v"], stream=True)
     return commit
 
 
@@ -282,7 +281,6 @@ def fire() -> tuple[str, str]:
     )
     run(["mt-run", "kalshi"], sudo=True, check=False, stream=True)
     wait_for_pass_to_end()
-    run(["sudo", "-v"], stream=True)  # the firing may outlive the sudo grace period
     return cursor, started
 
 
