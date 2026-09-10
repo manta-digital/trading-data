@@ -312,7 +312,9 @@ class TestTruncatedDayPredicate:
         sql_text, params = conn.cursor.return_value.execute.call_args.args
         # The signature itself: max(time) at or before the open.
         assert "max(m.time)" in sql_text
-        assert "bars.newest <= ts.session_open_utc" in sql_text
+        assert "m.time >  ts.session_open_utc" in sql_text
+        assert "m.time <= ts.session_close_utc" in sql_text
+        assert "bars.newest_in_session IS NULL" in sql_text
         assert params[0] == "AAPL"
 
     def test_it_is_bounded_to_the_repair_window(self) -> None:
@@ -343,7 +345,7 @@ class TestTruncatedDayPredicate:
         conn = self._conn([])
         find_truncated_days(conn, "AAPL")
         sql_text, _ = conn.cursor.return_value.execute.call_args.args
-        assert "bars.newest IS NOT NULL" in sql_text
+        assert "bars.day_bars > 0" in sql_text
 
     def test_returned_dates_become_the_uncovered_set(self) -> None:
         from manta_trading.data.gaps.repair_921 import find_truncated_days
@@ -393,8 +395,10 @@ class TestTruncationPredicateHasOneDefinition:
 
         per_symbol = self._sql_of(find_truncated_days, "AAPL")
         universe = self._sql_of(build_truncated_day_index)
-        assert "<= ts.session_open_utc" in per_symbol
-        assert "<= ts.session_open_utc" in universe
+        for sql_text in (per_symbol, universe):
+            assert "m.time >  ts.session_open_utc" in sql_text
+            assert "m.time <= ts.session_close_utc" in sql_text
+            assert "IS NULL" in sql_text
 
     def test_both_ignore_sessions_that_have_not_closed(self) -> None:
         from manta_trading.data.gaps.repair_921 import (
@@ -676,9 +680,12 @@ class TestScanScopeAndTimeout:
         build_truncated_day_index(conn)
         sql_text, params = conn.cursor.return_value.execute.call_args.args
         assert "AND m.time  >= %s" in sql_text
-        # The window start is bound twice: once for the session, once for the
-        # bar time, so chunk exclusion applies.
-        assert list(params).count(window_start_utc()) == 2
+        # The window start bounds the session; the bar time is bound a day
+        # earlier so a session's 00:00 UTC spillover bar stays in view (#22).
+        from datetime import timedelta
+
+        assert params[0] == window_start_utc()
+        assert params[1] == window_start_utc() - timedelta(days=1)
 
     def test_a_symbol_list_narrows_the_scan(self) -> None:
         from manta_trading.data.gaps.repair_921 import build_truncated_day_index

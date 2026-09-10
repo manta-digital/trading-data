@@ -26,7 +26,7 @@ never retried.
 Check-then-act throughout, and every action is logged — this runs with root
 privileges and must be auditable afterwards.
 
-    sudo -v && uv run python scripts/cutover_921_minute_sessions.py --ref v0.14.0
+    uv run python scripts/cutover_921_minute_sessions.py --ref v0.14.2
 """
 
 from __future__ import annotations
@@ -99,11 +99,10 @@ PASS_ABORTED = re.compile(r"minute pass aborted: (\S+)")
 def _repair(mode: str) -> str:
     """Run the repair script through the production interpreter, streamed."""
     say(f"  running {REPAIR_SCRIPT} {mode}")
-    result = run(
-        ["/opt/manta-trading/.venv/bin/python", REPAIR_SCRIPT, mode],
-        sudo=True,
-        check=False,
-    )
+    # Unprivileged: the repair writes data_gaps as the application role from
+    # this checkout's .env, exactly as the daemon does; root added nothing but
+    # a password prompt.
+    result = run([sys.executable, REPAIR_SCRIPT, mode], check=False)
     output = (result.stdout or "") + (result.stderr or "")
     print(output)
     log_text(output)  # the acceptance numbers are the report (#22 review F002)

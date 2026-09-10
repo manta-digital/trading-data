@@ -39,6 +39,10 @@ CALENDAR = "NYSE"
 PRE_WINDOW_DAY = date(2026, 6, 10)
 #: Sessions inside the window.
 IN_WINDOW_DAYS = (date(2026, 7, 20), date(2026, 7, 21), date(2026, 7, 22))
+#: A session whose only bar is the prior day's 20:00 ET after-hours bar,
+#: which EODHD dates 00:00 UTC on this day (#22): covered to the coarse
+#: index, empty to the session.
+SPILLOVER_DAY = date(2026, 7, 23)
 
 
 def _open(day: date) -> datetime:
@@ -59,7 +63,7 @@ def _seed_fixture(conn: psycopg.Connection) -> None:
             "ON CONFLICT DO NOTHING",
             (CALENDAR, "NYSE", "America/New_York", "09:30", "16:00", True),
         )
-        for day in (PRE_WINDOW_DAY, *IN_WINDOW_DAYS):
+        for day in (PRE_WINDOW_DAY, *IN_WINDOW_DAYS, SPILLOVER_DAY):
             cur.execute(
                 "INSERT INTO trading_sessions "
                 "(calendar_id, session_date, session_open_utc, session_close_utc) "
@@ -90,6 +94,12 @@ def _seed_fixture(conn: psycopg.Connection) -> None:
             "INSERT INTO minute_ohlcv (time, symbol, open, high, low, close, volume) "
             "VALUES (%s,%s,10,10,10,10,100) ON CONFLICT DO NOTHING",
             (_open(truncated), SYMBOL),
+        )
+        # The spillover shape: one bar at 00:00 UTC, none inside the session.
+        cur.execute(
+            "INSERT INTO minute_ohlcv (time, symbol, open, high, low, close, volume) "
+            "VALUES (%s,%s,10,10,10,10,100) ON CONFLICT DO NOTHING",
+            (datetime(2026, 7, 23, 0, 0, tzinfo=UTC), SYMBOL),
         )
         # A healthy day: bars through the session.
         healthy = IN_WINDOW_DAYS[1]
@@ -310,3 +320,21 @@ class TestStraddlingRow:
             "if this stops overlapping, _delete_intersecting's semantics "
             "changed and Task 6.3's widening may no longer be needed"
         )
+
+
+class TestTruncationPredicateAgainstRealBars:
+    """#22: both the bar-at-open shape and the 00:00 UTC spillover shape are
+    truncated; a healthy session is not; both predicate implementations agree
+    on real rows, not just on SQL text."""
+
+    def test_per_symbol_and_universe_agree_and_see_both_shapes(self, seeded) -> None:
+        from manta_trading.data.gaps.repair_921 import (
+            build_truncated_day_index,
+            find_truncated_days,
+        )
+
+        conn = seeded
+        per_symbol = find_truncated_days(conn, SYMBOL, since=_open(IN_WINDOW_DAYS[0]))
+        universe = build_truncated_day_index(conn, since=_open(IN_WINDOW_DAYS[0]))
+        assert per_symbol == frozenset({IN_WINDOW_DAYS[0], SPILLOVER_DAY})
+        assert universe.get(SYMBOL) == per_symbol

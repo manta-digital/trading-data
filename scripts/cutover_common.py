@@ -382,8 +382,6 @@ def fire_unit(unit: str, mt_run_args: list[str]) -> tuple[str, str]:
     )
     run(["mt-run", *mt_run_args], sudo=True, check=False, stream=True)
     wait_for_unit_to_end(unit)
-    print("    sudo -v — a password prompt here is normal after a long firing")
-    run(["sudo", "-v"], stream=True)  # the firing may outlive the sudo grace period
     return cursor, started
 
 

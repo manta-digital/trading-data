@@ -345,6 +345,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run(args: argparse.Namespace, url: str) -> int:
     with psycopg.connect(url) as conn:
+        # The daemon's connections run in UTC (DB_BULK_SESSION); the coverage
+        # index keys days by date_trunc under the session zone, so the repair
+        # must read it in the same zone or the two disagree on which day a
+        # 00:00 UTC bar belongs to (#22).
+        with conn.cursor() as cur:
+            cur.execute("SET timezone = 'UTC'")
         symbols = args.symbol or _active_symbols(conn)
         print(f"slice 921 minute-session repair — {len(symbols):,} symbols")
         print(f"window starts {REPAIR_921_WINDOW_START} (rows before it are untouched)")

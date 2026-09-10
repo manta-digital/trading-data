@@ -17,7 +17,7 @@ planning; ``scripts/repair_921_minute_sessions.py`` is the CLI around it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, cast
 
 from manta_trading.constants import REPAIR_921_WINDOW_START
@@ -126,10 +126,16 @@ def find_truncated_days(
     """Return the symbol's truncated session dates inside the repair window.
 
     **The truncation signature, defined once.** A symbol-day is truncated when
-    the newest bar stored for that session is at or before the session's open:
-    ``max(time) <= session_open_utc``. That is exactly what a range ending at
-    the open produces — EODHD honors ``to`` precisely, so the request returned
-    the opening minute and nothing after it.
+    the symbol has a bar on the session's UTC calendar day but none strictly
+    inside the session, ``(session_open_utc, session_close_utc]``. Two shapes
+    produce it: a range that ended at the open (EODHD honors ``to`` exactly,
+    so the request returned the opening minute and nothing after) and, since
+    2026-09-10 (#22), a request made before the provider published the day,
+    which returned only the prior session's 20:00 ET after-hours bar — dated
+    00:00 UTC on this day. The coarse coverage index reads either bar as "day
+    covered", so this predicate is what makes the session visible again. A
+    day with no bar at all is not truncated; it is simply uncovered, and the
+    coverage index already reports that.
 
     Both ``--check``'s report and ``--apply``'s coverage adjustment call this;
     the predicate is never restated elsewhere.
@@ -143,17 +149,23 @@ def find_truncated_days(
               JOIN instruments i
                 ON i.trading_calendar_id = ts.calendar_id
               JOIN LATERAL (
-                    SELECT max(m.time) AS newest
+                    SELECT count(*) AS day_bars,
+                           max(m.time) FILTER (
+                               WHERE m.time >  ts.session_open_utc
+                                 AND m.time <= ts.session_close_utc
+                           ) AS newest_in_session
                       FROM minute_ohlcv m
                      WHERE m.symbol = i.symbol
-                       AND m.time >= ts.session_open_utc
-                       AND m.time <  ts.session_close_utc
+                       AND m.time >= (ts.session_date::timestamp AT TIME ZONE 'UTC')
+                       AND m.time <  (
+                               (ts.session_date + 1)::timestamp AT TIME ZONE 'UTC'
+                           )
                    ) AS bars ON TRUE
              WHERE i.symbol = %s
                AND ts.session_open_utc >= %s
                AND ts.session_close_utc <= now()
-               AND bars.newest IS NOT NULL
-               AND bars.newest <= ts.session_open_utc
+               AND bars.day_bars > 0
+               AND bars.newest_in_session IS NULL
              ORDER BY ts.session_date
             """,
             (symbol, start),
@@ -237,9 +249,10 @@ def build_truncated_day_index(
     shape ``build_minute_coverage_index`` uses for the same reason.
 
     Identical signature to ``find_truncated_days``: a symbol-day is truncated
-    when the newest bar stored for that session is at or before the session's
-    open. The predicate lives in one place — this function and its per-symbol
-    sibling both spell it, and ``test_repair_921.py`` asserts they agree.
+    when the symbol has a bar on the session's UTC day but none strictly
+    inside ``(open, close]``. The predicate lives in one place — this function
+    and its per-symbol sibling both spell it, and ``test_repair_921.py``
+    asserts they agree.
 
     ``symbols`` narrows the scan. Without it the query spans the whole
     universe, which is what ``--check`` wants; a ``--symbol``-limited run must
@@ -253,7 +266,10 @@ def build_truncated_day_index(
     """
     start = since or window_start_utc()
     predicate = ""
-    params: list[object] = [start, start]
+    # The direct time bound exists for chunk exclusion; it starts a day early
+    # so a session's 00:00 UTC spillover bar is still seen when ``since`` is
+    # a mid-day instant (the daemon passes its trailing floor).
+    params: list[object] = [start, start - timedelta(days=1)]
     if symbols is not None:
         predicate = "               AND m.symbol = ANY(%s)\n"
         params.append(list(symbols))
@@ -272,8 +288,8 @@ def build_truncated_day_index(
                 ON i.trading_calendar_id = ts.calendar_id
               JOIN minute_ohlcv m
                 ON m.symbol = i.symbol
-               AND m.time  >= ts.session_open_utc
-               AND m.time  <  ts.session_close_utc
+               AND m.time  >= (ts.session_date::timestamp AT TIME ZONE 'UTC')
+               AND m.time  <  ((ts.session_date + 1)::timestamp AT TIME ZONE 'UTC')
              WHERE ts.session_open_utc >= %s
                AND ts.session_close_utc <= now()
                -- Bound m.time DIRECTLY as well as through the session join.
@@ -285,8 +301,12 @@ def build_truncated_day_index(
                AND m.time  >= %s
 """
                 + predicate
-                + """             GROUP BY m.symbol, ts.session_date, ts.session_open_utc
-            HAVING max(m.time) <= ts.session_open_utc
+                + """             GROUP BY m.symbol, ts.session_date,
+                      ts.session_open_utc, ts.session_close_utc
+            HAVING max(m.time) FILTER (
+                       WHERE m.time >  ts.session_open_utc
+                         AND m.time <= ts.session_close_utc
+                   ) IS NULL
             """,
                 tuple(params),
             )
