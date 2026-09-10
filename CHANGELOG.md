@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(nothing yet)
+
+---
+
+## [0.14.0] - 2026-09-09
+
 ### Fixed
 
 - **Minute bars were being collected one per session instead of a full day.**
