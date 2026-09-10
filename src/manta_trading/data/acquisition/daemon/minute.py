@@ -23,6 +23,7 @@ from manta_trading.constants import (
     MINUTE_TRAILING_COMPLETE_LINE,
     MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
     MINUTE_TRAILING_PRIORITY_WINDOW,
+    MINUTE_TRUNCATION_LOOKBACK,
     FetchEntryPoint,
     MinutePassPhase,
 )
@@ -300,7 +301,9 @@ def run_minute_cycle(
             # and never reached the current session.
             trailing_floor = datetime.now(_UTC) - MINUTE_TRAILING_PRIORITY_WINDOW
             with pool.connection() as conn:
-                truncated_index = _build_truncated_index(conn, since=trailing_floor)
+                truncated_index = _build_truncated_index(
+                    conn, since=datetime.now(_UTC) - MINUTE_TRUNCATION_LOOKBACK
+                )
 
             trailing_scanned, trailing_outcome = _run_minute_phase(
                 symbol_list,

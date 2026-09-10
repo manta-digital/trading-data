@@ -147,6 +147,16 @@ of one session's buckets in the coarse minute cagg, never raw minute_ohlcv
 (the §166/§167 latency cliff). On timeout the check exits 2 like every other
 919 check rather than reporting a mass it did not measure."""
 
+MINUTE_TRUNCATION_LOOKBACK: timedelta = timedelta(days=60)
+"""How far back the minute pass scans for truncated sessions before seeding.
+
+The seed deletes the UNKNOWN rows in its window and re-creates only the
+sessions it considers missing, so a truncated session outside this scan is
+erased from the gap table rather than fetched — the 2026-09-10 repair's
+rows for anything older than the 7-day trailing floor vanished on the next
+walk (#22). Must cover the repair window (REPAIR_921_WINDOW_START and
+forward); 60 days does today. Measured 77 s universe-wide."""
+
 MINUTE_PROVIDER_PUBLICATION_LAG: timedelta = timedelta(hours=6)
 """How long after a session's close EODHD may still be publishing its bars.
 
