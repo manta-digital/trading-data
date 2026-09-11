@@ -97,7 +97,11 @@ class _WeeklySettings(_FakeSettings):
 
 
 class TestNonFiringDay:
-    def test_a_non_firing_day_skips_before_any_connection_or_request(self) -> None:
+    """MT_MINUTE_FIRING_DAYS names Saturday; on any other day the pass owes no
+    current session and spends the whole allowance on backfill."""
+
+    def test_a_non_firing_day_runs_backfill_only(self) -> None:
+        from manta_trading.constants import MinutePassPhase
         from manta_trading.data.acquisition.state import MinutePassOutcome
 
         with (
@@ -109,28 +113,81 @@ class TestNonFiringDay:
                 "manta_trading.data.acquisition.daemon.minute.is_firing_day",
                 return_value=False,
             ) as decided,
+            patch("manta_trading.data.acquisition.daemon.minute.ConnectionPool"),
             patch(
-                "manta_trading.data.acquisition.daemon.minute.ConnectionPool"
-            ) as pool,
-            patch("manta_trading.data.acquisition.daemon.minute.eodhd_get") as get,
+                "manta_trading.data.acquisition.daemon.minute.build_minute_coverage_index"
+            ) as coverage,
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._run_minute_phase",
+                return_value=(0, MinutePassOutcome.QUOTA_EXHAUSTED),
+            ) as phase,
         ):
             report = run_minute_cycle(symbols=["AAPL"])
-        decided.assert_called_once()
         assert decided.call_args.args[1] == (5,), "decides on the setting's value"
-        assert report.minute_pass_outcome is MinutePassOutcome.SKIPPED
+        coverage.assert_not_called()  # nothing seeds on a backfill-only day
+        assert phase.call_count == 1
+        assert phase.call_args.kwargs["phase"] is MinutePassPhase.BACKFILL
+        assert phase.call_args.kwargs["seed"] is False
+        assert report.minute_pass_outcome is MinutePassOutcome.QUOTA_EXHAUSTED
+        assert report.minute_trailing_required is False
         assert report.minute_trailing_completed is False
-        pool.assert_not_called()
-        get.assert_not_called()
 
-    def test_skipped_exits_ok(self) -> None:
+    def test_a_firing_day_runs_trailing_then_backfill(self) -> None:
+        from manta_trading.constants import MinutePassPhase
+        from manta_trading.data.acquisition.state import MinutePassOutcome
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_WeeklySettings(),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.is_firing_day",
+                return_value=True,
+            ),
+            patch("manta_trading.data.acquisition.daemon.minute.ConnectionPool"),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.build_minute_coverage_index",
+                return_value={},
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._build_truncated_index",
+                return_value={},
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute._run_minute_phase",
+                return_value=(1, MinutePassOutcome.COMPLETE),
+            ) as phase,
+        ):
+            report = run_minute_cycle(symbols=["AAPL"])
+        assert [c.kwargs["phase"] for c in phase.call_args_list] == [
+            MinutePassPhase.TRAILING,
+            MinutePassPhase.BACKFILL,
+        ]
+        assert report.minute_trailing_required is True
+        assert report.minute_trailing_completed is True
+
+    def test_quota_exhaustion_on_a_backfill_only_day_exits_ok(self) -> None:
         from manta_trading.data.acquisition.daemon.minute import (
             minute_pass_exit_code,
         )
         from manta_trading.data.acquisition.state import MinutePassOutcome
 
         assert (
-            minute_pass_exit_code(MinutePassOutcome.SKIPPED, trailing_completed=False)
+            minute_pass_exit_code(
+                MinutePassOutcome.QUOTA_EXHAUSTED,
+                trailing_completed=False,
+                trailing_required=False,
+            )
             == 0
+        )
+        assert (
+            minute_pass_exit_code(
+                MinutePassOutcome.QUOTA_EXHAUSTED,
+                trailing_completed=False,
+                trailing_required=True,
+            )
+            != 0
         )
 
 

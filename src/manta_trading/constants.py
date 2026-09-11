@@ -201,9 +201,10 @@ session across the universe, the rest for backfill.
 
 Which of these daily firings actually run is the operator's
 ``MT_MINUTE_FIRING_DAYS`` (``Settings.minute_firing_days``): ``daily``, or
-weekday names such as ``Sat`` for one firing a week. The pass exits at once
-on a non-firing day and the health check waits for the next firing day —
-see ``manta_trading.minute_firing_schedule``."""
+weekday names such as ``Sat`` for one collecting firing a week. On any other
+day the firing is backfill only (no trailing phase, no seeding) and the
+health check waits for the next firing day — see
+``manta_trading.minute_firing_schedule``."""
 
 
 HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"

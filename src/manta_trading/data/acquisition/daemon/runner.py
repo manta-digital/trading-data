@@ -63,8 +63,8 @@ CA_UPDATE_SENTINEL_GRANULARITY: str = str(CycleGranularity.DAILY)
 parameter, and a token that drifts from what the sentinel row was written with
 silently matches nothing — which reads as "CA update never ran"."""
 
-QUOTA_BUCKET_VAR: contextvars.ContextVar[QuotaBucket | None] = (
-    contextvars.ContextVar("manta_quota_bucket", default=None)
+QUOTA_BUCKET_VAR: contextvars.ContextVar[QuotaBucket | None] = contextvars.ContextVar(
+    "manta_quota_bucket", default=None
 )
 """ContextVar holding the QuotaBucket for the current daemon process.
 
@@ -291,9 +291,7 @@ def sleep_until_next_due_event(
     else:
         # A cycle ran; the next is due one retry interval after it ended, or
         # at tomorrow's offset if that interval already elapsed today.
-        next_daily_start = max(
-            state.last_daily_cycle_end_utc + retry_interval, now
-        )
+        next_daily_start = max(state.last_daily_cycle_end_utc + retry_interval, now)
 
     candidates: list[float] = []
     if state.last_minute_cycle_end_utc is not None:
@@ -350,11 +348,13 @@ class Runner:
             from manta_trading.data.acquisition.daemon.daily import (
                 run_daily_cycle as _run_daily,
             )
+
             run_daily_cycle = _run_daily
         if run_minute_cycle is None:
             from manta_trading.data.acquisition.daemon.minute import (
                 run_minute_cycle as _run_minute,
             )
+
             run_minute_cycle = _run_minute
         self._run_daily_cycle = run_daily_cycle
         self._run_minute_cycle = run_minute_cycle
@@ -446,9 +446,7 @@ class Runner:
             QUOTA_BUCKET_VAR.reset(token)
             self._restore_signal_handlers(prev_term, prev_int)
 
-    def _awaiting_first_cycle(
-        self, granularities: frozenset[CycleGranularity]
-    ) -> bool:
+    def _awaiting_first_cycle(self, granularities: frozenset[CycleGranularity]) -> bool:
         """True while a configured granularity has not yet completed a cycle.
 
         Sleeping past a closed gate is only worthwhile while some granularity
@@ -483,8 +481,7 @@ class Runner:
         """
         if report is None:
             _logger.warning(
-                "runner: minute pass crashed before reporting — process will "
-                "exit %d",
+                "runner: minute pass crashed before reporting — process will exit %d",
                 MINUTE_EXIT_PASS_INCOMPLETE,
             )
             self._minute_exit_code = max(
@@ -495,8 +492,11 @@ class Runner:
         if outcome is None:
             return
         trailing_completed = getattr(report, "minute_trailing_completed", False)
+        trailing_required = getattr(report, "minute_trailing_required", True)
         code = minute_pass_exit_code(
-            outcome, trailing_completed=trailing_completed
+            outcome,
+            trailing_completed=trailing_completed,
+            trailing_required=trailing_required,
         )
         if code != MINUTE_EXIT_OK:
             _logger.warning(
@@ -523,8 +523,7 @@ class Runner:
 
         if reason is RunnerIdleReason.NO_ACTIONABLE_WORK:
             _logger.info(
-                "runner: no actionable work in scope — exiting because "
-                "--stop-when-done"
+                "runner: no actionable work in scope — exiting because --stop-when-done"
             )
             return True
 
@@ -539,9 +538,7 @@ class Runner:
         )
         return True
 
-    def _log_wait_progress(
-        self, granularities: frozenset[CycleGranularity]
-    ) -> None:
+    def _log_wait_progress(self, granularities: frozenset[CycleGranularity]) -> None:
         """Say the runner is waiting, then keep saying so while it waits.
 
         The first line explains *why* it is not exiting, since that is the
@@ -597,9 +594,7 @@ class Runner:
             return daily_pass_boundary(self._clock())
         return None
 
-    def _next_due_description(
-        self, granularities: frozenset[CycleGranularity]
-    ) -> str:
+    def _next_due_description(self, granularities: frozenset[CycleGranularity]) -> str:
         """Human-readable next due time, for the wait message."""
         if (
             CycleGranularity.DAILY in granularities
@@ -717,7 +712,6 @@ def _ca_update_noop(_bucket: QuotaBucket) -> None:
     _logger.debug("runner: ca_update noop (no real function wired)")
 
 
-
 def make_ca_update_fn(
     settings: "Settings",
 ) -> "Callable[[QuotaBucket], None]":
@@ -735,6 +729,7 @@ def make_ca_update_fn(
     Returns:
         Callable matching ``(bucket: QuotaBucket) -> None``.
     """
+
     def _run_ca_update(bucket: QuotaBucket) -> None:
         from datetime import date, timedelta
 
@@ -776,14 +771,13 @@ def make_ca_update_fn(
         # Advance the sentinel so this UTC day is not retried.
         _advance_ca_sentinel(settings.timescale_db_url, yesterday)
         _logger.info(
-            "run_ca_update: bulk CA complete for %s "
-            "(%d splits, %d dividends)",
-            yesterday, len(splits), len(divs),
+            "run_ca_update: bulk CA complete for %s (%d splits, %d dividends)",
+            yesterday,
+            len(splits),
+            len(divs),
         )
 
     return _run_ca_update
-
-
 
 
 def _advance_ca_sentinel(timescale_db_url: str, for_date: object) -> None:

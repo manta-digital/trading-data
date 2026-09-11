@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (nothing yet)
 
+## [0.14.9] - 2026-09-11
+
+### Fixed
+- On a day `MT_MINUTE_FIRING_DAYS` does not name, the minute pass now runs
+  the backfill phase with the whole daily allowance instead of exiting.
+  0.14.7 skipped the pass entirely, leaving six days of credits unused.
+  Quota exhaustion on such a day exits 0; the trailing phase and seeding
+  still run only on firing days.
+
 ## [0.14.8] - 2026-09-11
 
 ### Added

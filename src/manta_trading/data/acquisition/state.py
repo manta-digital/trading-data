@@ -92,11 +92,6 @@ class MinutePassOutcome(StrEnum):
     for a provider-side reason. Always a fault: further requests spend credits
     to learn the same thing."""
 
-    SKIPPED = "skipped"
-    """Not a firing day under ``MT_MINUTE_FIRING_DAYS``; nothing was attempted
-    and no request was made. Never a fault."""
-
-
 class MinuteFailureKind(StrEnum):
     """Why one symbol failed, when it did (slice 921 Task 4.2).
 

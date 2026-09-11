@@ -97,7 +97,10 @@ kalshi.py's EXIT_SYNC_PARTIAL — the same meaning at the same code."""
 
 
 def minute_pass_exit_code(
-    outcome: MinutePassOutcome, *, trailing_completed: bool
+    outcome: MinutePassOutcome,
+    *,
+    trailing_completed: bool,
+    trailing_required: bool = True,
 ) -> int:
     """Map a pass outcome to the process exit code.
 
@@ -115,10 +118,16 @@ def minute_pass_exit_code(
 
     ``PROVIDER_UNAVAILABLE`` is a fault in either phase: a provider-failure
     streak means requests are being spent to learn the same thing.
+
+    A backfill-only day (``trailing_required`` False: not a firing day under
+    ``MT_MINUTE_FIRING_DAYS``) owed no current session, so running out of
+    quota there is the designed end of the day — exit 0.
     """
     if outcome is MinutePassOutcome.COMPLETE:
         return MINUTE_EXIT_OK
-    if outcome is MinutePassOutcome.QUOTA_EXHAUSTED and trailing_completed:
+    if outcome is MinutePassOutcome.QUOTA_EXHAUSTED and (
+        trailing_completed or not trailing_required
+    ):
         return MINUTE_EXIT_OK
     return _MINUTE_EXIT_BY_OUTCOME[outcome]
 
@@ -127,7 +136,6 @@ _MINUTE_EXIT_BY_OUTCOME: dict[MinutePassOutcome, int] = {
     MinutePassOutcome.COMPLETE: MINUTE_EXIT_OK,
     MinutePassOutcome.QUOTA_EXHAUSTED: MINUTE_EXIT_PASS_INCOMPLETE,
     MinutePassOutcome.PROVIDER_UNAVAILABLE: MINUTE_EXIT_PASS_INCOMPLETE,
-    MinutePassOutcome.SKIPPED: MINUTE_EXIT_OK,
 }
 
 # Every outcome must have a code — a new member cannot silently exit 0.
@@ -271,18 +279,20 @@ def run_minute_cycle(
     if not settings.eodhd_api_key:
         raise RuntimeError("MT_EODHD_API_KEY is not set")
 
-    # The timer fires daily; MT_MINUTE_FIRING_DAYS says which firings run.
-    # Decided here, before any connection or request, so a non-firing day
-    # costs nothing and the operator can change cadence without a rebuild.
-    if not is_firing_day(t0.date(), settings.minute_firing_days):
+    # The timer fires daily; MT_MINUTE_FIRING_DAYS says which firings collect
+    # the current session. Every firing spends the day's allowance: on a
+    # firing day the trailing phase (the only one that seeds) runs first and
+    # backfill takes the rest; on any other day the whole allowance goes to
+    # backfill over the rows the last firing day seeded. The operator changes
+    # cadence in the environment file, without a rebuild.
+    trailing_required = is_firing_day(t0.date(), settings.minute_firing_days)
+    if not trailing_required:
         _logger.info(
-            "minute pass: %s is not a firing day (MT_MINUTE_FIRING_DAYS=%s) — skipping",
+            "minute pass: %s is not a firing day (MT_MINUTE_FIRING_DAYS=%s) — "
+            "backfill only, no trailing phase",
             t0.date(),
             describe_firing_days(settings.minute_firing_days),
         )
-        report.minute_pass_outcome = MinutePassOutcome.SKIPPED
-        report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
-        return report
 
     with ConnectionPool(
         settings.timescale_db_url,
@@ -302,62 +312,33 @@ def run_minute_cycle(
                         )
                     ]
 
-            with pool.connection() as conn:
-                coverage_index = build_minute_coverage_index(conn)
-            if coverage_index is None:
-                _logger.error(
-                    "run_minute_cycle: coverage index unavailable this cycle — "
-                    "seeding will use existing gap rows only (no full-window fallback)"
-                )
-
             # Slice 921 SC6: two phases over the same universe. The TRAILING
             # phase attempts every symbol's current session (one chunk each)
             # before any backfill chunk is requested, so a pass that runs out
             # of quota or time has already collected the day that matters. The
             # 2026-09-07 13:05 UTC pass spent its whole run on deep backfill
             # and never reached the current session.
-            trailing_floor = datetime.now(_UTC) - MINUTE_TRAILING_PRIORITY_WINDOW
-            with pool.connection() as conn:
-                truncated_index = _build_truncated_index(
-                    conn, since=datetime.now(_UTC) - MINUTE_TRUNCATION_LOOKBACK
+            coverage_index: dict[str, set[date]] | None = None
+            trailing_completed = False
+            pass_outcome = MinutePassOutcome.COMPLETE
+            backfill_due = True
+            if trailing_required:
+                (
+                    coverage_index,
+                    trailing_completed,
+                    pass_outcome,
+                    backfill_due,
+                ) = _run_trailing_phase(
+                    symbol_list,
+                    pool=pool,
+                    http=http,
+                    settings=settings,
+                    report=report,
+                    should_continue=should_continue,
+                    on_symbol=on_symbol,
                 )
 
-            trailing_scanned, trailing_outcome = _run_minute_phase(
-                symbol_list,
-                phase=MinutePassPhase.TRAILING,
-                truncated_index=truncated_index,
-                pool=pool,
-                http=http,
-                settings=settings,
-                coverage_index=coverage_index,
-                report=report,
-                should_continue=should_continue,
-                on_symbol=on_symbol,
-                min_gap_end=trailing_floor,
-                max_chunks=MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
-                seed=True,
-            )
-            # The completion line is a signal (the cutover stops the firing on
-            # it), so it is emitted only when the phase actually completed;
-            # an aborted or stopped phase says so instead (#22 review F001).
-            if trailing_outcome is MinutePassOutcome.COMPLETE:
-                _logger.info(
-                    MINUTE_TRAILING_COMPLETE_LINE.format(count=trailing_scanned)
-                )
-            else:
-                _logger.info(
-                    "trailing phase ended early: %s after %d symbols",
-                    trailing_outcome.value if trailing_outcome else "shutdown",
-                    trailing_scanned,
-                )
-
-            # Only a phase that walked its whole scope hands over to the next
-            # one. A fault ends the pass because every further request is
-            # wasted; a shutdown (None) ends it because the operator said so.
-            pass_outcome = trailing_outcome or MinutePassOutcome.COMPLETE
-            trailing_completed = trailing_outcome is MinutePassOutcome.COMPLETE
-
-            if trailing_completed:
+            if backfill_due:
                 _, backfill_outcome = _run_minute_phase(
                     symbol_list,
                     phase=MinutePassPhase.BACKFILL,
@@ -377,9 +358,72 @@ def run_minute_cycle(
 
             report.minute_pass_outcome = pass_outcome
             report.minute_trailing_completed = trailing_completed
+            report.minute_trailing_required = trailing_required
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report
+
+
+def _run_trailing_phase(
+    symbol_list: list[str],
+    *,
+    pool: ConnectionPool,
+    http: httpx.Client,
+    settings: Settings,
+    report: CycleReport,
+    should_continue: Callable[[], bool] | None,
+    on_symbol: Callable[..., None] | None,
+) -> tuple[dict[str, set[date]] | None, bool, MinutePassOutcome, bool]:
+    """The firing-day trailing phase: seed, then one chunk per symbol.
+
+    Returns (coverage index, trailing completed, pass outcome so far, whether
+    the backfill phase is due). Only a phase that walked its whole scope hands
+    over to backfill: a fault ends the pass because every further request is
+    wasted; a shutdown (None) ends it because the operator said so.
+    """
+    with pool.connection() as conn:
+        coverage_index = build_minute_coverage_index(conn)
+    if coverage_index is None:
+        _logger.error(
+            "run_minute_cycle: coverage index unavailable this cycle — "
+            "seeding will use existing gap rows only (no full-window fallback)"
+        )
+
+    trailing_floor = datetime.now(_UTC) - MINUTE_TRAILING_PRIORITY_WINDOW
+    with pool.connection() as conn:
+        truncated_index = _build_truncated_index(
+            conn, since=datetime.now(_UTC) - MINUTE_TRUNCATION_LOOKBACK
+        )
+
+    trailing_scanned, trailing_outcome = _run_minute_phase(
+        symbol_list,
+        phase=MinutePassPhase.TRAILING,
+        truncated_index=truncated_index,
+        pool=pool,
+        http=http,
+        settings=settings,
+        coverage_index=coverage_index,
+        report=report,
+        should_continue=should_continue,
+        on_symbol=on_symbol,
+        min_gap_end=trailing_floor,
+        max_chunks=MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
+        seed=True,
+    )
+    # The completion line is a signal (the cutover stops the firing on
+    # it), so it is emitted only when the phase actually completed;
+    # an aborted or stopped phase says so instead (#22 review F001).
+    if trailing_outcome is MinutePassOutcome.COMPLETE:
+        _logger.info(MINUTE_TRAILING_COMPLETE_LINE.format(count=trailing_scanned))
+    else:
+        _logger.info(
+            "trailing phase ended early: %s after %d symbols",
+            trailing_outcome.value if trailing_outcome else "shutdown",
+            trailing_scanned,
+        )
+    pass_outcome = trailing_outcome or MinutePassOutcome.COMPLETE
+    trailing_completed = trailing_outcome is MinutePassOutcome.COMPLETE
+    return coverage_index, trailing_completed, pass_outcome, trailing_completed
 
 
 def _build_truncated_index(

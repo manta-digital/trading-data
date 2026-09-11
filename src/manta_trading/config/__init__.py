@@ -293,11 +293,12 @@ class Settings(BaseSettings):
 
     # Which days the daily 13:05 UTC minute firing actually runs
     # (MT_MINUTE_FIRING_DAYS). ``daily`` = every firing; weekday names such as
-    # ``Sat`` or ``Mon,Thu`` = only those days, the pass exiting at once on the
-    # others. A week of missed sessions is one gap row and one request per
-    # symbol, so ``Sat`` spends the ~65k-credit trailing phase once a week and
-    # leaves the other days' allowance to backfill. Read at every firing and by
-    # the health check: changing it is this line, no rebuild, no restart.
+    # ``Sat`` or ``Mon,Thu`` = the trailing phase (current sessions, seeding)
+    # runs only on those days; every other day's firing is backfill only. A
+    # week of missed sessions is one gap row and one request per symbol, so
+    # ``Sat`` spends the ~65k-credit trailing phase once a week and the other
+    # six days' allowance goes entirely to backfill. Read at every firing and
+    # by the health check: changing it is this line, no rebuild, no restart.
     minute_firing_days: Annotated[tuple[int, ...] | None, NoDecode] = None
 
     @field_validator("minute_firing_days", mode="before")
