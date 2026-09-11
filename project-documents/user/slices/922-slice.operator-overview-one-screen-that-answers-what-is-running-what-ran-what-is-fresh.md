@@ -62,7 +62,15 @@ actually happened instead of a literal.
    by the existing unit-file drift test, so the overview can print the next
    firing without reading systemd.
 7. `mt-accounting.timer` (daily) so the cached universe line is refreshed
-   without a human running a 90-second query.
+   without a human running a 90-second query. The unit pair follows 916's
+   `mt-{name}-pass` naming pattern and its add-a-source checklist in the
+   runbook.
+8. An architecture amendment block in `140-arch.data-quality-operations.md`
+   (the owner of `data_status`) recording the new STALE rule, the deletion of
+   the two staleness constants, and `gap_count` as open gaps, including the
+   `/api/v1/status` and `/api/v1/health` readers slice 185 exposed. The PM
+   sanctioned the rule change in plan entry 23; the amendment is how this
+   project records a maintenance-band change to another initiative's contract.
 
 **Out of scope**
 
@@ -130,9 +138,11 @@ mt data status  ─────────────────────�
 - `cli/commands/overview.py` — `gather()` (all I/O, one DB connection plus one
   HTTPS call), pure `build_overview()`, `data_overview` Typer command.
 - `cli/rendering/overview.py` — text and JSON rendering.
-- `provider/eodhd/account.py` — `fetch_credit_usage(http, api_key) ->
-  CreditUsage(used, daily_limit, extra)` from the `user` endpoint (the
-  function slice 921 removed from health, revived as a report, not a check).
+- `api/eodhd_account.py` — `fetch_credit_usage(api_key) ->
+  CreditUsage(used, daily_limit, extra)` from the `user` endpoint, through the
+  existing `eodhd_get` wrapper in `api/eodhd_sync.py` (retry, 429 handling,
+  token redaction); the function slice 921 removed from health, revived as a
+  report, not a check. No new HTTP path.
 
 ### Data Flow
 
@@ -192,11 +202,19 @@ mt data status  ─────────────────────�
    thing a timer firing writes.
 
 4. **An open row from a dead process is closed by the next writer of the same
-   kind**, with outcome `FAILED` and `detail = "abandoned: found open at next
-   firing"`. Power loss (2026-09-11 10:26 UTC) and SIGKILL cannot write an end.
-   The overview shows a running row with the age of its last progress update,
-   so a wedged pass reads "RUNNING trailing 6,750/13,083, progress 3 h ago"
-   rather than pretending to be healthy.
+   kind, and liveness is decided by pid, not by the row being open.** Every
+   row carries `hostname` and `pid` (as `daemon_heartbeat` does). At `open()`
+   the recorder closes open rows of its kind whose hostname is this host and
+   whose pid no longer exists, with outcome `FAILED` and `detail =
+   "abandoned: pid N gone"`. Rows whose pid is alive (a manual `mt data
+   health` beside the :50 timer, an on-demand accounting beside the 16:30
+   firing, a `--forever` runner) and rows from another host are left alone.
+   Power loss (2026-09-11 10:26 UTC) and SIGKILL cannot write an end; this is
+   the only path that closes them. The overview lists every open row per
+   kind, newest first; an open row on the local host whose pid is gone
+   renders `abandoned (pid N gone)` without the reader writing anything. A
+   live but wedged pass reads "RUNNING trailing 6,750/13,083, progress 3 h
+   ago" rather than pretending to be healthy.
 
 5. **Daily gains an outcome.** `run_daily_cycle` sets a new
    `CycleReport.daily_pass_completed` (true when the pending list was walked
@@ -214,10 +232,15 @@ mt data status  ─────────────────────�
    STALE when its `last_attempt_ts` is older than the greatest
    `walk_anchor_at` among *ended* rows for its granularity. After a walk every
    attempted symbol is fresh and every unattempted one is stale, which is
-   exactly the signal, including a walk cut short by quota. Until the first
-   recorded walk the anchor is NULL and nothing reads STALE; the view comment
-   says so. Reading `MT_MINUTE_FIRING_DAYS` into the database was rejected:
-   the view would then have to be re-created whenever the env file changed.
+   exactly the signal. The anchor is written at `open()`, before any symbol
+   is attempted, so a walk cut short by quota or by a provider outage after a
+   handful of symbols leaves the unattempted universe STALE. That is intended:
+   the data was due for refresh and was not refreshed. A never-attempted
+   symbol reads STALE regardless of the anchor, as 140-arch specifies. Until
+   the first recorded walk the anchor is NULL and only never-attempted symbols
+   read STALE; the view comment says so. Reading `MT_MINUTE_FIRING_DAYS` into
+   the database was rejected: the view would then have to be re-created
+   whenever the env file changed.
 
 7. **`gap_count` means open gaps.** The view's `gap_counts` CTE counts
    `UNKNOWN` and `FAILED_RETRYABLE` rows only ("still asking"); `FAILED` still
@@ -230,8 +253,9 @@ mt data status  ─────────────────────�
 
 8. **Credits come from EODHD's account endpoint, shown as used against
    `EODHD_DAILY_QUOTA`.** `apiRequests` is *used*. One call, five-second
-   timeout; on any failure the line reads `EODHD credits: unavailable (<reason>)`
-   and the command still exits 0. No threshold — the health check dropped the
+   timeout; with no `MT_EODHD_API_KEY` the line reads `EODHD credits:
+   unavailable (MT_EODHD_API_KEY not configured)`, and on an HTTP or network
+   failure `unavailable (<exception text>)`; the command still exits 0. No threshold — the health check dropped the
    quota floor in 921 for a reason.
 
 9. **The universe line is the last accounting row.** `mt data accounting`
@@ -246,6 +270,17 @@ mt data status  ─────────────────────�
     `OnCalendar`; the new constants are asserted the same way. The overview
     never shells out.
 
+12. **Latency bounds are the existing ones, restated.** The `data_status`
+    read keeps slice 167's no-regression margin (half of the 7.8 s raw scan
+    it removed, tracked by `test/load/test_167_data_status_nfr.py` at
+    production shape); the walk-anchor CTE is a one-row-per-pass aggregate
+    over an indexed table and must not move that measurement. The default
+    `mt data status` summary issues the same health-count aggregate the table
+    already issues plus one `GROUP BY fetch_status` over `data_gaps`, served by
+    `idx_data_gaps_fetch_status`; the load test gains a case for the summary
+    path under the same margin. The overview's own bound is ten seconds
+    end to end, of which the EODHD call may take at most five.
+
 11. **`mt data status` becomes a summary by default; `--detail` is the old
     table.** The summary is the SOURCES block and the two footer lines. All
     existing filters (`--symbol`, `--health`, `--daily`, `--minute`, `--all`,
@@ -257,13 +292,21 @@ mt data status  ─────────────────────�
 
 ### Database / Storage Schema
 
-Migration `055_create_pass_runs` (minute track; SQL idempotent per the
-migrations README):
+Migration `055_create_pass_runs` is **position-critical: it is inserted in
+the minute track list immediately before `021_data_status_view`** and added
+to `position_critical_ids` in `test_schema_migrations.py`, exactly as
+`038_create_acquisition_state` precedes `019`. Reason: the view builder is
+module-level and pre-rendered, so once it emits the walk-anchor CTE every
+historical re-issue of the view (021, 024, 028, 048, 051, 052) references
+`pass_runs`; a fresh database or a slice-915 restore replay must therefore
+have the table before 021 runs. SQL is idempotent (`IF NOT EXISTS`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS pass_runs (
     run_id              UUID        PRIMARY KEY,
     pass                TEXT        NOT NULL,   -- PassKind: minute|daily|kalshi|health|accounting
+    hostname            TEXT        NOT NULL,
+    pid                 INTEGER     NOT NULL,
     walk_anchor_at      TIMESTAMPTZ,            -- set when the run attempted every active symbol:
                                                 --   the instant "attempted in this walk" is measured from
     started_at          TIMESTAMPTZ NOT NULL,
@@ -295,14 +338,18 @@ walk_anchor AS (
     WHERE walk_anchor_at IS NOT NULL AND ended_at IS NOT NULL GROUP BY pass)
 ...
 WHEN ast.last_attempt_ts IS NULL
-     OR ast.last_attempt_ts < wa.anchor THEN 'STALE'   -- NULL anchor: never STALE
+     OR ast.last_attempt_ts < wa.anchor THEN 'STALE'   -- NULL anchor: only never-attempted are STALE
 ```
 
-`MINUTE_STALENESS_THRESHOLD` / `DAILY_STALENESS_THRESHOLD` and
-`_interval_literal` lose their only consumer and are deleted; the view comment
-is re-rendered to document the anchor rule. Existing rows in `data_gaps` are
-untouched; the four pre-rendered view variants are rebuilt by the same
-builder, so 021's apply-time variant selection keeps working.
+`MINUTE_STALENESS_THRESHOLD` / `DAILY_STALENESS_THRESHOLD` and their two
+pre-rendered literals lose their only consumer and are deleted.
+`_interval_literal` stays: it still renders the late-bar grace literal for
+the `exchange_completed_close` CTE and the view's doc comment. The view
+comment is re-rendered to document the anchor rule. Existing rows in
+`data_gaps` are untouched; the four pre-rendered view variants are rebuilt by
+the same builder, so 021's apply-time `daily_ohlcv` variant selection keeps
+working, and with 055 ahead of it the `pass_runs` reference resolves on a
+fresh database.
 
 ### CLI Specification
 
@@ -364,10 +411,12 @@ callback), keeping `run_minute_cycle` free of a new dependency.
 
 ### systemd
 
-`deploy/systemd/mt-accounting.service` / `.timer` (oneshot, `mt data
+`deploy/systemd/mt-accounting-pass.service` / `.timer` (oneshot, `mt data
 accounting`, `OnCalendar=*-*-* 16:30:00 UTC`, `Persistent=true`,
-`TimeoutStartSec=900`), installed by `install-production.sh` like the health
-units; `mt-run status` gains no line (the overview is the surface).
+`TimeoutStartSec=900`, `Slice=manta-acquisition.slice`), named per 916's
+`mt-{name}-pass` pattern and added by its add-a-source checklist in the
+runbook; installed by `install-production.sh` like the health units. `mt-run
+status` gains no line (the overview is the surface).
 
 ## Integration Points
 
@@ -391,8 +440,9 @@ units; `mt-run status` gains no line (the overview is the surface).
    and exit code, and the outcome for a minute pass that finished trailing and
    hit the allowance is `complete (quota)`, exit 0.
 3. A row left open by a killed process is closed `FAILED` by the next firing
-   of the same kind; before that, the overview shows it as running with its
-   last-progress age.
+   of the same kind; before that, the overview shows it as
+   `abandoned (pid N gone)`. A manual run beside a timer firing produces two
+   live rows and neither is closed by the other.
 4. `mt data status` prints the summary by default and the old table under
    `--detail`; the footer's GAPS count excludes `PROVIDER_HOLE` rows and the
    second footer line reports still-asking / holes / exhausted per
@@ -403,7 +453,13 @@ units; `mt-run status` gains no line (the overview is the surface).
    the 12:35 resume. Verified by an integration test over `migrated_db` that
    inserts `pass_runs` and `acquisition_state` rows for both cases.
 6. The view still exposes exactly the D2 column list; `test_data_status_view_sql`
-   and `test_data_status_view` pass with the new CTEs.
+   and `test_data_status_view` pass with the new CTEs; a fresh database and a
+   full-ledger replay apply the whole minute track without error (055 ahead
+   of 021), asserted by the existing migration-chain tests plus the
+   position-critical list.
+6a. Load tier: `test_167_data_status_nfr.py` still passes at production shape
+   and gains a case for the default `mt data status` summary path under the
+   same margin.
 7. Unit tests: outcome mappings for all three sources (exhaustive over the
    source enums), the recorder's orphan-closing rule, `next_firing_at` for
    hourly and twice-daily schedules, `build_overview` rendering for running /
@@ -411,7 +467,9 @@ units; `mt-run status` gains no line (the overview is the surface).
 8. Timer constants for daily, kalshi, health and accounting are asserted
    against the unit files in `test/unit/deploy/test_units.py`.
 9. CHANGELOG entry; the operator overview is documented in the README's
-   operations section next to `mt data health`.
+   operations section next to `mt data health`; the 140-arch amendment block
+   (scope item 8) is committed with the view migration; the 916 runbook's
+   add-a-source checklist is followed for the accounting units.
 
 ## Verification Walkthrough
 
@@ -459,3 +517,17 @@ lands the view behaves as today.
 The overview must stay under ten seconds: newest-bar queries use the
 `max(time)` pattern from `check_raw_freshness`; the session-mass and cagg
 checks are never re-run — their verdict is read from the health row.
+
+## Slice review response (2026-09-11, verdict CONCERNS)
+
+| finding | response |
+|---|---|
+| F001 `data_status` contracts rewritten without a 140-arch amendment | Scope item 8 and criterion 9: a 140-arch amendment block (STALE rule, deleted constants, `gap_count` as open gaps, the API readers) lands with the view migration. |
+| F002 fresh-database chain breaks at 021 | 055 is position-critical, inserted before 021 (038 precedent) and listed in `position_critical_ids`; criterion 6 asserts a fresh apply. |
+| F003 `_interval_literal` deletion wrong | Corrected: only the two staleness constants and their pre-rendered literals go; `_interval_literal` stays for the late-bar grace and the doc comment. |
+| F004 orphan-close cannot tell dead from concurrent | Decision 4 rewritten: `hostname` and `pid` columns; only local rows with a dead pid are closed; the overview lists every open row and marks dead-pid rows; criterion 3 covers the manual-beside-timer case. |
+| F005 no restated latency target | Decision 12: 167's no-regression margin restated for the view, the summary path added to the load test (criterion 6a), overview ten seconds with a five-second provider cap. |
+| F006 plan entry drift | Plan entry 23 items 3 and 4 reconciled to the design (still asking = UNKNOWN + FAILED_RETRYABLE; STALE anchored on the last recorded universe walk). |
+| F007 fifth pass kind and new timer beyond the plan | Plan entry extended to name the accounting kind and `mt-accounting-pass.timer`; unit named per 916's pattern and its add-a-source checklist. |
+| F008 third home for EODHD HTTP code | Moved to `api/eodhd_account.py` through the existing `eodhd_get` wrapper; missing-key branch named explicitly in Decision 8. |
+| F009 Decision 6 prose vs SQL | Never-attempted symbols stay STALE (140-arch); the anchor is written at `open()` and a provider-outage abort leaving the universe STALE is stated as intended. |
