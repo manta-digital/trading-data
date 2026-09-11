@@ -48,6 +48,7 @@ def _no_side_effects(cutover: Any, tmp_path: Path) -> Any:
     def _forbidden(*args: Any, **kwargs: Any) -> None:
         raise AssertionError(f"real subprocess in a unit test: {args[0]!r}")
 
+    real_remaining_credits = cutover._remaining_credits
     with (
         patch.object(cutover_common.subprocess, "run", side_effect=_forbidden),
         patch.object(cutover_common, "_LOG_FILE", None),
@@ -58,6 +59,8 @@ def _no_side_effects(cutover: Any, tmp_path: Path) -> Any:
         # never depend on it (it did, and failed the day the balance dipped).
         patch.object(cutover, "_remaining_credits", return_value=500_000),
     ):
+        # The one test of the real balance function reaches it here.
+        cutover._remaining_credits_unpatched = real_remaining_credits
         yield
 
 
@@ -443,7 +446,7 @@ class TestBudgetGate:
         )
         response.raise_for_status = MagicMock()
         with patch.object(httpx, "get", return_value=response):
-            assert cutover._remaining_credits() == 593_142
+            assert cutover._remaining_credits_unpatched() == 593_142
 
 
 class TestBoundedFiringAndRecord:
