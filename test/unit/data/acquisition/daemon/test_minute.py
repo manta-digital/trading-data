@@ -87,6 +87,51 @@ class _FakeSettings:
     timescale_db_url = "postgresql://localhost/test"
     eodhd_api_key = "test-key"
     minute_history_start = None
+    minute_firing_days = None  # MT_MINUTE_FIRING_DAYS=daily
+
+
+class _WeeklySettings(_FakeSettings):
+    """MT_MINUTE_FIRING_DAYS=Sat; every test day below is not a Saturday."""
+
+    minute_firing_days = (5,)
+
+
+class TestNonFiringDay:
+    def test_a_non_firing_day_skips_before_any_connection_or_request(self) -> None:
+        from manta_trading.data.acquisition.state import MinutePassOutcome
+
+        with (
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.Settings",
+                return_value=_WeeklySettings(),
+            ),
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.is_firing_day",
+                return_value=False,
+            ) as decided,
+            patch(
+                "manta_trading.data.acquisition.daemon.minute.ConnectionPool"
+            ) as pool,
+            patch("manta_trading.data.acquisition.daemon.minute.eodhd_get") as get,
+        ):
+            report = run_minute_cycle(symbols=["AAPL"])
+        decided.assert_called_once()
+        assert decided.call_args.args[1] == (5,), "decides on the setting's value"
+        assert report.minute_pass_outcome is MinutePassOutcome.SKIPPED
+        assert report.minute_trailing_completed is False
+        pool.assert_not_called()
+        get.assert_not_called()
+
+    def test_skipped_exits_ok(self) -> None:
+        from manta_trading.data.acquisition.daemon.minute import (
+            minute_pass_exit_code,
+        )
+        from manta_trading.data.acquisition.state import MinutePassOutcome
+
+        assert (
+            minute_pass_exit_code(MinutePassOutcome.SKIPPED, trailing_completed=False)
+            == 0
+        )
 
 
 class TestRunMinuteCycle:
@@ -343,6 +388,7 @@ class _FakeSettings:
     timescale_db_url = "postgresql://localhost/test"
     eodhd_api_key = "test-key"
     minute_history_start = None
+    minute_firing_days = None  # MT_MINUTE_FIRING_DAYS=daily
 
 
 class TestDoMinuteSymbolExtensions:

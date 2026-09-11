@@ -18,7 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (nothing yet)
 
----
+## [0.14.7] - 2026-09-11
+
+### Added
+- `MT_MINUTE_FIRING_DAYS` (in `/etc/manta-trading.env`): which of the daily
+  13:05 UTC minute firings actually run. `daily` (the default) or weekday
+  names such as `Sat`. On a non-firing day the pass exits at once, having
+  made no request. A week of missed sessions is one gap row and one request
+  per symbol, so `Sat` spends the ~65k-credit trailing phase once a week and
+  leaves the other six days' allowance to backfill. Read at every firing and
+  by `mt data health`: changing cadence is that one line — no rebuild, no
+  restart, effective at the next 13:05.
+
+### Changed
+- `HEALTH_MINUTE_RAW_STALE_AFTER` is 10 days (was 4) so a weekly cadence does
+  not report healthy data as stale.
 
 ## [0.14.6] - 2026-09-11
 

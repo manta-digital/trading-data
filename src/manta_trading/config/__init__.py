@@ -20,6 +20,7 @@ from manta_trading.constants import (
 from manta_trading.data.acquisition.daily.provider import DailyProviderName
 from manta_trading.data.historical_minute.provider import MinuteProviderName
 from manta_trading.data.kalshi.selection import CollectionRule
+from manta_trading.minute_firing_schedule import parse_firing_days
 
 _MINUTES_PER_DAY = 24 * 60
 
@@ -289,3 +290,19 @@ class Settings(BaseSettings):
     # provider has for that symbol." Set to narrow the window for cost
     # control or testing. ISO-8601 date string (YYYY-MM-DD) in env.
     minute_history_start: date | None = None
+
+    # Which days the daily 13:05 UTC minute firing actually runs
+    # (MT_MINUTE_FIRING_DAYS). ``daily`` = every firing; weekday names such as
+    # ``Sat`` or ``Mon,Thu`` = only those days, the pass exiting at once on the
+    # others. A week of missed sessions is one gap row and one request per
+    # symbol, so ``Sat`` spends the ~65k-credit trailing phase once a week and
+    # leaves the other days' allowance to backfill. Read at every firing and by
+    # the health check: changing it is this line, no rebuild, no restart.
+    minute_firing_days: Annotated[tuple[int, ...] | None, NoDecode] = None
+
+    @field_validator("minute_firing_days", mode="before")
+    @classmethod
+    def _parse_firing_days(cls, value: object) -> object:
+        if isinstance(value, str):
+            return parse_firing_days(value)
+        return value

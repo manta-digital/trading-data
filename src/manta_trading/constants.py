@@ -80,10 +80,12 @@ further request is wasted."""
 # numbers it judges against. Each is the loosest value that still catches the
 # failure it names within one working day.
 
-HEALTH_MINUTE_RAW_STALE_AFTER: timedelta = timedelta(days=4)
-"""Newest raw ``minute_ohlcv`` bar older than this fails the check. Four days
-spans a weekend plus a Monday holiday; the nightly pass lands the previous
-session, so a healthy Tuesday morning is ~1.5 days behind."""
+HEALTH_MINUTE_RAW_STALE_AFTER: timedelta = timedelta(days=10)
+"""Newest raw ``minute_ohlcv`` bar older than this fails the check. Sized for
+the widest cadence ``MT_MINUTE_FIRING_DAYS`` allows (weekly): a Saturday
+firing lands Friday's session, so the newest bar is up to 7 days old the
+next Friday evening, plus a Monday holiday and the day the firing itself
+takes. Under a daily cadence 4 days was enough (weekend plus holiday)."""
 
 HEALTH_DAILY_RAW_STALE_AFTER: timedelta = timedelta(days=5)
 """Newest raw ``daily_ohlcv`` bar older than this fails the check."""
@@ -195,7 +197,13 @@ that has collected the previous day for months. An earlier second firing
 was tried twice — 01:05 and 04:05 — and both asked before EODHD had the day,
 spending the daily allowance on unpublished sessions (#22). With one firing
 the whole 100k/day allowance is available to it: ~65k for the previous
-session across the universe, the rest for backfill."""
+session across the universe, the rest for backfill.
+
+Which of these daily firings actually run is the operator's
+``MT_MINUTE_FIRING_DAYS`` (``Settings.minute_firing_days``): ``daily``, or
+weekday names such as ``Sat`` for one firing a week. The pass exits at once
+on a non-firing day and the health check waits for the next firing day —
+see ``manta_trading.minute_firing_schedule``."""
 
 
 HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"

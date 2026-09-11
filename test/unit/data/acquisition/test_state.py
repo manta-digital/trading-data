@@ -435,11 +435,12 @@ class TestMinutePassOutcome:
         assert MinutePassOutcome.QUOTA_EXHAUSTED == "quota_exhausted"
         assert MinutePassOutcome.PROVIDER_UNAVAILABLE == "provider_unavailable"
 
-    def test_the_enum_is_exactly_these_three(self) -> None:
+    def test_the_enum_is_exactly_these_four(self) -> None:
         assert {m.value for m in MinutePassOutcome} == {
             "complete",
             "quota_exhausted",
             "provider_unavailable",
+            "skipped",
         }
 
     def test_it_is_distinct_from_the_per_symbol_outcome(self) -> None:

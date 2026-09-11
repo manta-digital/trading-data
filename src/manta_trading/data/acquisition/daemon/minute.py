@@ -27,14 +27,14 @@ from manta_trading.constants import (
     FetchEntryPoint,
     MinutePassPhase,
 )
-from manta_trading.market.db_session import make_configure_connection
-from manta_trading.data.acquisition.quota import CallType, QuotaWaitAborted
 from manta_trading.data.acquisition.daemon.daily import (
     CycleReport,
     _last_completed_session,
     _normalise,
 )
-from manta_trading.data.quality.fetch_status import FetchStatus
+from manta_trading.data.acquisition.daemon.minute_sessions import (
+    judge_chunk_by_sessions,
+)
 from manta_trading.data.acquisition.outcomes import (
     ProviderQuotaExhausted,
     ProviderResponseError,
@@ -42,34 +42,37 @@ from manta_trading.data.acquisition.outcomes import (
     outcome_to_fetch_status,
     response_carries_an_answer,
 )
+from manta_trading.data.acquisition.quota import CallType, QuotaWaitAborted
 from manta_trading.data.acquisition.state import (
     LastAttemptOutcome,
     MinuteFailureKind,
     MinutePassOutcome,
 )
 from manta_trading.data.acquisition.symbols import iter_active_instruments
-
 from manta_trading.data.gaps import (
     GapRow,
     coalesce_data_gaps,
     pick_most_recent_actionable_gap,
     update_data_gaps,
 )
-from manta_trading.data.acquisition.daemon.minute_sessions import (
-    judge_chunk_by_sessions,
-)
 from manta_trading.data.gaps.compute_missing_ranges import fetch_session_bounds
-from manta_trading.data.gaps.repair_921 import (
-    RepairScanTimeout,
-    build_truncated_day_index,
-)
 from manta_trading.data.gaps.minute_coverage import (
     build_minute_coverage_index,
     build_symbol_minute_coverage,
     compute_missing_minute_sessions,
 )
+from manta_trading.data.gaps.repair_921 import (
+    RepairScanTimeout,
+    build_truncated_day_index,
+)
 from manta_trading.data.locking import advisory_lock
+from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.logging import get_logger
+from manta_trading.market.db_session import make_configure_connection
+from manta_trading.minute_firing_schedule import (
+    describe_firing_days,
+    is_firing_day,
+)
 
 _logger = get_logger(__name__)
 
@@ -124,6 +127,7 @@ _MINUTE_EXIT_BY_OUTCOME: dict[MinutePassOutcome, int] = {
     MinutePassOutcome.COMPLETE: MINUTE_EXIT_OK,
     MinutePassOutcome.QUOTA_EXHAUSTED: MINUTE_EXIT_PASS_INCOMPLETE,
     MinutePassOutcome.PROVIDER_UNAVAILABLE: MINUTE_EXIT_PASS_INCOMPLETE,
+    MinutePassOutcome.SKIPPED: MINUTE_EXIT_OK,
 }
 
 # Every outcome must have a code — a new member cannot silently exit 0.
@@ -266,6 +270,19 @@ def run_minute_cycle(
         raise RuntimeError("MT_TIMESCALE_DB_URL is not set")
     if not settings.eodhd_api_key:
         raise RuntimeError("MT_EODHD_API_KEY is not set")
+
+    # The timer fires daily; MT_MINUTE_FIRING_DAYS says which firings run.
+    # Decided here, before any connection or request, so a non-firing day
+    # costs nothing and the operator can change cadence without a rebuild.
+    if not is_firing_day(t0.date(), settings.minute_firing_days):
+        _logger.info(
+            "minute pass: %s is not a firing day (MT_MINUTE_FIRING_DAYS=%s) — skipping",
+            t0.date(),
+            describe_firing_days(settings.minute_firing_days),
+        )
+        report.minute_pass_outcome = MinutePassOutcome.SKIPPED
+        report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
+        return report
 
     with ConnectionPool(
         settings.timescale_db_url,

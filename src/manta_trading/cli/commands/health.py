@@ -175,7 +175,11 @@ def gather(
     # right — a threshold that fires nightly is noise. What mattered about a
     # starved night was its consequence, and the session-mass check below
     # measures that consequence directly.
-    judged = select_judged_session(fetch_candidate_sessions(conn, now=at), now=at)
+    judged = select_judged_session(
+        fetch_candidate_sessions(conn, now=at),
+        now=at,
+        firing_weekdays=settings.minute_firing_days,
+    )
     mass = fetch_session_mass(conn, judged) if judged is not None else None
     ok, detail = check_minute_session_mass(judged, mass)
     checks.append(HealthCheck("minute session mass", ok, detail))

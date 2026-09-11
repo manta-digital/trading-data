@@ -191,70 +191,103 @@ def _session(
 class TestJudgedSessionSelection:
     """A session is judged only once the firing that collects it has finished.
 
-    Both a regular 20:00 UTC close and an early 17:00 close are collected by
-    the next 13:05 firing, so both become judgeable at 16:05 UTC the next day
-    (13:05 + the 3 h collection lag) — the SC7 boundary.
+    Under MT_MINUTE_FIRING_DAYS=Sat every session of the week — a regular
+    20:00 UTC close and an early 17:00 close alike — is collected by the
+    Saturday 13:05 firing, so all of them become judgeable at Saturday 16:05
+    UTC (13:05 + the 3 h collection lag) — the SC7 boundary. 2026-09-12 is a
+    Saturday.
     """
 
-    REGULAR = _session("2026-09-08", (13, 30), (20, 0))
+    TUESDAY = _session("2026-09-08", (13, 30), (20, 0))
     EARLY = _session("2026-09-08", (13, 30), (17, 0))
-    PRIOR = _session("2026-09-07", (13, 30), (20, 0))
+    FRIDAY = _session("2026-09-11", (13, 30), (20, 0))
+    PRIOR_FRIDAY = _session("2026-09-04", (13, 30), (20, 0))
 
-    def test_a_regular_close_is_not_judged_at_1604(self) -> None:
-        now = datetime(2026, 9, 9, 16, 4, tzinfo=UTC)
-        judged = select_judged_session([self.REGULAR, self.PRIOR], now=now)
-        assert judged == self.PRIOR, "the day before is still the judged one"
+    def test_the_week_is_not_judged_at_saturday_1604(self) -> None:
+        now = datetime(2026, 9, 12, 16, 4, tzinfo=UTC)
+        judged = select_judged_session(
+            [self.FRIDAY, self.TUESDAY, self.PRIOR_FRIDAY],
+            now=now,
+            firing_weekdays=(5,),
+        )
+        assert judged == self.PRIOR_FRIDAY, "last week's Friday is still the judged one"
 
-    def test_a_regular_close_is_judged_at_1605(self) -> None:
-        now = datetime(2026, 9, 9, 16, 5, tzinfo=UTC)
-        judged = select_judged_session([self.REGULAR, self.PRIOR], now=now)
-        assert judged == self.REGULAR
+    def test_the_newest_session_of_the_week_is_judged_at_saturday_1605(self) -> None:
+        now = datetime(2026, 9, 12, 16, 5, tzinfo=UTC)
+        judged = select_judged_session(
+            [self.FRIDAY, self.TUESDAY, self.PRIOR_FRIDAY],
+            now=now,
+            firing_weekdays=(5,),
+        )
+        assert judged == self.FRIDAY
 
-    def test_an_early_close_is_not_judged_at_1604(self) -> None:
+    def test_an_early_close_waits_for_the_same_firing(self) -> None:
         """An early close does NOT become judgeable sooner — it is collected by
-        the same 13:05 firing, so it waits for the same instant."""
-        now = datetime(2026, 9, 9, 16, 4, tzinfo=UTC)
-        judged = select_judged_session([self.EARLY, self.PRIOR], now=now)
-        assert judged == self.PRIOR
+        the same Saturday firing, so it waits for the same instant."""
+        now = datetime(2026, 9, 12, 16, 4, tzinfo=UTC)
+        assert select_judged_session(
+            [self.EARLY, self.PRIOR_FRIDAY], now=now, firing_weekdays=(5,)
+        ) == (self.PRIOR_FRIDAY)
+        now = datetime(2026, 9, 12, 16, 5, tzinfo=UTC)
+        assert select_judged_session(
+            [self.EARLY, self.PRIOR_FRIDAY], now=now, firing_weekdays=(5,)
+        ) == (self.EARLY)
 
-    def test_an_early_close_is_judged_at_1605(self) -> None:
-        now = datetime(2026, 9, 9, 16, 5, tzinfo=UTC)
-        judged = select_judged_session([self.EARLY, self.PRIOR], now=now)
-        assert judged == self.EARLY
+    def test_midweek_the_previous_friday_stays_judged(self) -> None:
+        """Wednesday: this week's sessions wait for Saturday; last Friday holds."""
+        now = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+        judged = select_judged_session(
+            [self.TUESDAY, self.PRIOR_FRIDAY], now=now, firing_weekdays=(5,)
+        )
+        assert judged == self.PRIOR_FRIDAY
 
     def test_a_weekend_falls_out_because_it_is_not_a_calendar_row(self) -> None:
-        """Friday's session stays the judged one all weekend — Saturday and
-        Sunday are simply not candidates."""
-        friday = _session("2026-09-11", (13, 30), (20, 0))
+        """Friday's session is the judged one from Saturday 16:05 on — Saturday
+        and Sunday are simply not candidates."""
         now = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)  # Sunday
-        assert select_judged_session([friday], now=now) == friday
+        assert select_judged_session([self.FRIDAY], now=now, firing_weekdays=(5,)) == (
+            self.FRIDAY
+        )
 
     def test_a_holiday_gap_keeps_the_last_traded_session(self) -> None:
         before_holiday = _session("2026-11-25", (14, 30), (21, 0))
-        now = datetime(2026, 11, 27, 6, 0, tzinfo=UTC)  # Thanksgiving morning
-        assert select_judged_session([before_holiday], now=now) == before_holiday
+        now = datetime(2026, 11, 28, 16, 5, tzinfo=UTC)  # the Saturday after
+        assert (
+            select_judged_session([before_holiday], now=now, firing_weekdays=(5,))
+            == before_holiday
+        )
 
     def test_no_candidates_yields_none(self) -> None:
         assert (
-            select_judged_session([], now=datetime(2026, 9, 9, 12, tzinfo=UTC)) is None
+            select_judged_session(
+                [], now=datetime(2026, 9, 9, 12, tzinfo=UTC), firing_weekdays=(5,)
+            )
+            is None
         )
 
     def test_only_unfinished_sessions_yields_none(self) -> None:
-        """Today's session has closed but its collecting firing has not run."""
-        now = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
-        assert select_judged_session([self.REGULAR], now=now) is None
+        """This week's sessions have closed but the Saturday firing has not run."""
+        now = datetime(2026, 9, 11, 21, 0, tzinfo=UTC)  # Friday evening
+        assert (
+            select_judged_session(
+                [self.TUESDAY, self.FRIDAY], now=now, firing_weekdays=(5,)
+            )
+            is None
+        )
 
 
-class TestCollectingFiringFinishedAt:
+class TestCollectingFiringFinishedAtDaily:
+    """The daily cadence (``firing_weekdays=None``)."""
+
     def test_a_regular_close_resolves_to_1605_next_day(self) -> None:
         finished = collecting_firing_finished_at(
-            _session("2026-09-08", (13, 30), (20, 0))
+            _session("2026-09-08", (13, 30), (20, 0)), firing_weekdays=None
         )
         assert finished == datetime(2026, 9, 9, 16, 5, tzinfo=UTC)
 
     def test_an_early_close_resolves_to_the_same_instant(self) -> None:
         finished = collecting_firing_finished_at(
-            _session("2026-09-08", (13, 30), (17, 0))
+            _session("2026-09-08", (13, 30), (17, 0)), firing_weekdays=None
         )
         assert finished == datetime(2026, 9, 9, 16, 5, tzinfo=UTC)
 
@@ -262,9 +295,28 @@ class TestCollectingFiringFinishedAt:
         """A hypothetical session closing at 12:00 UTC is collected by the
         13:05 firing, not the next day's."""
         finished = collecting_firing_finished_at(
-            _session("2026-09-08", (9, 0), (12, 0))
+            _session("2026-09-08", (9, 0), (12, 0)), firing_weekdays=None
         )
         assert finished == datetime(2026, 9, 8, 16, 5, tzinfo=UTC)
+
+
+class TestCollectingFiringFinishedAtWeekly:
+    """MT_MINUTE_FIRING_DAYS=Sat: every session of the week is collected by
+    the same Saturday firing (2026-09-12 is a Saturday)."""
+
+    SATURDAY_1605 = datetime(2026, 9, 12, 16, 5, tzinfo=UTC)
+
+    def test_tuesday_resolves_to_saturday(self) -> None:
+        finished = collecting_firing_finished_at(
+            _session("2026-09-08", (13, 30), (20, 0)), firing_weekdays=(5,)
+        )
+        assert finished == self.SATURDAY_1605
+
+    def test_friday_resolves_to_the_same_saturday(self) -> None:
+        finished = collecting_firing_finished_at(
+            _session("2026-09-11", (13, 30), (20, 0)), firing_weekdays=(5,)
+        )
+        assert finished == self.SATURDAY_1605
 
 
 class TestMinuteSessionMassRule:

@@ -33,6 +33,7 @@ from manta_trading.constants import (
     MINUTE_COVERAGE_REFRESH_END_OFFSET,
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_START_OFFSET,
+    HEALTH_MINUTE_RAW_STALE_AFTER,
     HEALTH_MINUTE_SESSION_CALENDAR,
     HEALTH_MINUTE_SESSION_COLLECTION_LAG,
     HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE,
@@ -419,6 +420,13 @@ def test_minute_pass_firing_times_type_and_values() -> None:
     assert isinstance(MINUTE_PASS_FIRING_TIMES_UTC, tuple)
     assert all(isinstance(t, time) for t in MINUTE_PASS_FIRING_TIMES_UTC)
     assert MINUTE_PASS_FIRING_TIMES_UTC == (time(13, 5),)
+
+
+def test_minute_raw_staleness_limit_covers_a_weekly_cadence() -> None:
+    """MT_MINUTE_FIRING_DAYS=Sat leaves the newest bar up to 7 days old; the
+    health limit must sit above that plus a holiday and the firing's own
+    duration, or a healthy Friday reports as stale."""
+    assert HEALTH_MINUTE_RAW_STALE_AFTER > timedelta(days=7 + 2)
 
 
 def test_minute_session_thresholds_sit_below_their_measurements() -> None:

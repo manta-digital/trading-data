@@ -270,7 +270,11 @@ def run_verify(conn: psycopg.Connection, symbols: list[str]) -> bool:
     )
 
     # --- SC3/SC7: the judged session's mass, via the health check's code ---
-    judged = select_judged_session(fetch_candidate_sessions(conn, now=now), now=now)
+    judged = select_judged_session(
+        fetch_candidate_sessions(conn, now=now),
+        now=now,
+        firing_weekdays=Settings().minute_firing_days,
+    )
     if judged is None:
         print("[FAIL] no completed session to judge")
         return False

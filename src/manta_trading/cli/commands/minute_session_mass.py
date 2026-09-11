@@ -31,6 +31,7 @@ from manta_trading.constants import (
     MINUTE_PASS_FIRING_TIMES_UTC,
     Granularity,
 )
+from manta_trading.minute_firing_schedule import next_minute_firing_at
 
 #: How many recent sessions to consider as judging candidates. Enough to cover
 #: a long holiday stretch (Thanksgiving week, a Christmas/New-Year run) without
@@ -62,40 +63,37 @@ class SessionMass:
 def collecting_firing_finished_at(
     session: TradingSessionBounds,
     *,
+    firing_weekdays: tuple[int, ...] | None,
     firing_times: tuple = MINUTE_PASS_FIRING_TIMES_UTC,
     lag: timedelta = HEALTH_MINUTE_SESSION_COLLECTION_LAG,
 ) -> datetime:
     """When the firing that collects ``session`` has finished.
 
-    The first configured firing at or after the session close, plus the
-    collection lag. For a regular 20:00 UTC close and an early 17:00 close
-    alike this resolves to 13:05 + 3 h = 16:05 UTC the next day, because both
-    closes fall after the day's single 13:05 firing (the one after EODHD
-    publishes the day — see the constant).
+    The first firing that runs at or after the session close, plus the
+    collection lag. With ``firing_weekdays`` None (``MT_MINUTE_FIRING_DAYS=daily``)
+    a regular 20:00 UTC close and an early 17:00 close alike resolve to 16:05
+    UTC the next day; with ``(5,)`` (``Sat``) every session of the week
+    resolves to Saturday 16:05 UTC, the one firing after EODHD publishes
+    Friday.
 
-    Firing times come from ``MINUTE_PASS_FIRING_TIMES_UTC``, the same constant
-    the timer drift guard asserts against ``mt-minute-pass.timer`` — the check
-    and the timer are not allowed to hold separate copies.
+    Firing times come from ``MINUTE_PASS_FIRING_TIMES_UTC``, the constant the
+    timer drift guard asserts against ``mt-minute-pass.timer``; the weekdays
+    come from the caller's ``Settings.minute_firing_days``, the same value the
+    pass itself reads — the check and the pass are not allowed to disagree.
     """
-    close = session.session_close_utc
-    for firing in sorted(firing_times):
-        candidate = close.replace(
-            hour=firing.hour, minute=firing.minute, second=0, microsecond=0
-        )
-        if candidate >= close:
-            return candidate + lag
-    # Every firing today is before the close — the collecting one is tomorrow's
-    # first.
-    first = sorted(firing_times)[0]
-    next_day = close + timedelta(days=1)
     return (
-        next_day.replace(hour=first.hour, minute=first.minute, second=0, microsecond=0)
+        next_minute_firing_at(
+            session.session_close_utc, times=firing_times, weekdays=firing_weekdays
+        )
         + lag
     )
 
 
 def select_judged_session(
-    candidates: list[TradingSessionBounds], *, now: datetime
+    candidates: list[TradingSessionBounds],
+    *,
+    now: datetime,
+    firing_weekdays: tuple[int, ...] | None,
 ) -> TradingSessionBounds | None:
     """Return the newest session whose collecting firing has finished.
 
@@ -109,7 +107,11 @@ def select_judged_session(
     long holiday stretch). The caller MUST treat None as an explicit non-OK
     verdict: a silent pass here is the exact silence this slice exists to end.
     """
-    finished = [s for s in candidates if collecting_firing_finished_at(s) <= now]
+    finished = [
+        s
+        for s in candidates
+        if collecting_firing_finished_at(s, firing_weekdays=firing_weekdays) <= now
+    ]
     if not finished:
         return None
     return max(finished, key=lambda s: s.session_close_utc)
