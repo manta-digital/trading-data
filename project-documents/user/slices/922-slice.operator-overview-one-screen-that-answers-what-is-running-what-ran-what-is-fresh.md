@@ -270,6 +270,13 @@ mt data status  ─────────────────────�
     `OnCalendar`; the new constants are asserted the same way. The overview
     never shells out.
 
+11. **`mt data status` becomes a summary by default; `--detail` is the old
+    table.** The summary is the SOURCES block and the two footer lines. All
+    existing filters (`--symbol`, `--health`, `--daily`, `--minute`, `--all`,
+    `--json`) imply `--detail`; JSON output keeps its current shape plus the
+    new footer counts. Scripts that relied on the default table get the same
+    table with `--detail`; the `test_cli_data` tests are updated accordingly.
+
 12. **Latency bounds are the existing ones, restated.** The `data_status`
     read keeps slice 167's no-regression margin (half of the 7.8 s raw scan
     it removed, tracked by `test/load/test_167_data_status_nfr.py` at
@@ -280,13 +287,6 @@ mt data status  ─────────────────────�
     `idx_data_gaps_fetch_status`; the load test gains a case for the summary
     path under the same margin. The overview's own bound is ten seconds
     end to end, of which the EODHD call may take at most five.
-
-11. **`mt data status` becomes a summary by default; `--detail` is the old
-    table.** The summary is the SOURCES block and the two footer lines. All
-    existing filters (`--symbol`, `--health`, `--daily`, `--minute`, `--all`,
-    `--json`) imply `--detail`; JSON output keeps its current shape plus the
-    new footer counts. Scripts that relied on the default table get the same
-    table with `--detail`; the `test_cli_data` tests are updated accordingly.
 
 ## Implementation Details
 
