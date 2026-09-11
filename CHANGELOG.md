@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.6] - 2026-09-11
+
+### Fixed
+- The minute pass fires once a day at 13:05 UTC. The 04:05 firing asked
+  before EODHD had published the previous session for 7,719 symbols and,
+  with the six-hour publication lag taken from the documentation, recorded
+  those sessions as holes; the lag is now sixteen hours (measured), the
+  wrongly recorded 2026-09-10 holes were reverted, and the health check
+  judges a session from 16:05 UTC the next day.
+
+---
+
 ## [0.14.5] - 2026-09-10
 
 ### Fixed

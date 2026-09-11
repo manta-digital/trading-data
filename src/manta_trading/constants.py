@@ -112,8 +112,8 @@ HEALTH_MINUTE_SESSION_COLLECTION_LAG: timedelta = timedelta(hours=3)
 """Grace after the collecting firing before its session is judged.
 
 A session is only judged once the pass that collects it has had time to
-finish. Sized from the measured pass duration plus headroom; with the 04:05
-UTC firing this puts a regular 20:00 close's verdict at 07:05 the next day.
+finish. Sized from the measured pass duration plus headroom; with the 13:05
+UTC firing this puts a regular 20:00 close's verdict at 16:05 the next day.
 Matches HEALTH_KALSHI_PHASE_STALE_AFTER's three-hour convention."""
 
 HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE: int = 2_500
@@ -157,16 +157,22 @@ rows for anything older than the 7-day trailing floor vanished on the next
 walk (#22). Must cover the repair window (REPAIR_921_WINDOW_START and
 forward); 60 days does today. Measured 77 s universe-wide."""
 
-MINUTE_PROVIDER_PUBLICATION_LAG: timedelta = timedelta(hours=6)
+MINUTE_PROVIDER_PUBLICATION_LAG: timedelta = timedelta(hours=16)
 """How long after a session's close EODHD may still be publishing its bars.
 
-EODHD: US 1-minute data is updated 2-3 hours after after-hours close. A
-session missing from a response that carried bars is therefore one of two
-things, told apart only by the clock: closed less recently than this — the
-provider answered and the session had no trades (an illiquid name; recorded
-as PROVIDER_HOLE so nothing asks again) — or closed more recently — not
-published yet (the row stays open and the next firing asks again). Double
-the documented upper bound. Measured 2026-09-10 (#22)."""
+A session missing from a response that carried bars is one of two things,
+told apart only by the clock: closed longer ago than this — the provider
+answered and the session had no trades (recorded as PROVIDER_HOLE so nothing
+asks again) — or closed more recently — not published yet (the row stays
+open and the next firing asks again). EODHD documents "2-3 hours after
+after-hours close" (00:00 UTC); measured: 2026-09-10 a 01:21 UTC pass got
+nothing for the day, 2026-09-11 a 04:05-05:35 UTC pass got nothing for
+7,719 symbols, 11:27 UTC had the day in full, and the 13:05 UTC firing has
+collected the previous day for months. Sixteen hours puts the boundary at
+12:00 UTC for a 20:00 close — after the last observed "not yet", before the
+firing that is known to work. A six-hour value (from the documentation)
+marked 7,719 real sessions as holes on 2026-09-11 (#22)."""
+
 
 MINUTE_TRAILING_COMPLETE_LINE: str = "trailing phase complete: {count} symbols"
 """The journal line the minute pass emits ONLY when its trailing phase walked
@@ -174,7 +180,7 @@ the whole universe. The 921 cutover stops the firing on this line, so the
 emitter (``run_minute_cycle``) and the matcher (``cutover_921_minute_sessions``)
 share the text here rather than each holding a copy (#22 review F003)."""
 
-MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(4, 5), time(13, 5))
+MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(13, 5),)
 """When the minute acquisition pass fires, as UTC times of day.
 
 Single source of truth, read by BOTH the health check (to know when a
@@ -183,13 +189,14 @@ deploy/systemd/mt-minute-pass.timer still says the same thing). The check and
 the timer disagreeing is exactly how a stale verdict becomes invisible, so
 they are not allowed to hold separate copies of these times.
 
-The first firing sits AFTER the provider publishes the day. EODHD: "for US
-tickers, 1-minute data is updated 2-3 hours after the end of after-hours
-trading" (20:00 ET = 00:00 UTC), so nothing before ~03:00 UTC can collect the
-session just closed. Measured 2026-09-10 (issue #22): a pass at 01:21 UTC got
-the whole 09-08 session and one after-hours spillover bar for 09-09; a pass
-at 11:27 UTC got 09-09 in full. 04:05 leaves an hour over the provider's
-upper bound; the 13:05 firing is unchanged."""
+One firing, after the provider has published the previous session (see
+MINUTE_PROVIDER_PUBLICATION_LAG for the evidence): 13:05 UTC is the firing
+that has collected the previous day for months. An earlier second firing
+was tried twice — 01:05 and 04:05 — and both asked before EODHD had the day,
+spending the daily allowance on unpublished sessions (#22). With one firing
+the whole 100k/day allowance is available to it: ~65k for the previous
+session across the universe, the rest for backfill."""
+
 
 HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
 """EODHD account endpoint; returns ``apiRequests``, ``dailyRateLimit``,

@@ -69,9 +69,9 @@ def collecting_firing_finished_at(
 
     The first configured firing at or after the session close, plus the
     collection lag. For a regular 20:00 UTC close and an early 17:00 close
-    alike this resolves to 04:05 + 3 h = 07:05 UTC the next day, because both
-    closes fall between the 13:05 and the following 04:05 firing (which is
-    the first one after EODHD publishes the day — see the constant).
+    alike this resolves to 13:05 + 3 h = 16:05 UTC the next day, because both
+    closes fall after the day's single 13:05 firing (the one after EODHD
+    publishes the day — see the constant).
 
     Firing times come from ``MINUTE_PASS_FIRING_TIMES_UTC``, the same constant
     the timer drift guard asserts against ``mt-minute-pass.timer`` — the check
@@ -99,7 +99,7 @@ def select_judged_session(
 ) -> TradingSessionBounds | None:
     """Return the newest session whose collecting firing has finished.
 
-    Pure: takes ``now`` and the candidates, does no I/O, so the 07:04/07:05
+    Pure: takes ``now`` and the candidates, does no I/O, so the 16:04/16:05
     boundary is directly testable.
 
     Weekends and holidays need no special case — they are not
