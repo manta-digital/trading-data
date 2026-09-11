@@ -52,6 +52,11 @@ from manta_trading.constants import (
 )
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.acquisition.symbols import iter_active_instruments
+from manta_trading.data.gaps.minute_accounting import (
+    compute_minute_accounting,
+    render_minute_accounting,
+    summary_line,
+)
 from manta_trading.data.gaps.minute_coverage import (
     build_symbol_minute_coverage,
     compute_missing_minute_sessions,
@@ -323,6 +328,13 @@ def run_verify(conn: psycopg.Connection, symbols: list[str]) -> bool:
     # --- The pending counts --check reports --------------------------------
     report = run_check(conn, symbols)
     print(report.render())
+
+    # --- The universe, from the calendar (2026-09-11) ----------------------
+    # Informational: the size of the remaining work, independent of the gap
+    # table, so the number does not move when a row is deleted or reseeded.
+    accounting = compute_minute_accounting(conn, now=now)
+    print(render_minute_accounting(accounting))
+    print(summary_line(accounting))
     return passed
 
 

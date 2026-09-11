@@ -96,6 +96,9 @@ data_app.add_typer(caggs_app, name="caggs")
 from manta_trading.cli.commands.health import data_health  # noqa: E402
 
 data_app.command("health")(data_health)
+from manta_trading.cli.commands.accounting import data_accounting  # noqa: E402
+
+data_app.command("accounting")(data_accounting)
 data_app.add_typer(universes_app, name="universes")
 data_app.add_typer(restore_app, name="restore")
 data_app.add_typer(kalshi_app, name="kalshi")

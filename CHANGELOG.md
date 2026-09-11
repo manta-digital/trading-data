@@ -18,6 +18,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (nothing yet)
 
+## [0.14.8] - 2026-09-11
+
+### Added
+- `mt data accounting`: the minute universe from the calendar — for every
+  active non-index symbol and every closed session since its listing, how
+  many symbol-sessions hold bars and how the rest splits between untraded
+  sessions and the gap table's word on the traded ones (hole, exhausted,
+  unknown, untracked). Independent of the gap table, so the remaining work
+  is one number that does not move when rows are deleted or reseeded.
+  `repair_921_minute_sessions.py --verify` prints the same table.
+
+### Fixed
+- A bar-less provider answer (empty body or 404) for a session closed beyond
+  the publication lag is recorded as PROVIDER_HOLE on the first attempt,
+  like "bars but none inside the session" already was. Before, it climbed
+  the five-attempt ladder to RETRY_EXHAUSTED at five times the credits
+  (2026-09-11: 500k such answers on 2020–2025 sessions). A session still
+  inside the lag keeps its row and is asked again.
+
 ## [0.14.7] - 2026-09-11
 
 ### Added

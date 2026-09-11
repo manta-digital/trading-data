@@ -96,12 +96,24 @@ def judge_chunk_by_sessions(
     name's quiet session looks like (AAA on 2026-09-02 held one after-hours
     bar and no trade). Empty sessions do not hold the outcome back; the
     caller records them as PROVIDER_HOLE so neither the seed nor the repair
-    asks for them again. A chunk with no judgeable session, or an outcome
-    that carried no bars, is returned unchanged.
+    asks for them again.
+
+    A response that carried NO bars (``EMPTY``: an empty body or a 404 — the
+    provider answered) is judged the same way: every judged session is
+    missing, so the ones past the lag are ``empty`` and the ones inside it
+    are ``unpublished``. Before this, a bar-less answer for a long-closed
+    session climbed the five-attempt ladder to RETRY_EXHAUSTED at five times
+    the credits of a hole recorded once (2026-09-11: 500k such answers on
+    2020–2025 sessions). A transient failure carried no answer and passes
+    through untouched, as does a chunk with no judgeable session.
     """
-    if outcome not in (LastAttemptOutcome.SUCCESS, LastAttemptOutcome.PARTIAL):
+    if outcome not in (
+        LastAttemptOutcome.SUCCESS,
+        LastAttemptOutcome.PARTIAL,
+        LastAttemptOutcome.EMPTY,
+    ):
         return SessionJudgement(outcome)
-    if not bars:
+    if not bars and outcome is not LastAttemptOutcome.EMPTY:
         return SessionJudgement(outcome)
     judged = [open_ for open_, close in session_bounds.items() if close <= chunk_end]
     if not judged:

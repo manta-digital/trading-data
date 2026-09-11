@@ -939,21 +939,23 @@ def _do_minute_symbol(
         outcome = judgement.outcome
         if judgement.unpublished:
             _logger.info(
-                "minute fetch: %s chunk [%s → %s] carried bars but none inside "
+                "minute fetch: %s chunk [%s → %s] carried %d bars, none inside "
                 "session(s) %s — provider has not published them; row kept",
                 symbol,
                 chunk_start,
                 chunk_end,
+                len(bars),
                 ", ".join(f"{s:%Y-%m-%d}" for s in judgement.unpublished),
             )
         if judgement.empty:
             _logger.info(
-                "minute fetch: %s chunk [%s → %s] carried bars but none inside "
+                "minute fetch: %s chunk [%s → %s] carried %d bars, none inside "
                 "session(s) %s, closed beyond the publication lag — recorded as "
                 "PROVIDER_HOLE",
                 symbol,
                 chunk_start,
                 chunk_end,
+                len(bars),
                 ", ".join(f"{s:%Y-%m-%d}" for s in judgement.empty),
             )
 

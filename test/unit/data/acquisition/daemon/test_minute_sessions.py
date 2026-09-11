@@ -172,10 +172,43 @@ class TestJudgeChunkBySessions:
             j = judge_chunk_by_sessions(verdict, bars, {}, CLOSE_09)
             assert j.outcome is verdict and j.unpublished == [] and j.empty == []
 
-    def test_outcomes_without_bars_pass_through(self) -> None:
-        for verdict in (LastAttemptOutcome.EMPTY, LastAttemptOutcome.TRANSIENT_FAILURE):
-            j = judge_chunk_by_sessions(verdict, [], {OPEN_09: CLOSE_09}, CLOSE_09)
-            assert j.outcome is verdict and j.empty == []
+    def test_a_transient_failure_passes_through(self) -> None:
+        verdict = LastAttemptOutcome.TRANSIENT_FAILURE
+        j = judge_chunk_by_sessions(verdict, [], {OPEN_09: CLOSE_09}, CLOSE_09)
+        assert j.outcome is verdict and j.empty == []
+
+    def test_a_bar_less_answer_past_the_lag_is_a_hole_on_the_first_attempt(
+        self,
+    ) -> None:
+        """EMPTY for a long-closed session: the provider answered and had
+        nothing. One attempt, one hole — not five attempts to RETRY_EXHAUSTED."""
+        j = judge_chunk_by_sessions(
+            LastAttemptOutcome.EMPTY,
+            [],
+            {OPEN_08: CLOSE_08, OPEN_09: CLOSE_09},
+            CLOSE_09,
+            now=CLOSE_09 + timedelta(days=30),
+        )
+        assert j.outcome is LastAttemptOutcome.SUCCESS
+        assert j.unpublished == []
+        assert j.empty == [OPEN_08, OPEN_09]
+
+    def test_a_bar_less_answer_within_the_lag_waits(self) -> None:
+        j = judge_chunk_by_sessions(
+            LastAttemptOutcome.EMPTY,
+            [],
+            {OPEN_09: CLOSE_09},
+            CLOSE_09,
+            now=CLOSE_09 + timedelta(hours=1),
+        )
+        assert j.outcome is LastAttemptOutcome.PARTIAL
+        assert j.unpublished == [OPEN_09] and j.empty == []
+
+    def test_a_bar_less_answer_with_no_judgeable_session_passes_through(
+        self,
+    ) -> None:
+        j = judge_chunk_by_sessions(LastAttemptOutcome.EMPTY, [], {}, CLOSE_09)
+        assert j.outcome is LastAttemptOutcome.EMPTY and j.empty == []
 
     def test_success_with_an_empty_body_passes_through(self) -> None:
         j = judge_chunk_by_sessions(
