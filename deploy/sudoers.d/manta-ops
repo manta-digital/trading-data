@@ -13,6 +13,11 @@ Cmnd_Alias MT_UNITS = \
     /usr/bin/systemctl stop mt-daily-pass.timer,    /usr/bin/systemctl start mt-daily-pass.timer, \
     /usr/bin/systemctl stop mt-kalshi-pass.service, /usr/bin/systemctl start mt-kalshi-pass.service, \
     /usr/bin/systemctl stop mt-kalshi-pass.timer,   /usr/bin/systemctl start mt-kalshi-pass.timer, \
+    /usr/bin/systemctl stop mt-health.timer,        /usr/bin/systemctl start mt-health.timer, \
+    /usr/bin/systemctl stop mt-accounting-pass.service, \
+    /usr/bin/systemctl stop mt-accounting-pass.timer, \
+    /usr/bin/systemctl start mt-accounting-pass.timer, \
+    /usr/bin/systemctl enable --now mt-accounting-pass.timer, \
     /usr/bin/systemctl start --no-block mt-minute-pass.service, \
     /usr/bin/systemctl start --no-block mt-daily-pass.service, \
     /usr/bin/systemctl restart mt-serve.service
