@@ -18,6 +18,7 @@ import pytest
 from typer.testing import CliRunner
 
 from manta_trading.constants import (
+    ACCOUNTING_PASS_FIRING_TIMES_UTC,
     DAILY_PASS_FIRING_TIMES_UTC,
     HEALTH_FIRING_MINUTE,
     KALSHI_PASS_FIRING_MINUTE,
@@ -345,3 +346,98 @@ class TestScheduleConstantsMatchTheirTimers:
     def test_the_hourly_cadences_do_not_collide(self) -> None:
         """Two hourly passes on the same minute would contend every hour."""
         assert KALSHI_PASS_FIRING_MINUTE != HEALTH_FIRING_MINUTE
+
+
+# ---------------------------------------------------------------------------
+# Slice 922 — the accounting pass unit pair
+# ---------------------------------------------------------------------------
+
+ACCOUNTING_SERVICE = "mt-accounting-pass.service"
+ACCOUNTING_TIMER = "mt-accounting-pass.timer"
+ACCOUNTING_PASS_TIMER = _SYSTEMD / ACCOUNTING_TIMER
+
+
+class TestAccountingUnits:
+    """The fifth pass, added by 916's add-a-source checklist.
+
+    It writes the universe line ``mt data overview`` prints, so a unit that
+    never fires leaves that line permanently stale while everything else on
+    the screen stays current — quiet wrongness of exactly the kind the
+    overview exists to remove.
+    """
+
+    def test_service_runs_the_accounting_command_as_a_oneshot(self) -> None:
+        text = (_SYSTEMD / ACCOUNTING_SERVICE).read_text()
+        assert "ExecStart=/opt/manta-trading/.venv/bin/mt data accounting" in text
+        assert "Type=oneshot" in text
+        assert "EnvironmentFile=/etc/manta-trading.env" in text
+        lines = text.splitlines()
+        assert "[Install]" not in lines
+        assert not any(line.startswith("Restart=") for line in lines)
+
+    def test_start_is_unbounded(self) -> None:
+        """A full-universe aggregate grows with the universe; a timeout would
+        turn a slow night into a failed unit."""
+        text = (_SYSTEMD / ACCOUNTING_SERVICE).read_text()
+        assert "TimeoutStartSec=infinity" in text
+
+    def test_hardening_matches_the_other_units(self) -> None:
+        text = (_SYSTEMD / ACCOUNTING_SERVICE).read_text()
+        for key in ("NoNewPrivileges=true", "ProtectHome=true", "PrivateTmp=true"):
+            assert key in text
+        assert "ProtectSystem=full" in text
+
+    def test_it_runs_as_the_service_account(self) -> None:
+        text = (_SYSTEMD / ACCOUNTING_SERVICE).read_text()
+        assert "User=manta-trading" in text
+        assert "Group=manta-trading" in text
+
+    def test_timer_names_the_service_and_installs_into_timers_target(self) -> None:
+        text = ACCOUNTING_PASS_TIMER.read_text()
+        assert f"Unit={ACCOUNTING_SERVICE}" in text
+        assert "Persistent=true" in text
+        assert "WantedBy=timers.target" in text
+
+    def test_timer_declares_exactly_one_schedule(self) -> None:
+        schedules = [
+            line
+            for line in ACCOUNTING_PASS_TIMER.read_text().splitlines()
+            if line.startswith(("OnCalendar=", "OnUnitActiveSec=", "OnBootSec="))
+        ]
+        assert len(schedules) == 1
+
+    def test_both_units_are_installed_and_the_timer_is_in_the_cutover_hint(
+        self,
+    ) -> None:
+        text = INSTALLER.read_text()
+        block = _array_block(text, "UNITS")
+        assert ACCOUNTING_SERVICE in block and ACCOUNTING_TIMER in block
+        cutover = text.split("Cutover (later, explicit)")[1].splitlines()[0]
+        assert ACCOUNTING_TIMER in cutover
+
+    def test_the_cli_command_the_unit_runs_exists(self) -> None:
+        from manta_trading.cli.app import app
+
+        result = CliRunner().invoke(app, ["data", "--help"])
+        assert result.exit_code == 0, result.output
+        assert "accounting" in result.output
+
+
+class TestAccountingTimerMatchesTheConstant:
+    """Deferred here from slice 922 Task 3.2, which added the constant before
+    this unit existed."""
+
+    def test_the_timer_declares_exactly_the_constant_times(self) -> None:
+        assert _on_calendar(ACCOUNTING_PASS_TIMER) == _daily_calendar(
+            ACCOUNTING_PASS_FIRING_TIMES_UTC
+        )
+
+    def test_the_constant_has_one_firing(self) -> None:
+        """A guard on the guard: an empty tuple would make the set test vacuous."""
+        assert len(ACCOUNTING_PASS_FIRING_TIMES_UTC) == 1
+
+    def test_it_fires_after_the_days_collecting_passes(self) -> None:
+        """The universe line must describe today's collection, not yesterday's."""
+        accounting = min(ACCOUNTING_PASS_FIRING_TIMES_UTC)
+        assert accounting > max(MINUTE_PASS_FIRING_TIMES_UTC)
+        assert accounting > max(DAILY_PASS_FIRING_TIMES_UTC)

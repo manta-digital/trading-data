@@ -18,6 +18,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (nothing yet)
 
+## [0.15.0] - 2026-09-12
+
+### Added
+- `mt data overview`: one screen answering what is running, what ran, and
+  what is fresh. Per pass — minute, daily, kalshi, health, accounting — its
+  cadence, whether it is running now (with phase and progress), how the last
+  run ended, and when it fires next. Then source freshness, the day's EODHD
+  credit usage, and the minute universe coverage line. Database reads plus
+  one HTTPS call; it never shells out, so `systemctl` and `journalctl` are
+  where you go *after* the screen tells you where to look. `--json` emits the
+  same facts.
+- Pass runs are now recorded. Every all-active pass writes a `pass_runs` row
+  when it starts and closes it with an outcome: `COMPLETE`,
+  `COMPLETE_QUOTA`, `INCOMPLETE`, `PROVIDER_UNAVAILABLE` or `FAILED`. Quota
+  is a *result*, not a failure — a pass that collected the session and spent
+  the rest of the allowance on backfill is the designed steady state, and
+  now says so. A row whose process has died is closed as abandoned by the
+  next pass on that host, so "running" on the overview means running.
+- `mt-accounting-pass` systemd unit pair, firing daily at 16:30 UTC after
+  the day's collecting passes. It records the universe line the overview
+  prints, so that number stays current without anyone running the command.
+- `mt data status` footer now breaks the gap table down per granularity:
+  still asking, holes, exhausted.
+
+### Changed
+- **`mt data status` summarises by default.** It prints source freshness and
+  the health footer; the per-symbol table moved behind `--detail`. Any
+  filter (`--symbol`, `--health`, `--daily`, `--minute`, `--all`, `--json`)
+  still prints the table. Twelve thousand rows were what you got for asking
+  the simplest question, and they did not answer it.
+- **`STALE` now means "not attempted in the last recorded universe walk"**
+  rather than "not attempted within a fixed interval" (migration 056). Under
+  the weekly minute cadence introduced in 0.14.x, the old one-day threshold
+  marked every minute symbol STALE six days out of seven, so the column
+  stopped carrying information. A pass that aborted part-way still leaves
+  the symbols it never reached STALE; before any walk is recorded, only
+  never-attempted symbols are STALE.
+- **`gap_count` counts open gaps only** — `UNKNOWN` and `FAILED_RETRYABLE`,
+  the ones still being asked about (migration 056). `PROVIDER_HOLE` is the
+  provider's terminal answer and `RETRY_EXHAUSTED` a terminal failure
+  already shown as `FAILED`, so counting them made a number that could never
+  reach zero. Affects `mt data status` and the API's `/api/v1/status` and
+  `/api/v1/health`.
+
+### Removed
+- `DAILY_STALENESS_THRESHOLD` and `MINUTE_STALENESS_THRESHOLD`. The STALE
+  rule they governed now reads the last recorded walk instead.
+
+### Migrations
+- `055_create_pass_runs` — **position-critical**: it is inserted before
+  `021_data_status_view`, because the `data_status` builder now references
+  `pass_runs` and every historical re-issue of that view renders from the
+  builder. A fresh database or a restore replay must create the table first.
+- `056_data_status_open_gaps_and_walk_anchor` — `CREATE OR REPLACE VIEW`
+  with no column change, so the column contract holds and nothing dependent
+  is dropped.
+
+### Performance
+Measured at production shape (12,000 symbols x 2 granularities):
+
+| path | median | budget |
+|---|---|---|
+| `mt data overview` database reads | 0.057 s | 5 s |
+| `mt data status` default summary | 1.019 s | 3.9 s |
+
+The overview's other 5 s is the EODHD credit call, bounded by its request
+timeout rather than measured: one GET, no retry. A credit endpoint that does
+not answer becomes a line on the screen; the command still exits 0.
+
 ## [0.14.9] - 2026-09-11
 
 ### Fixed

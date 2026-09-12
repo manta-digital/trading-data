@@ -349,8 +349,8 @@ Design *Scope 2*, *Decision 8, 9, 12*, *CLI Specification*, *SC1*, *SC2*,
 
 Design *Scope 3, 4, 8*, *Decision 6, 7, 11, 12*, *SC4*, *SC5*, *SC6*, *SC6a*.
 
-- [ ] **Task 5.1: View builder changes and migration 056** (effort: 3)
-  - [ ] In `_build_data_status_view_sql`: `gap_counts` counts only
+- [x] **Task 5.1: View builder changes and migration 056** (effort: 3)
+  - [x] In `_build_data_status_view_sql`: `gap_counts` counts only
         `UNKNOWN` and `FAILED_RETRYABLE` (render the two names from
         `FetchStatus`); add the `walk_anchor` CTE over `pass_runs` (ended,
         anchored, `MAX(walk_anchor_at)` per pass) joined on granularity;
@@ -358,18 +358,18 @@ Design *Scope 3, 4, 8*, *Decision 6, 7, 11, 12*, *SC4*, *SC5*, *SC6*, *SC6a*.
         wa.anchor`. Delete `DAILY_STALENESS_THRESHOLD`,
         `MINUTE_STALENESS_THRESHOLD` and their pre-rendered literals; keep
         `_interval_literal`.
-  - [ ] Re-render `_data_status_doc_comment` to state the anchor rule, the
+  - [x] Re-render `_data_status_doc_comment` to state the anchor rule, the
         NULL-anchor behaviour (only never-attempted read STALE) and the
         open-gaps meaning of `gap_count`.
-  - [ ] Append `056_data_status_view_open_gaps_and_walk_anchor`: `CREATE OR
+  - [x] Append `056_data_status_view_open_gaps_and_walk_anchor`: `CREATE OR
         REPLACE VIEW` via the builder (no DROP, no CASCADE, no column change)
         plus the comment; update `test_migration_count`.
-  - [ ] Update the `gap_count` docstring in `api_server/models/responses.py`
+  - [x] Update the `gap_count` docstring in `api_server/models/responses.py`
         to "open gaps (UNKNOWN, FAILED_RETRYABLE)".
-  - [ ] Success: `test_data_status_view_sql` updated and passing; a fresh
+  - [x] Success: `test_data_status_view_sql` updated and passing; a fresh
         `migrated_db` applies the whole track.
-- [ ] **Task 5.2: Tests for the view semantics** (effort: 2)
-  - [ ] Integration test over `migrated_db` (model on
+- [x] **Task 5.2: Tests for the view semantics** (effort: 2)
+  - [x] Integration test over `migrated_db` (model on
         `test_migration_051_052.py`): (a) minute symbol attempted after the
         latest anchored minute run reads OK; one attempted before it reads
         STALE; never attempted reads STALE; no anchored run → only the
@@ -377,42 +377,42 @@ Design *Scope 3, 4, 8*, *Decision 6, 7, 11, 12*, *SC4*, *SC5*, *SC6*, *SC6a*.
         stays OK after a 12:35 run carrying the same boundary anchor; (c) a
         symbol whose only gap rows are `PROVIDER_HOLE` reads OK with
         `gap_count` 0; a `RETRY_EXHAUSTED` row still reads FAILED.
-  - [ ] Success: passes; D2 column list assertion unchanged. Commit.
-- [ ] **Task 5.3: Status footer second line** (effort: 2)
-  - [ ] `status_queries.py`: `fetch_gap_status_counts(conn) -> dict[(granularity,
+  - [x] Success: passes; D2 column list assertion unchanged. Commit.
+- [x] **Task 5.3: Status footer second line** (effort: 2)
+  - [x] `status_queries.py`: `fetch_gap_status_counts(conn) -> dict[(granularity,
         FetchStatus), int]` via `GROUP BY granularity, fetch_status` on
         `data_gaps`.
-  - [ ] `render_status_footer` prints per granularity: the four health counts
+  - [x] `render_status_footer` prints per granularity: the four health counts
         and `still asking N · holes N · exhausted N` (still asking = UNKNOWN +
         FAILED_RETRYABLE); JSON output gains the same counts under
         `gap_status_counts`.
-  - [ ] Success: `test_status_table.py` covers the new line; footer numbers
+  - [x] Success: `test_status_table.py` covers the new line; footer numbers
         equal the direct `data_gaps` query on a seeded `migrated_db`.
-- [ ] **Task 5.4: `mt data status` summary by default, `--detail`** (effort: 2)
-  - [ ] Add `--detail`; with no options print the SOURCES block (reuse the
+- [x] **Task 5.4: `mt data status` summary by default, `--detail`** (effort: 2)
+  - [x] Add `--detail`; with no options print the SOURCES block (reuse the
         overview gather's source part) and the footer; any of `--symbol`,
         `--health`, `--daily`, `--minute`, `--all`, `--json`, `--detail`
         prints today's table path with the new footer.
-  - [ ] Success: `--help` documents the default; `test_cli_data.py` updated
+  - [x] Success: `--help` documents the default; `test_cli_data.py` updated
         for both paths.
-- [ ] **Task 5.5: Load-tier gate** (effort: 1)
-  - [ ] Extend `test/load/test_167_data_status_nfr.py` with a case for the
+- [x] **Task 5.5: Load-tier gate** (effort: 1)
+  - [x] Extend `test/load/test_167_data_status_nfr.py` with a case for the
         default summary path (health counts + `fetch_gap_status_counts`) under
         the same `_NFR_SECONDS` margin; the existing view case must still pass
         with the anchor CTE.
-  - [ ] Gating is local, not CI: there is no CI test job in this repository,
+  - [x] Gating is local, not CI: there is no CI test job in this repository,
         so the load tier runs on the test cluster via
         `python scripts/run_tests.py load` (needs `MT_RUN_LOAD_TESTS=1` and
         `MT_TIMESCALE_TEST_URL`), the same way the existing 167 case is
         gated; Task 6.3 runs it.
-  - [ ] Success: both cases pass at production shape; the measured seconds
+  - [x] Success: both cases pass at production shape; the measured seconds
         are recorded in the CHANGELOG entry. Commit.
-- [ ] **Task 5.6: 140-arch amendment block** (effort: 1)
-  - [ ] Add `*(Architecture amendment, 2026-09-xx — slice 922.)*` blocks in
+- [x] **Task 5.6: 140-arch amendment block** (effort: 1)
+  - [x] Add `*(Architecture amendment, 2026-09-xx — slice 922.)*` blocks in
         `140-arch.data-quality-operations.md` at the STALE rule, the Constants
         section (two constants removed) and the `gap_count` definition,
         naming `/api/v1/status` and `/api/v1/health` as readers.
-  - [ ] Success: the blocks match the shipped SQL wording. Commit.
+  - [x] Success: the blocks match the shipped SQL wording. Commit.
 
 ## Section 6: Accounting units, docs, release
 
