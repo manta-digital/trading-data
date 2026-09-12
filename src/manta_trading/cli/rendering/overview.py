@@ -6,6 +6,10 @@ survives copy-paste into an issue is worth more here than borders.
 
 Every function is pure — it takes the built :class:`Overview` and returns
 strings — so what the operator sees is testable without a database.
+
+The shapes come from :mod:`manta_trading.cli.overview_types`, a leaf module,
+not from the command that builds them: rendering must not depend on the
+command layer (922 review F008).
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from manta_trading.cli.commands.overview import (
+from manta_trading.cli.overview_types import (
     NEVER_RUN,
     NO_ACCOUNTING,
     LastRun,
@@ -22,6 +26,7 @@ from manta_trading.cli.commands.overview import (
     RunningRow,
     SourceFreshness,
 )
+from manta_trading.constants import MINUTE_UNIVERSE_LABEL
 from manta_trading.data.acquisition.pass_runs import PassRunOutcome
 
 _OUTCOME_TEXT: dict[PassRunOutcome, str] = {
@@ -210,18 +215,22 @@ def render_sources(overview: Overview) -> list[str]:
 def render_universe(overview: Overview) -> list[str]:
     """The universe line, with when it was computed."""
     if overview.universe is None:
-        return [f"{'minute universe':<{_SOURCE_WIDTH}} {NO_ACCOUNTING}"]
+        return [f"{MINUTE_UNIVERSE_LABEL:<{_SOURCE_WIDTH}} {NO_ACCOUNTING}"]
     stamp = (
         f"(accounting {overview.universe_at:%m-%d %H:%M} UTC) "
         if overview.universe_at is not None
         else ""
     )
     summary = overview.universe
-    prefix = "minute universe: "
+    prefix = f"{MINUTE_UNIVERSE_LABEL}: "
     if summary.startswith(prefix):
-        # The accounting summary names itself; the label already did.
+        # The accounting summary names itself; the label already did. Both
+        # sides read the word from one constant, so rewording it cannot make
+        # this print the label twice (922 review F007).
         summary = summary[len(prefix) :]
-    return _wrapped(f"{'minute universe':<{_SOURCE_WIDTH}}", f"{stamp}{summary}")
+    return _wrapped(
+        f"{MINUTE_UNIVERSE_LABEL:<{_SOURCE_WIDTH}}", f"{stamp}{summary}"
+    )
 
 
 def _wrapped(label: str, body: str, *, width: int = _SCREEN_WIDTH) -> list[str]:

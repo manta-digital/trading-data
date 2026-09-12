@@ -148,6 +148,16 @@ def abandoned_detail(pid: int) -> str:
     return f"abandoned: pid {pid} gone"
 
 
+SUPERSEDED_DETAIL = "superseded: a later run of this pass opened"
+"""Detail written when this process's own earlier row was never closed.
+
+Distinct from :func:`abandoned_detail`, which says a process is gone: here
+the process is very much alive and has simply started its next pass, which
+means the earlier close was lost (a database that went away mid-pass, whose
+error the recorder swallowed by contract). Naming the two differently is
+what lets an operator tell a crash from a lost write."""
+
+
 class PassRunRepository:
     """Read/write access to the pass_runs table.
 
@@ -157,6 +167,8 @@ class PassRunRepository:
     pass. Nothing here observes another process's work — the only method that
     touches a row this process did not open is :meth:`close_abandoned`, and
     the caller must have established that those pids are gone.
+    :meth:`close_superseded` is the companion for this process's *own*
+    earlier rows, which the pid sweep cannot reach because the pid is live.
 
     Args:
         connect: Yields a connection for the duration of one statement. A
@@ -243,6 +255,21 @@ class PassRunRepository:
             with conn.cursor() as cur:
                 cur.execute(sql, (ended_at, str(outcome), exit_code, detail, run_id))
 
+    def clear_walk_anchor(self, run_id: UUID) -> None:
+        """Drop a run's walk anchor, whether or not the run has ended.
+
+        The anchor is written at ``open``, before the pass can know what it
+        will do. When the pass turns out not to have walked the universe, the
+        claim must be withdrawn — the ``data_status`` view measures staleness
+        from the newest anchor, so a cycle that reached only part of the
+        universe would otherwise reset every symbol's clock (922 review
+        F010).
+        """
+        sql = "UPDATE pass_runs SET walk_anchor_at = NULL WHERE run_id = %s"
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (run_id,))
+
     def open_runs(self, kind: PassKind) -> list[PassRun]:
         """Every still-open run of this kind, on any host, newest first."""
         sql = (
@@ -268,6 +295,51 @@ class PassRunRepository:
                 cur.execute(sql, (str(kind),))
                 row = cur.fetchone()
         return _row_to_pass_run(row) if row is not None else None
+
+    def close_superseded(
+        self,
+        kind: PassKind,
+        *,
+        hostname: str,
+        pid: int,
+        before: datetime,
+        now: datetime,
+    ) -> int:
+        """Close this process's own open rows of this kind from before ``before``.
+
+        The pid-based sweep cannot reach these: they carry a live pid — this
+        one. The daemon opens a new row every cycle, and ``close`` swallows a
+        ``psycopg.Error`` by contract, so a database that died mid-pass
+        leaves a row this process could never sweep and the overview showed
+        a phantom RUNNING pass for the life of the daemon (922 review F006).
+
+        ``before`` is this recorder's construction time, which makes the
+        scope safe without guessing at liveness: a row this host opened
+        under this pid *before this process's recorder existed* cannot
+        belong to a concurrently running pass of this recorder's.
+        """
+        sql = """
+            UPDATE pass_runs
+               SET ended_at = %s, outcome = %s, detail = %s
+             WHERE pass = %s AND hostname = %s AND pid = %s
+               AND started_at < %s
+               AND ended_at IS NULL
+        """
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql,
+                    (
+                        now,
+                        str(PassRunOutcome.FAILED),
+                        SUPERSEDED_DETAIL,
+                        str(kind),
+                        hostname,
+                        pid,
+                        before,
+                    ),
+                )
+                return cur.rowcount
 
     def close_abandoned(
         self,

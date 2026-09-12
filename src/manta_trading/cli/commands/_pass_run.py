@@ -15,7 +15,7 @@ Two shapes, because the two kinds of caller differ:
 - a **short-lived command** connects per write, with a short timeout. It
   makes two or three writes in its whole life, so a pool would buy nothing
   and cost real harm: a pool that fills eagerly blocks the command for its
-  own thirty-second timeout when the host does not resolve, and one that
+  own connect timeout when the host does not resolve, and one that
   fills lazily still runs background workers a one-shot process must wait on.
 - the **daemon** already holds a pool for the life of the process and hands
   the repository its ``connection``.
@@ -76,19 +76,27 @@ def pass_run_recorder(settings: Settings) -> Iterator[PassRunRecorder | None]:
     yield _recorder_over_connect(str(url))
 
 
-def make_pass_run_recorder(settings: Settings) -> PassRunRecorder | None:
+def make_pass_run_recorder(
+    settings: Settings,
+) -> tuple[PassRunRecorder, ConnectionPool] | tuple[None, None]:
     """A recorder over a pool that lives as long as the process.
 
     For the daemon, whose runner outlives any single ``with`` block and whose
-    repeated writes are worth a pool. Returns ``None`` when the database URL
-    is unset or the pool cannot be opened; either way the daemon runs.
+    repeated writes are worth a pool.
+
+    Returns the recorder and the pool it owns, or ``(None, None)`` when the
+    database URL is unset or the pool cannot be opened; either way the daemon
+    runs. The pool comes back so the caller can close it on the way out
+    rather than leaving its background workers to interpreter exit — which
+    the ``--stop-when-done`` shape, unlike ``--forever``, actually reaches
+    (922 review F009).
     """
     url = settings.timescale_db_url
     if not url:
         _logger.warning(
             "pass_runs: MT_TIMESCALE_DB_URL is not set — passes will not be recorded"
         )
-        return None
+        return None, None
     try:
         pool = ConnectionPool(
             str(url),
@@ -96,11 +104,15 @@ def make_pass_run_recorder(settings: Settings) -> PassRunRecorder | None:
             max_size=_POOL_MAX_SIZE,
             kwargs={"connect_timeout": PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS},
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         # A pool this process cannot build leaves passes unrecorded, never
-        # unrun: the daemon's job is acquisition, not bookkeeping.
+        # unrun: the daemon's job is acquisition, not bookkeeping. Broader
+        # than psycopg.Error because psycopg_pool raises more than that here
+        # (a malformed URL is a ValueError), and none of it may stop
+        # acquisition. The sibling catch in overview.gather is suppressed the
+        # same way; this one was missing its suppression (922 review F009).
         _logger.exception(
             "pass_runs: could not open a connection pool — passes will not be recorded"
         )
-        return None
-    return PassRunRecorder(PassRunRepository.from_pool(pool), _utc_now)
+        return None, None
+    return PassRunRecorder(PassRunRepository.from_pool(pool), _utc_now), pool

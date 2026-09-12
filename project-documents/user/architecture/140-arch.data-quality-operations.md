@@ -334,6 +334,16 @@ attempted; and when no anchored run has ever ended for a granularity the
 anchor is NULL, so only never-attempted symbols read `STALE`, because
 nothing is known about when a walk last happened.
 
+**Amendment (922 review F010).** The firing day is what `open` can know, and
+it is necessary but not sufficient: under `--stop-when-done` one firing can
+run several minute cycles before the scope drains, and a later
+backfill-only cycle would anchor on the calendar alone, resetting every
+symbol's clock without having walked anything. So the claim is withdrawn at
+`close` — `clear_walk_anchor` nulls it — when the cycle's report says the
+trailing phase was not required after all. The report is the authority; the
+calendar was the guess. This does not touch the first consequence above: a
+pass that *did* owe a walk and aborted part-way still moves the anchor.
+
 `DAILY_STALENESS_THRESHOLD` and `MINUTE_STALENESS_THRESHOLD` lost their only
 consumer and are **deleted** from the Constants section. The view's
 `LEFT JOIN` against `acquisition_state` is unchanged, so a symbol with no row

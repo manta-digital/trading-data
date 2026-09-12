@@ -9,6 +9,11 @@ At :meth:`open` the recorder also closes rows this host left behind: open
 runs of the same kind whose pid no longer exists. Liveness is checked per
 pid, so a concurrently running pass — a live pid here, or any pid on another
 host — is never touched.
+
+It closes one more class of row: this process's own, opened before this
+recorder existed. The pid sweep cannot reach those (the pid is live), but a
+swallowed close failure leaves them open forever, and the daemon opens a new
+row every cycle.
 """
 
 from __future__ import annotations
@@ -74,6 +79,9 @@ class PassRunRecorder:
         self._hostname = hostname if hostname is not None else socket.gethostname()
         self._pid = pid if pid is not None else os.getpid()
         self._is_alive = is_alive
+        # Rows this pid opened before this instant belong to an earlier
+        # recorder, so closing them cannot disturb a pass of this one's.
+        self._born_at = clock()
 
     @property
     def hostname(self) -> str:
@@ -99,7 +107,7 @@ class PassRunRecorder:
             which case every later call for that run is a no-op.
         """
         now = self._clock()
-        self._close_abandoned(kind, now)
+        self._close_stale(kind, now)
         run = PassRun(
             run_id=uuid.uuid4(),
             pass_kind=kind,
@@ -158,24 +166,88 @@ class PassRunRecorder:
         except psycopg.Error:
             _logger.exception("pass_runs: could not close run %s", run_id)
 
-    def _close_abandoned(self, kind: PassKind, now: datetime) -> None:
-        """Close same-kind rows on this host whose process is gone."""
+    def clear_walk_anchor(self, run_id: UUID | None) -> None:
+        """Withdraw a run's walk-anchor claim. A None run_id is a no-op."""
+        if run_id is None:
+            return
+        try:
+            self._repo.clear_walk_anchor(run_id)
+        except psycopg.Error:
+            _logger.exception(
+                "pass_runs: could not clear the walk anchor for run %s", run_id
+            )
+
+    def _close_stale(self, kind: PassKind, now: datetime) -> None:
+        """Close rows of this kind that no live pass owns, in one read.
+
+        Two kinds of leftover, both found in the same ``open_runs`` result so
+        that opening a pass costs one extra query and not three:
+
+        * **abandoned** — this host's rows whose pid no longer exists.
+          Liveness is checked per pid, so a concurrently running pass (a live
+          pid here, or any pid on another host) is never touched.
+        * **superseded** — this process's own rows, started before this
+          recorder existed. The pid check cannot reach these because the pid
+          is live: it is ours. But the daemon opens a new row every cycle and
+          :meth:`close` swallows a ``psycopg.Error`` by contract, so a
+          database that went away mid-pass leaves a row nothing could ever
+          close, and the overview shows one more phantom RUNNING pass every
+          cycle (922 review F006).
+        """
         try:
             open_runs = self._repo.open_runs(kind)
         except psycopg.Error:
             _logger.exception(
                 "pass_runs: could not read open %s runs; skipping the "
-                "abandoned-run sweep",
+                "leftover-run sweep",
                 kind.value,
             )
             return
+        mine = [run for run in open_runs if run.hostname == self._hostname]
         dead = [
             run.pid
-            for run in open_runs
-            if run.hostname == self._hostname
-            and run.pid != self._pid
-            and not self._is_alive(run.pid)
+            for run in mine
+            if run.pid != self._pid and not self._is_alive(run.pid)
         ]
+        superseded = [
+            run
+            for run in mine
+            if run.pid == self._pid and run.started_at < self._born_at
+        ]
+        self._close_abandoned(kind, dead, now)
+        self._close_superseded(kind, superseded, now)
+
+    def _close_superseded(
+        self, kind: PassKind, runs: list[PassRun], now: datetime
+    ) -> None:
+        """Close this process's own rows an earlier pass left open."""
+        if not runs:
+            return
+        try:
+            closed = self._repo.close_superseded(
+                kind,
+                hostname=self._hostname,
+                pid=self._pid,
+                before=self._born_at,
+                now=now,
+            )
+        except psycopg.Error:
+            _logger.exception(
+                "pass_runs: could not close superseded %s runs", kind.value
+            )
+            return
+        if closed:
+            _logger.warning(
+                "pass_runs: closed %d %s run(s) this process left open — an "
+                "earlier close did not reach the database",
+                closed,
+                kind.value,
+            )
+
+    def _close_abandoned(
+        self, kind: PassKind, dead: list[int], now: datetime
+    ) -> None:
+        """Close same-kind rows on this host whose process is gone."""
         if not dead:
             return
         try:

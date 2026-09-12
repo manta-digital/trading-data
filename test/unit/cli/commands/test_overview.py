@@ -322,6 +322,52 @@ class TestUniverseLine:
         assert "accounting" in text
         assert "minute universe" in text
 
+    def test_the_writer_and_the_reader_share_the_label(self) -> None:
+        """Fed the real ``summary_line``, the screen prints the label once.
+
+        The renderer strips the prefix the accounting summary names itself
+        with. Both sides now read that word from one constant, so this test
+        is fed the actual writer rather than a hand-typed string: a reword
+        that broke the contract used to double-print the label with nothing
+        failing (922 review F007).
+        """
+        from manta_trading.constants import MINUTE_UNIVERSE_LABEL
+        from manta_trading.data.gaps.minute_accounting import (
+            MinuteAccountingRow,
+            summary_line,
+        )
+
+        detail = summary_line(
+            [
+                MinuteAccountingRow(
+                    year=None,
+                    expected=1_000_000,
+                    covered=900_000,
+                    no_trade=5_000,
+                    hole=20_000,
+                    exhausted=10_000,
+                    unknown=15_000,
+                    untracked=5_000,
+                )
+            ]
+        )
+        run = _ended_run(PassKind.ACCOUNTING, detail=detail)
+        text = render_overview(
+            build_overview(_facts(latest_ended={PassKind.ACCOUNTING: run}))
+        )
+        # The row's own label, then the summary with its self-naming prefix
+        # stripped. A desynced writer leaves that prefix in place, so the
+        # label appears twice on the one line.
+        universe_lines = [
+            line for line in text.splitlines() if MINUTE_UNIVERSE_LABEL in line
+        ]
+        assert len(universe_lines) == 1
+        assert universe_lines[0].count(MINUTE_UNIVERSE_LABEL) == 1
+        # And the stripping actually happened: the body starts at the number,
+        # not at a second copy of whatever the writer called itself.
+        assert detail.startswith(f"{MINUTE_UNIVERSE_LABEL}: ")
+        assert f"{MINUTE_UNIVERSE_LABEL}: " not in universe_lines[0].split("UTC)")[-1]
+
     def test_no_accounting_row_names_the_command(self) -> None:
         text = render_overview(build_overview(_facts()))
         assert NO_ACCOUNTING in text
@@ -439,3 +485,38 @@ class TestJsonPayload:
         facts.open_runs[PassKind.MINUTE] = [_open_run()]
         facts.latest_ended[PassKind.MINUTE] = _ended_run()
         assert json.loads(json.dumps(overview_payload(build_overview(facts))))
+
+
+class TestTheLayerDirection:
+    """Rendering must not depend on the command layer (922 review F008).
+
+    Commands import rendering, as ``data_status`` does. The renderer used to
+    import its shapes from the command that builds them, and the only thing
+    keeping that from being an import cycle was a deferred import inside a
+    function body.
+    """
+
+    def test_the_renderer_does_not_pull_in_the_command_module(self) -> None:
+        import subprocess
+        import sys
+
+        probe = (
+            "import sys;"
+            "import manta_trading.cli.rendering.overview;"
+            "print('manta_trading.cli.commands.overview' in sys.modules)"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        )
+        assert out.stdout.strip() == "False", out.stdout
+
+    def test_the_shapes_live_in_the_leaf_module(self) -> None:
+        """Both layers name the same objects, from the module that owns them."""
+        from manta_trading.cli import overview_types
+        from manta_trading.cli.commands import overview as command_layer
+        from manta_trading.cli.rendering import overview as render_layer
+
+        for name in ("Overview", "PassLine", "RunningRow", "SourceFreshness"):
+            owned = getattr(overview_types, name)
+            assert getattr(command_layer, name) is owned
+            assert getattr(render_layer, name) is owned

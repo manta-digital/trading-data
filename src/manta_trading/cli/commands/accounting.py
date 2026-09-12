@@ -58,7 +58,14 @@ def data_accounting(
                 connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
             ) as conn:
                 rows = compute_minute_accounting(conn, now=datetime.now(UTC))
-        except psycopg.OperationalError as exc:
+        except (psycopg.OperationalError, psycopg.errors.QueryCanceled) as exc:
+            # QueryCanceled matches health's handling: a cancelled or
+            # timed-out statement means the scan could not run, so it exits 2
+            # per the documented contract rather than propagating a traceback
+            # with some other code — and, crucially, it closes the row.
+            # An uncaught error left the row open to be swept later as
+            # "abandoned: pid gone", reporting a failure with no cause
+            # (922 review F005).
             if recorder is not None:
                 recorder.close(
                     run_id,

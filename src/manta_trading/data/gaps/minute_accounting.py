@@ -29,7 +29,10 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-from manta_trading.constants import HEALTH_MINUTE_SESSION_CALENDAR
+from manta_trading.constants import (
+    HEALTH_MINUTE_SESSION_CALENDAR,
+    MINUTE_UNIVERSE_LABEL,
+)
 from manta_trading.data.universe.eodhd_classification import EodhdType
 
 #: The 4-hour aggregate buckets (UTC hour they start) that a regular
@@ -213,7 +216,8 @@ def summary_line(rows: list[MinuteAccountingRow]) -> str:
         return "minute accounting: no calendar"
     t = rows[-1]
     return (
-        f"minute universe: {t.covered:,}/{t.expected:,} symbol-sessions covered "
+        f"{MINUTE_UNIVERSE_LABEL}: "
+        f"{t.covered:,}/{t.expected:,} symbol-sessions covered "
         f"({t.coverage_pct:.1f}%); {t.no_trade:,} untraded; "
         f"{t.fillable:,} fillable (hole {t.hole:,}, unknown {t.unknown:,}, "
         f"untracked {t.untracked:,}, exhausted {t.exhausted:,})"

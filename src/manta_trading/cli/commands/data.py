@@ -1529,8 +1529,10 @@ def daemon_run(
     # Slice 922, Decision 3: only an all-active cycle writes a pass_runs row.
     # A --symbols invocation is the operator poking at a few tickers, not the
     # universe walk `mt data overview` reports on, so it records nothing.
-    pass_run_recorder = (
-        None if config_obj.is_explicit_scope() else make_pass_run_recorder(settings)
+    pass_run_recorder, pass_run_pool = (
+        (None, None)
+        if config_obj.is_explicit_scope()
+        else make_pass_run_recorder(settings)
     )
 
     bucket = QuotaBucket()
@@ -1550,7 +1552,15 @@ def daemon_run(
         lambda: maybe_extend_trading_sessions(_conn_factory)
     )
 
-    sys.exit(runner.start())
+    try:
+        exit_code = runner.start()
+    finally:
+        # The --forever shape never gets here, but --stop-when-done does, and
+        # leaving the pool's background workers to interpreter exit made that
+        # path's shutdown nondeterministic (922 review F009).
+        if pass_run_pool is not None:
+            pass_run_pool.close()
+    sys.exit(exit_code)
 
 
 

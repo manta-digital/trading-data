@@ -254,6 +254,33 @@ class TestAccountingWriter:
         assert exit_code == EXIT_UNAVAILABLE
         assert detail is not None and "no route to host" in detail
 
+    def test_a_statement_timeout_records_failed(self) -> None:
+        """The scan is a full-universe aggregate with no statement bound.
+
+        A cancelled statement used to escape as a traceback: the command
+        exited with some other code, contradicting its documented "exits 2
+        only when it could not run", and left its row open to be swept later
+        as "abandoned: pid gone" — a failure with no cause, which is exactly
+        what the Kalshi path's comment says to avoid. Health has caught this
+        since it was written; accounting now matches (922 review F005).
+        """
+        result, rec = _run_accounting(
+            _settings(),
+            compute_raises=psycopg.errors.QueryCanceled("statement timeout"),
+        )
+        assert result.exit_code == EXIT_UNAVAILABLE
+        _, outcome, exit_code, _detail = rec.closed[0]
+        assert outcome is PassRunOutcome.FAILED
+        assert exit_code == EXIT_UNAVAILABLE
+
+    def test_a_statement_timeout_does_not_leave_the_row_open(self) -> None:
+        """The row must be closed, or the next pass reports a phantom."""
+        _result, rec = _run_accounting(
+            _settings(),
+            compute_raises=psycopg.errors.QueryCanceled("statement timeout"),
+        )
+        assert len(rec.closed) == 1
+
     def test_no_database_url_records_nothing(self) -> None:
         result, rec = _run_accounting(_settings(timescale_db_url=None))
         assert result.exit_code == EXIT_UNAVAILABLE

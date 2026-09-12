@@ -45,6 +45,8 @@ class FakeRepository:
         self.progress_calls: list[tuple] = []
         self.close_calls: list[tuple] = []
         self.abandoned_calls: list[tuple] = []
+        self.superseded_calls: list[tuple] = []
+        self.superseded_rows = 0
         self.fail_on: set[str] = set()
 
     def _maybe_fail(self, name: str) -> None:
@@ -76,19 +78,25 @@ class FakeRepository:
         self.abandoned_calls.append((kind, hostname, list(dead_pids), now))
         return len(dead_pids)
 
+    def close_superseded(self, kind, *, hostname, pid, before, now) -> int:
+        self._maybe_fail("close_superseded")
+        self.superseded_calls.append((kind, hostname, pid, before, now))
+        return self.superseded_rows
+
 
 def _open_run(
     *,
     pid: int,
     hostname: str = _HOST,
     kind: PassKind = PassKind.MINUTE,
+    started_at: datetime | None = None,
 ) -> PassRun:
     return PassRun(
         run_id=uuid.uuid4(),
         pass_kind=kind,
         hostname=hostname,
         pid=pid,
-        started_at=_T0 - timedelta(hours=2),
+        started_at=started_at if started_at is not None else _T0 - timedelta(hours=2),
     )
 
 
@@ -269,3 +277,64 @@ class TestDefaults:
         rec = PassRunRecorder(repo, lambda: _T0)  # type: ignore[arg-type]
         assert rec.hostname == socket.gethostname()
         assert rec.pid == os.getpid()
+
+
+class TestTheSupersededSweep:
+    """This process's own rows, which the pid sweep cannot reach (F006).
+
+    ``close`` swallows a ``psycopg.Error`` by contract, and the daemon opens
+    a new row every cycle, so a database that went away mid-pass left a row
+    carrying a live pid — this one — that nothing could ever close. The
+    overview showed one more phantom RUNNING pass per cycle.
+    """
+
+    def test_open_sweeps_this_process_s_earlier_rows(self) -> None:
+        repo = FakeRepository([_open_run(pid=_MY_PID)])
+        _recorder(repo).open(PassKind.MINUTE)
+        assert len(repo.superseded_calls) == 1
+        kind, hostname, pid, _before, now = repo.superseded_calls[0]
+        assert (kind, hostname, pid, now) == (PassKind.MINUTE, _HOST, _MY_PID, _T0)
+
+    def test_a_row_this_recorder_opened_is_not_swept(self) -> None:
+        """Scoped to before this recorder existed, so it cannot close itself."""
+        repo = FakeRepository([_open_run(pid=_MY_PID, started_at=_T0)])
+        _recorder(repo).open(PassKind.MINUTE)
+        assert repo.superseded_calls == []
+
+    def test_another_host_s_row_with_the_same_pid_is_not_swept(self) -> None:
+        """Pids are only meaningful on the host that issued them."""
+        repo = FakeRepository([_open_run(pid=_MY_PID, hostname="elsewhere")])
+        _recorder(repo).open(PassKind.MINUTE)
+        assert repo.superseded_calls == []
+
+    def test_it_is_scoped_to_the_kind_being_opened(self) -> None:
+        repo = FakeRepository([_open_run(pid=_MY_PID, kind=PassKind.DAILY)])
+        _recorder(repo).open(PassKind.DAILY)
+        assert repo.superseded_calls[0][0] is PassKind.DAILY
+
+    def test_nothing_to_sweep_costs_no_query(self) -> None:
+        """Opening a pass must not pay for a sweep with nothing to close."""
+        repo = FakeRepository()
+        _recorder(repo).open(PassKind.MINUTE)
+        assert repo.superseded_calls == []
+
+    def test_the_new_row_is_still_opened_when_the_sweep_fails(self) -> None:
+        """Recording never aborts a pass — and never skips its own row."""
+        repo = FakeRepository([_open_run(pid=_MY_PID)])
+        repo.fail_on = {"close_superseded"}
+        run_id = _recorder(repo).open(PassKind.MINUTE)
+        assert run_id is not None
+        assert len(repo.inserted) == 1
+
+    def test_it_never_raises(self) -> None:
+        repo = FakeRepository([_open_run(pid=_MY_PID)])
+        repo.fail_on = {"close_superseded"}
+        _recorder(repo).open(PassKind.MINUTE)  # no exception
+
+    def test_a_swept_row_is_reported(self, caplog) -> None:
+        """An operator should see that a close was lost, not just its effect."""
+        repo = FakeRepository([_open_run(pid=_MY_PID)])
+        repo.superseded_rows = 2
+        with caplog.at_level("WARNING"):
+            _recorder(repo).open(PassKind.MINUTE)
+        assert "left open" in caplog.text

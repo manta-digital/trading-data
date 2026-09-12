@@ -543,6 +543,13 @@ class Runner:
         set only on a firing day: a backfill-only day attempts whatever it can
         reach, which is not a universe walk and must not reset every symbol's
         staleness clock.
+
+        The firing day is necessary but not sufficient, and it is all this
+        method can know — the cycle has not run yet. Under
+        ``--stop-when-done`` a firing can run several cycles before the scope
+        drains, and a later backfill-only one would anchor on the calendar
+        alone. :meth:`_close_minute_run` withdraws the claim when the report
+        says the trailing phase was not required after all (922 review F010).
         """
         if self._pass_runs is None:
             return None
@@ -606,6 +613,11 @@ class Runner:
             return
         trailing_completed = getattr(report, "minute_trailing_completed", False)
         trailing_required = getattr(report, "minute_trailing_required", True)
+        if not trailing_required:
+            # Opened on a firing day, but the cycle did no trailing work, so
+            # it walked no universe and must not reset the staleness clock.
+            # The report is the authority here; the calendar was a guess.
+            self._pass_runs.clear_walk_anchor(run_id)
         self._close_run(
             run_id,
             outcome=pass_run_outcome_for_minute(

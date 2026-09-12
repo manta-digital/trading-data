@@ -57,6 +57,7 @@ class FakeRecorder:
         self.opened: list[tuple[PassKind, datetime | None]] = []
         self.progressed: list[tuple[Any, str | None, int | None, int | None]] = []
         self.closed: list[tuple[Any, PassRunOutcome, int | None, str | None]] = []
+        self.anchors_cleared: list[Any] = []
         self._next_id = 0
 
     def open(self, kind: PassKind, *, walk_anchor_at: datetime | None = None):
@@ -69,6 +70,9 @@ class FakeRecorder:
 
     def close(self, run_id, *, outcome, exit_code=None, detail=None) -> None:
         self.closed.append((run_id, outcome, exit_code, detail))
+
+    def clear_walk_anchor(self, run_id) -> None:
+        self.anchors_cleared.append(run_id)
 
     def opened_kinds(self) -> list[PassKind]:
         return [k for k, _ in self.opened]
@@ -407,3 +411,56 @@ class TestBothCyclesInOneIteration:
         assert set(rec.opened_kinds()) == {PassKind.MINUTE, PassKind.DAILY}
         assert len(rec.closed) == 2
         assert len({run_id for run_id, _, _, _ in rec.closed}) == 2
+
+
+class TestTheAnchorFollowsWhatTheCycleDid:
+    """A firing day is necessary for a walk anchor, but not sufficient.
+
+    The anchor is written at ``open``, before the cycle can know what it will
+    do, and ``data_status`` measures every symbol's staleness from the newest
+    one. Under ``--stop-when-done`` a firing can run several cycles before
+    the scope drains, so a later backfill-only cycle would reset the whole
+    universe's clock on the calendar's say-so (922 review F010).
+    """
+
+    def test_a_cycle_that_did_no_trailing_work_withdraws_the_anchor(self) -> None:
+        rec = FakeRecorder()
+        runner = _runner(
+            recorder=rec,
+            now=_SATURDAY,
+            granularities=frozenset({"minute"}),
+            minute_func=MagicMock(
+                return_value=_minute_report(trailing_required=False)
+            ),
+        )
+        _run_minute(runner)
+        # Opened anchored on the calendar, then withdrawn on the report.
+        assert rec.opened[0][1] == _SATURDAY
+        assert rec.anchors_cleared == [rec.closed[0][0]]
+
+    def test_a_real_walk_keeps_its_anchor(self) -> None:
+        rec = FakeRecorder()
+        runner = _runner(
+            recorder=rec,
+            now=_SATURDAY,
+            granularities=frozenset({"minute"}),
+            minute_func=MagicMock(return_value=_minute_report()),
+        )
+        _run_minute(runner)
+        assert rec.opened[0][1] == _SATURDAY
+        assert rec.anchors_cleared == []
+
+    def test_an_unanchored_row_needs_no_withdrawal(self) -> None:
+        """A non-firing day never claimed a walk in the first place."""
+        rec = FakeRecorder()
+        runner = _runner(
+            recorder=rec,
+            now=_SATURDAY,
+            granularities=frozenset({"minute"}),
+            firing_days=(0,),
+            minute_func=MagicMock(
+                return_value=_minute_report(trailing_required=False)
+            ),
+        )
+        _run_minute(runner)
+        assert rec.opened[0][1] is None

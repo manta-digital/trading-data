@@ -42,7 +42,9 @@ class TestNoDatabaseUrl:
             assert recorder is None
 
     def test_the_daemon_factory_returns_none(self) -> None:
-        assert make_pass_run_recorder(_settings(None)) is None
+        recorder, pool = make_pass_run_recorder(_settings(None))
+        assert recorder is None
+        assert pool is None
 
 
 class TestBuildingCostsNothing:
@@ -56,9 +58,18 @@ class TestBuildingCostsNothing:
 
     def test_the_daemon_factory_returns_immediately(self) -> None:
         started = time.monotonic()
-        recorder = make_pass_run_recorder(_settings(_UNRESOLVABLE))
+        recorder, pool = make_pass_run_recorder(_settings(_UNRESOLVABLE))
         assert recorder is not None
         assert time.monotonic() - started < _NO_DELAY_SECONDS
+        assert pool is not None
+        pool.close()
+
+    def test_it_hands_back_a_closable_pool(self) -> None:
+        """The daemon closes it on the way out (922 review F009)."""
+        recorder, pool = make_pass_run_recorder(_settings(_UNRESOLVABLE))
+        assert recorder is not None and pool is not None
+        pool.close()
+        assert pool.closed is True
 
 
 class TestAnUnreachableDatabaseNeverRaises:

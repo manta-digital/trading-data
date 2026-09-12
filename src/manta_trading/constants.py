@@ -182,6 +182,17 @@ the whole universe. The 921 cutover stops the firing on this line, so the
 emitter (``run_minute_cycle``) and the matcher (``cutover_921_minute_sessions``)
 share the text here rather than each holding a copy (#22 review F003)."""
 
+MINUTE_UNIVERSE_LABEL: str = "minute universe"
+"""The label the accounting summary names itself with.
+
+``summary_line`` prefixes its text with this, and the overview strips the
+prefix because its own row is already labelled — so the writer and the
+reader share the word here rather than each holding a copy. Rewording it in
+one place used to make the overview print the label twice, with no test
+failing: a user-visible label doing the work of logical structure, which the
+project rules name as fragile (922 review F007). The precedent is
+:data:`MINUTE_TRAILING_COMPLETE_LINE` just above."""
+
 MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(13, 5),)
 """When the minute acquisition pass fires, as UTC times of day.
 

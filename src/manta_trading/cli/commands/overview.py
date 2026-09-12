@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import socket
 import sys
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -23,7 +22,7 @@ import psycopg
 import typer
 from psycopg import sql
 
-from manta_trading.api.eodhd_account import CreditUsage, fetch_credit_usage
+from manta_trading.api.eodhd_account import fetch_credit_usage
 from manta_trading.api.eodhd_sync import redact_token
 from manta_trading.constants import (
     DAILY_OHLCV_TABLE,
@@ -37,7 +36,6 @@ from manta_trading.data.acquisition.daemon.pass_run_recorder import pid_is_alive
 from manta_trading.data.acquisition.pass_runs import (
     PassKind,
     PassRun,
-    PassRunOutcome,
     PassRunRepository,
 )
 from manta_trading.firing_schedule import next_firing_at, schedule_for
@@ -48,107 +46,38 @@ _logger = get_logger(__name__)
 _JSON_OPTION = typer.Option(False, "--json", help="Emit JSON.")
 """The command's only option (design: no others)."""
 
-CREDITS_NO_KEY = "unavailable (MT_EODHD_API_KEY not configured)"
-"""Shown when no API key is configured — a setting, not a fault."""
+# The shapes live in a leaf module both this and the renderer depend on;
+# re-exported here because every existing caller (tests, the load tier, the
+# integration tier) imports them from this module (922 review F008).
+from manta_trading.cli.overview_types import (  # noqa: E402
+    CREDITS_NO_KEY,
+    NEVER_RUN,
+    NO_ACCOUNTING,
+    LastRun,
+    Overview,
+    OverviewFacts,
+    PassLine,
+    RunningRow,
+    SourceFreshness,
+    credits_unavailable,
+)
 
-NEVER_RUN = "never run"
-"""Shown for a pass kind with no recorded run at all."""
-
-NO_ACCOUNTING = "never computed — run mt data accounting"
-"""Shown when no accounting pass has recorded a universe line."""
-
-
-def credits_unavailable(reason: str) -> str:
-    """The credit line when the account endpoint could not be reached."""
-    return f"unavailable ({reason})"
-
-
-# ---------------------------------------------------------------------------
-# Facts (what gather reads)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SourceFreshness:
-    """The newest row in one source table."""
-
-    name: str
-    newest: datetime | None
-
-
-@dataclass
-class OverviewFacts:
-    """Everything :func:`build_overview` needs, and nothing derived."""
-
-    now: datetime
-    hostname: str
-    open_runs: dict[PassKind, list[PassRun]] = field(default_factory=dict)
-    latest_ended: dict[PassKind, PassRun | None] = field(default_factory=dict)
-    sources: list[SourceFreshness] = field(default_factory=list)
-    credits: CreditUsage | None = None
-    credits_error: str | None = None
-    minute_firing_days: tuple[int, ...] | None = None
-
-
-# ---------------------------------------------------------------------------
-# The rendered shape (what build_overview returns)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class RunningRow:
-    """One still-open run of a pass kind."""
-
-    phase: str | None
-    done: int | None
-    total: int | None
-    since: datetime
-    progress_at: datetime | None
-    hostname: str
-    pid: int
-    abandoned: bool
-    """True when this host owns the row and the process is gone."""
-
-
-@dataclass(frozen=True)
-class LastRun:
-    """The most recent ended run of a pass kind."""
-
-    started_at: datetime
-    ended_at: datetime
-    outcome: PassRunOutcome
-    exit_code: int | None
-    detail: str | None
-
-    @property
-    def failed(self) -> bool:
-        return self.outcome is PassRunOutcome.FAILED
-
-
-@dataclass(frozen=True)
-class PassLine:
-    """One row of the PASSES block."""
-
-    kind: PassKind
-    cadence: str
-    running: tuple[RunningRow, ...]
-    last: LastRun | None
-    next_firing: datetime | None
-
-
-@dataclass(frozen=True)
-class Overview:
-    """Everything the renderer prints."""
-
-    now: datetime
-    passes: tuple[PassLine, ...]
-    sources: tuple[SourceFreshness, ...]
-    health_verdict: str | None
-    health_at: datetime | None
-    credits: CreditUsage | None
-    credits_text: str
-    universe: str | None
-    universe_at: datetime | None
+__all__ = [
+    "CREDITS_NO_KEY",
+    "NEVER_RUN",
+    "NO_ACCOUNTING",
+    "LastRun",
+    "Overview",
+    "OverviewFacts",
+    "PassLine",
+    "RunningRow",
+    "SourceFreshness",
+    "build_overview",
+    "credits_unavailable",
+    "data_overview",
+    "gather",
+    "read_source_freshness",
+]
 
 
 # ---------------------------------------------------------------------------
