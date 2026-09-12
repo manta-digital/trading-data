@@ -182,6 +182,17 @@ the whole universe. The 921 cutover stops the firing on this line, so the
 emitter (``run_minute_cycle``) and the matcher (``cutover_921_minute_sessions``)
 share the text here rather than each holding a copy (#22 review F003)."""
 
+MINUTE_UNIVERSE_LABEL: str = "minute universe"
+"""The label the accounting summary names itself with.
+
+``summary_line`` prefixes its text with this, and the overview strips the
+prefix because its own row is already labelled — so the writer and the
+reader share the word here rather than each holding a copy. Rewording it in
+one place used to make the overview print the label twice, with no test
+failing: a user-visible label doing the work of logical structure, which the
+project rules name as fragile (922 review F007). The precedent is
+:data:`MINUTE_TRAILING_COMPLETE_LINE` just above."""
+
 MINUTE_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(13, 5),)
 """When the minute acquisition pass fires, as UTC times of day.
 
@@ -204,18 +215,95 @@ Which of these daily firings actually run is the operator's
 weekday names such as ``Sat`` for one collecting firing a week. On any other
 day the firing is backfill only (no trailing phase, no seeding) and the
 health check waits for the next firing day — see
-``manta_trading.minute_firing_schedule``."""
+``manta_trading.firing_schedule``."""
 
 
-HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
+DAILY_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(0, 35), time(12, 35))
+"""When the daily acquisition pass fires, as UTC times of day.
+
+Must match ``deploy/systemd/mt-daily-pass.timer``; a drift test in
+``test/unit/deploy/test_units.py`` asserts it. The overview reads this to say
+when the next daily pass is due, so a constant that disagreed with the timer
+would print a time nothing happens at.
+"""
+
+KALSHI_PASS_FIRING_MINUTE: int = 20
+"""The minute past each hour at which the Kalshi pass fires.
+
+Must match ``deploy/systemd/mt-kalshi-pass.timer`` (``*:20:00``); a drift
+test asserts it.
+"""
+
+HEALTH_FIRING_MINUTE: int = 50
+"""The minute past each hour at which the health check fires.
+
+Must match ``deploy/systemd/mt-health.timer`` (``*:50:00``); a drift test
+asserts it.
+"""
+
+ACCOUNTING_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(16, 30),)
+"""When the minute-accounting pass fires, as UTC times of day (slice 922).
+
+Must match ``deploy/systemd/mt-accounting-pass.timer``; a drift test asserts
+it. After the 13:05 minute firing has had time to finish, so the universe
+line the overview prints reflects the day's collection rather than
+yesterday's.
+"""
+
+
+PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS: int = 5
+"""How long pass-run bookkeeping waits for a database connection (slice 922).
+
+Deliberately short. Recording a pass is best-effort: a pass whose database
+is unreachable must still do its real work and report its own result, so the
+recorder gives up quickly rather than delaying the pass it is describing.
+"""
+
+
+EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
 """EODHD account endpoint; returns ``apiRequests``, ``dailyRateLimit``,
-``extraLimit``. One call per health run."""
+``extraLimit``.
 
-DAILY_STALENESS_THRESHOLD: timedelta = timedelta(days=2)
-"""A daily-granularity symbol is STALE if last_attempt_ts is older than this."""
+Renamed from ``HEALTH_EODHD_USER_ENDPOINT`` in slice 922: the health check
+dropped its quota floor in 921, leaving the constant orphaned, and its only
+consumer now is the overview's credit line. The health prefix would have
+named a reader that no longer exists.
+"""
 
-MINUTE_STALENESS_THRESHOLD: timedelta = timedelta(days=1)
-"""A minute-granularity symbol is STALE if last_attempt_ts is older than this."""
+KALSHI_CANDLES_TABLE: str = "kalshi.candlesticks"
+"""The Kalshi candlestick hypertable, created by the kalshi migration track."""
+
+KALSHI_CANDLES_TIME_COLUMN: str = "end_period_ts"
+"""The candlestick table's time column."""
+
+KALSHI_TRADES_TABLE: str = "kalshi.trades"
+"""The Kalshi trades hypertable, created by the kalshi migration track."""
+
+KALSHI_TRADES_TIME_COLUMN: str = "created_time"
+"""The trades table's time column."""
+
+EODHD_ACCOUNT_TIMEOUT_SECONDS: float = 5.0
+"""How long the overview waits for the EODHD account endpoint (slice 922).
+
+Half of the overview's ten-second budget; the database gets the other half,
+bounded by :data:`OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS`. A status line is not
+worth making the operator wait for.
+"""
+
+OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS: int = 5
+"""The database half of the overview's ten-second budget (slice 922).
+
+The overview used to connect with the Kalshi commands' shared
+``DB_CONNECT_TIMEOUT_SECONDS`` (10 s), so the half the docstring above
+promised was not enforced: an unreachable database consumed the whole budget
+before a query ran, and the load tier's guard compared constants to each
+other rather than to what the command actually passed (922 re-review F001).
+
+Deliberately its own constant rather than a reuse of
+:data:`PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS`: the two are equal today by
+coincidence of arithmetic, not because bookkeeping and this screen share a
+requirement.
+"""
 
 MAX_COVERAGE_SOURCE_STALENESS: timedelta = timedelta(days=1)
 """Absolute ceiling on how far a derived read (continuous aggregate) may lag its
@@ -223,7 +311,9 @@ raw source before the reader refuses to trust it (slice 168).
 
 One ceiling serves both the acquisition path (``build_minute_coverage_index``)
 and slice 167's status path: a derived read older than a full trading day is
-stale for either purpose. Matches ``MINUTE_STALENESS_THRESHOLD``'s convention.
+stale for either purpose. (It once matched a ``MINUTE_STALENESS_THRESHOLD``
+constant; slice 922 deleted that one, since ``data_status`` now measures
+staleness from the last recorded universe walk rather than a fixed interval.)
 
 The ceiling is **required**, not belt-and-braces. The staleness threshold is
 ``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)`` — without it, the daily

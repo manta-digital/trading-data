@@ -187,6 +187,35 @@ def fetch_all_health_counts_with_freshness(
     return {r["health"]: r["cnt"] for r in rows}, freshness
 
 
+def fetch_gap_status_counts(
+    conn: psycopg.Connection[Any],
+) -> dict[tuple[str, str], int]:
+    """Gap rows per ``(granularity, fetch_status)`` (slice 922).
+
+    Reads ``data_gaps`` directly, which is a plain table rather than
+    cagg-derived, so no freshness guard applies (the module docstring's
+    standing exception for ``fetch_symbol_gaps``).
+
+    The status footer needs this because ``data_status.gap_count`` now counts
+    only OPEN gaps. Without the breakdown an operator could see "GAPS 1,806"
+    and have no way to tell a backlog still being worked from holes the
+    provider has already refused — the two call for opposite actions.
+
+    Returns:
+        ``{(granularity, fetch_status): count}``. Statuses with no rows are
+        absent rather than zero; callers total what they need.
+    """
+    from psycopg.rows import dict_row
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT granularity, fetch_status, COUNT(*)::int AS cnt "
+            "FROM data_gaps GROUP BY granularity, fetch_status"
+        )
+        rows = cur.fetchall()
+    return {(r["granularity"], r["fetch_status"]): r["cnt"] for r in rows}
+
+
 def fetch_all_health_counts(
     conn: psycopg.Connection[Any],
 ) -> dict[str, int]:

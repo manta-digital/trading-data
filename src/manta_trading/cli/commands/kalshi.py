@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,12 +29,20 @@ from manta_trading.cli.commands.kalshi_render import (
 )
 from manta_trading.cli.commands.kalshi_status_render import print_status
 from manta_trading.cli.output import print_error, print_result
+from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
 from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from uuid import UUID
+
     from manta_trading.config import Settings
+    from manta_trading.data.acquisition.daemon.pass_run_recorder import (
+        PassRunRecorder,
+    )
+    from manta_trading.data.kalshi.collection_pass import PassPhaseName, PassResult
     from manta_trading.data.kalshi.run_context import KalshiRun
 
 logger = get_logger(__name__)
@@ -57,6 +66,33 @@ EXIT_BY_OUTCOME: dict[SyncOutcome, int] = {
     SyncOutcome.PROVIDER_ABORT: EXIT_PROVIDER,
     SyncOutcome.STORAGE_ABORT: EXIT_STORAGE,
 }
+
+# Every outcome must have a code — a new member cannot silently exit 0.
+assert set(EXIT_BY_OUTCOME) == set(SyncOutcome), (
+    "the kalshi exit mapping is not exhaustive — update it after adding a "
+    "SyncOutcome member"
+)
+
+# What a Kalshi pass records in pass_runs (slice 922, Decision 2). The one
+# place a SyncOutcome becomes a PassRunOutcome. Kalshi has no provider quota,
+# so COMPLETE_QUOTA never arises here; a storage abort is this process's own
+# failure, not the provider's, so it records FAILED.
+PASS_RUN_OUTCOME_BY_SYNC_OUTCOME: dict[SyncOutcome, PassRunOutcome] = {
+    SyncOutcome.OK: PassRunOutcome.COMPLETE,
+    SyncOutcome.PARTIAL: PassRunOutcome.INCOMPLETE,
+    SyncOutcome.PROVIDER_ABORT: PassRunOutcome.PROVIDER_UNAVAILABLE,
+    SyncOutcome.STORAGE_ABORT: PassRunOutcome.FAILED,
+}
+
+assert set(PASS_RUN_OUTCOME_BY_SYNC_OUTCOME) == set(SyncOutcome), (
+    "the kalshi pass_runs mapping is not exhaustive — update it after adding "
+    "a SyncOutcome member"
+)
+
+
+def pass_run_outcome_for_kalshi(outcome: SyncOutcome) -> PassRunOutcome:
+    """Map a Kalshi pass outcome to the value recorded in ``pass_runs``."""
+    return PASS_RUN_OUTCOME_BY_SYNC_OUTCOME[outcome]
 
 
 def parse_settled_since(value: str) -> datetime:
@@ -190,16 +226,92 @@ def kalshi_pass(
 async def run_pass(
     settings: Settings, events_file: Path | None, json_output: bool
 ) -> int:
-    """Preflight, run every phase, summarize; returns the exit code."""
+    """Preflight, run every phase, summarize; returns the exit code.
+
+    The pass records itself in ``pass_runs`` (slice 922) so ``mt data
+    overview`` can report it alongside the other passes. Recording is
+    best-effort: a recorder that cannot be built is absent, and the recorder
+    itself never raises, so the pass runs and reports its result either way.
+
+    Every recorder call goes through ``asyncio.to_thread``. The recorder is
+    synchronous psycopg and opens a short-lived connection per write, so on
+    a slow or unreachable database a direct call would block the event loop
+    — and with it the Kalshi client's rate-limit scheduling — for up to the
+    connect timeout, several times per pass (922 review F003).
+    """
+    from manta_trading.cli.commands._pass_run import pass_run_recorder
     from manta_trading.data.kalshi.collection_pass import PASS_PHASES, CollectionPass
 
-    async with kalshi_run(settings, events_file, json_output) as run:
-        if run is None:
-            return EXIT_PREFLIGHT
-        result = await CollectionPass(run, PASS_PHASES).run()
-    exit_code = EXIT_BY_OUTCOME[result.outcome]
+    with pass_run_recorder(settings) as recorder:
+        run_id = (
+            await asyncio.to_thread(recorder.open, PassKind.KALSHI)
+            if recorder is not None
+            else None
+        )
+
+        async def _close(
+            outcome: PassRunOutcome, exit_code: int, detail: str | None
+        ) -> None:
+            """Close the row off the loop, or do nothing when unrecorded."""
+            if recorder is None:
+                return
+            await asyncio.to_thread(
+                partial(
+                    recorder.close,
+                    run_id,
+                    outcome=outcome,
+                    exit_code=exit_code,
+                    detail=detail,
+                )
+            )
+
+        try:
+            async with kalshi_run(settings, events_file, json_output) as run:
+                if run is None:
+                    await _close(
+                        PassRunOutcome.FAILED, EXIT_PREFLIGHT, "preflight failed"
+                    )
+                    return EXIT_PREFLIGHT
+                result = await CollectionPass(
+                    run, PASS_PHASES, on_phase=_phase_reporter(recorder, run_id)
+                ).run()
+        except Exception as exc:
+            # The row must not be left open: the next pass would sweep it as
+            # abandoned and the operator would see a failure with no cause.
+            await _close(PassRunOutcome.FAILED, EXIT_STORAGE, type(exc).__name__)
+            raise
+        exit_code = EXIT_BY_OUTCOME[result.outcome]
+        await _close(
+            pass_run_outcome_for_kalshi(result.outcome),
+            exit_code,
+            _pass_detail(result),
+        )
     print_pass_summary(result, exit_code, json_output)
     return exit_code
+
+
+def _phase_reporter(
+    recorder: "PassRunRecorder | None", run_id: "UUID | None"
+) -> "Callable[[PassPhaseName], Awaitable[None]] | None":
+    """Report each phase start to the pass_runs row, or None when unrecorded.
+
+    Async because it is awaited from inside the pass loop: see ``run_pass``
+    on why the write must not happen on the event loop.
+    """
+    if recorder is None or run_id is None:
+        return None
+
+    async def _report(phase: "PassPhaseName") -> None:
+        await asyncio.to_thread(
+            partial(recorder.progress, run_id, phase=str(phase))
+        )
+
+    return _report
+
+
+def _pass_detail(result: "PassResult") -> str:
+    """The per-phase outcome list, the same text the pass already logs."""
+    return " ".join(f"{r.name}={r.outcome}" for r in result.reports)
 
 
 # ---------------------------------------------------------------------------

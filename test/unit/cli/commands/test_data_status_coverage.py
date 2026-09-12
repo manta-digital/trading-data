@@ -97,10 +97,25 @@ def _mocked_status(*, stale: bool, rows=None):
         patch(
             "manta_trading.data.maintenance.status_queries"
             ".fetch_all_health_counts_with_freshness",
-            return_value=({"OK": len(rows)}, freshness),
+            # Counts are over the unfiltered view, so an empty registry is
+            # an empty mapping — not {"OK": 0}, which says the view holds
+            # rows and every one of them is healthy (922 review F002).
+            return_value=({"OK": len(rows)} if rows else {}, freshness),
         ),
         patch(
             "manta_trading.data.maintenance.status_queries.fetch_symbol_gaps",
+            return_value=[],
+        ),
+        # Slice 922 added two reads to the default (summary) path. The
+        # connection here is a MagicMock, so unpatched reads would return
+        # mocks that the renderer cannot format.
+        patch(
+            "manta_trading.data.maintenance.status_queries"
+            ".fetch_gap_status_counts",
+            return_value={},
+        ),
+        patch(
+            "manta_trading.cli.commands.overview.read_source_freshness",
             return_value=[],
         ),
     ):
@@ -130,11 +145,22 @@ class TestStaleCoverageBanner:
         assert stale_result.exit_code == fresh_result.exit_code == 0
 
     def test_banner_precedes_the_tables(self):
-        """Stale coverage understates the numbers below it, so it reads first."""
+        """Stale coverage understates the numbers below it, so it reads first.
+
+        Asserted on ``--detail``, which is where the tables live since slice
+        922 made the summary the default; the summary path is covered below.
+        """
+        with _mocked_status(stale=True):
+            result = runner.invoke(app, ["data", "status", "--detail"])
+        banner = result.stdout.index(COVERAGE_STALE_LABEL)
+        assert banner < result.stdout.index("Data Status")
+
+    def test_banner_precedes_the_summary(self):
+        """The same rule on the default path: the banner qualifies the counts."""
         with _mocked_status(stale=True):
             result = runner.invoke(app, ["data", "status"])
         banner = result.stdout.index(COVERAGE_STALE_LABEL)
-        assert banner < result.stdout.index("Data Status")
+        assert banner < result.stdout.index("SOURCES")
 
     def test_banner_wording_does_not_collide_with_health_stale(self):
         """`HealthStatus.STALE` appears in the same output meaning something else.

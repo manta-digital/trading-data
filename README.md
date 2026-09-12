@@ -298,16 +298,61 @@ mt data get AAPL 1d --csv
 
 ### System health
 
+**Start with `mt data overview`.** One screen: what is running, what ran and
+how it ended, what is fresh, what the day's credits look like, and how much
+of the minute universe is covered. It reads the database plus one call to
+EODHD; it never shells out to `systemctl` or `journalctl`, which are how you
+investigate once the screen tells you where to look.
+
+```sh
+mt data overview
+mt data overview --json
+```
+
+```
+manta-trading overview                                                          2026-09-12 16:10 UTC
+
+PASSES     cadence        now                            last run
+minute     13:05 on Sat   idle                           13:05–15:41  complete (quota)
+daily      00:35, 12:35   idle                           12:35–12:52  complete
+kalshi     hourly :20     RUNNING candles (since Sat 09-12 16:20, progress 40 s ago)
+                                                         15:20–15:31  complete
+health     hourly :50     idle                           15:50–15:50  complete
+accounting 16:30          idle                           Fri 09-11 16:30–16:31  complete
+next       minute Sat 09-19 13:05 · daily Sun 09-13 00:35 · kalshi 16:20 · health 16:50
+           accounting 16:30
+
+SOURCES          newest                      health (15:50 UTC): healthy
+minute bars      2026-09-11 20:00 UTC (20 h ago)
+daily bars       2026-09-11 00:00 UTC (1 d ago)
+kalshi candles   2026-09-12 16:05 UTC (5 min ago)
+kalshi trades    none
+
+EODHD credits    65,210 / 100,000 used today
+minute universe  (accounting 09-11 16:31 UTC) 11,595,172/13,637,498 symbol-sessions covered (85.0%);
+                 438,299 untraded; 1,604,027 fillable (hole 500,716, unknown 892,063, untracked
+                 211,213, exhausted 35)
+```
+
+Outcomes read as `complete`, `complete (quota)`, `incomplete`, `provider
+unavailable` or `failed`. **Quota is a result, not a fault** — a pass that
+collected the session and then spent the rest of the day's allowance on
+backfill is the designed steady state. A running pass shows its phase and
+progress; one whose process is gone shows `ABANDONED` with the dead pid.
+
 ```sh
 # One read-only pass/fail check across the whole system: raw minute/daily
-# freshness, every cagg's materialization lag, EODHD quota headroom, and
-# Kalshi phase recency. One line per check; exit 0 pass, 1 breach,
-# 2 could-not-run. This is what the hourly mt-health systemd unit runs.
+# freshness, every cagg's materialization lag, and Kalshi phase recency.
+# One line per check; exit 0 pass, 1 breach, 2 could-not-run. This is what
+# the hourly mt-health systemd unit runs.
 mt data health
 mt data health --json
 
-# Show non-OK symbols (GAPS, STALE, FAILED) — default view.
+# Source freshness plus the health footer — no per-symbol rows.
 mt data status
+
+# The per-symbol table (non-OK rows: GAPS, STALE, FAILED).
+mt data status --detail
 
 # Show all symbols including OK.
 mt data status --all
@@ -321,7 +366,27 @@ mt data status --minute
 
 # Machine-readable output.
 mt data status --json
+
+# Recompute the universe line the overview prints (several minutes).
+# The daily mt-accounting-pass unit runs this at 16:30 UTC.
+mt data accounting
 ```
+
+`mt data status` summarises by default; any filter (`--symbol`, `--health`,
+`--daily`, `--minute`, `--all`, `--json`, `--detail`) prints the table,
+because asking for a filter is asking for rows.
+
+Two numbers in that output changed meaning in slice 922:
+
+- **`GAPS` / `gap_count` counts open gaps only** — those still being asked
+  about. A gap the provider has answered (`PROVIDER_HOLE`) or given up on
+  (`RETRY_EXHAUSTED`) is not counted, so the number can now reach zero. The
+  footer's second line breaks the rest out per granularity: still asking,
+  holes, exhausted.
+- **`STALE` means "not attempted in the last recorded universe walk"**,
+  rather than "not attempted within a fixed interval". Under the weekly
+  minute cadence the old rule marked every minute symbol STALE six days out
+  of seven.
 
 ### Corporate actions
 

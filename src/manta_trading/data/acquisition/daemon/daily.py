@@ -117,6 +117,29 @@ class CycleReport:
     False without meaning anything was missed. The exit mapping treats quota
     exhaustion on such a day as the designed end (exit 0)."""
 
+    trailing_symbols_attempted: int = 0
+    """How many symbols the minute pass's TRAILING phase actually reached
+    (slice 922). Carried so the pass_runs close detail can be written without
+    re-deriving it from ``symbol_outcomes``, which holds the union of both
+    phases and so cannot answer "how far did trailing get". Always 0 on a
+    daily report."""
+
+    backfill_symbols_attempted: int = 0
+    """How many symbols the minute pass's BACKFILL phase reached (slice 922).
+    Always 0 on a daily report."""
+
+    daily_pass_completed: bool = False
+    """True when a DAILY pass walked its pending list to the end (slice 922).
+
+    False means the pass stopped early — a shutdown between symbols, or an
+    aborted quota wait — so the remaining symbols were never attempted. A
+    pass with nothing actionable completed by definition: there was nothing
+    left to walk. Always False on a minute report.
+
+    The daily exit code does not read this (Decision 5): it stays 0, as it
+    was before pass_runs existed. This only distinguishes COMPLETE from
+    INCOMPLETE in the recorded row."""
+
     nothing_actionable: bool = False
     """True when the cycle derived an empty work list and made no provider
     call. Lets the runner distinguish a drained scope from a closed cadence
@@ -405,6 +428,8 @@ def run_daily_cycle(
 
             if not symbol_list:
                 report.nothing_actionable = True
+                # Nothing to walk is a walk that finished (slice 922).
+                report.daily_pass_completed = True
                 report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
                 _logger.info(
                     "run_daily_cycle: no actionable work — %d scope symbols "
@@ -435,6 +460,13 @@ def run_daily_cycle(
                 # while the BACKFILL branch below preserved them, so the two
                 # modes disagreed on what a report contained (912 review F001).
                 try:
+                    # Completion is set inside the helper, at the one point
+                    # where the walk actually ran to the end. Setting it
+                    # here marked an interrupted pass COMPLETE: the helper
+                    # returns early on a shutdown check and on a failed bulk
+                    # call, and breaks mid-loop on shutdown, and a plain
+                    # return is indistinguishable from a full walk
+                    # (922 review F004).
                     _run_steady_state_cycle(
                         report=report,
                         symbol_list=symbol_list,
@@ -485,6 +517,11 @@ def run_daily_cycle(
                         report.transient_failure_count += 1
                     if on_symbol is not None:
                         on_symbol(sym, str(outcome), None, None, 0)
+                else:
+                    # No break: every pending symbol was attempted. A `break`
+                    # above (shutdown, or an aborted quota wait) skips this and
+                    # leaves the pass INCOMPLETE (slice 922).
+                    report.daily_pass_completed = True
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report
@@ -689,6 +726,12 @@ def _run_steady_state_cycle(
             )
             report.symbol_outcomes[sym] = str(LastAttemptOutcome.TRANSIENT_FAILURE)
             report.transient_failure_count += 1
+    else:
+        # No break: every symbol was attempted. Mirrors the BACKFILL loop —
+        # the early returns above (shutdown before the call, a bulk call
+        # that failed) and the shutdown break skip this and leave the pass
+        # INCOMPLETE (slice 922, 922 review F004).
+        report.daily_pass_completed = True
 
     return report
 

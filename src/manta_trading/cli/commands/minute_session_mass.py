@@ -31,7 +31,7 @@ from manta_trading.constants import (
     MINUTE_PASS_FIRING_TIMES_UTC,
     Granularity,
 )
-from manta_trading.minute_firing_schedule import next_minute_firing_at
+from manta_trading.firing_schedule import next_minute_firing_at
 
 #: How many recent sessions to consider as judging candidates. Enough to cover
 #: a long holiday stretch (Thanksgiving week, a Christmas/New-Year run) without

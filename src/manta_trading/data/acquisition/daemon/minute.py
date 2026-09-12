@@ -42,6 +42,7 @@ from manta_trading.data.acquisition.outcomes import (
     outcome_to_fetch_status,
     response_carries_an_answer,
 )
+from manta_trading.data.acquisition.pass_runs import PassRunOutcome
 from manta_trading.data.acquisition.quota import CallType, QuotaWaitAborted
 from manta_trading.data.acquisition.state import (
     LastAttemptOutcome,
@@ -69,7 +70,7 @@ from manta_trading.data.locking import advisory_lock
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.logging import get_logger
 from manta_trading.market.db_session import make_configure_connection
-from manta_trading.minute_firing_schedule import (
+from manta_trading.firing_schedule import (
     describe_firing_days,
     is_firing_day,
 )
@@ -87,6 +88,15 @@ _PROVIDER_MAX_CHUNK_DAYS: int = 120
 # EXIT_BY_OUTCOME in cli/commands/kalshi.py:48-58, which this follows: named
 # constants plus ONE lookup table, never scattered conditionals and never a
 # bare literal at the exit site.
+
+MinuteProgressCallback = Callable[[MinutePassPhase, int, int], None]
+"""Called with (phase, symbols done, symbols in scope) while a phase runs.
+
+Slice 922 wires this to the pass_runs recorder so a running pass can say how
+far it has got. Invoked at the existing progress-log cadence and once when a
+phase ends, so the final call always reports ``done == total`` for a phase
+that completed.
+"""
 
 MINUTE_EXIT_OK = 0
 """The pass did what the firing exists to do."""
@@ -142,6 +152,47 @@ _MINUTE_EXIT_BY_OUTCOME: dict[MinutePassOutcome, int] = {
 assert set(_MINUTE_EXIT_BY_OUTCOME) == set(MinutePassOutcome), (
     "the minute exit mapping is not exhaustive — update it after adding a "
     "MinutePassOutcome member"
+)
+
+
+def pass_run_outcome_for_minute(
+    outcome: MinutePassOutcome,
+    *,
+    trailing_completed: bool,
+    trailing_required: bool = True,
+) -> PassRunOutcome:
+    """Map a minute pass outcome to the value recorded in ``pass_runs``.
+
+    The one place a minute pass becomes a ``PassRunOutcome`` (slice 922,
+    Decision 2). It answers a different question from
+    :func:`minute_pass_exit_code`, which asks "should this page anyone": here
+    quota is a *result*, so a pass that spent its allowance on backfill after
+    collecting the current session records ``COMPLETE_QUOTA`` rather than the
+    ``COMPLETE`` its exit code 0 suggests. The operator can then see that the
+    allowance ran out without that reading as a failure.
+
+    A pass that owed a current session and did not collect it is incomplete
+    whatever the exit code says: ``PROVIDER_UNAVAILABLE`` when the provider
+    was the reason, ``INCOMPLETE`` when the allowance was.
+    """
+    trailing_owed = trailing_required and not trailing_completed
+    if outcome is MinutePassOutcome.PROVIDER_UNAVAILABLE:
+        return PassRunOutcome.PROVIDER_UNAVAILABLE
+    if trailing_owed:
+        return PassRunOutcome.INCOMPLETE
+    return _MINUTE_PASS_RUN_OUTCOME[outcome]
+
+
+_MINUTE_PASS_RUN_OUTCOME: dict[MinutePassOutcome, PassRunOutcome] = {
+    MinutePassOutcome.COMPLETE: PassRunOutcome.COMPLETE,
+    MinutePassOutcome.QUOTA_EXHAUSTED: PassRunOutcome.COMPLETE_QUOTA,
+    MinutePassOutcome.PROVIDER_UNAVAILABLE: PassRunOutcome.PROVIDER_UNAVAILABLE,
+}
+
+# Every outcome must map — a new member cannot silently record COMPLETE.
+assert set(_MINUTE_PASS_RUN_OUTCOME) == set(MinutePassOutcome), (
+    "the minute pass_runs mapping is not exhaustive — update it after adding "
+    "a MinutePassOutcome member"
 )
 
 
@@ -245,6 +296,7 @@ def run_minute_cycle(
     should_continue: Callable[[], bool] | None = None,
     on_symbol: Callable[[str, str, datetime | None, datetime | None, int], None]
     | None = None,
+    on_progress: MinuteProgressCallback | None = None,
 ) -> CycleReport:
     """Drive one minute-data acquisition pass over the instrument universe.
 
@@ -269,6 +321,11 @@ def run_minute_cycle(
             Receives (symbol, outcome_str, chunk_start, chunk_end) where
             chunk_start/chunk_end are the last chunk's datetime window or
             None if no chunk was attempted.
+        on_progress: Optional callback invoked periodically inside each phase
+            and once when the phase ends. Receives (phase, done, total).
+            Slice 922 wires this to the pass_runs recorder so `mt data
+            overview` can say how far a running pass has got; None leaves
+            behaviour exactly as before.
     """
     t0 = datetime.now(_UTC)
     settings = Settings()
@@ -336,6 +393,7 @@ def run_minute_cycle(
                     report=report,
                     should_continue=should_continue,
                     on_symbol=on_symbol,
+                    on_progress=on_progress,
                 )
 
             if backfill_due:
@@ -349,6 +407,7 @@ def run_minute_cycle(
                     report=report,
                     should_continue=should_continue,
                     on_symbol=on_symbol,
+                    on_progress=on_progress,
                     min_gap_end=None,
                     max_chunks=None,
                     # Task 3.3 option (a): seeding belongs to the trailing walk.
@@ -373,6 +432,7 @@ def _run_trailing_phase(
     report: CycleReport,
     should_continue: Callable[[], bool] | None,
     on_symbol: Callable[..., None] | None,
+    on_progress: MinuteProgressCallback | None = None,
 ) -> tuple[dict[str, set[date]] | None, bool, MinutePassOutcome, bool]:
     """The firing-day trailing phase: seed, then one chunk per symbol.
 
@@ -406,6 +466,7 @@ def _run_trailing_phase(
         report=report,
         should_continue=should_continue,
         on_symbol=on_symbol,
+        on_progress=on_progress,
         min_gap_end=trailing_floor,
         max_chunks=MINUTE_TRAILING_MAX_CHUNKS_PER_SYMBOL,
         seed=True,
@@ -469,6 +530,20 @@ def _failed(kind: MinuteFailureKind) -> MinuteSymbolResult:
     )
 
 
+def _record_symbols_attempted(
+    report: CycleReport, phase: MinutePassPhase, scanned: int
+) -> None:
+    """Record how far one phase got, so the pass_runs detail need not re-derive it.
+
+    ``symbol_outcomes`` holds the union of both phases and therefore cannot
+    answer "how far did trailing get" (slice 922).
+    """
+    if phase is MinutePassPhase.TRAILING:
+        report.trailing_symbols_attempted = scanned
+    else:
+        report.backfill_symbols_attempted = scanned
+
+
 def _run_minute_phase(
     symbol_list: list[str],
     *,
@@ -484,6 +559,7 @@ def _run_minute_phase(
     max_chunks: int | None,
     seed: bool,
     truncated_index: dict[str, frozenset[date]] | None = None,
+    on_progress: MinuteProgressCallback | None = None,
 ) -> tuple[int, MinutePassOutcome | None]:
     """Walk the universe once for one phase.
 
@@ -617,6 +693,8 @@ def _run_minute_phase(
                 len(symbol_list),
                 gaps_seeded_total,
             )
+            if on_progress is not None:
+                on_progress(phase, symbols_scanned, len(symbol_list))
 
     _logger.info(
         "minute %s: complete — %d symbols, %d gap rows seeded",
@@ -624,6 +702,11 @@ def _run_minute_phase(
         symbols_scanned,
         gaps_seeded_total,
     )
+    # One final call so a phase that completed always reports done == total,
+    # whatever the last progress-log interval landed on.
+    if on_progress is not None:
+        on_progress(phase, symbols_scanned, len(symbol_list))
+    _record_symbols_attempted(report, phase, symbols_scanned)
     if stopped_early and outcome_of_phase is MinutePassOutcome.COMPLETE:
         # Signal "do not start the next phase" without claiming a fault.
         return symbols_scanned, None

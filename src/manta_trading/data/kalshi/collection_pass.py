@@ -25,7 +25,7 @@ out of ``run_sync`` today — there is no catch-all here.
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -130,9 +130,24 @@ def _aborted(report: PhaseReport) -> bool:
 class CollectionPass:
     """Runs ``phases`` in order over ``run``; see the module docstring."""
 
-    def __init__(self, run: KalshiRun, phases: Sequence[PassPhase]) -> None:
+    def __init__(
+        self,
+        run: KalshiRun,
+        phases: Sequence[PassPhase],
+        *,
+        on_phase: Callable[[PassPhaseName], Awaitable[None]] | None = None,
+    ) -> None:
         self._run = run
         self._phases = tuple(phases)
+        # Slice 922: awaited as each phase starts, so a running pass can say
+        # which phase it is in. Skipped phases do not fire it — nothing is
+        # running for them. None leaves the pass exactly as it was.
+        #
+        # Awaitable, not a plain callable: the only caller writes a database
+        # row, and a synchronous write here would block the event loop —
+        # and with it the client's rate-limit scheduling — for as long as
+        # the database took to answer (922 review F003).
+        self._on_phase = on_phase
 
     async def run(self) -> PassResult:
         started_at = self._run.clock()
@@ -157,6 +172,8 @@ class CollectionPass:
                     )
                 )
                 continue
+            if self._on_phase is not None:
+                await self._on_phase(phase.name)
             report = await phase.run(self._run)
             reports.append(report)
             aborted = _aborted(report)

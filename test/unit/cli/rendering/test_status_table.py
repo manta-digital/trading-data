@@ -18,12 +18,14 @@ from manta_trading.cli.rendering.status_table import (
     _humanize_ts,
     render_auto_extend_notice,
     render_coverage_notice,
+    render_gap_status_line,
     render_status_detail,
     render_status_footer,
     render_status_summary,
     status_report_to_json,
 )
 from manta_trading.data.maintenance.auto_extend import AutoExtendResult
+from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.maintenance.status_coverage import CoverageFreshness
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
@@ -182,6 +184,97 @@ def test_footer_all_rows_advisory() -> None:
 
     assert "rows printed" in footer_all
     assert "rows printed" not in footer_no_all
+
+
+# ---------------------------------------------------------------------------
+# The gap-status second line (slice 922)
+# ---------------------------------------------------------------------------
+
+
+class TestGapStatusLine:
+    """Since gap_count counts only OPEN gaps, the footer says what the rest of
+    the gap table holds — a backlog still being worked reads nothing like one
+    the provider has already closed, and they call for opposite actions."""
+
+    COUNTS = {
+        ("minute", FetchStatus.UNKNOWN.value): 892_063,
+        ("minute", FetchStatus.FAILED_RETRYABLE.value): 12,
+        ("minute", FetchStatus.PROVIDER_HOLE.value): 500_716,
+        ("minute", FetchStatus.RETRY_EXHAUSTED.value): 35,
+        ("daily", FetchStatus.UNKNOWN.value): 14,
+    }
+
+    def test_still_asking_totals_the_two_open_statuses(self) -> None:
+        line = render_gap_status_line(self.COUNTS, "minute")
+        assert "still asking 892,075" in line
+
+    def test_holes_and_exhausted_are_reported_separately(self) -> None:
+        line = render_gap_status_line(self.COUNTS, "minute")
+        assert "holes 500,716" in line
+        assert "exhausted 35" in line
+
+    def test_a_granularity_with_only_open_gaps_reads_zero_for_the_rest(
+        self,
+    ) -> None:
+        line = render_gap_status_line(self.COUNTS, "daily")
+        assert line == "still asking 14 · holes 0 · exhausted 0"
+
+    def test_an_absent_granularity_is_all_zeros(self) -> None:
+        line = render_gap_status_line(self.COUNTS, "hourly")
+        assert line == "still asking 0 · holes 0 · exhausted 0"
+
+    def test_the_footer_prints_one_line_per_granularity(self) -> None:
+        report = make_report()
+        report.gap_status_counts = dict(self.COUNTS)
+        lines = render_status_footer(report).splitlines()
+        assert any(line.startswith("minute") for line in lines)
+        assert any(line.startswith("daily") for line in lines)
+
+    def test_the_granularities_are_ordered(self) -> None:
+        report = make_report()
+        report.gap_status_counts = dict(self.COUNTS)
+        lines = [
+            line.split()[0]
+            for line in render_status_footer(report).splitlines()
+            if line.startswith(("minute", "daily"))
+        ]
+        assert lines == sorted(lines)
+
+    def test_no_counts_means_no_second_line(self) -> None:
+        """A caller that did not read them gets the footer it always had."""
+        footer = render_status_footer(make_report())
+        assert "still asking" not in footer
+        assert footer.startswith("OK:")
+
+    def test_the_health_counts_still_lead(self) -> None:
+        report = make_report()
+        report.gap_status_counts = dict(self.COUNTS)
+        assert render_status_footer(report).splitlines()[0].startswith("OK:")
+
+    def test_the_all_rows_advisory_stays_last(self) -> None:
+        report = make_report(rows=[make_status_row()] * 10)
+        report.gap_status_counts = dict(self.COUNTS)
+        lines = render_status_footer(report, all_rows=True).splitlines()
+        assert "rows printed" in lines[-1]
+
+
+class TestGapStatusCountsInJson:
+    def test_the_counts_are_nested_by_granularity(self) -> None:
+        report = make_report()
+        report.gap_status_counts = {
+            ("minute", FetchStatus.UNKNOWN.value): 5,
+            ("minute", FetchStatus.PROVIDER_HOLE.value): 2,
+            ("daily", FetchStatus.UNKNOWN.value): 1,
+        }
+        payload = json.loads(status_report_to_json(report))
+        assert payload["gap_status_counts"] == {
+            "minute": {"UNKNOWN": 5, "PROVIDER_HOLE": 2},
+            "daily": {"UNKNOWN": 1},
+        }
+
+    def test_absent_counts_serialise_as_an_empty_object(self) -> None:
+        payload = json.loads(status_report_to_json(make_report()))
+        assert payload["gap_status_counts"] == {}
 
 
 # ---------------------------------------------------------------------------
@@ -468,3 +561,58 @@ def test_json_coverage_is_stale_false_when_fresh() -> None:
 def test_status_report_coverage_defaults_to_none() -> None:
     """Callers predating the guard still construct a valid report."""
     assert make_report().coverage is None
+
+
+class TestTheOpenGapSetIsDefinedOnce:
+    """The footer's "still asking" and gap_count must agree (re-review F002).
+
+    They sit directly beneath one another on screen: the count comes from
+    the SQL predicate rendered into migration 056, the line from this
+    renderer. Both now read OPEN_FETCH_STATUSES, so they cannot drift.
+    """
+
+    def test_the_renderer_counts_exactly_the_open_statuses(self) -> None:
+        from manta_trading.cli.rendering.status_table import render_gap_status_line
+        from manta_trading.data.quality.fetch_status import (
+            OPEN_FETCH_STATUSES,
+            FetchStatus,
+        )
+
+        # One row per status, each a distinct count, so a renderer that
+        # summed the wrong set produces a different total.
+        counts = {
+            ("minute", status.value): 10 ** i
+            for i, status in enumerate(FetchStatus)
+        }
+        line = render_gap_status_line(counts, "minute")
+        expected = sum(
+            counts[("minute", status.value)] for status in OPEN_FETCH_STATUSES
+        )
+        assert f"still asking {expected:,}" in line
+
+    def test_the_sql_predicate_renders_from_the_same_tuple(self) -> None:
+        from manta_trading.data.quality.fetch_status import OPEN_FETCH_STATUSES
+        from manta_trading.market.schema.migrations.minute import (
+            _open_gap_predicate,
+        )
+
+        predicate = _open_gap_predicate()
+        for status in OPEN_FETCH_STATUSES:
+            assert status.value in predicate
+        # And nothing else: a terminal status in the predicate would make
+        # gap_count a number that can never reach zero.
+        from manta_trading.data.quality.fetch_status import FetchStatus
+
+        for status in FetchStatus:
+            if status not in OPEN_FETCH_STATUSES:
+                assert status.value not in predicate
+
+    def test_a_terminal_status_is_not_open(self) -> None:
+        """Guards the tuple's contents, not just its plumbing."""
+        from manta_trading.data.quality.fetch_status import (
+            OPEN_FETCH_STATUSES,
+            FetchStatus,
+        )
+
+        assert FetchStatus.PROVIDER_HOLE not in OPEN_FETCH_STATUSES
+        assert FetchStatus.RETRY_EXHAUSTED not in OPEN_FETCH_STATUSES

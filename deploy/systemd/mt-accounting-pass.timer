@@ -1,0 +1,15 @@
+[Unit]
+Description=Fire the minute accounting pass (daily)
+Documentation=https://github.com/manta-digital/trading-data
+
+[Timer]
+# Daily at 16:30 UTC — after the 13:05 minute firing and the 12:35 daily
+# firing have had time to finish, so the universe line describes the day's
+# collection rather than yesterday's. Must match
+# ACCOUNTING_PASS_FIRING_TIMES_UTC; a drift test asserts it.
+OnCalendar=*-*-* 16:30:00 UTC
+Persistent=true
+Unit=mt-accounting-pass.service
+
+[Install]
+WantedBy=timers.target

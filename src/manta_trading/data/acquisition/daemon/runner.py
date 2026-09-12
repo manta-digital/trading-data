@@ -41,14 +41,22 @@ from manta_trading.data.acquisition.daemon.minute import (
     MINUTE_EXIT_OK,
     MINUTE_EXIT_PASS_INCOMPLETE,
     minute_pass_exit_code,
+    pass_run_outcome_for_minute,
 )
+from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.acquisition.quota import CallType, QuotaBucket
 from manta_trading.logging import get_logger
+from manta_trading.firing_schedule import is_firing_day
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     import psycopg
 
     from manta_trading.config import Settings
+    from manta_trading.data.acquisition.daemon.pass_run_recorder import (
+        PassRunRecorder,
+    )
 
 _logger = get_logger(__name__)
 
@@ -128,6 +136,45 @@ class RunnerConfig:
         if isinstance(self.scope, tuple):
             return list(self.scope)
         raise TypeError(f"Unexpected scope type: {type(self.scope).__name__}")
+
+
+DAILY_EXIT_OK = 0
+"""The daily pass's process exit code, unchanged by pass_runs (Decision 5).
+
+Named here rather than written as a bare 0 at the close site, so the
+recorded exit code and the process's own convention cannot drift apart
+silently.
+"""
+
+
+def _minute_detail(report: Any) -> str:
+    """One line describing how far a minute pass got.
+
+    Reads the per-phase counters the cycle recorded rather than re-deriving
+    from ``symbol_outcomes``, which holds the union of both phases.
+    """
+    trailing = getattr(report, "trailing_symbols_attempted", 0)
+    backfill = getattr(report, "backfill_symbols_attempted", 0)
+    if getattr(report, "minute_trailing_required", True):
+        trailing_part = f"trailing {trailing}"
+    else:
+        trailing_part = "trailing skipped (not a firing day)"
+    return f"{trailing_part} · backfill {backfill} symbols"
+
+
+def _daily_detail(report: Any) -> str:
+    """One line describing what a daily pass did."""
+    if getattr(report, "nothing_actionable", False):
+        return "no actionable work"
+    total = getattr(report, "total", None)
+    if total is None:
+        total = (
+            getattr(report, "success_count", 0)
+            + getattr(report, "partial_count", 0)
+            + getattr(report, "empty_count", 0)
+            + getattr(report, "transient_failure_count", 0)
+        )
+    return f"{total} symbols attempted"
 
 
 class RunnerIdleReason(StrEnum):
@@ -338,10 +385,22 @@ class Runner:
         run_ca_update: Callable[[QuotaBucket], None] | None = None,
         clock: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        pass_run_recorder: "PassRunRecorder | None" = None,
+        minute_firing_days: tuple[int, ...] | None = None,
     ) -> None:
         self._config = config
         self._bucket = bucket
         self._conn_factory = conn_factory
+        # Slice 922, Decision 3: only an all-active cycle writes a pass_runs
+        # row. The caller decides — an explicit --symbols scope passes None —
+        # so this class never has to re-derive whether its work was the
+        # universe walk the overview reports on.
+        self._pass_runs = pass_run_recorder
+        # Which weekdays the minute pass collects the current session on, from
+        # the caller's settings. Passed in rather than read here so the runner
+        # stays free of environment reads; it decides only whether a given
+        # cycle earns a walk anchor.
+        self._minute_firing_days = minute_firing_days
         self._idle_hooks: list[Callable[[], None]] = []
         # Late-bind cycle functions so tests can inject mocks.
         if run_daily_cycle is None:
@@ -468,6 +527,124 @@ class Runner:
         ) or (
             CycleGranularity.MINUTE in granularities
             and self._state.last_minute_cycle_end_utc is None
+        )
+
+    # --- pass_runs bookkeeping (slice 922) ---------------------------------
+    #
+    # Every method here tolerates a None recorder (an explicit --symbols scope
+    # writes no row, Decision 3) and a None run_id (the row could not be
+    # opened). The recorder itself never raises, so none of this can abort a
+    # cycle.
+
+    def _open_minute_run(self, now: datetime) -> "UUID | None":
+        """Open the minute row, anchored only when this pass owes a full walk.
+
+        The anchor is what ``data_status`` measures staleness from, so it is
+        set only on a firing day: a backfill-only day attempts whatever it can
+        reach, which is not a universe walk and must not reset every symbol's
+        staleness clock.
+
+        The firing day is necessary but not sufficient, and it is all this
+        method can know — the cycle has not run yet. Under
+        ``--stop-when-done`` a firing can run several cycles before the scope
+        drains, and a later backfill-only one would anchor on the calendar
+        alone. :meth:`_close_minute_run` withdraws the claim when the report
+        says the trailing phase was not required after all (922 review F010).
+        """
+        if self._pass_runs is None:
+            return None
+        trailing_required = is_firing_day(now.date(), self._minute_firing_days)
+        return self._pass_runs.open(
+            PassKind.MINUTE, walk_anchor_at=now if trailing_required else None
+        )
+
+    def _open_daily_run(self, now: datetime) -> "UUID | None":
+        """Open the daily row, anchored on the pass boundary it is walking.
+
+        Both of a day's firings carry the same boundary, so a symbol attempted
+        by the first is not STALE when the second one ends.
+        """
+        if self._pass_runs is None:
+            return None
+        return self._pass_runs.open(
+            PassKind.DAILY, walk_anchor_at=daily_pass_boundary(now)
+        )
+
+    def _minute_progress(
+        self, run_id: "UUID | None"
+    ) -> "Callable[[Any, int, int], None] | None":
+        """The progress callback for one minute cycle, or None when unrecorded."""
+        if self._pass_runs is None or run_id is None:
+            return None
+        recorder = self._pass_runs
+
+        def _report(phase: Any, done: int, total: int) -> None:
+            recorder.progress(run_id, phase=str(phase), done=done, total=total)
+
+        return _report
+
+    def _close_run(
+        self,
+        run_id: "UUID | None",
+        *,
+        outcome: PassRunOutcome,
+        exit_code: int | None,
+        detail: str | None,
+    ) -> None:
+        if self._pass_runs is None or run_id is None:
+            return
+        self._pass_runs.close(
+            run_id, outcome=outcome, exit_code=exit_code, detail=detail
+        )
+
+    def _close_minute_run(self, run_id: "UUID | None", report: Any) -> None:
+        """Close the minute row from the report the cycle returned."""
+        if self._pass_runs is None or run_id is None:
+            return
+        outcome = getattr(report, "minute_pass_outcome", None)
+        if outcome is None:
+            # A cycle that reported no minute outcome did not run one.
+            self._close_run(
+                run_id,
+                outcome=PassRunOutcome.COMPLETE,
+                exit_code=MINUTE_EXIT_OK,
+                detail=None,
+            )
+            return
+        trailing_completed = getattr(report, "minute_trailing_completed", False)
+        trailing_required = getattr(report, "minute_trailing_required", True)
+        if not trailing_required:
+            # Opened on a firing day, but the cycle did no trailing work, so
+            # it walked no universe and must not reset the staleness clock.
+            # The report is the authority here; the calendar was a guess.
+            self._pass_runs.clear_walk_anchor(run_id)
+        self._close_run(
+            run_id,
+            outcome=pass_run_outcome_for_minute(
+                outcome,
+                trailing_completed=trailing_completed,
+                trailing_required=trailing_required,
+            ),
+            exit_code=minute_pass_exit_code(
+                outcome,
+                trailing_completed=trailing_completed,
+                trailing_required=trailing_required,
+            ),
+            detail=_minute_detail(report),
+        )
+
+    def _close_daily_run(self, run_id: "UUID | None", report: Any) -> None:
+        """Close the daily row. Exit code 0 always (Decision 5)."""
+        if self._pass_runs is None or run_id is None:
+            return
+        completed = bool(getattr(report, "daily_pass_completed", False))
+        self._close_run(
+            run_id,
+            outcome=PassRunOutcome.COMPLETE
+            if completed
+            else PassRunOutcome.INCOMPLETE,
+            exit_code=DAILY_EXIT_OK,
+            detail=_daily_detail(report),
         )
 
     def _record_minute_pass_outcome(self, report: object | None) -> None:
@@ -635,6 +812,7 @@ class Runner:
                 self._state, now, retry_interval=self._config.daily_retry_interval
             ):
                 _logger.info("runner: starting daily cycle")
+                daily_run_id = self._open_daily_run(now)
                 try:
                     daily_report = self._run_daily_cycle(
                         symbols=symbols_arg,
@@ -647,8 +825,18 @@ class Runner:
                     # do not would mean a rename degrades to a silently absent
                     # drained signal (912 review F003).
                     drained = daily_report.nothing_actionable
-                except Exception:
+                    self._close_daily_run(daily_run_id, daily_report)
+                except Exception as exc:
                     _logger.exception("runner: run_daily_cycle raised")
+                    self._close_run(
+                        daily_run_id,
+                        outcome=PassRunOutcome.FAILED,
+                        # Decision 5: the daily exit code is unchanged by
+                        # pass_runs. The row records the failure; the process
+                        # still exits on its own convention.
+                        exit_code=None,
+                        detail=type(exc).__name__,
+                    )
                 # Stamp the END, never the start (912 D2), and stamp it on the
                 # exception path too: a cycle that raised still consumed its
                 # cadence slot, and retrying instantly would busy-loop against
@@ -666,14 +854,24 @@ class Runner:
             ):
                 _logger.info("runner: starting minute cycle")
                 self._state.last_minute_cycle_start_utc = now
+                minute_run_id = self._open_minute_run(now)
                 try:
                     minute_report = self._run_minute_cycle(
                         symbols=symbols_arg,
                         should_continue=self._should_continue,
+                        on_progress=self._minute_progress(minute_run_id),
                     )
-                except Exception:
+                except Exception as exc:
                     _logger.exception("runner: run_minute_cycle raised")
                     minute_report = None
+                    self._close_run(
+                        minute_run_id,
+                        outcome=PassRunOutcome.FAILED,
+                        exit_code=MINUTE_EXIT_PASS_INCOMPLETE,
+                        detail=type(exc).__name__,
+                    )
+                else:
+                    self._close_minute_run(minute_run_id, minute_report)
                 # Slice 921: an ABORTED pass stamps the cycle end exactly as a
                 # completed one does. This stamp is an in-process busy-loop
                 # guard only — slice 912 derives remaining work from

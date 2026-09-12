@@ -92,8 +92,44 @@ would either do nothing or install a second, unrelated copy.
 | `mt-minute-pass.timer` | timer | fires the minute pass at **13:05 UTC** |
 | `mt-kalshi-pass.service` | oneshot pass | `mt data kalshi pass` — every registered Kalshi phase, in order |
 | `mt-kalshi-pass.timer` | timer | fires the Kalshi pass **hourly at :20 UTC** |
+| `mt-health.service` | oneshot check | `mt data health` — read-only; non-zero exit means a failing check |
+| `mt-health.timer` | timer | fires the health check **hourly at :50 UTC** |
+| `mt-accounting-pass.service` | oneshot pass | `mt data accounting` — counts expected vs covered minute symbol-sessions; records the universe line `mt data overview` prints |
+| `mt-accounting-pass.timer` | timer | fires the accounting pass **daily at 16:30 UTC**, after the day's collecting firings |
 | `mt-serve.service` | long-running | the API server; `Restart=on-failure` |
 | `manta-acquisition.slice` | grouping | home for acquisition passes; carries no resource limits yet |
+
+### Adding a source or pass
+
+Slice 916 named the units as instances of a pattern so this is a procedure,
+not a design conversation. Slice 922 added `mt-accounting-pass` by following
+it; the steps are:
+
+1. **Copy the nearest unit pair.** `mt-health.*` for a read-only check,
+   `mt-minute-pass.*` for a fetching pass. Keep `Type=oneshot`, the
+   `manta-trading` user, `EnvironmentFile=/etc/manta-trading.env`, and the
+   four hardening keys.
+2. **Change `ExecStart`** to the `mt` subcommand, by its full venv path.
+3. **Pick a non-colliding `OnCalendar`.** Check `systemctl list-timers 'mt-*'`
+   and the table above. Two passes on the same minute contend for the
+   database and the provider quota every firing.
+4. **Name the cadence in `manta_trading.constants`** and add a drift test in
+   `test/unit/deploy/test_units.py` asserting the constant against the unit's
+   `OnCalendar`. `mt data overview` prints "next firing" from the constant, so
+   a constant that drifts from its timer names a time nothing happens at.
+5. **Add both units to the `UNITS` array and the cutover hint** in
+   `deploy/install-production.sh`, and to the table above.
+6. **If it is a pass an operator will run by hand**, add its kind to `KINDS`
+   in `deploy/mt-run` — that is the only place the script needs it, since
+   unit names are derived from the kind. A scheduled-only check (health,
+   accounting) does not need this; `mt-run status` lists every `mt-*` timer
+   regardless.
+7. **Install and enable explicitly:** `sudo ./deploy/install-production.sh
+   --ref <tag>` then `sudo systemctl enable --now mt-<name>.timer`. The
+   installer enables nothing on purpose.
+
+A streaming subscription is not this shape: that is a `Type=simple` unit like
+`mt-serve`, with historical backfill as a separate pass unit.
 
 **What re-invokes the acquisition passes: the timers.** Each firing runs one
 bounded pass that exits (`--stop-when-done`); this is the same invocation an

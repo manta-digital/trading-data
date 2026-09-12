@@ -14,6 +14,7 @@ import typer
 # this module's imports, because Typer resolves an option's choices at
 # decoration time (``--table`` from the enum, ``--track`` from ``TRACKS``) to
 # build the choice list and reject anything else.
+from manta_trading.cli.commands._pass_run import make_pass_run_recorder
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.rechunk import RechunkTarget
@@ -99,6 +100,10 @@ data_app.command("health")(data_health)
 from manta_trading.cli.commands.accounting import data_accounting  # noqa: E402
 
 data_app.command("accounting")(data_accounting)
+# `mt data overview` (slice 922): the first command an operator runs.
+from manta_trading.cli.commands.overview import data_overview  # noqa: E402
+
+data_app.command("overview")(data_overview)
 data_app.add_typer(universes_app, name="universes")
 data_app.add_typer(restore_app, name="restore")
 data_app.add_typer(kalshi_app, name="kalshi")
@@ -856,6 +861,12 @@ def calendars_holidays(
 
 _VALID_HEALTH_VALUES = {"OK", "GAPS", "STALE", "FAILED"}
 
+_DEFAULT_HEALTH_FILTER = "GAPS,STALE,FAILED"
+"""What --detail shows when --health is not given: everything but OK.
+
+Named rather than repeated as a literal in the option default and the help
+text, which is how the two drift apart."""
+
 
 @data_app.command("status")
 def data_status(
@@ -866,25 +877,43 @@ def data_status(
     json_output: bool = typer.Option(
         False, "--json", help="Emit JSON instead of Rich table."
     ),
-    health_opt: str = typer.Option(
-        "GAPS,STALE,FAILED",
+    health_opt: str | None = typer.Option(
+        None,
         "--health",
-        help="Comma-separated health values to show (OK,GAPS,STALE,FAILED).",
+        help=(
+            "Comma-separated health values to show (OK,GAPS,STALE,FAILED). "
+            f"Implies --detail; defaults to {_DEFAULT_HEALTH_FILTER}."
+        ),
     ),
     daily: bool = typer.Option(False, "--daily", help="Show daily rows only."),
     minute: bool = typer.Option(False, "--minute", help="Show minute rows only."),
     all_rows: bool = typer.Option(
         False, "--all", help="Show all rows including OK (overrides --health)."
     ),
+    detail: bool = typer.Option(
+        False, "--detail", help="Show the per-symbol table (the default until 922)."
+    ),
 ) -> None:
-    """Show health of every (symbol, granularity) pair in the registry.
+    """Summarise data health, or show the per-symbol table with --detail.
+
+    With no options this prints the source freshness block and the health
+    footer — the question "is the data current" answered without scrolling
+    past 12,000 rows to find out. Slice 922 made that the default because the
+    table was what an operator got for asking the simplest question.
+
+    Any of --symbol, --health, --daily, --minute, --all, --json or --detail
+    prints the table: asking for a filter is asking for rows.
 
     Results are grouped into separate tables: daily first, then minute.
-    Default: non-OK rows only. Use --daily or --minute to limit granularity.
-    Use --symbol for detail + gap listing. Use --json for machine-readable output.
+    Use --symbol for detail + gap listing. Use --json for machine-readable
+    output.
     """
+    from datetime import UTC, datetime
+
     from rich.console import Console
 
+    from manta_trading.cli.commands.overview import read_source_freshness
+    from manta_trading.cli.rendering.overview import render_status_sources
     from manta_trading.cli.rendering.status_table import (
         HealthStatus,
         StatusReport,
@@ -898,6 +927,7 @@ def data_status(
     from manta_trading.data.maintenance.auto_extend import maybe_extend_trading_sessions
     from manta_trading.data.maintenance.status_queries import (
         fetch_all_health_counts_with_freshness,
+        fetch_gap_status_counts,
         fetch_status_rows,
         fetch_status_rows_with_freshness,
         fetch_symbol_gaps,
@@ -912,7 +942,8 @@ def data_status(
     if all_rows:
         health_filter: list[str] | None = None
     else:
-        raw_health = [h.strip().upper() for h in health_opt.split(",") if h.strip()]
+        requested = health_opt if health_opt is not None else _DEFAULT_HEALTH_FILTER
+        raw_health = [h.strip().upper() for h in requested.split(",") if h.strip()]
         invalid = [h for h in raw_health if h not in _VALID_HEALTH_VALUES]
         if invalid:
             print_error(
@@ -922,6 +953,18 @@ def data_status(
             )
             raise typer.BadParameter(f"Invalid health: {invalid}")
         health_filter = raw_health
+
+    # Slice 922: asking for a filter is asking for rows. With none given,
+    # the default is the summary.
+    wants_table = bool(
+        detail
+        or symbol
+        or json_output
+        or all_rows
+        or daily
+        or minute
+        or health_opt is not None
+    )
 
     # Resolve granularity filter from --daily / --minute flags.
     if daily and minute:
@@ -942,17 +985,32 @@ def data_status(
     auto_result = maybe_extend_trading_sessions(_conn_factory, bypass_gate=True)
 
     with _conn_factory() as conn:
-        # Freshness comes from the row fetch; the health-count fetch re-asserts
-        # against slice 168's TTL verdict cache, so one guard result describes
-        # both and the second probe stays cheap.
-        status_rows, coverage = fetch_status_rows_with_freshness(
-            conn,
-            symbol=symbol,
-            health_filter=health_filter,
-            granularity=granularity_filter,
-        )
-        health_counts, _ = fetch_all_health_counts_with_freshness(conn)
+        # The summary needs no rows: it prints counts and freshness, and the
+        # non-OK filter would materialise thousands of 11-column rows only to
+        # discard them. Freshness then comes from the health-count fetch,
+        # which reads through the same guarded accessor (922 review F002).
+        if wants_table:
+            # Freshness comes from the row fetch; the health-count fetch
+            # re-asserts against slice 168's TTL verdict cache, so one guard
+            # result describes both and the second probe stays cheap.
+            status_rows, coverage = fetch_status_rows_with_freshness(
+                conn,
+                symbol=symbol,
+                health_filter=health_filter,
+                granularity=granularity_filter,
+            )
+            health_counts, _ = fetch_all_health_counts_with_freshness(conn)
+        else:
+            status_rows = []
+            health_counts, coverage = fetch_all_health_counts_with_freshness(conn)
+        # Slice 922: gap_count now reports OPEN gaps only, so the footer
+        # shows what the rest of the gap table holds — a backlog still being
+        # worked reads nothing like one the provider has already closed.
+        gap_status_counts = fetch_gap_status_counts(conn)
         gaps = fetch_symbol_gaps(conn, symbol) if symbol else []
+        # The summary's SOURCES block, read from the same connection as the
+        # counts so the two describe one instant.
+        sources = read_source_freshness(conn) if not wants_table else []
 
 
     # A no-row result is exactly when a stale-coverage verdict matters most: it
@@ -975,8 +1033,12 @@ def data_status(
             Console().print(notice)
         print_result(msg, json_mode=False)
 
-    # Empty-universe path.
-    if not status_rows and symbol is None:
+    # Empty-universe path. Gated on the unfiltered health counts, not on the
+    # fetched rows: the default summary filters to GAPS,STALE,FAILED, so a
+    # fully healthy registry has no rows and used to be reported as no
+    # registry at all — and exited before printing the summary it was asked
+    # for (922 review F002).
+    if sum(health_counts.values()) == 0 and symbol is None:
         _emit_empty(
             "No instruments found. Run `mt data instruments rebuild` to populate the registry."
         )
@@ -1012,6 +1074,7 @@ def data_status(
         auto_extend=auto_result,
         summary=health_counts,
         coverage=coverage,
+        gap_status_counts=gap_status_counts,
     )
 
     if json_output:
@@ -1026,6 +1089,16 @@ def data_status(
     coverage_notice = render_coverage_notice(coverage)
     if coverage_notice:
         console.print(coverage_notice)
+
+    if not wants_table:
+        # Slice 922: the default. Source freshness plus the footer answers
+        # "is the data current" without scrolling past 12,000 rows.
+        console.print(render_status_sources(sources, now=datetime.now(UTC)))
+        console.print(render_status_footer(report, all_rows=all_rows))
+        notice = render_auto_extend_notice(auto_result)
+        if notice:
+            console.print(notice)
+        return
 
     if symbol:
         for renderable in render_status_detail(report):
@@ -1453,6 +1526,15 @@ def daemon_run(
     def _minute_cycle(**kwargs):  # type: ignore[no-untyped-def]
         return _rmc(**kwargs, on_symbol=on_symbol_cb)
 
+    # Slice 922, Decision 3: only an all-active cycle writes a pass_runs row.
+    # A --symbols invocation is the operator poking at a few tickers, not the
+    # universe walk `mt data overview` reports on, so it records nothing.
+    pass_run_recorder, pass_run_pool = (
+        (None, None)
+        if config_obj.is_explicit_scope()
+        else make_pass_run_recorder(settings)
+    )
+
     bucket = QuotaBucket()
     runner = Runner(
         config_obj,
@@ -1461,6 +1543,8 @@ def daemon_run(
         run_ca_update=make_ca_update_fn(settings),
         run_daily_cycle=_daily_cycle if verbose else None,
         run_minute_cycle=_minute_cycle if verbose else None,
+        pass_run_recorder=pass_run_recorder,
+        minute_firing_days=settings.minute_firing_days,
     )
 
     from manta_trading.data.maintenance.auto_extend import maybe_extend_trading_sessions
@@ -1468,7 +1552,15 @@ def daemon_run(
         lambda: maybe_extend_trading_sessions(_conn_factory)
     )
 
-    sys.exit(runner.start())
+    try:
+        exit_code = runner.start()
+    finally:
+        # The --forever shape never gets here, but --stop-when-done does, and
+        # leaving the pool's background workers to interpreter exit made that
+        # path's shutdown nondeterministic (922 review F009).
+        if pass_run_pool is not None:
+            pass_run_pool.close()
+    sys.exit(exit_code)
 
 
 

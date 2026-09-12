@@ -1,0 +1,29 @@
+[Unit]
+Description=Manta Trading minute accounting (one bounded run, fired by mt-accounting-pass.timer)
+Documentation=https://github.com/manta-digital/trading-data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=manta-trading
+Group=manta-trading
+WorkingDirectory=/opt/manta-trading
+EnvironmentFile=/etc/manta-trading.env
+# Read-only: counts expected vs covered minute symbol-sessions across the
+# whole universe and records the summary line in pass_runs, which is what
+# `mt data overview` prints as its universe line. Several minutes against the
+# production database; exits 2 only when it could not run at all.
+ExecStart=/opt/manta-trading/.venv/bin/mt data accounting
+# Unbounded start: the scan is a full-universe aggregate whose duration grows
+# with the universe, and a timeout would turn a slow night into a failed unit.
+TimeoutStartSec=infinity
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+# No Restart= — the next timer firing recomputes. No [Install] — the timer
+# gets enabled, not this service.

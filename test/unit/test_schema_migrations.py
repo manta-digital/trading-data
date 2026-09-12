@@ -2,13 +2,52 @@
 
 from __future__ import annotations
 
+import re
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.market.schema.migrations import MIGRATIONS, TRACKS
 from manta_trading.market.schema.migrations.daily import DAILY_MIGRATIONS
 from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+
+# ---------------------------------------------------------------------------
+# Position-critical migrations
+# ---------------------------------------------------------------------------
+
+# Migrations deliberately placed out of id-sort order because a later
+# migration depends on them. List order drives the runner; numeric id sort
+# does not. Every ordering assertion in this module exempts these, so an
+# accidental reorder of anything else is still caught.
+#
+#   038_create_acquisition_state -> before 019_slim_acquisition_state
+#   055_create_pass_runs         -> before 021_data_status_view (slice 922:
+#       the data_status builder's walk_anchor CTE references pass_runs, and
+#       every historical re-issue of that view renders from the builder)
+POSITION_CRITICAL_IDS: frozenset[str] = frozenset(
+    {
+        "038_create_acquisition_state",
+        "055_create_pass_runs",
+    }
+)
+
+
+def _check_clauses(sql: str) -> list[str]:
+    """Return the body of every ``CHECK (...)`` in a CREATE TABLE statement."""
+    clauses: list[str] = []
+    for start in (m.end() for m in re.finditer(r"CHECK\s*\(", sql)):
+        depth = 1
+        for i in range(start, len(sql)):
+            if sql[i] == "(":
+                depth += 1
+            elif sql[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    clauses.append(sql[start:i])
+                    break
+    return clauses
 
 
 # ---------------------------------------------------------------------------
@@ -154,16 +193,12 @@ class TestMigrationsListIntegrity:
     def test_ids_are_sorted_except_known_position_critical(self):
         """List order drives runner; numeric id sort does not.
 
-        Slice 156 inserts position-critical fixup migrations out of id-sort
-        order (e.g. 038_create_acquisition_state must precede
-        019_slim_acquisition_state). Such exceptions are explicit and listed
-        below so future ad-hoc reordering is still caught.
+        Position-critical migrations are inserted out of id-sort order because
+        a later migration depends on them; they are enumerated once in
+        ``POSITION_CRITICAL_IDS`` so future ad-hoc reordering is still caught.
         """
-        position_critical_ids: set[str] = {
-            "038_create_acquisition_state",
-        }
         ids = [m["id"] for m in MIGRATIONS]
-        filtered = [mid for mid in ids if mid not in position_critical_ids]
+        filtered = [mid for mid in ids if mid not in POSITION_CRITICAL_IDS]
         assert filtered == sorted(filtered)
 
     def test_migration_count(self):
@@ -174,7 +209,10 @@ class TestMigrationsListIntegrity:
         # 55 -> 56 with 053 (minute cagg refresh offsets from the constant,
         # issue #20).
         # 56 -> 57 with 054 (daily_monthly refresh window, issue #20).
-        assert len(MIGRATIONS) == 57
+        # 57 -> 58 with slice 922's 055 (pass_runs, position-critical before
+        # 021), and 58 -> 59 with its 056 (data_status open gaps + walk
+        # anchor).
+        assert len(MIGRATIONS) == 59
 
 
 # ---------------------------------------------------------------------------
@@ -600,15 +638,15 @@ class TestListMigrationStateUnit:
         assert pending_ids == [m["id"] for m in MINUTE_MIGRATIONS]
 
     def test_all_applied_returns_empty_pending(self):
-        from manta_trading.market.schema.runner import list_migration_state
+        from datetime import datetime
 
-        from datetime import datetime, timezone
+        from manta_trading.market.schema.runner import list_migration_state
 
         applied_rows = [
             {
                 "migration_id": m["id"],
                 "description": m["description"],
-                "applied_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                "applied_at": datetime(2026, 1, 1, tzinfo=UTC),
             }
             for m in MINUTE_MIGRATIONS
         ]
@@ -618,16 +656,16 @@ class TestListMigrationStateUnit:
         assert len(result["applied"]) == len(MINUTE_MIGRATIONS)
 
     def test_partial_state_splits_correctly(self):
-        from manta_trading.market.schema.runner import list_migration_state
+        from datetime import datetime
 
-        from datetime import datetime, timezone
+        from manta_trading.market.schema.runner import list_migration_state
 
         applied_ids = ["001_schema_migrations", "002_instruments", "003_provider_symbol_mapping"]
         applied_rows = [
             {
                 "migration_id": mid,
                 "description": "some desc",
-                "applied_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                "applied_at": datetime(2026, 1, 1, tzinfo=UTC),
             }
             for mid in applied_ids
         ]
@@ -968,7 +1006,9 @@ class TestMigration050DailyChunkInterval:
             if m["id"] == _MIGRATION_050_ID
         )
         assert all(
-            m["id"] < _MIGRATION_050_ID for m in MINUTE_MIGRATIONS[:index]
+            m["id"] < _MIGRATION_050_ID
+            for m in MINUTE_MIGRATIONS[:index]
+            if m["id"] not in POSITION_CRITICAL_IDS
         )
 
     def test_sql_calls_set_chunk_time_interval_on_daily(self) -> None:
@@ -1023,10 +1063,51 @@ class TestMigration023DailyChunkIntervalFromConstant:
         assert "= 7 days" not in self._get()["description"]
 
 
+class TestMigration055PassRuns:
+    """The CHECK text must render from the enums and name nothing else."""
+
+    def _get(self) -> dict:
+        return next(
+            m for m in MINUTE_MIGRATIONS if m["id"] == "055_create_pass_runs"
+        )
+
+    def test_precedes_the_data_status_view(self) -> None:
+        ids = [m["id"] for m in MINUTE_MIGRATIONS]
+        assert ids.index("055_create_pass_runs") < ids.index("021_data_status_view")
+
+    def test_pass_check_names_every_kind(self) -> None:
+        sql = self._get()["sql"]
+        for kind in PassKind:
+            assert f"'{kind.value}'" in sql
+
+    def test_outcome_check_names_every_outcome(self) -> None:
+        sql = self._get()["sql"]
+        for outcome in PassRunOutcome:
+            assert f"'{outcome.value}'" in sql
+
+    def test_checks_quote_nothing_beyond_the_enums(self) -> None:
+        """No hand-typed value may creep into either CHECK clause."""
+        sql = self._get()["sql"]
+        allowed = {k.value for k in PassKind} | {o.value for o in PassRunOutcome}
+        for clause in _check_clauses(sql):
+            quoted = set(re.findall(r"'([^']*)'", clause))
+            assert quoted <= allowed, f"unexpected literals: {quoted - allowed}"
+
+    def test_ended_and_outcome_are_paired(self) -> None:
+        sql = self._get()["sql"]
+        assert "(ended_at IS NULL) = (outcome IS NULL)" in sql
+
+    def test_table_and_index_are_idempotent(self) -> None:
+        sql = self._get()["sql"]
+        assert "CREATE TABLE IF NOT EXISTS pass_runs" in sql
+        assert "CREATE INDEX IF NOT EXISTS idx_pass_runs_pass_started" in sql
+
+
 _MIGRATION_051_ID = "051_coverage_cagg_bucket_narrowing"
 _MIGRATION_052_ID = "052_coverage_cagg_refresh_policies_narrowed"
 _MIGRATION_053_ID = "053_minute_cagg_refresh_offsets_from_constant"
 _MIGRATION_054_ID = "054_daily_monthly_refresh_window"
+_MIGRATION_056_ID = "056_data_status_open_gaps_and_walk_anchor"
 
 
 class _StatementRecorder:
@@ -1209,15 +1290,18 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_054() -> None:
-    """The newest migration must be last (issue #20 retargeted this from 052).
+def test_chain_ends_at_056() -> None:
+    """The newest migration must be last (slice 922 retargeted this from 054).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
     landing a migration before an already-applied production tip must be a
     deliberate, test-breaking act.
+
+    Note 055 is deliberately NOT the tip: it is position-critical before 021
+    (see ``POSITION_CRITICAL_IDS``), which is why the tip check names 056.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_054_ID
+    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_056_ID
 
 
 class TestMigration054DailyMonthlyRefreshWindow:

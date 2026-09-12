@@ -206,7 +206,19 @@ class CoverageStatus(BaseModel):
 
 
 class StatusRowRecord(BaseModel):
-    """One ``data_status`` row — the wire form of ``StatusRow``."""
+    """One ``data_status`` row — the wire form of ``StatusRow``.
+
+    Two fields changed meaning in slice 922, without changing type or name:
+
+    - ``gap_count`` counts **open** gaps only — those with ``fetch_status``
+      ``UNKNOWN`` or ``FAILED_RETRYABLE``, the ones still being asked about.
+      ``PROVIDER_HOLE`` is a terminal answer from the provider and
+      ``RETRY_EXHAUSTED`` a terminal failure (reflected in ``health``
+      ``FAILED``); counting either made this a number that could never reach
+      zero.
+    - ``health`` ``STALE`` now means "not attempted in the last recorded
+      universe walk" rather than "not attempted within a fixed interval".
+    """
 
     symbol: str
     granularity: str

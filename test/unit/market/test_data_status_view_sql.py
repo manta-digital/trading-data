@@ -17,11 +17,13 @@ from manta_trading.constants import (
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_VIEW,
 )
+from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.market.schema.migrations.minute import (
     _build_data_status_view_sql,
     _composite_lag_literal,
     _data_status_doc_comment,
     _interval_literal,
+    _open_gap_predicate,
 )
 
 
@@ -257,3 +259,111 @@ class TestDataStatusDocCommentCaggLag:
         # on correct output and pass only by accident of formatting.
         assert f"({two_hop_only} total)" not in comment
         assert "at most the two-hop refresh interval" not in comment
+
+
+# ---------------------------------------------------------------------------
+# Slice 922: open gaps and the walk anchor
+# ---------------------------------------------------------------------------
+
+
+class TestOpenGapsAndWalkAnchor:
+    """The two meanings migration 056 changed, asserted on the rendered SQL.
+
+    Both are the kind of change that is invisible until an operator reads a
+    number and believes it, so the text that produces them is pinned here:
+    the values come from ``FetchStatus``, and the STALE test is a join to the
+    anchor rather than an interval.
+    """
+
+    @pytest.fixture()
+    def sql(self) -> str:
+        return _build_data_status_view_sql(
+            include_daily_branch=True,
+            include_trading_sessions_cte=True,
+            cagg_backed_bars_summary=True,
+        )
+
+    def test_gap_count_filters_to_the_open_statuses(self, sql: str) -> None:
+        assert "COUNT(*) FILTER (WHERE fetch_status IN (" in sql
+        assert f"''{FetchStatus.UNKNOWN.value}''" in sql
+        assert f"''{FetchStatus.FAILED_RETRYABLE.value}''" in sql
+
+    def test_a_terminal_hole_is_not_counted_as_a_gap(self, sql: str) -> None:
+        """PROVIDER_HOLE is the provider's answer, not an open question."""
+        predicate = _open_gap_predicate()
+        assert FetchStatus.PROVIDER_HOLE.value not in predicate
+
+    def test_retry_exhausted_is_not_counted_as_a_gap(self, sql: str) -> None:
+        """It is terminal, and already carried by has_retry_exhausted."""
+        assert FetchStatus.RETRY_EXHAUSTED.value not in _open_gap_predicate()
+
+    def test_retry_exhausted_still_drives_the_failed_verdict(self, sql: str) -> None:
+        assert f"BOOL_OR(fetch_status = ''{FetchStatus.RETRY_EXHAUSTED.value}'')" in sql
+        assert "has_retry_exhausted" in sql
+
+    def test_the_predicate_names_only_enum_values(self) -> None:
+        import re
+
+        quoted = set(re.findall(r"''([^']+)''", _open_gap_predicate()))
+        assert quoted <= {status.value for status in FetchStatus}
+        assert quoted == {
+            FetchStatus.UNKNOWN.value,
+            FetchStatus.FAILED_RETRYABLE.value,
+        }
+
+    def test_the_walk_anchor_cte_reads_ended_anchored_runs(self, sql: str) -> None:
+        assert "walk_anchor AS (" in sql
+        assert "MAX(walk_anchor_at) AS anchor FROM pass_runs" in sql
+        assert "walk_anchor_at IS NOT NULL AND ended_at IS NOT NULL" in sql
+        assert "GROUP BY pass" in sql
+
+    def test_the_anchor_joins_on_granularity(self, sql: str) -> None:
+        """A minute pass anchors minute symbols, a daily pass daily ones."""
+        assert "LEFT JOIN walk_anchor wa ON wa.pass = s.granularity" in sql
+
+    def test_stale_compares_against_the_anchor(self, sql: str) -> None:
+        assert "ast.last_attempt_ts < wa.anchor THEN ''STALE''" in sql
+
+    def test_stale_no_longer_uses_a_fixed_interval(self, sql: str) -> None:
+        """The thresholds this replaced called every minute symbol STALE six
+        days a week under a weekly collecting cadence."""
+        stale_clause = sql[sql.index("THEN ''FAILED''") : sql.index("''GAPS''")]
+        assert "NOW() -" not in stale_clause
+        assert "INTERVAL" not in stale_clause
+
+    def test_a_never_attempted_symbol_is_still_stale(self, sql: str) -> None:
+        """With a NULL anchor this is the only STALE case left."""
+        assert "ast.last_attempt_ts IS NULL" in sql
+
+    def test_the_late_bar_grace_literal_survives(self, sql: str) -> None:
+        """_interval_literal keeps a consumer: the exchange-close grace."""
+        assert _interval_literal(LATE_BAR_GRACE_PERIOD) in sql
+
+
+class TestDocCommentStatesTheNewRules:
+    """The comment is what ``\\d+ data_status`` shows; it must not lie."""
+
+    @pytest.fixture()
+    def comment(self) -> str:
+        return _data_status_doc_comment()
+
+    def test_it_states_the_anchor_rule(self, comment: str) -> None:
+        assert "STALE MEANS NOT ATTEMPTED IN THE LAST RECORDED WALK" in comment
+        assert "walk_anchor_at" in comment
+
+    def test_it_states_the_null_anchor_behaviour(self, comment: str) -> None:
+        assert "only never-attempted symbols read STALE" in comment
+
+    def test_it_explains_that_an_aborted_pass_still_moves_the_anchor(
+        self, comment: str
+    ) -> None:
+        assert "aborted" in comment
+
+    def test_it_states_the_open_gap_meaning(self, comment: str) -> None:
+        assert "GAP_COUNT MEANS OPEN GAPS" in comment
+        assert FetchStatus.UNKNOWN.value in comment
+        assert FetchStatus.FAILED_RETRYABLE.value in comment
+
+    def test_it_names_the_terminal_statuses_it_excludes(self, comment: str) -> None:
+        assert FetchStatus.PROVIDER_HOLE.value in comment
+        assert FetchStatus.RETRY_EXHAUSTED.value in comment
