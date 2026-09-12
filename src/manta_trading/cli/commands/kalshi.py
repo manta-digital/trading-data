@@ -28,6 +28,7 @@ from manta_trading.cli.commands.kalshi_render import (
 )
 from manta_trading.cli.commands.kalshi_status_render import print_status
 from manta_trading.cli.output import print_error, print_result
+from manta_trading.data.acquisition.pass_runs import PassRunOutcome
 from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
 from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.logging import get_logger
@@ -57,6 +58,33 @@ EXIT_BY_OUTCOME: dict[SyncOutcome, int] = {
     SyncOutcome.PROVIDER_ABORT: EXIT_PROVIDER,
     SyncOutcome.STORAGE_ABORT: EXIT_STORAGE,
 }
+
+# Every outcome must have a code — a new member cannot silently exit 0.
+assert set(EXIT_BY_OUTCOME) == set(SyncOutcome), (
+    "the kalshi exit mapping is not exhaustive — update it after adding a "
+    "SyncOutcome member"
+)
+
+# What a Kalshi pass records in pass_runs (slice 922, Decision 2). The one
+# place a SyncOutcome becomes a PassRunOutcome. Kalshi has no provider quota,
+# so COMPLETE_QUOTA never arises here; a storage abort is this process's own
+# failure, not the provider's, so it records FAILED.
+PASS_RUN_OUTCOME_BY_SYNC_OUTCOME: dict[SyncOutcome, PassRunOutcome] = {
+    SyncOutcome.OK: PassRunOutcome.COMPLETE,
+    SyncOutcome.PARTIAL: PassRunOutcome.INCOMPLETE,
+    SyncOutcome.PROVIDER_ABORT: PassRunOutcome.PROVIDER_UNAVAILABLE,
+    SyncOutcome.STORAGE_ABORT: PassRunOutcome.FAILED,
+}
+
+assert set(PASS_RUN_OUTCOME_BY_SYNC_OUTCOME) == set(SyncOutcome), (
+    "the kalshi pass_runs mapping is not exhaustive — update it after adding "
+    "a SyncOutcome member"
+)
+
+
+def pass_run_outcome_for_kalshi(outcome: SyncOutcome) -> PassRunOutcome:
+    """Map a Kalshi pass outcome to the value recorded in ``pass_runs``."""
+    return PASS_RUN_OUTCOME_BY_SYNC_OUTCOME[outcome]
 
 
 def parse_settled_since(value: str) -> datetime:

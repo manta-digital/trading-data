@@ -14,8 +14,8 @@ projectState: >
   journal lines; `mt data status` reads holes as gaps and, six days a week,
   every active minute symbol as STALE.
 dateCreated: 20260911
-dateUpdated: 20260911
-status: not_started
+dateUpdated: 20260912
+status: in_progress
 ---
 
 ## Context Summary
@@ -91,71 +91,71 @@ status: not_started
 Design *Scope 1*, *Decision 1, 2, 4*, *Database / Storage Schema*, *SC3*,
 *SC6*, *SC7*.
 
-- [ ] **Task 1.1: `PassKind` and `PassRunOutcome` enums** (effort: 1)
-  - [ ] New module `data/acquisition/pass_runs.py` with `PassKind(StrEnum)`
+- [x] **Task 1.1: `PassKind` and `PassRunOutcome` enums** (effort: 1)
+  - [x] New module `data/acquisition/pass_runs.py` with `PassKind(StrEnum)`
         (`MINUTE`, `DAILY`, `KALSHI`, `HEALTH`, `ACCOUNTING`) and
         `PassRunOutcome(StrEnum)` (`COMPLETE`, `COMPLETE_QUOTA`, `INCOMPLETE`,
         `PROVIDER_UNAVAILABLE`, `FAILED`), each member documented with the
         one-line meaning from Decision 2.
-  - [ ] A `PassRun` dataclass whose fields mirror the table columns of the
+  - [x] A `PassRun` dataclass whose fields mirror the table columns of the
         design's schema exactly, including `hostname`, `pid`, `walk_anchor_at`.
-  - [ ] Success: the enums are the only place these strings exist; no bare
+  - [x] Success: the enums are the only place these strings exist; no bare
         outcome or kind literal anywhere else in `src/`.
-- [ ] **Task 1.2: Migration 055 `create_pass_runs`, position-critical** (effort: 2)
-  - [ ] Add the table from the design's schema block with CHECK constraints
+- [x] **Task 1.2: Migration 055 `create_pass_runs`, position-critical** (effort: 2)
+  - [x] Add the table from the design's schema block with CHECK constraints
         rendered from the two enums via helpers in the `_fetch_status_check_sql`
         style, the `(ended_at IS NULL) = (outcome IS NULL)` constraint, and
         `idx_pass_runs_pass_started`. `IF NOT EXISTS` throughout.
-  - [ ] Insert the dict **immediately before `021_data_status_view`** in
+  - [x] Insert the dict **immediately before `021_data_status_view`** in
         `MINUTE_MIGRATIONS`, with a position-critical comment modelled on
         038's, and add `"055_create_pass_runs"` to `position_critical_ids` in
         `test_ids_are_sorted_except_known_position_critical`; update
         `test_migration_count`.
-  - [ ] Success: `mt data migrate status` on a `migrated_db` lists 055 applied
+  - [x] Success: `mt data migrate status` on a `migrated_db` lists 055 applied
         between 020 and 021; applying twice is a no-op.
-- [ ] **Task 1.3: Tests for the migration** (effort: 1)
-  - [ ] Integration test over `migrated_db`: the table exists with the exact
+- [x] **Task 1.3: Tests for the migration** (effort: 1)
+  - [x] Integration test over `migrated_db`: the table exists with the exact
         column list; an insert with an outcome outside the enum is rejected;
         an insert with `ended_at` set and `outcome` NULL is rejected.
-  - [ ] Unit test: the CHECK text contains every enum member and nothing else.
-  - [ ] Success: `python scripts/run_tests.py unit` and the integration file
+  - [x] Unit test: the CHECK text contains every enum member and nothing else.
+  - [x] Success: `python scripts/run_tests.py unit` and the integration file
         pass.
-- [ ] **Task 1.4: `PassRunRepository`** (effort: 2)
-  - [ ] In `pass_runs.py`, copy the `HeartbeatRepository` shape: `_COLS`, a
+- [x] **Task 1.4: `PassRunRepository`** (effort: 2)
+  - [x] In `pass_runs.py`, copy the `HeartbeatRepository` shape: `_COLS`, a
         row mapper, `insert(run)`, `update_progress(run_id, phase, done,
         total, at)`, `close(run_id, ended_at, outcome, exit_code, detail)`,
         `open_runs(kind) -> list[PassRun]` (newest first),
         `latest_ended(kind) -> PassRun | None`, `close_abandoned(kind,
         hostname, dead_pids, now)`.
-  - [ ] All SQL parameterised; no interpolation.
-  - [ ] Success: each method has one query; a docstring on the class names
+  - [x] All SQL parameterised; no interpolation.
+  - [x] Success: each method has one query; a docstring on the class names
         Decision 1 (rows written by the process that runs the pass).
-- [ ] **Task 1.5: Tests for the repository** (effort: 2)
-  - [ ] Integration test over `migrated_db`: insert → open_runs returns it →
+- [x] **Task 1.5: Tests for the repository** (effort: 2)
+  - [x] Integration test over `migrated_db`: insert → open_runs returns it →
         update_progress reflected → close → latest_ended returns it and
         open_runs is empty; `close_abandoned` closes only the listed pids on
         the given host with outcome `FAILED` and detail `abandoned: pid N gone`,
         leaving a live pid and a foreign host untouched.
-  - [ ] Success: the file passes in the integration tier.
-- [ ] **Task 1.6: `PassRunRecorder`** (effort: 2)
-  - [ ] New module `data/acquisition/daemon/pass_run_recorder.py`. Constructor
+  - [x] Success: the file passes in the integration tier.
+- [x] **Task 1.6: `PassRunRecorder`** (effort: 2)
+  - [x] New module `data/acquisition/daemon/pass_run_recorder.py`. Constructor
         takes the repository, a clock, `hostname` and `pid` (defaults from
         `socket.gethostname()` / `os.getpid()`), and a pid-liveness callable
         (default `os.kill(pid, 0)` wrapped to return bool).
-  - [ ] `open(kind, walk_anchor_at)` first calls the liveness callable on every
+  - [x] `open(kind, walk_anchor_at)` first calls the liveness callable on every
         open row of this kind on this host and closes the dead ones via
         `close_abandoned` (Decision 4), then inserts the new row and returns
         its `run_id`. `progress(...)` and `close(...)` delegate.
-  - [ ] Every method catches `psycopg.Error`, logs with `logger.exception` at
+  - [x] Every method catches `psycopg.Error`, logs with `logger.exception` at
         ERROR, and returns without raising: recording never aborts a pass. No
         other exception type is caught.
-  - [ ] Success: the docstring states the never-raises contract and cites
+  - [x] Success: the docstring states the never-raises contract and cites
         Decision 4.
-- [ ] **Task 1.7: Tests for the recorder** (effort: 2)
-  - [ ] Unit tests with a fake repository: a dead-pid row on the same host is
+- [x] **Task 1.7: Tests for the recorder** (effort: 2)
+  - [x] Unit tests with a fake repository: a dead-pid row on the same host is
         closed at open; a live-pid row and a foreign-host row are not; a
         repository error on `progress` is logged at ERROR and does not raise.
-  - [ ] Success: `test/unit/data/acquisition/daemon/test_pass_run_recorder.py`
+  - [x] Success: `test/unit/data/acquisition/daemon/test_pass_run_recorder.py`
         passes. Commit (section checkpoint).
 
 ## Section 2: Writers

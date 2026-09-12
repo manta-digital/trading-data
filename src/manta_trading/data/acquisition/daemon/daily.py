@@ -117,6 +117,17 @@ class CycleReport:
     False without meaning anything was missed. The exit mapping treats quota
     exhaustion on such a day as the designed end (exit 0)."""
 
+    trailing_symbols_attempted: int = 0
+    """How many symbols the minute pass's TRAILING phase actually reached
+    (slice 922). Carried so the pass_runs close detail can be written without
+    re-deriving it from ``symbol_outcomes``, which holds the union of both
+    phases and so cannot answer "how far did trailing get". Always 0 on a
+    daily report."""
+
+    backfill_symbols_attempted: int = 0
+    """How many symbols the minute pass's BACKFILL phase reached (slice 922).
+    Always 0 on a daily report."""
+
     nothing_actionable: bool = False
     """True when the cycle derived an empty work list and made no provider
     call. Lets the runner distinguish a drained scope from a closed cadence
