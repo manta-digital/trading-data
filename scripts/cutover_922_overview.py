@@ -206,7 +206,12 @@ def install(ref: str, commit: str, report: Report) -> None:
         f"{installed[:12]} (expected {commit[:12]})",
     )
     version = out([str(MT_BIN), "--version"])
-    report.check("installed mt reports 0.15.0", "0.15.0" in version, version)
+    # Derived from the ref, not hardcoded: pinning one release's number made
+    # the check fail on the next deploy while everything was in fact correct.
+    expected = ref.lstrip("v")
+    report.check(
+        f"installed mt reports {expected}", expected in version, version
+    )
 
 
 def migrate(report: Report) -> None:
