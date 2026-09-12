@@ -18,6 +18,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (nothing yet)
 
+## [0.15.1] - 2026-09-12
+
+### Fixed
+- **A minute gap that splits on every pass now counts its attempt, so it can
+  terminate.** `_advance_minute_gap` re-inserts the older remainder after
+  fetching a gap's trailing chunk; both split paths carried the *pre-attempt*
+  `attempt_count` forward, so such a gap never reached `MAX_RETRY_COUNT`.
+  48,605 rows on production sat at `attempt_count = 0` having been
+  re-attempted daily — spending EODHD credits every day and never
+  terminating. The remaining minute backlog was not draining slowly; it was
+  not draining at all, and `SC3` could never reach zero.
+
+  Ten unit tests covered that function and all passed: each asserted a
+  single call in isolation, and two asserted the defect outright ("original
+  attempt count preserved"). They are replaced by the invariant that
+  matters — a repeatedly-splitting gap reaches the cap. Slice 921 fixed the
+  opposite over-increment defect and did not check this direction.
+
 ## [0.15.0] - 2026-09-12
 
 ### Added
