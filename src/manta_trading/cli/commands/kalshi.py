@@ -28,13 +28,20 @@ from manta_trading.cli.commands.kalshi_render import (
 )
 from manta_trading.cli.commands.kalshi_status_render import print_status
 from manta_trading.cli.output import print_error, print_result
-from manta_trading.data.acquisition.pass_runs import PassRunOutcome
+from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
 from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from uuid import UUID
+
     from manta_trading.config import Settings
+    from manta_trading.data.acquisition.daemon.pass_run_recorder import (
+        PassRunRecorder,
+    )
+    from manta_trading.data.kalshi.collection_pass import PassPhaseName, PassResult
     from manta_trading.data.kalshi.run_context import KalshiRun
 
 logger = get_logger(__name__)
@@ -218,16 +225,73 @@ def kalshi_pass(
 async def run_pass(
     settings: Settings, events_file: Path | None, json_output: bool
 ) -> int:
-    """Preflight, run every phase, summarize; returns the exit code."""
+    """Preflight, run every phase, summarize; returns the exit code.
+
+    The pass records itself in ``pass_runs`` (slice 922) so ``mt data
+    overview`` can report it alongside the other passes. Recording is
+    best-effort: a recorder that cannot be built is absent, and the recorder
+    itself never raises, so the pass runs and reports its result either way.
+    """
+    from manta_trading.cli.commands._pass_run import pass_run_recorder
     from manta_trading.data.kalshi.collection_pass import PASS_PHASES, CollectionPass
 
-    async with kalshi_run(settings, events_file, json_output) as run:
-        if run is None:
-            return EXIT_PREFLIGHT
-        result = await CollectionPass(run, PASS_PHASES).run()
-    exit_code = EXIT_BY_OUTCOME[result.outcome]
+    with pass_run_recorder(settings) as recorder:
+        run_id = (
+            recorder.open(PassKind.KALSHI) if recorder is not None else None
+        )
+        try:
+            async with kalshi_run(settings, events_file, json_output) as run:
+                if run is None:
+                    if recorder is not None:
+                        recorder.close(
+                            run_id,
+                            outcome=PassRunOutcome.FAILED,
+                            exit_code=EXIT_PREFLIGHT,
+                            detail="preflight failed",
+                        )
+                    return EXIT_PREFLIGHT
+                result = await CollectionPass(
+                    run, PASS_PHASES, on_phase=_phase_reporter(recorder, run_id)
+                ).run()
+        except Exception as exc:
+            # The row must not be left open: the next pass would sweep it as
+            # abandoned and the operator would see a failure with no cause.
+            if recorder is not None:
+                recorder.close(
+                    run_id,
+                    outcome=PassRunOutcome.FAILED,
+                    exit_code=EXIT_STORAGE,
+                    detail=type(exc).__name__,
+                )
+            raise
+        exit_code = EXIT_BY_OUTCOME[result.outcome]
+        if recorder is not None:
+            recorder.close(
+                run_id,
+                outcome=pass_run_outcome_for_kalshi(result.outcome),
+                exit_code=exit_code,
+                detail=_pass_detail(result),
+            )
     print_pass_summary(result, exit_code, json_output)
     return exit_code
+
+
+def _phase_reporter(
+    recorder: "PassRunRecorder | None", run_id: "UUID | None"
+) -> "Callable[[PassPhaseName], None] | None":
+    """Report each phase start to the pass_runs row, or None when unrecorded."""
+    if recorder is None or run_id is None:
+        return None
+
+    def _report(phase: "PassPhaseName") -> None:
+        recorder.progress(run_id, phase=str(phase))
+
+    return _report
+
+
+def _pass_detail(result: "PassResult") -> str:
+    """The per-phase outcome list, the same text the pass already logs."""
+    return " ".join(f"{r.name}={r.outcome}" for r in result.reports)
 
 
 # ---------------------------------------------------------------------------

@@ -38,7 +38,7 @@ def pool(migrated_db: str) -> Iterator[ConnectionPool]:
 
 @pytest.fixture
 def repo(pool: ConnectionPool) -> PassRunRepository:
-    return PassRunRepository(pool)
+    return PassRunRepository.from_pool(pool)
 
 
 def _run(

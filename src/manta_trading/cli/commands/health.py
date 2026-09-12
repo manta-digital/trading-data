@@ -35,6 +35,7 @@ import psycopg
 import typer
 from psycopg import sql
 
+from manta_trading.cli.commands._pass_run import pass_run_recorder
 from manta_trading.cli.output import print_error, print_result
 from manta_trading.cli.commands.minute_session_mass import (
     check_minute_session_mass,
@@ -49,6 +50,7 @@ from manta_trading.constants import (
     HEALTH_MINUTE_RAW_STALE_AFTER,
     MINUTE_OHLCV_TABLE,
 )
+from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
 from manta_trading.data.kalshi.status import read_candle_status, read_catalog_status
 from manta_trading.data.kalshi.trade_status import read_trade_status
@@ -201,17 +203,25 @@ def gather(
     return checks
 
 
+def verdict_line(checks: list[HealthCheck]) -> str:
+    """The one-line verdict: the last line of ``render`` and the recorded detail.
+
+    Extracted so the text an operator reads and the text stored in
+    ``pass_runs`` cannot drift apart (slice 922, Decision 2: the health
+    verdict lives in the detail, not the outcome).
+    """
+    failing = sum(1 for c in checks if not c.ok)
+    if failing == 0:
+        return "healthy"
+    return f"UNHEALTHY: {failing} of {len(checks)} checks failing"
+
+
 def render(checks: list[HealthCheck]) -> str:
     width = max(len(c.name) for c in checks)
     lines = [
         f"{'OK  ' if c.ok else 'FAIL'} {c.name:<{width}}  {c.detail}" for c in checks
     ]
-    failing = sum(1 for c in checks if not c.ok)
-    lines.append(
-        "healthy"
-        if failing == 0
-        else f"UNHEALTHY: {failing} of {len(checks)} checks failing"
-    )
+    lines.append(verdict_line(checks))
     return "\n".join(lines)
 
 
@@ -233,23 +243,45 @@ def data_health(
             json_mode=json_output,
         )
         raise typer.Exit(EXIT_UNAVAILABLE)
-    try:
-        with psycopg.connect(
-            str(settings.timescale_db_url),
-            connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
-        ) as conn:
-            checks = gather(conn, settings)
-    except (psycopg.OperationalError, psycopg.errors.QueryCanceled) as exc:
-        # QueryCanceled is the session-mass statement timeout: exit 2 (could
-        # not run) rather than reporting a mass we did not measure.
-        print_error(f"health check could not run: {exc}", json_mode=json_output)
-        raise typer.Exit(EXIT_UNAVAILABLE) from exc
 
-    healthy = all(c.ok for c in checks)
+    # Slice 922: the health run records itself so `mt data overview` can show
+    # the verdict and when it was reached. Decision 2 puts the verdict in the
+    # detail, not the outcome: a run that answered "UNHEALTHY" did its job.
+    with pass_run_recorder(settings) as recorder:
+        run_id = recorder.open(PassKind.HEALTH) if recorder is not None else None
+        try:
+            with psycopg.connect(
+                str(settings.timescale_db_url),
+                connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+            ) as conn:
+                checks = gather(conn, settings)
+        except (psycopg.OperationalError, psycopg.errors.QueryCanceled) as exc:
+            # QueryCanceled is the session-mass statement timeout: exit 2
+            # (could not run) rather than reporting a mass we did not measure.
+            if recorder is not None:
+                recorder.close(
+                    run_id,
+                    outcome=PassRunOutcome.FAILED,
+                    exit_code=EXIT_UNAVAILABLE,
+                    detail=str(exc),
+                )
+            print_error(f"health check could not run: {exc}", json_mode=json_output)
+            raise typer.Exit(EXIT_UNAVAILABLE) from exc
+
+        healthy = all(c.ok for c in checks)
+        exit_code = EXIT_HEALTHY if healthy else EXIT_UNHEALTHY
+        if recorder is not None:
+            recorder.close(
+                run_id,
+                outcome=PassRunOutcome.COMPLETE,
+                exit_code=exit_code,
+                detail=verdict_line(checks),
+            )
+
     if json_output:
         print_result(
             {"healthy": healthy, "checks": [asdict(c) for c in checks]}, json_mode=True
         )
     else:
         print_result(render(checks), json_mode=False)
-    raise typer.Exit(EXIT_HEALTHY if healthy else EXIT_UNHEALTHY)
+    raise typer.Exit(exit_code)

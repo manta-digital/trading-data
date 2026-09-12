@@ -207,6 +207,15 @@ health check waits for the next firing day — see
 ``manta_trading.minute_firing_schedule``."""
 
 
+PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS: int = 5
+"""How long pass-run bookkeeping waits for a database connection (slice 922).
+
+Deliberately short. Recording a pass is best-effort: a pass whose database
+is unreachable must still do its real work and report its own result, so the
+recorder gives up quickly rather than delaying the pass it is describing.
+"""
+
+
 HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
 """EODHD account endpoint; returns ``apiRequests``, ``dailyRateLimit``,
 ``extraLimit``. One call per health run."""

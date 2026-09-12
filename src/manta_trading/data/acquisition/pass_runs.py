@@ -11,12 +11,14 @@ never by an observer.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -149,7 +151,7 @@ def abandoned_detail(pid: int) -> str:
 class PassRunRepository:
     """Read/write access to the pass_runs table.
 
-    Uses a psycopg3 ConnectionPool. All SQL is parameterized.
+    All SQL is parameterized.
 
     Design 922, Decision 1: rows are written by the process that runs the
     pass. Nothing here observes another process's work — the only method that
@@ -157,11 +159,21 @@ class PassRunRepository:
     the caller must have established that those pids are gone.
 
     Args:
-        pool: An open psycopg3 ConnectionPool pointing at TimescaleDB.
+        connect: Yields a connection for the duration of one statement. A
+            long-lived caller (the daemon) passes its pool's ``connection``;
+            a short-lived command passes a plain connect, which costs one
+            connection per write and spares it a pool's background workers.
     """
 
-    def __init__(self, pool: ConnectionPool) -> None:
-        self._pool = pool
+    def __init__(
+        self, connect: Callable[[], AbstractContextManager[psycopg.Connection]]
+    ) -> None:
+        self._connect = connect
+
+    @classmethod
+    def from_pool(cls, pool: ConnectionPool) -> PassRunRepository:
+        """A repository over an existing pool."""
+        return cls(pool.connection)
 
     def insert(self, run: PassRun) -> None:
         """Insert a new run row. Open runs carry no ended_at and no outcome."""
@@ -188,7 +200,7 @@ class PassRunRepository:
             run.exit_code,
             run.detail,
         )
-        with self._pool.connection() as conn:
+        with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
 
@@ -208,7 +220,7 @@ class PassRunRepository:
                    progress_updated_at = %s
              WHERE run_id = %s AND ended_at IS NULL
         """
-        with self._pool.connection() as conn:
+        with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, (phase, done, total, at, run_id))
 
@@ -227,7 +239,7 @@ class PassRunRepository:
                SET ended_at = %s, outcome = %s, exit_code = %s, detail = %s
              WHERE run_id = %s AND ended_at IS NULL
         """
-        with self._pool.connection() as conn:
+        with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, (ended_at, str(outcome), exit_code, detail, run_id))
 
@@ -238,7 +250,7 @@ class PassRunRepository:
             "WHERE pass = %s AND ended_at IS NULL "
             "ORDER BY started_at DESC"
         )
-        with self._pool.connection() as conn:
+        with self._connect() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, (str(kind),))
                 rows = cur.fetchall()
@@ -251,7 +263,7 @@ class PassRunRepository:
             "WHERE pass = %s AND ended_at IS NOT NULL "
             "ORDER BY started_at DESC LIMIT 1"
         )
-        with self._pool.connection() as conn:
+        with self._connect() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, (str(kind),))
                 row = cur.fetchone()
@@ -280,7 +292,7 @@ class PassRunRepository:
                AND ended_at IS NULL
         """
         closed = 0
-        with self._pool.connection() as conn:
+        with self._connect() as conn:
             with conn.cursor() as cur:
                 for pid in dead_pids:
                     cur.execute(
