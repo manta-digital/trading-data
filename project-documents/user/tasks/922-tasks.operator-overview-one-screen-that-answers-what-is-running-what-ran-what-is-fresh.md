@@ -284,8 +284,9 @@ Design *Scope 2*, *Decision 8, 9, 12*, *CLI Specification*, *SC1*, *SC2*,
   - [ ] New `api/eodhd_account.py`: `CreditUsage(used, daily_limit, extra)`
         and `fetch_credit_usage(api_key) -> CreditUsage` calling
         `HEALTH_EODHD_USER_ENDPOINT` through `eodhd_get` with a five-second
-        timeout; rename the constant to `EODHD_USER_ENDPOINT` (its only use
-        is no longer health).
+        timeout; rename the constant to `EODHD_USER_ENDPOINT` (a deliberate
+        touch on a health-named constant: its only remaining consumer is this
+        module, and grep confirms no other reference in `src/` or `test/`).
   - [ ] Success: `apiRequests` is documented as *used*; no new HTTP client.
 - [ ] **Task 4.2: Test for the credit fetch** (effort: 1)
   - [ ] Unit test with a mocked `eodhd_get`: the three fields parse; a
@@ -324,9 +325,25 @@ Design *Scope 2*, *Decision 8, 9, 12*, *CLI Specification*, *SC1*, *SC2*,
         one kind listed newest first; failed last run with detail line;
         credits unavailable branches; universe line absent.
   - [ ] Integration test over `migrated_db`: seed rows for all five kinds and
-        assert `gather` returns them; measure `gather` wall time and assert it
-        is under the ten-second bound on the test DB.
+        assert `gather` returns them (correctness only; the latency bound is
+        Task 4.6).
   - [ ] Success: both tiers pass. Commit.
+- [ ] **Task 4.6: Load-tier bound for the overview** (effort: 1)
+  - [ ] New `test/load/test_922_overview_nfr.py` over `prod_shaped_db`, in
+        the `test_167_data_status_nfr.py` style: seed `pass_runs` rows for
+        every kind, call `gather` with the credit fetch stubbed (load tests do
+        not reach the network), and assert the database part completes in
+        under five seconds. Decision 12's ten-second end-to-end bound is the
+        five-second database budget plus the five-second `eodhd_get` timeout
+        that Task 4.1 caps the only HTTPS call at; state this split in the
+        test's module docstring.
+  - [ ] Gating: this repository has no CI test job (`.github/workflows/ci.yml`
+        only publishes on tags); every tier runs locally through
+        `python scripts/run_tests.py load` with `MT_RUN_LOAD_TESTS=1` and
+        `MT_TIMESCALE_TEST_URL`, exactly as the 167 load test does. Task 6.3
+        runs it before the version bump.
+  - [ ] Success: the case passes at production shape; the measured seconds go
+        in the CHANGELOG entry with the Task 5.5 numbers. Commit.
 
 ## Section 5: View migration, status footer, default flip
 
@@ -383,9 +400,13 @@ Design *Scope 3, 4, 8*, *Decision 6, 7, 11, 12*, *SC4*, *SC5*, *SC6*, *SC6a*.
         default summary path (health counts + `fetch_gap_status_counts`) under
         the same `_NFR_SECONDS` margin; the existing view case must still pass
         with the anchor CTE.
-  - [ ] Success: both cases pass at production shape
-        (`MT_RUN_LOAD_TESTS=1`); the measured seconds are recorded in the
-        CHANGELOG entry. Commit.
+  - [ ] Gating is local, not CI: there is no CI test job in this repository,
+        so the load tier runs on the test cluster via
+        `python scripts/run_tests.py load` (needs `MT_RUN_LOAD_TESTS=1` and
+        `MT_TIMESCALE_TEST_URL`), the same way the existing 167 case is
+        gated; Task 6.3 runs it.
+  - [ ] Success: both cases pass at production shape; the measured seconds
+        are recorded in the CHANGELOG entry. Commit.
 - [ ] **Task 5.6: 140-arch amendment block** (effort: 1)
   - [ ] Add `*(Architecture amendment, 2026-09-xx — slice 922.)*` blocks in
         `140-arch.data-quality-operations.md` at the STALE rule, the Constants
@@ -416,10 +437,21 @@ Design *Scope 7*, *Decision 9*, *systemd*, *SC8*, *SC9*.
         the accounting timer and the load measurements from Task 5.5.
   - [ ] Success: docs cite no `systemctl` or `journalctl` as operator steps.
 - [ ] **Task 6.3: Full validation and version** (effort: 1)
-  - [ ] `python scripts/run_tests.py unit`, `... integration`, mypy over
-        `src` and `test` in one invocation, ruff on touched files.
+  - [ ] `python scripts/run_tests.py unit`, `... integration`, `... load`
+        (Tasks 4.6 and 5.5 at production shape), mypy over `src` and `test`
+        in one invocation, ruff on touched files.
   - [ ] Bump `pyproject.toml` to 0.15.0. Commit.
   - [ ] Success: all tiers green; the branch is ready for the code review the
         PM launches. The host walkthrough (design *Verification Walkthrough*
         steps 1–6) runs after install with `install-production.sh --ref` and
         `mt data migrate apply`; results are recorded in the CHANGELOG.
+
+## Review Response (2026-09-11, tasks review — CONCERNS)
+
+| finding | response |
+|---|---|
+| F003 no load-tier task for the overview's ten-second bound | Task 4.6 added: `test/load/test_922_overview_nfr.py` over `prod_shaped_db`, database part under five seconds, the other five being the capped EODHD call; Task 4.5's integration case is correctness only. |
+| F004 CI gating implicit | Stated in Tasks 4.6, 5.5 and 6.3: this repository has no CI test job (`ci.yml` publishes on tags only); the load tier is gated locally by `scripts/run_tests.py load` with `MT_RUN_LOAD_TESTS=1`, as the 167 case already is. |
+| F005 constant rename beyond the design text | Task 4.1 now names the rename as deliberate and records that grep finds no other reference. |
+| F006 Tasks 2.4 and 4.3 large | No change; the review's cut lines (minute/daily, gather/build) are the fallback if execution stalls. |
+| F007 SC3 two-live-rows case unit-only | No change; the live scenario is walkthrough step 5 in Task 6.3, as the design places it. |
