@@ -14,6 +14,7 @@ import typer
 # this module's imports, because Typer resolves an option's choices at
 # decoration time (``--table`` from the enum, ``--track`` from ``TRACKS``) to
 # build the choice list and reject anything else.
+from manta_trading.cli.commands._pass_run import make_pass_run_recorder
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.rechunk import RechunkTarget
@@ -1453,6 +1454,13 @@ def daemon_run(
     def _minute_cycle(**kwargs):  # type: ignore[no-untyped-def]
         return _rmc(**kwargs, on_symbol=on_symbol_cb)
 
+    # Slice 922, Decision 3: only an all-active cycle writes a pass_runs row.
+    # A --symbols invocation is the operator poking at a few tickers, not the
+    # universe walk `mt data overview` reports on, so it records nothing.
+    pass_run_recorder = (
+        None if config_obj.is_explicit_scope() else make_pass_run_recorder(settings)
+    )
+
     bucket = QuotaBucket()
     runner = Runner(
         config_obj,
@@ -1461,6 +1469,8 @@ def daemon_run(
         run_ca_update=make_ca_update_fn(settings),
         run_daily_cycle=_daily_cycle if verbose else None,
         run_minute_cycle=_minute_cycle if verbose else None,
+        pass_run_recorder=pass_run_recorder,
+        minute_firing_days=settings.minute_firing_days,
     )
 
     from manta_trading.data.maintenance.auto_extend import maybe_extend_trading_sessions

@@ -128,6 +128,18 @@ class CycleReport:
     """How many symbols the minute pass's BACKFILL phase reached (slice 922).
     Always 0 on a daily report."""
 
+    daily_pass_completed: bool = False
+    """True when a DAILY pass walked its pending list to the end (slice 922).
+
+    False means the pass stopped early — a shutdown between symbols, or an
+    aborted quota wait — so the remaining symbols were never attempted. A
+    pass with nothing actionable completed by definition: there was nothing
+    left to walk. Always False on a minute report.
+
+    The daily exit code does not read this (Decision 5): it stays 0, as it
+    was before pass_runs existed. This only distinguishes COMPLETE from
+    INCOMPLETE in the recorded row."""
+
     nothing_actionable: bool = False
     """True when the cycle derived an empty work list and made no provider
     call. Lets the runner distinguish a drained scope from a closed cadence
@@ -416,6 +428,8 @@ def run_daily_cycle(
 
             if not symbol_list:
                 report.nothing_actionable = True
+                # Nothing to walk is a walk that finished (slice 922).
+                report.daily_pass_completed = True
                 report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
                 _logger.info(
                     "run_daily_cycle: no actionable work — %d scope symbols "
@@ -455,6 +469,7 @@ def run_daily_cycle(
                         should_continue=should_continue,
                         t0=t0,
                     )
+                    report.daily_pass_completed = True
                 except QuotaWaitAborted:
                     _logger.info(
                         "run_daily_cycle: quota wait aborted by shutdown — exiting"
@@ -496,6 +511,11 @@ def run_daily_cycle(
                         report.transient_failure_count += 1
                     if on_symbol is not None:
                         on_symbol(sym, str(outcome), None, None, 0)
+                else:
+                    # No break: every pending symbol was attempted. A `break`
+                    # above (shutdown, or an aborted quota wait) skips this and
+                    # leaves the pass INCOMPLETE (slice 922).
+                    report.daily_pass_completed = True
 
     report.wall_clock_seconds = (datetime.now(_UTC) - t0).total_seconds()
     return report
