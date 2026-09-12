@@ -24,6 +24,7 @@ import typer
 from psycopg import sql
 
 from manta_trading.api.eodhd_account import CreditUsage, fetch_credit_usage
+from manta_trading.api.eodhd_sync import redact_token
 from manta_trading.constants import (
     DAILY_OHLCV_TABLE,
     KALSHI_CANDLES_TABLE,
@@ -284,8 +285,14 @@ def gather(
         except Exception as exc:  # noqa: BLE001 — reported, never raised
             # Any failure to reach the account endpoint becomes a line the
             # operator can read. The rest of the overview is still true.
-            _logger.warning("overview: credit lookup failed: %s", exc)
-            facts.credits_error = credits_unavailable(str(exc))
+            #
+            # Redacted here as well as at the raise site: this text is
+            # printed on a screen meant for pasting into an issue and
+            # written to the journal, so it must not carry a token even if
+            # some future raiser forgets (922 review F001).
+            reason = redact_token(str(exc))
+            _logger.warning("overview: credit lookup failed: %s", reason)
+            facts.credits_error = credits_unavailable(reason)
     return facts
 
 

@@ -985,16 +985,24 @@ def data_status(
     auto_result = maybe_extend_trading_sessions(_conn_factory, bypass_gate=True)
 
     with _conn_factory() as conn:
-        # Freshness comes from the row fetch; the health-count fetch re-asserts
-        # against slice 168's TTL verdict cache, so one guard result describes
-        # both and the second probe stays cheap.
-        status_rows, coverage = fetch_status_rows_with_freshness(
-            conn,
-            symbol=symbol,
-            health_filter=health_filter,
-            granularity=granularity_filter,
-        )
-        health_counts, _ = fetch_all_health_counts_with_freshness(conn)
+        # The summary needs no rows: it prints counts and freshness, and the
+        # non-OK filter would materialise thousands of 11-column rows only to
+        # discard them. Freshness then comes from the health-count fetch,
+        # which reads through the same guarded accessor (922 review F002).
+        if wants_table:
+            # Freshness comes from the row fetch; the health-count fetch
+            # re-asserts against slice 168's TTL verdict cache, so one guard
+            # result describes both and the second probe stays cheap.
+            status_rows, coverage = fetch_status_rows_with_freshness(
+                conn,
+                symbol=symbol,
+                health_filter=health_filter,
+                granularity=granularity_filter,
+            )
+            health_counts, _ = fetch_all_health_counts_with_freshness(conn)
+        else:
+            status_rows = []
+            health_counts, coverage = fetch_all_health_counts_with_freshness(conn)
         # Slice 922: gap_count now reports OPEN gaps only, so the footer
         # shows what the rest of the gap table holds — a backlog still being
         # worked reads nothing like one the provider has already closed.
@@ -1025,8 +1033,12 @@ def data_status(
             Console().print(notice)
         print_result(msg, json_mode=False)
 
-    # Empty-universe path.
-    if not status_rows and symbol is None:
+    # Empty-universe path. Gated on the unfiltered health counts, not on the
+    # fetched rows: the default summary filters to GAPS,STALE,FAILED, so a
+    # fully healthy registry has no rows and used to be reported as no
+    # registry at all — and exited before printing the summary it was asked
+    # for (922 review F002).
+    if sum(health_counts.values()) == 0 and symbol is None:
         _emit_empty(
             "No instruments found. Run `mt data instruments rebuild` to populate the registry."
         )

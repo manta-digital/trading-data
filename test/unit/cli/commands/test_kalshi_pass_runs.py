@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import threading
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -52,12 +53,15 @@ class FakeRecorder:
         self.opened: list[PassKind] = []
         self.progressed: list[tuple[Any, str | None]] = []
         self.closed: list[tuple[Any, PassRunOutcome, int | None, str | None]] = []
+        self.on_progress: Callable[[], None] | None = None
 
     def open(self, kind: PassKind, *, walk_anchor_at=None):
         self.opened.append(kind)
         return uuid.UUID(int=7)
 
     def progress(self, run_id, *, phase=None, done=None, total=None) -> None:
+        if self.on_progress is not None:
+            self.on_progress()
         self.progressed.append((run_id, phase))
 
     def close(self, run_id, *, outcome, exit_code=None, detail=None) -> None:
@@ -115,8 +119,28 @@ class TestPhaseReporter:
         rec = FakeRecorder()
         report = cmd._phase_reporter(rec, uuid.UUID(int=7))  # type: ignore[arg-type]
         assert report is not None
-        report(PassPhaseName.CANDLES)
+        asyncio.run(report(PassPhaseName.CANDLES))
         assert rec.progressed == [(uuid.UUID(int=7), "candles")]
+
+    def test_the_write_does_not_run_on_the_event_loop(self) -> None:
+        """The point of the change: a slow psycopg write must not block it.
+
+        The recorder records which thread called it; awaiting the reporter
+        from a running loop must land on some other thread (922 review
+        F003).
+        """
+        rec = FakeRecorder()
+        report = cmd._phase_reporter(rec, uuid.UUID(int=7))  # type: ignore[arg-type]
+        assert report is not None
+        calling_thread: list[int] = []
+        rec.on_progress = lambda: calling_thread.append(threading.get_ident())
+
+        async def _drive() -> int:
+            await report(PassPhaseName.CANDLES)
+            return threading.get_ident()
+
+        loop_thread = asyncio.run(_drive())
+        assert calling_thread and calling_thread[0] != loop_thread
 
 
 class _Phase:
@@ -150,27 +174,42 @@ def _fake_run() -> MagicMock:
     return run
 
 
+def _collector() -> tuple[list[PassPhaseName], object]:
+    """An async on_phase that records what it was called with.
+
+    Async because the callback is awaited from inside the pass loop: its
+    real implementation writes a database row, which must not run on the
+    event loop (922 review F003).
+    """
+    seen: list[PassPhaseName] = []
+
+    async def _on_phase(phase: PassPhaseName) -> None:
+        seen.append(phase)
+
+    return seen, _on_phase
+
+
 class TestOnPhaseCallback:
-    """CollectionPass fires the callback as each phase starts."""
+    """CollectionPass awaits the callback as each phase starts."""
 
     def test_it_fires_once_per_phase_in_order(self) -> None:
-        seen: list[PassPhaseName] = []
+        seen, on_phase = _collector()
         phases = [
             _Phase(PassPhaseName.CATALOG),
             _Phase(PassPhaseName.CANDLES),
         ]
-        asyncio.run(CollectionPass(_fake_run(), phases, on_phase=seen.append).run())
+        asyncio.run(CollectionPass(_fake_run(), phases, on_phase=on_phase).run())
         assert seen == [PassPhaseName.CATALOG, PassPhaseName.CANDLES]
 
     def test_a_skipped_phase_does_not_fire_it(self) -> None:
         """Nothing is running for a skipped phase, so it reports nothing."""
-        seen: list[PassPhaseName] = []
+        seen, on_phase = _collector()
         phases = [
             _Phase(PassPhaseName.CATALOG, SyncOutcome.PROVIDER_ABORT),
             _Phase(PassPhaseName.CANDLES),
         ]
         result = asyncio.run(
-            CollectionPass(_fake_run(), phases, on_phase=seen.append).run()
+            CollectionPass(_fake_run(), phases, on_phase=on_phase).run()
         )
         assert seen == [PassPhaseName.CATALOG]
         assert phases[1].ran is False

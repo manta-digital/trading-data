@@ -97,7 +97,10 @@ def _mocked_status(*, stale: bool, rows=None):
         patch(
             "manta_trading.data.maintenance.status_queries"
             ".fetch_all_health_counts_with_freshness",
-            return_value=({"OK": len(rows)}, freshness),
+            # Counts are over the unfiltered view, so an empty registry is
+            # an empty mapping — not {"OK": 0}, which says the view holds
+            # rows and every one of them is healthy (922 review F002).
+            return_value=({"OK": len(rows)} if rows else {}, freshness),
         ),
         patch(
             "manta_trading.data.maintenance.status_queries.fetch_symbol_gaps",

@@ -35,12 +35,22 @@ _LIVE_PAYLOAD = {
 }
 
 
-def _client(payload: object, *, status: int = 200) -> MagicMock:
+def _client(
+    payload: object, *, status: int = 200, api_key: str = "k"
+) -> MagicMock:
     response = MagicMock()
     response.json.return_value = payload
+    response.status_code = status
     if status >= 400:
+        # The real message, not a bare status: httpx renders the full
+        # request URL into HTTPStatusError, which is how the token leaked
+        # onto the overview screen and into the journal (922 review F001).
+        # A fixture that only said "401" could not catch that.
+        url = f"{EODHD_USER_ENDPOINT}?api_token={api_key}&fmt=json"
         response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            f"{status}", request=MagicMock(), response=MagicMock()
+            f"Client error '{status}' for url '{url}'",
+            request=MagicMock(),
+            response=response,
         )
     client = MagicMock()
     client.get.return_value = response
@@ -103,6 +113,26 @@ class TestFailures:
             fetch_credit_usage("sekrit-key", client=_client({}))
         assert "sekrit-key" not in str(caught.value)
         assert "REDACTED" in str(caught.value)
+
+    def test_a_status_error_does_not_leak_the_token_either(self) -> None:
+        """The path that actually leaked: httpx puts the URL in the message.
+
+        The overview prints this text on a screen whose docstring invites
+        pasting it into an issue, and logs it at WARNING. Redacting at the
+        raise site means no caller can leak it by accident.
+        """
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            fetch_credit_usage(
+                "sekrit-key", client=_client({}, status=403, api_key="sekrit-key")
+            )
+        assert "sekrit-key" not in str(caught.value)
+        assert "REDACTED" in str(caught.value)
+
+    def test_a_status_error_still_names_the_status(self) -> None:
+        """Redaction must not cost the operator the reason."""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            fetch_credit_usage("k", client=_client({}, status=403))
+        assert "403" in str(caught.value)
 
 
 class TestTheCall:

@@ -460,6 +460,13 @@ def run_daily_cycle(
                 # while the BACKFILL branch below preserved them, so the two
                 # modes disagreed on what a report contained (912 review F001).
                 try:
+                    # Completion is set inside the helper, at the one point
+                    # where the walk actually ran to the end. Setting it
+                    # here marked an interrupted pass COMPLETE: the helper
+                    # returns early on a shutdown check and on a failed bulk
+                    # call, and breaks mid-loop on shutdown, and a plain
+                    # return is indistinguishable from a full walk
+                    # (922 review F004).
                     _run_steady_state_cycle(
                         report=report,
                         symbol_list=symbol_list,
@@ -469,7 +476,6 @@ def run_daily_cycle(
                         should_continue=should_continue,
                         t0=t0,
                     )
-                    report.daily_pass_completed = True
                 except QuotaWaitAborted:
                     _logger.info(
                         "run_daily_cycle: quota wait aborted by shutdown — exiting"
@@ -720,6 +726,12 @@ def _run_steady_state_cycle(
             )
             report.symbol_outcomes[sym] = str(LastAttemptOutcome.TRANSIENT_FAILURE)
             report.transient_failure_count += 1
+    else:
+        # No break: every symbol was attempted. Mirrors the BACKFILL loop —
+        # the early returns above (shutdown before the call, a bulk call
+        # that failed) and the shutdown break skip this and leave the pass
+        # INCOMPLETE (slice 922, 922 review F004).
+        report.daily_pass_completed = True
 
     return report
 

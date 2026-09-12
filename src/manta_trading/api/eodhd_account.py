@@ -64,7 +64,8 @@ def fetch_credit_usage(
         httpx.HTTPError: on a non-2xx response, a timeout, or a network
             failure. The caller decides what an unanswered question means;
             the overview turns it into an "unavailable" line and still
-            exits 0.
+            exits 0. Every message raised from here is redacted first — see
+            the status-error handling below.
         KeyError, ValueError: if the payload does not carry the three
             integer fields. A shape that changed silently would otherwise
             print a plausible wrong number.
@@ -74,7 +75,19 @@ def fetch_credit_usage(
         response = client.get(url, timeout=EODHD_ACCOUNT_TIMEOUT_SECONDS)
     else:
         response = httpx.get(url, timeout=EODHD_ACCOUNT_TIMEOUT_SECONDS)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        # httpx renders the full request URL into the message, token and
+        # all, and the overview prints its exception text on a screen whose
+        # own docstring invites pasting it into an issue. Re-raise with the
+        # URL redacted rather than trusting every caller to redact (found by
+        # the 922 code review; the same leak was found in 916).
+        raise httpx.HTTPStatusError(
+            f"{exc.response.status_code} from {redact_token(url)}",
+            request=exc.request,
+            response=exc.response,
+        ) from None
     payload = response.json()
     try:
         return CreditUsage(

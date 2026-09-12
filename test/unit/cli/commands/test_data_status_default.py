@@ -136,6 +136,94 @@ class TestTheDefaultIsTheSummary:
         assert "none" in _run().output
 
 
+class TestAHealthyDatabaseStillGetsTheSummary:
+    """The case the default was built for, and the one it used to get wrong.
+
+    The summary filters rows to GAPS,STALE,FAILED, so a registry where every
+    symbol is healthy returns no rows. That emptiness used to reach the
+    empty-universe branch, which printed "No instruments found" — false, and
+    it exited before rendering the summary that was asked for (922 review
+    F002). The registry's population is now read from the unfiltered health
+    counts, which is what actually answers the question.
+    """
+
+    @contextlib.contextmanager
+    def _all_healthy(self):
+        """No non-OK rows, but 12,000 healthy ones in the view."""
+        from manta_trading.data.maintenance.auto_extend import AutoExtendResult
+
+        settings = MagicMock()
+        settings.timescale_db_url = "postgresql://ts/db"
+        freshness = CoverageFreshness(verdicts=())
+        sources = [SourceFreshness("minute bars", _NOW - timedelta(hours=20))]
+        with (
+            patch("manta_trading.cli.app.Settings", return_value=settings),
+            patch("manta_trading.cli.app.setup_logging"),
+            patch("psycopg.connect"),
+            patch(
+                "manta_trading.data.maintenance.auto_extend"
+                ".maybe_extend_trading_sessions",
+                return_value=AutoExtendResult(triggered=False, error=None),
+            ),
+            patch(
+                "manta_trading.data.maintenance.status_queries"
+                ".fetch_status_rows_with_freshness",
+                return_value=([], freshness),
+            ) as rows_fetch,
+            patch(
+                "manta_trading.data.maintenance.status_queries"
+                ".fetch_all_health_counts_with_freshness",
+                return_value=(
+                    {"OK": 12_000, "GAPS": 0, "STALE": 0, "FAILED": 0},
+                    freshness,
+                ),
+            ),
+            patch(
+                "manta_trading.data.maintenance.status_queries.fetch_symbol_gaps",
+                return_value=[],
+            ),
+            patch(
+                "manta_trading.data.maintenance.status_queries"
+                ".fetch_gap_status_counts",
+                return_value={},
+            ),
+            patch(
+                "manta_trading.cli.commands.overview.read_source_freshness",
+                return_value=sources,
+            ),
+        ):
+            yield rows_fetch
+
+    def test_it_does_not_claim_the_registry_is_empty(self) -> None:
+        with self._all_healthy():
+            result = runner.invoke(app, ["data", "status"])
+        assert result.exit_code == 0, result.output
+        assert "No instruments found" not in result.output
+
+    def test_it_still_prints_the_summary(self) -> None:
+        with self._all_healthy():
+            result = runner.invoke(app, ["data", "status"])
+        assert "SOURCES" in result.output
+        assert "OK: 12000" in result.output
+
+    def test_the_summary_never_fetches_rows_it_would_discard(self) -> None:
+        """Correct and cheap: the counts already answer the question."""
+        with self._all_healthy() as rows_fetch:
+            runner.invoke(app, ["data", "status"])
+        rows_fetch.assert_not_called()
+
+    def test_a_genuinely_empty_registry_still_says_so(self) -> None:
+        """The message is right when it is true — zero rows in the view."""
+        with self._all_healthy():
+            with patch(
+                "manta_trading.data.maintenance.status_queries"
+                ".fetch_all_health_counts_with_freshness",
+                return_value=({}, CoverageFreshness(verdicts=())),
+            ):
+                result = runner.invoke(app, ["data", "status"])
+        assert "No instruments found" in result.output
+
+
 class TestAskingForRowsPrintsTheTable:
     """Each of these is a request about particular rows."""
 

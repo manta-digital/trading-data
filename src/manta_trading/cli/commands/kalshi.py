@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -34,7 +35,7 @@ from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
     from uuid import UUID
 
     from manta_trading.config import Settings
@@ -231,24 +232,45 @@ async def run_pass(
     overview`` can report it alongside the other passes. Recording is
     best-effort: a recorder that cannot be built is absent, and the recorder
     itself never raises, so the pass runs and reports its result either way.
+
+    Every recorder call goes through ``asyncio.to_thread``. The recorder is
+    synchronous psycopg and opens a short-lived connection per write, so on
+    a slow or unreachable database a direct call would block the event loop
+    — and with it the Kalshi client's rate-limit scheduling — for up to the
+    connect timeout, several times per pass (922 review F003).
     """
     from manta_trading.cli.commands._pass_run import pass_run_recorder
     from manta_trading.data.kalshi.collection_pass import PASS_PHASES, CollectionPass
 
     with pass_run_recorder(settings) as recorder:
         run_id = (
-            recorder.open(PassKind.KALSHI) if recorder is not None else None
+            await asyncio.to_thread(recorder.open, PassKind.KALSHI)
+            if recorder is not None
+            else None
         )
+
+        async def _close(
+            outcome: PassRunOutcome, exit_code: int, detail: str | None
+        ) -> None:
+            """Close the row off the loop, or do nothing when unrecorded."""
+            if recorder is None:
+                return
+            await asyncio.to_thread(
+                partial(
+                    recorder.close,
+                    run_id,
+                    outcome=outcome,
+                    exit_code=exit_code,
+                    detail=detail,
+                )
+            )
+
         try:
             async with kalshi_run(settings, events_file, json_output) as run:
                 if run is None:
-                    if recorder is not None:
-                        recorder.close(
-                            run_id,
-                            outcome=PassRunOutcome.FAILED,
-                            exit_code=EXIT_PREFLIGHT,
-                            detail="preflight failed",
-                        )
+                    await _close(
+                        PassRunOutcome.FAILED, EXIT_PREFLIGHT, "preflight failed"
+                    )
                     return EXIT_PREFLIGHT
                 result = await CollectionPass(
                     run, PASS_PHASES, on_phase=_phase_reporter(recorder, run_id)
@@ -256,35 +278,33 @@ async def run_pass(
         except Exception as exc:
             # The row must not be left open: the next pass would sweep it as
             # abandoned and the operator would see a failure with no cause.
-            if recorder is not None:
-                recorder.close(
-                    run_id,
-                    outcome=PassRunOutcome.FAILED,
-                    exit_code=EXIT_STORAGE,
-                    detail=type(exc).__name__,
-                )
+            await _close(PassRunOutcome.FAILED, EXIT_STORAGE, type(exc).__name__)
             raise
         exit_code = EXIT_BY_OUTCOME[result.outcome]
-        if recorder is not None:
-            recorder.close(
-                run_id,
-                outcome=pass_run_outcome_for_kalshi(result.outcome),
-                exit_code=exit_code,
-                detail=_pass_detail(result),
-            )
+        await _close(
+            pass_run_outcome_for_kalshi(result.outcome),
+            exit_code,
+            _pass_detail(result),
+        )
     print_pass_summary(result, exit_code, json_output)
     return exit_code
 
 
 def _phase_reporter(
     recorder: "PassRunRecorder | None", run_id: "UUID | None"
-) -> "Callable[[PassPhaseName], None] | None":
-    """Report each phase start to the pass_runs row, or None when unrecorded."""
+) -> "Callable[[PassPhaseName], Awaitable[None]] | None":
+    """Report each phase start to the pass_runs row, or None when unrecorded.
+
+    Async because it is awaited from inside the pass loop: see ``run_pass``
+    on why the write must not happen on the event loop.
+    """
     if recorder is None or run_id is None:
         return None
 
-    def _report(phase: "PassPhaseName") -> None:
-        recorder.progress(run_id, phase=str(phase))
+    async def _report(phase: "PassPhaseName") -> None:
+        await asyncio.to_thread(
+            partial(recorder.progress, run_id, phase=str(phase))
+        )
 
     return _report
 
