@@ -109,6 +109,20 @@ field — `bars_expected`, `gap_count`, `last_attempt_ts`,
 `last_attempt_outcome`, `health` — is unchanged, as is the output column
 contract.
 
+*(Architecture amendment, 2026-09-12 — slice 922.)* `gap_count` means **open
+gaps**: `data_gaps` rows whose `fetch_status` is `UNKNOWN` or
+`FAILED_RETRYABLE`, the ones still being asked about. `PROVIDER_HOLE` is the
+provider's terminal answer that nothing is there, and `RETRY_EXHAUSTED` a
+terminal failure already carried by `has_retry_exhausted` into the `FAILED`
+verdict. Counting either made `gap_count` a number that could never reach
+zero, so an operator could not act on it. Column names and types are
+unchanged (`CREATE OR REPLACE`, migration 056), so the column contract
+holds. Readers affected: `mt data status`, and the API's `/api/v1/status`
+and `/api/v1/health`, whose `StatusRowRecord.gap_count` docstring states the
+new meaning. The `mt data status` footer gains a per-granularity second line
+— still asking / holes / exhausted — so the terminal counts stay visible
+beside the open one.
+
 Two consequences amend the "always consistent" claim above:
 
 - **Consistency is bounded, not unconditional.** The view is consistent with
@@ -295,9 +309,35 @@ The view uses **LEFT JOIN** against `acquisition_state` so a symbol
 with no acquisition_state row at all (newly added, daemon hasn't
 attempted) gets `last_attempt_ts = NULL` → falls through to STALE.
 
-`STALENESS_THRESHOLD` is a configured constant (see Constants
-section). Daily `STALENESS_THRESHOLD` defaults to 2 days; minute
-defaults to 1 day.
+*(Architecture amendment, 2026-09-12 — slice 922.)* **`STALE` no longer means
+"not attempted within a fixed interval". It means "not attempted in the last
+recorded universe walk".** The rule is now
+
+```
+elif last_attempt_ts IS NULL
+     OR last_attempt_ts < (newest walk_anchor_at among ENDED pass_runs rows
+                           of this granularity):
+    health = STALE
+```
+
+Why it changed: the fixed thresholds were written when the minute pass
+collected daily. Once `MT_MINUTE_FIRING_DAYS` moved it to one collecting
+firing a week (slice 921), a one-day minute threshold called every minute
+symbol `STALE` six days out of seven. A signal that is always on carries no
+information, and the operator learns to ignore the column.
+
+The anchor comes from `pass_runs.walk_anchor_at` (migration 055), written
+when a pass **opens** and only when that pass owes a full walk. Two
+consequences are deliberate: a pass that aborted part-way still moves the
+anchor, leaving every symbol it did not reach `STALE` — they were not
+attempted; and when no anchored run has ever ended for a granularity the
+anchor is NULL, so only never-attempted symbols read `STALE`, because
+nothing is known about when a walk last happened.
+
+`DAILY_STALENESS_THRESHOLD` and `MINUTE_STALENESS_THRESHOLD` lost their only
+consumer and are **deleted** from the Constants section. The view's
+`LEFT JOIN` against `acquisition_state` is unchanged, so a symbol with no row
+still falls through to `STALE`.
 
 `MAX_RETRY_COUNT` lives in `data_gaps` enforcement only —
 `update_data_gaps` promotes a row's `fetch_status` to
@@ -1135,6 +1175,13 @@ becomes natural.
 Defined once, in `manta_trading.constants` or equivalent. Referenced
 by every module that needs them.
 
+*(Architecture amendment, 2026-09-12 — slice 922.)* Two constants were
+removed: `DAILY_STALENESS_THRESHOLD` and `MINUTE_STALENESS_THRESHOLD`. The
+`STALE` verdict they governed now reads the last recorded universe walk
+instead (see the amendment under *Health rules*), so they had no remaining
+consumer. `LATE_BAR_GRACE_PERIOD` below is unaffected and still renders the
+`target_end` grace in the same view.
+
 ```
 ADJUSTMENT_DRIFT_EPSILON = 1e-6   -- absolute, in price units
                                   -- used by Stage A and Stage B audit
@@ -1142,8 +1189,9 @@ ADJUSTMENT_DRIFT_EPSILON = 1e-6   -- absolute, in price units
 MAX_RETRY_COUNT          = 5      -- transient_failure retries before
                                   -- fetch_status promotes to RETRY_EXHAUSTED
 
-DAILY_STALENESS_THRESHOLD   = 2 days   -- after which health = STALE
-MINUTE_STALENESS_THRESHOLD  = 1 day
+-- DAILY_STALENESS_THRESHOLD and MINUTE_STALENESS_THRESHOLD were DELETED
+-- by slice 922; see the amendment under Health rules. STALE is now
+-- measured from pass_runs.walk_anchor_at, not a fixed interval.
 
 DAILY_HISTORY_MONTHS  = unbounded  -- full provider history
 

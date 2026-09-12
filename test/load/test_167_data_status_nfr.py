@@ -158,6 +158,59 @@ def test_full_universe_data_status_under_one_second(prod_shaped_db: str) -> None
     )
 
 
+def test_default_summary_path_under_the_same_margin(prod_shaped_db: str) -> None:
+    """Slice 922: the reads ``mt data status`` makes with no options.
+
+    The default became the summary — health counts plus the gap-status
+    breakdown — so that is now the path an operator pays for most often, and
+    it needs its own measurement rather than inheriting the table path's.
+
+    Held to the same ``_NFR_SECONDS`` margin. It should be well under: both
+    reads are GROUP BY aggregates and neither fetches rows. What this guards
+    is the shape staying that way — a summary that quietly began fetching
+    rows to count them would regress the common path while the existing case
+    above stayed green.
+    """
+    from manta_trading.data.maintenance.status_queries import (
+        fetch_all_health_counts_with_freshness,
+        fetch_gap_status_counts,
+    )
+    from manta_trading.market.maintenance.cagg_freshness import (
+        reset_freshness_cache,
+    )
+
+    samples_s: list[float] = []
+    for _ in range(_MEASURED_RUNS):
+        reset_freshness_cache()
+        with psycopg.connect(prod_shaped_db) as conn:
+            t0 = time.perf_counter()
+            counts, freshness = fetch_all_health_counts_with_freshness(conn)
+            gap_counts = fetch_gap_status_counts(conn)
+            samples_s.append(time.perf_counter() - t0)
+
+        # A fast read of nothing would make the bound meaningless: the health
+        # counts must cover the whole universe.
+        assert sum(counts.values()) == _SYMBOL_COUNT * 2, (
+            f"expected {_SYMBOL_COUNT} symbols x 2 granularities, "
+            f"got {sum(counts.values())}"
+        )
+        assert isinstance(gap_counts, dict)
+
+    median_s = statistics.median(samples_s)
+    assert median_s < _NFR_SECONDS, (
+        f"default status summary median = {median_s:.3f}s over "
+        f"{_MEASURED_RUNS} runs {[f'{s:.3f}' for s in samples_s]} "
+        f"(ceiling {_NFR_SECONDS:.1f}s). This is the path an operator takes "
+        "by default since slice 922; if it fires, check whether the summary "
+        "has started fetching rows rather than aggregating."
+    )
+    print(
+        f"\nstatus default summary: median {median_s:.3f} s of "
+        f"{_NFR_SECONDS:.1f} s ceiling; samples "
+        f"{[f'{s:.3f}' for s in samples_s]}"
+    )
+
+
 def test_load_tier_never_references_prod_db_url() -> None:
     """8.2: the load tier must not be pointable at production by default.
 

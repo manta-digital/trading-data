@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from dataclasses import field
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum, StrEnum
 from typing import Any
@@ -17,6 +18,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from manta_trading.data.maintenance.auto_extend import AutoExtendResult
+from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.maintenance.status_coverage import CoverageFreshness
 
 # ---------------------------------------------------------------------------
@@ -97,6 +99,16 @@ class StatusReport:
     Defaulted to None so callers that do not read ``data_status`` through the
     guarded accessor still construct a valid report; None renders as no banner
     and a null JSON key, never as "fresh".
+    """
+
+    gap_status_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    """Gap rows per ``(granularity, fetch_status)`` (slice 922).
+
+    The footer splits these into "still asking", "holes" and "exhausted".
+    Since ``gap_count`` began counting only OPEN gaps, an operator seeing
+    GAPS needs to know whether the backlog is still being worked or has
+    already been answered — the two call for opposite actions. Empty when the
+    caller did not read them, which renders as no second line.
     """
 
 
@@ -196,8 +208,30 @@ def render_status_summary(report: StatusReport) -> list[Table]:
     return tables
 
 
+def render_gap_status_line(
+    counts: dict[tuple[str, str], int], granularity: str
+) -> str:
+    """One granularity's gap breakdown: still asking, holes, exhausted.
+
+    "Still asking" is UNKNOWN plus FAILED_RETRYABLE — the open gaps
+    ``data_status.gap_count`` now reports. The other two are terminal
+    answers, shown beside it so an operator can tell a backlog still being
+    worked from one the provider has already closed.
+    """
+    asking = counts.get((granularity, FetchStatus.UNKNOWN.value), 0) + counts.get(
+        (granularity, FetchStatus.FAILED_RETRYABLE.value), 0
+    )
+    holes = counts.get((granularity, FetchStatus.PROVIDER_HOLE.value), 0)
+    exhausted = counts.get((granularity, FetchStatus.RETRY_EXHAUSTED.value), 0)
+    return f"still asking {asking:,} · holes {holes:,} · exhausted {exhausted:,}"
+
+
 def render_status_footer(report: StatusReport, *, all_rows: bool = False) -> str:
     """Format the OK/GAPS/STALE/FAILED summary line.
+
+    Since slice 922, a second line per granularity breaks the gap table down
+    (see :func:`render_gap_status_line`). It is omitted when the caller did
+    not read the counts.
 
     When all_rows=True, appends an advisory line (Decision C).
     """
@@ -211,6 +245,9 @@ def render_status_footer(report: StatusReport, *, all_rows: bool = False) -> str
         )
     ]
     line = "  ".join(parts)
+    for granularity in sorted({g for g, _ in report.gap_status_counts}):
+        gaps = render_gap_status_line(report.gap_status_counts, granularity)
+        line += f"\n{granularity:<8} {gaps}"
     if all_rows:
         n = len(report.rows)
         line += f"\n{n:,} rows printed; use `--health` or `--symbol` to filter."
@@ -357,4 +394,17 @@ def status_report_to_json(report: StatusReport) -> str:
     d = dataclasses.asdict(report)
     if report.coverage is not None:
         d["coverage"]["is_stale"] = report.coverage.is_stale
+    # The counts are keyed by (granularity, fetch_status), which JSON cannot
+    # express; nest them instead, which is also what a consumer wants.
+    d["gap_status_counts"] = _nest_gap_status_counts(report.gap_status_counts)
     return json.dumps(d, default=_json_default, indent=2)
+
+
+def _nest_gap_status_counts(
+    counts: dict[tuple[str, str], int],
+) -> dict[str, dict[str, int]]:
+    """``{(g, s): n}`` as ``{granularity: {fetch_status: n}}`` for JSON."""
+    nested: dict[str, dict[str, int]] = {}
+    for (granularity, status), count in counts.items():
+        nested.setdefault(granularity, {})[status] = count
+    return nested

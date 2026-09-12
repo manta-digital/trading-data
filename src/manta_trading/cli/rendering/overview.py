@@ -10,6 +10,7 @@ strings — so what the operator sees is testable without a database.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from manta_trading.cli.commands.overview import (
@@ -19,6 +20,7 @@ from manta_trading.cli.commands.overview import (
     Overview,
     PassLine,
     RunningRow,
+    SourceFreshness,
 )
 from manta_trading.data.acquisition.pass_runs import PassRunOutcome
 
@@ -167,6 +169,33 @@ def render_next_firings(overview: Overview, *, width: int = _SCREEN_WIDTH) -> li
     return lines
 
 
+def render_source_lines(
+    sources: Sequence[SourceFreshness], now: datetime
+) -> list[str]:
+    """The per-source freshness rows, without a header.
+
+    Shared by the overview's SOURCES block and ``mt data status``'s default
+    summary, so one change to how freshness reads reaches both.
+    """
+    lines = []
+    for source in sources:
+        if source.newest is None:
+            newest = "none"
+        else:
+            age = _age(now, source.newest)
+            newest = f"{source.newest:%Y-%m-%d %H:%M} UTC ({age})"
+        lines.append(f"{source.name:<{_SOURCE_WIDTH}} {newest}")
+    return lines
+
+
+def render_status_sources(
+    sources: Sequence[SourceFreshness], *, now: datetime
+) -> str:
+    """The SOURCES block for ``mt data status``'s default summary."""
+    header = f"{'SOURCES':<{_SOURCE_WIDTH}} newest"
+    return "\n".join([header, *render_source_lines(sources, now)])
+
+
 def render_sources(overview: Overview) -> list[str]:
     """The SOURCES block: the newest row in each source, and its age."""
     header = f"{'SOURCES':<{_SOURCE_WIDTH}} newest"
@@ -175,15 +204,7 @@ def render_sources(overview: Overview) -> list[str]:
             f"{'':>22}health ({overview.health_at:%H:%M} UTC): "
             f"{overview.health_verdict}"
         )
-    lines = [header]
-    for source in overview.sources:
-        if source.newest is None:
-            newest = "none"
-        else:
-            age = _age(overview.now, source.newest)
-            newest = f"{source.newest:%Y-%m-%d %H:%M} UTC ({age})"
-        lines.append(f"{source.name:<{_SOURCE_WIDTH}} {newest}")
-    return lines
+    return [header, *render_source_lines(overview.sources, overview.now)]
 
 
 def render_universe(overview: Overview) -> list[str]:

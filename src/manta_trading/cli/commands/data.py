@@ -861,6 +861,12 @@ def calendars_holidays(
 
 _VALID_HEALTH_VALUES = {"OK", "GAPS", "STALE", "FAILED"}
 
+_DEFAULT_HEALTH_FILTER = "GAPS,STALE,FAILED"
+"""What --detail shows when --health is not given: everything but OK.
+
+Named rather than repeated as a literal in the option default and the help
+text, which is how the two drift apart."""
+
 
 @data_app.command("status")
 def data_status(
@@ -871,25 +877,43 @@ def data_status(
     json_output: bool = typer.Option(
         False, "--json", help="Emit JSON instead of Rich table."
     ),
-    health_opt: str = typer.Option(
-        "GAPS,STALE,FAILED",
+    health_opt: str | None = typer.Option(
+        None,
         "--health",
-        help="Comma-separated health values to show (OK,GAPS,STALE,FAILED).",
+        help=(
+            "Comma-separated health values to show (OK,GAPS,STALE,FAILED). "
+            f"Implies --detail; defaults to {_DEFAULT_HEALTH_FILTER}."
+        ),
     ),
     daily: bool = typer.Option(False, "--daily", help="Show daily rows only."),
     minute: bool = typer.Option(False, "--minute", help="Show minute rows only."),
     all_rows: bool = typer.Option(
         False, "--all", help="Show all rows including OK (overrides --health)."
     ),
+    detail: bool = typer.Option(
+        False, "--detail", help="Show the per-symbol table (the default until 922)."
+    ),
 ) -> None:
-    """Show health of every (symbol, granularity) pair in the registry.
+    """Summarise data health, or show the per-symbol table with --detail.
+
+    With no options this prints the source freshness block and the health
+    footer — the question "is the data current" answered without scrolling
+    past 12,000 rows to find out. Slice 922 made that the default because the
+    table was what an operator got for asking the simplest question.
+
+    Any of --symbol, --health, --daily, --minute, --all, --json or --detail
+    prints the table: asking for a filter is asking for rows.
 
     Results are grouped into separate tables: daily first, then minute.
-    Default: non-OK rows only. Use --daily or --minute to limit granularity.
-    Use --symbol for detail + gap listing. Use --json for machine-readable output.
+    Use --symbol for detail + gap listing. Use --json for machine-readable
+    output.
     """
+    from datetime import UTC, datetime
+
     from rich.console import Console
 
+    from manta_trading.cli.commands.overview import read_source_freshness
+    from manta_trading.cli.rendering.overview import render_status_sources
     from manta_trading.cli.rendering.status_table import (
         HealthStatus,
         StatusReport,
@@ -903,6 +927,7 @@ def data_status(
     from manta_trading.data.maintenance.auto_extend import maybe_extend_trading_sessions
     from manta_trading.data.maintenance.status_queries import (
         fetch_all_health_counts_with_freshness,
+        fetch_gap_status_counts,
         fetch_status_rows,
         fetch_status_rows_with_freshness,
         fetch_symbol_gaps,
@@ -917,7 +942,8 @@ def data_status(
     if all_rows:
         health_filter: list[str] | None = None
     else:
-        raw_health = [h.strip().upper() for h in health_opt.split(",") if h.strip()]
+        requested = health_opt if health_opt is not None else _DEFAULT_HEALTH_FILTER
+        raw_health = [h.strip().upper() for h in requested.split(",") if h.strip()]
         invalid = [h for h in raw_health if h not in _VALID_HEALTH_VALUES]
         if invalid:
             print_error(
@@ -927,6 +953,18 @@ def data_status(
             )
             raise typer.BadParameter(f"Invalid health: {invalid}")
         health_filter = raw_health
+
+    # Slice 922: asking for a filter is asking for rows. With none given,
+    # the default is the summary.
+    wants_table = bool(
+        detail
+        or symbol
+        or json_output
+        or all_rows
+        or daily
+        or minute
+        or health_opt is not None
+    )
 
     # Resolve granularity filter from --daily / --minute flags.
     if daily and minute:
@@ -957,7 +995,14 @@ def data_status(
             granularity=granularity_filter,
         )
         health_counts, _ = fetch_all_health_counts_with_freshness(conn)
+        # Slice 922: gap_count now reports OPEN gaps only, so the footer
+        # shows what the rest of the gap table holds — a backlog still being
+        # worked reads nothing like one the provider has already closed.
+        gap_status_counts = fetch_gap_status_counts(conn)
         gaps = fetch_symbol_gaps(conn, symbol) if symbol else []
+        # The summary's SOURCES block, read from the same connection as the
+        # counts so the two describe one instant.
+        sources = read_source_freshness(conn) if not wants_table else []
 
 
     # A no-row result is exactly when a stale-coverage verdict matters most: it
@@ -1017,6 +1062,7 @@ def data_status(
         auto_extend=auto_result,
         summary=health_counts,
         coverage=coverage,
+        gap_status_counts=gap_status_counts,
     )
 
     if json_output:
@@ -1031,6 +1077,16 @@ def data_status(
     coverage_notice = render_coverage_notice(coverage)
     if coverage_notice:
         console.print(coverage_notice)
+
+    if not wants_table:
+        # Slice 922: the default. Source freshness plus the footer answers
+        # "is the data current" without scrolling past 12,000 rows.
+        console.print(render_status_sources(sources, now=datetime.now(UTC)))
+        console.print(render_status_footer(report, all_rows=all_rows))
+        notice = render_auto_extend_notice(auto_result)
+        if notice:
+            console.print(notice)
+        return
 
     if symbol:
         for renderable in render_status_detail(report):

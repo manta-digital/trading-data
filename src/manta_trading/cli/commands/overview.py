@@ -217,6 +217,29 @@ def _read(
         return default
 
 
+def read_source_freshness(
+    conn: psycopg.Connection[Any],
+) -> list[SourceFreshness]:
+    """The newest row in each source table (slice 922).
+
+    Shared by ``mt data overview`` and ``mt data status``'s default summary,
+    so the two cannot disagree about what "newest" means or which tables
+    count as sources.
+    """
+    return [
+        SourceFreshness("minute bars", _newest(conn, MINUTE_OHLCV_TABLE, "time")),
+        SourceFreshness("daily bars", _newest(conn, DAILY_OHLCV_TABLE, "time")),
+        SourceFreshness(
+            "kalshi candles",
+            _newest(conn, KALSHI_CANDLES_TABLE, KALSHI_CANDLES_TIME_COLUMN),
+        ),
+        SourceFreshness(
+            "kalshi trades",
+            _newest(conn, KALSHI_TRADES_TABLE, KALSHI_TRADES_TIME_COLUMN),
+        ),
+    ]
+
+
 def gather(
     conn: psycopg.Connection[Any],
     settings: Any,
@@ -250,18 +273,7 @@ def gather(
             missing=missing,
         )
 
-    facts.sources = [
-        SourceFreshness("minute bars", _newest(conn, MINUTE_OHLCV_TABLE, "time")),
-        SourceFreshness("daily bars", _newest(conn, DAILY_OHLCV_TABLE, "time")),
-        SourceFreshness(
-            "kalshi candles",
-            _newest(conn, KALSHI_CANDLES_TABLE, KALSHI_CANDLES_TIME_COLUMN),
-        ),
-        SourceFreshness(
-            "kalshi trades",
-            _newest(conn, KALSHI_TRADES_TABLE, KALSHI_TRADES_TIME_COLUMN),
-        ),
-    ]
+    facts.sources = read_source_freshness(conn)
 
     api_key = getattr(settings, "eodhd_api_key", None)
     if not api_key:
