@@ -20,7 +20,7 @@ from manta_trading.constants import (
 from manta_trading.data.acquisition.daily.provider import DailyProviderName
 from manta_trading.data.historical_minute.provider import MinuteProviderName
 from manta_trading.data.kalshi.selection import CollectionRule
-from manta_trading.minute_firing_schedule import parse_firing_days
+from manta_trading.firing_schedule import parse_firing_days
 
 _MINUTES_PER_DAY = 24 * 60
 

@@ -204,7 +204,40 @@ Which of these daily firings actually run is the operator's
 weekday names such as ``Sat`` for one collecting firing a week. On any other
 day the firing is backfill only (no trailing phase, no seeding) and the
 health check waits for the next firing day — see
-``manta_trading.minute_firing_schedule``."""
+``manta_trading.firing_schedule``."""
+
+
+DAILY_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(0, 35), time(12, 35))
+"""When the daily acquisition pass fires, as UTC times of day.
+
+Must match ``deploy/systemd/mt-daily-pass.timer``; a drift test in
+``test/unit/deploy/test_units.py`` asserts it. The overview reads this to say
+when the next daily pass is due, so a constant that disagreed with the timer
+would print a time nothing happens at.
+"""
+
+KALSHI_PASS_FIRING_MINUTE: int = 20
+"""The minute past each hour at which the Kalshi pass fires.
+
+Must match ``deploy/systemd/mt-kalshi-pass.timer`` (``*:20:00``); a drift
+test asserts it.
+"""
+
+HEALTH_FIRING_MINUTE: int = 50
+"""The minute past each hour at which the health check fires.
+
+Must match ``deploy/systemd/mt-health.timer`` (``*:50:00``); a drift test
+asserts it.
+"""
+
+ACCOUNTING_PASS_FIRING_TIMES_UTC: tuple[time, ...] = (time(16, 30),)
+"""When the minute-accounting pass fires, as UTC times of day (slice 922).
+
+Must match ``deploy/systemd/mt-accounting-pass.timer``; a drift test asserts
+it. After the 13:05 minute firing has had time to finish, so the universe
+line the overview prints reflects the day's collection rather than
+yesterday's.
+"""
 
 
 PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS: int = 5

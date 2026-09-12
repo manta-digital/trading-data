@@ -70,7 +70,7 @@ from manta_trading.data.locking import advisory_lock
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.logging import get_logger
 from manta_trading.market.db_session import make_configure_connection
-from manta_trading.minute_firing_schedule import (
+from manta_trading.firing_schedule import (
     describe_firing_days,
     is_firing_day,
 )

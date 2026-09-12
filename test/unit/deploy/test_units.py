@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import configparser
 import re
+from datetime import time
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from manta_trading.constants import MINUTE_PASS_FIRING_TIMES_UTC
+from manta_trading.constants import (
+    DAILY_PASS_FIRING_TIMES_UTC,
+    HEALTH_FIRING_MINUTE,
+    KALSHI_PASS_FIRING_MINUTE,
+    MINUTE_PASS_FIRING_TIMES_UTC,
+)
 
 _REPO_ROOT = Path(__file__).parents[3]
 _SYSTEMD = _REPO_ROOT / "deploy" / "systemd"
@@ -220,6 +226,27 @@ class TestHealthUnits:
 # ---------------------------------------------------------------------------
 
 MINUTE_PASS_TIMER = _REPO_ROOT / "deploy" / "systemd" / "mt-minute-pass.timer"
+DAILY_PASS_TIMER = _SYSTEMD / "mt-daily-pass.timer"
+KALSHI_PASS_TIMER = _SYSTEMD / "mt-kalshi-pass.timer"
+HEALTH_FIRING_TIMER = _SYSTEMD / "mt-health.timer"
+
+
+def _on_calendar(path: Path) -> set[str]:
+    """Every ``OnCalendar=`` line in a timer unit, stripped."""
+    return {
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("OnCalendar=")
+    }
+
+
+def _daily_calendar(times: tuple[time, ...]) -> set[str]:
+    """The ``OnCalendar`` set a tuple of daily firing times should produce."""
+    return {
+        f"OnCalendar=*-*-* {firing.hour:02d}:{firing.minute:02d}:00 UTC"
+        for firing in times
+    }
+
 
 
 class TestMinutePassTimerMatchesTheConstant:
@@ -275,3 +302,46 @@ class TestMinutePassTimerMatchesTheConstant:
 
     def test_the_counts_match(self) -> None:
         assert len(self._on_calendar_lines()) == len(MINUTE_PASS_FIRING_TIMES_UTC)
+
+
+# ---------------------------------------------------------------------------
+# Slice 922: the other three cadences the overview reads
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleConstantsMatchTheirTimers:
+    """Each firing constant and its timer unit state the same cadence.
+
+    ``mt data overview`` prints "next firing" from these constants. A constant
+    that drifted from its unit would print a time at which nothing happens —
+    the operator would wait for a pass that was never scheduled, which is
+    exactly the kind of quiet wrongness the overview exists to remove.
+
+    Same posture as ``TestMinutePassTimerMatchesTheConstant``: the unit file
+    stays authoritative and the test asserts agreement, rather than rendering
+    the unit from the constant (the installer copies units verbatim, with no
+    Python available at install time).
+    """
+
+    def test_the_daily_timer_declares_exactly_the_constant_times(self) -> None:
+        assert _on_calendar(DAILY_PASS_TIMER) == _daily_calendar(
+            DAILY_PASS_FIRING_TIMES_UTC
+        )
+
+    def test_the_daily_constant_has_both_firings(self) -> None:
+        """A guard on the guard: an empty tuple would make the set test vacuous."""
+        assert len(DAILY_PASS_FIRING_TIMES_UTC) == 2
+
+    def test_the_kalshi_timer_fires_at_the_constant_minute(self) -> None:
+        assert _on_calendar(KALSHI_PASS_TIMER) == {
+            f"OnCalendar=*-*-* *:{KALSHI_PASS_FIRING_MINUTE:02d}:00 UTC"
+        }
+
+    def test_the_health_timer_fires_at_the_constant_minute(self) -> None:
+        assert _on_calendar(HEALTH_FIRING_TIMER) == {
+            f"OnCalendar=*-*-* *:{HEALTH_FIRING_MINUTE:02d}:00 UTC"
+        }
+
+    def test_the_hourly_cadences_do_not_collide(self) -> None:
+        """Two hourly passes on the same minute would contend every hour."""
+        assert KALSHI_PASS_FIRING_MINUTE != HEALTH_FIRING_MINUTE

@@ -46,7 +46,7 @@ from manta_trading.data.acquisition.daemon.minute import (
 from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.acquisition.quota import CallType, QuotaBucket
 from manta_trading.logging import get_logger
-from manta_trading.minute_firing_schedule import is_firing_day
+from manta_trading.firing_schedule import is_firing_day
 
 if TYPE_CHECKING:
     from uuid import UUID

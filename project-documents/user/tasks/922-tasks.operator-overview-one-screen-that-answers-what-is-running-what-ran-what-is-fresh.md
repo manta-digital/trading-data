@@ -162,8 +162,8 @@ Design *Scope 1*, *Decision 1, 2, 4*, *Database / Storage Schema*, *SC3*,
 
 Design *Scope 1*, *Decision 2, 3, 5*, the *Writers* table, *SC2*.
 
-- [ ] **Task 2.1: Outcome mappings** (effort: 2)
-  - [ ] Next to `minute_pass_exit_code` in `daemon/minute.py`:
+- [x] **Task 2.1: Outcome mappings** (effort: 2)
+  - [x] Next to `minute_pass_exit_code` in `daemon/minute.py`:
         `pass_run_outcome_for_minute(outcome, *, trailing_completed,
         trailing_required) -> PassRunOutcome` with an exhaustiveness assert
         over `MinutePassOutcome` like `_MINUTE_EXIT_BY_OUTCOME`. Table:
@@ -171,82 +171,82 @@ Design *Scope 1*, *Decision 2, 3, 5*, the *Writers* table, *SC2*.
         `PROVIDER_UNAVAILABLE`; trailing done or not required and backfill
         `COMPLETE` → `COMPLETE`; backfill `QUOTA_EXHAUSTED` → `COMPLETE_QUOTA`;
         backfill `PROVIDER_UNAVAILABLE` → `PROVIDER_UNAVAILABLE`.
-  - [ ] In `cli/commands/kalshi.py` next to `EXIT_BY_OUTCOME`:
+  - [x] In `cli/commands/kalshi.py` next to `EXIT_BY_OUTCOME`:
         `pass_run_outcome_for_kalshi(SyncOutcome)`: `OK` → `COMPLETE`,
         `PARTIAL` → `INCOMPLETE`, `PROVIDER_ABORT` → `PROVIDER_UNAVAILABLE`,
         `STORAGE_ABORT` → `FAILED`; exhaustive.
-  - [ ] Success: both functions are the only mapping site for their source.
-- [ ] **Task 2.2: Tests for the mappings** (effort: 1)
-  - [ ] Parametrised unit tests over every member of each source enum and
+  - [x] Success: both functions are the only mapping site for their source.
+- [x] **Task 2.2: Tests for the mappings** (effort: 1)
+  - [x] Parametrised unit tests over every member of each source enum and
         both trailing flags; a test that adding a member to a fake enum trips
         the assert.
-  - [ ] Success: tests pass in the unit tier.
-- [ ] **Task 2.3: Minute progress callback** (effort: 2)
-  - [ ] Add `on_progress: Callable[[MinutePassPhase, int, int], None] | None`
+  - [x] Success: tests pass in the unit tier.
+- [x] **Task 2.3: Minute progress callback** (effort: 2)
+  - [x] Add `on_progress: Callable[[MinutePassPhase, int, int], None] | None`
         to `run_minute_cycle`, `_run_trailing_phase` and `_run_minute_phase`,
         threaded exactly like `on_symbol`; call it at the existing
         `MINUTE_SEED_PROGRESS_LOG_INTERVAL` log site (~line 611) and once at
         phase completion with `done == total`.
-  - [ ] `CycleReport` gains `trailing_symbols_attempted`,
+  - [x] `CycleReport` gains `trailing_symbols_attempted`,
         `backfill_symbols_attempted` (ints) so the close detail can read
         `trailing n/N · backfill n symbols` without re-deriving.
-  - [ ] Success: existing minute tests pass unchanged with `on_progress=None`.
-- [ ] **Task 2.4: Runner writes minute and daily rows** (effort: 3)
-  - [ ] `Runner.__init__` takes an optional `PassRunRecorder`; the CLI
+  - [x] Success: existing minute tests pass unchanged with `on_progress=None`.
+- [x] **Task 2.4: Runner writes minute and daily rows** (effort: 3)
+  - [x] `Runner.__init__` takes an optional `PassRunRecorder`; the CLI
         (`daemon_run` in `cli/commands/data.py`) constructs it from the same
         connection factory it already builds, **only when the scope is
         `SCOPE_ALL_ACTIVE`** (Decision 3); explicit scopes pass `None`.
-  - [ ] Minute cycle site: before `_run_minute_cycle`, `recorder.open(MINUTE,
+  - [x] Minute cycle site: before `_run_minute_cycle`, `recorder.open(MINUTE,
         walk_anchor_at = now if is_firing_day(now.date(),
         settings.minute_firing_days) else None)`; pass `on_progress` through;
         after the cycle, `close` with the mapping from Task 2.1, `exit_code =
         minute_pass_exit_code(...)`, detail from the new report counters;
         the `report is None` path closes `FAILED`, exit
         `MINUTE_EXIT_PASS_INCOMPLETE`, detail = exception class name.
-  - [ ] Daily cycle site: `open(DAILY, walk_anchor_at = the cycle's pass
+  - [x] Daily cycle site: `open(DAILY, walk_anchor_at = the cycle's pass
         boundary)` — expose the boundary computation as a function in
         `daily.py` if it is inline today; `run_daily_cycle` sets a new
         `CycleReport.daily_pass_completed` (true when the pending list was
         walked to the end); close `COMPLETE` / `INCOMPLETE`, exception →
         `FAILED`; exit code 0 (Decision 5: the daily exit code is unchanged).
-  - [ ] Success: one row per cycle; a `--symbols` invocation writes none.
-- [ ] **Task 2.5: Tests for the runner writers** (effort: 2)
-  - [ ] Extend `test/unit/data/acquisition/daemon/test_runner.py` using its
+  - [x] Success: one row per cycle; a `--symbols` invocation writes none.
+- [x] **Task 2.5: Tests for the runner writers** (effort: 2)
+  - [x] Extend `test/unit/data/acquisition/daemon/test_runner.py` using its
         `_harness.py`: a fake recorder records open/progress/close for a
         minute cycle on a firing day (anchor set) and a non-firing day
         (anchor None); a raising cycle closes `FAILED`; explicit scope →
         no recorder calls; daily completed vs stopped-early outcomes.
-  - [ ] Success: unit tier passes. Commit.
-- [ ] **Task 2.6: Kalshi pass writes its row** (effort: 2)
-  - [ ] In `run_pass` (`cli/commands/kalshi.py`), open a `KALSHI` row (no
+  - [x] Success: unit tier passes. Commit.
+- [x] **Task 2.6: Kalshi pass writes its row** (effort: 2)
+  - [x] In `run_pass` (`cli/commands/kalshi.py`), open a `KALSHI` row (no
         anchor) using the existing `run_id`; `CollectionPass` gets an optional
         `on_phase(PassPhaseName)` callback called at each phase start, which
         the CLI wires to `recorder.progress(phase=…)`; close with
         `pass_run_outcome_for_kalshi`, `EXIT_BY_OUTCOME[...]`, detail = the
         per-phase outcome list already logged at "kalshi pass finished".
-  - [ ] Success: `mt data kalshi pass` on a test DB leaves one ended row.
-- [ ] **Task 2.7: Tests for the Kalshi writer** (effort: 1)
-  - [ ] Extend `test/integration/test_kalshi_pass.py` (or its unit sibling
+  - [x] Success: `mt data kalshi pass` on a test DB leaves one ended row.
+- [x] **Task 2.7: Tests for the Kalshi writer** (effort: 1)
+  - [x] Extend `test/integration/test_kalshi_pass.py` (or its unit sibling
         under `test/kalshi_support/`): a pass with all phases OK closes
         `COMPLETE`; a provider abort closes `PROVIDER_UNAVAILABLE` with the
         skipped phases named in detail.
-  - [ ] Success: tests pass.
-- [ ] **Task 2.8: Health and accounting write their rows** (effort: 2)
-  - [ ] `data_health`: open `HEALTH` before `gather`; close `COMPLETE` with
+  - [x] Success: tests pass.
+- [x] **Task 2.8: Health and accounting write their rows** (effort: 2)
+  - [x] `data_health`: open `HEALTH` before `gather`; close `COMPLETE` with
         detail = the last rendered line (`healthy` or `UNHEALTHY: …`) and the
         exit code; the unavailable branch closes `FAILED`, exit 2, detail =
         the error text.
-  - [ ] `data_accounting`: open `ACCOUNTING` before `compute_minute_accounting`;
+  - [x] `data_accounting`: open `ACCOUNTING` before `compute_minute_accounting`;
         close `COMPLETE` with detail = `summary_line(rows)`; unavailable →
         `FAILED`.
-  - [ ] Both share one small helper (`cli/commands/_pass_run.py`) that builds
+  - [x] Both share one small helper (`cli/commands/_pass_run.py`) that builds
         the recorder from settings, so the two commands do not duplicate it.
-  - [ ] Success: rows appear for both commands; exit codes unchanged.
-- [ ] **Task 2.9: Tests for the health and accounting writers** (effort: 1)
-  - [ ] Extend `test/unit/cli/commands/test_data_health.py` and the accounting
+  - [x] Success: rows appear for both commands; exit codes unchanged.
+- [x] **Task 2.9: Tests for the health and accounting writers** (effort: 1)
+  - [x] Extend `test/unit/cli/commands/test_data_health.py` and the accounting
         test with a fake recorder: healthy, unhealthy and unavailable paths
         record the expected outcome, detail and exit code.
-  - [ ] Success: unit tier passes. Commit.
+  - [x] Success: unit tier passes. Commit.
 
 ## Section 3: Firing schedules
 
