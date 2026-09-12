@@ -110,6 +110,17 @@ The overview's other 5 s is the EODHD credit call, bounded by its request
 timeout rather than measured: one GET, no retry. A credit endpoint that does
 not answer becomes a line on the screen; the command still exits 0.
 
+### Deployed
+manta9000, 2026-09-12 23:00 UTC, from `scripts/cutover_922_overview.py`
+(13/13 checks passed; report in `user/notes/922-cutover-20260912T230015Z.md`).
+Migrations 055 and 056 applied to `trading`; `mt-serve` restarted; the new
+`mt-accounting-pass.timer` enabled, first firing 2026-09-13 16:30 UTC.
+
+The screen renders and every pass kind reads "never run", which is correct
+on a fresh `pass_runs` — recording starts with each pass's next firing. Its
+first real reading was a useful one: EODHD stood at 99,998/100,000 credits
+with no extras, an hour before the 00:00 UTC reset.
+
 ## [0.14.9] - 2026-09-11
 
 ### Fixed
