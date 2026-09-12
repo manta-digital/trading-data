@@ -285,8 +285,24 @@ KALSHI_TRADES_TIME_COLUMN: str = "created_time"
 EODHD_ACCOUNT_TIMEOUT_SECONDS: float = 5.0
 """How long the overview waits for the EODHD account endpoint (slice 922).
 
-Half of the overview's ten-second budget; the database gets the other half.
-A status line is not worth making the operator wait for.
+Half of the overview's ten-second budget; the database gets the other half,
+bounded by :data:`OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS`. A status line is not
+worth making the operator wait for.
+"""
+
+OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS: int = 5
+"""The database half of the overview's ten-second budget (slice 922).
+
+The overview used to connect with the Kalshi commands' shared
+``DB_CONNECT_TIMEOUT_SECONDS`` (10 s), so the half the docstring above
+promised was not enforced: an unreachable database consumed the whole budget
+before a query ran, and the load tier's guard compared constants to each
+other rather than to what the command actually passed (922 re-review F001).
+
+Deliberately its own constant rather than a reuse of
+:data:`PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS`: the two are equal today by
+coincidence of arithmetic, not because bookkeeping and this screen share a
+requirement.
 """
 
 MAX_COVERAGE_SOURCE_STALENESS: timedelta = timedelta(days=1)

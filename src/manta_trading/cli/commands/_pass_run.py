@@ -102,6 +102,13 @@ def make_pass_run_recorder(
             str(url),
             min_size=_POOL_MIN_SIZE,
             max_size=_POOL_MAX_SIZE,
+            # Both paths bounded. connect_timeout covers opening a socket;
+            # `timeout` covers waiting for a free connection, which defaults
+            # to 30 s — so against a database that accepts connections and
+            # then stalls, every progress write in the minute cycle blocked
+            # for that default before giving up, six times the posture the
+            # constant's docstring promises (922 re-review F006).
+            timeout=PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS,
             kwargs={"connect_timeout": PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS},
         )
     except Exception:  # noqa: BLE001

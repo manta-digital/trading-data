@@ -36,7 +36,10 @@ from manta_trading.constants import (
 )
 from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.acquisition.state import LastAttemptOutcome
-from manta_trading.data.quality.fetch_status import FetchStatus
+from manta_trading.data.quality.fetch_status import (
+    OPEN_FETCH_STATUSES,
+    FetchStatus,
+)
 from manta_trading.data.universe.eodhd_classification import EodhdType
 from manta_trading.market.schema.seed_calendar import (
     NASDAQ_CALENDAR,
@@ -177,8 +180,7 @@ def _open_gap_predicate() -> str:
     Values render from :class:`FetchStatus`, doubled-quoted for embedding in
     the migration's DO block like the rest of the view text.
     """
-    names = (FetchStatus.UNKNOWN, FetchStatus.FAILED_RETRYABLE)
-    quoted = ", ".join(f"''{status.value}''" for status in names)
+    quoted = ", ".join(f"''{status.value}''" for status in OPEN_FETCH_STATUSES)
     return f"fetch_status IN ({quoted})"
 
 

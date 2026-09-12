@@ -180,3 +180,26 @@ def test_the_credit_call_is_bounded_by_construction() -> None:
 
     assert EODHD_ACCOUNT_TIMEOUT_SECONDS <= _CREDIT_CALL_BUDGET_SECONDS
     assert _DB_BUDGET_SECONDS + EODHD_ACCOUNT_TIMEOUT_SECONDS <= _TOTAL_BUDGET_SECONDS
+
+
+def test_the_database_half_is_bounded_by_what_the_command_passes() -> None:
+    """The connect timeout the command actually uses, not two constants.
+
+    The assertion above compares constants to each other, so it held while
+    the command connected with the Kalshi commands' shared 10 s timeout — the
+    database half was not bounded at all, and an unreachable host consumed
+    the whole budget before a query ran (922 re-review F001). This reads the
+    value out of the command's own source so the guard cannot pass while the
+    command disagrees with it.
+    """
+    import inspect
+
+    from manta_trading.cli.commands.overview import data_overview
+    from manta_trading.constants import OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS
+
+    assert OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS <= _DB_BUDGET_SECONDS
+    source = inspect.getsource(data_overview)
+    assert "connect_timeout=OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS" in source, (
+        "data_overview must bound its connect with the overview's own budget "
+        "constant; a shared timeout from another command silently widens it"
+    )

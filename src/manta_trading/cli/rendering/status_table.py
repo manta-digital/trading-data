@@ -18,7 +18,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from manta_trading.data.maintenance.auto_extend import AutoExtendResult
-from manta_trading.data.quality.fetch_status import FetchStatus
+from manta_trading.data.quality.fetch_status import (
+    OPEN_FETCH_STATUSES,
+    FetchStatus,
+)
 from manta_trading.data.maintenance.status_coverage import CoverageFreshness
 
 # ---------------------------------------------------------------------------
@@ -213,13 +216,15 @@ def render_gap_status_line(
 ) -> str:
     """One granularity's gap breakdown: still asking, holes, exhausted.
 
-    "Still asking" is UNKNOWN plus FAILED_RETRYABLE — the open gaps
-    ``data_status.gap_count`` now reports. The other two are terminal
+    "Still asking" reads :data:`OPEN_FETCH_STATUSES` — the same tuple the
+    ``data_status.gap_count`` predicate renders from, so this line cannot
+    disagree with the count it sits beneath. The other two are terminal
     answers, shown beside it so an operator can tell a backlog still being
     worked from one the provider has already closed.
     """
-    asking = counts.get((granularity, FetchStatus.UNKNOWN.value), 0) + counts.get(
-        (granularity, FetchStatus.FAILED_RETRYABLE.value), 0
+    asking = sum(
+        counts.get((granularity, status.value), 0)
+        for status in OPEN_FETCH_STATUSES
     )
     holes = counts.get((granularity, FetchStatus.PROVIDER_HOLE.value), 0)
     exhausted = counts.get((granularity, FetchStatus.RETRY_EXHAUSTED.value), 0)

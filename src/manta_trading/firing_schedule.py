@@ -91,21 +91,18 @@ def next_minute_firing_at(
     weekdays: tuple[int, ...] | None,
     times: tuple[time, ...] = MINUTE_PASS_FIRING_TIMES_UTC,
 ) -> datetime:
-    """The first firing that runs at or after ``after`` (an aware UTC instant)."""
+    """The first firing that runs at or after ``after`` (an aware UTC instant).
+
+    The minute pass's own spelling of :func:`next_firing_at`, kept because
+    its callers pass weekdays and times rather than a schedule. The search
+    itself is not repeated here — slice 922 generalised it, and holding two
+    copies of one algorithm is how they drift (922 re-review F005).
+    """
     if after.tzinfo is None:
+        # Checked here as well so the message names the function the caller
+        # actually called; the delegate would say "next_firing_at".
         raise ValueError("next_minute_firing_at needs an aware datetime")
-    for offset in range(_SEARCH_DAYS):
-        day = (after + timedelta(days=offset)).date()
-        if not is_firing_day(day, weekdays):
-            continue
-        for firing in sorted(times):
-            candidate = datetime.combine(day, firing, tzinfo=UTC)
-            if candidate >= after:
-                return candidate
-    raise RuntimeError(
-        f"no minute-pass firing within {_SEARCH_DAYS} days of {after:%Y-%m-%d} — "
-        "the firing-day list or MINUTE_PASS_FIRING_TIMES_UTC is empty"
-    )
+    return next_firing_at(after, FiringSchedule(times_utc=times, weekdays=weekdays))
 
 
 # ---------------------------------------------------------------------------

@@ -561,3 +561,58 @@ def test_json_coverage_is_stale_false_when_fresh() -> None:
 def test_status_report_coverage_defaults_to_none() -> None:
     """Callers predating the guard still construct a valid report."""
     assert make_report().coverage is None
+
+
+class TestTheOpenGapSetIsDefinedOnce:
+    """The footer's "still asking" and gap_count must agree (re-review F002).
+
+    They sit directly beneath one another on screen: the count comes from
+    the SQL predicate rendered into migration 056, the line from this
+    renderer. Both now read OPEN_FETCH_STATUSES, so they cannot drift.
+    """
+
+    def test_the_renderer_counts_exactly_the_open_statuses(self) -> None:
+        from manta_trading.cli.rendering.status_table import render_gap_status_line
+        from manta_trading.data.quality.fetch_status import (
+            OPEN_FETCH_STATUSES,
+            FetchStatus,
+        )
+
+        # One row per status, each a distinct count, so a renderer that
+        # summed the wrong set produces a different total.
+        counts = {
+            ("minute", status.value): 10 ** i
+            for i, status in enumerate(FetchStatus)
+        }
+        line = render_gap_status_line(counts, "minute")
+        expected = sum(
+            counts[("minute", status.value)] for status in OPEN_FETCH_STATUSES
+        )
+        assert f"still asking {expected:,}" in line
+
+    def test_the_sql_predicate_renders_from_the_same_tuple(self) -> None:
+        from manta_trading.data.quality.fetch_status import OPEN_FETCH_STATUSES
+        from manta_trading.market.schema.migrations.minute import (
+            _open_gap_predicate,
+        )
+
+        predicate = _open_gap_predicate()
+        for status in OPEN_FETCH_STATUSES:
+            assert status.value in predicate
+        # And nothing else: a terminal status in the predicate would make
+        # gap_count a number that can never reach zero.
+        from manta_trading.data.quality.fetch_status import FetchStatus
+
+        for status in FetchStatus:
+            if status not in OPEN_FETCH_STATUSES:
+                assert status.value not in predicate
+
+    def test_a_terminal_status_is_not_open(self) -> None:
+        """Guards the tuple's contents, not just its plumbing."""
+        from manta_trading.data.quality.fetch_status import (
+            OPEN_FETCH_STATUSES,
+            FetchStatus,
+        )
+
+        assert FetchStatus.PROVIDER_HOLE not in OPEN_FETCH_STATUSES
+        assert FetchStatus.RETRY_EXHAUSTED not in OPEN_FETCH_STATUSES

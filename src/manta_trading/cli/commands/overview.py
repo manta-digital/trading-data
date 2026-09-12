@@ -183,12 +183,19 @@ def gather(
     The credit call is guarded: the overview's job is to report, so a
     provider that will not answer becomes a line saying so rather than a
     failed command.
+
+    Settings are read as attributes, not through ``getattr`` defaults.
+    ``Settings`` always defines both, and ``weekdays=None`` means *daily* to
+    ``FiringSchedule`` — so a default here would turn a rename into a
+    plausible wrong cadence on screen instead of a loud failure
+    (922 re-review F004). An unset API key is a value, and still handled
+    below.
     """
     at = now or datetime.now(UTC)
     facts = OverviewFacts(
         at,
         hostname if hostname is not None else socket.gethostname(),
-        minute_firing_days=getattr(settings, "minute_firing_days", None),
+        minute_firing_days=settings.minute_firing_days,
     )
     repo = PassRunRepository(lambda: _borrowed(conn))
     missing = _MissingPassRuns()
@@ -205,7 +212,7 @@ def gather(
 
     facts.sources = read_source_freshness(conn)
 
-    api_key = getattr(settings, "eodhd_api_key", None)
+    api_key = settings.eodhd_api_key
     if not api_key:
         facts.credits_error = CREDITS_NO_KEY
     else:
@@ -220,7 +227,14 @@ def gather(
             # written to the journal, so it must not carry a token even if
             # some future raiser forgets (922 review F001).
             reason = redact_token(str(exc))
-            _logger.warning("overview: credit lookup failed: %s", reason)
+            # exc_info so the journal carries the stack: the catch is broad
+            # by contract (the credit line must never fail the screen), and
+            # a one-line WARNING would hide a programming error inside the
+            # fetch behind a plausible "unavailable" line (922 re-review
+            # F003). The message itself stays redacted.
+            _logger.warning(
+                "overview: credit lookup failed: %s", reason, exc_info=True
+            )
             facts.credits_error = credits_unavailable(reason)
     return facts
 
@@ -353,7 +367,7 @@ def data_overview(
         overview_payload,
         render_overview,
     )
-    from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
+    from manta_trading.constants import OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS
 
     settings = ctx.obj["settings"]
     if not settings.timescale_db_url:
@@ -362,7 +376,7 @@ def data_overview(
     try:
         with psycopg.connect(
             str(settings.timescale_db_url),
-            connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+            connect_timeout=OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS,
         ) as conn:
             facts = gather(conn, settings)
     except (psycopg.OperationalError, psycopg.errors.QueryCanceled) as exc:
