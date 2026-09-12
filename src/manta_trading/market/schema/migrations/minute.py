@@ -36,6 +36,7 @@ from manta_trading.constants import (
     MINUTE_STALENESS_THRESHOLD,
     TRADING_SESSIONS_EXTENSION_YEARS,
 )
+from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.acquisition.state import LastAttemptOutcome
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.universe.eodhd_classification import EodhdType
@@ -143,6 +144,24 @@ def _outcome_check_sql() -> str:
     """
     quoted = ", ".join(f"'{v.value}'" for v in sorted(LastAttemptOutcome, key=lambda s: s.value))
     return f"last_attempt_outcome IN ({quoted})"
+
+
+def _pass_kind_check_sql() -> str:
+    """Render the IN (...) clause for pass_runs.pass CHECK from the PassKind enum.
+
+    Values are sorted alphabetically for deterministic migration text.
+    """
+    quoted = ", ".join(f"'{v.value}'" for v in sorted(PassKind, key=lambda s: s.value))
+    return f"pass IN ({quoted})"
+
+
+def _pass_run_outcome_check_sql() -> str:
+    """Render the IN (...) clause for pass_runs.outcome CHECK from PassRunOutcome.
+
+    Values are sorted alphabetically for deterministic migration text.
+    """
+    quoted = ", ".join(f"'{v.value}'" for v in sorted(PassRunOutcome, key=lambda s: s.value))
+    return f"outcome IS NULL OR outcome IN ({quoted})"
 
 
 def _interval_literal(td: timedelta) -> str:
@@ -1226,6 +1245,52 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         ),
         "sql": """
             DROP TABLE IF EXISTS coverage_gaps;
+        """,
+    },
+    # Position-critical: 055 must run before 021_data_status_view.
+    # Do not reorder this list alphabetically by id — the runner iterates list
+    # order, not numeric id sort. Slice 922's view builder is module-level and
+    # pre-rendered, so once it emits the walk_anchor CTE every historical
+    # re-issue of data_status (021, 024, 028, 048, 051, 052) references
+    # pass_runs. A fresh database or a slice-915 restore replay must therefore
+    # have the table before 021 runs. Same precedent as 038 before 019.
+    # Idempotent on existing DBs (IF NOT EXISTS).
+    {
+        "id": "055_create_pass_runs",
+        "description": (
+            "Create pass_runs: one row per all-active-scope pass (minute, "
+            "daily, kalshi, health, accounting), open while it runs and "
+            "closed with an outcome (slice 922). walk_anchor_at records the "
+            "instant a full-universe walk started, which the data_status view "
+            "reads to decide staleness. CHECK values render from the PassKind "
+            "and PassRunOutcome enums."
+        ),
+        "sql": f"""
+            CREATE TABLE IF NOT EXISTS pass_runs (
+                run_id              UUID        PRIMARY KEY,
+                pass                TEXT        NOT NULL,
+                hostname            TEXT        NOT NULL,
+                pid                 INTEGER     NOT NULL,
+                walk_anchor_at      TIMESTAMPTZ,
+                started_at          TIMESTAMPTZ NOT NULL,
+                ended_at            TIMESTAMPTZ,
+                phase               TEXT,
+                progress_done       INTEGER,
+                progress_total      INTEGER,
+                progress_updated_at TIMESTAMPTZ,
+                outcome             TEXT,
+                exit_code           INTEGER,
+                detail              TEXT,
+                CONSTRAINT pass_runs_pass_check
+                    CHECK ({_pass_kind_check_sql()}),
+                CONSTRAINT pass_runs_outcome_check
+                    CHECK ({_pass_run_outcome_check_sql()}),
+                CONSTRAINT pass_runs_ended_check
+                    CHECK ((ended_at IS NULL) = (outcome IS NULL))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pass_runs_pass_started
+                ON pass_runs (pass, started_at DESC);
         """,
     },
     {
