@@ -116,12 +116,12 @@ def _remaining_credits() -> int:
     import httpx
 
     from manta_trading.config import Settings
-    from manta_trading.constants import HEALTH_EODHD_USER_ENDPOINT
+    from manta_trading.constants import EODHD_USER_ENDPOINT
 
     settings = Settings()
     try:
         response = httpx.get(
-            HEALTH_EODHD_USER_ENDPOINT,
+            EODHD_USER_ENDPOINT,
             params={"api_token": settings.eodhd_api_key, "fmt": "json"},
             timeout=30.0,
         )

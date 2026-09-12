@@ -249,9 +249,34 @@ recorder gives up quickly rather than delaying the pass it is describing.
 """
 
 
-HEALTH_EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
+EODHD_USER_ENDPOINT: str = "https://eodhd.com/api/user"
 """EODHD account endpoint; returns ``apiRequests``, ``dailyRateLimit``,
-``extraLimit``. One call per health run."""
+``extraLimit``.
+
+Renamed from ``HEALTH_EODHD_USER_ENDPOINT`` in slice 922: the health check
+dropped its quota floor in 921, leaving the constant orphaned, and its only
+consumer now is the overview's credit line. The health prefix would have
+named a reader that no longer exists.
+"""
+
+KALSHI_CANDLES_TABLE: str = "kalshi.candlesticks"
+"""The Kalshi candlestick hypertable, created by the kalshi migration track."""
+
+KALSHI_CANDLES_TIME_COLUMN: str = "end_period_ts"
+"""The candlestick table's time column."""
+
+KALSHI_TRADES_TABLE: str = "kalshi.trades"
+"""The Kalshi trades hypertable, created by the kalshi migration track."""
+
+KALSHI_TRADES_TIME_COLUMN: str = "created_time"
+"""The trades table's time column."""
+
+EODHD_ACCOUNT_TIMEOUT_SECONDS: float = 5.0
+"""How long the overview waits for the EODHD account endpoint (slice 922).
+
+Half of the overview's ten-second budget; the database gets the other half.
+A status line is not worth making the operator wait for.
+"""
 
 DAILY_STALENESS_THRESHOLD: timedelta = timedelta(days=2)
 """A daily-granularity symbol is STALE if last_attempt_ts is older than this."""

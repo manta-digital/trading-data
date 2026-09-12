@@ -252,28 +252,28 @@ Design *Scope 1*, *Decision 2, 3, 5*, the *Writers* table, *SC2*.
 
 Design *Scope 6*, *Decision 10*, *SC8*.
 
-- [ ] **Task 3.1: Schedule constants and `FiringSchedule`** (effort: 2)
-  - [ ] `constants.py`: `DAILY_PASS_FIRING_TIMES_UTC = (00:35, 12:35)`,
+- [x] **Task 3.1: Schedule constants and `FiringSchedule`** (effort: 2)
+  - [x] `constants.py`: `DAILY_PASS_FIRING_TIMES_UTC = (00:35, 12:35)`,
         `KALSHI_PASS_FIRING_MINUTE = 20`, `HEALTH_FIRING_MINUTE = 50`,
         `ACCOUNTING_PASS_FIRING_TIMES_UTC = (16:30,)`, each documented as
         "must match deploy/systemd/<unit>.timer".
-  - [ ] Rename `minute_firing_schedule.py` → `firing_schedule.py` keeping the
+  - [x] Rename `minute_firing_schedule.py` → `firing_schedule.py` keeping the
         four existing functions (update imports); add
         `FiringSchedule(times_utc, weekdays)` and `next_firing_at(after,
         schedule)`; an `hourly(minute)` constructor builds the 24-entry tuple.
         `schedule_for(kind, settings) -> FiringSchedule` is the one place the
         cadence per kind is assembled (minute uses
         `settings.minute_firing_days`).
-  - [ ] Success: `next_minute_firing_at` behaviour unchanged (existing tests
+  - [x] Success: `next_minute_firing_at` behaviour unchanged (existing tests
         pass after the import rename).
-- [ ] **Task 3.2: Tests and drift guards** (effort: 1)
-  - [ ] Unit tests for `next_firing_at` on twice-daily and hourly schedules
+- [x] **Task 3.2: Tests and drift guards** (effort: 1)
+  - [x] Unit tests for `next_firing_at` on twice-daily and hourly schedules
         across midnight and across a weekday gap.
-  - [ ] In `test/unit/deploy/test_units.py`, one test per new constant
+  - [x] In `test/unit/deploy/test_units.py`, one test per new constant
         asserting it against the unit file's `OnCalendar`, in the
         `TestMinutePassTimerMatchesTheConstant` style. The accounting
         timer's drift test lands with its unit in Task 6.1.
-  - [ ] Success: unit tier passes. Commit.
+  - [x] Success: unit tier passes. Commit.
 
 ## Section 4: `mt data overview`
 

@@ -100,6 +100,10 @@ data_app.command("health")(data_health)
 from manta_trading.cli.commands.accounting import data_accounting  # noqa: E402
 
 data_app.command("accounting")(data_accounting)
+# `mt data overview` (slice 922): the first command an operator runs.
+from manta_trading.cli.commands.overview import data_overview  # noqa: E402
+
+data_app.command("overview")(data_overview)
 data_app.add_typer(universes_app, name="universes")
 data_app.add_typer(restore_app, name="restore")
 data_app.add_typer(kalshi_app, name="kalshi")
