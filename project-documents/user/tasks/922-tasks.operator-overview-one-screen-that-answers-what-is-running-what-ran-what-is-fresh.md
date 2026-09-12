@@ -280,20 +280,20 @@ Design *Scope 6*, *Decision 10*, *SC8*.
 Design *Scope 2*, *Decision 8, 9, 12*, *CLI Specification*, *SC1*, *SC2*,
 *SC7*.
 
-- [ ] **Task 4.1: `fetch_credit_usage`** (effort: 1)
-  - [ ] New `api/eodhd_account.py`: `CreditUsage(used, daily_limit, extra)`
+- [x] **Task 4.1: `fetch_credit_usage`** (effort: 1)
+  - [x] New `api/eodhd_account.py`: `CreditUsage(used, daily_limit, extra)`
         and `fetch_credit_usage(api_key) -> CreditUsage` calling
         `HEALTH_EODHD_USER_ENDPOINT` through `eodhd_get` with a five-second
         timeout; rename the constant to `EODHD_USER_ENDPOINT` (a deliberate
         touch on a health-named constant: its only remaining consumer is this
         module, and grep confirms no other reference in `src/` or `test/`).
-  - [ ] Success: `apiRequests` is documented as *used*; no new HTTP client.
-- [ ] **Task 4.2: Test for the credit fetch** (effort: 1)
-  - [ ] Unit test with a mocked `eodhd_get`: the three fields parse; a
+  - [x] Success: `apiRequests` is documented as *used*; no new HTTP client.
+- [x] **Task 4.2: Test for the credit fetch** (effort: 1)
+  - [x] Unit test with a mocked `eodhd_get`: the three fields parse; a
         non-200 raises the wrapper's error (not swallowed here).
-  - [ ] Success: passes.
-- [ ] **Task 4.3: Overview gather and build** (effort: 3)
-  - [ ] `cli/commands/overview.py`: `gather(conn, settings, *, now)` reads,
+  - [x] Success: passes.
+- [x] **Task 4.3: Overview gather and build** (effort: 3)
+  - [x] `cli/commands/overview.py`: `gather(conn, settings, *, now)` reads,
         per kind, `open_runs` and `latest_ended`; newest bar per source
         (`max(time)` on `minute_ohlcv`, `daily_ohlcv`, Kalshi candles and
         trades via the existing status readers); the latest `HEALTH` row's
@@ -301,48 +301,48 @@ Design *Scope 2*, *Decision 8, 9, 12*, *CLI Specification*, *SC1*, *SC2*,
         `ended_at`; credit usage guarded so a missing key yields
         `unavailable (MT_EODHD_API_KEY not configured)` and any
         `eodhd_get` / network error yields `unavailable (<text>)`.
-  - [ ] Pure `build_overview(facts, settings, *, now, hostname, pid_alive)`
+  - [x] Pure `build_overview(facts, settings, *, now, hostname, pid_alive)`
         returns a dataclass: per kind cadence text (`describe_firing_days`
         for minute; `00:35, 12:35`; `hourly :20`; `hourly :50`), running rows
         (phase, done/total, since, progress age, or `abandoned (pid N gone)`
         for a local dead pid), last run (start–end, outcome text with
         `COMPLETE_QUOTA` → `complete (quota)`, exit code, detail on a second
         line when `FAILED`), next firing via `schedule_for`.
-  - [ ] Success: `gather` is the only I/O; the build has no DB or HTTP.
-- [ ] **Task 4.4: Renderer and command** (effort: 2)
-  - [ ] `cli/rendering/overview.py` renders the design's mockup (PASSES,
+  - [x] Success: `gather` is the only I/O; the build has no DB or HTTP.
+- [x] **Task 4.4: Renderer and command** (effort: 2)
+  - [x] `cli/rendering/overview.py` renders the design's mockup (PASSES,
         next line, SOURCES with the health verdict on its header, credits,
         universe line with its timestamp or `never computed — run mt data
         accounting`); `--json` emits `passes`, `sources`, `credits`,
         `universe`, `now`.
-  - [ ] `data_overview(ctx, json_output)` registered as `data_app.command
+  - [x] `data_overview(ctx, json_output)` registered as `data_app.command
         ("overview")` in the `data.py` registration block; exit 0 when the
         DB answered, `EXIT_UNAVAILABLE` otherwise.
-  - [ ] Success: `mt data overview --help` shows no other options.
-- [ ] **Task 4.5: Tests for the overview** (effort: 2)
-  - [ ] Unit tests for `build_overview` + render: never run; idle with a last
+  - [x] Success: `mt data overview --help` shows no other options.
+- [x] **Task 4.5: Tests for the overview** (effort: 2)
+  - [x] Unit tests for `build_overview` + render: never run; idle with a last
         run; running with progress; abandoned dead pid; two live open rows of
         one kind listed newest first; failed last run with detail line;
         credits unavailable branches; universe line absent.
-  - [ ] Integration test over `migrated_db`: seed rows for all five kinds and
+  - [x] Integration test over `migrated_db`: seed rows for all five kinds and
         assert `gather` returns them (correctness only; the latency bound is
         Task 4.6).
-  - [ ] Success: both tiers pass. Commit.
-- [ ] **Task 4.6: Load-tier bound for the overview** (effort: 1)
-  - [ ] New `test/load/test_922_overview_nfr.py` over `prod_shaped_db`, in
+  - [x] Success: both tiers pass. Commit.
+- [x] **Task 4.6: Load-tier bound for the overview** (effort: 1)
+  - [x] New `test/load/test_922_overview_nfr.py` over `prod_shaped_db`, in
         the `test_167_data_status_nfr.py` style: seed `pass_runs` rows for
         every kind, call `gather` with the credit fetch stubbed (load tests do
         not reach the network), and assert the database part completes in
         under five seconds. Decision 12's ten-second end-to-end bound is the
         five-second database budget plus the five-second `eodhd_get` timeout
         that Task 4.1 caps the only HTTPS call at; state this split in the
-        test's module docstring.
-  - [ ] Gating: this repository has no CI test job (`.github/workflows/ci.yml`
+        test's module docstring. Measured (median of three runs): 0.057 s.
+  - [x] Gating: this repository has no CI test job (`.github/workflows/ci.yml`
         only publishes on tags); every tier runs locally through
         `python scripts/run_tests.py load` with `MT_RUN_LOAD_TESTS=1` and
         `MT_TIMESCALE_TEST_URL`, exactly as the 167 load test does. Task 6.3
         runs it before the version bump.
-  - [ ] Success: the case passes at production shape; the measured seconds go
+  - [x] Success: the case passes at production shape; the measured seconds go
         in the CHANGELOG entry with the Task 5.5 numbers. Commit.
 
 ## Section 5: View migration, status footer, default flip

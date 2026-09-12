@@ -278,19 +278,15 @@ Half of the overview's ten-second budget; the database gets the other half.
 A status line is not worth making the operator wait for.
 """
 
-DAILY_STALENESS_THRESHOLD: timedelta = timedelta(days=2)
-"""A daily-granularity symbol is STALE if last_attempt_ts is older than this."""
-
-MINUTE_STALENESS_THRESHOLD: timedelta = timedelta(days=1)
-"""A minute-granularity symbol is STALE if last_attempt_ts is older than this."""
-
 MAX_COVERAGE_SOURCE_STALENESS: timedelta = timedelta(days=1)
 """Absolute ceiling on how far a derived read (continuous aggregate) may lag its
 raw source before the reader refuses to trust it (slice 168).
 
 One ceiling serves both the acquisition path (``build_minute_coverage_index``)
 and slice 167's status path: a derived read older than a full trading day is
-stale for either purpose. Matches ``MINUTE_STALENESS_THRESHOLD``'s convention.
+stale for either purpose. (It once matched a ``MINUTE_STALENESS_THRESHOLD``
+constant; slice 922 deleted that one, since ``data_status`` now measures
+staleness from the last recorded universe walk rather than a fixed interval.)
 
 The ceiling is **required**, not belt-and-braces. The staleness threshold is
 ``min(start_offset, MAX_COVERAGE_SOURCE_STALENESS)`` — without it, the daily

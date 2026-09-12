@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,7 +12,6 @@ from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.market.schema.migrations import MIGRATIONS, TRACKS
 from manta_trading.market.schema.migrations.daily import DAILY_MIGRATIONS
 from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
-
 
 # ---------------------------------------------------------------------------
 # Position-critical migrations
@@ -210,8 +210,9 @@ class TestMigrationsListIntegrity:
         # issue #20).
         # 56 -> 57 with 054 (daily_monthly refresh window, issue #20).
         # 57 -> 58 with slice 922's 055 (pass_runs, position-critical before
-        # 021).
-        assert len(MIGRATIONS) == 58
+        # 021), and 58 -> 59 with its 056 (data_status open gaps + walk
+        # anchor).
+        assert len(MIGRATIONS) == 59
 
 
 # ---------------------------------------------------------------------------
@@ -637,15 +638,15 @@ class TestListMigrationStateUnit:
         assert pending_ids == [m["id"] for m in MINUTE_MIGRATIONS]
 
     def test_all_applied_returns_empty_pending(self):
-        from manta_trading.market.schema.runner import list_migration_state
+        from datetime import datetime
 
-        from datetime import datetime, timezone
+        from manta_trading.market.schema.runner import list_migration_state
 
         applied_rows = [
             {
                 "migration_id": m["id"],
                 "description": m["description"],
-                "applied_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                "applied_at": datetime(2026, 1, 1, tzinfo=UTC),
             }
             for m in MINUTE_MIGRATIONS
         ]
@@ -655,16 +656,16 @@ class TestListMigrationStateUnit:
         assert len(result["applied"]) == len(MINUTE_MIGRATIONS)
 
     def test_partial_state_splits_correctly(self):
-        from manta_trading.market.schema.runner import list_migration_state
+        from datetime import datetime
 
-        from datetime import datetime, timezone
+        from manta_trading.market.schema.runner import list_migration_state
 
         applied_ids = ["001_schema_migrations", "002_instruments", "003_provider_symbol_mapping"]
         applied_rows = [
             {
                 "migration_id": mid,
                 "description": "some desc",
-                "applied_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                "applied_at": datetime(2026, 1, 1, tzinfo=UTC),
             }
             for mid in applied_ids
         ]
@@ -1106,6 +1107,7 @@ _MIGRATION_051_ID = "051_coverage_cagg_bucket_narrowing"
 _MIGRATION_052_ID = "052_coverage_cagg_refresh_policies_narrowed"
 _MIGRATION_053_ID = "053_minute_cagg_refresh_offsets_from_constant"
 _MIGRATION_054_ID = "054_daily_monthly_refresh_window"
+_MIGRATION_056_ID = "056_data_status_open_gaps_and_walk_anchor"
 
 
 class _StatementRecorder:
@@ -1288,15 +1290,18 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_054() -> None:
-    """The newest migration must be last (issue #20 retargeted this from 052).
+def test_chain_ends_at_056() -> None:
+    """The newest migration must be last (slice 922 retargeted this from 054).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
     landing a migration before an already-applied production tip must be a
     deliberate, test-breaking act.
+
+    Note 055 is deliberately NOT the tip: it is position-critical before 021
+    (see ``POSITION_CRITICAL_IDS``), which is why the tip check names 056.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_054_ID
+    assert MINUTE_MIGRATIONS[-1]["id"] == _MIGRATION_056_ID
 
 
 class TestMigration054DailyMonthlyRefreshWindow:

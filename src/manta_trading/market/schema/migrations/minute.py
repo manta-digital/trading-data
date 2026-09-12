@@ -17,23 +17,21 @@ from manta_trading.constants import (
     DAILY_COVERAGE_REFRESH_START_OFFSET,
     DAILY_COVERAGE_VIEW,
     DAILY_HISTORY_MONTHS,
+    DAILY_MONTHLY_REFRESH_START_OFFSET,
     DAILY_OHLCV_CHUNK_INTERVAL,
     DAILY_OHLCV_TABLE,
-    DAILY_STALENESS_THRESHOLD,
     GRANULARITY_SOURCE,
     LATE_BAR_GRACE_PERIOD,
     MINUTE_CAGG_CHUNK_INTERVAL,
     MINUTE_CAGG_COMPRESS_AFTER,
     MINUTE_CAGG_GRANULARITIES,
     MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL,
-    DAILY_MONTHLY_REFRESH_START_OFFSET,
     MINUTE_CAGG_REFRESH_START_OFFSET,
     MINUTE_COVERAGE_REFRESH_END_OFFSET,
     MINUTE_COVERAGE_REFRESH_SCHEDULE_INTERVAL,
     MINUTE_COVERAGE_REFRESH_START_OFFSET,
     MINUTE_COVERAGE_VIEW,
     MINUTE_OHLCV_CHUNK_INTERVAL,
-    MINUTE_STALENESS_THRESHOLD,
     TRADING_SESSIONS_EXTENSION_YEARS,
 )
 from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
@@ -160,8 +158,28 @@ def _pass_run_outcome_check_sql() -> str:
 
     Values are sorted alphabetically for deterministic migration text.
     """
-    quoted = ", ".join(f"'{v.value}'" for v in sorted(PassRunOutcome, key=lambda s: s.value))
+    quoted = ", ".join(
+        f"'{v.value}'" for v in sorted(PassRunOutcome, key=lambda s: s.value)
+    )
     return f"outcome IS NULL OR outcome IN ({quoted})"
+
+
+def _open_gap_predicate() -> str:
+    """Render the ``fetch_status IN (...)`` test for an OPEN gap (slice 922).
+
+    A gap is open while we are still asking about it: ``UNKNOWN`` (never
+    attempted) and ``FAILED_RETRYABLE`` (attempted, will be retried).
+    ``PROVIDER_HOLE`` is a terminal answer — the provider says there is
+    nothing there — and ``RETRY_EXHAUSTED`` is a terminal failure carried by
+    ``has_retry_exhausted``. Counting either as a gap made ``gap_count`` a
+    number that could never reach zero, so it stopped meaning anything.
+
+    Values render from :class:`FetchStatus`, doubled-quoted for embedding in
+    the migration's DO block like the rest of the view text.
+    """
+    names = (FetchStatus.UNKNOWN, FetchStatus.FAILED_RETRYABLE)
+    quoted = ", ".join(f"''{status.value}''" for status in names)
+    return f"fetch_status IN ({quoted})"
 
 
 def _interval_literal(td: timedelta) -> str:
@@ -230,8 +248,6 @@ def _history_horizon_disjunct() -> str:
 # migration SQL text is deterministic and does not contain Python f-string
 # placeholders at runtime.
 _LATE_BAR_GRACE_LITERAL = _interval_literal(LATE_BAR_GRACE_PERIOD)
-_DAILY_STALENESS_LITERAL = _interval_literal(DAILY_STALENESS_THRESHOLD)
-_MINUTE_STALENESS_LITERAL = _interval_literal(MINUTE_STALENESS_THRESHOLD)
 _HISTORY_HORIZON_DISJUNCT = _history_horizon_disjunct()
 
 
@@ -353,9 +369,16 @@ def _build_data_status_view_sql(
         "), "
         f"{bars_summary_cte}, "
         "gap_counts AS ("
-        "    SELECT symbol, granularity, COUNT(*) AS gap_count, "
-        "           BOOL_OR(fetch_status = ''RETRY_EXHAUSTED'') AS has_retry_exhausted "
+        "    SELECT symbol, granularity, "
+        f"           COUNT(*) FILTER (WHERE {_open_gap_predicate()}) AS gap_count, "
+        f"           BOOL_OR(fetch_status = ''{FetchStatus.RETRY_EXHAUSTED.value}'') "
+        "               AS has_retry_exhausted "
         "    FROM data_gaps GROUP BY symbol, granularity"
+        "), "
+        "walk_anchor AS ("
+        "    SELECT pass, MAX(walk_anchor_at) AS anchor FROM pass_runs "
+        "    WHERE walk_anchor_at IS NOT NULL AND ended_at IS NOT NULL "
+        "    GROUP BY pass"
         ") "
         "SELECT s.symbol, s.granularity, s.trading_calendar_id, "
         "       bs.first_bar_ts, bs.last_bar_ts, "
@@ -368,10 +391,7 @@ def _build_data_status_view_sql(
         "       CASE "
         "           WHEN COALESCE(gc.has_retry_exhausted, FALSE) THEN ''FAILED'' "
         "           WHEN ast.last_attempt_ts IS NULL "
-        "                OR ast.last_attempt_ts < NOW() - CASE s.granularity "
-        f"                    WHEN ''daily''  THEN INTERVAL ''{_DAILY_STALENESS_LITERAL}'' "
-        f"                    WHEN ''minute'' THEN INTERVAL ''{_MINUTE_STALENESS_LITERAL}'' "
-        "                END THEN ''STALE'' "
+        "                OR ast.last_attempt_ts < wa.anchor THEN ''STALE'' "
         "           WHEN COALESCE(gc.gap_count, 0) > 0 THEN ''GAPS'' "
         "           ELSE ''OK'' "
         "       END AS health "
@@ -382,6 +402,7 @@ def _build_data_status_view_sql(
         "       ON gc.symbol = s.symbol AND gc.granularity = s.granularity "
         "LEFT JOIN acquisition_state ast "
         "       ON ast.symbol = s.symbol AND ast.granularity = s.granularity "
+        "LEFT JOIN walk_anchor wa ON wa.pass = s.granularity "
         f"{calendar_join}"
     )
 
@@ -467,7 +488,26 @@ def _data_status_doc_comment() -> str:
         "FRESHNESS IS NOT ASSERTED IN SQL: readers must go through "
         "data.maintenance.status_coverage, which calls assert_cagg_fresh on "
         "both coverage caggs and reports staleness to the operator. Querying "
-        "this view directly bypasses that guard."
+        "this view directly bypasses that guard. "
+        "STALE MEANS NOT ATTEMPTED IN THE LAST RECORDED WALK (slice 922): a "
+        "symbol is STALE when last_attempt_ts is NULL, or older than the "
+        "newest walk_anchor_at among ENDED pass_runs rows of its granularity. "
+        "The anchor is written when a pass OPENS, so a pass that aborted "
+        "part-way still moves it and leaves the symbols it never reached "
+        "STALE — which is the intent: they were not attempted. When no "
+        "anchored run has ever ended for a granularity the anchor is NULL and "
+        "only never-attempted symbols read STALE, because nothing is known "
+        "about when a walk last happened. This replaced two fixed intervals "
+        "(a 1-day minute threshold and a 2-day daily one), which called every "
+        "minute symbol STALE six days a week once the pass moved to a weekly "
+        "collecting cadence. "
+        "GAP_COUNT MEANS OPEN GAPS (slice 922): rows whose fetch_status is "
+        f"{FetchStatus.UNKNOWN.value} or {FetchStatus.FAILED_RETRYABLE.value} "
+        "— the ones still being asked about. "
+        f"{FetchStatus.PROVIDER_HOLE.value} is a terminal answer from the "
+        f"provider and {FetchStatus.RETRY_EXHAUSTED.value} a terminal failure "
+        "(carried by has_retry_exhausted); counting either made gap_count a "
+        "number that could never reach zero."
     )
 
 
@@ -2428,6 +2468,38 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                         end_offset        => INTERVAL '30 days',
                         schedule_interval => INTERVAL '1 day');
                 END IF;
+            END $$;
+        """,
+    },
+    {
+        "id": "056_data_status_open_gaps_and_walk_anchor",
+        "description": (
+            "Re-issue data_status with two changed meanings (slice 922). "
+            "(1) STALE now means 'not attempted in the last recorded universe "
+            "walk': last_attempt_ts NULL, or older than the newest "
+            "walk_anchor_at among ended pass_runs rows of that granularity. "
+            "The two fixed thresholds it replaces called every minute symbol "
+            "STALE six days a week once the minute pass moved to a weekly "
+            "collecting cadence, which is how a real staleness signal became "
+            "noise. (2) gap_count counts OPEN gaps only (UNKNOWN, "
+            "FAILED_RETRYABLE); PROVIDER_HOLE is a terminal answer and "
+            "RETRY_EXHAUSTED a terminal failure already carried by "
+            "has_retry_exhausted, so counting them made gap_count a number "
+            "that could never reach zero. "
+            "CREATE OR REPLACE: no column added, renamed, reordered or "
+            "retyped, so the D2 column contract holds and no dependent object "
+            "needs dropping. Branches on to_regclass exactly as 048 does."
+        ),
+        "sql": f"""
+            DO $$ BEGIN
+                IF to_regclass('public.daily_ohlcv') IS NOT NULL THEN
+                    EXECUTE '{_DATA_STATUS_VIEW_WITH_DAILY_COVERAGE}';
+                ELSE
+                    EXECUTE '{_DATA_STATUS_VIEW_WITHOUT_DAILY_COVERAGE}';
+                END IF;
+
+                EXECUTE 'COMMENT ON VIEW data_status IS '
+                     || quote_literal('{_data_status_doc_comment()}');
             END $$;
         """,
     },

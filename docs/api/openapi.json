@@ -325,7 +325,7 @@
         "type": "object"
       },
       "StatusRowRecord": {
-        "description": "One ``data_status`` row \u2014 the wire form of ``StatusRow``.",
+        "description": "One ``data_status`` row \u2014 the wire form of ``StatusRow``.\n\nTwo fields changed meaning in slice 922, without changing type or name:\n\n- ``gap_count`` counts **open** gaps only \u2014 those with ``fetch_status``\n  ``UNKNOWN`` or ``FAILED_RETRYABLE``, the ones still being asked about.\n  ``PROVIDER_HOLE`` is a terminal answer from the provider and\n  ``RETRY_EXHAUSTED`` a terminal failure (reflected in ``health``\n  ``FAILED``); counting either made this a number that could never reach\n  zero.\n- ``health`` ``STALE`` now means \"not attempted in the last recorded\n  universe walk\" rather than \"not attempted within a fixed interval\".",
         "properties": {
           "bars_stored": {
             "anyOf": [
@@ -634,7 +634,7 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, and gap status.",
     "title": "Manta Trading API",
-    "version": "0.7.4"
+    "version": "0.14.9"
   },
   "openapi": "3.1.0",
   "paths": {
