@@ -1304,6 +1304,7 @@ def _advance_minute_gap(
     gap_end = picked.gap_end
 
     if outcome == LastAttemptOutcome.SUCCESS:
+        now_success_utc = datetime.now(tz=_UTC)
         if chunk_start <= gap_start:
             with conn.cursor() as cur:
                 cur.execute(
@@ -1316,8 +1317,11 @@ def _advance_minute_gap(
                 )
         else:
             # The PK includes (gap_start, gap_end), so we DELETE+INSERT to
-            # update gap_end. Carry over the picked row's attempt_count and
-            # last_attempt_ts so the older portion still reflects its history.
+            # update gap_end. The remainder counts this attempt: it is the
+            # same gap, narrowed, and carrying the pre-attempt count forward
+            # meant a gap that keeps splitting never reaches MAX_RETRY_COUNT
+            # and is re-fetched forever (48,605 such rows on production
+            # 2026-09-12, every one re-asked daily and never terminating).
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -1340,8 +1344,8 @@ def _advance_minute_gap(
                         gap_start,
                         chunk_start,
                         picked.fetch_status,
-                        picked.last_attempt_ts,
-                        picked.attempt_count,
+                        now_success_utc,
+                        picked.attempt_count + 1,
                     ),
                 )
         return
@@ -1410,8 +1414,8 @@ def _advance_minute_gap(
                 gap_start,
                 chunk_start,
                 picked.fetch_status,
-                picked.last_attempt_ts,
-                picked.attempt_count,
+                now_utc,
+                picked.attempt_count + 1,
             ),
         )
         cur.execute(

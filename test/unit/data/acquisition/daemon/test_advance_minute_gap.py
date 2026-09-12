@@ -6,7 +6,7 @@ gap correctly across all outcomes, with no fixed-period assumption.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -133,8 +133,12 @@ def test_success_tail_slice_shrinks_to_older_portion() -> None:
     assert gs == _dt(2006, 1, 3)
     assert ge == _dt(2026, 1, 6)  # shrunk to chunk_start
     assert status == "UNKNOWN"      # original status preserved
-    assert attempt == 3             # original attempt count preserved
-    assert last_ts == gap.last_attempt_ts
+    # The remainder counts this attempt. It used to carry the pre-attempt
+    # count forward, so a gap that split on every pass never reached
+    # MAX_RETRY_COUNT and was re-fetched forever — 48,605 such rows on
+    # production 2026-09-12, each re-asked daily and never terminating.
+    assert attempt == 4
+    assert last_ts is not None and last_ts > gap.last_attempt_ts
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +166,9 @@ def test_partial_tail_slice_splits_into_older_and_chunk() -> None:
     assert older_params[2] == _dt(2006, 1, 3)
     assert older_params[3] == _dt(2026, 1, 6)
     assert older_params[4] == "UNKNOWN"  # original status
-    assert older_params[6] == 2          # original attempts
+    # Counts this attempt, like the chunk does — see the SUCCESS tail-slice
+    # test for why carrying the pre-attempt count forward stalled the drain.
+    assert older_params[6] == 3
 
     chunk_params = cur.executes[2][1]
     assert chunk_params[2] == _dt(2026, 1, 6)
@@ -293,3 +299,36 @@ def test_success_tail_slice_is_period_agnostic(days_back: int) -> None:
         assert ins[3] == chunk_start
     else:
         assert _verbs(cur.executes) == ["DELETE"]
+
+
+def test_a_repeatedly_splitting_gap_reaches_the_retry_cap() -> None:
+    """The invariant the per-call tests missed (production 2026-09-12).
+
+    Each pass fetches the trailing chunk and leaves an older remainder. If
+    the remainder does not count the attempt, it re-enters the queue with
+    the same count forever: 48,605 rows sat at attempt_count=0 having been
+    re-asked every day, unable ever to reach MAX_RETRY_COUNT. Ten existing
+    tests all passed, because each checked one call in isolation.
+    """
+    attempt = 0
+    gap_start, gap_end = _dt(2006, 1, 3), _dt(2026, 5, 6)
+    for _ in range(MAX_RETRY_COUNT + 2):
+        gap = _gap(gap_start, gap_end, attempt=attempt)
+        conn, cur = _make_conn()
+        chunk_start = gap_end - timedelta(days=1)
+        _advance_minute_gap(
+            conn,
+            picked=gap,
+            chunk_start=chunk_start,
+            chunk_end=gap_end,
+            outcome=LastAttemptOutcome.SUCCESS,
+            fetch_status=None,
+        )
+        older = cur.executes[-1][1]
+        attempt = older[6]
+        gap_end = older[3]
+        if attempt >= MAX_RETRY_COUNT:
+            break
+    assert attempt >= MAX_RETRY_COUNT, (
+        f"a gap that splits every pass never terminates (stuck at {attempt})"
+    )
