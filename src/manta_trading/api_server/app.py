@@ -20,6 +20,9 @@ from manta_trading.api_server.routes.health import router as health_router
 from manta_trading.api_server.routes.kalshi_catalog import (
     router as kalshi_catalog_router,
 )
+from manta_trading.api_server.routes.kalshi_timeseries import (
+    router as kalshi_timeseries_router,
+)
 from manta_trading.api_server.routes.status import router as status_router
 from manta_trading.api_server.routes.symbols import router as symbols_router
 from manta_trading.config import Settings
@@ -141,6 +144,7 @@ def create_app(db_url: str | None = None) -> FastAPI:
     app.include_router(gaps_router)
     app.include_router(status_router)
     app.include_router(kalshi_catalog_router)
+    app.include_router(kalshi_timeseries_router)
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(

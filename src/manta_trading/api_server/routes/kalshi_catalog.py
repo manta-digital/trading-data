@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi import status as http_status
 
 from manta_trading.api_server.deps import get_db, get_max_bars
-from manta_trading.api_server.models.kalshi import (
+from manta_trading.api_server.models.kalshi_catalog import (
     CategoryListResponse,
     EventListResponse,
     EventRecord,

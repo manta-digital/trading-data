@@ -1,4 +1,4 @@
-"""Pydantic response models for the Kalshi routes (slice 188).
+"""Pydantic response models for the Kalshi catalog routes (slice 188).
 
 Kept apart from ``responses.py`` (D12): the equity models there and these
 share no field, and one module carrying both would be the larger part of a

@@ -10,16 +10,29 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, get_args, get_origin
+from uuid import UUID
 
 import pytest
 
-from manta_trading.api_server.models.kalshi import (
+from manta_trading.api_server.models.kalshi_catalog import (
     MARKET_GROUPS,
     EventRecord,
     MarketRecord,
     SeriesRecord,
 )
+from manta_trading.api_server.models.kalshi_timeseries import (
+    CandleRecord,
+    CandlesResponse,
+    TradesResponse,
+)
+from manta_trading.data.kalshi.candle_repository import CANDLE_COLUMNS
 from manta_trading.data.kalshi.serve_catalog import EventRow, MarketRow, SeriesRow
+from manta_trading.data.kalshi.serve_timeseries import (
+    CandleRow,
+    MarketContext,
+    TapeFacts,
+    TradeRow,
+)
 
 TS = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
@@ -155,3 +168,148 @@ class TestSeriesAndEventRecords:
         dumped = SeriesRecord.from_row(row).model_dump(mode="json")
         assert dumped["ticker"] == "KXFED"
         assert dumped["fee_multiplier"] == "0.0700"
+
+
+# ---------------------------------------------------------------------------
+# Section 5 — time-series models
+# ---------------------------------------------------------------------------
+
+
+def _candle_row(values: tuple[Decimal | None, ...] | None = None) -> CandleRow:
+    if values is None:
+        values = tuple(Decimal(f"{i}.0000") for i in range(len(CANDLE_COLUMNS)))
+    return CandleRow(end_period_ts=TS, values=values)
+
+
+class TestCandleRecord:
+    def test_every_stored_column_lands_in_its_documented_slot(self) -> None:
+        """The fourteen values re-nest exactly as CANDLE_COLUMNS describes."""
+        values = tuple(Decimal(f"{i}.0000") for i in range(len(CANDLE_COLUMNS)))
+        dumped = CandleRecord.from_row(_candle_row(values)).model_dump()
+
+        for value, (_, path) in zip(values, CANDLE_COLUMNS, strict=True):
+            target = dumped
+            for step in path:
+                target = target[step]
+            assert target == value
+
+    def test_nested_field_set_is_exactly_what_candle_columns_describes(self) -> None:
+        """A column added to the repository mapping cannot go unserved."""
+        dumped = CandleRecord.from_row(_candle_row()).model_dump()
+        reachable = {
+            (path[0],) if len(path) == 1 else (path[0], path[1])
+            for _, path in CANDLE_COLUMNS
+        }
+        served: set[tuple[str, ...]] = set()
+        for key, value in dumped.items():
+            if key == "end_period_ts":
+                continue
+            if isinstance(value, dict):
+                served |= {(key, inner) for inner in value}
+            else:
+                served.add((key,))
+        assert served == reachable
+
+    def test_a_sparse_row_keeps_its_nulls_and_its_shape(self) -> None:
+        """A period with no trades carries previous_dollars alone — the other
+        fields stay null rather than the object being dropped."""
+        columns = [name for name, _ in CANDLE_COLUMNS]
+        values = tuple(
+            Decimal("0.4900") if name == "price_previous_dollars" else None
+            for name in columns
+        )
+        dumped = CandleRecord.from_row(_candle_row(values)).model_dump()
+
+        assert dumped["price"]["previous_dollars"] == Decimal("0.4900")
+        assert dumped["price"]["open_dollars"] is None
+        assert dumped["yes_bid"] == dict.fromkeys(
+            ["open_dollars", "high_dollars", "low_dollars", "close_dollars"]
+        )
+        assert dumped["volume_fp"] is None
+
+    def test_decimals_dump_as_strings(self) -> None:
+        columns = [name for name, _ in CANDLE_COLUMNS]
+        values = tuple(
+            Decimal("0.4900") if name == "yes_bid_open_dollars" else None
+            for name in columns
+        )
+        dumped = CandleRecord.from_row(_candle_row(values)).model_dump(mode="json")
+        assert dumped["yes_bid"]["open_dollars"] == "0.4900"
+
+
+class TestCandlesResponse:
+    def test_reports_the_context_facts(self) -> None:
+        context = MarketContext(
+            ticker="KXFED-26SEP-T1",
+            series_category="Economics",
+            candle_collected=True,
+            candle_coverage_from=TS,
+            candle_complete_through=TS,
+        )
+        response = CandlesResponse.build(context, 1, [_candle_row()])
+        dumped = response.model_dump(mode="json")
+
+        assert dumped["market_ticker"] == "KXFED-26SEP-T1"
+        assert dumped["period_minutes"] == 1
+        assert dumped["collected"] is True
+        assert dumped["count"] == 1
+
+    def test_uncollected_market_reports_nulls_not_an_empty_window(self) -> None:
+        """``collected: false`` is distinguishable from a quiet window (D5)."""
+        context = MarketContext(
+            ticker="QUIET",
+            series_category=None,
+            candle_collected=False,
+            candle_coverage_from=None,
+            candle_complete_through=None,
+        )
+        dumped = CandlesResponse.build(context, 1, []).model_dump(mode="json")
+
+        assert dumped["collected"] is False
+        assert dumped["coverage_from"] is None
+        assert dumped["complete_through"] is None
+        assert dumped["count"] == 0
+
+
+class TestTradesResponse:
+    def test_absent_tape_facts_serialize_as_nulls(self) -> None:
+        """The trades phase has never run — a 200 with nulls, not an error."""
+        dumped = TradesResponse.build(
+            "KXFED-26SEP-T1", None, filtered=False, rows=[]
+        ).model_dump(mode="json")
+
+        assert dumped["count"] == 0
+        assert dumped["coverage_from"] is None
+        assert dumped["tape_complete_through"] is None
+        assert dumped["tape_filtered"] is False
+        assert dumped["trades"] == []
+
+    def test_trade_record_serializes_its_decimals_as_strings(self) -> None:
+        row = TradeRow(
+            values=(
+                TS,
+                UUID("4b1d1e2a-0000-4000-8000-000000000001"),
+                Decimal("5.00"),
+                Decimal("0.4900"),
+                Decimal("0.5100"),
+                "yes",
+                "yes",
+                False,
+            )
+        )
+        facts = TapeFacts(coverage_from=TS, tape_complete_through=TS)
+        dumped = TradesResponse.build(
+            "KXFED-26SEP-T1", facts, filtered=False, rows=[row]
+        ).model_dump(mode="json")
+
+        trade = dumped["trades"][0]
+        assert trade["yes_price_dollars"] == "0.4900"
+        assert trade["count_fp"] == "5.00"
+        assert trade["trade_id"] == "4b1d1e2a-0000-4000-8000-000000000001"
+        assert trade["is_block_trade"] is False
+
+    def test_filtered_tape_is_reported_as_a_fact(self) -> None:
+        dumped = TradesResponse.build(
+            "KXSPORTS-1", None, filtered=True, rows=[]
+        ).model_dump(mode="json")
+        assert dumped["tape_filtered"] is True

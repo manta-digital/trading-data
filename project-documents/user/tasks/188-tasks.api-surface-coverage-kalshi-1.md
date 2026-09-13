@@ -17,7 +17,7 @@ projectState: >
   `create_app(db_url=)` seam.
 dateCreated: 20260912
 dateUpdated: 20260913
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -323,88 +323,88 @@ Design *D1*, *D2*, *D3*, *D6*, *D8*, *D10*, *API Specification* (Catalog),
 
 Design *D4*, *D5*, *D9*, *D10*, *Interfaces required*, *SC4*, *SC5*.
 
-- [ ] **Task 4.1: Promote `effective_tape_floor`** (effort: 1)
-  - [ ] In `data/kalshi/trade_status.py`, rename `_effective_floor` to
+- [x] **Task 4.1: Promote `effective_tape_floor`** (effort: 1)
+  - [x] In `data/kalshi/trade_status.py`, rename `_effective_floor` to
         `effective_tape_floor`, keep the signature and body, and expand the
         docstring to say it is the one spelling of the floor for the CLI and
         the API (267 Decision 8). Update its call in `read_trade_status`.
-  - [ ] Success: `grep -rn "_effective_floor" src/ test/` returns nothing.
-- [ ] **Task 4.2: Tests for the promotion** (effort: 1)
-  - [ ] Extend the existing trade-status integration coverage: with no
+  - [x] Success: `grep -rn "_effective_floor" src/ test/` returns nothing.
+- [x] **Task 4.2: Tests for the promotion** (effort: 1)
+  - [x] Extend the existing trade-status integration coverage: with no
         historical `sync_state` row the function returns the live floor; with
         a historical row whose watermark is older it returns the watermark;
         with a newer one it still returns the live floor.
-  - [ ] Success: `test/integration/test_kalshi_status.py` and the new
+  - [x] Success: `test/integration/test_kalshi_status.py` and the new
         assertions pass; `mt data kalshi status --json` output is unchanged.
-- [ ] **Task 4.3: Market context reader** (effort: 3)
-  - [ ] New module `data/kalshi/serve_timeseries.py` with a frozen
+- [x] **Task 4.3: Market context reader** (effort: 3)
+  - [x] New module `data/kalshi/serve_timeseries.py` with a frozen
         `MarketContext` (`ticker`, `series_category`, `candle_collected`,
         `candle_coverage_from`, `candle_complete_through`) and
         `market_context(conn, ticker, *, period) -> MarketContext | None`.
-  - [ ] One statement: `kalshi.markets` joined to `events` and `series` for
+  - [x] One statement: `kalshi.markets` joined to `events` and `series` for
         the category, `LEFT JOIN kalshi.market_candle_state` on
         `(market_ticker, period)` for the three candle facts. `None` means
         unknown ticker (D6). A missing state row means
         `candle_collected=False` and both candle timestamps `None` — not an
         error (D5).
-  - [ ] `period` is passed by the caller as `COLLECTED_CANDLE_PERIOD`; the
+  - [x] `period` is passed by the caller as `COLLECTED_CANDLE_PERIOD`; the
         constant is not read inside the reader.
-  - [ ] Success: one statement, one round trip; unknown ticker and known
+  - [x] Success: one statement, one round trip; unknown ticker and known
         ticker with no state row are distinguishable in the return value.
-- [ ] **Task 4.4: Trade tape facts reader** (effort: 2)
-  - [ ] In the same module, a frozen `TapeFacts`
+- [x] **Task 4.4: Trade tape facts reader** (effort: 2)
+  - [x] In the same module, a frozen `TapeFacts`
         (`coverage_from`, `tape_complete_through`) and
         `tape_facts(conn) -> TapeFacts | None`: reads
         `kalshi.sync_state` for `Surface.TRADES` and resolves the floor
         through `effective_tape_floor`. `None` when the trades row is absent
         (D10: a fresh install, not an error).
-  - [ ] A `tape_filtered(category, excluded) -> bool` helper that evaluates
+  - [x] A `tape_filtered(category, excluded) -> bool` helper that evaluates
         the same membership test `selection.trades_filter_sql` renders — call
         that function and evaluate its predicate, or share one comparison
         helper with it. The excluded-category test must not be re-spelled in
         Python (268 Decision 3).
-  - [ ] Success: with `MT_KALSHI_TRADES_EXCLUDED_CATEGORIES` set to a
+  - [x] Success: with `MT_KALSHI_TRADES_EXCLUDED_CATEGORIES` set to a
         category, the helper and the SQL predicate agree for a market in it
         and one outside it (asserted in Task 4.7).
-- [ ] **Task 4.5: Window parsing and validation** (effort: 2)
-  - [ ] A `resolve_window(start, end) -> tuple[datetime | None, datetime | None]`
+- [x] **Task 4.5: Window parsing and validation** (effort: 2)
+  - [x] A `resolve_window(start, end) -> tuple[datetime | None, datetime | None]`
         used by both time-series routes: a bare date means midnight UTC for
         `start` and the last instant of that day for `end` (the
         `bars._window_start_utc` / `_window_end_utc` convention, reused not
         re-derived); a naive datetime is read as UTC; both are optional and
         `None` means unbounded on that side.
-  - [ ] `start > end` after resolution raises `HTTPException(422)` with the
+  - [x] `start > end` after resolution raises `HTTPException(422)` with the
         bars-style reversed-range message.
-  - [ ] Where this lives: with the routes, not the readers — it raises
+  - [x] Where this lives: with the routes, not the readers — it raises
         `HTTPException`. Put it in `routes/kalshi_timeseries.py` or a small
         shared route helper; the readers take resolved `datetime | None`
         bounds only.
-  - [ ] Success: bounds reach the readers as aware UTC datetimes or `None`,
+  - [x] Success: bounds reach the readers as aware UTC datetimes or `None`,
         never as `date` objects (D4, 187 D8).
-- [ ] **Task 4.6: Candle and trade count/fetch functions** (effort: 3)
-  - [ ] `count_candles(conn, ticker, *, period, start, end) -> int` and
+- [x] **Task 4.6: Candle and trade count/fetch functions** (effort: 3)
+  - [x] `count_candles(conn, ticker, *, period, start, end) -> int` and
         `fetch_candles(...) -> list[CandleRow]`; `count_trades(conn, ticker, *, start, end) -> int`
         and `fetch_trades(...) -> list[TradeRow]`. Count and fetch share one
         predicate builder per resource.
-  - [ ] Candles filter on `end_period_ts` and are ordered by it; trades filter
+  - [x] Candles filter on `end_period_ts` and are ordered by it; trades filter
         on `created_time` and are ordered by `(created_time, trade_id)` so the
         order is total. Both bind bounds as `timestamptz`; omitted bounds emit
         no predicate rather than a sentinel date.
-  - [ ] `CandleRow` carries `end_period_ts` plus the fourteen value columns
+  - [x] `CandleRow` carries `end_period_ts` plus the fourteen value columns
         **named from `candle_repository.CANDLE_COLUMNS`**, not retyped.
         `TradeRow` carries the nine columns of
         `trade_repository.TRADE_COLUMNS` minus `market_ticker`.
-  - [ ] No `LIMIT` on either fetch (D4): the guard is the count, and a row
+  - [x] No `LIMIT` on either fetch (D4): the guard is the count, and a row
         inserted between the two makes the response one row over, never one
         short. State that in the module docstring.
-  - [ ] Success: four functions; the column lists are imported, not
+  - [x] Success: four functions; the column lists are imported, not
         duplicated; `mypy` clean.
-- [ ] **Task 4.7: Integration tests for the time-series readers** (effort: 3)
-  - [ ] Extend `test/integration/test_kalshi_serving.py` on `kalshi_db` with
+- [x] **Task 4.7: Integration tests for the time-series readers** (effort: 3)
+  - [x] Extend `test/integration/test_kalshi_serving.py` on `kalshi_db` with
         candle and trade rows written through the real repositories, using the
         recorded `candlesticks.json` fixture so the stored shape is the served
         shape (the project's parser-fixture rule).
-  - [ ] Assert: `market_context` returns `None` for an unknown ticker,
+  - [x] Assert: `market_context` returns `None` for an unknown ticker,
         `collected=False` with null timestamps for a market with no state row,
         and the state row's `watermark_ts` / `coverage_from_ts` when one
         exists (SC5); `tape_facts` returns `None` with no trades state row and
@@ -413,7 +413,7 @@ Design *D4*, *D5*, *D9*, *D10*, *Interfaces required*, *SC4*, *SC5*.
         non-excluded category; counts equal `len()` of the fetches at the
         window boundary (a row exactly at `start`, one exactly at `end`, one
         just outside each); an unbounded request returns every stored row.
-  - [ ] Success: the file passes in the integration tier. Commit (section
+  - [x] Success: the file passes in the integration tier. Commit (section
         checkpoint).
 
 
