@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, date, datetime, time
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any
 
-import msgpack
-import orjson
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi import status as http_status
@@ -24,6 +22,10 @@ from manta_trading.api_server.models.responses import (
     BarsResponse,
 )
 from manta_trading.api_server.queries import symbol_exists
+from manta_trading.api_server.serialization import (
+    ResponseFormat,
+    timeseries_response,
+)
 from manta_trading.constants import (
     BARS_PER_TRADING_DAY,
     CAGG_BASE_GRANULARITY,
@@ -140,7 +142,7 @@ async def get_bars(
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     max_bars: Annotated[int, Depends(get_max_bars)],
     adjusted: bool = True,
-    fmt: Annotated[Literal["json", "msgpack"], Query(alias="format")] = "json",
+    fmt: Annotated[ResponseFormat, Query(alias="format")] = "json",
 ) -> Response:
     """Return OHLCV bars for ``symbol`` over the requested date range.
 
@@ -227,12 +229,4 @@ async def get_bars(
         is_stale=verdict is not None and not verdict.is_fresh,
     )
 
-    if fmt == "msgpack":
-        return Response(
-            content=msgpack.packb(response.model_dump(), default=str),
-            media_type="application/x-msgpack",
-        )
-    return Response(
-        content=orjson.dumps(response.model_dump()),
-        media_type="application/json",
-    )
+    return timeseries_response(response, fmt)
