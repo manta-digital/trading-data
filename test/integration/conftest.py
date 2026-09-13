@@ -78,7 +78,7 @@ def kalshi_bare_db(ephemeral_db: str) -> str:
     """Throwaway database with the TimescaleDB extension, nothing else
     (``kalshi_005`` creates a hypertable; production's ``trading`` database
     already has the extension from the minute track)."""
-    from kalshi_helpers import ensure_timescaledb
+    from kalshi_support.schema import ensure_timescaledb
 
     return ensure_timescaledb(ephemeral_db)
 
@@ -86,7 +86,7 @@ def kalshi_bare_db(ephemeral_db: str) -> str:
 @pytest.fixture()
 def kalshi_db(ephemeral_db: str) -> str:
     """Bare throwaway database → extension → kalshi track applied."""
-    from kalshi_helpers import apply_kalshi_track
+    from kalshi_support.schema import apply_kalshi_track
 
     return apply_kalshi_track(ephemeral_db)
 

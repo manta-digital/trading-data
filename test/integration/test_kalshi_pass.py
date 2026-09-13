@@ -19,10 +19,11 @@ from urllib.parse import urlparse, urlunparse
 
 import psycopg
 import pytest
-from kalshi_helpers import apply_kalshi_track, column, write_catalog
+from kalshi_helpers import column, write_catalog
 from kalshi_support.fake_candle_source import make_candle
 from kalshi_support.fake_source import FakeCatalogSource, make_market
 from kalshi_support.fake_trade_source import make_trade
+from kalshi_support.schema import apply_kalshi_track
 from psycopg import sql
 from test_kalshi_sync import EVENT, _live, _settings, _settled, _source
 
