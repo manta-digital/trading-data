@@ -184,8 +184,10 @@ Design *D8*, *D12*, *SC1*, *SC9*.
         shows one constant.
 - [ ] **Task 7.2: README endpoint list** (effort: 2)
   - [ ] Remove the "The API serves equity data only…" sentence (~line 567).
-        Add the eight Kalshi routes to the endpoint list with a one-line
-        description each, and a short paragraph giving the D5 field meanings:
+        Add the nine Kalshi routes to the endpoint list with a one-line
+        description each, leading with `GET /api/v1/kalshi/categories` as the
+        discovery entry point, and a short paragraph giving the D5 field
+        meanings:
         what `collected`, `coverage_from`, `complete_through`,
         `tape_complete_through` and `tape_filtered` each tell a client, and
         the four readings of `count: 0`.
@@ -208,7 +210,7 @@ Design *D8*, *D12*, *SC1*, *SC9*.
         shipped routes.
 - [ ] **Task 7.4: Regenerate the OpenAPI artifact** (effort: 1)
   - [ ] Run `uv run python scripts/dump_openapi.py` and commit the result.
-  - [ ] Diff the artifact: the eight new paths appear, and the entries for
+  - [ ] Diff the artifact: the nine new paths appear, and the entries for
         `/api/v1/bars/{symbol}`, `/api/v1/symbols`, `/api/v1/symbols/{symbol}`,
         `/api/v1/gaps/{symbol}`, `/api/v1/status` and `/api/v1/health` are
         **byte-identical** to the previous version (SC1). A diff in an

@@ -56,7 +56,7 @@ not from what the catalog says a market traded.
 |---|---|
 | `data/kalshi/serve_catalog.py` | New — sync read functions for series, events, markets (seeks, scoped lists, count guards) |
 | `data/kalshi/serve_timeseries.py` | New — sync read functions for candles and trades per market, plus the completeness facts each response carries |
-| `api_server/routes/kalshi_catalog.py` | New — seven catalog routes (D2, D3) |
+| `api_server/routes/kalshi_catalog.py` | New — seven catalog routes: categories, the series/events/markets lists, and the three seeks (D2, D3) |
 | `api_server/routes/kalshi_timeseries.py` | New — candlesticks and trades routes (D4, D5, D6) |
 | `api_server/models/kalshi.py` | New — Pydantic response models (responses.py is at 291 lines; a second module rather than a 600-line one) |
 | `api_server/serialization.py` | New — the json/msgpack `Response` builder extracted from `bars.py`, used by bars, candles, and trades (D7) |
@@ -123,7 +123,8 @@ not from what the catalog says a market traded.
 - To **189**: the `/api/v1/kalshi/` namespace and the `models/kalshi.py`
   module; 189 adds status/freshness there rather than inventing a second
   prefix.
-- To **190**: nine routes with docstrings written as public descriptions (the
+- To **190**: nine routes — seven catalog, two time series — with docstrings
+  written as public descriptions (the
   187 rule: FastAPI publishes the docstring; decision references stay in
   comments), and the regenerated `openapi.json`.
 
@@ -135,6 +136,8 @@ came close.
 | Fact | Value | Bears on |
 |---|---|---|
 | Series / events / markets | 14,013 / 595,789 / 11,055,712 | D2 list scoping |
+| Distinct series categories (2026-09-13) | 20, none null; largest Sports 3,638, smallest Education / Business 1 each | D2 categories route |
+| Whole series list, served projection vs `GROUP BY category` (2026-09-13) | 6.2 MB / 14,013 rows vs 20 rows in 15 ms | D2 — why the categories route exists |
 | Markets by status | finalized 10,869,710 · active 122,240 · initialized 48,195 · closed 15,347 · inactive 2,155 · determined 466 | cross-cutting list exclusion |
 | Events per series: max / p99 | 24,382 (`KXETH15M`) / 1,536 | D2, D8 ceiling |
 | Markets per event: max / p99 / mean | 440 / 300 / 18.6 | D2 |
@@ -172,6 +175,7 @@ The catalog is read through the tree, never flat:
 
 | Route | Scope | Measured worst case |
 |---|---|---|
+| `GET /kalshi/categories` | `GROUP BY category` over the series table | 20 rows |
 | `GET /kalshi/series` | whole table, optional `category=` (exact) and `search=` (ticker prefix, `ILIKE 'X%'` as `symbols` does) | 14,013 rows |
 | `GET /kalshi/series/{ticker}` | primary-key seek | 1 |
 | `GET /kalshi/series/{ticker}/events` | `events_series_ticker_idx`; optional `strike_from`/`strike_to` (dates, inclusive, on `strike_date`) | 24,382 |
@@ -183,6 +187,28 @@ There is no unscoped events or markets list (see *Explicitly excluded*). The
 scoped lists are all inside the rows-per-response ceiling today (D8), and each
 carries the count guard so that a series that outgrows the ceiling fails
 explicitly rather than by a 40 MB response.
+
+`GET /kalshi/categories` is the entry point to that tree, and it exists because
+without it the tree has no root a client can find. `category=` is the only
+filter that makes the 14,013-row series list navigable, and `category` is free
+text Kalshi assigns — it is not an enum anywhere in this codebase, so unlike
+`status=` its accepted values cannot be derived from a type. Measured on
+production 2026-09-13: 20 distinct categories, none null; the whole-table
+series response in its *served* projection (no `raw`) is 6.2 MB, and the
+`GROUP BY` that replaces it is 20 rows in 15 ms. Without this route the only
+way to learn what to pass to `category=` is to download the 6.2 MB list and
+reduce it client-side — the exact request the filter exists to avoid.
+
+The response carries the series count per category, which costs nothing over
+the same scan and turns the route into the catalog's size map:
+
+```
+GET /kalshi/categories
+→ {"count": 20, "categories": [{"category": "Sports", "series_count": 3638}, …]}
+```
+
+Ordered by `category` so the response is stable between calls. No count guard:
+the row count is bounded by the number of distinct categories, which is 20.
 
 `status=` accepts `MarketStatus` values (the *served* vocabulary — `active`,
 `finalized`, … — not Kalshi's filter vocabulary), validated the way
@@ -425,6 +451,9 @@ declared via `GATEWAY_TIMEOUT_RESPONSE`. Prefix `/api/v1/kalshi`.
 ### Catalog
 
 ```
+GET /categories
+→ {"count": 20, "categories": [{"category": "AI", "series_count": 5}, …]}
+
 GET /series?category=Politics&search=KXFED
 → {"count": 12, "series": [SeriesRecord, …]}
 
@@ -535,7 +564,9 @@ client ── GET /kalshi/markets/{t}/trades?start&end ──▶ route (kalshi_t
 ```
 
 Catalog routes are the same shape minus the window: seek parent (404) → count
-(422) → fetch → model → JSON.
+(422) → fetch → model → JSON. `GET /categories` is the one exception: it has no
+parent to seek and no count to guard, so it is a single aggregate → model →
+JSON.
 
 ## Testing Strategy
 
@@ -587,12 +618,16 @@ measurements; substitute any current ones.
 
 **1 — Catalog hierarchy, top down.**
 ```sh
+curl -s "$API/categories" | jq '.count, [.categories[] | select(.category=="Politics")]'
 curl -s "$API/series?category=Politics&search=KXFED" | jq '.count, .series[0].ticker'
 curl -s "$API/series/KXFEDDECISION" | jq '.title, .category'
 curl -s "$API/series/KXFEDDECISION/events?strike_from=2026-09-01" | jq '.count, .events[0].event_ticker'
 curl -s "$API/events/KXFEDDECISION-26SEP/markets" | jq '.count, [.markets[] | {ticker, status}]'
 ```
-Expect a handful of rows at each level; the markets list shows the H0/H25/… ladder.
+Expect 20 categories with `Politics` carrying ~2,307 series, then a handful of
+rows at each level below; the markets list shows the H0/H25/… ladder. Step one
+is the discovery path: every value `category=` accepts came from the first
+call.
 
 **2 — Settlement on the market resource.**
 ```sh

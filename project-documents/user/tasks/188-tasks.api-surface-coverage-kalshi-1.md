@@ -176,6 +176,19 @@ Design *D2*, *D8*, *D9*, *Technical Scope* (`data/kalshi/serve_catalog.py`).
         inside these functions: a `psycopg.Error` propagates so a failed seek
         can never be reported as a 404 (D10).
   - [ ] Success: three functions, one statement each, all parameterised.
+- [ ] **Task 2.2a: Category listing reader** (effort: 1)
+  - [ ] In `serve_catalog.py`, a frozen `CategoryCount` (`category`,
+        `series_count`) and `fetch_categories(conn) -> list[CategoryCount]`:
+        one `SELECT category, count(*) FROM kalshi.series GROUP BY category
+        ORDER BY category`.
+  - [ ] No count guard and no filter parameters: the result is bounded by the
+        number of distinct categories (20 on production 2026-09-13) and the
+        aggregate measured 15 ms over the whole table.
+  - [ ] `category` is free text Kalshi assigns, not an enum in this codebase —
+        this reader is the only way a client can learn what `category=`
+        accepts. Say so in the docstring and cite D2.
+  - [ ] Success: one statement, ordered by `category` so the response is
+        stable between calls.
 - [ ] **Task 2.3: Scoped list functions with the count guard** (effort: 3)
   - [ ] `count_series(conn, *, category, search) -> int` and
         `fetch_series_list(conn, *, category, search) -> list[SeriesRow]`;
@@ -197,6 +210,10 @@ Design *D2*, *D8*, *D9*, *Technical Scope* (`data/kalshi/serve_catalog.py`).
   - [ ] New `test/integration/test_kalshi_serving.py` on the `kalshi_db`
         fixture, seeded through `kalshi_helpers.write_catalog` so rows are the
         recorded served shapes.
+  - [ ] Assert: `fetch_categories` returns one row per distinct category with
+        the right series count, ordered by category, and every value it
+        returns is accepted by the series list's `category=` filter — the two
+        must agree, because the first exists to feed the second.
   - [ ] Assert: each seek returns the row and an unknown ticker returns
         `None`; the series list honors `category` and the `search` prefix
         (including a prefix matching nothing → empty list, not an error); the
@@ -224,9 +241,12 @@ Design *D1*, *D2*, *D3*, *D6*, *D8*, *D10*, *API Specification* (Catalog),
   - [ ] New `api_server/models/kalshi.py` with `SeriesRecord`, `EventRecord`,
         `MarketRecord`, plus the nested `MarketLifecycle`, `MarketSettlement`
         and `MarketEconomics` models and the list wrappers
-        `SeriesListResponse`, `EventListResponse`, `MarketListResponse`
-        (each carrying its scope key and `count`, per the *API
-        Specification*).
+        `CategoryListResponse`, `SeriesListResponse`, `EventListResponse`,
+        `MarketListResponse` (each carrying its scope key and `count`, per the
+        *API Specification*).
+  - [ ] `CategoryListResponse` wraps `CategoryRecord` (`category`,
+        `series_count`) and carries `count` — the number of categories, not
+        the number of series.
   - [ ] `MarketRecord` exposes `settlement` on **every** market with its five
         fields null until settled (D3). Field names inside each nested object
         are the DB/Kalshi names verbatim.
@@ -261,7 +281,7 @@ Design *D1*, *D2*, *D3*, *D6*, *D8*, *D10*, *API Specification* (Catalog),
   - [ ] Success: adding a member to `MarketStatus` extends the accepted set
         with no other edit.
 - [ ] **Task 3.5: Catalog routes** (effort: 3)
-  - [ ] New `routes/kalshi_catalog.py` with the six routes of the *API
+  - [ ] New `routes/kalshi_catalog.py` with the seven routes of the *API
         Specification* under the prefix `/api/v1/kalshi`, all `GET`, all
         declaring `responses=GATEWAY_TIMEOUT_RESPONSE`, all depending on
         `get_db` (D9: the whole request is a few milliseconds).
@@ -275,15 +295,21 @@ Design *D1*, *D2*, *D3*, *D6*, *D8*, *D10*, *API Specification* (Catalog),
   - [ ] Docstrings are written as public API descriptions — FastAPI publishes
         them (the 187 rule). Decision references go in comments.
   - [ ] Register the router in `create_app`.
-  - [ ] Success: the six routes appear in `create_app().openapi()`; no route
+  - [ ] `GET /categories` is the exception to the list shape: no parent to
+        seek and no count guard (its row count is the number of distinct
+        categories), so it is one aggregate → model → JSON.
+  - [ ] Success: the seven routes appear in `create_app().openapi()`; no route
         function exceeds ~50 lines.
 - [ ] **Task 3.6: Unit tests for the catalog routes** (effort: 3)
   - [ ] New `test/unit/api_server/test_kalshi_catalog.py` following
         `test_symbols.py`: `create_app()`, `TestClient`, `get_db` overridden
         with a sentinel, the `serve_catalog` functions monkeypatched on the
         route module.
-  - [ ] One test per contract line: each seek route returns 200 with the
-        record and 404 with `{"error": "…"}` for an unknown ticker; a list
+  - [ ] One test per contract line: `GET /categories` returns 200 with the
+        rows in category order and `count` equal to the number of categories
+        (not the series total), and issues no count-guard call; each seek
+        route returns 200 with the record and 404 with `{"error": "…"}` for an
+        unknown ticker; a list
         route with an unknown parent is 404 **before** any count runs (assert
         the count fake was not called); a count over the ceiling is 422 with
         both numbers in the message and no fetch call; `status=active,finalized`
