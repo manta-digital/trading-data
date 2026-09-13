@@ -6,12 +6,12 @@ parent: 001-initiative-plan_trading.md
 dependencies:
   - 100-arch_data-storage.md
   - 140-arch_data-quality-operations.md
-relatedSlices: [181, 182, 183, 184, 185, 186, 187]
+relatedSlices: [181, 182, 183, 184, 185, 186, 187, 188, 189, 190]
 riskLevel: low
 archIndex: 180
 dateCreated: 20260512
-dateUpdated: 20260803
-status: complete
+dateUpdated: 20260912
+status: in_progress
 ---
 
 # Data Serving API Architecture
@@ -270,6 +270,10 @@ The API now applies a **pre-query admission cap**: estimated bars for the reques
 - **Caching layer** — the data rarely changes (daily update at EOD, minute backfill in progress). If the UI re-requests the same range, the DB query is fast enough. Add Redis or in-memory caching only if measurement shows a problem.
 - **WebSocket streaming** — not needed until live tick data flows, which is a trading-feed concern. Historical data is request/response.
 - **Tick data endpoints** — initiative 220 (Futures Tick) hasn't landed yet. Tick endpoints are added when tick storage exists.
+
+**Amendment 2026-09-12 — an unserved surface is a sequencing note, not a boundary.** The tick exclusion above states the rule this initiative actually follows: a data surface is absent from the API because its storage has not landed, and it is added once that storage exists. Kalshi (initiative 260) and the slice-922 operator surfaces both landed without anyone asking the question, leaving 585M+ rows of collected Kalshi data (`kalshi.trades` 345.1M, `kalshi.candlesticks` 239.8M, measured on production 2026-09-12) reachable only by CLI or direct SQL. Slices 188-190 close that gap.
+
+The standing consequence, which belongs here rather than in any one slice: **every initiative that lands a new data surface must answer explicitly whether it belongs on the API, as part of its design.** Answering "no" is fine and is a decision; not answering is how 260 shipped a complete initiative with no HTTP access. This applies to 200 (event infrastructure), 220 (futures tick), and 240 (flat-file import) as they land.
 - **Aggregation or computation** — the API serves stored data. Indicator computation, regime classification, and strategy results come from trading-engine's API, not this one.
 
 ## Relationship to trading-engine
