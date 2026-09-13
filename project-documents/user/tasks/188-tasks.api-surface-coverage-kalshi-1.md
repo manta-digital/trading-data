@@ -17,7 +17,7 @@ projectState: >
   `create_app(db_url=)` seam.
 dateCreated: 20260912
 dateUpdated: 20260913
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -112,40 +112,40 @@ status: not_started
 
 Design *D7*, *Technical Scope* (`api_server/serialization.py`), *SC6*, *SC8*.
 
-- [ ] **Task 1.1: Extract `timeseries_response` from `bars.py`** (effort: 2)
-  - [ ] New module `api_server/serialization.py` with
+- [x] **Task 1.1: Extract `timeseries_response` from `bars.py`** (effort: 2)
+  - [x] New module `api_server/serialization.py` with
         `timeseries_response(model: BaseModel, fmt: Literal["json", "msgpack"]) -> Response`.
         It dumps with `model.model_dump(mode="json")` and returns
         `orjson.dumps(...)` at `application/json` or `msgpack.packb(...)` at
         `application/x-msgpack`.
-  - [ ] `mode="json"` is what renders `Decimal` as a string and `datetime` as
+  - [x] `mode="json"` is what renders `Decimal` as a string and `datetime` as
         ISO-8601 before either encoder sees the object; the msgpack call
         therefore carries **no** `default=str`. Say so in the docstring and
         cite D7.
-  - [ ] The `fmt` literal type is defined once here and imported by the route
+  - [x] The `fmt` literal type is defined once here and imported by the route
         modules, so the two accepted values exist in one place.
-  - [ ] Success: the module imports nothing from `routes/`; `ruff` and `mypy`
+  - [x] Success: the module imports nothing from `routes/`; `ruff` and `mypy`
         clean.
-- [ ] **Task 1.2: Point `bars.py` at the helper** (effort: 1)
-  - [ ] Replace the two-branch `Response` construction at the end of
+- [x] **Task 1.2: Point `bars.py` at the helper** (effort: 1)
+  - [x] Replace the two-branch `Response` construction at the end of
         `get_bars` with a single `return timeseries_response(response, fmt)`.
         Remove the now-unused `msgpack`, `orjson` and `Response`-construction
         imports if nothing else in the module uses them.
-  - [ ] Bars keep `float` for equity prices — this task changes *where* the
+  - [x] Bars keep `float` for equity prices — this task changes *where* the
         response is built, never *what* it contains. `BarsResponse` is
         untouched.
-  - [ ] Success: `test/unit/api_server/test_bars.py` passes **unmodified**
+  - [x] Success: `test/unit/api_server/test_bars.py` passes **unmodified**
         (SC8). If a bars test needs editing, the extraction changed behavior;
         stop and fix the helper instead.
-- [ ] **Task 1.3: Tests for the helper** (effort: 1)
-  - [ ] New `test/unit/api_server/test_serialization.py`: a small model with a
+- [x] **Task 1.3: Tests for the helper** (effort: 1)
+  - [x] New `test/unit/api_server/test_serialization.py`: a small model with a
         `Decimal`, an aware `datetime` and a `None` field. Assert the json
         branch has media type `application/json` and the Decimal decodes to
         the string `"0.4900"`; the msgpack branch has media type
         `application/x-msgpack` and `msgpack.unpackb` yields the same string;
         the aware datetime is ISO-8601 with a UTC offset on both branches;
         `None` survives as null on both.
-  - [ ] Success: the new file and `test_bars.py` both pass in the unit tier.
+  - [x] Success: the new file and `test_bars.py` both pass in the unit tier.
         Commit (section checkpoint).
 
 ## Section 2: Catalog readers
