@@ -9,16 +9,28 @@ the same throwaway database.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import psycopg
 import pytest
-from kalshi_helpers import market_rows, write_catalog
+from kalshi_helpers import FIXTURE_DIR, market_rows, write_catalog
+from test_kalshi_candles import RULE_C, fixture_markets
 
 from manta_trading.data.kalshi import models as km
 from manta_trading.data.kalshi import serve_catalog as sc
-from manta_trading.data.kalshi.constants import MarketStatus
+from manta_trading.data.kalshi import serve_timeseries as st
+from manta_trading.data.kalshi.candle_repository import CANDLE_COLUMNS
+from manta_trading.data.kalshi.constants import (
+    COLLECTED_CANDLE_PERIOD,
+    CandlePeriod,
+    MarketStatus,
+    Surface,
+)
+from manta_trading.data.kalshi.selection import trades_filter_sql
+from manta_trading.data.kalshi.trade_repository import TRADE_COLUMNS
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -308,4 +320,322 @@ class TestCountsAgreeWithFetches:
         event_ticker = market_rows()[0].event_ticker
         assert sc.count_markets(seeded, event_ticker, statuses=statuses) == len(
             sc.fetch_markets(seeded, event_ticker, statuses=statuses)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Section 4 — time-series readers
+# ---------------------------------------------------------------------------
+
+
+PERIOD = int(COLLECTED_CANDLE_PERIOD)
+CANDLE_TICKER = "POLITICS"
+
+
+def _recorded_candles() -> list[km.Candlestick]:
+    """The recorded fixture, parsed — the stored shape is the served shape."""
+    payload = json.loads(
+        (FIXTURE_DIR / "candlesticks.json").read_text(encoding="utf-8")
+    )
+    return km.CandlesticksResponse.model_validate(payload).candlesticks
+
+
+@pytest.fixture()
+async def timeseries(
+    kalshi_repo: CatalogRepository,
+    kalshi_conn: psycopg.AsyncConnection[Any],
+    conn: psycopg.Connection,
+) -> psycopg.Connection:
+    """The candle-test catalog plus the recorded candles under one market."""
+    from manta_trading.data.kalshi.candle_repository import (
+        CandleRepository,
+        StateAdvance,
+    )
+
+    markets, series = fixture_markets()
+    await write_catalog(kalshi_repo, markets, series)
+
+    candles = _recorded_candles()
+    repo = CandleRepository(kalshi_conn, RULE_C)
+    async with repo.transaction():
+        await repo.insert_candles(
+            COLLECTED_CANDLE_PERIOD, [(CANDLE_TICKER, c) for c in candles]
+        )
+        await repo.advance_state(
+            COLLECTED_CANDLE_PERIOD,
+            [
+                StateAdvance(
+                    ticker=CANDLE_TICKER,
+                    watermark_ts=max(c.end_period_ts for c in candles),
+                    coverage_from_ts=min(c.end_period_ts for c in candles),
+                )
+            ],
+        )
+    return conn
+
+
+class TestMarketContext:
+    async def test_unknown_ticker_is_none(self, timeseries: psycopg.Connection):
+        assert st.market_context(timeseries, "NO-SUCH-MARKET", period=PERIOD) is None
+
+    async def test_market_with_no_state_row_is_not_collected(
+        self, timeseries: psycopg.Connection
+    ):
+        """A known market with no candle state is a fact, not an error (D5)."""
+        context = st.market_context(timeseries, "QUIET", period=PERIOD)
+        assert context is not None
+        assert context.candle_collected is False
+        assert context.candle_coverage_from is None
+        assert context.candle_complete_through is None
+
+    async def test_state_row_supplies_the_candle_facts(
+        self, timeseries: psycopg.Connection
+    ):
+        candles = _recorded_candles()
+        context = st.market_context(timeseries, CANDLE_TICKER, period=PERIOD)
+        assert context is not None
+        assert context.candle_collected is True
+        assert context.candle_coverage_from == min(c.end_period_ts for c in candles)
+        assert context.candle_complete_through == max(c.end_period_ts for c in candles)
+
+    async def test_carries_the_series_category(self, timeseries: psycopg.Connection):
+        context = st.market_context(timeseries, CANDLE_TICKER, period=PERIOD)
+        assert context is not None
+        assert context.series_category == "Politics"
+
+    async def test_a_different_period_has_no_state_row(
+        self, timeseries: psycopg.Connection
+    ):
+        """The state join is keyed on the period the caller asks for."""
+        other = next(p for p in CandlePeriod if int(p) != PERIOD)
+        context = st.market_context(timeseries, CANDLE_TICKER, period=int(other))
+        assert context is not None
+        assert context.candle_collected is False
+
+
+class TestTapeFacts:
+    async def test_no_trades_state_row_is_none(self, timeseries: psycopg.Connection):
+        """A fresh install whose trades phase has never run (D10)."""
+        assert st.tape_facts(timeseries) is None
+
+    async def test_returns_the_effective_floor_and_watermark(
+        self,
+        kalshi_repo: CatalogRepository,
+        kalshi_conn: psycopg.AsyncConnection[Any],
+        conn: psycopg.Connection,
+    ):
+        from manta_trading.data.kalshi.trade_repository import TradeRepository
+
+        markets, series = fixture_markets()
+        await write_catalog(kalshi_repo, markets, series)
+        now = datetime.now(UTC).replace(microsecond=0)
+        live_floor = now - timedelta(days=30)
+        watermark = now - timedelta(days=1)
+        trades = TradeRepository(
+            kalshi_conn, RULE_C, trades_excluded=frozenset(), surface=Surface.TRADES
+        )
+        async with trades.transaction():
+            await trades.init_state(live_floor, live_floor)
+            await trades.advance_watermark(watermark)
+
+        facts = st.tape_facts(conn)
+        assert facts is not None
+        assert facts.coverage_from == live_floor
+        assert facts.tape_complete_through == watermark
+
+
+class TestTapeFiltered:
+    """The helper and the SQL predicate must agree — the membership test is
+    rendered once by ``trades_filter_sql`` and evaluated by both."""
+
+    @pytest.mark.parametrize(
+        ("category", "excluded", "expected"),
+        [
+            ("Sports", frozenset({"Sports"}), True),
+            ("Politics", frozenset({"Sports"}), False),
+            ("Sports", frozenset(), False),
+            (None, frozenset({"Sports"}), False),
+            ("Sports", frozenset({"Sports", "Crypto"}), True),
+        ],
+    )
+    async def test_agrees_with_the_sql_predicate(
+        self,
+        timeseries: psycopg.Connection,
+        category: str | None,
+        excluded: frozenset[str],
+        expected: bool,
+    ):
+        selection = trades_filter_sql(excluded)
+        statement = psycopg.sql.SQL(
+            "SELECT {test} FROM (SELECT %(category)s::text AS category) s"
+        ).format(test=selection.predicate)
+        row = timeseries.execute(
+            statement, {**selection.params, "category": category}
+        ).fetchone()
+        assert row is not None
+        assert row[0] == expected
+        assert st.tape_filtered(category, excluded) == expected
+
+
+class TestCandleWindow:
+    async def test_unbounded_returns_every_stored_row(
+        self, timeseries: psycopg.Connection
+    ):
+        rows = st.fetch_candles(
+            timeseries, CANDLE_TICKER, period=PERIOD, start=None, end=None
+        )
+        assert len(rows) == len(_recorded_candles())
+
+    async def test_ordered_by_period_end(self, timeseries: psycopg.Connection):
+        rows = st.fetch_candles(
+            timeseries, CANDLE_TICKER, period=PERIOD, start=None, end=None
+        )
+        stamps = [r.end_period_ts for r in rows]
+        assert stamps == sorted(stamps)
+
+    async def test_bounds_are_inclusive_at_both_edges(
+        self, timeseries: psycopg.Connection
+    ):
+        stamps = sorted(c.end_period_ts for c in _recorded_candles())
+        rows = st.fetch_candles(
+            timeseries,
+            CANDLE_TICKER,
+            period=PERIOD,
+            start=stamps[0],
+            end=stamps[-1],
+        )
+        assert len(rows) == len(stamps)
+
+    async def test_a_row_just_outside_each_bound_is_excluded(
+        self, timeseries: psycopg.Connection
+    ):
+        stamps = sorted(c.end_period_ts for c in _recorded_candles())
+        rows = st.fetch_candles(
+            timeseries,
+            CANDLE_TICKER,
+            period=PERIOD,
+            start=stamps[0] + timedelta(seconds=1),
+            end=stamps[-1] - timedelta(seconds=1),
+        )
+        assert len(rows) == len(stamps) - 2
+        assert rows[0].end_period_ts == stamps[1]
+        assert rows[-1].end_period_ts == stamps[-2]
+
+    async def test_values_preserve_nulls(self, timeseries: psycopg.Connection):
+        """A period with no trades stores nulls for the price object (D2)."""
+        rows = st.fetch_candles(
+            timeseries, CANDLE_TICKER, period=PERIOD, start=None, end=None
+        )
+        assert any(None in row.values for row in rows)
+
+    async def test_value_count_matches_the_repository_mapping(
+        self, timeseries: psycopg.Connection
+    ):
+        rows = st.fetch_candles(
+            timeseries, CANDLE_TICKER, period=PERIOD, start=None, end=None
+        )
+        assert all(len(r.values) == len(CANDLE_COLUMNS) for r in rows)
+
+    @pytest.mark.parametrize("offset", [0, 1, -1])
+    async def test_count_equals_len_fetch(
+        self, timeseries: psycopg.Connection, offset: int
+    ):
+        stamps = sorted(c.end_period_ts for c in _recorded_candles())
+        start = stamps[0] + timedelta(seconds=offset)
+        end = stamps[-1] - timedelta(seconds=offset)
+        assert st.count_candles(
+            timeseries, CANDLE_TICKER, period=PERIOD, start=start, end=end
+        ) == len(
+            st.fetch_candles(
+                timeseries, CANDLE_TICKER, period=PERIOD, start=start, end=end
+            )
+        )
+
+
+class TestTradeWindow:
+    """Trades are written through the real repository, so the stored shape is
+    the shape the collection phase produces."""
+
+    @pytest.fixture()
+    async def traded(
+        self,
+        kalshi_repo: CatalogRepository,
+        kalshi_conn: psycopg.AsyncConnection[Any],
+        conn: psycopg.Connection,
+    ) -> tuple[psycopg.Connection, list[datetime]]:
+        from kalshi_support.samples import TRADE_SAMPLE
+
+        from manta_trading.data.kalshi.trade_repository import TradeRepository
+
+        markets, series = fixture_markets()
+        await write_catalog(kalshi_repo, markets, series)
+        base = datetime(2026, 8, 27, 14, 0, tzinfo=UTC)
+        stamps = [base + timedelta(minutes=i) for i in range(5)]
+        rows = [
+            km.Trade.model_validate(
+                {
+                    **TRADE_SAMPLE,
+                    "ticker": CANDLE_TICKER,
+                    "trade_id": str(uuid4()),
+                    "created_time": stamp.isoformat(),
+                }
+            )
+            for stamp in stamps
+        ]
+        repo = TradeRepository(
+            kalshi_conn, RULE_C, trades_excluded=frozenset(), surface=Surface.TRADES
+        )
+        async with repo.transaction():
+            await repo.write_page(rows)
+        return conn, stamps
+
+    async def test_unbounded_returns_every_stored_row(
+        self, traded: tuple[psycopg.Connection, list[datetime]]
+    ):
+        conn, stamps = traded
+        rows = st.fetch_trades(conn, CANDLE_TICKER, start=None, end=None)
+        assert len(rows) == len(stamps)
+
+    async def test_bounds_are_inclusive_at_both_edges(
+        self, traded: tuple[psycopg.Connection, list[datetime]]
+    ):
+        conn, stamps = traded
+        rows = st.fetch_trades(conn, CANDLE_TICKER, start=stamps[0], end=stamps[-1])
+        assert len(rows) == len(stamps)
+
+    async def test_a_row_just_outside_each_bound_is_excluded(
+        self, traded: tuple[psycopg.Connection, list[datetime]]
+    ):
+        conn, stamps = traded
+        rows = st.fetch_trades(
+            conn,
+            CANDLE_TICKER,
+            start=stamps[0] + timedelta(seconds=1),
+            end=stamps[-1] - timedelta(seconds=1),
+        )
+        assert len(rows) == len(stamps) - 2
+
+    async def test_scoped_to_its_market(
+        self, traded: tuple[psycopg.Connection, list[datetime]]
+    ):
+        conn, _ = traded
+        assert st.fetch_trades(conn, "QUIET", start=None, end=None) == []
+
+    async def test_value_count_matches_the_repository_mapping(
+        self, traded: tuple[psycopg.Connection, list[datetime]]
+    ):
+        """Nine stored columns minus ``market_ticker``, carried once above."""
+        conn, _ = traded
+        rows = st.fetch_trades(conn, CANDLE_TICKER, start=None, end=None)
+        assert all(len(r.values) == len(TRADE_COLUMNS) - 1 for r in rows)
+
+    @pytest.mark.parametrize("offset", [0, 1, -1])
+    async def test_count_equals_len_fetch(
+        self, traded: tuple[psycopg.Connection, list[datetime]], offset: int
+    ):
+        conn, stamps = traded
+        start = stamps[0] + timedelta(seconds=offset)
+        end = stamps[-1] - timedelta(seconds=offset)
+        assert st.count_trades(conn, CANDLE_TICKER, start=start, end=end) == len(
+            st.fetch_trades(conn, CANDLE_TICKER, start=start, end=end)
         )

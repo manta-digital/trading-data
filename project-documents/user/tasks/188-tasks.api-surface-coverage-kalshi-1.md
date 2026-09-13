@@ -229,83 +229,83 @@ Design *D2*, *D8*, *D9*, *Technical Scope* (`data/kalshi/serve_catalog.py`).
 Design *D1*, *D2*, *D3*, *D6*, *D8*, *D10*, *API Specification* (Catalog),
 *SC1*, *SC3*.
 
-- [ ] **Task 3.1: `get_kalshi_trades_excluded` dependency and lifespan wiring** (effort: 2)
-  - [ ] In `app.py`'s `lifespan`, next to `max_bars_per_request`, resolve
+- [x] **Task 3.1: `get_kalshi_trades_excluded` dependency and lifespan wiring** (effort: 2)
+  - [x] In `app.py`'s `lifespan`, next to `max_bars_per_request`, resolve
         `app.state.kalshi_trades_excluded = settings.kalshi_trades_excluded_categories`
         once, with a comment citing D5 and the 186 D9 pattern.
-  - [ ] In `deps.py`, add `get_kalshi_trades_excluded(request) -> frozenset[str]`
+  - [x] In `deps.py`, add `get_kalshi_trades_excluded(request) -> frozenset[str]`
         in the same three-line shape as `get_max_bars`.
-  - [ ] Success: no route reads `Settings()` per request and no route touches
+  - [x] Success: no route reads `Settings()` per request and no route touches
         `app.state` directly.
-- [ ] **Task 3.2: Catalog response models** (effort: 3)
-  - [ ] New `api_server/models/kalshi.py` with `SeriesRecord`, `EventRecord`,
+- [x] **Task 3.2: Catalog response models** (effort: 3)
+  - [x] New `api_server/models/kalshi.py` with `SeriesRecord`, `EventRecord`,
         `MarketRecord`, plus the nested `MarketLifecycle`, `MarketSettlement`
         and `MarketEconomics` models and the list wrappers
         `CategoryListResponse`, `SeriesListResponse`, `EventListResponse`,
         `MarketListResponse` (each carrying its scope key and `count`, per the
         *API Specification*).
-  - [ ] `CategoryListResponse` wraps `CategoryRecord` (`category`,
+  - [x] `CategoryListResponse` wraps `CategoryRecord` (`category`,
         `series_count`) and carries `count` — the number of categories, not
         the number of series.
-  - [ ] `MarketRecord` exposes `settlement` on **every** market with its five
+  - [x] `MarketRecord` exposes `settlement` on **every** market with its five
         fields null until settled (D3). Field names inside each nested object
         are the DB/Kalshi names verbatim.
-  - [ ] Decimal-typed columns are typed `Decimal | None` on the models, not
+  - [x] Decimal-typed columns are typed `Decimal | None` on the models, not
         `float`, so D7's string rendering applies to the catalog too.
-  - [ ] A classmethod per model converts the Section 2 dataclass to the model,
+  - [x] A classmethod per model converts the Section 2 dataclass to the model,
         so the flat-to-nested mapping lives in one place.
-  - [ ] Success: `models/kalshi.py` is under ~300 lines and
+  - [x] Success: `models/kalshi.py` is under ~300 lines and
         `models/responses.py` is unmodified.
-- [ ] **Task 3.3: Tests for the catalog models** (effort: 2)
-  - [ ] In a new `test/unit/api_server/test_kalshi_models.py`: a fully
+- [x] **Task 3.3: Tests for the catalog models** (effort: 2)
+  - [x] In a new `test/unit/api_server/test_kalshi_models.py`: a fully
         populated `MarketRow` maps to a `MarketRecord` with every column
         present exactly once across the flat fields and the three nested
         objects; an unsettled market has `settlement` present with five nulls;
         a `Decimal("0.4900")` field dumps to the string `"0.4900"` under
         `model_dump(mode="json")`.
-  - [ ] A test that asserts the set of `MarketRow` field names equals the
+  - [x] A test that asserts the set of `MarketRow` field names equals the
         union of the names reachable in `MarketRecord`, so a column added to
         the reader cannot silently go unserved.
-  - [ ] Success: the file passes in the unit tier.
-- [ ] **Task 3.4: The `status=` filter validator** (effort: 2)
-  - [ ] In `routes/kalshi_catalog.py`, a `_resolve_status_filter(status: str | None) -> list[str] | None`
+  - [x] Success: the file passes in the unit tier.
+- [x] **Task 3.4: The `status=` filter validator** (effort: 2)
+  - [x] In `routes/kalshi_catalog.py`, a `_resolve_status_filter(status: str | None) -> list[str] | None`
         modelled on `status.py::_resolve_health_filter`: comma-separated,
         stripped, each token checked against `MarketStatus`, `None` when the
         parameter is omitted (no filter).
-  - [ ] A token outside the enum, or a present-but-empty value, raises
+  - [x] A token outside the enum, or a present-but-empty value, raises
         `HTTPException(422)` with the message naming the invalid tokens and
         the valid set. The valid set is derived from `MarketStatus` at module
         scope and never restated. Use `MarketStatus`, not
         `MarketStatusFilter` — the served vocabulary is what the column holds
         (D2).
-  - [ ] Success: adding a member to `MarketStatus` extends the accepted set
+  - [x] Success: adding a member to `MarketStatus` extends the accepted set
         with no other edit.
-- [ ] **Task 3.5: Catalog routes** (effort: 3)
-  - [ ] New `routes/kalshi_catalog.py` with the seven routes of the *API
+- [x] **Task 3.5: Catalog routes** (effort: 3)
+  - [x] New `routes/kalshi_catalog.py` with the seven routes of the *API
         Specification* under the prefix `/api/v1/kalshi`, all `GET`, all
         declaring `responses=GATEWAY_TIMEOUT_RESPONSE`, all depending on
         `get_db` (D9: the whole request is a few milliseconds).
-  - [ ] Each route runs its statements sequentially inside one
+  - [x] Each route runs its statements sequentially inside one
         `loop.run_in_executor` call, the `symbols.py::_fetch_ranges` pattern,
         with the 187 D7 reason in a comment rather than the docstring.
-  - [ ] A list route seeks its parent first: absent → `HTTPException(404)`
+  - [x] A list route seeks its parent first: absent → `HTTPException(404)`
         with the `"<Resource> '<ticker>' not found"` message shape. Then the
         count: over `get_max_bars` → `HTTPException(422)` quoting the actual
         count and the live ceiling, never a literal (D8). Then the fetch.
-  - [ ] Docstrings are written as public API descriptions — FastAPI publishes
+  - [x] Docstrings are written as public API descriptions — FastAPI publishes
         them (the 187 rule). Decision references go in comments.
-  - [ ] Register the router in `create_app`.
-  - [ ] `GET /categories` is the exception to the list shape: no parent to
+  - [x] Register the router in `create_app`.
+  - [x] `GET /categories` is the exception to the list shape: no parent to
         seek and no count guard (its row count is the number of distinct
         categories), so it is one aggregate → model → JSON.
-  - [ ] Success: the seven routes appear in `create_app().openapi()`; no route
+  - [x] Success: the seven routes appear in `create_app().openapi()`; no route
         function exceeds ~50 lines.
-- [ ] **Task 3.6: Unit tests for the catalog routes** (effort: 3)
-  - [ ] New `test/unit/api_server/test_kalshi_catalog.py` following
+- [x] **Task 3.6: Unit tests for the catalog routes** (effort: 3)
+  - [x] New `test/unit/api_server/test_kalshi_catalog.py` following
         `test_symbols.py`: `create_app()`, `TestClient`, `get_db` overridden
         with a sentinel, the `serve_catalog` functions monkeypatched on the
         route module.
-  - [ ] One test per contract line: `GET /categories` returns 200 with the
+  - [x] One test per contract line: `GET /categories` returns 200 with the
         rows in category order and `count` equal to the number of categories
         (not the series total), and issues no count-guard call; each seek
         route returns 200 with the record and 404 with `{"error": "…"}` for an
@@ -316,7 +316,7 @@ Design *D1*, *D2*, *D3*, *D6*, *D8*, *D10*, *API Specification* (Catalog),
         reaches the reader as two values; `status=open` and `status=` are 422
         naming the valid set; a valid but empty result is 200 with `count: 0`
         (SC3).
-  - [ ] Success: the file passes in the unit tier. Commit (section
+  - [x] Success: the file passes in the unit tier. Commit (section
         checkpoint).
 
 ## Section 4: Tape floor and time-series readers

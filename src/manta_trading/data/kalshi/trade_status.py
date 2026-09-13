@@ -127,10 +127,18 @@ TRADE_COUNTS = sql.SQL(
 )
 
 
-def _effective_floor(conn: psycopg.Connection[Any], live_floor: datetime) -> datetime:
+def effective_tape_floor(
+    conn: psycopg.Connection[Any], live_floor: datetime
+) -> datetime:
     """267 Decision 8: the lower of the live floor and the historical row's
     watermark (the oldest hour the backfill has fully walked); the live floor
-    alone until the historical row exists with a watermark."""
+    alone until the historical row exists with a watermark.
+
+    This is the one spelling of the tape floor. ``mt data kalshi status``
+    reports it through :func:`read_trade_status`, and the API's trades route
+    serves it as the response's ``coverage_from`` (188 D5) — a second
+    derivation would let the two disagree about how far back the tape goes.
+    """
     row = conn.execute(STATE_QUERY, {"surface": Surface.HISTORICAL.value}).fetchone()
     if row is None or row[1] is None:
         return live_floor
@@ -156,7 +164,7 @@ def read_trade_status(
             "kalshi.sync_state['trades'] exists without a watermark or coverage "
             "floor; the row is written only by the trades phase's init_state"
         )
-    coverage_from = _effective_floor(conn, live_floor)
+    coverage_from = effective_tape_floor(conn, live_floor)
     ever = selection_sql(rule, "ever")
     trades_filter = trades_filter_sql(trades_excluded)
     statement = TRADE_COUNTS.format(
