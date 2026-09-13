@@ -14,7 +14,7 @@ projectState: >
   trade counts and rows.
 dateCreated: 20260912
 dateUpdated: 20260913
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -115,42 +115,42 @@ Design *D4*, *D5*, *D6*, *D7*, *D10*, *API Specification* (Time series),
   - [x] Success: the file passes in the unit tier. Commit (section
         checkpoint).
 
-## Section 6: Load tier
+## [x] Section 6: Load tier
 
 Design *D11*, *SC2*, *SC7*.
 
-- [ ] **Task 6.1: Move `apply_kalshi_track` to a shared location** (effort: 2)
-  - [ ] Create `test/kalshi_support/` (with `__init__.py`) and move
+- [x] **Task 6.1: Move `apply_kalshi_track` to a shared location** (effort: 2)
+  - [x] Create `test/kalshi_support/` (with `__init__.py`) and move
         `ensure_timescaledb` and `apply_kalshi_track` there from
         `test/integration/kalshi_helpers.py`. Leave the fixture row builders
         (`market_rows`, `write_catalog`, `column`, …) where they are — only
         the schema helpers move, because only they are needed by both tiers.
-  - [ ] Update `test/integration/conftest.py` (~lines 81, 89) and any other
+  - [x] Update `test/integration/conftest.py` (~lines 81, 89) and any other
         importer. Confirm the new package is importable from both tiers'
         `sys.path` configuration before relying on it.
-  - [ ] Success: `python scripts/run_tests.py integration` passes with no
+  - [x] Success: `python scripts/run_tests.py integration` passes with no
         import errors; `grep -rn "kalshi_helpers import.*apply_kalshi_track\|ensure_timescaledb"`
         shows only the new path.
-- [ ] **Task 6.2: `kalshi_dense_db` fixture** (effort: 3)
-  - [ ] In `test/load/conftest.py`, a `kalshi_dense_db(ephemeral_db)` fixture
+- [x] **Task 6.2: `kalshi_dense_db` fixture** (effort: 3)
+  - [x] In `test/load/conftest.py`, a `kalshi_dense_db(ephemeral_db)` fixture
         that applies the kalshi track and seeds with `COPY`: one series with
         25,000 events (above the measured 24,382 maximum), one of those events
         with 450 markets, and one market with `ceiling + 1,000` trades and
         `ceiling + 1,000` candles, where `ceiling` is
         `API_MAX_BARS_PER_REQUEST`.
-  - [ ] Also seed the `kalshi.sync_state` trades row and the
+  - [x] Also seed the `kalshi.sync_state` trades row and the
         `kalshi.market_candle_state` row the D5 facts read, so the responses
         under measurement are the real shape and not a stripped one.
-  - [ ] Never reads `MT_TIMESCALE_DB_URL`; derives everything from
+  - [x] Never reads `MT_TIMESCALE_DB_URL`; derives everything from
         `ephemeral_db`.
-  - [ ] Success: the fixture builds in a tolerable time and
+  - [x] Success: the fixture builds in a tolerable time and
         `test_load_tier_never_references_prod_db_url` still passes.
-- [ ] **Task 6.3: Load assertions** (effort: 3)
-  - [ ] New `test/load/test_188_kalshi_api_nfr.py`, gated on
+- [x] **Task 6.3: Load assertions** (effort: 3)
+  - [x] New `test/load/test_188_kalshi_api_nfr.py`, gated on
         `MT_RUN_LOAD_TESTS=1` with a `pytest.mark.timeout` sized like
         `test_187_api_nfr.py`, driving `create_app(db_url=…)` through
         `httpx.ASGITransport`.
-  - [ ] The four D11 assertions: (1) a windowed trades request admitting
+  - [x] The four D11 assertions: (1) a windowed trades request admitting
         exactly the ceiling completes end to end; (2) the unbounded request
         over `ceiling + 1,000` rows returns 422 and issues **no row fetch** —
         prove it without faking the reader, via a statement counter on the
@@ -159,13 +159,13 @@ Design *D11*, *SC2*, *SC7*.
         completes; (4) 16 concurrent market-detail requests against the
         pool of 8 all complete within the queueing factor of the
         single-request bound.
-  - [ ] Every bound is **measured first and then written down**, with the
+  - [x] Every bound is **measured first and then written down**, with the
         measured figure in a comment next to it. The design's provisional
         numbers (15 s, 500 ms, 2 s) are starting points to check against, not
         values to commit unverified.
-  - [ ] Record the byte size of a ceiling-sized candle response next to 186's
+  - [x] Record the byte size of a ceiling-sized candle response next to 186's
         11.58 MB bars figure (D8's open question).
-  - [ ] **CI gating is deferred to slice 907, explicitly.** The module
+  - [x] **CI gating is deferred to slice 907, explicitly.** The module
         docstring documents the manual invocation
         (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`) and states that
         wiring it into CI is slice 907's deliverable, not this slice's —
@@ -175,7 +175,7 @@ Design *D11*, *SC2*, *SC7*.
         that claims CI enforcement that does not exist; 907's scope includes
         retiring the stale "CI must enable" docstrings 146 left behind, and
         this slice must not add another.
-  - [ ] Success: `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_188_kalshi_api_nfr.py`
+  - [x] Success: `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_188_kalshi_api_nfr.py`
         passes (SC7), and the module docstring names both the manual command
         and the 907 deferral. Commit (section checkpoint).
 
@@ -183,19 +183,19 @@ Design *D11*, *SC2*, *SC7*.
 
 Design *D8*, *D12*, *SC1*, *SC9*.
 
-- [ ] **Task 7.1: Re-describe the rows ceiling** (effort: 1)
-  - [ ] Update the `API_MAX_BARS_PER_REQUEST` docstring in `constants.py`
+- [x] **Task 7.1: Re-describe the rows ceiling** (effort: 1)
+  - [x] Update the `API_MAX_BARS_PER_REQUEST` docstring in `constants.py`
         (~line 1287): it bounds rows per response — equity bars, Kalshi
         candles and trades, and scoped Kalshi catalog lists. Note that the
         Kalshi paths enforce it with an exact count rather than a window
         estimate, and why (D4). The env-var name keeps its historical `BARS`;
         say so explicitly so no one renames it later.
-  - [ ] Update both README rows for `MT_API_MAX_BARS_PER_REQUEST` (~lines 154
+  - [x] Update both README rows for `MT_API_MAX_BARS_PER_REQUEST` (~lines 154
         and 687) to match.
-  - [ ] Success: no second setting and no rename; `grep -rn "MAX_BARS" src/`
+  - [x] Success: no second setting and no rename; `grep -rn "MAX_BARS" src/`
         shows one constant.
-- [ ] **Task 7.2: README endpoint list** (effort: 2)
-  - [ ] Remove the "The API serves equity data only…" sentence (~line 567).
+- [x] **Task 7.2: README endpoint list** (effort: 2)
+  - [x] Remove the "The API serves equity data only…" sentence (~line 567).
         Add the nine Kalshi routes to the endpoint list with a one-line
         description each, leading with `GET /api/v1/kalshi/categories` as the
         discovery entry point, and a short paragraph giving the D5 field
@@ -203,45 +203,45 @@ Design *D8*, *D12*, *SC1*, *SC9*.
         what `collected`, `coverage_from`, `complete_through`,
         `tape_complete_through` and `tape_filtered` each tell a client, and
         the four readings of `count: 0`.
-  - [ ] Note the range policy in the same place: no pagination, an exact
+  - [x] Note the range policy in the same place: no pagination, an exact
         count guard, 422 above the ceiling with the actual count.
-  - [ ] Success: the README no longer claims equities-only anywhere;
+  - [x] Success: the README no longer claims equities-only anywhere;
         `grep -n "equity data only" README.md` is empty.
-- [ ] **Task 7.3: App description and architecture documents** (effort: 2)
-  - [ ] `create_app`'s `description` names Kalshi alongside bars, symbols and
+- [x] **Task 7.3: App description and architecture documents** (effort: 2)
+  - [x] `create_app`'s `description` names Kalshi alongside bars, symbols and
         gaps (190 replaces it with the real reference later).
-  - [ ] `180-arch.data-serving.md`: an Endpoints subsection for the Kalshi
+  - [x] `180-arch.data-serving.md`: an Endpoints subsection for the Kalshi
         namespace pointing at this slice, and a Range Policy note that the
         Kalshi paths use a count-first guard where bars use a window estimate,
         with the measured reason.
-  - [ ] `180-slices.data-serving-api.md`: confirm entry 8 links this slice and
+  - [x] `180-slices.data-serving-api.md`: confirm entry 8 links this slice and
         that *Future work* carries the cross-cutting markets list and derived
         candle periods (both were added at design time — verify, do not
         duplicate).
-  - [ ] Success: the two 180 documents and the app description agree with the
+  - [x] Success: the two 180 documents and the app description agree with the
         shipped routes.
-- [ ] **Task 7.4: Regenerate the OpenAPI artifact** (effort: 1)
-  - [ ] Run `uv run python scripts/dump_openapi.py` and commit the result.
-  - [ ] Diff the artifact: the nine new paths appear, and the entries for
+- [x] **Task 7.4: Regenerate the OpenAPI artifact** (effort: 1)
+  - [x] Run `uv run python scripts/dump_openapi.py` and commit the result.
+  - [x] Diff the artifact: the nine new paths appear, and the entries for
         `/api/v1/bars/{symbol}`, `/api/v1/symbols`, `/api/v1/symbols/{symbol}`,
         `/api/v1/gaps/{symbol}`, `/api/v1/status` and `/api/v1/health` are
         **byte-identical** to the previous version (SC1). A diff in an
         equities path means the Section 1 extraction changed a response shape;
         stop and fix that rather than accepting the artifact.
-  - [ ] Success: `uv run python scripts/dump_openapi.py --check` exits 0 and
+  - [x] Success: `uv run python scripts/dump_openapi.py --check` exits 0 and
         `test_openapi_artifact.py` passes.
-- [ ] **Task 7.5: Full verification pass** (effort: 2)
-  - [ ] Run the design's *Verification Walkthrough* steps 1–8 against
+- [x] **Task 7.5: Full verification pass** (effort: 2)
+  - [x] Run the design's *Verification Walkthrough* steps 1–8 against
         production read-only with `mt serve` on the host, substituting current
         tickers for any that have aged out. Record the observed counts,
         because the design's figures (132,552 trades; 68,663 candles) will
         have moved.
-  - [ ] Run `python scripts/run_tests.py unit`, then
+  - [x] Run `python scripts/run_tests.py unit`, then
         `python scripts/run_tests.py integration`, then the load tier with its
         gate. Run `mypy` over the touched source and test paths in one
         invocation. Scope `ruff format` to touched files and check
         `git diff main` for deletions before committing.
-  - [ ] Walk Success Criteria 1–9 and record the evidence for each.
-  - [ ] Success: all three tiers pass, the walkthrough's expectations hold,
+  - [x] Walk Success Criteria 1–9 and record the evidence for each.
+  - [x] Success: all three tiers pass, the walkthrough's expectations hold,
         and every success criterion has a named piece of evidence. Commit
         (section checkpoint).
