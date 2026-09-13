@@ -17,6 +17,9 @@ from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.api_server.routes.bars import router as bars_router
 from manta_trading.api_server.routes.gaps import router as gaps_router
 from manta_trading.api_server.routes.health import router as health_router
+from manta_trading.api_server.routes.kalshi_catalog import (
+    router as kalshi_catalog_router,
+)
 from manta_trading.api_server.routes.status import router as status_router
 from manta_trading.api_server.routes.symbols import router as symbols_router
 from manta_trading.config import Settings
@@ -61,6 +64,10 @@ async def lifespan(
     # MT_TIMESCALE_DB_URL — so no request pays for re-reading the environment.
     app.state.max_bars_per_request = settings.api_max_bars_per_request
     app.state.statement_timeout = settings.api_statement_timeout
+    # D5, same 186 D9 pattern: the trades-tape category exclusion is a serving
+    # policy, resolved once here rather than per request. Routes report it as a
+    # per-response fact so a filtered tape is never mistaken for a short one.
+    app.state.kalshi_trades_excluded = settings.kalshi_trades_excluded_categories
     session = DbSessionSettings(
         work_mem=API_SERVING_SESSION.work_mem,
         statement_timeout=settings.api_statement_timeout,
@@ -133,6 +140,7 @@ def create_app(db_url: str | None = None) -> FastAPI:
     app.include_router(symbols_router)
     app.include_router(gaps_router)
     app.include_router(status_router)
+    app.include_router(kalshi_catalog_router)
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(

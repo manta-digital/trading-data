@@ -152,76 +152,76 @@ Design *D7*, *Technical Scope* (`api_server/serialization.py`), *SC6*, *SC8*.
 
 Design *D2*, *D8*, *D9*, *Technical Scope* (`data/kalshi/serve_catalog.py`).
 
-- [ ] **Task 2.1: Catalog record dataclasses** (effort: 2)
-  - [ ] New module `data/kalshi/serve_catalog.py`. Frozen dataclasses
+- [x] **Task 2.1: Catalog record dataclasses** (effort: 2)
+  - [x] New module `data/kalshi/serve_catalog.py`. Frozen dataclasses
         `SeriesRow`, `EventRow`, `MarketRow` whose fields are exactly the
         typed columns listed for each record in the design's *API
         Specification*, in DDL order. `raw` appears in none of them (D2).
-  - [ ] `MarketRow` is flat — one field per column. The lifecycle /
+  - [x] `MarketRow` is flat — one field per column. The lifecycle /
         settlement / economics grouping is a response-model concern
         (Section 3), not the reader's.
-  - [ ] Each dataclass has a module-level `_SELECT` tuple of its column names
+  - [x] Each dataclass has a module-level `_SELECT` tuple of its column names
         used to build both the projection and the row mapper, so a column is
         named once per record type.
-  - [ ] Success: the module imports only `dataclasses`, `datetime`, `decimal`,
+  - [x] Success: the module imports only `dataclasses`, `datetime`, `decimal`,
         `psycopg` and `manta_trading.data.kalshi.constants`. No client, no
         transport, no config (D9 / the `status.py` discipline).
-- [ ] **Task 2.2: Seek functions** (effort: 2)
-  - [ ] `fetch_series(conn, ticker) -> SeriesRow | None`,
+- [x] **Task 2.2: Seek functions** (effort: 2)
+  - [x] `fetch_series(conn, ticker) -> SeriesRow | None`,
         `fetch_event(conn, event_ticker) -> EventRow | None`,
         `fetch_market(conn, ticker) -> MarketRow | None`. Each is one
         primary-key `SELECT` with a `%s` parameter, returning `None` when the
         row is absent.
-  - [ ] `None` means "no such row" and nothing else. No exception is caught
+  - [x] `None` means "no such row" and nothing else. No exception is caught
         inside these functions: a `psycopg.Error` propagates so a failed seek
         can never be reported as a 404 (D10).
-  - [ ] Success: three functions, one statement each, all parameterised.
-- [ ] **Task 2.2a: Category listing reader** (effort: 1)
-  - [ ] In `serve_catalog.py`, a frozen `CategoryCount` (`category`,
+  - [x] Success: three functions, one statement each, all parameterised.
+- [x] **Task 2.2a: Category listing reader** (effort: 1)
+  - [x] In `serve_catalog.py`, a frozen `CategoryCount` (`category`,
         `series_count`) and `fetch_categories(conn) -> list[CategoryCount]`:
         one `SELECT category, count(*) FROM kalshi.series GROUP BY category
         ORDER BY category`.
-  - [ ] No count guard and no filter parameters: the result is bounded by the
+  - [x] No count guard and no filter parameters: the result is bounded by the
         number of distinct categories (20 on production 2026-09-13) and the
         aggregate measured 15 ms over the whole table.
-  - [ ] `category` is free text Kalshi assigns, not an enum in this codebase —
+  - [x] `category` is free text Kalshi assigns, not an enum in this codebase —
         this reader is the only way a client can learn what `category=`
         accepts. Say so in the docstring and cite D2.
-  - [ ] Success: one statement, ordered by `category` so the response is
+  - [x] Success: one statement, ordered by `category` so the response is
         stable between calls.
-- [ ] **Task 2.3: Scoped list functions with the count guard** (effort: 3)
-  - [ ] `count_series(conn, *, category, search) -> int` and
+- [x] **Task 2.3: Scoped list functions with the count guard** (effort: 3)
+  - [x] `count_series(conn, *, category, search) -> int` and
         `fetch_series_list(conn, *, category, search) -> list[SeriesRow]`;
         `count_events(conn, series_ticker, *, strike_from, strike_to)` and
         `fetch_events(...)`; `count_markets(conn, event_ticker, *, statuses)`
         and `fetch_markets(...)`. Count and fetch share one predicate builder
         per resource so the guard and the read can never diverge.
-  - [ ] `search` is a ticker prefix rendered `ILIKE %s` with `search + "%"`,
+  - [x] `search` is a ticker prefix rendered `ILIKE %s` with `search + "%"`,
         the `symbols.py::_LIST_FILTERED_SQL` spelling. `category` is an exact
         match. `strike_from`/`strike_to` are inclusive bounds on
         `strike_date`, bound as `timestamptz` (D4's binding rule applies to
         every hypertable-adjacent predicate; `events.strike_date` is
         `TIMESTAMPTZ`). `statuses` is a sequence matched with `= ANY(%s)`.
-  - [ ] Lists are ordered deterministically: series by `ticker`, events by
+  - [x] Lists are ordered deterministically: series by `ticker`, events by
         `event_ticker`, markets by `ticker`.
-  - [ ] Success: every list function has a matching count function over the
+  - [x] Success: every list function has a matching count function over the
         identical `WHERE` clause; no `LIMIT` anywhere in the module.
-- [ ] **Task 2.4: Integration tests for the catalog readers** (effort: 3)
-  - [ ] New `test/integration/test_kalshi_serving.py` on the `kalshi_db`
+- [x] **Task 2.4: Integration tests for the catalog readers** (effort: 3)
+  - [x] New `test/integration/test_kalshi_serving.py` on the `kalshi_db`
         fixture, seeded through `kalshi_helpers.write_catalog` so rows are the
         recorded served shapes.
-  - [ ] Assert: `fetch_categories` returns one row per distinct category with
+  - [x] Assert: `fetch_categories` returns one row per distinct category with
         the right series count, ordered by category, and every value it
         returns is accepted by the series list's `category=` filter — the two
         must agree, because the first exists to feed the second.
-  - [ ] Assert: each seek returns the row and an unknown ticker returns
+  - [x] Assert: each seek returns the row and an unknown ticker returns
         `None`; the series list honors `category` and the `search` prefix
         (including a prefix matching nothing → empty list, not an error); the
         events list is scoped to its series and respects both strike bounds
         inclusively; the markets list is scoped to its event and filters on a
         multi-value `statuses`; each count equals `len()` of its fetch for
         every filter combination exercised.
-  - [ ] Success: the file passes in the integration tier. Commit (section
+  - [x] Success: the file passes in the integration tier. Commit (section
         checkpoint).
 
 ## Section 3: Catalog models and routes
