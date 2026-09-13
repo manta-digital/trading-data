@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/188-slice.api-surface-coverage-kalshi.md
 parent: user/architecture/180-slices.data-serving-api.md
 dependencies: [186, 187, 262, 264, 265, 268]
-interfaces: [189, 190]
+interfaces: [189, 190, 907]
 projectState: >
   Continuation of `188-tasks.api-surface-coverage-kalshi-1.md`. Sections 1–4
   are complete before this file starts: the serialization helper is extracted
@@ -13,7 +13,7 @@ projectState: >
   `serve_timeseries.py` returns market context, tape facts and the candle and
   trade counts and rows.
 dateCreated: 20260912
-dateUpdated: 20260912
+dateUpdated: 20260913
 status: not_started
 ---
 
@@ -27,8 +27,9 @@ status: not_started
   its fixture; (7) documentation and the OpenAPI artifact.
 - Entering Section 5, these exist and are green:
   `api_server/serialization.py::timeseries_response`;
-  `data/kalshi/serve_catalog.py`; `routes/kalshi_catalog.py` with its six
-  routes registered; `api_server/models/kalshi.py` with the catalog models;
+  `data/kalshi/serve_catalog.py`; `routes/kalshi_catalog.py` with its seven
+  routes registered (categories, the three lists, the three seeks);
+  `api_server/models/kalshi.py` with the catalog models;
   `data/kalshi/trade_status.py::effective_tape_floor` (public);
   `data/kalshi/serve_timeseries.py` with `market_context`, `tape_facts`,
   `tape_filtered`, and the candle and trade count/fetch pairs.
@@ -164,8 +165,19 @@ Design *D11*, *SC2*, *SC7*.
         values to commit unverified.
   - [ ] Record the byte size of a ceiling-sized candle response next to 186's
         11.58 MB bars figure (D8's open question).
+  - [ ] **CI gating is deferred to slice 907, explicitly.** The module
+        docstring documents the manual invocation
+        (`MT_RUN_LOAD_TESTS=1 uv run pytest test/load/`) and states that
+        wiring it into CI is slice 907's deliverable, not this slice's —
+        the 187 D9 wording, matched. The only workflow in the repository
+        (`.github/workflows/ci.yml`) is publish-on-tag with no test job, so
+        this tier runs manually until 907 lands. Do **not** write a docstring
+        that claims CI enforcement that does not exist; 907's scope includes
+        retiring the stale "CI must enable" docstrings 146 left behind, and
+        this slice must not add another.
   - [ ] Success: `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_188_kalshi_api_nfr.py`
-        passes (SC7). Commit (section checkpoint).
+        passes (SC7), and the module docstring names both the manual command
+        and the 907 deferral. Commit (section checkpoint).
 
 ## Section 7: Documentation and the OpenAPI artifact
 

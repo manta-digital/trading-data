@@ -4,9 +4,9 @@ slice: api-surface-coverage-kalshi
 project: trading-data
 parent: user/architecture/180-slices.data-serving-api.md
 dependencies: [186, 187, 262, 264, 265, 268]
-interfaces: [189, 190]
+interfaces: [189, 190, 907]
 dateCreated: 20260912
-dateUpdated: 20260912
+dateUpdated: 20260913
 status: not_started
 effort: 3
 ---
@@ -411,6 +411,12 @@ from 187 D9 (`MT_RUN_LOAD_TESTS=1`, ephemeral DB, the prod-URL guard;
 `create_app(db_url=)` is the seam). The Kalshi track is applied with
 `test/integration/kalshi_helpers.apply_kalshi_track`, which moves to
 `test/kalshi_support/` so both tiers import it from one place.
+
+**CI gating stays with 907, as it did for 167 and 187.** The repository's only
+workflow is publish-on-tag with no test job, so this tier runs manually until
+slice 907 (CI Pipeline and Load-Test Gating) lands; 907 already names the load
+tier in its scope. The module docstring records the manual command and that
+deferral, and claims no enforcement that does not exist.
 
 Fixture `kalshi_dense_db`: one series with 25,000 events (above the measured
 24,382 maximum), one event with 450 markets, and one market with

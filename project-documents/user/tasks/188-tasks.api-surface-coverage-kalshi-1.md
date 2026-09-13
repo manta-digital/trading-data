@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/188-slice.api-surface-coverage-kalshi.md
 parent: user/architecture/180-slices.data-serving-api.md
 dependencies: [186, 187, 262, 264, 265, 268]
-interfaces: [189, 190]
+interfaces: [189, 190, 907]
 projectState: >
   Design 188 committed at 505a667; slice review PASS with two informational
   notes and no design changes. `src/manta_trading/api_server/` has zero Kalshi
@@ -16,7 +16,7 @@ projectState: >
   split, the 504 handler, the rows ceiling, the load tier and the
   `create_app(db_url=)` seam.
 dateCreated: 20260912
-dateUpdated: 20260912
+dateUpdated: 20260913
 status: not_started
 ---
 
