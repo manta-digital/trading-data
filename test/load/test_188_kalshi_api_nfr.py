@@ -248,8 +248,7 @@ def test_candles_at_the_admission_ceiling_records_its_response_size(
     rather than five floats, so the two are worth comparing.
     """
     url = (
-        f"/api/v1/kalshi/markets/{KALSHI_DENSE_MARKET}/candlesticks"
-        f"{_ceiling_window()}"
+        f"/api/v1/kalshi/markets/{KALSHI_DENSE_MARKET}/candlesticks{_ceiling_window()}"
     )
 
     async def _run() -> tuple[int, int]:
@@ -336,9 +335,7 @@ def test_concurrent_market_detail_requests(kalshi_dense_db: str) -> None:
                 assert response.status_code == 200, response.text[:200]
                 return time.perf_counter() - started
 
-            samples = await asyncio.gather(
-                *(_one() for _ in range(_CONCURRENCY))
-            )
+            samples = await asyncio.gather(*(_one() for _ in range(_CONCURRENCY)))
             return statistics.median(samples), list(samples)
 
     median, samples = asyncio.run(_run())

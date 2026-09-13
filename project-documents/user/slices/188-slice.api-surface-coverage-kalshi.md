@@ -7,7 +7,7 @@ dependencies: [186, 187, 262, 264, 265, 268]
 interfaces: [189, 190, 907]
 dateCreated: 20260912
 dateUpdated: 20260913
-status: not_started
+status: complete
 effort: 3
 ---
 
@@ -616,11 +616,92 @@ JSON.
    unchanged.
 9. README, `app.py` description, and the two 180 documents updated per D12.
 
+### Evidence, walked 2026-09-13
+
+Each criterion with the specific thing that demonstrates it.
+
+1. **Met.** `docs/api/openapi.json` regenerated; the nine `/api/v1/kalshi/…`
+   paths are present and nothing was removed. A path-by-path JSON comparison
+   against the pre-slice artifact showed `/api/v1/bars/{symbol}`,
+   `/api/v1/symbols`, `/api/v1/symbols/{symbol}`, `/api/v1/gaps/{symbol}`,
+   `/api/v1/status` and `/api/v1/health` **byte-identical**.
+   `scripts/dump_openapi.py --check` exits 0;
+   `test_openapi_artifact.py` passes.
+2. **Met.** Unit: `test_kalshi_catalog.py` and `test_kalshi_timeseries.py`
+   assert the 422 quotes both the live count and the live ceiling, and that the
+   fetch spy was never called. Load: `test_188_kalshi_api_nfr.py`'s
+   `test_over_ceiling_is_refused_without_fetching_rows` proves it against a real
+   database with a statement-recording cursor — 4 statements, 1 `count(*)`, no
+   row `SELECT`. Verified by inverting the guard, which fails the assertion and
+   quotes the offending statement. Production: the unbounded trades request
+   returned the 132,552-row refusal.
+3. **Met.** `test_kalshi_catalog.py::test_empty_result_is_200_with_count_zero`
+   and `test_kalshi_timeseries.py::TestEmptyWindowIsUnambiguous` (four tests,
+   one per meaning of zero). Production steps 5 and 6: `count: 0` with facts
+   populated, and 404 only for unknown tickers.
+4. **Met.** `mt data kalshi status --json` reports `coverage_from`
+   `2026-01-01T00:00:00+00:00`; the API's trades route reported
+   `2026-01-01T00:00:00Z` — the same instant, because both resolve it through
+   the one promoted `effective_tape_floor`. The CLI's excluded-category filter
+   is empty on this host and the API correspondingly reported
+   `tape_filtered: false`;
+   `test_kalshi_serving.py::TestTapeFiltered` asserts the agreement across five
+   configurations by evaluating `trades_filter_sql`'s rendered SQL alongside the
+   Python helper.
+5. **Met.** `kalshi.market_candle_state.watermark_ts` for
+   `KXMAYORLA-26-SPRA` is `2026-06-08T18:00:49-06:00`; the API reported
+   `complete_through: "2026-06-09T00:00:49Z"` — the same instant in UTC.
+   `coverage_from_ts` matches likewise. The `collected: false` / null branch is
+   covered by
+   `test_kalshi_serving.py::TestMarketContext::test_market_with_no_state_row_is_not_collected`.
+6. **Met.** `test_serialization.py` asserts both encodings carry identical
+   payloads with Decimals as strings and aware UTC timestamps.
+   `test_kalshi_models.py` pins `"0.4900"` under `mode="json"`. Production step
+   7: msgpack decoded `yes_price_dollars` to `'0.9900'` and `count_fp` to
+   `'467.00'`, with `created_time` ISO-8601 UTC.
+7. **Met.** `MT_RUN_LOAD_TESTS=1 uv run pytest
+   test/load/test_188_kalshi_api_nfr.py` → 6 passed. Every bound was measured
+   before it was written down, and each carries its measurement in a docstring.
+8. **Met.** `bars.py` returns `timeseries_response(response, fmt)`;
+   `test/unit/api_server/test_bars.py` is **unmodified** and passes (50 tests).
+   The one behavioral consequence is documented: msgpack timestamps move from
+   `str(datetime)`'s space-separated form to ISO-8601, which the old
+   `default=str` path got wrong.
+9. **Met.** README's equities-only claim removed (`grep -n "equity data only"`
+   is empty), nine routes documented with the four readings of `count: 0` and
+   the range policy; `create_app`'s description names Kalshi;
+   `180-arch.data-serving.md` gained a Kalshi Endpoints subsection and a Range
+   Policy note on count-first versus window-estimate; `180-slices` entry 8 and
+   both Future work items verified present, not duplicated.
+
+**Test tiers, 2026-09-13.** Unit 3,538 passed / 5 skipped, zero failures.
+Integration 467 passed / 144 skipped / 4 failed — all four
+(`test_migration_051_052.py` ×2, `test_policy_advances_head.py` ×2) reproduce
+identically on `main` and are pre-existing, not regressions; the two
+`test_cli_lists.py::…priority1` failures are the known config-environment flake
+and were deselected after confirming them on `main` too. Load 6 passed.
+
 ## Verification Walkthrough
 
 Against production (read-only), `mt serve` on the host, `$API` =
 `http://localhost:8100/api/v1/kalshi`. Tickers below were chosen from the
 measurements; substitute any current ones.
+
+**Executed end to end 2026-09-13** on the implementation branch, server run as
+`uv run mt serve --host 127.0.0.1 --port 8123` against production read-only.
+Every step below carries its observed output. Three corrections were folded in
+where the design's expectation did not survive contact with the data; they are
+marked **Correction** and are documented rather than silently fixed.
+
+Two caveats for anyone re-running this:
+
+- **`tape_filtered` depends on deployment configuration.** Step 5's expectation
+  of `true` for a Crypto market assumes `MT_KALSHI_TRADES_EXCLUDED_CATEGORIES`
+  names `Crypto`. It is **empty** on this host, so the observed value is
+  `false` — correctly reporting that nothing is filtered. Check the setting
+  before reading a `false` here as a defect.
+- **Counts move.** The trades and candle figures below were reproduced exactly
+  on 2026-09-13, but they are live data and will drift.
 
 **1 — Catalog hierarchy, top down.**
 ```sh
@@ -635,11 +716,32 @@ rows at each level below; the markets list shows the H0/H25/… ladder. Step one
 is the discovery path: every value `category=` accepts came from the first
 call.
 
+**Observed 2026-09-13:** `20` categories, `Politics` → `2307` series, both
+exactly as predicted. `series?category=Politics&search=KXFED` → `14` rows,
+first `KXFEDCHAIRCONFIRM`.
+
+**Correction — `KXFEDDECISION` is `Economics`, not `Politics`.** Its title is
+`"Fed meeting"` and its category is `"Economics"`, so the chain above changes
+category between the first call and the third. The series seek and the events
+list are unaffected. A `Politics` example that does chain cleanly is
+`KXMAYORLA`.
+
+**Correction — the strike window has aged.** `events?strike_from=2026-09-01`
+returns `12` events, first `KXFEDDECISION-26DEC` (not `-26SEP`, which has
+passed). Use `KXFEDDECISION-26DEC` for the markets call, which returns `5`
+markets — `-C25`, `-C26`, `-H0`, `-H25`, … — the ladder the step predicts.
+
 **2 — Settlement on the market resource.**
 ```sh
 curl -s "$API/markets/KXGOVTSHUTDOWN-26FEB14" | jq '.status, .settlement'
 ```
 Expect `"finalized"` and a populated `settlement.result` / `settlement_ts`.
+
+**Observed 2026-09-13:** `"finalized"` with
+`{"result": "yes", "expiration_value": "Yes", "can_close_early": true,
+"settlement_ts": "2026-02-14T15:33:01.218693Z",
+"settlement_value_dollars": "1.0000"}` — all five settlement fields populated,
+and the dollar value an exact string (D7).
 
 **3 — The cap, from stored data.**
 ```sh
@@ -653,12 +755,23 @@ curl -s "$API/markets/KXMAYORLA-26-SPRA/trades?start=2026-06-01&end=2026-06-08" 
 ```
 Expect a `200`, a count in the thousands, `coverage_from` = `2026-01-01T00:00:00Z`.
 
+**Observed 2026-09-13:** the unbounded request returned `422` with
+`"the request matches 132,552 rows, over the 75,000 row limit; narrow
+start/end"` — the design's predicted count, unchanged. The windowed request
+returned `200` with `count: 59055`, `coverage_from:
+"2026-01-01T00:00:00Z"`, `tape_complete_through: "2026-09-13T16:19:01.649407Z"`,
+in ~0.9 s.
+
 **4 — Whole-market candles under the ceiling.**
 ```sh
 curl -s "$API/markets/KXMAYORLA-26-SPRA/candlesticks" | jq '.count, .collected, .complete_through'
 ```
 Expect `68663` (or the current figure), `true`, and a `complete_through` just
 after the market's close.
+
+**Observed 2026-09-13:** `count: 68663` exactly, `collected: true`,
+`complete_through: "2026-06-09T00:00:49Z"`, `coverage_from:
+"2026-01-08T01:00:00Z"`, `period_minutes: 1`, in ~3.2 s.
 
 **5 — The four meanings of zero.**
 ```sh
@@ -673,6 +786,20 @@ curl -s "$API/markets/<same-ticker>/candlesticks" | jq '.count, .collected'
 Expect `0` with a watermark before the window; `0, true`; and either candles
 (Crypto candles are collected) or `0, false` for a market outside the rule.
 
+**Observed 2026-09-13:** the future window gave `count: 0` with
+`tape_complete_through: "2026-09-13T16:19:01.649407Z"` — a watermark well
+before the window, which is what distinguishes this zero from the others.
+
+**Correction — `tape_filtered` was `false`, and that is correct here.** Walking
+`KXBTC15M` (category `"Crypto"`) to `KXBTC15M-26SEP122000-00` gave
+`count: 0, tape_filtered: false`, because
+`MT_KALSHI_TRADES_EXCLUDED_CATEGORIES` is **empty on this host** — nothing is
+excluded, so nothing reports as filtered. The helper was checked directly and
+does flip: `tape_filtered("Crypto", {"Crypto"})` is `True`,
+`tape_filtered("Crypto", set())` is `False`. To see `true` in this step, the
+setting must name the category. Crypto candles are collected, as predicted:
+the same market returned `count: 16, collected: true`.
+
 **6 — 404 versus empty.**
 ```sh
 curl -s -w '%{http_code}\n' "$API/markets/NOSUCH-TICKER/trades"
@@ -681,6 +808,9 @@ curl -s -w '%{http_code}\n' "$API/series/NOSUCH"
 Expect `404` with `{"error": "Market 'NOSUCH-TICKER' not found"}` and likewise
 for the series.
 
+**Observed 2026-09-13:** `404` with `{"error": "Market 'NOSUCH-TICKER' not
+found"}` and `404` with `{"error": "Series 'NOSUCH' not found"}`, both verbatim.
+
 **7 — msgpack and Decimal exactness.**
 ```sh
 curl -s "$API/markets/KXGOVTSHUTDOWN-26FEB14/trades?start=2026-02-14&format=msgpack" -o /tmp/t.msgpack -w '%{content_type}\n'
@@ -688,12 +818,29 @@ uv run python -c "import msgpack;d=msgpack.unpackb(open('/tmp/t.msgpack','rb').r
 ```
 Expect `application/x-msgpack` and a price like `0.9900` as a string.
 
+**Observed 2026-09-13:** `application/x-msgpack`, `count: 9085`, and
+`yes_price_dollars` decoding to the string `'0.9900'` — the design's exact
+prediction. `count_fp` came back `'467.00'` and `created_time`
+`"2026-02-14T00:00:10.332577Z"`, confirming that `mode="json"` renders both
+Decimals and datetimes before msgpack sees them (D7).
+
 **8 — Bad input.**
 ```sh
 curl -s "$API/events/KXFEDDECISION-26SEP/markets?status=open" | jq .error
 curl -s "$API/markets/KXGOVTSHUTDOWN-26FEB14/trades?start=2026-03-01&end=2026-02-01" | jq .error
 ```
 Expect the valid-status list and the reversed-range message.
+
+**Observed 2026-09-13** (substituting `-26DEC` for the aged-out `-26SEP`):
+
+```
+"Invalid status values: open. Valid: active, amended, closed, determined, finalized, inactive, initialized"
+"start (2026-03-01T00:00:00+00:00) is after end (2026-02-01T23:59:59.999999+00:00); the requested range is empty"
+```
+
+Both verbatim as specified. The reversed-range message also shows the
+end-of-day convention at work: a bare `end=2026-02-01` resolves to that day's
+last instant, not midnight.
 
 **9 — Schema and tests.**
 ```sh
@@ -709,6 +856,16 @@ MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_188_kalshi_api_nfr.py
   by measurement at Phase 6 (D8); if it is unreasonable, the fix is a
   Kalshi-specific ceiling as a *separate* decision, not a silent change to the
   shared one.
+
+  **Measured 2026-09-13: 34.80 MB** (34,800,184 bytes) for a 75,000-row candle
+  response, against 11.58 MB for a ceiling-sized bars response (slice 186) —
+  3.0x the bytes for the same row count, and **~75% above this risk's own
+  20 MB estimate**. Recorded in `test/load/test_188_kalshi_api_nfr.py` as
+  `CANDLES_CEILING_RESPONSE_MB`. No ceiling change is made here: that is the
+  separate decision this risk describes, and the request completed in ~3.2 s
+  against production, so nothing is unserviceable today. What the number
+  establishes is that the shared ceiling bounds *rows, not bytes*, and a
+  byte-oriented consumer should size for ~35 MB rather than ~20 MB.
 - **Count-then-fetch is two statements.** A pathological market whose count
   sits at the ceiling pays ~100 ms twice. Accepted: it is the cost of an exact
   guard on data with no density model, and it is measured, not guessed.

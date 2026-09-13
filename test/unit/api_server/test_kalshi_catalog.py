@@ -72,7 +72,7 @@ def _event(event_ticker: str = "KXFED-26SEP") -> EventRow:
 
 
 def _market(ticker: str = "KXFED-26SEP-T1") -> MarketRow:
-    fields = {}
+    fields: dict[str, Any] = {}
     for name, field in MarketRow.__dataclass_fields__.items():
         text = field.type if isinstance(field.type, str) else str(field.type)
         if "datetime" in text:

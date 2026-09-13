@@ -125,7 +125,10 @@ def create_app(db_url: str | None = None) -> FastAPI:
     """
     app = FastAPI(
         title="Manta Trading API",
-        description="Data serving API for OHLCV bars, symbol metadata, and gap status.",
+        description=(
+            "Data serving API for OHLCV bars, symbol metadata, gap status, and "
+            "the Kalshi prediction-market catalog and time series."
+        ),
         version=package_version(),
         # Bound rather than passed through app.state: the pool must be opened
         # before the first request, and app.state is not populated until

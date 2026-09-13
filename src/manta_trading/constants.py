@@ -1285,12 +1285,31 @@ set, for which 64 MB is ample. Not operator-settable (D9).
 """
 
 API_MAX_BARS_PER_REQUEST: Final[int] = 75_000
-"""Default ceiling on the *estimated* bars a single bars request may span (D4).
+"""Default ceiling on the rows a single API response may carry (186 D4, 188 D8).
 
-Enforced before any database work by the admission check in
-``api_server/routes/bars.py``; the estimate is computed from the request window
-alone, so a rejected request costs one comparison. A worst-case dense response
-at this ceiling is roughly 8–10 MB JSON / 3.5–4 MB msgpack.
+One ceiling for the whole API: equity bars, Kalshi candlesticks and trades, and
+the scoped Kalshi catalog lists. A second setting with the same number would be
+two things to keep in step.
+
+**Two enforcement styles, for a measured reason.** The bars path estimates from
+the request window alone (``api_server/routes/bars.py``), so a rejected request
+costs one comparison and touches no database. The Kalshi paths take an exact
+``count(*)`` first and refuse on the real number (188 D4): their row density is
+not a function of the window — a quiet market yields no candle for a period it
+was nonetheless asked for, and a market's trade rate varies by orders of
+magnitude — so a window estimate would be wrong in both directions. The count is
+milliseconds against an indexed range, and it lets the 422 quote the actual
+number of rows the client asked for.
+
+A worst-case dense bars response at this ceiling is roughly 8–10 MB JSON /
+3.5–4 MB msgpack; a ceiling-sized Kalshi candle response measured 34.80 MB
+(2026-09-13), because a candle carries sixteen decimal strings where a bar
+carries five floats. The ceiling bounds rows, not bytes.
+
+**The environment variable keeps its historical ``BARS`` name** —
+``MT_API_MAX_BARS_PER_REQUEST`` — deliberately. It is an operator-facing name
+that predates the Kalshi routes; renaming it would break existing deployments
+for a cosmetic gain. Do not rename it.
 
 75,000 is the agreed compromise (PM, 2026-08-03): it puts ``1m`` at ~113 days —
 more than a single call needs for a three-month chart — while leaving ``5m``

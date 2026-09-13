@@ -168,6 +168,41 @@ GET /api/v1/health
 
 Returns server status and database connectivity. Standard liveness check.
 
+### Kalshi
+
+**Added by slice 188 (2026-09-13).** Nine routes under `/api/v1/kalshi` — seven
+catalog and two time series — serving the prediction-market track the API
+previously did not reach at all. The full specification, the response shapes and
+the decisions behind them are in
+`user/slices/188-slice.api-surface-coverage-kalshi.md`; this is the map.
+
+```
+GET /api/v1/kalshi/categories                          # discovery entry point
+GET /api/v1/kalshi/series?category=&search=
+GET /api/v1/kalshi/series/{ticker}
+GET /api/v1/kalshi/series/{ticker}/events?strike_from=&strike_to=
+GET /api/v1/kalshi/events/{event_ticker}
+GET /api/v1/kalshi/events/{event_ticker}/markets?status=
+GET /api/v1/kalshi/markets/{ticker}
+GET /api/v1/kalshi/markets/{ticker}/candlesticks?start=&end=&format=
+GET /api/v1/kalshi/markets/{ticker}/trades?start=&end=&format=
+```
+
+`/categories` leads because `category` is free text Kalshi assigns rather than
+an enum, so it is the only way a client can learn what the series filter
+accepts; its per-category series counts double as a size map.
+
+Two properties distinguish these responses from the equity ones:
+
+- **Every response carries its own completeness facts** (188 D5), so a
+  `count: 0` is never ambiguous — `collected`, `coverage_from`,
+  `complete_through`, `tape_complete_through` and `tape_filtered` separate "not
+  collected", "filtered by policy", "outside coverage" and "genuinely quiet"
+  without a second call.
+- **Decimal fields serialize as strings** (188 D7), because Kalshi prices are
+  fixed-point dollars whose exactness the storage layer preserves; a JSON
+  `0.49` that round-trips to `0.48999999` would undo that at the last hop.
+
 ## Technical Stack
 
 - **Framework**: FastAPI (new dependency). Async support for concurrent requests. Automatic OpenAPI docs. Pydantic for request/response models.
@@ -262,6 +297,10 @@ All error responses raised by this codebase use a consistent shape: `{"error": "
 **Revised by slice 186 (2026-08-03).** No server-side pagination — that decision stands. But "the API trusts callers to request bounded ranges… a UI concern, not an API concern," as originally written here, did not survive contact with the measured data: the store carries extended-hours minute bars (08:00–23:59 UTC, up to 960 `1m` bars per symbol-day, not the 390 a regular session implies), and an unbounded request serializes millions of rows through a single executor thread on a host shared with the acquisition daemon.
 
 The API now applies a **pre-query admission cap**: estimated bars for the requested window are computed from the request alone and rejected with `422` above a configurable ceiling (`MT_API_MAX_BARS_PER_REQUEST`, default 75,000 — ~113 days of `1m`, ~1.5 years of `5m`; never binds at `1d` or coarser). No DB work is done for a rejected request, and no response is ever silently truncated. See slice 186 D4 and D9.
+
+**Extended by slice 188 (2026-09-13): one ceiling, two enforcement styles.** The Kalshi lists and time series reuse `MT_API_MAX_BARS_PER_REQUEST` — it bounds rows per response, which is exactly what they need, and a second setting with the same number would be two things to keep in step. But they enforce it with an exact `count(*)` taken before any rows are read, not with a window estimate. The reason is measured, not stylistic: Kalshi row density is not a function of the window. A quiet market produces no candle for a period it was nonetheless asked for, and trade rates across markets differ by orders of magnitude, so a window estimate would be wrong in both directions — refusing servable requests and admitting unservable ones. The count is milliseconds against an indexed range, and it lets the `422` quote the actual number of rows the client asked for rather than an estimate. See slice 188 D4 and D8.
+
+The ceiling bounds rows, not bytes, and the two paths differ there: a ceiling-sized bars response measured 11.58 MB (slice 186), a ceiling-sized Kalshi candle response 34.80 MB (slice 188, 2026-09-13), because a candle carries sixteen decimal strings where a bar carries five floats. Whether a byte ceiling is ever wanted is open; no slice has needed one yet.
 
 ## What This Does NOT Include
 
