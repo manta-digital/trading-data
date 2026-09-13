@@ -14,7 +14,7 @@ projectState: >
   trade counts and rows.
 dateCreated: 20260912
 dateUpdated: 20260913
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -38,13 +38,13 @@ status: not_started
 - Commit at least once per section. Scope `ruff format` to touched files and
   check `git diff` for unrelated rewrites before each commit.
 
-## Section 5: Time-series models and routes
+## [x] Section 5: Time-series models and routes
 
 Design *D4*, *D5*, *D6*, *D7*, *D10*, *API Specification* (Time series),
 *SC2*, *SC3*, *SC6*.
 
-- [ ] **Task 5.1: Time-series response models** (effort: 3)
-  - [ ] In `api_server/models/kalshi.py`: `CandleRecord` with the nested
+- [x] **Task 5.1: Time-series response models** (effort: 3)
+  - [x] In `api_server/models/kalshi.py`: `CandleRecord` with the nested
         `yes_bid` / `yes_ask` / `price` OHLC objects and flat `end_period_ts`,
         `volume_fp`, `open_interest_fp`; `TradeRecord` with the eight served
         trade fields; `CandlesResponse` (`market_ticker`, `period_minutes`,
@@ -52,56 +52,56 @@ Design *D4*, *D5*, *D6*, *D7*, *D10*, *API Specification* (Time series),
         `candlesticks`) and `TradesResponse` (`market_ticker`,
         `coverage_from`, `tape_complete_through`, `tape_filtered`, `count`,
         `trades`).
-  - [ ] The flat-to-nested candle mapping is driven by
+  - [x] The flat-to-nested candle mapping is driven by
         `candle_repository.CANDLE_COLUMNS`, whose second element is already
         the `(object, field)` path — walk it, do not restate it. Nulls are
         preserved: a period with only `price.previous_dollars` keeps every
         other field null rather than dropping the object.
-  - [ ] All price and size fields are `Decimal | None`. `period_minutes` is
+  - [x] All price and size fields are `Decimal | None`. `period_minutes` is
         `COLLECTED_CANDLE_PERIOD`, reported so a later slice can widen it.
-  - [ ] Field descriptions state the D5 meanings — in particular that
+  - [x] Field descriptions state the D5 meanings — in particular that
         `complete_through` is "requested and stored through", not "newest
         stored candle", and that null `tape_complete_through` means the trades
         phase has never run.
-  - [ ] Success: `models/kalshi.py` stays under ~300 lines; split into
+  - [x] Success: `models/kalshi.py` stays under ~300 lines; split into
         `models/kalshi_catalog.py` and `models/kalshi_timeseries.py` if it
         does not.
-- [ ] **Task 5.2: Tests for the time-series models** (effort: 2)
-  - [ ] In `test_kalshi_models.py`: a `CandleRow` with all fourteen values
+- [x] **Task 5.2: Tests for the time-series models** (effort: 2)
+  - [x] In `test_kalshi_models.py`: a `CandleRow` with all fourteen values
         round-trips into the three nested objects with every value in its
         documented slot; a sparse row keeps its nulls; Decimals dump as
         strings under `mode="json"`; a `TradesResponse` with `count=0` and
         null facts serializes without error.
-  - [ ] A test asserting the nested candle field set is exactly what
+  - [x] A test asserting the nested candle field set is exactly what
         `CANDLE_COLUMNS` describes, so a column added there cannot go
         unserved.
-  - [ ] Success: the file passes in the unit tier.
-- [ ] **Task 5.3: Time-series routes** (effort: 3)
-  - [ ] New `routes/kalshi_timeseries.py` with
+  - [x] Success: the file passes in the unit tier.
+- [x] **Task 5.3: Time-series routes** (effort: 3)
+  - [x] New `routes/kalshi_timeseries.py` with
         `GET /api/v1/kalshi/markets/{ticker}/candlesticks` and
         `.../trades`, both taking optional `start`/`end` and
         `format=json|msgpack`, both declaring `GATEWAY_TIMEOUT_RESPONSE`.
-  - [ ] Order per the design's *Data Flow*: resolve the window (422 on a
+  - [x] Order per the design's *Data Flow*: resolve the window (422 on a
         reversed range, before any DB work) → one executor call that, inside a
         single `pool.connection()` from `get_db_pool`, runs
         `market_context` (None → 404), the count, and the fetch only if the
         count is within `get_max_bars` → build the model → return
         `timeseries_response(model, fmt)`.
-  - [ ] The checkout is scoped to seek + count + fetch and released before
+  - [x] The checkout is scoped to seek + count + fetch and released before
         serialization (185 D8a); the over-ceiling `HTTPException(422)` is
         raised after the executor call returns, so the connection is not held
         while unwinding. The 422 message quotes the actual count and the live
         ceiling.
-  - [ ] The trades route resolves `tape_filtered` from the context's series
+  - [x] The trades route resolves `tape_filtered` from the context's series
         category and the `get_kalshi_trades_excluded` dependency; absent
         `tape_facts` yields nulls and a 200 (D10).
-  - [ ] Register the router in `create_app`.
-  - [ ] Success: both routes appear in the schema; each function is under ~50
+  - [x] Register the router in `create_app`.
+  - [x] Success: both routes appear in the schema; each function is under ~50
         lines with the reasoning in comments and a public-facing docstring.
-- [ ] **Task 5.4: Unit tests for the time-series routes** (effort: 3)
-  - [ ] New `test/unit/api_server/test_kalshi_timeseries.py` with the reader
+- [x] **Task 5.4: Unit tests for the time-series routes** (effort: 3)
+  - [x] New `test/unit/api_server/test_kalshi_timeseries.py` with the reader
         functions monkeypatched.
-  - [ ] One test per contract line: unknown ticker → 404 with no count call;
+  - [x] One test per contract line: unknown ticker → 404 with no count call;
         count over the ceiling → 422 quoting both numbers with no fetch call
         (SC2); known market, empty window → 200 `count: 0` with the D5 facts
         populated (SC3); all four meanings of zero distinguishable from the
@@ -112,7 +112,7 @@ Design *D4*, *D5*, *D6*, *D7*, *D10*, *API Specification* (Time series),
         omitted bounds reach the reader as `None`; `format=msgpack` returns
         `application/x-msgpack` and decodes with Decimal fields as strings
         (SC6); absent trades state → 200 with null facts.
-  - [ ] Success: the file passes in the unit tier. Commit (section
+  - [x] Success: the file passes in the unit tier. Commit (section
         checkpoint).
 
 ## Section 6: Load tier
