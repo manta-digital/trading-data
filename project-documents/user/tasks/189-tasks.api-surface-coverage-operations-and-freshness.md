@@ -61,8 +61,15 @@ of copying them. No behavior change.
         `test_migration_051_052` (×2) and `test_policy_advances_head` (×2) are
         known. A failure not on that list at baseline is a new problem and
         must be raised before any code is written.
+  - [ ] **Capture the SC3 baseline now, before any code changes.** With
+        `mt serve` against production read-only, save the response bodies of
+        `/api/v1/health` and a fixed `/api/v1/status` request (record the
+        exact URL used) to files outside the repo. Task 5.3 diffs against
+        these. Captured here because after Section 3 the "pre-slice output"
+        no longer exists to capture.
   - [ ] Success: the baseline numbers are written into this file under
-        Task 1.1 so later sections can attribute regressions.
+        Task 1.1 so later sections can attribute regressions, and the two
+        SC3 baseline bodies are saved with their request URLs recorded.
 
 - [ ] **Task 1.2: Extract `gather_db_facts` from `gather`** (effort: 2)
   - [ ] In `cli/commands/overview.py`, split `gather` (line ~173) at the
@@ -217,9 +224,17 @@ Section 1's reader and Section 2's models (188 D9).
         even with a real `pid_is_alive`, so this assertion is what actually
         pins D4.
   - [ ] `/api/v1/credits` in all three shapes, with `fetch_credit_usage`
-        patched: success, raising, and no key configured. All three are 200.
+        patched: success, raising, and no key configured. All three are 200
+        (SC6).
   - [ ] A raised exception carrying an `api_token=` query string produces a
-        body with no token (redaction proven, not assumed).
+        body with no token — redaction proven, not assumed (SC6).
+  - [ ] **Pin SC2 with a test, not a grep.** Assert `routes/operations.py`
+        imports `build_overview`, and that its module source contains no
+        reference to `next_firing_at`, `schedule_for`, `pid_is_alive` or
+        `PassRunRepository` — the four symbols a second derivation would
+        have to reach for. Read the module source via
+        `inspect.getsource(...)`, so the assertion travels with the code
+        rather than depending on a command someone remembers to run.
   - [ ] Success: all pass in the unit tier. Commit (section checkpoint).
 
 - [ ] **Task 3.5: Integration tests against a real DB** (effort: 3)
@@ -332,12 +347,24 @@ written once against the final route set.
         and its `pass`/`outcome` token sets equal `PassKind` and
         `PassRunOutcome` exactly, read from the enums (SC8).
   - [ ] Assert every pre-existing path is byte-identical to the previous
-        committed artifact, with exactly two additions and no removals (SC3)
-        — the property 188 established, checked here rather than trusted.
-  - [ ] Success: all assertions pass against the committed artifact.
+        committed artifact, with exactly two additions and no removals (SC3
+        schema level) — the property 188 established, checked here rather
+        than trusted.
+  - [ ] **SC3 response level:** re-issue the two requests captured in Task
+        1.1 and diff the bodies. The *shape* must be identical — same keys,
+        same nesting, same types. Values that legitimately move between the
+        two captures (coverage freshness verdicts, row counts, any
+        timestamp) are not failures; compare structure, and inspect any
+        value difference to confirm it reflects data arriving rather than
+        this slice.
+  - [ ] If the shapes differ at all, stop: nothing in this slice touches
+        `status.py` or `health.py`, so a shape change means the `gather`
+        split reached further than D3 intended.
+  - [ ] Success: all assertions pass against the committed artifact, and
+        both response shapes are unchanged from the Task 1.1 baseline.
 
 - [ ] **Task 5.4: Walk the verification walkthrough** (effort: 3)
-  - [ ] Execute steps 1–11 of the design's *Verification Walkthrough* against
+  - [ ] Execute steps 1–13 of the design's *Verification Walkthrough* against
         production read-only, with `mt serve` on a local port as 188 did.
         Record the observed output for each step in the design under an
         *Evidence, walked {date}* subsection.

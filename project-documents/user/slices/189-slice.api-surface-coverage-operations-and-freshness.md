@@ -444,10 +444,17 @@ party's. The bound above is on what it can do to everything else.
    represented, against production, with pass state matching what
    `mt data overview` prints at the same moment.
 2. **SC2** — The endpoint's derivation is `build_overview`, called unmodified.
-   `grep` finds no second computation of running/last-run/next-firing in
-   `api_server/`.
-3. **SC3** — `/api/v1/status` and `/api/v1/health` responses are byte-identical
-   to their pre-slice output for the same request (the 188 SC1 property).
+   Pinned by a test, not by inspection: `routes/operations.py` imports
+   `build_overview` and the module contains no `next_firing_at`,
+   `schedule_for`, `pid_is_alive` or `PassRunRepository` reference of its
+   own. A grep is evidence that decays the moment someone adds a line; the
+   test keeps holding after the slice closes.
+3. **SC3** — The committed `openapi.json` gains exactly two paths and loses
+   none, and every pre-existing path's schema entry is byte-identical (the
+   188 SC1 property, which is schema-scoped). Verified at both levels: the
+   schema by the artifact test, and `/api/v1/status` and `/api/v1/health`
+   response *bodies* by a live before/after diff — this slice's `gather`
+   split (D3) is upstream of neither route, and the diff is what proves it.
 4. **SC4** — Against a DB with no `pass_runs` table, `/api/v1/overview`
    returns 200 with all passes empty and the sources block intact — not 500.
 5. **SC5** — No `abandoned` field appears in the response body or in
@@ -540,21 +547,43 @@ Expect exactly two additions, no removals. Then confirm both new paths carry a
 curl -s localhost:8123/openapi.json | jq '{overview: (.paths["/api/v1/overview"].get.responses|keys), credits: (.paths["/api/v1/credits"].get.responses|keys)}'
 ```
 Expect `504` present under `overview` and absent under `credits`.
-(SC3, SC9, SC11)
+(SC3 schema level, SC9, SC11)
 
-**9. Enum parity.**
+**9. The pre-existing routes still answer the same shape.** Re-issue the two
+requests captured before implementation began and compare structure — same
+keys, same nesting, same types:
+```
+curl -s localhost:8123/api/v1/health | jq -S 'paths(scalars) | join(".")' > /tmp/health.after
+diff /tmp/health.before /tmp/health.after
+```
+Same for the recorded `/api/v1/status` request. Values may move between
+captures (freshness verdicts, counts, timestamps); the *shape* must not.
+Nothing in this slice touches either route, so a shape difference means the
+`gather` split reached further than D3 intended. (SC3 response level)
+
+**10. The derivation is not duplicated.** Confirm `routes/operations.py`
+reaches for `build_overview` and for none of the four symbols a second
+derivation would need:
+```
+grep -n "build_overview" src/manta_trading/api_server/routes/operations.py
+grep -nE "next_firing_at|schedule_for|pid_is_alive|PassRunRepository" src/manta_trading/api_server/routes/operations.py
+```
+Expect a hit on the first and no output from the second. The unit test pins
+this permanently; the grep is the walkthrough's visible evidence. (SC2)
+
+**11. Enum parity.**
 ```
 curl -s localhost:8123/openapi.json | jq '.components.schemas | keys[] | select(test("PassKind|PassRunOutcome"))'
 ```
 Token sets equal the Python enums. (SC8)
 
-**10. Executor contention (D8).** Run the load tier's contention case, which
+**12. Executor contention (D8).** Run the load tier's contention case, which
 holds the credit fetch open for the full timeout while `/api/v1/overview` is
 polled, and confirm overview latency stays within its SC10 bound. Not a
 `curl` step — it needs the stub, so that a third party's real latency and the
 live quota stay out of it. (SC12)
 
-**11. Tiers.** Unit, integration, and load run separately (whole-`test/`
+**13. Tiers.** Unit, integration, and load run separately (whole-`test/`
 collection yields spurious errors). Known pre-existing failures on `main`
 (`test_migration_051_052` ×2, `test_policy_advances_head` ×2) are confirmed
 against `main` before being attributed anywhere.
