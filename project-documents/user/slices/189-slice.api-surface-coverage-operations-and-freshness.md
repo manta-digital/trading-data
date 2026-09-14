@@ -59,8 +59,9 @@ freshness logic.
    facts from the credit call (D3) — the API calls the same functions the
    CLI does, not copies of them.
 6. Unit tests over the model translation (no DB), integration tests over
-   both routes, and a load-tier latency bound on `/api/v1/overview` per
-   187 D10.
+   both routes, and two load-tier bounds per 187 D10: latency on
+   `/api/v1/overview`, and the executor-contention bound D8 requires because
+   `/credits` is the API's first third-party-backed route.
 7. `README.md` endpoint list, `app.py` description, regenerated
    `docs/api/openapi.json`.
 
@@ -229,7 +230,7 @@ the response — `_pass_line` already catches that `RuntimeError`.
 | DB unreachable / pool exhausted | 500 `{"error": "internal server error"}` via the existing app handler. Unlike the CLI's exit 2, no special-casing: nothing in the body would be true, and the global handler already logs the traceback. |
 | `pass_runs` absent (pre-055 DB) | 200 with every pass reporting `running: []`, `last_run: null`. `gather`'s `_read` already degrades this way and logs one warning. An API server against an unmigrated DB should report "nothing recorded", not 500. |
 | A source table absent (no Kalshi track) | 200; that source's `newest` is `null`. `_newest` already handles `UndefinedTable`. |
-| Statement timeout | 504 via `GATEWAY_TIMEOUT_RESPONSE`, as every other route. |
+| Statement timeout (`/overview` only) | 504 via `GATEWAY_TIMEOUT_RESPONSE`, as every other DB route. Not declared on `/credits`, which issues no statement (D8). |
 | EODHD unreachable (`/credits` only) | 200 with `credits: null` and `error: "<redacted reason>"`. A provider outage is a reported condition, not a server fault — the same contract `gather` already implements. The reason is redacted through `redact_token` before it reaches the body. |
 | `MT_EODHD_API_KEY` unset (`/credits` only) | 200 with `credits: null` and `error` = `CREDITS_NO_KEY`. A setting, not a fault. |
 
@@ -246,10 +247,56 @@ No 404 and no 422 on either route: neither takes a path or query parameter.
 - **Any write.** No pass control surface. That is a different kind of API
   with a different auth posture, and the current posture is none (186 D-auth).
 
+### D8 — `/credits` declares no `504`, and its load bound is about the shared executor, not its own latency
+
+Two consequences of `/credits` being the API's first third-party-backed route,
+both raised by the slice review (F001, F002).
+
+**No `504`.** `GATEWAY_TIMEOUT_RESPONSE` is one shared constant whose
+description reads "The database cancelled the query at the server's statement
+timeout. Narrow the requested range or use a coarser granularity." `/credits`
+issues no statement and takes no parameters, so declaring it would publish a
+status the route never emits, with a remedy the caller cannot perform, into
+the `openapi.json` that trading-ui and slice 190 consume. It is omitted.
+`/api/v1/overview` keeps it — it does query the DB.
+
+**A load bound after all, on a different quantity.** The earlier reading —
+"no load bound; its latency is a third party's" — answered only the latency
+half of the project's load-tier rule and missed the resource-bound half. The
+rule is right and the omission was wrong:
+
+`fetch_credit_usage` is a synchronous `httpx.get` bounded by
+`EODHD_ACCOUNT_TIMEOUT_SECONDS` (5.0s), dispatched through
+`run_in_executor(None, …)`. Every other route in this process does the same
+(`bars.py`, `status.py`, `symbols.py`, `gaps.py`), and nothing anywhere sets
+a custom executor — verified, no `set_default_executor` or
+`ThreadPoolExecutor` in `api_server/`. So all of them share one default pool
+of `min(32, cpu + 4)` threads. A handful of `/credits` calls arriving while
+EODHD is slow can each hold a worker for the full five seconds, delaying
+`/bars` and `/overview` requests queued behind them. That is precisely what
+unit and integration tests cannot see.
+
+The load tier therefore gets a **contention** assertion, not a latency one:
+with `fetch_credit_usage` stubbed to block for the full timeout, concurrent
+`/credits` requests must not push `/api/v1/overview` latency past its own
+measured bound. The stub matters — the assertion is about this server's
+thread budget, and must not depend on a third party's real response time or
+consume live quota.
+
+If that bound cannot be met, the fix is a small dedicated executor for the
+credit call rather than a larger shared one, so a third party's slowness
+cannot reach the DB routes at all. Deciding that belongs to implementation,
+once the measurement exists.
+
 ## API Specification
 
-Both `GET`, JSON, `504` declared via `GATEWAY_TIMEOUT_RESPONSE`, errors as
-`{"error": "…"}`.
+Both `GET`, JSON, errors as `{"error": "…"}`.
+
+`/api/v1/overview` declares `504` via `GATEWAY_TIMEOUT_RESPONSE`, as every
+other DB route. **`/api/v1/credits` does not** (D8): it issues no statement,
+so a statement timeout is not among its outcomes, and the shared constant's
+description ("narrow the requested range or use a coarser granularity") names
+a remedy for a route that takes no parameters.
 
 ```
 GET /api/v1/overview
@@ -382,7 +429,14 @@ is already pure and 922's test suite already covers the interesting states:
   design after it is observed, not before.
 - No unbounded scan: plan inspection on the four source probes.
 
-`/api/v1/credits` gets no load bound — its latency is a third party's.
+- **Executor contention (D8).** With `fetch_credit_usage` stubbed to block for
+  the full `EODHD_ACCOUNT_TIMEOUT_SECONDS`, concurrent `/api/v1/credits`
+  requests must not push `/api/v1/overview` past its measured bound. The stub
+  is required: the assertion is about this server's shared thread budget, and
+  must not depend on EODHD's real latency or spend live quota.
+
+`/api/v1/credits` gets no bound on its *own* latency — that is a third
+party's. The bound above is on what it can do to everything else.
 
 ## Success Criteria
 
@@ -411,6 +465,13 @@ is already pure and 922's test suite already covers the interesting states:
    the time-series routes and left to slice 190).
 10. **SC10** — Load bound on `/api/v1/overview` measured, written into this
     design, and passing.
+11. **SC11** — `openapi.json` declares no `504` on `/api/v1/credits` (D8),
+    while `/api/v1/overview` declares one.
+12. **SC12** — With the credit fetch stubbed to block for the full timeout,
+    concurrent `/api/v1/credits` requests leave `/api/v1/overview` within its
+    SC10 bound (D8). If the bound cannot be met, a dedicated executor for the
+    credit call is implemented and the design records the measurement that
+    forced it.
 
 ## Verification Walkthrough
 
@@ -474,7 +535,12 @@ curl -s localhost:8123/openapi.json | jq -S '.paths | keys' > /tmp/after.json
 diff /tmp/before.json /tmp/after.json
 ```
 Expect exactly two additions, no removals. Then confirm both new paths carry a
-200 schema. (SC3, SC9)
+200 schema, and that only `/api/v1/overview` declares a `504`:
+```
+curl -s localhost:8123/openapi.json | jq '{overview: (.paths["/api/v1/overview"].get.responses|keys), credits: (.paths["/api/v1/credits"].get.responses|keys)}'
+```
+Expect `504` present under `overview` and absent under `credits`.
+(SC3, SC9, SC11)
 
 **9. Enum parity.**
 ```
@@ -482,7 +548,13 @@ curl -s localhost:8123/openapi.json | jq '.components.schemas | keys[] | select(
 ```
 Token sets equal the Python enums. (SC8)
 
-**10. Tiers.** Unit, integration, and load run separately (whole-`test/`
+**10. Executor contention (D8).** Run the load tier's contention case, which
+holds the credit fetch open for the full timeout while `/api/v1/overview` is
+polled, and confirm overview latency stays within its SC10 bound. Not a
+`curl` step — it needs the stub, so that a third party's real latency and the
+live quota stay out of it. (SC12)
+
+**11. Tiers.** Unit, integration, and load run separately (whole-`test/`
 collection yields spurious errors). Known pre-existing failures on `main`
 (`test_migration_051_052` ×2, `test_policy_advances_head` ×2) are confirmed
 against `main` before being attributed anywhere.
@@ -493,7 +565,13 @@ against `main` before being attributed anywhere.
    `gather` rather than `gather_db_facts`, the endpoint silently loses it.
    Mitigated by the integration test asserting the two agree on the DB fields,
    which fails the moment they diverge.
-2. **Hostname semantics.** Every running row carries the hostname of the
+2. **A third party reaching the DB routes.** `/credits` is the API's first
+   route whose latency is set by someone else, and it shares the default
+   executor with every DB route (D8). A slow EODHD could delay `/bars` and
+   `/overview`. Mitigated by the contention bound (SC12), which fails the
+   slice rather than shipping the coupling unmeasured; the dedicated-executor
+   fix is identified and scoped if the bound cannot be met.
+3. **Hostname semantics.** Every running row carries the hostname of the
    machine that ran the pass, which need not be the API server's. This is
    correct and intended, but a client rendering "running here" would be
    wrong. Mitigated by D4's omission of `abandoned` and by slice 190
