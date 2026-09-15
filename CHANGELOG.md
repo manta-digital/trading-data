@@ -16,7 +16,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(nothing yet)
+### Added
+- **The Kalshi prediction-market track is now readable over HTTP.** Nine routes
+  under `/api/v1/kalshi` serve the catalog (`categories`, `series`, `events`,
+  `markets`, each as a scoped list and a seek) and both time series
+  (`candlesticks`, `trades`). Before this, 585M+ stored rows — 345M trades,
+  240M candles, 11M markets — were reachable only through `mt data kalshi
+  status` or raw SQL, while equity bars of the same era were served. Any
+  non-Python consumer can now read them.
+
+  Start at `GET /api/v1/kalshi/categories`: Kalshi assigns categories as free
+  text rather than from a fixed list, so this is the only way to learn what the
+  `category=` filter accepts, and its per-category series counts tell you how
+  large a list to expect before you ask for it.
+
+- **An empty Kalshi result now says why it is empty.** `count: 0` has four
+  distinct meanings, and every response carries the facts to tell them apart
+  without a second call: `collected: false` (this market's candles are not
+  collected at all), `tape_filtered: true` (its category is excluded from trade
+  collection by policy), a `coverage_from` / `complete_through` /
+  `tape_complete_through` window that does not overlap your request, or
+  genuinely no activity. `complete_through` means "requested and stored
+  through", not "newest stored row" — a quiet market produces no candle for a
+  period it was nonetheless asked for.
+
+- **Kalshi prices are served as exact strings.** Prices, sizes and volumes
+  serialize as `"0.4900"` rather than `0.49`, in both JSON and msgpack, so
+  fixed-point dollars never round-trip through a float. Equity bars are
+  unchanged and still use floats.
+
+### Changed
+- **`MT_API_MAX_BARS_PER_REQUEST` now bounds rows for the whole API**, not just
+  equity bars: Kalshi candles, trades and scoped catalog lists share the same
+  ceiling and the same default of 75,000. The environment variable keeps its
+  historical `BARS` name and is not renamed. The Kalshi routes enforce it with
+  an exact count taken before any rows are read, and the `422` quotes the real
+  number of matching rows — so you know exactly how far to narrow the window.
+  (Equity bars still estimate from the window, because their row density
+  follows it and Kalshi's does not.) There is no pagination and no truncation
+  on either path: a response is complete or it is refused.
+
+- **msgpack timestamps are now ISO-8601.** A bars response requested with
+  `format=msgpack` previously carried timestamps as
+  `"2026-01-02 15:30:00+00:00"` — space-separated, which is not ISO-8601 and
+  which the JSON branch never emitted. They are now `"2026-01-02T15:30:00Z"`,
+  matching JSON. A client that parsed the old form with a tolerant parser is
+  unaffected; one that pattern-matched the space is not. JSON timestamps also
+  moved from `+00:00` to the equivalent `Z`.
+
+- The API's own description and the README no longer claim it serves equity
+  data only.
 
 ## [0.16.0] - 2026-09-15
 

@@ -151,7 +151,7 @@ the public rate tier and the default collection rule applies.
 
 | Variable | Default | Description |
 |---|---|---|
-| `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Bars-per-request ceiling used by the range cap |
+| `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Rows-per-response ceiling: equity bars, Kalshi candles and trades, and scoped Kalshi catalog lists |
 | `MT_API_STATEMENT_TIMEOUT` | `20s` | Per-connection `statement_timeout` on the API's pools |
 
 ### Backup / offsite
@@ -564,8 +564,8 @@ mt serve --host 127.0.0.1 --port 8200 --workers 4
 mt serve --reload
 ```
 
-The API serves equity data only; Kalshi data is read via `mt data kalshi
-status` or SQL for now.
+The API serves equity bars and the Kalshi prediction-market catalog and time
+series.
 
 API endpoints:
 - `GET /api/v1/health` — liveness check, plus a coarse `coverage` freshness signal
@@ -596,6 +596,55 @@ API endpoints:
   provider that will not answer is a condition this endpoint reports rather
   than a fault of this server.
 - `GET /docs` — Swagger UI
+
+Kalshi endpoints (all under `/api/v1/kalshi`):
+- `GET /categories` — every series category with its series count. **Start
+  here:** categories are free text Kalshi assigns rather than a fixed
+  vocabulary, so this is the only way to learn what `category=` accepts, and
+  the counts double as a size map for planning the calls below.
+- `GET /series?category=…&search=<ticker prefix>` — series matching the filter
+- `GET /series/{ticker}` — one series
+- `GET /series/{ticker}/events?strike_from=…&strike_to=…` — that series' events,
+  optionally bounded by strike date (both bounds inclusive)
+- `GET /events/{event_ticker}` — one event
+- `GET /events/{event_ticker}/markets?status=active,finalized` — that event's
+  markets, optionally filtered by a comma-separated list of market statuses
+- `GET /markets/{ticker}` — one market, with its lifecycle, settlement and
+  economics fields grouped
+- `GET /markets/{ticker}/candlesticks?start=…&end=…&format=json|msgpack` —
+  candlesticks over the window
+- `GET /markets/{ticker}/trades?start=…&end=…&format=json|msgpack` — the trade
+  tape over the window
+
+#### Reading an empty Kalshi result
+
+A `count: 0` has four different meanings, and every response carries the facts
+needed to tell them apart without a second call:
+
+- **`collected: false`** (candlesticks) — this market is not in the candle
+  collection set, so no candles are stored for it at all. Not an empty window.
+- **`tape_filtered: true`** (trades) — this market's category is excluded from
+  trade collection by policy, so an empty result is expected rather than a gap.
+- **The window is outside coverage.** `coverage_from` is the oldest instant the
+  data reaches; `complete_through` (candles) is what was requested and stored
+  through — not "the newest stored candle", since a quiet market produces no
+  candle for a period it was nonetheless asked for. `tape_complete_through`
+  (trades) is the created time of the newest stored trade; `null` means the
+  trades collection phase has never run, not that the tape is empty.
+- **Genuinely no activity**, when none of the above applies.
+
+#### Kalshi range policy
+
+There is no pagination and no truncation: a response is complete or it is
+refused. Before reading any rows, a list or time-series request takes an exact
+`count(*)` and returns `422` if it exceeds `MT_API_MAX_BARS_PER_REQUEST`
+(default 75,000), quoting the actual count so you know how far to narrow the
+window. Equity bars estimate from the request window instead, because their row
+density follows the window; Kalshi's does not.
+
+Decimal fields — prices, sizes, volumes — are serialized as strings
+(`"0.4900"`), exactly as Kalshi serves them and as `NUMERIC` stores them, so
+fixed-point values never round-trip through a float.
 
 **`/api/v1/overview` is not a strict superset of `mt data overview --json`.**
 Two fields of the CLI screen are deliberately absent:
@@ -711,7 +760,7 @@ paging over HTTP.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Bars-per-request ceiling used by the range cap. |
+| `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Rows-per-response ceiling: equity bars, Kalshi candles and trades, and scoped Kalshi catalog lists. Bars estimate from the window; Kalshi paths count exactly. The `BARS` name is historical and is not renamed. |
 | `MT_API_STATEMENT_TIMEOUT` | `20s` | Per-connection `statement_timeout` on all three pools the API opens. A query that exceeds it becomes a `504`. |
 
 Both are read once at startup; changing either requires a server restart. Note

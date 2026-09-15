@@ -17,6 +17,12 @@ from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.api_server.routes.bars import router as bars_router
 from manta_trading.api_server.routes.gaps import router as gaps_router
 from manta_trading.api_server.routes.health import router as health_router
+from manta_trading.api_server.routes.kalshi_catalog import (
+    router as kalshi_catalog_router,
+)
+from manta_trading.api_server.routes.kalshi_timeseries import (
+    router as kalshi_timeseries_router,
+)
 from manta_trading.api_server.routes.operations import make_credit_executor
 from manta_trading.api_server.routes.operations import (
     router as operations_router,
@@ -69,6 +75,10 @@ async def lifespan(
     # here rather than re-instantiating Settings per request — the same
     # contract as the two ceilings above: resolved once, changed by a restart.
     app.state.settings = settings
+    # D5, same 186 D9 pattern: the trades-tape category exclusion is a serving
+    # policy, resolved once here rather than per request. Routes report it as a
+    # per-response fact so a filtered tape is never mistaken for a short one.
+    app.state.kalshi_trades_excluded = settings.kalshi_trades_excluded_categories
     session = DbSessionSettings(
         work_mem=API_SERVING_SESSION.work_mem,
         statement_timeout=settings.api_statement_timeout,
@@ -138,8 +148,9 @@ def create_app(db_url: str | None = None) -> FastAPI:
         title="Manta Trading API",
         description=(
             "Data serving API for OHLCV bars, symbol metadata, gap status, "
-            "and operations coverage: pass state, source freshness and "
-            "provider credits."
+            "the Kalshi prediction-market catalog and time series, and "
+            "operations coverage: pass state, source freshness and provider "
+            "credits."
         ),
         version=package_version(),
         # Bound rather than passed through app.state: the pool must be opened
@@ -159,6 +170,8 @@ def create_app(db_url: str | None = None) -> FastAPI:
     app.include_router(gaps_router)
     app.include_router(status_router)
     app.include_router(operations_router)
+    app.include_router(kalshi_catalog_router)
+    app.include_router(kalshi_timeseries_router)
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(

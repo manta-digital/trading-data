@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, date, datetime, time
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from datetime import date
+from typing import TYPE_CHECKING, Annotated, Any
 
-import msgpack
-import orjson
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi import status as http_status
@@ -24,6 +22,14 @@ from manta_trading.api_server.models.responses import (
     BarsResponse,
 )
 from manta_trading.api_server.queries import symbol_exists
+from manta_trading.api_server.routes.windows import (
+    window_end_utc,
+    window_start_utc,
+)
+from manta_trading.api_server.serialization import (
+    ResponseFormat,
+    timeseries_response,
+)
 from manta_trading.constants import (
     BARS_PER_TRADING_DAY,
     CAGG_BASE_GRANULARITY,
@@ -46,24 +52,6 @@ router = APIRouter()
 _MINUTE_GRAINS: frozenset[Granularity] = frozenset(
     {Granularity.M1, Granularity.M5, Granularity.M15, Granularity.H1, Granularity.H4}
 )
-
-
-def _window_start_utc(d: date) -> datetime:
-    """Midnight UTC on ``d`` — the inclusive lower bound of the window."""
-    return datetime.combine(d, time.min, tzinfo=UTC)
-
-
-def _window_end_utc(d: date) -> datetime:
-    """Last instant of ``d`` in UTC — the inclusive upper bound of the window.
-
-    ``end`` is inclusive at every granularity. The daily path gets this for
-    free by passing dates straight to a ``time <= %s`` predicate; the minute
-    path converts to a timestamp first, and converting ``end`` to *midnight*
-    made the bound effectively exclusive — a Mon–Fri ``1m`` request returned
-    Mon–Thu, silently, with nothing in the response to say so. Measured on prod
-    2026-08-04: 2,975 bars ending 06-13 23:59 for a window ending 06-14.
-    """
-    return datetime.combine(d, time.max, tzinfo=UTC)
 
 
 def _bars_per_calendar_day(granularity: Granularity) -> float:
@@ -140,7 +128,7 @@ async def get_bars(
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     max_bars: Annotated[int, Depends(get_max_bars)],
     adjusted: bool = True,
-    fmt: Annotated[Literal["json", "msgpack"], Query(alias="format")] = "json",
+    fmt: Annotated[ResponseFormat, Query(alias="format")] = "json",
 ) -> Response:
     """Return OHLCV bars for ``symbol`` over the requested date range.
 
@@ -162,8 +150,8 @@ async def get_bars(
         agg = None if granularity == Granularity.M1 else granularity
         return minute_db.get_minute_data(
             symbol,
-            _window_start_utc(start),
-            _window_end_utc(end),
+            window_start_utc(start),
+            window_end_utc(end),
             agg,
             adjusted=adjusted,
         )
@@ -227,12 +215,4 @@ async def get_bars(
         is_stale=verdict is not None and not verdict.is_fresh,
     )
 
-    if fmt == "msgpack":
-        return Response(
-            content=msgpack.packb(response.model_dump(), default=str),
-            media_type="application/x-msgpack",
-        )
-    return Response(
-        content=orjson.dumps(response.model_dump()),
-        media_type="application/json",
-    )
+    return timeseries_response(response, fmt)

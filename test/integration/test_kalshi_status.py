@@ -506,7 +506,7 @@ def test_historical_never_run_is_none(kalshi_db: str):
         assert read_historical_status(conn) is None
 
 
-async def test_effective_floor_moves_before_coverage_and_the_partition_holds(
+async def test_effective_tape_floor_moves_before_coverage_and_the_partition_holds(
     kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
 ):
     """Criterion 7: with a historical watermark below the live floor,
@@ -641,3 +641,80 @@ async def test_status_command_json_and_rich_carry_the_historical_line(
     assert line["behind_cutoff_candles_remaining"] is None  # no candles row yet
     rich = runner.invoke(app, command, env=env)
     assert "archive walk in progress" in " ".join(rich.output.split())
+
+
+# ---------------------------------------------------------------------------
+# effective_tape_floor — the one spelling of the floor, promoted in slice 188
+# so the API's trades route serves exactly what the CLI reports (267 D8).
+# ---------------------------------------------------------------------------
+
+
+class TestEffectiveTapeFloor:
+    """The three branches of the floor, exercised directly rather than only
+    through ``read_trade_status``, because the API now calls it on its own."""
+
+    async def test_no_historical_row_returns_the_live_floor(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        from manta_trading.data.kalshi.trade_status import effective_tape_floor
+
+        now = datetime.now(UTC).replace(microsecond=0)
+        live_floor = now - 30 * DAY
+        await _seed_trade_status(
+            kalshi_conn, coverage_from=live_floor, watermark=now - DAY, now=now
+        )
+
+        with psycopg.connect(kalshi_db) as conn:
+            assert effective_tape_floor(conn, live_floor) == live_floor
+
+    async def test_older_historical_watermark_wins(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        from test_kalshi_candles import RULE_C
+
+        from manta_trading.data.kalshi.constants import HISTORICAL_TRADES_FLOOR
+        from manta_trading.data.kalshi.trade_repository import TradeRepository
+        from manta_trading.data.kalshi.trade_status import effective_tape_floor
+
+        now = datetime.now(UTC).replace(microsecond=0)
+        live_floor = now - 30 * DAY
+        descended = live_floor - 40 * DAY
+        await _seed_trade_status(
+            kalshi_conn, coverage_from=live_floor, watermark=now - DAY, now=now
+        )
+        historical = TradeRepository(
+            kalshi_conn, RULE_C, trades_excluded=frozenset(), surface=Surface.HISTORICAL
+        )
+        async with historical.transaction():
+            await historical.init_state(live_floor, HISTORICAL_TRADES_FLOOR)
+            await historical.advance_watermark(descended)
+
+        with psycopg.connect(kalshi_db) as conn:
+            assert effective_tape_floor(conn, live_floor) == descended
+
+    async def test_newer_historical_watermark_does_not_raise_the_floor(
+        self, kalshi_db: str, kalshi_conn: psycopg.AsyncConnection[Any]
+    ):
+        """The floor is a minimum: a backfill that has not yet descended past
+        the live floor must not make coverage look *shorter* than it is."""
+        from test_kalshi_candles import RULE_C
+
+        from manta_trading.data.kalshi.constants import HISTORICAL_TRADES_FLOOR
+        from manta_trading.data.kalshi.trade_repository import TradeRepository
+        from manta_trading.data.kalshi.trade_status import effective_tape_floor
+
+        now = datetime.now(UTC).replace(microsecond=0)
+        live_floor = now - 30 * DAY
+        not_yet_descended = live_floor + 5 * DAY
+        await _seed_trade_status(
+            kalshi_conn, coverage_from=live_floor, watermark=now - DAY, now=now
+        )
+        historical = TradeRepository(
+            kalshi_conn, RULE_C, trades_excluded=frozenset(), surface=Surface.HISTORICAL
+        )
+        async with historical.transaction():
+            await historical.init_state(live_floor, HISTORICAL_TRADES_FLOOR)
+            await historical.advance_watermark(not_yet_descended)
+
+        with psycopg.connect(kalshi_db) as conn:
+            assert effective_tape_floor(conn, live_floor) == live_floor

@@ -22,6 +22,54 @@
         "title": "AvailableRange",
         "type": "object"
       },
+      "CategoryListResponse": {
+        "description": "Every distinct series category.\n\n``count`` is the number of categories, not the number of series; the\nper-category series totals are on the records themselves.",
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryRecord"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "categories"
+        ],
+        "title": "CategoryListResponse",
+        "type": "object"
+      },
+      "CategoryRecord": {
+        "description": "One series category and how many series carry it.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "series_count": {
+            "title": "Series Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "series_count"
+        ],
+        "title": "CategoryRecord",
+        "type": "object"
+      },
       "CoverageStatus": {
         "description": "Freshness of the caggs behind ``data_status``, one per ``COVERAGE_VIEWS``.",
         "properties": {
@@ -173,6 +221,182 @@
           "error"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "EventListResponse": {
+        "description": "Events of one series, complete \u2014 never truncated (D4).",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventRecord"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "series_ticker": {
+            "title": "Series Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "series_ticker",
+          "count",
+          "events"
+        ],
+        "title": "EventListResponse",
+        "type": "object"
+      },
+      "EventRecord": {
+        "description": "A Kalshi event. Field names are the Kalshi/DB names verbatim.",
+        "properties": {
+          "available_on_brokers": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available On Brokers"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "collateral_return_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collateral Return Type"
+          },
+          "event_ticker": {
+            "title": "Event Ticker",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "last_synced_at": {
+            "format": "date-time",
+            "title": "Last Synced At",
+            "type": "string"
+          },
+          "last_updated_ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated Ts"
+          },
+          "mutually_exclusive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mutually Exclusive"
+          },
+          "product_metadata": {
+            "title": "Product Metadata"
+          },
+          "series_ticker": {
+            "title": "Series Ticker",
+            "type": "string"
+          },
+          "settlement_sources": {
+            "title": "Settlement Sources"
+          },
+          "strike_date": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strike Date"
+          },
+          "strike_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strike Period"
+          },
+          "sub_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Title"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "event_ticker",
+          "series_ticker",
+          "title",
+          "sub_title",
+          "category",
+          "mutually_exclusive",
+          "strike_date",
+          "strike_period",
+          "collateral_return_type",
+          "available_on_brokers",
+          "settlement_sources",
+          "product_metadata",
+          "last_updated_ts",
+          "first_seen_at",
+          "last_synced_at"
+        ],
+        "title": "EventRecord",
         "type": "object"
       },
       "GapRecord": {
@@ -413,6 +637,581 @@
         "title": "LastRunRecord",
         "type": "object"
       },
+      "MarketEconomics": {
+        "description": "Prices, sizes and volumes, as fixed-point decimal strings (D7).",
+        "properties": {
+          "last_price_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Price Dollars"
+          },
+          "liquidity_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liquidity Dollars"
+          },
+          "no_ask_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Ask Dollars"
+          },
+          "no_bid_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Bid Dollars"
+          },
+          "notional_value_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notional Value Dollars"
+          },
+          "open_interest_fp": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Interest Fp"
+          },
+          "previous_price_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Price Dollars"
+          },
+          "previous_yes_ask_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Yes Ask Dollars"
+          },
+          "previous_yes_bid_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Yes Bid Dollars"
+          },
+          "volume_24h_fp": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume 24H Fp"
+          },
+          "volume_fp": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume Fp"
+          },
+          "yes_ask_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yes Ask Dollars"
+          },
+          "yes_ask_size_fp": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yes Ask Size Fp"
+          },
+          "yes_bid_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yes Bid Dollars"
+          },
+          "yes_bid_size_fp": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yes Bid Size Fp"
+          }
+        },
+        "required": [
+          "notional_value_dollars",
+          "last_price_dollars",
+          "previous_price_dollars",
+          "yes_bid_dollars",
+          "yes_ask_dollars",
+          "no_bid_dollars",
+          "no_ask_dollars",
+          "liquidity_dollars",
+          "volume_fp",
+          "volume_24h_fp",
+          "open_interest_fp",
+          "yes_bid_size_fp",
+          "yes_ask_size_fp",
+          "previous_yes_bid_dollars",
+          "previous_yes_ask_dollars"
+        ],
+        "title": "MarketEconomics",
+        "type": "object"
+      },
+      "MarketLifecycle": {
+        "description": "Kalshi's own timestamps for a market's progression.",
+        "properties": {
+          "close_time": {
+            "format": "date-time",
+            "title": "Close Time",
+            "type": "string"
+          },
+          "created_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created Time"
+          },
+          "expected_expiration_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Expiration Time"
+          },
+          "expiration_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiration Time"
+          },
+          "latest_expiration_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Expiration Time"
+          },
+          "open_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Time"
+          },
+          "updated_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Time"
+          }
+        },
+        "required": [
+          "created_time",
+          "open_time",
+          "close_time",
+          "expiration_time",
+          "expected_expiration_time",
+          "latest_expiration_time",
+          "updated_time"
+        ],
+        "title": "MarketLifecycle",
+        "type": "object"
+      },
+      "MarketListResponse": {
+        "description": "Markets of one event, complete \u2014 never truncated (D4).",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "event_ticker": {
+            "title": "Event Ticker",
+            "type": "string"
+          },
+          "markets": {
+            "items": {
+              "$ref": "#/components/schemas/MarketRecord"
+            },
+            "title": "Markets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "event_ticker",
+          "count",
+          "markets"
+        ],
+        "title": "MarketListResponse",
+        "type": "object"
+      },
+      "MarketRecord": {
+        "description": "A Kalshi market: every typed column except ``raw`` (D2).\n\nThe lifecycle / settlement / economics grouping is for readability; the\nfield names inside each group are the DB/Kalshi names verbatim, so\nKalshi's own field documentation applies to them unchanged.",
+        "properties": {
+          "economics": {
+            "$ref": "#/components/schemas/MarketEconomics"
+          },
+          "event_ticker": {
+            "title": "Event Ticker",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "is_provisional": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Provisional"
+          },
+          "last_synced_at": {
+            "format": "date-time",
+            "title": "Last Synced At",
+            "type": "string"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/MarketLifecycle"
+          },
+          "market_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Type"
+          },
+          "mve_collection_ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mve Collection Ticker"
+          },
+          "no_sub_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Sub Title"
+          },
+          "price_level_structure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Level Structure"
+          },
+          "rules_primary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rules Primary"
+          },
+          "rules_secondary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rules Secondary"
+          },
+          "settlement": {
+            "$ref": "#/components/schemas/MarketSettlement"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "strike_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strike Type"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtitle"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "yes_sub_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yes Sub Title"
+          }
+        },
+        "required": [
+          "ticker",
+          "event_ticker",
+          "market_type",
+          "status",
+          "title",
+          "subtitle",
+          "yes_sub_title",
+          "no_sub_title",
+          "rules_primary",
+          "rules_secondary",
+          "strike_type",
+          "price_level_structure",
+          "is_provisional",
+          "mve_collection_ticker",
+          "first_seen_at",
+          "last_synced_at",
+          "lifecycle",
+          "settlement",
+          "economics"
+        ],
+        "title": "MarketRecord",
+        "type": "object"
+      },
+      "MarketSettlement": {
+        "description": "How a market resolved.\n\nPresent on **every** market, with all five fields null until the market\nsettles (D3). An absent object and an unsettled market would otherwise be\nindistinguishable from a client's point of view.",
+        "properties": {
+          "can_close_early": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Can Close Early"
+          },
+          "expiration_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiration Value"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "settlement_ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settlement Ts"
+          },
+          "settlement_value_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settlement Value Dollars"
+          }
+        },
+        "required": [
+          "result",
+          "expiration_value",
+          "can_close_early",
+          "settlement_ts",
+          "settlement_value_dollars"
+        ],
+        "title": "MarketSettlement",
+        "type": "object"
+      },
       "OverviewResponse": {
         "description": "Response body for ``GET /api/v1/overview``.\n\nNot a strict superset of ``mt data overview --json`` (189 D2/SC7): the\ncredit fields live at ``GET /api/v1/credits`` so this route is pure\ndatabase and safe to poll, and ``abandoned`` is a local-host judgment\navailable only from the CLI (D4).",
         "properties": {
@@ -598,6 +1397,164 @@
           "pid"
         ],
         "title": "RunningRecord",
+        "type": "object"
+      },
+      "SeriesListResponse": {
+        "description": "Series matching the requested filter, complete \u2014 never truncated (D4).",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesRecord"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "series"
+        ],
+        "title": "SeriesListResponse",
+        "type": "object"
+      },
+      "SeriesRecord": {
+        "description": "A Kalshi series. Field names are the Kalshi/DB names verbatim.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "contract_terms_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Terms Url"
+          },
+          "contract_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Url"
+          },
+          "fee_multiplier": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Multiplier"
+          },
+          "fee_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Type"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "frequency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frequency"
+          },
+          "last_synced_at": {
+            "format": "date-time",
+            "title": "Last Synced At",
+            "type": "string"
+          },
+          "last_updated_ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated Ts"
+          },
+          "product_metadata": {
+            "title": "Product Metadata"
+          },
+          "settlement_sources": {
+            "title": "Settlement Sources"
+          },
+          "tags": {
+            "title": "Tags"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "ticker",
+          "frequency",
+          "title",
+          "category",
+          "tags",
+          "settlement_sources",
+          "fee_type",
+          "fee_multiplier",
+          "contract_url",
+          "contract_terms_url",
+          "product_metadata",
+          "last_updated_ts",
+          "first_seen_at",
+          "last_synced_at"
+        ],
+        "title": "SeriesRecord",
         "type": "object"
       },
       "SourceRecord": {
@@ -1024,7 +1981,7 @@
     }
   },
   "info": {
-    "description": "Data serving API for OHLCV bars, symbol metadata, gap status, and operations coverage: pass state, source freshness and provider credits.",
+    "description": "Data serving API for OHLCV bars, symbol metadata, gap status, the Kalshi prediction-market catalog and time series, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
     "version": "0.16.0"
   },
@@ -1261,6 +2218,606 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/api/v1/kalshi/categories": {
+      "get": {
+        "description": "Return every series category with the number of series carrying it.\n\nCategories are free text Kalshi assigns, so this is how a client learns\nwhich values the series list's ``category`` filter accepts. The series\ncounts double as a size map for planning those calls.",
+        "operationId": "list_categories_api_v1_kalshi_categories_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "List Categories"
+      }
+    },
+    "/api/v1/kalshi/events/{event_ticker}": {
+      "get": {
+        "description": "Return one event by its event ticker.",
+        "operationId": "get_event_api_v1_kalshi_events__event_ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_ticker",
+            "required": true,
+            "schema": {
+              "title": "Event Ticker",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Event"
+      }
+    },
+    "/api/v1/kalshi/events/{event_ticker}/markets": {
+      "get": {
+        "description": "Return the markets of one event, optionally filtered by status.\n\n``status`` accepts a comma-separated list of market statuses; omit it for\nevery status. Naming a value the column cannot hold is an error rather\nthan an empty result.",
+        "operationId": "list_markets_api_v1_kalshi_events__event_ticker__markets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_ticker",
+            "required": true,
+            "schema": {
+              "title": "Event Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "List Markets"
+      }
+    },
+    "/api/v1/kalshi/markets/{ticker}": {
+      "get": {
+        "description": "Return one market by its ticker.",
+        "operationId": "get_market_api_v1_kalshi_markets__ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Market"
+      }
+    },
+    "/api/v1/kalshi/markets/{ticker}/candlesticks": {
+      "get": {
+        "description": "Return this market's candlesticks over the requested window.\n\n``start`` and ``end`` are inclusive and optional; omitting both returns\nevery stored candle. A bare date means that whole UTC day. The response\nreports whether the market is collected at all and how far its coverage\nreaches, so an empty window is never ambiguous.",
+        "operationId": "get_candlesticks_api_v1_kalshi_markets__ticker__candlesticks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Candlesticks"
+      }
+    },
+    "/api/v1/kalshi/markets/{ticker}/trades": {
+      "get": {
+        "description": "Return this market's trades over the requested window.\n\n``start`` and ``end`` are inclusive and optional; omitting both returns\nevery stored trade. The response reports how far the tape reaches and\nwhether this market's category is excluded from collection, so an empty\nwindow is never ambiguous.",
+        "operationId": "get_trades_api_v1_kalshi_markets__ticker__trades_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Trades"
+      }
+    },
+    "/api/v1/kalshi/series": {
+      "get": {
+        "description": "Return series matching an optional category and ticker-prefix search.\n\n``category`` is an exact match; ``search`` matches the start of a ticker.\nThe response is complete or refused \u2014 there is no pagination and no\ntruncation, so a 200 always carries every matching row.",
+        "operationId": "list_series_api_v1_kalshi_series_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeriesListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "List Series"
+      }
+    },
+    "/api/v1/kalshi/series/{ticker}": {
+      "get": {
+        "description": "Return one series by its ticker.",
+        "operationId": "get_series_api_v1_kalshi_series__ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeriesRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Series"
+      }
+    },
+    "/api/v1/kalshi/series/{ticker}/events": {
+      "get": {
+        "description": "Return the events of one series, optionally bounded by strike date.\n\n``strike_from`` and ``strike_to`` are inclusive. An event with no strike\ndate is excluded whenever either bound is given, since a null cannot\nsatisfy a comparison.",
+        "operationId": "list_events_api_v1_kalshi_series__ticker__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "strike_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strike From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "strike_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strike To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "List Events"
       }
     },
     "/api/v1/overview": {

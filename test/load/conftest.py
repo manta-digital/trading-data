@@ -34,18 +34,28 @@ directory, including this one.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 import psycopg
 import pytest
+from kalshi_support.schema import apply_kalshi_track
 from psycopg_pool import ConnectionPool
 
 from manta_trading.constants import (
+    API_MAX_BARS_PER_REQUEST,
     COVERAGE_BUCKET_INTERVAL,
     DAILY_COVERAGE_VIEW,
     GRANULARITY_SOURCE,
     MINUTE_COVERAGE_VIEW,
     Granularity,
+)
+from manta_trading.data.kalshi.candle_repository import CANDLE_COLUMNS
+from manta_trading.data.kalshi.constants import (
+    COLLECTED_CANDLE_PERIOD,
+    MarketStatus,
+    Surface,
 )
 from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
 from manta_trading.market.schema.runner import apply_migrations
@@ -397,4 +407,150 @@ def session_mass_db(ephemeral_db: str) -> str:
     with psycopg.connect(ephemeral_db, autocommit=True) as conn:
         view = GRANULARITY_SOURCE[Granularity.H4]
         conn.execute(f"CALL refresh_continuous_aggregate('{view}', NULL, NULL)")
+    return ephemeral_db
+
+
+# --- dense-kalshi fixture (slice 188 D11) ------------------------------------
+
+KALSHI_SERIES = "ZZLDSERIES"
+KALSHI_CATEGORY = "LoadTest"
+
+KALSHI_EVENT_COUNT = 25_000
+"""Events under one series, above the 24,382 maximum measured on production.
+
+The events list is the widest catalog response the API can be asked for, and
+this puts it above the largest real one rather than merely near it.
+"""
+
+KALSHI_DENSE_EVENT = "ZZLDEVENT-00000"
+KALSHI_MARKET_COUNT = 450
+"""Markets under one event, above the 440 maximum measured on production."""
+
+KALSHI_DENSE_MARKET = "ZZLDMARKET-00000"
+
+KALSHI_OVER_CEILING = 1_000
+"""Rows seeded beyond the admission ceiling.
+
+The time series are seeded at ``ceiling + KALSHI_OVER_CEILING`` so an
+unbounded request is refused while a window can still admit exactly the
+ceiling — both sides of D8 are reachable against one fixture.
+"""
+
+KALSHI_TIMESERIES_ROWS = API_MAX_BARS_PER_REQUEST + KALSHI_OVER_CEILING
+
+KALSHI_START = datetime(2026, 1, 1, tzinfo=UTC)
+"""Epoch for both series. One row per minute, so the window arithmetic in the
+assertions is exact: N rows is N minutes from the start."""
+
+
+def _seed_kalshi_dense(url: str) -> None:
+    """COPY one series, its events, one event's markets, and one market's
+    candles and trades, plus the state rows the D5 response facts read.
+
+    The state rows are not decoration: without them every response under
+    measurement would report ``collected: false`` and null tape facts, which
+    is a different — and cheaper — shape than the one production serves.
+    """
+    period = int(COLLECTED_CANDLE_PERIOD)
+    tape_floor = KALSHI_START
+    newest = KALSHI_START + timedelta(minutes=KALSHI_TIMESERIES_ROWS - 1)
+
+    with psycopg.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO kalshi.series (ticker, category, title, raw) "
+                "VALUES (%s, %s, %s, %s)",
+                (KALSHI_SERIES, KALSHI_CATEGORY, "Load test series", "{}"),
+            )
+            with cur.copy(
+                "COPY kalshi.events "
+                "(event_ticker, series_ticker, title, category, raw) FROM STDIN"
+            ) as copy:
+                for i in range(KALSHI_EVENT_COUNT):
+                    copy.write_row(
+                        (
+                            f"ZZLDEVENT-{i:05d}",
+                            KALSHI_SERIES,
+                            f"Load test event {i}",
+                            KALSHI_CATEGORY,
+                            "{}",
+                        )
+                    )
+            with cur.copy(
+                "COPY kalshi.markets "
+                "(ticker, event_ticker, status, title, close_time, raw) FROM STDIN"
+            ) as copy:
+                for i in range(KALSHI_MARKET_COUNT):
+                    copy.write_row(
+                        (
+                            f"ZZLDMARKET-{i:05d}",
+                            KALSHI_DENSE_EVENT,
+                            MarketStatus.ACTIVE.value,
+                            f"Load test market {i}",
+                            newest,
+                            "{}",
+                        )
+                    )
+
+            candle_columns = ", ".join(name for name, _ in CANDLE_COLUMNS)
+            with cur.copy(
+                f"COPY kalshi.candlesticks "  # noqa: S608 — module-local constant
+                f"(market_ticker, period, end_period_ts, {candle_columns}) "
+                "FROM STDIN"
+            ) as copy:
+                for i in range(KALSHI_TIMESERIES_ROWS):
+                    copy.write_row(
+                        (
+                            KALSHI_DENSE_MARKET,
+                            period,
+                            KALSHI_START + timedelta(minutes=i),
+                            *([Decimal("0.4900")] * len(CANDLE_COLUMNS)),
+                        )
+                    )
+
+            with cur.copy(
+                "COPY kalshi.trades "
+                "(market_ticker, created_time, trade_id, count_fp, "
+                " yes_price_dollars, no_price_dollars, taker_outcome_side, "
+                " taker_book_side, is_block_trade) FROM STDIN"
+            ) as copy:
+                for i in range(KALSHI_TIMESERIES_ROWS):
+                    copy.write_row(
+                        (
+                            KALSHI_DENSE_MARKET,
+                            KALSHI_START + timedelta(minutes=i),
+                            uuid.uuid4(),
+                            Decimal("5.00"),
+                            Decimal("0.4900"),
+                            Decimal("0.5100"),
+                            "yes",
+                            "yes",
+                            False,
+                        )
+                    )
+
+            # The facts every D5 response reports.
+            cur.execute(
+                "INSERT INTO kalshi.sync_state "
+                "(surface, last_full_sync_at, watermark_ts, coverage_from_ts) "
+                "VALUES (%s, %s, %s, %s)",
+                (Surface.TRADES.value, newest, newest, tape_floor),
+            )
+            cur.execute(
+                "INSERT INTO kalshi.market_candle_state "
+                "(market_ticker, period, watermark_ts, coverage_from_ts) "
+                "VALUES (%s, %s, %s, %s)",
+                (KALSHI_DENSE_MARKET, period, newest, tape_floor),
+            )
+        conn.commit()
+
+
+@pytest.fixture
+def kalshi_dense_db(ephemeral_db: str) -> str:
+    """Ephemeral DB at the Kalshi catalog and time-series shapes D11 measures.
+
+    Derived entirely from ``ephemeral_db``; never reads the production URL.
+    """
+    apply_kalshi_track(ephemeral_db)
+    _seed_kalshi_dense(ephemeral_db)
     return ephemeral_db

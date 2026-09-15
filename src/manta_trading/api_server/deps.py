@@ -52,6 +52,17 @@ def get_max_bars(request: Request) -> int:
     return request.app.state.max_bars_per_request  # type: ignore[no-any-return]
 
 
+def get_kalshi_trades_excluded(request: Request) -> frozenset[str]:
+    """Return the Kalshi categories excluded from the trades tape (188 D5).
+
+    Resolved from ``MT_KALSHI_TRADES_EXCLUDED_CATEGORIES`` once in the lifespan
+    hook and held on ``app.state``; this reads that value rather than
+    re-instantiating ``Settings`` per request. Changing the override requires a
+    restart.
+    """
+    return request.app.state.kalshi_trades_excluded  # type: ignore[no-any-return]
+
+
 def get_universe_edges(request: Request) -> UniverseEdgeCache:
     """Return the shared universe-edge cache (187 D3).
 
