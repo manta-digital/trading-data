@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import pytest
 
@@ -535,6 +536,17 @@ class TestTheGatherSplit:
     """
 
     @staticmethod
+    def _conn() -> Any:
+        """A stand-in connection.
+
+        Both readers are patched out in these tests, so nothing is executed
+        against it; it exists to satisfy the signature. Typed ``Any`` rather
+        than ``object`` so the call sites type-check — a bare ``object()``
+        fails ``mypy`` against ``Connection[Any]``.
+        """
+        return cast("Any", object())
+
+    @staticmethod
     def _settings(api_key: str = "unused-by-the-db-half") -> object:
         class _Settings:
             minute_firing_days = (5,)
@@ -570,7 +582,7 @@ class TestTheGatherSplit:
         )
 
         facts = gather_db_facts(
-            object(), self._settings(), now=NOW, hostname=HOST
+            self._conn(), self._settings(), now=NOW, hostname=HOST
         )
 
         assert facts.open_runs[PassKind.MINUTE] == [open_run]
@@ -601,7 +613,9 @@ class TestTheGatherSplit:
             _must_not_be_called,
         )
 
-        facts = gather_db_facts(object(), self._settings(), now=NOW, hostname=HOST)
+        facts = gather_db_facts(
+            self._conn(), self._settings(), now=NOW, hostname=HOST
+        )
 
         assert facts.credits is None
         assert facts.credits_error is None
@@ -616,7 +630,7 @@ class TestTheGatherSplit:
         usage = CreditUsage(1, 2, 3)
 
         facts = gather(
-            object(),
+            self._conn(),
             self._settings(),
             now=NOW,
             hostname=HOST,
@@ -636,7 +650,7 @@ class TestTheGatherSplit:
         )
 
         facts = gather(
-            object(),
+            self._conn(),
             self._settings(api_key=""),
             now=NOW,
             hostname=HOST,

@@ -8,7 +8,7 @@ interfaces: []
 effort: 2
 dateCreated: 20260913
 dateUpdated: 20260915
-status: in_progress
+status: complete
 ---
 
 # Slice Design: API surface coverage — operations and freshness (189)

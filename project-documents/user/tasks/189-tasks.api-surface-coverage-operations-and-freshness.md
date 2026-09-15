@@ -18,7 +18,7 @@ projectState: >
   `create_app(db_url=)` seam and the `test/load/` tier.
 dateCreated: 20260913
 dateUpdated: 20260915
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -92,6 +92,27 @@ of copying them. No behavior change.
       `::test_lists_show_priority1_emits_ten_symbols` — the known priority1
       list mismatch, a standing integration flake not named in this task.
       Recorded here so a later section does not mistake it for a regression.
+
+  **Closing run, 2026-09-15** (Task 5.5), all three tiers run separately:
+
+  - **Unit:** 3514 passed, 5 skipped, **0 failed** (112 s). Up 43 from the
+    baseline's 3471, which is this slice's new tests; no regressions.
+  - **Integration:** 405 passed, **7 failed**, 144 skipped (892 s). Six match
+    the baseline list exactly. The seventh is new *to this run* but not
+    attributable to this slice:
+    - `test_kalshi_pass.py::TestTwoPhasePass::test_both_phases_candles_and_state_including_idle`
+      — a **minute-boundary race**, not a regression. It asserts
+      `state["IDLE"] == last` and failed with `11:05 America/Denver` vs
+      `17:04 UTC` — the same instant one minute apart, because `last` was
+      computed just before a minute rolled over and compared just after.
+      **Passes in isolation.** The test contains zero references to
+      `overview`, `gather`, `credits`, `operations` or `api_server`, so
+      nothing this slice changed is on its path. It matches the project's
+      documented "setup errors under concurrent DB churn" class of
+      integration flake.
+  - **Load:** 5 passed (957 s), with `MT_RUN_LOAD_TESTS=1`.
+
+  No failure in any tier is attributable to slice 189.
   - **SC3 baseline bodies:** captured from `mt serve --host 127.0.0.1 --port
     8189` against the production database, read-only, before any code change.
     Saved outside the repo with their request URLs in `URLS.txt` alongside:
@@ -412,33 +433,33 @@ written once against the final route set.
   - [x] Success: all assertions pass against the committed artifact, and
         both response shapes are unchanged from the Task 1.1 baseline.
 
-- [ ] **Task 5.4: Walk the verification walkthrough** (effort: 3)
-  - [ ] Execute steps 1–13 of the design's *Verification Walkthrough* against
+- [x] **Task 5.4: Walk the verification walkthrough** (effort: 3)
+  - [x] Execute steps 1–13 of the design's *Verification Walkthrough* against
         production read-only, with `mt serve` on a local port as 188 did.
         Record the observed output for each step in the design under an
         *Evidence, walked {date}* subsection.
-  - [ ] Step 3 (endpoint agrees with the screen) and step 4 (diff against the
+  - [x] Step 3 (endpoint agrees with the screen) and step 4 (diff against the
         CLI's own JSON) are the two that prove SC1 and SC5/SC7 together. If
         the diff shows anything beyond `now` and passes that advanced between
         the reads, stop — the models have drifted from 922.
-  - [ ] If a walkthrough step is wrong about production, correct the design
+  - [x] If a walkthrough step is wrong about production, correct the design
         rather than silently working around it (188 recorded three such
         corrections).
-  - [ ] Success: every step has observed output recorded; every SC1–SC12 has
+  - [x] Success: every step has observed output recorded; every SC1–SC12 has
         named evidence.
 
-- [ ] **Task 5.5: Close the slice** (effort: 1)
-  - [ ] Run the unit, integration and load tiers **separately** (a whole
+- [x] **Task 5.5: Close the slice** (effort: 1)
+  - [x] Run the unit, integration and load tiers **separately** (a whole
         `test/` collection yields spurious errors). Attribute any failure
         against the Task 1.1 baseline before investigating.
-  - [ ] `mypy` over every touched file in **one** invocation including src and
+  - [x] `mypy` over every touched file in **one** invocation including src and
         test paths — narrower runs report false errors.
-  - [ ] `ruff format` scoped to touched files, then `git diff main` for
+  - [x] `ruff format` scoped to touched files, then `git diff main` for
         deletions before committing: scoping is necessary but not sufficient,
         since it rewrites whole files.
-  - [ ] Set this file's and the design's frontmatter `status: complete`; tick
+  - [x] Set this file's and the design's frontmatter `status: complete`; tick
         plan entry 9 in `180-slices.data-serving-api.md`.
-  - [ ] Success: all tiers green except the known baseline failures; the slice
+  - [x] Success: all tiers green except the known baseline failures; the slice
         is ready for its code review. Commit.
 
 ---
