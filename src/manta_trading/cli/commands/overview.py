@@ -22,8 +22,8 @@ import psycopg
 import typer
 from psycopg import sql
 
+from manta_trading.api.credit_report import read_credits
 from manta_trading.api.eodhd_account import fetch_credit_usage
-from manta_trading.api.eodhd_sync import redact_token
 from manta_trading.constants import (
     DAILY_OHLCV_TABLE,
     KALSHI_CANDLES_TABLE,
@@ -232,30 +232,13 @@ def gather(
     """
     facts = gather_db_facts(conn, settings, now=now, hostname=hostname)
 
-    api_key = settings.eodhd_api_key
-    if not api_key:
-        facts.credits_error = CREDITS_NO_KEY
-    else:
-        try:
-            facts.credits = fetch_credits(str(api_key))
-        except Exception as exc:  # noqa: BLE001 — reported, never raised
-            # Any failure to reach the account endpoint becomes a line the
-            # operator can read. The rest of the overview is still true.
-            #
-            # Redacted here as well as at the raise site: this text is
-            # printed on a screen meant for pasting into an issue and
-            # written to the journal, so it must not carry a token even if
-            # some future raiser forgets (922 review F001).
-            reason = redact_token(str(exc))
-            # exc_info so the journal carries the stack: the catch is broad
-            # by contract (the credit line must never fail the screen), and
-            # a one-line WARNING would hide a programming error inside the
-            # fetch behind a plausible "unavailable" line (922 re-review
-            # F003). The message itself stays redacted.
-            _logger.warning(
-                "overview: credit lookup failed: %s", reason, exc_info=True
-            )
-            facts.credits_error = credits_unavailable(reason)
+    # One policy for "report the credit position, never raise", shared with
+    # GET /api/v1/credits (189 code review F003). The unset-key case, the
+    # broad catch, the redaction and the exc_info log all live there, so
+    # neither caller can drift from the other on any of the four.
+    report = read_credits(settings, fetch=fetch_credits, context="overview")
+    facts.credits = report.credits
+    facts.credits_error = report.error
     return facts
 
 

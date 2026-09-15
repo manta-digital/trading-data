@@ -20,8 +20,7 @@ from typing import Annotated, Any
 import psycopg
 from fastapi import APIRouter, Depends, Request
 
-from manta_trading.api.eodhd_account import fetch_credit_usage
-from manta_trading.api.eodhd_sync import redact_token
+from manta_trading.api.credit_report import read_credits
 from manta_trading.api_server.deps import get_db
 from manta_trading.api_server.models.operations import (
     CreditsRecord,
@@ -30,14 +29,13 @@ from manta_trading.api_server.models.operations import (
 )
 from manta_trading.api_server.models.responses import GATEWAY_TIMEOUT_RESPONSE
 from manta_trading.cli.commands.overview import build_overview, gather_db_facts
-from manta_trading.cli.overview_types import CREDITS_NO_KEY, credits_unavailable
 from manta_trading.logging import get_logger
 
 router = APIRouter()
 
 _logger = get_logger(__name__)
 
-_CREDIT_EXECUTOR_THREADS = 2
+CREDIT_EXECUTOR_THREADS = 2
 """Threads reserved for the outbound credit call (189 D8).
 
 Small on purpose. The route reaches one endpoint whose own timeout is
@@ -47,25 +45,33 @@ is the *ceiling*, not the throughput: however many credit requests arrive, they
 can occupy only these threads.
 """
 
-_credit_executor = ThreadPoolExecutor(
-    max_workers=_CREDIT_EXECUTOR_THREADS, thread_name_prefix="credits"
-)
-"""A dedicated pool so a slow provider cannot reach the database routes.
 
-**Measured, not precautionary.** With the fetch stubbed to block for the full
-account timeout and 36 concurrent ``/api/v1/credits`` requests against the
-default pool of 32 threads, the first ``/api/v1/overview`` request took
-**4.564 s** — it queued behind a blocked thread and was released only when a
-credit call timed out. Every route dispatches through
-``run_in_executor(None, …)``, which shares one default pool of
-``min(32, cpu + 4)``, so the coupling D8 predicted is real and reproducible.
+def make_credit_executor() -> ThreadPoolExecutor:
+    """A dedicated pool so a slow provider cannot reach the database routes.
 
-Widening the shared pool was the wrong fix and is deliberately not what this
-does: it would move the cliff to a higher concurrency rather than remove it,
-because *any* bound on the shared pool is one a stuck provider can exhaust.
-Confining the credit call to its own threads means a database route never
-waits on one, at any concurrency.
-"""
+    **Measured, not precautionary.** With the fetch stubbed to block for the
+    full account timeout and 36 concurrent ``/api/v1/credits`` requests against
+    the default pool of 32 threads, the first ``/api/v1/overview`` request took
+    **4.564 s** — it queued behind a blocked thread and was released only when
+    a credit call timed out. Every route dispatches through
+    ``run_in_executor(None, …)``, which shares one default pool of
+    ``min(32, cpu + 4)``, so the coupling D8 predicted is real and
+    reproducible.
+
+    Widening the shared pool was the wrong fix and is deliberately not what
+    this does: it would move the cliff to a higher concurrency rather than
+    remove it, because *any* bound on the shared pool is one a stuck provider
+    can exhaust. Confining the credit call to its own threads means a database
+    route never waits on one, at any concurrency.
+
+    Built here and owned by ``lifespan`` rather than created at import
+    (189 code review F001), so its lifetime matches ``db_pool``'s and every
+    other shared resource: one per app, so a test app and the production app
+    never share threads, and the shutdown path can see it.
+    """
+    return ThreadPoolExecutor(
+        max_workers=CREDIT_EXECUTOR_THREADS, thread_name_prefix="credits"
+    )
 
 
 @router.get("/api/v1/overview", responses=GATEWAY_TIMEOUT_RESPONSE)
@@ -119,41 +125,31 @@ async def get_credits(request: Request) -> CreditsResponse:
     is small enough (``max_size=8``) that holding one across a third party's
     response time would be a real cap on concurrency.
 
-    The fetch runs on :data:`_credit_executor` rather than the default pool,
+    The fetch runs on the app's own credit executor rather than the default
+    pool,
     so a provider that will not answer cannot hold threads ``/api/v1/overview``
     and ``/api/v1/bars`` need (D8). That is measured behavior, not caution —
     see the executor's own docstring for the figure.
     """
     settings = request.app.state.settings
-    api_key = settings.eodhd_api_key
-    if not api_key:
-        return CreditsResponse(credits=None, error=CREDITS_NO_KEY)
-
     loop = asyncio.get_running_loop()
-    try:
-        # The dedicated executor, never None: a stuck provider must not be able
-        # to hold a thread the DB routes need (D8). See _credit_executor.
-        usage = await loop.run_in_executor(
-            _credit_executor, lambda: fetch_credit_usage(str(api_key))
-        )
-    except Exception as exc:  # noqa: BLE001 — reported, never raised
-        # Swallowed on purpose, and narrowly scoped to one outbound call: a
-        # provider outage is a condition this endpoint reports, not a fault of
-        # this server, and the 200-with-error shape is the route's contract
-        # (D6). Re-raising would turn a third party's bad afternoon into a 500
-        # on our API.
-        #
-        # Redacted before it reaches either the body or the journal: the
-        # message can carry the request URL, and the API key rides in that
-        # URL's query string (922 review F001).
-        reason = redact_token(str(exc))
-        # exc_info so the journal keeps the stack. The catch is broad by
-        # contract, and a one-line WARNING would hide a programming error
-        # inside the fetch behind a plausible "unavailable" line (922
-        # re-review F003). The logged message itself stays redacted.
-        _logger.warning(
-            "credits: lookup failed: %s", reason, exc_info=True
-        )
-        return CreditsResponse(credits=None, error=credits_unavailable(reason))
-
-    return CreditsResponse(credits=CreditsRecord.from_usage(usage), error=None)
+    # One policy for "report the credit position, never raise", shared with
+    # `mt data overview` (189 code review F003): the unset-key case, the broad
+    # catch scoped to the outbound call, the redaction that keeps the key out
+    # of the body and the journal, and the exc_info log all live in
+    # `read_credits`. Two copies of that is one place for the redaction to be
+    # forgotten.
+    #
+    # Dispatched whole rather than just the fetch, so the *blocking* part —
+    # which is the HTTPS call inside it — is what lands on the dedicated
+    # executor and never on a thread the DB routes need (D8). See
+    # make_credit_executor.
+    report = await loop.run_in_executor(
+        request.app.state.credit_executor,
+        lambda: read_credits(settings, context="credits"),
+    )
+    if report.credits is None:
+        return CreditsResponse(credits=None, error=report.error)
+    return CreditsResponse(
+        credits=CreditsRecord.from_usage(report.credits), error=None
+    )

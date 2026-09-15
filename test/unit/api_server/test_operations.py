@@ -20,6 +20,7 @@ through:
 from __future__ import annotations
 
 import inspect
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -31,6 +32,7 @@ from fastapi.testclient import TestClient
 from manta_trading.api.eodhd_account import CreditUsage
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.deps import get_db
+from manta_trading.api_server.routes.operations import make_credit_executor
 from manta_trading.cli.overview_types import (
     CREDITS_NO_KEY,
     OverviewFacts,
@@ -41,6 +43,10 @@ from manta_trading.data.acquisition.pass_runs import PassKind
 NOW = datetime(2026, 9, 13, 14, 22, 3, tzinfo=UTC)
 HOST = "manta9000"
 ROUTE_MODULE = "manta_trading.api_server.routes.operations"
+CREDIT_MODULE = "manta_trading.api.credit_report"
+"""Where the fetch seam lives since 189 F003 moved the report policy
+into one place. The route calls `read_credits`, which calls the fetch, so
+patching here is patching what the route actually reaches."""
 
 
 def _facts() -> OverviewFacts:
@@ -53,15 +59,24 @@ def _facts() -> OverviewFacts:
 
 
 @pytest.fixture
-def app() -> FastAPI:
-    """An app with lifespan side-stepped: no pool, no real Settings."""
+def app() -> Iterator[FastAPI]:
+    """An app with lifespan side-stepped: no pool, no real Settings.
+
+    The credit executor is built here because lifespan normally owns it
+    (189 F001) and these tests never enter lifespan. Shut down on teardown so
+    a test session does not accumulate thread pools.
+    """
     built = create_app()
     built.state.db_pool = MagicMock(name="sentinel_pool")
     built.state.settings = SimpleNamespace(
         minute_firing_days=(0, 3), eodhd_api_key="secret-key-value"
     )
+    built.state.credit_executor = make_credit_executor()
     built.dependency_overrides[get_db] = lambda: MagicMock(name="sentinel_conn")
-    return built
+    try:
+        yield built
+    finally:
+        built.state.credit_executor.shutdown(wait=False, cancel_futures=True)
 
 
 @pytest.fixture
@@ -140,7 +155,7 @@ class TestCreditsRoute:
 
     def test_usage_present(self, client, monkeypatch) -> None:
         monkeypatch.setattr(
-            f"{ROUTE_MODULE}.fetch_credit_usage",
+            f"{CREDIT_MODULE}.fetch_credit_usage",
             lambda _key: CreditUsage(98412, 100000, 0),
         )
 
@@ -161,7 +176,7 @@ class TestCreditsRoute:
         def _raise(_key):
             raise RuntimeError("connection timed out")
 
-        monkeypatch.setattr(f"{ROUTE_MODULE}.fetch_credit_usage", _raise)
+        monkeypatch.setattr(f"{CREDIT_MODULE}.fetch_credit_usage", _raise)
 
         response = client.get("/api/v1/credits")
 
@@ -178,7 +193,7 @@ class TestCreditsRoute:
         def _must_not_be_called(_key):  # pragma: no cover - asserted below
             raise AssertionError("the route fetched with no key configured")
 
-        monkeypatch.setattr(f"{ROUTE_MODULE}.fetch_credit_usage", _must_not_be_called)
+        monkeypatch.setattr(f"{CREDIT_MODULE}.fetch_credit_usage", _must_not_be_called)
 
         response = TestClient(app).get("/api/v1/credits")
 
@@ -200,7 +215,7 @@ class TestCreditsRoute:
                 f"'https://eodhd.com/api/user?api_token={token}&fmt=json'"
             )
 
-        monkeypatch.setattr(f"{ROUTE_MODULE}.fetch_credit_usage", _raise)
+        monkeypatch.setattr(f"{CREDIT_MODULE}.fetch_credit_usage", _raise)
 
         response = client.get("/api/v1/credits")
 

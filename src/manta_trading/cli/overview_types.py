@@ -17,10 +17,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from manta_trading.api.credit_report import CREDITS_NO_KEY as _CREDITS_NO_KEY
+from manta_trading.api.credit_report import (
+    credits_unavailable as _credits_unavailable,
+)
 from manta_trading.api.eodhd_account import CreditUsage
 from manta_trading.data.acquisition.pass_runs import PassKind, PassRun, PassRunOutcome
 
-CREDITS_NO_KEY = "unavailable (MT_EODHD_API_KEY not configured)"
+# Owned by `api.credit_report`, which holds the whole "report, never raise"
+# policy these messages belong to (189 code review F003). Re-exported here
+# because 922's callers — the renderer, the command, their tests — import them
+# from this module, and the value must have exactly one definition.
+CREDITS_NO_KEY = _CREDITS_NO_KEY
 """Shown when no API key is configured — a setting, not a fault."""
 
 NEVER_RUN = "never run"
@@ -30,9 +38,11 @@ NO_ACCOUNTING = "never computed — run mt data accounting"
 """Shown when no accounting pass has recorded a universe line."""
 
 
-def credits_unavailable(reason: str) -> str:
-    """The credit line when the account endpoint could not be reached."""
-    return f"unavailable ({reason})"
+credits_unavailable = _credits_unavailable
+"""The credit line when the account endpoint could not be reached.
+
+Re-exported from ``api.credit_report``; see :data:`CREDITS_NO_KEY`.
+"""
 
 
 # ---------------------------------------------------------------------------

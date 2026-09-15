@@ -743,6 +743,105 @@ will fail later if the property breaks.
 | SC11 | `test_credits_does_not_declare_504` (unit); step 8 confirms live: `{"overview":["200","504"],"credits":["200"]}` | test + walked |
 | SC12 | Contention bound `max=0.062 s` (from 4.564 s) after the dedicated executor, plus `test_the_shared_pool_is_not_what_serves_credits`, which asserts the dispatch itself and was verified to fail on a revert | test |
 
+## Code review resolution (2026-09-15)
+
+Review verdict **CONCERNS** at `11e70e8` — passes the gate, so no re-review.
+All three actionable findings addressed; the two PASS findings need no action.
+
+### F001 (concern) — credit executor had no lifecycle. **Fixed.**
+
+Premise verified, and the finding is right: the executor was a module-level
+global created at import, the only shared resource in this app with no
+lifecycle — invisible to `create_app`/`lifespan`, shared across every app in a
+test session, and unreachable from the shutdown path.
+
+**The review's proposed remedy does not work, and that is worth recording.**
+It suggests `shutdown(wait=False, cancel_futures=True)` to avoid an
+"uncontrolled shutdown delay". Measured: a process with one in-flight 5 s task
+took **5.04 s to exit with that call**, identical to without it.
+`concurrent.futures` registers an `atexit` hook that joins non-daemon worker
+threads regardless, and `wait=False` only means *that call* does not block.
+Marking the threads daemonic is not available either — `RuntimeError: cannot
+set daemon status of active thread`.
+
+So the shutdown delay is **not fixable from inside the executor API**, and it
+is also not a real operational problem: `mt-serve.service` sets no
+`TimeoutStopSec`, so systemd's 90 s default applies and a ≤5 s stop is well
+inside it.
+
+What was fixed is the finding's actual substance — the missing lifecycle. The
+executor is now built by `make_credit_executor()`, owned by `lifespan`, held
+on `app.state.credit_executor`, and shut down in the `finally` alongside
+`pool.close()`. One per app, so a test app and the production app never share
+threads. `TestTheCreditExecutorLifecycle` pins creation, shutdown, per-app
+identity and the bound; the shutdown assertion was verified to fail when the
+teardown line is removed.
+
+### F002 (note) — API core logic lives in the CLI package. **Partly acted on;
+rest deferred deliberately.**
+
+The layering inversion is real: `api_server` imports `build_overview` and
+`gather_db_facts` from `cli.commands.overview`. The credit half of that is now
+fixed as a side effect of F003 — the report policy moved to
+`api/credit_report.py`, which neither package owns, and `cli.overview_types`
+re-exports the two message constants from there so the values keep a single
+definition.
+
+The overview half is **not** moved, on purpose. `build_overview`/
+`gather_db_facts`/`overview_types` are 922's, four slices' worth of callers
+import them from where they are, and relocating them would be a refactor of
+another slice's surface carried out under this slice's review — with the
+`gather` split (D3) freshly in place and its drift guard the only thing
+holding the screen and the endpoint together. The reviewer frames it as
+"worth watching" rather than a defect, and that is the right size: it belongs
+in its own slice, with the move and its test updates reviewed as the change
+they are.
+
+### F003 (note) — duplicated `api_key` guard. **Fixed, and it found a real
+security defect.**
+
+The duplication was larger than the finding describes — not just the one-line
+guard but the whole four-part policy: unset-key handling, the broad catch, the
+`redact_token` call, and the `exc_info` log. `api/credit_report.py` now holds
+all four; `gather` and the route both call `read_credits`.
+
+Consolidating surfaced **a credential leak that had been in the codebase since
+922**, in the pattern both copies shared:
+
+`_logger.warning(..., reason, exc_info=True)` logged a *redacted* summary line
+and then an *unredacted* traceback. `exc_info=True` renders the exception's
+own text at the end of the trace, so the journal read:
+
+    credits: credit lookup failed: …api_token=REDACTED…
+    Traceback (most recent call last):
+      …
+    RuntimeError: …api_token=6890abcdef1234567890…
+
+`redact_token` was working correctly; it was simply never applied to the part
+of the output that carried the key. Fixed by formatting the traceback and
+passing it through `redact_token` before logging, which keeps the frames that
+made `exc_info` worth having (922 re-review F003) and drops only the raw
+rendering. Verified end to end: token absent, stack present.
+
+Two tests guard the pair, because a naive fix for either one removes the
+other: one asserts no token reaches the log, the other asserts the traceback
+still does.
+
+A second defect was caught while consolidating: `read_credits` first took
+`fetch: Any = fetch_credit_usage` as a **default argument**, which binds the
+function object at import, so a test patching
+`credit_report.fetch_credit_usage` stubbed nothing and the call went out to
+EODHD for real. It was caught only because this machine's key returned 401 —
+on a machine with a working key the test would have passed while spending
+quota. The default is now `None`, resolved at call time, with a test asserting
+the patch point actually intercepts and a second asserting the default stays
+unbound.
+
+### F004, F005 (pass) — no action.
+
+Recorded as confirmation that the redaction test uses the real `httpx`
+exception shape, and that the SC4 fixture guards itself.
+
 ## Risks
 
 1. **`gather` split drift (D3).** If a later change adds a DB read to

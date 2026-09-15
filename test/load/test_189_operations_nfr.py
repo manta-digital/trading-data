@@ -237,7 +237,9 @@ def test_a_slow_credit_fetch_does_not_delay_the_overview(
         raise RuntimeError("stubbed: provider did not answer")
 
     monkeypatch.setattr(
-        "manta_trading.api_server.routes.operations.fetch_credit_usage",
+        # The seam moved to the shared report helper (189 F003): the route
+        # calls read_credits, which resolves the fetch at call time.
+        "manta_trading.api.credit_report.fetch_credit_usage",
         _blocking_fetch,
     )
 
@@ -318,14 +320,18 @@ def test_the_shared_pool_is_not_what_serves_credits() -> None:
 
     Not a measurement, so it needs no fixture and no database.
     """
+    from manta_trading.api import credit_report
     from manta_trading.api_server.routes import operations
 
-    _real_fetch = operations.fetch_credit_usage
+    _real_fetch = credit_report.fetch_credit_usage
 
-    assert operations._credit_executor is not None
     # Bounded, and small: the point is the ceiling on what a stuck provider
     # can hold, not throughput.
-    assert operations._CREDIT_EXECUTOR_THREADS < _default_executor_threads()
+    assert operations.CREDIT_EXECUTOR_THREADS < _default_executor_threads()
+
+    # Built by the factory the app's lifespan calls, so this test exercises the
+    # same object production gets rather than a look-alike.
+    executor = operations.make_credit_executor()
 
     # Asserted by *observing the dispatch*, not by reading the source. A text
     # search is what a first version of this test did, and it passed with the
@@ -345,18 +351,22 @@ def test_the_shared_pool_is_not_what_serves_credits() -> None:
         loop.run_in_executor = _spy  # type: ignore[assignment,method-assign]
         try:
             request = _FakeRequest(
-                _FakeSettings(eodhd_api_key="stub-key-never-sent")
+                _FakeSettings(eodhd_api_key="stub-key-never-sent"),
+                credit_executor=executor,
             )
-            operations.fetch_credit_usage = _stub_fetch  # type: ignore[assignment]
+            credit_report.fetch_credit_usage = _stub_fetch  # type: ignore[assignment]
             await operations.get_credits(request)  # type: ignore[arg-type]
         finally:
             loop.run_in_executor = original  # type: ignore[method-assign]
-            operations.fetch_credit_usage = _real_fetch  # type: ignore[assignment]
+            credit_report.fetch_credit_usage = _real_fetch  # type: ignore[assignment]
 
-    asyncio.run(_run())
+    try:
+        asyncio.run(_run())
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
     assert recorded, "the route dispatched nothing to an executor"
-    assert recorded[0] is operations._credit_executor, (
+    assert recorded[0] is executor, (
         "the credit fetch dispatched on "
         f"{recorded[0]!r} rather than its dedicated executor. "
         "run_in_executor(None, …) shares the pool every DB route uses, which "
@@ -372,13 +382,17 @@ class _FakeSettings:
 
 
 class _FakeApp:
-    def __init__(self, settings: _FakeSettings) -> None:
-        self.state = type("S", (), {"settings": settings})()
+    def __init__(self, settings: _FakeSettings, credit_executor: object) -> None:
+        self.state = type(
+            "S", (), {"settings": settings, "credit_executor": credit_executor}
+        )()
 
 
 class _FakeRequest:
-    def __init__(self, settings: _FakeSettings) -> None:
-        self.app = _FakeApp(settings)
+    def __init__(
+        self, settings: _FakeSettings, *, credit_executor: object
+    ) -> None:
+        self.app = _FakeApp(settings, credit_executor)
 
 
 def _stub_fetch(_key: str) -> object:
