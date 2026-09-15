@@ -60,6 +60,13 @@ class SeriesRecord(BaseModel):
     frequency: str | None
     title: str | None
     category: str | None
+    # `tags`, `settlement_sources` and `product_metadata` are JSONB pass-through
+    # and stay `Any` deliberately (188 code review F004). Kalshi defines their
+    # shape, not this project, and it changes without notice — a narrower type
+    # here would either reject a payload Kalshi considers valid or go stale
+    # silently, and both are worse than forwarding what was stored. The cost is
+    # that OpenAPI documents them as untyped; that is the accepted tradeoff,
+    # the same call made for the Decimal-as-string fields nearby.
     tags: Any
     settlement_sources: Any
     fee_type: str | None

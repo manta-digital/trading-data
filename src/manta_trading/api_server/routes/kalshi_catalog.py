@@ -16,6 +16,17 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi import status as http_status
 
+# ``get_max_bars`` reads ``MT_API_MAX_BARS_PER_REQUEST``, whose name is
+# bars-specific but whose meaning is not: it is the one ceiling on rows in a
+# single response, shared by the equity bars routes and these catalog and
+# time-series routes alike (188 code review F003, and the shared-ceiling
+# rationale in ``constants.py``). One knob an operator can reason about beats
+# three that can disagree; the name is historical.
+from manta_trading.api_server.admission import (
+    NARROW_FILTER,
+    admit_rows,
+    not_found,
+)
 from manta_trading.api_server.deps import get_db, get_max_bars
 from manta_trading.api_server.models.kalshi_catalog import (
     CategoryListResponse,
@@ -78,27 +89,6 @@ def _resolve_status_filter(status: str | None) -> list[str] | None:
     return tokens
 
 
-def _admit_rows(count: int, max_rows: int) -> None:
-    """Refuse a request whose result would exceed the shared rows ceiling (D8).
-
-    Both numbers come from the live count and the configured setting, never
-    from a literal, so the message cannot drift from the ceiling in force.
-    """
-    if count > max_rows:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"the request matches {count:,} rows, over the {max_rows:,} "
-                "row limit; narrow the filter"
-            ),
-        )
-
-
-def _not_found(resource: str, ticker: str) -> HTTPException:
-    return HTTPException(
-        status_code=http_status.HTTP_404_NOT_FOUND,
-        detail=f"{resource} '{ticker}' not found",
-    )
 
 
 @router.get("/categories", responses=GATEWAY_TIMEOUT_RESPONSE)
@@ -136,7 +126,7 @@ async def list_series(
         # pattern: concurrency here would need a second pool checkout per
         # request, which 187 D7 rejected for reads this short.
         count = catalog.count_series(db, category=category, search=search)
-        _admit_rows(count, max_rows)
+        admit_rows(count, max_rows, remedy=NARROW_FILTER)
         return count, catalog.fetch_series_list(db, category=category, search=search)
 
     _, rows = await loop.run_in_executor(None, _read)
@@ -152,7 +142,7 @@ async def get_series(
     loop = asyncio.get_running_loop()
     row = await loop.run_in_executor(None, catalog.fetch_series, db, ticker)
     if row is None:
-        raise _not_found("Series", ticker)
+        raise not_found("Series", ticker)
     return SeriesRecord.from_row(row)
 
 
@@ -177,11 +167,11 @@ async def list_events(
         # 187 D7). The parent seek is what distinguishes an unknown series
         # (404) from a known one with no events (200 with an empty list).
         if catalog.fetch_series(db, ticker) is None:
-            raise _not_found("Series", ticker)
+            raise not_found("Series", ticker)
         count = catalog.count_events(
             db, ticker, strike_from=strike_from, strike_to=strike_to
         )
-        _admit_rows(count, max_rows)
+        admit_rows(count, max_rows, remedy=NARROW_FILTER)
         return catalog.fetch_events(
             db, ticker, strike_from=strike_from, strike_to=strike_to
         )
@@ -199,7 +189,7 @@ async def get_event(
     loop = asyncio.get_running_loop()
     row = await loop.run_in_executor(None, catalog.fetch_event, db, event_ticker)
     if row is None:
-        raise _not_found("Event", event_ticker)
+        raise not_found("Event", event_ticker)
     return EventRecord.from_row(row)
 
 
@@ -223,9 +213,9 @@ async def list_markets(
         # Sequential statements on one connection (symbols.py::_fetch_ranges,
         # 187 D7).
         if catalog.fetch_event(db, event_ticker) is None:
-            raise _not_found("Event", event_ticker)
+            raise not_found("Event", event_ticker)
         count = catalog.count_markets(db, event_ticker, statuses=statuses)
-        _admit_rows(count, max_rows)
+        admit_rows(count, max_rows, remedy=NARROW_FILTER)
         return catalog.fetch_markets(db, event_ticker, statuses=statuses)
 
     rows = await loop.run_in_executor(None, _read)
@@ -241,5 +231,5 @@ async def get_market(
     loop = asyncio.get_running_loop()
     row = await loop.run_in_executor(None, catalog.fetch_market, db, ticker)
     if row is None:
-        raise _not_found("Market", ticker)
+        raise not_found("Market", ticker)
     return MarketRecord.from_row(row)

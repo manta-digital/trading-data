@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from manta_trading.data.kalshi.candle_repository import CANDLE_COLUMNS
+from manta_trading.data.kalshi.serve_timeseries import TRADE_VALUE_COLUMNS
 
 if TYPE_CHECKING:
     from manta_trading.data.kalshi.serve_timeseries import (
@@ -161,17 +162,32 @@ class TradeRecord(BaseModel):
 
     @classmethod
     def from_row(cls, row: TradeRow) -> TradeRecord:
-        values = list(row.values)
+        """Map the stored columns by walking ``TRADE_VALUE_COLUMNS``.
+
+        By name rather than by position (188 code review F001). The values
+        arrive in the order the SELECT asked for them, which is
+        ``TRADE_VALUE_COLUMNS`` — itself derived from the repository's
+        ``TRADE_COLUMNS``. Reading them by literal index worked only because
+        that order happened to match, with nothing tying the two together: a
+        column inserted or reordered in ``TRADE_COLUMNS`` would have silently
+        misassigned every field after it, and no test would have caught it
+        (the suite checks the column-name *set*, not its order).
+
+        ``strict=True`` so a length mismatch raises here rather than dropping
+        a column quietly, and the same walk-the-mapping approach
+        ``CandleRecord.from_row`` uses for the same reason.
+        """
+        fields = dict(zip(TRADE_VALUE_COLUMNS, row.values, strict=True))
         # ``trade_id`` is a UUID in storage; the wire carries its text form.
         return cls(
-            created_time=values[0],
-            trade_id=str(values[1]),
-            count_fp=values[2],
-            yes_price_dollars=values[3],
-            no_price_dollars=values[4],
-            taker_outcome_side=values[5],
-            taker_book_side=values[6],
-            is_block_trade=values[7],
+            created_time=fields["created_time"],
+            trade_id=str(fields["trade_id"]),
+            count_fp=fields["count_fp"],
+            yes_price_dollars=fields["yes_price_dollars"],
+            no_price_dollars=fields["no_price_dollars"],
+            taker_outcome_side=fields["taker_outcome_side"],
+            taker_book_side=fields["taker_book_side"],
+            is_block_trade=fields["is_block_trade"],
         )
 
 

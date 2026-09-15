@@ -23,11 +23,13 @@ from manta_trading.api_server.models.kalshi_catalog import (
 from manta_trading.api_server.models.kalshi_timeseries import (
     CandleRecord,
     CandlesResponse,
+    TradeRecord,
     TradesResponse,
 )
 from manta_trading.data.kalshi.candle_repository import CANDLE_COLUMNS
 from manta_trading.data.kalshi.serve_catalog import EventRow, MarketRow, SeriesRow
 from manta_trading.data.kalshi.serve_timeseries import (
+    TRADE_VALUE_COLUMNS,
     CandleRow,
     MarketContext,
     TapeFacts,
@@ -313,3 +315,90 @@ class TestTradesResponse:
             "KXSPORTS-1", None, filtered=True, rows=[]
         ).model_dump(mode="json")
         assert dumped["tape_filtered"] is True
+
+
+class TestTradeRecordMapsByName:
+    """`TradeRecord.from_row` must follow the column mapping, not positions.
+
+    188 code review F001. The values arrive in the order the SELECT asked for
+    them — `TRADE_VALUE_COLUMNS`, derived from the repository's
+    `TRADE_COLUMNS`. Reading them by literal index worked only because those
+    orders happened to agree, with nothing tying them together, and the suite
+    checked the column-name *set* rather than its order. A column inserted or
+    reordered upstream would have silently misassigned every field after it.
+    """
+
+    @staticmethod
+    def _values() -> tuple[Any, ...]:
+        """One row's values, built by NAME so this helper cannot itself bake
+        in the positional assumption under test."""
+        by_name: dict[str, Any] = {
+            "created_time": datetime(2026, 2, 1, 12, 30, tzinfo=UTC),
+            "trade_id": UUID("0786aa54-6fe2-5bd0-de6e-ed09ebd15e7e"),
+            "count_fp": Decimal("1167.00"),
+            "yes_price_dollars": Decimal("0.0500"),
+            "no_price_dollars": Decimal("0.9500"),
+            "taker_outcome_side": "no",
+            "taker_book_side": "ask",
+            "is_block_trade": False,
+        }
+        return tuple(by_name[name] for name in TRADE_VALUE_COLUMNS)
+
+    def test_every_field_lands_where_it_belongs(self) -> None:
+        record = TradeRecord.from_row(TradeRow(values=self._values()))
+
+        assert record.created_time == datetime(2026, 2, 1, 12, 30, tzinfo=UTC)
+        assert record.trade_id == "0786aa54-6fe2-5bd0-de6e-ed09ebd15e7e"
+        assert record.count_fp == Decimal("1167.00")
+        assert record.yes_price_dollars == Decimal("0.0500")
+        assert record.no_price_dollars == Decimal("0.9500")
+        assert record.taker_outcome_side == "no"
+        assert record.taker_book_side == "ask"
+        assert record.is_block_trade is False
+
+    def test_a_reordered_column_mapping_does_not_misassign(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The assertion the old positional code could not satisfy.
+
+        Swap two columns in the mapping, feed values in that new order, and
+        the record must still be correct. Positional indices would silently
+        transpose the two fields and every assertion below would still have
+        passed on the old code for the *unswapped* pair — which is exactly why
+        a reorder was invisible.
+        """
+        reordered = list(TRADE_VALUE_COLUMNS)
+        i, j = reordered.index("taker_outcome_side"), reordered.index("taker_book_side")
+        reordered[i], reordered[j] = reordered[j], reordered[i]
+        monkeypatch.setattr(
+            "manta_trading.api_server.models.kalshi_timeseries.TRADE_VALUE_COLUMNS",
+            tuple(reordered),
+        )
+
+        by_name: dict[str, Any] = {
+            "created_time": datetime(2026, 2, 1, 12, 30, tzinfo=UTC),
+            "trade_id": UUID("0786aa54-6fe2-5bd0-de6e-ed09ebd15e7e"),
+            "count_fp": Decimal("1167.00"),
+            "yes_price_dollars": Decimal("0.0500"),
+            "no_price_dollars": Decimal("0.9500"),
+            "taker_outcome_side": "no",
+            "taker_book_side": "ask",
+            "is_block_trade": False,
+        }
+        values = tuple(by_name[name] for name in reordered)
+
+        record = TradeRecord.from_row(TradeRow(values=values))
+
+        # Both still land correctly, because the mapping is followed.
+        assert record.taker_outcome_side == "no"
+        assert record.taker_book_side == "ask"
+
+    def test_a_length_mismatch_raises_rather_than_dropping_a_column(self) -> None:
+        """`strict=True`: a short row is a loud error, not a missing field."""
+        with pytest.raises(ValueError, match="argument"):
+            TradeRecord.from_row(TradeRow(values=self._values()[:-1]))
+
+    def test_the_model_covers_every_served_column(self) -> None:
+        """Model fields and served columns are the same set, in the same
+        order — so neither can gain a column the other does not know about."""
+        assert tuple(TradeRecord.model_fields) == TRADE_VALUE_COLUMNS

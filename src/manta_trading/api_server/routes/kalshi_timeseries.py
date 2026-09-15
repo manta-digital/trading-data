@@ -15,10 +15,16 @@ from datetime import date, datetime  # noqa: TC003 — FastAPI needs these
 from typing import Annotated, Any
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from fastapi import status as http_status
+from fastapi import APIRouter, Depends, Query, Response
 from psycopg_pool import ConnectionPool
 
+# ``get_max_bars``: see the note in ``kalshi_catalog.py`` — the setting name
+# is bars-specific, the ceiling it carries is not (188 code review F003).
+from manta_trading.api_server.admission import (
+    NARROW_WINDOW,
+    admit_rows,
+    not_found,
+)
 from manta_trading.api_server.deps import (
     get_db_pool,
     get_kalshi_trades_excluded,
@@ -56,27 +62,6 @@ class _Read[Row]:
     facts: series.TapeFacts | None = None
 
 
-def _not_found(ticker: str) -> HTTPException:
-    return HTTPException(
-        status_code=http_status.HTTP_404_NOT_FOUND,
-        detail=f"Market '{ticker}' not found",
-    )
-
-
-def _admit_rows(count: int, max_rows: int) -> None:
-    """Refuse a window whose result would exceed the shared ceiling (D8).
-
-    Both numbers come from the live count and the configured setting, never
-    from a literal.
-    """
-    if count > max_rows:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"the request matches {count:,} rows, over the {max_rows:,} "
-                "row limit; narrow start/end"
-            ),
-        )
 
 
 @router.get(
@@ -108,7 +93,7 @@ async def get_candlesticks(
         with pool.connection() as conn:
             context = series.market_context(conn, ticker, period=_PERIOD_MINUTES)
             if context is None:
-                raise _not_found(ticker)
+                raise not_found("Market", ticker)
             count = series.count_candles(
                 conn, ticker, period=_PERIOD_MINUTES, start=lower, end=upper
             )
@@ -121,7 +106,7 @@ async def get_candlesticks(
         return _Read(context=context, count=count, rows=rows)
 
     read = await loop.run_in_executor(None, _read)
-    _admit_rows(read.count, max_rows)
+    admit_rows(read.count, max_rows, remedy=NARROW_WINDOW)
     response = CandlesResponse.build(read.context, _PERIOD_MINUTES, read.rows)
     return timeseries_response(response, fmt)
 
@@ -155,7 +140,7 @@ async def get_trades(
         with pool.connection() as conn:
             context = series.market_context(conn, ticker, period=_PERIOD_MINUTES)
             if context is None:
-                raise _not_found(ticker)
+                raise not_found("Market", ticker)
             facts = series.tape_facts(conn)
             count = series.count_trades(conn, ticker, start=lower, end=upper)
             if count > max_rows:
@@ -164,7 +149,7 @@ async def get_trades(
         return _Read(context=context, count=count, rows=rows, facts=facts)
 
     read = await loop.run_in_executor(None, _read)
-    _admit_rows(read.count, max_rows)
+    admit_rows(read.count, max_rows, remedy=NARROW_WINDOW)
     response = TradesResponse.build(
         ticker,
         read.facts,
