@@ -520,3 +520,128 @@ class TestTheLayerDirection:
             owned = getattr(overview_types, name)
             assert getattr(command_layer, name) is owned
             assert getattr(render_layer, name) is owned
+
+
+class TestTheGatherSplit:
+    """The DB/network boundary `gather_db_facts` draws (189 D3).
+
+    The API server reuses 922's reads rather than copying them, which is only
+    safe if the DB half can be called on its own and provably never reaches
+    the credit path. These tests pin both halves of that: what
+    ``gather_db_facts`` fills in, and what it must leave alone.
+
+    The reads themselves are 922's and are exercised against a real database
+    in the integration tier; what is unit-testable here is the split.
+    """
+
+    @staticmethod
+    def _settings(api_key: str = "unused-by-the-db-half") -> object:
+        class _Settings:
+            minute_firing_days = (5,)
+            eodhd_api_key = api_key
+
+        return _Settings()
+
+    @staticmethod
+    def _patch_reads(monkeypatch, *, open_run, ended_run, sources):
+        """Stand in for 922's two DB readers, leaving the split under test."""
+        from manta_trading.cli.commands import overview as mod
+
+        class _Repo:
+            def __init__(self, _connect):
+                pass
+
+            def open_runs(self, kind):
+                return [open_run] if kind is PassKind.MINUTE else []
+
+            def latest_ended(self, kind):
+                return ended_run if kind is PassKind.MINUTE else None
+
+        monkeypatch.setattr(mod, "PassRunRepository", _Repo)
+        monkeypatch.setattr(mod, "read_source_freshness", lambda _conn: sources)
+
+    def test_it_populates_the_db_fields(self, monkeypatch) -> None:
+        from manta_trading.cli.commands.overview import gather_db_facts
+
+        open_run, ended_run = _open_run(), _ended_run()
+        sources = [SourceFreshness("minute bars", NOW)]
+        self._patch_reads(
+            monkeypatch, open_run=open_run, ended_run=ended_run, sources=sources
+        )
+
+        facts = gather_db_facts(
+            object(), self._settings(), now=NOW, hostname=HOST
+        )
+
+        assert facts.open_runs[PassKind.MINUTE] == [open_run]
+        assert facts.latest_ended[PassKind.MINUTE] == ended_run
+        assert facts.sources == sources
+        assert facts.now == NOW
+        assert facts.hostname == HOST
+        assert facts.minute_firing_days == (5,)
+
+    def test_it_never_touches_the_credit_path(self, monkeypatch) -> None:
+        """The property the API depends on: no third party in this call.
+
+        ``/api/v1/overview`` is pure DB and safe to poll only because this
+        holds (189 D2). A credit read appearing here would make a DB route's
+        latency someone else's to control.
+        """
+        from manta_trading.cli.commands.overview import gather_db_facts
+
+        self._patch_reads(
+            monkeypatch, open_run=_open_run(), ended_run=None, sources=[]
+        )
+
+        def _must_not_be_called(_key):  # pragma: no cover - asserted below
+            raise AssertionError("gather_db_facts reached the credit fetch")
+
+        monkeypatch.setattr(
+            "manta_trading.cli.commands.overview.fetch_credit_usage",
+            _must_not_be_called,
+        )
+
+        facts = gather_db_facts(object(), self._settings(), now=NOW, hostname=HOST)
+
+        assert facts.credits is None
+        assert facts.credits_error is None
+
+    def test_gather_still_returns_the_credit_fields(self, monkeypatch) -> None:
+        """The split cost the CLI nothing: `gather` keeps its whole job."""
+        from manta_trading.cli.commands.overview import gather
+
+        self._patch_reads(
+            monkeypatch, open_run=_open_run(), ended_run=None, sources=[]
+        )
+        usage = CreditUsage(1, 2, 3)
+
+        facts = gather(
+            object(),
+            self._settings(),
+            now=NOW,
+            hostname=HOST,
+            fetch_credits=lambda _key: usage,
+        )
+
+        assert facts.credits is usage
+        assert facts.credits_error is None
+        # ...and the DB half is still there, from the same call.
+        assert facts.open_runs[PassKind.MINUTE]
+
+    def test_gather_still_reports_an_unset_key(self, monkeypatch) -> None:
+        from manta_trading.cli.commands.overview import gather
+
+        self._patch_reads(
+            monkeypatch, open_run=_open_run(), ended_run=None, sources=[]
+        )
+
+        facts = gather(
+            object(),
+            self._settings(api_key=""),
+            now=NOW,
+            hostname=HOST,
+            fetch_credits=lambda _key: CreditUsage(1, 2, 3),
+        )
+
+        assert facts.credits is None
+        assert facts.credits_error == CREDITS_NO_KEY

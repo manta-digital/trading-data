@@ -76,6 +76,7 @@ __all__ = [
     "credits_unavailable",
     "data_overview",
     "gather",
+    "gather_db_facts",
     "read_source_freshness",
 ]
 
@@ -170,26 +171,26 @@ def read_source_freshness(
     ]
 
 
-def gather(
+def gather_db_facts(
     conn: psycopg.Connection[Any],
     settings: Any,
     *,
     now: datetime | None = None,
     hostname: str | None = None,
-    fetch_credits: Any = fetch_credit_usage,
 ) -> OverviewFacts:
-    """Read every fact the overview shows. The only function here with I/O.
+    """Read every fact the overview takes from the database. No network.
 
-    The credit call is guarded: the overview's job is to report, so a
-    provider that will not answer becomes a line saying so rather than a
-    failed command.
+    Split out of :func:`gather` at the I/O boundary (189 D3) so the API server
+    can reuse these reads instead of copying them. The returned facts carry
+    ``credits``/``credits_error`` at their defaults: this function never
+    touches the credit path, which is what makes it safe for a route that must
+    not depend on a third party's response time.
 
-    Settings are read as attributes, not through ``getattr`` defaults.
-    ``Settings`` always defines both, and ``weekdays=None`` means *daily* to
-    ``FiringSchedule`` — so a default here would turn a rename into a
-    plausible wrong cadence on screen instead of a loud failure
-    (922 re-review F004). An unset API key is a value, and still handled
-    below.
+    ``settings.minute_firing_days`` is read as a plain attribute, not through a
+    ``getattr`` default. ``Settings`` always defines it, and ``weekdays=None``
+    means *daily* to ``FiringSchedule`` — so a default here would turn a rename
+    into a plausible wrong cadence instead of a loud failure (922 re-review
+    F004).
     """
     at = now or datetime.now(UTC)
     facts = OverviewFacts(
@@ -211,6 +212,25 @@ def gather(
         )
 
     facts.sources = read_source_freshness(conn)
+    return facts
+
+
+def gather(
+    conn: psycopg.Connection[Any],
+    settings: Any,
+    *,
+    now: datetime | None = None,
+    hostname: str | None = None,
+    fetch_credits: Any = fetch_credit_usage,
+) -> OverviewFacts:
+    """Read every fact the overview shows. The only function here with I/O.
+
+    The database reads live in :func:`gather_db_facts`; this adds the single
+    guarded HTTPS call for the credit line. The credit call is guarded because
+    the overview's job is to report, so a provider that will not answer becomes
+    a line saying so rather than a failed command.
+    """
+    facts = gather_db_facts(conn, settings, now=now, hostname=hostname)
 
     api_key = settings.eodhd_api_key
     if not api_key:
