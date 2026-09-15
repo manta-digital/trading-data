@@ -588,6 +588,106 @@ collection yields spurious errors). Known pre-existing failures on `main`
 (`test_migration_051_052` ×2, `test_policy_advances_head` ×2) are confirmed
 against `main` before being attributed anywhere.
 
+### Evidence, walked 2026-09-15
+
+Walked against production read-only with `mt serve --host 127.0.0.1 --port
+8189`. Port 8189 rather than the 8123 written above; otherwise the commands
+are as written except where a correction is recorded.
+
+**Two corrections to the steps themselves** — both are the walkthrough being
+wrong about reality, not the implementation working around it:
+
+- **Step 4's literal `diff` cannot pass, and should not.** The CLI renders
+  timestamps in local time (`-06:00`) and the API renders UTC with `Z`, which
+  is the serialization convention this design specifies. Every line of the raw
+  diff was that difference. The step must normalize both sides to UTC instants
+  before comparing; with that done the *only* remaining difference is `now`,
+  1.1 s apart — the gap between the two reads. Corrected command:
+
+      mt data overview --json \
+        | jq 'del(.credits, .credits_text)
+              | .passes |= map(.running |= map(del(.abandoned)))' > /tmp/cli.json
+      curl -s localhost:8189/api/v1/overview > /tmp/api.json
+      # compare after normalizing every timestamp to an instant, not a string
+
+- **Step 10's grep returns one hit, and must.** D4 requires a comment in
+  `routes/operations.py` explaining why `pid_is_alive` is *not* used, so the
+  raw `grep -nE "…|pid_is_alive|…"` matches that comment (line 64). "Expect no
+  output" was wrong as written. The step must exclude comment lines:
+
+      grep -nE "next_firing_at|schedule_for|pid_is_alive|PassRunRepository" \
+        src/manta_trading/api_server/routes/operations.py | grep -vE ":\s*#"
+
+  which returns no output. The unit test makes the same distinction properly,
+  tokenizing comments and docstrings out before searching, and a companion
+  test asserts the D4 comment still exists — so the guard cannot be satisfied
+  by deleting the explanation.
+
+**Step 2** — five pass lines, one per `PassKind`:
+
+    {"pass":"minute","cadence":"13:05","running":0,"last":"COMPLETE_QUOTA","next":"2026-09-16T13:05:00Z"}
+    {"pass":"daily","cadence":"00:35, 12:35","running":0,"last":"COMPLETE","next":"2026-09-16T00:35:00Z"}
+    {"pass":"kalshi","cadence":"hourly :20","running":0,"last":"COMPLETE","next":"2026-09-15T17:20:00Z"}
+    {"pass":"health","cadence":"hourly :50","running":0,"last":"COMPLETE","next":"2026-09-15T16:50:00Z"}
+    {"pass":"accounting","cadence":"16:30","running":1,"last":"COMPLETE","next":"2026-09-16T16:30:00Z"}
+
+**Steps 3 and 4 (SC1, SC5, SC7)** — after normalizing timestamps to UTC
+instants, the CLI's `--json` payload and the endpoint differ in exactly one
+field:
+
+    .now: CLI=…897.007734  API=…898.152444
+
+1.1 seconds, which is the interval between the two reads. Nothing else
+differs: with `credits`/`credits_text` and `abandoned` deleted from the CLI
+side, the two payloads are otherwise identical. The models have not drifted
+from 922.
+
+**Step 5** — a live `accounting` run was present during step 2
+(`running: 1`) and had finished by the time step 5 was issued, so the captured
+`running` array is from step 2's output above. The populated-row shape is
+covered by `TestRunningAndLastRun` in the integration tier, which inserts an
+open row and asserts `phase`, `done`, `total`, `hostname` and `pid` are
+present and `abandoned` is absent.
+
+**Step 6 (credits)** — against production:
+
+    {"credits":{"used":99998,"daily_limit":100000,"extra":0,"remaining":2},"error":null}
+
+The no-key case is asserted in both the unit and integration tiers rather
+than by restarting the production server without its key. **Note for whoever
+walks this next:** do not clear the key with `monkeypatch.delenv` — `Settings`
+loads `.env`, so the variable is still set and the request goes to EODHD and
+spends real quota. Override the settings object the route reads.
+
+**Step 7 (SC4)** — the pre-055 degradation is covered by
+`TestPre055Degradation` in the integration tier rather than by `curl`, since
+it needs a database without `pass_runs` and the server points at production.
+All three assertions pass: 200, every pass empty, `sources` still populated.
+
+**Step 8 (SC3 schema level, SC9, SC11)** — exactly two additions, no removals:
+
+    > "/api/v1/credits",
+    > "/api/v1/overview",
+
+and the status codes:
+
+    {"overview":["200","504"],"credits":["200"]}
+
+**Step 9 (SC3 response level)** — the two requests captured before any code
+change (`/api/v1/health`, and
+`/api/v1/status?symbol=AAPL&granularity=minute`) were re-issued and compared.
+Both are identical in **shape and in value** — not merely the same structure
+with moved numbers. Nothing this slice changed reached either route.
+
+Recorded for the next walker: the status filter parameter is `symbol`
+(singular). `symbols=` is silently ignored and returns the unfiltered
+24,349-row body.
+
+**Step 11 (SC8)** — published token sets equal the enums exactly:
+
+    PassKind:       ["minute","daily","kalshi","health","accounting"]
+    PassRunOutcome: ["COMPLETE","COMPLETE_QUOTA","INCOMPLETE","PROVIDER_UNAVAILABLE","FAILED"]
+
 ## Risks
 
 1. **`gather` split drift (D3).** If a later change adds a DB read to
