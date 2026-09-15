@@ -427,6 +427,15 @@ is already pure and 922's test suite already covers the interesting states:
   `kalshi.candlesticks` (240M rows) are the only plausible cost and are
   index-backed, so this is expected to be fast, but the number goes in the
   design after it is observed, not before.
+
+  **Measured 2026-09-15** against `prod_shaped_db`: median **0.027 s** over
+  ten sequential requests, range 0.023–0.103 s (the high sample is the first,
+  cold — unwarmed pool, unprimed plan cache). A second run on the committed
+  test measured a median of **0.055 s**. **Bound: 0.25 s** — roughly 9× the
+  first median and 2.4× the worst cold sample. Deliberately loose, in the same
+  way 187's symbol-detail bound is: it exists to catch a *shape* regression —
+  an unbounded scan, a round trip per pass kind, a derivation moved back into
+  the route — not to pin a millisecond.
 - No unbounded scan: plan inspection on the four source probes.
 
 - **Executor contention (D8).** With `fetch_credit_usage` stubbed to block for
@@ -434,6 +443,31 @@ is already pure and 922's test suite already covers the interesting states:
   requests must not push `/api/v1/overview` past its measured bound. The stub
   is required: the assertion is about this server's shared thread budget, and
   must not depend on EODHD's real latency or spend live quota.
+
+  **This bound failed on first measurement, and the failure was real.**
+  Measured 2026-09-15 with 36 concurrent stubbed credit calls against the
+  default pool of 32 threads (`min(32, cpu + 4)` on this host), the first
+  `/api/v1/overview` request took **4.564 s** — it queued behind a blocked
+  thread and was released only when a credit call hit its timeout. Subsequent
+  samples were fast (0.022–0.061 s) because those 36 calls all completed at
+  ~5 s and freed the pool.
+
+  Two consequences, both acted on:
+
+  1. **The assertion is on the worst sample, not the median.** A median of
+     0.023 s over those five samples passes a 0.25 s bound while an operator
+     waits four and a half seconds. Contention is intermittent by nature — a
+     request either finds a free thread or waits for a blocked one — so the
+     median is precisely the statistic that hides it. Asserting `max(samples)`
+     is what makes this test able to fail for its real reason.
+  2. **The credit fetch got a dedicated executor**, which is the remedy D8
+     names. It dispatches on a two-thread `ThreadPoolExecutor` instead of
+     `run_in_executor(None, …)`, so however many credit requests arrive they
+     can occupy only those threads and a database route never waits on one.
+     Widening the shared pool was rejected as D8 requires: any bound on a
+     shared pool is one a stuck provider can exhaust, so that would move the
+     cliff to a higher concurrency rather than remove it. The bound was not
+     relaxed.
 
 `/api/v1/credits` gets no bound on its *own* latency — that is a third
 party's. The bound above is on what it can do to everything else.
@@ -720,3 +754,42 @@ Recorded for the next walker: the status filter parameter is `symbol`
 - Run `ruff format` scoped to touched files, then check `git diff main` for
   deletions before committing: scoping is necessary but not sufficient, since
   it rewrites whole files.
+
+### Load-guard breakage evidence (Task 4.3)
+
+A load test that cannot fail is not a test. Both bounds were deliberately
+broken and the failure message checked before being restored.
+
+**The contention bound broke on its own, which is the strongest evidence
+available.** It was not a contrived breakage: written with a median-based
+assertion, it *passed* while the first sample was 4.564 s. Changing the
+assertion to `max(samples)` made it fail with
+
+    overview-under-credit-contention: median=0.023s bound=0.250s
+    samples=['4.564', '0.061', '0.023', '0.023', '0.022'] max=4.564s
+    with 36 credit calls blocked on a pool of 32 threads. A third party's
+    slowness is reaching a database route: give the credit fetch a dedicated
+    executor (189 D8) rather than widening the shared pool or relaxing this
+    bound.
+
+which names the real cause — the shared executor — and the sanctioned remedy.
+The dedicated executor was then implemented and the bound re-measured.
+
+**`test_the_contention_fixture_actually_saturates`** guards the guard: it
+fails if the chosen concurrency ever stops exceeding the executor width, which
+is the condition under which the contention test would silently measure
+nothing. Verified by asserting the inverse (concurrency 31 against this host's
+32 threads):
+
+    concurrency 31 does not exceed the 32-thread default pool: every call
+    would get its own thread and nothing would contend
+
+**The latency bound** was broken by lowering `_OVERVIEW_BOUND_S` below every
+measured sample (0.010 s against a measured median of 0.055 s):
+
+    overview: median=0.055s bound=0.010s
+    samples=['0.076', '0.061', '0.055', '0.024', '0.037']
+
+The message names the median, the bound and every sample, so a reader can tell
+whether the endpoint regressed or the bound was wrong — which is the
+distinction a bare "assertion failed" would lose.

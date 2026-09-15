@@ -14,6 +14,7 @@ failure means one missing line rather than nothing being true.
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any
 
 import psycopg
@@ -35,6 +36,36 @@ from manta_trading.logging import get_logger
 router = APIRouter()
 
 _logger = get_logger(__name__)
+
+_CREDIT_EXECUTOR_THREADS = 2
+"""Threads reserved for the outbound credit call (189 D8).
+
+Small on purpose. The route reaches one endpoint whose own timeout is
+``EODHD_ACCOUNT_TIMEOUT_SECONDS``, so two threads are enough to serve
+concurrent callers without queueing behind each other for long, and the point
+is the *ceiling*, not the throughput: however many credit requests arrive, they
+can occupy only these threads.
+"""
+
+_credit_executor = ThreadPoolExecutor(
+    max_workers=_CREDIT_EXECUTOR_THREADS, thread_name_prefix="credits"
+)
+"""A dedicated pool so a slow provider cannot reach the database routes.
+
+**Measured, not precautionary.** With the fetch stubbed to block for the full
+account timeout and 36 concurrent ``/api/v1/credits`` requests against the
+default pool of 32 threads, the first ``/api/v1/overview`` request took
+**4.564 s** — it queued behind a blocked thread and was released only when a
+credit call timed out. Every route dispatches through
+``run_in_executor(None, …)``, which shares one default pool of
+``min(32, cpu + 4)``, so the coupling D8 predicted is real and reproducible.
+
+Widening the shared pool was the wrong fix and is deliberately not what this
+does: it would move the cliff to a higher concurrency rather than remove it,
+because *any* bound on the shared pool is one a stuck provider can exhaust.
+Confining the credit call to its own threads means a database route never
+waits on one, at any concurrency.
+"""
 
 
 @router.get("/api/v1/overview", responses=GATEWAY_TIMEOUT_RESPONSE)
@@ -87,6 +118,11 @@ async def get_credits(request: Request) -> CreditsResponse:
     No ``Depends(get_db)`` either: the route needs no connection, and the pool
     is small enough (``max_size=8``) that holding one across a third party's
     response time would be a real cap on concurrency.
+
+    The fetch runs on :data:`_credit_executor` rather than the default pool,
+    so a provider that will not answer cannot hold threads ``/api/v1/overview``
+    and ``/api/v1/bars`` need (D8). That is measured behavior, not caution —
+    see the executor's own docstring for the figure.
     """
     settings = request.app.state.settings
     api_key = settings.eodhd_api_key
@@ -95,8 +131,10 @@ async def get_credits(request: Request) -> CreditsResponse:
 
     loop = asyncio.get_running_loop()
     try:
+        # The dedicated executor, never None: a stuck provider must not be able
+        # to hold a thread the DB routes need (D8). See _credit_executor.
         usage = await loop.run_in_executor(
-            None, lambda: fetch_credit_usage(str(api_key))
+            _credit_executor, lambda: fetch_credit_usage(str(api_key))
         )
     except Exception as exc:  # noqa: BLE001 — reported, never raised
         # Swallowed on purpose, and narrowly scoped to one outbound call: a
