@@ -202,88 +202,88 @@ Design *API Specification*, *D2*, *D4*, *SC5*, *SC8*. Pure translation from
 Design *D1*, *D2*, *D4*, *D6*, *D8*, *SC1*, *SC4*, *SC6*. Thin routes over
 Section 1's reader and Section 2's models (188 D9).
 
-- [ ] **Task 3.1: `GET /api/v1/overview`** (effort: 3)
-  - [ ] New module `api_server/routes/operations.py`. Async handler,
+- [x] **Task 3.1: `GET /api/v1/overview`** (effort: 3)
+  - [x] New module `api_server/routes/operations.py`. Async handler,
         `Depends(get_db)`, dispatching `gather_db_facts` through
         `loop.run_in_executor(None, …)` as every other DB route does.
-  - [ ] Call `build_overview(facts, pid_alive=lambda _pid: True)` (D4). Put
+  - [x] Call `build_overview(facts, pid_alive=lambda _pid: True)` (D4). Put
         the reason in a comment citing D4: a pid from another host says
         nothing about a process here, so the API must not judge abandonment.
         A bare `pid_is_alive` here is a bug.
-  - [ ] Declare `responses=GATEWAY_TIMEOUT_RESPONSE` (D8 — this route does
+  - [x] Declare `responses=GATEWAY_TIMEOUT_RESPONSE` (D8 — this route does
         query the DB).
-  - [ ] Return `OverviewResponse` directly as the annotated return type —
+  - [x] Return `OverviewResponse` directly as the annotated return type —
         **not** `response_class=Response`, which suppresses the 200 schema
         (the trap 188 recorded and left to slice 190). SC9 depends on this.
-  - [ ] Read `settings.minute_firing_days` as a plain attribute (D5).
-  - [ ] No query parameters, no path parameters, therefore no 404 and no 422
+  - [x] Read `settings.minute_firing_days` as a plain attribute (D5).
+  - [x] No query parameters, no path parameters, therefore no 404 and no 422
         (D6).
-  - [ ] Success: `mypy` clean; the module contains no SQL and no derivation.
+  - [x] Success: `mypy` clean; the module contains no SQL and no derivation.
 
-- [ ] **Task 3.2: `GET /api/v1/credits`** (effort: 2)
-  - [ ] Same module. Dispatches `fetch_credit_usage(settings.eodhd_api_key)`
+- [x] **Task 3.2: `GET /api/v1/credits`** (effort: 2)
+  - [x] Same module. Dispatches `fetch_credit_usage(settings.eodhd_api_key)`
         through the executor.
-  - [ ] **No `GATEWAY_TIMEOUT_RESPONSE`** (D8): the route issues no
+  - [x] **No `GATEWAY_TIMEOUT_RESPONSE`** (D8): the route issues no
         statement and takes no parameters, so a 504 and its "narrow the
         requested range" remedy would both be false in the published schema.
         Comment the omission citing D8 so it is not "fixed" later.
-  - [ ] Unset key → 200 with `credits: null` and `error` = `CREDITS_NO_KEY`,
+  - [x] Unset key → 200 with `credits: null` and `error` = `CREDITS_NO_KEY`,
         imported from `cli/overview_types.py`, not re-spelled.
-  - [ ] Fetch failure → 200 with `credits: null` and `error` =
+  - [x] Fetch failure → 200 with `credits: null` and `error` =
         `credits_unavailable(redact_token(str(exc)))`. Both helpers are
         imported; neither message is re-spelled. Log at WARNING with
         `exc_info=True`, matching 922's rationale: the catch is broad by
         contract, so a one-line warning would hide a programming error behind
         a plausible "unavailable" line.
-  - [ ] The `except` is deliberately broad and **must** carry the comment
+  - [x] The `except` is deliberately broad and **must** carry the comment
         explaining why swallowing is correct here (a provider outage is a
         reported condition, not a server fault) — the project's exception rule
         requires it.
-  - [ ] Success: no token substring can reach the response body or the log.
+  - [x] Success: no token substring can reach the response body or the log.
 
-- [ ] **Task 3.3: Register the router** (effort: 1)
-  - [ ] `app.include_router(operations_router)` in `app.py`, alongside the
+- [x] **Task 3.3: Register the router** (effort: 1)
+  - [x] `app.include_router(operations_router)` in `app.py`, alongside the
         existing seven.
-  - [ ] Success: `GET /api/v1/overview` and `GET /api/v1/credits` appear in
+  - [x] Success: `GET /api/v1/overview` and `GET /api/v1/credits` appear in
         `/openapi.json` at runtime.
 
-- [ ] **Task 3.4: Route unit tests** (effort: 2)
-  - [ ] New `test/unit/api_server/test_operations.py`, `TestClient` with
+- [x] **Task 3.4: Route unit tests** (effort: 2)
+  - [x] New `test/unit/api_server/test_operations.py`, `TestClient` with
         `gather_db_facts` patched — no DB.
-  - [ ] Assert the handler passes a `pid_alive` that returns `True` for any
+  - [x] Assert the handler passes a `pid_alive` that returns `True` for any
         pid: patch `build_overview` and inspect the keyword it received. A
         test asserting only "abandoned is absent from the body" would pass
         even with a real `pid_is_alive`, so this assertion is what actually
         pins D4.
-  - [ ] `/api/v1/credits` in all three shapes, with `fetch_credit_usage`
+  - [x] `/api/v1/credits` in all three shapes, with `fetch_credit_usage`
         patched: success, raising, and no key configured. All three are 200
         (SC6).
-  - [ ] A raised exception carrying an `api_token=` query string produces a
+  - [x] A raised exception carrying an `api_token=` query string produces a
         body with no token — redaction proven, not assumed (SC6).
-  - [ ] **Pin SC2 with a test, not a grep.** Assert `routes/operations.py`
+  - [x] **Pin SC2 with a test, not a grep.** Assert `routes/operations.py`
         imports `build_overview`, and that its module source contains no
         reference to `next_firing_at`, `schedule_for`, `pid_is_alive` or
         `PassRunRepository` — the four symbols a second derivation would
         have to reach for. Read the module source via
         `inspect.getsource(...)`, so the assertion travels with the code
         rather than depending on a command someone remembers to run.
-  - [ ] Success: all pass in the unit tier. Commit (section checkpoint).
+  - [x] Success: all pass in the unit tier. Commit (section checkpoint).
 
-- [ ] **Task 3.5: Integration tests against a real DB** (effort: 3)
-  - [ ] New `test/integration/test_operations_serving.py` built on the
+- [x] **Task 3.5: Integration tests against a real DB** (effort: 3)
+  - [x] New `test/integration/test_operations_serving.py` built on the
         `migrated_db` fixture (`test/conftest.py`), which applies the full
         `MINUTE_MIGRATIONS` chain to a UUID-named throwaway database.
         **Never** the production DB URL.
-  - [ ] Both routes return 200 against `migrated_db` (055 included).
-  - [ ] Insert an open `pass_runs` row: it appears in `running` with its
+  - [x] Both routes return 200 against `migrated_db` (055 included).
+  - [x] Insert an open `pass_runs` row: it appears in `running` with its
         phase, progress and hostname. Close it: it appears in `last_run` with
         its outcome and exit code, and leaves `running` empty.
-  - [ ] **The pre-055 degradation (SC4):** against a database *without*
+  - [x] **The pre-055 degradation (SC4):** against a database *without*
         `pass_runs`, the route returns 200 with every pass empty and the
         `sources` block still populated — not 500. This is the single most
         important test in the section; 922's `_read` already degrades this
         way and this proves the API inherited it.
-    - [ ] Build the fixture by applying `MINUTE_MIGRATIONS` up to but not
+    - [x] Build the fixture by applying `MINUTE_MIGRATIONS` up to but not
           including 055, rather than by dropping the table afterwards: a
           drop leaves the chain's own bookkeeping claiming 055 was applied,
           which is not the state being simulated. If slicing the chain
@@ -291,12 +291,20 @@ Section 1's reader and Section 2's models (188 D9).
           against the `ephemeral_db`-derived database the fixture itself
           created — never against any other target — and record which
           approach was used and why.
-    - [ ] The source tables must still exist, or the test cannot tell "no
+        Recorded: the `DROP TABLE pass_runs CASCADE` fallback was used, against
+        the UUID-named `ephemeral_db` the fixture itself created. Slicing the
+        chain is not possible here — `MINUTE_MIGRATIONS` is ordered by
+        dependency rather than number, `055_create_pass_runs` sits at index 25,
+        and `056_data_status_open_gaps_and_walk_anchor` defines `data_status`
+        with a `SELECT ... FROM pass_runs`, so omitting 055 fails the chain with
+        `UndefinedTable`. Verified by building the omit-the-migration fixture
+        first and observing that error.
+    - [x] The source tables must still exist, or the test cannot tell "no
           pass rows" from "nothing at all".
-  - [ ] **The split guard (D3):** on one connection, `gather_db_facts` and
+  - [x] **The split guard (D3):** on one connection, `gather_db_facts` and
         `gather` return equal `OverviewFacts` for the DB-derived fields. This
         fails the moment a future change adds a DB read to `gather` alone.
-  - [ ] Success: all pass; no failure outside the Task 1.1 baseline list.
+  - [x] Success: all pass; no failure outside the Task 1.1 baseline list.
         Commit (section checkpoint).
 
 ---
@@ -306,45 +314,54 @@ Section 1's reader and Section 2's models (188 D9).
 Design *D8*, *Testing Strategy*, *SC10*, *SC12*. Two bounds: one latency, one
 contention. **Measure first, then write the bound** — never invent a number.
 
-- [ ] **Task 4.1: Latency bound on `/api/v1/overview`** (effort: 3)
-  - [ ] New `test/load/test_189_operations_nfr.py`, built on
+- [x] **Task 4.1: Latency bound on `/api/v1/overview`** (effort: 3)
+  - [x] New `test/load/test_189_operations_nfr.py`, built on
         `create_app(db_url=…)` as `test_187_api_nfr.py` does. This tier never
         reads the production DB URL.
-  - [ ] Measure the endpoint against a seeded database, record the observed
+  - [x] Measure the endpoint against a seeded database, record the observed
         figure, **then** write a bound with headroom above it. Put the
         measured number and the bound in the design's *Testing Strategy* under
         SC10 — the design currently says the number goes in after it is
         observed.
-  - [ ] The reads are `2 × |PassKind|` indexed lookups plus four `MAX()`
+  - [x] The reads are `2 × |PassKind|` indexed lookups plus four `MAX()`
         probes. Assert no unbounded scan on the source probes by plan
         inspection, as 187 D10 did.
-  - [ ] Success: the bound passes and the measurement is written down.
+  - [x] Success: the bound passes and the measurement is written down.
 
-- [ ] **Task 4.2: Executor-contention bound** (effort: 3)
-  - [ ] The assertion D8 requires: with `fetch_credit_usage` **stubbed to
+- [x] **Task 4.2: Executor-contention bound** (effort: 3)
+  - [x] The assertion D8 requires: with `fetch_credit_usage` **stubbed to
         block** for the full `EODHD_ACCOUNT_TIMEOUT_SECONDS` (5.0s), issue
         concurrent `/api/v1/credits` requests and assert `/api/v1/overview`
         latency stays within its Task 4.1 bound.
-  - [ ] The stub is required, not a convenience: the assertion is about this
+  - [x] The stub is required, not a convenience: the assertion is about this
         server's shared thread budget. A live call would make the test depend
         on EODHD's response time and spend real quota.
-  - [ ] Both routes dispatch through `run_in_executor(None, …)`, so they
+  - [x] Both routes dispatch through `run_in_executor(None, …)`, so they
         share one default pool of `min(32, cpu + 4)` threads. Size the
         concurrency high enough to actually contend for it — a test with
         fewer concurrent calls than the pool has threads proves nothing.
         State the chosen concurrency and why in a comment.
-  - [ ] **If the bound cannot be met:** implement a small dedicated executor
+  - [x] **If the bound cannot be met:** implement a small dedicated executor
         for the credit call (so a third party's slowness cannot reach the DB
         routes), and record in the design the measurement that forced it. Do
         not widen the shared pool, and do not relax the bound.
-  - [ ] Success: the bound passes, or the dedicated executor exists and the
+  - [x] Success: the bound passes, or the dedicated executor exists and the
         design records why (SC12).
 
-- [ ] **Task 4.3: Prove the guards fail for the right reason** (effort: 2)
-  - [ ] Deliberately break each of the two bounds and confirm the failure
+        Recorded: the bound FAILED on first measurement. With 36 concurrent
+        stubbed credit calls against the default pool of 32 threads, the first
+        `/api/v1/overview` request took 4.564 s. A dedicated two-thread
+        executor for the credit fetch was implemented, as D8 prescribes; the
+        shared pool was not widened and the bound was not relaxed. The
+        assertion was also moved from the median to `max(samples)` — written
+        against the median it passed while that 4.564 s sample was present.
+        Full measurement in the slice design's Testing Strategy.
+
+- [x] **Task 4.3: Prove the guards fail for the right reason** (effort: 2)
+  - [x] Deliberately break each of the two bounds and confirm the failure
         message identifies the real cause, then restore. A load test that
         cannot fail is not a test — 188 did this for four guards.
-  - [ ] Success: both breakages observed and described in the commit message.
+  - [x] Success: both breakages observed and described in the commit message.
         Commit (section checkpoint).
 
 ---
@@ -354,45 +371,45 @@ contention. **Measure first, then write the bound** — never invent a number.
 Design *D2*, *D8*, *SC3*, *SC7*, *SC9*, *SC11*. Last, so the artifact is
 written once against the final route set.
 
-- [ ] **Task 5.1: README and app description** (effort: 1)
-  - [ ] Add both routes to the README endpoint list.
-  - [ ] State where credits live and that `/api/v1/overview` is **not** a
+- [x] **Task 5.1: README and app description** (effort: 1)
+  - [x] Add both routes to the README endpoint list.
+  - [x] State where credits live and that `/api/v1/overview` is **not** a
         strict superset of `mt data overview --json` (D2/SC7) — the CLI
         payload's `credits`/`credits_text` are at `/api/v1/credits`, and
         `abandoned` is a local-host judgment available only from the CLI
         (D4).
-  - [ ] Update `app.py`'s `description` to name operations coverage. Slice
+  - [x] Update `app.py`'s `description` to name operations coverage. Slice
         190 replaces it with the real reference; this only stops it being
         wrong by omission.
-  - [ ] Success: no statement in the README contradicts the design.
+  - [x] Success: no statement in the README contradicts the design.
 
-- [ ] **Task 5.2: Regenerate `openapi.json`** (effort: 1)
-  - [ ] Run `scripts/dump_openapi.py`; commit the regenerated
+- [x] **Task 5.2: Regenerate `openapi.json`** (effort: 1)
+  - [x] Run `scripts/dump_openapi.py`; commit the regenerated
         `docs/api/openapi.json`.
-  - [ ] Success: `test/unit/api_server/test_openapi_artifact.py` passes
+  - [x] Success: `test/unit/api_server/test_openapi_artifact.py` passes
         (the committed artifact matches the app).
 
-- [ ] **Task 5.3: Pin the schema properties** (effort: 2)
-  - [ ] Extend `test_openapi_artifact.py` (or add a sibling): the committed
+- [x] **Task 5.3: Pin the schema properties** (effort: 2)
+  - [x] Extend `test_openapi_artifact.py` (or add a sibling): the committed
         artifact declares a **200 schema** for both new routes (SC9); declares
         `504` on `/api/v1/overview` and **not** on `/api/v1/credits` (SC11);
         and its `pass`/`outcome` token sets equal `PassKind` and
         `PassRunOutcome` exactly, read from the enums (SC8).
-  - [ ] Assert every pre-existing path is byte-identical to the previous
+  - [x] Assert every pre-existing path is byte-identical to the previous
         committed artifact, with exactly two additions and no removals (SC3
         schema level) — the property 188 established, checked here rather
         than trusted.
-  - [ ] **SC3 response level:** re-issue the two requests captured in Task
+  - [x] **SC3 response level:** re-issue the two requests captured in Task
         1.1 and diff the bodies. The *shape* must be identical — same keys,
         same nesting, same types. Values that legitimately move between the
         two captures (coverage freshness verdicts, row counts, any
         timestamp) are not failures; compare structure, and inspect any
         value difference to confirm it reflects data arriving rather than
         this slice.
-  - [ ] If the shapes differ at all, stop: nothing in this slice touches
+  - [x] If the shapes differ at all, stop: nothing in this slice touches
         `status.py` or `health.py`, so a shape change means the `gather`
         split reached further than D3 intended.
-  - [ ] Success: all assertions pass against the committed artifact, and
+  - [x] Success: all assertions pass against the committed artifact, and
         both response shapes are unchanged from the Task 1.1 baseline.
 
 - [ ] **Task 5.4: Walk the verification walkthrough** (effort: 3)

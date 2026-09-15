@@ -793,3 +793,35 @@ measured sample (0.010 s against a measured median of 0.055 s):
 The message names the median, the bound and every sample, so a reader can tell
 whether the endpoint regressed or the bound was wrong — which is the
 distinction a bare "assertion failed" would lose.
+
+**After the dedicated executor**, the contention case re-measured at
+`max=0.062 s` against the same 0.25 s bound — down from 4.564 s, with the same
+36-way concurrency. The coupling is gone rather than reduced.
+
+One honest limitation of that re-measurement, recorded on the test itself:
+`blocked_calls` fell from 36 to **2**. With the credit call confined to a
+two-thread executor, the other 34 requests queue *outside* it and never enter
+the stub. That is the fix working — the ceiling on what a stuck provider can
+hold is the executor's width — but it means the latency assertion alone no
+longer re-proves the default pool is saturated, and could in principle pass on
+a fast machine for the wrong reason.
+
+`test_the_shared_pool_is_not_what_serves_credits` closes that gap by asserting
+the mechanism directly: it spies on `run_in_executor` and fails if the credit
+fetch is ever dispatched on anything but its dedicated executor.
+
+**This guard had to be written twice, which is worth recording.** The first
+version searched the function's source text for `"run_in_executor(None"` and
+for `"_credit_executor"`. It **passed with the executor reverted to `None`** —
+the call spans two lines, so the needle never matched, and `_credit_executor`
+still appeared in the function's own docstring. Both assertions were satisfied
+by prose while the behavior was wrong. The rewritten test observes the actual
+dispatch and fails with:
+
+    AssertionError: the credit fetch dispatched on None rather than its
+    dedicated executor. run_in_executor(None, …) shares the pool every DB
+    route uses, which is the 4.564 s coupling 189 D8 exists to prevent.
+
+The general lesson, and the reason the SC2 guard in the unit tier tokenizes
+comments out rather than grepping: a test that reads source text is testing
+the prose, and prose can agree with a test while disagreeing with the code.

@@ -274,6 +274,14 @@ def test_a_slow_credit_fetch_does_not_delay_the_overview(
     # sample that matters — the first measurement under saturation — and a
     # bound that only the median has to clear would report "no coupling"
     # while an operator's request waited five seconds.
+    # `blocked_calls` is expected to equal the credit executor's width (2),
+    # not the concurrency (36): the remaining requests queue *outside* the
+    # executor and never enter the stub. That is the fix working — the
+    # ceiling on how much of the machine a stuck provider can hold is the
+    # executor's width — but it does mean this assertion proves the DB route
+    # is unaffected rather than re-proving the default pool is saturated.
+    # `test_the_shared_pool_is_not_what_serves_credits` below pins the
+    # mechanism directly.
     assert max(samples) < _CONTENTION_BOUND_S, (
         _report(label, median, samples, _CONTENTION_BOUND_S)
         + f" max={max(samples):.3f}s"
@@ -297,3 +305,81 @@ def test_the_contention_fixture_actually_saturates(
         f"{_default_executor_threads()}-thread default pool: every call would "
         "get its own thread and nothing would contend"
     )
+
+
+def test_the_shared_pool_is_not_what_serves_credits() -> None:
+    """The mechanism behind the contention bound, asserted directly.
+
+    The latency assertion above passes for two possible reasons — the credit
+    call is confined, or the machine was simply fast enough that day. This
+    distinguishes them: it names the executor the route actually dispatches on
+    and fails if anyone switches it back to ``None``, which is the change that
+    would silently reintroduce the 4.564 s coupling.
+
+    Not a measurement, so it needs no fixture and no database.
+    """
+    from manta_trading.api_server.routes import operations
+
+    _real_fetch = operations.fetch_credit_usage
+
+    assert operations._credit_executor is not None
+    # Bounded, and small: the point is the ceiling on what a stuck provider
+    # can hold, not throughput.
+    assert operations._CREDIT_EXECUTOR_THREADS < _default_executor_threads()
+
+    # Asserted by *observing the dispatch*, not by reading the source. A text
+    # search is what a first version of this test did, and it passed with the
+    # executor reverted to None: the call spans two lines, so the needle
+    # "run_in_executor(None" never matched, and "_credit_executor" still
+    # appeared in the function's own docstring. Both checks were satisfied by
+    # prose while the behavior was wrong.
+    recorded: list[object] = []
+    async def _run() -> None:
+        loop = asyncio.get_running_loop()
+        original = loop.run_in_executor
+
+        def _spy(executor, func, *args):
+            recorded.append(executor)
+            return original(executor, func, *args)
+
+        loop.run_in_executor = _spy  # type: ignore[assignment,method-assign]
+        try:
+            request = _FakeRequest(
+                _FakeSettings(eodhd_api_key="stub-key-never-sent")
+            )
+            operations.fetch_credit_usage = _stub_fetch  # type: ignore[assignment]
+            await operations.get_credits(request)  # type: ignore[arg-type]
+        finally:
+            loop.run_in_executor = original  # type: ignore[method-assign]
+            operations.fetch_credit_usage = _real_fetch  # type: ignore[assignment]
+
+    asyncio.run(_run())
+
+    assert recorded, "the route dispatched nothing to an executor"
+    assert recorded[0] is operations._credit_executor, (
+        "the credit fetch dispatched on "
+        f"{recorded[0]!r} rather than its dedicated executor. "
+        "run_in_executor(None, …) shares the pool every DB route uses, which "
+        "is the 4.564 s coupling 189 D8 exists to prevent."
+    )
+
+
+class _FakeSettings:
+    minute_firing_days = (0, 3)
+
+    def __init__(self, *, eodhd_api_key: str | None) -> None:
+        self.eodhd_api_key = eodhd_api_key
+
+
+class _FakeApp:
+    def __init__(self, settings: _FakeSettings) -> None:
+        self.state = type("S", (), {"settings": settings})()
+
+
+class _FakeRequest:
+    def __init__(self, settings: _FakeSettings) -> None:
+        self.app = _FakeApp(settings)
+
+
+def _stub_fetch(_key: str) -> object:
+    raise RuntimeError("stubbed: never reaches EODHD")
