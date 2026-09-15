@@ -842,6 +842,20 @@ unbound.
 Recorded as confirmation that the redaction test uses the real `httpx`
 exception shape, and that the SC4 fixture guards itself.
 
+### Post-fix verification
+
+- **Unit:** 3526 passed, 0 failed (up from 3514 — twelve tests for the shared
+  report policy and the executor lifecycle).
+- **Integration:** 406 passed, **6 failed — exactly the recorded baseline
+  list**. The `test_kalshi_pass` minute-boundary race seen in the closing run
+  did not recur, confirming it was timing and not a regression.
+- **Live, against production read-only:** `mt data overview` renders the whole
+  screen including the credit line, and `/api/v1/overview` and
+  `/api/v1/credits` agree with it — so the shared `read_credits` serves both
+  callers correctly. `/api/v1/health` is unchanged.
+- **Shutdown:** the server stops in ~1 s with the teardown path logging, so the
+  lifecycle change costs nothing operationally.
+
 ## Risks
 
 1. **`gather` split drift (D3).** If a later change adds a DB read to
