@@ -855,6 +855,12 @@ exception shape, and that the SC4 fixture guards itself.
   callers correctly. `/api/v1/health` is unchanged.
 - **Shutdown:** the server stops in ~1 s with the teardown path logging, so the
   lifecycle change costs nothing operationally.
+- **Load:** 6 passed. Latency `median=0.055 s`, and the D8 contention case
+  `max=0.060 s` against its 0.25 s bound — in line with the 0.062 s measured
+  before the F003 refactor. That re-measurement was the point of rerunning
+  this tier rather than assuming: the fix moved the *whole* `read_credits`
+  call onto the dedicated executor rather than just the fetch, and the bound
+  is what proves the change did not weaken the guarantee.
 
 ## Risks
 
