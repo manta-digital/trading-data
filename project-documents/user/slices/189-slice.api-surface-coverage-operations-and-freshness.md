@@ -7,8 +7,8 @@ dependencies: [188, 922]
 interfaces: []
 effort: 2
 dateCreated: 20260913
-dateUpdated: 20260913
-status: not_started
+dateUpdated: 20260915
+status: in_progress
 ---
 
 # Slice Design: API surface coverage — operations and freshness (189)
@@ -721,6 +721,27 @@ Recorded for the next walker: the status filter parameter is `symbol`
 
     PassKind:       ["minute","daily","kalshi","health","accounting"]
     PassRunOutcome: ["COMPLETE","COMPLETE_QUOTA","INCOMPLETE","PROVIDER_UNAVAILABLE","FAILED"]
+
+#### Evidence per success criterion
+
+Every criterion names where it is checked, and whether that check outlives the
+slice. "Walked" means observed once, here; "test" means it runs in a tier and
+will fail later if the property breaks.
+
+| SC | Evidence | Kind |
+|----|----------|------|
+| SC1 | Step 3/4 — CLI and endpoint agree on every pass after timestamp normalization; only `now` differs (1.1 s apart) | walked |
+| SC2 | `TestNoSecondDerivation` (unit) — tokenizes comments and docstrings out, then asserts none of the four derivation symbols appears in code; verified to fail on a real second derivation. Step 10 is the visible grep | test + walked |
+| SC3 | Schema: exactly two paths added, none removed, pre-existing paths byte-identical (step 8, plus `test_openapi_artifact`). Response: `/api/v1/health` and `/api/v1/status?symbol=AAPL&granularity=minute` re-issued and identical in **shape and value** (step 9) | test + walked |
+| SC4 | `TestPre055Degradation` (integration) — 200, all passes empty, sources intact, against a database whose `pass_runs` the fixture dropped | test |
+| SC5 | `test_it_forces_pid_alive_true` (unit) inspects the `pid_alive` keyword `build_overview` receives — the only assertion that fails with a real `pid_is_alive`; `RunningRecord` property set pinned in the artifact test | test |
+| SC6 | `TestCreditsRoute` (unit) — all three shapes are 200, and redaction proven on an exception carrying `api_token=` in a URL | test |
+| SC7 | `test_credits_appear_nowhere_in_the_overview` (unit) — asserted against an `Overview` that *does* carry credits, so the check is not trivially true; README and `app.py` description updated | test + walked |
+| SC8 | `TestTheEnumTokenSets` (unit) — compares the artifact's token sets against the enums themselves, so a new member fails until the artifact is regenerated. Step 11 confirms live | test + walked |
+| SC9 | `test_both_publish_a_200_schema` (unit) — both routes publish a named 200 component | test |
+| SC10 | Median 0.055 s against a 0.25 s bound, measured before the bound was written; recorded in *Testing Strategy* | test |
+| SC11 | `test_credits_does_not_declare_504` (unit); step 8 confirms live: `{"overview":["200","504"],"credits":["200"]}` | test + walked |
+| SC12 | Contention bound `max=0.062 s` (from 4.564 s) after the dedicated executor, plus `test_the_shared_pool_is_not_what_serves_credits`, which asserts the dispatch itself and was verified to fail on a revert | test |
 
 ## Risks
 
