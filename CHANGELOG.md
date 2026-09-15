@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(nothing yet)
+
+## [0.16.0] - 2026-09-15
+
 ### Added
 - **Operations and freshness over HTTP: `GET /api/v1/overview` and
   `GET /api/v1/credits`.** What `mt data overview` shows on a terminal is now

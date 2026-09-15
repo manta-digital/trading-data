@@ -1026,7 +1026,7 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, gap status, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.15.1"
+    "version": "0.16.0"
   },
   "openapi": "3.1.0",
   "paths": {
