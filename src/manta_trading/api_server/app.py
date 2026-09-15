@@ -17,6 +17,10 @@ from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.api_server.routes.bars import router as bars_router
 from manta_trading.api_server.routes.gaps import router as gaps_router
 from manta_trading.api_server.routes.health import router as health_router
+from manta_trading.api_server.routes.operations import make_credit_executor
+from manta_trading.api_server.routes.operations import (
+    router as operations_router,
+)
 from manta_trading.api_server.routes.status import router as status_router
 from manta_trading.api_server.routes.symbols import router as symbols_router
 from manta_trading.config import Settings
@@ -61,6 +65,10 @@ async def lifespan(
     # MT_TIMESCALE_DB_URL — so no request pays for re-reading the environment.
     app.state.max_bars_per_request = settings.api_max_bars_per_request
     app.state.statement_timeout = settings.api_statement_timeout
+    # The operations routes read `minute_firing_days` and `eodhd_api_key` from
+    # here rather than re-instantiating Settings per request — the same
+    # contract as the two ceilings above: resolved once, changed by a restart.
+    app.state.settings = settings
     session = DbSessionSettings(
         work_mem=API_SERVING_SESSION.work_mem,
         statement_timeout=settings.api_statement_timeout,
@@ -83,6 +91,11 @@ async def lifespan(
     # rather than paid per request. One instance per app, so a test app and the
     # production app never share a cached edge.
     app.state.universe_edges = UniverseEdgeCache()
+    # D8: the credit route's own threads, so a provider that will not answer
+    # cannot hold threads the DB routes need. Owned here rather than created at
+    # import (189 code review F001) so its lifetime matches the pool's and a
+    # test app never shares threads with the production app.
+    app.state.credit_executor = make_credit_executor()
     _logger.info("API server connection pool opened")
     conninfo = str(resolved_url)
     # All three pools get the same session budget (186 D1): the bars path runs
@@ -100,6 +113,14 @@ async def lifespan(
         yield
     finally:
         pool.close()
+        # wait=False: a credit fetch can legitimately be blocked for the full
+        # EODHD_ACCOUNT_TIMEOUT_SECONDS, and shutdown must not add that to the
+        # service's stop time. Queued-but-unstarted calls are cancelled; a
+        # thread already inside the HTTPS call still runs to its own timeout,
+        # because Python cannot interrupt it (189 code review F001 — the
+        # interpreter joins non-daemon worker threads at exit regardless of
+        # this argument, so this bounds what we control, not what we cannot).
+        app.state.credit_executor.shutdown(wait=False, cancel_futures=True)
         _logger.info("API server connection pool closed")
 
 
@@ -115,7 +136,11 @@ def create_app(db_url: str | None = None) -> FastAPI:
     """
     app = FastAPI(
         title="Manta Trading API",
-        description="Data serving API for OHLCV bars, symbol metadata, and gap status.",
+        description=(
+            "Data serving API for OHLCV bars, symbol metadata, gap status, "
+            "and operations coverage: pass state, source freshness and "
+            "provider credits."
+        ),
         version=package_version(),
         # Bound rather than passed through app.state: the pool must be opened
         # before the first request, and app.state is not populated until
@@ -133,6 +158,7 @@ def create_app(db_url: str | None = None) -> FastAPI:
     app.include_router(symbols_router)
     app.include_router(gaps_router)
     app.include_router(status_router)
+    app.include_router(operations_router)
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(

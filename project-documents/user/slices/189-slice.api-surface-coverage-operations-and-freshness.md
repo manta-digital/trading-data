@@ -7,8 +7,8 @@ dependencies: [188, 922]
 interfaces: []
 effort: 2
 dateCreated: 20260913
-dateUpdated: 20260913
-status: not_started
+dateUpdated: 20260915
+status: complete
 ---
 
 # Slice Design: API surface coverage — operations and freshness (189)
@@ -427,6 +427,15 @@ is already pure and 922's test suite already covers the interesting states:
   `kalshi.candlesticks` (240M rows) are the only plausible cost and are
   index-backed, so this is expected to be fast, but the number goes in the
   design after it is observed, not before.
+
+  **Measured 2026-09-15** against `prod_shaped_db`: median **0.027 s** over
+  ten sequential requests, range 0.023–0.103 s (the high sample is the first,
+  cold — unwarmed pool, unprimed plan cache). A second run on the committed
+  test measured a median of **0.055 s**. **Bound: 0.25 s** — roughly 9× the
+  first median and 2.4× the worst cold sample. Deliberately loose, in the same
+  way 187's symbol-detail bound is: it exists to catch a *shape* regression —
+  an unbounded scan, a round trip per pass kind, a derivation moved back into
+  the route — not to pin a millisecond.
 - No unbounded scan: plan inspection on the four source probes.
 
 - **Executor contention (D8).** With `fetch_credit_usage` stubbed to block for
@@ -434,6 +443,31 @@ is already pure and 922's test suite already covers the interesting states:
   requests must not push `/api/v1/overview` past its measured bound. The stub
   is required: the assertion is about this server's shared thread budget, and
   must not depend on EODHD's real latency or spend live quota.
+
+  **This bound failed on first measurement, and the failure was real.**
+  Measured 2026-09-15 with 36 concurrent stubbed credit calls against the
+  default pool of 32 threads (`min(32, cpu + 4)` on this host), the first
+  `/api/v1/overview` request took **4.564 s** — it queued behind a blocked
+  thread and was released only when a credit call hit its timeout. Subsequent
+  samples were fast (0.022–0.061 s) because those 36 calls all completed at
+  ~5 s and freed the pool.
+
+  Two consequences, both acted on:
+
+  1. **The assertion is on the worst sample, not the median.** A median of
+     0.023 s over those five samples passes a 0.25 s bound while an operator
+     waits four and a half seconds. Contention is intermittent by nature — a
+     request either finds a free thread or waits for a blocked one — so the
+     median is precisely the statistic that hides it. Asserting `max(samples)`
+     is what makes this test able to fail for its real reason.
+  2. **The credit fetch got a dedicated executor**, which is the remedy D8
+     names. It dispatches on a two-thread `ThreadPoolExecutor` instead of
+     `run_in_executor(None, …)`, so however many credit requests arrive they
+     can occupy only those threads and a database route never waits on one.
+     Widening the shared pool was rejected as D8 requires: any bound on a
+     shared pool is one a stuck provider can exhaust, so that would move the
+     cliff to a higher concurrency rather than remove it. The bound was not
+     relaxed.
 
 `/api/v1/credits` gets no bound on its *own* latency — that is a third
 party's. The bound above is on what it can do to everything else.
@@ -588,6 +622,246 @@ collection yields spurious errors). Known pre-existing failures on `main`
 (`test_migration_051_052` ×2, `test_policy_advances_head` ×2) are confirmed
 against `main` before being attributed anywhere.
 
+### Evidence, walked 2026-09-15
+
+Walked against production read-only with `mt serve --host 127.0.0.1 --port
+8189`. Port 8189 rather than the 8123 written above; otherwise the commands
+are as written except where a correction is recorded.
+
+**Two corrections to the steps themselves** — both are the walkthrough being
+wrong about reality, not the implementation working around it:
+
+- **Step 4's literal `diff` cannot pass, and should not.** The CLI renders
+  timestamps in local time (`-06:00`) and the API renders UTC with `Z`, which
+  is the serialization convention this design specifies. Every line of the raw
+  diff was that difference. The step must normalize both sides to UTC instants
+  before comparing; with that done the *only* remaining difference is `now`,
+  1.1 s apart — the gap between the two reads. Corrected command:
+
+      mt data overview --json \
+        | jq 'del(.credits, .credits_text)
+              | .passes |= map(.running |= map(del(.abandoned)))' > /tmp/cli.json
+      curl -s localhost:8189/api/v1/overview > /tmp/api.json
+      # compare after normalizing every timestamp to an instant, not a string
+
+- **Step 10's grep returns one hit, and must.** D4 requires a comment in
+  `routes/operations.py` explaining why `pid_is_alive` is *not* used, so the
+  raw `grep -nE "…|pid_is_alive|…"` matches that comment (line 64). "Expect no
+  output" was wrong as written. The step must exclude comment lines:
+
+      grep -nE "next_firing_at|schedule_for|pid_is_alive|PassRunRepository" \
+        src/manta_trading/api_server/routes/operations.py | grep -vE ":\s*#"
+
+  which returns no output. The unit test makes the same distinction properly,
+  tokenizing comments and docstrings out before searching, and a companion
+  test asserts the D4 comment still exists — so the guard cannot be satisfied
+  by deleting the explanation.
+
+**Step 2** — five pass lines, one per `PassKind`:
+
+    {"pass":"minute","cadence":"13:05","running":0,"last":"COMPLETE_QUOTA","next":"2026-09-16T13:05:00Z"}
+    {"pass":"daily","cadence":"00:35, 12:35","running":0,"last":"COMPLETE","next":"2026-09-16T00:35:00Z"}
+    {"pass":"kalshi","cadence":"hourly :20","running":0,"last":"COMPLETE","next":"2026-09-15T17:20:00Z"}
+    {"pass":"health","cadence":"hourly :50","running":0,"last":"COMPLETE","next":"2026-09-15T16:50:00Z"}
+    {"pass":"accounting","cadence":"16:30","running":1,"last":"COMPLETE","next":"2026-09-16T16:30:00Z"}
+
+**Steps 3 and 4 (SC1, SC5, SC7)** — after normalizing timestamps to UTC
+instants, the CLI's `--json` payload and the endpoint differ in exactly one
+field:
+
+    .now: CLI=…897.007734  API=…898.152444
+
+1.1 seconds, which is the interval between the two reads. Nothing else
+differs: with `credits`/`credits_text` and `abandoned` deleted from the CLI
+side, the two payloads are otherwise identical. The models have not drifted
+from 922.
+
+**Step 5** — a live `accounting` run was present during step 2
+(`running: 1`) and had finished by the time step 5 was issued, so the captured
+`running` array is from step 2's output above. The populated-row shape is
+covered by `TestRunningAndLastRun` in the integration tier, which inserts an
+open row and asserts `phase`, `done`, `total`, `hostname` and `pid` are
+present and `abandoned` is absent.
+
+**Step 6 (credits)** — against production:
+
+    {"credits":{"used":99998,"daily_limit":100000,"extra":0,"remaining":2},"error":null}
+
+The no-key case is asserted in both the unit and integration tiers rather
+than by restarting the production server without its key. **Note for whoever
+walks this next:** do not clear the key with `monkeypatch.delenv` — `Settings`
+loads `.env`, so the variable is still set and the request goes to EODHD and
+spends real quota. Override the settings object the route reads.
+
+**Step 7 (SC4)** — the pre-055 degradation is covered by
+`TestPre055Degradation` in the integration tier rather than by `curl`, since
+it needs a database without `pass_runs` and the server points at production.
+All three assertions pass: 200, every pass empty, `sources` still populated.
+
+**Step 8 (SC3 schema level, SC9, SC11)** — exactly two additions, no removals:
+
+    > "/api/v1/credits",
+    > "/api/v1/overview",
+
+and the status codes:
+
+    {"overview":["200","504"],"credits":["200"]}
+
+**Step 9 (SC3 response level)** — the two requests captured before any code
+change (`/api/v1/health`, and
+`/api/v1/status?symbol=AAPL&granularity=minute`) were re-issued and compared.
+Both are identical in **shape and in value** — not merely the same structure
+with moved numbers. Nothing this slice changed reached either route.
+
+Recorded for the next walker: the status filter parameter is `symbol`
+(singular). `symbols=` is silently ignored and returns the unfiltered
+24,349-row body.
+
+**Step 11 (SC8)** — published token sets equal the enums exactly:
+
+    PassKind:       ["minute","daily","kalshi","health","accounting"]
+    PassRunOutcome: ["COMPLETE","COMPLETE_QUOTA","INCOMPLETE","PROVIDER_UNAVAILABLE","FAILED"]
+
+#### Evidence per success criterion
+
+Every criterion names where it is checked, and whether that check outlives the
+slice. "Walked" means observed once, here; "test" means it runs in a tier and
+will fail later if the property breaks.
+
+| SC | Evidence | Kind |
+|----|----------|------|
+| SC1 | Step 3/4 — CLI and endpoint agree on every pass after timestamp normalization; only `now` differs (1.1 s apart) | walked |
+| SC2 | `TestNoSecondDerivation` (unit) — tokenizes comments and docstrings out, then asserts none of the four derivation symbols appears in code; verified to fail on a real second derivation. Step 10 is the visible grep | test + walked |
+| SC3 | Schema: exactly two paths added, none removed, pre-existing paths byte-identical (step 8, plus `test_openapi_artifact`). Response: `/api/v1/health` and `/api/v1/status?symbol=AAPL&granularity=minute` re-issued and identical in **shape and value** (step 9) | test + walked |
+| SC4 | `TestPre055Degradation` (integration) — 200, all passes empty, sources intact, against a database whose `pass_runs` the fixture dropped | test |
+| SC5 | `test_it_forces_pid_alive_true` (unit) inspects the `pid_alive` keyword `build_overview` receives — the only assertion that fails with a real `pid_is_alive`; `RunningRecord` property set pinned in the artifact test | test |
+| SC6 | `TestCreditsRoute` (unit) — all three shapes are 200, and redaction proven on an exception carrying `api_token=` in a URL | test |
+| SC7 | `test_credits_appear_nowhere_in_the_overview` (unit) — asserted against an `Overview` that *does* carry credits, so the check is not trivially true; README and `app.py` description updated | test + walked |
+| SC8 | `TestTheEnumTokenSets` (unit) — compares the artifact's token sets against the enums themselves, so a new member fails until the artifact is regenerated. Step 11 confirms live | test + walked |
+| SC9 | `test_both_publish_a_200_schema` (unit) — both routes publish a named 200 component | test |
+| SC10 | Median 0.055 s against a 0.25 s bound, measured before the bound was written; recorded in *Testing Strategy* | test |
+| SC11 | `test_credits_does_not_declare_504` (unit); step 8 confirms live: `{"overview":["200","504"],"credits":["200"]}` | test + walked |
+| SC12 | Contention bound `max=0.062 s` (from 4.564 s) after the dedicated executor, plus `test_the_shared_pool_is_not_what_serves_credits`, which asserts the dispatch itself and was verified to fail on a revert | test |
+
+## Code review resolution (2026-09-15)
+
+Review verdict **CONCERNS** at `11e70e8` — passes the gate, so no re-review.
+All three actionable findings addressed; the two PASS findings need no action.
+
+### F001 (concern) — credit executor had no lifecycle. **Fixed.**
+
+Premise verified, and the finding is right: the executor was a module-level
+global created at import, the only shared resource in this app with no
+lifecycle — invisible to `create_app`/`lifespan`, shared across every app in a
+test session, and unreachable from the shutdown path.
+
+**The review's proposed remedy does not work, and that is worth recording.**
+It suggests `shutdown(wait=False, cancel_futures=True)` to avoid an
+"uncontrolled shutdown delay". Measured: a process with one in-flight 5 s task
+took **5.04 s to exit with that call**, identical to without it.
+`concurrent.futures` registers an `atexit` hook that joins non-daemon worker
+threads regardless, and `wait=False` only means *that call* does not block.
+Marking the threads daemonic is not available either — `RuntimeError: cannot
+set daemon status of active thread`.
+
+So the shutdown delay is **not fixable from inside the executor API**, and it
+is also not a real operational problem: `mt-serve.service` sets no
+`TimeoutStopSec`, so systemd's 90 s default applies and a ≤5 s stop is well
+inside it.
+
+What was fixed is the finding's actual substance — the missing lifecycle. The
+executor is now built by `make_credit_executor()`, owned by `lifespan`, held
+on `app.state.credit_executor`, and shut down in the `finally` alongside
+`pool.close()`. One per app, so a test app and the production app never share
+threads. `TestTheCreditExecutorLifecycle` pins creation, shutdown, per-app
+identity and the bound; the shutdown assertion was verified to fail when the
+teardown line is removed.
+
+### F002 (note) — API core logic lives in the CLI package. **Partly acted on;
+rest deferred deliberately.**
+
+The layering inversion is real: `api_server` imports `build_overview` and
+`gather_db_facts` from `cli.commands.overview`. The credit half of that is now
+fixed as a side effect of F003 — the report policy moved to
+`api/credit_report.py`, which neither package owns, and `cli.overview_types`
+re-exports the two message constants from there so the values keep a single
+definition.
+
+The overview half is **not** moved, on purpose. `build_overview`/
+`gather_db_facts`/`overview_types` are 922's, four slices' worth of callers
+import them from where they are, and relocating them would be a refactor of
+another slice's surface carried out under this slice's review — with the
+`gather` split (D3) freshly in place and its drift guard the only thing
+holding the screen and the endpoint together. The reviewer frames it as
+"worth watching" rather than a defect, and that is the right size: it belongs
+in its own slice, with the move and its test updates reviewed as the change
+they are.
+
+### F003 (note) — duplicated `api_key` guard. **Fixed, and it found a real
+security defect.**
+
+The duplication was larger than the finding describes — not just the one-line
+guard but the whole four-part policy: unset-key handling, the broad catch, the
+`redact_token` call, and the `exc_info` log. `api/credit_report.py` now holds
+all four; `gather` and the route both call `read_credits`.
+
+Consolidating surfaced **a credential leak that had been in the codebase since
+922**, in the pattern both copies shared:
+
+`_logger.warning(..., reason, exc_info=True)` logged a *redacted* summary line
+and then an *unredacted* traceback. `exc_info=True` renders the exception's
+own text at the end of the trace, so the journal read:
+
+    credits: credit lookup failed: …api_token=REDACTED…
+    Traceback (most recent call last):
+      …
+    RuntimeError: …api_token=6890abcdef1234567890…
+
+`redact_token` was working correctly; it was simply never applied to the part
+of the output that carried the key. Fixed by formatting the traceback and
+passing it through `redact_token` before logging, which keeps the frames that
+made `exc_info` worth having (922 re-review F003) and drops only the raw
+rendering. Verified end to end: token absent, stack present.
+
+Two tests guard the pair, because a naive fix for either one removes the
+other: one asserts no token reaches the log, the other asserts the traceback
+still does.
+
+A second defect was caught while consolidating: `read_credits` first took
+`fetch: Any = fetch_credit_usage` as a **default argument**, which binds the
+function object at import, so a test patching
+`credit_report.fetch_credit_usage` stubbed nothing and the call went out to
+EODHD for real. It was caught only because this machine's key returned 401 —
+on a machine with a working key the test would have passed while spending
+quota. The default is now `None`, resolved at call time, with a test asserting
+the patch point actually intercepts and a second asserting the default stays
+unbound.
+
+### F004, F005 (pass) — no action.
+
+Recorded as confirmation that the redaction test uses the real `httpx`
+exception shape, and that the SC4 fixture guards itself.
+
+### Post-fix verification
+
+- **Unit:** 3526 passed, 0 failed (up from 3514 — twelve tests for the shared
+  report policy and the executor lifecycle).
+- **Integration:** 406 passed, **6 failed — exactly the recorded baseline
+  list**. The `test_kalshi_pass` minute-boundary race seen in the closing run
+  did not recur, confirming it was timing and not a regression.
+- **Live, against production read-only:** `mt data overview` renders the whole
+  screen including the credit line, and `/api/v1/overview` and
+  `/api/v1/credits` agree with it — so the shared `read_credits` serves both
+  callers correctly. `/api/v1/health` is unchanged.
+- **Shutdown:** the server stops in ~1 s with the teardown path logging, so the
+  lifecycle change costs nothing operationally.
+- **Load:** 6 passed. Latency `median=0.055 s`, and the D8 contention case
+  `max=0.060 s` against its 0.25 s bound — in line with the 0.062 s measured
+  before the F003 refactor. That re-measurement was the point of rerunning
+  this tier rather than assuming: the fix moved the *whole* `read_credits`
+  call onto the dedicated executor rather than just the fetch, and the bound
+  is what proves the change did not weaken the guarantee.
+
 ## Risks
 
 1. **`gather` split drift (D3).** If a later change adds a DB read to
@@ -620,3 +894,74 @@ against `main` before being attributed anywhere.
 - Run `ruff format` scoped to touched files, then check `git diff main` for
   deletions before committing: scoping is necessary but not sufficient, since
   it rewrites whole files.
+
+### Load-guard breakage evidence (Task 4.3)
+
+A load test that cannot fail is not a test. Both bounds were deliberately
+broken and the failure message checked before being restored.
+
+**The contention bound broke on its own, which is the strongest evidence
+available.** It was not a contrived breakage: written with a median-based
+assertion, it *passed* while the first sample was 4.564 s. Changing the
+assertion to `max(samples)` made it fail with
+
+    overview-under-credit-contention: median=0.023s bound=0.250s
+    samples=['4.564', '0.061', '0.023', '0.023', '0.022'] max=4.564s
+    with 36 credit calls blocked on a pool of 32 threads. A third party's
+    slowness is reaching a database route: give the credit fetch a dedicated
+    executor (189 D8) rather than widening the shared pool or relaxing this
+    bound.
+
+which names the real cause — the shared executor — and the sanctioned remedy.
+The dedicated executor was then implemented and the bound re-measured.
+
+**`test_the_contention_fixture_actually_saturates`** guards the guard: it
+fails if the chosen concurrency ever stops exceeding the executor width, which
+is the condition under which the contention test would silently measure
+nothing. Verified by asserting the inverse (concurrency 31 against this host's
+32 threads):
+
+    concurrency 31 does not exceed the 32-thread default pool: every call
+    would get its own thread and nothing would contend
+
+**The latency bound** was broken by lowering `_OVERVIEW_BOUND_S` below every
+measured sample (0.010 s against a measured median of 0.055 s):
+
+    overview: median=0.055s bound=0.010s
+    samples=['0.076', '0.061', '0.055', '0.024', '0.037']
+
+The message names the median, the bound and every sample, so a reader can tell
+whether the endpoint regressed or the bound was wrong — which is the
+distinction a bare "assertion failed" would lose.
+
+**After the dedicated executor**, the contention case re-measured at
+`max=0.062 s` against the same 0.25 s bound — down from 4.564 s, with the same
+36-way concurrency. The coupling is gone rather than reduced.
+
+One honest limitation of that re-measurement, recorded on the test itself:
+`blocked_calls` fell from 36 to **2**. With the credit call confined to a
+two-thread executor, the other 34 requests queue *outside* it and never enter
+the stub. That is the fix working — the ceiling on what a stuck provider can
+hold is the executor's width — but it means the latency assertion alone no
+longer re-proves the default pool is saturated, and could in principle pass on
+a fast machine for the wrong reason.
+
+`test_the_shared_pool_is_not_what_serves_credits` closes that gap by asserting
+the mechanism directly: it spies on `run_in_executor` and fails if the credit
+fetch is ever dispatched on anything but its dedicated executor.
+
+**This guard had to be written twice, which is worth recording.** The first
+version searched the function's source text for `"run_in_executor(None"` and
+for `"_credit_executor"`. It **passed with the executor reverted to `None`** —
+the call spans two lines, so the needle never matched, and `_credit_executor`
+still appeared in the function's own docstring. Both assertions were satisfied
+by prose while the behavior was wrong. The rewritten test observes the actual
+dispatch and fails with:
+
+    AssertionError: the credit fetch dispatched on None rather than its
+    dedicated executor. run_in_executor(None, …) shares the pool every DB
+    route uses, which is the 4.564 s coupling 189 D8 exists to prevent.
+
+The general lesson, and the reason the SC2 guard in the unit tier tokenizes
+comments out rather than grepping: a test that reads source text is testing
+the prose, and prose can agree with a test while disagreeing with the code.

@@ -22,8 +22,8 @@ import psycopg
 import typer
 from psycopg import sql
 
+from manta_trading.api.credit_report import read_credits
 from manta_trading.api.eodhd_account import fetch_credit_usage
-from manta_trading.api.eodhd_sync import redact_token
 from manta_trading.constants import (
     DAILY_OHLCV_TABLE,
     KALSHI_CANDLES_TABLE,
@@ -76,6 +76,7 @@ __all__ = [
     "credits_unavailable",
     "data_overview",
     "gather",
+    "gather_db_facts",
     "read_source_freshness",
 ]
 
@@ -170,26 +171,26 @@ def read_source_freshness(
     ]
 
 
-def gather(
+def gather_db_facts(
     conn: psycopg.Connection[Any],
     settings: Any,
     *,
     now: datetime | None = None,
     hostname: str | None = None,
-    fetch_credits: Any = fetch_credit_usage,
 ) -> OverviewFacts:
-    """Read every fact the overview shows. The only function here with I/O.
+    """Read every fact the overview takes from the database. No network.
 
-    The credit call is guarded: the overview's job is to report, so a
-    provider that will not answer becomes a line saying so rather than a
-    failed command.
+    Split out of :func:`gather` at the I/O boundary (189 D3) so the API server
+    can reuse these reads instead of copying them. The returned facts carry
+    ``credits``/``credits_error`` at their defaults: this function never
+    touches the credit path, which is what makes it safe for a route that must
+    not depend on a third party's response time.
 
-    Settings are read as attributes, not through ``getattr`` defaults.
-    ``Settings`` always defines both, and ``weekdays=None`` means *daily* to
-    ``FiringSchedule`` — so a default here would turn a rename into a
-    plausible wrong cadence on screen instead of a loud failure
-    (922 re-review F004). An unset API key is a value, and still handled
-    below.
+    ``settings.minute_firing_days`` is read as a plain attribute, not through a
+    ``getattr`` default. ``Settings`` always defines it, and ``weekdays=None``
+    means *daily* to ``FiringSchedule`` — so a default here would turn a rename
+    into a plausible wrong cadence instead of a loud failure (922 re-review
+    F004).
     """
     at = now or datetime.now(UTC)
     facts = OverviewFacts(
@@ -211,31 +212,33 @@ def gather(
         )
 
     facts.sources = read_source_freshness(conn)
+    return facts
 
-    api_key = settings.eodhd_api_key
-    if not api_key:
-        facts.credits_error = CREDITS_NO_KEY
-    else:
-        try:
-            facts.credits = fetch_credits(str(api_key))
-        except Exception as exc:  # noqa: BLE001 — reported, never raised
-            # Any failure to reach the account endpoint becomes a line the
-            # operator can read. The rest of the overview is still true.
-            #
-            # Redacted here as well as at the raise site: this text is
-            # printed on a screen meant for pasting into an issue and
-            # written to the journal, so it must not carry a token even if
-            # some future raiser forgets (922 review F001).
-            reason = redact_token(str(exc))
-            # exc_info so the journal carries the stack: the catch is broad
-            # by contract (the credit line must never fail the screen), and
-            # a one-line WARNING would hide a programming error inside the
-            # fetch behind a plausible "unavailable" line (922 re-review
-            # F003). The message itself stays redacted.
-            _logger.warning(
-                "overview: credit lookup failed: %s", reason, exc_info=True
-            )
-            facts.credits_error = credits_unavailable(reason)
+
+def gather(
+    conn: psycopg.Connection[Any],
+    settings: Any,
+    *,
+    now: datetime | None = None,
+    hostname: str | None = None,
+    fetch_credits: Any = fetch_credit_usage,
+) -> OverviewFacts:
+    """Read every fact the overview shows. The only function here with I/O.
+
+    The database reads live in :func:`gather_db_facts`; this adds the single
+    guarded HTTPS call for the credit line. The credit call is guarded because
+    the overview's job is to report, so a provider that will not answer becomes
+    a line saying so rather than a failed command.
+    """
+    facts = gather_db_facts(conn, settings, now=now, hostname=hostname)
+
+    # One policy for "report the credit position, never raise", shared with
+    # GET /api/v1/credits (189 code review F003). The unset-key case, the
+    # broad catch, the redaction and the exc_info log all live there, so
+    # neither caller can drift from the other on any of the four.
+    report = read_credits(settings, fetch=fetch_credits, context="overview")
+    facts.credits = report.credits
+    facts.credits_error = report.error
     return facts
 
 

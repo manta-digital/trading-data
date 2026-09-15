@@ -313,3 +313,52 @@ def test_explicit_url_starts_without_any_settings_url(
     pool_cls, _minute_cls, _daily_cls = _start_with(create_app(db_url=_SEAM_URL))
 
     assert pool_cls.call_args.args[0] == _SEAM_URL
+
+
+class TestTheCreditExecutorLifecycle:
+    """The credit executor is owned by the app, not by the module (189 F001).
+
+    It began as a module-level global created at import. That worked, but it
+    was the one shared resource in this app with no lifecycle: invisible to
+    ``create_app``/``lifespan``, shared between every app in a test session,
+    and unreachable from the shutdown path. These tests pin the correction.
+    """
+
+    def test_lifespan_creates_it(self, started_app: Any) -> None:
+        app, _pool_cls, _minute_cls, _daily_cls = started_app()
+
+        assert app.state.credit_executor is not None
+
+    def test_lifespan_shuts_it_down(self, started_app: Any) -> None:
+        """Teardown reaches it, which is what a module-level global prevented.
+
+        ``_shutdown`` is the flag ``ThreadPoolExecutor.shutdown`` sets; asserted
+        rather than calling ``submit`` because a shut-down executor raises on
+        submit and the point here is that teardown *ran*.
+        """
+        app, _pool_cls, _minute_cls, _daily_cls = started_app()
+
+        assert app.state.credit_executor._shutdown is True
+
+    def test_each_app_gets_its_own(self, started_app: Any) -> None:
+        """One per app, so a test app and the production app never share
+        threads — the same guarantee ``UniverseEdgeCache`` is given."""
+        first, _pc, _mc, _dc = started_app()
+        second, _pc2, _mc2, _dc2 = started_app()
+
+        assert first.state.credit_executor is not second.state.credit_executor
+
+    def test_it_is_bounded_and_small(self) -> None:
+        """The ceiling is the whole point: however many credit requests
+        arrive, they can occupy only these threads (D8)."""
+        from manta_trading.api_server.routes.operations import (
+            CREDIT_EXECUTOR_THREADS,
+            make_credit_executor,
+        )
+
+        executor = make_credit_executor()
+        try:
+            assert executor._max_workers == CREDIT_EXECUTOR_THREADS
+            assert CREDIT_EXECUTOR_THREADS < 32
+        finally:
+            executor.shutdown(wait=False)

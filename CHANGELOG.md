@@ -16,7 +16,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(nothing yet)
+### Added
+- **Operations and freshness over HTTP: `GET /api/v1/overview` and
+  `GET /api/v1/credits`.** What `mt data overview` shows on a terminal is now
+  readable by a program. `/api/v1/overview` answers, in one request and with
+  no parameters: which passes are running (with phase, progress, host and
+  pid), how each last ended (with outcome, exit code and detail), when each
+  fires next and on what cadence, how fresh each source table is, the health
+  verdict, and the universe accounting line. `/api/v1/credits` answers the
+  day's EODHD position.
+
+  Both reuse the CLI's own reader rather than recomputing anything, so the
+  screen and the endpoint cannot come to disagree — a test fails if they
+  drift.
+
+  **`/api/v1/overview` is not a strict superset of `mt data overview
+  --json`,** and both differences are deliberate:
+  - *Credits are on their own route.* They reach a third party over HTTPS,
+    where a failure means one missing line rather than nothing being true. Kept
+    separate, `/api/v1/overview` is pure database and safe to poll.
+  - *`abandoned` is CLI-only.* The screen decides it by testing a recorded pid
+    against the local process table, which says nothing over HTTP when the pid
+    was recorded on another host. The API omits the field rather than publish
+    one that would be false for every row. Use `mt data overview` on the host
+    that owns the run.
+
+  `/api/v1/credits` is always `200`: an unset key or an unreachable provider
+  arrives as `error` text with `credits: null`, since a provider that will not
+  answer is a condition to report, not a fault of this server. An API key can
+  never appear in a response body or in the log.
+
+  A database predating the `pass_runs` table answers `200` with empty pass
+  state and its source freshness intact, rather than failing.
+
+### Fixed
+- **A slow EODHD can no longer delay the data endpoints.** The credit lookup
+  now runs on its own small thread pool. Previously it shared the default
+  executor with every database route, so a provider that stopped answering
+  could hold threads that `/api/v1/bars` and `/api/v1/overview` needed:
+  measured at 4.6 s for an overview request while the credit endpoint was
+  saturated and stuck.
 
 ## [0.15.1] - 2026-09-12
 
