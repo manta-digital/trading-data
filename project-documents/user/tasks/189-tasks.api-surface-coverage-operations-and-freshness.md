@@ -71,6 +71,38 @@ of copying them. No behavior change.
         Task 1.1 so later sections can attribute regressions, and the two
         SC3 baseline bodies are saved with their request URLs recorded.
 
+  **Baseline, recorded 2026-09-15** (branch created from `main` at `fa78970`;
+  `git.integration_branch` is empty, so the target is `main`):
+
+  - **Unit tier:** 3471 passed, 5 skipped, 0 failed (112 s).
+    `MT_TIMESCALE_TEST_URL` must be **exported** — unexported, 40 DB-backed
+    unit tests error with "MT_TIMESCALE_TEST_URL is not set", which is a
+    configuration error and not a code failure.
+  - **Integration tier:** 396 passed, 6 failed, 144 skipped (880 s). All six
+    failures are pre-existing on the target and none is attributable to this
+    slice:
+    - `test_migration_051_052.py::TestChainAppliesOnColdStart::test_chain_ends_at_052`
+      and `::TestCoverageFreshnessOnRealHistory::test_pre_167_cagg_keeps_the_generic_budget`
+      — the two named in this task.
+    - `test_policy_advances_head.py::TestPolicyAdvancesHeadUnaided::test_closed_bucket_is_materialized_by_the_policy_alone`
+      and `::test_open_bucket_is_never_materialized_while_open` — the two
+      named in this task; the test cluster runs no TimescaleDB job scheduler,
+      so these fail there deterministically.
+    - `test_cli_lists.py::test_lists_ls_includes_priority1` and
+      `::test_lists_show_priority1_emits_ten_symbols` — the known priority1
+      list mismatch, a standing integration flake not named in this task.
+      Recorded here so a later section does not mistake it for a regression.
+  - **SC3 baseline bodies:** captured from `mt serve --host 127.0.0.1 --port
+    8189` against the production database, read-only, before any code change.
+    Saved outside the repo with their request URLs in `URLS.txt` alongside:
+    - `/api/v1/health` → `{"status":"ok","db":"ok","coverage":"ok"}`
+    - `/api/v1/status?symbol=AAPL&granularity=minute` → `scope: "symbol"`,
+      `count: 1`, one row plus `summary` and `coverage` blocks.
+    - Note: the status filter parameter is `symbol` (singular). An initial
+      capture used `symbols=`, which FastAPI ignores, returning the
+      unfiltered 24,349-row body; the filtered request above is the recorded
+      baseline.
+
 - [ ] **Task 1.2: Extract `gather_db_facts` from `gather`** (effort: 2)
   - [ ] In `cli/commands/overview.py`, split `gather` (line ~173) at the
         credit boundary. Everything from the `OverviewFacts` construction
