@@ -17,6 +17,7 @@ from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.api_server.routes.bars import router as bars_router
 from manta_trading.api_server.routes.gaps import router as gaps_router
 from manta_trading.api_server.routes.health import router as health_router
+from manta_trading.api_server.routes.operations import router as operations_router
 from manta_trading.api_server.routes.status import router as status_router
 from manta_trading.api_server.routes.symbols import router as symbols_router
 from manta_trading.config import Settings
@@ -61,6 +62,10 @@ async def lifespan(
     # MT_TIMESCALE_DB_URL — so no request pays for re-reading the environment.
     app.state.max_bars_per_request = settings.api_max_bars_per_request
     app.state.statement_timeout = settings.api_statement_timeout
+    # The operations routes read `minute_firing_days` and `eodhd_api_key` from
+    # here rather than re-instantiating Settings per request — the same
+    # contract as the two ceilings above: resolved once, changed by a restart.
+    app.state.settings = settings
     session = DbSessionSettings(
         work_mem=API_SERVING_SESSION.work_mem,
         statement_timeout=settings.api_statement_timeout,
@@ -133,6 +138,7 @@ def create_app(db_url: str | None = None) -> FastAPI:
     app.include_router(symbols_router)
     app.include_router(gaps_router)
     app.include_router(status_router)
+    app.include_router(operations_router)
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(

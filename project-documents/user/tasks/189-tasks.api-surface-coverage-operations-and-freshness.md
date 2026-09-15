@@ -17,8 +17,8 @@ projectState: >
   a reader, `{"error": "…"}` bodies, `GATEWAY_TIMEOUT_RESPONSE`, the
   `create_app(db_url=)` seam and the `test/load/` tier.
 dateCreated: 20260913
-dateUpdated: 20260913
-status: not_started
+dateUpdated: 20260915
+status: in_progress
 ---
 
 ## Context Summary
@@ -51,23 +51,23 @@ status: not_started
 Design *D3*, *SC2*. The refactor that lets the API reuse 922's reads instead
 of copying them. No behavior change.
 
-- [ ] **Task 1.1: Confirm the branch and the baseline** (effort: 1)
-  - [ ] `cf config get git.integration_branch`; call its value (or `main` if
+- [x] **Task 1.1: Confirm the branch and the baseline** (effort: 1)
+  - [x] `cf config get git.integration_branch`; call its value (or `main` if
         empty) the target. Create or switch to
         `189-slice.api-surface-coverage-operations-and-freshness` from the
         target.
-  - [ ] Run the unit tier and record the pass/fail counts. Run the
+  - [x] Run the unit tier and record the pass/fail counts. Run the
         integration tier and record which tests already fail on the target —
         `test_migration_051_052` (×2) and `test_policy_advances_head` (×2) are
         known. A failure not on that list at baseline is a new problem and
         must be raised before any code is written.
-  - [ ] **Capture the SC3 baseline now, before any code changes.** With
+  - [x] **Capture the SC3 baseline now, before any code changes.** With
         `mt serve` against production read-only, save the response bodies of
         `/api/v1/health` and a fixed `/api/v1/status` request (record the
         exact URL used) to files outside the repo. Task 5.3 diffs against
         these. Captured here because after Section 3 the "pre-slice output"
         no longer exists to capture.
-  - [ ] Success: the baseline numbers are written into this file under
+  - [x] Success: the baseline numbers are written into this file under
         Task 1.1 so later sections can attribute regressions, and the two
         SC3 baseline bodies are saved with their request URLs recorded.
 
@@ -103,36 +103,36 @@ of copying them. No behavior change.
       unfiltered 24,349-row body; the filtered request above is the recorded
       baseline.
 
-- [ ] **Task 1.2: Extract `gather_db_facts` from `gather`** (effort: 2)
-  - [ ] In `cli/commands/overview.py`, split `gather` (line ~173) at the
+- [x] **Task 1.2: Extract `gather_db_facts` from `gather`** (effort: 2)
+  - [x] In `cli/commands/overview.py`, split `gather` (line ~173) at the
         credit boundary. Everything from the `OverviewFacts` construction
         through `facts.sources = read_source_freshness(conn)` becomes
         `gather_db_facts(conn, settings, *, now=None, hostname=None) ->
         OverviewFacts`.
-  - [ ] `gather` keeps its **exact current signature**, including
+  - [x] `gather` keeps its **exact current signature**, including
         `fetch_credits=fetch_credit_usage`, and becomes a call to
         `gather_db_facts` followed by the existing guarded credit block,
         unchanged. Every current caller — the command, its tests, the load
         tier — must keep working untouched.
-  - [ ] Carry the existing docstring rationale for reading
+  - [x] Carry the existing docstring rationale for reading
         `settings.minute_firing_days` as a plain attribute into
         `gather_db_facts` (D5): no `getattr` default, because `weekdays=None`
         means *daily* to `FiringSchedule` and a default would render a
         plausible wrong cadence instead of failing loudly.
-  - [ ] Add `gather_db_facts` to `__all__`.
-  - [ ] Success: `test/unit/cli/commands/test_overview.py` passes
+  - [x] Add `gather_db_facts` to `__all__`.
+  - [x] Success: `test/unit/cli/commands/test_overview.py` passes
         **unmodified**. If a 922 test needs editing, the split changed
         behavior — stop and fix the split instead.
 
-- [ ] **Task 1.3: Test the split** (effort: 1)
-  - [ ] Add to `test/unit/cli/commands/test_overview.py`: `gather_db_facts`
+- [x] **Task 1.3: Test the split** (effort: 1)
+  - [x] Add to `test/unit/cli/commands/test_overview.py`: `gather_db_facts`
         populates `open_runs`, `latest_ended` and `sources`, and leaves
         `credits` and `credits_error` at their defaults (it must never touch
         the credit path).
-  - [ ] Assert `gather` still returns the credit fields, using the existing
+  - [x] Assert `gather` still returns the credit fields, using the existing
         `fetch_credits` injection point — proof the split did not cost the CLI
         anything.
-  - [ ] Success: both new tests and the whole 922 overview suite pass.
+  - [x] Success: both new tests and the whole 922 overview suite pass.
         Commit (section checkpoint).
 
 ---
@@ -142,58 +142,58 @@ of copying them. No behavior change.
 Design *API Specification*, *D2*, *D4*, *SC5*, *SC8*. Pure translation from
 922's frozen dataclasses to Pydantic. No I/O in this section.
 
-- [ ] **Task 2.1: The overview response models** (effort: 3)
-  - [ ] New module `api_server/models/operations.py`. Models mirroring the
+- [x] **Task 2.1: The overview response models** (effort: 3)
+  - [x] New module `api_server/models/operations.py`. Models mirroring the
         design's *API Specification*: `RunningRecord`, `LastRunRecord`,
         `PassLineRecord`, `SourceRecord`, `HealthBlock`, `UniverseBlock`,
         `OverviewResponse`.
-  - [ ] `RunningRecord` carries `phase`, `done`, `total`, `since`,
+  - [x] `RunningRecord` carries `phase`, `done`, `total`, `since`,
         `progress_at`, `hostname`, `pid` — and **no `abandoned`** (D4). The
         omission is deliberate; put the reason in the model docstring citing
         D4, so a later reader does not "restore" it.
-  - [ ] `pass` and `outcome` are typed as `PassKind` and `PassRunOutcome`
+  - [x] `pass` and `outcome` are typed as `PassKind` and `PassRunOutcome`
         imported from `data/acquisition/pass_runs.py`, never as `str` and
         never as re-spelled literals (SC8).
-  - [ ] `last_run` is `None` where 922 renders `NEVER_RUN`;
+  - [x] `last_run` is `None` where 922 renders `NEVER_RUN`;
         `universe.summary` is `None` where it renders `NO_ACCOUNTING`. The
         API serves nulls and leaves prose to the client — do not import the
         sentinel strings.
-  - [ ] Success: module imports nothing from `routes/`; `ruff` and `mypy`
+  - [x] Success: module imports nothing from `routes/`; `ruff` and `mypy`
         clean.
 
-- [ ] **Task 2.2: `OverviewResponse.from_overview`** (effort: 2)
-  - [ ] A classmethod translating a 922 `Overview` into the response model.
+- [x] **Task 2.2: `OverviewResponse.from_overview`** (effort: 2)
+  - [x] A classmethod translating a 922 `Overview` into the response model.
         Walk the dataclass fields where practical rather than restating them
         (the pattern `CandleRecord.from_row` used against `CANDLE_COLUMNS` in
         188).
-  - [ ] `running` is a list — two live runs of one kind is a real state 922
+  - [x] `running` is a list — two live runs of one kind is a real state 922
         already renders and tests. Do not collapse it to an optional single.
-  - [ ] Success: `mypy` clean; no field of `Overview` is silently dropped
+  - [x] Success: `mypy` clean; no field of `Overview` is silently dropped
         except `credits`/`credits_text` (D2) and `abandoned` (D4).
 
-- [ ] **Task 2.3: The credits response model** (effort: 1)
-  - [ ] `CreditsResponse` in the same module: `credits: CreditsRecord | None`
+- [x] **Task 2.3: The credits response model** (effort: 1)
+  - [x] `CreditsResponse` in the same module: `credits: CreditsRecord | None`
         and `error: str | None`. `CreditsRecord` carries `used`,
         `daily_limit`, `extra`, `remaining` — matching `CreditUsage`,
         whose `remaining` is a computed property, not a stored field.
-  - [ ] Success: `mypy` clean.
+  - [x] Success: `mypy` clean.
 
-- [ ] **Task 2.4: Unit tests for the models** (effort: 2)
-  - [ ] New `test/unit/api_server/test_operations_models.py`. Build an
+- [x] **Task 2.4: Unit tests for the models** (effort: 2)
+  - [x] New `test/unit/api_server/test_operations_models.py`. Build an
         `Overview` by hand (no DB, no network — 922 made `build_overview`
         pure precisely so this is possible) and assert every field
         translates.
-  - [ ] A pass with two running rows serializes as a two-element list.
-  - [ ] A pass with no completed run serializes `last_run: null`, not a
+  - [x] A pass with two running rows serializes as a two-element list.
+  - [x] A pass with no completed run serializes `last_run: null`, not a
         sentinel string; likewise `universe.summary` with no accounting run.
-  - [ ] `"abandoned"` appears nowhere in `model_dump_json()` output (SC5).
-  - [ ] `"credits"` appears nowhere in `OverviewResponse` output (SC7).
-  - [ ] Enum parity: iterate `PassKind` and `PassRunOutcome` and assert each
+  - [x] `"abandoned"` appears nowhere in `model_dump_json()` output (SC5).
+  - [x] `"credits"` appears nowhere in `OverviewResponse` output (SC7).
+  - [x] Enum parity: iterate `PassKind` and `PassRunOutcome` and assert each
         member round-trips — a test that **iterates the enums** rather than
         listing tokens, so adding a member cannot pass silently (SC8).
-  - [ ] `CreditsResponse` covers all three shapes: usage present; no key;
+  - [x] `CreditsResponse` covers all three shapes: usage present; no key;
         fetch failure.
-  - [ ] Success: all tests pass in the unit tier. Commit (section checkpoint).
+  - [x] Success: all tests pass in the unit tier. Commit (section checkpoint).
 
 ---
 
