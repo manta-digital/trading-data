@@ -585,7 +585,34 @@ API endpoints:
   means "nothing wrong", not "no such symbol". `summary` is always the full
   unfiltered whole-registry breakdown, whatever `rows` was filtered to.
 - `GET /api/v1/gaps/{symbol}?granularity=1m` — data gap listing
+- `GET /api/v1/overview` — operations and freshness: per-pass state (what is
+  running with its phase and progress, the last completed run with its outcome,
+  the next firing and the cadence), the newest row in each source table, the
+  health verdict, and the universe accounting line. No parameters. The same
+  facts as `mt data overview`, with two deliberate differences noted below.
+- `GET /api/v1/credits` — the day's EODHD credit position (`used`,
+  `daily_limit`, `extra`, `remaining`). Always `200`: an unset key or an
+  unreachable provider arrives as `error` text with `credits: null`, because a
+  provider that will not answer is a condition this endpoint reports rather
+  than a fault of this server.
 - `GET /docs` — Swagger UI
+
+**`/api/v1/overview` is not a strict superset of `mt data overview --json`.**
+Two fields of the CLI screen are deliberately absent:
+
+- **Credits live on their own route.** The CLI payload's `credits` and
+  `credits_text` are at `GET /api/v1/credits`. They are separated because they
+  differ from every other overview fact in source (outbound HTTPS rather than
+  the pooled database), in what a failure means (one missing line rather than
+  nothing being true), and in how often they change (a daily counter rather
+  than per-firing). Keeping them apart is what makes `/api/v1/overview` pure
+  database and safe to poll.
+- **`abandoned` is CLI-only.** The screen marks a running row abandoned by
+  testing its recorded pid against the local process table. That is sound for
+  a CLI run beside the pass and meaningless over HTTP, where the pid may have
+  been recorded on another host — so the API omits the field rather than
+  publish one that would be false for every row. Use `mt data overview` on the
+  host that owns the run.
 
 The full schema is committed at [`docs/api/openapi.json`](docs/api/openapi.json)
 and regenerated with `uv run python scripts/dump_openapi.py` (no database

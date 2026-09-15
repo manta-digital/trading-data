@@ -100,6 +100,67 @@
         "title": "CoverageVerdict",
         "type": "object"
       },
+      "CreditsRecord": {
+        "description": "The day's EODHD credit position (``CreditUsage``).\n\n``remaining`` is a computed property on the dataclass, not a stored\nfield, so it is read through the property rather than copied from one.",
+        "properties": {
+          "daily_limit": {
+            "title": "Daily Limit",
+            "type": "integer"
+          },
+          "extra": {
+            "title": "Extra",
+            "type": "integer"
+          },
+          "remaining": {
+            "title": "Remaining",
+            "type": "integer"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used",
+          "daily_limit",
+          "extra",
+          "remaining"
+        ],
+        "title": "CreditsRecord",
+        "type": "object"
+      },
+      "CreditsResponse": {
+        "description": "Response body for ``GET /api/v1/credits``.\n\nAlways 200 (189 D6/SC6): a provider that will not answer is a reported\ncondition, not a server fault, so the failure arrives as ``error`` text\nwith ``credits: null``.",
+        "properties": {
+          "credits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreditsRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "required": [
+          "credits",
+          "error"
+        ],
+        "title": "CreditsResponse",
+        "type": "object"
+      },
       "ErrorResponse": {
         "description": "The uniform error body for every error this codebase raises (186 D6).\n\nFastAPI's own ``RequestValidationError`` is the one documented exception:\nit keeps its native ``detail`` list, which carries per-field ``loc``/``msg``\nthat a flattened string would lose.",
         "properties": {
@@ -219,6 +280,40 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HealthBlock": {
+        "description": "The health verdict and when it was recorded.",
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          }
+        },
+        "required": [
+          "verdict",
+          "at"
+        ],
+        "title": "HealthBlock",
+        "type": "object"
+      },
       "HealthResponse": {
         "description": "Response body for ``GET /api/v1/health``.\n\nHTTP status is always 200 \u2014 callers distinguish a healthy DB from a\nfailing one via the ``db`` field, not the HTTP status code.",
         "properties": {
@@ -267,6 +362,269 @@
           "db"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "LastRunRecord": {
+        "description": "The most recent ended run of a pass kind (922 ``LastRun``).",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "title": "Ended At",
+            "type": "string"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/PassRunOutcome"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_at",
+          "ended_at",
+          "outcome",
+          "exit_code",
+          "detail"
+        ],
+        "title": "LastRunRecord",
+        "type": "object"
+      },
+      "OverviewResponse": {
+        "description": "Response body for ``GET /api/v1/overview``.\n\nNot a strict superset of ``mt data overview --json`` (189 D2/SC7): the\ncredit fields live at ``GET /api/v1/credits`` so this route is pure\ndatabase and safe to poll, and ``abandoned`` is a local-host judgment\navailable only from the CLI (D4).",
+        "properties": {
+          "health": {
+            "$ref": "#/components/schemas/HealthBlock"
+          },
+          "now": {
+            "format": "date-time",
+            "title": "Now",
+            "type": "string"
+          },
+          "passes": {
+            "items": {
+              "$ref": "#/components/schemas/PassLineRecord"
+            },
+            "title": "Passes",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRecord"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "universe": {
+            "$ref": "#/components/schemas/UniverseBlock"
+          }
+        },
+        "required": [
+          "now",
+          "passes",
+          "sources",
+          "health",
+          "universe"
+        ],
+        "title": "OverviewResponse",
+        "type": "object"
+      },
+      "PassKind": {
+        "description": "Which recurring pass a ``pass_runs`` row belongs to.\n\nSQL cross-reference: pass_runs.pass column. The CHECK constraint is\nrendered from this enum by ``_pass_kind_check_sql()`` in\nmigrations/minute.py. All code that reads or writes a kind MUST\nreference this enum \u2014 no bare string literals.",
+        "enum": [
+          "minute",
+          "daily",
+          "kalshi",
+          "health",
+          "accounting"
+        ],
+        "title": "PassKind",
+        "type": "string"
+      },
+      "PassLineRecord": {
+        "description": "One entry of the ``passes`` array (922 ``PassLine``).\n\n``running`` is a list because two live runs of one kind is a real state\n922 already renders and tests; collapsing it to an optional single would\nhide exactly the condition worth seeing.",
+        "properties": {
+          "cadence": {
+            "title": "Cadence",
+            "type": "string"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastRunRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_firing": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Firing"
+          },
+          "pass": {
+            "$ref": "#/components/schemas/PassKind"
+          },
+          "running": {
+            "items": {
+              "$ref": "#/components/schemas/RunningRecord"
+            },
+            "title": "Running",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pass",
+          "cadence",
+          "running",
+          "last_run",
+          "next_firing"
+        ],
+        "title": "PassLineRecord",
+        "type": "object"
+      },
+      "PassRunOutcome": {
+        "description": "How a pass ended (Design 922, Decision 2).\n\nSQL cross-reference: pass_runs.outcome column, NULL while the run is\nopen. The CHECK constraint is rendered from this enum by\n``_pass_run_outcome_check_sql()`` in migrations/minute.py.",
+        "enum": [
+          "COMPLETE",
+          "COMPLETE_QUOTA",
+          "INCOMPLETE",
+          "PROVIDER_UNAVAILABLE",
+          "FAILED"
+        ],
+        "title": "PassRunOutcome",
+        "type": "string"
+      },
+      "RunningRecord": {
+        "description": "One still-open run of a pass kind.\n\nMirrors 922's ``RunningRow`` **minus ``abandoned``** (189 D4). That field\nis not omitted by oversight and must not be restored here: 922 infers it\nby testing the recorded pid against the *local* process table, which is\nsound for a CLI run beside the pass and meaningless in the API server,\nwhere a pid recorded on another host says nothing about a process here.\nThe route passes ``pid_alive=lambda _pid: True`` so the value would be\nstructurally ``False`` for every row, and publishing a field that is\nalways false is worse than publishing none. Real abandonment over HTTP\nneeds a heartbeat column written by the pass itself (D7, future work).",
+        "properties": {
+          "done": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done"
+          },
+          "hostname": {
+            "title": "Hostname",
+            "type": "string"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "pid": {
+            "title": "Pid",
+            "type": "integer"
+          },
+          "progress_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress At"
+          },
+          "since": {
+            "format": "date-time",
+            "title": "Since",
+            "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "phase",
+          "done",
+          "total",
+          "since",
+          "progress_at",
+          "hostname",
+          "pid"
+        ],
+        "title": "RunningRecord",
+        "type": "object"
+      },
+      "SourceRecord": {
+        "description": "The newest row in one source table (922 ``SourceFreshness``).",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "newest": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest"
+          }
+        },
+        "required": [
+          "name",
+          "newest"
+        ],
+        "title": "SourceRecord",
         "type": "object"
       },
       "StatusResponse": {
@@ -589,6 +947,40 @@
         "title": "SymbolsResponse",
         "type": "object"
       },
+      "UniverseBlock": {
+        "description": "The universe accounting line and when it was recorded.\n\n``summary`` is ``None`` where the screen renders ``NO_ACCOUNTING``: the\nAPI serves nulls and leaves the prose to the client.",
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "summary",
+          "at"
+        ],
+        "title": "UniverseBlock",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -632,9 +1024,9 @@
     }
   },
   "info": {
-    "description": "Data serving API for OHLCV bars, symbol metadata, and gap status.",
+    "description": "Data serving API for OHLCV bars, symbol metadata, gap status, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.14.9"
+    "version": "0.15.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -731,6 +1123,25 @@
           }
         },
         "summary": "Get Bars"
+      }
+    },
+    "/api/v1/credits": {
+      "get": {
+        "description": "Return the day's EODHD credit position.\n\nAlways 200 (D6/SC6): an unset key is a setting and an unreachable\nprovider is a reported condition, so both arrive as ``error`` text with\n``credits: null`` rather than as an HTTP failure.\n\n**No** ``GATEWAY_TIMEOUT_RESPONSE`` here, deliberately (D8). This route\nissues no statement and takes no parameters, so a statement timeout is\nnot among its outcomes and the shared constant's remedy \u2014 \"narrow the\nrequested range or use a coarser granularity\" \u2014 would be false advice in\nthe published schema. Do not add it for symmetry with the sibling route.\n\nNo ``Depends(get_db)`` either: the route needs no connection, and the pool\nis small enough (``max_size=8``) that holding one across a third party's\nresponse time would be a real cap on concurrency.",
+        "operationId": "get_credits_api_v1_credits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Credits"
       }
     },
     "/api/v1/gaps/{symbol}": {
@@ -850,6 +1261,35 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/api/v1/overview": {
+      "get": {
+        "description": "Return pass state, source freshness, health and universe accounting.\n\nThe same facts as ``mt data overview``, with two deliberate differences\nrecorded on the response models: the credit line lives at\n``/api/v1/credits`` (D2) and ``abandoned`` is omitted (D4).\n\nNo query or path parameters, so there is no 404 and no 422 (D6). A\ndatabase predating migration 055 is a 200 with every pass empty, not a\n500 \u2014 922's reader already degrades that way and this route inherits it.",
+        "operationId": "get_overview_api_v1_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Get Overview"
       }
     },
     "/api/v1/status": {
