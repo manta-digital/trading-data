@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(nothing yet)
+
+## [0.16.1] - 2026-09-15
+
+Slice 188's Kalshi routes were complete and tested but never merged, so
+`0.16.0` shipped without them. This release is that merge — nothing about the
+routes themselves changed. `/openapi.json` goes from 8 paths to 17.
+
 ### Added
 - **The Kalshi prediction-market track is now readable over HTTP.** Nine routes
   under `/api/v1/kalshi` serve the catalog (`categories`, `series`, `events`,
