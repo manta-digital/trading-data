@@ -109,7 +109,7 @@ A client that needs arithmetic should parse these into its own decimal type,
 never into a float.
 
 This has a consequence for `format=msgpack`, covered in
-[§5](#5-msgpack-what-it-actually-saves): because the values are already strings
+[§6](#6-msgpack-what-it-actually-saves): because the values are already strings
 by the time msgpack sees them, it cannot pack them any tighter than JSON can.
 
 Plain integers and floats — `count`, `volume`, `bars_stored`, `lag_seconds` —
@@ -336,7 +336,7 @@ OHLCV bars for one instrument over an inclusive date window.
 | `start` | date | yes | — | Inclusive first day, UTC. |
 | `end` | date | yes | — | Inclusive last day, UTC (§2.2). |
 | `adjusted` | boolean | no | `true` | Split/dividend-adjusted prices. |
-| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§5). |
+| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§6). |
 
 Granularity tokens are
 `1m` `5m` `15m` `1h` `4h` `1d` `1w` `1mo` `1q`.
