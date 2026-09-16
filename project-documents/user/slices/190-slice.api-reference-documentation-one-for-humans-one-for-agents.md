@@ -228,6 +228,30 @@ API — start reaching consumers for the first time. And `msgpack` responses
 need the schema to say the body may also arrive as `application/x-msgpack`;
 the `200` declaration lists both media types.
 
+**What msgpack actually saves** (measured 2026-09-16 while capturing the SC7
+baselines, same payloads):
+
+| Route | JSON | msgpack | Reduction |
+|---|---|---|---|
+| bars, SPY 1d × 21 | 3,380 B | 2,162 B | 36% |
+| Kalshi candlesticks, 535 | 235,079 B | 187,718 B | 20% |
+| Kalshi trades, 2 | 671 B | 576 B | 14% |
+
+The architecture states ~40–60% for minute bars over weeks; none of these
+reach it, and the Kalshi routes are less than half of it. The reason is
+`Decimal`: `timeseries_response` dumps with `mode="json"` so fixed-point
+prices are already **strings** before either encoder runs
+(`serialization.py:30-36`), and msgpack cannot pack a string more tightly
+than JSON — its remaining advantage is structural overhead only. Equity bars
+carry floats and do better.
+
+This does not refute the architecture's figure, which was stated for a shape
+none of these three measurements matches. It does mean the reference must
+report measured numbers per route rather than repeat one inherited estimate:
+a client choosing msgpack for the Kalshi tape on the promise of 40–60% would
+be deciding on a number that does not hold there. Raised by slice review
+F006 (note).
+
 ### D4 — The anti-drift mechanism is a coverage gate, not regeneration
 
 The plan entry says both documents "regenerate or are re-verified at slice
@@ -513,6 +537,10 @@ string with code on one side and nothing on the other.
 - **SC11** — Slice plan entry 10 is materialized as **(190)**, and its stale
   premise about the FastAPI description is corrected in this design (done —
   Overview).
+- **SC12** — Where either document describes what `format=msgpack` saves, it
+  reports per-route measured sizes with their capture date, not the
+  architecture's 40–60% estimate, which holds for none of the three routes
+  that offer the parameter.
 
 ## Verification Walkthrough
 
