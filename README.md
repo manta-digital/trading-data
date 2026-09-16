@@ -567,194 +567,20 @@ mt serve --reload
 The API serves equity bars and the Kalshi prediction-market catalog and time
 series.
 
-API endpoints:
-- `GET /api/v1/health` — liveness check, plus a coarse `coverage` freshness signal
-- `GET /api/v1/bars/{symbol}?granularity=1d&start=…&end=…&adjusted=true` — OHLCV bars.
-  Responses carry `is_stale`: `true` means the continuous aggregate serving this
-  granularity is behind its source, so the bars may be incomplete. Raw grains
-  (`1m`, `1d`) are never stale by construction.
-- `GET /api/v1/symbols?search=<prefix>` — list instruments
-- `GET /api/v1/symbols/{symbol}` — instrument detail + available data ranges.
-  See [`available` semantics](#available-semantics) below for what the reported
-  range does and does not guarantee.
-- `GET /api/v1/status?symbol=…&health=…&granularity=…&all=true` — per-symbol
-  data-health rows, a whole-registry health summary, and coverage freshness.
-  **`rows` defaults to unhealthy entries only** (`GAPS`, `STALE`, `FAILED`),
-  matching `mt data status`; pass `all=true` for everything or `health=OK` for
-  healthy rows. A healthy symbol therefore returns `count: 0` by default — that
-  means "nothing wrong", not "no such symbol". `summary` is always the full
-  unfiltered whole-registry breakdown, whatever `rows` was filtered to.
-- `GET /api/v1/gaps/{symbol}?granularity=1m` — data gap listing
-- `GET /api/v1/overview` — operations and freshness: per-pass state (what is
-  running with its phase and progress, the last completed run with its outcome,
-  the next firing and the cadence), the newest row in each source table, the
-  health verdict, and the universe accounting line. No parameters. The same
-  facts as `mt data overview`, with two deliberate differences noted below.
-- `GET /api/v1/credits` — the day's EODHD credit position (`used`,
-  `daily_limit`, `extra`, `remaining`). Always `200`: an unset key or an
-  unreachable provider arrives as `error` text with `credits: null`, because a
-  provider that will not answer is a condition this endpoint reports rather
-  than a fault of this server.
-- `GET /docs` — Swagger UI
+**Full API reference: [`docs/api/reference.md`](docs/api/reference.md).**
+Every route, with per-field tables giving type, nullability and unit, executed
+`curl` examples, the error shapes, and the conventions (inclusive windows, UTC,
+decimal strings, the row ceiling). For LLM clients there is a capability-indexed
+companion at [`docs/api/agents.md`](docs/api/agents.md), which states a retry
+verdict for every failure mode.
 
-Kalshi endpoints (all under `/api/v1/kalshi`):
-- `GET /categories` — every series category with its series count. **Start
-  here:** categories are free text Kalshi assigns rather than a fixed
-  vocabulary, so this is the only way to learn what `category=` accepts, and
-  the counts double as a size map for planning the calls below.
-- `GET /series?category=…&search=<ticker prefix>` — series matching the filter
-- `GET /series/{ticker}` — one series
-- `GET /series/{ticker}/events?strike_from=…&strike_to=…` — that series' events,
-  optionally bounded by strike date (both bounds inclusive)
-- `GET /events/{event_ticker}` — one event
-- `GET /events/{event_ticker}/markets?status=active,finalized` — that event's
-  markets, optionally filtered by a comma-separated list of market statuses
-- `GET /markets/{ticker}` — one market, with its lifecycle, settlement and
-  economics fields grouped
-- `GET /markets/{ticker}/candlesticks?start=…&end=…&format=json|msgpack` —
-  candlesticks over the window
-- `GET /markets/{ticker}/trades?start=…&end=…&format=json|msgpack` — the trade
-  tape over the window
+The machine-readable schema is committed at
+[`docs/api/openapi.json`](docs/api/openapi.json) and regenerated with
+`uv run python scripts/dump_openapi.py` (no database required); a test fails the
+build on drift, and `scripts/check_api_docs.py` fails it when either document
+stops matching the schema.
 
-#### Reading an empty Kalshi result
-
-A `count: 0` has four different meanings, and every response carries the facts
-needed to tell them apart without a second call:
-
-- **`collected: false`** (candlesticks) — this market is not in the candle
-  collection set, so no candles are stored for it at all. Not an empty window.
-- **`tape_filtered: true`** (trades) — this market's category is excluded from
-  trade collection by policy, so an empty result is expected rather than a gap.
-- **The window is outside coverage.** `coverage_from` is the oldest instant the
-  data reaches; `complete_through` (candles) is what was requested and stored
-  through — not "the newest stored candle", since a quiet market produces no
-  candle for a period it was nonetheless asked for. `tape_complete_through`
-  (trades) is the created time of the newest stored trade; `null` means the
-  trades collection phase has never run, not that the tape is empty.
-- **Genuinely no activity**, when none of the above applies.
-
-#### Kalshi range policy
-
-There is no pagination and no truncation: a response is complete or it is
-refused. Before reading any rows, a list or time-series request takes an exact
-`count(*)` and returns `422` if it exceeds `MT_API_MAX_BARS_PER_REQUEST`
-(default 75,000), quoting the actual count so you know how far to narrow the
-window. Equity bars estimate from the request window instead, because their row
-density follows the window; Kalshi's does not.
-
-Decimal fields — prices, sizes, volumes — are serialized as strings
-(`"0.4900"`), exactly as Kalshi serves them and as `NUMERIC` stores them, so
-fixed-point values never round-trip through a float.
-
-**`/api/v1/overview` is not a strict superset of `mt data overview --json`.**
-Two fields of the CLI screen are deliberately absent:
-
-- **Credits live on their own route.** The CLI payload's `credits` and
-  `credits_text` are at `GET /api/v1/credits`. They are separated because they
-  differ from every other overview fact in source (outbound HTTPS rather than
-  the pooled database), in what a failure means (one missing line rather than
-  nothing being true), and in how often they change (a daily counter rather
-  than per-firing). Keeping them apart is what makes `/api/v1/overview` pure
-  database and safe to poll.
-- **`abandoned` is CLI-only.** The screen marks a running row abandoned by
-  testing its recorded pid against the local process table. That is sound for
-  a CLI run beside the pass and meaningless over HTTP, where the pid may have
-  been recorded on another host — so the API omits the field rather than
-  publish one that would be false for every row. Use `mt data overview` on the
-  host that owns the run.
-
-The full schema is committed at [`docs/api/openapi.json`](docs/api/openapi.json)
-and regenerated with `uv run python scripts/dump_openapi.py` (no database
-required); a test fails the build on drift.
-
-### `available` semantics
-
-`GET /api/v1/symbols/{symbol}` reports one `{start, end}` per granularity. The
-two ends are computed differently and carry different guarantees, which matters
-if you use them to decide what to request:
-
-- **`end` is exact.** It comes from a direct probe of the bar tables, bounded so
-  it stays fast, and it reflects data written right up to the moment of the
-  request. If a bar exists, `end` includes it.
-- **`start` is as of the last coverage materialization.** It comes from the
-  coverage continuous aggregates, which a background policy refreshes. Deep
-  history *backfilled after* the relevant coverage bucket was last materialized
-  will not move `start` until that bucket is rebuilt — so `start` can be later
-  than the true first bar, never earlier. There is no cheap exact answer here:
-  probing below the coverage floor costs 0.4–1.4 s per symbol on production
-  (measured), because the bound excludes chunks *after* the start, which for a
-  symbol with deep history is almost none of them.
-
-Both ends are UTC dates. A granularity with no data is omitted entirely — an
-empty `available` means "no bars for this symbol", not "unknown symbol" (an
-unknown symbol is a `404`).
-
-**One documented gap.** The leading-edge probe is bounded by a universe-wide
-coverage edge rather than each symbol's own. A bar could in principle be missed
-if it falls between an individual symbol's coverage end and that universe edge
-*and* was written after coverage last materialized. Measured across a 28-symbol
-sample on production 2026-08-04 — dense, delisted, daily-only, and no-data
-instruments — the merged answer was **identical to a direct `MIN/MAX` scan for
-every symbol**, and no symbol had a single raw bar inside that window. The gap
-closes on its own when the coverage refresh repair lands.
-
-### Error shapes
-
-Every error this server raises has the same body:
-
-```json
-{ "error": "<message>" }
-```
-
-The one deliberate exception is FastAPI's own request-validation failure — an
-unparseable date, an unknown `granularity` — which keeps its native body so
-clients retain the per-field detail:
-
-```json
-{ "detail": [ { "loc": ["query", "granularity"], "msg": "…", "type": "…" } ] }
-```
-
-| Status | Meaning |
-|---|---|
-| `404` | The symbol is not in `instruments`. **Only** that. |
-| `422` | The request is malformed, the range is reversed, or the window exceeds the bar ceiling. |
-| `500` | An unexpected server fault. The body is sanitized. |
-| `504` | The database cancelled the query at the statement timeout. Narrow the range or use a coarser granularity. |
-
-### Date windows are inclusive at both ends
-
-`start` and `end` are both inclusive, at every granularity: `start=2024-06-10&end=2024-06-14`
-returns Monday through Friday, and `start=2024-06-10&end=2024-06-10` returns that
-whole day. Timestamps are UTC, and the store covers 08:00–23:59 UTC.
-
-### Empty windows are `200`, not `404`
-
-A known symbol with no bars in the requested window returns `200` with
-`count: 0` and `bars: []` — a weekend, a holiday, or a pre-listing date is not
-an error. `is_stale` is still populated, so "no bars *and* the aggregate is
-stale" is distinguishable from "no bars because the market was closed". A `404`
-means exactly one thing: the symbol is unknown.
-
-### Range cap
-
-A bars request is admitted or rejected **before any database work**, from an
-estimate computed from the window alone: `span_days × bars_per_trading_day ×
-(252/365)`. Exceeding `MT_API_MAX_BARS_PER_REQUEST` (default 75,000) is a `422`
-whose message names the estimate, the ceiling, and the maximum span for that
-granularity. There is no pagination and no silent truncation.
-
-Because the store covers extended hours (08:00–23:59 UTC, ~960 one-minute bars
-on a dense day), the cap binds only at intraday grains:
-
-| Granularity | Max span per request (at 75,000) |
-|---|---|
-| `1m` | ~113 days |
-| `5m` | ~565 days |
-| `15m` | ~1,697 days |
-| `1h` and coarser | effectively unbounded |
-
-For bulk history beyond these spans, query TimescaleDB directly rather than
-paging over HTTP.
+Interactive docs are served at `/docs` while the server runs.
 
 ### Server settings
 
