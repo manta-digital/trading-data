@@ -411,6 +411,7 @@ List instruments, optionally filtered by ticker prefix.
 
 | Field | Type | Null? | Meaning |
 |---|---|---|---|
+| `count` | integer | no | Instruments returned. |
 | `symbols[].symbol` | string | no | Ticker. |
 | `symbols[].exchange` | string | yes | Listing exchange. |
 | `symbols[].type` | string | yes | Instrument type, e.g. `ETF`, `Common Stock`. |
@@ -426,11 +427,12 @@ curl 'http://127.0.0.1:8137/api/v1/symbols?search=SPY'
   "symbols": [
     {"symbol":"SPY","exchange":"NYSE ARCA","type":"ETF","asset_class":"equity","active":true},
     {"symbol":"SPYA","exchange":"BATS","type":"ETF","asset_class":"equity","active":true}
-  ]
+  ],
+  "count": 17
 }
 ```
 
-*Captured 2026-09-16. Truncated to the first two entries.*
+*Captured 2026-09-16. Truncated: 17 instruments returned, 2 shown.*
 
 **Errors**: `422` if the unfiltered registry would exceed the row ceiling —
 narrow the filter (§2.7); `504` on statement timeout.
