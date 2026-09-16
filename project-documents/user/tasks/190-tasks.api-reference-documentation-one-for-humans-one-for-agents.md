@@ -251,7 +251,7 @@ time base**, and meaning — the unit column is the reason the document exists.
 - [ ] 3.8 Auth, CORS, pagination: the posture, stated.
 - [ ] **Success**: SC10 — both shapes documented with their producing conditions.
 
-### [ ] Task 3.5 — Endpoint sections: equity bars, symbols, status, gaps, health (7 paths)
+### [ ] Task 3.5 — Endpoint sections: equity bars, symbols, status, gaps, health (6 paths)
 - **Effort**: 4
 - [ ] One section each for `/api/v1/health`, `/api/v1/bars/{symbol}`,
       `/api/v1/symbols`, `/api/v1/symbols/{symbol}`, `/api/v1/status`,
@@ -268,10 +268,20 @@ time base**, and meaning — the unit column is the reason the document exists.
       cross-reference to Conventions**: `/api/v1/status` takes `daily|minute`;
       `/api/v1/gaps` takes `Granularity` and maps it to the family at
       `gaps.py:29`; bars takes `Granularity` directly.
+- [ ] Wherever this document lists the `Granularity` or `HealthStatus` token
+      sets, carry their markers —
+      `<!-- from: manta_trading.constants.Granularity -->` and
+      `<!-- from: manta_trading.cli.rendering.status_table.HealthStatus -->` —
+      exactly as 3.6 does for `MarketStatus` and 3.7 for `PassKind`. A
+      vocabulary listed in `reference.md` without a marker is drift the gate
+      cannot see in this file, even though `agents.md` carries the same set
+      (D2: the two documents describe one surface and must not fork). Note
+      `/api/v1/status`'s `daily|minute` is a **different** vocabulary and is not
+      `Granularity` — do not mark it as such.
 - [ ] State that `count: 0` on `/api/v1/status` means *nothing wrong*, not *no
       such symbol* — the API's most expensive misreading.
-- [ ] **Success**: SC1 for these 7 paths; every parameter in the artifact has a
-      row; the gate's parameter check passes for them.
+- [ ] **Success**: SC1 for these 6 paths; every parameter in the artifact has a
+      row; the gate's parameter check passes for them. (6 + 7 + 4 = 17.)
 
 ### [ ] Task 3.6 — Endpoint sections: Kalshi catalog (7 paths)
 - **Effort**: 4
@@ -288,7 +298,7 @@ time base**, and meaning — the unit column is the reason the document exists.
       output rather than a 404 (D6).
 - [ ] **Success**: SC1 for these 7 paths; the `MarketStatus` marker resolves.
 
-### [ ] Task 3.7 — Endpoint sections: Kalshi time series and operations (3 paths)
+### [ ] Task 3.7 — Endpoint sections: Kalshi time series and operations (4 paths)
 - **Effort**: 3
 - [ ] `/api/v1/kalshi/markets/{ticker}/candlesticks`, `/trades`, plus
       `/api/v1/overview` and `/api/v1/credits`.
@@ -445,6 +455,9 @@ Specification".
       constraint is that nothing served changes.
 - [ ] Mark plan entry 10 as materialized as **(190)**.
 - [ ] **Success**: SC10's second half and SC11.
+- [ ] **Commit**: `docs: record the 422 shape fix as future work` — its own
+      commit, not folded into 5.6. This edits the architecture tree, which 5.6's
+      message does not mention.
 
 ### [ ] Task 5.5 — Verification walkthrough
 - **Effort**: 3
@@ -461,6 +474,9 @@ Specification".
 - [ ] Record the outcome of each step; any step that does not produce its
       expected output is a defect to fix, not a note to file.
 - [ ] **Success**: all eleven steps produce their documented expected output.
+- [ ] **Commit** any defect fixed during the walkthrough before 5.6, with a
+      message naming the step that caught it. If every step passed with no
+      change, there is nothing to commit and that is the expected outcome.
 
 ### [ ] Task 5.6 — Full suite and final verification
 - **Effort**: 2
@@ -492,6 +508,27 @@ Specification".
 | SC10 — both 422 shapes documented; fix recorded as Future Work | 3.4, 4.3, 5.4 |
 | SC11 — plan entry 10 materialized as (190) | 5.4 |
 | SC12 — measured msgpack figures, not the 40–60% estimate | 3.9 |
+
+## Review Disposition (tasks review, 20260916, CONCERNS)
+
+| Finding | Disposition |
+|---|---|
+| F001 — `Granularity`/`HealthStatus` markers missing from `reference.md` | **Fixed** in 3.5. Correct: SC5 was satisfiable via `agents.md` alone, which forks the two documents (D2). |
+| F002 — 3.5 and 3.7 miscount their paths | **Fixed**. 3.5 is 6, 3.7 is 4; the errors cancelled in the total, so only the headers were wrong. |
+| F003 — 5.4 and 5.5 have no commit checkpoint | **Fixed**. 5.4 now commits separately — it edits the architecture tree, which 5.6's message does not mention. 5.5 commits only if the walkthrough finds a defect. |
+| F004 — D3 landed on `main`, not a slice branch | **Acknowledged, no change.** Accurate and not fixable from a task file. |
+| F005 — stale "trap" comment in `test_openapi_operations_schema.py` | **Declined — premise is wrong.** See below. |
+
+**F005 in detail.** The finding reads "both routes publish a 200 schema (SC9) —
+the trap 188 recorded" as describing routes D3 has now fixed. It does not.
+"Both routes" is `/api/v1/overview` and `/api/v1/credits` (the file's `OVERVIEW`
+and `CREDITS` constants, lines 31-32) — slice 189's routes, which never
+suppressed their schema. The sentence cites the 188 trap as the *reason those
+two assert a 200 explicitly*, and that reasoning is still true. D3 fixed the
+trap on three **different** routes: bars, candlesticks and trades. Nothing in
+that comment is stale, and editing it would make it less accurate. The reviewer
+marked this finding's location `unverified`, which is consistent with it having
+been reasoned from the design's quotation rather than from the file.
 
 ## Notes
 
