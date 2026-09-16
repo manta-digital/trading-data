@@ -488,3 +488,41 @@ def test_markers_inside_fenced_blocks_are_examples(tree: Any) -> None:
         document_paths=(tree.reference, tree.agents),
     )
     assert report.ok, _failures(report)
+
+
+def test_inline_marker_mention_is_not_a_declaration(tree: Any) -> None:
+    """Naming the convention in prose does not declare a path.
+
+    The "Keeping this accurate" sections describe the marker format in inline
+    code. Parsing those mentions made an empty marker — which crashed the gate
+    with an IndexError rather than reporting anything.
+    """
+    tree.write()
+    tree.reference.write_text(
+        tree.reference.read_text(encoding="utf-8")
+        + "\nEach section carries a `<!-- endpoint: -->` block, and a value "
+        "may carry `<!-- from: some.symbol -->`.\n",
+        encoding="utf-8",
+    )
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert report.ok, _failures(report)
+
+
+def test_empty_marker_reports_rather_than_crashes(tree: Any) -> None:
+    """A malformed marker is a failure with a location, never a traceback."""
+    tree.write()
+    tree.reference.write_text(
+        tree.reference.read_text(encoding="utf-8") + "\n<!-- endpoint: -->\n",
+        encoding="utf-8",
+    )
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert not report.ok
+    assert any("must open with a path" in failure for failure in report.failures), (
+        _failures(report)
+    )

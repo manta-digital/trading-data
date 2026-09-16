@@ -262,6 +262,21 @@ def blank_fenced_blocks(text: str) -> str:
     return "\n".join(out)
 
 
+INLINE_MARKER = re.compile(r"`[^`\n]*<!--[^`\n]*?-->[^`\n]*`")
+
+
+def blank_inline_marker_mentions(text: str) -> str:
+    """Blank markers written inside an inline code span.
+
+    "each section carries a ``<!-- endpoint: -->`` block" names the convention
+    rather than declaring a path — the same distinction as a fenced example.
+    Applied only when scanning for markers, never when reading a value
+    marker's carrier prose: that comparison depends on the backticked tokens
+    this would remove.
+    """
+    return INLINE_MARKER.sub(lambda match: " " * len(match.group(0)), text)
+
+
 def _parse_params(raw: str, where: str) -> dict[str, str]:
     if raw.strip() == NONE_MARKER:
         return {}
@@ -297,7 +312,7 @@ def parse_endpoint_markers(document: Path, text: str) -> list[EndpointMarker]:
         where = f"{document.name}:{line}"
         body = match.group("body")
         lines = body.splitlines()
-        path = lines[0].strip()
+        path = lines[0].strip() if lines else ""
         if not path.startswith("/"):
             raise ValueError(
                 f"{where}: endpoint marker must open with a path, got {path!r}"
@@ -595,11 +610,18 @@ def run_checks(
             continue
         text = blank_fenced_blocks(document.read_text(encoding="utf-8"))
         try:
-            markers_by_document[document] = parse_endpoint_markers(document, text)
+            markers_by_document[document] = parse_endpoint_markers(
+                document, blank_inline_marker_mentions(text)
+            )
         except ValueError as error:
             report.fail(str(error))
             continue
-        value_markers.extend(parse_value_markers(document, text))
+        # Blanking replaces only the inline span with spaces, so line
+        # structure and every backticked token outside it survive — a real
+        # marker's carrier prose is unaffected.
+        value_markers.extend(
+            parse_value_markers(document, blank_inline_marker_mentions(text))
+        )
 
     check_paths(report, declared_paths, markers_by_document)
     for markers in markers_by_document.values():
