@@ -412,3 +412,79 @@ def test_duplicate_endpoint_marker_fails(tree: Any) -> None:
         "/api/v1/health" in failure and "endpoint markers" in failure
         for failure in report.failures
     ), _failures(report)
+
+
+def test_wrapped_token_set_resolves(tree: Any) -> None:
+    """A token set that wraps across lines is read whole.
+
+    Reading only the marker's own line would check half the set and report the
+    wrapped-off members as missing, pushing an author to reformat correct prose
+    to appease the gate.
+    """
+    from manta_trading.data.kalshi.constants import MarketStatus
+
+    marker = "manta_trading.data.kalshi.constants.MarketStatus"
+    members = [f"`{member.value}`" for member in MarketStatus]
+    half = len(members) // 2
+    tree.write()
+    tree.reference.write_text(
+        tree.reference.read_text(encoding="utf-8")
+        + f"\nStatus tokens are {' '.join(members[:half])}\n"
+        f"{' '.join(members[half:])}.\n<!-- from: {marker} -->\n",
+        encoding="utf-8",
+    )
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert report.ok, _failures(report)
+
+
+def test_marker_does_not_read_the_preceding_sentence(tree: Any) -> None:
+    """The carrier is one sentence, not the paragraph.
+
+    Widening it to the paragraph makes a neighbouring sentence's backticked
+    words part of the documented set — which is how this boundary was chosen:
+    a `granularity` mention one line above a Granularity token set failed the
+    gate until the scope was narrowed.
+    """
+    from manta_trading.data.acquisition.pass_runs import PassKind
+
+    marker = "manta_trading.data.acquisition.pass_runs.PassKind"
+    members = " ".join(f"`{member.value}`" for member in PassKind)
+    tree.write()
+    tree.reference.write_text(
+        tree.reference.read_text(encoding="utf-8")
+        + f"\nThe `pass` field names a kind.\nKinds are {members}.\n"
+        f"<!-- from: {marker} -->\n",
+        encoding="utf-8",
+    )
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert report.ok, _failures(report)
+
+
+def test_markers_inside_fenced_blocks_are_examples(tree: Any) -> None:
+    """A marker shown inside a code fence documents the convention; it does not
+    declare anything.
+
+    Without this, the "Keeping this accurate" section — which must show an
+    endpoint marker and a from: marker to explain them — fails the gate it
+    describes: a duplicate path, and a from: marker whose surrounding prose is
+    the explanation rather than a token set.
+    """
+    tree.write()
+    tree.reference.write_text(
+        tree.reference.read_text(encoding="utf-8") + "\n## How to write one\n\n```\n"
+        "<!-- endpoint: /api/v1/health\n     params: -\n     errors: 200 -->\n"
+        "```\n\n```\nTokens are `a` `b`.\n"
+        "<!-- from: manta_trading.constants.NO_SUCH_SYMBOL -->\n```\n",
+        encoding="utf-8",
+    )
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert report.ok, _failures(report)

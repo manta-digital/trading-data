@@ -239,6 +239,29 @@ def _line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
+FENCE = re.compile(r"^\s*(?:```|~~~)")
+
+
+def blank_fenced_blocks(text: str) -> str:
+    """Replace fenced code block contents with blank lines.
+
+    A document that explains its own marker convention shows one, and a marker
+    inside a fence is an example rather than a declaration — parsing it makes
+    the "Keeping this accurate" section fail the gate it documents. Lines are
+    blanked rather than removed so every reported line number still matches the
+    file as an author sees it.
+    """
+    out: list[str] = []
+    inside = False
+    for line in text.splitlines():
+        if FENCE.match(line):
+            inside = not inside
+            out.append("")
+            continue
+        out.append("" if inside else line)
+    return "\n".join(out)
+
+
 def _parse_params(raw: str, where: str) -> dict[str, str]:
     if raw.strip() == NONE_MARKER:
         return {}
@@ -307,26 +330,44 @@ def parse_endpoint_markers(document: Path, text: str) -> list[EndpointMarker]:
     return markers
 
 
+def _ends_a_sentence(line: str) -> bool:
+    """Whether ``line`` closes a sentence, so the line below starts a new one.
+
+    A trailing colon counts: the sentence that introduces a list is not part of
+    the list it introduces.
+    """
+    return line.rstrip().endswith((".", ":", "!", "?"))
+
+
 def parse_value_markers(document: Path, text: str) -> list[ValueMarker]:
     """Extract every ``<!-- from: -->`` marker with the prose it documents.
 
-    The documented value is read from the marker's own line, or — when the
-    marker stands alone, which is how a long dotted path stays inside the line
-    length — from the nearest non-empty line above it. Without the fallback an
-    author would have to choose between a readable line and a working check.
+    The documented value is the **sentence** the marker closes, which may wrap
+    across lines: text is collected upwards from the marker until a sentence
+    end (or a blank line) is found. A token set long enough to need a marker is
+    often long enough to wrap, and reading a single line would silently check
+    half of it. Stopping at the sentence boundary rather than the paragraph's
+    is what keeps the check narrow — a neighbouring sentence naming
+    ``granularity`` in backticks must not be read as part of a documented
+    token set.
     """
     lines = text.splitlines()
     markers: list[ValueMarker] = []
     for match in VALUE_MARKER.finditer(text):
         line = _line_of(text, match.start())
         carrier = lines[line - 1]
-        prose = carrier[: carrier.index("<!--")].strip()
-        if not prose:
-            for above in range(line - 2, -1, -1):
-                candidate = lines[above].strip()
-                if candidate:
-                    prose = candidate
-                    break
+        own = carrier[: carrier.index("<!--")].strip()
+        collected = [own] if own else []
+        # Walk upwards until the collected text is a whole sentence: stop as
+        # soon as a line has been taken that the line above it ends before.
+        for above in range(line - 2, -1, -1):
+            if collected and _ends_a_sentence(lines[above]):
+                break
+            candidate = lines[above].strip()
+            if not candidate:
+                break
+            collected.append(candidate)
+        prose = " ".join(part for part in reversed(collected) if part)
         markers.append(
             ValueMarker(
                 document=document,
@@ -552,7 +593,7 @@ def run_checks(
                 f"the gate cannot check a file that is not there"
             )
             continue
-        text = document.read_text(encoding="utf-8")
+        text = blank_fenced_blocks(document.read_text(encoding="utf-8"))
         try:
             markers_by_document[document] = parse_endpoint_markers(document, text)
         except ValueError as error:
