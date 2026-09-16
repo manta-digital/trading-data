@@ -8,7 +8,7 @@ interfaces: []
 effort: 2
 dateCreated: 20260916
 dateUpdated: 20260916
-status: not_started
+status: complete
 ---
 
 # Slice Design: API reference documentation — one for humans, one for agents (190)
@@ -570,135 +570,210 @@ string with code on one side and nothing on the other.
 
 ## Verification Walkthrough
 
-Prerequisite: a running API. `mt serve` on the host with the DB configured;
-these commands assume `http://localhost:8100`.
+**Executed 2026-09-16 during implementation.** All eleven steps produced their
+expected outcome; three commands as originally written did not, and are
+corrected below with a note saying why. Outcomes are recorded per step so an
+external agent — human or AI — can re-run this and compare.
+
+Prerequisite: a running API from the **current checkout**. Port 8100 on
+manta9000 runs an older production build with only six endpoints and cannot
+verify these routes. Start one on a spare port:
+
+```sh
+set -a; source .env; set +a
+uv run mt serve --host 127.0.0.1 --port 8137
+```
+
+The commands below use `127.0.0.1:8137`. Steps 1–3 and 9–10 need no server at
+all; the gate reads the committed artifact.
 
 **1. The gate runs, and passes.**
 
 ```sh
-uv run python scripts/check_api_docs.py --check
+uv run python scripts/check_api_docs.py --check; echo "exit=$?"
 ```
 
-Expect: a pass line naming 17 paths checked.
+Expect a report line and `exit=0`. Actual:
 
-**2. The gate actually fails.** Add a parameter to a route — say `limit` on
-`/api/v1/gaps/{symbol}` — regenerate the artifact, and re-run:
+```
+checked 17 paths, 48 documented parameters, 58 documented statuses, 12 from: markers
+docs/api documentation is consistent with openapi.json
+exit=0
+```
+
+> **Corrected.** The design expected "a pass line naming 17 paths checked".
+> The line names the parameter, status and marker counts too, which is what
+> makes a passing run informative rather than a bare "ok". ✅
+
+**2. The gate actually fails.** Add a parameter to a route, regenerate, re-run:
 
 ```sh
+# add `limit: int | None = None,` to get_gaps in routes/gaps.py
 uv run python scripts/dump_openapi.py
 uv run python scripts/check_api_docs.py --check; echo "exit=$?"
 ```
 
-Expect: `exit=1`, naming `/api/v1/gaps/{symbol}` and `limit` as undocumented.
-Revert the route, regenerate, confirm the gate passes again. A gate that has
-never been seen to fail has not been verified.
+Actual — `exit=1`, naming the path, the parameter, its type, and **both**
+documents:
+
+```
+FAIL reference.md:618: /api/v1/gaps/{symbol} declares parameter 'limit' (integer) which is not documented; add it to the marker's params and to the field table
+FAIL agents.md:147: /api/v1/gaps/{symbol} declares parameter 'limit' (integer) which is not documented; add it to the marker's params and to the field table
+```
+
+Reverting the route and regenerating returns the gate to `exit=0`, with
+`git diff --stat` clean on both `routes/gaps.py` and `openapi.json`. ✅
 
 **3. The ceiling is not retyped.** Change `API_MAX_BARS_PER_REQUEST` to
-`75_001`, re-run the gate.
+`75_001` in `constants.py` and re-run the gate. Actual — `exit=1`, naming the
+symbol, the live value and the documented one, in both documents:
 
-Expect: `exit=1`, naming the symbol, the documented value and the live one.
-Revert.
+```
+FAIL reference.md:151: manta_trading.constants.API_MAX_BARS_PER_REQUEST is 75001 but the line documents 75000
+FAIL agents.md:265: manta_trading.constants.API_MAX_BARS_PER_REQUEST is 75001 but the line documents 75000
+```
+
+Reverting restores `exit=0`. Note the gate needs **no artifact regeneration**
+for this one: the marker resolves the symbol by import, so the mismatch is
+caught the moment the constant changes. ✅
 
 **4. The three routes now publish a body type.**
 
 ```sh
-curl -s localhost:8100/openapi.json \
-  | jq '.paths["/api/v1/bars/{symbol}"].responses["200"].content | keys'
-curl -s localhost:8100/openapi.json \
-  | jq '.components.schemas | keys | map(select(test("Bars|Candle|Trade")))'
+curl -s 127.0.0.1:8137/openapi.json \
+  | jq '.paths["/api/v1/bars/{symbol}"].get.responses["200"].content | keys'
+curl -s 127.0.0.1:8137/openapi.json \
+  | jq -r '.components.schemas | keys
+           | map(select(test("^(Bar|Bars|Candle|CandleBidAsk|CandlePrice|Candles|Trade|Trades)(Record|Response)?$"))) | .[]'
 ```
 
-Expect: both `application/json` and `application/x-msgpack`; and
-`BarsResponse`, `BarRecord`, `CandlesResponse`, `CandleRecord`,
-`CandleBidAsk`, `CandlePrice`, `TradesResponse`, `TradeRecord` present. Before
-this slice, the first returns `null` and the second an empty list.
+Actual: `["application/json","application/x-msgpack"]`, and all eight types —
+`BarRecord`, `BarsResponse`, `CandleBidAsk`, `CandlePrice`, `CandleRecord`,
+`CandlesResponse`, `TradeRecord`, `TradesResponse`.
 
-**5. Nothing served changed (SC7).** Before the D3 commit, capture:
+> **Corrected, twice.** The design's first command omitted `.get` between
+> `.paths[…]` and `.responses`, so it returned `null` against a correct
+> artifact — it would have "passed" the pre-D3 state and the post-D3 state
+> identically. Its second command filtered on `test("Bars|Candle|Trade")`,
+> which misses `BarRecord` (no `s`) and reports seven of the eight types.
+> Both are fixed above. ✅
+
+**5. Nothing served changed (SC7).** The byte comparison was executed against
+commit `3141815` when D3 landed: 6/6 responses identical across three routes ×
+two encodings. Re-verified here structurally, which is the durable check:
 
 ```sh
-for f in json msgpack; do
-  curl -s "localhost:8100/api/v1/bars/SPY?granularity=1d&start=2024-01-02&end=2024-01-31&format=$f" \
-    > /tmp/before.bars.$f
-done
+git show 3141815 --stat
+git show 3141815 -- src/ | grep -E '^\+.*(return|encode|content=)'
 ```
 
-Repeat for candlesticks and trades on a settled market. After the commit,
-capture the same into `/tmp/after.*` and:
-
-```sh
-for f in /tmp/before.*; do cmp "$f" "${f/before/after}" || echo "DIFF: $f"; done
-```
-
-Expect: no output. Any `DIFF` line means D3 changed behavior and must be
-reverted.
+Expect the diff to touch `bars.py`, `kalshi_timeseries.py` and
+`serialization.py` only, and the only added `return` to be inside
+`timeseries_200` — a helper that builds a schema fragment. It supplies a
+declaration; FastAPI neither validates nor re-serializes a raw `Response`, so
+no served byte can change. Confirmed: both encodings still answer on all three
+routes. ✅
 
 **6. A human can answer a question from the reference alone.** Open
-`docs/api/reference.md`, go to `/api/v1/bars/{symbol}`, and without opening
-any source file answer: what time base is `timestamp`? What does `is_stale`
-mean for `granularity=1m`, and why? What happens on a 20-year `1m` request?
-Then run the section's example and confirm it returns the documented shape.
+`docs/api/reference.md` §3.2 and, without opening any source file, answer:
+what time base is `timestamp`? What does `is_stale` mean for `1m`, and why?
+What happens on a 20-year `1m` request?
 
-Expect: UTC, at the bar's opening instant; `false` always, because `1m` is a
-raw hypertable with no cagg to be behind — not because it happens to be
-fresh; a `422` naming the estimated bar count, the ceiling and the maximum
-span in days for that granularity.
+Actual, all three answerable from the section and §2.5–2.6:
 
-**7. The near-miss routes are named.** In `docs/api/agents.md`, look up "is
-the minute pass running".
+- **UTC, RFC 3339, at the bar's opening instant** (field table, §3.2).
+- **Always `false`** for `1m` — "read straight from their hypertables; there is
+  no continuous aggregate between the store and the response that could be
+  behind… not because they happen to be fresh right now" (§2.6).
+- **A `422`** naming the estimate, the ceiling and the maximum span (§2.5, with
+  the real message pasted in §2.7).
 
-Expect: `/api/v1/overview`, with `/api/v1/status` explicitly named as the
-wrong answer and why. Then confirm the trap is real and the warning earns its
-place:
+Running the section's example returns the documented shape — six top-level
+keys, `count: 5` for the documented Monday–Friday window, six fields per bar,
+`is_stale: false`. The 20-year request returns `422`. ✅
+
+**7. The near-miss routes are named.** In `docs/api/agents.md`, "Is anything
+running right now, and how far along?" answers `/api/v1/overview` and names
+`/api/v1/status` as **"the most common wrong turn in this API"**, with the
+reason. The trap reproduces:
 
 ```sh
-curl -s "localhost:8100/api/v1/status?symbol=SPY" | jq '{scope, count}'
+curl -s "127.0.0.1:8137/api/v1/status?symbol=SPY" | jq '{scope, count}'
 ```
 
-Expect: `count: 0` for a healthy SPY — a confident, wrong-looking answer to
-anyone who has not read section 4.
+```json
+{"scope": "symbol", "count": 0}
+```
+
+A healthy SPY answers `count: 0` — confidently wrong-looking to anyone who has
+not read §4 of `agents.md`. ✅
 
 **8. Every documented status is one the route can return.**
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' \
-  "localhost:8100/api/v1/bars/SPY?granularity=1m&start=2004-01-01&end=2024-01-01"
+  "127.0.0.1:8137/api/v1/bars/SPY?granularity=1m&start=2004-01-01&end=2024-01-01"
 curl -s -o /dev/null -w '%{http_code}\n' \
-  "localhost:8100/api/v1/bars/NOSUCHSYM?granularity=1d&start=2024-01-02&end=2024-01-03"
-curl -s "localhost:8100/api/v1/status?health=" | jq -r '.error'
+  "127.0.0.1:8137/api/v1/bars/NOSUCHSYM?granularity=1d&start=2024-01-02&end=2024-01-03"
+curl -s "127.0.0.1:8137/api/v1/status?health=" | jq -r '.error'
 ```
 
-Expect: `422`, `404`, and the empty-`health` remedy text — each matching the
-reference's error section verbatim, including the remedy wording.
+Actual: `422`, `404`, and
+
+```
+Query parameter 'health' was provided but empty. Omit it for the default
+(GAPS, STALE, FAILED), pass 'all=true' for no filter, or name one or more of:
+FAILED, GAPS, OK, STALE
+```
+
+The remedy names exactly the four `HealthStatus` tokens both documents carry
+under their `from:` markers. ✅
 
 **9. `/api/v1/credits` has no `504`, and the documents do not claim one.**
 
 ```sh
-jq '.paths["/api/v1/credits"].responses | keys' docs/api/openapi.json
-grep -n "504" docs/api/reference.md | grep -i credits
+jq '.paths["/api/v1/credits"].get.responses | keys' docs/api/openapi.json
 ```
 
-Expect: `["200"]`, and no match — the route issues no statement, so a `504`
-remedy would be false advice (189 D8).
+Actual: `["200"]`. ✅
+
+> **Corrected.** The design's second command was
+> `grep -n "504" docs/api/reference.md | grep -i credits`, expecting no match.
+> That test is wrong in both directions: it cannot distinguish prose that
+> *promises* a `504` from prose that *denies* one, and both documents
+> deliberately say "**There is no `504`**" in the credits section — correct
+> content the grep would flag. The real enforcement is the gate's subset check
+> (task 2.4's defining case), which fails if a document lists `504` under the
+> credits endpoint marker. Verified separately: adding `504` to that marker
+> fails the gate, and `test_documenting_a_504_on_credits_fails` asserts it.
 
 **10. The README has one description, not two.**
 
 ```sh
-grep -n "GET /api/v1" README.md
+grep -c "GET /api/v1" README.md          # expect 0
+grep -c 'docs/api/reference.md' README.md  # expect ≥1
 ```
 
-Expect: no endpoint-list matches; a link to `docs/api/reference.md` instead.
-Confirm `mt serve`, the `MT_API_*` table and the auth/CORS paragraph are
-still present.
+Actual: `0` and `1`. `mt serve` (7 occurrences), the `MT_API_*` table and the
+auth/CORS paragraph are all still present; no dead anchors were introduced
+(the one anchor my checker flagged, `#test--ci`, predates this slice and
+resolves correctly on GitHub). ✅
 
 **11. Full suite.**
 
 ```sh
+set -a; source .env; set +a; export MT_TIMESCALE_TEST_URL
 uv run pytest test/unit -q
 uv run pytest test/integration -q
 ```
 
-Expect: unit green; integration green except the documented pre-existing
-baseline failures.
+Unit: **3,644 passed, 5 skipped, 0 failed** (115.8 s). Integration: green
+except the documented pre-existing baseline failures — see the slice's task
+file for the run recorded at close. ✅
+
+> **Note for a re-runner.** `MT_TIMESCALE_TEST_URL` must be **exported**, not
+> merely set, or roughly forty unit tests error at fixture setup with a
+> configuration message rather than a code failure.
 
 ## Risks
 
