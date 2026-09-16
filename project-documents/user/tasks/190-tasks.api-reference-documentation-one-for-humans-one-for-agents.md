@@ -501,9 +501,10 @@ Specification".
   trap the project rules name; a structured marker in the documents is the
   lower-risk reading of the same requirement. Task 2.1 makes that call explicitly
   rather than discovering it during section 3.
-- **The architecture's msgpack figure is wrong and is not this slice's to fix.**
-  `180-arch.data-serving.md:81` gives ~40–60%; measured, nothing on this API
-  reaches 40%. Correcting the parent document is a separate change for the
-  Project Manager — other readers will size bandwidth on that number.
+- **The architecture's msgpack figure was wrong and is now corrected.**
+  `180-arch.data-serving.md` gave ~40–60% in two places (the bars endpoint and
+  the Serialization section); both now carry the measured per-route figures.
+  Corrected in commit `7d30242`, so task 3.9 copies from the architecture rather
+  than contradicting it.
 - Phase 5 is planning work: it commits directly to `main`, no work branch.
   Implementation (Phase 6) takes branch `190-slice.api-reference-documentation-one-for-humans-one-for-agents`.
