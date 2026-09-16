@@ -78,7 +78,21 @@ Response shape:
 }
 ```
 
-For large responses (minute data over weeks — thousands of bars), msgpack format reduces payload size ~40-60% vs JSON. The UI can request this once the TypeScript msgpack decoder is wired.
+For large responses, msgpack format reduces payload size **~35.5%** vs JSON for
+equity bars — flat from four days to eight weeks, so a longer window does not
+improve it (measured 2026-09-16, slice 190 D3). Kalshi time series save far
+less: 20.1% for candlesticks, 14.2% for trades, because `mode="json"`
+stringifies their fixed-point `Decimal` prices before either encoder runs
+(`serialization.py:30-36`) and msgpack cannot pack a string more tightly than
+JSON. Bars cap at ~36% for the same reason applied to timestamps, rendered as
+25-character ISO-8601 strings rather than packed integers; the savings are key
+and delimiter overhead, not the values. The UI can request this once the
+TypeScript msgpack decoder is wired.
+
+An earlier revision of this document gave ~40-60% here and at Serialization
+below. That figure was never measured and holds for none of the three routes
+that offer the parameter, including the minute-data-over-weeks shape it was
+stated about. Corrected 2026-09-16 from the slice 190 measurements.
 
 ### Symbols
 
@@ -209,7 +223,7 @@ Two properties distinguish these responses from the equity ones:
 - **ASGI server**: Uvicorn (new dependency). Single worker is fine for single-user local network use.
 - **CORS**: Permissive for local network. trading-ui runs on a different port (Vite dev server on 5173 or similar), so CORS must allow the origin.
 - **Database connection**: the API shares the existing `Settings` and the same `MT_TIMESCALE_DB_URL` the CLI uses — no new *connection* config (no separate credentials, host, or database). **Corrected by slice 186 (D1, D11):** "same pool" was never true as built. The API process opens **three** independent psycopg3 pools — its own (`app.state.db_pool`, for health/status/symbols/gaps and the freshness probe) plus the class-owned pools inside `TimescaleMinuteDataDB` and `TimescaleDailyDataDB`, which serve the bars path. Slice 186 gives all three serving-sized session settings (`statement_timeout`, `work_mem`) via an optional constructor argument whose defaults preserve CLI and daemon behavior. Consolidating to a single shared pool was deferred to slice 187, which built the load-test tier that could size it. **Decided there (D11, 2026-08-04): not now.** 16 concurrent symbol-detail requests against `app.state.db_pool` at `max_size=8` all completed in 144 ms wall clock, per-request median 88 ms and max 141 ms against a 32 ms uncontended median — a clean two-wave staircase, which is the pool working rather than a bottleneck. The two class-owned pools are idle on that path, so consolidation would not have moved any measured number; the remaining concern is idle-connection *resource* cost, which this measurement cannot speak to. Reopening it needs a load assertion that drives the **bars** path concurrently, and the tier now exists to host one. Two API *policy* settings are added (`MT_API_MAX_BARS_PER_REQUEST`, `MT_API_STATEMENT_TIMEOUT`); both default to constants in `constants.py`. Existing DB methods are synchronous; the API will use `asyncio.get_event_loop().run_in_executor(None, ...)` to call them from async route handlers. This is appropriate for single-user local network use; migrate to `AsyncConnection` only if profiling shows contention.
-- **Serialization**: orjson (new dependency) for fast JSON serialization. Optional msgpack via the `msgpack` library (new dependency) for large bar responses — reduces payload ~40-60% vs JSON for minute data over weeks. The TypeScript client must use a compatible msgpack decoder (e.g. `@msgpack/msgpack`) when requesting this format.
+- **Serialization**: orjson (new dependency) for fast JSON serialization. Optional msgpack via the `msgpack` library (new dependency) for large bar responses — reduces payload ~35.5% vs JSON for equity bars, less for Kalshi time series (measured; see the bars endpoint above). The TypeScript client must use a compatible msgpack decoder (e.g. `@msgpack/msgpack`) when requesting this format.
 - **New pyproject.toml additions**: `fastapi`, `uvicorn[standard]`, `orjson`, `msgpack`.
 
 ## CLI Integration
