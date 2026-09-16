@@ -7,7 +7,7 @@ and the accepted format values are spelled once (design 188 D7).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import msgpack
 import orjson
@@ -23,6 +23,31 @@ ResponseFormat = Literal["json", "msgpack"]
 
 JSON_MEDIA_TYPE = "application/json"
 MSGPACK_MEDIA_TYPE = "application/x-msgpack"
+
+
+def timeseries_200(model: type[BaseModel]) -> dict[int | str, dict[str, Any]]:
+    """Declare the ``200`` body type for a route that returns a raw ``Response``.
+
+    ``response_class=Response`` is what lets these routes answer with msgpack,
+    but it also leaves FastAPI with no ``response_model`` to publish, so the
+    schema described the API's three highest-volume surfaces as untyped. This
+    supplies the type without touching what is sent: the handler still encodes
+    through :func:`timeseries_response`, and FastAPI neither validates nor
+    re-serializes a raw ``Response``.
+
+    Both media types are listed because ``?format=`` chooses between them at
+    request time, so a generated client must expect either.
+    """
+    schema = {"$ref": f"#/components/schemas/{model.__name__}"}
+    return {
+        200: {
+            "model": model,
+            "content": {
+                JSON_MEDIA_TYPE: {"schema": schema},
+                MSGPACK_MEDIA_TYPE: {"schema": schema},
+            },
+        }
+    }
 
 
 def timeseries_response(model: BaseModel, fmt: ResponseFormat) -> Response:

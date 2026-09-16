@@ -22,6 +22,356 @@
         "title": "AvailableRange",
         "type": "object"
       },
+      "BarRecord": {
+        "description": "A single OHLCV bar.",
+        "properties": {
+          "close": {
+            "title": "Close",
+            "type": "number"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "open": {
+            "title": "Open",
+            "type": "number"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "timestamp",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume"
+        ],
+        "title": "BarRecord",
+        "type": "object"
+      },
+      "BarsResponse": {
+        "description": "Response body for ``GET /api/v1/bars/{symbol}``.",
+        "properties": {
+          "adjusted": {
+            "title": "Adjusted",
+            "type": "boolean"
+          },
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/BarRecord"
+            },
+            "title": "Bars",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "granularity": {
+            "title": "Granularity",
+            "type": "string"
+          },
+          "is_stale": {
+            "title": "Is Stale",
+            "type": "boolean"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "granularity",
+          "adjusted",
+          "is_stale",
+          "count",
+          "bars"
+        ],
+        "title": "BarsResponse",
+        "type": "object"
+      },
+      "CandleBidAsk": {
+        "description": "One side's OHLC over the period, in dollars.",
+        "properties": {
+          "close_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Dollars"
+          },
+          "high_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Dollars"
+          },
+          "low_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Dollars"
+          },
+          "open_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Dollars"
+          }
+        },
+        "required": [
+          "open_dollars",
+          "high_dollars",
+          "low_dollars",
+          "close_dollars"
+        ],
+        "title": "CandleBidAsk",
+        "type": "object"
+      },
+      "CandlePrice": {
+        "description": "Traded price over the period: OHLC plus the previous and mean marks.\n\nA period with no trades carries ``previous_dollars`` alone; the other\nfields stay null rather than the object being dropped, so every candle has\nthe same shape.",
+        "properties": {
+          "close_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Dollars"
+          },
+          "high_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Dollars"
+          },
+          "low_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Dollars"
+          },
+          "mean_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Dollars"
+          },
+          "open_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Dollars"
+          },
+          "previous_dollars": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Dollars"
+          }
+        },
+        "required": [
+          "open_dollars",
+          "high_dollars",
+          "low_dollars",
+          "close_dollars",
+          "previous_dollars",
+          "mean_dollars"
+        ],
+        "title": "CandlePrice",
+        "type": "object"
+      },
+      "CandleRecord": {
+        "description": "One candlestick, in the shape Kalshi serves and ``Candlestick`` parses.",
+        "properties": {
+          "end_period_ts": {
+            "format": "date-time",
+            "title": "End Period Ts",
+            "type": "string"
+          },
+          "open_interest_fp": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Interest Fp"
+          },
+          "price": {
+            "$ref": "#/components/schemas/CandlePrice"
+          },
+          "volume_fp": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume Fp"
+          },
+          "yes_ask": {
+            "$ref": "#/components/schemas/CandleBidAsk"
+          },
+          "yes_bid": {
+            "$ref": "#/components/schemas/CandleBidAsk"
+          }
+        },
+        "required": [
+          "end_period_ts",
+          "yes_bid",
+          "yes_ask",
+          "price",
+          "volume_fp",
+          "open_interest_fp"
+        ],
+        "title": "CandleRecord",
+        "type": "object"
+      },
+      "CandlesResponse": {
+        "description": "Candlesticks for one market over the requested window.",
+        "properties": {
+          "candlesticks": {
+            "items": {
+              "$ref": "#/components/schemas/CandleRecord"
+            },
+            "title": "Candlesticks",
+            "type": "array"
+          },
+          "collected": {
+            "description": "Whether this market is in the candle collection set. False means no candles are stored for it \u2014 not that the window was empty.",
+            "title": "Collected",
+            "type": "boolean"
+          },
+          "complete_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Requested and stored through this instant \u2014 not 'the newest stored candle'. A quiet market produces no candle for a period it was nonetheless asked for, so the two differ.",
+            "title": "Complete Through"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "coverage_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Oldest period this market's candles have been collected from. Null when the market is not collected.",
+            "title": "Coverage From"
+          },
+          "market_ticker": {
+            "title": "Market Ticker",
+            "type": "string"
+          },
+          "period_minutes": {
+            "description": "Candle period in minutes. One value is collected today; it is reported so a client need not assume it.",
+            "title": "Period Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "market_ticker",
+          "period_minutes",
+          "collected",
+          "coverage_from",
+          "complete_through",
+          "count",
+          "candlesticks"
+        ],
+        "title": "CandlesResponse",
+        "type": "object"
+      },
       "CategoryListResponse": {
         "description": "Every distinct series category.\n\n``count`` is the number of categories, not the number of series; the\nper-category series totals are on the records themselves.",
         "properties": {
@@ -1904,6 +2254,134 @@
         "title": "SymbolsResponse",
         "type": "object"
       },
+      "TradeRecord": {
+        "description": "One trade off the tape. Field names are the Kalshi/DB names verbatim.",
+        "properties": {
+          "count_fp": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Count Fp",
+            "type": "string"
+          },
+          "created_time": {
+            "format": "date-time",
+            "title": "Created Time",
+            "type": "string"
+          },
+          "is_block_trade": {
+            "title": "Is Block Trade",
+            "type": "boolean"
+          },
+          "no_price_dollars": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "No Price Dollars",
+            "type": "string"
+          },
+          "taker_book_side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taker Book Side"
+          },
+          "taker_outcome_side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taker Outcome Side"
+          },
+          "trade_id": {
+            "title": "Trade Id",
+            "type": "string"
+          },
+          "yes_price_dollars": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Yes Price Dollars",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_time",
+          "trade_id",
+          "count_fp",
+          "yes_price_dollars",
+          "no_price_dollars",
+          "taker_outcome_side",
+          "taker_book_side",
+          "is_block_trade"
+        ],
+        "title": "TradeRecord",
+        "type": "object"
+      },
+      "TradesResponse": {
+        "description": "Trades for one market over the requested window.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "coverage_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Oldest instant the trades tape reaches, across the live and historical surfaces. Null when the trades phase has never run.",
+            "title": "Coverage From"
+          },
+          "market_ticker": {
+            "title": "Market Ticker",
+            "type": "string"
+          },
+          "tape_complete_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Created time of the newest stored trade. Null means the trades phase has never run \u2014 not that the tape is empty today.",
+            "title": "Tape Complete Through"
+          },
+          "tape_filtered": {
+            "description": "Whether this market's category is excluded from trade collection. True means no trades are stored for it by policy, so an empty window is expected rather than a gap.",
+            "title": "Tape Filtered",
+            "type": "boolean"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/TradeRecord"
+            },
+            "title": "Trades",
+            "type": "array"
+          }
+        },
+        "required": [
+          "market_ticker",
+          "coverage_from",
+          "tape_complete_through",
+          "tape_filtered",
+          "count",
+          "trades"
+        ],
+        "title": "TradesResponse",
+        "type": "object"
+      },
       "UniverseBlock": {
         "description": "The universe accounting line and when it was recorded.\n\n``summary`` is ``None`` where the screen renders ``NO_ACCOUNTING``: the\nAPI serves nulls and leaves the prose to the client.",
         "properties": {
@@ -2056,6 +2534,18 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarsResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarsResponse"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -2488,6 +2978,18 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandlesResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandlesResponse"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -2587,6 +3089,18 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradesResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradesResponse"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {

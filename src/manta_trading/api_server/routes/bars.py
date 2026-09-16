@@ -28,6 +28,7 @@ from manta_trading.api_server.routes.windows import (
 )
 from manta_trading.api_server.serialization import (
     ResponseFormat,
+    timeseries_200,
     timeseries_response,
 )
 from manta_trading.constants import (
@@ -116,7 +117,7 @@ def _admit_range(
 @router.get(
     "/api/v1/bars/{symbol}",
     response_class=Response,
-    responses=GATEWAY_TIMEOUT_RESPONSE,
+    responses=timeseries_200(BarsResponse) | GATEWAY_TIMEOUT_RESPONSE,
 )
 async def get_bars(
     symbol: str,

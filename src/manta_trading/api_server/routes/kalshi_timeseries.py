@@ -38,6 +38,7 @@ from manta_trading.api_server.models.responses import GATEWAY_TIMEOUT_RESPONSE
 from manta_trading.api_server.routes.windows import resolve_window
 from manta_trading.api_server.serialization import (
     ResponseFormat,
+    timeseries_200,
     timeseries_response,
 )
 from manta_trading.data.kalshi import serve_timeseries as series
@@ -62,12 +63,10 @@ class _Read[Row]:
     facts: series.TapeFacts | None = None
 
 
-
-
 @router.get(
     "/markets/{ticker}/candlesticks",
     response_class=Response,
-    responses=GATEWAY_TIMEOUT_RESPONSE,
+    responses=timeseries_200(CandlesResponse) | GATEWAY_TIMEOUT_RESPONSE,
 )
 async def get_candlesticks(
     ticker: str,
@@ -114,7 +113,7 @@ async def get_candlesticks(
 @router.get(
     "/markets/{ticker}/trades",
     response_class=Response,
-    responses=GATEWAY_TIMEOUT_RESPONSE,
+    responses=timeseries_200(TradesResponse) | GATEWAY_TIMEOUT_RESPONSE,
 )
 async def get_trades(
     ticker: str,
