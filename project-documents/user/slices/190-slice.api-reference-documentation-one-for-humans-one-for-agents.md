@@ -231,26 +231,43 @@ the `200` declaration lists both media types.
 **What msgpack actually saves** (measured 2026-09-16 while capturing the SC7
 baselines, same payloads):
 
-| Route | JSON | msgpack | Reduction |
-|---|---|---|---|
-| bars, SPY 1d × 21 | 3,380 B | 2,162 B | 36% |
-| Kalshi candlesticks, 535 | 235,079 B | 187,718 B | 20% |
-| Kalshi trades, 2 | 671 B | 576 B | 14% |
+| Route / shape | Rows | JSON | msgpack | Reduction |
+|---|---|---|---|---|
+| bars, SPY `1d` × 21 | 21 | 3,380 B | 2,162 B | 36.0% |
+| bars, SPY `1m` 4 days | 3,178 | 487,050 B | 314,178 B | 35.5% |
+| bars, SPY `1m` 4 weeks | 16,639 | 2,548,869 B | 1,643,915 B | 35.5% |
+| bars, SPY `1m` 8 weeks | 32,328 | 4,950,775 B | 3,193,074 B | 35.5% |
+| Kalshi candlesticks | 535 | 235,079 B | 187,718 B | 20.1% |
+| Kalshi trades | 2 | 671 B | 576 B | 14.2% |
 
-The architecture states ~40–60% for minute bars over weeks; none of these
-reach it, and the Kalshi routes are less than half of it. The reason is
-`Decimal`: `timeseries_response` dumps with `mode="json"` so fixed-point
-prices are already **strings** before either encoder runs
-(`serialization.py:30-36`), and msgpack cannot pack a string more tightly
-than JSON — its remaining advantage is structural overhead only. Equity bars
-carry floats and do better.
+**The architecture's figure does not hold, including for the shape it was
+stated about.** 180-arch.data-serving.md gives ~40–60% for "minute data over
+weeks"; measured, that case is **35.5%**, and flat from four days to eight
+weeks — the ratio does not improve with volume, so no longer window rescues
+it. Nothing measured on this API reaches 40%.
 
-This does not refute the architecture's figure, which was stated for a shape
-none of these three measurements matches. It does mean the reference must
-report measured numbers per route rather than repeat one inherited estimate:
-a client choosing msgpack for the Kalshi tape on the promise of 40–60% would
-be deciding on a number that does not hold there. Raised by slice review
-F006 (note).
+Two separate reasons:
+
+- **Kalshi (20%, 14%)** — `timeseries_response` dumps with `mode="json"`, so
+  fixed-point `Decimal` prices are already **strings** before either encoder
+  runs (`serialization.py:30-36`). msgpack cannot pack a string more tightly
+  than JSON; only structural overhead is left to save.
+- **Equity bars (36%)** — floats do compress, and bars are the *best* case
+  here. They still fall short of 40%, because `mode="json"` also renders
+  every `timestamp` as a 25-character ISO-8601 string rather than a packed
+  integer. The savings come from key and delimiter overhead, not the values.
+
+An earlier revision of this design asserted "equity bars carry floats and do
+better" without measuring. That was wrong in both directions — minute bars
+are marginally *worse* than daily, and the claim covered precisely the shape
+the architecture's NFR names. Caught by slice review F001, whose point stands
+beyond this table: a design that forbids invented examples (D6) cannot itself
+carry an unmeasured performance claim.
+
+SC12 therefore requires measured per-route figures in the reference. The
+architecture's 40–60% should be corrected separately — it is a wrong number
+in a parent document, not a documentation gap in this slice, and other
+readers will act on it.
 
 ### D4 — The anti-drift mechanism is a coverage gate, not regeneration
 
@@ -428,6 +445,15 @@ query was cancelled" (504) from "nothing is wrong, this symbol is healthy"
 (200, `count: 0`) will loop, or give up, or report a false negative. Each
 status gets an explicit retry verdict and the parameter change that resolves
 it.
+
+Section 5 must also state what a `504` does **not** mean.
+`statement_timeout` bounds a single statement, not a request, so a route
+issuing several statements can run far past the budget without any one of
+them being cancelled — 186 D12b measured a 95-second request under a
+20-second budget (180-arch.data-serving.md:291). Request latency is not
+enforced anywhere. Two consequences an agent must not have to infer: a slow
+request is not a hung one and may still return, and the absence of a `504`
+is no evidence a request was fast. Raised by slice review F002 (note).
 
 ### `scripts/check_api_docs.py`
 
