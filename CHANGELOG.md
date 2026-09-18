@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-18
+
 ### Added
 - **The API has a consumer-facing reference.** Two hand-written documents
   covering all seventeen routes: [`docs/api/reference.md`](docs/api/reference.md)
