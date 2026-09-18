@@ -16,7 +16,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(nothing yet)
+### Added
+- **The API has a consumer-facing reference.** Two hand-written documents
+  covering all seventeen routes: [`docs/api/reference.md`](docs/api/reference.md)
+  is route-indexed, with per-field tables giving each field's type,
+  nullability and **unit or time base**, plus executed `curl` examples with
+  capture dates; [`docs/api/agents.md`](docs/api/agents.md) is
+  capability-indexed for LLM clients, listing questions rather than routes and
+  naming the near-miss route for each — the ones that answer `200` with a
+  confidently wrong answer. Facts that previously lived only in Python
+  docstrings are now on the page: that `gap_count` counts open gaps only, that
+  `lag_seconds: null` is not `0.0`, that raw grains are never stale *by
+  construction*, and that `count: 0` on `/api/v1/status` means nothing is
+  wrong rather than "no such symbol".
+- **Both documents are mechanically checked.** `scripts/check_api_docs.py`
+  fails the build when a documented path, query parameter or error status
+  stops matching the committed `openapi.json`, and when a documented enum or
+  ceiling stops matching the code that defines it — the ceiling and five
+  vocabularies are resolved by import rather than retyped. It runs in the unit
+  tier and needs no database.
+- **`agents.md` states a retry verdict for every failure mode**, including
+  what a `504` does *not* mean: `statement_timeout` bounds a single statement,
+  not a request, so a slow request is not a hung one and the absence of a
+  `504` is no evidence a request was fast.
+
+### Changed
+- **The README points at the reference instead of competing with it.** The
+  seventeen-line endpoint list and five essays moved to `docs/api/reference.md`
+  in full. `mt serve`, the `MT_API_*` environment table and the auth/CORS
+  paragraph stay.
+
+### Fixed
+- **`/api/v1/symbols` documents its `count` field.** It was absent from the
+  field table and the example; an integration test asserting the documented
+  shape caught it.
+
+### Known gaps
+- Two mismatches between what the API sends and what `openapi.json` declares
+  are **documented rather than fixed**, because changing either alters a
+  published schema: the `422` body shape (the schema declares
+  `HTTPValidationError`, but eight hand-written refusals send
+  `{"error": "…"}`), and the `404` — four route modules raise one and no path
+  declares it. Both are recorded as Future Work in the data-serving plan.
 
 ## [0.16.1] - 2026-09-15
 
