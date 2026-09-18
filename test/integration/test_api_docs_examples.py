@@ -30,6 +30,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from manta_trading.api_server.app import create_app
+from manta_trading.data.maintenance.status_coverage import COVERAGE_VIEWS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REFERENCE = REPO_ROOT / "docs" / "api" / "reference.md"
@@ -106,7 +107,15 @@ class TestDocumentedEnvelopes:
         with _client(migrated_db) as client:
             response = client.get("/api/v1/status")
 
-        for verdict in response.json()["coverage"]["verdicts"]:
+        verdicts = response.json()["coverage"]["verdicts"]
+        # An empty list would skip the loop and pass while asserting nothing —
+        # including the null-vs-0.0 distinction below, which is the whole
+        # reason this test exists. One verdict per coverage view.
+        assert len(verdicts) == len(COVERAGE_VIEWS), (
+            f"expected one verdict per coverage view "
+            f"({sorted(COVERAGE_VIEWS)}), got {len(verdicts)}"
+        )
+        for verdict in verdicts:
             assert set(verdict) == {
                 "view_name",
                 "is_fresh",

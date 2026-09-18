@@ -41,9 +41,10 @@ A value that must track code carries a value marker naming the symbol::
     The ceiling is 75,000 rows.
     <!-- from: manta_trading.constants.API_MAX_BARS_PER_REQUEST -->
 
-The gate imports the symbol and compares it to the documented value: scalars
-by value, enums as **token sets** (the members written in backticks), so a new
-enum member fails rather than quietly extending a documented list. The value is
+The gate imports the symbol and compares it to the documented value: a scalar
+must appear as one of the numbers in the carrier sentence, and an enum's
+members must be exactly the backticked **token set** there, so a new enum
+member fails rather than quietly extending a documented list. The value is
 read from the marker's own line, or from the line above when the marker stands
 alone — a long dotted path does not fit beside prose and stay inside the line
 length.
@@ -242,24 +243,30 @@ def _line_of(text: str, offset: int) -> int:
 FENCE = re.compile(r"^\s*(?:```|~~~)")
 
 
-def blank_fenced_blocks(text: str) -> str:
-    """Replace fenced code block contents with blank lines.
+def blank_fenced_blocks(text: str) -> tuple[str, int | None]:
+    """Blank fenced code block contents; report an unterminated fence.
 
     A document that explains its own marker convention shows one, and a marker
     inside a fence is an example rather than a declaration — parsing it makes
     the "Keeping this accurate" section fail the gate it documents. Lines are
     blanked rather than removed so every reported line number still matches the
     file as an author sees it.
+
+    Returns the blanked text and the line number of an unclosed fence, or
+    ``None`` when every fence is balanced. An odd number of fence lines would
+    otherwise blank the whole rest of the file, and the gate would report every
+    path below the break as undocumented — a wall of failures pointing away
+    from the one-character cause.
     """
     out: list[str] = []
-    inside = False
-    for line in text.splitlines():
+    opened_at: int | None = None
+    for number, line in enumerate(text.splitlines(), start=1):
         if FENCE.match(line):
-            inside = not inside
+            opened_at = None if opened_at else number
             out.append("")
             continue
-        out.append("" if inside else line)
-    return "\n".join(out)
+        out.append("" if opened_at else line)
+    return "\n".join(out), opened_at
 
 
 INLINE_MARKER = re.compile(r"`[^`\n]*<!--[^`\n]*?-->[^`\n]*`")
@@ -515,10 +522,16 @@ def _documented_tokens(text: str) -> set[str]:
     return set(re.findall(r"`([^`]+)`", text))
 
 
-def _documented_number(text: str) -> str | None:
-    """The last number on the line, thousands separators removed."""
-    numbers = re.findall(r"\d[\d,]*(?:\.\d+)?", text)
-    return numbers[-1].replace(",", "") if numbers else None
+def _documented_numbers(text: str) -> list[str]:
+    """Every number in the carrier sentence, thousands separators removed.
+
+    All of them, not the last one: "75,000 rows across 10 tables" would
+    otherwise compare ``10`` to the symbol and pass or fail for the wrong
+    reason. The caller treats a match against **any** of them as agreement and
+    reports the whole list when none matches, so the contract is "the tracked
+    value appears in this sentence" rather than "it is the last number here".
+    """
+    return [match.replace(",", "") for match in re.findall(r"\d[\d,]*(?:\.\d+)?", text)]
 
 
 def check_value_markers(report: Report, markers: list[ValueMarker]) -> None:
@@ -553,17 +566,17 @@ def check_value_markers(report: Report, markers: list[ValueMarker]) -> None:
                 )
             continue
 
-        documented_number = _documented_number(marker.text)
-        if documented_number is None:
+        documented_numbers = _documented_numbers(marker.text)
+        if not documented_numbers:
             report.fail(
                 f"{marker.where}: {marker.symbol} resolves to {symbol!r} but "
                 f"the line states no value to compare it against"
             )
             continue
-        if documented_number != str(symbol):
+        if str(symbol) not in documented_numbers:
             report.fail(
-                f"{marker.where}: {marker.symbol} is {symbol!r} but the line "
-                f"documents {documented_number}"
+                f"{marker.where}: {marker.symbol} is {symbol!r} but the "
+                f"sentence documents {documented_numbers}"
             )
 
 
@@ -608,7 +621,14 @@ def run_checks(
                 f"the gate cannot check a file that is not there"
             )
             continue
-        text = blank_fenced_blocks(document.read_text(encoding="utf-8"))
+        text, unclosed_fence = blank_fenced_blocks(document.read_text(encoding="utf-8"))
+        if unclosed_fence is not None:
+            report.fail(
+                f"{document.name}:{unclosed_fence}: code fence opened here is "
+                f"never closed; everything below it reads as a code block, so "
+                f"its markers are invisible to this gate. Close the fence — "
+                f"the path failures below are a consequence, not the cause"
+            )
         try:
             markers_by_document[document] = parse_endpoint_markers(
                 document, blank_inline_marker_mentions(text)

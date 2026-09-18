@@ -267,9 +267,14 @@ def test_omitting_a_declared_status_passes(tree: Any) -> None:
     """Statuses are checked as a subset: a document may stay silent about a
     status, but never invent one."""
     tree.write()
-    text = tree.reference.read_text(encoding="utf-8").replace(
-        "     errors: 200, 422, 504 -->",
-        "     errors: 200 -->",
+    before = tree.reference.read_text(encoding="utf-8")
+    text = before.replace("     errors: 200, 422, 504 -->", "     errors: 200 -->")
+    # Guard the rewrite. Without this, a change to the artifact's status set
+    # makes the needle vanish, `replace` a no-op, and the test a tautology
+    # that passes while asserting nothing about the subset check.
+    assert text != before, (
+        "fixture drift: no marker carried 'errors: 200, 422, 504', so this "
+        "test would pass without omitting any status"
     )
     tree.reference.write_text(text, encoding="utf-8")
     report = gate.run_checks(
@@ -378,12 +383,16 @@ def test_missing_documents_fail_by_name(tmp_path: Path) -> None:
 def test_malformed_marker_fails_with_its_location(tree: Any) -> None:
     """A parameter without a type is a marker bug, reported with its line."""
     tree.write()
-    tree.reference.write_text(
-        tree.reference.read_text(encoding="utf-8").replace(
-            "     params: search:string", "     params: search"
-        ),
-        encoding="utf-8",
+    before = tree.reference.read_text(encoding="utf-8")
+    text = before.replace("     params: search:string", "     params: search")
+    # A drifted needle here fails the test rather than passing it vacuously,
+    # but the guard says *why* — otherwise the failure reads as "the gate
+    # stopped catching malformed markers" when the fixture simply changed.
+    assert text != before, (
+        "fixture drift: no marker carried 'params: search:string', so nothing "
+        "was made malformed"
     )
+    tree.reference.write_text(text, encoding="utf-8")
     report = gate.run_checks(
         artifact_path=tree.artifact_path,
         document_paths=(tree.reference, tree.agents),
@@ -526,3 +535,80 @@ def test_empty_marker_reports_rather_than_crashes(tree: Any) -> None:
     assert any("must open with a path" in failure for failure in report.failures), (
         _failures(report)
     )
+
+
+def test_unclosed_fence_is_named_as_the_cause(tree: Any) -> None:
+    """A missing closing fence is reported as itself, not as a wall of
+    'path not documented' failures pointing away from the cause.
+
+    Everything below an unterminated fence reads as a code block, so its
+    markers become invisible and every path below it looks undocumented.
+    """
+    tree.write()
+    text = tree.reference.read_text(encoding="utf-8")
+    tree.reference.write_text("```sh\n" + text, encoding="utf-8")
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert not report.ok
+    assert "never closed" in report.failures[0], (
+        f"the fence must be reported first, got: {report.failures[0]}"
+    )
+
+
+def test_balanced_fences_report_no_fence_error(tree: Any) -> None:
+    """The counterpart: a document whose fences pair cleanly says nothing
+    about fences, so the check above fails for its fence and not for merely
+    containing one."""
+    tree.write()
+    tree.reference.write_text(
+        tree.reference.read_text(encoding="utf-8") + "\n```sh\necho hi\n```\n",
+        encoding="utf-8",
+    )
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert report.ok, _failures(report)
+
+
+def test_scalar_matches_any_number_in_the_sentence(tree: Any) -> None:
+    """A tracked scalar need only appear in its sentence.
+
+    Taking the *last* number instead would compare '10' to the ceiling here
+    and fail correct prose.
+    """
+    from manta_trading.constants import API_MAX_BARS_PER_REQUEST
+
+    marker = "manta_trading.constants.API_MAX_BARS_PER_REQUEST"
+    tree.write()
+    tree.reference.write_text(
+        tree.reference.read_text(encoding="utf-8")
+        + f"\nThe ceiling is {API_MAX_BARS_PER_REQUEST:,} rows across 10 tables. "
+        f"<!-- from: {marker} -->\n",
+        encoding="utf-8",
+    )
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert report.ok, _failures(report)
+
+
+def test_scalar_absent_from_the_sentence_fails(tree: Any) -> None:
+    """The check still fails when the tracked value is nowhere in the
+    sentence — the leniency above must not become 'any number will do'."""
+    marker = "manta_trading.constants.API_MAX_BARS_PER_REQUEST"
+    tree.write()
+    tree.reference.write_text(
+        tree.reference.read_text(encoding="utf-8")
+        + f"\nThe ceiling is 999 rows across 10 tables. <!-- from: {marker} -->\n",
+        encoding="utf-8",
+    )
+    report = gate.run_checks(
+        artifact_path=tree.artifact_path,
+        document_paths=(tree.reference, tree.agents),
+    )
+    assert not report.ok
+    assert any(marker in failure for failure in report.failures), _failures(report)

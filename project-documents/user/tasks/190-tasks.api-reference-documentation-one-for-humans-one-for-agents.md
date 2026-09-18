@@ -530,6 +530,25 @@ that comment is stale, and editing it would make it less accurate. The reviewer
 marked this finding's location `unverified`, which is consistent with it having
 been reasoned from the design's quotation rather than from the file.
 
+## Review Disposition (code review, 20260917, CONCERNS)
+
+Each premise was reproduced before acting. All six findings are valid; the
+three concerns and both notes are addressed.
+
+| Finding | Disposition |
+|---|---|
+| F001 — two mutation tests pass when the fixture needle drifts | **Fixed.** Reproduced: breaking both needles left `test_omitting_a_declared_status_passes` **passing vacuously**. Both now guard the rewrite (`assert text != before`) with a message naming the drift. The reviewer's distinction is right — the malformed-marker test already failed rather than passed, but the guard says *why*. All three replace-based mutations now carry a guard. |
+| F002 — `verdicts` loop asserts nothing when empty | **Fixed.** Probed the fixture first: it yields 2 verdicts, so this was not live — but the loop would skip silently if it ever became empty, and both verdicts return `lag_seconds=None`, so this test is the only place exercising the null-vs-`0.0` distinction. Now asserts `len(verdicts) == len(COVERAGE_VIEWS)`; proven to fail on an empty list. |
+| F003 — unterminated fence suppresses every marker below it | **Fixed.** Reproduced: one unclosed fence produced **16 failures, none naming a fence**. `blank_fenced_blocks` now returns the unclosed line number and the gate reports it **first**, telling the author the path failures below are a consequence. Two tests pin it. |
+| F004 — gate exceeds the ~300-line guideline | **Acknowledged, no change.** Already flagged in the Notes below before the review. The reviewer reaches the same conclusion — cohesive module, splitting would scatter the marker grammar — and suggests extracting the parser if marker syntax grows. Recorded for whoever adds the next marker field. |
+| F005 — `_documented_number` takes the last number | **Fixed.** Not a live bug (the one scalar marker has a single number), but brittle. Replaced with `_documented_numbers`: the tracked value must appear **among** the sentence's numbers, so "75,000 rows across 10 tables" no longer compares `10`. The rule is stated in the module docstring, and two tests pin both directions — leniency must not become "any number will do". |
+| F006 — marker parsing, enum token sets, DB-safe fixtures | **Pass**, no action. |
+
+Unit tier after the fixes: `test/unit/api_server` 322 passed; the gate's own
+suite grows from 24 to 28 tests. Gate still exits 0. No change to `src/` or
+`docs/api/openapi.json` — the slice's "nothing served changes" constraint is
+unaffected.
+
 ## Close-out: full suite (2026-09-16)
 
 | Tier | Result |
