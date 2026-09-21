@@ -9,128 +9,124 @@ project: trading-data
 verdict: CONCERNS
 verdictSource: stated
 sourceDocument: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
-aiModel: z-ai/glm-5.3
+aiModel: moonshotai/kimi-k3
 status: complete
 dateCreated: 20260921
 dateUpdated: 20260921
-reviewedSha: b7f77d5d83e1455b8b3634ffdcf075b2565c46df
+reviewedSha: ae171807c2f9486c76badc025c8e049417ff2147
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 28
+toolCallsMade: 33
 findings:
   - id: F001
     severity: concern
     category: completeness
-    summary: "The \"full parity\" surfaces require cross-database composition that the document never designs"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#envisioned-state"
+    summary: "Acquisition pass has no durable checkpoint across submit → download; a mid-pass death can force a repurchase"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
   - id: F002
     severity: concern
     category: consistency
-    summary: "The data-correctness contract's inherited invariants are neither engaged nor amended"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md"
+    summary: "The completeness definition requires per-instrument-session record counts the manifest cannot hold as described"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
   - id: F003
     severity: concern
     category: completeness
-    summary: "Roll-method inputs and auxiliary purchases sit outside the guarded, manifested acquisition path"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#technical-considerations"
+    summary: "\"Caught up\" is undecidable without a provider availability edge, and no mechanism for computing that edge is identified"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
   - id: F004
     severity: concern
-    category: feasibility
-    summary: "Ingest throughput is named as a must-measure but absent from the measured quantities and the go/no-go"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#design-goals"
+    category: consistency
+    summary: "The isolation goal and the serving-layer failure posture contradict each other; startup-fail vs per-route degradation is undecided"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Technical Considerations"
   - id: F005
     severity: concern
-    category: consistency
-    summary: "The absolute isolation claim is contradicted by the placement options still under consideration"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#design-goals"
+    category: technology
+    summary: "Blocking DBN decode and the provider's sync client are never reconciled with the async pass contract being duplicated"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Architectural Principles"
   - id: F006
     severity: concern
-    category: dependencies
-    summary: "\"Instantiate the Kalshi phase contract\" names a dependency the document simultaneously rules out"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#architectural-principles"
+    category: feasibility
+    summary: "Local roll-method reproducibility rests on provider symbol-mapping behavior the document flags as unverified"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
   - id: F007
     severity: concern
-    category: extension-points
-    summary: "The live-delivery forward-compatibility claim is unsupported by the file-shaped manifest"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#architectural-principles"
-  - id: F008
-    severity: note
     category: completeness
-    summary: "The 24-hour embargo is asserted as fact while every adjacent figure is marked for verification"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#technical-considerations"
-  - id: F009
-    severity: note
+    summary: "The stale tick-schema integration test will break the integration tier the moment MT_TICK_DB_URL is set, and removal is never scheduled"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Current State"
+  - id: F008
+    severity: concern
     category: consistency
-    summary: "The parent initiative plan still assigns the daemon-framework extraction to this initiative"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#related-work"
+    summary: "Chunk-geometry decisions are split inconsistently: space partitioning deferred to measurement, compression segby stated as decided"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
+  - id: F009
+    severity: concern
+    category: completeness
+    summary: "Migration CLI has no verified track→database routing; the tick track on a second instance assumes a mechanism that may not exist"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Anticipated Slices"
+  - id: F010
+    severity: note
+    category: antipattern
+    summary: "The parity mandate is delivered as a monolith; the architecture does not sequence which parity surfaces the proof itself depends on"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Design Goals"
 ---
 
 # Review: arch — slice 0
 
 **Verdict:** CONCERNS
-**Model:** z-ai/glm-5.3
+**Model:** moonshotai/kimi-k3
 
 ## Findings
 
-### [CONCERN] The "full parity" surfaces require cross-database composition that the document never designs
+### [CONCERN] Acquisition pass has no durable checkpoint across submit → download; a mid-pass death can force a repurchase
 
-All tick state lives on the separate tick database ("The definitions and manifest tables live alongside" the hypertable), while every parity surface promised is today single-database on the minute/TimescaleDB host:
+The acquisition pass is described as one phase chain: "estimates cost and size for the remainder, refuses above the spend ceiling, and otherwise submits batch requests, waits for delivery, downloads the files into the archive, verifies them, and records manifest rows." Technical Considerations then states that batch output files are "retained for a limited window" and that "a download that misses the window is a repurchase." These two statements together define a failure the design never addresses: when in that chain is the manifest row written? If the pass records the unit only after download-and-verify, then a pass that dies (host restart, OOM, systemd stop) after `batch.submit_job` succeeds leaves no local record that money was spent; the next firing computes "(universe × range) minus the manifest," re-estimates, and re-submits — paying twice for the same range. The spend ceiling guards each pass individually, not cumulative duplicate spend. If instead the unit is recorded at submit time, then download-resume semantics, partial-file state, and the retention-window deadline become manifest fields the document never enumerates. The backfill case makes this worse: a multi-year ES purchase is exactly the case where "waits for delivery" can exceed any plausible bounded-pass window, and the pass form (per the 20260823 ADR, cited approvingly) has no checkpoint mechanism — the Kalshi contract it copies resumes from watermarks in `sync_state`, which has no analogue here. The architecture should state the manifest's state machine for an archive unit (submitted → delivered → downloaded → verified → ingested) and which transitions are pass-resumable, since it has already identified the retention window as the consequence of getting it wrong.
 
-- **`PassKind.TICK` in `pass_runs`** — the `pass_runs` table and its CHECK constraint live in the *minute* migration track (`migrations/minute.py`, migration `055_create_pass_runs`; `_pass_kind_check_sql()` renders from the `PassKind` enum in `data/acquisition/pass_runs.py`, which currently has no `TICK`). Two consequences the document misses: (a) adding `TICK` to the enum updates no existing database — the applied CHECK still rejects `'tick'` until a *new minute-track migration* re-renders it, the exact "a served enum grows under you" failure from journal 20260901 (Kalshi's `amended` status failed the rendered CHECK hourly until `kalshi_008`); (b) the Anticipated Slices section nevertheless places "`PassKind.TICK`" inside the **tick** storage-track slice — a track on a different database that cannot alter the minute database's constraint. Either the tick pass writes run rows to the minute DB (a second connection per pass, with the phantom-RUNNING failure mode 922's `close_superseded`/`close_abandoned` machinery exists to prevent — machinery that is per-database), or the tick DB grows its own `pass_runs` that `mt data overview`, built from the minute DB's run rows, cannot see.
-- **`mt data overview` tick line and tick freshness in `/api/v1/status` and `/api/v1/overview`** — overview, health, and accounting are reads of the minute database. Kalshi joined them for free only because 260 deliberately placed its schema on the same TimescaleDB host ("Hosting the schema on the TimescaleDB host is what makes either choice a local one", 260-arch). The separate-instance decision removes that property, yet "Database placement and roles" is treated purely as a memory/backup/roles question.
-- **The API server** is constructed around a single database URL (`create_app(db_url=…)`, per slice 187's design D9). Serving ticks or tick-derived bars — under either the `/api/v1/futures/*` namespace or the granularity-on-`/bars` option — requires a second pool in the serving process and `MT_TICK_DB_URL` plumbed into service environments; the `mt-run` env-forwarding defect (journal 20260825, only two `MT_*` variables forwarded) shows this class of omission fails silently in production.
+### [CONCERN] The completeness definition requires per-instrument-session record counts the manifest cannot hold as described
 
-Parity is stated as "a delivery of this initiative ... not a follow-on," but the mechanism that would deliver it is undefined, and each option has failure modes the document does not surface.
+"An *instrument-session is complete* when the manifest shows its archive units acquired and ingested and the raw table's count for that session matches the manifest's record count." But the manifest as specified in Architectural Principles records counts per delivery artifact: "what the provider returned (job identity where one exists, files, sizes, checksums, record counts)." Batch jobs produce files "split by day" (Technical Considerations), while the document's own session model says a CME session "spans two calendar dates" and one file will typically contain many instruments. A per-file record count therefore cannot be joined to an instrument-session without decoding the file — which happens at ingest, after the completeness question is supposed to be answerable. Either the manifest needs per-(instrument, session) count rows derived during download/ingest (which the document never says), or the count-match leg of the completeness definition must be re-stated at the grain the manifest actually has. As written, the central operator question the whole design is built around — "which sessions were purchased and ingested" — has a verification leg whose inputs don't exist at the required grain.
 
-### [CONCERN] The data-correctness contract's inherited invariants are neither engaged nor amended
+### [CONCERN] "Caught up" is undecidable without a provider availability edge, and no mechanism for computing that edge is identified
 
-The contract (`reference/data-correctness-architecture.md`) is normative by its own terms ("If a slice ships that contradicts a guarantee here, the slice is wrong, not the document") and states the futures-tick initiative "inherits I2, I3, I4, I5, I6, I7, I8, I9, I10 ... It adds tick-specific invariants ... that will be added here when initiative 200 lands." This document cites the contract only for I10's command shape and the out-of-scope list:
+"The *universe is caught up* when every configured instrument is complete for every session in its wanted range up to the provider's availability edge. Sessions the provider has not yet released are *pending*, never *missing*." The pending/missing distinction — which the document elsewhere calls load-bearing for the embargo-driven cadence — is only computable if the availability edge is an authoritative, queryable value. The only inputs the document names are the 24-hour embargo figure, explicitly marked "verify at slice design" in three separate places, and the session model. "24 hours behind" is not an edge: it does not say which sessions exist to be behind on (holidays, half-sessions), and Databento's actual availability is per-dataset and per-schema. If the edge is computed from a local rule (now minus embargo, intersected with the CME session calendar), then a provider-side delay longer than the embargo makes released-but-late sessions read as *missing* — the exact state the definition says must never occur — and the status surface will cry wolf on every provider delay. The document should name the provider metadata source for the edge (or state explicitly that the edge is rule-computed and accept that provider delays surface as acquisition-lagging rather than data-missing).
 
-- **I4** ("There is exactly one such function in the codebase ... Hard-coded session-hour assumptions anywhere in code are a defect"): the document creates a second session model ("the futures session model is its own"; form is "a slice decision") without stating the constraint that would keep I4 true — that both models be consumable through one session-query surface. The session model is load-bearing for the initiative's own cross-check, so this is not a deferrable detail.
-- **I7** (independent cross-vendor audit) is unsatisfiable for tick by this document's own scope (one provider; cross-venue consolidation out). The validation loop — derived minute bars vs the provider's own OHLCV — is *verification* in the contract's own vocabulary ("the same vendor's later representation"), not audit. The conflict is not noted and the contract is not amended.
-- **I10 quality verbs**: the Design Goals bullet promises the contract's surface "(I10: status, coverage, update/backfill, daemon-equivalent pass, quality, debug)" — but the Envisioned State operator-surface list and the "Operator surface parity" anticipated slice enumerate every verb *except* quality, 140 (complete, not in the dependency set) owns quality, and no slice delivers `mt data quality ... --granularity tick`. The quality subgroup does not exist in the CLI tree today either (`cli/commands/` has no quality module; `data.py` registers no quality app), so "minute parity" for quality is parity with an unbuilt surface.
-- **Vocabulary**: the contract defines granularity as "used in ... acquisition state," reflected in the minute track's `data_gaps.granularity` CHECK (`IN ('daily','minute')`, migration 018) and `data_status`'s `symbols_x_granularity` VALUES. This document replaces acquisition state with the manifest without noting the divergence, and the contract update it itself anticipates is absent from 220's scope even though both API reference documents and the backup runbook are in scope.
+### [CONCERN] The isolation goal and the serving-layer failure posture contradict each other; startup-fail vs per-route degradation is undecided
 
-### [CONCERN] Roll-method inputs and auxiliary purchases sit outside the guarded, manifested acquisition path
+The Design Goals state isolation as a hard property: "a tick pass failing or a provider outage cannot affect any other source." But the composition principle says every composing surface "fails explicitly when [`MT_TICK_DB_URL`] is absent from the environment it runs in — a silently missing tick line is the failure mode to design out." "Absent setting" and "tick database down" collapse into the same failure at the serving layer. I verified the current pattern in `api_server/app.py`: the lifespan eagerly constructs `TimescaleMinuteDataDB(conninfo)` and `TimescaleDailyDataDB(conninfo)`, each of which opens a `ConnectionPool(min_size=4)` at construction and raises on failure — i.e., today's pattern is fail-at-startup. If the tick handle follows that pattern (the document says surfaces "each gain a second pool"), then a tick-instance outage prevents `mt-serve` from starting at all, taking down bars serving for equities — a direct violation of the isolation goal, created by the parity goal. If instead tick routes degrade per-request, that is a new, divergent failure posture for this codebase and needs to be stated as a decision with its error shape (which endpoints, which status code when only the tick pool is down). The same section also misses the 187 D9 consequence: `create_app(db_url=…)` exists specifically so the load tier never reads the production URL from the environment; a second mandatory URL doubles that seam (`create_app(db_url=…, tick_db_url=…)`) and the load-tier story for tick endpoints is unaddressed.
 
-- **Bootstrap ordering.** The acquisition pass "Computes the wanted set (universe × range) minus the manifest," and the universe is configured "by product and contract selection rule" — a selection rule *is* a roll method. But open-interest and volume rules "need per-contract daily figures" from provider purchases or "from counts derived over ingested ticks (free, but only for sessions already bought)," and the roll-methods slice is the *fifth* anticipated slice, after the acquisition pass (third) and the first purchase (fourth). The document never states how the first historical acquisition resolves product → contracts without the roll machinery (provider-side continuous symbols at request time? an explicit contract list?), so the core flow as envisioned cannot be built as sequenced.
-- **Guard universality.** "No request that costs money is issued without a preceding estimate" — yet the validation loop's OHLCV purchase, the roll-input statistics/OHLCV purchases, and any direct `get_range` "small probes" are all billable requests outside the described estimate → guard → batch → download → verify → manifest path. Probes additionally return data that never enters the archive — an unmanaged exception to "files are the record."
-- **Reproducibility.** "A status line or API response that names the active contract can be re-derived later from stored definitions and stored figures" — if figures arrive by purchase they need a home with manifest-grade provenance or the claim fails; the document gives "stored figures" none. And because tick-derived figures exist only for bought sessions, expanding the universe *backward* later requires purchasing roll inputs for the old range first — a cost consequence the "expanding the universe is a configuration edit" completion claim omits.
+### [CONCERN] Blocking DBN decode and the provider's sync client are never reconciled with the async pass contract being duplicated
 
-### [CONCERN] Ingest throughput is named as a must-measure but absent from the measured quantities and the go/no-go
+The tick passes "follow the Kalshi contract as a *pattern*." I verified the Kalshi pass is asyncio-native (`asyncio.run(run_pass(...))` in `cli/commands/kalshi.py`, recorder calls via `asyncio.to_thread`). Databento's historical client and DBN decoder are blocking, CPU-bound (Rust-backed) calls; the document itself names "the provider's Rust-backed decoder versus per-record Python" and "batch sizing" as things to measure — but measurement is about *rate*, and the unaddressed decision is *structural*: where does a multi-GB blocking decode sit inside an async bounded pass so that (a) the event loop isn't stalled for minutes (which would freeze progress heartbeats the recorder writes via `to_thread`), (b) backpressure between decode and the `COPY` write path exists, and (c) the `TimeoutStartSec` budget isn't consumed by an unobservable blocking call. This is the classic sync/async impedance the project's own stack will impose on the first ingest slice, and the architecture — which is otherwise meticulous about naming structural decisions — never names it. A stated execution model (decode in worker processes/threads feeding bounded COPY batches, with the async pass orchestrating) belongs at this level because it constrains the adapter protocol's shape: an iterator-of-records protocol and a file-to-COPY-stream protocol are different seams for the "one provider adapter owns the wire format" principle.
 
-Design Goals enumerate what the first purchase measures — "bytes per record per schema, records per session, compressed bytes per row, query latency at the chosen chunk geometry" — and the first-purchase slice's go/no-go decides "tier and for GC" from "measured sizes per tier, bytes per row compressed, chunk geometry validated, query latency, derived-bar cross-check." Ingest rate appears in neither list, even though Technical Considerations names decode cost, batch sizing, and within-file resumability as things "to be measured on the first purchase, not designed in advance," and the initiative's own premise is that tick carries minute's failure modes at "one to three orders of magnitude more volume." The daily catch-up pass is feasible only if a day's sessions ingest well inside a day; a pass exceeding its interval silently breaks the cadence the 24-hour-embargo argument selects. Note also that the one throughput figure the document leans on — "13k+ rows/s measured on minute data ... the proven path" — is the pre-psycopg3 measurement carried forward from 100-arch's Current State, and the journal's standing rule (20260720) is that recorded numbers are "re-measured, never recalled." Ingest rate belongs in the go/no-go, with cadence feasibility (sessions/day ÷ measured rows/s vs the timer interval) as an explicit check.
+### [CONCERN] Local roll-method reproducibility rests on provider symbol-mapping behavior the document flags as unverified
 
-### [CONCERN] The absolute isolation claim is contradicted by the placement options still under consideration
+Two commitments interact badly. First: "Acquisition resolves product → contract *at the provider*, at request time" via provider-side continuous symbols (`.c`, `.n`, `.v`), because "acquisition therefore never depends on local roll machinery." Second: "The rule vocabulary must match the provider's continuous-symbol conventions closely enough that a request phrased in either resolves to the same contract on the same day, and the resolution must be reproducible … re-derived later from stored definitions and stored figures." The only bridge between what the provider actually did at request time and what the local roll machinery will later compute is "the symbol-mapping records that tie every tick to its real contract" in delivered files — and Technical Considerations lists "the mapping-message behaviour in delivered files" as an unverified slice-design item. If those records turn out to be incomplete (e.g., not covering every instrument per day, or arriving on a different cadence than trades), then: the delivered data cannot be attributed to contracts with certainty; the local and provider roll resolutions cannot be reconciled; and the "active contract on every surface" principle loses its ground truth for historical purchases. The document has correctly identified the verification item but under-weighted it: this is not a detail to confirm during slice design, it is a premise of the identity model, and a first-purchase gate should include a mapping-record completeness check as a named success criterion, with a stated fallback (raw-symbol requests against locally resolved contracts) if the premise fails.
 
-Design Goals: "Complete isolation ... is preserved: a tick pass failing, a tick database filling, or a provider outage cannot affect any other source." Technical Considerations: the tick instance "can mean a second database on the production cluster, a second cluster on the production host, or a second host; each has a different answer for memory contention with the minute tier." Two of the three options violate the claim: a second database on the production cluster shares postmaster, disk, and memory (a tick database filling the volume is a cluster-wide outage, and the journal records this host as a desktop-plus-production machine with documented commit-headroom and OOM contention, 20260813/20260820); a second cluster on the same host shares disk and RAM. The document correctly treats placement as undecided and PM-gated, then states the isolation property as if it were placement-independent. Either qualify the claim (process/schema-level isolation; host-level isolation depends on placement) or constrain the placement decision by the claim.
+### [CONCERN] The stale tick-schema integration test will break the integration tier the moment MT_TICK_DB_URL is set, and removal is never scheduled
 
-### [CONCERN] "Instantiate the Kalshi phase contract" names a dependency the document simultaneously rules out
+The document cites `test/integration/test_tick_schema_integration.py` as evidence that slice 105's SQL is gone. I verified the file: every test is guarded by `skipif(not TICK_URL)`, and fixtures read `760_create_tick_events_hypertable.sql` from `database/migrations/` — a path I confirmed no longer exists. Today the skip guard hides the rot because `MT_TICK_DB_URL` is unset everywhere. But this initiative's own first slices set `MT_TICK_DB_URL` in dev and test environments (the document requires it in "every service environment file"), at which point the guard stops skipping and every test in the file fails with `FileNotFoundError` at fixture setup — a self-inflicted red tier landing exactly when tick work begins, and precisely the "silent, self-hiding" failure family the project's journal keeps naming. The architecture documents this as archaeology but the Anticipated Slices never assign its deletion to the storage-track slice (or anywhere). One line in the tick-storage slice — remove the file and its migration references — closes it; its absence is the kind of thing that surfaces as a confusing integration-tier failure mid-slice.
 
-"The tick passes instantiate one of the existing shapes (the Kalshi phase contract is the newer and less provider-specific of the two); whether extraction into a shared framework is warranted ... if so it is foundation (9xx) work, not a prerequisite here." The phase contract is verifiably Kalshi-owned code: `PassPhase`, `PhaseReport`, `PassResult`, and `PASS_PHASES` live in `data/kalshi/collection_pass.py` (journal 20260825). For tick to instantiate it, one of three things must happen and the document chooses none: (a) import from `manta_trading.data.kalshi` — a cross-source code dependency in which kalshi refactors break the tick pass, sitting oddly beside the isolation posture (260 "shares pass_runs, the provider error taxonomy, and the profile registry with 120, and nothing else"); (b) duplicate the small contract in the tick package — acceptable under 120's "accept some duplication" precedent, but then "instantiate one of the existing shapes" is a pattern statement, not reuse, and should say so; (c) hoist the dataclasses to a shared module — which *is* the extraction declared "not a prerequisite here." As written, the reader cannot tell whether the tick pass will import kalshi code, leaving the dependency direction between two data sources to implementation accident.
+### [CONCERN] Chunk-geometry decisions are split inconsistently: space partitioning deferred to measurement, compression segby stated as decided
 
-### [CONCERN] The live-delivery forward-compatibility claim is unsupported by the file-shaped manifest
+The Storage bullet says: "with chunk interval, compression layout (segment by instrument, order by event time and sequence), and any read-side aggregates all created per the journal rules. Whether space partitioning by instrument survives the chunk-count arithmetic is a measured decision, not an inherited one." TimescaleDB space partitioning and compression `segmentby` are the same class of decision — both determine how data is physically grouped by instrument, both interact with chunk counts and query planning, and the 20260719 journal entry (cited by this document) explicitly counts space partitioning as a chunk-count *multiplier* in ruling the 105 outline invalid. Deferring one to measurement while stating the other as settled is arbitrary; the minute tier's own history (the 105 outline's `segmentby=symbol` being part of what made its geometry pathological) argues the compression layout deserves the same "measured, not inherited" treatment — particularly since tick's per-instrument row counts are orders of magnitude apart (ES versus a thin deferred contract), which is exactly where a single global segby choice hurts. Relatedly, the claim that "a database rebuilt from the archive is byte-for-byte the same projection" is stronger than the design supports once a compression policy exists: a fresh rebuild holds uncompressed chunks until the policy fires, so "byte-for-byte" should be scoped to row content, not physical layout — or restated.
 
-"This initiative's only obligation to [realtime] is that the archive, manifest, and storage schema accept records from either delivery path identically." The storage-schema half holds — the natural key and preserved provider fields are delivery-agnostic. The archive and manifest halves do not, as described: the manifest records "what the provider returned (job identity, files, sizes, checksums)" and what it cost; live records arrive as a stream with no job, no files, no checksums, and no per-record cost. The completeness definitions are equally file-shaped ("the manifest shows its file acquired and ingested and the raw table's count for that session matches the manifest's record count"), and sequence-gap tracking is set aside ("if they are ever tracked") on the grounds that "within a purchased historical range the provider's delivery is complete by contract" — a contract that does not hold for a live capture with disconnects. The one concrete obligation claimed toward the realtime initiative has no described mechanism; meeting it later means either a manifest delivery-mode discriminator and segment-shaped archive units designed in now (a mode field costs nothing at creation) or a retrofit.
+### [CONCERN] Migration CLI has no verified track→database routing; the tick track on a second instance assumes a mechanism that may not exist
 
-### [NOTE] The 24-hour embargo is asserted as fact while every adjacent figure is marked for verification
+The slice list includes "the `tick` migration track on the tick database." I verified the migration framework's shape: `TRACKS` in `market/schema/migrations/__init__.py` is a single in-code registry of three tracks, and the runner (`apply_migrations(pool, track)`) applies any track against whatever database the caller's URL points at. All three existing tracks live on the *same* database, so `mt data migrate apply --track kalshi` never needed per-track URL resolution. A tick track on a *different database instance* requires the migrate CLI to route track → URL (and, per 913, track → maintenance credential, since `timescale_maintenance_url` is a single setting). I could not verify how `migrate apply` (cli/commands/data.py:216) resolves its URL today — if it is a single `--db-url`/settings value, then the routing mechanism and a second maintenance credential (`MT_TICK_MAINTENANCE_URL` or equivalent) are net-new plumbing the architecture never names, alongside the second-pool plumbing it does name. The kalshi `db.py` preflight pattern (refuse to run with pending track migrations) also needs a tick equivalent stated, since the tick pass's run-context preflight will otherwise happily run against an unmigrated tick instance. Marked as concern rather than fail because the mechanism is small — but it belongs in the enumerated slice scope next to "the second-pool plumbing," not discovered inside it.
 
-"Historical access is embargoed at 24 hours" (also "Databento embargoes historical access at 24 hours," and "it fixes the historical pass cadence at daily, one session behind") carries no "verify" marker, unlike the retention window, per-mode size limits, roll semantics, record sizes, and CME pricing. The cadence choice, the "pending, never missing" definition, and the "availability edge" the caught-up definition depends on all lean on this number. The document's own discipline — "every figure this document marks 'verify' is a slice-design obligation" — should be applied to it.
+### [NOTE] The parity mandate is delivered as a monolith; the architecture does not sequence which parity surfaces the proof itself depends on
 
-### [NOTE] The parent initiative plan still assigns the daemon-framework extraction to this initiative
-
-001-initiative-plan entry 8 and its dependency notes state the deferred extraction "lands here as its first slice, since a third daemon now exists." This document consciously reassigns it ("whether extraction ... is warranted is decided from what the third instance actually needs, and if so it is foundation (9xx) work") with sound reasoning — the third source is a pass, not a daemon, and the shapes already exist — but the parent is not amended, leaving the planning source of truth in conflict with the architecture that supersedes it.
+"Full parity of the operating surface … is a delivery of this initiative (PM direction 2026-09-21), not a follow-on" produces nine anticipated slices, each independently the size of a past initiative's slice: provider adapter, storage track, two passes plus production plumbing, the purchase proof, roll machinery, full CLI parity, full API parity, backup enrollment, expansion. The PM direction settles *whether* parity ships; it does not settle *ordering*, and the document misses an ordering distinction its own proof slice needs: the status/coverage/completeness surface is an *input* to the first-purchase proof (you cannot run the go/no-go without answering "what do I have" per session), while health, accounting, debug reads, and `mt data overview` lines are pure parity with no dependency from the proof. The slice list implicitly recognizes this ("the first cut of the tick status and coverage commands" lands in the passes slice, before the proof slice) but never states the principle, leaving "operator surface parity" as one undifferentiated slice whose scope (every minute-tier verb: `status`, coverage, `pull`/backfill, `get`, health, accounting, debug) is the most likely place for the initiative to stall. Given the PM's recorded constraint that "progress is painfully slow" (journal 20260907), an explicit minimal-parity-for-proof versus full-parity split would protect the initiative's actual goal — the measured ES dataset — from being held hostage by the debug verbs.
 
 ### Run Digest
 
-- Response length: 15979 chars
+- Response length: 17991 chars
 - Response is newline-free: no
-- Tool calls made: 28
-- Tool calls failed: 0
+- Tool calls made: 33
+- Tool calls failed: 1
 - Stop reason: stop
-- Reasoning characters: 117158
+- Reasoning characters: 3136
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 9
+- Finding-shaped matches — whole response: 10
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 9
-- Finding-shaped matches — surviving validation: 9
+- Finding-shaped matches — in findings section: 10
+- Finding-shaped matches — surviving validation: 10

@@ -6,127 +6,105 @@ slice: data-acquisition-futures-tick-primary-focus
 targetKind: arch
 rulesSource: project
 project: trading-data
-verdict: CONCERNS
-verdictSource: stated
+verdict: UNKNOWN
 sourceDocument: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
-aiModel: moonshotai/kimi-k3
+aiModel: deepseek/deepseek-v4-pro
 status: complete
 dateCreated: 20260921
 dateUpdated: 20260921
-reviewedSha: ae171807c2f9486c76badc025c8e049417ff2147
+reviewedSha: d6322dc7d0c8daf2a6fe6466866befc0d5964efd
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 33
-findings:
-  - id: F001
-    severity: concern
-    category: completeness
-    summary: "Acquisition pass has no durable checkpoint across submit → download; a mid-pass death can force a repurchase"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
-  - id: F002
-    severity: concern
-    category: consistency
-    summary: "The completeness definition requires per-instrument-session record counts the manifest cannot hold as described"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
-  - id: F003
-    severity: concern
-    category: completeness
-    summary: "\"Caught up\" is undecidable without a provider availability edge, and no mechanism for computing that edge is identified"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
-  - id: F004
-    severity: concern
-    category: consistency
-    summary: "The isolation goal and the serving-layer failure posture contradict each other; startup-fail vs per-route degradation is undecided"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Technical Considerations"
-  - id: F005
-    severity: concern
-    category: technology
-    summary: "Blocking DBN decode and the provider's sync client are never reconciled with the async pass contract being duplicated"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Architectural Principles"
-  - id: F006
-    severity: concern
-    category: feasibility
-    summary: "Local roll-method reproducibility rests on provider symbol-mapping behavior the document flags as unverified"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
-  - id: F007
-    severity: concern
-    category: completeness
-    summary: "The stale tick-schema integration test will break the integration tier the moment MT_TICK_DB_URL is set, and removal is never scheduled"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Current State"
-  - id: F008
-    severity: concern
-    category: consistency
-    summary: "Chunk-geometry decisions are split inconsistently: space partitioning deferred to measurement, compression segby stated as decided"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Envisioned State"
-  - id: F009
-    severity: concern
-    category: completeness
-    summary: "Migration CLI has no verified track→database routing; the tick track on a second instance assumes a mechanism that may not exist"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Anticipated Slices"
-  - id: F010
-    severity: note
-    category: antipattern
-    summary: "The parity mandate is delivered as a monolith; the architecture does not sequence which parity surfaces the proof itself depends on"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Design Goals"
+toolCallsMade: 19
 ---
 
 # Review: arch — slice 0
 
-**Verdict:** CONCERNS
-**Model:** moonshotai/kimi-k3
+**Verdict:** UNKNOWN
+**Model:** deepseek/deepseek-v4-pro
 
-## Findings
+## Findings Not Parsed
 
-### [CONCERN] Acquisition pass has no durable checkpoint across submit → download; a mid-pass death can force a repurchase
+**This review is degraded.** No verdict and no findings could be extracted from the model's response, so the verdict is left UNKNOWN rather than assumed.
 
-The acquisition pass is described as one phase chain: "estimates cost and size for the remainder, refuses above the spend ceiling, and otherwise submits batch requests, waits for delivery, downloads the files into the archive, verifies them, and records manifest rows." Technical Considerations then states that batch output files are "retained for a limited window" and that "a download that misses the window is a repurchase." These two statements together define a failure the design never addresses: when in that chain is the manifest row written? If the pass records the unit only after download-and-verify, then a pass that dies (host restart, OOM, systemd stop) after `batch.submit_job` succeeds leaves no local record that money was spent; the next firing computes "(universe × range) minus the manifest," re-estimates, and re-submits — paying twice for the same range. The spend ceiling guards each pass individually, not cumulative duplicate spend. If instead the unit is recorded at submit time, then download-resume semantics, partial-file state, and the retention-window deadline become manifest fields the document never enumerates. The backfill case makes this worse: a multi-year ES purchase is exactly the case where "waits for delivery" can exceed any plausible bounded-pass window, and the pass form (per the 20260823 ADR, cited approvingly) has no checkpoint mechanism — the Kalshi contract it copies resumes from watermarks in `sync_state`, which has no analogue here. The architecture should state the manifest's state machine for an archive unit (submitted → delivered → downloaded → verified → ingested) and which transitions are pass-resumable, since it has already identified the retention window as the consequence of getting it wrong.
-
-### [CONCERN] The completeness definition requires per-instrument-session record counts the manifest cannot hold as described
-
-"An *instrument-session is complete* when the manifest shows its archive units acquired and ingested and the raw table's count for that session matches the manifest's record count." But the manifest as specified in Architectural Principles records counts per delivery artifact: "what the provider returned (job identity where one exists, files, sizes, checksums, record counts)." Batch jobs produce files "split by day" (Technical Considerations), while the document's own session model says a CME session "spans two calendar dates" and one file will typically contain many instruments. A per-file record count therefore cannot be joined to an instrument-session without decoding the file — which happens at ingest, after the completeness question is supposed to be answerable. Either the manifest needs per-(instrument, session) count rows derived during download/ingest (which the document never says), or the count-match leg of the completeness definition must be re-stated at the grain the manifest actually has. As written, the central operator question the whole design is built around — "which sessions were purchased and ingested" — has a verification leg whose inputs don't exist at the required grain.
-
-### [CONCERN] "Caught up" is undecidable without a provider availability edge, and no mechanism for computing that edge is identified
-
-"The *universe is caught up* when every configured instrument is complete for every session in its wanted range up to the provider's availability edge. Sessions the provider has not yet released are *pending*, never *missing*." The pending/missing distinction — which the document elsewhere calls load-bearing for the embargo-driven cadence — is only computable if the availability edge is an authoritative, queryable value. The only inputs the document names are the 24-hour embargo figure, explicitly marked "verify at slice design" in three separate places, and the session model. "24 hours behind" is not an edge: it does not say which sessions exist to be behind on (holidays, half-sessions), and Databento's actual availability is per-dataset and per-schema. If the edge is computed from a local rule (now minus embargo, intersected with the CME session calendar), then a provider-side delay longer than the embargo makes released-but-late sessions read as *missing* — the exact state the definition says must never occur — and the status surface will cry wolf on every provider delay. The document should name the provider metadata source for the edge (or state explicitly that the edge is rule-computed and accept that provider delays surface as acquisition-lagging rather than data-missing).
-
-### [CONCERN] The isolation goal and the serving-layer failure posture contradict each other; startup-fail vs per-route degradation is undecided
-
-The Design Goals state isolation as a hard property: "a tick pass failing or a provider outage cannot affect any other source." But the composition principle says every composing surface "fails explicitly when [`MT_TICK_DB_URL`] is absent from the environment it runs in — a silently missing tick line is the failure mode to design out." "Absent setting" and "tick database down" collapse into the same failure at the serving layer. I verified the current pattern in `api_server/app.py`: the lifespan eagerly constructs `TimescaleMinuteDataDB(conninfo)` and `TimescaleDailyDataDB(conninfo)`, each of which opens a `ConnectionPool(min_size=4)` at construction and raises on failure — i.e., today's pattern is fail-at-startup. If the tick handle follows that pattern (the document says surfaces "each gain a second pool"), then a tick-instance outage prevents `mt-serve` from starting at all, taking down bars serving for equities — a direct violation of the isolation goal, created by the parity goal. If instead tick routes degrade per-request, that is a new, divergent failure posture for this codebase and needs to be stated as a decision with its error shape (which endpoints, which status code when only the tick pool is down). The same section also misses the 187 D9 consequence: `create_app(db_url=…)` exists specifically so the load tier never reads the production URL from the environment; a second mandatory URL doubles that seam (`create_app(db_url=…, tick_db_url=…)`) and the load-tier story for tick endpoints is unaddressed.
-
-### [CONCERN] Blocking DBN decode and the provider's sync client are never reconciled with the async pass contract being duplicated
-
-The tick passes "follow the Kalshi contract as a *pattern*." I verified the Kalshi pass is asyncio-native (`asyncio.run(run_pass(...))` in `cli/commands/kalshi.py`, recorder calls via `asyncio.to_thread`). Databento's historical client and DBN decoder are blocking, CPU-bound (Rust-backed) calls; the document itself names "the provider's Rust-backed decoder versus per-record Python" and "batch sizing" as things to measure — but measurement is about *rate*, and the unaddressed decision is *structural*: where does a multi-GB blocking decode sit inside an async bounded pass so that (a) the event loop isn't stalled for minutes (which would freeze progress heartbeats the recorder writes via `to_thread`), (b) backpressure between decode and the `COPY` write path exists, and (c) the `TimeoutStartSec` budget isn't consumed by an unobservable blocking call. This is the classic sync/async impedance the project's own stack will impose on the first ingest slice, and the architecture — which is otherwise meticulous about naming structural decisions — never names it. A stated execution model (decode in worker processes/threads feeding bounded COPY batches, with the async pass orchestrating) belongs at this level because it constrains the adapter protocol's shape: an iterator-of-records protocol and a file-to-COPY-stream protocol are different seams for the "one provider adapter owns the wire format" principle.
-
-### [CONCERN] Local roll-method reproducibility rests on provider symbol-mapping behavior the document flags as unverified
-
-Two commitments interact badly. First: "Acquisition resolves product → contract *at the provider*, at request time" via provider-side continuous symbols (`.c`, `.n`, `.v`), because "acquisition therefore never depends on local roll machinery." Second: "The rule vocabulary must match the provider's continuous-symbol conventions closely enough that a request phrased in either resolves to the same contract on the same day, and the resolution must be reproducible … re-derived later from stored definitions and stored figures." The only bridge between what the provider actually did at request time and what the local roll machinery will later compute is "the symbol-mapping records that tie every tick to its real contract" in delivered files — and Technical Considerations lists "the mapping-message behaviour in delivered files" as an unverified slice-design item. If those records turn out to be incomplete (e.g., not covering every instrument per day, or arriving on a different cadence than trades), then: the delivered data cannot be attributed to contracts with certainty; the local and provider roll resolutions cannot be reconciled; and the "active contract on every surface" principle loses its ground truth for historical purchases. The document has correctly identified the verification item but under-weighted it: this is not a detail to confirm during slice design, it is a premise of the identity model, and a first-purchase gate should include a mapping-record completeness check as a named success criterion, with a stated fallback (raw-symbol requests against locally resolved contracts) if the premise fails.
-
-### [CONCERN] The stale tick-schema integration test will break the integration tier the moment MT_TICK_DB_URL is set, and removal is never scheduled
-
-The document cites `test/integration/test_tick_schema_integration.py` as evidence that slice 105's SQL is gone. I verified the file: every test is guarded by `skipif(not TICK_URL)`, and fixtures read `760_create_tick_events_hypertable.sql` from `database/migrations/` — a path I confirmed no longer exists. Today the skip guard hides the rot because `MT_TICK_DB_URL` is unset everywhere. But this initiative's own first slices set `MT_TICK_DB_URL` in dev and test environments (the document requires it in "every service environment file"), at which point the guard stops skipping and every test in the file fails with `FileNotFoundError` at fixture setup — a self-inflicted red tier landing exactly when tick work begins, and precisely the "silent, self-hiding" failure family the project's journal keeps naming. The architecture documents this as archaeology but the Anticipated Slices never assign its deletion to the storage-track slice (or anywhere). One line in the tick-storage slice — remove the file and its migration references — closes it; its absence is the kind of thing that surfaces as a confusing integration-tier failure mid-slice.
-
-### [CONCERN] Chunk-geometry decisions are split inconsistently: space partitioning deferred to measurement, compression segby stated as decided
-
-The Storage bullet says: "with chunk interval, compression layout (segment by instrument, order by event time and sequence), and any read-side aggregates all created per the journal rules. Whether space partitioning by instrument survives the chunk-count arithmetic is a measured decision, not an inherited one." TimescaleDB space partitioning and compression `segmentby` are the same class of decision — both determine how data is physically grouped by instrument, both interact with chunk counts and query planning, and the 20260719 journal entry (cited by this document) explicitly counts space partitioning as a chunk-count *multiplier* in ruling the 105 outline invalid. Deferring one to measurement while stating the other as settled is arbitrary; the minute tier's own history (the 105 outline's `segmentby=symbol` being part of what made its geometry pathological) argues the compression layout deserves the same "measured, not inherited" treatment — particularly since tick's per-instrument row counts are orders of magnitude apart (ES versus a thin deferred contract), which is exactly where a single global segby choice hurts. Relatedly, the claim that "a database rebuilt from the archive is byte-for-byte the same projection" is stronger than the design supports once a compression policy exists: a fresh rebuild holds uncompressed chunks until the policy fires, so "byte-for-byte" should be scoped to row content, not physical layout — or restated.
-
-### [CONCERN] Migration CLI has no verified track→database routing; the tick track on a second instance assumes a mechanism that may not exist
-
-The slice list includes "the `tick` migration track on the tick database." I verified the migration framework's shape: `TRACKS` in `market/schema/migrations/__init__.py` is a single in-code registry of three tracks, and the runner (`apply_migrations(pool, track)`) applies any track against whatever database the caller's URL points at. All three existing tracks live on the *same* database, so `mt data migrate apply --track kalshi` never needed per-track URL resolution. A tick track on a *different database instance* requires the migrate CLI to route track → URL (and, per 913, track → maintenance credential, since `timescale_maintenance_url` is a single setting). I could not verify how `migrate apply` (cli/commands/data.py:216) resolves its URL today — if it is a single `--db-url`/settings value, then the routing mechanism and a second maintenance credential (`MT_TICK_MAINTENANCE_URL` or equivalent) are net-new plumbing the architecture never names, alongside the second-pool plumbing it does name. The kalshi `db.py` preflight pattern (refuse to run with pending track migrations) also needs a tick equivalent stated, since the tick pass's run-context preflight will otherwise happily run against an unmigrated tick instance. Marked as concern rather than fail because the mechanism is small — but it belongs in the enumerated slice scope next to "the second-pool plumbing," not discovered inside it.
-
-### [NOTE] The parity mandate is delivered as a monolith; the architecture does not sequence which parity surfaces the proof itself depends on
-
-"Full parity of the operating surface … is a delivery of this initiative (PM direction 2026-09-21), not a follow-on" produces nine anticipated slices, each independently the size of a past initiative's slice: provider adapter, storage track, two passes plus production plumbing, the purchase proof, roll machinery, full CLI parity, full API parity, backup enrollment, expansion. The PM direction settles *whether* parity ships; it does not settle *ordering*, and the document misses an ordering distinction its own proof slice needs: the status/coverage/completeness surface is an *input* to the first-purchase proof (you cannot run the go/no-go without answering "what do I have" per session), while health, accounting, debug reads, and `mt data overview` lines are pure parity with no dependency from the proof. The slice list implicitly recognizes this ("the first cut of the tick status and coverage commands" lands in the passes slice, before the proof slice) but never states the principle, leaving "operator surface parity" as one undifferentiated slice whose scope (every minute-tier verb: `status`, coverage, `pull`/backfill, `get`, health, accounting, debug) is the most likely place for the initiative to stall. Given the PM's recorded constraint that "progress is painfully slow" (journal 20260907), an explicit minimal-parity-for-proof versus full-parity split would protect the initiative's actual goal — the measured ES dataset — from being held hostage by the debug verbs.
+**The model's actual response is not lost:** read the `### Raw Response` section below, which this artifact always carries when a review is degraded. Do not read this review as clean.
 
 ### Run Digest
 
-- Response length: 17991 chars
+- Response length: 12690 chars
 - Response is newline-free: no
-- Tool calls made: 33
-- Tool calls failed: 1
+- Tool calls made: 19
+- Tool calls failed: 0
 - Stop reason: stop
-- Reasoning characters: 3136
-- `## Summary` located: yes
-- `## Findings` located: yes
-- Finding-shaped matches — whole response: 10
-- Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 10
-- Finding-shaped matches — surviving validation: 10
+- Reasoning characters: 7782
+- `## Summary` located: no
+- `## Findings` located: no
+- Finding-shaped matches — whole response: 9
+- Finding-shaped matches — inside fences: 9
+- Finding-shaped matches — in findings section: 0
+- Finding-shaped matches — surviving validation: 0
+
+### Raw Response
+
+Now I have enough information to write my findings. Let me compile the analysis.
+
+```markdown
+## Summary
+
+The document is thorough, unusually self-aware about its own deferred decisions, and well-grounded in the project's accumulated operational wisdom. It draws heavily on journal entries that encode hard-won lessons. However, it defers several load-bearing architectural decisions to slice design — decisions that shape slice boundaries and dependency ordering. The CME session model is identified as required early but its design is entirely unspecified. The migration CLI's inability to target a second database is named but the scope of that plumbing is underestimated. And several completeness/error-recovery paths are left implicit. The verdict is **CONCERNS** — the architecture is sound enough to proceed, but the deferrals listed below should be resolved before the first slice design begins.
+
+## Findings
+
+### [CONCERN] CME session model is a load-bearing architectural dependency left completely unspecified
+category: completeness
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Technical Considerations
+
+The CME session model is listed as required "early" and "whether it is a table, a rule, or provider-sourced status records is a slice decision." But this model is not a detail — it is the foundation for coverage, completeness, session boundaries, the derived-bar cross-check, and the availability-edge logic. Every completeness definition in the document is expressed per-session, every status verb answers per-session, and the ingest ledger writes per *(instrument, session)*. The session model's shape determines whether "a session" is a computable boundary at all. The first slice (Databento adapter, cost preflight, and contract definitions) assigns the CME session model to itself, but without any architectural guidance on what "model" means beyond "not the equities calendar." If the model turns out to need stored holiday data from Databento's reference schemas, that's a purchase decision with cost implications. If it needs a procedural rule, that changes the ingest ledger's boundary logic. The architecture should state at minimum: what the session model's interface is, whether it requires stored data or a pure function, and whether it can be built from free provider data or requires a purchase.
+
+### [CONCERN] Migration CLI multi-database plumbing scope is acknowledged but underestimated
+category: feasibility
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Technical Considerations
+
+The document correctly identifies that today's `migrate apply` resolves one maintenance URL with all tracks targeting the same database. It says the tick track on another instance "needs track → URL routing and a second maintenance credential under 913's separation — net-new plumbing named here so it is scoped, not discovered." But the scope includes: extending the migration CLI to accept a target database selector, routing per-track migrations to the correct URL, maintaining two `schema_migrations` ledgers, provisioning a second maintenance credential (which per the 913 slice role split means a second `GRANT` artifact and a second settings key), and ensuring the cold-start path (`mt data init`) works for both databases. This isn't a small feature — it touches every migration-related code path and the entire credential-separation surface. The "Tick storage track" slice assigns this to itself alongside creating the hypertable, definitions, manifest, ingest-ledger tables, and removing the stale 105 integration test. That's a large slice with a cross-cutting infrastructure prerequisite that should arguably be its own foundation slice (9xx) before any tick storage migration is written.
+
+### [CONCERN] Databento batch job wait time creates an implicit long-running pass with no polling/persistence design
+category: completeness
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
+
+The acquisition pass state machine is: *requested → submitted → delivered → downloaded → verified → ingested*. The description says the pass "submits batch requests, waits for delivery, downloads the files." But Databento batch jobs are asynchronous — the provider processes them and retains files for a limited window. The state `submitted` conflates two very different conditions: "job submitted, waiting for completion" (pass is blocked, possibly for hours) and "job submitted, delivery ready" (download can proceed). The document's reconciliation logic says "the next pass's first phase reconciles in-flight units against the provider's job status before it computes anything new." This implies the acquisition pass does NOT block waiting — it submits, records `submitted`, and exits. But then the "waits for delivery" step is actually performed by the *next* pass's reconcile phase. The state machine needs a `submitted` → `delivered` transition that is polled, not waited-for, and the pass timeout budget needs to account for this. The document never states how long a batch job typically takes (minutes? hours? overnight?) or what the polling interval should be. If batch jobs take hours and the pass is on a daily timer, the acquisition pass's `submitted` state is the normal resting state between submission and next-day reconciliation — which changes the "caught up" definition materially.
+
+### [CONCERN] Session completeness definition has a boundary mismatch with calendar-day file splits
+category: consistency
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
+
+The completeness definitions state: "Provider files are split by calendar day and hold many instruments, so a unit's record count says nothing about one instrument-session." The ingest ledger writes per *(instrument, session)* and status checks "every unit covering it is complete." But CME sessions span two calendar dates (Sunday open through Monday's maintenance break, etc.). If a provider file is split by calendar day, a single session's records span two files (two units). The completeness definition for an instrument-session — "every unit covering it is complete" — correctly handles this, but the acquisition pass's unit request logic doesn't address session-crossing ranges. Does the universe request one day at a time, producing two units per session? Does it request session-aligned ranges? The document says "batch files are split by day by default" but doesn't say whether the acquisition pass requests by calendar day (matching provider file splits) or by session (matching the completeness grain). This is a reconciliation problem that surfaces at ingest time when the ledger needs to know which units cover which sessions.
+
+### [CONCERN] Ingest pass resumability is asserted at file boundaries but the document acknowledges crossing that boundary may be necessary
+category: completeness
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
+
+Under "Ingest throughput and the write path," the document says "whether ingest must be resumable *within* a unit rather than at unit boundaries" is a measurement question. But the ingest pass description says "a partial ingest resumes at the file boundary." If a single DBN file for a liquid contract is multi-gigabyte and the pass dies mid-ingest, restarting from the file boundary re-decodes and re-inserts rows that were already committed. The idempotent write (natural key conflict-ignore) makes this safe, but the re-decode cost isn't accounted for. The document should state explicitly that file-boundary resumption is the designed behavior, that re-decoding already-inserted rows is accepted as the cost of simplicity, and that the measurement question is whether intra-file resumption is *needed*, not whether it's *supported*.
+
+### [NOTE] Tick pass writes to production database via second connection — coupling underexplored
+category: dependencies
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
+
+The "Operational state has one home" principle places `pass_runs` on the production TimescaleDB, meaning the tick pass must open a second connection to the minute database. If the production database is unreachable, the tick pass either fails (can't record its run) or runs silently without run accounting. The document addresses the serving-layer failure posture (tick DB down → 503, not startup failure) but does not address the inverse: what happens when the production DB is down but the tick DB is up? Can the tick pass still acquire and ingest data if it can't write its `pass_runs` row? The isolation goal says "a tick pass failing or a provider outage cannot affect any other source" — but a production DB outage affecting the tick pass (preventing it from running) is the opposite coupling direction. This is likely acceptable (if production DB is down, everything is degraded) but should be stated explicitly rather than left implicit.
+
+### [NOTE] Databento Python SDK threading model is a critical unknown for the adapter's execution model
+category: technology
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
+
+The adapter's execution model says the decoder is "blocking and CPU-bound" and the adapter exposes a synchronous iterator that "runs off the event loop (worker threads, or processes if the decoder holds the interpreter lock)." The Databento Python SDK (`databento`) uses a Rust core via PyO3. Whether it releases the GIL during decoding is a property of the SDK, not the design. If the GIL is held, `run_in_executor` with a `ThreadPoolExecutor` provides no parallelism — the GIL serializes the decoder with all other Python work. Multi-processing (`ProcessPoolExecutor`) then becomes necessary, which changes the data-passing model (batches must be pickled or shared via memory). This investigation — "does the Databento SDK release the GIL during DBN decoding?" — should be a slice-design obligation listed explicitly alongside the other "verify" items, not buried in a parenthetical in the adapter description. The entire ingest architecture's threading model depends on the answer.
+
+### [NOTE] Proof measurements may invalidate storage decisions made in earlier slices
+category: feasibility
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#Anticipated Slices
+
+The sequencing places "Tick storage track" (hypertable creation, chunk interval, migration plumbing) before "First purchase and proof" (measurements that validate chunk interval, physical grouping, and compression layout). The storage slice explicitly defers "physical grouping by instrument" to the proof — but the hypertable must be created with *some* chunk interval and compression settings. If the proof measurements show the chosen interval is wrong, the hypertable needs to be re-chunked (an expensive operation, per journal 20260719's 13-hour `minute_ohlcv` repair). The document anticipates this by saying the database can be "rebuilt from the archive," but a rebuild-and-reingest cycle after the first purchase is a significant rework cost. A more conservative approach would be to create the hypertable with a deliberately conservative interval (e.g., 7-day chunks from the start, matching the minute tier's proven geometry) so the proof validates rather than potentially invalidates the schema. This is a slice-design decision but the architecture should flag the sequencing risk.
+
+### [NOTE] The pass contract duplication from Kalshi is sound but the synchronization risk between the two copies is unaddressed
+category: dependencies
+location: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
+
+The document explicitly adopts the Kalshi `PassPhase`/`PhaseReport`/`PassResult` contract by duplication, with the rationale that three copies is the evidence threshold for hoisting. This is defensible. However, 220's slices are anticipated to span multiple development cycles. If the Kalshi contract evolves (e.g., the 267 historical backfill added a `HistoricalPhase` to `PASS_PHASES`, and the pass contract's abort semantics or event model may change further), the tick copy won't benefit from those improvements. The architecture should at minimum note that the tick pass contract should be compared against the Kalshi contract at each 220 slice design to absorb any improvements, rather than assuming the copy made at slice-start remains adequate throughout the initiative.
+```
