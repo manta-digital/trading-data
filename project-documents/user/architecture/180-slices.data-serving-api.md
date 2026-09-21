@@ -3,8 +3,8 @@ docType: slice-plan
 parent: user/architecture/180-arch.data-serving.md
 project: trading
 dateCreated: 20260513
-dateUpdated: 20260912
-status: in_progress
+dateUpdated: 20260921
+status: complete
 ---
 
 # Slice Plan: Data Serving API

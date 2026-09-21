@@ -3,8 +3,8 @@ docType: slice-plan
 parent: user/architecture/260-arch.kalshi-event-contract-data.md
 project: trading
 dateCreated: 20260824
-dateUpdated: 20260903
-status: in_progress
+dateUpdated: 20260921
+status: complete
 ---
 
 # Slice Plan: Kalshi Event-Contract Data
