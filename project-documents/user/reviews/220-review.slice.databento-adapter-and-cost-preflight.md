@@ -6,218 +6,208 @@ slice: databento-adapter-and-cost-preflight
 targetKind: slice
 rulesSource: project
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 verdictSource: stated
 sourceDocument: project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md
 aiModel: claude-opus-5-5
 status: complete
 dateCreated: 20260926
 dateUpdated: 20260926
-reviewedSha: 4403e3509ccad414850db76030dad3abcaf5102e
+reviewedSha: 0af7439f3d4fa607aa7b199e45a008237b390319
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 9
+toolCallsMade: 11
 findings:
   - id: F001
-    severity: fail
-    category: error-handling
-    summary: "Submitting a batch job treats a timeout as safe to retry, which risks buying the same range twice"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:164-166"
+    severity: concern
+    category: integration
+    summary: "The day-condition endpoint takes an inclusive end, but the design passes it the exclusive end"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:172"
   - id: F002
     severity: concern
     category: error-handling
-    summary: "The new I/O paths don't say what happens on a hang, a timeout or a mid-transfer disconnect"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:140"
+    summary: "`fetch_range` writes to the final filename, so a crash leaves an unverified file under it"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:188"
   - id: F003
     severity: concern
-    category: dependency-direction
-    summary: "A Databento-specific file type (`DbnFile`) leaks through the provider-neutral protocol"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:190"
+    category: error-handling
+    summary: "The replacement batch download drops edge cases the SDK's own download handles"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:176"
   - id: F004
     severity: concern
-    category: interface-design
-    summary: "Free and paid operations share one interface, and the \"no billable request\" test is aimed at the wrong object"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:233"
+    category: error-handling
+    summary: "The design never says what an HTTP 429 on a paid call maps to"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:178-189"
   - id: F005
     severity: concern
-    category: integration
-    summary: "The preflight's ceiling answer is not the check 223's guard will make"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:156"
+    category: scope
+    summary: "Per-mode size limits are reported as resolved, but their source could not be read"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:30"
   - id: F006
-    severity: concern
-    category: data-model
-    summary: "`RecordBatch.tier` can't describe a batch from a definition file"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:193"
+    severity: note
+    category: architecture-alignment
+    summary: "Two architecture statements are superseded here, but the architecture is not updated"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:170"
   - id: F007
-    severity: concern
-    category: nfr
-    summary: "The stated batch memory budget is broken by the design's own definition-schema figure"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:160"
+    severity: note
+    category: interface-design
+    summary: "Exit code 2 means both \"provider error\" and a command-line usage error"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:243"
   - id: F008
-    severity: concern
-    category: code-structure
-    summary: "Two sets of shared values have no single stated home"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:55"
+    severity: note
+    category: integration
+    summary: "The bundle verdict decides part of 223's definition purchase, and gives mbp-1 a purchase verdict"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:166"
   - id: F009
-    severity: concern
-    category: testing
-    summary: "Interim invented metadata fixtures contradict the \"real or recorded\" rule"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:324"
+    severity: note
+    category: interface-design
+    summary: "The injected `httpx.Client` has no stated owner or close path"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:234"
   - id: F010
-    severity: concern
+    severity: pass
     category: nfr
-    summary: "The architecture's ingest-throughput target isn't restated here"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:158"
+    summary: "NFRs on the touched paths are restated with targets"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:170"
   - id: F011
-    severity: note
-    category: scope
-    summary: "The retention window is carried to a task, but the check the architecture requires on it has no owner yet"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:31"
+    severity: pass
+    category: dependency-direction
+    summary: "Dependency direction and layer boundaries match the architecture"
+    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md#component-structure"
   - id: F012
-    severity: note
-    category: concurrency
-    summary: "State the thread-safety contract on the protocol itself"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:150"
-  - id: F013
     severity: pass
     category: scope
-    summary: "Scope and sequencing match the slice plan"
+    summary: "Scope, sequencing, and the surface decision match the plan and the architecture"
     location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md#technical-scope"
-  - id: F014
-    severity: pass
-    category: architecture-alignment
-    summary: "The CLI/API surface decision is made once and matches the architecture"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md:152"
-  - id: F015
-    severity: pass
-    category: architecture-alignment
-    summary: "Execution model, synchronous protocol, spend-ceiling setting and import direction"
-    location: "project-documents/user/slices/220-slice.databento-adapter-and-cost-preflight.md#technical-decisions"
 ---
 
 # Review: slice — slice 220
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS
 **Model:** claude-opus-5-5
 
 ## Findings
 
-### [FAIL] Submitting a batch job treats a timeout as safe to retry, which risks buying the same range twice
+### [CONCERN] The day-condition endpoint takes an inclusive end, but the design passes it the exclusive end
 
-Technical Decision 10 maps "`requests` connection/timeout errors → `ProviderTransientError`" for every adapter call. For the free metadata calls that is correct. For `submit_batch` it is wrong, because submitting a job spends money and repeating it spends it again.
+Technical Decision 8 says `end` is exclusive "because `get_record_count`/`get_cost`/`submit_job` treat it so". The data flow (line 129) then calls `dataset_condition(start, end)` with that same exclusive end. The SDK does not follow that convention for this endpoint. In the installed `databento` package, the `metadata.get_dataset_condition` docstring reads "end_date: The **inclusive** UTC end date of the request range". The cost, size and record-count endpoints in the same file say "exclusive".
 
-If the server accepts `batch.submit_job` and the connection drops before the response arrives, the job exists and is billed, but the client has no job id. A "transient" error tells 223 that retrying is safe. A retry submits and pays for a second job.
+If the adapter passes the request's `end` straight through, the condition tally covers one extra day:
+- Walkthrough step 6 would report six conditions, not "the five requested days".
+- A request whose end is the day after the available edge would ask for one day past the edge. Depending on how the provider answers, that is an error (exit 2) or a spurious `pending`/`missing` entry.
 
-The architecture says the manifest row is written "at *submitted*, the moment money is committed … so the same range is never bought twice" (arch:51). That only works if the adapter reports "outcome unknown" separately from "did not happen".
+This is the same class of off-by-one-day bug the decision itself warns about. Fix:
+- Record the endpoint's inclusive end in the findings table.
+- Have `DatabentoTickProvider.dataset_condition` convert internally (`end - 1 day`), so the protocol stays exclusive throughout.
+- Add a unit test asserting the SDK receives the inclusive date.
 
-The design needs to fix three things here, because it is the slice that fixes the error taxonomy "once, at the adapter boundary":
-- Submit failures need their own outcome: either a distinct `ProviderError` subclass, or a stated rule that a submit transport error is never transient.
-- It must say how 223 recovers an unknown outcome, for example by listing recent jobs through `list_jobs` and matching on dataset, schema, symbols and range before it submits anything new.
-- A unit test must assert that a timeout during submit does not produce `ProviderTransientError`.
+### [CONCERN] `fetch_range` writes to the final filename, so a crash leaves an unverified file under it
 
-### [CONCERN] The new I/O paths don't say what happens on a hang, a timeout or a mid-transfer disconnect
+The design gives 223 the rule "a file under its final name is always verified, and a `.partial` never is" (lines 176 and 256). That holds for `download_batch`. It does not hold for `fetch_range`, which streams through the SDK's `get_range(path=dest)` straight into `dest`.
 
-The slice ships seven network calls: the metadata calls, `resolve_symbols`, `fetch_range`, `submit_batch`, `batch_job`, `download_batch`, plus the recording script. None of them has a stated way of behaving when the connection hangs.
-- **Hang:** there is no request timeout. The doc doesn't say whether the SDK sets one, whether the adapter passes one, or where that value is defined. An interactive `estimate` that hangs forever is a silent failure under I9 (loud failure).
-- **Disconnect during `fetch_range`:** a streamed request is billed again if it is repeated (finding at line 30). The design doesn't say what happens to a half-written `dest`: delete it, leave it, or report the bytes written. It also doesn't say whether the error is marked "billed, outcome partial" so 223 doesn't retry blindly.
-- **Disconnect during `download_batch`:** the SDK retries up to `BATCH_DOWNLOAD_MAX_RETRIES = 5`. The design doesn't say what the adapter returns or raises once those retries run out, or whether partial files stay in `dest_dir`. Downloads are free, so a retry is safe here, but the leftover-file behaviour decides whether 223's size and checksum check can trust what is on disk.
+The adapter deletes a partial `dest` when an exception reaches it. A process kill, an out-of-memory kill, or a host loss mid-stream raises nothing, so a truncated file stays under its final name. Two things follow:
+1. 223 cannot tell that file from a good one by name.
+2. The next `fetch_range` to the same path hits the SDK's `x+b` open and raises `FileExistsError`. The failure table calls that "a caller bug", but it is really crash residue.
 
-Add a failure-mode table (path → hang / timeout / disconnect → error class and what is left on disk). Give the request timeout one named constant in `constants.py`.
+The design also names no verification for a direct-range file. There is no provider checksum, and the architecture's state machine requires *downloaded → verified* for every unit.
 
-### [CONCERN] A Databento-specific file type (`DbnFile`) leaks through the provider-neutral protocol
+Fix:
+- Stream to `<dest>.partial` and rename only after the stream completes, so the name rule holds for both delivery modes.
+- Say what "verified" means for a direct-range unit. One option: the decoded record count must equal the free `get_record_count` for the same request. The alternative is to state that 223's design owns it.
+- Reclassify a leftover `.partial` as a resumable state, not a caller bug. A direct request cannot resume, so it is deleted, and 223's charge policy for unknown outcomes applies.
 
-`ITickDataProvider.open_file(path) -> DbnFile` makes `data/tick/provider.py`, the neutral protocol, depend on `data/tick/databento/dbn_file.py`, the concrete adapter. That is the wrong direction.
+### [CONCERN] The replacement batch download drops edge cases the SDK's own download handles
 
-It also contradicts the slice's own rule that everything above the protocol "sees … frozen dataclasses, never an SDK type" (line 112). And it contradicts the architecture's rule that the adapter "is the whole acquisition-side surface a second provider would replace" (arch:61). 224 is told to read `DbnFile.mappings/partial/not_found` directly (line 216), which ties the ingest pass to the DBN header shape.
+Technical Decision 9 replaces the SDK's `batch.download` with the adapter's own, for good reasons: the SDK sets no timeout, and a checksum mismatch is only a warning. But the SDK's `_download_batch_file` (lines 505–516 of `batch.py`) handles three states of an existing file that the replacement's specification leaves out:
 
-Define a protocol-level file interface in `provider.py` (for example `ITickFile`: dataset, schema, symbol mappings, `iter_batches`) and have `DbnFile` implement it. The architecture allows the storage projection to be Databento-shaped. It does not allow the acquisition protocol to be.
+| Existing `.partial` | SDK behaviour | Replacement as specified |
+|---|---|---|
+| Size equals the expected size (crash after the last byte, before the rename) | Treats it as complete and skips the request | Sends `Range: bytes=N-`. The server's likely answer is 416, which the free-call mapping sends to "any other 4xx → Permanent". The unit is stuck, and 223 may mark it failed or buy it again. |
+| Larger than expected | Raises | Unspecified |
+| Server ignores `Range` and returns 200 with the full body | (appends) | Unspecified. Appending gives a corrupt file. The checksum catches it and it is re-downloaded, which is loud but wasteful. |
 
-### [CONCERN] Free and paid operations share one interface, and the "no billable request" test is aimed at the wrong object
+Fix:
+- Before fetching, compare the `.partial` size with the size `list_files` reports. Equal: go straight to hash and rename. Larger: delete and restart.
+- Treat a 200 answer to a ranged request as a full restart, truncating the file.
+- Map 416 explicitly, never to Permanent.
+- Add these three cases to the fake-transport tests in Success Criteria (line 276).
 
-`ITickDataProvider` (lines 179-191) mixes free metadata calls with three paid ones: `fetch_range`, `submit_batch`, `download_batch`. `build_estimate` takes the whole interface, so the preflight holds a reference to operations that spend money. The only thing enforcing the slice's central safety property is a test.
+### [CONCERN] The design never says what an HTTP 429 on a paid call maps to
 
-That test is described as "a fake provider whose `timeseries` and `batch` surfaces raise on access". But `timeseries` and `batch` are attributes of the SDK's `Historical` client, not of the protocol. As worded, the test either injects a fake `Historical` into `DatabentoTickProvider`, which needs a constructor injection point the design never specifies, or it uses a protocol fake that has no such attributes, and then the test proves nothing.
+For free calls, a 429 (rate limited) is `ProviderTransientError`. For paid calls, Technical Decision 10 says a 4xx means "the provider refused and charged nothing → `ProviderAuthError`/`ProviderPermanentError` as above". The table rows for `submit_batch` and `fetch_range` say "Auth / Permanent".
 
-The architecture treats billable requests outside the estimate → guard → manifest path as defects (arch:53). The cleaner fix is to split the interface: `ITickMetadataProvider` (free) for `build_estimate`, and a separate purchasing interface for 223. The "no billable request" property then holds by type and the test becomes a backstop. At minimum:
-- Say which object the test fakes.
-- Specify the adapter's injection point for the client (for example `DatabentoTickProvider(client: Historical)` alongside `from_settings`).
+"As above" could bring in the 429 → Transient rule. The two named classes and the table exclude it. Read literally, a rate-limited `submit_batch` becomes `ProviderPermanentError`, and 223 would mark a unit failed for a condition that is both free and safe to retry. A 429 is exactly the case where retrying a paid call is safe: the request was refused before any charge.
 
-### [CONCERN] The preflight's ceiling answer is not the check 223's guard will make
+State that a 429 on a paid call is `ProviderTransientError`. Add it to the table's 4xx column and to the paid-call unit tests (line 275).
 
-The architecture defines the ceiling as "the most one acquisition pass may commit, summed over the units it would submit" (arch:53). 223 buys a tier together with its `definition` units (plan entry 223). The preflight compares each schema's cost with the ceiling on its own (lines 128 and 202). So `tbbo` can show `within` while `tbbo` plus `definition` is `over`.
+### [CONCERN] Per-mode size limits are reported as resolved, but their source could not be read
 
-That contradicts the design's claim that "the operator sees the comparison 223's guard will make" (line 156). Either report the verdict per purchasable bundle (each tier plus `definition`), or relabel the column as a per-schema comparison and drop the claim.
+The architecture requires that "the retention window and any size limits per mode must be verified during slice design" (arch "Delivery mode and retention"). The findings table says "No hard size limit on either mode was found." But line 24 says Databento's documentation site could not be read, and that facts which come only from those pages are marked **unresolved** and carried into a task.
 
-### [CONCERN] `RecordBatch.tier` can't describe a batch from a definition file
+Published per-mode limits would be on exactly those pages. The retention window gets the right treatment: it is unresolved and a recorded task (line 289). Size limits get "none found", which reads as verified.
 
-`RecordBatch` is typed `tier: TickTier`, but Technical Decision 4 states that `definition` "is not a tier". Yet 224 decodes definition units through the same iterator ("projects definition units first", plan entry 224), and `DbnFile` is tested on the definition sample (line 168).
+Mark size limits unresolved, like the retention figure. Add them to the Technical Requirements line that the task file records "as read from the account". 223's choice between batch and direct delivery depends on them.
 
-A definition batch has no valid `tier` value. Either:
-- type the field as a schema enum that includes `definition` (with `TickTier` as a subset), or
-- add a separate discriminator for companion schemas.
+### [NOTE] Two architecture statements are superseded here, but the architecture is not updated
 
-Otherwise 224 has to work around the type.
+The slice improves on the architecture in two places. Neither correction is sent back to the architecture:
+- **The batch bound.** The architecture says "the bound is a record count, one named constant" (arch "One provider adapter owns the wire format"). Technical Decision 7 makes it a byte budget (`TICK_DECODE_BATCH_BYTES`) and derives the record count per schema. This is better, since it holds for the 520-byte `definition` records.
+- **Where symbol mappings live.** The architecture's Envisioned State says "the delivered files carry the symbol-mapping records". The findings table (line 34) shows historical files carry no mapping records; the mappings sit in the file's metadata header.
 
-### [CONCERN] The stated batch memory budget is broken by the design's own definition-schema figure
+Record both in the slice plan's "Differences from the architecture" list, or amend the architecture text. Otherwise 224 (ingest) and 226 (first purchase and proof) inherit a parent document that contradicts the one they build on.
 
-Technical Decision 7 states a budget of "one in-flight batch ≤ 32 MiB per worker". The same paragraph computes a `definition` batch at 130 MiB, about four times over, and dismisses it with "definitions are small in count".
+### [NOTE] Exit code 2 means both "provider error" and a command-line usage error
 
-That depends on how the request is scoped, not on the bound itself. A parent-symbol request (`stype_in=parent`) can return every contract and spread under the product, and the design never checks how many that is. The architecture requires the bound to be "sized so a decoded batch stays inside a stated memory budget" (arch:61). Either:
-- make the batch bound depend on record size (for example, bytes budget ÷ itemsize, with one constant for the budget), or
-- state the maximum definition count the claim depends on and add a check that fails loudly when it is exceeded.
+The design says exit `1` covers "invalid arguments" and `2` means a provider error. Typer/Click exits `2` on its own for a usage error, such as a missing required `--symbols` or `--stype`, or a `--stype` value outside the allowed choices. That happens before the command body runs. So a missing required option exits 2, the same code as a provider outage.
 
-### [CONCERN] Two sets of shared values have no single stated home
+`kalshi.py` has the same collision, so this is inherited. But line 271 states the "invalid arguments → 1" contract as a success criterion. Narrow the wording to "invalid arguments the command itself checks (e.g. `end ≤ start`)", and state that Click's usage errors exit 2.
 
-- **Exit codes:** line 55 names `constants.py` as their home ("exit codes' home"). Lines 103, 166 and 202 say they are "defined once in `tick.py`". The requirement at line 242 ("exactly one definition") can't be checked while the doc names two places.
-- **Symbology values:** `stype_in` (four values, used by CLI choices and requests) and `stype_out` (`instrument_id`, passed to `submit_batch`) are comparison values, but the constants module doesn't list them. `resolve_symbols(..., stype_out: str)` takes a bare string (line 185). Add a symbology enum to `constants.py` and use it in `TickRequest`, the CLI and the adapter.
+### [NOTE] The bundle verdict decides part of 223's definition purchase, and gives mbp-1 a purchase verdict
 
-### [CONCERN] Interim invented metadata fixtures contradict the "real or recorded" rule
+Technical Decision 5 prices the `definition` part of each bundle with the same symbols and `stype_in` as the tier request. It calls that "the comparison 223's guard makes". The architecture scopes definitions per configured *product* over the wanted range (Envisioned State, "Contract definitions"). For a `continuous` request, the same-request definition cost can differ from what 223 actually buys, and 223 has not been designed yet.
 
-Technical Decision 11 says fixtures are "real or recorded, never invented". The architecture's testing strategy says the same ("a fixture in an invented format is a false pass", arch:151). Development step 3 then lets the adapter and renderer tests run on shapes taken from the SDK documentation "until then", marked for a later re-run.
+Separately, `mbp-1` is outside `STORED_TIERS` and outside the architecture's scope. Yet its row shows a `within`/`over` ceiling verdict, as if it could be bought.
 
-The success criteria never require the recordings to exist before the slice closes. The only related check (line 245) accepts the retention figure as "still pending". Make committing the recorded JSON fixtures, and re-running the tests against them, a completion requirement. Alternatively, state explicitly that the slice cannot close until the PM has created the account.
+Either:
+- word the verdict as "estimate for this request shape; 223 owns the definition scope", or
+- show `not purchasable in this initiative` in the `mbp-1` verdict column.
 
-### [CONCERN] The architecture's ingest-throughput target isn't restated here
+### [NOTE] The injected `httpx.Client` has no stated owner or close path
 
-This slice fixes the decode path that 224 and 226 build on (the execution model, `iter_batches`, the batch bound). The architecture attaches a pass/fail target to exactly that path: "a day's sessions for the configured universe must ingest well inside the daily pass interval" (arch:135).
+`from_settings` builds an `httpx.Client` for the verified download. Neither protocol exposes a close or context-manager method. For the one-shot CLI this does not matter. For 223's long-running pass, with one provider per worker (State Management), unclosed clients hold connection pools open.
 
-The slice restates the memory budget but not this target. Its benchmark (Technical Decision 12, walkthrough step 4) reports speedup only, with no link to the target. Restate the target and say what the benchmark can and cannot show about it, for example "decode rate on synthetic repeats is an upper bound only; 226 decides".
+State who closes it. Either the caller constructs and closes the `httpx.Client`, or `DatabentoTickProvider` is a context manager.
 
-### [NOTE] The retention window is carried to a task, but the check the architecture requires on it has no owner yet
+### [PASS] NFRs on the touched paths are restated with targets
 
-The architecture requires slice design to verify that the retention window "covers several consecutive missed firings" (arch:123). Deriving deadlines from `ts_expiration` is the right structural answer, and the risk section (line 308) acknowledges the gap.
+Both NFRs are carried with specific values:
+- **Decode memory budget.** Technical Decision 7: 32 MiB per in-flight batch, with per-schema record counts and a test on `records.nbytes`.
+- **Ingest throughput.** Technical Decision 12 restates the architecture's pass/fail target ("a day's sessions … must ingest well inside the daily pass interval"). It says the benchmark can only fail it, never pass it, and assigns the decision to 226.
 
-Say explicitly that 223's design owns the check "window ≥ N missed firings", so it isn't lost when the recorded figure arrives.
+### [PASS] Dependency direction and layer boundaries match the architecture
 
-### [NOTE] State the thread-safety contract on the protocol itself
+- Only `adapter.py` and `dbn_file.py` import `databento`, and a unit test enforces it.
+- Everything above the protocols sees `I*` protocols and frozen dataclasses. The `databento/` subpackage is the whole surface a second provider replaces, as the architecture's "One provider adapter owns the wire format" requires.
+- Nothing imports `data/kalshi`; the Kalshi code is used only as a pattern.
+- The new error class lands in shared `providers/errors.py` as a sibling of `ProviderTransientError`, not a subclass, so no retry handler can catch it by accident.
 
-Technical Decision 2 has async callers wrap each call in `asyncio.to_thread`. That pattern will easily call one provider instance from several default-executor threads. Technical Decision 6 says "the SDK client is not shared across workers". Put that rule in the `ITickDataProvider` docstring ("an instance is not thread-safe; one per concurrent caller") so 223 doesn't have to find it in a decision paragraph.
+### [PASS] Scope, sequencing, and the surface decision match the plan and the architecture
 
-### [PASS] Scope and sequencing match the slice plan
-
-The architecture's first sketched slice also included the session model and the contract amendment's frame. The plan splits those into 221, and that split is recorded as a deliberate difference. The out-of-scope list lines up with 221–230. The rule "a slice never writes to a table a later slice creates" (arch:159) is kept: this slice adds no tables, no migrations and no database access. The architecture's verification items (embargo, record-count query, how symbol mappings appear in files, whether the decoder releases the interpreter lock, delivery modes) are each resolved with a cited source, or marked unresolved and carried into a task.
-
-### [PASS] The CLI/API surface decision is made once and matches the architecture
-
-Technical Decision 3 makes the single joint decision the architecture requires (arch:139): an `mt data tick` subgroup and a `/api/v1/futures/*` namespace. It justifies the choice from futures identity and the Kalshi precedent. Its verb list, with `pass` standing in for `daemon`, matches the architecture's own wording of I10 ("daemon-equivalent pass", arch:47).
-
-### [PASS] Execution model, synchronous protocol, spend-ceiling setting and import direction
-
-- **Execution model:** a synchronous protocol with bounded-batch iteration off the event loop is what arch:61 requires. The threads decision rests on inspecting the SDK source, and the path to switching to processes stays open.
-- **Spend ceiling:** `MT_TICK_SPEND_CEILING_USD` as `Decimal | None` with `gt=0` matches "no default; absent means refuse to purchase" (arch:53).
-- **API key:** it enters only through `Settings`, and the SDK's fallback to its own environment variable is explicitly never used.
-- **Imports:** the Kalshi code is used as a pattern only, and nothing imports from `data/kalshi`, as the architecture's rule against one data source importing another requires (arch:73). A unit test restricts `databento` imports to the two adapter modules.
+- No table, migration or billable request is added, so the rule "a slice never writes to a table a later slice creates" holds.
+- The session model and contract amendment go to 221, as the plan records.
+- The CLI/API choice (`mt data tick` subgroup and `/api/v1/futures/*`) is made once, for both surfaces, as the architecture's "Own subgroup or granularity switches" requires.
+- The free/paid interface split puts the architecture's "no billable request outside estimate → guard → manifest" rule into the types.
+- `MT_TICK_SPEND_CEILING_USD` as `Decimal | None` with `gt=0` matches the architecture's "no default; absent means refuse to purchase".
 
 ### Run Digest
 
-- Response length: 15668 chars
+- Response length: 13724 chars
 - Response is newline-free: no
-- Tool calls made: 9
+- Tool calls made: 11
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Reasoning characters: 0
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 15
+- Finding-shaped matches — whole response: 12
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 15
-- Finding-shaped matches — surviving validation: 15
+- Finding-shaped matches — in findings section: 12
+- Finding-shaped matches — surviving validation: 12
