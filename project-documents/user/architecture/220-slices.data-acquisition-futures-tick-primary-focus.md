@@ -3,8 +3,8 @@ docType: slice-plan
 parent: user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
 project: trading
 dateCreated: 20260923
-dateUpdated: 20260923
-status: not_started
+dateUpdated: 20260925
+status: in_progress
 ---
 
 # Slice Plan: Futures Tick Data Acquisition
@@ -32,7 +32,7 @@ status: not_started
    - The manifest of archive units: state machine, delivery-mode discriminator, tier, download deadline, and a link to the unit it repurchases.
    - The ingest ledger: one row per instrument and session, holding records loaded, first and last event time, traded volume, and source unit.
 
-   The slice also adds the tier enum in the tick package and tick roles per 913. It removes slice 105's leftovers: the `TickEventType` enum and its unit test, and `test_tick_schema_integration.py`, which turns red on the day `MT_TICK_DB_URL` is set. Storage follows the NautilusTrader-compatibility recommendation (940 analysis): event and receive timestamps at nanosecond precision, fixed-point prices kept exact, and contract identifiers that map cleanly to venue-suffixed IDs. No data is written; this slice only creates tables. Dependencies: [923 Multi-Database Migration and Credential Plumbing — hard gate, no fallback], [220]. Risk: Medium. Effort: 3/5
+   The slice renders its tier CHECK constraints from the tier enum that 220 defines (the preflight needs the vocabulary first), and adds tick roles per 913. It removes slice 105's leftovers: the `TickEventType` enum and its unit test, and `test_tick_schema_integration.py`, which turns red on the day `MT_TICK_DB_URL` is set. Storage follows the NautilusTrader-compatibility recommendation (940 analysis): event and receive timestamps at nanosecond precision, fixed-point prices kept exact, and contract identifiers that map cleanly to venue-suffixed IDs. No data is written; this slice only creates tables. Dependencies: [923 Multi-Database Migration and Credential Plumbing — hard gate, no fallback], [220]. Risk: Medium. Effort: 3/5
 
 ## Feature Slices (in implementation order)
 
