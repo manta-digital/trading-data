@@ -84,7 +84,6 @@ def test_unset_ceiling() -> None:
         TickSchema.MBP_1: CeilingVerdict.NOT_PURCHASABLE,
         TickSchema.DEFINITION: CeilingVerdict.BOUGHT_WITH_EACH_TIER,
     }
-    assert "MT_TICK_SPEND_CEILING_USD unset" in CeilingVerdict.NO_CEILING
 
 
 @pytest.mark.parametrize("ceiling", [Decimal("0.01"), BETWEEN, Decimal("1000")])

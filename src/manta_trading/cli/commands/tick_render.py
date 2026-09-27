@@ -7,9 +7,30 @@ from decimal import ROUND_HALF_UP, Decimal
 from rich import print as rprint
 
 from manta_trading.cli.output import make_table, print_result
-from manta_trading.data.tick.estimate import EstimateReport, SchemaEstimate
+from manta_trading.data.tick.constants import TICK_SPEND_CEILING_ENV
+from manta_trading.data.tick.estimate import (
+    CeilingVerdict,
+    EstimateReport,
+    SchemaEstimate,
+)
 
 _CENT = Decimal("0.01")
+
+#: Operator wording for each verdict token (design *CLI verb*).
+VERDICT_LABELS: dict[CeilingVerdict, str] = {
+    CeilingVerdict.WITHIN: "within",
+    CeilingVerdict.OVER: "over",
+    CeilingVerdict.NO_CEILING: (
+        f"no ceiling configured ({TICK_SPEND_CEILING_ENV} unset)"
+    ),
+    CeilingVerdict.BOUGHT_WITH_EACH_TIER: "bought with each tier",
+    CeilingVerdict.NOT_PURCHASABLE: "not purchasable in this initiative",
+}
+
+# Every verdict must have wording — a new member cannot render as a raw token.
+assert set(VERDICT_LABELS) == set(CeilingVerdict), (
+    "tick verdict labels are not exhaustive — update VERDICT_LABELS"
+)
 _BYTE_UNITS = ("B", "KiB", "MiB", "GiB", "TiB")
 _BYTE_STEP = 1024
 
@@ -56,7 +77,7 @@ def _cells(row: SchemaEstimate) -> tuple[str, ...]:
         human_bytes(row.billable_bytes),
         usd(row.cost_usd),
         bundle,
-        row.verdict.value,
+        VERDICT_LABELS[row.verdict],
     )
 
 

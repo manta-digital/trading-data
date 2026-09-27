@@ -17,8 +17,8 @@ from pathlib import Path
 
 import httpx
 
+from manta_trading.data.tick.databento._status import refusal_error
 from manta_trading.providers.errors import (
-    ProviderAuthError,
     ProviderError,
     ProviderPermanentError,
     ProviderTransientError,
@@ -26,7 +26,6 @@ from manta_trading.providers.errors import (
 
 PARTIAL_SUFFIX = ".partial"
 _HASH_CHUNK_BYTES = 1024 * 1024
-_AUTH_STATUSES = frozenset({HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN})
 #: The job's files are gone (expired or never existed): re-download is futile.
 _GONE_STATUSES = frozenset({HTTPStatus.NOT_FOUND, HTTPStatus.GONE})
 
@@ -92,14 +91,14 @@ def _write_mode(status: int, offset: int, file: BatchFile, partial: Path) -> str
 
 
 def _status_error(status: int, file: BatchFile) -> ProviderError:
+    """A download is free, so a 5xx is simply transient; refusals map as
+    everywhere else (``_status.refusal_error``)."""
     detail = f"download {file.filename}: HTTP {status}"
-    if status in _GONE_STATUSES:
-        return ProviderPermanentError(f"{detail} (expired or missing)")
-    if status in _AUTH_STATUSES:
-        return ProviderAuthError(detail)
-    if status == HTTPStatus.TOO_MANY_REQUESTS or status >= 500:
+    if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
         return ProviderTransientError(detail)
-    return ProviderPermanentError(detail)
+    if status in _GONE_STATUSES:
+        detail = f"{detail} (expired or missing)"
+    return refusal_error(status, detail)
 
 
 def _sha256(path: Path) -> str:

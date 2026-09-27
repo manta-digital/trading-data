@@ -40,7 +40,9 @@ from manta_trading.data.tick.databento.adapter import (
 )
 from manta_trading.data.tick.provider import ITickMetadataProvider, TickRequest
 
-FIXTURE_DIR = Path("test/fixtures/databento/metadata")
+FIXTURE_DIR = (
+    Path(__file__).resolve().parents[1] / "test" / "fixtures" / "databento" / "metadata"
+)
 REQUEST = TickRequest(
     dataset=CME_DATASET,
     symbols=("ES.c.0",),

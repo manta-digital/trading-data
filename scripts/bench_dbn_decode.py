@@ -56,15 +56,19 @@ _PREFIX = struct.Struct("<3sBI")
 
 def build_input(records: int, directory: Path) -> Path:
     """Real header + real records repeated to ``records``, zstd-compressed."""
-    raw = zstandard.ZstdDecompressor().stream_reader(SAMPLE.open("rb")).read()
+    with SAMPLE.open("rb") as handle:
+        raw = zstandard.ZstdDecompressor().stream_reader(handle).read()
     magic, _version, metadata_length = _PREFIX.unpack_from(raw)
     if magic != b"DBN":
         raise ValueError(f"{SAMPLE} is not a DBN file")
     header_end = _PREFIX.size + metadata_length
     header, body = raw[:header_end], raw[header_end:]
-    sample_count = len(body) // 48  # TradeMsg is 48 bytes (design findings)
+    record_size = DbnFileReader().open_file(SAMPLE).record_size
+    sample_count = len(body) // record_size
+    if sample_count == 0:
+        raise ValueError(f"{SAMPLE} holds no records to repeat")
     repeats, remainder = divmod(records, sample_count)
-    payload = header + body * repeats + body[: remainder * 48]
+    payload = header + body * repeats + body[: remainder * record_size]
     path = directory / "bench.trades.dbn.zst"
     path.write_bytes(zstandard.ZstdCompressor(level=3).compress(payload))
     return path

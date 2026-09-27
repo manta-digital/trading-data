@@ -16,7 +16,6 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from http import HTTPStatus
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -33,6 +32,7 @@ from manta_trading.data.tick.constants import (
     SType,
 )
 from manta_trading.data.tick.databento import _download, _parse
+from manta_trading.data.tick.databento._status import refusal_error
 from manta_trading.data.tick.provider import (
     BatchJob,
     DatasetRange,
@@ -67,7 +67,6 @@ _PAID_UNKNOWN_ERRORS: tuple[type[Exception], ...] = (
     requests.RequestException,
     *MALFORMED_ERRORS,
 )
-_AUTH_STATUSES = frozenset({HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN})
 
 
 def api_key_env() -> str:
@@ -81,11 +80,7 @@ def api_key_env() -> str:
 def client_error(what: str, exc: BentoClientError) -> ProviderError:
     """A 4xx answer: the provider refused, so nothing was charged."""
     detail = f"Databento {what}: HTTP {exc.http_status}: {exc.message}"
-    if exc.http_status == HTTPStatus.TOO_MANY_REQUESTS:
-        return ProviderTransientError(detail)
-    if exc.http_status in _AUTH_STATUSES:
-        return ProviderAuthError(detail)
-    return ProviderPermanentError(detail)
+    return refusal_error(exc.http_status, detail)
 
 
 @contextmanager

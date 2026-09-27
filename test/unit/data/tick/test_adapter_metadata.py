@@ -280,3 +280,15 @@ def test_context_manager_closes_http_on_exception() -> None:
         with DatabentoTickProvider(FakeHistorical(), http):  # type: ignore[arg-type]
             raise RuntimeError("boom")
     assert http.is_closed
+
+
+@pytest.mark.parametrize(
+    "method", ["get_record_count", "get_billable_size", "get_cost"]
+)
+def test_negative_figure_is_a_value_error_mapped_permanent(method: str) -> None:
+    metadata = metadata_api()
+    metadata.responses[method] = -1
+    provider, _, _ = _provider(metadata)
+    with pytest.raises(ProviderPermanentError, match="non-negative") as caught:
+        dict(FREE_CALLS)[method](provider)
+    assert isinstance(caught.value.__cause__, ValueError)

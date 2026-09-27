@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
 from manta_trading.cli.commands import tick as cmd
-from manta_trading.cli.commands.tick_render import human_bytes, usd
+from manta_trading.cli.commands.tick_render import VERDICT_LABELS, human_bytes, usd
 from manta_trading.config import Settings
 from manta_trading.data.tick.constants import (
     ESTIMATE_SCHEMAS,
@@ -28,6 +28,7 @@ from manta_trading.data.tick.constants import (
     TickSchema,
 )
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
+from manta_trading.data.tick.estimate import CeilingVerdict
 
 runner = CliRunner()
 ESTIMATE = ["data", "tick", "estimate", "--symbols", "ES.c.0", "--stype", "continuous"]
@@ -160,3 +161,17 @@ def test_human_bytes(size: int, text: str) -> None:
 )
 def test_usd_rounds_to_cents(amount: str, text: str) -> None:
     assert usd(Decimal(amount)) == text
+
+
+def test_json_verdicts_are_tokens(metadata: FakeApi) -> None:
+    """``--json`` carries machine tokens; the table carries the wording."""
+    result = runner.invoke(app, [*ESTIMATE, *RANGE, "--json"])
+    verdicts = {r["ceiling_verdict"] for r in json.loads(result.stdout)["schemas"]}
+    assert verdicts == {"no_ceiling", "not_purchasable", "bought_with_each_tier"}
+
+
+def test_every_verdict_has_operator_wording() -> None:
+    assert set(VERDICT_LABELS) == set(CeilingVerdict)
+    assert (
+        f"{TICK_SPEND_CEILING_ENV} unset" in VERDICT_LABELS[CeilingVerdict.NO_CEILING]
+    )

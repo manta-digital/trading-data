@@ -16,7 +16,6 @@ from manta_trading.data.tick.constants import (
     COMPANION_SCHEMAS,
     ESTIMATE_SCHEMAS,
     STORED_TIERS,
-    TICK_SPEND_CEILING_ENV,
     DatasetCondition,
     TickSchema,
 )
@@ -29,13 +28,17 @@ from manta_trading.data.tick.provider import (
 
 class CeilingVerdict(StrEnum):
     """The verdict column: a stored tier's bundle against the ceiling, or why
-    a row has no bundle verdict (design Technical Decision 5)."""
+    a row has no bundle verdict (design Technical Decision 5).
+
+    Values are machine tokens (the ``--json`` ``ceiling_verdict``); the
+    operator wording lives in ``cli/commands/tick_render.py``.
+    """
 
     WITHIN = "within"
     OVER = "over"
-    NO_CEILING = f"no ceiling configured ({TICK_SPEND_CEILING_ENV} unset)"
-    BOUGHT_WITH_EACH_TIER = "bought with each tier"
-    NOT_PURCHASABLE = "not purchasable in this initiative"
+    NO_CEILING = "no_ceiling"
+    BOUGHT_WITH_EACH_TIER = "bought_with_each_tier"
+    NOT_PURCHASABLE = "not_purchasable"
 
 
 class EstimateRefusedError(Exception):

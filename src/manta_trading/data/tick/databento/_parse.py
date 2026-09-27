@@ -87,15 +87,19 @@ def _as_str(raw: object, what: str) -> str:
 
 def as_count(raw: object, what: str) -> int:
     """A non-negative integer (record count, byte size)."""
-    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
-        raise TypeError(f"{what}: expected a non-negative integer, got {raw!r}")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise TypeError(f"{what}: expected an integer, got {raw!r}")
+    if raw < 0:
+        raise ValueError(f"{what}: expected a non-negative integer, got {raw}")
     return raw
 
 
 def as_usd(raw: object) -> Decimal:
     """The SDK's float cost → ``Decimal`` via its shortest repr (exact cents)."""
-    if isinstance(raw, bool) or not isinstance(raw, int | float) or raw < 0:
-        raise TypeError(f"cost: expected a non-negative number, got {raw!r}")
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        raise TypeError(f"cost: expected a number, got {raw!r}")
+    if raw < 0:
+        raise ValueError(f"cost: expected a non-negative number, got {raw}")
     return Decimal(str(raw))
 
 
