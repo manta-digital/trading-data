@@ -398,7 +398,7 @@ Needs `MT_DATABENTO_API_KEY` in the dev `.env` (PM prerequisite). Design:
 *Technical Decision 11* (fixtures recorded, never invented), *Technical
 Requirements* (docs), *Verification Walkthrough*.
 
-- [ ] **Task 7.1: `scripts/record_databento_fixtures.py`** (effort: 2)
+- [x] **Task 7.1: `scripts/record_databento_fixtures.py`** (effort: 2)
   - [x] Modelled on `record_kalshi_fixtures.py`. Builds a
         `DatabentoTickProvider` via `from_settings`, types it as
         `ITickMetadataProvider`, and records each metadata method's raw SDK
@@ -406,27 +406,27 @@ Requirements* (docs), *Verification Walkthrough*.
         across `ESTIMATE_SCHEMAS` into `test/fixtures/databento/metadata/*.json`.
   - [x] Imports `ESTIMATE_SCHEMAS`; calls nothing outside the metadata
         protocol.
-  - [ ] Success: script runs clean; no key or header value appears in any
+  - [x] Success: script runs clean; no key or header value appears in any
         written file.
-- [ ] **Task 7.2: Record and commit the fixtures** (effort: 1)
-  - [ ] Run the script; inspect each JSON file for secrets; commit.
-  - [ ] Commit: `test: add recorded databento metadata fixtures`.
-- [ ] **Task 7.3: Re-point metadata-shaped tests at the recordings** (effort: 2)
-  - [ ] Replace every hand-built metadata response in the adapter (3.6),
+- [x] **Task 7.2: Record and commit the fixtures** (effort: 1)
+  - [x] Run the script; inspect each JSON file for secrets; commit.
+  - [x] Commit: `test: add recorded databento metadata fixtures`.
+- [x] **Task 7.3: Re-point metadata-shaped tests at the recordings** (effort: 2)
+  - [x] Replace every hand-built metadata response in the adapter (3.6),
         estimate (5.2), and CLI/renderer (5.5) tests with a loader over the
         recorded JSON.
-  - [ ] Success: `grep` finds no hand-written metadata response left in
+  - [x] Success: `grep` finds no hand-written metadata response left in
         `test/unit/data/tick` or `test_data_tick.py`; all tests pass.
-- [ ] **Task 7.4: Record account facts** (effort: 1)
-  - [ ] From the account (or a free SDK call where one exists), record
+- [x] **Task 7.4: Record account facts** (effort: 1)
+  - [x] From the account (or a free SDK call where one exists), record
         under *Recorded Results*: the batch retention window and any
         per-mode (batch, direct) size limits. If a figure cannot be found,
         write "not published" with where you looked — never a guessed value.
-  - [ ] Beside each figure, name its consumer: the retention window feeds
+  - [x] Beside each figure, name its consumer: the retention window feeds
         223's retention check (the window must cover several consecutive
         missed firings at 223's cadence); the size limits feed 223's
         batch-versus-direct delivery choice.
-  - [ ] Copy both figures into the design's findings table (the "Delivery
+  - [x] Copy both figures into the design's findings table (the "Delivery
         modes" and "Batch retention window" rows) so a 223 author reading
         only the design finds them.
 - [x] **Task 7.5: README and `.env_sample`** (effort: 2)
@@ -446,21 +446,21 @@ Requirements* (docs), *Verification Walkthrough*.
         end past the edge, unknown-outcome paid calls).
   - [x] Commit: `docs: add tick CLI, env table, and contract rows for 220`.
 - [ ] **Task 7.7: Live verification walkthrough** (effort: 2)
-  - [ ] Run *Verification Walkthrough* steps 1–7 from the slice design.
+  - [x] Run *Verification Walkthrough* steps 1–7 from the slice design.
         Paste step 6's table and step 7's JSON verdicts under *Recorded
         Results*.
-  - [ ] Check: `trades` and `tbbo` record counts equal, sizes differ;
+  - [x] Check: `trades` and `tbbo` record counts equal, sizes differ;
         `mbp-1` record count much larger; verdicts split correctly at the
         step 7 ceiling.
   - [ ] Step 8: open the Databento portal usage page and confirm no batch
         jobs and no charges today; record the observation.
   - [ ] Success: all seven steps pass and step 8 shows zero spend.
 - [ ] **Task 7.8: Final validation** (effort: 1)
-  - [ ] Full unit tier passes; ruff and mypy clean on all touched files;
+  - [x] Full unit tier passes; ruff and mypy clean on all touched files;
         every source file ≤ ~300 lines.
-  - [ ] Review the *Success Criteria* list in the slice design item by item
+  - [x] Review the *Success Criteria* list in the slice design item by item
         and confirm each is met.
-  - [ ] Commit: `docs: record 220 walkthrough results`.
+  - [x] Commit: `docs: record 220 walkthrough results`.
 
 ## Recorded Results
 
