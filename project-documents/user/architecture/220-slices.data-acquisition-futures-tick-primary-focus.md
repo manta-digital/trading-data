@@ -3,7 +3,7 @@ docType: slice-plan
 parent: user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
 project: trading
 dateCreated: 20260923
-dateUpdated: 20260925
+dateUpdated: 20260927
 status: in_progress
 ---
 
@@ -15,7 +15,7 @@ status: in_progress
 
 ## Foundation Work
 
-1. [ ] **(220) Databento Adapter and Cost Preflight** — Adds the `databento` dependency, the tick-provider protocol (shaped like `IMinuteDataProvider`/`IDailyDataProvider`), and the one adapter that owns the wire format. The adapter covers DBN decode, symbology (raw, instrument id, parent, continuous), and both delivery modes: batch job and direct range request. Its execution model is a synchronous *unit → bounded record batches* iterator that runs off the event loop. The batch bound is one named constant, set conservatively until the proof measures it. The threads-versus-processes question is answered here by measuring whether the provider's decoder releases the interpreter lock. The first tick CLI verb is a cost and size preflight. It calls only the free metadata endpoints (`get_cost`, `get_billable_size`, `get_record_count`, dataset range and condition) and reports per tier (`trades`, `tbbo`, `mbp-1`) for the same instrument and range. That comparison is the input to the tier decision. The spend-ceiling setting, `MT_TICK_SPEND_CEILING_USD`, is added to `Settings` with no default. The slice-design verification items are resolved here: the batch retention window, size limits per delivery mode, the 24-hour embargo, the record-count query, and how symbol-mapping records appear in delivered files. Unit tests run over real DBN files. The provider's published sample files are the candidate (verify at design), because this slice may not buy anything. Mapping rows go in the data-correctness contract. Dependencies: [900 provider registry, complete]. Risk: Medium. Effort: 3/5
+1. [x] **(220) Databento Adapter and Cost Preflight** — Adds the `databento` dependency, the tick-provider protocol (shaped like `IMinuteDataProvider`/`IDailyDataProvider`), and the one adapter that owns the wire format. The adapter covers DBN decode, symbology (raw, instrument id, parent, continuous), and both delivery modes: batch job and direct range request. Its execution model is a synchronous *unit → bounded record batches* iterator that runs off the event loop. The batch bound is one named constant, set conservatively until the proof measures it. The threads-versus-processes question is answered here by measuring whether the provider's decoder releases the interpreter lock. The first tick CLI verb is a cost and size preflight. It calls only the free metadata endpoints (`get_cost`, `get_billable_size`, `get_record_count`, dataset range and condition) and reports per tier (`trades`, `tbbo`, `mbp-1`) for the same instrument and range. That comparison is the input to the tier decision. The spend-ceiling setting, `MT_TICK_SPEND_CEILING_USD`, is added to `Settings` with no default. The slice-design verification items are resolved here: the batch retention window, size limits per delivery mode, the 24-hour embargo, the record-count query, and how symbol-mapping records appear in delivered files. Unit tests run over real DBN files. The provider's published sample files are the candidate (verify at design), because this slice may not buy anything. Mapping rows go in the data-correctness contract. Dependencies: [900 provider registry, complete]. Risk: Medium. Effort: 3/5
 
 2. [ ] **(221) CME Session Model and Data-Correctness Amendment** — Adds the futures session model as a second calendar behind the I4 session surface. The pieces are:
    - A CME `calendar_id` row in `trading_calendars`, verified per product (ES and GC are expected to share one).
@@ -40,13 +40,15 @@ status: in_progress
    - Reconcile in-flight units first. Deliverable units download earliest deadline first. A unit whose deadline passes moves to *failed* with the reason *retention expired*, and its repurchase is a new unit that names the expired one.
    - Capture the availability edge from the provider's free dataset metadata.
    - Compute the wanted set (universe × range) minus the manifest, in calendar-day UTC units.
-   - Estimate, then apply the spend-ceiling guard. The pass refuses to purchase when the ceiling is absent.
-   - Submit, poll within the pass's wait budget, download, and verify checksums and sizes.
+   - Estimate, then apply both spend guards: the per-pass ceiling (`MT_TICK_SPEND_CEILING_USD`) and a rolling 30-day cap summed from the manifest's recorded costs. The pass refuses to purchase when the per-pass ceiling is absent.
+   - Submit batch jobs only (no direct-range purchases), poll within the pass's wait budget, download, and verify checksums and sizes.
+
+   It also adds **adoption of existing batch files**: given a job id and its local directory or zip, verify every file against the job's `manifest.json` (size and SHA-256), read the job's record (free), and write archive units at *downloaded* with the recorded cost. The two free-credit ES jobs are adopted this way, so 224 and 226 run on them with no spend.
 
    Contract definitions are acquired through this same path as `definition`-schema units. They are billable, and the architecture allows no exempt requests. This moves definitions capture here from the architecture's storage-track sketch. The slice also adds:
    - A run-context preflight that refuses to run while tick migrations are pending.
    - A minute-track migration adding `PassKind.TICK` and re-rendering the `pass_runs` CHECK constraint.
-   - The `PassKind.TICK` branch in `schedule_for`, staggered against the minute pass's firing times.
+   - The `PassKind.TICK` branch in `schedule_for`. Its cadence is an open PM decision (see Notes). Until it is decided, the branch declares the pass manual-only (no timer).
    - A configured tick universe (products or contracts, tier per instrument, wanted range).
 
    The pass runs manually from the CLI. The spend-ceiling guard is tested with mocked cost responses and never against the live account. Dependencies: [222]. Risk: High. Effort: 4/5
@@ -68,29 +70,29 @@ status: in_progress
    These read only the manifest, the ledger, and raw counts, never an aggregate. Dependencies: [221, 223]. Risk: High. Effort: 4/5
 
 6. [ ] **(225) Tick Pass Production Wiring** — Deploys the passes in the 916 production form. It adds:
-   - The pass unit and timer under `manta-acquisition.slice`.
+   - The pass unit under `manta-acquisition.slice`, and a timer only if the cadence decision calls for one.
    - `mt-run tick`, `mt-run follow tick`, and the `mt-run status` row.
    - The install-script entry.
    - `MT_TICK_DB_URL`, `MT_DATABENTO_API_KEY`, and `MT_TICK_SPEND_CEILING_USD` in the service environment files of every process with a tick duty.
    - The tick archive directory on the host.
    - The runbook's add-a-source entries.
 
-   It also adds the second connection pool from `MT_TICK_DB_URL` to the health check, as the first composing surface. The check gains a retention-deadline finding for any in-flight unit whose deadline falls before the next scheduled firing. When the setting is absent, health fails at startup. When the tick database is unreachable, health reports "unreachable" rather than omitting the line. The minute, daily, and Kalshi passes never read the tick setting. Cutover is a script per the PM-host-step convention. Dependencies: [224]. Risk: Medium. Effort: 3/5
+   It also adds the second connection pool from `MT_TICK_DB_URL` to the health check, as the first composing surface. The check gains a retention-deadline finding for any in-flight unit whose deadline falls before the next scheduled firing, or, with a manual-only pass, within a fixed number of days. When the setting is absent, health fails at startup. When the tick database is unreachable, health reports "unreachable" rather than omitting the line. The minute, daily, and Kalshi passes never read the tick setting. Cutover is a script per the PM-host-step convention. Dependencies: [224]. Risk: Medium. Effort: 3/5
 
-7. [ ] **(226) First Purchase and Proof** — A bounded ES range at the tier chosen from 220's per-tier estimates, bought through the production pass. It measures:
+7. [ ] **(226) Proof on Existing Data** — The proof runs first on the two adopted free-credit ES jobs: `trades` 2024-08-30 → 09-29 (10.0 M records) and `tbbo` 2024-11-01 → 12-31 (17.6 M records). Both ranges contain a quarterly roll, the September and December 2024 ES rolls. No purchase is needed. The first data under the Standard plan follows the go/no-go, through the production pass. It measures:
    - bytes per record by tier, and compressed bytes per row;
-   - ingest rate, and the cadence check: a day's sessions must ingest well inside the daily pass interval;
+   - ingest rate, against the throughput pass/fail restated for on-demand acquisition: a day of sessions far faster than a day of market time, and a month within an operator's working session;
    - typical batch-job duration and poll interval;
    - query latency at the chosen chunk interval;
    - whether intra-unit checkpoints are needed;
    - the decoded-batch memory budget, which sets the batch-size constant;
    - contention: the tick ingest running concurrently with the minute pass (the minute pass's duration, host I/O, memory, and write throughput against the solo baseline).
 
-   Mapping-record completeness is a pass/fail criterion. Either every tick is attributable to its contract, or the raw-symbol fallback is adopted. The ingest checks pass on every unit. The chunk interval is validated. The physical-grouping decision (space partitioning and compression layout) is made from the numbers and applied by a tick-track migration. If the schema is invalidated, the remedy is a rebuild from the archive. The output is a written go/no-go on tier and on GC. Dependencies: [225]. Risk: High. Effort: 4/5
+   Mapping-record completeness is a pass/fail criterion. Either every tick is attributable to its contract, or the raw-symbol fallback is adopted. The ingest checks pass on every unit. The chunk interval is validated. The physical-grouping decision (space partitioning and compression layout) is made from the numbers and applied by a tick-track migration. If the schema is invalidated, the remedy is a rebuild from the archive. The output is a written go/no-go on tier and on GC, and on subscribing to the Standard plan. Dependencies: [225]. Risk: High. Effort: 4/5
 
 8. [ ] **(227) Backup Coverage for Tick Archive and Database** — Adds the archive to the 915/920 backup set as data. The database policy (full base backup, WAL-only, or rebuild from the archive on restore) is chosen from the proof's measured rebuild cost. The 913 role set and the backup tooling are extended to the tick instance, not copied by hand. The restore drill covers both the archive and the database. Retention, exclusions, and placement are recorded in the backup runbook. Dependencies: [226]. Risk: Medium. Effort: 3/5
 
-9. [ ] **(228) Active Contract and Roll Methods** — Adds the roll-method vocabulary: calendar with an optional days-before-expiry offset, and volume. Open interest waits until statistics are bought. The project default is defined once.
+9. [ ] **(228) Active Contract and Roll Methods** — Adds the roll-method vocabulary: calendar with an optional days-before-expiry offset, and volume. **Open interest must be evaluated here** (PM direction 2026-09-27). The Standard plan includes the `statistics` schema, open interest among it, so the rule is no longer blocked on a purchase. The design decides whether it ships in this slice, and if so, `statistics` units come in through the 223 path. The project default is defined once.
 
    Active-contract resolution reads stored definitions and ledger volume. It reports the latest session its inputs cover, and it can be re-derived later from stored state. Roll-day handling has a stated default. The continuous series is a read-time view and is never stored. Status lines name the active contract, the rule that chose it, its expiration, and the next roll.
 
@@ -115,11 +117,18 @@ status: in_progress
 
 ## Integration Work
 
-12. [ ] **(231) Universe Expansion — GC** — Adds GC as a configuration edit, with a cost estimate that includes roll inputs for the range. It is bought and ingested at the tier set by the 226 go/no-go, and it moves the universe to the daily catch-up pass in production. The session model is verified for GC, and the ingest checks pass on every GC unit. Status, overview, and the API show GC with no code change. Verification uses a roll inside the purchased range and a manually fired pass. It does not wait for a future roll or a future timer firing. Dependencies: [230], the 226 go/no-go. Risk: Low. Effort: 2/5
+12. [ ] **(231) Universe Expansion — GC** — Adds GC as a configuration edit, with a cost estimate that includes roll inputs for the range. It is acquired (plan-included where possible) and ingested at the tier set by the 226 go/no-go, and it runs at whatever cadence the PM has decided. The session model is verified for GC, and the ingest checks pass on every GC unit. Status, overview, and the API show GC with no code change. Verification uses a roll inside the purchased range and a manually fired pass. It does not wait for a future roll or a future timer firing. Dependencies: [230], the 226 go/no-go. Risk: Low. Effort: 2/5
 
 13. [ ] **(232) Cross-Source Acquisition Arbitration** — Sets `IOWeight`, `CPUWeight`, and `MemoryMax` on `manta-acquisition.slice` from the proof's contention numbers. It then chooses among the 900 plan's three mechanisms: a resource-class lock the passes take, a scheduler inside `mt`, or keeping calendar stagger as it is. The contention measurement is repeated to show the chosen setting works. This closes 900 Future Work item 4. Dependencies: [226]. Risk: Medium. Effort: 2/5
 
 ## Notes
+
+- **PM direction, 2026-09-27** (the architecture's Revision Log has the detail):
+  - **Data comes in three stages:** the verified free-credit files on disk (`/data/market-data/databento`), then the Standard plan's included history, then rare purchases outside the plan.
+  - **Subscription timing:** ideally not until realtime work begins. Realtime remains its own initiative.
+  - **Purchases are batch jobs only.**
+  - **Spend guards:** a rolling 30-day cap joins the per-pass ceiling, and the provider-side limit is set.
+  - **Cadence is open for discussion before 223's design;** no daily history pull is assumed. The availability lag is measured at 8 hours, not 24.
 
 - **923 is the one external gate.** 220 and 221 need no tick database and proceed in parallel with 923. 222 onward waits for it. Scheduling 923 is the PM's decision.
 - **Differences from the architecture's Anticipated Slices** (which the architecture labels exploratory):
@@ -141,8 +150,9 @@ status: in_progress
 ## Future Work
 
 1. [ ] **NautilusTrader Catalog Export** — One export slice from the tick and equities stores to a NautilusTrader `ParquetDataCatalog`, if manta-engine adopts NautilusTrader (940 analysis, recommendation 4). The catalog is a derived artifact, and trading-data stays the store. Dependencies: [230].
-2. [ ] **Open-Interest Roll Method** — Adds the `.n`-equivalent rule. It needs a PM decision to buy the statistics schema, archived as manifest units with provenance like any other purchase. Dependencies: [228].
+2. [ ] **Open-Interest Roll Method** — Adds the `.n`-equivalent rule, if 228's evaluation defers it. The `statistics` schema is included in the Standard plan, so this needs no purchase decision. Dependencies: [228].
 3. [ ] **Intra-Unit Ingest Checkpoints** — Only if 226 measures that unit-boundary re-decode cost justifies them. Dependencies: [226].
 4. [ ] **Finer Schema Tier (mbp-1)** — A per-instrument tier configuration change plus a projection. It needs a cost case from the preflight. Dependencies: [226].
 5. [ ] **Shared Pass-Framework Extraction (9xx)** — If three copies of the phase/report/result contract (Kalshi, tick, and one more) make hoisting worthwhile. Foundation work, not 220.
 6. [ ] **Realtime Tick Capture** — Its own initiative, in the streaming form (`Type=simple`). It inherits the delivery-agnostic key, the manifest's delivery-mode discriminator, and the reserved sequence-gap tracking.
+7. [ ] **Futures 1-Minute OHLCV History** — The Standard plan includes 16 years of `ohlcv-*` for CME futures. It has not been designed whether a stored futures minute-bar history is useful: for long-range and older-period studies (for example the COVID era) without buying ticks, or as a check on bars derived from ticks. The PM decides. Dependencies: [226].
