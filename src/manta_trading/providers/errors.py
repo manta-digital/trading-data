@@ -20,6 +20,17 @@ class ProviderTransientError(ProviderError):
     """
 
 
+class ProviderOutcomeUnknownError(ProviderError):
+    """A paid request failed in a way that does not say whether it was charged.
+
+    Raised for a timeout, a dropped connection, a 5xx, or a mid-stream error
+    on a billable call (slice 220, Technical Decision 10). The request may
+    have been accepted and charged: reconcile before anything is resubmitted.
+    Deliberately *not* a ``ProviderTransientError`` subclass, so no handler
+    that retries transients catches it by accident.
+    """
+
+
 class ProviderPermanentError(ProviderError):
     """Permanent provider failure (4xx other than 429, malformed payload,
     delisted ticker). Caller should not retry; surface to the operator."""

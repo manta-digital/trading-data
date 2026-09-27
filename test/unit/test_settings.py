@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
 from manta_trading.config import ENV_FILE, Settings
 from manta_trading.constants import API_MAX_BARS_PER_REQUEST, API_SERVING_SESSION
+from manta_trading.data.tick.constants import TICK_SPEND_CEILING_ENV
 
 
 class TestSettingsDefaults:
@@ -210,4 +213,27 @@ class TestKalshiRequestsPerMinute:
     def test_zero_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MT_KALSHI_REQUESTS_PER_MINUTE", "0")
         with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+
+class TestTickSpendCeiling:
+    """Slice 220 Technical Decision 5: optional, exact, positive when set."""
+
+    def test_unset_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(TICK_SPEND_CEILING_ENV, raising=False)
+        s = Settings(_env_file=None)
+        assert s.tick_spend_ceiling_usd is None
+
+    def test_loads_decimal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(TICK_SPEND_CEILING_ENV, "12.50")
+        s = Settings(_env_file=None)
+        assert s.tick_spend_ceiling_usd == Decimal("12.50")
+        assert isinstance(s.tick_spend_ceiling_usd, Decimal)
+
+    @pytest.mark.parametrize("value", ["0", "-1"])
+    def test_non_positive_rejected_naming_field(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv(TICK_SPEND_CEILING_ENV, value)
+        with pytest.raises(ValidationError, match="tick_spend_ceiling_usd"):
             Settings(_env_file=None)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -137,6 +138,10 @@ class Settings(BaseSettings):
     # replaces the mode's constant budget at client construction; None
     # keeps 261's per-mode constants. Requests per minute, > 0.
     kalshi_requests_per_minute: int | None = Field(default=None, gt=0)
+    # Tick spend ceiling in USD (slice 220, TD 5): MT_TICK_SPEND_CEILING_USD.
+    # Unset means "no ceiling configured", which slice 223 treats as "refuse
+    # to purchase" — never a number. Decimal for exact money.
+    tick_spend_ceiling_usd: Decimal | None = Field(default=None, gt=0)
     # Kalshi collection rule (slice 264, Decision 2; renamed from
     # MT_KALSHI_CANDLE_* in slice 265, Decision 3, because one rule now governs
     # candles and trades). Defaults are the PM's rule C; every value is

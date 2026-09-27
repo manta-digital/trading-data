@@ -26,6 +26,7 @@ dependencies = [
     "orjson>=3.10.0",
     "msgpack>=1.1.0",
     "cryptography>=44.0.0",
+    "databento>=0.87.0",
 ]
 
 [project.optional-dependencies]
