@@ -6,181 +6,123 @@ slice: data-acquisition-futures-tick-primary-focus
 targetKind: arch
 rulesSource: project
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 verdictSource: stated
 sourceDocument: project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
-aiModel: z-ai/glm-5.3
+aiModel: moonshotai/kimi-k3
 status: complete
 dateCreated: 20260927
 dateUpdated: 20260927
-reviewedSha: facdc559b1a24de5f3df6aa4f3d8165d4ead7c6f
+reviewedSha: b5d50b2293d733da58ab13756d3e494ca5e43b4e
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 32
+toolCallsMade: 30
 findings:
   - id: F001
-    severity: fail
+    severity: concern
     category: consistency
-    summary: "The ingest ledger's stated grain contradicts the two-unit session the document itself mandates"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:105-117"
+    summary: "The retention guarantee and the deferred cadence contradict each other; with no timer there is no \"next pass\" to meet the 30-day deadline"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#technical-considerations"
   - id: F002
     severity: concern
-    category: consistency
-    summary: "\"The 24-hour embargo\" contradicts the document's own revised 8-hour lag"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:117"
+    category: completeness
+    summary: "Supersession is under-specified for the overlapping-range case the design itself creates"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#architectural-principles"
   - id: F003
     severity: concern
-    category: completeness
-    summary: "The rolling 30-day spend cap has no configuration surface and no defined input value"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:53"
+    category: feasibility
+    summary: "The ingest pass depends on forward CME session population, but forward extension is minute-pass-driven — tick ingest can fail on an unpopulated calendar with no in-initiative mechanism to populate it"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#technical-considerations"
   - id: F004
     severity: concern
-    category: consistency
-    summary: "\"No spend\" for the proof contradicts the billable-definitions requirement and the no-exempt-requests rule"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:129"
+    category: abstraction
+    summary: "Single hypertable design conflates trades-tier and tbbo-tier rows for the same contract, and the tier-upgrade supersession path fights the natural key"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#envisioned-state"
   - id: F005
     severity: concern
-    category: feasibility
-    summary: "The placement decision is gated on measurements the document's own sequencing makes unreachable"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:142"
+    category: consistency
+    summary: "\"Same command, same state\" for backfill vs. steady-state hides an unresolved state-machine coupling with FetchStatus semantics"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#architectural-principles"
   - id: F006
     severity: concern
-    category: other
-    summary: "Fail-at-startup on `MT_TICK_DB_URL` absence couples tick configuration to all-source monitoring"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:75"
+    category: feasibility
+    summary: "The estimate→guard→submit path has no idempotency for the estimate-vs-actual gap, and the 30-day cap can be gamed by estimate accuracy"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#architectural-principles"
   - id: F007
-    severity: concern
-    category: dependencies
-    summary: "The ingest pass has an unstated hard runtime dependency on the production database, contradicting the outage claim"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:75"
-  - id: F008
-    severity: concern
-    category: consistency
-    summary: "The CLI-shape decision is presented as open after slice 220 shipped the subgroup and recorded it in the normative contract"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:150"
-  - id: F009
-    severity: concern
-    category: consistency
-    summary: "The architecture retains design-fixed statements its own slice plan explicitly supersedes"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:61"
-  - id: F010
-    severity: concern
-    category: consistency
-    summary: "\"Backup is part of done... in the same slice cycle that creates them\" is contradicted by both sequencing plans"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:67"
-  - id: F011
-    severity: concern
-    category: consistency
-    summary: "A Design Goal hardcodes a timer that the document elsewhere makes an open PM decision"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:47"
-  - id: F012
-    severity: concern
-    category: completeness
-    summary: "The session↔day mapping for the availability edge is unspecified, and every session spans two condition-days"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:117"
-  - id: F013
-    severity: concern
-    category: extension-points
-    summary: "A tier upgrade over an already-loaded range silently no-ops, and the count check cannot detect it"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:107"
-  - id: F014
-    severity: note
-    category: consistency
-    summary: "The manifest state machine includes a state its own row-creation rule makes unreachable"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:51"
-  - id: F015
     severity: note
     category: antipattern
-    summary: "The Kalshi-contract duplication is a documented deviation from the project's DRY rule, mitigated only procedurally"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:73"
-  - id: F016
-    severity: note
-    category: dependencies
-    summary: "The initiative's critical path runs through an unscheduled external slice with no fallback"
-    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md:171"
+    summary: "Scope is very large for one initiative; the \"parity is delivered in two tiers\" split is the only thing keeping it reviewable, and it deserves the sequencing gates it describes"
+    location: "project-documents/user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md#anticipated-slices"
 ---
 
 # Review: arch — initiative 220
 
-**Verdict:** FAIL
-**Model:** z-ai/glm-5.3
+**Verdict:** CONCERNS
+**Model:** moonshotai/kimi-k3
 
 ## Findings
 
-### [FAIL] The ingest ledger's stated grain contradicts the two-unit session the document itself mandates
+### [CONCERN] The retention guarantee and the deferred cadence contradict each other; with no timer there is no "next pass" to meet the 30-day deadline
 
-The Completeness definitions paragraph fixes the ledger as "**one row per *(instrument, session)*** — records loaded, first and last event time, **source unit**" (line 117; the slice plan's 222 repeats it: "one row per instrument and session, holding records loaded, first and last event time, traded volume, and **source unit**"). But the same document states, twice, that "a session that spans two calendar days is covered by two units" (line 101) and "which units cover which sessions is a ledger fact established at ingest" (plural, line 101). CME sessions open 17:00 CT on the prior date and close 16:00 CT, so **every** session intersects two calendar-day units — the earlier unit holds the opening ~1–2 hours, the later unit the remaining ~21. A single row per (instrument, session) with a singular `source unit`, committed atomically per unit ("a unit's ledger rows and its *ingested* transition commit together, after its last batch," line 105), cannot represent this. Worse, the interactions compound: (a) the instrument-session completeness check — "the raw table's count for that instrument-session equals the ledger's" — requires the ledger row to hold the *session total*, i.e. a merge across both units, which the write semantics never describe; (b) idempotent re-ingest ("re-ingesting an ingested unit is a no-op," line 51) is impossible with an incrementally merged row — a re-ingest after a mid-unit death would double-count unless the count is derived from the raw table, which the design elsewhere forbids depending on; (c) the zero-record rule ("for every configured instrument ... in a session the unit's range covers, ingest writes a row, including a row with zero records," line 117) means the later unit writes a zero-record row for the *next* session whose bulk it does not contain — which must be merged, not inserted, once the covering unit lands; (d) volume roll inputs read "the session's traded volume" from this same row (line 148). Either the ledger is keyed (instrument, session, unit) with read-time aggregation, or it is a merged upsert with stated idempotent semantics — the architecture must pick one before slice 222 creates the table, because every proof-parity status verb, the count check, and the volume roll method read this row.
+The document makes download-before-retention-expiry "enforced, not assumed" (Architectural Principles, "Acquire and ingest are separate") and builds four mechanisms around it (Technical Considerations, "Delivery mode and retention"): ordering, explicit expiry, escalation, and "cadence bounded by the window." But "Cadence" simultaneously defers all schedule code indefinitely ("No schedule code is built until realtime work makes the cadence decidable: no timers, no `schedule_for` branch, no `PassKind.TICK` firing calendar... every tick pass runs by hand"). The four mechanisms do not compose without a timer:
 
-### [CONCERN] "The 24-hour embargo" contradicts the document's own revised 8-hour lag
+- The reconcile phase only runs when a pass runs. With no timer, a pass runs only when an operator remembers to run it. A submitted job's 30-day window will silently expire if nobody runs the pass for 30 days — entirely plausible during a pause between slices (the document itself contemplates a long wait for slice 923).
+- The escalation finding in the health check is keyed to "the tick pass's next scheduled firing (`schedule_for`)", and the fallback for on-demand runs is "any in-flight unit within a fixed number of days of its deadline" — but the health check (919) is itself a pass that must be run; if it is timer-driven today and tick has no timer, the finding fires only when the operator happens to run health. The document never states whether the health pass remains timer-driven and picks up tick findings, so the "human in the loop" link is assumed, not specified.
 
-The Completeness definitions still say "The **24-hour embargo** is the expected lag behind that edge, used for the timer cadence and for flagging an edge that stops advancing" — while the Pass-form principle (line 71), the Availability-lag section (line 127), and the Revision Log's explicit "The availability lag is 8 hours, not 24" (line 192) all supersede it. This is not a typo in a passive sentence: the embargo figure is defined as the input to the edge-stopped-advancing flag and cadence reasoning, so a slice designer of 223/224 reading this paragraph tunes the flag to the wrong constant. The revision edited three of the four occurrences and missed the one in the section that defines the completeness semantics.
+The practical failure mode: a manual purchase run leaves a unit at *submitted*; work pauses; the window lapses; the unit transitions to *failed* "retention expired" only when someone next runs the pass — i.e., after the money is already committed and the download is lost. The design documents this as a named state but provides no mechanism that prevents it in the manual-only regime it has chosen. Either the "enforced, not assumed" claim should be downgraded to "operator responsibility until cadence exists," or a minimal schedule (even a daily systemd timer that only reconciles, explicitly allowed as the exception to "no schedule code") is needed to close the hole.
 
-### [CONCERN] The rolling 30-day spend cap has no configuration surface and no defined input value
+### [CONCERN] Supersession is under-specified for the overlapping-range case the design itself creates
 
-The cost principle introduces two ceilings. The per-pass ceiling is fully specified (`MT_TICK_SPEND_CEILING_USD`, no default, refuse-when-absent, verified present in `Settings` and `.env_sample`). The rolling 30-day cap — "the most the manifest may show committed over the trailing 30 days" — is never given a setting name, a config key, or an owner of its threshold value anywhere in the architecture or the slice plan (223 says only "a rolling 30-day cap summed from the manifest's recorded costs"). The follow-on sentences ("Both are checked before any submit. **It** has no default. If **it** is absent, the pass still estimates and reports but refuses to purchase") grammatically bind to the named per-pass ceiling, leaving the cap's absence behavior undefined. Additionally, the cap is "read from the manifest's recorded costs," but the manifest records the *estimate* at submit (`get_cost`); the job's actual cost arrives later on `get_job_details` (`BatchJob.cost_usd`, `None` until processed — see the shipped `data/tick/provider.py`). The document never says the manifest cost is updated with the actual at delivery, so a cap computed from estimates under-counts spend whenever actual exceeds estimate — which is exactly the failure a rolling cap exists to catch.
+"Every row knows its unit; replacing data is a supersession" states: "When one unit replaces others over a range, the superseded units' rows for that range are deleted and the new unit's loaded in one transaction." The design elsewhere deliberately creates overlapping coverage: a CME session spans two calendar days, so it is covered by two day-grained units, and the ingest ledger is keyed (instrument, session, unit) precisely so a session can be "written by more than one source" (Technical Considerations, "Realtime paths"). When historical data later supersedes a live segment — the stated default precedence — the replacement unit's range is a calendar day, but the superseded live segment's range is presumably a sub-day capture window. The document never defines:
 
-### [CONCERN] "No spend" for the proof contradicts the billable-definitions requirement and the no-exempt-requests rule
+- The range semantics of "over a range" — is supersession keyed on the *range* recorded on the unit, on the instrument-session ledger grain, or on the natural key? Deleting "the superseded units' rows for that range" only works if the superseding and superseded units' ranges nest cleanly; a day unit superseding a 6-hour live segment leaves the other 18 hours of live rows whose session-ledger rows must be reconciled, and nothing says which transaction owns that.
+- What happens to the superseded unit's *ledger rows*, which is what completeness reads. "Session totals are summed at read time over the session's current units, excluding superseded ones" handles the simple all-or-nothing case, but a partial-range supersession means the superseded unit is still "current" for part of the session while another part is now served by the new unit — the (instrument, session, unit) grain cannot express "current for timestamps 09:00–15:00 only."
+- The transaction boundary between deleting old rows and loading new ones spans, by the document's own admission, multi-gigabyte COPY loads; "deleted and loaded in one transaction" conflicts with the ingest design where "a unit's ledger rows and its *ingested* transition commit together, after its last batch" — a supersession that must delete first and load multi-GB second holds an open transaction with row-deletion locks for the duration of a long COPY, with attendant vacuum/bloat and lock-contention costs that the "concurrent-pass contention" measurement does not cover.
 
-The sourcing sequence states the two free-credit jobs "prove storage, ingest, and the proof slice **with no spend**" (line 129). But the Envisioned State requires contract definitions "populated before any tick data" (line 97); the ingest Resolution check requires "every record resolves to a contract through the stored definitions" (line 115); the cost principle forbids exempt requests outright ("batch jobs, direct range requests, and the provider's statistics schema — all pass through the same estimate → guard → manifest path," line 53); and definitions are a billable schema (the slice plan's 223: "Contract definitions are acquired through this same path as `definition`-schema units. They are billable"; the 220 measurement priced a 5-day definition request at <$0.01, not $0). The two purchased jobs are `trades` and `tbbo` only — no definition files. So the proof *does* require a purchase (tiny, but a submit through the batch path), and since the pass refuses to purchase when `MT_TICK_SPEND_CEILING_USD` is absent, the proof also requires the PM to set the ceiling first — directly contradicting both "no spend" and the slice plan's "No purchase is needed" (226). One of the two claims must be corrected, or definitions need an explicit, argued exemption the cost principle currently forbids.
+This is the hardest correctness problem in the design and it is left at one paragraph.
 
-### [CONCERN] The placement decision is gated on measurements the document's own sequencing makes unreachable
+### [CONCERN] The ingest pass depends on forward CME session population, but forward extension is minute-pass-driven — tick ingest can fail on an unpopulated calendar with no in-initiative mechanism to populate it
 
-"The decision is the PM's, informed by **the first purchase's measured size**" (line 142). But 923 must ship before the tick storage track (222), the storage track must exist before any data is ingested, and the 2026-09-27 revision moved all measurement to the proof on the *adopted* free-credit files (226) — which ingests into the already-placed, already-created database. Under the revised plan there may be no purchase at all before the go/no-go (the Standard plan is "ideally not [subscribed] before realtime work begins"), so "the first purchase's measured size" is a decision input that arrives after the decision is forced. The same stale framing recurs: the batch bound is "set... from those measurements" of "the first purchase" (line 61), the chunk-geometry and physical-grouping decisions come "from the first purchase's measurements" (line 107), contention is measured by "the first purchase" (line 144), and the Anticipated Slices still sketch a "First purchase and proof" slice that buys "a bounded ES range at the chosen tier" — which the revision's own sourcing sequence and the plan's 226 ("No purchase is needed") superseded. The document should re-anchor these decisions on the 220 preflight's measured *estimates* (which exist: 114.9 MiB/191.5 MiB per 5 days for trades/tbbo) rather than on a purchase the sequencing places after the decision.
+The session model (Technical Considerations, "Session model") seeds the CME calendar "backward over the wanted range" and relies on "the same per-calendar extension that keeps `NYSE` current (`TRADING_SESSIONS_EXTENSION_YEARS`, `mt data extend --calendar`, and the automatic extension `mt data status` runs)." Verified against the code: `TradingCalendar` raises `OutOfHorizonError` past the populated horizon, and `populate_trading_sessions` is the single population path the document plans to extend with the open-after-close rule. The gap:
 
-### [CONCERN] Fail-at-startup on `MT_TICK_DB_URL` absence couples tick configuration to all-source monitoring
+- The session-boundary validation check treats "a timestamp outside the populated range" as "an explicit failure... never a guess." So ingest of any unit whose range extends past the CME calendar's populated horizon *fails the unit*. Forward extension is driven by `mt data status`/auto-extension machinery that today serves NYSE and lives in the minute tier's operational cadence. With no tick timer and a manual-only tick pass, nothing in this initiative guarantees the CME calendar is populated forward at the moment an operator runs ingest. A unit bought "for development and testing, to take the plan's included year" reaches forward to the availability edge; if the CME horizon lags, ingest fails with a session-model error whose remedy ("run `mt data extend`") belongs to a different source's command surface.
+- The document also claims the existing `TradingCalendar` is "the single session-query function I4 requires," but verified code shows its RTH path is *date-keyed* (`get_trading_hours(trade_date)`); the document itself notes the new need is "a method on `TradingCalendar`... answering which session contains a timestamp." That timestamp→session lookup is a new API on a shared, minute-critical class, and the "one rule" change to `populate_trading_sessions` (open after close ⇒ open on previous day) alters the function the minute tier's `get_trading_hours` RTH path delegates to for algorithm parity. The claim "NYSE opens before it closes, so its rows are unchanged" is true for the generated rows but the change is in a shared code path whose existing NYSE tests may not cover the new branch; the document's own testing strategy section never mentions regression coverage of `populate_trading_sessions` for NYSE as an obligation.
 
-The operational-state principle requires that a missing `MT_TICK_DB_URL` "fails when a process with a tick duty starts — the tick passes, `mt-serve`, and every process that composes a tick line (overview, **health**, accounting, status)" (line 75). `mt data health` is the 919 health *pass* — its unit monitors minute freshness, cagg materialization, Kalshi phase recency, and quota, none of which is tick data. Under this rule, one missing tick environment variable takes down the entire alerting path for every non-tick source, which is the exact blast-radius shape the isolation goal claims to design out ("a tick pass failing or a provider outage cannot affect any other source," line 47 — honored only by definitional fiat, since health is assigned a "tick duty"). The document also specifies the opposite posture for the *unreachable* case ("a tick line that reads 'unreachable' is the correct output, not an omitted line," line 154) without weighing why a loud degraded line — the same mechanism it chose for outages — is insufficient for the misconfiguration case on shared multi-source surfaces. The asymmetry may be right, but as written it makes tick rollout a prerequisite for minute-tier alerting to function at all.
+### [CONCERN] Single hypertable design conflates trades-tier and tbbo-tier rows for the same contract, and the tier-upgrade supersession path fights the natural key
 
-### [CONCERN] The ingest pass has an unstated hard runtime dependency on the production database, contradicting the outage claim
+"One hypertable for the trades tier — trade fields always present, best-bid/offer fields present when the instrument's tier includes them" with tier "never a column on the tick row." Two problems:
 
-"A production-database outage therefore costs a tick run its `pass_runs` row, exactly as it does every other source, and **never its money or data**" and "the coupling that remains runs in one direction — tick **composing surfaces** read the production database" (line 75). But the ingest pass assigns every record a session "through the CME calendar's session lookup" (line 105), and the session model's home is explicitly "the production database's existing calendar tables... minute migration track" (line 140) — a placement the document argues for at length. So the tick *data path* (not a composing surface) reads the production database on every record-batch: a production outage does not merely cost the ingest run its bookkeeping row, it makes ingest impossible, and the one-directional-coupling inventory omits this second tick→production edge entirely. The placement argument (avoiding per-calendar routing across two pools for I4 consumers) may still win, but the failure-posture paragraph must reconcile it: either the calendar is cached/replicated for ingest, or the document states that a production outage halts tick ingest.
+- The document acknowledges tbbo "shares the natural key" with trades, so a tbbo unit over history already loaded as trades "would otherwise silently no-op" — hence supersession. But supersession is described per-range/per-unit. For a contract whose *configured tier changes* (the stated use case: "a tier upgrade over loaded history"), every unit in the contract's history must be superseded, meaning the upgrade is a full re-ingest of the contract's archive with per-range deletes. That is feasible but is a bulk maintenance operation on a multi-billion-row hypertable holding deleted+rewritten rows; the document's own minute-tier history (chunk geometry failure at 7B rows, journal 20260719) is cited as the cautionary tale, yet the vacuum/dead-tuple cost of a full-table tier upgrade is never measured in the proof's list — the proof only measures load, chunk geometry, and query latency on *fresh* data.
+- Row-width heterogeneity in one table: "48-byte trades and 520-byte definitions" is cited for decode batches, but the same issue lands in storage — trades rows are narrow, tbbo rows carry quote fields. A nullable-BBO single table pays the tbbo width for every trades-tier row in compression layout (the candidate "segment by instrument, order by event time and sequence" is one layout for the whole table, while the document itself says per-instrument row counts "differ by orders of magnitude, which is where a single global choice hurts"). The physical-grouping decision is deferred to the proof, but the *table-count* decision (one table vs. one per tier) is made now and is the more consequential one; the document asserts it without recording an alternative or why "a row whose BBO fields are null is a trades-tier row by construction" beats two tables, given that two tables would make the tier upgrade a non-event (load tbbo into its own table; no supersession needed).
 
-### [CONCERN] The CLI-shape decision is presented as open after slice 220 shipped the subgroup and recorded it in the normative contract
+### [CONCERN] "Same command, same state" for backfill vs. steady-state hides an unresolved state-machine coupling with FetchStatus semantics
 
-"Whether this is an `mt data tick` subgroup (the Kalshi shape) or `--granularity tick`... is a slice-design decision" (line 150; echoed at line 109). But the Current State itself records slice 220 as complete (line 81), the shipped code is `cli/commands/tick.py` — an `mt data tick` subgroup — and the 220 slice design wrote into the data-correctness contract's I10 row: "220 fixes the tick shape: `mt data tick` subgroup, verb vocabulary as I10." The plan's Notes add that "the CLI and API surface decision is made once, at 220 design" and that the two surfaces "make one decision together," yet slices 229/230 still say "applies the subgroup-or-switches decision" / "Applies the namespace decision" as if pending. Three artifacts give three different answers about whether this decision is open. A designer of 229/230 cannot tell what is settled; the architecture (updated the same day as the slice plan) should record the CLI decision as made and state what remains open for the API namespace.
+Each unit "carries the minute tier's fetch-state vocabulary, `FetchStatus`... `PROVIDER_HOLE` when the provider reports every day of the unit as missing." Verified: `FetchStatus` in `src/manta_trading/data/quality/fetch_status.py` is documented as "lifecycle states for a data_gaps row" with `OPEN_FETCH_STATUSES` rendered into minute-track views (`data_status.gap_count`). Reusing the enum values for archive units is fine, but the semantics don't transfer cleanly and the document doesn't reconcile them:
 
-### [CONCERN] The architecture retains design-fixed statements its own slice plan explicitly supersedes
+- In minute, `PROVIDER_HOLE` is terminal ("the provider's answer that nothing is there"). For a tick unit, "the provider reports every day of the unit as missing" can later change: dataset condition metadata has a `last_modified` field and conditions move from pending→available→(degraded/missing). A day marked *missing* at request time but later backfilled by the provider would leave a tick unit terminally holed while the same range is actually purchasable — the "manual reset reopens exhausted units" is described for `RETRY_EXHAUSTED` ("as minute's gap reset does"), not for `PROVIDER_HOLE`. Whether a holed unit re-enters the wanted set when the dataset-condition metadata improves is unstated.
+- The wanted-set computation is "universe × range minus the manifest in the provider's own request grain." A `PROVIDER_HOLE` unit is in the manifest, so it subtracts from the wanted set forever — meaning "caught up" can be reached with holes that are only visible via status. The document's completeness definitions never say whether a holed instrument-session counts as complete, complete-with-zero-records, or failed; the closest statement ("A missing day is also where a unit's `PROVIDER_HOLE` comes from") implies the session is surfaced as *missing* via the worst-condition rule, but then "the universe is caught up when every configured instrument is complete for every session in its wanted range" — is a missing session in the wanted range or out of it? The definitions of caught-up, complete-with-zero-records, and provider-holed overlap without a stated precedence.
 
-The adapter principle states, as fixed ("Its execution model is fixed here because it shapes the protocol"): "The bound is **a record count, one named constant**" (line 61). The shipped code is the opposite — `TICK_DECODE_BATCH_BYTES`, a 32 MiB **byte** budget with the per-batch record count derived per schema (`data/tick/constants.py`, `dbn_file.py`) — and the slice plan's Notes list this as "Architecture statements superseded by 220's slice design... a count cannot bound memory across 48-byte trades and 520-byte definitions." Likewise line 99 claims "the delivered files **carry the symbol-mapping records**" and frames mapping completeness as a purchase-time success criterion, while the supersession note records that in-stream mapping records are a live-API feature only and mappings live in the DBN header — which the shipped `dbn_file.py` reads (`metadata.mappings`). The plan says "the slice design is authoritative for 222 onward," but the architecture is the document a 223/224 designer reads for the execution model and the universe-resolution premise, and its Revision Log (2026-09-27) records none of these supersessions. A reader of the architecture alone would bound batches by record count and look for in-stream mapping records.
+### [CONCERN] The estimate→guard→submit path has no idempotency for the estimate-vs-actual gap, and the 30-day cap can be gamed by estimate accuracy
 
-### [CONCERN] "Backup is part of done... in the same slice cycle that creates them" is contradicted by both sequencing plans
+"Cost is a first-class input" commits: the rolling 30-day cap is "summed from the manifest, which records each unit's estimate at *requested* and the provider's actual cost once the job reports it. The sum uses the actual where known and the estimate otherwise." Two gaps:
 
-The Design Goal states the tick archive and database "join the backup and restore regime **in the same slice cycle that creates them**" (line 67). The architecture's own Anticipated Slices order places "Backup coverage for the tick archive and database" six sketches after the "Tick storage track" that creates them (after roll methods, operator surface, and API surface), and the slice plan improves this only to 227 — still three slices after 222 creates the database and 224 ingests the proof into it. Between 224 and 227, the local archive is potentially the only copy of already-paid data (the free-credit jobs' 30-day provider retention will have lapsed long since), on a host whose most recent incident (920) was a disk-full event. The slice plan's justification ("no reason to leave real purchased data unprotected across three more slices") concedes the principle is not being met; either the Design Goal or the sequencing must change, and the exposure window should be stated.
+- Between *requested* and job completion, the cap counts the *estimate*. `get_cost` on Databento is documented as an estimate; if it systematically underestimates (e.g., on the plan boundary, where whether plan-included data prices at $0 is explicitly "verified when the plan is subscribed" — i.e., unknown today), a pass can submit units whose actuals blow the 30-day cap *after* all local checks passed. The document treats the provider-side account limit as "the outer guard," so the failure mode is: jobs are submitted, the account limit blocks or bills them, and reconciliation discovers it. The design has no stated policy for what a unit that *submitted successfully but billed above the cap* does to subsequent passes (does the pass refuse to buy anything until the trailing-30-day sum drains? that would stall the whole initiative on one estimate error). "An overrun counts as soon as the provider reports it" says how it is counted, not what happens next.
+- `BatchJobState` (verified in `src/manta_trading/data/tick/constants.py`) has only QUEUED/PROCESSING/DONE/EXPIRED — no FAILED/ERROR state. The manifest state machine has "*failed* reachable from any state," but the reconcile phase maps provider job states to unit states; if Databento's batch API reports a failed job via a state not in the shipped enum (the enum is the slice-220 author's reading of the API), reconcile has an unmapped state. The document's own rule about lenient parsing and its repeated "verify at slice design" flags don't cover what reconcile does with an unknown provider state — the risk is a submitted unit that never advances and never fails, defeating the in-flight reconciliation the whole state machine exists for.
 
-### [CONCERN] A Design Goal hardcodes a timer that the document elsewhere makes an open PM decision
+### [NOTE] Scope is very large for one initiative; the "parity is delivered in two tiers" split is the only thing keeping it reviewable, and it deserves the sequencing gates it describes
 
-The parity Design Goal lists "Bounded pass **fired by a timer**" as a delivered property (line 47). The Pass-form principle says "Whether the acquisition pass gets a timer at all, and at what cadence, is an open PM decision" (line 71); the Cadence section says "There is no daily history pull; runs are on demand" and that a manual-only pass needs "an explicit 'no timer' answer" (line 136); the plan's 223 has the `schedule_for` branch declare the pass manual-only until decided, and 225 adds "a timer only if the cadence decision calls for one." Design Goals are the normative layer of this document ("Parity is a delivery of this initiative, not a follow-on") — a slice designer reading them would install a timer, directly contradicting the open decision three sections later.
-
-### [CONCERN] The session↔day mapping for the availability edge is unspecified, and every session spans two condition-days
-
-"each pass records the provider's free dataset metadata — the dataset's available range and its **per-day** condition (available, pending, degraded, missing) — and **a session the provider reports as pending is *pending***" (line 117). The provider reports calendar days; the completeness vocabulary is sessions; and the document's own request-grain section establishes that every session spans two calendar days. So which day's condition governs a session that straddles an available/pending boundary — the normal case at the edge, where the newer day is pending and the older is available? The rule ("a session is pending if any covering day is pending" would be the natural reading) is nowhere stated, and this is inside the region the document treats as settled rather than deferred to slice design (contrast the session model, where "the calendar's values... are slice-design verification items; the representation is not"). The proof-parity status verbs classify sessions against exactly this edge, so the classification rule must be specified.
-
-### [CONCERN] A tier upgrade over an already-loaded range silently no-ops, and the count check cannot detect it
-
-The storage model advertises per-instrument tier configuration ("The tier is a per-instrument configuration so a later slice can add a level without touching the acquisition path," line 29) and idempotent writes via natural-key conflict-ignore: "a pass that dies mid-unit leaves raw rows the next attempt's natural-key conflict-ignore skips" (line 105), with "a row whose BBO fields are null is a trades-tier row by construction" (line 107). A `tbbo` record for a trade carries the *same* natural key `(instrument, event time, sequence)` as the `trades` record for that trade — same underlying event, wider row. So if a range was ingested at `trades` and the instrument is later upgraded to `tbbo` (the go/no-go picks one tier per instrument; this initiative already owns both tiers for *different* ES months, making a later consolidation a plausible operator action), the tbbo unit's rows conflict-ignore against the existing trades rows, the BBO fields are never populated, and the Counts check still passes — the raw table holds exactly the provider's record count for the range, just without the BBO data the new unit was bought to add. The "rebuild from the archive" remedy exists but is never attached to a tier change; the document should state that a tier upgrade over loaded history requires a range rebuild (or a key/merge policy that distinguishes tiers), or the advertised extension path fails silently in the one way the validation loop is explicitly designed not to catch.
-
-### [NOTE] The manifest state machine includes a state its own row-creation rule makes unreachable
-
-The state machine is "*requested* → submitted → delivered → downloaded → verified → ingested," but "the row is written at *submitted*, the moment money is committed, not after download." Nothing ever persists a row in *requested*; adoption writes at *downloaded*. Slice 222 will render a CHECK constraint over these states, so the vocabulary should either drop *requested* or define when a row exists in it.
-
-### [NOTE] The Kalshi-contract duplication is a documented deviation from the project's DRY rule, mitigated only procedurally
-
-Duplicating `PassPhase`/`PhaseReport`/`PassResult` into the tick package conflicts with CLAUDE.md's "Do not duplicate logic. Respect DRY," and the document itself concedes the hazard ("A copy drifts: the Kalshi contract has already grown since its first slice"). The mitigation — a named per-slice diff task against the Kalshi original — is a checklist control, not a structural one, and it binds only "from 223 on," leaving 220's already-shipped protocol types (`data/tick/provider.py`) undiffed. The three-copies-then-extract argument is reasonable; the note is that the control's failure mode is silent divergence, which no test guards.
-
-### [NOTE] The initiative's critical path runs through an unscheduled external slice with no fallback
-
-923 (multi-database migration and credential plumbing) is "a hard gate with no fallback, by design," lives in another plan, and "Scheduling 923 is the PM's call." Everything from the storage track onward (222, 223, 224, 225, 226, and the go/no-go) is blocked on a foundation slice with no committed date. The document is honest about this, but the risk deserves a stated consequence — e.g., how long 220/221's output can sit idle before re-verification is needed — rather than only the sequencing fact.
+The Anticipated Slices list is effectively nine slices spanning storage, acquisition, ingest, session model, roll methods, CLI parity, API parity, backup, and steady-state arbitration, with an external hard gate (923, "Scheduling 923 is the PM's call") on the critical path. The document is candid about this, and the proof-parity/full-parity split plus the explicit 923 gate ("a hard gate with no fallback, by design") are the right mitigations. One residual risk: the initiative's own success metric ("a small ES tick history sits in the archive and the database, every number... measured on it") is achievable only after the storage track, which is gated on 923, which this initiative does not own — so the primary goal can be blocked indefinitely by work outside its control, and "220's and 221's outputs do not decay" is asserted only for fixtures/SDK, not for the operator procedures and PM attention the manual-pass regime depends on (see the retention finding). Worth an explicit escalation path if 923 slips past the retention window of any in-flight purchases.
 
 ### Run Digest
 
-- Response length: 22061 chars
+- Response length: 16765 chars
 - Response is newline-free: no
-- Tool calls made: 32
+- Tool calls made: 30
 - Tool calls failed: 0
 - Stop reason: stop
-- Reasoning characters: 158816
+- Reasoning characters: 0
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 16
+- Finding-shaped matches — whole response: 7
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 16
-- Finding-shaped matches — surviving validation: 16
+- Finding-shaped matches — in findings section: 7
+- Finding-shaped matches — surviving validation: 7
