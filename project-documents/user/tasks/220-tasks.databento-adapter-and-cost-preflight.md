@@ -15,7 +15,7 @@ projectState: >
   exist yet; Sections 1–6 need no key, Section 7 does.
 dateCreated: 20260927
 dateUpdated: 20260927
-status: not_started
+status: in_progress
 ---
 
 ## Context Summary
@@ -62,53 +62,53 @@ status: not_started
 Design: *Technical Scope*, *Technical Decisions 4, 5, 10* (schema enum,
 spend ceiling, error mapping), *Settings*.
 
-- [ ] **Task 1.1: Add the `databento` dependency** (effort: 1)
-  - [ ] Add `databento>=0.87.0` to `pyproject.toml` dependencies; run
+- [x] **Task 1.1: Add the `databento` dependency** (effort: 1)
+  - [x] Add `databento>=0.87.0` to `pyproject.toml` dependencies; run
         `uv lock` and `uv sync`.
-  - [ ] Success: `uv run python -c "import databento; print(databento.__version__)"`
+  - [x] Success: `uv run python -c "import databento; print(databento.__version__)"`
         prints ≥ 0.87.0; `pyproject.toml` and `uv.lock` are staged together.
-- [ ] **Task 1.2: `data/tick/constants.py`** (effort: 2)
-  - [ ] Create `src/manta_trading/data/tick/__init__.py` and `constants.py`.
-  - [ ] `TickSchema(StrEnum)`: `TRADES="trades"`, `TBBO="tbbo"`,
+- [x] **Task 1.2: `data/tick/constants.py`** (effort: 2)
+  - [x] Create `src/manta_trading/data/tick/__init__.py` and `constants.py`.
+  - [x] `TickSchema(StrEnum)`: `TRADES="trades"`, `TBBO="tbbo"`,
         `MBP_1="mbp-1"`, `DEFINITION="definition"`.
-  - [ ] Named subsets built from the enum, never re-spelled strings:
+  - [x] Named subsets built from the enum, never re-spelled strings:
         `TICK_TIERS`, `STORED_TIERS`, `COMPANION_SCHEMAS`, `ESTIMATE_SCHEMAS`,
         exactly as Technical Decision 4 defines them.
-  - [ ] `SType(StrEnum)`: `RAW_SYMBOL`, `INSTRUMENT_ID`, `PARENT`,
+  - [x] `SType(StrEnum)`: `RAW_SYMBOL`, `INSTRUMENT_ID`, `PARENT`,
         `CONTINUOUS` with the provider's lowercase values.
-  - [ ] `DeliveryMode(StrEnum)`: `BATCH_JOB="batch_job"`,
+  - [x] `DeliveryMode(StrEnum)`: `BATCH_JOB="batch_job"`,
         `DIRECT_RANGE="direct_range"`.
-  - [ ] `CME_DATASET = "GLBX.MDP3"`; `TICK_DECODE_BATCH_BYTES = 32 * 1024 * 1024`
+  - [x] `CME_DATASET = "GLBX.MDP3"`; `TICK_DECODE_BATCH_BYTES = 32 * 1024 * 1024`
         with a docstring saying 226 replaces it from measurements;
         `TICK_DOWNLOAD_TIMEOUT_SECONDS` (choose a value and state the reason
         in its comment); `TICK_SPEND_CEILING_ENV = "MT_TICK_SPEND_CEILING_USD"`.
-  - [ ] Success: each value is defined once; module ≤ ~300 lines.
-- [ ] **Task 1.3: Tests for the constants** (effort: 1)
-  - [ ] `test/unit/data/tick/test_constants.py` (add `__init__.py` files as
+  - [x] Success: each value is defined once; module ≤ ~300 lines.
+- [x] **Task 1.3: Tests for the constants** (effort: 1)
+  - [x] `test/unit/data/tick/test_constants.py` (add `__init__.py` files as
         the tree needs): enum values equal the provider's spellings;
         `STORED_TIERS == {TRADES, TBBO}`; `MBP_1 ∉ STORED_TIERS`;
         `ESTIMATE_SCHEMAS` ends with `DEFINITION` and contains every tier.
-  - [ ] Success: the file passes.
-- [ ] **Task 1.4: `ProviderOutcomeUnknownError`** (effort: 1)
-  - [ ] Add to `providers/errors.py` as a direct subclass of `ProviderError`,
+  - [x] Success: the file passes.
+- [x] **Task 1.4: `ProviderOutcomeUnknownError`** (effort: 1)
+  - [x] Add to `providers/errors.py` as a direct subclass of `ProviderError`,
         **not** of `ProviderTransientError`. Docstring: the request may have
         been accepted and charged; reconcile before anything is resubmitted.
-  - [ ] Test: `issubclass(ProviderOutcomeUnknownError, ProviderError)` is
+  - [x] Test: `issubclass(ProviderOutcomeUnknownError, ProviderError)` is
         true and `issubclass(..., ProviderTransientError)` is false; an
         `except ProviderTransientError` block does not catch it.
-  - [ ] Success: test passes; no other class in the file changes.
-- [ ] **Task 1.5: `Settings.tick_spend_ceiling_usd`** (effort: 1)
-  - [ ] Add `tick_spend_ceiling_usd: Decimal | None = Field(default=None, gt=0)`
+  - [x] Success: test passes; no other class in the file changes.
+- [x] **Task 1.5: `Settings.tick_spend_ceiling_usd`** (effort: 1)
+  - [x] Add `tick_spend_ceiling_usd: Decimal | None = Field(default=None, gt=0)`
         with a comment naming `MT_TICK_SPEND_CEILING_USD`.
-  - [ ] Success: `uv run mt --help` still works with the variable unset.
-- [ ] **Task 1.6: Tests for the setting** (effort: 1)
-  - [ ] In `test/unit/test_settings.py` style (`Settings(_env_file=None)`,
+  - [x] Success: `uv run mt --help` still works with the variable unset.
+- [x] **Task 1.6: Tests for the setting** (effort: 1)
+  - [x] In `test/unit/test_settings.py` style (`Settings(_env_file=None)`,
         `monkeypatch`): unset → `None`; `"12.50"` → `Decimal("12.50")`;
         `0` and `-1` → validation error naming `tick_spend_ceiling_usd`.
-  - [ ] Success: tests pass; no test loads `.env`.
-- [ ] **Task 1.7: Section 1 checkpoint** (effort: 1)
-  - [ ] ruff and mypy clean on touched files; unit tier passes.
-  - [ ] Commit: `feat: add databento dependency, tick constants, spend ceiling`.
+  - [x] Success: tests pass; no test loads `.env`.
+- [x] **Task 1.7: Section 1 checkpoint** (effort: 1)
+  - [x] ruff and mypy clean on touched files; unit tier passes.
+  - [x] Commit: `feat: add databento dependency, tick constants, spend ceiling`.
 
 ## Section 2: Sample fixtures and the DBN file reader
 
@@ -117,40 +117,40 @@ real sample files), *Technical Decisions 6, 7, 11* (thread workers over the
 array path, byte budget, real fixtures), *API Contracts* (`ITickFileReader`,
 `ITickFile`, `RecordBatch`, `SymbolInterval`).
 
-- [ ] **Task 2.1: Copy the sample DBN files** (effort: 1)
-  - [ ] From `databento/dbn` at the `v0.70.0` tag, copy into
+- [x] **Task 2.1: Copy the sample DBN files** (effort: 1)
+  - [x] From `databento/dbn` at the `v0.70.0` tag, copy into
         `test/fixtures/databento/`: `test_data.{trades,tbbo,mbp-1,definition}.v3.dbn.zst`
         and `test_data.trades.v2.dbn.zst`. Fetch with
         `gh api -H "Accept: application/vnd.github.raw" repos/databento/dbn/contents/tests/data/<file>?ref=v0.70.0`.
-  - [ ] Write `test/fixtures/databento/SOURCES.md`: repository, tag and
+  - [x] Write `test/fixtures/databento/SOURCES.md`: repository, tag and
         commit SHA, Apache-2.0 licence, and per file whether it is CME
         (`GLBX.MDP3`, the four ES files) or not (`definition` is `XNAS.ITCH`,
         MSFT — record-shape tests only).
-  - [ ] Success: each file decodes with the raw SDK (`databento.DBNStore.from_file`)
+  - [x] Success: each file decodes with the raw SDK (`databento.DBNStore.from_file`)
         and reports the dataset `SOURCES.md` states.
-- [ ] **Task 2.2: File protocols and their types in `provider.py`** (effort: 2)
-  - [ ] Create `data/tick/provider.py` with `ITickFileReader` and `ITickFile`
+- [x] **Task 2.2: File protocols and their types in `provider.py`** (effort: 2)
+  - [x] Create `data/tick/provider.py` with `ITickFileReader` and `ITickFile`
         (`Protocol`) exactly as *API Contracts* lists, plus frozen
         dataclasses `SymbolInterval(start_date, end_date, instrument_id: int)`
         and `RecordBatch(schema: TickSchema, records: numpy.ndarray, count: int)`.
-  - [ ] Docstrings carry the thread contract: the reader is stateless and
+  - [x] Docstrings carry the thread contract: the reader is stateless and
         shareable; each `ITickFile` belongs to one thread.
-  - [ ] Success: the module imports no `databento` symbol.
-- [ ] **Task 2.3: `databento/dbn_file.py`** (effort: 3)
-  - [ ] `DbnFileReader.open_file(path) -> DbnFile`; `DbnFile` fills the header
+  - [x] Success: the module imports no `databento` symbol.
+- [x] **Task 2.3: `databento/dbn_file.py`** (effort: 3)
+  - [x] `DbnFileReader.open_file(path) -> DbnFile`; `DbnFile` fills the header
         fields from the DBN metadata: dataset, schema (as `TickSchema`),
         `stype_in` (as `SType`), start, end, `partial`, `not_found`.
-  - [ ] `mappings`: input symbol → tuple of `SymbolInterval`, converting the
+  - [x] `mappings`: input symbol → tuple of `SymbolInterval`, converting the
         header's string instrument id to `int`.
-  - [ ] `iter_batches()`: `records_per_batch = TICK_DECODE_BATCH_BYTES // record_size`,
+  - [x] `iter_batches()`: `records_per_batch = TICK_DECODE_BATCH_BYTES // record_size`,
         where `record_size` is the itemsize of the file's record type after
         the SDK's DBN-version upgrade; yields `RecordBatch` via
         `to_ndarray(count=records_per_batch)`. Reads the budget from the
         constants module at call time so a test can patch it.
-  - [ ] Success: file ≤ ~300 lines; a DBN file with an unknown schema raises
+  - [x] Success: file ≤ ~300 lines; a DBN file with an unknown schema raises
         an explicit error naming it.
-- [ ] **Task 2.4: Tests for the file reader** (effort: 2)
-  - [ ] `test/unit/data/tick/test_dbn_file.py`, over the committed fixtures:
+- [x] **Task 2.4: Tests for the file reader** (effort: 2)
+  - [x] `test/unit/data/tick/test_dbn_file.py`, over the committed fixtures:
     1. Each ES file: dataset `GLBX.MDP3`, expected `TickSchema`, and
        `mappings == {"ESH1": (SymbolInterval(2020-12-28, 2020-12-29, 5482),)}`.
     2. Batches: two records total; itemsize 48 (trades) or 80 (tbbo, mbp-1);
@@ -159,10 +159,10 @@ array path, byte budget, real fixtures), *API Contracts* (`ITickFileReader`,
     4. Definition file: `schema == TickSchema.DEFINITION`, itemsize 520.
     5. With `TICK_DECODE_BATCH_BYTES` patched to one record's size, a file
        yields two batches; every batch has `records.nbytes ≤` the budget.
-  - [ ] Success: the file passes with no network.
-- [ ] **Task 2.5: Section 2 checkpoint** (effort: 1)
-  - [ ] ruff and mypy clean; unit tier passes.
-  - [ ] Commit: `feat: add DBN file reader with byte-bounded batches`.
+  - [x] Success: the file passes with no network.
+- [x] **Task 2.5: Section 2 checkpoint** (effort: 1)
+  - [x] ruff and mypy clean; unit tier passes.
+  - [x] Commit: `feat: add DBN file reader with byte-bounded batches`.
 
 ## Section 3: Metadata protocol and adapter
 
@@ -170,58 +170,58 @@ Design: *Technical Decisions 1, 2, 8, 10* (SDK not hand-rolled, synchronous
 protocol, exclusive-end request grain, error mapping for free calls), *API
 Contracts* (`ITickMetadataProvider`, constructor, context manager).
 
-- [ ] **Task 3.1: Metadata protocol and request/result types** (effort: 2)
-  - [ ] In `provider.py`: `ITickMetadataProvider` with the six methods from
+- [x] **Task 3.1: Metadata protocol and request/result types** (effort: 2)
+  - [x] In `provider.py`: `ITickMetadataProvider` with the six methods from
         *API Contracts*; docstring states it is free and not thread-safe
         (one instance per caller).
-  - [ ] Frozen dataclasses: `TickRequest(dataset, symbols, stype_in, schema,
+  - [x] Frozen dataclasses: `TickRequest(dataset, symbols, stype_in, schema,
         start: date, end: date)` with `with_schema()` and validation that
         `end > start`; `DatasetRange`, `DayCondition`, `SymbolResolution`.
-  - [ ] Success: `TickRequest` docstring states `end` is exclusive.
-- [ ] **Task 3.2: Tests for the request type** (effort: 1)
-  - [ ] `with_schema` returns an equal request differing only in schema;
+  - [x] Success: `TickRequest` docstring states `end` is exclusive.
+- [x] **Task 3.2: Tests for the request type** (effort: 1)
+  - [x] `with_schema` returns an equal request differing only in schema;
         `end ≤ start` raises; the dataclass is frozen.
-  - [ ] Success: tests pass.
-- [ ] **Task 3.3: Adapter skeleton, `from_settings`, context manager** (effort: 2)
-  - [ ] `databento/adapter.py`: `DatabentoTickProvider(client: databento.Historical,
+  - [x] Success: tests pass.
+- [x] **Task 3.3: Adapter skeleton, `from_settings`, context manager** (effort: 2)
+  - [x] `databento/adapter.py`: `DatabentoTickProvider(client: databento.Historical,
         download_http: httpx.Client)`; `from_settings(settings)` builds both
         from `Settings.databento_api_key`, passing the key explicitly (never
         the SDK's `DATABENTO_API_KEY` fallback); a missing key raises
         `ProviderAuthError` naming `MT_DATABENTO_API_KEY`.
-  - [ ] `__enter__`/`__exit__`; `__exit__` closes the `httpx.Client` always.
-  - [ ] Success: the key is never logged.
-- [ ] **Task 3.4: Free-call error mapping** (effort: 2)
-  - [ ] One private helper used by every free method: `BentoServerError`,
+  - [x] `__enter__`/`__exit__`; `__exit__` closes the `httpx.Client` always.
+  - [x] Success: the key is never logged.
+- [x] **Task 3.4: Free-call error mapping** (effort: 2)
+  - [x] One private helper used by every free method: `BentoServerError`,
         HTTP 429, connection and timeout errors → `ProviderTransientError`;
         `BentoClientError` 401/403 → `ProviderAuthError`; any other
         `BentoClientError` or a malformed response → `ProviderPermanentError`.
-  - [ ] Success: no free method maps errors itself.
-- [ ] **Task 3.5: Metadata methods** (effort: 2)
-  - [ ] `dataset_range`, `record_count`, `billable_size`, `cost` (SDK float
+  - [x] Success: no free method maps errors itself.
+- [x] **Task 3.5: Metadata methods** (effort: 2)
+  - [x] `dataset_range`, `record_count`, `billable_size`, `cost` (SDK float
         → `Decimal` at this boundary; never pass the deprecated `mode`),
         `resolve_symbols` (always `stype_out=SType.INSTRUMENT_ID`).
-  - [ ] `dataset_condition(dataset, start, end)` passes the SDK
+  - [x] `dataset_condition(dataset, start, end)` passes the SDK
         `end_date = end - 1 day` (the one inclusive-end endpoint) and returns
         one `DayCondition` per day.
-  - [ ] Success: each method is one SDK call on the calling thread.
-- [ ] **Task 3.6: Tests for the metadata adapter** (effort: 3)
-  - [ ] `test/unit/data/tick/test_adapter_metadata.py` with a fake
+  - [x] Success: each method is one SDK call on the calling thread.
+- [x] **Task 3.6: Tests for the metadata adapter** (effort: 3)
+  - [x] `test/unit/data/tick/test_adapter_metadata.py` with a fake
         `Historical`-shaped object built from the SDK's documented return
         types (replaced by recordings in Task 7.3).
-  - [ ] `dataset_condition` for `[2025-01-06, 2025-01-11)` sends
+  - [x] `dataset_condition` for `[2025-01-06, 2025-01-11)` sends
         `end_date=2025-01-10` and returns five conditions.
-  - [ ] `cost` returns a `Decimal`; `resolve_symbols` sends `stype_out`
+  - [x] `cost` returns a `Decimal`; `resolve_symbols` sends `stype_out`
         `instrument_id`.
-  - [ ] Error mapping: 5xx, 429, timeout → Transient; 401, 403 → Auth;
+  - [x] Error mapping: 5xx, 429, timeout → Transient; 401, 403 → Auth;
         400 → Permanent; a malformed response (the fake returns a shape
         the adapter cannot parse, raising no `BentoError`) → Permanent.
-  - [ ] `from_settings` with no key → `ProviderAuthError` naming the
+  - [x] `from_settings` with no key → `ProviderAuthError` naming the
         variable; the context manager closes the client on normal exit and
         on an exception.
-  - [ ] Success: the file passes with no network and no key.
-- [ ] **Task 3.7: Section 3 checkpoint** (effort: 1)
-  - [ ] ruff and mypy clean; unit tier passes.
-  - [ ] Commit: `feat: add databento metadata adapter`.
+  - [x] Success: the file passes with no network and no key.
+- [x] **Task 3.7: Section 3 checkpoint** (effort: 1)
+  - [x] ruff and mypy clean; unit tier passes.
+  - [x] Commit: `feat: add databento metadata adapter`.
 
 ## Section 4: Acquisition methods and the verified download
 
@@ -229,80 +229,80 @@ Design: *Technical Decisions 9, 10* (delivery modes and file-name rule,
 paid-call outcomes), the failure-modes table, *API Contracts*
 (`ITickAcquisitionProvider`, `BatchJob`).
 
-- [ ] **Task 4.1: Acquisition protocol and `BatchJob`** (effort: 1)
-  - [ ] In `provider.py`: `ITickAcquisitionProvider` with the five methods
+- [x] **Task 4.1: Acquisition protocol and `BatchJob`** (effort: 1)
+  - [x] In `provider.py`: `ITickAcquisitionProvider` with the five methods
         from *API Contracts*; docstring marks `fetch_range` and
         `submit_batch` as PAID and states the thread contract.
-  - [ ] Frozen `BatchJob` with the fields *API Contracts* lists, including
+  - [x] Frozen `BatchJob` with the fields *API Contracts* lists, including
         `request: TickRequest` and `ts_expiration`.
-  - [ ] Success: `provider.py` ≤ ~300 lines.
-- [ ] **Task 4.2: Paid-call error mapping** (effort: 2)
-  - [ ] One helper for the two paid methods: 429 → Transient; 401/403 →
+  - [x] Success: `provider.py` ≤ ~300 lines.
+- [x] **Task 4.2: Paid-call error mapping** (effort: 2)
+  - [x] One helper for the two paid methods: 429 → Transient; 401/403 →
         Auth; any other 4xx → Permanent; **everything else** (timeout,
         connection error, 5xx, mid-stream `BentoError`) →
         `ProviderOutcomeUnknownError`.
-  - [ ] Success: no path from a paid method reaches `ProviderTransientError`
+  - [x] Success: no path from a paid method reaches `ProviderTransientError`
         except 429.
-- [ ] **Task 4.3: `submit_batch`, `batch_job`, `batch_jobs_since`** (effort: 2)
-  - [ ] `submit_batch` sends encoding `dbn`, compression `zstd`,
+- [x] **Task 4.3: `submit_batch`, `batch_job`, `batch_jobs_since`** (effort: 2)
+  - [x] `submit_batch` sends encoding `dbn`, compression `zstd`,
         `split_duration="day"`, `delivery="download"`,
         `stype_out=instrument_id`, and reads the job back through
         `get_job_details`.
-  - [ ] `batch_job` uses `get_job_details`; `batch_jobs_since(since)` calls
+  - [x] `batch_job` uses `get_job_details`; `batch_jobs_since(since)` calls
         `list_jobs(since=)` then `get_job_details` per id, rebuilding each
         job's `TickRequest`.
-  - [ ] Success: `list_jobs` is used only for ids.
-- [ ] **Task 4.4: Tests for batch submit and job reads** (effort: 2)
-  - [ ] Assert the exact SDK parameters `submit_batch` passes; that job reads
+  - [x] Success: `list_jobs` is used only for ids.
+- [x] **Task 4.4: Tests for batch submit and job reads** (effort: 2)
+  - [x] Assert the exact SDK parameters `submit_batch` passes; that job reads
         go through `get_job_details`; that `batch_jobs_since` returns one
         `BatchJob` per listed id with its request.
-  - [ ] `submit_batch` given timeout, connection error, 5xx → each raises
+  - [x] `submit_batch` given timeout, connection error, 5xx → each raises
         `ProviderOutcomeUnknownError` and never `ProviderTransientError`;
         429 → Transient; 400 → Permanent; 401 → Auth.
-  - [ ] Success: tests pass.
-- [ ] **Task 4.5: `fetch_range`** (effort: 2)
-  - [ ] Refuse an existing final `dest` up front (`FileExistsError`).
-  - [ ] Delete a leftover `<dest>.partial` (crash residue), stream via
+  - [x] Success: tests pass.
+- [x] **Task 4.5: `fetch_range`** (effort: 2)
+  - [x] Refuse an existing final `dest` up front (`FileExistsError`).
+  - [x] Delete a leftover `<dest>.partial` (crash residue), stream via
         `timeseries.get_range(..., path=<dest>.partial)`, rename to `dest`
         only on clean completion.
-  - [ ] On any failure, delete `<dest>.partial` before raising the mapped
+  - [x] On any failure, delete `<dest>.partial` before raising the mapped
         error.
-  - [ ] Success: after any failure neither `dest` nor `<dest>.partial`
+  - [x] Success: after any failure neither `dest` nor `<dest>.partial`
         exists.
-- [ ] **Task 4.6: Tests for `fetch_range`** (effort: 2)
-  - [ ] Timeout, connection error, 5xx, mid-stream error → each raises
+- [x] **Task 4.6: Tests for `fetch_range`** (effort: 2)
+  - [x] Timeout, connection error, 5xx, mid-stream error → each raises
         `ProviderOutcomeUnknownError`, never Transient, and leaves no file.
-  - [ ] 429 → Transient; other 4xx → Permanent/Auth.
-  - [ ] A leftover `.partial` is deleted before streaming; an existing
+  - [x] 429 → Transient; other 4xx → Permanent/Auth.
+  - [x] A leftover `.partial` is deleted before streaming; an existing
         `dest` raises `FileExistsError` with no SDK call made; success leaves
         only `dest`.
-  - [ ] Success: tests pass.
-- [ ] **Task 4.7: Verified `download_batch`** (effort: 3)
-  - [ ] Read `batch.list_files(job_id)` (URL, size, SHA-256 per file); fetch
+  - [x] Success: tests pass.
+- [x] **Task 4.7: Verified `download_batch`** (effort: 3)
+  - [x] Read `batch.list_files(job_id)` (URL, size, SHA-256 per file); fetch
         each with the injected `httpx.Client` (basic auth with the key,
         `timeout=TICK_DOWNLOAD_TIMEOUT_SECONDS`) into `<name>.partial`.
-  - [ ] Existing `.partial` vs listed size: equal → hash and rename, no
+  - [x] Existing `.partial` vs listed size: equal → hash and rename, no
         request; smaller → resume with `Range: bytes=N-`; larger → delete
         and restart.
-  - [ ] A `200` to a ranged request → truncate and write from byte 0;
+  - [x] A `200` to a ranged request → truncate and write from byte 0;
         `416` → delete `.partial`, Transient; 404/410 → Permanent;
         SHA-256 mismatch → delete `.partial`, Transient; timeout/connection
         → Transient, `.partial` kept.
-  - [ ] Rename to the final name only after size and SHA-256 match. No retry
+  - [x] Rename to the final name only after size and SHA-256 match. No retry
         loop inside the adapter.
-  - [ ] Success: the SDK's `batch.download` is not called anywhere;
+  - [x] Success: the SDK's `batch.download` is not called anywhere;
         `adapter.py` ≤ ~300 lines (extract a `_download.py` sibling inside
         `databento/` if it would exceed).
-- [ ] **Task 4.8: Tests for `download_batch`** (effort: 3)
-  - [ ] Using `httpx.MockTransport`, one test per case from *Success
+- [x] **Task 4.8: Tests for `download_batch`** (effort: 3)
+  - [x] Using `httpx.MockTransport`, one test per case from *Success
         Criteria* (the `download_batch` bullet): full transfer; interrupted
         then resumed with `Range`; full-size `.partial` with no request sent;
         oversize `.partial` restarted; `200` to a ranged request; `416`;
         checksum mismatch; stalled response → Transient.
-  - [ ] Success: tests pass; each asserts what is left on disk.
-- [ ] **Task 4.9: Section 4 checkpoint** (effort: 1)
-  - [ ] ruff and mypy clean; unit tier passes.
-  - [ ] Commit: `feat: add databento acquisition methods and verified download`.
+  - [x] Success: tests pass; each asserts what is left on disk.
+- [x] **Task 4.9: Section 4 checkpoint** (effort: 1)
+  - [x] ruff and mypy clean; unit tier passes.
+  - [x] Commit: `feat: add databento acquisition methods and verified download`.
 
 ## Section 5: Estimate core and `mt data tick estimate`
 

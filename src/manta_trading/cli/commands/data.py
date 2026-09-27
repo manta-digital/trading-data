@@ -82,6 +82,7 @@ caggs_app = typer.Typer(
 )
 
 from manta_trading.cli.commands.kalshi import kalshi_app
+from manta_trading.cli.commands.tick import tick_app  # noqa: E402
 from manta_trading.cli.commands.universes import universes_app
 
 data_app.add_typer(daemon_app, name="daemon")
@@ -107,6 +108,7 @@ data_app.command("overview")(data_overview)
 data_app.add_typer(universes_app, name="universes")
 data_app.add_typer(restore_app, name="restore")
 data_app.add_typer(kalshi_app, name="kalshi")
+data_app.add_typer(tick_app, name="tick")
 
 
 _DEFAULT_LISTS_CONFIG: Path = Path("config/symbol-lists.yaml")

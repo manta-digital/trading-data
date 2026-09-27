@@ -11,7 +11,7 @@ raises ``KeyError``/``TypeError``/``ValueError``, which the adapter maps to
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import TypedDict
@@ -46,10 +46,6 @@ class Query(TypedDict):
     end: datetime
 
 
-def _midnight(day: date) -> datetime:
-    return datetime.combine(day, time(), UTC)
-
-
 def query(request: TickRequest) -> Query:
     """The request's parameters as the SDK names them.
 
@@ -63,8 +59,8 @@ def query(request: TickRequest) -> Query:
         "symbols": list(request.symbols),
         "schema": request.schema.value,
         "stype_in": request.stype_in.value,
-        "start": _midnight(request.start),
-        "end": _midnight(request.end),
+        "start": request.start_utc,
+        "end": request.end_utc,
     }
 
 

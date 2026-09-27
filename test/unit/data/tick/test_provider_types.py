@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -50,3 +50,9 @@ def test_no_symbols_raises() -> None:
 def test_frozen() -> None:
     with pytest.raises(dataclasses.FrozenInstanceError):
         _request().schema = TickSchema.TBBO  # type: ignore[misc]
+
+
+def test_utc_bounds_are_midnight_instants() -> None:
+    request = _request()
+    assert request.start_utc == datetime(2025, 1, 6, tzinfo=UTC)
+    assert request.end_utc == datetime(2025, 1, 11, tzinfo=UTC)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Protocol
@@ -113,6 +113,16 @@ class TickRequest:
 
     def with_schema(self, schema: TickSchema) -> TickRequest:
         return replace(self, schema=schema)
+
+    @property
+    def start_utc(self) -> datetime:
+        """``start`` as the aware UTC instant that opens the range."""
+        return datetime.combine(self.start, time(), UTC)
+
+    @property
+    def end_utc(self) -> datetime:
+        """``end`` as the aware UTC instant that closes the range (exclusive)."""
+        return datetime.combine(self.end, time(), UTC)
 
 
 @dataclass(frozen=True)
