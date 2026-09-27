@@ -52,6 +52,15 @@ class DeliveryMode(StrEnum):
     DIRECT_RANGE = "direct_range"
 
 
+class DatasetCondition(StrEnum):
+    """Databento's per-day data condition (``get_dataset_condition``)."""
+
+    AVAILABLE = "available"
+    DEGRADED = "degraded"
+    PENDING = "pending"
+    MISSING = "missing"
+
+
 #: CME Globex MDP 3.0 — the dataset every futures request in 220 targets.
 CME_DATASET = "GLBX.MDP3"
 
