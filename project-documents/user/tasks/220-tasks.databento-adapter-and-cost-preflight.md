@@ -374,23 +374,23 @@ request, structurally).
 Design: *Technical Decisions 6, 12* (thread workers over the array path;
 benchmark input is real records and is not a correctness fixture).
 
-- [ ] **Task 6.1: `scripts/bench_dbn_decode.py`** (effort: 2)
-  - [ ] Builds its input in memory: the real trades header followed by the
+- [x] **Task 6.1: `scripts/bench_dbn_decode.py`** (effort: 2)
+  - [x] Builds its input in memory: the real trades header followed by the
         real trade records repeated to `--records`; decodes through the
         per-record path and the `to_ndarray` array path at 1 and
         `--threads` threads; prints wall time, records/s, speedup.
-  - [ ] Docstring states the throughput caveat: decode only, repeated
+  - [x] Docstring states the throughput caveat: decode only, repeated
         records, no `COPY` — an upper bound that can fail the architecture's
         ingest target, never pass it; 226 decides.
-  - [ ] Success: `uv run python scripts/bench_dbn_decode.py --records 2000000 --threads 4`
+  - [x] Success: `uv run python scripts/bench_dbn_decode.py --records 2000000 --threads 4`
         completes and prints the table.
-- [ ] **Task 6.2: Run and record the benchmark** (effort: 1)
-  - [ ] Paste the output verbatim under *Recorded Results* below, with the
+- [x] **Task 6.2: Run and record the benchmark** (effort: 1)
+  - [x] Paste the output verbatim under *Recorded Results* below, with the
         host and Python version.
-  - [ ] State in one line whether the array path showed a multi-thread
+  - [x] State in one line whether the array path showed a multi-thread
         speedup and the per-record path did not. If not, stop and report to
         the PM: Technical Decision 6 rests on it.
-  - [ ] Commit: `feat: add DBN decode benchmark and record results`.
+  - [x] Commit: `feat: add DBN decode benchmark and record results`.
 
 ## Section 7: Recorded fixtures, documentation, live walkthrough
 
@@ -399,12 +399,12 @@ Needs `MT_DATABENTO_API_KEY` in the dev `.env` (PM prerequisite). Design:
 Requirements* (docs), *Verification Walkthrough*.
 
 - [ ] **Task 7.1: `scripts/record_databento_fixtures.py`** (effort: 2)
-  - [ ] Modelled on `record_kalshi_fixtures.py`. Builds a
+  - [x] Modelled on `record_kalshi_fixtures.py`. Builds a
         `DatabentoTickProvider` via `from_settings`, types it as
         `ITickMetadataProvider`, and records each metadata method's raw SDK
         response for `ES.c.0`, `continuous`, `2025-01-06`–`2025-01-11`
         across `ESTIMATE_SCHEMAS` into `test/fixtures/databento/metadata/*.json`.
-  - [ ] Imports `ESTIMATE_SCHEMAS`; calls nothing outside the metadata
+  - [x] Imports `ESTIMATE_SCHEMAS`; calls nothing outside the metadata
         protocol.
   - [ ] Success: script runs clean; no key or header value appears in any
         written file.
@@ -429,22 +429,22 @@ Requirements* (docs), *Verification Walkthrough*.
   - [ ] Copy both figures into the design's findings table (the "Delivery
         modes" and "Batch retention window" rows) so a 223 author reading
         only the design finds them.
-- [ ] **Task 7.5: README and `.env_sample`** (effort: 2)
-  - [ ] Add `tick` to the `mt data …` row of the CLI map.
-  - [ ] New `### Tick / Databento` environment table: `MT_DATABENTO_API_KEY`,
+- [x] **Task 7.5: README and `.env_sample`** (effort: 2)
+  - [x] Add `tick` to the `mt data …` row of the CLI map.
+  - [x] New `### Tick / Databento` environment table: `MT_DATABENTO_API_KEY`,
         `MT_TICK_SPEND_CEILING_USD`, `MT_TICK_DB_URL` (present; no consumer
         until 222).
-  - [ ] New `## Futures tick data` section skeleton with the `estimate`
+  - [x] New `## Futures tick data` section skeleton with the `estimate`
         command, exclusive `--end`, and exit codes.
-  - [ ] `.env_sample`: both new variables under `--- Optional ---`.
-  - [ ] Success: every env name matches its code spelling.
-- [ ] **Task 7.6: Data-correctness contract rows** (effort: 1)
-  - [ ] In `user/reference/data-correctness-architecture.md`, the slice
+  - [x] `.env_sample`: both new variables under `--- Optional ---`.
+  - [x] Success: every env name matches its code spelling.
+- [x] **Task 7.6: Data-correctness contract rows** (effort: 1)
+  - [x] In `user/reference/data-correctness-architecture.md`, the slice
         mapping table: the tooling-consistency row (I10) gains "220 fixes the
         tick shape: `mt data tick` subgroup, verb vocabulary as I10"; the
         loud-failure row (I9) cites the preflight's refusals (missing key,
         end past the edge, unknown-outcome paid calls).
-  - [ ] Commit: `docs: add tick CLI, env table, and contract rows for 220`.
+  - [x] Commit: `docs: add tick CLI, env table, and contract rows for 220`.
 - [ ] **Task 7.7: Live verification walkthrough** (effort: 2)
   - [ ] Run *Verification Walkthrough* steps 1–7 from the slice design.
         Paste step 6's table and step 7's JSON verdicts under *Recorded
