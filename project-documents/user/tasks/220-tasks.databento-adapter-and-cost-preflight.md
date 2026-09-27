@@ -310,64 +310,64 @@ Design: *Data Flow* (preflight), *Technical Decisions 3, 5* (CLI subgroup,
 bundle ceiling verdict), *CLI verb*, *Special Considerations* (no billable
 request, structurally).
 
-- [ ] **Task 5.1: `estimate.py`** (effort: 3)
-  - [ ] `build_estimate(metadata: ITickMetadataProvider, request, ceiling:
+- [x] **Task 5.1: `estimate.py`** (effort: 3)
+  - [x] `build_estimate(metadata: ITickMetadataProvider, request, ceiling:
         Decimal | None) -> EstimateReport`, following *Data Flow* exactly:
         one `dataset_range` (refuse, naming the edge, if `end` is past it);
         one `dataset_condition`, tallied by condition; per schema in
         `ESTIMATE_SCHEMAS`: records, billable size, cost.
-  - [ ] Per stored tier: `bundle_cost_usd = tier + definition`; verdict
+  - [x] Per stored tier: `bundle_cost_usd = tier + definition`; verdict
         `within`/`over` against the ceiling, or `no ceiling configured
         (MT_TICK_SPEND_CEILING_USD unset)` built from
         `TICK_SPEND_CEILING_ENV`. `definition` row: `bought with each tier`;
         `mbp-1` row: `not purchasable in this initiative`. Verdict strings
         defined once (enum or constants).
-  - [ ] `EstimateReport.to_dict()` for `--json`, including
+  - [x] `EstimateReport.to_dict()` for `--json`, including
         `ceiling_verdict`, `bundle_cost_usd`, `ceiling_usd`.
-  - [ ] Success: the module imports nothing from `databento/`.
-- [ ] **Task 5.2: Tests for the estimate core** (effort: 2)
-  - [ ] Fake `ITickMetadataProvider`: unset ceiling → every stored tier
+  - [x] Success: the module imports nothing from `databento/`.
+- [x] **Task 5.2: Tests for the estimate core** (effort: 2)
+  - [x] Fake `ITickMetadataProvider`: unset ceiling → every stored tier
         "no ceiling configured", `mbp-1` "not purchasable" regardless of the
         ceiling; a ceiling where the tier alone is within but the bundle is
         over → `over`; end past the edge → refusal naming the edge; the
         condition tally counts each day once.
-  - [ ] Backstop: `build_estimate` over a real `DatabentoTickProvider` whose
+  - [x] Backstop: `build_estimate` over a real `DatabentoTickProvider` whose
         fake `Historical` serves metadata and raises on any access to
         `timeseries` or `batch` completes.
-  - [ ] Success: tests pass.
-- [ ] **Task 5.3: `cli/commands/tick.py` and registration** (effort: 2)
-  - [ ] `tick_app` with one verb, `estimate`; options per *CLI verb*;
+  - [x] Success: tests pass.
+- [x] **Task 5.3: `cli/commands/tick.py` and registration** (effort: 2)
+  - [x] `tick_app` with one verb, `estimate`; options per *CLI verb*;
         `--symbols` and `--stype` required; `--stype` choices from `SType`;
         help states `--end` is exclusive; epilog states the exit-code-2
         collision with Click usage errors.
-  - [ ] Exit codes defined once in this module: `0` ok, `1` preflight
+  - [x] Exit codes defined once in this module: `0` ok, `1` preflight
         (missing key, `end ≤ start`, end past the edge), `2` provider error.
-  - [ ] Uses `with DatabentoTickProvider.from_settings(settings) as provider:`;
+  - [x] Uses `with DatabentoTickProvider.from_settings(settings) as provider:`;
         settings from `ctx.obj["settings"]`.
-  - [ ] Register in `data.py` beside `kalshi_app` as `name="tick"`.
-  - [ ] Success: `uv run mt data tick --help` lists `estimate` only.
-- [ ] **Task 5.4: `cli/commands/tick_render.py`** (effort: 2)
-  - [ ] Header: available range, requested range, day-condition tally.
+  - [x] Register in `data.py` beside `kalshi_app` as `name="tick"`.
+  - [x] Success: `uv run mt data tick --help` lists `estimate` only.
+- [x] **Task 5.4: `cli/commands/tick_render.py`** (effort: 2)
+  - [x] Header: available range, requested range, day-condition tally.
         Table: one row per schema with records, billable bytes plus a human
         size, cost, bundle cost (stored tiers), verdict column.
-  - [ ] Built with `make_table`; `--json` goes through `print_result`.
-  - [ ] Success: renderer takes an `EstimateReport` only.
-- [ ] **Task 5.5: CLI tests** (effort: 2)
-  - [ ] `test/unit/cli/commands/test_data_tick.py` with `CliRunner` and a
+  - [x] Built with `make_table`; `--json` goes through `print_result`.
+  - [x] Success: renderer takes an `EstimateReport` only.
+- [x] **Task 5.5: CLI tests** (effort: 2)
+  - [x] `test/unit/cli/commands/test_data_tick.py` with `CliRunner` and a
         fake provider: happy path exits 0 with four rows; `--json` parses and
         carries the three ceiling fields; missing key → exit 1 naming
         `MT_DATABENTO_API_KEY`; `end ≤ start` → exit 1; end past edge →
         exit 1 naming the edge; provider Transient → exit 2.
-  - [ ] Success: tests pass with no network and no key.
-- [ ] **Task 5.6: Import-boundary test** (effort: 1)
-  - [ ] Unit test that walks `src/manta_trading` and asserts only
+  - [x] Success: tests pass with no network and no key.
+- [x] **Task 5.6: Import-boundary test** (effort: 1)
+  - [x] Unit test that walks `src/manta_trading` and asserts only
         `data/tick/databento/adapter.py` and `dbn_file.py` (and `_download.py`
         if Task 4.7 created it) import `databento`.
-  - [ ] Success: test passes.
-- [ ] **Task 5.7: Section 5 checkpoint** (effort: 1)
-  - [ ] ruff and mypy clean; unit tier passes;
+  - [x] Success: test passes.
+- [x] **Task 5.7: Section 5 checkpoint** (effort: 1)
+  - [x] ruff and mypy clean; unit tier passes;
         `uv run mt data tick estimate --help` shows required options.
-  - [ ] Commit: `feat: add mt data tick estimate cost preflight`.
+  - [x] Commit: `feat: add mt data tick estimate cost preflight`.
 
 ## Section 6: Decode benchmark
 
@@ -466,7 +466,31 @@ Requirements* (docs), *Verification Walkthrough*.
 
 Filled in by Tasks 6.2, 7.4, and 7.7.
 
-- **Decode benchmark (Task 6.2):** not yet run.
+- **Decode benchmark (Task 6.2):** run 2026-09-27 on manta9000 (32 cores),
+  Python 3.12.9, databento 0.87.0, databento-dbn 0.70.0. Verbatim output of
+  `uv run python scripts/bench_dbn_decode.py --records 2000000 --threads 4`:
+
+  ```
+  host: manta9000  python: 3.12.9  databento: 0.87.0
+  records per decode: 2,000,000  threads: 1 vs 4
+
+  path        threads   wall s      records/s  speedup
+  per-record        1     0.35      5,783,648    1.00x
+  per-record        4     1.41      5,685,388    0.98x
+  array             1     0.06     34,159,784    1.00x
+  array             4     0.07    108,545,860    3.18x
+  ```
+
+  A repeat at 2M gave 0.96x / 3.16x. At `--records 20000000` (array wall
+  times long enough to be stable): per-record 1 thread 3.39 s
+  (5,892,652/s), 4 threads 14.25 s (0.95x); array 1 thread 0.58 s
+  (34,412,534/s), 4 threads 0.62 s (128,746,035/s, 3.74x).
+
+  **Verdict:** the array path showed a multi-thread speedup (3.2–3.7x at 4
+  threads) and the per-record path did not (0.95–0.98x) — Technical
+  Decision 6 holds. Caveat (TD 12): decode only, repeated records, no `COPY`
+  — an upper bound that can fail the ingest target, never pass it; 226
+  decides.
 - **Batch retention window (Task 7.4):** not yet recorded.
 - **Per-mode size limits (Task 7.4):** not yet recorded.
 - **Live estimate, ES.c.0 2025-01-06 → 2025-01-11 (Task 7.7):** not yet run.
