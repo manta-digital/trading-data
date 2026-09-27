@@ -1,0 +1,14 @@
+{
+  "method": "metadata.get_billable_size",
+  "request": {
+    "dataset": "GLBX.MDP3",
+    "end": "2025-01-11 00:00:00+00:00",
+    "schema": "tbbo",
+    "start": "2025-01-06 00:00:00+00:00",
+    "stype_in": "continuous",
+    "symbols": [
+      "ES.c.0"
+    ]
+  },
+  "response": 200777760
+}

@@ -1,0 +1,35 @@
+{
+  "method": "symbology.resolve",
+  "request": {
+    "dataset": "GLBX.MDP3",
+    "end_date": "2025-01-11",
+    "start_date": "2025-01-06",
+    "stype_in": "continuous",
+    "stype_out": "instrument_id",
+    "symbols": [
+      "ES.c.0"
+    ]
+  },
+  "response": {
+    "end_date": "2025-01-11",
+    "message": "OK",
+    "not_found": [],
+    "partial": [],
+    "result": {
+      "ES.c.0": [
+        {
+          "d0": "2025-01-06",
+          "d1": "2025-01-11",
+          "s": "5002"
+        }
+      ]
+    },
+    "start_date": "2025-01-06",
+    "status": 0,
+    "stype_in": "continuous",
+    "stype_out": "instrument_id",
+    "symbols": [
+      "ES.c.0"
+    ]
+  }
+}
