@@ -213,7 +213,8 @@ Contracts* (`ITickMetadataProvider`, constructor, context manager).
   - [ ] `cost` returns a `Decimal`; `resolve_symbols` sends `stype_out`
         `instrument_id`.
   - [ ] Error mapping: 5xx, 429, timeout → Transient; 401, 403 → Auth;
-        400 → Permanent.
+        400 → Permanent; a malformed response (the fake returns a shape
+        the adapter cannot parse, raising no `BentoError`) → Permanent.
   - [ ] `from_settings` with no key → `ProviderAuthError` naming the
         variable; the context manager closes the client on normal exit and
         on an exception.
@@ -421,6 +422,13 @@ Requirements* (docs), *Verification Walkthrough*.
         under *Recorded Results*: the batch retention window and any
         per-mode (batch, direct) size limits. If a figure cannot be found,
         write "not published" with where you looked — never a guessed value.
+  - [ ] Beside each figure, name its consumer: the retention window feeds
+        223's retention check (the window must cover several consecutive
+        missed firings at 223's cadence); the size limits feed 223's
+        batch-versus-direct delivery choice.
+  - [ ] Copy both figures into the design's findings table (the "Delivery
+        modes" and "Batch retention window" rows) so a 223 author reading
+        only the design finds them.
 - [ ] **Task 7.5: README and `.env_sample`** (effort: 2)
   - [ ] Add `tick` to the `mt data …` row of the CLI map.
   - [ ] New `### Tick / Databento` environment table: `MT_DATABENTO_API_KEY`,
