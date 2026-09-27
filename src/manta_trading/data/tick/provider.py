@@ -18,7 +18,12 @@ from typing import Protocol
 
 import numpy as np
 
-from manta_trading.data.tick.constants import DatasetCondition, SType, TickSchema
+from manta_trading.data.tick.constants import (
+    BatchJobState,
+    DatasetCondition,
+    SType,
+    TickSchema,
+)
 
 # ---------------------------------------------------------------------------
 # File reading (224 decodes through these)
@@ -163,3 +168,55 @@ class ITickMetadataProvider(Protocol):
         ...
 
     def resolve_symbols(self, request: TickRequest) -> SymbolResolution: ...
+
+
+# ---------------------------------------------------------------------------
+# Acquisition (223 only; two methods spend money)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BatchJob:
+    """A batch job as the provider reports it; 222's manifest row source.
+
+    ``ts_expiration`` is the only source of a unit's download deadline. The
+    size and cost fields are ``None`` until the provider has processed the job.
+    """
+
+    job_id: str
+    request: TickRequest
+    state: BatchJobState
+    ts_received: datetime
+    ts_expiration: datetime | None
+    record_count: int | None
+    billed_size: int | None
+    actual_size: int | None
+    package_size: int | None
+    cost_usd: Decimal | None
+
+
+class ITickAcquisitionProvider(Protocol):
+    """Buying and fetching tick files. ``fetch_range`` and ``submit_batch`` are
+    **PAID**: a failure that does not prove the provider refused raises
+    ``ProviderOutcomeUnknownError`` — reconcile before resubmitting.
+
+    Not thread-safe: one instance per concurrent caller (one per worker).
+    """
+
+    def fetch_range(self, request: TickRequest, dest: Path) -> Path:
+        """PAID. Stream the request to ``dest``; ``dest`` exists only if complete."""
+        ...
+
+    def submit_batch(self, request: TickRequest) -> BatchJob:
+        """PAID. Submit a batch job and read it back."""
+        ...
+
+    def batch_job(self, job_id: str) -> BatchJob: ...
+
+    def batch_jobs_since(self, since: datetime) -> tuple[BatchJob, ...]:
+        """Every job submitted since ``since``, for reconciling an unknown submit."""
+        ...
+
+    def download_batch(self, job_id: str, dest_dir: Path) -> tuple[Path, ...]:
+        """Download the job's files; a final name is size- and SHA-256-verified."""
+        ...

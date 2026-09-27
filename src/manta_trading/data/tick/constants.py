@@ -61,6 +61,15 @@ class DatasetCondition(StrEnum):
     MISSING = "missing"
 
 
+class BatchJobState(StrEnum):
+    """Databento batch job lifecycle (``batch.get_job_details`` ``state``)."""
+
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    DONE = "done"
+    EXPIRED = "expired"
+
+
 #: CME Globex MDP 3.0 — the dataset every futures request in 220 targets.
 CME_DATASET = "GLBX.MDP3"
 

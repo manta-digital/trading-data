@@ -1,4 +1,7 @@
-"""Databento metadata JSON → tick result types. Imports no ``databento`` symbol.
+"""Tick types ↔ Databento wire shapes. Imports no ``databento`` symbol.
+
+``query`` turns a ``TickRequest`` into the SDK's keywords; the ``parse_*``
+functions turn the SDK's JSON answers into the tick result types.
 
 Every parser is strict: a missing key, a wrong type, or an unknown value
 raises ``KeyError``/``TypeError``/``ValueError``, which the adapter maps to
@@ -7,19 +10,63 @@ raises ``KeyError``/``TypeError``/``ValueError``, which the adapter maps to
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from collections.abc import Callable, Mapping
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from pathlib import Path
+from typing import TypedDict
 
 import pandas as pd
 
-from manta_trading.data.tick.constants import DatasetCondition
+from manta_trading.data.tick.constants import (
+    BatchJobState,
+    DatasetCondition,
+    SType,
+    TickSchema,
+)
+from manta_trading.data.tick.databento._download import BatchFile
 from manta_trading.data.tick.provider import (
+    BatchJob,
     DatasetRange,
     DayCondition,
     SymbolInterval,
     SymbolResolution,
+    TickRequest,
 )
+
+
+class Query(TypedDict):
+    """The keywords the SDK's metadata and submit calls share."""
+
+    dataset: str
+    symbols: list[str]
+    schema: str
+    stype_in: str
+    start: datetime
+    end: datetime
+
+
+def _midnight(day: date) -> datetime:
+    return datetime.combine(day, time(), UTC)
+
+
+def query(request: TickRequest) -> Query:
+    """The request's parameters as the SDK names them.
+
+    Bounds go out as UTC-midnight datetimes, never bare dates: the API
+    forward-fills a bare date by its resolution (the SDK's quickstart shows a
+    job submitted with ``end="2020-12-29"`` stored as ``2020-12-30 00:00``),
+    which would make the exclusive end inclusive (design TD 8).
+    """
+    return {
+        "dataset": request.dataset,
+        "symbols": list(request.symbols),
+        "schema": request.schema.value,
+        "stype_in": request.stype_in.value,
+        "start": _midnight(request.start),
+        "end": _midnight(request.end),
+    }
+
 
 _KNOWN_CONDITIONS = frozenset(c.value for c in DatasetCondition)
 
@@ -125,3 +172,81 @@ def parse_resolution(raw: object) -> SymbolResolution:
         partial=_str_tuple(body["partial"], "partial"),
         not_found=_str_tuple(body["not_found"], "not_found"),
     )
+
+
+# -- batch jobs and files --------------------------------------------------------
+
+_SHA256_PREFIX = "sha256"
+
+
+def _optional[T](raw: object, parse: Callable[[object], T]) -> T | None:
+    return None if raw is None else parse(raw)
+
+
+def _day(raw: object, what: str) -> date:
+    """A job range bound, which this adapter always submits at UTC midnight."""
+    moment = _utc_datetime(raw, what)
+    if moment.timetz().replace(tzinfo=None) != time():
+        raise ValueError(f"{what} {raw!r} is not a UTC day boundary")
+    return moment.date()
+
+
+def _symbols(raw: object) -> tuple[str, ...]:
+    """The job's symbols: a comma-joined string, or a list of strings."""
+    if isinstance(raw, str):
+        return tuple(part.strip() for part in raw.split(",") if part.strip())
+    return _str_tuple(raw, "symbols")
+
+
+def parse_job_id(raw: object) -> str:
+    return _as_str(_as_mapping(raw, "batch job")["id"], "job id")
+
+
+def parse_job_ids(raw: object) -> tuple[str, ...]:
+    return tuple(parse_job_id(item) for item in _as_list(raw, "batch jobs"))
+
+
+def parse_batch_job(raw: object) -> BatchJob:
+    body = _as_mapping(raw, "batch job")
+    request = TickRequest(
+        dataset=_as_str(body["dataset"], "dataset"),
+        symbols=_symbols(body["symbols"]),
+        stype_in=SType(_as_str(body["stype_in"], "stype_in")),
+        schema=TickSchema(_as_str(body["schema"], "schema")),
+        start=_day(body["start"], "job start"),
+        end=_day(body["end"], "job end"),
+    )
+    return BatchJob(
+        job_id=_as_str(body["id"], "job id"),
+        request=request,
+        state=BatchJobState(_as_str(body["state"], "state")),
+        ts_received=_utc_datetime(body["ts_received"], "ts_received"),
+        ts_expiration=_optional(
+            body["ts_expiration"], lambda v: _utc_datetime(v, "ts_expiration")
+        ),
+        record_count=_optional(body["record_count"], lambda v: as_count(v, "records")),
+        billed_size=_optional(body["billed_size"], lambda v: as_count(v, "billed")),
+        actual_size=_optional(body["actual_size"], lambda v: as_count(v, "actual")),
+        package_size=_optional(body["package_size"], lambda v: as_count(v, "package")),
+        cost_usd=_optional(body["cost_usd"], as_usd),
+    )
+
+
+def _batch_file(raw: object) -> BatchFile:
+    body = _as_mapping(raw, "batch file")
+    filename = _as_str(body["filename"], "filename")
+    if Path(filename).name != filename:
+        raise ValueError(f"batch file name {filename!r} is not a plain file name")
+    algorithm, _, digest = _as_str(body["hash"], "hash").partition(":")
+    if algorithm != _SHA256_PREFIX or not digest:
+        raise ValueError(f"batch file {filename}: unsupported hash {algorithm!r}")
+    return BatchFile(
+        filename=filename,
+        size=as_count(body["size"], "file size"),
+        sha256=digest.lower(),
+        url=_as_str(_as_mapping(body["urls"], "urls")["https"], "https url"),
+    )
+
+
+def parse_batch_files(raw: object) -> tuple[BatchFile, ...]:
+    return tuple(_batch_file(item) for item in _as_list(raw, "batch files"))

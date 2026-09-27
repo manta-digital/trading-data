@@ -100,6 +100,7 @@ def test_dataset_range_parses_nanosecond_timestamps() -> None:
 
 
 def test_request_parameters_are_the_requests_own() -> None:
+    """Bounds are UTC-midnight datetimes: a bare-date end would be forward-filled."""
     provider, metadata, _ = _provider()
     assert provider.record_count(REQUEST) == FIGURES[TickSchema.TBBO][0]
     assert provider.billable_size(REQUEST) == FIGURES[TickSchema.TBBO][1]
@@ -111,8 +112,8 @@ def test_request_parameters_are_the_requests_own() -> None:
             "symbols": ["ES.c.0"],
             "schema": "tbbo",
             "stype_in": "continuous",
-            "start": REQUEST_START,
-            "end": REQUEST_END,
+            "start": datetime(2025, 1, 6, tzinfo=UTC),
+            "end": datetime(2025, 1, 11, tzinfo=UTC),
         }
 
 
