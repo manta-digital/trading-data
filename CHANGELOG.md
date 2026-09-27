@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-27
+
 ### Added
 - **You can price futures tick data before buying any.**
   `mt data tick estimate --symbols ES.FUT --stype parent --start 2026-03-27
