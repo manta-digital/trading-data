@@ -7,8 +7,8 @@ dependencies: [902]
 interfaces: [222, 223, 224, 226, 229, 230]
 effort: 3
 dateCreated: 20260925
-dateUpdated: 20260926
-status: not_started
+dateUpdated: 20260927
+status: in_progress
 ---
 
 # Slice Design: Databento Adapter and Cost Preflight (220)
@@ -38,6 +38,11 @@ The architecture marks several facts "verify at slice design". Each was checked 
 | Real sample files | `databento/dbn` `tests/data/test_data.{trades,tbbo,mbp-1}.v3.dbn.zst` are real `GLBX.MDP3` records: symbol `ESH1`, instrument id 5482, two records each from 2020-12-28, prices `3720250000000` (= 3720.25). `test_data.definition.v3.dbn.zst` is a real `definition` record but from `XNAS.ITCH` (MSFT) — valid for decode-shape tests, not a CME definition. v1/v2 variants exist for DBN-version compatibility. Apache-2.0. | local decode |
 | HTTP timeouts and partial files | Metadata, symbology, job-detail, submit, and stream requests all go through `BentoHttpAPI._get/_post/_stream` with `timeout=(100, 100)` — a fixed class attribute, not a public parameter. `_stream` checks the HTTP status before opening `path`, opens it with mode `x+b` (fails if it exists), and on a mid-stream error raises `BentoError("Error streaming response")` leaving the partial file. The batch download (`_download_batch_file`) issues `requests.get` with **no timeout**, resumes a partial file with a `Range` header, retries 5 times, and on a SHA-256 mismatch only **logs a warning** — the file is returned as good. | `databento/common/http.py`, `historical/api/batch.py` |
 | SDK footprint | `databento` 0.87.0 pulls `databento-dbn` 0.70.0, `numpy`, `pandas` (<4), `pyarrow` (a 48 MiB wheel), `zstandard`, `requests`, `aiohttp`. Installs cleanly on Python 3.12.9. The `Historical` client reads `DATABENTO_API_KEY` from the process environment when no key is passed — the adapter always passes the key explicitly. Errors: `BentoError` → `BentoHttpError(http_status)` → `BentoClientError` (4xx) / `BentoServerError` (5xx). | `pyproject.toml`, `client.py`, `common/error.py` |
+| Date-only bounds are forward-filled (found in implementation, 2026-09-27) | The SDK sends a `date` as `"YYYY-MM-DD"`. The SDK quickstart shows a job submitted with `end="2020-12-29"` stored as `end: 2020-12-30 00:00`: a bare date is forward-filled to the end of that day, which would make an exclusive end inclusive. The adapter therefore sends every time-range bound (metadata, `submit_job`, `get_range`) as a UTC-midnight `datetime` (`TickRequest.start_utc`/`end_utc`). `get_dataset_condition` and `symbology.resolve` take date parameters by definition and keep them. | SDK `common/parsing.py`; `notebooks/quickstart.ipynb` (v0.87.0) |
+| Array path decodes in the file's own DBN version (found in implementation) | `to_ndarray` picks its dtype from `DBNStore._schema_struct_map`, which is per DBN version (v1, v2, current); it does **not** upgrade. So a v2 file yields v2-layout arrays, and `DbnFile.record_size` comes from the same per-version struct map. `trades` and `mbp-1`/`tbbo` are 48 and 80 bytes in every version; `definition` is 360 (v1), 400 (v2), 520 (v3). | `databento/common/dbnstore.py`, `common/constants.py` |
+| Truncated file is a warning in the array path (found in implementation) | When a file's record bytes end mid-record, `NDArrayStreamIterator` drops the loose bytes and emits only a `BentoWarning`, so the last batch is silently short. Converting that warning to an error with `warnings.catch_warnings` is not thread-safe on 3.12. The reader relies on the file-name rule instead (a final name is a completed, and for batch files SHA-256-verified, download). 224 owns any further check, for example decoded count against the free `get_record_count`. | `databento/common/dbnstore.py` |
+| Sample `mbp-1` first price (found in implementation) | The `mbp-1` sample's first record has `price == 3720500000000` (3720.50). The `trades` and `tbbo` samples start at `3720250000000`. The Success Criteria bullet on sample decode is corrected accordingly. | local decode |
+| Batch job record shape | `submit_job`/`get_job_details` return `id`, `dataset`, `symbols` (a **comma-joined string**), `stype_in`, `stype_out`, `schema`, `start`, `end` (`YYYY-MM-DD HH:MM:SS+00:00`), `state`, `ts_received`, `ts_expiration`, `record_count`, `billed_size`, `actual_size`, `package_size`, `cost_usd` (the size and cost fields are `null` until processed). `list_files` returns `filename`, `size`, `hash` (`"sha256:<hex>"`), and `urls.https`. The adapter parses symbols from a string or a list. No recording exists, because recording one means buying data. | SDK quickstart notebook; `batch.py` |
 
 ## Value
 
@@ -274,7 +279,7 @@ tick_spend_ceiling_usd: Decimal | None = Field(default=None, gt=0)   # MT_TICK_S
 - With `MT_DATABENTO_API_KEY` unset it exits 1 and the message names the variable. With `end ≤ start` it exits 1. With `--end` past the dataset's available end it exits 1 and the message states the available end. A provider 5xx or connection failure exits 2.
 - `dataset_condition` for a request `[start, end)` passes the SDK `end_date = end − 1 day` and returns exactly one condition per requested day.
 - With `MT_TICK_SPEND_CEILING_USD` unset every stored tier's verdict is "no ceiling configured" and `mbp-1`'s is "not purchasable in this initiative" whatever the ceiling; with it set, each tier's verdict compares its bundle (tier + `definition`) correctly, including a case where the tier alone is within and the bundle is over; with it set to `0` or negative, `Settings()` raises a validation error naming the field.
-- `DbnFileReader().open_file` on each committed sample file reports `GLBX.MDP3`, the expected schema, `ESH1 → SymbolInterval(2020-12-28, 2020-12-29, 5482)`, and `iter_batches()` yields the two records at native itemsize 48 (trades) or 80 (tbbo, mbp-1) with the first record's `price == 3720250000000`. The v2 sample decodes identically. The definition sample decodes with `schema == TickSchema.DEFINITION` and itemsize 520. Every batch satisfies `records.nbytes ≤ TICK_DECODE_BATCH_BYTES` (tested with a patched small budget so a file spans several batches).
+- `DbnFileReader().open_file` on each committed sample file reports `GLBX.MDP3`, the expected schema, `ESH1 → SymbolInterval(2020-12-28, 2020-12-29, 5482)`, and `iter_batches()` yields the two records at native itemsize 48 (trades) or 80 (tbbo, mbp-1) with the first record's `price == 3720250000000` (trades, tbbo) or `3720500000000` (mbp-1). The v2 sample decodes identically. The definition sample decodes with `schema == TickSchema.DEFINITION` and itemsize 520. Every batch satisfies `records.nbytes ≤ TICK_DECODE_BATCH_BYTES` (tested with a patched small budget so a file spans several batches).
 - `build_estimate`, run end to end over a real `DatabentoTickProvider` built with an injected fake `Historical` whose `metadata`/`symbology` return the recorded fixtures and whose `timeseries` and `batch` attributes raise on access, completes — the executable backstop to the type-level separation. mypy rejects passing anything that is not an `ITickMetadataProvider`.
 - Each paid method (`submit_batch`, `fetch_range`), given a fake client that raises a timeout, a connection error, or a 5xx, raises `ProviderOutcomeUnknownError` and never `ProviderTransientError`; a 429 raises `ProviderTransientError`; any other 4xx raises `ProviderPermanentError`/`ProviderAuthError`. `fetch_range` leaves neither `dest` nor `<dest>.partial` after any failure, deletes a leftover `<dest>.partial` before streaming, and refuses an existing final `dest`.
 - `download_batch`, against a fake HTTP transport: a full transfer with a matching SHA-256 leaves only the final name; an interrupted transfer leaves `<name>.partial` and the next call resumes it with a `Range` header; a `.partial` already at full size is hashed and renamed with no request sent; a `.partial` larger than expected is deleted and restarted; a `200` answer to a ranged request restarts the file from byte 0; a `416` deletes the `.partial` and raises `ProviderTransientError`; a checksum mismatch deletes the `.partial` and raises `ProviderTransientError`; a stalled response raises `ProviderTransientError` after `TICK_DOWNLOAD_TIMEOUT_SECONDS`.
@@ -309,12 +314,13 @@ Prerequisite: the PM has created the Databento account, set its provider-side bu
    uv run mt data tick --help          # lists `estimate` only
    uv run mt data tick estimate --help # shows --symbols/--stype required, --end exclusive
    ```
+   *Verified 2026-09-27:* `tick --help` lists only `estimate`; `estimate --help` marks all four options `[required]`, says `--end` is EXCLUSIVE, and ends with the exit-code epilog. Note: plain `uv sync` removes the `dev` extra; step 2's `uv run --extra dev` reinstalls it.
 
 2. **Unit tests, no network.**
    ```sh
    uv run --extra dev pytest test/unit/data/tick test/unit/cli/commands/test_data_tick.py -q
    ```
-   Expected: all pass. Among them: the decode tests over the committed sample files, the settings tests (unset → `None`; `0` → validation error naming `tick_spend_ceiling_usd`), and the "no billable surface touched" test.
+   Expected: all pass. Among them: the decode tests over the committed sample files and the "no billable surface touched" tests (`test_estimate.py`, whose provider's `batch`/`timeseries` raise on access). The settings tests are in `test/unit/test_settings.py::TestTickSpendCeiling` (unset → `None`; `0` → validation error naming `tick_spend_ceiling_usd`); run them with `uv run --extra dev pytest test/unit/test_settings.py -q`. *Verified 2026-09-27:* `177 passed` before the Section 7 recordings.
 
 3. **Decode a real file by hand.**
    ```sh
@@ -322,19 +328,19 @@ Prerequisite: the PM has created the Databento account, set its provider-side bu
      f = DbnFileReader().open_file(Path('test/fixtures/databento/test_data.trades.v3.dbn.zst')); \
      print(f.dataset, f.schema, dict(f.mappings)); print([b.count for b in f.iter_batches()])"
    ```
-   Expected: `GLBX.MDP3 trades {'ESH1': (SymbolInterval(start_date=datetime.date(2020, 12, 28), end_date=datetime.date(2020, 12, 29), instrument_id=5482),)}` then `[2]`.
+   Expected: `GLBX.MDP3 trades {'ESH1': (SymbolInterval(start_date=datetime.date(2020, 12, 28), end_date=datetime.date(2020, 12, 29), instrument_id=5482),)}` then `[2]`. *Verified 2026-09-27:* exactly this output.
 
 4. **The interpreter-lock benchmark.**
    ```sh
    uv run python scripts/bench_dbn_decode.py --records 2000000 --threads 4
    ```
-   Expected: a table with wall time for the per-record path and the array path at 1 and 4 threads. The array path should show a multi-thread speedup; the per-record path should not. Whatever the numbers are, they go in the task file verbatim.
+   Expected: a table with wall time for the per-record path and the array path at 1 and 4 threads. The array path should show a multi-thread speedup; the per-record path should not. Whatever the numbers are, they go in the task file verbatim. *Verified 2026-09-27 on manta9000:* per-record 0.98x, array 3.18x at 4 threads (3.74x at `--records 20000000`); full output under the task file's *Recorded Results*.
 
 5. **Refusals.**
    ```sh
    env -u MT_DATABENTO_API_KEY uv run mt data tick estimate --symbols ES.c.0 --stype continuous --start 2025-01-06 --end 2025-01-11
    ```
-   Expected: exit 1; the message names `MT_DATABENTO_API_KEY`. Then, with the key present, request an end far in the future: exit 1; the message states the dataset's available end.
+   Expected: exit 1; the message names `MT_DATABENTO_API_KEY`. Then, with the key present, request an end far in the future: exit 1; the message states the dataset's available end. *First half verified 2026-09-27* (with no key in `.env` either): `Error: MT_DATABENTO_API_KEY is not set`, exit 1. The rest of step 5 and steps 6–8 wait for the PM's Databento key.
 
 6. **The preflight, live, free.**
    ```sh
