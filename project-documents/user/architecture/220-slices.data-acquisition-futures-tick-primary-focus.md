@@ -11,7 +11,7 @@ status: in_progress
 
 ## Parent Document
 
-220-arch.data-acquisition-futures-tick-primary-focus.md — Historical tick data for CME futures from Databento (ES first, then GC), trades and trades-with-BBO tiers. Purchased as files into an archive tracked by a manifest, then projected into a tick hypertable on its own database. The initiative includes a futures instrument model with read-time roll methods, and parity with the minute tier on every operator, API, and backup surface. It is proved on a bounded first purchase before the universe expands.
+220-arch.data-acquisition-futures-tick-primary-focus.md — Historical tick data for CME futures from Databento (ES first, then GC), trades and trades-with-BBO tiers. Purchased as files into an archive tracked by a manifest, then projected into a tick hypertable on its own database. The initiative includes a futures instrument model with read-time roll methods, and parity with the minute tier on every operator, API, and backup surface. It is proved on the ES files already bought with free credits before the universe expands.
 
 ## Foundation Work
 
@@ -27,10 +27,10 @@ status: in_progress
    This is the first slice to touch a governed surface, so it also writes the frame of the contract amendment: the tick invariants, the I7 exception with its reason, the vocabulary rules (manifest-based completeness, and where `granularity = 'tick'` may appear), and sequence-gap detection moved to the realtime initiative. The slice needs no purchase and no tick database. Dependencies: none within this plan. Risk: Medium. Effort: 3/5
 
 3. [ ] **(222) Tick Storage Track** — Creates the `tick` migration track on the tick database. Its tables are:
-   - The trades-tier hypertable, with trade fields always present and nullable BBO fields. Its chunk interval is set explicitly and conservatively from wall-clock span (journal 20260719). Physical grouping by instrument waits for the proof.
+   - The trades-tier hypertable, with trade fields always present and nullable BBO fields, plus each row's archive-unit integer id (not a string, not in the natural key). Its chunk interval is set explicitly and conservatively from wall-clock span (journal 20260719). Physical grouping by instrument waits for the proof.
    - Definitions (the futures instrument model, with identifier validity windows).
-   - The manifest of archive units: state machine, delivery-mode discriminator, tier, download deadline, and a link to the unit it repurchases.
-   - The ingest ledger: one row per instrument and session, holding records loaded, first and last event time, traded volume, and source unit.
+   - The manifest of archive units: state machine (rows written at *requested*), delivery-mode discriminator, tier, download deadline, estimated and actual cost, the minute tier's fetch-state vocabulary (`FetchStatus`: attempt count, `FAILED_RETRYABLE`, `RETRY_EXHAUSTED`, `PROVIDER_HOLE`), and links to the unit it repurchases or supersedes.
+   - The ingest ledger: one row per instrument, session, and unit, holding records loaded, first and last event time, and traded volume. Session totals are summed at read time over current (non-superseded) units.
 
    The slice renders its tier CHECK constraints from `STORED_TIERS`, a subset of the `TickSchema` enum that 220 defines (the preflight needs the vocabulary first), and adds tick roles per 913. It removes slice 105's leftovers: the `TickEventType` enum and its unit test, and `test_tick_schema_integration.py`, which turns red on the day `MT_TICK_DB_URL` is set. Storage follows the NautilusTrader-compatibility recommendation (940 analysis): event and receive timestamps at nanosecond precision, fixed-point prices kept exact, and contract identifiers that map cleanly to venue-suffixed IDs. No data is written; this slice only creates tables. Dependencies: [923 Multi-Database Migration and Credential Plumbing — hard gate, no fallback], [220]. Risk: Medium. Effort: 3/5
 
@@ -40,22 +40,22 @@ status: in_progress
    - Reconcile in-flight units first. Deliverable units download earliest deadline first. A unit whose deadline passes moves to *failed* with the reason *retention expired*, and its repurchase is a new unit that names the expired one.
    - Capture the availability edge from the provider's free dataset metadata.
    - Compute the wanted set (universe × range) minus the manifest, in calendar-day UTC units.
-   - Estimate, then apply both spend guards: the per-pass ceiling (`MT_TICK_SPEND_CEILING_USD`) and a rolling 30-day cap summed from the manifest's recorded costs. The pass refuses to purchase when the per-pass ceiling is absent.
+   - Estimate, then apply both spend guards: the per-pass ceiling (`MT_TICK_SPEND_CEILING_USD`) and the rolling 30-day cap (`MT_TICK_SPEND_30D_CEILING_USD`), summed from the manifest using actual cost where known and the estimate otherwise. The pass refuses to purchase when either is absent.
    - Submit batch jobs only (no direct-range purchases), poll within the pass's wait budget, download, and verify checksums and sizes.
 
-   It also adds **adoption of existing batch files**: given a job id and its local directory or zip, verify every file against the job's `manifest.json` (size and SHA-256), read the job's record (free), and write archive units at *downloaded* with the recorded cost. The two free-credit ES jobs are adopted this way, so 224 and 226 run on them with no spend.
+   It also adds **adoption of existing batch files**: given a job id and its local directory or zip, verify every file against the job's `manifest.json` (size and SHA-256), read the job's record (free), and write archive units at *downloaded* with the recorded cost. The two free-credit ES jobs are adopted this way. Their definitions are not in the files, so the proof buys them through this path (under $0.01).
+
+   It also adds **fetch-state tracking at minute parity**, run by hand: attempts, `FAILED_RETRYABLE` → `RETRY_EXHAUSTED` at a configured limit, `PROVIDER_HOLE` from missing days, and a manual reset for exhausted units. And it **enrols the archive directory in the backup set** (architecture, "Backup is part of done").
 
    Contract definitions are acquired through this same path as `definition`-schema units. They are billable, and the architecture allows no exempt requests. This moves definitions capture here from the architecture's storage-track sketch. The slice also adds:
    - A run-context preflight that refuses to run while tick migrations are pending.
-   - A minute-track migration adding `PassKind.TICK` and re-rendering the `pass_runs` CHECK constraint.
-   - The `PassKind.TICK` branch in `schedule_for`. Its cadence is an open PM decision (see Notes). Until it is decided, the branch declares the pass manual-only (no timer).
    - A configured tick universe (products or contracts, tier per instrument, wanted range).
 
-   The pass runs manually from the CLI. The spend-ceiling guard is tested with mocked cost responses and never against the live account. Dependencies: [222]. Risk: High. Effort: 4/5
+   The pass runs manually from the CLI. No schedule code is built: `PassKind.TICK`, its `schedule_for` branch, and any timer wait for the cadence decision (225). The spend-ceiling guard is tested with mocked cost responses and never against the live account. Dependencies: [222]. Risk: High. Effort: 4/5
 
 5. [ ] **(224) Ingest Pass and Proof Parity** — The ingest pass reads archive units that have not been ingested yet. It projects definition units first, then trade units. It decodes through the adapter's bounded iterator, resolves identifiers against stored definitions, and assigns each record a session through the 221 lookup. Each worker writes its own unit with `COPY` over a dedicated connection it owns. Only progress returns to the loop.
 
-   The ingest ledger gets a row for every configured instrument whose definition is valid in a session the unit's range covers, including zero-record rows. Three checks gate the commit of a unit's ledger rows and its *ingested* transition:
+   The ingest ledger gets a row per instrument, session, and unit for every configured instrument whose definition is valid in a session the unit's range touches, including zero-record rows. A unit that supersedes others deletes their rows for its range and loads its own in one transaction. The pass reads the CME calendar from the production database once per unit, so a production outage halts ingest (nothing is lost). Three checks gate the commit of a unit's ledger rows and its *ingested* transition:
    - *Counts:* the provider's record count equals the records decoded, which equals the rows in the raw table.
    - *Resolution:* every record resolves to a contract.
    - *Session boundaries:* no trade falls in the daily break, on a closed day, or outside the populated calendar range.
@@ -63,13 +63,14 @@ status: in_progress
    A unit that fails a check moves to *failed* with the check named.
 
    The slice also delivers proof parity on the tick CLI:
-   - status per product and contract: sessions complete, pending, in flight, missing, failed, and edge unknown.
+   - status per product and contract: sessions complete, pending, in flight, missing, failed, retry-exhausted, provider hole, and edge unknown. A session takes the worst provider condition of the days it touches.
    - coverage per session.
    - completeness under the architecture's definitions.
 
    These read only the manifest, the ledger, and raw counts, never an aggregate. Dependencies: [221, 223]. Risk: High. Effort: 4/5
 
-6. [ ] **(225) Tick Pass Production Wiring** — Deploys the passes in the 916 production form. It adds:
+6. [ ] **(225) Tick Pass Production Wiring** — **Deferred until the cadence decision** (PM direction 2026-09-27: no schedule code yet), which depends on the realtime initiative. When it is built, it deploys the passes in the 916 production form and adds:
+   - The minute-track migration adding `PassKind.TICK` and re-rendering the `pass_runs` CHECK constraint, and the `PassKind.TICK` branch in `schedule_for`.
    - The pass unit under `manta-acquisition.slice`, and a timer only if the cadence decision calls for one.
    - `mt-run tick`, `mt-run follow tick`, and the `mt-run status` row.
    - The install-script entry.
@@ -77,9 +78,9 @@ status: in_progress
    - The tick archive directory on the host.
    - The runbook's add-a-source entries.
 
-   It also adds the second connection pool from `MT_TICK_DB_URL` to the health check, as the first composing surface. The check gains a retention-deadline finding for any in-flight unit whose deadline falls before the next scheduled firing, or, with a manual-only pass, within a fixed number of days. When the setting is absent, health fails at startup. When the tick database is unreachable, health reports "unreachable" rather than omitting the line. The minute, daily, and Kalshi passes never read the tick setting. Cutover is a script per the PM-host-step convention. Dependencies: [224]. Risk: Medium. Effort: 3/5
+   It also adds the second connection pool from `MT_TICK_DB_URL` to the health check, as the first composing surface. The check gains a retention-deadline finding for any in-flight unit whose deadline falls before the next scheduled firing, or, with a manual-only pass, within a fixed number of days. When the setting is absent, health prints a loud "not configured" line and continues, so minute, daily, and Kalshi monitoring are never silenced. When the tick database is unreachable, health reports "unreachable" rather than omitting the line. The minute, daily, and Kalshi passes never read the tick setting. Cutover is a script per the PM-host-step convention. Dependencies: [224]. Risk: Medium. Effort: 3/5
 
-7. [ ] **(226) Proof on Existing Data** — The proof runs first on the two adopted free-credit ES jobs: `trades` 2024-08-30 → 09-29 (10.0 M records) and `tbbo` 2024-11-01 → 12-31 (17.6 M records). Both ranges contain a quarterly roll, the September and December 2024 ES rolls. No purchase is needed. The first data under the Standard plan follows the go/no-go, through the production pass. It measures:
+7. [ ] **(226) Proof on Existing Data** — The proof runs first on the two adopted free-credit ES jobs: `trades` 2024-08-30 → 09-29 (10.0 M records) and `tbbo` 2024-11-01 → 12-31 (17.6 M records). Both ranges contain a quarterly roll, the September and December 2024 ES rolls. No purchase is needed. The first data under the Standard plan follows the go/no-go, through the manual pass. It measures:
    - bytes per record by tier, and compressed bytes per row;
    - ingest rate, against the throughput pass/fail restated for on-demand acquisition: a day of sessions far faster than a day of market time, and a month within an operator's working session;
    - typical batch-job duration and poll interval;
@@ -88,9 +89,9 @@ status: in_progress
    - the decoded-batch memory budget, which sets the batch-size constant;
    - contention: the tick ingest running concurrently with the minute pass (the minute pass's duration, host I/O, memory, and write throughput against the solo baseline).
 
-   Mapping-record completeness is a pass/fail criterion. Either every tick is attributable to its contract, or the raw-symbol fallback is adopted. The ingest checks pass on every unit. The chunk interval is validated. The physical-grouping decision (space partitioning and compression layout) is made from the numbers and applied by a tick-track migration. If the schema is invalidated, the remedy is a rebuild from the archive. The output is a written go/no-go on tier and on GC, and on subscribing to the Standard plan. Dependencies: [225]. Risk: High. Effort: 4/5
+   Mapping-record completeness is a pass/fail criterion. Either every tick is attributable to its contract, or the raw-symbol fallback is adopted. The ingest checks pass on every unit. The chunk interval is validated. The physical-grouping decision (space partitioning and compression layout) is made from the numbers and applied by a tick-track migration. If the schema is invalidated, the remedy is a rebuild from the archive. The output is a written go/no-go on tier and on GC, and on subscribing to the Standard plan. Passes run by hand. Dependencies: [224] (not 225, which is deferred). Risk: High. Effort: 4/5
 
-8. [ ] **(227) Backup Coverage for Tick Archive and Database** — Adds the archive to the 915/920 backup set as data. The database policy (full base backup, WAL-only, or rebuild from the archive on restore) is chosen from the proof's measured rebuild cost. The 913 role set and the backup tooling are extended to the tick instance, not copied by hand. The restore drill covers both the archive and the database. Retention, exclusions, and placement are recorded in the backup runbook. Dependencies: [226]. Risk: Medium. Effort: 3/5
+8. [ ] **(227) Backup Coverage for Tick Archive and Database** — The archive is already in the backup set, from 223. This slice chooses the database policy (full base backup, WAL-only, or rebuild from the archive on restore) is chosen from the proof's measured rebuild cost. The 913 role set and the backup tooling are extended to the tick instance, not copied by hand. The restore drill covers both the archive and the database. Retention, exclusions, and placement are recorded in the backup runbook. Dependencies: [226]. Risk: Medium. Effort: 3/5
 
 9. [ ] **(228) Active Contract and Roll Methods** — Adds the roll-method vocabulary: calendar with an optional days-before-expiry offset, and volume. **Open interest must be evaluated here** (PM direction 2026-09-27). The Standard plan includes the `statistics` schema, open interest among it, so the rule is no longer blocked on a purchase. The design decides whether it ships in this slice, and if so, `statistics` units come in through the 223 path. The project default is defined once.
 
@@ -98,7 +99,7 @@ status: in_progress
 
    The vocabulary matches Databento's continuous-symbol conventions. A test resolves the same contract both ways, over a roll in the purchased range. Dependencies: [226]. Risk: Medium. Effort: 3/5
 
-10. [ ] **(229) Operator Surface Full Parity** — Covers the verbs the proof did not need:
+10. [ ] **(229) Operator Surface Full Parity** — Applies 220's `mt data tick` subgroup decision. Covers the verbs the proof did not need:
     - `get` for ticks and for tick-derived bars, by contract or by product plus roll method;
     - accounting lines;
     - debug reads of the manifest and definitions;
@@ -106,7 +107,7 @@ status: in_progress
 
     Every composed surface reports "unreachable" rather than omitting the line. The slice also writes the runbook's operator procedures and adds contract mapping rows for these surfaces. The same questions get answers with the same defaults as the minute tier. Dependencies: [228]. Risk: Low. Effort: 3/5
 
-11. [ ] **(230) API Surface Coverage — Futures Tick** — Applies the namespace decision (see Notes). The endpoints serve:
+11. [ ] **(230) API Surface Coverage — Futures Tick** — Applies 220's `/api/v1/futures/*` namespace decision. The endpoints serve:
     - ticks and tick-derived bars by contract or by product plus roll method;
     - the contract catalog, with definitions, expirations, and the active contract per rule;
     - tick coverage and freshness in `/api/v1/status` and `/api/v1/overview`.
@@ -128,9 +129,11 @@ status: in_progress
   - **Subscription timing:** ideally not until realtime work begins. Realtime remains its own initiative.
   - **Purchases are batch jobs only.**
   - **Spend guards:** a rolling 30-day cap joins the per-pass ceiling, and the provider-side limit is set.
-  - **Cadence is open for discussion before 223's design;** no daily history pull is assumed. The availability lag is measured at 8 hours, not 24.
+  - **Cadence is deferred, with no schedule code until realtime work makes it decidable;** every tick pass runs by hand. The availability lag is measured at 8 hours, not 24.
+  - **Fetch states at minute parity** (`FetchStatus`), run by hand.
+  - **Precedence:** historical data replaces live data for the same period by default. Each tick row carries its unit's integer id, and the ledger is per unit.
 
-- **923 is the one external gate.** 220 and 221 need no tick database and proceed in parallel with 923. 222 onward waits for it. Scheduling 923 is the PM's decision.
+- **923 is the one external gate.** 220 and 221 need no tick database and proceed in parallel with 923. 222 onward waits for it. Scheduling 923 is the PM's decision. While it waits, 220's and 221's outputs do not decay. The exceptions are the pinned SDK and the recorded fixtures: re-record them and re-run the preflight when 222 starts if the SDK has moved.
 - **Differences from the architecture's Anticipated Slices** (which the architecture labels exploratory):
   - The first sketched slice (adapter + session model + contract frame) is split into 220 and 221. The two are independent and share no code.
   - Contract-definitions capture moves from the storage track (222) to the acquisition pass (223). Definitions are billable, and the architecture's cost principle allows no request outside the estimate → guard → manifest path. That path is built in 223. The sequencing rule still holds: 222 creates the table and 223 writes it.
@@ -141,8 +144,8 @@ status: in_progress
   - The decode batch bound is a byte budget (`TICK_DECODE_BATCH_BYTES`) with the record count derived per schema, not "a record count, one named constant" — a count cannot bound memory across 48-byte trades and 520-byte definitions.
   - Delivered historical files carry no symbol-mapping records. The mappings live in the DBN file's metadata header (`mappings`, `partial`, `not_found`); in-stream mapping records are a live-API feature only. 224 and 226 read the header.
 - **No billable request before 223.** 220's preflight uses only free metadata endpoints, and its test fixtures must be free real DBN files. The first real purchase happens only after the PM sets `MT_TICK_SPEND_CEILING_USD`.
-- **The CLI and API surface decision is made once, at 220 design.** 220 ships the first tick CLI verb, and the architecture requires the CLI (subgroup or granularity switches) and the API (`/api/v1/futures/*` or tick as a granularity on bars) to make one decision together.
-- **Standing obligations on every 220 slice:** diff the tick pass contract against the Kalshi original, as a named task in the slice's task file (from 223 on). Add the slice's rows to the data-correctness contract's slice-mapping table. Answer "does this belong in the API?" for any new surface.
+- **The CLI and API surface decision was made at 220 design:** an `mt data tick` subgroup and a `/api/v1/futures/*` namespace. 229 and 230 apply it.
+- **Standing obligations on every 220 slice:** diff the tick pass contract against the Kalshi original, as a named task in the slice's task file (from 223 on). 223 also adds a unit test comparing the tick copy's fields with the Kalshi original's, so divergence fails a test rather than waiting for a checklist (review F015). Include a "realtime paths" check naming any decision that rules out path A (assemble from realtime) or path B (historical with delay). Add the slice's rows to the data-correctness contract's slice-mapping table. Answer "does this belong in the API?" for any new surface.
 - **Proof range suggestion (PM decision):** choose the 226 ES range to cover a quarterly roll. 228 and 231 can then verify roll resolution on data already bought, with no wait for a future expiry.
 - **Architecture verification items resolved at slice design:** batch retention window and size limits, embargo, record-count query, mapping-record behaviour, and decoder lock release (220). CME schedule reach-back and per-product hours (221). Everything else the architecture marks as measured is measured in 226.
 - **Unchanged decisions carried from the architecture:** `pass_runs` and the CME calendar live on the production database's minute track, and they are the only exceptions to tick isolation. Completeness is never read from an aggregate. No stored continuous or back-adjusted series. Pass form only; streaming belongs to the realtime initiative.
