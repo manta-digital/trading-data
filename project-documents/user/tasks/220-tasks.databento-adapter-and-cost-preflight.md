@@ -15,7 +15,7 @@ projectState: >
   exist yet; Sections 1–6 need no key, Section 7 does.
 dateCreated: 20260927
 dateUpdated: 20260927
-status: in_progress
+status: complete
 ---
 
 ## Context Summary
@@ -445,17 +445,17 @@ Requirements* (docs), *Verification Walkthrough*.
         loud-failure row (I9) cites the preflight's refusals (missing key,
         end past the edge, unknown-outcome paid calls).
   - [x] Commit: `docs: add tick CLI, env table, and contract rows for 220`.
-- [ ] **Task 7.7: Live verification walkthrough** (effort: 2)
+- [x] **Task 7.7: Live verification walkthrough** (effort: 2)
   - [x] Run *Verification Walkthrough* steps 1–7 from the slice design.
         Paste step 6's table and step 7's JSON verdicts under *Recorded
         Results*.
   - [x] Check: `trades` and `tbbo` record counts equal, sizes differ;
         `mbp-1` record count much larger; verdicts split correctly at the
         step 7 ceiling.
-  - [ ] Step 8: open the Databento portal usage page and confirm no batch
+  - [x] Step 8: open the Databento portal usage page and confirm no batch
         jobs and no charges today; record the observation.
-  - [ ] Success: all seven steps pass and step 8 shows zero spend.
-- [ ] **Task 7.8: Final validation** (effort: 1)
+  - [x] Success: all seven steps pass and step 8 shows zero spend.
+- [x] **Task 7.8: Final validation** (effort: 1)
   - [x] Full unit tier passes; ruff and mypy clean on all touched files;
         every source file ≤ ~300 lines.
   - [x] Review the *Success Criteria* list in the slice design item by item
@@ -537,4 +537,5 @@ Filled in by Tasks 6.2, 7.4, and 7.7.
   dataset's available end 2026-09-27T12:41:28.771893+00:00`.
 - **Portal usage check (Task 7.7, step 8):** API side confirmed:
   `batch.list_jobs(since=2026-09-27T00:00Z)` returns 0 jobs. The charges side
-  needs the PM to look at the Databento portal's usage page. **Pending.**
+  needs the PM to look at the Databento portal's usage page. **Confirmed by
+  the PM 2026-09-27: zero usage.** Nothing was bought.

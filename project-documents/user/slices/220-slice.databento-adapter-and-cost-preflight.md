@@ -8,7 +8,7 @@ interfaces: [222, 223, 224, 226, 229, 230]
 effort: 3
 dateCreated: 20260925
 dateUpdated: 20260927
-status: in_progress
+status: complete
 ---
 
 # Slice Design: Databento Adapter and Cost Preflight (220)
@@ -354,7 +354,7 @@ Prerequisite: the PM has created the Databento account, set its provider-side bu
    ```
    Expected: the JSON tier rows' `ceiling_verdict` is `within` for the cheaper bundles and `over` for the rest, judged on `bundle_cost_usd`; `ceiling_usd` echoes the value. *Verified 2026-09-27 with `4.00`:* trades bundle `3.141416970641` → `within`, tbbo bundle `5.235692206770` → `over`, `ceiling_usd` `"4.00"`.
 
-8. **Prove nothing was bought.** Open the Databento portal's usage/billing page. Expected: no batch jobs listed and no charges for today. The job half can also be checked by API: `batch.list_jobs(since=<today 00:00 UTC>)` returned 0 jobs on 2026-09-27. The charges half is a PM portal check (pending).
+8. **Prove nothing was bought.** Open the Databento portal's usage/billing page. Expected: no batch jobs listed and no charges for today. The job half can also be checked by API: `batch.list_jobs(since=<today 00:00 UTC>)` returned 0 jobs on 2026-09-27. The charges half is a PM portal check: *confirmed by the PM 2026-09-27, zero usage.*
 
 ## Risk Assessment
 
