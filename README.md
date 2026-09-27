@@ -37,7 +37,7 @@ Top-level CLI map:
 
 | Command | Purpose |
 |---|---|
-| `mt data …` | Everything acquisition/storage side: init, migrate, daemon, pull, get, status, health, ca, lists, universes, caggs, restore, rechunk, extend, kalshi |
+| `mt data …` | Everything acquisition/storage side: init, migrate, daemon, pull, get, status, health, ca, lists, universes, caggs, restore, rechunk, extend, kalshi, tick |
 | `mt serve` | Read-only data serving API |
 | `mt status` | System overview: config summary (redacted DB URL) + connectivity check |
 | `mt config` | Inspect resolved configuration: `list`, `get`, `set`, `path` |
@@ -146,6 +146,17 @@ the public rate tier and the default collection rule applies.
 > `MT_KALSHI_CANDLE_*`. Every `mt` command now fails at startup while any old
 > name is still set (env or `.env`), naming the replacement — there is no
 > silent aliasing.
+
+### Tick / Databento
+
+See [Futures tick data](#futures-tick-data). Both are optional until tick
+data is acquired; the preflight needs only the key.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MT_DATABENTO_API_KEY` | — | Databento API key. `mt data tick estimate` exits `1` naming this variable when it is unset. The SDK's own `DATABENTO_API_KEY` is never read. |
+| `MT_TICK_SPEND_CEILING_USD` | unset | Spend ceiling in USD, `> 0` when set (`0` or negative fails every `mt` command at startup). Unset means *no ceiling configured*, which the acquisition pass (slice 223) treats as "refuse to purchase". The preflight judges each stored tier's bundle (tier + `definition`) against it. |
+| `MT_TICK_DB_URL` | — | Tick database URL. Present in `Settings`; nothing reads it until slice 222. |
 
 ### Serving API
 
@@ -550,6 +561,34 @@ rate tier) or **authenticated** (`MT_KALSHI_API_KEY_ID` +
 neither. `MT_KALSHI_REQUESTS_PER_MINUTE` overrides either budget.
 
 ---
+
+## Futures tick data
+
+CME futures tick data from [Databento](https://databento.com) (initiative
+220). So far there is one command, a cost-and-size preflight. It calls only
+Databento's free metadata endpoints and buys nothing. The tick database, the
+acquisition pass, and ingest arrive in later slices.
+
+```sh
+# Records, billable size, and cost for each schema tier (trades, tbbo, mbp-1)
+# plus the definition schema bought with each tier, for one instrument set
+# and date range. --symbols and --stype are required. --end is EXCLUSIVE:
+# this asks for 2025-01-06 through 2025-01-10.
+mt data tick estimate --symbols ES.c.0 --stype continuous \
+    --start 2025-01-06 --end 2025-01-11
+mt data tick estimate --symbols ES.c.0 --stype continuous \
+    --start 2025-01-06 --end 2025-01-11 --json
+```
+
+Each stored tier (`trades`, `tbbo`) shows its **bundle** cost (tier +
+`definition`) and a verdict against `MT_TICK_SPEND_CEILING_USD`: `within`,
+`over`, or `no ceiling configured`. `mbp-1` is priced for comparison only and
+is `not purchasable in this initiative`.
+
+Exit codes: `0` OK; `1` preflight (missing key, `--end` not after `--start`,
+`--end` past the dataset's available end, which the message names); `2`
+provider error. Click's own usage errors (a missing required option, an
+`--stype` outside the choices) also exit `2`.
 
 ## Data Serving API
 

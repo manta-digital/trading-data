@@ -2,7 +2,7 @@
 docType: reference
 project: trading
 dateCreated: 20260429
-dateUpdated: 20260430
+dateUpdated: 20260927
 status: draft
 ---
 
@@ -325,8 +325,8 @@ include verifying the invariant holds.
 | I6 — Calendar-correct verification | 147 | `mt data audit` | Designed. Trading-calendar-aware; non-trading days SKIP. Issue #9 resolved by this slice. |
 | I7 — Cross-vendor audit | Future work (Yahoo extension to 147) | `mt data audit --vendor X` | Deferred. Single-provider audit ships in 147; second-vendor extension is future work. |
 | I8 — Debug primacy | 145 (`mt data status` is the primary debug surface) | `mt data status` | Designed. Status command surfaces all per-symbol state; ad-hoc SQL not required for normal operation. |
-| I9 — Loud failure | Cross-cutting; every slice has a loud-failure obligation | n/a (review) | Ongoing discipline; not a single-slice deliverable. |
-| I10 — Tooling consistency | All daily/minute/tick slices must follow shape | review against this document | Ongoing discipline. Initiative 200 (tick) inherits slice 141-147 shape. |
+| I9 — Loud failure | Cross-cutting; every slice has a loud-failure obligation | n/a (review) | Ongoing discipline; not a single-slice deliverable. 220: the tick preflight (`mt data tick estimate`) refuses loudly: exit 1 naming `MT_DATABENTO_API_KEY` when it is unset, and exit 1 naming the dataset's available end when `--end` is past it. A paid Databento call whose outcome is unknown (timeout, disconnect, 5xx, mid-stream error) raises `ProviderOutcomeUnknownError`, never a retryable transient, and a batch file reaches its final name only after its SHA-256 matches. |
+| I10 — Tooling consistency | All daily/minute/tick slices must follow shape | review against this document | Ongoing discipline. Initiative 200 (tick) inherits slice 141-147 shape. 220 fixes the tick shape: `mt data tick` subgroup, verb vocabulary as I10 (`status`, `coverage`, `pass`, `ingest`, `backfill`, `debug`, plus `estimate` and `get`); API namespace `/api/v1/futures/*`. |
 
 ## Notes
 
