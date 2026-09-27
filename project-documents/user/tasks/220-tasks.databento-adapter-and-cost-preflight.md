@@ -491,8 +491,50 @@ Filled in by Tasks 6.2, 7.4, and 7.7.
   Decision 6 holds. Caveat (TD 12): decode only, repeated records, no `COPY`
   — an upper bound that can fail the ingest target, never pass it; 226
   decides.
-- **Batch retention window (Task 7.4):** not yet recorded.
-- **Per-mode size limits (Task 7.4):** not yet recorded.
-- **Live estimate, ES.c.0 2025-01-06 → 2025-01-11 (Task 7.7):** not yet run.
-- **Ceiling verdicts (Task 7.7):** not yet run.
-- **Portal usage check (Task 7.7):** not yet run.
+- **Batch retention window (Task 7.4):** **30 days after the job finishes
+  processing.** Measured 2026-09-27 from the account with free calls
+  (`batch.list_jobs` + `get_job_details`): on all 7 of the account's jobs
+  (2024-07 to 2025-01, GLBX.MDP3 and XNAS.ITCH), `ts_expiration −
+  ts_process_done` is exactly 30 days (for example `GLBX-20250123-XT4GD5UM6C`:
+  done 2025-01-23T05:18:12.939863Z, expires 2025-02-22T05:18:12.939863Z). All
+  7 are now `expired`. Consumer: **223's retention check.** The window must
+  cover several consecutive missed firings at 223's cadence. At one firing a
+  day, 30 days covers about 29 missed firings. 223 still reads each unit's own
+  `ts_expiration` and never this constant.
+- **Per-mode size limits (Task 7.4):** **not published** in any source
+  readable here. Looked in: the SDK v0.87.0 source (`batch.py`,
+  `timeseries.py`, `common/http.py`: no size check or documented cap), the
+  SDK changelog and quickstart notebook, and Databento's blog ("streaming for
+  small on-demand work; batch for larger requests, typically over 5 GB" is
+  guidance, not a limit). The account API exposes no limit, and the docs site
+  is client-rendered and unreadable by this tooling. Consumer: **223's
+  batch-versus-direct delivery choice**. Until a limit is found, 223 should
+  prefer batch jobs (re-downloadable free for 30 days; a repeated stream is
+  billed again). Open item for the PM: check the portal or docs for a
+  published per-request limit.
+- **Live estimate, ES.c.0 2025-01-06 → 2025-01-11 (Task 7.7, step 6):** run
+  2026-09-27, 5 available days, ceiling unset:
+
+  ```
+  Schema     Records     Billable bytes  Size       Cost (USD)  Bundle   Verdict
+  trades     2,509,722   120,466,656     114.9 MiB  $3.14       $3.14    no ceiling configured (MT_TICK_SPEND_CEILING_USD unset)
+  tbbo       2,509,722   200,777,760     191.5 MiB  $5.24       $5.24    no ceiling configured (MT_TICK_SPEND_CEILING_USD unset)
+  mbp-1      33,907,169  2,712,573,520   2.5 GiB    $4.55       —        not purchasable in this initiative
+  definition 5           2,600           2.5 KiB    <$0.01      —        bought with each tier
+  ```
+
+  Checks: `trades` and `tbbo` have equal record counts (2,509,722) and
+  different sizes; `mbp-1` has 13.5× the records. Note for the tier decision:
+  `mbp-1` prices **below** `tbbo` for this range ($4.55 vs $5.24) despite
+  13.5× the bytes. For scale: `ES.FUT` (parent), 2026-03-27 → 2026-09-27, is
+  `tbbo` $127.48 (bundle), `trades` $76.49, `mbp-1` $160.87 (89.4 GiB); 181
+  available and 3 degraded days.
+- **Ceiling verdicts (Task 7.7, step 7):** `MT_TICK_SPEND_CEILING_USD=4.00`,
+  `--json`: `ceiling_usd "4.00"`; trades bundle `3.141416970641` →
+  `within`; tbbo bundle `5.235692206770` → `over`; mbp-1 `not purchasable in
+  this initiative`; definition `bought with each tier`. Step 5 (end
+  2030-01-01): exit 1, `requested end 2030-01-01 (exclusive) is past the
+  dataset's available end 2026-09-27T12:41:28.771893+00:00`.
+- **Portal usage check (Task 7.7, step 8):** API side confirmed:
+  `batch.list_jobs(since=2026-09-27T00:00Z)` returns 0 jobs. The charges side
+  needs the PM to look at the Databento portal's usage page. **Pending.**

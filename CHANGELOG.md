@@ -16,6 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **You can price futures tick data before buying any.**
+  `mt data tick estimate --symbols ES.FUT --stype parent --start 2026-03-27
+  --end 2026-09-27` reports records, billable size, and cost for each
+  Databento tier (`trades`, `tbbo`, `mbp-1`) and the `definition` schema for
+  the same instruments and range. It also shows the dataset's available range
+  and each day's data condition. It calls only Databento's free metadata
+  endpoints and cannot make a billable request. `--end` is exclusive, and
+  `--json` carries exact decimal costs.
+- **A spend ceiling for tick purchases, `MT_TICK_SPEND_CEILING_USD`.** The
+  preflight judges each stored tier's bundle (tier + definitions) against it:
+  `within`, `over`, or `no ceiling configured`. `0` or a negative value fails
+  at startup. Unset means the future acquisition pass will refuse to buy.
+- **`MT_DATABENTO_API_KEY` is now used.** Without it the preflight exits `1`
+  and names the variable. The SDK's own `DATABENTO_API_KEY` is never read.
+- The `databento` SDK (0.87.0) and a DBN file reader that decodes Databento
+  archive files in memory-bounded batches, groundwork for storing and
+  ingesting tick data in the next slices.
+
 ## [0.17.0] - 2026-09-18
 
 ### Added
