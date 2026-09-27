@@ -1,83 +1,104 @@
-"""Metadata responses for the tick tests — the one place their shapes live.
+"""Recorded Databento metadata responses for the tick tests (slice 220, TD 11).
 
-These are built from the SDK's documented return types (``get_dataset_range``
-→ ``{start, end}``; ``get_dataset_condition`` → a list of ``{date, condition,
-last_modified_date}``; ``symbology.resolve`` → ``{result: {sym: [{d0, d1, s}]},
-partial, not_found}``; counts and sizes are ints; cost is a float). Task 7.3
-replaces them with a loader over the recorded fixtures.
+Loads ``test/fixtures/databento/metadata/*.json``, written by
+``scripts/record_databento_fixtures.py`` from the live free endpoints on
+2026-09-27: ``ES.c.0`` (``continuous``), ``GLBX.MDP3``, ``[2025-01-06,
+2025-01-11)``, every schema in ``ESTIMATE_SCHEMAS``. Every metadata answer a
+test sees comes from these files; a test that needs another day range or
+another condition derives it from a recorded entry (``condition_entries``).
 """
 
 from __future__ import annotations
 
+import copy
+import json
 from datetime import date, timedelta
+from decimal import Decimal
+from functools import cache
+from pathlib import Path
 from typing import Any
 
 from tick_support.fake_historical import FakeApi
 
-from manta_trading.data.tick.constants import TickSchema
+from manta_trading.data.tick.constants import ESTIMATE_SCHEMAS, TickSchema
 
-REQUEST_START = date(2025, 1, 6)
-REQUEST_END = date(2025, 1, 11)
-DATASET_END = "2025-09-26T00:00:00.000000000Z"
+FIXTURE_DIR = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "databento" / "metadata"
+)
 
-#: Per schema: record count, billable bytes, cost in USD.
-FIGURES: dict[TickSchema, tuple[int, int, float]] = {
-    TickSchema.TRADES: (2_000_000, 96_000_000, 1.25),
-    TickSchema.TBBO: (2_000_000, 160_000_000, 2.5),
-    TickSchema.MBP_1: (60_000_000, 4_800_000_000, 40.0),
-    TickSchema.DEFINITION: (50, 26_000, 0.75),
+
+@cache
+def _load(name: str) -> dict[str, Any]:
+    return json.loads((FIXTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def recorded(method: str, schema: TickSchema | None = None) -> Any:
+    """A deep copy of the recorded response, safe for a test to mutate."""
+    name = f"{method}.{schema.value}" if schema else method
+    return copy.deepcopy(_load(name)["response"])
+
+
+_CONDITIONS_REQUEST = _load("get_dataset_condition")["request"]
+REQUEST_START = date.fromisoformat(_CONDITIONS_REQUEST["start_date"])
+#: Exclusive; the recorded call sent the inclusive ``end_date`` one day earlier.
+REQUEST_END = date.fromisoformat(_CONDITIONS_REQUEST["end_date"]) + timedelta(days=1)
+DATASET_END: str = recorded("get_dataset_range")["end"]
+
+#: Per schema, as the adapter returns them: records, billable bytes, USD.
+FIGURES: dict[TickSchema, tuple[int, int, Decimal]] = {
+    schema: (
+        recorded("get_record_count", schema),
+        recorded("get_billable_size", schema),
+        Decimal(str(recorded("get_cost", schema))),
+    )
+    for schema in ESTIMATE_SCHEMAS
 }
 
 
-def _by_schema(index: int) -> Any:
-    return lambda kwargs: FIGURES[TickSchema(kwargs["schema"])][index]
+def bundle(schema: TickSchema) -> Decimal:
+    """A stored tier's cost plus the ``definition`` cost, from the recordings."""
+    return FIGURES[schema][2] + FIGURES[TickSchema.DEFINITION][2]
 
 
-def _conditions(kwargs: dict[str, Any]) -> list[dict[str, str | None]]:
-    """One ``available`` entry per day of the inclusive range asked for."""
-    start, end = kwargs["start_date"], kwargs["end_date"]
-    days = [start + timedelta(days=n) for n in range((end - start).days + 1)]
+def condition_entries(start: date, end_inclusive: date) -> list[dict[str, Any]]:
+    """The recorded condition entries re-dated to cover ``[start, end_inclusive]``.
+
+    Shape and values are the recorded ones; only ``date`` changes.
+    """
+    template = recorded("get_dataset_condition")[0]
+    days = (end_inclusive - start).days + 1
     return [
-        {
-            "date": day.isoformat(),
-            "condition": "available",
-            "last_modified_date": (day + timedelta(days=1)).isoformat(),
-        }
-        for day in days
+        {**template, "date": (start + timedelta(days=n)).isoformat()}
+        for n in range(days)
     ]
+
+
+def _conditions(kwargs: dict[str, Any]) -> list[dict[str, Any]]:
+    """The recording itself for the recorded range; re-dated entries otherwise."""
+    start, end_inclusive = kwargs["start_date"], kwargs["end_date"]
+    if (start.isoformat(), end_inclusive.isoformat()) == (
+        _CONDITIONS_REQUEST["start_date"],
+        _CONDITIONS_REQUEST["end_date"],
+    ):
+        return recorded("get_dataset_condition")
+    return condition_entries(start, end_inclusive)
+
+
+def _by_schema(method: str) -> Any:
+    return lambda kwargs: recorded(method, TickSchema(kwargs["schema"]))
 
 
 def metadata_api() -> FakeApi:
     return FakeApi(
         {
-            "get_dataset_range": {
-                "start": "2010-06-06T00:00:00.000000000Z",
-                "end": DATASET_END,
-            },
+            "get_dataset_range": lambda _: recorded("get_dataset_range"),
             "get_dataset_condition": _conditions,
-            "get_record_count": _by_schema(0),
-            "get_billable_size": _by_schema(1),
-            "get_cost": _by_schema(2),
+            "get_record_count": _by_schema("get_record_count"),
+            "get_billable_size": _by_schema("get_billable_size"),
+            "get_cost": _by_schema("get_cost"),
         }
     )
 
 
 def symbology_api() -> FakeApi:
-    return FakeApi(
-        {
-            "resolve": {
-                "result": {
-                    "ES.c.0": [{"d0": "2025-01-06", "d1": "2025-01-11", "s": "5002"}]
-                },
-                "symbols": ["ES.c.0"],
-                "stype_in": "continuous",
-                "stype_out": "instrument_id",
-                "start_date": "2025-01-06",
-                "end_date": "2025-01-11",
-                "partial": [],
-                "not_found": [],
-                "message": "OK",
-                "status": 0,
-            }
-        }
-    )
+    return FakeApi({"resolve": lambda _: recorded("resolve")})

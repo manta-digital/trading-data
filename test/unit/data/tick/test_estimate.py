@@ -15,9 +15,12 @@ import httpx
 import pytest
 from tick_support.fake_historical import FakeApi, FakeHistorical
 from tick_support.metadata_responses import (
+    FIGURES,
     REQUEST_END,
     REQUEST_START,
+    bundle,
     metadata_api,
+    recorded,
     symbology_api,
 )
 
@@ -44,9 +47,10 @@ REQUEST = TickRequest(
     start=REQUEST_START,
     end=REQUEST_END,
 )
-# From metadata_responses.FIGURES: trades 1.25, tbbo 2.5, mbp-1 40, definition 0.75.
-TRADES_BUNDLE = Decimal("2.00")
-TBBO_BUNDLE = Decimal("3.25")
+TRADES_BUNDLE = bundle(TickSchema.TRADES)
+TBBO_BUNDLE = bundle(TickSchema.TBBO)
+#: Between the two bundles: trades within, tbbo over.
+BETWEEN = (TRADES_BUNDLE + TBBO_BUNDLE) / 2
 
 
 def _provider(metadata: FakeApi | None = None) -> DatabentoTickProvider:
@@ -67,8 +71,8 @@ def test_rows_follow_estimate_schemas_with_figures() -> None:
     report = build_estimate(_provider(), REQUEST, None)
     assert [row.schema for row in report.rows] == list(ESTIMATE_SCHEMAS)
     trades = report.rows[0]
-    assert (trades.record_count, trades.billable_bytes) == (2_000_000, 96_000_000)
-    assert trades.cost_usd == Decimal("1.25")
+    assert (trades.record_count, trades.billable_bytes) == (2_509_722, 120_466_656)
+    assert trades.cost_usd == Decimal("3.141412854195")
     assert trades.bundle_cost_usd == TRADES_BUNDLE
     assert report.rows[1].bundle_cost_usd == TBBO_BUNDLE
 
@@ -83,7 +87,7 @@ def test_unset_ceiling() -> None:
     assert "MT_TICK_SPEND_CEILING_USD unset" in CeilingVerdict.NO_CEILING
 
 
-@pytest.mark.parametrize("ceiling", [Decimal("0.01"), Decimal("2.75"), Decimal("1000")])
+@pytest.mark.parametrize("ceiling", [Decimal("0.01"), BETWEEN, Decimal("1000")])
 def test_mbp_1_is_never_purchasable(ceiling: Decimal) -> None:
     verdicts = _verdicts(ceiling)
     assert verdicts[TickSchema.MBP_1] is CeilingVerdict.NOT_PURCHASABLE
@@ -91,14 +95,17 @@ def test_mbp_1_is_never_purchasable(ceiling: Decimal) -> None:
 
 
 def test_ceiling_between_bundles_splits_the_tiers() -> None:
-    verdicts = _verdicts(Decimal("2.75"))
+    verdicts = _verdicts(BETWEEN)
     assert verdicts[TickSchema.TRADES] is CeilingVerdict.WITHIN
     assert verdicts[TickSchema.TBBO] is CeilingVerdict.OVER
 
 
 def test_tier_alone_within_but_bundle_over_is_over() -> None:
-    """tbbo alone costs 2.50 — within 3.00 — but its bundle is 3.25."""
-    assert _verdicts(Decimal("3.00"))[TickSchema.TBBO] is CeilingVerdict.OVER
+    """A ceiling between tbbo's own cost and its bundle (tbbo + definition)."""
+    tbbo_alone = FIGURES[TickSchema.TBBO][2]
+    ceiling = (tbbo_alone + TBBO_BUNDLE) / 2
+    assert tbbo_alone < ceiling < TBBO_BUNDLE
+    assert _verdicts(ceiling)[TickSchema.TBBO] is CeilingVerdict.OVER
 
 
 def test_ceiling_equal_to_bundle_is_within() -> None:
@@ -111,11 +118,11 @@ def test_end_past_the_edge_is_refused_naming_it() -> None:
         symbols=("ES.c.0",),
         stype_in=SType.CONTINUOUS,
         schema=TickSchema.TRADES,
-        start=date(2025, 9, 20),
-        end=date(2025, 9, 27),
+        start=date(2026, 9, 20),
+        end=date(2026, 9, 29),
     )
     metadata = metadata_api()
-    with pytest.raises(EstimateRefusedError, match="2025-09-26T00:00:00"):
+    with pytest.raises(EstimateRefusedError, match="2026-09-27T12:24:28"):
         build_estimate(_provider(metadata), late, None)
     assert [name for name, _ in metadata.calls] == ["get_dataset_range"]
 
@@ -126,8 +133,8 @@ def test_end_at_the_edge_is_allowed() -> None:
         symbols=("ES.c.0",),
         stype_in=SType.CONTINUOUS,
         schema=TickSchema.TRADES,
-        start=date(2025, 9, 22),
-        end=date(2025, 9, 26),
+        start=date(2026, 9, 22),
+        end=date(2026, 9, 27),
     )
     build_estimate(_provider(), at_edge, None)
 
@@ -135,10 +142,10 @@ def test_end_at_the_edge_is_allowed() -> None:
 def test_condition_tally_counts_each_day_once() -> None:
     metadata = metadata_api()
     labels = ["available", "degraded", "available", "pending", "missing"]
-    metadata.responses["get_dataset_condition"] = [
-        {"date": f"2025-01-{6 + n:02d}", "condition": c, "last_modified_date": None}
-        for n, c in enumerate(labels)
-    ]
+    entries = recorded("get_dataset_condition")
+    for entry, label in zip(entries, labels, strict=True):
+        entry["condition"] = label
+    metadata.responses["get_dataset_condition"] = entries
     report = build_estimate(_provider(metadata), REQUEST, None)
     assert report.conditions == {
         DatasetCondition.AVAILABLE: 2,
@@ -161,11 +168,11 @@ def test_each_metadata_call_happens_once_per_schema() -> None:
 
 
 def test_to_dict_carries_the_ceiling_fields() -> None:
-    payload = build_estimate(_provider(), REQUEST, Decimal("2.75")).to_dict()
-    assert payload["ceiling_usd"] == "2.75"
+    payload = build_estimate(_provider(), REQUEST, Decimal("4.00")).to_dict()
+    assert payload["ceiling_usd"] == "4.00"
     rows = payload["schemas"]
     assert isinstance(rows, list)
-    assert rows[0]["bundle_cost_usd"] == "2.00"
+    assert rows[0]["bundle_cost_usd"] == str(TRADES_BUNDLE)
     assert rows[0]["ceiling_verdict"] == "within"
     assert rows[1]["ceiling_verdict"] == "over"
     assert rows[2]["bundle_cost_usd"] is None

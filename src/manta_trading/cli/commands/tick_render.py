@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
+
 from rich import print as rprint
 
 from manta_trading.cli.output import make_table, print_result
 from manta_trading.data.tick.estimate import EstimateReport, SchemaEstimate
 
+_CENT = Decimal("0.01")
 _BYTE_UNITS = ("B", "KiB", "MiB", "GiB", "TiB")
 _BYTE_STEP = 1024
 
@@ -21,10 +24,18 @@ def human_bytes(size: int) -> str:
     return f"{value:.1f} {_BYTE_UNITS[-1]}"
 
 
+def usd(amount: Decimal) -> str:
+    """Cents for the table (``--json`` keeps the exact figure); a non-zero
+    amount under a cent shows as ``<$0.01``, never as ``$0.00``."""
+    if Decimal(0) < amount < _CENT:
+        return "<$0.01"
+    return f"${amount.quantize(_CENT, rounding=ROUND_HALF_UP):,}"
+
+
 def _header(report: EstimateReport) -> str:
     request = report.request
     tally = ", ".join(f"{n} {c.value}" for c, n in report.conditions.items() if n)
-    ceiling = "unset" if report.ceiling_usd is None else f"${report.ceiling_usd}"
+    ceiling = "unset" if report.ceiling_usd is None else usd(report.ceiling_usd)
     return (
         f"[bold]{request.dataset}[/bold] {', '.join(request.symbols)} "
         f"({request.stype_in.value})\n"
@@ -37,13 +48,13 @@ def _header(report: EstimateReport) -> str:
 
 
 def _cells(row: SchemaEstimate) -> tuple[str, ...]:
-    bundle = "—" if row.bundle_cost_usd is None else f"${row.bundle_cost_usd}"
+    bundle = "—" if row.bundle_cost_usd is None else usd(row.bundle_cost_usd)
     return (
         row.schema.value,
         f"{row.record_count:,}",
         f"{row.billable_bytes:,}",
         human_bytes(row.billable_bytes),
-        f"${row.cost_usd}",
+        usd(row.cost_usd),
         bundle,
         row.verdict.value,
     )

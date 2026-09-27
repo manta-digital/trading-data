@@ -7,6 +7,7 @@ the provider may already have charged. Only a 4xx proves it did not.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -238,3 +239,22 @@ def test_fetch_range_refuses_existing_dest_without_a_call(tmp_path: Path) -> Non
         _provider(timeseries=timeseries).fetch_range(REQUEST, dest)
     assert timeseries.calls == []
     assert dest.read_bytes() == b"finished"
+
+
+def test_recorded_job_parses() -> None:
+    """A real job record (read free from the account; ids redacted)."""
+    fixture = Path(__file__).resolve().parents[3] / "fixtures" / "databento" / "batch"
+    body = json.loads((fixture / "get_job_details.json").read_text())["response"]
+    job = _provider(batch_api({body["id"]: body})).batch_job(body["id"])
+    assert job.state is BatchJobState.EXPIRED
+    assert job.request == TickRequest(
+        dataset=CME_DATASET,
+        symbols=("ES.FUT",),
+        stype_in=SType.PARENT,
+        schema=TickSchema.TBBO,
+        start=date(2024, 11, 1),
+        end=date(2025, 1, 1),
+    )
+    assert job.ts_expiration == datetime(2025, 2, 22, 5, 18, 12, 939863, tzinfo=UTC)
+    assert job.cost_usd == Decimal("36.80458068847656")
+    assert (job.record_count, job.billed_size) == (17_642_240, 1_411_379_200)

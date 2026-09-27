@@ -24,6 +24,7 @@ from tick_support.metadata_responses import (
     REQUEST_END,
     REQUEST_START,
     metadata_api,
+    recorded,
     symbology_api,
 )
 
@@ -80,13 +81,12 @@ def test_dataset_condition_sends_inclusive_end_and_returns_one_per_day() -> None
     assert sent["end_date"] == date(2025, 1, 10)
     assert [c.day for c in conditions] == [date(2025, 1, d) for d in range(6, 11)]
     assert {c.condition for c in conditions} == {DatasetCondition.AVAILABLE}
+    assert conditions[-1].last_modified == date(2026, 9, 4)  # as recorded
 
 
 def test_dataset_condition_short_answer_is_permanent() -> None:
     metadata = metadata_api()
-    metadata.responses["get_dataset_condition"] = [
-        {"date": "2025-01-06", "condition": "available", "last_modified_date": None}
-    ]
+    metadata.responses["get_dataset_condition"] = recorded("get_dataset_condition")[:1]
     provider, _, _ = _provider(metadata)
     with pytest.raises(ProviderPermanentError, match="expected one per day"):
         provider.dataset_condition(CME_DATASET, REQUEST_START, REQUEST_END)
@@ -95,7 +95,7 @@ def test_dataset_condition_short_answer_is_permanent() -> None:
 def test_dataset_range_parses_nanosecond_timestamps() -> None:
     provider, _, _ = _provider()
     available = provider.dataset_range(CME_DATASET)
-    assert available.end == datetime(2025, 9, 26, tzinfo=UTC)
+    assert available.end == datetime(2026, 9, 27, 12, 24, 28, 301643, tzinfo=UTC)
     assert available.start == datetime(2010, 6, 6, tzinfo=UTC)
 
 
@@ -120,7 +120,7 @@ def test_request_parameters_are_the_requests_own() -> None:
 def test_cost_is_decimal_and_mode_is_never_sent() -> None:
     provider, metadata, _ = _provider()
     cost = provider.cost(REQUEST)
-    assert cost == Decimal("2.5")
+    assert cost == FIGURES[TickSchema.TBBO][2] == Decimal("5.235688090324")
     assert isinstance(cost, Decimal)
     assert "mode" not in metadata.calls_to("get_cost")[0]
 
@@ -214,9 +214,9 @@ def test_malformed_response_is_permanent(method: str, body: object) -> None:
 
 def test_unknown_condition_is_permanent() -> None:
     metadata = metadata_api()
-    metadata.responses["get_dataset_condition"] = lambda kwargs: [
-        {"date": "2025-01-06", "condition": "bad", "last_modified_date": None}
-    ]
+    entries = recorded("get_dataset_condition")[:1]
+    entries[0]["condition"] = "bad"
+    metadata.responses["get_dataset_condition"] = entries
     provider, _, _ = _provider(metadata)
     with pytest.raises(ProviderPermanentError, match="unknown dataset condition"):
         provider.dataset_condition(CME_DATASET, REQUEST_START, date(2025, 1, 7))
@@ -224,7 +224,9 @@ def test_unknown_condition_is_permanent() -> None:
 
 def test_malformed_resolve_is_permanent() -> None:
     symbology = symbology_api()
-    symbology.responses["resolve"] = {"result": {"ES.c.0": [{"d0": "2025-01-06"}]}}
+    body = recorded("resolve")
+    del body["result"]["ES.c.0"][0]["s"]
+    symbology.responses["resolve"] = body
     provider, _, _ = _provider(symbology=symbology)
     with pytest.raises(ProviderPermanentError):
         provider.resolve_symbols(REQUEST)

@@ -9,19 +9,24 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from decimal import Decimal
 from unittest.mock import patch
 
 import httpx
 import pytest
 from tick_support.fake_historical import FakeApi, FakeHistorical, server_error
-from tick_support.metadata_responses import metadata_api, symbology_api
+from tick_support.metadata_responses import bundle, metadata_api, symbology_api
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
 from manta_trading.cli.commands import tick as cmd
-from manta_trading.cli.commands.tick_render import human_bytes
+from manta_trading.cli.commands.tick_render import human_bytes, usd
 from manta_trading.config import Settings
-from manta_trading.data.tick.constants import ESTIMATE_SCHEMAS, TICK_SPEND_CEILING_ENV
+from manta_trading.data.tick.constants import (
+    ESTIMATE_SCHEMAS,
+    TICK_SPEND_CEILING_ENV,
+    TickSchema,
+)
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
 
 runner = CliRunner()
@@ -73,16 +78,16 @@ def test_happy_path_prints_four_rows(metadata: FakeApi) -> None:
 def test_json_carries_the_ceiling_fields(
     metadata: FakeApi, env: pytest.MonkeyPatch
 ) -> None:
-    env.setenv(TICK_SPEND_CEILING_ENV, "2.75")
+    env.setenv(TICK_SPEND_CEILING_ENV, "4.00")
     result = runner.invoke(app, [*ESTIMATE, *RANGE, "--json"])
     assert result.exit_code == cmd.EXIT_OK, result.output
     payload = json.loads(result.stdout)
-    assert payload["ceiling_usd"] == "2.75"
+    assert payload["ceiling_usd"] == "4.00"
     rows = {row["schema"]: row for row in payload["schemas"]}
     assert set(rows) == {s.value for s in ESTIMATE_SCHEMAS}
     assert rows["trades"]["ceiling_verdict"] == "within"
     assert rows["tbbo"]["ceiling_verdict"] == "over"
-    assert rows["tbbo"]["bundle_cost_usd"] == "3.25"
+    assert rows["tbbo"]["bundle_cost_usd"] == str(bundle(TickSchema.TBBO))
 
 
 def test_missing_key_exits_preflight_naming_the_variable(
@@ -104,10 +109,10 @@ def test_end_not_after_start_exits_preflight(metadata: FakeApi, end: str) -> Non
 
 def test_end_past_the_edge_exits_preflight_naming_it(metadata: FakeApi) -> None:
     result = runner.invoke(
-        app, [*ESTIMATE, "--start", "2025-09-20", "--end", "2030-01-01"]
+        app, [*ESTIMATE, "--start", "2026-09-20", "--end", "2030-01-01"]
     )
     assert result.exit_code == cmd.EXIT_PREFLIGHT
-    assert "2025-09-26" in result.output
+    assert "2026-09-27T12:24:28" in result.output
 
 
 def test_provider_transient_exits_provider(metadata: FakeApi) -> None:
@@ -141,3 +146,17 @@ def test_group_lists_estimate_only() -> None:
 )
 def test_human_bytes(size: int, text: str) -> None:
     assert human_bytes(size) == text
+
+
+@pytest.mark.parametrize(
+    ("amount", "text"),
+    [
+        ("127.46987760067", "$127.47"),
+        ("0.000004116446", "<$0.01"),
+        ("0", "$0.00"),
+        ("1234.5", "$1,234.50"),
+        ("0.015", "$0.02"),
+    ],
+)
+def test_usd_rounds_to_cents(amount: str, text: str) -> None:
+    assert usd(Decimal(amount)) == text

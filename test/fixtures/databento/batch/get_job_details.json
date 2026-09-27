@@ -1,0 +1,41 @@
+{
+  "method": "batch.get_job_details",
+  "request": {
+    "job_id": "GLBX-20250123-XT4GD5UM6C"
+  },
+  "response": {
+    "actual_size": 370419140,
+    "bill_id": null,
+    "billed_size": 1411379200,
+    "compression": "zstd",
+    "cost_usd": 36.80458068847656,
+    "dataset": "GLBX.MDP3",
+    "delivery": "download",
+    "encoding": "dbn",
+    "end": "2025-01-01T00:00:00.000000000Z",
+    "id": "GLBX-20250123-XT4GD5UM6C",
+    "limit": null,
+    "map_symbols": false,
+    "package_size": 370460956,
+    "packaging": null,
+    "pretty_px": false,
+    "pretty_ts": false,
+    "progress": 100,
+    "record_count": 17642240,
+    "schema": "tbbo",
+    "split_duration": "day",
+    "split_size": null,
+    "split_symbols": false,
+    "start": "2024-11-01T00:00:00.000000000Z",
+    "state": "expired",
+    "stype_in": "parent",
+    "stype_out": "instrument_id",
+    "symbols": "ES.FUT",
+    "ts_expiration": "2025-02-22T05:18:12.939863000Z",
+    "ts_process_done": "2025-01-23T05:18:12.939863000Z",
+    "ts_process_start": "2025-01-23T05:17:37.089047000Z",
+    "ts_queued": "2025-01-23T05:17:17.610115000Z",
+    "ts_received": "2025-01-23T05:17:15.813852000Z",
+    "user_id": "REDACTED"
+  }
+}
