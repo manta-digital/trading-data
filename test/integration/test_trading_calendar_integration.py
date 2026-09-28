@@ -11,7 +11,7 @@ Run with:
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -19,8 +19,10 @@ import pytest
 from manta_trading.data.base.adjustment_policy import SessionType
 from manta_trading.data.base.trading_calendar import (
     MarketStatus,
+    OutOfPopulatedRangeError,
     TradingCalendar,
 )
+from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
 
 # ---------------------------------------------------------------------------
 # Skip guard
@@ -165,3 +167,62 @@ class TestSessionClassifierEndToEnd:
         ts = datetime(2025, 1, 2, 7, 0, tzinfo=ZoneInfo("America/New_York"))
         result = classify_bar_session(ts, nyse)
         assert result == SessionType.ETH
+
+
+# ---------------------------------------------------------------------------
+# Session lookup (slice 221 D7) — throwaway database migrated through 058
+# ---------------------------------------------------------------------------
+
+_CT = ZoneInfo("America/Chicago")
+
+
+def _ct(year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime:
+    return datetime(year, month, day, hour, minute, tzinfo=_CT)
+
+
+@pytest.fixture()
+def cme(session_migrated_db: str):
+    cal = TradingCalendar(CME_EQUITY_CALENDAR_ID, session_migrated_db)
+    yield cal
+    cal.close()
+
+
+class TestCmeSessionLookup:
+
+    def test_inside_a_session(self, cme: TradingCalendar) -> None:
+        session = cme.session_containing(_ct(2024, 9, 3, 10))
+        assert session is not None
+        assert session.session_date == date(2024, 9, 3)
+        assert session.open_utc == _ct(2024, 9, 2, 17)
+
+    def test_daily_break_is_none(self, cme: TradingCalendar) -> None:
+        assert cme.session_containing(_ct(2024, 9, 3, 16, 30)) is None
+
+    def test_closed_day_is_none(self, cme: TradingCalendar) -> None:
+        assert cme.session_containing(_ct(2024, 12, 25, 12)) is None
+
+    def test_before_first_open_raises(self, cme: TradingCalendar) -> None:
+        with pytest.raises(OutOfPopulatedRangeError, match="mt data extend"):
+            cme.session_containing(_ct(2020, 1, 1, 16, 59))
+
+    def test_after_last_close_raises(self, cme: TradingCalendar) -> None:
+        _, last_close = cme.populated_span()
+        assert last_close is not None
+        with pytest.raises(OutOfPopulatedRangeError):
+            cme.session_containing(last_close + timedelta(microseconds=1))
+
+    def test_naive_datetime_raises_value_error(self, cme: TradingCalendar) -> None:
+        with pytest.raises(ValueError, match="naive"):
+            cme.session_containing(datetime(2024, 9, 3, 10))
+
+    def test_sessions_between_thanksgiving_week(self, cme: TradingCalendar) -> None:
+        sessions = cme.sessions_between(_ct(2024, 11, 25, 0), _ct(2024, 11, 30, 0))
+        assert [s.session_date for s in sessions] == [
+            date(2024, 11, 25),
+            date(2024, 11, 26),
+            date(2024, 11, 27),
+            date(2024, 11, 28),
+            date(2024, 11, 29),
+        ]
+        assert sessions[3].close_utc == _ct(2024, 11, 28, 12)
+        assert sessions[4].close_utc == _ct(2024, 11, 29, 12, 15)

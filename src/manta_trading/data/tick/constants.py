@@ -7,7 +7,11 @@ and only here (slice 220 design, Technical Decisions 4, 5, 7, 9).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
+from typing import Final
+
+from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
 
 
 class TickSchema(StrEnum):
@@ -91,3 +95,22 @@ TICK_DOWNLOAD_TIMEOUT_SECONDS = 100.0
 #: ``Settings.tick_spend_ceiling_usd``'s environment name, spelled once for
 #: the preflight's verdict text and its tests.
 TICK_SPEND_CEILING_ENV = "MT_TICK_SPEND_CEILING_USD"
+
+#: Futures product → the trading calendar its sessions come from (slice 221
+#: D8). GC joins with ``CME_METALS`` in slice 231; there is no default.
+FUTURES_PRODUCT_CALENDAR: Final[Mapping[str, str]] = {"ES": CME_EQUITY_CALENDAR_ID}
+
+
+def calendar_for_product(product: str) -> str:
+    """The calendar id for a futures product.
+
+    Raises:
+        KeyError: ``product`` has no calendar; the message names the known ones.
+    """
+    try:
+        return FUTURES_PRODUCT_CALENDAR[product]
+    except KeyError:
+        known = ", ".join(sorted(FUTURES_PRODUCT_CALENDAR))
+        raise KeyError(
+            f"futures product {product!r} has no trading calendar (known: {known})"
+        ) from None

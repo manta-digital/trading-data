@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from manta_trading.data.tick.constants import (
     COMPANION_SCHEMAS,
     ESTIMATE_SCHEMAS,
@@ -10,7 +12,9 @@ from manta_trading.data.tick.constants import (
     DeliveryMode,
     SType,
     TickSchema,
+    calendar_for_product,
 )
+from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
 
 
 def test_schema_values_are_provider_spellings() -> None:
@@ -48,3 +52,12 @@ def test_estimate_schemas_are_every_tier_then_definition() -> None:
     assert ESTIMATE_SCHEMAS[-1] is TickSchema.DEFINITION
     assert set(TICK_TIERS) <= set(ESTIMATE_SCHEMAS)
     assert len(ESTIMATE_SCHEMAS) == len(set(ESTIMATE_SCHEMAS))
+
+
+def test_calendar_for_known_product() -> None:
+    assert calendar_for_product("ES") == CME_EQUITY_CALENDAR_ID
+
+
+def test_calendar_for_unknown_product_names_known_ones() -> None:
+    with pytest.raises(KeyError, match="'GC'.*known: ES"):
+        calendar_for_product("GC")
