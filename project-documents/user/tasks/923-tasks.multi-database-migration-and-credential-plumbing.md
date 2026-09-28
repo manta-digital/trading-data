@@ -58,7 +58,9 @@ re-run in isolation before investigating.
 ## Section 0 — Baseline
 
 - [ ] **0.1 Capture the primary migration status before any change**
-  - [ ] On the target branch, before the slice branch's first commit, run
+  - [ ] On the target (`cf config get git.integration_branch`, or `main` when
+        empty; this is the slice branch's fork point), before the slice
+        branch's first commit, run
         `uv run mt data migrate status --json > /tmp/923-before.json` (LLD
         Walkthrough, step 1). This reads production through the application
         credential only.
@@ -355,9 +357,10 @@ requirement as a comment in the artifact, in `provision_roles.sql`'s style.
        from the catalog, 913 D8).
     6. Re-applying the artifact exits 0 and changes no catalog row counted in
        (1)–(5).
-  - [ ] If (3) fails: apply the LLD mitigation (the artifact installs the
-        extension at provisioning), and record the measurement in the LLD's Risk
-        Assessment section
+  - [ ] If (3) fails: **stop**. Record the exact error and the role
+        attributes in this task's notes, and report to the PM. Do not change the
+        artifact, the LLD, or Functional Requirement 8. The LLD mitigation needs
+        a PM decision first, because it changes 222's first migration.
   - [ ] Success: the suite passes; the 913 suite
         `test/integration/data/test_role_privileges.py` passes unedited
   - [ ] Effort: 3

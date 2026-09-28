@@ -578,11 +578,12 @@ the quotes:
 export MT_TIMESCALE_TEST_URL=$(grep '^MT_TIMESCALE_TEST_URL' .env | cut -d= -f2- | tr -d '"')
 ```
 
-**1. Primary unchanged.** Capture migration status on `main` before the
-branch's first commit, and again on the branch at the end:
+**1. Primary unchanged.** Capture migration status on the target (`main`
+while `git.integration_branch` is unset) before the branch's first commit, and
+again on the branch at the end:
 
 ```bash
-# on main, before implementation starts
+# on the target, before implementation starts
 uv run mt data migrate status --json > /tmp/923-before.json
 # on the slice branch, after implementation
 uv run mt data migrate status --json > /tmp/923-after.json
