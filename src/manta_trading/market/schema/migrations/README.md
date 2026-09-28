@@ -2,7 +2,7 @@
 docType: reference
 project: trading
 dateCreated: 20260425
-dateUpdated: 20260425
+dateUpdated: 20260927
 status: active
 ---
 
@@ -12,21 +12,39 @@ status: active
 
 ## Tracks
 
-| Track | Module | Database |
-|-------|--------|----------|
-| `minute` | `minute.py` — `MINUTE_MIGRATIONS` | TimescaleDB (`MT_TIMESCALE_DB_URL`) |
-| `daily` | `daily.py` — `DAILY_MIGRATIONS` | PostgreSQL MarketDB (`MT_MARKET_DB_URL`) |
+Each track belongs to one database, stated once in `TRACK_REGISTRY`
+(`__init__.py`). `mt data migrate` resolves the URL for the track's database —
+the application credential for `status`, the maintenance credential for `apply`
+— and never falls back to another variable (slice 923).
 
-Each track has its own `schema_migrations` table on its respective database.
+| Track | Module | Database | Application variable | Maintenance variable |
+|-------|--------|----------|----------------------|----------------------|
+| `minute` | `minute.py` — `MINUTE_MIGRATIONS` | primary (`trading`) | `MT_TIMESCALE_DB_URL` | `MT_TIMESCALE_MAINTENANCE_URL` |
+| `daily` | `daily.py` — `DAILY_MIGRATIONS` | primary (`trading`) | `MT_TIMESCALE_DB_URL` | `MT_TIMESCALE_MAINTENANCE_URL` |
+| `kalshi` | `kalshi.py` — `KALSHI_MIGRATIONS` | primary (`trading`) | `MT_TIMESCALE_DB_URL` | `MT_TIMESCALE_MAINTENANCE_URL` |
+| `tick` | `tick.py` — `TICK_MIGRATIONS` | tick | `MT_TICK_DB_URL` | `MT_TICK_MAINTENANCE_URL` |
+
+- **One ledger per database.** The primary's `schema_migrations` is shared by
+  `minute`, `daily` and `kalshi`; the tick database has its own, holding the
+  bootstrap and `tick_*` ids only.
+- **Misroute guard.** Before applying, `apply` reads the target ledger and
+  refuses if it holds ids of a track routed to another database (for example a
+  tick maintenance URL that points at `trading`). It checks the ledger, not
+  the URL, so host aliases cannot defeat it. The shared `001_schema_migrations`
+  bootstrap and ids in no current track are ignored.
+- **Id prefixes.** Every id after the bootstrap is unique across the tracks of
+  a database; `kalshi` ids are `kalshi_NNN_*` and `tick` ids are `tick_NNN_*`.
+- **Adding a track** means one `TRACK_REGISTRY` entry; `--track` choices,
+  routing and the guard follow from it.
 
 ## How to add a migration
 
-1. Open the relevant track module (`minute.py` or `daily.py`).
-2. Append a new dict to the `MINUTE_MIGRATIONS` or `DAILY_MIGRATIONS` list:
+1. Open the relevant track module.
+2. Append a new dict to its migrations list:
 
    ```python
    {
-       "id": "010_trading_sessions",          # zero-padded, snake_case
+       "id": "010_trading_sessions",          # tick: "tick_NNN_*", kalshi: "kalshi_NNN_*"
        "description": "Create trading_sessions table",
        "sql": """
            CREATE TABLE IF NOT EXISTS trading_sessions (
@@ -36,26 +54,28 @@ Each track has its own `schema_migrations` table on its respective database.
    },
    ```
 
-3. The `id` must be lexicographically greater than the previous entry (they are applied in list order).
+3. Migrations are applied in list order; append, never reorder.
 4. SQL must be idempotent — use `IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, or `DO $$ ... END $$` guards.
-5. Run `mt data migrate --db <track>` to apply the new migration.
+5. Run `mt data migrate apply --track <track>` to apply it.
 
 ## CLI commands
 
 ```bash
-mt data migrate apply [--db minute|daily|all] [--json]   # apply pending migrations
-mt data migrate status [--db minute|daily|all] [--json]  # show applied / pending state
+mt data migrate apply  [--track minute|daily|kalshi|tick] [--json]  # apply pending (maintenance credential)
+mt data migrate status [--track minute|daily|kalshi|tick] [--json]  # applied / pending (application credential)
+mt data init [--database primary|tick] [--validate-only] [--json]   # cold start: primary → minute, tick → tick
 ```
+
+`--track` defaults to `minute` and `--database` to `primary`, so the
+no-argument forms act on the primary database exactly as before slice 923.
 
 ## Bringing a new database under management
 
-For a DB that already has a schema but no tracking table, run once:
-
-```bash
-mt data migrate apply --db <track>
-```
-
-The `001_schema_migrations` entry creates the tracking table; subsequent entries are no-ops or reconciliation markers that record the baseline. No live data is touched.
+On a bare database, `apply` (or `init`) runs the track's first entry,
+`001_schema_migrations`, which creates the ledger; the guard passes because
+there is no ledger yet. For a database that already has a schema but no
+ledger, the same command creates the ledger and records the baseline; no live
+data is touched.
 
 ## Historical note
 

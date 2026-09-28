@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20260901
+dateUpdated: 20260927
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -252,9 +252,12 @@ picks up the new code at its next firing.
 **Apply migrations only if the release notes say a slice added one** — operator
 step, interactive shell, maintenance credential (never in the unit
 environment). Migrations are organised in **tracks** (`mt data migrate
-apply --help` lists them: `minute`, `daily`, `kalshi`); each track is applied
-separately and `--track` defaults to `minute`. All tracks share one ledger
-(`schema_migrations`) on the trading database.
+apply --help` lists them: `minute`, `daily`, `kalshi`, `tick`); each track is
+applied separately and `--track` defaults to `minute`. The `minute`, `daily`
+and `kalshi` tracks share one ledger (`schema_migrations`) on the trading
+database; the `tick` track targets the tick database and its own ledger (see
+*Provisioning a tick database*), and `apply` refuses a database whose ledger
+belongs to another database's tracks.
 
 ```bash
 cd ~/source/repos/manta/trading-data
@@ -794,6 +797,43 @@ The Kalshi timer pauses and resumes the same way
 pause makes the next pass a catch-up: it walks several settled windows instead
 of one and logs a `settled window …` line per window, which is the progress
 signal to watch.
+
+## Provisioning a tick database (slice 923)
+
+Run this once, **when the PM has decided the tick database's placement**
+(same cluster, a second cluster, or another host). The database name and host
+are part of that decision, so none is written here: `<tick_db>` and
+`<tick_host>` below are placeholders, and the artifact has no default name.
+
+The artifact creates two roles (`tick_app` DML, `tick_migrate` DDL — never the
+`trading_*` roles), creates `<tick_db>` owned by `tick_migrate`, revokes
+`CONNECT` from `PUBLIC`, and makes the ledger read-only to `tick_app`. It never
+touches `trading`.
+
+```bash
+cd ~/source/repos/manta/trading-data
+# 1. Provision, as a superuser on the chosen cluster.
+psql "$SUPERUSER_URL" -v tick_db=<tick_db> -f scripts/provision_tick_roles.sql
+# 2. Set both passwords out of band (never in the repository):
+#      ALTER ROLE tick_app WITH PASSWORD '...'; ALTER ROLE tick_migrate WITH PASSWORD '...';
+# 3. Create the tick ledger, with the maintenance credential for this invocation only.
+MT_TICK_MAINTENANCE_URL='postgresql://tick_migrate:...@<tick_host>:5432/<tick_db>' \
+  uv run mt data init --database tick
+# 4. Provision again: the ledger now exists, and this run makes it SELECT-only
+#    for tick_app. Idempotent; it changes nothing else.
+psql "$SUPERUSER_URL" -v tick_db=<tick_db> -f scripts/provision_tick_roles.sql
+# 5. Verify with the application credential.
+MT_TICK_DB_URL='postgresql://tick_app:...@<tick_host>:5432/<tick_db>' \
+  uv run mt data migrate status --track tick
+```
+
+Step 4 is not optional. `tick_migrate`'s default privileges give `tick_app`
+DML on every table it creates, and `init` creates the ledger after step 1, so
+until step 4 runs `tick_app` could write the ledger (measured, slice 923).
+
+Step 5 lists `001_schema_migrations` as applied and nothing pending. Neither
+tick variable goes into `/etc/manta-trading.env` in this slice; the tick passes
+that need `MT_TICK_DB_URL` arrive with slice 223 onward.
 
 ## Rollback
 
