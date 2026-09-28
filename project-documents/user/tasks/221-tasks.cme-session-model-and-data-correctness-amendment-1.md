@@ -124,8 +124,13 @@ files, and check `git diff` for swept pre-existing lines before each commit.
   - [ ] Add a test that populates CME hours over a week containing a `closed`
         date and an `early_close` date. Check that the closed date is absent,
         and that the next session opens at 17:00 local on the closed date.
+  - [ ] Add a synthetic `late_open` case: a CME-hours date with
+        `late_open_time` 08:30 opens 08:30 on the same day, because the
+        open is no longer after the close (LLD criterion 2).
   - [ ] Add the NYSE/NASDAQ identity test: regenerate the 0.1 inputs and
-        require output equal to `nyse_nasdaq_sessions_pre_221.json`.
+        require output equal to `nyse_nasdaq_sessions_pre_221.json`. This is
+        the unit-tier half of the LLD's "NYSE regression test". The
+        integration-tier half is `test_nyse_sessions_unchanged` in 5.2.
   - [ ] Success: `uv run pytest test/unit/data/base/test_session_population.py -q`
         passes
   - [ ] Effort: 2
@@ -138,9 +143,10 @@ files, and check `git diff` for swept pre-existing lines before each commit.
   - [ ] A frozen `Session` dataclass: `calendar_id`, `session_date`,
         `open_utc` and `close_utc`, all tz-aware UTC.
   - [ ] `SessionIndex(sessions)`:
-    - it sorts by `open_utc`;
-    - it raises `ValueError` when any session overlaps the next, or when
-      `open_utc >= close_utc`;
+    - it raises `ValueError` when the input is not sorted by `open_utc`,
+      when any session overlaps the next, or when `open_utc >= close_utc`.
+      It never reorders its input: a caller handing it sessions out of order
+      has a bug, and the LLD API contract requires the error;
     - it keeps int64 nanosecond arrays of opens and closes.
   - [ ] `locate(ts)` returns the `Session` whose closed interval
         `[open_utc, close_utc]` contains `ts`, or `None`. A naive `ts` raises
@@ -162,8 +168,7 @@ files, and check `git diff` for swept pre-existing lines before each commit.
     - 1 ns before an open, and 1 ns after a close (`None`);
     - a timestamp in the daily break, and one on the closed day (`None`);
     - a naive datetime (raises);
-    - overlapping input and inverted input (both raise);
-    - unsorted input (sorted, then correct).
+    - overlapping input, inverted input, and unsorted input (all raise).
   - [ ] Add a property-style test: over 1,000 random timestamps spanning the
         sessions, `locate_ns` agrees with `locate` element by element.
   - [ ] Success: the test file passes. **Commit Sections 0–2.**
@@ -348,7 +353,8 @@ files, and check `git diff` for swept pre-existing lines before each commit.
         migrating through 056, then again after 057 and 058, then again after
         `extend_calendar_sessions` runs for both over their current range.
         All three dumps must be identical. Name the test
-        `test_nyse_sessions_unchanged`.
+        `test_nyse_sessions_unchanged`. This is the integration-tier half of
+        the LLD's "NYSE regression test". The unit-tier half is in 1.2.
   - [ ] **Strict exit 4:** on this throwaway database, set the CME bound 30
         days out, and assert that `mt data extend --calendar CME_EQUITY
         --strict` exits 4 and prints the bound message.
