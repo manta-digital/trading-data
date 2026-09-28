@@ -6,17 +6,28 @@ Every ``Settings`` here is built with ``_env_file=None`` so a developer's
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
+from unittest.mock import MagicMock
+
 import pytest
 
 from manta_trading.config import Settings
+from manta_trading.market.schema import migrations as migrations_pkg
 from manta_trading.market.schema.databases import (
     DATABASE_URL_FIELDS,
     Credential,
     Database,
     DatabaseNotConfiguredError,
+    LedgerMisrouteError,
+    assert_ledger_belongs,
     env_var_for,
+    foreign_ledger_ids,
     resolve_database_url,
 )
+from manta_trading.market.schema.migrations import TRACKS, TrackSpec
+from manta_trading.market.schema.runner import BOOTSTRAP_MIGRATION_ID
 
 _ALL_URL_VARS = (
     "MT_TIMESCALE_DB_URL",
@@ -90,3 +101,96 @@ def test_tick_application_never_falls_back_to_primary() -> None:
     with pytest.raises(DatabaseNotConfiguredError) as info:
         resolve_database_url(settings, Database.TICK, Credential.APPLICATION)
     assert info.value.env_var == "MT_TICK_DB_URL"
+
+
+# --- misroute guard (D5) ----------------------------------------------------
+
+_MINUTE_IDS = [m["id"] for m in TRACKS["minute"][1:4]]
+_FAKE_TICK_ID = "tick_001_fake"
+
+
+@pytest.fixture
+def fake_tick_track(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the tick track one non-bootstrap id, as slice 222 will."""
+    registry = dict(migrations_pkg.TRACK_REGISTRY)
+    registry["tick"] = TrackSpec(
+        Database.TICK,
+        [*TRACKS["tick"], {"id": _FAKE_TICK_ID, "description": "x", "sql": ""}],
+    )
+    monkeypatch.setattr(migrations_pkg, "TRACK_REGISTRY", registry)
+
+
+def test_primary_ids_are_foreign_to_tick() -> None:
+    assert foreign_ledger_ids(_MINUTE_IDS, Database.TICK) == sorted(_MINUTE_IDS)
+
+
+@pytest.mark.usefixtures("fake_tick_track")
+def test_tick_ids_are_foreign_to_primary() -> None:
+    ids = [*_MINUTE_IDS, _FAKE_TICK_ID]
+    assert foreign_ledger_ids(ids, Database.PRIMARY) == [_FAKE_TICK_ID]
+
+
+@pytest.mark.parametrize("database", list(Database))
+def test_bootstrap_is_never_foreign(database: Database) -> None:
+    assert foreign_ledger_ids([BOOTSTRAP_MIGRATION_ID], database) == []
+
+
+@pytest.mark.parametrize("database", list(Database))
+def test_unknown_ids_are_ignored(database: Database) -> None:
+    assert foreign_ledger_ids(["999_retired_long_ago"], database) == []
+
+
+def test_own_ids_are_not_foreign() -> None:
+    ids = [BOOTSTRAP_MIGRATION_ID, *_MINUTE_IDS]
+    assert foreign_ledger_ids(ids, Database.PRIMARY) == []
+
+
+def _stub_pool(regclass: Any, ledger_ids: list[str]) -> tuple[MagicMock, list[str]]:
+    """A pool whose connection answers the guard's two SELECTs; records SQL."""
+    executed: list[str] = []
+    conn = MagicMock()
+
+    def _execute(sql: str) -> MagicMock:
+        executed.append(sql)
+        result = MagicMock()
+        if "to_regclass" in sql:
+            result.fetchone.return_value = (regclass,)
+        else:
+            result.fetchall.return_value = [(i,) for i in ledger_ids]
+        return result
+
+    conn.execute.side_effect = _execute
+
+    @contextmanager
+    def _connection() -> Iterator[MagicMock]:
+        yield conn
+
+    pool = MagicMock()
+    pool.connection.side_effect = _connection
+    return pool, executed
+
+
+def test_missing_ledger_passes_without_id_query() -> None:
+    pool, executed = _stub_pool(None, [])
+    assert_ledger_belongs(pool, Database.TICK, "tick", "MT_TICK_MAINTENANCE_URL")
+    assert len(executed) == 1
+
+
+def test_own_ledger_passes() -> None:
+    pool, executed = _stub_pool("schema_migrations", [BOOTSTRAP_MIGRATION_ID])
+    assert_ledger_belongs(pool, Database.TICK, "tick", "MT_TICK_MAINTENANCE_URL")
+    assert all(sql.lstrip().upper().startswith("SELECT") for sql in executed)
+
+
+def test_foreign_ledger_raises_naming_variable_and_at_most_five_ids() -> None:
+    ids = [m["id"] for m in TRACKS["minute"][1:9]]
+    pool, _ = _stub_pool("schema_migrations", ids)
+    with pytest.raises(LedgerMisrouteError) as info:
+        assert_ledger_belongs(pool, Database.TICK, "tick", "MT_TICK_MAINTENANCE_URL")
+    message = str(info.value)
+    assert message.startswith("refusing: ")
+    assert "routed to primary" in message
+    assert "MT_TICK_MAINTENANCE_URL" in message
+    assert sum(i in message for i in ids) == 5
+    assert "3 more" in message
+    assert info.value.foreign_ids == sorted(ids)

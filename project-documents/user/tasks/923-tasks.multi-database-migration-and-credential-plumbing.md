@@ -14,7 +14,7 @@ projectState: >
   0.18.0; its slice 222 is hard-gated on this slice.
 dateCreated: 20260927
 dateUpdated: 20260927
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Multi-Database Migration and Credential Plumbing
@@ -57,76 +57,76 @@ re-run in isolation before investigating.
 
 ## Section 0 — Baseline
 
-- [ ] **0.1 Capture the primary migration status before any change**
-  - [ ] On the target (`cf config get git.integration_branch`, or `main` when
+- [x] **0.1 Capture the primary migration status before any change**
+  - [x] On the target (`cf config get git.integration_branch`, or `main` when
         empty; this is the slice branch's fork point), before the slice
         branch's first commit, run
         `uv run mt data migrate status --json > /tmp/923-before.json` (LLD
         Walkthrough, step 1). This reads production through the application
         credential only.
-  - [ ] Success: the file exists and holds `"connected": true`
-  - [ ] Effort: 1
+  - [x] Success: the file exists and holds `"connected": true`
+  - [x] Effort: 1
 
 ---
 
 ## Section 1 — Database identity and track registry
 
-- [ ] **1.1 Add `Settings.tick_maintenance_url`**
-  - [ ] In `src/manta_trading/config/__init__.py`, add
+- [x] **1.1 Add `Settings.tick_maintenance_url`**
+  - [x] In `src/manta_trading/config/__init__.py`, add
         `tick_maintenance_url: str | None = None` next to `tick_db_url`
-  - [ ] Replace the `# Tick data database (separate instance)` comment with one
+  - [x] Replace the `# Tick data database (separate instance)` comment with one
         stating that the tick pair mirrors the primary pair, and that callers
         must never fall back between them (mirror the 913 comment above it)
-  - [ ] Add tests to `test/unit/test_settings.py`: the default is `None`, and
+  - [x] Add tests to `test/unit/test_settings.py`: the default is `None`, and
         `MT_TICK_MAINTENANCE_URL` overrides it (follow the existing
         `tick_db_url` tests)
-  - [ ] Success: `uv run pytest test/unit/test_settings.py -q` passes
-  - [ ] Effort: 1
+  - [x] Success: `uv run pytest test/unit/test_settings.py -q` passes
+  - [x] Effort: 1
 
-- [ ] **1.2 Create `market/schema/databases.py`: enums, URL table, resolver**
-  - [ ] `Database(StrEnum)`: `PRIMARY`, `TICK`. `Credential(StrEnum)`:
+- [x] **1.2 Create `market/schema/databases.py`: enums, URL table, resolver**
+  - [x] `Database(StrEnum)`: `PRIMARY`, `TICK`. `Credential(StrEnum)`:
         `APPLICATION`, `MAINTENANCE`
-  - [ ] `DATABASE_URL_FIELDS: dict[tuple[Database, Credential], str]` maps the
+  - [x] `DATABASE_URL_FIELDS: dict[tuple[Database, Credential], str]` maps the
         four pairs to `timescale_db_url`, `timescale_maintenance_url`,
         `tick_db_url` and `tick_maintenance_url`. This is the only place a
         database's settings fields are named.
-  - [ ] `env_var_for(db, cred)` returns `"MT_" + field.upper()`. Read the
+  - [x] `env_var_for(db, cred)` returns `"MT_" + field.upper()`. Read the
         prefix from `Settings.model_config["env_prefix"]` rather than repeating
         `"MT_"`.
-  - [ ] `DatabaseNotConfiguredError(Exception)` carries `env_var`. Its message
+  - [x] `DatabaseNotConfiguredError(Exception)` carries `env_var`. Its message
         is `"<ENV_VAR> not configured. Set the environment variable or add it to
         your .env file."`, which is the existing primary wording from
         `_get_maintenance_url`. Copy the exact text from `data.py`.
-  - [ ] `resolve_database_url(settings, db, cred) -> str`: raises on `None` or
+  - [x] `resolve_database_url(settings, db, cred) -> str`: raises on `None` or
         `""`. It never consults another field.
-  - [ ] Module docstring: why this sits below the CLI (LLD Component Structure)
-  - [ ] Success: the module imports cleanly and has no dependency on `cli`
-  - [ ] Effort: 2
+  - [x] Module docstring: why this sits below the CLI (LLD Component Structure)
+  - [x] Success: the module imports cleanly and has no dependency on `cli`
+  - [x] Effort: 2
 
-- [ ] **1.3 Unit tests for `databases.py`**
-  - [ ] Create `test/unit/market/schema/__init__.py` (empty) and
+- [x] **1.3 Unit tests for `databases.py`**
+  - [x] Create `test/unit/market/schema/__init__.py` (empty) and
         `test/unit/market/schema/test_databases.py`
-  - [ ] Build every `Settings` with `Settings(_env_file=None, ...)` so a
+  - [x] Build every `Settings` with `Settings(_env_file=None, ...)` so a
         developer's `.env` cannot leak in
-  - [ ] Parametrize over all four (database, credential) pairs: set → returned;
+  - [x] Parametrize over all four (database, credential) pairs: set → returned;
         `None` → error naming the right variable; `""` → error
-  - [ ] No-fallback cases:
+  - [x] No-fallback cases:
     1. tick maintenance unset, tick application set → error names
        `MT_TICK_MAINTENANCE_URL`
     2. tick application unset, both primary URLs set → error names
        `MT_TICK_DB_URL`
-  - [ ] `env_var_for` returns exactly `MT_TIMESCALE_DB_URL`,
+  - [x] `env_var_for` returns exactly `MT_TIMESCALE_DB_URL`,
         `MT_TIMESCALE_MAINTENANCE_URL`, `MT_TICK_DB_URL` and
         `MT_TICK_MAINTENANCE_URL`
-  - [ ] Success: the new file passes
-  - [ ] Effort: 2
+  - [x] Success: the new file passes
+  - [x] Effort: 2
 
-- [ ] **1.4 Register the `tick` track and the track registry (D1, D6)**
-  - [ ] Create `src/manta_trading/market/schema/migrations/tick.py` with
+- [x] **1.4 Register the `tick` track and the track registry (D1, D6)**
+  - [x] Create `src/manta_trading/market/schema/migrations/tick.py` with
         `TICK_MIGRATIONS` holding only the `001_schema_migrations` bootstrap
         entry. Reuse the existing bootstrap dict; do not copy its SQL.
         A module comment states that later ids use `tick_NNN_*`.
-  - [ ] In `migrations/__init__.py`:
+  - [x] In `migrations/__init__.py`:
     1. Add a frozen `TrackSpec(database: Database, migrations: list[...])`.
     2. Add `TRACK_REGISTRY`, mapping `minute`, `daily` and `kalshi` →
        `PRIMARY` and `tick` → `TICK`.
@@ -135,43 +135,43 @@ re-run in isolation before investigating.
     4. Add `DEFAULT_TRACK_FOR = {PRIMARY: "minute", TICK: "tick"}`, and set
        `DEFAULT_TRACK = DEFAULT_TRACK_FOR[Database.PRIMARY]`.
     5. Export the new names in `__all__`.
-  - [ ] Avoid an import cycle: `migrations` imports `Database` from
+  - [x] Avoid an import cycle: `migrations` imports `Database` from
         `databases.py`, so `databases.py` must not import `migrations` at module
         level
-  - [ ] Success: `grep -rn "TRACKS\[" src` consumers are unchanged, and
+  - [x] Success: `grep -rn "TRACKS\[" src` consumers are unchanged, and
         `uv run python -c "from manta_trading.market.schema.migrations import
         TRACKS; print(sorted(TRACKS))"` prints the four tracks
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **1.5 Unit tests for the registry**
-  - [ ] Create `test/unit/market/schema/test_track_registry.py`
-  - [ ] Every track has a `Database`, and every `Database` member has a
+- [x] **1.5 Unit tests for the registry**
+  - [x] Create `test/unit/market/schema/test_track_registry.py`
+  - [x] Every track has a `Database`, and every `Database` member has a
         `DEFAULT_TRACK_FOR` entry that names a registered track
-  - [ ] `TRACKS[name] is TRACK_REGISTRY[name].migrations` for every name
-  - [ ] Non-bootstrap migration ids are unique across all tracks sharing a
+  - [x] `TRACKS[name] is TRACK_REGISTRY[name].migrations` for every name
+  - [x] Non-bootstrap migration ids are unique across all tracks sharing a
         database (the guard relies on this)
-  - [ ] Every id in `TRACKS["tick"]` after the bootstrap starts with `tick_`
+  - [x] Every id in `TRACKS["tick"]` after the bootstrap starts with `tick_`
         (vacuous today; binds 222)
-  - [ ] Success: the new file passes
-  - [ ] Effort: 1
+  - [x] Success: the new file passes
+  - [x] Effort: 1
 
-- [ ] **1.6 Make `_get_maintenance_url(ctx)` a wrapper over the resolver (D2)**
-  - [ ] In `cli/commands/data.py`, the body calls
+- [x] **1.6 Make `_get_maintenance_url(ctx)` a wrapper over the resolver (D2)**
+  - [x] In `cli/commands/data.py`, the body calls
         `resolve_database_url(settings, PRIMARY, MAINTENANCE)` and maps
         `DatabaseNotConfiguredError` to `print_error` + `typer.Exit(1)`. The
         signature and exact message stay the same.
-  - [ ] Leave its six call sites untouched
-  - [ ] Success: `uv run pytest test/unit/cli/test_maintenance_url_resolver.py
+  - [x] Leave its six call sites untouched
+  - [x] Success: `uv run pytest test/unit/cli/test_maintenance_url_resolver.py
         test/unit/cli/test_ddl_command_url_routing.py
         test/unit/cli/commands/test_data_init.py test/unit/test_cli_data.py -q`
         passes, and `git diff --stat` on those four files is empty
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] **1.7 Checkpoint**
-  - [ ] ruff check + ruff format on touched files only, then check for swept
+- [x] **1.7 Checkpoint**
+  - [x] ruff check + ruff format on touched files only, then check for swept
         pre-existing lines: `git diff` shows no unrelated changes
-  - [ ] Commit: `feat: add database identity and track-to-database registry`
-  - [ ] Effort: 1
+  - [x] Commit: `feat: add database identity and track-to-database registry`
+  - [x] Effort: 1
 
 ---
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import io
 import time
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import psycopg
@@ -18,6 +18,9 @@ from psycopg_pool import ConnectionPool
 from manta_trading.constants import DB_BULK_SESSION, DbSessionSettings, Granularity
 from manta_trading.data.adjustment import adjusted as adjusted_fn
 from manta_trading.logging import get_logger
+
+if TYPE_CHECKING:
+    from manta_trading.market.schema.databases import Database
 
 _logger = get_logger(__name__)
 
@@ -427,6 +430,18 @@ class TimescaleMinuteDataDB:
 
         track = TRACKS[DEFAULT_TRACK] if migrations is None else migrations
         return apply_migrations(self._ensure_pool(), track)
+
+    def check_ledger_belongs(
+        self, database: Database, track: str, env_var: str
+    ) -> None:
+        """Refuse when this database's ledger holds another database's ids (923 D5).
+
+        Not named ``assert_*``: ``unittest.mock`` rejects such attributes, and
+        CLI tests stub this wrapper with a ``MagicMock``.
+        """
+        from manta_trading.market.schema.databases import assert_ledger_belongs
+
+        assert_ledger_belongs(self._ensure_pool(), database, track, env_var)
 
     def list_migration_state(
         self, migrations: list[dict[str, Any]] | None = None

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date as _date_t
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,20 +12,35 @@ from typing import TYPE_CHECKING
 import click
 import typer
 
-# ``RechunkTarget`` and ``TRACKS`` are imported at module scope, unlike most of
-# this module's imports, because Typer resolves an option's choices at
-# decoration time (``--table`` from the enum, ``--track`` from ``TRACKS``) to
-# build the choice list and reject anything else.
+# ``RechunkTarget``, ``Database`` and the track registry are imported at module
+# scope, unlike most of this module's imports, because Typer resolves an
+# option's choices at decoration time (``--table`` and ``--database`` from their
+# enums, ``--track`` from ``TRACK_REGISTRY``) to build the choice list and
+# reject anything else.
 from manta_trading.cli.commands._pass_run import make_pass_run_recorder
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.rechunk import RechunkTarget
-from manta_trading.market.schema.migrations import DEFAULT_TRACK, TRACKS
+from manta_trading.market.schema.databases import (
+    Credential,
+    Database,
+    DatabaseNotConfiguredError,
+    LedgerMisrouteError,
+    env_var_for,
+    resolve_database_url,
+)
+from manta_trading.market.schema.migrations import (
+    DEFAULT_TRACK,
+    DEFAULT_TRACK_FOR,
+    TRACK_REGISTRY,
+    TRACKS,
+)
 from manta_trading.providers.auth import resolve_auth
 from manta_trading.providers.profiles import get_profile
 
 if TYPE_CHECKING:
     from manta_trading.constants import Granularity
+    from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
 
 logger = get_logger(__name__)
 
@@ -136,6 +153,11 @@ def data_init(
         "-y",
         help="Reserved for future destructive operations; currently a no-op.",
     ),
+    database: Database = typer.Option(
+        Database.PRIMARY,
+        "--database",
+        help="Database to initialize; each applies its own default track.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Initialize a TimescaleDB database for cold-start (slice 156).
@@ -143,24 +165,23 @@ def data_init(
     Applies all pending schema migrations to bring an empty database up to
     the current schema. Idempotent: safe to re-run on a healthy DB. Replaces
     the deleted ``python -m manta_trading.market.timescale_init`` invocation.
+    ``--database`` picks the database and so its track (slice 923 D7).
     """
     from rich.console import Console
     from rich.table import Table
 
+    track = DEFAULT_TRACK_FOR[database]
     # Credential follows the work: --validate-only only reads migration state,
     # so it stays on the application URL. The default path applies DDL and
     # requires the migration role (913 D4).
-    conninfo = None if validate_only else _get_maintenance_url(ctx)
+    credential = Credential.APPLICATION if validate_only else Credential.MAINTENANCE
 
-    db = _create_timescale_db(ctx, conninfo=conninfo)
-    try:
+    with _routed_db(ctx, database, credential) as (db, env_var):
         if validate_only:
-            state = db.list_migration_state()
+            state = db.list_migration_state(TRACKS[track])
         else:
-            applied = db.apply_schema_migrations()
-            state = db.list_migration_state()
-    finally:
-        db.close()
+            applied = _apply_track(db, database, track, env_var)
+            state = db.list_migration_state(TRACKS[track])
 
     if validate_only:
         applied_ids: list[str] = [e["id"] for e in state.get("applied", [])]
@@ -205,13 +226,14 @@ def data_init(
     console.print(table)
 
 
-# ``--track`` choices come from ``TRACKS`` itself — no track name is spelled
-# out here. Both tracks target the same database, so no new connection plumbing.
+# ``--track`` choices come from the track registry itself — no track name is
+# spelled out here. Each track routes to its own database (``TrackSpec``), so
+# the command resolves that database's URL rather than assuming the primary.
 _TRACK_OPTION = typer.Option(
     DEFAULT_TRACK,
     "--track",
     help="Migration track to act on.",
-    click_type=click.Choice(list(TRACKS)),
+    click_type=click.Choice(list(TRACK_REGISTRY)),
 )
 
 
@@ -223,15 +245,13 @@ def migrate_apply(
 ) -> None:
     """Apply pending schema migrations.
 
-    Runs as the migration role: this issues DDL, so it resolves
-    ``MT_TIMESCALE_MAINTENANCE_URL`` and fails loudly when that key is unset
-    rather than falling back to the application credential (913 D4).
+    Runs as the migration role of the track's database: this issues DDL, so
+    it resolves that database's maintenance URL and fails loudly when the key
+    is unset rather than falling back to any other credential (913 D4, 923 D2).
     """
-    db = _create_timescale_db(ctx, conninfo=_get_maintenance_url(ctx))
-    try:
-        applied = db.apply_schema_migrations(TRACKS[track])
-    finally:
-        db.close()
+    database = TRACK_REGISTRY[track].database
+    with _routed_db(ctx, database, Credential.MAINTENANCE) as (db, env_var):
+        applied = _apply_track(db, database, track, env_var)
 
     if json_output:
         print_result({"applied": applied}, json_mode=True)
@@ -252,17 +272,30 @@ def migrate_status(
     from rich.console import Console
     from rich.table import Table
 
-    settings = ctx.obj["settings"]
-
-    if not settings.timescale_db_url:
+    database = TRACK_REGISTRY[track].database
+    try:
+        url = resolve_database_url(
+            ctx.obj["settings"], database, Credential.APPLICATION
+        )
+    except DatabaseNotConfiguredError as exc:
+        # Handled: a configuration error, reported in this command's shapes.
+        # The primary keeps its pre-923 JSON text byte for byte.
         if json_output:
-            print_result({"connected": False, "error": "URL not configured", "applied": [], "pending": []}, json_mode=True)
+            error = (
+                "URL not configured"
+                if database is Database.PRIMARY
+                else f"{exc.env_var} not configured"
+            )
+            print_result(
+                {"connected": False, "error": error, "applied": [], "pending": []},
+                json_mode=True,
+            )
         else:
-            print_error("MT_TIMESCALE_DB_URL not configured.", json_mode=False)
-        raise typer.Exit(1)
+            print_error(f"{exc.env_var} not configured.", json_mode=False)
+        raise typer.Exit(1) from None
 
     try:
-        db = _create_timescale_db(ctx)
+        db = _create_timescale_db(ctx, conninfo=url)
         try:
             state = db.list_migration_state(TRACKS[track])
         finally:
@@ -339,6 +372,60 @@ def _create_timescale_db(ctx: typer.Context, conninfo: str | None = None):
         raise typer.Exit(1)
 
     return TimescaleMinuteDataDB(conninfo=settings.timescale_db_url)
+
+
+def _resolve_url_or_exit(
+    ctx: typer.Context, database: Database, credential: Credential
+) -> str:
+    """Resolve one database URL, or print the missing variable and exit 1."""
+    try:
+        return resolve_database_url(ctx.obj["settings"], database, credential)
+    except DatabaseNotConfiguredError as exc:
+        # Handled: a configuration error, reported as one line (923 D2).
+        print_error(str(exc), json_mode=False)
+        raise typer.Exit(1) from None
+
+
+@contextmanager
+def _routed_db(
+    ctx: typer.Context, database: Database, credential: Credential
+) -> Iterator[tuple[TimescaleMinuteDataDB, str]]:
+    """Open the DB wrapper on ``database`` as ``credential``; yield it and its variable.
+
+    Always passes ``conninfo``, so a track-routed command never reaches the
+    factory's primary default (923 "Factory contract"). Process-boundary
+    handler: a connection failure or a misroute refusal becomes one line and
+    exit 1 instead of a traceback. Both surface before any DDL runs, because
+    the pool opens lazily and the guard's SELECT is the first statement.
+    """
+    from psycopg import OperationalError
+    from psycopg_pool import PoolTimeout
+
+    url = _resolve_url_or_exit(ctx, database, credential)
+    env_var = env_var_for(database, credential)
+    try:
+        db = _create_timescale_db(ctx, conninfo=url)
+        try:
+            yield db, env_var
+        finally:
+            db.close()
+    except (PoolTimeout, OperationalError) as exc:
+        print_error(
+            f"could not connect to the {database} database ({env_var}): {exc}",
+            json_mode=False,
+        )
+        raise typer.Exit(1) from None
+    except LedgerMisrouteError as exc:
+        print_error(str(exc), json_mode=False)
+        raise typer.Exit(1) from None
+
+
+def _apply_track(
+    db: TimescaleMinuteDataDB, database: Database, track: str, env_var: str
+) -> list[str]:
+    """Run the misroute guard (923 D5), then apply the track's migrations."""
+    db.check_ledger_belongs(database, track, env_var)
+    return db.apply_schema_migrations(TRACKS[track])
 
 
 # ---------------------------------------------------------------------------
@@ -454,28 +541,7 @@ def _get_maintenance_url(ctx: typer.Context) -> str:
     clear configuration error into a confusing privilege error at a random
     point mid-migration. Fail loudly, naming the variable to set.
     """
-    from manta_trading.market.schema.databases import (
-        Credential,
-        Database,
-        DatabaseNotConfiguredError,
-        resolve_database_url,
-    )
-
-    try:
-        return resolve_database_url(
-            ctx.obj["settings"], Database.PRIMARY, Credential.MAINTENANCE
-        )
-    except DatabaseNotConfiguredError:
-        # Handled: the primary keeps its 913 wording, which also says why
-        # there is no fallback (slice 923 D2).
-        print_error(
-            "MT_TIMESCALE_MAINTENANCE_URL not configured. This command "
-            "performs schema or maintenance work and requires the migration "
-            "credential; it will not fall back to MT_TIMESCALE_DB_URL. "
-            "Set the environment variable or add it to your .env file.",
-            json_mode=False,
-        )
-        raise typer.Exit(1) from None
+    return _resolve_url_or_exit(ctx, Database.PRIMARY, Credential.MAINTENANCE)
 
 
 @instruments_app.command("rebuild")
