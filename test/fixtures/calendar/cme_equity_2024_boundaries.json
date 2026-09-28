@@ -1,0 +1,65 @@
+{
+  "provenance": {
+    "description": "First and last ES trade/tbbo ts_event (UTC epoch ns) per session, from scripts/verify_cme_sessions.py's assignment (slice 221 task 8.3)",
+    "jobs": {
+      "GLBX-20240930-USM7UXXJBA": [
+        "glbx-mdp3-20240901.trades.dbn.zst",
+        "glbx-mdp3-20240902.trades.dbn.zst",
+        "glbx-mdp3-20240903.trades.dbn.zst"
+      ],
+      "GLBX-20250123-XT4GD5UM6C": [
+        "glbx-mdp3-20241127.tbbo.dbn.zst",
+        "glbx-mdp3-20241128.tbbo.dbn.zst",
+        "glbx-mdp3-20241129.tbbo.dbn.zst",
+        "glbx-mdp3-20241223.tbbo.dbn.zst",
+        "glbx-mdp3-20241224.tbbo.dbn.zst",
+        "glbx-mdp3-20241225.tbbo.dbn.zst",
+        "glbx-mdp3-20241226.tbbo.dbn.zst"
+      ]
+    }
+  },
+  "sessions": [
+    {
+      "session_date": "2024-09-02",
+      "label": "Labor Day",
+      "job": "GLBX-20240930-USM7UXXJBA",
+      "first_ts_event_ns": 1725228000000000000,
+      "last_ts_event_ns": 1725296399820903793
+    },
+    {
+      "session_date": "2024-09-03",
+      "label": "after Labor Day",
+      "job": "GLBX-20240930-USM7UXXJBA",
+      "first_ts_event_ns": 1725314400000000000,
+      "last_ts_event_ns": 1725397199101860923
+    },
+    {
+      "session_date": "2024-11-28",
+      "label": "Thanksgiving",
+      "job": "GLBX-20250123-XT4GD5UM6C",
+      "first_ts_event_ns": 1732748400000000000,
+      "last_ts_event_ns": 1732816799797764467
+    },
+    {
+      "session_date": "2024-11-29",
+      "label": "Black Friday",
+      "job": "GLBX-20250123-XT4GD5UM6C",
+      "first_ts_event_ns": 1732834800000000000,
+      "last_ts_event_ns": 1732904099829611997
+    },
+    {
+      "session_date": "2024-12-24",
+      "label": "Christmas Eve",
+      "job": "GLBX-20250123-XT4GD5UM6C",
+      "first_ts_event_ns": 1734994800000000000,
+      "last_ts_event_ns": 1735064099639327387
+    },
+    {
+      "session_date": "2024-12-26",
+      "label": "after Christmas",
+      "job": "GLBX-20250123-XT4GD5UM6C",
+      "first_ts_event_ns": 1735167600000000000,
+      "last_ts_event_ns": 1735250399143597383
+    }
+  ]
+}

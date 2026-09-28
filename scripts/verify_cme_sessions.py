@@ -26,7 +26,7 @@ import hashlib
 import json
 import sys
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -168,7 +168,12 @@ def _nearest(ns: int, sessions: tuple[Session, ...]) -> str:
     return f"{before_text}, {after_text}"
 
 
-def _report(tally: Tally, sessions: tuple[Session, ...], tz: ZoneInfo) -> None:
+def _report(
+    tally: Tally,
+    sessions: tuple[Session, ...],
+    tz: ZoneInfo,
+    exceptions: dict[date, str],
+) -> None:
     for job, records in tally.per_job.items():
         print(f"{job}: {records:,} records (files verified against manifest.json)")
     print(f"outside any session: {tally.outside_count}")
@@ -178,7 +183,7 @@ def _report(tally: Tally, sessions: tuple[Session, ...], tz: ZoneInfo) -> None:
         print(f"  ... {tally.outside_count - len(tally.outside)} more not printed")
     print(
         f"\n{'session':<11} {'open':<17} {'first trade':<22} "
-        f"{'last trade':<22} {'close':<17} records"
+        f"{'last trade':<22} {'close':<17} {'records':>11}  exception"
     )
     fmt = "%m-%d %H:%M:%S.%f"
     for i, session in enumerate(sessions):
@@ -190,7 +195,8 @@ def _report(tally: Tally, sessions: tuple[Session, ...], tz: ZoneInfo) -> None:
             f"{_utc(int(tally.first[i])).astimezone(tz).strftime(fmt):<22} "
             f"{_utc(int(tally.last[i])).astimezone(tz).strftime(fmt):<22} "
             f"{session.close_utc.astimezone(tz):%m-%d %H:%M %Z}  "
-            f"{int(tally.count[i]):,}"
+            f"{int(tally.count[i]):>11,}  "
+            f"{exceptions.get(session.session_date, '')}"
         )
 
 
@@ -204,6 +210,12 @@ def run(calendar_id: str, job_dirs: list[Path]) -> int:
     cal = TradingCalendar(calendar_id, str(Settings().timescale_db_url))
     try:
         sessions = tuple(cal.sessions_between(start, end))
+        # Loads the calendar's metadata too, which sets cal.timezone.
+        exceptions = {
+            h.holiday_date: h.holiday_name
+            for year in range(start.year, end.year + 1)
+            for h in cal.get_holidays(year)
+        }
         tz = cal.timezone
     except OutOfPopulatedRangeError as exc:
         raise InputError(f"files span {start}..{end}: {exc}") from exc
@@ -216,7 +228,7 @@ def run(calendar_id: str, job_dirs: list[Path]) -> int:
     tally = Tally(sessions=len(sessions))
     for job, listed in jobs.items():
         tally.per_job[job.name] = sum(_assign(p, index, tally) for p, _, _ in listed)
-    _report(tally, sessions, tz)
+    _report(tally, sessions, tz, exceptions)
     return EXIT_OUTSIDE_SESSION if tally.outside_count else EXIT_CLEAN
 
 

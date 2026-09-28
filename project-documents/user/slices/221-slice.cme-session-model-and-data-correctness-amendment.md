@@ -476,3 +476,29 @@ Cross-check against `pandas_market_calendars` 5.4.0 (`CME Globex Equity`, run wi
 | 2025-01-09 | early_close 08:30 | (none) | early_close 08:30 | CME day-of-mourning notice and press release ("US equities close at 8:30 AM CT"); Databento: 1,141 trades 08:25–08:30 CT, 0 from 08:30 to 16:00 CT. The library omits the National Day of Mourning. |
 | 2025-04-18 | closed | early_close 08:15 | closed | CME trading-hours JSON; Databento: 0 trades across the whole session. |
 | 2027-03-26 | closed | early_close 08:15 | closed | CME trading-hours JSON (2027 Good Friday). Future date; CME's schedule is the only authority. |
+
+### Real-data proof (task 8.2)
+
+Run on 2026-09-28 against the throwaway `t221_walkthrough` database (test cluster, migrated through 058). The tbbo job was unzipped into the scratchpad first:
+
+```
+uv run python scripts/verify_cme_sessions.py --calendar CME_EQUITY \
+    /data/market-data/databento/GLBX-20240930-USM7UXXJBA <scratch>/GLBX-20250123-XT4GD5UM6C
+```
+
+- Exit 0. `outside any session: 0`.
+- GLBX-20240930-USM7UXXJBA (trades): 26 files, 10,049,172 records.
+- GLBX-20250123-XT4GD5UM6C (tbbo): 52 files, 17,642,240 records.
+- **Correction to the design:** neither job's `manifest.json` carries record counts. Each file entry has only `filename`, `size`, `hash` and `urls`. The script therefore verifies every file's size and SHA-256 against the manifest (exit 2 on a mismatch) and reports the decoded totals (PM agreed, 2026-09-28).
+
+Holiday sessions, times in CT. Every first trade is exactly at the 17:00 open; every last trade falls within a second of the seeded close:
+
+| Session | Open | First trade | Last trade | Seeded close |
+|---------|------|-------------|------------|--------------|
+| 2024-09-02 Labor Day | 09-01 17:00 | 17:00:00.000000 | 11:59:59.820903 | 12:00 |
+| 2024-11-28 Thanksgiving | 11-27 17:00 | 17:00:00.000000 | 11:59:59.797764 | 12:00 |
+| 2024-11-29 Black Friday | 11-28 17:00 | 17:00:00.000000 | 12:14:59.829611 | 12:15 |
+| 2024-12-24 Christmas Eve | 12-23 17:00 | 17:00:00.000000 | 12:14:59.639327 | 12:15 |
+| 2024-12-26 (after the Christmas closure) | 12-25 17:00 | 17:00:00.000000 | 15:59:59.143597 | 16:00 |
+
+These timestamps are committed as `test/fixtures/calendar/cme_equity_2024_boundaries.json` (task 8.3), and `test_cme_equity_boundaries.py` checks them against the seeded sessions.
