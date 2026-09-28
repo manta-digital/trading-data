@@ -597,10 +597,11 @@ uv run pytest test/unit/market/schema/test_databases.py \
   test/unit/cli/test_migrate_track_routing.py \
   test/unit/cli/test_maintenance_url_resolver.py \
   test/unit/cli/test_ddl_command_url_routing.py \
-  test/unit/cli/commands/test_data_init.py test/unit/test_prod_url_guard.py -q
+  test/unit/cli/commands/test_data_init.py test/unit/test_cli_data.py \
+  test/unit/test_unit_prod_url_guard.py -q
 ```
 
-Expected: all pass. `git diff main --stat -- test/unit/cli/test_maintenance_url_resolver.py test/unit/cli/test_ddl_command_url_routing.py test/unit/cli/commands/test_data_init.py`
+Expected: all pass. `git diff main --stat -- test/unit/cli/test_maintenance_url_resolver.py test/unit/cli/test_ddl_command_url_routing.py test/unit/cli/commands/test_data_init.py test/unit/test_cli_data.py`
 prints nothing.
 
 **3. Integration tier on the test cluster.**
@@ -609,7 +610,7 @@ prints nothing.
 uv run pytest test/integration/data/test_two_database_migrate.py \
   test/integration/data/test_tick_role_privileges.py \
   test/integration/data/test_role_privileges.py \
-  test/integration/test_prod_url_guard.py -q
+  test/integration/test_integration_prod_url_guard.py -q
 ```
 
 Expected: all pass, and no `mt_test_*` databases or `t923_*` roles remain:
