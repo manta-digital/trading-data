@@ -285,6 +285,31 @@ def session_migrated_db(session_ephemeral_db: str) -> str:
 
 
 @pytest.fixture
+def ephemeral_tick_db() -> Iterator[str]:
+    """A bare throwaway database standing in for the tick database (slice 923).
+
+    Owned by the test admin, like :func:`ephemeral_db`; the ``mt_test_t``
+    prefix only makes a leftover recognisable. Role and ownership behaviour is
+    ``provisioned_tick_db``'s job, not this fixture's.
+    """
+    with _throwaway_database("mt_test_t") as url:
+        yield url
+
+
+@pytest.fixture
+def migrated_tick_db(ephemeral_tick_db: str) -> str:
+    """:func:`ephemeral_tick_db` with ``TRACKS["tick"]`` applied."""
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.market.schema.migrations import TRACKS
+    from manta_trading.market.schema.runner import apply_migrations
+
+    with ConnectionPool(ephemeral_tick_db, min_size=1, max_size=2) as pool:
+        apply_migrations(pool, TRACKS["tick"])
+    return ephemeral_tick_db
+
+
+@pytest.fixture
 def market_db_url() -> str:
     """PostgreSQL connection URL for the market (daily OHLCV) database.
 

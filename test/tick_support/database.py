@@ -16,6 +16,8 @@ from typing import Any
 import psycopg
 import pytest
 
+from manta_trading.config import Settings
+
 PROVISION_TICK_SQL = (
     Path(__file__).resolve().parents[2] / "scripts" / "provision_tick_roles.sql"
 )
@@ -104,3 +106,18 @@ def drop_tick_db(tick: ProvisionedTickDb, admin_url: str) -> None:
             admin.execute(f'DROP OWNED BY "{role}" CASCADE')
             admin.execute(f'REVOKE "{role}" FROM CURRENT_USER')
             admin.execute(f'DROP ROLE IF EXISTS "{role}"')
+
+
+def two_database_settings(primary_url: str, tick_url: str) -> Settings:
+    """Settings with both credentials of each database pointing at a throwaway.
+
+    ``_env_file=None`` keeps a developer's ``.env`` out: a real URL leaking into
+    a routing test is the trap ``test_ddl_command_url_routing.py`` documents.
+    """
+    return Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        timescale_db_url=primary_url,
+        timescale_maintenance_url=primary_url,
+        tick_db_url=tick_url,
+        tick_maintenance_url=tick_url,
+    )
