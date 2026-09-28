@@ -97,6 +97,20 @@ def _patch_runner_psycopg_connect():
         yield mock_conn
 
 
+@pytest.fixture(autouse=True)
+def _stub_calendar_session_extension():
+    """Stub the session extension migration 058's callable runs.
+
+    The runner tests here hand every migration MagicMock connections, whose
+    rows are not dates. The extension has its own integration tests
+    (``test_calendar_extension.py``, ``test_migration_057_058_cme_calendar.py``).
+    """
+    with patch(
+        "manta_trading.data.base.session_extension.extend_calendar_sessions"
+    ):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -212,8 +226,9 @@ class TestMigrationsListIntegrity:
         # 57 -> 58 with slice 922's 055 (pass_runs, position-critical before
         # 021), and 58 -> 59 with its 056 (data_status open gaps + walk
         # anchor).
-        # 59 -> 60 with slice 221's 057 (calendar holidays_seeded_through).
-        assert len(MIGRATIONS) == 60
+        # 59 -> 61 with slice 221's 057 (calendar holidays_seeded_through)
+        # and 058 (CME_EQUITY calendar seed).
+        assert len(MIGRATIONS) == 61
 
 
 # ---------------------------------------------------------------------------
@@ -1291,7 +1306,7 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_057() -> None:
+def test_chain_ends_at_058() -> None:
     """The newest migration must be last (slice 922 retargeted this from 054;
     slice 221 from 056).
 
@@ -1304,7 +1319,7 @@ def test_chain_ends_at_057() -> None:
     (see ``POSITION_CRITICAL_IDS``), which is why the tip check names a later
     migration.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == "057_calendar_holidays_seeded_through"
+    assert MINUTE_MIGRATIONS[-1]["id"] == "058_seed_cme_equity_calendar"
 
 
 class TestMigration054DailyMonthlyRefreshWindow:

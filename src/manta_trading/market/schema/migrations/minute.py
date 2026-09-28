@@ -256,6 +256,41 @@ def _holidays_seeded_through_sql() -> str:
     """
 
 
+def _seed_cme_equity_calendar(conn: Any) -> None:
+    """Python callable for migration 058 (slice 221): seed ``CME_EQUITY``.
+
+    Inserts the calendar row (with its holiday bound) and every sourced
+    exception, then populates sessions from ``CME_EQUITY_SEED_START`` through
+    Dec 31 of ``current_year + TRADING_SESSIONS_EXTENSION_YEARS`` through the
+    shared extension routine, which clamps to the holiday bound. NYSE and
+    NASDAQ are not touched. Idempotent: inserts are ON CONFLICT DO NOTHING and
+    sessions upsert.
+    """
+    from datetime import datetime
+
+    from manta_trading.data.base.session_extension import extend_calendar_sessions
+    from manta_trading.market.schema.seed_cme_calendar import (
+        CME_EQUITY_CALENDAR_ID,
+        CME_EQUITY_SEED_START,
+        cme_equity_calendar_insert,
+        cme_equity_holidays_insert,
+    )
+
+    calendar_sql, calendar_params = cme_equity_calendar_insert()
+    holidays_sql, holiday_rows = cme_equity_holidays_insert()
+    with conn.cursor() as cur:
+        cur.execute(calendar_sql, calendar_params)
+        cur.executemany(holidays_sql, holiday_rows)
+
+    end_year = datetime.now().year + TRADING_SESSIONS_EXTENSION_YEARS
+    extend_calendar_sessions(
+        conn,
+        CME_EQUITY_CALENDAR_ID,
+        start=CME_EQUITY_SEED_START,
+        end=date(end_year, 12, 31),
+    )
+
+
 def _history_horizon_disjunct() -> str:
     """Build the third disjunct of the symbols_x_granularity WHERE clause.
 
@@ -2538,5 +2573,16 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "seeding holidays."
         ),
         "sql": _holidays_seeded_through_sql(),
+    },
+    {
+        "id": "058_seed_cme_equity_calendar",
+        "description": (
+            "Seed the CME_EQUITY calendar (slice 221 D2, D5): CME Globex "
+            "equity hours for ES (17:00 -> 16:00 America/Chicago, sessions "
+            "dated by close), every sourced exception from 2020, and its "
+            "sessions through the holiday bound via the shared extension. "
+            "NYSE and NASDAQ are untouched."
+        ),
+        "python_fn": _seed_cme_equity_calendar,
     },
 ]
