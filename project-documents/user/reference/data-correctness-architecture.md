@@ -2,7 +2,7 @@
 docType: reference
 project: trading
 dateCreated: 20260429
-dateUpdated: 20260927
+dateUpdated: 20260928
 status: draft
 ---
 
@@ -13,8 +13,9 @@ status: draft
 This document is the cross-slice acceptance contract for the manta-trading
 data layer. It states what the system must guarantee, what it explicitly
 does not guarantee, and which tools every operator (human or program)
-must be able to invoke. Every slice in initiatives 100, 120, 140, 200,
-220 must close one or more invariants from this document. Audit
+must be able to invoke. Every slice in initiatives 100, 120, 140 and
+220 (futures tick; the concept numbered it 200) must close one or more
+invariants from this document. Audit
 convergence is checked against this document, not against the initiative
 plan or any single slice's claims.
 
@@ -79,6 +80,36 @@ documents, CLI help text use them consistently or are wrong.
   vendor's later representation of the same data (e.g., minute bars we
   stored vs that vendor's daily EOD that should reconcile). Verification
   catches our ingestion bugs; audit catches vendor errors.
+- **Session (futures)** — a contiguous open-to-close interval in a CME
+  calendar, identified by `(calendar_id, session_date)`, where
+  `session_date` is the date the session closes. It is not CME's clearing
+  trade date: a holiday-shortened session is its own session, dated the
+  holiday (slice 221, D4).
+- **Archive unit** — one purchased or adopted provider file, tracked in
+  the tick manifest.
+- **Ingest ledger** — one row per (instrument, session, archive unit)
+  ingested.
+- **Instrument-session complete** — as the initiative 220 architecture
+  defines it (Technical Considerations, "Completeness definitions"): every
+  archive unit covering the instrument-session is ingested, and the raw
+  table's count for that instrument-session equals the sum of its current
+  (non-superseded) units' ingest-ledger counts.
+
+### Vocabulary rules for tick
+
+Source: initiative 220 architecture (Architectural Principles,
+"Completeness is answered from the manifest and the raw table"; Technical
+Considerations, "Completeness definitions") and slice 221, D10.
+
+- Tick completeness is answered from the manifest, the ingest ledger and
+  raw-table counts. It never reads `acquisition_state`, `data_gaps` or
+  `data_status`, and never any aggregate.
+- `Granularity.TICK` (in `data/acquisition/state.py`) names a granularity.
+  `PassKind.TICK` (deferred with the cadence decision, slice 225) names a
+  run. The two are not interchangeable.
+- `granularity = 'tick'` enters a minute-track enumeration (`data_gaps`,
+  `data_status`) only where a surface reads it. The surfaces that do are
+  listed here; as of slice 221 the list is empty.
 
 ## Invariants
 
@@ -198,6 +229,13 @@ A system that only cross-checks one vendor against itself (the same
 vendor's `/eod` endpoint vs the same vendor's `/intraday` rolled up)
 cannot detect vendor-side errors and is not audit-complete.
 
+**Tick exception (initiative 220).** I7 does not apply to tick in
+initiative 220. The scope has one provider and no cross-venue
+consolidation, and no independent price source is bought. The ingest
+checks (counts, resolution, session boundaries) are *verification* in
+this document's vocabulary, not audit. A future second tick source
+reopens I7 for tick.
+
 ### I8 — Debug primacy
 
 The state of any subsystem is queryable through a `mt data debug`
@@ -244,6 +282,32 @@ operator-facing surface:
 A new granularity (tick) plugs into this surface; it does not invent
 a new shape.
 
+### I11 — Tick completeness from the manifest
+
+Tick completeness is defined per archive unit, per instrument-session and
+per universe, under the initiative 220 architecture's definitions
+(Technical Considerations, "Completeness definitions"). It is
+answered only from the manifest, the ingest ledger and raw-table counts,
+never from minute-track state or an aggregate.
+
+### I12 — Tick provenance and supersession
+
+Every tick row carries the id of the archive unit it came from. Replacing
+data is an explicit supersession recorded in the manifest. A natural-key
+conflict never decides between two units.
+
+### I13 — Session-assigned ticks
+
+Every ingested tick falls inside a session of its product's calendar. A
+tick in a daily break, on a closed day, or outside the calendar's populated
+range fails its archive unit; the session is never widened to fit.
+
+### I14 — Futures identity is explicit
+
+Every surface that answers for a futures product names the contract and
+the roll rule that chose it. No continuous or back-adjusted series is
+stored.
+
 ## Operator-facing surface
 
 ### Required CLI commands
@@ -255,8 +319,9 @@ revision.
 
 - `mt data daily {status, update, daemon, coverage, backfill}`
 - `mt data minute {status, update, daemon, coverage, backfill}`
-- _`mt data tick {status, ingest, daemon, coverage, backfill}`_ —
-  initiative 200; deferred until tick infrastructure lands.
+- _`mt data tick {status, coverage, pass, ingest, backfill, debug}`_,
+  plus `estimate` and `get` — initiative 220's tick vocabulary (see the
+  I10 row); the commands land with their slices.
 - `mt data quality {coverage, gaps, validate, report, fix, verify}`
 - _`mt data quality audit --vendor <secondary>`_ — cross-vendor
   audit; new.
@@ -282,7 +347,7 @@ revision.
 ## What is explicitly out of scope
 
 - **Equity tick data.** Universe too large; not on the roadmap.
-- **Order book depth (L2, L3, MBO) for tick.** Initiative 200 is L1
+- **Order book depth (L2, L3, MBO) for tick.** Initiative 220 is L1
   only.
 - **Cross-exchange consolidation for tick.** One vendor, one
   consolidation, deliberately.
@@ -293,7 +358,7 @@ revision.
 
 ## Convergence audit
 
-The system has converged when, for every invariant I1-I10:
+The system has converged when, for every invariant I1-I14:
 
 1. There is a slice (or set of slices) closed (`status: complete`)
    that explicitly contributes to closing the invariant.
@@ -320,13 +385,17 @@ include verifying the invariant holds.
 | I1 — Adjustment correctness | 143, 147 | `mt data audit --symbol X` | Designed. Issue #10 reproduces current violation; slice 143's `compute_k_factor` resolves it. |
 | I2 — Coverage truthfulness | 142, 144, 145 | `mt data status` | Designed. `data_gaps` table + `data_status` view + daemon refactor. |
 | I3 — Provider tagging clarity | 142 | `mt data status` | Designed. `acquisition_state` slimmed; status reads from data tables, not provider tags. |
-| I4 — Single source of truth for trading sessions | 142, 144 | tests + `mt data status` | Designed. `compute_missing_ranges` reads `trading_calendar` exclusively. |
+| I4 — Single source of truth for trading sessions | 142, 144, 221 | tests + `mt data status`; `mt data calendars sessions` | Designed. `compute_missing_ranges` reads `trading_calendar` exclusively. 221: `CME_EQUITY` calendar and session lookup behind the same surface; verification: tests + `mt data calendars sessions`. |
 | I5 — Idempotent rebuild | 146 | `mt data refetch` | Designed. Single command rebuilds bars + adjustments + gap state for a window; daemon CA-detection handles re-adjustment automatically (no separate `--reapply-only` flag needed). |
 | I6 — Calendar-correct verification | 147 | `mt data audit` | Designed. Trading-calendar-aware; non-trading days SKIP. Issue #9 resolved by this slice. |
-| I7 — Cross-vendor audit | Future work (Yahoo extension to 147) | `mt data audit --vendor X` | Deferred. Single-provider audit ships in 147; second-vendor extension is future work. |
+| I7 — Cross-vendor audit | Future work (Yahoo extension to 147) | `mt data audit --vendor X` | Deferred. Single-provider audit ships in 147; second-vendor extension is future work. Tick exception (221): I7 does not apply to tick in initiative 220 — one provider, no independent source bought; tick ingest checks are verification, not audit. |
 | I8 — Debug primacy | 145 (`mt data status` is the primary debug surface) | `mt data status` | Designed. Status command surfaces all per-symbol state; ad-hoc SQL not required for normal operation. |
 | I9 — Loud failure | Cross-cutting; every slice has a loud-failure obligation | n/a (review) | Ongoing discipline; not a single-slice deliverable. 220: the tick preflight (`mt data tick estimate`) refuses loudly: exit 1 naming `MT_DATABENTO_API_KEY` when it is unset, and exit 1 naming the dataset's available end when `--end` is past it. A paid Databento call whose outcome is unknown (timeout, disconnect, 5xx, mid-stream error) raises `ProviderOutcomeUnknownError`, never a retryable transient, and a batch file reaches its final name only after its SHA-256 matches. |
-| I10 — Tooling consistency | All daily/minute/tick slices must follow shape | review against this document | Ongoing discipline. Initiative 200 (tick) inherits slice 141-147 shape. 220 fixes the tick shape: `mt data tick` subgroup, verb vocabulary as I10 (`status`, `coverage`, `pass`, `ingest`, `backfill`, `debug`, plus `estimate` and `get`); API namespace `/api/v1/futures/*`. |
+| I10 — Tooling consistency | All daily/minute/tick slices must follow shape | review against this document | Ongoing discipline. Initiative 220 (tick) inherits slice 141-147 shape. 220 fixes the tick shape: `mt data tick` subgroup, verb vocabulary as I10 (`status`, `coverage`, `pass`, `ingest`, `backfill`, `debug`, plus `estimate` and `get`); API namespace `/api/v1/futures/*`. |
+| I11 — Tick completeness from the manifest | 222, 224 | manifest + ingest-ledger + raw-count checks (defined by 224) | Framed (221). |
+| I12 — Tick provenance and supersession | 222, 224 | archive-unit id on every row; manifest supersession records | Framed (221). |
+| I13 — Session-assigned ticks | 221 (model and lookup), 224 (the check) | `scripts/verify_cme_sessions.py`; tests | Framed (221). |
+| I14 — Futures identity is explicit | 228, 229, 230 | review + tests (defined by 228) | Framed (221). |
 
 ## Notes
 
@@ -339,8 +408,11 @@ include verifying the invariant holds.
   identify (or create) closing slices.
 - Removing an invariant requires explicit justification in this
   document's history. We do not silently relax guarantees.
-- Initiative 200 (futures tick) inherits I2, I3, I4, I5, I6, I7, I8,
-  I9, I10. It does not inherit I1 (futures have no corporate
-  actions). It adds tick-specific invariants (sequence-gap detection,
-  continuous-contract correctness) that will be added here when
-  initiative 200 lands.
+- Initiative 220 (futures tick; renumbered from the concept's 200)
+  inherits I2, I3, I4, I5, I6, I8, I9 and I10, and I7 with the tick
+  exception stated under I7. It does not inherit I1 (futures have no
+  corporate actions). It adds I11–I14. Sequence-gap detection is not an
+  initiative 220 invariant: it is reserved for the realtime initiative.
+  Within a purchased historical range the provider's delivery is complete
+  by contract, so the completeness question is which sessions were
+  purchased and ingested, not which sequence numbers are missing.
