@@ -16,6 +16,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A CME futures calendar for ES.** `CME_EQUITY` (CME Globex equity,
+  17:00 → 16:00 America/Chicago, each session dated by the day it closes)
+  holds every ES holiday and early close from 2020 through 2027. Each one is
+  sourced from CME's published schedules, and its sessions are populated by
+  migrations 057/058. On the 2024 Databento ES files, all 27.7 M trades and
+  quotes fall inside a session.
+- **`mt data calendars sessions --calendar X --from D --to D [--json]`** lists
+  a calendar's sessions: open and close in local time and UTC, length, and the
+  holiday that shaped the session.
+- **Session lookup for code:** `TradingCalendar.sessions_between`,
+  `session_containing` and `populated_span`, with a vectorized
+  `SessionIndex.locate_ns` for bulk timestamp assignment. A timestamp outside
+  the populated range raises `OutOfPopulatedRangeError` rather than answering
+  "no session".
+- **`scripts/verify_cme_sessions.py`** runs local Databento jobs through a
+  calendar's sessions. It checks every file's size and SHA-256 against the
+  job's manifest, and exits 1 on any record outside a session.
+- **Holiday bound per calendar** (`trading_calendars.holidays_seeded_through`).
+  Session extension never writes past it. `mt data extend` and the
+  `mt data status` auto-extend notice say when the bound is what stops the
+  horizon, and name the fix: seed the next year's schedule.
+- The data-correctness contract adds invariants I11–I14 for futures tick, the
+  I7 tick exception, and the tick vocabulary rules.
+
+### Fixed
+- `mt data calendars list` failed on nonexistent columns. It now runs and
+  shows each calendar's holiday bound.
+
 ## [0.19.0] - 2026-09-28
 
 ### Added

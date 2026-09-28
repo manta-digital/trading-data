@@ -372,48 +372,84 @@ def extend_calendar_sessions(conn, calendar_id: str, *, start: date, end: date) 
 
 ### Verification Walkthrough
 
-Run against a throwaway database on the test cluster, never production: `MT_TIMESCALE_DB_URL` in `.env` is the production `trading` database. Point `MT_TIMESCALE_DB_URL` and `MT_TIMESCALE_MAINTENANCE_URL` at a database this walkthrough creates, run `mt data migrate apply`, and drop it afterwards. Production receives migrations 057 and 058 only through the release path (Special Considerations). Commands marked *new* do not exist before this slice.
+Verified 2026-09-28 against a throwaway database on the test cluster. Never run it against production: `MT_TIMESCALE_DB_URL` in `.env` is the production `trading` database. Production receives migrations 057 and 058 only through the release path (Special Considerations). Commands marked *new* do not exist before this slice.
+
+0. **Set up the throwaway database.** Environment variables override `.env` in `Settings`, so exporting the two URLs points every `mt` command at the new database:
+   ```bash
+   export MT_TIMESCALE_TEST_URL="$(grep '^MT_TIMESCALE_TEST_URL=' .env | cut -d= -f2- | sed 's/^"//;s/"$//')"
+   export MT_TIMESCALE_DB_URL="$(python3 -c 'import sys,urllib.parse as u;p=u.urlsplit(sys.argv[1]);print(u.urlunsplit(p._replace(path="/t221_walkthrough")))' "$MT_TIMESCALE_TEST_URL")"
+   export MT_TIMESCALE_MAINTENANCE_URL="$MT_TIMESCALE_DB_URL"
+   uv run python -c "import os,psycopg; c=psycopg.connect(os.environ['MT_TIMESCALE_TEST_URL'],autocommit=True); c.execute('CREATE DATABASE t221_walkthrough')"
+   uv run mt data migrate apply
+   ```
+   Expected: `60 migration(s) applied`, ending with `Applied: 058_seed_cme_equity_calendar`. Before migrating, check that `Settings().timescale_db_url` names the test-cluster host and `/t221_walkthrough`.
 
 1. **The calendar exists, with its bound.**
    ```bash
-   mt data calendars list
+   uv run mt data calendars list
    ```
-   Expected: three rows. `CME_EQUITY` shows America/Chicago, 17:00–16:00, and its holidays-seeded-through date. NYSE and NASDAQ show `2026-12-31`. This command fails before this slice because of a column-name error.
+   Expected: three rows. `CME_EQUITY` shows `CME Globex Equity Index`, `America/Chicago`, `17:00:00-16:00:00`, ETH `N/A`, and Holidays Through `2027-12-31`. NASDAQ and NYSE show `2026-12-31`. Before this slice the command failed on nonexistent columns (`calendar_name`, `market_open_time`, `extended_open_time` and others).
 
 2. **Sessions around Thanksgiving and Christmas 2024** (*new*).
    ```bash
-   mt data calendars sessions --calendar CME_EQUITY --from 2024-11-27 --to 2024-12-02
-   mt data calendars sessions --calendar CME_EQUITY --from 2024-12-23 --to 2024-12-27
+   uv run mt data calendars sessions --calendar CME_EQUITY --from 2024-11-27 --to 2024-12-02
+   uv run mt data calendars sessions --calendar CME_EQUITY --from 2024-12-23 --to 2024-12-27
    ```
-   Expected:
-   - 11-28 opens 11-27 17:00 CT and closes at the Thanksgiving halt.
-   - 11-29 opens 11-28 17:00 CT and closes at the Black Friday early close.
-   - 12-02 opens Sunday 12-01 17:00 CT.
-   - There is no 12-25 row, and 12-26 opens 12-25 17:00 CT.
+   Expected, with local times in CT and UTC shown alongside:
+   - 11-28 opens 11-27 17:00 (23:00 UTC) and closes 12:00, marked "Thanksgiving Day".
+   - 11-29 opens 11-28 17:00 and closes 12:15, marked "Day after Thanksgiving".
+   - 12-02 opens Sunday 12-01 17:00.
+   - 12-24 closes 12:15, marked "Christmas Eve".
+   - There is no 12-25 row, and 12-26 opens 12-25 17:00.
+   - `--json` gives the same rows with full ISO timestamps.
+
+   Caveat, fixed during the walkthrough (e0ec815): the UTC columns first showed the database session's zone (UTC−7), because `TradingCalendar` passed the driver's timestamps through unchanged. Sessions and the populated span are now normalised to UTC, and an integration test covers it.
 
 3. **Holiday exceptions.**
    ```bash
-   mt data calendars holidays --calendar CME_EQUITY --year 2024
+   uv run mt data calendars holidays --calendar CME_EQUITY --year 2024
    ```
-   Expected: the 2024 rows from the seed table, each with its status and time.
+   Expected: 13 rows, from New Year's Day (closed) through Christmas Day (closed). Good Friday 2024-03-29 is closed, and early closes show 12:00:00 or 12:15:00.
 
-4. **The lookup on real trades** (*new*). Unzip the `tbbo` job to the scratchpad first.
+4. **The lookup on real trades** (*new*). Unzip the `tbbo` job into the scratchpad first.
    ```bash
    uv run python scripts/verify_cme_sessions.py --calendar CME_EQUITY \
        /data/market-data/databento/GLBX-20240930-USM7UXXJBA <scratch>/GLBX-20250123-XT4GD5UM6C
    ```
-   Expected: record totals per job matching each job's `manifest.json` record count, `outside any session: 0`, and a per-session table of first and last trade against open and close. Exit code 0. Any record outside a session prints its timestamp and the nearest session, and exits 1.
+   Expected:
+   - `GLBX-20240930-USM7UXXJBA: 10,049,172 records` and `GLBX-20250123-XT4GD5UM6C: 17,642,240 records`, both "files verified against manifest.json".
+   - `outside any session: 0`.
+   - A per-session table in CT: open, first trade, last trade, close, records and exception name.
+   - Exit code 0.
+
+   Correction: the jobs' `manifest.json` files carry no record counts, so the script checks each file's size and SHA-256 instead (exit 2 on a mismatch). Any record outside a session prints its timestamp with the sessions either side, and the script exits 1.
 
 5. **The holiday bound in action.**
    ```bash
-   mt data extend --calendar CME_EQUITY
-   mt data extend --calendar CME_EQUITY --strict; echo "exit=$?"
+   uv run mt data extend --calendar CME_EQUITY
+   uv run mt data extend --calendar CME_EQUITY --strict; echo "exit=$?"
    ```
-   Expected: 0 rows upserted, and a line naming the horizon and the holiday bound. `--strict` exits 0 while the bound is more than 90 days away. To see exit 4, use a throwaway database with the bound set 30 days out; the integration test does this.
+   Expected: `CME_EQUITY: horizon 2027-12-31 — holidays seeded through 2027-12-31; seed the next year's CME_EQUITY schedule`, then `0 sessions inserted, 0 updated.`, and `exit=0`.
+   - The bound message appears because the requested end (Dec 31 of the current year + 2) passes the bound: the bound is what stops the horizon.
+   - `--strict` exits 0 while the horizon is more than 90 days away.
+   - Exit 4 is covered by `test_strict_exits_4_when_bound_is_near`, which sets the bound 30 days out on its own throwaway database.
 
-6. **NYSE unchanged.** Run `pytest test/integration -k nyse_sessions_unchanged`. Expected: pass.
+6. **NYSE unchanged.**
+   ```bash
+   uv run pytest test/integration -k nyse_sessions_unchanged
+   uv run pytest test/unit/data/base/test_session_population.py -k baseline
+   ```
+   Expected: both pass. These are the integration and unit halves of the NYSE regression.
 
-7. **The contract.** Open `user/reference/data-correctness-architecture.md`. I11–I14 are present, I7 names the tick exception, the Notes no longer promise sequence-gap detection for tick, and the mapping table has the 221 entries.
+7. **The contract.** Open `user/reference/data-correctness-architecture.md`. Expected:
+   - I11–I14 are present, and I7 names the tick exception.
+   - The Notes say sequence-gap detection is reserved for the realtime initiative.
+   - The mapping table has 14 rows, including the 221 entries.
+
+8. **Clean up.**
+   ```bash
+   uv run python -c "import os,psycopg; c=psycopg.connect(os.environ['MT_TIMESCALE_TEST_URL'],autocommit=True); c.execute('DROP DATABASE t221_walkthrough')"
+   ```
 
 ## Risk Assessment
 

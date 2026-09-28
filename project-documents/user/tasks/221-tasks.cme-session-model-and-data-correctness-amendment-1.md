@@ -261,54 +261,54 @@ files, and check `git diff` for swept pre-existing lines before each commit.
 
 ## Section 4 — CME exception table (LLD D2, D5)
 
-- [ ] **4.1 Compile the CME Globex equity schedule from CME sources**
-  - [ ] Confirm the regular hours, Sunday–Friday 17:00–16:00 America/Chicago,
+- [x] **4.1 Compile the CME Globex equity schedule from CME sources**
+  - [x] Confirm the regular hours, Sunday–Friday 17:00–16:00 America/Chicago,
         across 2020-01-01 → today from CME's E-mini S&P 500 contract specs and
         notices. If the hours changed inside that range, **stop and ask the
         PM** (D2). The 2021 removal of the 15:15–15:30 halt does not count.
-  - [ ] Build the list of exception dates for 2020 through the last year CME
+  - [x] Build the list of exception dates for 2020 through the last year CME
         has published:
     - current and next year from cmegroup.com/tools-information/holiday-calendar.html;
     - past years from CME's per-holiday trading-hours notices.
-  - [ ] For each date, record `market_status` (`closed`, `early_close` or
+  - [x] For each date, record `market_status` (`closed`, `early_close` or
         `late_open`), the time, the holiday name, and the source URL or notice
         id.
-  - [ ] A year that cannot be sourced from CME is reported to the PM. It is
+  - [x] A year that cannot be sourced from CME is reported to the PM. It is
         never filled from memory or from a rule.
-  - [ ] Record the bound as the last day of the last fully published year.
-  - [ ] Success: a working list in the scratchpad with a source for every row
-  - [ ] Effort: 4
+  - [x] Record the bound as the last day of the last fully published year.
+  - [x] Success: a working list in the scratchpad with a source for every row
+  - [x] Effort: 4
 
-- [ ] **4.2 Cross-check against an independent derivation**
-  - [ ] In the scratchpad only, run
+- [x] **4.2 Cross-check against an independent derivation**
+  - [x] In the scratchpad only, run
         `uv run --with pandas_market_calendars python <script>`. The script
         lists the `CME Globex Equity` calendar's holidays and early closes
         over the same range, then diffs them against 4.1.
-  - [ ] Resolve each difference from a CME notice.
-  - [ ] Add an `## Implementation Findings` section to the slice design with
+  - [x] Resolve each difference from a CME notice.
+  - [x] Add an `## Implementation Findings` section to the slice design with
         a table of the differences: date, 4.1 value, library value, resolution
         and source.
-  - [ ] Success: every difference is resolved or escalated, and
+  - [x] Success: every difference is resolved or escalated, and
         `pyproject.toml` and `uv.lock` are unchanged
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **4.3 Create `market/schema/seed_cme_calendar.py`**
-  - [ ] Add `CME_EQUITY_CALENDAR_ID = "CME_EQUITY"`, defined once. It is the
+- [x] **4.3 Create `market/schema/seed_cme_calendar.py`**
+  - [x] Add `CME_EQUITY_CALENDAR_ID = "CME_EQUITY"`, defined once. It is the
         only place the literal appears. Other modules import it (6.3).
-  - [ ] Add `CME_EQUITY_CALENDAR` metadata with the D2 values,
+  - [x] Add `CME_EQUITY_CALENDAR` metadata with the D2 values,
         `CME_EQUITY_SEED_START = date(2020, 1, 1)`, and
         `CME_EQUITY_HOLIDAYS_SEEDED_THROUGH` from 4.1.
-  - [ ] Add `CME_EQUITY_EXCEPTIONS`: one explicit dict per 4.1 row, in date
+  - [x] Add `CME_EQUITY_EXCEPTIONS`: one explicit dict per 4.1 row, in date
         order, each preceded by a `# source:` comment. No rule functions.
-  - [ ] Add INSERT builders for this calendar row, including
+  - [x] Add INSERT builders for this calendar row, including
         `holidays_seeded_through`, and for its holidays, with `ON CONFLICT DO
         NOTHING`. Do not modify `seed_calendar.generate_calendar_insert_sql`
         (LLD Patterns).
-  - [ ] Success: imports cleanly; mypy clean
-  - [ ] Effort: 2
+  - [x] Success: imports cleanly; mypy clean
+  - [x] Effort: 2
 
-- [ ] **4.4 Unit tests for the seed table**
-  - [ ] New file `test/unit/test_seed_cme_calendar.py`. Cover:
+- [x] **4.4 Unit tests for the seed table**
+  - [x] New file `test/unit/test_seed_cme_calendar.py`. Cover:
     - every exception date is a weekday and unique, falls between
       `CME_EQUITY_SEED_START` and `CME_EQUITY_HOLIDAYS_SEEDED_THROUGH`, and
       has a valid `MarketStatus`;
@@ -317,30 +317,30 @@ files, and check `git diff` for swept pre-existing lines before each commit.
     - reading the module source, every exception entry is preceded by a
       `# source:` comment;
     - the INSERT builders produce SQL with the expected column list.
-  - [ ] Success: the file passes. **Commit Section 4**, including the 4.2
+  - [x] Success: the file passes. **Commit Section 4**, including the 4.2
         findings in the slice design.
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
 ---
 
 ## Section 5 — Seed migration (LLD Database / Storage Schema)
 
-- [ ] **5.1 Migration `058_seed_cme_equity_calendar`**
-  - [ ] Python callable in the form of 026 (`_run_trading_sessions_population`).
+- [x] **5.1 Migration `058_seed_cme_equity_calendar`**
+  - [x] Python callable in the form of 026 (`_run_trading_sessions_population`).
         It works as follows:
     1. Execute the 4.3 calendar and holiday INSERTs.
     2. Call `extend_calendar_sessions` for `CME_EQUITY_CALENDAR_ID` from
        `CME_EQUITY_SEED_START` to Dec 31 of `current_year +
        TRADING_SESSIONS_EXTENSION_YEARS`.
-  - [ ] It does not touch NYSE or NASDAQ.
-  - [ ] Retarget `test_chain_ends_at_056` in
+  - [x] It does not touch NYSE or NASDAQ.
+  - [x] Retarget `test_chain_ends_at_056` in
         `test/unit/test_schema_migrations.py` to `test_chain_ends_at_058`, and
         keep its docstring's reasoning.
-  - [ ] Success: the schema-migrations unit tests pass
-  - [ ] Effort: 2
+  - [x] Success: the schema-migrations unit tests pass
+  - [x] Effort: 2
 
-- [ ] **5.2 Integration tests for migration 058**
-  - [ ] New file `test/integration/test_migration_057_058_cme_calendar.py`,
+- [x] **5.2 Integration tests for migration 058**
+  - [x] New file `test/integration/test_migration_057_058_cme_calendar.py`,
         run on a throwaway database. Cover:
     - the `CME_EQUITY` row matches D2, with its bound;
     - the exception rows equal `CME_EQUITY_EXCEPTIONS`;
@@ -349,17 +349,17 @@ files, and check `git diff` for swept pre-existing lines before each commit.
     - the LLD's functional criterion 3 dates (Labor Day 2024, 2024-09-03,
       2024-12-25 absent, 2024-12-26 opening 2024-12-25 17:00 CT);
     - re-applying the migrations is a no-op.
-  - [ ] **NYSE unchanged:** dump NYSE and NASDAQ `trading_sessions` after
+  - [x] **NYSE unchanged:** dump NYSE and NASDAQ `trading_sessions` after
         migrating through 056, then again after 057 and 058, then again after
         `extend_calendar_sessions` runs for both over their current range.
         All three dumps must be identical. Name the test
         `test_nyse_sessions_unchanged`. This is the integration-tier half of
         the LLD's "NYSE regression test". The unit-tier half is in 1.2.
-  - [ ] **Strict exit 4:** on this throwaway database, set the CME bound 30
+  - [x] **Strict exit 4:** on this throwaway database, set the CME bound 30
         days out, and assert that `mt data extend --calendar CME_EQUITY
         --strict` exits 4 and prints the bound message.
-  - [ ] Success: the file passes. **Commit Section 5.**
-  - [ ] Effort: 3
+  - [x] Success: the file passes. **Commit Section 5.**
+  - [x] Effort: 3
 
 ---
 

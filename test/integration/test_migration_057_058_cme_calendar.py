@@ -74,7 +74,12 @@ def _dump_sessions(
 
 
 def invoke_cli(url: str, *args: str) -> Result:
-    """Run ``mt`` against ``url`` with a patched Settings (no env URLs read)."""
+    """Run ``mt`` against ``url`` with a patched Settings (no env URLs read).
+
+    Parse ``result.stdout``: ``result.output`` also carries stderr, where log
+    lines (and, in a full-tier run, logging errors from handlers bound to an
+    earlier runner's closed stream) land ahead of the JSON.
+    """
     settings = MagicMock()
     settings.timescale_db_url = url
     settings.market_db_url = None
@@ -238,7 +243,7 @@ def test_calendars_list_shows_all_three(session_migrated_db: str) -> None:
     assert result.exit_code == 0, result.output
     bounds = {
         r["calendar_id"]: r["holidays_seeded_through"]
-        for r in json.loads(result.output)
+        for r in json.loads(result.stdout)
     }
     assert bounds == {
         CME_EQUITY_CALENDAR_ID: CME_EQUITY_HOLIDAYS_SEEDED_THROUGH.isoformat(),
@@ -255,7 +260,7 @@ def test_calendar_sessions_thanksgiving_week_2024(session_migrated_db: str) -> N
         "--from", "2024-11-25", "--to", "2024-11-29", "--json",
     )  # fmt: skip
     assert result.exit_code == 0, result.output
-    rows = {r["session_date"]: r for r in json.loads(result.output)}
+    rows = {r["session_date"]: r for r in json.loads(result.stdout)}
     assert list(rows) == [
         "2024-11-25", "2024-11-26", "2024-11-27", "2024-11-28", "2024-11-29",
     ]  # fmt: skip
