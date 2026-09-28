@@ -41,8 +41,10 @@ status: not_started
 
 **Test environment.** Export `MT_TIMESCALE_TEST_URL` from `.env` with the
 quotes stripped. Run mypy on the src kalshi paths, the touched src paths and
-the tests in one invocation (a narrower run reports false errors). Run ruff
-format on touched files only, then check `git diff main` for swept lines. Run
+the tests in one invocation (a narrower run reports false errors). **Before
+every commit step** below, run ruff check and ruff format on that commit's
+touched files only, then check `git diff main` for swept pre-existing lines
+(review F004); 7.1 is the final sweep, not the first. Run
 the unit and integration tiers separately; known pre-existing failures are not
 regressions, so re-run a failure in isolation before investigating.
 
@@ -186,6 +188,8 @@ walkthrough's step 1 command.
         `DeliveryMode`, `UnitState`, `FetchStatus`, `UNIT_STATES_WITH_FILE`):
         the rendered list parsed back equals the set of member values
   - [ ] `_interval_ns(TICK_TRADE_CHUNK_INTERVAL) == 604_800_000_000_000`
+  - [ ] Every id after the bootstrap matches `tick_\d{3}_`, and ids are
+        unique and ascending (holds vacuously now; guards each later entry)
   - [ ] Success: the new file passes
   - [ ] Effort: 1
 
@@ -201,8 +205,17 @@ walkthrough's step 1 command.
   - [ ] Applying `TRACKS["tick"]` a second time applies nothing and the
         ledger holds exactly the track's ids (FR1). Extend this assertion as
         each later migration lands
-  - [ ] Unit test in `test_tick_migrations.py`: every id after the bootstrap
-        matches `tick_\d{3}_` and ids are unique and ascending
+  - [ ] Fix 923's tests in `test/integration/data/test_two_database_migrate.py`
+        that assume the track is the bootstrap alone:
+        `test_apply_tick_writes_only_the_tick_ledger` and
+        `test_status_tick_reads_the_tick_ledger` assert
+        `[BOOTSTRAP_MIGRATION_ID]`. Derive the expected ids from
+        `TRACKS["tick"]` instead, as `test_init_tick_brings_a_bare_database_to_head`
+        already does
+  - [ ] FR1 through the CLI: in `test_init_tick_brings_a_bare_database_to_head`,
+        invoke `init --database tick` a second time and assert it applies
+        nothing. With the fix above, 923's CLI tests now cover this slice's
+        migrations with no manual step
   - [ ] Success: both files pass
   - [ ] Effort: 1
   - [ ] Commit: `feat(tick): add tick_001 extensions migration`
@@ -241,6 +254,7 @@ walkthrough's step 1 command.
   - [ ] `fetch_status = 'UNKNOWN'` with a `failure_reason` is rejected; a
         failed status without one is rejected
   - [ ] Empty `symbols`, `range_end <= range_start`, negative cost, a
+        negative `attempt_count`, a
         duplicate `(request_id, unit_date)`, a unit superseded by itself and
         a second unit repurchasing the same unit are each rejected
   - [ ] Success: the file passes
@@ -290,7 +304,11 @@ walkthrough's step 1 command.
 
 - [ ] **3.11 Integration tests: trade key, BBO rule, geometry (FR2–FR4)**
   - [ ] Two rows equal in every field except `sequence_ordinal` both insert;
-        repeating an ordinal raises `UniqueViolation`
+        repeating an ordinal raises `UniqueViolation`; a negative ordinal is
+        rejected
+  - [ ] No foreign key exists on `tick_trade` (TD6): `pg_constraint` has no
+        `contype = 'f'` row for it, and a row with a `unit_id` matching no
+        unit inserts
   - [ ] Parametrized over the six BBO columns: a row with only that one NULL
         is rejected; all six NULL and all six set both insert
   - [ ] `timescaledb_information.dimensions`: one row, `ts_event`, `bigint`,
