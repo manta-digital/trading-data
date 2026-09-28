@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-28
+
 ### Added
 - **A CME futures calendar for ES.** `CME_EQUITY` (CME Globex equity,
   17:00 → 16:00 America/Chicago, each session dated by the day it closes)
