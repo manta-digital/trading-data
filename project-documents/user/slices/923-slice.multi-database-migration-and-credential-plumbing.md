@@ -203,6 +203,16 @@ already 3,929 lines, would force them to import from the CLI.
 and does not run the guard, since it is read-only. `mt data init --database D`
 applies `DEFAULT_TRACK_FOR[D]`: `minute` for `PRIMARY`, `tick` for `TICK`.
 
+**Factory contract.** `_create_timescale_db(ctx, conninfo=None)` falls back to
+`settings.timescale_db_url` when `conninfo` is omitted. Today `migrate status`
+and `init --validate-only` both rely on that fallback, and both check
+`settings.timescale_db_url` directly. Every track-routed command (`migrate
+apply`, `migrate status`, and `init` with or without `--validate-only`) now
+resolves its URL through `resolve_database_url` and always passes it as
+`conninfo`. Status's direct `timescale_db_url` check is replaced by the
+resolver. The no-`conninfo` default remains only for the non-migration primary
+read paths (instruments, bars, caggs, and similar), which never route by track.
+
 The primary path, `--track minute` or no option, resolves
 `MT_TIMESCALE_MAINTENANCE_URL` / `MT_TIMESCALE_DB_URL`. Those are the same
 variables as today, with the same error text and the same output. The only
@@ -386,11 +396,30 @@ other slice 105 cleanup (`TickEventType` and its unit test).
 ### Error Handling
 
 - Errors are typed in `databases.py` and mapped once, at the CLI, to
-  `print_error` plus exit 1. There is no `except Exception`.
+  `print_error` plus exit 1. New code adds no `except Exception`.
 - `migrate status`'s JSON error shape (`{"connected": false, "error": …}`) is
-  kept for both databases, with the tick variable named in `error`.
+  kept for both databases, with the tick variable named in `error`. Its
+  existing process-boundary handler already covers connection failures.
 - `LedgerMisrouteError` and `DatabaseNotConfiguredError` never fall through to
   a psycopg error mid-migration. Both are raised before the first statement.
+- **Connection failures in `apply` and `init`.** The pool opens in the
+  background, so an unreachable or refusing peer shows up at the first
+  `getconn` as `psycopg_pool.PoolTimeout`, after the pool's existing 30 s wait.
+  No new timeout setting is added. That first `getconn` is the guard's `SELECT`,
+  and the guard runs before any DDL. A peer that drops during the guard raises
+  `psycopg.OperationalError`, also before any DDL. The CLI catches these two
+  types around the whole routed command (a process-boundary handler, which the
+  project's exception rule permits), prints
+  `could not connect to the <database> database (<env var>): <error>`, and
+  exits 1. No DDL runs in either case.
+- **A disconnect mid-apply** needs no new handling. Each migration runs in its
+  own transaction (the existing runner contract), so the migration in flight
+  rolls back, earlier ones stay committed and recorded, and a re-run resumes.
+  The CLI maps the error the same way and exits 1.
+- This mapping is one code path for both databases. On the primary, the only
+  observable change is that a connection failure prints one line instead of a
+  traceback. The unchanged-primary criteria below cover the success paths and
+  the configuration-error paths, and those are unaffected.
 
 ## Implementation Details
 
@@ -470,7 +499,10 @@ tracks' bootstrap, created in the tick database on first apply.
    database at `MT_TICK_MAINTENANCE_URL`, and the ledger rows appear there and
    nowhere else.
 2. `mt data migrate status --track tick` reads the tick ledger through
-   `MT_TICK_DB_URL`.
+   `MT_TICK_DB_URL`. With `MT_TICK_DB_URL` unset and `MT_TIMESCALE_DB_URL`
+   set, it exits 1 naming `MT_TICK_DB_URL` and opens no connection. The same
+   holds for `mt data init --database tick --validate-only`. Together these
+   prove that no track-routed path reaches the factory's primary default.
 3. With `MT_TICK_MAINTENANCE_URL` unset, `apply --track tick` exits 1 naming
    that variable. This holds even when `MT_TICK_DB_URL`,
    `MT_TIMESCALE_DB_URL`, and `MT_TIMESCALE_MAINTENANCE_URL` are all set, and
@@ -481,13 +513,16 @@ tracks' bootstrap, created in the tick database on first apply.
    `tick_*` ids) also exits 1.
 5. `mt data init --database tick` brings a bare tick database to the head of
    the tick track. `mt data init`, with no option, is unchanged.
-6. Primary unchanged:
+6. With `MT_TICK_MAINTENANCE_URL` pointing at an unreachable port on the test
+   cluster, `apply --track tick` exits 1 with the one-line connection error
+   naming that variable, prints no traceback, and runs no statement.
+7. Primary unchanged:
    - The existing unit tests for the maintenance resolver, DDL URL routing,
      `data init`, and `cli data` pass with no edits.
    - The 913 privilege suite passes with no edits.
    - `mt data migrate status --json` against production is identical before
      and after (Walkthrough, step 1).
-7. `provision_tick_roles.sql` applied to the test cluster produces:
+8. `provision_tick_roles.sql` applied to the test cluster produces:
    - `tick_app` cannot `TRUNCATE`, `DROP`, or write the ledger.
    - `tick_app` can create a temp table.
    - `tick_migrate` owns the database and can `CREATE EXTENSION timescaledb`.
@@ -507,7 +542,9 @@ tracks' bootstrap, created in the tick database on first apply.
     track, and non-bootstrap ids are unique per database.
   - The guard: foreign ids, unknown ids, a missing ledger, and the bootstrap
     exemption.
-  - The CLI: routing and error messages, run under `Settings(_env_file=None)`.
+  - The CLI: routing, error messages, and the connection-failure mapping
+    (`PoolTimeout` and `OperationalError` become exit 1 before any DDL), run
+    under `Settings(_env_file=None)`.
 - Integration tests:
   - The two-database routing suite, including misroute.
   - The tick privilege suite.
