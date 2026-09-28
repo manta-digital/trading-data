@@ -15,11 +15,19 @@ whole tier.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import uuid
+from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse, urlunparse
 
 import psycopg
 import pytest
+from tick_support.database import (
+    ProvisionedTickDb,
+    apply_artifact_or_fail,
+    apply_tick_track_as,
+    drop_tick_db,
+)
 
 if TYPE_CHECKING:
     from manta_trading.data.kalshi.repository import CatalogRepository
@@ -106,3 +114,44 @@ def kalshi_repo(kalshi_conn: psycopg.AsyncConnection[Any]) -> CatalogRepository:
     from manta_trading.data.kalshi.repository import CatalogRepository
 
     return CatalogRepository(kalshi_conn)
+
+
+# ---------------------------------------------------------------------------
+# Tick database (slice 923): the provisioning artifact applied for real
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def provisioned_tick_db(test_admin_url: str) -> Iterator[ProvisionedTickDb]:
+    """A tick database built by the real artifact, in the documented order.
+
+    Provision → apply the tick track as the migrate role (``mt data init
+    --database tick``) → provision again. The second run is what makes the
+    ledger SELECT-only: the migrate role's default privileges grant DML on
+    every table it creates, the ledger included, and the ledger does not exist
+    until the track is applied (measured, slice 923).
+
+    Per-run names, because roles are cluster-wide and the test cluster must
+    never gain a real ``tick_app``. Session-scoped: the privilege suite is
+    read-only apart from work it rolls back or undoes.
+    """
+    suffix = uuid.uuid4().hex[:10]
+    name = f"mt_test_tp{suffix}"
+    tick = ProvisionedTickDb(
+        name=name,
+        url=urlunparse(urlparse(test_admin_url)._replace(path=f"/{name}")),
+        app_role=f"t923_app_{suffix}",
+        migrate_role=f"t923_mig_{suffix}",
+    )
+    try:
+        apply_artifact_or_fail(tick, test_admin_url)
+        # The artifact grants SET on the migrate role only (it needs it for
+        # CREATE DATABASE ... OWNER). The suite also SETs ROLE to the app role;
+        # PostgreSQL 16+ CREATEROLE confers ADMIN but not SET (see 913).
+        with psycopg.connect(test_admin_url, autocommit=True) as grantor:
+            grantor.execute(f'GRANT "{tick.app_role}" TO CURRENT_USER WITH SET TRUE')
+        apply_tick_track_as(tick.url, tick.migrate_role)
+        apply_artifact_or_fail(tick, test_admin_url)
+        yield tick
+    finally:
+        drop_tick_db(tick, test_admin_url)

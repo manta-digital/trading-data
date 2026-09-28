@@ -177,13 +177,13 @@ re-run in isolation before investigating.
 
 ## Section 2 — CLI routing and the misroute guard
 
-- [ ] **2.1 Implement the misroute guard (D5)**
-  - [ ] In `databases.py`, add `LedgerMisrouteError(Exception)`. It carries the
+- [x] **2.1 Implement the misroute guard (D5)**
+  - [x] In `databases.py`, add `LedgerMisrouteError(Exception)`. It carries the
         target database, the target track, up to five foreign ids, and the
         variable to check. Its message follows the LLD Walkthrough step 5 text:
         "refusing: this database's ledger holds migrations of track(s) routed to
         <db> (<ids>); check <ENV_VAR>"
-  - [ ] Split it into a pure function and a thin query:
+  - [x] Split it into a pure function and a thin query:
     1. `foreign_ledger_ids(ledger_ids, database) -> list[str]`: ids belonging to
        tracks routed to another database. It excludes `001_schema_migrations`,
        ignores ids in no track, and returns them sorted. It reads
@@ -192,104 +192,104 @@ re-run in isolation before investigating.
        `to_regclass('schema_migrations')`: a missing ledger returns. Otherwise
        it selects the ids, calls (1), and raises on any hit. It issues only
        `SELECT`s.
-  - [ ] Success: under 50 lines each; `databases.py` stays under 300 lines
-  - [ ] Effort: 2
+  - [x] Success: under 50 lines each; `databases.py` stays under 300 lines
+  - [x] Effort: 2
 
-- [ ] **2.2 Unit tests for the guard**
-  - [ ] In `test_databases.py`, test `foreign_ledger_ids` for:
+- [x] **2.2 Unit tests for the guard**
+  - [x] In `test_databases.py`, test `foreign_ledger_ids` for:
     1. minute ids against `TICK` → returned
     2. `tick_*`-shaped ids against `PRIMARY` (monkeypatch a registry with one
        fake `tick_001_x` id) → returned
     3. the bootstrap id → never returned
     4. unknown ids → ignored
     5. the target's own ids → empty
-  - [ ] Test `assert_ledger_belongs` with a stub pool/cursor: a missing ledger
+  - [x] Test `assert_ledger_belongs` with a stub pool/cursor: a missing ledger
         returns without the id query; a hit raises with at most five ids and
         names the variable
-  - [ ] Success: tests pass
-  - [ ] Effort: 2
+  - [x] Success: tests pass
+  - [x] Effort: 2
 
-- [ ] **2.3 Add one routed-connection helper in `data.py`**
-  - [ ] Add `_routed_db(ctx, database, credential)`. It resolves the URL, maps
+- [x] **2.3 Add one routed-connection helper in `data.py`**
+  - [x] Add `_routed_db(ctx, database, credential)`. It resolves the URL, maps
         `DatabaseNotConfiguredError` to `print_error` + exit 1, and returns
         `(_create_timescale_db(ctx, conninfo=url), env_var)`. It always passes
         `conninfo` (the LLD's "Factory contract" paragraph under Data Flow).
-  - [ ] Add a context manager or wrapper that maps
+  - [x] Add a context manager or wrapper that maps
         `psycopg_pool.PoolTimeout` and `psycopg.OperationalError` to
         `print_error("could not connect to the <database> database (<ENV_VAR>):
         <error>")` + exit 1 (LLD Error Handling). Catch exactly these two types.
         Add a comment saying it is a process-boundary handler.
-  - [ ] Map `LedgerMisrouteError` to `print_error` + exit 1 in the same place
-  - [ ] Success: one definition of each mapping, used by all three commands
+  - [x] Map `LedgerMisrouteError` to `print_error` + exit 1 in the same place
+  - [x] Success: one definition of each mapping, used by all three commands
         below
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **2.4 Route `mt data migrate apply` by track**
-  - [ ] Resolve via `TRACK_REGISTRY[track].database` and `MAINTENANCE`, then run
+- [x] **2.4 Route `mt data migrate apply` by track**
+  - [x] Resolve via `TRACK_REGISTRY[track].database` and `MAINTENANCE`, then run
         `assert_ledger_belongs` and then `apply_schema_migrations(TRACKS[track])`
-  - [ ] Replace the stale `_TRACK_OPTION` comment ("Both tracks target the same
+  - [x] Replace the stale `_TRACK_OPTION` comment ("Both tracks target the same
         database…") with one saying the choices come from the registry and each
         track routes to its own database
-  - [ ] Success: `--track minute` and no option resolve
+  - [x] Success: `--track minute` and no option resolve
         `MT_TIMESCALE_MAINTENANCE_URL` with the unchanged message
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **2.5 Route `mt data migrate status` by track**
-  - [ ] Replace the direct `settings.timescale_db_url` check and the argumentless
+- [x] **2.5 Route `mt data migrate status` by track**
+  - [x] Replace the direct `settings.timescale_db_url` check and the argumentless
         `_create_timescale_db(ctx)` with the resolver: the track's database and
         `APPLICATION`. No guard (read-only).
-  - [ ] Keep the JSON error shape `{"connected": false, "error": …, "applied":
+  - [x] Keep the JSON error shape `{"connected": false, "error": …, "applied":
         [], "pending": []}`. When unconfigured, `error` names the resolved
         variable. For the primary, keep the existing `"URL not configured"` JSON
         text and `"MT_TIMESCALE_DB_URL not configured."` human text byte for
         byte.
-  - [ ] Keep the existing connection handler (it already covers connect
+  - [x] Keep the existing connection handler (it already covers connect
         failures)
-  - [ ] Success: `test_cli_data.py` passes unedited
-  - [ ] Effort: 2
+  - [x] Success: `test_cli_data.py` passes unedited
+  - [x] Effort: 2
 
-- [ ] **2.6 Add `mt data init --database` (D7)**
-  - [ ] `--database`: choices from `Database`, default `primary`. The track is
+- [x] **2.6 Add `mt data init --database` (D7)**
+  - [x] `--database`: choices from `Database`, default `primary`. The track is
         `DEFAULT_TRACK_FOR[database]`.
-  - [ ] The apply path uses `MAINTENANCE`, runs the guard, then applies
+  - [x] The apply path uses `MAINTENANCE`, runs the guard, then applies
         `TRACKS[track]`. `--validate-only` uses `APPLICATION` and reads
         `list_migration_state(TRACKS[track])`. Both go through `_routed_db`, so
         neither reaches the factory's primary default.
-  - [ ] The table and JSON output are unchanged for the no-argument path
-  - [ ] Success: `test_data_init.py` passes unedited
-  - [ ] Effort: 2
+  - [x] The table and JSON output are unchanged for the no-argument path
+  - [x] Success: `test_data_init.py` passes unedited
+  - [x] Effort: 2
 
-- [ ] **2.7 Unit tests for CLI routing**
-  - [ ] Create `test/unit/cli/test_migrate_track_routing.py`, with Typer's
+- [x] **2.7 Unit tests for CLI routing**
+  - [x] Create `test/unit/cli/test_migrate_track_routing.py`, with Typer's
         `CliRunner` and `Settings(_env_file=None)`. Stub `_create_timescale_db`
         so it records the `conninfo` it received and opens nothing.
-  - [ ] `apply --track tick` receives `MT_TICK_MAINTENANCE_URL`, and
+  - [x] `apply --track tick` receives `MT_TICK_MAINTENANCE_URL`, and
         `apply --track minute` receives `MT_TIMESCALE_MAINTENANCE_URL`
-  - [ ] `status --track tick` receives `MT_TICK_DB_URL`, and
+  - [x] `status --track tick` receives `MT_TICK_DB_URL`, and
         `init --database tick` / `init --database tick --validate-only` receive
         the tick maintenance / application URL
-  - [ ] Functional Requirement 3: tick maintenance unset while all three other
+  - [x] Functional Requirement 3: tick maintenance unset while all three other
         URLs are set → exit 1 naming `MT_TICK_MAINTENANCE_URL`, factory never
         called
-  - [ ] Functional Requirement 2: `MT_TICK_DB_URL` unset and
+  - [x] Functional Requirement 2: `MT_TICK_DB_URL` unset and
         `MT_TIMESCALE_DB_URL` set → `status --track tick` and
         `init --database tick --validate-only` both exit 1 naming
         `MT_TICK_DB_URL`, factory never called
-  - [ ] Connection mapping: the stub raises `PoolTimeout`, then
+  - [x] Connection mapping: the stub raises `PoolTimeout`, then
         `OperationalError` → exit 1, one-line message naming the variable, no
         traceback in the output, and apply is never called
-  - [ ] Misroute mapping: the guard raises → exit 1, and apply is never called
-  - [ ] `--track` choices include `tick`; `--database` choices are exactly
+  - [x] Misroute mapping: the guard raises → exit 1, and apply is never called
+  - [x] `--track` choices include `tick`; `--database` choices are exactly
         `primary` and `tick`
-  - [ ] Success: the new file passes, plus the task 1.6 command, with the same
+  - [x] Success: the new file passes, plus the task 1.6 command, with the same
         empty `git diff --stat`
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] **2.8 Checkpoint**
-  - [ ] ruff (touched files, check for swept lines), then mypy per the test
+- [x] **2.8 Checkpoint**
+  - [x] ruff (touched files, check for swept lines), then mypy per the test
         environment note
-  - [ ] Commit: `feat: route migrate and init by track database with misroute guard`
-  - [ ] Effort: 1
+  - [x] Commit: `feat: route migrate and init by track database with misroute guard`
+  - [x] Effort: 1
 
 ---
 
