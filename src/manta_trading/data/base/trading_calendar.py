@@ -13,7 +13,7 @@ tables (slice 102). Uses per-instance dict cache (not lru_cache).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -26,6 +26,10 @@ from manta_trading.data.base.session_index import Session, SessionIndex
 from manta_trading.logging import get_logger
 
 _logger = get_logger(__name__)
+
+
+def _as_utc(ts: datetime | None) -> datetime | None:
+    return ts.astimezone(UTC) if ts is not None else None
 
 
 def _require_aware(ts: datetime) -> None:
@@ -245,7 +249,9 @@ class TradingCalendar:
                         (self.calendar_id,),
                     )
                     row = cur.fetchone()
-            self._cache[key] = (row[0], row[1]) if row else (None, None)
+            self._cache[key] = (
+                (_as_utc(row[0]), _as_utc(row[1])) if row else (None, None)
+            )
         span: tuple[datetime | None, datetime | None] = self._cache[key]
         return span
 
@@ -272,7 +278,14 @@ class TradingCalendar:
                     (self.calendar_id, start_utc, end_utc),
                 )
                 rows = cur.fetchall()
-        return [Session(self.calendar_id, *row) for row in rows]
+        # The driver returns timestamptz in the DB session's time zone; the
+        # Session contract is UTC.
+        return [
+            Session(
+                self.calendar_id, day, opened.astimezone(UTC), closed.astimezone(UTC)
+            )
+            for day, opened, closed in rows
+        ]
 
     def sessions_between(self, start_utc: datetime, end_utc: datetime) -> list[Session]:
         """Sessions intersecting ``[start_utc, end_utc)``, in order.

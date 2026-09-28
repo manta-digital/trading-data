@@ -215,6 +215,14 @@ class TestCmeSessionLookup:
         with pytest.raises(ValueError, match="naive"):
             cme.session_containing(datetime(2024, 9, 3, 10))
 
+    def test_sessions_and_span_are_utc(self, cme: TradingCalendar) -> None:
+        """The driver hands back the DB session's zone; the contract is UTC."""
+        sessions = cme.sessions_between(_ct(2024, 11, 25, 0), _ct(2024, 11, 27, 0))
+        stamps = [t for s in sessions for t in (s.open_utc, s.close_utc)]
+        stamps += [t for t in cme.populated_span() if t is not None]
+        assert stamps
+        assert all(t.utcoffset() == timedelta(0) for t in stamps)
+
     def test_sessions_between_thanksgiving_week(self, cme: TradingCalendar) -> None:
         sessions = cme.sessions_between(_ct(2024, 11, 25, 0), _ct(2024, 11, 30, 0))
         assert [s.session_date for s in sessions] == [
