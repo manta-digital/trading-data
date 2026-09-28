@@ -410,9 +410,29 @@ session's full identity by itself. There is no CHECK on the calendar id:
 the set grows with 230 (GC), and 221's session lookup already refuses an
 unknown calendar at ingest.
 
-The tier is not on the ledger. It is `tick_request.schema`, one join away,
-and a copy could disagree with it. The architecture's "recorded on each
-archive unit and ledger row" is satisfied by reaching it through the unit.
+The tier is not on the ledger. It is `tick_request.schema`, reached through
+`unit_id → request_id`, and a copy could disagree with it. The
+architecture's "recorded on each archive unit and ledger row" is satisfied
+by reaching it through the unit.
+
+What it costs readers (review F004):
+
+- **No surface gains a join to the unit table.** Every session-total read
+  already joins the ledger to `tick_archive_unit`. That join supplies the
+  current-unit predicate (`superseded_by_unit_id IS NULL`) the architecture
+  requires, so a ledger-only read cannot answer anything today. The tier
+  adds one more join, from unit to request.
+- **The added join is tiny.** The manifest grows by one request per job
+  and one unit per UTC day per request: thousands of rows over the plan's
+  included year, against a ledger that grows per instrument-session. The
+  join is a primary-key lookup into a table that fits in memory.
+- **Tier-aware reads are rare by design.** One tier is used almost
+  everywhere, and no tier-mixing reads are built (architecture, "Storage").
+  Status and coverage (224, 228) read tier per instrument, not per ledger
+  row.
+- **If 228 or 229 measure otherwise,** adding a denormalized column is an
+  additive tick-track migration with a backfill from the join. A
+  `schema`-only request row cannot disagree with it at backfill time.
 
 ### Technical Decision 8: chunk interval of 7 days, from wall-clock span
 
