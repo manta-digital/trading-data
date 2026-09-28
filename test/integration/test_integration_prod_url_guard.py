@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from _prod_url_guard import assert_ratchet
+from _prod_url_guard import PRIMARY_URL_VAR, TICK_URL_VARS, assert_ratchet
 
 # Frozen 2026-08-04. SHRINK ONLY — never add an entry.
 ALLOWED_PROD_URL_READERS: frozenset[str] = frozenset(
@@ -57,4 +57,9 @@ ALLOWED_PROD_URL_READERS: frozenset[str] = frozenset(
 
 
 def test_integration_tier_never_adds_prod_db_url_readers() -> None:
-    assert_ratchet(Path(__file__).parent, ALLOWED_PROD_URL_READERS)
+    assert_ratchet(Path(__file__).parent, ALLOWED_PROD_URL_READERS, (PRIMARY_URL_VAR,))
+
+
+def test_integration_tier_never_reads_tick_db_urls() -> None:
+    """Slice 923 D9: the tick variables start, and stay, at zero readers."""
+    assert_ratchet(Path(__file__).parent, frozenset(), TICK_URL_VARS)

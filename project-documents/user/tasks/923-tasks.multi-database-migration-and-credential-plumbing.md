@@ -298,52 +298,52 @@ re-run in isolation before investigating.
 Measure here first (LLD Risk Assessment). Record each measured role-attribute
 requirement as a comment in the artifact, in `provision_roles.sql`'s style.
 
-- [ ] **3.1 Write `scripts/provision_tick_roles.sql` (D3, D4)**
-  - [ ] Header comment:
+- [x] **3.1 Write `scripts/provision_tick_roles.sql` (D3, D4)**
+  - [x] Header comment:
     - purpose;
     - required `-v tick_db=<name>` (no default);
     - optional `app_role` / `migrate_role` (defaults `tick_app` /
       `tick_migrate`);
     - passwords are set out of band and never committed;
     - it must be reviewed side by side with `provision_roles.sql`.
-  - [ ] Fail with a clear message when `tick_db` is not supplied (psql `\if`
+  - [x] Fail with a clear message when `tick_db` is not supplied (psql `\if`
         on `:{?tick_db}`)
-  - [ ] Create both roles with `\gexec` guards on `pg_roles`, mirroring
+  - [x] Create both roles with `\gexec` guards on `pg_roles`, mirroring
         `provision_roles.sql`
-  - [ ] Only when `current_user` is not a superuser, grant
+  - [x] Only when `current_user` is not a superuser, grant
         `migrate_role TO current_user WITH SET TRUE`. This is the PG16
         CREATEROLE rule; see LLD D8.
-  - [ ] `CREATE DATABASE :tick_db OWNER migrate_role`, guarded on
+  - [x] `CREATE DATABASE :tick_db OWNER migrate_role`, guarded on
         `pg_database` via `\gexec`, outside a transaction
-  - [ ] Then `\connect :tick_db`, and in one transaction:
+  - [x] Then `\connect :tick_db`, and in one transaction:
     1. `REVOKE CONNECT ON DATABASE … FROM PUBLIC`
     2. `GRANT CONNECT, TEMPORARY` to the app role
     3. `REVOKE ALL` / `GRANT SELECT` on `schema_migrations` to the app role,
        guarded, because the ledger may not exist yet
     4. `ALTER DEFAULT PRIVILEGES FOR ROLE migrate_role` granting `SELECT,
        INSERT, UPDATE, DELETE` on tables to the app role
-  - [ ] An empty, commented write-surface list marks where 222 adds tables
-  - [ ] Success: no credentials, no `GRANT postgres`, no `ALTER … OWNER`, and it
+  - [x] An empty, commented write-surface list marks where 222 adds tables
+  - [x] Success: no credentials, no `GRANT postgres`, no `ALTER … OWNER`, and it
         runs twice without error (proved in 3.3)
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] **3.2 Add the `provisioned_tick_db` fixture (D8)**
-  - [ ] In `test/integration/conftest.py`, so 222 can reuse it. Follow
+- [x] **3.2 Add the `provisioned_tick_db` fixture (D8)**
+  - [x] In `test/integration/conftest.py`, so 222 can reuse it. Follow
         `provisioned_roles` in `test/integration/data/test_role_privileges.py`.
-  - [ ] Per-run names: `tick_db=mt_test_tp<hex>`, `t923_app_<hex>` and
+  - [x] Per-run names: `tick_db=mt_test_tp<hex>`, `t923_app_<hex>` and
         `t923_mig_<hex>`. Apply the artifact with `psql -v …` as the test admin
         (`MT_TIMESCALE_TEST_URL`), so the artifact creates the database.
-  - [ ] Apply `TRACKS["tick"]` as the migrate role, so the ledger exists and is
+  - [x] Apply `TRACKS["tick"]` as the migrate role, so the ledger exists and is
         owned by it
-  - [ ] Teardown: terminate backends, `DROP DATABASE`, then `DROP OWNED` /
+  - [x] Teardown: terminate backends, `DROP DATABASE`, then `DROP OWNED` /
         `REVOKE` / `DROP ROLE` in 913's order. Only names this fixture created.
-  - [ ] Yields the database name and both role names
-  - [ ] Success: after a run, `pg_database` has no `mt_test_tp%` rows and
+  - [x] Yields the database name and both role names
+  - [x] Success: after a run, `pg_database` has no `mt_test_tp%` rows and
         `pg_roles` has no `t923_%` rows
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] **3.3 Tick privilege suite (Functional Requirement 8)**
-  - [ ] Create `test/integration/data/test_tick_role_privileges.py`, with one
+- [x] **3.3 Tick privilege suite (Functional Requirement 8)**
+  - [x] Create `test/integration/data/test_tick_role_privileges.py`, with one
         test per bullet:
     1. As the app role: `TRUNCATE`, `DROP` and ledger `INSERT`/`DELETE` are
        denied, using the `_assert_denied` pattern from the 913 suite.
@@ -357,67 +357,67 @@ requirement as a comment in the artifact, in `provision_roles.sql`'s style.
        from the catalog, 913 D8).
     6. Re-applying the artifact exits 0 and changes no catalog row counted in
        (1)–(5).
-  - [ ] If (3) fails: **stop**. Record the exact error and the role
+  - [x] If (3) fails: **stop**. Record the exact error and the role
         attributes in this task's notes, and report to the PM. Do not change the
         artifact, the LLD, or Functional Requirement 8. The LLD mitigation needs
         a PM decision first, because it changes 222's first migration.
-  - [ ] Success: the suite passes; the 913 suite
+  - [x] Success: the suite passes; the 913 suite
         `test/integration/data/test_role_privileges.py` passes unedited
-  - [ ] Effort: 3
+  - [x] Effort: 3
 
-- [ ] **3.4 Checkpoint**
-  - [ ] Commit: `feat: add tick database provisioning artifact and privilege suite`
-  - [ ] Effort: 1
+- [x] **3.4 Checkpoint**
+  - [x] Commit: `feat: add tick database provisioning artifact and privilege suite`
+  - [x] Effort: 1
 
 ---
 
 ## Section 4 — Fixtures and the two-database suite
 
-- [ ] **4.1 Extract `_throwaway_database(prefix)` (D8)**
-  - [ ] In `test/conftest.py`, a context manager holding the create /
+- [x] **4.1 Extract `_throwaway_database(prefix)` (D8)**
+  - [x] In `test/conftest.py`, a context manager holding the create /
         terminate / drop block now duplicated in `ephemeral_db` and
         `session_ephemeral_db`. Both fixtures keep their names, prefixes, scopes
         and teardown.
-  - [ ] Success: `test/integration/data/test_role_privileges.py` and one
+  - [x] Success: `test/integration/data/test_role_privileges.py` and one
         `migrated_db` consumer (for example the kalshi integration tests) pass,
         and there is no leftover `mt_test_%` database
-  - [ ] Commit: `refactor(test): share throwaway database helper`
-  - [ ] Effort: 2
+  - [x] Commit: `refactor(test): share throwaway database helper`
+  - [x] Effort: 2
 
-- [ ] **4.2 Add `ephemeral_tick_db`, `migrated_tick_db` and a two-database
+- [x] **4.2 Add `ephemeral_tick_db`, `migrated_tick_db` and a two-database
       settings helper**
-  - [ ] `ephemeral_tick_db`: `_throwaway_database("mt_test_t")`, owned by the
+  - [x] `ephemeral_tick_db`: `_throwaway_database("mt_test_t")`, owned by the
         test admin. `migrated_tick_db` applies `TRACKS["tick"]`.
-  - [ ] The helper builds `Settings(_env_file=None)` with the primary pair →
+  - [x] The helper builds `Settings(_env_file=None)` with the primary pair →
         `migrated_db` and the tick pair → `ephemeral_tick_db`
-  - [ ] Success: fixtures importable; no test yet
-  - [ ] Effort: 1
+  - [x] Success: fixtures importable; no test yet
+  - [x] Effort: 1
 
-- [ ] **4.3 Two-database routing suite**
-  - [ ] Create `test/integration/data/test_two_database_migrate.py`. Drive the
+- [x] **4.3 Two-database routing suite**
+  - [x] Create `test/integration/data/test_two_database_migrate.py`. Drive the
         CLI with `CliRunner` and the task 4.2 settings.
-  - [ ] Functional Requirement 1: `apply --track tick` → tick ledger rows in
+  - [x] Functional Requirement 1: `apply --track tick` → tick ledger rows in
         the tick database, and the primary ledger has no `tick_*` or new rows
-  - [ ] Functional Requirement 2: `status --track tick` lists the bootstrap as
+  - [x] Functional Requirement 2: `status --track tick` lists the bootstrap as
         applied
-  - [ ] Functional Requirement 4, both directions:
+  - [x] Functional Requirement 4, both directions:
     1. tick maintenance → a minute-migrated database: exit 1 naming minute ids,
        and the ledger row count is unchanged
     2. a minute apply against a ledger holding a synthetic `tick_*` id, inserted
        into a throwaway database with a monkeypatched registry: exit 1
-  - [ ] Functional Requirement 5: `init --database tick` on a bare
+  - [x] Functional Requirement 5: `init --database tick` on a bare
         `ephemeral_tick_db` reaches the head of the track; `init` with no option
         still reports the minute track
-  - [ ] Functional Requirement 6: tick maintenance URL → an unused port on the
+  - [x] Functional Requirement 6: tick maintenance URL → an unused port on the
         test host: exit 1, one-line message naming the variable, no traceback.
         Shorten the wait by patching the pool timeout in the test, not in
         production code.
-  - [ ] Success: the suite passes, with no leftover `mt_test_%` databases
-  - [ ] Effort: 3
+  - [x] Success: the suite passes, with no leftover `mt_test_%` databases
+  - [x] Effort: 3
 
-- [ ] **4.4 Checkpoint**
-  - [ ] Commit: `test: add tick fixtures and two-database migrate suite`
-  - [ ] Effort: 1
+- [x] **4.4 Checkpoint**
+  - [x] Commit: `test: add tick fixtures and two-database migrate suite`
+  - [x] Effort: 1
 
 ---
 

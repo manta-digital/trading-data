@@ -48,6 +48,16 @@ TIERS: dict[str, tuple[str, ...]] = {
 # Extra names each tier is allowed to pull from .env only if already present.
 _ALWAYS_SAFE: tuple[str, ...] = ("MANTA_DATA_DIR",)
 
+# Production database URLs, removed from the inherited environment. Needles
+# concatenated like test/_prod_url_guard.py's. The tick pair (slice 923 D9)
+# names a production database once a tick database exists.
+_PROD_URL_VARS: tuple[str, ...] = (
+    "MT_TIMESCALE" + "_DB_URL",
+    "MT_MARKET_DB_URL",
+    "MT_TICK" + "_DB_URL",
+    "MT_TICK" + "_MAINTENANCE_URL",
+)
+
 
 def load_dotenv_values(path: Path) -> dict[str, str]:
     """Parse ``.env`` without shell expansion (the ``$_`` password trap)."""
@@ -66,8 +76,8 @@ def build_env(tier: str, dotenv: dict[str, str]) -> dict[str, str]:
     # Drop anything prod-shaped inherited from the parent shell. The conftest
     # scrub would catch this too; doing it here keeps the child honest even if
     # someone runs a tier whose conftest is not ours.
-    env.pop("MT_TIMESCALE" + "_DB_URL", None)
-    env.pop("MT_MARKET_DB_URL", None)
+    for name in _PROD_URL_VARS:
+        env.pop(name, None)
 
     for name in allowed:
         if name in dotenv:

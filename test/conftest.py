@@ -17,14 +17,27 @@ from urllib.parse import urlparse, urlunparse
 
 import psycopg
 import pytest
+from _prod_url_guard import PRIMARY_URL_VAR, PROD_URL_VARS
 
-# Needle concatenated so this module's own source cannot trip the static guard.
-_PROD_URL_VAR = "MT_TIMESCALE" + "_DB_URL"
 _PROD_OPT_IN_VAR = "MT_ALLOW_PROD_READS"
 
 
+def scrub_prod_urls() -> list[str]:
+    """Remove every production DB URL from ``os.environ``; return those removed.
+
+    ``MT_ALLOW_PROD_READS=1`` exempts only the primary read variable. The tick
+    variables (slice 923 D9) are always removed: no test reads real tick data.
+    """
+    opted_in = os.environ.get(_PROD_OPT_IN_VAR) == "1"
+    return [
+        name
+        for name in PROD_URL_VARS
+        if not (opted_in and name == PRIMARY_URL_VAR) and os.environ.pop(name, None)
+    ]
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    """Scrub the production DB URL from the environment before collection.
+    """Scrub the production DB URLs from the environment before collection.
 
     The destructive integration tests (``DROP TABLE daily_ohlcv CASCADE``,
     ``TRUNCATE ... CASCADE``) read ``MT_TIMESCALE_DB_URL`` via ``os.environ``
@@ -35,29 +48,27 @@ def pytest_configure(config: pytest.Config) -> None:
 
     Fails closed: the safe state is the *absence* of configuration. Opt in
     with ``MT_ALLOW_PROD_READS=1`` for the read-only checks that genuinely
-    need real production data; that opt-in is deliberately not something any
-    fixture or ``.env`` sets for you.
+    need real production data; that opt-in covers only the primary read
+    variable, and is deliberately not something any fixture or ``.env`` sets
+    for you. The tick-database variables are scrubbed the same way (slice 923).
     """
     global _PRODUCTION_ENDPOINT
-    _PRODUCTION_ENDPOINT = endpoint_of(os.environ.get(_PROD_URL_VAR, ""))
+    _PRODUCTION_ENDPOINT = endpoint_of(os.environ.get(PRIMARY_URL_VAR, ""))
 
-    if os.environ.get(_PROD_OPT_IN_VAR) == "1":
-        return
-
-    if os.environ.pop(_PROD_URL_VAR, None):
-        config.stash[_prod_url_scrubbed] = True
+    config.stash[_prod_urls_scrubbed] = scrub_prod_urls()
 
 
-_prod_url_scrubbed = pytest.StashKey[bool]()
+_prod_urls_scrubbed = pytest.StashKey[list[str]]()
 
 
 def pytest_report_header(config: pytest.Config) -> list[str]:
     """Make the scrub visible, so a wall of skips is never mysterious."""
-    if config.stash.get(_prod_url_scrubbed, False):
+    scrubbed = config.stash.get(_prod_urls_scrubbed, [])
+    if scrubbed:
         return [
-            f"{_PROD_URL_VAR} scrubbed from env (prod-safety guard); "
-            f"tests needing it will skip. Set {_PROD_OPT_IN_VAR}=1 to allow "
-            "read-only production access."
+            f"{', '.join(scrubbed)} scrubbed from env (prod-safety guard); "
+            f"tests needing them will skip. Set {_PROD_OPT_IN_VAR}=1 to allow "
+            f"read-only production access via {PRIMARY_URL_VAR}."
         ]
     return []
 

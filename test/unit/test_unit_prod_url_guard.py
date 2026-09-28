@@ -18,7 +18,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from _prod_url_guard import assert_ratchet
+import pytest
+from _prod_url_guard import (
+    PRIMARY_URL_VAR,
+    TICK_URL_VARS,
+    assert_ratchet,
+    prod_url_readers,
+)
 
 # Frozen 2026-08-04. SHRINK ONLY — never add an entry.
 ALLOWED_PROD_URL_READERS: frozenset[str] = frozenset(
@@ -31,4 +37,26 @@ ALLOWED_PROD_URL_READERS: frozenset[str] = frozenset(
 
 
 def test_unit_tier_never_adds_prod_db_url_readers() -> None:
-    assert_ratchet(Path(__file__).parent, ALLOWED_PROD_URL_READERS)
+    assert_ratchet(Path(__file__).parent, ALLOWED_PROD_URL_READERS, (PRIMARY_URL_VAR,))
+
+
+def test_unit_tier_never_reads_tick_db_urls() -> None:
+    """Slice 923 D9: the tick variables start, and stay, at zero readers."""
+    assert_ratchet(Path(__file__).parent, frozenset(), TICK_URL_VARS)
+
+
+@pytest.mark.parametrize("needle", TICK_URL_VARS)
+def test_multiline_tick_url_read_is_detected(tmp_path: Path, needle: str) -> None:
+    """The real-world shape: marker and variable on different lines."""
+    (tmp_path / "reader.py").write_text(
+        f'import os\n_URL = os.environ.get(\n    "{needle}",\n    "",\n)\n',
+        encoding="utf-8",
+    )
+    assert prod_url_readers(tmp_path) == {"reader.py"}
+
+
+def test_tick_url_mention_without_read_is_ignored(tmp_path: Path) -> None:
+    (tmp_path / "mention.py").write_text(
+        f'"""Set {TICK_URL_VARS[0]} for the tick database."""\n', encoding="utf-8"
+    )
+    assert prod_url_readers(tmp_path) == set()
