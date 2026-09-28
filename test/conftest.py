@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
 from urllib.parse import urlparse, urlunparse
 
 import psycopg
@@ -172,29 +173,21 @@ def swap_dbname(url: str, new_db: str) -> MaskedUrl:
     return MaskedUrl(urlunparse(parsed._replace(path=f"/{new_db}")))
 
 
-@pytest.fixture(scope="session")
-def test_admin_url() -> str:
-    """The verified test-cluster admin URL.
-
-    Provided as a fixture rather than an import because ``test/integration/``
-    has its own ``conftest``, which shadows this module for anything under it.
-    Fixtures resolve through the conftest chain and are unaffected.
-    """
-    require_usable_test_endpoint()
-    return TEST_ADMIN_URL
+#: Throwaway database names are this long: the prefix plus random hex.
+_THROWAWAY_NAME_LEN = 20
 
 
-@pytest.fixture(scope="function")
-def ephemeral_db() -> Iterator[str]:
-    """Create a UUID-named database, yield its URL, drop it on teardown.
+@contextmanager
+def _throwaway_database(prefix: str) -> Iterator[MaskedUrl]:
+    """Create a ``<prefix><hex>`` database, yield its URL, drop it on exit.
 
-    A genuinely empty database, so migration-level tests neither mutate shared
-    state nor inherit another database's chunk layout. Shared at the ``test/``
-    level so both the integration and load tiers can use it.
+    The one create / terminate / drop block behind every throwaway-database
+    fixture (slice 923 D8). Every prefix starts ``mt_test_``, which is what
+    marks a database as the suite's to drop.
     """
     require_usable_test_endpoint()
 
-    db_name = f"mt_test_{uuid.uuid4().hex[:12]}"
+    db_name = prefix + uuid.uuid4().hex[: _THROWAWAY_NAME_LEN - len(prefix)]
     with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
         admin.execute(f'CREATE DATABASE "{db_name}"')
 
@@ -218,6 +211,30 @@ def ephemeral_db() -> Iterator[str]:
                 (db_name,),
             )
             admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+
+
+@pytest.fixture(scope="session")
+def test_admin_url() -> str:
+    """The verified test-cluster admin URL.
+
+    Provided as a fixture rather than an import because ``test/integration/``
+    has its own ``conftest``, which shadows this module for anything under it.
+    Fixtures resolve through the conftest chain and are unaffected.
+    """
+    require_usable_test_endpoint()
+    return TEST_ADMIN_URL
+
+
+@pytest.fixture(scope="function")
+def ephemeral_db() -> Iterator[str]:
+    """Create a UUID-named database, yield its URL, drop it on teardown.
+
+    A genuinely empty database, so migration-level tests neither mutate shared
+    state nor inherit another database's chunk layout. Shared at the ``test/``
+    level so both the integration and load tiers can use it.
+    """
+    with _throwaway_database("mt_test_") as url:
+        yield url
 
 
 @pytest.fixture()
@@ -250,31 +267,8 @@ def session_ephemeral_db() -> Iterator[str]:
     Prefer the function-scoped fixtures when tests write. Isolation is the
     default for a reason; this is the deliberate exception.
     """
-    require_usable_test_endpoint()
-
-    db_name = f"mt_test_s{uuid.uuid4().hex[:11]}"
-    with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
-        admin.execute(f'CREATE DATABASE "{db_name}"')
-
-    try:
-        yield swap_dbname(TEST_ADMIN_URL, db_name)
-    finally:
-        with psycopg.connect(TEST_ADMIN_URL, autocommit=True) as admin:
-            # Skip superuser backends: pg_signal_backend does not permit
-            # signalling them ("Only roles with the SUPERUSER attribute may
-            # terminate processes of roles with the SUPERUSER attribute"), and
-            # since the test-admin credential is deliberately not a superuser
-            # (913 D9), attempting it aborts teardown. A superuser connected to
-            # a throwaway database is an operator looking at it, not something
-            # the suite should be killing anyway.
-            admin.execute(
-                "SELECT pg_terminate_backend(a.pid) FROM pg_stat_activity a "
-                "JOIN pg_roles r ON r.rolname = a.usename "
-                "WHERE a.datname = %s AND a.pid <> pg_backend_pid() "
-                "AND NOT r.rolsuper",
-                (db_name,),
-            )
-            admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+    with _throwaway_database("mt_test_s") as url:
+        yield url
 
 
 @pytest.fixture(scope="session")
