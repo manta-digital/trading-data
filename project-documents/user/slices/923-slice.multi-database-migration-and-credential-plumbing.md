@@ -7,7 +7,7 @@ dependencies: [913, 917]
 interfaces: [222]
 dateCreated: 20260927
 dateUpdated: 20260927
-status: not_started
+status: complete
 ---
 
 # Slice Design: Multi-Database Migration and Credential Plumbing
@@ -566,8 +566,8 @@ tracks' bootstrap, created in the tick database on first apply.
 
 ### Verification Walkthrough
 
-These are draft commands, to be refined at Phase 6 completion. Everything
-destructive runs on the test cluster (hammerhead) against databases this
+Verified 20260927 at Phase 6 completion (PostgreSQL 17.11, TimescaleDB
+2.29.1); outputs below are the actual ones. Everything destructive runs on the test cluster (hammerhead) against databases this
 walkthrough creates. Production is only *read*, in step 1, through the
 application credential.
 
@@ -575,8 +575,12 @@ application credential.
 the quotes:
 
 ```bash
-export MT_TIMESCALE_TEST_URL=$(grep '^MT_TIMESCALE_TEST_URL' .env | cut -d= -f2- | tr -d '"')
+export MT_TIMESCALE_TEST_URL=$(grep '^MT_TIMESCALE_TEST_URL=' .env | cut -d= -f2- | tr -d "\"'")
 ```
+
+Every `mt` command below also reads `.env`, whose primary pair names
+production. Only the tick variables are overridden per command, and the tick
+track never resolves a primary variable, so nothing below touches production.
 
 **1. Primary unchanged.** Capture migration status on the target (`main`
 while `git.integration_branch` is unset) before the branch's first commit, and
@@ -588,6 +592,7 @@ uv run mt data migrate status --json > /tmp/923-before.json
 # on the slice branch, after implementation
 uv run mt data migrate status --json > /tmp/923-after.json
 diff /tmp/923-before.json /tmp/923-after.json && echo "primary status identical"
+#   primary status identical
 ```
 
 **2. Unit tier.** The new files plus the untouched 913 files:
@@ -599,7 +604,8 @@ uv run pytest test/unit/market/schema/test_databases.py \
   test/unit/cli/test_maintenance_url_resolver.py \
   test/unit/cli/test_ddl_command_url_routing.py \
   test/unit/cli/commands/test_data_init.py test/unit/test_cli_data.py \
-  test/unit/test_unit_prod_url_guard.py -q
+  test/unit/test_unit_prod_url_guard.py test/unit/test_conftest_scrub.py \
+  test/unit/test_run_tests_env.py -q
 ```
 
 Expected: all pass. `git diff main --stat -- test/unit/cli/test_maintenance_url_resolver.py test/unit/cli/test_ddl_command_url_routing.py test/unit/cli/commands/test_data_init.py test/unit/test_cli_data.py`
@@ -621,7 +627,11 @@ psql "$MT_TIMESCALE_TEST_URL" -Atc "select count(*) from pg_database where datna
 psql "$MT_TIMESCALE_TEST_URL" -Atc "select count(*) from pg_roles where rolname like 't923_%'"
 ```
 
-Both print `0` if no other test run is active.
+Both print `0` if no other test run is active. The test cluster is shared, so
+in practice compare the `mt_test_%` list before and after the run rather than
+expecting `0`: on 20260927 fourteen databases from other sessions were
+present, several with live connections, and none were this slice's. The
+integration tests need `MT_TIMESCALE_TEST_URL` exported (step 0).
 
 **4. The CLI against a throwaway tick database**, by hand:
 
@@ -632,13 +642,20 @@ TICK_URL=$(python -c "import sys,urllib.parse as u;p=u.urlparse(sys.argv[1]);pri
 
 # unset → names the variable, exit 1
 env -u MT_TICK_MAINTENANCE_URL uv run mt data migrate apply --track tick; echo "exit $?"
-#   MT_TICK_MAINTENANCE_URL not configured. … exit 1
+#   Error: MT_TICK_MAINTENANCE_URL not configured. This command performs schema or
+#   maintenance work and requires the migration credential; it will not fall back to
+#   MT_TICK_DB_URL. Set the environment variable or add it to your .env file.
+#   exit 1
 
 MT_TICK_MAINTENANCE_URL=$TICK_URL uv run mt data init --database tick
-#   Applied this run 1 · Total applied 1 · Pending remaining 0
+#   Applied this run 0 · Total applied 1 · Pending remaining 0
 MT_TICK_DB_URL=$TICK_URL uv run mt data migrate status --track tick
 #   001_schema_migrations  applied … "1 applied, 0 pending"
 ```
+
+"Applied this run" is `0`, not `1`: the runner records the bootstrap on a bare
+database before its apply loop and does not count it as newly applied. That is
+the runner's existing behaviour, unchanged here.
 
 **5. Misroute refused.** Point the tick maintenance variable at a throwaway
 database that carries minute ids. The quickest source is the integration
@@ -653,8 +670,12 @@ from manta_trading.market.schema.migrations import TRACKS; \
 from manta_trading.market.schema.runner import apply_migrations; \
 p=ConnectionPool(sys.argv[1]); apply_migrations(p, TRACKS['minute']); p.close()" "$PRIM_URL"
 MT_TICK_MAINTENANCE_URL=$PRIM_URL uv run mt data migrate apply --track tick; echo "exit $?"
-#   refusing: this database's ledger holds migrations of track(s) routed to primary
-#   (001a_create_timescaledb_extension, 001b_create_minute_ohlcv, …); check MT_TICK_MAINTENANCE_URL … exit 1
+#   Error: refusing: this database's ledger holds migrations of track(s) routed to
+#   primary (001a_create_timescaledb_extension, 001b_create_minute_ohlcv,
+#   001c_create_minute_ohlcv_hypertable, 001d_create_minute_ohlcv_indexes,
+#   002_instruments, … 53 more); check MT_TICK_MAINTENANCE_URL (track 'tick' targets
+#   the tick database)
+#   exit 1
 psql "$PRIM_URL" -Atc "select count(*) from schema_migrations where migration_id like 'tick_%'"   # 0
 ```
 
@@ -663,6 +684,51 @@ psql "$PRIM_URL" -Atc "select count(*) from schema_migrations where migration_id
 ```bash
 psql "$MT_TIMESCALE_TEST_URL" -c "DROP DATABASE $T" -c "DROP DATABASE $P"
 ```
+
+### Implementation Findings (20260927)
+
+- **Ledger ordering (resolved in the runbook, not the design).**
+  `tick_migrate`'s default privileges grant `tick_app` DML on every table it
+  creates, and `init` creates the ledger *after* provisioning. Measured: after
+  provision → init, `tick_app` held INSERT/UPDATE/DELETE on
+  `schema_migrations`. Re-running the idempotent artifact applies the guarded
+  ledger revoke and closes it. The runbook sequence is therefore provision →
+  `init --database tick` → provision again, and `provisioned_tick_db` builds
+  in that order. Slice 222 should know that any table it creates also gets
+  full DML through default privileges, so its enumerated write list is
+  documentation plus a no-op rather than the grant that makes writes possible.
+- **Extension as database owner: works.** `tick_migrate` with `LOGIN` only
+  (no CREATEDB, CREATEROLE, SUPERUSER, or `postgres` membership) runs
+  `CREATE EXTENSION timescaledb` as owner of the tick database. The Risk
+  mitigation below was not needed; 222's first migration can create the
+  extension itself.
+- **Role attributes under the non-superuser test admin.** The artifact's
+  `GRANT migrate_role TO current_user WITH SET TRUE` is sufficient for
+  `CREATE DATABASE … OWNER`, `REVOKE CONNECT FROM PUBLIC` and the default
+  privileges. Teardown additionally needs membership in the *app* role before
+  `DROP OWNED BY`, so `drop_tick_db` grants it first; a fixture that fails
+  before its own grant still cleans up.
+- **Resolver message.** `DatabaseNotConfiguredError` words a maintenance
+  credential's error with the "will not fall back to <application var>"
+  clause, which is byte for byte 913's primary message. `_get_maintenance_url`
+  now prints the resolver's text, so the message has one definition.
+- **`migrate status` JSON.** The primary keeps `"URL not configured"`; the
+  tick track names its variable. That is the one branch on database identity
+  in the CLI, kept for the byte-for-byte primary criterion.
+- **Guard call site.** The DB wrapper exposes the guard as
+  `check_ledger_belongs`, not `assert_*`: the 913 unit tests stub the wrapper
+  with `MagicMock`, which rejects attributes named `assert*`.
+- **Bootstrap id constant.** `runner.BOOTSTRAP_MIGRATION_ID` replaces the
+  literal in the runner; the tick track reuses the minute bootstrap dict.
+- **Test support.** `ProvisionedTickDb` and its helpers live in
+  `test/tick_support/database.py`, not the integration `conftest.py`, because
+  the unit tier already imports `test/conftest.py` as `conftest`.
+- **Unit tier needs the test URL.** `run_tests.py unit` passes no DB variable;
+  its 40 DB-backed tests error unless `MT_TIMESCALE_TEST_URL` is exported.
+  Pre-existing.
+- **Full tiers.** Unit 3915 passed. Integration 513 passed, 6 failed, all
+  known and pre-existing: `test_cli_lists` priority1 (2),
+  `test_migration_051_052` (2), `test_policy_advances_head` unaided (2).
 
 ## Risk Assessment
 

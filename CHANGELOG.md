@@ -16,6 +16,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Migrations now know which database each track belongs to.** A new `tick`
+  track targets the tick database, never `trading`.
+  `mt data migrate apply|status --track tick` uses `MT_TICK_MAINTENANCE_URL` /
+  `MT_TICK_DB_URL`, and `mt data init --database tick` initializes a bare tick
+  database. The tick variables never fall back to each other or to the
+  `MT_TIMESCALE_*` pair: an unset one fails and names itself.
+- **`apply` refuses to migrate the wrong database.** If the target's ledger
+  holds another database's migrations (for example a tick URL that points at
+  `trading`), it exits `1` naming the foreign ids and the variable to check,
+  before any DDL runs.
+- **`scripts/provision_tick_roles.sql`** creates the tick database, owned by a
+  new `tick_migrate` role, with a DML-only `tick_app` role and no reach into
+  `trading`. Runbook: *Provisioning a tick database*. No production tick
+  database is created yet; its placement is still to be decided.
+
+### Changed
+- A migrate or init command that cannot reach its database now prints one line
+  naming the variable (`could not connect to the <database> database
+  (<VAR>): …`) and exits `1`, instead of printing a traceback. Output on the
+  primary database is otherwise unchanged.
+- The test suite treats `MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL` as
+  production URLs: they are scrubbed from test environments, dropped by
+  `scripts/run_tests.py`, and no test may read them.
+
+### Removed
+- The obsolete slice 105 test `test/integration/test_tick_schema_integration.py`,
+  which applied DDL to whatever `MT_TICK_DB_URL` named.
+
 ## [0.18.0] - 2026-09-27
 
 ### Added

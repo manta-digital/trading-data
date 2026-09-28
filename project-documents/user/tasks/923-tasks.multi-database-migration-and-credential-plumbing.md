@@ -14,7 +14,7 @@ projectState: >
   0.18.0; its slice 222 is hard-gated on this slice.
 dateCreated: 20260927
 dateUpdated: 20260927
-status: in_progress
+status: complete
 ---
 
 # Tasks: Multi-Database Migration and Credential Plumbing
@@ -423,119 +423,119 @@ requirement as a comment in the artifact, in `provision_roles.sql`'s style.
 
 ## Section 5 — Production-URL guards (D9)
 
-- [ ] **5.1 Delete `test/integration/test_tick_schema_integration.py`**
-  - [ ] It reads `MT_TICK_DB_URL` and applies DDL from the deleted
+- [x] **5.1 Delete `test/integration/test_tick_schema_integration.py`**
+  - [x] It reads `MT_TICK_DB_URL` and applies DDL from the deleted
         `database/migrations/` directory (LLD D9). Delete it first, so the
         ratchet in 5.3 starts with an empty allowlist.
-  - [ ] Success: the file is gone; `grep -rn "MT_TICK_DB_URL" test` shows only
+  - [x] Success: the file is gone; `grep -rn "MT_TICK_DB_URL" test` shows only
         guard code and task 1.1 tests
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] **5.2 Extend the runtime scrub in `test/conftest.py`**
-  - [ ] `pytest_configure` pops a tuple: the existing variable plus
+- [x] **5.2 Extend the runtime scrub in `test/conftest.py`**
+  - [x] `pytest_configure` pops a tuple: the existing variable plus
         `MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL`. The report header names
         whichever were scrubbed. `MT_ALLOW_PROD_READS` behaviour is unchanged
         (it covers only the primary read variable; say so in the docstring).
-  - [ ] Success: a unit test (in the existing unit guard file, or a new
+  - [x] Success: a unit test (in the existing unit guard file, or a new
         `test/unit/test_conftest_scrub.py`) sets all three, calls the scrub, and
         asserts all three are absent
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **5.3 Extend the static ratchet in `test/_prod_url_guard.py`**
-  - [ ] Needles become a tuple, each concatenated so the module cannot trip
+- [x] **5.3 Extend the static ratchet in `test/_prod_url_guard.py`**
+  - [x] Needles become a tuple, each concatenated so the module cannot trip
         itself. `prod_url_readers` matches any needle.
-  - [ ] Fix the docstring's stale module names: the real files are
+  - [x] Fix the docstring's stale module names: the real files are
         `test/unit/test_unit_prod_url_guard.py` and
         `test/integration/test_integration_prod_url_guard.py`
-  - [ ] Update both guard test files so the tick needles have an **empty**
+  - [x] Update both guard test files so the tick needles have an **empty**
         allowlist. Add a case proving a synthetic multi-line
         `os.environ.get(\n "MT_TICK_DB_URL")` is detected.
-  - [ ] Success: both guard tests pass
-  - [ ] Effort: 2
+  - [x] Success: both guard tests pass
+  - [x] Effort: 2
 
-- [ ] **5.4 Extend `scripts/run_tests.py` `build_env`**
-  - [ ] Pop `MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL`, using the same
+- [x] **5.4 Extend `scripts/run_tests.py` `build_env`**
+  - [x] Pop `MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL`, using the same
         concatenation style
-  - [ ] Add `test/unit/test_run_tests_env.py`: with all prod-shaped variables in
+  - [x] Add `test/unit/test_run_tests_env.py`: with all prod-shaped variables in
         `os.environ`, `build_env("integration", {})` contains none of them
-  - [ ] Success: the new test passes
-  - [ ] Effort: 1
+  - [x] Success: the new test passes
+  - [x] Effort: 1
 
-- [ ] **5.5 Checkpoint**
-  - [ ] Commit: `test: guard tick database URLs like production URLs`
-  - [ ] Effort: 1
+- [x] **5.5 Checkpoint**
+  - [x] Commit: `test: guard tick database URLs like production URLs`
+  - [x] Effort: 1
 
 ---
 
 ## Section 6 — Documentation
 
-- [ ] **6.1 Update the migrations README**
-  - [ ] In `src/manta_trading/market/schema/migrations/README.md`, replace the
+- [x] **6.1 Update the migrations README**
+  - [x] In `src/manta_trading/market/schema/migrations/README.md`, replace the
         stale track table (MarketDB row, `--db` flag) with one row per track:
         module, database, application variable, maintenance variable
-  - [ ] State: one ledger per database; the misroute guard; `init --database`;
+  - [x] State: one ledger per database; the misroute guard; `init --database`;
         tick ids are `tick_NNN_*`; add a track by editing `TRACK_REGISTRY` only
-  - [ ] Bump `dateUpdated`
-  - [ ] Effort: 1
+  - [x] Bump `dateUpdated`
+  - [x] Effort: 1
 
-- [ ] **6.2 Add the tick variables to `.env_sample`**
-  - [ ] Add commented `MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL` entries,
+- [x] **6.2 Add the tick variables to `.env_sample`**
+  - [x] Add commented `MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL` entries,
         with placeholder values only, and a note: no fallback to each other or
         to the primary pair
-  - [ ] Do **not** add either variable to `deploy/manta-trading.env.example`
-  - [ ] Effort: 1
+  - [x] Do **not** add either variable to `deploy/manta-trading.env.example`
+  - [x] Effort: 1
 
-- [ ] **6.3 Add the runbook section "Provisioning a tick database"**
-  - [ ] Add it to `project-documents/user/runbooks/100-production-operations.md`.
+- [x] **6.3 Add the runbook section "Provisioning a tick database"**
+  - [x] Add it to `project-documents/user/runbooks/100-production-operations.md`.
         It is run when the PM decides placement.
     - one command applies the artifact as superuser with `-v tick_db=<name>`;
     - passwords are set out of band;
     - then `mt data init --database tick` runs with `MT_TICK_MAINTENANCE_URL`
       set for that invocation only;
     - `mt data migrate status --track tick` verifies it.
-  - [ ] Do not use a real database name or host. The name is the PM's
+  - [x] Do not use a real database name or host. The name is the PM's
         placement decision; the section says so.
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] **6.4 Checkpoint**
-  - [ ] Commit: `docs: document tick track routing and tick database provisioning`
-  - [ ] Effort: 1
+- [x] **6.4 Checkpoint**
+  - [x] Commit: `docs: document tick track routing and tick database provisioning`
+  - [x] Effort: 1
 
 ---
 
 ## Section 7 — Validation
 
-- [ ] **7.1 Static checks**
-  - [ ] ruff on all touched files; mypy per the test environment note
-  - [ ] `databases.py` < 300 lines; new functions < 50 lines
-  - [ ] `git diff <target> -- src` shows no unrelated reformatting
-  - [ ] Effort: 1
+- [x] **7.1 Static checks**
+  - [x] ruff on all touched files; mypy per the test environment note
+  - [x] `databases.py` < 300 lines; new functions < 50 lines
+  - [x] `git diff <target> -- src` shows no unrelated reformatting
+  - [x] Effort: 1
 
-- [ ] **7.2 Unit tier, then integration tier**
-  - [ ] `uv run python scripts/run_tests.py unit`, then
+- [x] **7.2 Unit tier, then integration tier**
+  - [x] `uv run python scripts/run_tests.py unit`, then
         `uv run python scripts/run_tests.py integration`, run separately
-  - [ ] Any failure not in the known pre-existing list must be fixed. Re-run a
+  - [x] Any failure not in the known pre-existing list must be fixed. Re-run a
         suspected flake in isolation before investigating.
-  - [ ] Success: green, apart from the known pre-existing failures; each one
+  - [x] Success: green, apart from the known pre-existing failures; each one
         listed in the commit message or task notes
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **7.3 Verification Walkthrough (LLD steps 1–6)**
-  - [ ] Step 1: capture `/tmp/923-after.json` and `diff` it against task 0.1's
+- [x] **7.3 Verification Walkthrough (LLD steps 1–6)**
+  - [x] Step 1: capture `/tmp/923-after.json` and `diff` it against task 0.1's
         file; it prints nothing
-  - [ ] Steps 2–3: the listed unit and integration files pass. The four 913
+  - [x] Steps 2–3: the listed unit and integration files pass. The four 913
         unit files show an empty `git diff <target> --stat`. There are no
         leftover `mt_test_%` databases or `t923_%` roles.
-  - [ ] Steps 4–5: by hand on throwaway test-cluster databases. The unset
+  - [x] Steps 4–5: by hand on throwaway test-cluster databases. The unset
         variable, `init --database tick`, `status --track tick` and the misroute
         refusal each match the expected output. Record the actual output in the
         LLD walkthrough if it differs.
-  - [ ] Step 6: drop the walkthrough's two databases
-  - [ ] Effort: 2
+  - [x] Step 6: drop the walkthrough's two databases
+  - [x] Effort: 2
 
-- [ ] **7.4 Close out the design**
-  - [ ] Update the LLD with measured findings (role attributes, extension
+- [x] **7.4 Close out the design**
+  - [x] Update the LLD with measured findings (role attributes, extension
         ownership result) and any walkthrough corrections. Set the LLD and this
         file to `status: complete` and bump `dateUpdated`.
-  - [ ] Commit: `docs: record 923 implementation findings`
-  - [ ] Effort: 1
+  - [x] Commit: `docs: record 923 implementation findings`
+  - [x] Effort: 1
