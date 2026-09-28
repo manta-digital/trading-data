@@ -3,10 +3,10 @@
 
     uv run python scripts/upgrade_production.py v0.19.0
 
-For a code-only release: no pending migration on the production database and
+For a code-only release: no new migration for the production database and
 no new unit to enable. A release that needs either still gets its own cutover
-script (see ``cutover_922_overview.py``). This script checks for pending
-migrations after the install, and if it finds any it stops without
+script (see ``cutover_922_overview.py``). This script compares pending
+migrations before and after the install, and if any are new it stops without
 restarting anything.
 
 Run it as the operator from the dev checkout root, with the release checked
@@ -15,11 +15,12 @@ check-then-act; after a failure, fix the cause and re-run.
 
 Steps
   1. preflight      ref exists here and on origin
-  2. hold timers    stop each acquisition timer, then wait out its pass
+  2. hold timers    stop each acquisition timer, then wait out its pass;
+                    record pending migrations under the installed code
   3. install        deploy/install-production.sh --ref <ref>; /opt at the
                     ref's commit, installed mt reports the ref's version
-  4. migrations     every primary-database track reports 0 pending through
-                    the production front door; otherwise stop, timers held
+  4. migrations     no primary-database track has a pending id that was not
+                    pending before the install; otherwise stop, timers held
   5. restart serve  mt-serve onto the new code
   6. verify         mt data overview exits 0 through the production binary
   7. release timers started again, as found (skipped if step 4 stopped)
@@ -124,20 +125,29 @@ def main(argv: list[str]) -> int:
         say("2/7 hold the acquisition timers")
         held = hold_timers()
 
+        # Baseline from the code still installed: the legacy `daily` track
+        # (MarketDB-era; its tables came in through minute 036) has always
+        # shown 002-004 pending on the primary. Only new pending ids block.
+        before = pending_migrations()
+
         say(f"3/7 install {ref}")
         version = install(ref, commit)
         if ref.lstrip("v") not in version:
             raise CutoverError(f"installed mt reports {version!r}, expected {ref}")
 
-        say("4/7 pending migrations on the primary database")
-        pending = pending_migrations()
-        if any(pending.values()):
+        say("4/7 newly pending migrations on the primary database")
+        after = pending_migrations()
+        new = {
+            track: [m for m in ids if m not in before.get(track, [])]
+            for track, ids in after.items()
+        }
+        if any(new.values()):
             release = False
             raise CutoverError(
-                f"pending migrations {pending}: this release needs a cutover "
+                f"newly pending migrations {new}: this release needs a cutover "
                 f"script. Timers left stopped: {held}"
             )
-        print(f"    0 pending on {', '.join(PRIMARY_TRACKS)}")
+        print(f"    none new; unchanged since before the install: {before}")
 
         say(f"5/7 restart {SERVE_UNIT}")
         restart_serve_if_active()
