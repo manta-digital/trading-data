@@ -51,6 +51,13 @@ class TestSettingsDefaults:
         s = Settings(_env_file=None)
         assert s.tick_db_url is None
 
+    def test_tick_maintenance_url_default_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("MT_TICK_MAINTENANCE_URL", raising=False)
+        s = Settings(_env_file=None)
+        assert s.tick_maintenance_url is None
+
     def test_corporate_actions_provider_default(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -90,6 +97,13 @@ class TestSettingsEnvOverride:
         monkeypatch.setenv("MT_TICK_DB_URL", "postgresql://localhost/tick")
         s = Settings()
         assert s.tick_db_url == "postgresql://localhost/tick"
+
+    def test_tick_maintenance_url_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MT_TICK_MAINTENANCE_URL", "postgresql://localhost/tickm")
+        s = Settings()
+        assert s.tick_maintenance_url == "postgresql://localhost/tickm"
 
     def test_eodhd_api_key_override(
         self, monkeypatch: pytest.MonkeyPatch

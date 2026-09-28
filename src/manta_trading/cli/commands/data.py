@@ -454,8 +454,20 @@ def _get_maintenance_url(ctx: typer.Context) -> str:
     clear configuration error into a confusing privilege error at a random
     point mid-migration. Fail loudly, naming the variable to set.
     """
-    settings = ctx.obj["settings"]
-    if not settings.timescale_maintenance_url:
+    from manta_trading.market.schema.databases import (
+        Credential,
+        Database,
+        DatabaseNotConfiguredError,
+        resolve_database_url,
+    )
+
+    try:
+        return resolve_database_url(
+            ctx.obj["settings"], Database.PRIMARY, Credential.MAINTENANCE
+        )
+    except DatabaseNotConfiguredError:
+        # Handled: the primary keeps its 913 wording, which also says why
+        # there is no fallback (slice 923 D2).
         print_error(
             "MT_TIMESCALE_MAINTENANCE_URL not configured. This command "
             "performs schema or maintenance work and requires the migration "
@@ -463,8 +475,7 @@ def _get_maintenance_url(ctx: typer.Context) -> str:
             "Set the environment variable or add it to your .env file.",
             json_mode=False,
         )
-        raise typer.Exit(1)
-    return settings.timescale_maintenance_url
+        raise typer.Exit(1) from None
 
 
 @instruments_app.command("rebuild")

@@ -285,8 +285,13 @@ class Settings(BaseSettings):
     # never fall back to `timescale_db_url` when this is unset; that fallback
     # would restore exactly the single-credential coupling 913 removes.
     timescale_maintenance_url: str | None = None
-    # Tick data database (separate instance)
+    # Tick data database (slice 923). The tick pair mirrors the primary pair
+    # above: `tick_db_url` is the DML-only application credential and
+    # `tick_maintenance_url` the DDL credential. Callers must never fall back
+    # between them, nor from either tick field to a primary field; a missing
+    # tick URL is an error naming its variable.
     tick_db_url: str | None = None
+    tick_maintenance_url: str | None = None
 
     # Minute-bar backfill window. Operator override for the earliest date
     # the daemon will fetch 1-minute bars from. When unset, the effective

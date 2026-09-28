@@ -16,6 +16,10 @@ from manta_trading.logging import get_logger
 
 _logger = get_logger(__name__)
 
+#: The ledger-creating migration every track starts with. It is shared across
+#: tracks on one database, so it belongs to no single track (slice 923 D5).
+BOOTSTRAP_MIGRATION_ID = "001_schema_migrations"
+
 _TABLE_EXISTS_SQL = (
     "SELECT EXISTS ("
     "  SELECT 1 FROM information_schema.tables "
@@ -47,7 +51,7 @@ def apply_migrations(
     normal apply loop starts.
     """
     if not _schema_migrations_table_exists(pool):
-        bootstrap = next(m for m in migrations if m["id"] == "001_schema_migrations")
+        bootstrap = next(m for m in migrations if m["id"] == BOOTSTRAP_MIGRATION_ID)
         with pool.connection() as conn:
             conn.execute(bootstrap["sql"])
             conn.execute(
