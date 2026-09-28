@@ -431,8 +431,7 @@ What it costs readers (review F004):
   Status and coverage (224, 228) read tier per instrument, not per ledger
   row.
 - **If 228 or 229 measure otherwise,** adding a denormalized column is an
-  additive tick-track migration with a backfill from the join. A
-  `schema`-only request row cannot disagree with it at backfill time.
+  additive tick-track migration with a backfill from the join.
 
 ### Technical Decision 8: chunk interval of 7 days, from wall-clock span
 
