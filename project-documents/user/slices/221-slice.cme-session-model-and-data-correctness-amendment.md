@@ -372,7 +372,7 @@ def extend_calendar_sessions(conn, calendar_id: str, *, start: date, end: date) 
 
 ### Verification Walkthrough
 
-Run against the dev database after `mt data migrate apply`. Commands marked *new* do not exist before this slice.
+Run against a throwaway database on the test cluster, never production: `MT_TIMESCALE_DB_URL` in `.env` is the production `trading` database. Point `MT_TIMESCALE_DB_URL` and `MT_TIMESCALE_MAINTENANCE_URL` at a database this walkthrough creates, run `mt data migrate apply`, and drop it afterwards. Production receives migrations 057 and 058 only through the release path (Special Considerations). Commands marked *new* do not exist before this slice.
 
 1. **The calendar exists, with its bound.**
    ```bash
