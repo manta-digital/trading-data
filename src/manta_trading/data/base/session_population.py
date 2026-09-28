@@ -1,8 +1,12 @@
-"""Pure function for generating trading_sessions rows.
+"""Pure functions for generating trading_sessions rows.
 
 Extracted from TradingCalendar._build_trading_hours so that both
 the migration 026 population job and the TradingCalendar class consume
 the same algorithm — no second implementation.
+
+A session is dated by the day it closes. When a calendar's open time is later
+than its close time (CME Globex: 17:00 → 16:00), the open falls on the previous
+calendar day. :func:`session_interval` is the one place that rule lives.
 """
 
 from __future__ import annotations
@@ -12,6 +16,34 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from manta_trading.data.base.trading_calendar import MarketStatus
+
+_UTC = ZoneInfo("UTC")
+
+
+def session_interval(
+    session_date: date, open_t: time, close_t: time, tz: ZoneInfo
+) -> tuple[datetime, datetime]:
+    """Return the UTC ``(open, close)`` of the session dated ``session_date``.
+
+    The close is ``close_t`` on ``session_date``. The open is ``open_t`` on the
+    same day when ``open_t < close_t``, and on the previous day when
+    ``open_t > close_t`` (a session that opens the evening before). Both are
+    built in ``tz`` before conversion, so each side gets its own UTC offset
+    across a DST change.
+
+    Raises:
+        ValueError: ``open_t == close_t`` — the session would be empty or a
+            full day, and neither is expressible as a dated session.
+    """
+    if open_t == close_t:
+        raise ValueError(
+            f"session {session_date.isoformat()}: open time equals close time "
+            f"({open_t.isoformat()})"
+        )
+    open_date = session_date if open_t < close_t else session_date - timedelta(days=1)
+    session_open = datetime.combine(open_date, open_t, tzinfo=tz)
+    session_close = datetime.combine(session_date, close_t, tzinfo=tz)
+    return session_open.astimezone(_UTC), session_close.astimezone(_UTC)
 
 
 def populate_trading_sessions(
@@ -37,7 +69,9 @@ def populate_trading_sessions(
         List of dicts with keys ``calendar_id``, ``session_date``,
         ``session_open_utc``, ``session_close_utc`` — one entry per
         trading day. Weekends and ``market_status='closed'`` holidays
-        are absent.
+        are absent. Each interval comes from :func:`session_interval`, so the
+        open-after-close rule applies to every calendar; for a calendar whose
+        open precedes its close (NYSE, NASDAQ) the output is unchanged.
     """
     tz = ZoneInfo(calendars_row["timezone"])
     default_open: time = calendars_row["market_open"]
@@ -70,11 +104,8 @@ def populate_trading_sessions(
             open_t = default_open
             close_t = default_close
 
-        session_open_utc = datetime.combine(current, open_t, tzinfo=tz).astimezone(
-            ZoneInfo("UTC")
-        )
-        session_close_utc = datetime.combine(current, close_t, tzinfo=tz).astimezone(
-            ZoneInfo("UTC")
+        session_open_utc, session_close_utc = session_interval(
+            current, open_t, close_t, tz
         )
 
         rows.append(

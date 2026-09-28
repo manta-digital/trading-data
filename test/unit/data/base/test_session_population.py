@@ -7,15 +7,25 @@ No DB connection is used in any test.
 
 from __future__ import annotations
 
-from datetime import date, time
+import json
+from datetime import date, datetime, time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from manta_trading.data.base.adjustment_policy import SessionType
-from manta_trading.data.base.session_population import populate_trading_sessions
+from manta_trading.data.base.session_population import (
+    populate_trading_sessions,
+    session_interval,
+)
 from manta_trading.data.base.trading_calendar import TradingCalendar
+from manta_trading.market.schema.seed_calendar import (
+    NASDAQ_CALENDAR,
+    NYSE_CALENDAR,
+    generate_holidays,
+)
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -270,3 +280,169 @@ class TestParityWithBuildTradingHours:
             "NYSE", date(2026, 1, 3), date(2026, 1, 3), _CALENDARS_ROW, []
         )
         assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: open-after-close rule (221 D3)
+# ---------------------------------------------------------------------------
+
+_CT = ZoneInfo("America/Chicago")
+
+_CME_ROW = {
+    "timezone": "America/Chicago",
+    "market_open": time(17, 0),
+    "market_close": time(16, 0),
+}
+
+
+def _utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime:
+    return datetime(year, month, day, hour, minute, tzinfo=_UTC)
+
+
+class TestSessionInterval:
+    def test_nyse_hours_open_same_day(self) -> None:
+        assert session_interval(date(2024, 6, 10), time(9, 30), time(16, 0), _ET) == (
+            _utc(2024, 6, 10, 13, 30),
+            _utc(2024, 6, 10, 20, 0),
+        )
+
+    def test_cme_hours_open_previous_day(self) -> None:
+        assert session_interval(date(2024, 6, 10), time(17, 0), time(16, 0), _CT) == (
+            _utc(2024, 6, 9, 22, 0),
+            _utc(2024, 6, 10, 21, 0),
+        )
+
+    def test_cme_early_close_still_opens_previous_day(self) -> None:
+        assert session_interval(date(2024, 12, 24), time(17, 0), time(12, 0), _CT) == (
+            _utc(2024, 12, 23, 23, 0),
+            _utc(2024, 12, 24, 18, 0),
+        )
+
+    def test_equal_times_raise(self) -> None:
+        with pytest.raises(ValueError, match="2024-06-10"):
+            session_interval(date(2024, 6, 10), time(16, 0), time(16, 0), _CT)
+
+    def test_spring_forward_offsets_differ(self) -> None:
+        """2024-03-10 02:00 CT: the open is CST (-6), the close CDT (-5)."""
+        assert session_interval(date(2024, 3, 10), time(17, 0), time(16, 0), _CT) == (
+            _utc(2024, 3, 9, 23, 0),
+            _utc(2024, 3, 10, 21, 0),
+        )
+
+    def test_fall_back_offsets_differ(self) -> None:
+        """2024-11-03 02:00 CT: the open is CDT (-5), the close CST (-6)."""
+        assert session_interval(date(2024, 11, 3), time(17, 0), time(16, 0), _CT) == (
+            _utc(2024, 11, 2, 22, 0),
+            _utc(2024, 11, 3, 22, 0),
+        )
+
+
+class TestCmePopulation:
+    _CHRISTMAS_2024 = [
+        {
+            "holiday_date": date(2024, 12, 24),
+            "market_status": "early_close",
+            "early_close_time": time(12, 15),
+            "late_open_time": None,
+        },
+        {
+            "holiday_date": date(2024, 12, 25),
+            "market_status": "closed",
+            "early_close_time": None,
+            "late_open_time": None,
+        },
+    ]
+
+    def test_closed_and_early_close_week(self) -> None:
+        rows = populate_trading_sessions(
+            "CME_TEST",
+            date(2024, 12, 23),
+            date(2024, 12, 27),
+            _CME_ROW,
+            self._CHRISTMAS_2024,
+        )
+        by_date = {r["session_date"]: r for r in rows}
+        assert sorted(by_date) == [
+            date(2024, 12, 23),
+            date(2024, 12, 24),
+            date(2024, 12, 26),
+            date(2024, 12, 27),
+        ]
+        assert by_date[date(2024, 12, 24)]["session_open_utc"] == _utc(
+            2024, 12, 23, 23, 0
+        )
+        assert by_date[date(2024, 12, 24)]["session_close_utc"] == _utc(
+            2024, 12, 24, 18, 15
+        )
+        # The session after the closed day opens at 17:00 CT on the closed date.
+        assert by_date[date(2024, 12, 26)]["session_open_utc"] == _utc(
+            2024, 12, 25, 23, 0
+        )
+
+    def test_late_open_opens_same_day(self) -> None:
+        """A late open before the close is no longer an open-after-close."""
+        late = [
+            {
+                "holiday_date": date(2024, 12, 27),
+                "market_status": "late_open",
+                "early_close_time": None,
+                "late_open_time": time(8, 30),
+            }
+        ]
+        rows = populate_trading_sessions(
+            "CME_TEST", date(2024, 12, 27), date(2024, 12, 27), _CME_ROW, late
+        )
+        assert [(r["session_open_utc"], r["session_close_utc"]) for r in rows] == [
+            (_utc(2024, 12, 27, 14, 30), _utc(2024, 12, 27, 22, 0)),
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Tests: NYSE/NASDAQ identity with the pre-221 baseline (unit half of the
+# 221 NYSE regression; the integration half is test_nyse_sessions_unchanged).
+# ---------------------------------------------------------------------------
+
+_BASELINE = (
+    Path(__file__).resolve().parents[4]
+    / "test"
+    / "fixtures"
+    / "calendar"
+    / "nyse_nasdaq_sessions_pre_221.json"
+)
+
+
+def _optional_time(value: str | None) -> time | None:
+    return time.fromisoformat(value) if value else None
+
+
+@pytest.mark.parametrize(
+    "calendar", [NYSE_CALENDAR, NASDAQ_CALENDAR], ids=lambda c: c["calendar_id"]
+)
+def test_nyse_nasdaq_output_matches_pre_221_baseline(calendar: dict) -> None:
+    """Same inputs as migrations 007/008/026 → the frozen pre-221 output."""
+    calendar_id = calendar["calendar_id"]
+    calendars_row = {
+        "timezone": calendar["timezone"],
+        "market_open": time.fromisoformat(calendar["market_open"]),
+        "market_close": time.fromisoformat(calendar["market_close"]),
+    }
+    holidays = [
+        {
+            **h,
+            "early_close_time": _optional_time(h["early_close_time"]),
+            "late_open_time": _optional_time(h["late_open_time"]),
+        }
+        for h in generate_holidays(calendar_id, 2020, 2026)
+    ]
+    rows = populate_trading_sessions(
+        calendar_id, date(2020, 1, 1), date(2028, 12, 31), calendars_row, holidays
+    )
+    actual = [
+        [
+            r["session_date"].isoformat(),
+            r["session_open_utc"].isoformat(),
+            r["session_close_utc"].isoformat(),
+        ]
+        for r in rows
+    ]
+    assert actual == json.loads(_BASELINE.read_text())[calendar_id]
