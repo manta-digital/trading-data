@@ -729,6 +729,9 @@ psql "$MT_TIMESCALE_TEST_URL" -c "DROP DATABASE $T" -c "DROP DATABASE $P"
 - **Full tiers.** Unit 3915 passed. Integration 513 passed, 6 failed, all
   known and pre-existing: `test_cli_lists` priority1 (2),
   `test_migration_051_052` (2), `test_policy_advances_head` unaided (2).
+- **Code review (CONCERNS).** The concern was `cli/commands/data.py` size
+  (4006 lines). Deferred to issue #25 (split along the sub-app seams); not
+  split in this slice.
 
 ## Risk Assessment
 
