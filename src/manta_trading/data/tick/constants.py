@@ -82,7 +82,7 @@ TICK_DECODE_BATCH_BYTES = 32 * 1024 * 1024
 
 ``DbnFile.iter_batches`` derives its record count from this and the file's
 record size, so the bound holds for every schema. This is a starting value;
-slice 226 replaces it from measurements on purchased data and rewrites this
+slice 225 replaces it from measurements on purchased data and rewrites this
 docstring.
 """
 
@@ -97,7 +97,7 @@ TICK_DOWNLOAD_TIMEOUT_SECONDS = 100.0
 TICK_SPEND_CEILING_ENV = "MT_TICK_SPEND_CEILING_USD"
 
 #: Futures product → the trading calendar its sessions come from (slice 221
-#: D8). GC joins with ``CME_METALS`` in slice 231; there is no default.
+#: D8). GC joins with ``CME_METALS`` in slice 230; there is no default.
 FUTURES_PRODUCT_CALENDAR: Final[Mapping[str, str]] = {"ES": CME_EQUITY_CALENDAR_ID}
 
 

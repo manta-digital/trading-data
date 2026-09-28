@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/220-slice.databento-adapter-and-cost-preflight.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [902]
-interfaces: [222, 223, 224, 226, 229, 230]
+interfaces: [222, 223, 224, 225, 228, 229]
 projectState: >
   Slice 220 design committed at f706c71 (review round 2 CONCERNS, passes the
   gate). No tick code exists yet: no `databento` dependency, no
@@ -79,7 +79,7 @@ spend ceiling, error mapping), *Settings*.
   - [x] `DeliveryMode(StrEnum)`: `BATCH_JOB="batch_job"`,
         `DIRECT_RANGE="direct_range"`.
   - [x] `CME_DATASET = "GLBX.MDP3"`; `TICK_DECODE_BATCH_BYTES = 32 * 1024 * 1024`
-        with a docstring saying 226 replaces it from measurements;
+        with a docstring saying 225 replaces it from measurements;
         `TICK_DOWNLOAD_TIMEOUT_SECONDS` (choose a value and state the reason
         in its comment); `TICK_SPEND_CEILING_ENV = "MT_TICK_SPEND_CEILING_USD"`.
   - [x] Success: each value is defined once; module ≤ ~300 lines.
@@ -381,7 +381,7 @@ benchmark input is real records and is not a correctness fixture).
         `--threads` threads; prints wall time, records/s, speedup.
   - [x] Docstring states the throughput caveat: decode only, repeated
         records, no `COPY` — an upper bound that can fail the architecture's
-        ingest target, never pass it; 226 decides.
+        ingest target, never pass it; 225 decides.
   - [x] Success: `uv run python scripts/bench_dbn_decode.py --records 2000000 --threads 4`
         completes and prints the table.
 - [x] **Task 6.2: Run and record the benchmark** (effort: 1)
@@ -489,7 +489,7 @@ Filled in by Tasks 6.2, 7.4, and 7.7.
   **Verdict:** the array path showed a multi-thread speedup (3.2–3.7x at 4
   threads) and the per-record path did not (0.95–0.98x) — Technical
   Decision 6 holds. Caveat (TD 12): decode only, repeated records, no `COPY`
-  — an upper bound that can fail the ingest target, never pass it; 226
+  — an upper bound that can fail the ingest target, never pass it; 225
   decides.
 - **Batch retention window (Task 7.4):** **30 days after the job finishes
   processing.** Measured 2026-09-27 from the account with free calls

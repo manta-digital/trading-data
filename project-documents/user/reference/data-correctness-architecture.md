@@ -105,7 +105,7 @@ Considerations, "Completeness definitions") and slice 221, D10.
   raw-table counts. It never reads `acquisition_state`, `data_gaps` or
   `data_status`, and never any aggregate.
 - `Granularity.TICK` (in `data/acquisition/state.py`) names a granularity.
-  `PassKind.TICK` (deferred with the cadence decision, slice 225) names a
+  `PassKind.TICK` (deferred with the cadence decision, slice 232) names a
   run. The two are not interchangeable.
 - `granularity = 'tick'` enters a minute-track enumeration (`data_gaps`,
   `data_status`) only where a surface reads it. The surfaces that do are
@@ -395,7 +395,7 @@ include verifying the invariant holds.
 | I11 — Tick completeness from the manifest | 222, 224 | manifest + ingest-ledger + raw-count checks (defined by 224) | Framed (221). |
 | I12 — Tick provenance and supersession | 222, 224 | archive-unit id on every row; manifest supersession records | Framed (221). |
 | I13 — Session-assigned ticks | 221 (model and lookup), 224 (the check) | `scripts/verify_cme_sessions.py`; tests | Framed (221). |
-| I14 — Futures identity is explicit | 228, 229, 230 | review + tests (defined by 228) | Framed (221). |
+| I14 — Futures identity is explicit | 227, 228, 229 | review + tests (defined by 227) | Framed (221). |
 
 ## Notes
 

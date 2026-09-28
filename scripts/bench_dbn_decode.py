@@ -18,7 +18,7 @@ work; speedup = (N-thread records/s) / (1-thread records/s).
 Throughput caveat: this measures **decode only**, on repeated records, with
 no ``COPY`` and no real session volume. Its rate is an upper bound on ingest
 throughput: it can fail the architecture's ingest target (a decode rate
-already too slow), never pass it. Slice 226 decides the target on purchased
+already too slow), never pass it. Slice 225 decides the target on purchased
 data.
 
 Usage::

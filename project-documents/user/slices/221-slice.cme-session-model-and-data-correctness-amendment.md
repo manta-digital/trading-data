@@ -4,7 +4,7 @@ slice: cme-session-model-and-data-correctness-amendment
 project: trading
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: []
-interfaces: [222-slice.tick-storage-track, 224-slice.ingest-pass-and-proof-parity, 228-slice.active-contract-and-roll-methods, 231-slice.universe-expansion-gc]
+interfaces: [222-slice.tick-storage-track, 224-slice.ingest-pass-and-proof-parity, 227-slice.active-contract-and-roll-methods, 230-slice.universe-expansion-gc]
 dateCreated: 20260928
 dateUpdated: 20260928
 status: complete
@@ -61,7 +61,7 @@ No purchase is needed and no tick database is touched. Everything lands on the p
 
 **Excluded**
 
-- The `CME_METALS` calendar for GC. GC's holiday schedule differs from ES's (Technical Decisions, D1), so GC needs its own calendar row. It is seeded by 231, where GC data is acquired and the calendar can be checked against real trades.
+- The `CME_METALS` calendar for GC. GC's holiday schedule differs from ES's (Technical Decisions, D1), so GC needs its own calendar row. It is seeded by 230, where GC data is acquired and the calendar can be checked against real trades.
 - Fixing NYSE and NASDAQ holiday data. This slice changes no NYSE or NASDAQ `trading_sessions` rows. The defects found at design go to a GitHub issue (Special Considerations).
 - Any tick table, ingest code, or ledger. The vectorized assignment is provided here; 224 uses it.
 - Changing migration 026's callable. It is applied history, and it runs before the new column exists.
@@ -142,7 +142,7 @@ All state is rows in the three calendar tables on the production database. The o
 - The day after Thanksgiving closes at 12:15 CT for equities and 12:45 CT for metals.
 - In some years equities trade an abbreviated Good Friday session that ends at 08:15 CT, while metals stay closed.
 
-These differences come from the CME holiday calendar and are corroborated by `pandas_market_calendars` (its `CMEGlobexEquitiesExchangeCalendar` and `CMEGlobexEnergyAndMetalsExchangeCalendar`, which cite cmegroup.com). The calendar row is therefore `CME_EQUITY`, named for the schedule rather than the exchange. GC gets `CME_METALS` in 231.
+These differences come from the CME holiday calendar and are corroborated by `pandas_market_calendars` (its `CMEGlobexEquitiesExchangeCalendar` and `CMEGlobexEnergyAndMetalsExchangeCalendar`, which cite cmegroup.com). The calendar row is therefore `CME_EQUITY`, named for the schedule rather than the exchange. GC gets `CME_METALS` in 230.
 
 **D2 — Calendar row values.**
 
@@ -175,7 +175,7 @@ The reason is that every consumer in this initiative needs contiguous intervals:
 - the ingest ledger's per-session record counts;
 - the day-condition edge rule, where a session touches two calendar days.
 
-A two-part session would bring back the intra-session halt the architecture ruled out. No 220 slice needs CME's clearing trade date. If 228's volume-based roll rule ever needs volume per clearing date, it folds a holiday session into the next session at read time. That note goes into the contract vocabulary so 228 inherits it.
+A two-part session would bring back the intra-session halt the architecture ruled out. No 220 slice needs CME's clearing trade date. If 227's volume-based roll rule ever needs volume per clearing date, it folds a holiday session into the next session at read time. That note goes into the contract vocabulary so 227 inherits it.
 
 **D5 — The CME seed is an explicit dated table, not a rule generator.** `seed_cme_calendar.CME_EQUITY_EXCEPTIONS` lists every exception date from 2020-01-01 through `CME_EQUITY_HOLIDAYS_SEEDED_THROUGH`. Each row carries its `market_status` (`closed` or `early_close`, plus `late_open` if one ever occurs), its time, and a source comment.
 
@@ -217,9 +217,9 @@ The migration sets the bound for every calendar explicitly and then applies `SET
 - `None` is a real answer ("no session"), not a fallback. 224's session-boundary check turns it into a unit failure.
 - `SessionIndex.locate_ns` uses `np.searchsorted` over the open times, then compares against the close times, with `-1` meaning "in no session". Its callers handle out-of-range timestamps before assignment. `sessions_between` has already raised for any unit range outside the populated span.
 
-**D8 — Product → calendar mapping is one constant.** `FUTURES_PRODUCT_CALENDAR` in `data/tick/constants.py` is the only place a futures product meets a calendar id. A product with no entry raises `KeyError` naming the product; there is no default. 223's universe configuration and 224's ingest read it. 231 adds `"GC": CME_METALS_CALENDAR_ID` there. Calendar ids stay strings because they are database keys, as `NYSE` is today (`HEALTH_MINUTE_SESSION_CALENDAR`). Each id is defined once as a constant.
+**D8 — Product → calendar mapping is one constant.** `FUTURES_PRODUCT_CALENDAR` in `data/tick/constants.py` is the only place a futures product meets a calendar id. A product with no entry raises `KeyError` naming the product; there is no default. 223's universe configuration and 224's ingest read it. 230 adds `"GC": CME_METALS_CALENDAR_ID` there. Calendar ids stay strings because they are database keys, as `NYSE` is today (`HEALTH_MINUTE_SESSION_CALENDAR`). Each id is defined once as a constant.
 
-**D9 — Does this belong in the API? No.** The API does not serve calendars today, and the session lookup is an internal input to ingest. The futures namespace (230) exposes sessions where a client meets them, in tick coverage and status per session. The operator need is served by the `mt data calendars sessions` debug read (I8).
+**D9 — Does this belong in the API? No.** The API does not serve calendars today, and the session lookup is an internal input to ingest. The futures namespace (229) exposes sessions where a client meets them, in tick coverage and status per session. The operator need is served by the `mt data calendars sessions` debug read (I8).
 
 **D10 — The contract amendment frame.** These edits go to `user/reference/data-correctness-architecture.md`. The contract numbers the initiative 200, the concept's old number, so each edited passage renames it to 220 and records the renumbering once.
 
@@ -230,13 +230,13 @@ The migration sets the bound for every calendar explicitly and then applies `SET
   - *Instrument-session complete*: the architecture's completeness definitions, restated.
 - **Vocabulary rules for tick.**
   - Tick completeness is answered from the manifest, the ingest ledger and raw-table counts. It never reads `acquisition_state`, `data_gaps` or `data_status`, and never any aggregate.
-  - `Granularity.TICK` (in `data/acquisition/state.py`) names a granularity. `PassKind.TICK` (deferred with the cadence decision, 225) names a run.
+  - `Granularity.TICK` (in `data/acquisition/state.py`) names a granularity. `PassKind.TICK` (deferred with the cadence decision, 232) names a run.
   - `granularity = 'tick'` enters a minute-track enumeration (`data_gaps`, `data_status`) only where a surface reads it. The contract keeps that list, and it is empty as of 221.
 - **New invariants.** Each names its planned closing slices in the mapping table, with status "Framed (221)":
   - **I11 — Tick completeness from the manifest.** Completeness per archive unit, instrument-session and universe, under the architecture's definitions, answered only from the manifest, the ledger and raw counts. Closing: 222 and 224.
   - **I12 — Tick provenance and supersession.** Every tick row carries its archive unit's id. Replacing data is an explicit supersession recorded in the manifest, never a natural-key conflict deciding between two units. Closing: 222 and 224.
   - **I13 — Session-assigned ticks.** Every ingested tick falls inside a session of its product's calendar. A tick in a break, on a closed day, or outside the populated range fails its unit. Closing: 221 (the model and lookup) and 224 (the check).
-  - **I14 — Futures identity is explicit.** Every surface that answers for a product names the contract and the roll rule that chose it. No continuous or back-adjusted series is stored. Closing: 228, 229 and 230.
+  - **I14 — Futures identity is explicit.** Every surface that answers for a product names the contract and the roll rule that chose it. No continuous or back-adjusted series is stored. Closing: 227, 228 and 229.
 - **I7 exception.** I7 does not apply to tick in initiative 220. The scope has one provider and no cross-venue consolidation, and no independent price source is bought. The ingest checks (counts, resolution, session boundaries) are *verification* in this contract's vocabulary, not audit. A future second tick source reopens it.
 - **Sequence-gap detection** moves out of this initiative's inherited list and is reserved for the realtime initiative. The reason: within a purchased historical range, the provider's delivery is complete by contract, so the completeness question is which sessions were purchased and ingested, not which sequence numbers are missing. The Notes paragraph that promised it is rewritten to say so.
 - **Mapping table.**
@@ -313,9 +313,9 @@ def extend_calendar_sessions(conn, calendar_id: str, *, start: date, end: date) 
 ### Provides to Other Slices
 
 - **224 (ingest):** `TradingCalendar.sessions_between`, `SessionIndex.locate_ns`, `extend_calendar_sessions` (224 runs it for `CME_EQUITY` when a unit's range passes the horizon), `OutOfPopulatedRangeError`, and `FUTURES_PRODUCT_CALENDAR`. The ledger's session key is `(calendar_id, session_date)`.
-- **222 (storage):** a session is identified by `(calendar_id, session_date)`. With two calendars in play from 231 on, the ledger must carry `calendar_id` or derive it from the product. 222's design decides which.
-- **228 (roll methods):** the D4 note that a holiday session is dated by the day it closes, not by CME's clearing trade date.
-- **231 (GC):** the pattern for a second futures calendar: a seed module table, a minute-track migration, one mapping entry, and verification against GC files.
+- **222 (storage):** a session is identified by `(calendar_id, session_date)`. With two calendars in play from 230 on, the ledger must carry `calendar_id` or derive it from the product. 222's design decides which.
+- **227 (roll methods):** the D4 note that a holiday session is dated by the day it closes, not by CME's clearing trade date.
+- **230 (GC):** the pattern for a second futures calendar: a seed module table, a minute-track migration, one mapping entry, and verification against GC files.
 - **All later 220 slices:** the contract amendment frame, which each slice extends with its own mapping rows.
 
 ### Consumes from Other Slices
@@ -325,7 +325,7 @@ def extend_calendar_sessions(conn, calendar_id: str, *, start: date, end: date) 
 
 ### Follow-ups written during this phase
 
-- **Slice plan, entry 231:** add "seeds the `CME_METALS` calendar (221 found GC's holiday schedule differs from ES's) and adds `GC` to `FUTURES_PRODUCT_CALENDAR`".
+- **Slice plan, entry 230:** add "seeds the `CME_METALS` calendar (221 found GC's holiday schedule differs from ES's) and adds `GC` to `FUTURES_PRODUCT_CALENDAR`".
 - **Slice plan, "Architecture statements superseded":** add that ES and GC do not share a calendar row.
 - **GitHub issue #26:** NYSE and NASDAQ holiday data (Special Considerations).
 
