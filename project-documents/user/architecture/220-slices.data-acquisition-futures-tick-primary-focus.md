@@ -3,7 +3,7 @@ docType: slice-plan
 parent: user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
 project: trading
 dateCreated: 20260923
-dateUpdated: 20260927
+dateUpdated: 20260928
 status: in_progress
 ---
 
@@ -118,7 +118,7 @@ status: in_progress
 
 ## Integration Work
 
-12. [ ] **(231) Universe Expansion — GC** — Adds GC as a configuration edit, with a cost estimate that includes roll inputs for the range. It is acquired (plan-included where possible) and ingested at the tier set by the 226 go/no-go, and it runs at whatever cadence the PM has decided. The session model is verified for GC, and the ingest checks pass on every GC unit. Status, overview, and the API show GC with no code change. Verification uses a roll inside the purchased range and a manually fired pass. It does not wait for a future roll or a future timer firing. Dependencies: [230], the 226 go/no-go. Risk: Low. Effort: 2/5
+12. [ ] **(231) Universe Expansion — GC** — Adds GC as a configuration edit, plus the `CME_METALS` calendar: 221 found that GC's holiday schedule differs from ES's, so this slice seeds a second calendar (a dated exception table and a minute-track migration, following 221's pattern) and adds `GC` to `FUTURES_PRODUCT_CALENDAR`, with a cost estimate that includes roll inputs for the range. It is acquired (plan-included where possible) and ingested at the tier set by the 226 go/no-go, and it runs at whatever cadence the PM has decided. The session model is verified for GC, and the ingest checks pass on every GC unit. Status, overview, and the API show GC with no code change. Verification uses a roll inside the purchased range and a manually fired pass. It does not wait for a future roll or a future timer firing. Dependencies: [230], the 226 go/no-go. Risk: Low. Effort: 2/5
 
 13. [ ] **(232) Cross-Source Acquisition Arbitration** — Sets `IOWeight`, `CPUWeight`, and `MemoryMax` on `manta-acquisition.slice` from the proof's contention numbers. It then chooses among the 900 plan's three mechanisms: a resource-class lock the passes take, a scheduler inside `mt`, or keeping calendar stagger as it is. The contention measurement is repeated to show the chosen setting works. This closes 900 Future Work item 4. Dependencies: [226]. Risk: Medium. Effort: 2/5
 
@@ -143,6 +143,7 @@ status: in_progress
 - **Architecture statements superseded by 220's slice design** (the slice design is authoritative for 222 onward):
   - The decode batch bound is a byte budget (`TICK_DECODE_BATCH_BYTES`) with the record count derived per schema, not "a record count, one named constant" — a count cannot bound memory across 48-byte trades and 520-byte definitions.
   - Delivered historical files carry no symbol-mapping records. The mappings live in the DBN file's metadata header (`mappings`, `partial`, `not_found`); in-stream mapping records are a live-API feature only. 224 and 226 read the header.
+- **Architecture statement superseded by 221's slice design:** ES and GC do not share a calendar row. Regular hours match (17:00–16:00 CT), but holiday halts and early closes differ (equity 12:00 CT vs metals 13:30 CT on US holidays; Black Friday 12:15 vs 12:45; equity-only abbreviated Good Friday sessions). Calendars are keyed per schedule: `CME_EQUITY` (221) and `CME_METALS` (231).
 - **No billable request before 223.** 220's preflight uses only free metadata endpoints, and its test fixtures must be free real DBN files. The first real purchase happens only after the PM sets `MT_TICK_SPEND_CEILING_USD`.
 - **The CLI and API surface decision was made at 220 design:** an `mt data tick` subgroup and a `/api/v1/futures/*` namespace. 229 and 230 apply it.
 - **Standing obligations on every 220 slice:** diff the tick pass contract against the Kalshi original, as a named task in the slice's task file (from 223 on). 223 also adds a unit test comparing the tick copy's fields with the Kalshi original's, so divergence fails a test rather than waiting for a checklist (review F015). Include a "realtime paths" check naming any decision that rules out path A (assemble from realtime) or path B (historical with delay). Add the slice's rows to the data-correctness contract's slice-mapping table. Answer "does this belong in the API?" for any new surface.
