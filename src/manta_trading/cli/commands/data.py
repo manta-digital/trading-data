@@ -122,6 +122,10 @@ data_app.command("accounting")(data_accounting)
 from manta_trading.cli.commands.overview import data_overview  # noqa: E402
 
 data_app.command("overview")(data_overview)
+# `mt data calendars sessions` (slice 221 D9) lives in its own module.
+from manta_trading.cli.commands.calendar_sessions import data_calendar_sessions  # noqa: E402, I001
+
+calendars_app.command("sessions")(data_calendar_sessions)
 data_app.add_typer(universes_app, name="universes")
 data_app.add_typer(restore_app, name="restore")
 data_app.add_typer(kalshi_app, name="kalshi")
@@ -805,6 +809,22 @@ def instruments_populate_delisted_dates(
         raise typer.Exit(code=1)
 
 
+# Schema columns (migrations 004 and 057), aliased to the names the output
+# uses — the same aliases TradingCalendar._ensure_loaded uses.
+CALENDARS_LIST_SQL = (
+    "SELECT calendar_id,"
+    "  exchange_name AS calendar_name,"
+    "  timezone,"
+    "  market_open AS market_open_time,"
+    "  market_close AS market_close_time,"
+    "  has_extended_hours,"
+    "  extended_open AS extended_open_time,"
+    "  extended_close AS extended_close_time,"
+    "  holidays_seeded_through "
+    "FROM trading_calendars ORDER BY calendar_id"
+)
+
+
 @calendars_app.command("list")
 def calendars_list(
     ctx: typer.Context,
@@ -818,12 +838,7 @@ def calendars_list(
 
     with psycopg.connect(conninfo) as conn:
         with conn.cursor(row_factory=psycopg_dict_row) as cur:
-            cur.execute(
-                "SELECT calendar_id, calendar_name, timezone,"
-                "  market_open_time, market_close_time,"
-                "  has_extended_hours, extended_open_time, extended_close_time "
-                "FROM trading_calendars ORDER BY calendar_id"
-            )
+            cur.execute(CALENDARS_LIST_SQL)
             rows = cur.fetchall()
 
     if json_output:
@@ -837,6 +852,7 @@ def calendars_list(
                 "has_extended_hours": r["has_extended_hours"],
                 "extended_open": str(r["extended_open_time"]) if r["extended_open_time"] else None,
                 "extended_close": str(r["extended_close_time"]) if r["extended_close_time"] else None,
+                "holidays_seeded_through": r["holidays_seeded_through"].isoformat(),
             }
             for r in rows
         ]
@@ -852,6 +868,7 @@ def calendars_list(
             ("Market Hours", ""),
             ("ETH Hours", ""),
             ("ETH", ""),
+            ("Holidays Through", ""),
         ],
     )
     for r in rows:
@@ -868,6 +885,7 @@ def calendars_list(
             market_hours,
             eth_hours,
             "yes" if r["has_extended_hours"] else "no",
+            r["holidays_seeded_through"].isoformat(),
         )
     print_result(table, json_mode=False)
     print_result(f"\n{len(rows)} calendar(s)", json_mode=False)

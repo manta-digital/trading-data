@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date as dt_date
 from unittest.mock import MagicMock, patch
 
@@ -330,6 +331,7 @@ class TestCalendarsList:
                 "has_extended_hours": True,
                 "extended_open_time": "04:00:00",
                 "extended_close_time": "20:00:00",
+                "holidays_seeded_through": dt_date(2026, 12, 31),
             },
             {
                 "calendar_id": "NASDAQ",
@@ -340,6 +342,7 @@ class TestCalendarsList:
                 "has_extended_hours": True,
                 "extended_open_time": "04:00:00",
                 "extended_close_time": "20:00:00",
+                "holidays_seeded_through": dt_date(2026, 12, 31),
             },
         ]
 
@@ -370,6 +373,27 @@ class TestCalendarsList:
         assert isinstance(data, list)
         assert len(data) == 2
         assert data[0]["calendar_id"] == "NYSE"
+
+    def test_json_output_carries_holiday_bound(self):
+        result = self._run(_settings(), "--json")
+        assert json.loads(result.output)[0]["holidays_seeded_through"] == "2026-12-31"
+
+    def test_sql_selects_only_real_columns(self):
+        """Every column the list query reads exists (migrations 004 and 057)."""
+        from manta_trading.cli.commands.data import CALENDARS_LIST_SQL
+        from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+
+        ddl = " ".join(
+            m["sql"]
+            for m in MINUTE_MIGRATIONS
+            if m["id"].startswith(("004_", "057_"))
+        )
+        column_def = r"^\s*([a-z_]+)\s+(?:VARCHAR|TIME|BOOLEAN|DATE)"
+        real = set(re.findall(column_def, ddl, re.M))
+        real |= set(re.findall(r"ADD COLUMN IF NOT EXISTS ([a-z_]+)", ddl))
+        select_list = CALENDARS_LIST_SQL.split("SELECT", 1)[1].split("FROM", 1)[0]
+        selected = {item.split()[0] for item in select_list.split(",")}
+        assert selected <= real, selected - real
 
     def test_missing_timescale_url_exits_with_error(self):
         with _patch_app(_settings(timescale_url=None)):

@@ -22,9 +22,16 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from manta_trading.data.base.adjustment_policy import SessionType
+from manta_trading.data.base.session_index import Session, SessionIndex
 from manta_trading.logging import get_logger
 
 _logger = get_logger(__name__)
+
+
+def _require_aware(ts: datetime) -> None:
+    """Raise ``ValueError`` for a naive datetime, whose instant is undefined."""
+    if ts.tzinfo is None or ts.utcoffset() is None:
+        raise ValueError(f"naive datetime {ts.isoformat()} has no defined instant")
 
 
 class MarketStatus(StrEnum):
@@ -85,6 +92,35 @@ class OutOfHorizonError(Exception):
             f"Date {query_date} is beyond the populated trading_sessions horizon "
             f"for calendar '{calendar_id}' (horizon ends {horizon_end}). "
             "Run 'mt data extend' to extend the horizon."
+        )
+
+
+class OutOfPopulatedRangeError(Exception):
+    """Raised when an instant falls outside a calendar's populated sessions.
+
+    Outside that range "no session" cannot be told apart from "not yet
+    populated", so the lookup refuses rather than answering ``None`` (221 D7).
+    """
+
+    def __init__(
+        self,
+        calendar_id: str,
+        ts: datetime,
+        first_open: datetime | None,
+        last_close: datetime | None,
+    ) -> None:
+        self.calendar_id = calendar_id
+        self.ts = ts
+        self.first_open = first_open
+        self.last_close = last_close
+        span = (
+            f"populated from {first_open.isoformat()} to {last_close.isoformat()}"
+            if first_open is not None and last_close is not None
+            else "no sessions populated"
+        )
+        super().__init__(
+            f"{ts.isoformat()} is outside calendar '{calendar_id}' sessions "
+            f"({span}). Run 'mt data extend' to extend the horizon."
         )
 
 
@@ -191,6 +227,77 @@ class TradingCalendar:
         horizon = row[0] if row else None
         self._cache[key] = horizon
         return horizon
+
+    def populated_span(self) -> tuple[datetime | None, datetime | None]:
+        """``(first open, last close)`` of this calendar's populated sessions.
+
+        ``(None, None)`` when none are populated. Callers of
+        :meth:`SessionIndex.locate_ns` check their instants against this span
+        first (221 D7). Cached per instance.
+        """
+        key = "populated_span"
+        if key not in self._cache:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT MIN(session_open_utc), MAX(session_close_utc) "
+                        "FROM trading_sessions WHERE calendar_id = %s",
+                        (self.calendar_id,),
+                    )
+                    row = cur.fetchone()
+            self._cache[key] = (row[0], row[1]) if row else (None, None)
+        span: tuple[datetime | None, datetime | None] = self._cache[key]
+        return span
+
+    def _require_populated(self, ts: datetime) -> None:
+        """Raise unless the aware ``ts`` lies within the populated span."""
+        first_open, last_close = self.populated_span()
+        if first_open is None or last_close is None or not (
+            first_open <= ts <= last_close
+        ):
+            raise OutOfPopulatedRangeError(
+                self.calendar_id, ts, first_open, last_close
+            )
+
+    def _fetch_sessions(self, start_utc: datetime, end_utc: datetime) -> list[Session]:
+        """Sessions whose closed interval intersects ``[start_utc, end_utc)``."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT session_date, session_open_utc, session_close_utc "
+                    "FROM trading_sessions "
+                    "WHERE calendar_id = %s "
+                    "  AND session_close_utc >= %s AND session_open_utc < %s "
+                    "ORDER BY session_open_utc",
+                    (self.calendar_id, start_utc, end_utc),
+                )
+                rows = cur.fetchall()
+        return [Session(self.calendar_id, *row) for row in rows]
+
+    def sessions_between(self, start_utc: datetime, end_utc: datetime) -> list[Session]:
+        """Sessions intersecting ``[start_utc, end_utc)``, in order.
+
+        Raises:
+            ValueError: either bound is naive.
+            OutOfPopulatedRangeError: a bound lies outside the populated span.
+        """
+        _require_aware(start_utc)
+        _require_aware(end_utc)
+        self._require_populated(start_utc)
+        self._require_populated(end_utc)
+        return self._fetch_sessions(start_utc, end_utc)
+
+    def session_containing(self, ts: datetime) -> Session | None:
+        """The session containing ``ts``; ``None`` in a break or on a closed day.
+
+        Raises:
+            ValueError: ``ts`` is naive (checked before any comparison).
+            OutOfPopulatedRangeError: ``ts`` lies outside the populated span.
+        """
+        _require_aware(ts)
+        self._require_populated(ts)
+        candidates = self._fetch_sessions(ts, ts + timedelta(microseconds=1))
+        return SessionIndex(candidates).locate(ts)
 
     def is_trading_day(self, check_date: date) -> bool:
         """Check if a given date is a trading day.
@@ -427,12 +534,18 @@ class TradingCalendar:
                 open_t = rth_open
                 close_t = rth_close
 
-        session_start = datetime.combine(trade_date, open_t, tzinfo=tz)
-        session_end = datetime.combine(trade_date, close_t, tzinfo=tz)
+        from manta_trading.data.base.session_population import session_interval
+
+        if tz is None or open_t is None or close_t is None:
+            raise ValueError(
+                f"calendar '{self.calendar_id}' has no {session_type} hours loaded"
+            )
+        # One open-after-close rule for every path (221 D3).
+        open_utc, close_utc = session_interval(trade_date, open_t, close_t, tz)
 
         return TradingHours(
-            session_start=session_start,
-            session_end=session_end,
+            session_start=open_utc.astimezone(tz),
+            session_end=close_utc.astimezone(tz),
             session_type=session_type,
             is_trading_day=True,
         )
