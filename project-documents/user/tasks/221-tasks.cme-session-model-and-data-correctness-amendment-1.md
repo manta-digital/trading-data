@@ -14,7 +14,7 @@ projectState: >
   and are out of scope.
 dateCreated: 20260928
 dateUpdated: 20260928
-status: in_progress
+status: complete
 part: 1
 ---
 

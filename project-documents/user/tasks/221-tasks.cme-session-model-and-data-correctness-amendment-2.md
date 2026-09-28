@@ -14,7 +14,7 @@ projectState: >
   and are out of scope.
 dateCreated: 20260928
 dateUpdated: 20260928
-status: in_progress
+status: complete
 part: 2
 partOf: 221-tasks.cme-session-model-and-data-correctness-amendment-1.md
 ---
@@ -134,31 +134,31 @@ Part 1 (`221-tasks.cme-session-model-and-data-correctness-amendment-1.md`) holds
   - [x] Success: `--help` works, and a missing directory exits 2 naming it
   - [x] Effort: 3
 
-- [ ] **8.2 Run the script over both adopted jobs and record the evidence**
-  - [ ] Unzip `GLBX-20250123-XT4GD5UM6C.zip` into the scratchpad, and run
+- [x] **8.2 Run the script over both adopted jobs and record the evidence**
+  - [x] Unzip `GLBX-20250123-XT4GD5UM6C.zip` into the scratchpad, and run
         the script against it and against `GLBX-20240930-USM7UXXJBA`, with
         the walkthrough database as `MT_TIMESCALE_DB_URL`.
-  - [ ] Required: exit 0, zero records outside a session, and totals equal
+  - [x] Required: exit 0, zero records outside a session, and totals equal
         each manifest.
-  - [ ] Add the first and last trade times for the Labor Day,
+  - [x] Add the first and last trade times for the Labor Day,
         Thanksgiving, Black Friday and Christmas Eve 2024 sessions to
         Implementation Findings, next to each session's close.
-  - [ ] A record outside a session is a seed defect. Fix the table (4.3),
+  - [x] A record outside a session is a seed defect. Fix the table (4.3),
         re-run 5.2, and re-run the script. Never widen a session to fit.
-  - [ ] Success: evidence recorded
-  - [ ] Effort: 2
+  - [x] Success: evidence recorded
+  - [x] Effort: 2
 
-- [ ] **8.3 Commit a real-data boundary fixture**
-  - [ ] Extract the `ts_event` values of the first and last trades from
+- [x] **8.3 Commit a real-data boundary fixture**
+  - [x] Extract the `ts_event` values of the first and last trades from
         8.2's sessions into `test/fixtures/calendar/cme_equity_2024_boundaries.json`,
         with a `provenance` key naming the job ids and files.
-  - [ ] Add a unit test that builds a `SessionIndex` from the seeded
+  - [x] Add a unit test that builds a `SessionIndex` from the seeded
         sessions for those dates and asserts each fixture timestamp lands in
         its expected session. The seeded sessions come from
         `populate_trading_sessions` with `CME_EQUITY_EXCEPTIONS`, so no
         database is needed.
-  - [ ] Success: the test passes. **Commit Section 8.**
-  - [ ] Effort: 2
+  - [x] Success: the test passes. **Commit Section 8.**
+  - [x] Effort: 2
 
 ---
 
@@ -210,21 +210,21 @@ All edits go to `user/reference/data-correctness-architecture.md`. Update its
 
 ## Section 10 — Final validation
 
-- [ ] **10.1 Full checks**
-  - [ ] Run `uv run ruff check` on the touched files, and `uv run mypy src
+- [x] **10.1 Full checks**
+  - [x] Run `uv run ruff check` on the touched files, and `uv run mypy src
         test` in one invocation.
-  - [ ] Run `uv run pytest test/unit -q`, then the integration tier
+  - [x] Run `uv run pytest test/unit -q`, then the integration tier
         separately. Every new test passes. Confirm any failure also fails at
         the slice base before calling it pre-existing, and list it.
-  - [ ] Success: clean, or pre-existing failures listed with evidence
-  - [ ] Effort: 2
+  - [x] Success: clean, or pre-existing failures listed with evidence
+  - [x] Effort: 2
 
-- [ ] **10.2 Run the verification walkthrough and update the design**
-  - [ ] Run LLD Verification Walkthrough steps 1–7 against the walkthrough
+- [x] **10.2 Run the verification walkthrough and update the design**
+  - [x] Run LLD Verification Walkthrough steps 1–7 against the walkthrough
         database (see Walkthrough database above) after `mt data migrate
         apply`, then drop it, and correct the walkthrough text to the
         actual commands and output.
-  - [ ] Set the slice design's `status` to `complete` and update
+  - [x] Set the slice design's `status` to `complete` and update
         `dateUpdated`.
-  - [ ] Success: every step behaves as written. **Commit.**
-  - [ ] Effort: 2
+  - [x] Success: every step behaves as written. **Commit.**
+  - [x] Effort: 2

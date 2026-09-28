@@ -7,7 +7,7 @@ dependencies: []
 interfaces: [222-slice.tick-storage-track, 224-slice.ingest-pass-and-proof-parity, 228-slice.active-contract-and-roll-methods, 231-slice.universe-expansion-gc]
 dateCreated: 20260928
 dateUpdated: 20260928
-status: not_started
+status: complete
 ---
 
 # Slice Design: cme-session-model-and-data-correctness-amendment
