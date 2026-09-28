@@ -38,8 +38,9 @@ def _seed(conn: psycopg.Connection) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO trading_calendars "
-            "(calendar_id, exchange_name, timezone, market_open, market_close) "
-            "VALUES (%s, 'TEST147', 'UTC', '09:30', '16:00') "
+            "(calendar_id, exchange_name, timezone, market_open, market_close, "
+            " holidays_seeded_through) "
+            "VALUES (%s, 'TEST147', 'UTC', '09:30', '16:00', '2099-12-31') "
             "ON CONFLICT (calendar_id) DO NOTHING",
             (_TEST_CALENDAR,),
         )

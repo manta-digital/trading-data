@@ -431,6 +431,21 @@ def test_auto_extend_notice_noop() -> None:
     assert notice is None
 
 
+def test_auto_extend_notice_clamped_names_bound() -> None:
+    """A calendar stopped by its holiday bound gets the 221 D6 message."""
+    ae = AutoExtendResult(
+        triggered=False,
+        horizon_after={"CME_EQUITY": date(2027, 12, 31)},
+        clamped={"CME_EQUITY": date(2027, 12, 31)},
+    )
+    notice = render_auto_extend_notice(ae)
+    assert notice is not None
+    assert (
+        "CME_EQUITY: horizon 2027-12-31 — holidays seeded through 2027-12-31; "
+        "seed the next year's CME_EQUITY schedule"
+    ) in notice
+
+
 # ---------------------------------------------------------------------------
 # Coverage freshness notice + JSON (slice 167 section 6)
 # ---------------------------------------------------------------------------

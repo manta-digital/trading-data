@@ -312,8 +312,9 @@ def _seed_session_mass_shape(url: str) -> None:
             cur.execute(
                 "INSERT INTO trading_calendars "
                 "(calendar_id, exchange_name, timezone, market_open, "
-                " market_close, has_extended_hours) "
-                "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                " market_close, has_extended_hours, holidays_seeded_through) "
+                "VALUES (%s, %s, %s, %s, %s, %s, '2099-12-31') "
+                "ON CONFLICT DO NOTHING",
                 (
                     "NYSE",
                     "New York Stock Exchange",

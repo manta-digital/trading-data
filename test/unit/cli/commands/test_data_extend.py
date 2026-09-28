@@ -17,6 +17,7 @@ from manta_trading.constants import (
     TRADING_SESSIONS_EXTENSION_YEARS,
     TRADING_SESSIONS_HORIZON_WARN_DAYS,
 )
+from manta_trading.data.base.session_extension import CalendarExtension
 
 runner = CliRunner()
 
@@ -25,12 +26,19 @@ _FULL_MAX = date(_END_YEAR, 12, 31)
 _TODAY = date.today()
 _NEAR_MAX = _TODAY + timedelta(days=45)  # below warn threshold (90 days)
 
-_NYSE_CAL = {
-    "calendar_id": "NYSE",
-    "timezone": "America/New_York",
-    "market_open": __import__("datetime").time(9, 30),
-    "market_close": __import__("datetime").time(16, 0),
-}
+_EXT = "manta_trading.data.base.session_extension"
+
+
+def _extension(
+    horizon: date, *, rows: int = 10, bound: date = _FULL_MAX, clamped: bool = False
+) -> CalendarExtension:
+    return CalendarExtension(
+        calendar_id="NYSE",
+        rows_upserted=rows,
+        horizon_after=horizon,
+        holidays_seeded_through=bound,
+        clamped_by_holiday_bound=clamped,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -81,12 +89,22 @@ def _pool_with_conn_seq(*conn_mocks) -> MagicMock:
     return pool
 
 
-def _invoke_extend(*extra_args: str, pool: MagicMock, settings=None) -> object:
+def _pool_for_nyse() -> MagicMock:
+    """Pool: first connection lists calendars (NYSE), second extends it."""
+    conn0 = _conn_with_cursors(_cursor(fetchall=[("NYSE",)]))
+    return _pool_with_conn_seq(conn0, MagicMock())
+
+
+def _invoke_extend(
+    *extra_args: str, extension: CalendarExtension, settings=None
+) -> object:
     if settings is None:
         settings = _settings()
     with patch("manta_trading.cli.app.Settings", return_value=settings), \
          patch("manta_trading.cli.app.setup_logging"), \
-         patch("psycopg_pool.ConnectionPool", return_value=pool):
+         patch("psycopg_pool.ConnectionPool", return_value=_pool_for_nyse()), \
+         patch(f"{_EXT}.session_horizon", return_value=extension.horizon_after), \
+         patch(f"{_EXT}.extend_calendar_sessions", return_value=extension):
         return runner.invoke(app, ["data", "extend", *extra_args])
 
 
@@ -127,63 +145,46 @@ class TestExtendMissingUrl:
 class TestExtendStrict:
     """Strict mode exits 4 when horizon is below warn threshold."""
 
-    def _build_pool_near_horizon(self) -> MagicMock:
-        """Pool for a calendar whose MAX(session_date) is near today."""
-        # conn0: fetch calendars
-        conn0 = _conn_with_cursors(_cursor(fetchall=[_NYSE_CAL]))
-        # conn1: max_date (near) + holidays
-        cur_max = _cursor(fetchone={"max_date": _NEAR_MAX})
-        cur_hol = _cursor(fetchall=[])
-        conn1 = _conn_with_cursors(cur_max, cur_hol)
-        # conn2: upsert (populate_trading_sessions returns rows, execute many)
-        conn2 = MagicMock()
-        cur_up = _cursor()
-        cur_up.rowcount = 10
-        conn2.cursor.return_value = cur_up
-        # conn3: final max_date check — still near_max (simulating horizon is still short)
-        conn3 = _conn_with_cursors(_cursor(fetchone={"max_date": _NEAR_MAX}))
-        return _pool_with_conn_seq(conn0, conn1, conn2, conn3)
-
     def test_strict_exits_4_when_horizon_near(self):
-        pool = self._build_pool_near_horizon()
-        result = _invoke_extend("--strict", pool=pool)
+        result = _invoke_extend("--strict", extension=_extension(_NEAR_MAX))
         assert result.exit_code == 4, f"Output:\n{result.output}"
         assert "NYSE" in result.output
         assert "days remaining" in result.output
 
-    def test_calendar_name_in_warning(self):
-        pool = self._build_pool_near_horizon()
-        result = _invoke_extend("--strict", pool=pool)
-        assert "NYSE" in result.output
-
     def test_no_strict_exits_0_even_when_horizon_near(self):
         """Without --strict, near-horizon is not an error."""
-        pool = self._build_pool_near_horizon()
-        result = _invoke_extend(pool=pool)
+        result = _invoke_extend(extension=_extension(_NEAR_MAX))
         assert result.exit_code == 0, f"Output:\n{result.output}"
 
 
 class TestExtendIdempotent:
     """Re-running a fully extended calendar reports 0 inserted."""
 
-    def _build_pool_full_horizon(self) -> MagicMock:
-        # conn0: fetch calendars
-        conn0 = _conn_with_cursors(_cursor(fetchall=[_NYSE_CAL]))
-        # conn1: max_date = full_max + holidays — start_date > end_date → no upsert
-        cur_max = _cursor(fetchone={"max_date": _FULL_MAX})
-        cur_hol = _cursor(fetchall=[])
-        conn1 = _conn_with_cursors(cur_max, cur_hol)
-        # conn2: final max_date check
-        conn2 = _conn_with_cursors(_cursor(fetchone={"max_date": _FULL_MAX}))
-        return _pool_with_conn_seq(conn0, conn1, conn2)
-
     def test_zero_inserted_when_already_extended(self):
-        pool = self._build_pool_full_horizon()
-        result = _invoke_extend(pool=pool)
+        result = _invoke_extend(extension=_extension(_FULL_MAX, rows=0))
         assert result.exit_code == 0, f"Output:\n{result.output}"
         assert "0 sessions inserted" in result.output
 
     def test_strict_exits_0_when_horizon_healthy(self):
-        pool = self._build_pool_full_horizon()
-        result = _invoke_extend("--strict", pool=pool)
+        result = _invoke_extend("--strict", extension=_extension(_FULL_MAX, rows=0))
         assert result.exit_code == 0, f"Output:\n{result.output}"
+
+
+class TestExtendHolidayBound:
+    """Each calendar's line names its holiday bound; a clamp names the fix."""
+
+    def test_unclamped_line_names_bound(self):
+        result = _invoke_extend(extension=_extension(_FULL_MAX))
+        assert f"holidays seeded through {_FULL_MAX}" in result.output
+        assert "seed the next year" not in result.output
+
+    def test_clamped_line_prints_bound_message(self):
+        bound = _TODAY + timedelta(days=45)
+        result = _invoke_extend(
+            "--strict", extension=_extension(bound, bound=bound, clamped=True)
+        )
+        assert result.exit_code == 4, f"Output:\n{result.output}"
+        # Rich wraps at the terminal width; compare with whitespace collapsed.
+        output = " ".join(result.output.split())
+        assert f"holidays seeded through {bound}" in output
+        assert "seed the next year's NYSE schedule" in output

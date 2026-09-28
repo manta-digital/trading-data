@@ -17,6 +17,7 @@ from rich.console import RenderableType
 from rich.panel import Panel
 from rich.table import Table
 
+from manta_trading.data.base.session_extension import holiday_bound_message
 from manta_trading.data.maintenance.auto_extend import AutoExtendResult
 from manta_trading.data.quality.fetch_status import (
     OPEN_FETCH_STATUSES,
@@ -344,23 +345,29 @@ def render_coverage_notice(coverage: CoverageFreshness | None) -> str | None:
 
 
 def render_auto_extend_notice(result: AutoExtendResult) -> str | None:
-    """Return a notice string when triggered or on error; None if no-op."""
+    """Return a notice string when triggered, clamped, or on error; else None."""
     if result.error is not None:
         calendars = ", ".join(result.calendars_extended) or "one or more calendars"
         return (
             f"[yellow]Warning:[/yellow] Auto-extend failed for {calendars}; "
             "run `mt data --extend` manually."
         )
+    lines: list[str] = []
     if result.triggered:
         cal_list = ", ".join(result.calendars_extended)
         horizons = ", ".join(
             f"{cal}→{d}" for cal, d in result.horizon_after.items()
         )
-        return (
+        lines.append(
             f"Auto-extended trading_sessions for {cal_list}: "
             f"{result.rows_inserted} rows inserted ({horizons})."
         )
-    return None
+    lines.extend(
+        f"[yellow]Warning:[/yellow] "
+        f"{holiday_bound_message(cal, result.horizon_after.get(cal), bound)}"
+        for cal, bound in result.clamped.items()
+    )
+    return "\n".join(lines) or None
 
 
 # ---------------------------------------------------------------------------

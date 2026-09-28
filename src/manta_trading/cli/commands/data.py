@@ -1223,7 +1223,9 @@ def data_extend(
     """Extend the trading_sessions horizon for one or all calendars.
 
     Populates trading_sessions rows from MAX(session_date)+1 through
-    current_year + TRADING_SESSIONS_EXTENSION_YEARS. Idempotent: re-running
+    current_year + TRADING_SESSIONS_EXTENSION_YEARS, clamped to each
+    calendar's holidays_seeded_through (slice 221 D6); a clamped calendar's
+    line says to seed the next year's schedule. Idempotent: re-running
     a fully extended calendar reports 0 inserted / 0 updated.
 
     Exit codes:
@@ -1233,14 +1235,17 @@ def data_extend(
     """
     from datetime import date, datetime, timedelta
 
-    from psycopg.rows import dict_row
     from psycopg_pool import ConnectionPool
 
     from manta_trading.constants import (
         TRADING_SESSIONS_EXTENSION_YEARS,
         TRADING_SESSIONS_HORIZON_WARN_DAYS,
     )
-    from manta_trading.data.base.session_population import populate_trading_sessions
+    from manta_trading.data.base.session_extension import (
+        extend_calendar_sessions,
+        holiday_bound_message,
+        session_horizon,
+    )
 
     settings = ctx.obj["settings"]
     if not settings.timescale_db_url:
@@ -1248,7 +1253,7 @@ def data_extend(
         raise typer.Exit(_EXIT_PREFLIGHT_FAILED)
 
     current_year = datetime.now().year
-    end_year = current_year + TRADING_SESSIONS_EXTENSION_YEARS
+    end_date = date(current_year + TRADING_SESSIONS_EXTENSION_YEARS, 12, 31)
     today = date.today()
     warn_cutoff = today + timedelta(days=TRADING_SESSIONS_HORIZON_WARN_DAYS)
 
@@ -1257,99 +1262,45 @@ def data_extend(
 
     with ConnectionPool(settings.timescale_db_url, min_size=1, max_size=2, open=True) as pool:
         with pool.connection() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
+            with conn.cursor() as cur:
                 if calendar:
                     cur.execute(
-                        "SELECT calendar_id, timezone, market_open, market_close "
-                        "FROM trading_calendars WHERE calendar_id = %s",
+                        "SELECT calendar_id FROM trading_calendars "
+                        "WHERE calendar_id = %s",
                         (calendar,),
                     )
                 else:
-                    cur.execute(
-                        "SELECT calendar_id, timezone, market_open, market_close "
-                        "FROM trading_calendars"
-                    )
-                calendars = cur.fetchall()
+                    cur.execute("SELECT calendar_id FROM trading_calendars")
+                calendar_ids: list[str] = [row[0] for row in cur.fetchall()]
 
-        if not calendars:
+        if not calendar_ids:
             label = f"'{calendar}'" if calendar else "any"
             print_error(f"No calendar found matching {label}.", json_mode=False)
             raise typer.Exit(_EXIT_PREFLIGHT_FAILED)
 
-        for cal_row in calendars:
-            cal_id: str = cal_row["calendar_id"]
-
+        for cal_id in calendar_ids:
             with pool.connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(
-                        "SELECT MAX(session_date) AS max_date "
-                        "FROM trading_sessions WHERE calendar_id = %s",
-                        (cal_id,),
-                    )
-                    max_row = cur.fetchone()
-                    max_date = max_row["max_date"] if max_row else None
-
-                with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(
-                        "SELECT holiday_date, market_status, "
-                        "       early_close_time, late_open_time "
-                        "FROM trading_holidays WHERE calendar_id = %s",
-                        (cal_id,),
-                    )
-                    holidays = cur.fetchall()
-
-            start_date = (max_date + timedelta(days=1)) if max_date else date(current_year, 1, 1)
-            end_date = date(end_year, 12, 31)
-
-            if start_date <= end_date:
-                calendars_row = {
-                    "timezone": cal_row["timezone"],
-                    "market_open": cal_row["market_open"],
-                    "market_close": cal_row["market_close"],
-                }
-                holidays_rows = [
-                    {
-                        "holiday_date": h["holiday_date"],
-                        "market_status": h["market_status"],
-                        "early_close_time": h["early_close_time"],
-                        "late_open_time": h["late_open_time"],
-                    }
-                    for h in holidays
-                ]
-                rows = populate_trading_sessions(
-                    cal_id, start_date, end_date, calendars_row, holidays_rows
+                max_date = session_horizon(conn, cal_id)
+                start_date = (
+                    max_date + timedelta(days=1)
+                    if max_date
+                    else date(current_year, 1, 1)
                 )
+                extension = extend_calendar_sessions(
+                    conn, cal_id, start=start_date, end=end_date
+                )
+                conn.commit()
+            total_inserted += extension.rows_upserted
 
-                if rows:
-                    with pool.connection() as conn:
-                        with conn.cursor() as cur:
-                            cur.executemany(
-                                """
-                                INSERT INTO trading_sessions
-                                    (calendar_id, session_date,
-                                     session_open_utc, session_close_utc)
-                                VALUES (%(calendar_id)s, %(session_date)s,
-                                        %(session_open_utc)s, %(session_close_utc)s)
-                                ON CONFLICT (calendar_id, session_date) DO UPDATE
-                                    SET session_open_utc  = EXCLUDED.session_open_utc,
-                                        session_close_utc = EXCLUDED.session_close_utc
-                                """,
-                                rows,
-                            )
-                            inserted = cur.rowcount
-                        conn.commit()
-                    total_inserted += inserted
-
-            # Check horizon health after extension
-            with pool.connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(
-                        "SELECT MAX(session_date) AS max_date "
-                        "FROM trading_sessions WHERE calendar_id = %s",
-                        (cal_id,),
-                    )
-                    new_row = cur.fetchone()
-                    new_max = new_row["max_date"] if new_row else None
+            new_max = extension.horizon_after
+            bound = extension.holidays_seeded_through
+            if extension.clamped_by_holiday_bound:
+                line = holiday_bound_message(cal_id, new_max, bound)
+            else:
+                line = (
+                    f"{cal_id}: horizon {new_max} — holidays seeded through {bound}"
+                )
+            print_result(line, json_mode=False)
 
             if new_max is None or new_max < warn_cutoff:
                 days_remaining = (new_max - today).days if new_max else 0

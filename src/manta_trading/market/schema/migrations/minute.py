@@ -234,6 +234,28 @@ def _build_seed_sql(calendar: dict, calendar_id: str) -> str:
     return f"{cal_sql}\n{hol_sql}"
 
 
+def _holidays_seeded_through_sql() -> str:
+    """SQL for migration 057: record how far each calendar's holidays reach.
+
+    NYSE and NASDAQ were seeded by 007/008 through ``_SEED_END_YEAR``; the
+    bound is rendered from that constant so the two cannot drift.
+    """
+    seeded_through = date(_SEED_END_YEAR, 12, 31).isoformat()
+    calendar_ids = ", ".join(
+        f"'{cal['calendar_id']}'" for cal in (NYSE_CALENDAR, NASDAQ_CALENDAR)
+    )
+    return f"""
+        ALTER TABLE trading_calendars
+            ADD COLUMN IF NOT EXISTS holidays_seeded_through DATE;
+        UPDATE trading_calendars
+           SET holidays_seeded_through = DATE '{seeded_through}'
+         WHERE calendar_id IN ({calendar_ids})
+           AND holidays_seeded_through IS NULL;
+        ALTER TABLE trading_calendars
+            ALTER COLUMN holidays_seeded_through SET NOT NULL;
+    """
+
+
 def _history_horizon_disjunct() -> str:
     """Build the third disjunct of the symbols_x_granularity WHERE clause.
 
@@ -2504,5 +2526,17 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                      || quote_literal('{_data_status_doc_comment()}');
             END $$;
         """,
+    },
+    {
+        "id": "057_calendar_holidays_seeded_through",
+        "description": (
+            "Add trading_calendars.holidays_seeded_through (slice 221 D6): the "
+            "last date a calendar's holidays are known for. Session extension "
+            "clamps to it, so a year with unseeded holidays is never written "
+            "as ordinary trading days. NYSE and NASDAQ get Dec 31 of "
+            "_SEED_END_YEAR (2026), where migrations 007 and 008 stopped "
+            "seeding holidays."
+        ),
+        "sql": _holidays_seeded_through_sql(),
     },
 ]
