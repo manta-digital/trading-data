@@ -452,3 +452,27 @@ Run against a throwaway database on the test cluster, never production: `MT_TIME
   - This slice leaves NYSE rows unchanged, as the plan requires, and stores the true bound (2026-12-31) so the defect is visible in `mt data calendars list`. The fix, explicit dated rows for NYSE and NASDAQ and a re-population, belongs to its own change before 2027-01-01.
 - **`session_date` for a holiday session differs from CME's clearing trade date (D4).** This is intentional. It is stated in the contract vocabulary so no later slice treats `session_date` as a settlement date.
 - **The production migration is one small insert** (roughly 250 session rows per seeded year). It needs no special cutover. `scripts/upgrade_production.py` blocks on newly pending minute-track migrations, so this release goes out through the normal migration path, not the code-only upgrade.
+
+## Implementation Findings
+
+### CME exception table (tasks 4.1, 4.2)
+
+- **Sources.** The live cmegroup.com refuses automated reads (HTTP 403), so every row cites a Wayback Machine snapshot of a CME document:
+  - 2020–2021: the Globex holiday spreadsheets inside CME's yearly `holiday-calendars.zip`, "Equity Products" row.
+  - 2022: the individual Globex holiday spreadsheets.
+  - 2023: CME holiday-schedule PDFs, "EQUITIES" row.
+  - 2023-09 onward: the JSON behind cmegroup.com/trading-hours.html (`/services/trading-hours-by-product`, product 133 = E-mini S&P 500).
+- **Regular hours** were 17:00–16:00 CT, Sunday–Friday, throughout 2020 onward (D2 holds). The 2021 halt removal (SER-8776) is inside a session.
+- **Bound.** CME has published 2027 in full, so `CME_EQUITY_HOLIDAYS_SEEDED_THROUGH = 2027-12-31`. That is 93 exception rows from 2020-01-01; no `late_open` occurs.
+- **Unsourced date, resolved from data (PM decision 2026-09-28).** No CME document for MLK Day 2023-01-16 is archived. Databento's free record count for ES.FUT trades shows 486 trades 11:55–12:00 CT and 0 from 12:00 to 16:59 CT, with trading that morning and on the next day's afternoon. The row is `early_close 12:00`, and its `# source:` comment cites the counts.
+- **Weaker sources, noted in their comments.** 2022-12-26 and 2023-01-02 rest on preliminary sheets posted six months ahead. Late-2026 and 2027 rows come from schedules captured before the event, and CME marks future schedules as subject to change.
+- **2025-11-28** shows a 07:00 pre-open and 07:30 reopen inside the session in CME's post-event JSON. It looks like an unscheduled outage, not a scheduled late open. It is recorded as the scheduled `early_close 12:15`, and a halt inside a session does not change the session interval.
+
+Cross-check against `pandas_market_calendars` 5.4.0 (`CME Globex Equity`, run with `uv run --with`, never a project dependency). Four dates differ; each is resolved in favour of CME:
+
+| Date | Table (4.1) | Library | Resolution | Evidence |
+|------|-------------|---------|------------|----------|
+| 2024-03-29 | closed | early_close 08:15 | closed | CME trading-hours JSON; Databento: 0 ES trades from 2024-03-28 17:00 to 03-29 16:00 CT. The library assumes an 08:15 Good Friday session every year; CME opens one only when the jobs report falls on Good Friday (2021, 2023, 2026). |
+| 2025-01-09 | early_close 08:30 | (none) | early_close 08:30 | CME day-of-mourning notice and press release ("US equities close at 8:30 AM CT"); Databento: 1,141 trades 08:25–08:30 CT, 0 from 08:30 to 16:00 CT. The library omits the National Day of Mourning. |
+| 2025-04-18 | closed | early_close 08:15 | closed | CME trading-hours JSON; Databento: 0 trades across the whole session. |
+| 2027-03-26 | closed | early_close 08:15 | closed | CME trading-hours JSON (2027 Good Friday). Future date; CME's schedule is the only authority. |

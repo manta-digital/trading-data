@@ -14,7 +14,7 @@ projectState: >
   and are out of scope.
 dateCreated: 20260928
 dateUpdated: 20260928
-status: not_started
+status: in_progress
 part: 1
 ---
 
@@ -75,28 +75,28 @@ files, and check `git diff` for swept pre-existing lines before each commit.
 
 ## Section 0 — Baseline
 
-- [ ] **0.1 Freeze the pre-change NYSE and NASDAQ session output**
-  - [ ] Before editing any source file, write a short script in the
+- [x] **0.1 Freeze the pre-change NYSE and NASDAQ session output**
+  - [x] Before editing any source file, write a short script in the
         scratchpad. For `NYSE` and for `NASDAQ`, it calls the current
         `populate_trading_sessions` over 2020-01-01 → 2028-12-31, using the
         calendar metadata from `seed_calendar.py` and the holidays from
         `generate_holidays(cal, 2020, 2026)`, the exact inputs migrations
         007, 008 and 026 use.
-  - [ ] Save the rows as JSON at
+  - [x] Save the rows as JSON at
         `test/fixtures/calendar/nyse_nasdaq_sessions_pre_221.json`. Store
         ISO dates and UTC timestamps, and record in a top-level
         `provenance` key the commit SHA the output came from.
-  - [ ] Success: the file exists, holds one entry per session for both
+  - [x] Success: the file exists, holds one entry per session for both
         calendars, and is committed before any change under `src/`
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
 ---
 
 ## Section 1 — Open-after-close rule (LLD D3)
 
-- [ ] **1.1 Add `session_interval` and route `populate_trading_sessions`
+- [x] **1.1 Add `session_interval` and route `populate_trading_sessions`
       through it**
-  - [ ] In `data/base/session_population.py`, add
+  - [x] In `data/base/session_population.py`, add
         `session_interval(session_date, open_t, close_t, tz) -> tuple[datetime, datetime]`.
         It works as follows:
     1. Close is `close_t` on `session_date`.
@@ -104,95 +104,95 @@ files, and check `git diff` for swept pre-existing lines before each commit.
        `session_date - 1 day` when `open_t > close_t`.
     3. It raises `ValueError` naming the date when `open_t == close_t`.
     4. It builds both values in `tz`, then converts them to UTC.
-  - [ ] Replace the two inline `datetime.combine(...)` calls in
+  - [x] Replace the two inline `datetime.combine(...)` calls in
         `populate_trading_sessions` with one call. Holiday overrides are still
         resolved first. The weekday loop is unchanged.
-  - [ ] Update the docstring to state the rule and that it applies to every
+  - [x] Update the docstring to state the rule and that it applies to every
         calendar.
-  - [ ] Success: the module imports cleanly, and existing
+  - [x] Success: the module imports cleanly, and existing
         `test/unit/data/base/test_session_population.py` passes unchanged
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **1.2 Unit tests for `session_interval` and CME population**
-  - [ ] In `test_session_population.py`, cover `session_interval` for:
+- [x] **1.2 Unit tests for `session_interval` and CME population**
+  - [x] In `test_session_population.py`, cover `session_interval` for:
     1. NYSE hours: 09:30 → 16:00, same day.
     2. CME hours: 17:00 → 16:00, open on the previous day.
     3. A CME early close at 12:00, which still opens the previous day at 17:00.
     4. Equal times, which raise.
     5. Both 2024 DST weekends (March and November), where the open's UTC
        offset differs from the close's.
-  - [ ] Add a test that populates CME hours over a week containing a `closed`
+  - [x] Add a test that populates CME hours over a week containing a `closed`
         date and an `early_close` date. Check that the closed date is absent,
         and that the next session opens at 17:00 local on the closed date.
-  - [ ] Add a synthetic `late_open` case: a CME-hours date with
+  - [x] Add a synthetic `late_open` case: a CME-hours date with
         `late_open_time` 08:30 opens 08:30 on the same day, because the
         open is no longer after the close (LLD criterion 2).
-  - [ ] Add the NYSE/NASDAQ identity test: regenerate the 0.1 inputs and
+  - [x] Add the NYSE/NASDAQ identity test: regenerate the 0.1 inputs and
         require output equal to `nyse_nasdaq_sessions_pre_221.json`. This is
         the unit-tier half of the LLD's "NYSE regression test". The
         integration-tier half is `test_nyse_sessions_unchanged` in 5.2.
-  - [ ] Success: `uv run pytest test/unit/data/base/test_session_population.py -q`
+  - [x] Success: `uv run pytest test/unit/data/base/test_session_population.py -q`
         passes
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
 ---
 
 ## Section 2 — Session index (LLD D7)
 
-- [ ] **2.1 Create `data/base/session_index.py`**
-  - [ ] A frozen `Session` dataclass: `calendar_id`, `session_date`,
+- [x] **2.1 Create `data/base/session_index.py`**
+  - [x] A frozen `Session` dataclass: `calendar_id`, `session_date`,
         `open_utc` and `close_utc`, all tz-aware UTC.
-  - [ ] `SessionIndex(sessions)`:
+  - [x] `SessionIndex(sessions)`:
     - it raises `ValueError` when the input is not sorted by `open_utc`,
       when any session overlaps the next, or when `open_utc >= close_utc`.
       It never reorders its input: a caller handing it sessions out of order
       has a bug, and the LLD API contract requires the error;
     - it keeps int64 nanosecond arrays of opens and closes.
-  - [ ] `locate(ts)` returns the `Session` whose closed interval
+  - [x] `locate(ts)` returns the `Session` whose closed interval
         `[open_utc, close_utc]` contains `ts`, or `None`. A naive `ts` raises
         `ValueError`.
-  - [ ] `locate_ns(ts_ns: np.ndarray) -> np.ndarray` finds the position with
+  - [x] `locate_ns(ts_ns: np.ndarray) -> np.ndarray` finds the position with
         `np.searchsorted(opens, ts, side="right") - 1`, checks `ts <= close`,
         and returns `-1` where there is no session. Its docstring says that
         callers must have handled the populated-range check already (D7).
-  - [ ] `locate` is implemented through the same position logic, so the two
+  - [x] `locate` is implemented through the same position logic, so the two
         forms cannot diverge.
-  - [ ] Success: imports cleanly; mypy clean
-  - [ ] Effort: 2
+  - [x] Success: imports cleanly; mypy clean
+  - [x] Effort: 2
 
-- [ ] **2.2 Unit tests for `SessionIndex`**
-  - [ ] Create `test/unit/data/base/test_session_index.py`. Build three
+- [x] **2.2 Unit tests for `SessionIndex`**
+  - [x] Create `test/unit/data/base/test_session_index.py`. Build three
         synthetic CME-shaped sessions, one of them after a closed day.
-  - [ ] Cover:
+  - [x] Cover:
     - exactly at an open, and exactly at a close (both included);
     - 1 ns before an open, and 1 ns after a close (`None`);
     - a timestamp in the daily break, and one on the closed day (`None`);
     - a naive datetime (raises);
     - overlapping input, inverted input, and unsorted input (all raise).
-  - [ ] Add a property-style test: over 1,000 random timestamps spanning the
+  - [x] Add a property-style test: over 1,000 random timestamps spanning the
         sessions, `locate_ns` agrees with `locate` element by element.
-  - [ ] Success: the test file passes. **Commit Sections 0–2.**
-  - [ ] Effort: 2
+  - [x] Success: the test file passes. **Commit Sections 0–2.**
+  - [x] Effort: 2
 
 ---
 
 ## Section 3 — Holiday bound and shared extension (LLD D6)
 
-- [ ] **3.1 Migration `057_calendar_holidays_seeded_through`**
-  - [ ] Append it to the minute list in `market/schema/migrations/minute.py`
+- [x] **3.1 Migration `057_calendar_holidays_seeded_through`**
+  - [x] Append it to the minute list in `market/schema/migrations/minute.py`
         with the SQL in LLD "Database / Storage Schema". The `2026-12-31`
         literal is rendered from `_SEED_END_YEAR`, never typed.
-  - [ ] Its description states why the value is 2026-12-31: that is where
+  - [x] Its description states why the value is 2026-12-31: that is where
         migrations 007 and 008 stopped.
-  - [ ] Success: `uv run python -c "import manta_trading.market.schema.migrations.minute"`
+  - [x] Success: `uv run python -c "import manta_trading.market.schema.migrations.minute"`
         succeeds, and the migration id is unique
-  - [ ] Effort: 1
+  - [x] Effort: 1
 
-- [ ] **3.2 Create `data/base/session_extension.py`**
-  - [ ] A frozen `CalendarExtension` dataclass: `calendar_id`,
+- [x] **3.2 Create `data/base/session_extension.py`**
+  - [x] A frozen `CalendarExtension` dataclass: `calendar_id`,
         `rows_upserted`, `horizon_after`, `holidays_seeded_through` and
         `clamped_by_holiday_bound`.
-  - [ ] `extend_calendar_sessions(conn, calendar_id, *, start, end)` works as
+  - [x] `extend_calendar_sessions(conn, calendar_id, *, start, end)` works as
         follows:
     1. It reads the calendar row, including `holidays_seeded_through`. An
        unknown calendar raises `ValueError` naming it.
@@ -203,14 +203,14 @@ files, and check `git diff` for swept pre-existing lines before each commit.
     5. Otherwise it calls `populate_trading_sessions`, then upserts with the
        existing `ON CONFLICT (calendar_id, session_date) DO UPDATE` statement.
     6. It does not commit; the caller owns the transaction.
-  - [ ] `horizon_after` is `MAX(session_date)` read after the upsert.
-  - [ ] Success: imports cleanly; mypy clean
-  - [ ] Effort: 2
+  - [x] `horizon_after` is `MAX(session_date)` read after the upsert.
+  - [x] Success: imports cleanly; mypy clean
+  - [x] Effort: 2
 
-- [ ] **3.3 Integration tests for 057 and `extend_calendar_sessions`**
-  - [ ] New file `test/integration/test_calendar_extension.py`, run on a
+- [x] **3.3 Integration tests for 057 and `extend_calendar_sessions`**
+  - [x] New file `test/integration/test_calendar_extension.py`, run on a
         throwaway database migrated through 057.
-  - [ ] Cover:
+  - [x] Cover:
     - after 057, the column is `NOT NULL`, and NYSE and NASDAQ read
       `2026-12-31`;
     - the extension clamps: on a test-created calendar with a bound 30 days
@@ -218,44 +218,44 @@ files, and check `git diff` for swept pre-existing lines before each commit.
       `clamped_by_holiday_bound` is true;
     - an unknown calendar raises;
     - a second call is a no-op (0 new rows).
-  - [ ] Success: `uv run pytest test/integration/test_calendar_extension.py -q`
+  - [x] Success: `uv run pytest test/integration/test_calendar_extension.py -q`
         passes
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **3.4 Move `mt data extend` onto the shared routine**
-  - [ ] In `cli/commands/data.py` `data_extend`, replace the inline
+- [x] **3.4 Move `mt data extend` onto the shared routine**
+  - [x] In `cli/commands/data.py` `data_extend`, replace the inline
         holidays-and-populate-and-upsert loop with a call to
         `extend_calendar_sessions` per calendar. Keep the exit codes and
         `--strict` semantics unchanged.
-  - [ ] Each calendar's line adds `holidays seeded through <date>`. When
+  - [x] Each calendar's line adds `holidays seeded through <date>`. When
         `clamped_by_holiday_bound` is true, the line says the bound limits the
         horizon and that the next year's schedule must be seeded (LLD D6
         wording).
-  - [ ] Delete the now-unused local imports.
-  - [ ] Update `test/unit/cli/commands/test_data_extend.py` mocks to the new
+  - [x] Delete the now-unused local imports.
+  - [x] Update `test/unit/cli/commands/test_data_extend.py` mocks to the new
         call, and add a test that a clamped result prints the bound message.
-  - [ ] Success: `uv run pytest test/unit/cli/commands/test_data_extend.py -q`
+  - [x] Success: `uv run pytest test/unit/cli/commands/test_data_extend.py -q`
         passes, and `grep -n populate_trading_sessions src/manta_trading/cli/commands/data.py`
         returns nothing
-  - [ ] Effort: 2
+  - [x] Effort: 2
 
-- [ ] **3.5 Move auto-extend onto the shared routine**
-  - [ ] In `data/maintenance/auto_extend.py`, replace the per-calendar
+- [x] **3.5 Move auto-extend onto the shared routine**
+  - [x] In `data/maintenance/auto_extend.py`, replace the per-calendar
         populate-and-upsert body with `extend_calendar_sessions`. Keep the 24 h
         gate, the error handling (`logger.exception`, then continue), and
         `AutoExtendResult`.
-  - [ ] Add `clamped: dict[str, date]` (calendar → bound) to
+  - [x] Add `clamped: dict[str, date]` (calendar → bound) to
         `AutoExtendResult`.
-  - [ ] In `cli/rendering/status_table.py`, render clamped calendars with the
+  - [x] In `cli/rendering/status_table.py`, render clamped calendars with the
         bound message.
-  - [ ] Update `test/unit/data/maintenance/test_auto_extend.py`, and add a
+  - [x] Update `test/unit/data/maintenance/test_auto_extend.py`, and add a
         clamped case.
-  - [ ] Success: the auto-extend and status-table unit tests pass, and
+  - [x] Success: the auto-extend and status-table unit tests pass, and
         `populate_trading_sessions` is now called only from
         `session_extension.py`, `trading_calendar.py` and migration 026's
         callable (check with grep)
-  - [ ] Effort: 2
-  - [ ] **Commit Section 3.**
+  - [x] Effort: 2
+  - [x] **Commit Section 3.**
 
 ---
 
