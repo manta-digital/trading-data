@@ -16,12 +16,16 @@ import typer
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.data.base.session_index import Session
 from manta_trading.data.base.trading_calendar import (
+    CalendarNotFoundError,
     OutOfPopulatedRangeError,
     TradingCalendar,
 )
 
 EXIT_UNCONFIGURED = 1
 """Exit code when no database URL is configured."""
+
+EXIT_UNKNOWN_CALENDAR = 1
+"""Exit code when --calendar names no row in ``trading_calendars``."""
 
 EXIT_OUT_OF_RANGE = 1
 """Exit code when the requested dates fall outside the populated sessions."""
@@ -53,6 +57,9 @@ def data_calendar_sessions(
     cal = TradingCalendar(calendar, str(settings.timescale_db_url))
     try:
         rows = _session_rows(cal, from_date.date(), to_date.date())
+    except CalendarNotFoundError as exc:
+        print_error(str(exc), json_mode=json_output)
+        raise typer.Exit(EXIT_UNKNOWN_CALENDAR) from exc
     except OutOfPopulatedRangeError as exc:
         print_error(str(exc), json_mode=json_output)
         raise typer.Exit(EXIT_OUT_OF_RANGE) from exc

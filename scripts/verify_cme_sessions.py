@@ -145,13 +145,21 @@ def _assign(path: Path, index: SessionIndex, tally: Tally) -> int:
     return records
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
 def _utc(ns: int) -> datetime:
-    return datetime(1970, 1, 1, tzinfo=UTC) + timedelta(microseconds=ns // 1_000)
+    return _EPOCH + timedelta(microseconds=ns // 1_000)
+
+
+def _ns(ts: datetime) -> int:
+    """Exact epoch nanoseconds (datetime resolution is microseconds)."""
+    return (ts - _EPOCH) // timedelta(microseconds=1) * 1_000
 
 
 def _nearest(ns: int, sessions: tuple[Session, ...]) -> str:
     """The sessions either side of an outside-session instant."""
-    opens = np.array([int(s.open_utc.timestamp()) * 1_000_000_000 for s in sessions])
+    opens = np.array([_ns(s.open_utc) for s in sessions], dtype=np.int64)
     after = int(np.searchsorted(opens, ns, side="right"))
     before_text = (
         f"after {sessions[after - 1].session_date} (closed "

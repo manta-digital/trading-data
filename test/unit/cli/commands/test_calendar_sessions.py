@@ -11,7 +11,11 @@ from typer.testing import CliRunner, Result
 
 from manta_trading.cli.app import app
 from manta_trading.data.base.session_index import Session
-from manta_trading.data.base.trading_calendar import Holiday, MarketStatus
+from manta_trading.data.base.trading_calendar import (
+    CalendarNotFoundError,
+    Holiday,
+    MarketStatus,
+)
 
 runner = CliRunner()
 
@@ -122,3 +126,13 @@ def test_beyond_horizon_exits_1_with_message() -> None:
     assert result.exit_code == 1
     assert "mt data extend" in " ".join(result.output.split())
     cal.sessions_between.assert_not_called()
+
+
+def test_unknown_calendar_exits_1_with_message() -> None:
+    cal = _calendar()
+    cal.get_holidays.side_effect = CalendarNotFoundError("NOPE")
+    result = _invoke(cal, "--from", "2024-12-23", "--to", "2024-12-26")
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "'NOPE' not found" in " ".join(result.output.split())
+    cal.close.assert_called_once()

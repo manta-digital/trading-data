@@ -99,6 +99,18 @@ class OutOfHorizonError(Exception):
         )
 
 
+class CalendarNotFoundError(ValueError):
+    """Raised when ``calendar_id`` has no row in ``trading_calendars``.
+
+    A ``ValueError`` subclass so existing callers that catch ``ValueError``
+    keep working; new callers catch this to report an unknown calendar.
+    """
+
+    def __init__(self, calendar_id: str) -> None:
+        self.calendar_id = calendar_id
+        super().__init__(f"Trading calendar '{calendar_id}' not found in database")
+
+
 class OutOfPopulatedRangeError(Exception):
     """Raised when an instant falls outside a calendar's populated sessions.
 
@@ -185,9 +197,7 @@ class TradingCalendar:
                 row = cur.fetchone()
 
         if row is None:
-            raise ValueError(
-                f"Trading calendar '{self.calendar_id}' not found in database"
-            )
+            raise CalendarNotFoundError(self.calendar_id)
 
         self.calendar_name = row["calendar_name"]
         self.timezone = ZoneInfo(row["timezone"])

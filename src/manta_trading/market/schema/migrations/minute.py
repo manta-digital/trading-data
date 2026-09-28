@@ -239,6 +239,10 @@ def _holidays_seeded_through_sql() -> str:
 
     NYSE and NASDAQ were seeded by 007/008 through ``_SEED_END_YEAR``; the
     bound is rendered from that constant so the two cannot drift.
+
+    ``SET NOT NULL`` relies on NYSE and NASDAQ being the only calendars that
+    exist before 057. A later calendar-seeding migration must supply the
+    column in its own insert (058 does), never add a row ahead of 057.
     """
     seeded_through = date(_SEED_END_YEAR, 12, 31).isoformat()
     calendar_ids = ", ".join(
