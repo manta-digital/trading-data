@@ -320,7 +320,7 @@ def extend_calendar_sessions(conn, calendar_id: str, *, start: date, end: date) 
 
 ### Consumes from Other Slices
 
-- **220:** the DBN reader, used only by the verification script. If a file fails to decode, the script fails loudly.
+- **220:** the DBN reader, used only by the verification script. The script's exit code is an acceptance gate (criterion 8), so each failure is distinct: exit 1 with the offending timestamps when a record is outside a session; exit 2 naming the path when a job directory or its `manifest.json` is missing, or a listed file is absent; exit 2 naming the file when a file fails to decode or its decoded record count differs from `manifest.json`. A zip is not read directly; it is unzipped first (walkthrough step 4).
 - **923:** the minute track's routing to the production database. Nothing else.
 
 ### Follow-ups written during this phase
