@@ -29,11 +29,13 @@ def scrub_prod_urls() -> list[str]:
     variables (slice 923 D9) are always removed: no test reads real tick data.
     """
     opted_in = os.environ.get(_PROD_OPT_IN_VAR) == "1"
-    return [
-        name
-        for name in PROD_URL_VARS
-        if not (opted_in and name == PRIMARY_URL_VAR) and os.environ.pop(name, None)
-    ]
+    removed: list[str] = []
+    for name in PROD_URL_VARS:
+        if opted_in and name == PRIMARY_URL_VAR:
+            continue
+        if os.environ.pop(name, ""):
+            removed.append(name)
+    return removed
 
 
 def pytest_configure(config: pytest.Config) -> None:
