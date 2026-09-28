@@ -41,7 +41,10 @@ Part 1 (`221-tasks.cme-session-model-and-data-correctness-amendment-1.md`) holds
       after the last close;
     - it returns the sessions intersecting `[start_utc, end_utc)`, in order;
     - naive inputs raise `ValueError`.
-  - [ ] `session_containing(ts)`: the same range check, then
+  - [ ] `session_containing(ts)`: check `ts.tzinfo` first and raise
+        `ValueError` for a naive `ts` before any comparison. (Comparing a
+        naive and an aware datetime raises `TypeError`, which would violate
+        FR5.) Then run the same range check and
         `SessionIndex(...).locate(ts)` over the sessions around `ts`.
   - [ ] Success: mypy clean
   - [ ] Effort: 2
@@ -73,7 +76,7 @@ Part 1 (`221-tasks.cme-session-model-and-data-correctness-amendment-1.md`) holds
     - the daily break (`None`);
     - 2024-12-25 (`None`);
     - before 2020-01-01 17:00 CT, and after the last close (both raise);
-    - a naive datetime (raises).
+    - a naive datetime (`pytest.raises(ValueError)`, not a broader class).
   - [ ] Cover `sessions_between` over Thanksgiving week 2024: the expected
         dates, in order.
   - [ ] Success: the file passes. **Commit Section 6.**
