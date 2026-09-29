@@ -26,7 +26,7 @@ status: in_progress
 
    This is the first slice to touch a governed surface, so it also writes the frame of the contract amendment: the tick invariants, the I7 exception with its reason, the vocabulary rules (manifest-based completeness, and where `granularity = 'tick'` may appear), and sequence-gap detection moved to the realtime initiative. The slice needs no purchase and no tick database. Dependencies: none within this plan. Risk: Medium. Effort: 3/5
 
-3. [ ] **(222) Tick Storage Track** — Appends to the `tick` migration track that 923 registers (ledger bootstrap only, routed to the tick database). Its tables are:
+3. [x] **(222) Tick Storage Track** — Appends to the `tick` migration track that 923 registers (ledger bootstrap only, routed to the tick database). Its tables are:
    - The trades-tier hypertable, with trade fields always present and nullable BBO fields, plus each row's archive-unit integer id (not a string, not in the natural key). Its chunk interval is set explicitly and conservatively from wall-clock span (journal 20260719). Physical grouping by instrument waits for the proof.
    - Definitions (the futures instrument model, with identifier validity windows).
    - The manifest of archive units: state machine (rows written at *requested*), delivery-mode discriminator, tier, download deadline, estimated and actual cost, the minute tier's fetch-state vocabulary (`FetchStatus`: attempt count, `FAILED_RETRYABLE`, `RETRY_EXHAUSTED`, `PROVIDER_HOLE`), and links to the unit it repurchases or supersedes.
