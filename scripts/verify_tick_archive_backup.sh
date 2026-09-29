@@ -130,5 +130,7 @@ RESTORED_SHA=$(sha256sum "$RESTORED" | cut -d' ' -f1)
 compare "SHA-256 of $(basename "$SAMPLE")" "$ORIGINAL_SHA" "$RESTORED_SHA"
 
 step "7. clean up"
-echo "    removing $RESTORE_ROOT (and $RESTORE_PARENT if created here)"
+trap - EXIT  # the trap only covers failures before this step
+cleanup
+echo "    removed $RESTORE_ROOT (and $RESTORE_PARENT if created here)"
 echo "=== tick archive backup verify OK: $(date -Is) ==="
