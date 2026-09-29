@@ -246,19 +246,21 @@ _CALENDAR_WAIT_TIMEOUT = 90
 
 @pytest.mark.timeout(_CALENDAR_WAIT_TIMEOUT)
 async def test_unreachable_calendar_raises_with_no_rows(
-    make_run: RunFactory, migrated_tick_db: str, source: Path
+    make_run: RunFactory, migrated_tick_db: str, source: Path, archive: Path
 ) -> None:
     """Waits out the calendar pool's own 30 s connection timeout."""
     url = f"postgresql://nobody@127.0.0.1:{_closed_port()}/trading"
     with pytest.raises(TickCalendarError, match="CME_EQUITY"):
         await _adopt(make_run, migrated_tick_db, source, calendar_url=url)
     assert _rows(migrated_tick_db, "SELECT 1 FROM tick_request") == []
+    assert not (archive / JOB).exists()
 
 
 async def test_range_outside_the_calendar_raises_with_no_rows(
-    make_run: RunFactory, migrated_tick_db: str, source: Path
+    make_run: RunFactory, migrated_tick_db: str, source: Path, archive: Path
 ) -> None:
     early = _job(start="2019-12-02 00:00:00+00:00", end="2019-12-04 00:00:00+00:00")
     with pytest.raises(TickCalendarError, match="CME_EQUITY"):
         await _adopt(make_run, migrated_tick_db, source, job=early)
     assert _rows(migrated_tick_db, "SELECT 1 FROM tick_request") == []
+    assert not (archive / JOB).exists()

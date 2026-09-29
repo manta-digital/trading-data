@@ -316,10 +316,11 @@ for each downloaded unit: verify.check(unit) → verified
 ```
 open_tick_run  ─► refuse when job id is already in tick_request ("already adopted", exit 0)
 batch_job(ID)  ─► state done|expired (else refuse); request, cost, counts, ts_received
+session days of the job range (calendar; refusal → nothing copied or written, exit 4)
 read manifest.json from PATH (dir or zip); manifest.job_id == ID
 for each listed file: copy/extract → <archive>/<ID>/<name>.partial, hashing
                       size + sha256 match → rename   (any mismatch: nothing written, exit 1)
-session days of the job range (calendar) ─► one txn: request (is_adopted) + units:
+one txn: request (is_adopted) + units:
     day with a file → downloaded;  session day without a file → delivered + PROVIDER_HOLE
 verify.check(each downloaded unit) → verified
 ```

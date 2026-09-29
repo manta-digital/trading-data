@@ -5,17 +5,18 @@ LLD 224 Technical Decision 10 and the Adoption data flow:
 1. a job id already in ``tick_request`` → "already adopted"; nothing written;
 2. ``batch_job(ID)`` (free) must be ``done`` or ``expired``; its request,
    cost, record count and ``ts_received`` are the facts recorded;
-3. ``adopt_files`` copies and verifies every listed file;
-4. the product's calendar, read from the production database (TD6), gives
+3. the product's calendar, read from the production database (TD6), gives
    the session days of the job's range;
+4. ``adopt_files`` copies and verifies every listed file;
 5. one transaction: the adopted request and one unit per session day — a day
    whose file header starts on it → *downloaded*, a session day with no file
    → *delivered* + ``PROVIDER_HOLE``; a file on no session day is reported by
    name and gets no unit;
 6. ``verify.check`` on each downloaded unit.
 
-Refusals before step 5 write no row. Calendar failures raise
-:class:`TickCalendarError` (exit 4, the calendar named).
+Refusals before step 5 write no row; a calendar refusal also copies no file.
+Calendar failures raise :class:`TickCalendarError` (exit 4, the calendar
+named).
 """
 
 from __future__ import annotations
@@ -211,10 +212,11 @@ async def adopt_job(
         return AdoptResult(job_id, already_adopted=True)
     calendar_url = _calendar_url(run)
     job = await _job(run, job_id)
+    # Calendar before copy: a calendar refusal leaves no files in the archive.
+    days = await asyncio.to_thread(_session_days_blocking, calendar_url, job)
     files = await asyncio.to_thread(
         archive_job_files, source, job_id, run.archive_root, free
     )
-    days = await asyncio.to_thread(_session_days_blocking, calendar_url, job)
     by_day = await asyncio.to_thread(_files_by_day, run, job_id, files, reader)
     wanted = set(days)
     units = _units(days, by_day)
