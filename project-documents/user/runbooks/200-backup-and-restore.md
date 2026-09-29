@@ -2,10 +2,10 @@
 docType: runbook
 project: trading-data
 parent: user/slices/915-slice.backup-and-restore-procedures.md
-relatedSlices: [913, 915, 920]
+relatedSlices: [913, 915, 920, 223]
 host: <prod_host>
 dateCreated: 20260816
-dateUpdated: 20260906
+dateUpdated: 20260928
 status: current
 ---
 
@@ -34,6 +34,7 @@ mangles the credential. Always `grep` it out like the line above.
 | Base backups | `/data/backup/base/<date>` |
 | WAL archive | `/data/backup/wal` |
 | Metadata dumps | `/data/backup/metadata` |
+| Tick archive (slice 223) | `/data/tick-archive` (`MT_TICK_ARCHIVE_DIR`): purchased Databento batch files, `<job_id>/<file>`; in the nightly restic backup |
 | Replication | admitted from **localhost only** — backups run on this host |
 | Backup scripts | `scripts/backup_prod.sh`, `scripts/backup_metadata.sh`, `scripts/check_archive_health.sh` — each requires explicit `--db-url`/`--dest`, none reads the environment |
 
@@ -427,7 +428,7 @@ when the installed file differs from a fresh render. Six entries:
 | `0 * * * *` (from `WAL_OFFSITE_INTERVAL_MIN=60`) | manta | `sync_wal_offsite.sh` — additive `rclone copy` of `wal/` to `b2:$BUCKET/wal`, touches `wal-offsite.stamp` |
 | `0 2 * * *` | manta | `cron_nightly_metadata.sh` (unchanged from 915) |
 | `0 3 * * 0` | manta | `cron_weekly_backup.sh --keep-days 7` — base backup, catch-up push, check, prune, guards, and (only while `RECONCILE-ARMED` exists) the offsite mirror |
-| `0 4 * * *` | root | `cron_system_backup.sh` — restic snapshot of `/etc`, `/root`, crontabs, `/home/manta` |
+| `0 4 * * *` | root | `cron_system_backup.sh` — restic snapshot of `/etc`, `/root`, crontabs, `/home/manta`, `/data/tick-archive` |
 | `0 5 1 * *` | root | `cron_system_backup.sh --check` — `restic check --read-data-subset=5%` |
 
 The push interval appears in exactly one place in the repository
@@ -488,6 +489,48 @@ watching the sync — the 920 drill), `touch /data/backup/RECONCILE-ARMED`.
 A rebuilt host starts unarmed; `setup-backup.sh --check` reports the file's
 state as `MISSING arm-file` until it is created. Remove the file to disarm
 at any time.
+
+### The tick archive in the system backup (slice 223)
+
+The D9 include set (`INCLUDE_PATHS` in `scripts/cron_system_backup.sh`) is
+`/etc /root /var/spool/cron/crontabs /home/manta /data/tick-archive`. The
+archive holds purchased tick files that may not be sold again, so it is
+backed up from the first byte. `/data` is a separate device and restic runs
+with `--one-file-system`, so the path is listed explicitly.
+`deploy/restic-excludes.txt` excludes `/data/tick-archive/**/*.partial`: an
+unfinished download or adoption copy is not the record. Archive files never
+change once written, so restic deduplicates them across snapshots and B2
+holds the archive's size once.
+
+The path is stated in two places that cannot share a constant: the
+`MT_TICK_ARCHIVE_DIR` value in `.env` and the bash include list. The verify
+script fails if they differ.
+
+**Proof and restore of one file** — `scripts/verify_tick_archive_backup.sh`,
+as root. It checks before it acts, prints expected and observed values, and
+appends to `--log`: the setting is in the include set, one backup run, the
+snapshot's file count under the archive equals the archive's own (no
+`.partial`), one data file restored into `/data/restore-test/tick-archive`
+(refused if that exists), SHA-256 equal to the original's, and only the
+directories it created removed.
+
+```bash
+sudo scripts/verify_tick_archive_backup.sh --env-file .env --repo-prefix system \
+    --exclude-file deploy/restic-excludes.txt \
+    --stamp /data/backup/system-backup.stamp --lock /data/backup/system-backup.lock \
+    --backup-log /data/backup/system-backup.log \
+    --log /data/backup/tick-archive-verify.log
+```
+
+**Restoring the archive** (host lost, or files damaged): restore
+`/data/tick-archive` from the latest snapshot with
+`deploy/lib/restic_repo.sh --env-file .env --prefix system run -- restore
+latest --target / --include /data/tick-archive`, then rebuild the tick
+manifest by running `mt data tick adopt --job-id <job> --source
+/data/tick-archive/<job>` once per job directory. Adoption re-verifies every
+file against its `manifest.json`, and the costs and commit times come back
+from the provider's job records. The full archive-and-database drill is
+slice 227's.
 
 ---
 
@@ -562,6 +605,7 @@ onward do not). The weekly cadence keeps this true automatically.
 | Metadata tables truncated/lost | `pg_restore` the newest `/data/backup/metadata/*.dump`. Does not touch the 141 GB tier |
 | Whole cluster lost | Restore newest base backup (Step 6), replay WAL from `/data/backup/wal` |
 | Need a specific point in time | Step 6 + the PITR section above |
+| Tick archive lost or damaged | Restore `/data/tick-archive` from restic, then `mt data tick adopt` each job directory (Step 7, "The tick archive in the system backup") |
 | Local disk gone | Pull from B2 first (measured: 84.5 GB in 2h05m with rclone ≥1.75; v1.60 hangs on large objects), then as above |
 | `FAIL archive_wedged` (a short raw file sits at the next-to-archive name, no `.zst` sibling — the 2026-09-02 shape) | **Never delete it.** First confirm the source still holds the segment: `ls /var/lib/postgresql/17/main/pg_wal/<name>` (as root). If present, `mv` the partial aside (`/data/backup/wal-partial-<seg>.<reason>`, outside `wal/`) and the archiver re-archives it on its next attempt. If the source has recycled it, the partial is the only copy of that segment's first bytes: keep it, and treat every base backup before that segment as the restore floor |
 | `FAIL archive_tmp_leftover` (a `*.tmp` older than 10 min in `wal/`) | An atomic write that never finished (disk full, kill). Check `df -h /data`; remove the `.tmp` — the archiver rewrites the segment from `pg_wal` on its next attempt because the final name never appeared |
