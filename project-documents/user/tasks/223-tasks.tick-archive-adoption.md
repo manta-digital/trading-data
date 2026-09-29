@@ -511,36 +511,36 @@ nothing).
 
 ## Section 10 — Documents
 
-- [ ] **10.1 Contract rows**
-  - [ ] `user/reference/data-correctness-architecture.md`: 223's part in rows
+- [x] **10.1 Contract rows**
+  - [x] `user/reference/data-correctness-architecture.md`: 223's part in rows
         I9 (loud preflight refusals, the lock), I10 (the `adopt` and `reset`
         verbs), I11 (the manifest writes, the availability tables created)
-  - [ ] Success: `dateUpdated` bumped; no other row changed
-  - [ ] Effort: 1
+  - [x] Success: `dateUpdated` bumped; no other row changed
+  - [x] Effort: 1
 
-- [ ] **10.2 README, `.env_sample`, migrations README, CHANGELOG**
-  - [ ] README "Futures tick data": `adopt` and `reset`, the archive location
+- [x] **10.2 README, `.env_sample`, migrations README, CHANGELOG**
+  - [x] README "Futures tick data": `adopt` and `reset`, the archive location
         and its backup; environment table gains `MT_TICK_SPEND_30D_CEILING_USD`
         (read by 224's pass) and `MT_TICK_ARCHIVE_DIR`
-  - [ ] `.env_sample`: both variables, archive value `/data/tick-archive`
-  - [ ] Migrations README: `tick_006`
-  - [ ] CHANGELOG `[Unreleased]` Added entries, user-facing wording
-  - [ ] Success: all updated
-  - [ ] Effort: 1
-  - [ ] Commit: `docs: record tick archive adoption in contract and readmes`
+  - [x] `.env_sample`: both variables, archive value `/data/tick-archive`
+  - [x] Migrations README: `tick_006`
+  - [x] CHANGELOG `[Unreleased]` Added entries, user-facing wording
+  - [x] Success: all updated
+  - [x] Effort: 1
+  - [x] Commit: `docs: record tick archive adoption in contract and readmes`
 
 ---
 
 ## Section 11 — Validation
 
-- [ ] **11.1 Lint, types and tiers**
-  - [ ] ruff and mypy per the test environment note; unit then integration
+- [x] **11.1 Lint, types and tiers**
+  - [x] ruff and mypy per the test environment note; unit then integration
         tier; compare with the Section 0 baseline
-  - [ ] Success: no failure outside the baseline
-  - [ ] Effort: 2
+  - [x] Success: no failure outside the baseline
+  - [x] Effort: 2
 
 - [ ] **11.2 Walkthrough steps 1–4, 8 and 9 on the real archive**
-  - [ ] Run LLD walkthrough steps 1–4 (tests, scratch database
+  - [x] Run LLD walkthrough steps 1–4 (tests, scratch database
         `mt_scratch_tick_223`, the pre-init refusal, adopting both
         free-credit jobs, the manifest query), step 8 (reset) and step 9
         (backup verify under sudo). Add `MT_TICK_ARCHIVE_DIR=/data/tick-archive`
@@ -548,11 +548,11 @@ nothing).
   - [ ] Run step 9 with the Bash sandbox disabled (the sandbox sets "no new
         privileges", which blocks sudo). Only if sudo is still refused, STOP
         and give the PM the single step 9 command and the log path
-  - [ ] Keep `mt_scratch_tick_223`: 224's walkthrough continues in it
-  - [ ] Record actual outputs in the LLD walkthrough; correct any command or
+  - [x] Keep `mt_scratch_tick_223`: 224's walkthrough continues in it
+  - [x] Record actual outputs in the LLD walkthrough; correct any command or
         expected value that differed
   - [ ] Success: 26 and 52 units *verified*, provider records equal job
         records (10,049,172 and 17,642,240), re-adopt exits 0, backup log
         shows equal counts and hashes
-  - [ ] Effort: 2
-  - [ ] Commit: `docs: record slice 223 verification walkthrough`
+  - [x] Effort: 2
+  - [x] Commit: `docs: record slice 223 verification walkthrough`
