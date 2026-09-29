@@ -1426,6 +1426,15 @@ database on the test cluster (see Dependencies). Export
    Claude runs this under the sudo grant, and the log is what the PM
    reads.
 
+   Result (223, 2026-09-29, run by the PM): as expected. Snapshot
+   `5a28cbcc` holds 86 files under `/data/tick-archive`, the same as the
+   archive, and the restored `glbx-mdp3-20240830.trades.dbn.zst` hashes to
+   `57e8ad7f…80b2e0` on both sides. The first run counted 0, because
+   `restic ls` with a directory filter lists only direct children; the
+   script now passes `--recursive`. Adding the archive changed the
+   snapshot path set, so restic applies retention to the old and new sets
+   separately. The old set ages out under the same policy.
+
 10. **Prove the rebuild, then tear down.** The archive stays: it is the
     record. Re-adopting its job directories (step 3's form, with
     `--source /data/tick-archive/<job>`) rebuilds the manifest in

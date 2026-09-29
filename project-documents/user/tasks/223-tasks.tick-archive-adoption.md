@@ -16,8 +16,8 @@ projectState: >
   slice runs on scratch databases on the test cluster. The PM has set both
   spend ceilings in the dev .env (0.50 per pass, 5 per 30 days).
 dateCreated: 20260928
-dateUpdated: 20260928
-status: in_progress
+dateUpdated: 20260929
+status: complete
 ---
 
 # Tasks: Tick Archive Adoption
@@ -539,19 +539,19 @@ nothing).
   - [x] Success: no failure outside the baseline
   - [x] Effort: 2
 
-- [ ] **11.2 Walkthrough steps 1–4, 8 and 9 on the real archive**
+- [x] **11.2 Walkthrough steps 1–4, 8 and 9 on the real archive**
   - [x] Run LLD walkthrough steps 1–4 (tests, scratch database
         `mt_scratch_tick_223`, the pre-init refusal, adopting both
         free-credit jobs, the manifest query), step 8 (reset) and step 9
         (backup verify under sudo). Add `MT_TICK_ARCHIVE_DIR=/data/tick-archive`
         to the dev `.env` first (not committed)
-  - [ ] Run step 9 with the Bash sandbox disabled (the sandbox sets "no new
+  - [x] Run step 9 with the Bash sandbox disabled (the sandbox sets "no new
         privileges", which blocks sudo). Only if sudo is still refused, STOP
         and give the PM the single step 9 command and the log path
   - [x] Keep `mt_scratch_tick_223`: 224's walkthrough continues in it
   - [x] Record actual outputs in the LLD walkthrough; correct any command or
         expected value that differed
-  - [ ] Success: 26 and 52 units *verified*, provider records equal job
+  - [x] Success: 26 and 52 units *verified*, provider records equal job
         records (10,049,172 and 17,642,240), re-adopt exits 0, backup log
         shows equal counts and hashes
   - [x] Effort: 2
