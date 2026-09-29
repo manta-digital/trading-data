@@ -66,10 +66,10 @@ async def reset_units(
     run: TickRun, unit_ids: Sequence[int] | Literal["all"]
 ) -> list[ResetChange]:
     """Reset or reopen the named units (or every eligible unit for ``ALL``)."""
-    every = isinstance(unit_ids, str)
-    wanted: list[int] = (
-        await all_unit_ids(run.conn) if isinstance(unit_ids, str) else list(unit_ids)
-    )
+    if isinstance(unit_ids, str):
+        every, wanted = True, await all_unit_ids(run.conn)
+    else:
+        every, wanted = False, list(unit_ids)
     found = {unit.unit_id: unit for unit in await units_by_id(run.conn, wanted)}
     changes = []
     for unit_id in wanted:
