@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 EXIT_OK = 0
 EXIT_PREFLIGHT = 1
 EXIT_PROVIDER = 2
-EXIT_UNITS_FAILED = 3  # adopt finished, but some units failed verification (223)
+EXIT_PARTIAL = 3  # some units failed; the run itself finished (223 adopt, 224 pass)
 EXIT_STORAGE = 4  # archive write, calendar, or tick database failure (223)
 
 _DATE_FORMAT = "%Y-%m-%d"
@@ -123,7 +123,7 @@ _WRITER_EPILOG = (
     f"Exit codes: {EXIT_OK} ok; {EXIT_PREFLIGHT} preflight or refusal (a setting, "
     "a pending tick migration, the run lock, or an adoption refused before any "
     f"row was written); {EXIT_PROVIDER} provider error (an adopt interrupted "
-    f"while verifying resumes when run again); {EXIT_UNITS_FAILED} adopt "
+    f"while verifying resumes when run again); {EXIT_PARTIAL} adopt "
     f"finished but some units failed verification; {EXIT_STORAGE} storage "
     "(archive write, calendar, or tick database)."
 )
@@ -202,7 +202,7 @@ def tick_adopt(
     )
     print_adopt(result, json_mode=json_output)
     if result.verify_failures:
-        raise typer.Exit(EXIT_UNITS_FAILED)
+        raise typer.Exit(EXIT_PARTIAL)
 
 
 @tick_app.command("reset", epilog=_WRITER_EPILOG)

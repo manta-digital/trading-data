@@ -298,7 +298,7 @@ def test_adopt_with_failed_units_exits_3(
     )
     with _adopt_returning(failed):
         result = runner.invoke(app, ADOPT, env={"COLUMNS": "200"})
-    assert result.exit_code == cmd.EXIT_UNITS_FAILED, result.output
+    assert result.exit_code == cmd.EXIT_PARTIAL, result.output
     assert "Verification failed: 2024-09-03" in result.stdout
 
 

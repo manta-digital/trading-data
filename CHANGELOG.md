@@ -22,8 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `manifest.json`, copied into the tick archive (`MT_TICK_ARCHIVE_DIR`), and
   each trading day's file is verified against its header and Databento's free
   record count. The cost and times come from Databento's own job record. A
-  bad byte refuses the whole job; adopting again changes nothing; adopting the
-  archive into an empty tick database rebuilds its records.
+  bad byte refuses the whole job; a unit that fails verification exits `3`;
+  adopting again changes nothing but verifies any units a provider error left
+  unverified; adopting the archive into an empty tick database rebuilds its
+  records. A malformed `manifest.json` entry is refused, not a crash.
 - **`mt data tick reset`** returns exhausted tick units to be retried and
   reopens days a job delivered no file for; it asks you to type `reset`
   unless `--yes` or `--json` is given.

@@ -613,9 +613,11 @@ the cost and times from Databento's own job record (a free call). Each UTC day
 a trading session touches gets one unit, verified against its file's header
 and Databento's free per-day record count. A session day with no file is
 recorded as a provider hole; a file on a day no session touches is named. Any
-mismatch refuses the whole job and writes nothing. Adopting a job again does
-nothing, and adopting from the archive into an empty tick database rebuilds
-its manifest.
+mismatch refuses the whole job and writes nothing. A unit whose file fails
+verification is recorded as failed and the command exits `3`. Adopting a job
+again changes nothing, except that it verifies any units a run cut short by a
+provider error left unverified. Adopting from the archive into an empty tick
+database rebuilds its manifest.
 
 ```sh
 mt data tick adopt --job-id GLBX-20240930-USM7UXXJBA \
@@ -637,8 +639,9 @@ Both commands run behind one preflight and a run lock: they exit `1` naming
 the setting or command to fix (an unknown `MT_TICK_*` name, with the closest
 real one; the key; `MT_TICK_DB_URL`; `MT_TICK_ARCHIVE_DIR`; a pending tick
 migration; another run holding the lock). Exit codes: `0` OK; `1` preflight or
-a refusal that wrote nothing; `2` provider error; `4` storage (archive write,
-the calendar, or the tick database).
+a refusal that wrote nothing; `2` provider error; `3` adopt finished but some
+units failed verification; `4` storage (archive write, the calendar, or the
+tick database).
 
 ## Data Serving API
 

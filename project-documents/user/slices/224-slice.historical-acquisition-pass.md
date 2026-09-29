@@ -6,7 +6,7 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [923, 220, 221, 222, 223]
 interfaces: [225, 226, 227, 228, 229, 231, 233]
 dateCreated: 20260928
-dateUpdated: 20260928
+dateUpdated: 20260929
 status: not_started
 review: none
 ---
@@ -314,7 +314,8 @@ for each downloaded unit: verify.check(unit) → verified
 **Adoption** (`mt data tick adopt --job-id ID --source PATH [--json]`):
 
 ```
-open_tick_run  ─► refuse when job id is already in tick_request ("already adopted", exit 0)
+open_tick_run  ─► job id already in tick_request → "already adopted": verify its
+                   downloaded units (left by an interrupted run), nothing else
 batch_job(ID)  ─► state done|expired (else refuse); request, cost, counts, ts_received
 session days of the job range (calendar; refusal → nothing copied or written, exit 4)
 read manifest.json from PATH (dir or zip); manifest.job_id == ID
@@ -322,7 +323,7 @@ for each listed file: copy/extract → <archive>/<ID>/<name>.partial, hashing
                       size + sha256 match → rename   (any mismatch: nothing written, exit 1)
 one txn: request (is_adopted) + units:
     day with a file → downloaded;  session day without a file → delivered + PROVIDER_HOLE
-verify.check(each downloaded unit) → verified
+verify.check(each downloaded unit) → verified   (any failure: exit 3)
 ```
 
 ### State Management
@@ -429,6 +430,10 @@ new codes, after Kalshi's pattern:
 | 4 | `EXIT_STORAGE` |
 | 5 | `EXIT_REFUSED` |
 | 6 | `EXIT_IN_FLIGHT` |
+
+Slice 223 defines `EXIT_PARTIAL` and `EXIT_STORAGE`: `adopt` exits 3
+when a unit fails verification, and 4 on a storage fault. The pass
+reuses both.
 
 `EXIT_BY_OUTCOME` has a module-level exhaustiveness assert, as Kalshi's
 does.
@@ -914,8 +919,17 @@ a job directory or the provider's zip.
     unit. This is loud, so a calendar–provider disagreement is seen.
 
   `verify.check` then runs on each downloaded unit in the same command.
+  A unit that fails is recorded as a deterministic failure and the
+  command exits 3 (`EXIT_PARTIAL`, the pass's code for the same case).
+  A `ProviderError` from the record-count call stops verification,
+  leaves the remaining units *downloaded*, and exits 2 with a message
+  saying how many are left and to run the same command again.
 - **Idempotent.** A job id already in the manifest is reported as
-  "already adopted" with exit 0, and nothing is written.
+  "already adopted", and no file or request row is written. Units still
+  *downloaded* (an earlier run interrupted by a provider error) are
+  verified; the exit code is 0, or 3 if one of them fails. (Review
+  finding, 223 code review: without this, nothing could verify them
+  until the pass exists.)
 
 **Rebuilding the manifest.** Every job under the archive can be adopted
 again:
