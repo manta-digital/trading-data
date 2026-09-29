@@ -155,8 +155,8 @@ data is acquired; the preflight needs only the key.
 | Variable | Default | Description |
 |---|---|---|
 | `MT_DATABENTO_API_KEY` | — | Databento API key. `mt data tick estimate` exits `1` naming this variable when it is unset. The SDK's own `DATABENTO_API_KEY` is never read. |
-| `MT_TICK_SPEND_CEILING_USD` | unset | Spend ceiling in USD, `> 0` when set (`0` or negative fails every `mt` command at startup). Unset means *no ceiling configured*, which the acquisition pass (slice 223) treats as "refuse to purchase". The preflight judges each stored tier's bundle (tier + `definition`) against it. |
-| `MT_TICK_DB_URL` | — | Tick database URL (application credential). Read by `mt data migrate status --track tick`; the tick passes that write the database arrive in slices 223 and 224. |
+| `MT_TICK_SPEND_CEILING_USD` | unset | Spend ceiling in USD, `> 0` when set (`0` or negative fails every `mt` command at startup). Unset means *no ceiling configured*, which the acquisition pass (slice 224) treats as "refuse to purchase". The preflight judges each stored tier's bundle (tier + `definition`) against it. |
+| `MT_TICK_DB_URL` | — | Tick database URL (application credential). Read by `mt data migrate status --track tick`; the tick passes that write the database arrive in slices 223, 224 and 225. |
 
 ### Serving API
 
@@ -575,7 +575,7 @@ are the manifest (`tick_request`, `tick_archive_unit`), contract definitions
 (`tick_definition`), the trades hypertable (`tick_trade`, both `trades` and
 `tbbo` tiers) and the ingest ledger (`tick_ingest_ledger`). Event times are
 integer nanoseconds since the epoch, exactly as Databento delivers them. No
-data is written until the acquisition pass (223) and ingest (224) land.
+data is written until the acquisition pass (224) and ingest (225) land.
 
 ```sh
 # Records, billable size, and cost for each schema tier (trades, tbbo, mbp-1)

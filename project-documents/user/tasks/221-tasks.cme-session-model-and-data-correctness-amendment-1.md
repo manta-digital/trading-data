@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/221-slice.cme-session-model-and-data-correctness-amendment.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: []
-interfaces: [222, 224, 227, 230]
+interfaces: [222, 225, 228, 231]
 projectState: >
   Slice design committed; slice review PASS (993fab4). 220 (DBN reader) and
   923 (multi-database plumbing, minute track routed to primary) are released
@@ -45,7 +45,7 @@ part: 1
   - Nothing is bought.
   - No tick database is touched.
   - `pandas_market_calendars` is never added to `pyproject.toml`.
-- Next slice: 222 (tick storage track), or 224 once 223 lands. 224 consumes
+- Next slice: 222 (tick storage track), or 225 once 224 lands. 225 consumes
   `sessions_between`, `SessionIndex.locate_ns`, `extend_calendar_sessions`,
   and `FUTURES_PRODUCT_CALENDAR`.
 

@@ -1,12 +1,12 @@
 """Column contract: DBN record field → tick table column (slice 222).
 
-Slices 223 (definitions) and 224 (trades) write through these maps, and the
+Slices 224 (definitions) and 225 (trades) write through these maps, and the
 tick-track migrations define the tables in the same order, so a renamed
 provider field or a dropped column fails a parity test instead of a load.
 
 Field names are plain strings: only the adapter and the DBN reader import
 ``databento``. This module states *which* field lands in *which* column; the
-value conversion is the writer's (223/224), under slice 222 Technical
+value conversion is the writer's (224/225), under slice 222 Technical
 Decision 3:
 
 - ``tick_trade`` is a raw-record table. Provider sentinels (``UNDEF_PRICE``

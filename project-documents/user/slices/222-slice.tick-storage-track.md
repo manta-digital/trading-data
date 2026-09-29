@@ -4,7 +4,7 @@ slice: tick-storage-track
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [923, 220, 221]
-interfaces: [223, 224, 225, 226, 227, 228, 229]
+interfaces: [223, 224, 225, 226, 227, 228, 229, 230]
 dateCreated: 20260928
 dateUpdated: 20260928
 status: complete
@@ -43,15 +43,16 @@ statements this design supersedes" and added to the slice plan's Notes.
 
 ## Value
 
-- **Architectural enablement.** 223 writes requests, units and definitions.
-  224 writes ticks and ledger rows. 225 measures the table. None of them can
+- **Architectural enablement.** 223 and 224 write requests and units; 224
+  writes definitions.
+  225 writes ticks and ledger rows. 226 measures the table. None of them can
   start without these tables, and every later completeness, status and API
   surface reads them.
 - **Correctness found before any data is loaded.** Under the architecture's
   key, conflict-ignore would have silently dropped about 2% of real trades.
   That is 196,202 of the 10,049,172 records in the adopted trades job.
-  224's count check would then fail every unit, with no explanation in the
-  schema. Fixing it now costs one column. Fixing it after 225 would cost a
+  225's count check would then fail every unit, with no explanation in the
+  schema. Fixing it now costs one column. Fixing it after 226 would cost a
   rebuild.
 - **Server-enforced guarantees instead of reviewer memory.** No duplicate
   tick row can exist. An instrument id's validity windows cannot overlap, so
@@ -72,7 +73,7 @@ statements this design supersedes" and added to the slice plan's Notes.
 3. A column contract module, `data/tick/storage_columns.py`. It maps each
    provider record field to its table column, for `tick_trade` and
    `tick_definition`. It is parity-tested against both the migrated tables
-   and the real DBN fixture layouts. 223 and 224 write through it.
+   and the real DBN fixture layouts. 224 and 225 write through it.
 4. The write surface of `scripts/provision_tick_roles.sql`: an enumerated
    `GRANT SELECT, INSERT, UPDATE, DELETE` on the five tables, filtered on
    `pg_tables` as 923 prescribed.
@@ -88,19 +89,19 @@ statements this design supersedes" and added to the slice plan's Notes.
 **Excluded**
 
 - **Writing any row outside tests.** Requests, units and definitions belong
-  to 223. Ticks and ledger rows belong to 224.
+  to 224. Ticks and ledger rows belong to 225.
 - **Compression, space partitioning, and any index beyond the primary
-  key.** Physical grouping is one decision, made by 225 from measurements
+  key.** Physical grouping is one decision, made by 226 from measurements
   and applied by a tick-track migration (architecture, "Storage"). No
   compression policy exists before then.
 - **An `integer_now` function.** A policy or continuous aggregate on an
   integer-time hypertable needs one. The first such object, if any, adds it
-  in the same migration (225 or later).
+  in the same migration (226 or later).
 - **Read-side aggregates, `PassKind.TICK`, and `granularity = 'tick'` in
   minute-track enumerations.** None has a reader yet (contract vocabulary
   rules).
 - **Applying the track to a production tick database.** None exists.
-  Placement is the PM's decision, informed by 225's sizes. This slice is
+  Placement is the PM's decision, informed by 226's sizes. This slice is
   proven on the test cluster.
 - **Second connection pools** for overview, health, status and the API
   (223 onward).
@@ -154,27 +155,27 @@ tick database:  tick_request ─1:N─ tick_archive_unit ─1:N─ tick_ingest_l
                                         └──────────── tick_definition.unit_id
 
 data/tick/storage_columns.py    DBN field → column maps for tick_trade and
-                                tick_definition (223/224 write through them)
+                                tick_definition (224/225 write through them)
 scripts/provision_tick_roles.sql  write surface = the five tables
 ```
 
 ### Data Flow
 
-Nothing flows yet. The shapes below are the contract 223 and 224 build to:
+Nothing flows yet. The shapes below are the contract 224 and 225 build to:
 
-1. **223 acquire.** Insert a `tick_request` row with its estimate, and one
+1. **224 acquire.** Insert a `tick_request` row with its estimate, and one
    `tick_archive_unit` per UTC day it wants at `requested`, in one
    transaction immediately before the submit. The submit sets
    `provider_job_id` and `committed_at`, and the units move to `submitted`.
    Delivery, download and verify advance the units and fill their file
    columns. Adoption writes both at `downloaded` with `is_adopted`. Each
    definition-schema unit's records are upserted into `tick_definition`.
-2. **224 ingest.** For a `verified` tier unit, decode it, resolve each
+2. **225 ingest.** For a `verified` tier unit, decode it, resolve each
    `(instrument_id, ts_event)` against `tick_definition`, assign sessions,
    and compute each record's `sequence_ordinal`. Load `tick_trade` with
    `unit_id`, then write the unit's ledger rows and its `ingested`
    transition in one transaction on the loading connection.
-3. **Readers (224 status, 228, 229).** Completeness comes from units,
+3. **Readers (225 status, 229, 230).** Completeness comes from units,
    ledger and raw counts. Resolution comes from definitions. Session totals
    are summed over units whose `superseded_by_unit_id IS NULL`.
 
@@ -188,7 +189,7 @@ Decision 4 explains why.
 - `state` is the furthest step reached, in `UnitState` order: `requested →
   submitted → delivered → downloaded → verified → ingested`. It never moves
   backward, except when a manual reset of a failed verify re-downloads,
-  which is 223's rule to state.
+  which is 224's rule to state.
 - `fetch_status` (`FetchStatus`) is the failure lifecycle of the *next*
   step:
   - `UNKNOWN`: no failure outstanding (minute's meaning: open, never
@@ -231,21 +232,21 @@ starting at 0.
   re-ingesting it produces the same ordinals, and the architecture's
   unit-idempotence through conflict-ignore holds unchanged.
 - **Cheap.** Every colliding group was contiguous in file order (2,760,955
-  records checked, zero exceptions). 224 can count within a run of equal
+  records checked, zero exceptions). 225 can count within a run of equal
   keys, but its definition must not depend on contiguity: it keys a counter
   by the triple, and a test covers a non-adjacent repeat.
 - **Two units never meet through the key.** Supersession deletes the old
   unit's rows before loading the new ones (architecture), so ordinals never
   need to agree across deliveries. If two overlapping units are both loaded
-  by mistake, the second unit's rows conflict, and 224's per-unit count
+  by mistake, the second unit's rows conflict, and 225's per-unit count
   check fails loudly. The server turns a would-be silent merge into a
   failure, which is I12 enforced rather than reviewed.
 
 *Rejected: no unique key, idempotence by delete-unit-then-reload.* It
 allows a plain `COPY` with no uniqueness check. But duplicate rows would
 then be possible, and nothing in the server would catch two overlapping
-current units. A unique key still lets 224 choose delete-then-`COPY`,
-because a conflicting `COPY` errors loudly. The write mechanics stay 224's
+current units. A unique key still lets 225 choose delete-then-`COPY`,
+because a conflicting `COPY` errors loudly. The write mechanics stay 225's
 decision.
 
 ### Technical Decision 2: times are `BIGINT` nanoseconds, and the hypertable partitions on integer time
@@ -259,7 +260,7 @@ also NautilusTrader's native form. `tick_trade` is a hypertable on
 
 Consequences, stated so later slices do not rediscover them:
 
-- Readers convert for display. 228 and 229 own that conversion. Exact
+- Readers convert for display. 229 and 230 own that conversion. Exact
   comparison stays in integers.
 - `time_bucket` takes integer widths.
 - Any policy or continuous aggregate needs `set_integer_now_func` first.
@@ -290,14 +291,14 @@ No field needs its own argument, and no in-range value can fail to load.
 Instrument ids reach 42,035,063 in the adopted files, and `uint32` sizes
 use `4294967295` as the undefined-size value, which `INTEGER` cannot hold.
 Fixed-point prices (`int64`, 1e-9 units) stay exact as `BIGINT`.
-Compression, decided by 225, absorbs the wider types.
+Compression, decided by 226, absorbs the wider types.
 
 **Sentinel rule.**
 
 - **`tick_trade` is a raw-record table.** It stores provider values as
   delivered, including `UNDEF_PRICE` (`INT64_MAX`) in a BBO price. That
   keeps "`NULL` BBO means a trades-tier row" true by construction, instead
-  of overloading `NULL` with "empty book side". Readers (228, 229) translate
+  of overloading `NULL` with "empty book side". Readers (229, 230) translate
   the sentinel. Neither sentinel appeared in two days of ES `tbbo`.
 - **`tick_definition` is a model table.** A provider "undefined" value
   becomes SQL `NULL`. `UNDEF_TIMESTAMP` is 2^64−1, which `BIGINT` cannot
@@ -330,7 +331,7 @@ Apportioning makes the 30-day cap and accounting inexact. So:
 no file for a day with no data: the trades job has no Saturday files. A
 provider hole on a trading day is therefore a day *without* a file, and
 only a row created when the day is requested can carry `PROVIDER_HOLE`.
-223 requests only days that some session touches, so a Saturday is never a
+224 requests only days that some session touches, so a Saturday is never a
 unit. The file columns are required from `downloaded` onward (a CHECK
 rendered from `UNIT_STATES_WITH_FILE`).
 
@@ -339,7 +340,7 @@ rendered from `UNIT_STATES_WITH_FILE`).
 from, and it duplicates `FetchStatus`, which the PM asked tick to reuse. See
 State Management.
 
-*Rejected: one request per day, so request equals unit.* It would force 223
+*Rejected: one request per day, so request equals unit.* It would force 224
 to submit one job per day, 365 jobs for the plan's year, and adopted
 multi-day jobs would still break it.
 
@@ -374,13 +375,13 @@ answer. It requires `btree_gist`, created in `tick_001`.
   NautilusTrader id (`ESZ5.GLBX`). Because symbols recycle, a later export
   pairs it with the expiration.
 - **Refused definitions.** A definition with an undefined activation or
-  expiration cannot be placed in a window, so 223 refuses it loudly. It
+  expiration cannot be placed in a window, so 224 refuses it loudly. It
   never inserts an unbounded one. No real ES definition is in hand: the
   free fixture is an equity record with both undefined, and the adopted
-  jobs hold none. 223's first purchase confirms that CME futures and spreads
+  jobs hold none. 224's first purchase confirms that CME futures and spreads
   carry both (see Risk Assessment).
 - **Re-delivery.** An identical re-sent definition is a no-op. A changed
-  one that overlaps fails the exclusion, and 223 must handle that
+  one that overlaps fails the exclusion, and 224 must handle that
   explicitly, never with a bare `ON CONFLICT DO NOTHING` that would hide it.
 
 ### Technical Decision 6: `unit_id` on every tick row, with no foreign key
@@ -393,11 +394,11 @@ key. There is no FK to `tick_archive_unit`:
   multi-million-row `COPY` it roughly doubles write cost for a value that
   is constant for the whole load.
 - Unit rows are never deleted.
-- 224's count check (rows with `unit_id = N` equals the records decoded)
+- 225's count check (rows with `unit_id = N` equals the records decoded)
   catches a wrong id loudly.
 
 The ledger's `unit_id` does have an FK, because its rows are few. Measuring
-compressed size is 225's job; the id compresses to a near-constant run per
+compressed size is 226's job; the id compresses to a near-constant run per
 unit.
 
 ### Technical Decision 7: the ledger carries `calendar_id`, not the tier
@@ -407,7 +408,7 @@ the product. **It carries it.** Deriving it needs code (`FUTURES_PRODUCT_CALENDA
 and cannot be done in SQL. The session rows live in the production database,
 so no join exists across the two databases. A ledger row should state its
 session's full identity by itself. There is no CHECK on the calendar id:
-the set grows with 230 (GC), and 221's session lookup already refuses an
+the set grows with 231 (GC), and 221's session lookup already refuses an
 unknown calendar at ingest.
 
 The tier is not on the ledger. It is `tick_request.schema`, reached through
@@ -428,9 +429,9 @@ What it costs readers (review F004):
   join is a primary-key lookup into a table that fits in memory.
 - **Tier-aware reads are rare by design.** One tier is used almost
   everywhere, and no tier-mixing reads are built (architecture, "Storage").
-  Status and coverage (224, 228) read tier per instrument, not per ledger
+  Status and coverage (225, 229) read tier per instrument, not per ledger
   row.
-- **If 228 or 229 measure otherwise,** adding a denormalized column is an
+- **If 229 or 230 measure otherwise,** adding a denormalized column is an
   additive tick-track migration with a backfill from the join.
 
 ### Technical Decision 8: chunk interval of 7 days, from wall-clock span
@@ -447,13 +448,13 @@ What it costs readers (review F004):
 - **Size.** Volume sanity: ES averaged ~390,000 trades per day file in the
   adopted job. A 7-day chunk holds a few million rows for the initial
   universe, well inside comfortable bounds.
-- **Revision.** 225 validates it and may re-set it with a tick-track
+- **Revision.** 226 validates it and may re-set it with a tick-track
   migration.
 
-No space dimension (physical grouping waits for 225).
+No space dimension (physical grouping waits for 226).
 `create_default_indexes => FALSE`, because the primary key, led by
 `instrument_id, ts_event`, serves the per-instrument range reads and the
-instrument-session counts. 225 adds indexes from measured queries.
+instrument-session counts. 226 adds indexes from measured queries.
 
 ### Technical Decision 9: every CHECK is rendered from its enum
 
@@ -466,7 +467,7 @@ instrument-session counts. 225 adds indexes from measured queries.
 | `tick_archive_unit.fetch_status` | `FetchStatus` |
 | file-required rule | `UNIT_STATES_WITH_FILE` |
 
-A new member (for example `statistics` in 227, or a live-segment delivery
+A new member (for example `statistics` in 228, or a live-segment delivery
 mode in the realtime initiative) needs a tick-track migration that
 re-renders the constraint (journal 20260901). A unit test asserts that
 every rendered list equals its enum, so hand-listing cannot creep in.
@@ -524,7 +525,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;`
 |---|---|---|
 | `unit_id` | `BIGINT GENERATED ALWAYS AS IDENTITY` PK | the id every tick row carries |
 | `request_id` | `BIGINT NOT NULL` FK → `tick_request` | |
-| `unit_date` | `DATE NOT NULL` | the UTC day `[unit_date, unit_date + 1)`; `UNIQUE (request_id, unit_date)`; `range_start <= unit_date < range_end` is enforced by 223, since it spans tables |
+| `unit_date` | `DATE NOT NULL` | the UTC day `[unit_date, unit_date + 1)`; `UNIQUE (request_id, unit_date)`; `range_start <= unit_date < range_end` is enforced by 224, since it spans tables |
 | `state` | `TEXT NOT NULL` | CHECK from `UnitState` |
 | `state_changed_at` | `TIMESTAMPTZ NOT NULL` | |
 | `fetch_status` | `TEXT NOT NULL` | CHECK from `FetchStatus` |
@@ -535,7 +536,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;`
 | `file_size_bytes` | `BIGINT` | |
 | `file_sha256` | `TEXT` | the three file columns are all non-NULL when `state` is in `UNIT_STATES_WITH_FILE` |
 | `provider_record_count` | `BIGINT` | the day's count from the free record-count query |
-| `decoded_record_count` | `BIGINT` | set by 224 |
+| `decoded_record_count` | `BIGINT` | set by 225 |
 | `superseded_by_unit_id` | `BIGINT` FK → self | `<> unit_id`; current means `IS NULL` |
 | `repurchase_of_unit_id` | `BIGINT UNIQUE` FK → self | the expired unit this one re-buys |
 
@@ -611,7 +612,7 @@ The parity tests assert:
 
 ### Provides to Other Slices
 
-- **223 (acquisition):**
+- **224 (acquisition):**
   - `tick_request` and `tick_archive_unit` with their lifecycle columns;
   - the `requested` → `submitted` transaction shape;
   - `repurchase_of_unit_id` for expired units;
@@ -619,19 +620,19 @@ The parity tests assert:
     ceilings;
   - `tick_definition` and `TICK_DEFINITION_COLUMNS`;
   - `UnitState`.
-- **224 (ingest):**
+- **225 (ingest):**
   - `tick_trade` with its key and the `sequence_ordinal` definition;
   - `TICK_TRADE_COLUMNS`;
   - `tick_ingest_ledger`;
   - `superseded_by_unit_id` as the "current" predicate;
-  - `tick_app`'s `TEMPORARY` privilege (923) for COPY staging, if 224
+  - `tick_app`'s `TEMPORARY` privilege (923) for COPY staging, if 225
     stages.
-- **225 (proof):** a hypertable with no compression and no extra index, so
+- **226 (proof):** a hypertable with no compression and no extra index, so
   it measures from a clean baseline, plus `TICK_TRADE_CHUNK_INTERVAL` as the
   value to validate.
-- **226 (backup):** five named tables, with the manifest and definitions
+- **227 (backup):** five named tables, with the manifest and definitions
   small and the trades table rebuildable from the archive.
-- **227–229:** `tick_definition` for resolution and catalog. The sentinel
+- **228–230:** `tick_definition` for resolution and catalog. The sentinel
   and nanosecond conventions are theirs to translate on read.
 
 ### Consumes from Other Slices
@@ -689,9 +690,9 @@ The parity tests assert:
 
 ### Integration Requirements
 
-- 223 and 224 can be designed against the table, column-map and vocabulary
+- 224 and 225 can be designed against the table, column-map and vocabulary
   names in this document with no schema change of their own, except
-  227's future `statistics` CHECK re-render.
+  228's future `statistics` CHECK re-render.
 - The full unit and integration tiers stay green apart from the known
   pre-existing failures.
 
@@ -774,7 +775,7 @@ the quotes).
    Confirm: `psql "$MT_TIMESCALE_TEST_URL" -tAc "SELECT count(*) FROM
    pg_database WHERE datname = 'mt_scratch_tick_222'"` prints `0` (recorded).
 
-No command lists tick tables or units yet. `mt data tick status` is 224's.
+No command lists tick tables or units yet. `mt data tick status` is 225's.
 
 ## Risk Assessment
 
@@ -790,13 +791,13 @@ No command lists tick tables or units yet. `mt data tick status` is 224's.
 
 ### Mitigation Strategies
 
-- 223's first definition purchase for the proof ranges (under $0.01) is
-  checked against these constraints before 224 depends on it. If windows
-  are missing for non-universe instruments, 223 skips non-universe
-  definitions. If they are missing for configured futures, 223 raises and
+- 224's first definition purchase for the proof ranges (under $0.01) is
+  checked against these constraints before 225 depends on it. If windows
+  are missing for non-universe instruments, 224 skips non-universe
+  definitions. If they are missing for configured futures, 224 raises and
   the design is revised. It is never widened silently.
 - 222's tests read the interval through `integer_interval`. Any tick
-  surface (224 onward) that reads hypertable metadata has its own test on
+  surface (225 onward) that reads hypertable metadata has its own test on
   the tick database. No minute-tier helper is reused against it unless it
   is tested there.
 
@@ -835,7 +836,7 @@ No command lists tick tables or units yet. `mt data tick status` is 224's.
 - **Security.** No credentials or new settings. The artifact stays
   password-free. `tick_app` keeps no TRUNCATE and no DDL.
 - **Does this belong in the API?** Not in this slice: it has no reader.
-  229 serves ticks and the contract catalog from these tables.
+  230 serves ticks and the contract catalog from these tables.
 
 ### Architecture statements this design supersedes
 

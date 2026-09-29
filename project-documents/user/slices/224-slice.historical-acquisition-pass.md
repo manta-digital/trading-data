@@ -3,8 +3,8 @@ docType: slice-design
 slice: historical-acquisition-pass
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
-dependencies: [923, 220, 221, 222]
-interfaces: [224, 225, 226, 227, 228, 230, 232]
+dependencies: [923, 220, 221, 222, 223]
+interfaces: [225, 226, 227, 228, 229, 231, 233]
 dateCreated: 20260928
 dateUpdated: 20260928
 status: not_started
@@ -14,7 +14,8 @@ status: not_started
 
 ## Overview
 
-Slice 223 builds the tick tier's acquisition side. It is the first code
+Slices 223 and 224 build the tick tier's acquisition side (see Slice Split
+below). It is the first code
 that writes the manifest 222 created and the first code that can spend
 money. It delivers three operator verbs under `mt data tick`:
 
@@ -46,6 +47,21 @@ It also adds:
 
 No schedule code is built. Every run is manual.
 
+## Slice Split
+
+On 2026-09-28, at task breakdown, the PM split this design into two slices
+so each fits one implementation session. This document remains the design
+of record for both. Reviews of it, and of its first task files, were written
+under the number 223.
+
+| Built by | Scope in this document |
+|---|---|
+| **223 Tick Archive Adoption** (`223-slice.tick-archive-adoption.md`) | Settings; the constants TD2, TD8 and TD11 use; migration `tick_006` and its grants; `session_days` (TD4, Days); the run context, preflight and lock (TD2); `manifest_repo.py`'s compare-and-set transitions for adoption, verification, failure and reset; `verify.py` (TD9, Verification); adoption (TD10); `reset` (TD8, reset); archive backup enrolment (TD11). FR1, FR2 and the reset part of FR6. Walkthrough steps 1–4, 8 and 9. |
+| **224 Historical Acquisition Pass** (this slice) | The pass contract (TD1); the universe (TD3); planning and grouping (TD4); definitions (TD5); the calendar placement in the pass (TD6); the spend guard (TD7); reopening and supersession by the pass (TD8); submit, reconcile, delivery and await (TD9); `mt data tick pass`. FR3–FR5, FR6 (except reset), FR7–FR10. Walkthrough steps 5–7 and 10. |
+
+Where the sections below say "this slice", read the table above for which
+of the two builds it.
+
 ## Design-Time Verification Findings
 
 Measured on 2026-09-28 against the adopted files and the provider's free
@@ -56,9 +72,9 @@ endpoints, through the project's own adapter
 |---|---|---|
 | Old job records | `batch_job` still answers for both free-credit jobs, although both are `expired`. `GLBX-20240930-USM7UXXJBA`: `trades`, `ES.FUT` (`parent`), 2024-08-30 → 2024-09-30, 10,049,172 records, $12.5785. `GLBX-20250123-XT4GD5UM6C`: `tbbo`, `ES.FUT` (`parent`), 2024-11-01 → 2025-01-01, 17,642,240 records, $36.8046. | Adoption reads the job's cost, record count and request from the provider for free. It never parses them out of local JSON. |
 | Day-file header | The DBN header of a day file spans exactly that UTC day. For example, `glbx-mdp3-20240903.trades.dbn.zst` has start `2024-09-03T00:00Z` and end `2024-09-04T00:00Z`. | A file is matched to its unit by its header, not by parsing the file name. |
-| Per-day record count | The free `record_count` for `[day, day+1)` with the job's symbols equals the file's decoded count on all three days checked: 3,191 (Sunday 09-01), 511,965 (09-03) and 6,985 (09-29). | Verification records each unit's provider count. 224's count check can then compare per unit. |
-| Spreads in the parent symbol | `ES.FUT` covers the outrights and the calendar spreads. The job's `symbology.json` maps `ESH6-ESU6` → 42004904. The trades contain spread trades. | Definitions must be bought with the same symbols as the tier data, or 224's resolution check fails on the spread trades (Technical Decision 5). |
-| Spread share | Across all 26 files of the `trades` job, 236,017 of 10,049,172 records (2.35%) are spread trades, on 7 spread and 5 outright instruments. Every record's `instrument_id` appears in its file header's mappings. | Including spreads is an explicit configuration decision with a stated cost (Technical Decision 3). The header-mapping premise held on this job, which is early evidence for 225's mapping-completeness criterion. |
+| Per-day record count | The free `record_count` for `[day, day+1)` with the job's symbols equals the file's decoded count on all three days checked: 3,191 (Sunday 09-01), 511,965 (09-03) and 6,985 (09-29). | Verification records each unit's provider count. 225's count check can then compare per unit. |
+| Spreads in the parent symbol | `ES.FUT` covers the outrights and the calendar spreads. The job's `symbology.json` maps `ESH6-ESU6` → 42004904. The trades contain spread trades. | Definitions must be bought with the same symbols as the tier data, or 225's resolution check fails on the spread trades (Technical Decision 5). |
+| Spread share | Across all 26 files of the `trades` job, 236,017 of 10,049,172 records (2.35%) are spread trades, on 7 spread and 5 outright instruments. Every record's `instrument_id` appears in its file header's mappings. | Including spreads is an explicit configuration decision with a stated cost (Technical Decision 3). The header-mapping premise held on this job, which is early evidence for 226's mapping-completeness criterion. |
 | Definition cost | With `ES.FUT` parent there are 61 definition records per day (each instrument is sent again every day). The job-1 range is 1,694 records, 880,880 billable bytes, $0.0014. The job-2 range is 3,280 records, 1,705,600 bytes, $0.0027. | The proof's definition purchase is about $0.004 across four monthly requests. |
 | Job files | Each job holds one `.dbn.zst` file per UTC day that has data, plus `condition.json`, `metadata.json`, `symbology.json` and `manifest.json`. `manifest.json` lists the other files (`filename`, `size`, `hash` as `sha256:<hex>`) but not itself. The `tbbo` job exists only as its zip, and the zip contains `manifest.json`. | Adoption reads either a directory or a zip, and verifies against `manifest.json` in both cases. |
 | Existing final file | `_download.download_file` re-verifies a file that already has its final name and returns it. It refuses to touch one that does not match. | A crash between the download and the database update costs one re-hash, not a re-download. |
@@ -69,7 +85,7 @@ endpoints, through the project's own adapter
 - **The tick tier gets data it can use.** After this slice the two
   free-credit jobs are archived and recorded as purchases. The
   definitions that make their ticks attributable can be bought for about
-  $0.004 through a guarded path. 224 needs both before it can ingest a
+  $0.004 through a guarded path. 225 needs both before it can ingest a
   single tick.
 - **Money is safe by construction.** A request is recorded before it is
   submitted, so an unknown submit outcome is reconciled rather than bought
@@ -111,7 +127,7 @@ endpoints, through the project's own adapter
       restores one archived file, and compares hashes;
     - runbook 200's include set.
 11. Documentation:
-    - the data-correctness contract rows for 223;
+    - the data-correctness contract rows for 223 and 224;
     - the slice plan Notes (statements this design supersedes);
     - the README's futures tick section and environment table;
     - `.env_sample`;
@@ -120,13 +136,13 @@ endpoints, through the project's own adapter
 **Excluded**
 
 - **Ingesting tier data.** Decode, `COPY`, the ledger, and the count,
-  resolution and session checks are 224's. After this slice, tier units
+  resolution and session checks are 225's. After this slice, tier units
   rest at *verified*.
 - **`mt data tick status`, `coverage`, `debug` and `get`.** Status and
-  coverage are 224's, and the rest are 228's. 223's operator output is the
+  coverage are 225's, and the rest are 229's. 224's operator output is the
   pass report. Its walkthrough reads the manifest with `psql`.
 - **Schedule code.** There is no `PassKind.TICK`, no `schedule_for`
-  branch, no timer and no `mt-run tick`; all of these are 232's. A manual
+  branch, no timer and no `mt-run tick`; all of these are 233's. A manual
   run therefore writes no `pass_runs` row, and its record is the manifest.
 - **Direct-range purchases.** No pass calls `fetch_range` (PM direction:
   batch jobs only).
@@ -138,7 +154,7 @@ endpoints, through the project's own adapter
   runs against a scratch tick database, which is enough because the
   archive can rebuild the manifest (Dependencies).
 - **Choosing the tier.** The universe's ES entry ships with no tier. The
-  choice is 225's go/no-go.
+  choice is 226's go/no-go.
 
 ## Dependencies
 
@@ -179,12 +195,12 @@ walkthrough is the definitions for the two adopted jobs, about $0.004. It
 happens only after the PM sets `MT_TICK_SPEND_CEILING_USD` and
 `MT_TICK_SPEND_30D_CEILING_USD` in the dev `.env`. Without them the
 walkthrough stops at the pass's refusal (exit 5), and the purchase moves
-to 225. No host step needs the PM.
+to 226. No host step needs the PM.
 
 **Gap in the plan: the production tick cluster.** The PM decided on
 2026-09-28 that the tick database is a second cluster on the production
-host. No slice in the plan creates it. 226 extends the backup to it, and
-232 writes the service environment. This slice does not need it, for two
+host. No slice in the plan creates it. 227 extends the backup to it, and
+233 writes the service environment. This slice does not need it, for two
 reasons:
 
 - The archive is the record. Re-running `adopt` on every job directory
@@ -194,9 +210,9 @@ reasons:
 - The walkthrough's manifest lives in a scratch database, and nothing in
   the design depends on keeping it.
 
-225 is the latest point at which the cluster must exist, because its
+226 is the latest point at which the cluster must exist, because its
 contention measurement runs the tick ingest on the production host. The
-recommendation is to assign cluster provisioning to 224 or 225.
+recommendation is to assign cluster provisioning to 225 or 226.
 
 ### Interfaces Required
 
@@ -347,7 +363,7 @@ symbols, stype_in, day)` is *covered* when some unit for it has
 `superseded_by_unit_id IS NULL` and `reopened_at IS NULL`. Everything
 else is wanted, if the calendar and the day's condition allow it.
 
-**Availability** is two small tables that this slice writes and 224
+**Availability** is two small tables that this slice writes and 225
 reads: the dataset's edge and each day's condition, with the time each
 was observed.
 
@@ -381,7 +397,7 @@ without the test changing:
 - The tick copy adds the two outcome members above.
 - It has no event sink and no `on_phase` callback. Kalshi uses both for
   `pass_runs` progress and its JSONL event stream. The tick pass has no
-  `PassKind` until 232, and it logs the same two lines Kalshi logs ("tick
+  `PassKind` until 233, and it logs the same two lines Kalshi logs ("tick
   pass started run_id=… phases=…" and "tick pass finished outcome=…").
 - There is no historical phase. That phase is specific to Kalshi.
 
@@ -457,7 +473,7 @@ expects to move from, in its `WHERE` clause (for example `reset` updates
 only `WHERE fetch_status = 'RETRY_EXHAUSTED' AND reopened_at IS NULL`).
 An update that matches zero rows raises, and it is never skipped
 quietly. So the lock is not what keeps concurrent writers correct. It
-exists to stop a double purchase, and 224's ingest does not need it:
+exists to stop a double purchase, and 225's ingest does not need it:
 
 - Acquisition moves units up to *verified* (and definition units to
   *ingested*).
@@ -466,7 +482,7 @@ exists to stop a double purchase, and 224's ingest does not need it:
 - `reset` touches only exhausted units that are not reopened, which no
   pass is advancing.
 
-**224's obligation:** ingest takes its own advisory lock key, so two
+**225's obligation:** ingest takes its own advisory lock key, so two
 ingest runs serialize, and it uses the same compare-and-set transitions
 from `manifest_repo.py`. Neither lock waits for the other.
 
@@ -502,7 +518,7 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
   command at import, with the field named. That is loud, and it is
   caught by the unit tier.
 - **ES matches the adopted jobs** (`ES.FUT`, `parent`). So coverage
-  computed from adopted units applies unchanged once 225 chooses the tier
+  computed from adopted units applies unchanged once 226 chooses the tier
   and a range.
 - **Spreads are included in ES by explicit configuration** (review F004).
   - The architecture excludes calendar spreads "unless explicitly
@@ -518,10 +534,10 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
   - **Cost bound:** spreads add about 2.35% to an ES tier purchase at
     these rates. The planner reports cost per request, so the share is
     visible in every estimate.
-  - **225's go/no-go must re-confirm it**, with the choices "parent
+  - **226's go/no-go must re-confirm it**, with the choices "parent
     including spreads" or "outrights only". Outrights only means raw
     contract symbols or continuous symbols, and the adopted days would
-    then be re-bought or kept as a separate request shape. 230 decides
+    then be re-bought or kept as a separate request shape. 231 decides
     the same question for GC and does not inherit ES's answer.
 - **`tier=None` is the honest state before the go/no-go.** An entry with
   no tier produces no tier wants. The pass still buys the definitions for
@@ -536,7 +552,7 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
 path in each environment, and the chance of a silent misparse. *Rejected:
 a database table.* It needs administrative verbs this initiative does not
 otherwise have. The constant sits next to `FUTURES_PRODUCT_CALENDAR`,
-which 230 already edits to add GC, so "GC is a configuration edit" means
+which 231 already edits to add GC, so "GC is a configuration edit" means
 one reviewed edit to two adjacent constants.
 
 ### Technical Decision 4: wanted days are session-touched UTC days, grouped into monthly requests
@@ -569,14 +585,14 @@ one reviewed edit to two adjacent constants.
   month bounds all three. It also matches the architecture's pace ("the
   plan's included year, taken a month at a time"), and on the adopted ES
   data a month of `tbbo` is about 0.9 GB billable. There is no size
-  constant to tune: 225 can change the grouping rule if it measures a
+  constant to tune: 226 can change the grouping rule if it measures a
   reason to.
 
 Requests are submitted in order of first day. Within a day, definition
 requests go before tier requests, so a partly completed pass never leaves
 ticks without their definitions.
 
-### Technical Decision 5: definitions mirror the tier request, and 223 projects them
+### Technical Decision 5: definitions mirror the tier request, and 224 projects them
 
 **Scope.** 220's Technical Decision 5 left the definition scope to this
 design. For every tier day the manifest owns, or is about to buy, the
@@ -585,7 +601,7 @@ The consequences:
 
 - The definitions cover exactly the instruments that can appear in the
   tier files: the outrights and the spreads under `ES.FUT`, which the
-  design-time check found in the trades. This is what 224's resolution
+  design-time check found in the trades. This is what 225's resolution
   check needs.
 - It is exactly the bundle `mt data tick estimate` already prices (tier
   plus definition for the same request shape).
@@ -599,8 +615,8 @@ definitions for days that have no ticks, and it would miss instruments
 if a tier request ever used different symbols.
 
 **Who projects them.** The plan's Notes say that 222 creates
-`tick_definition` and that 223 writes it, and 222's data flow says the
-same. The plan's 224 entry ("projects definition units first") is
+`tick_definition` and that 224 writes it, and 222's data flow says the
+same. The plan's 225 entry ("projects definition units first") is
 therefore read as "requires definition units ingested" (see the
 supersession list). The definitions phase:
 
@@ -635,9 +651,9 @@ before any insert.
 schema the acquisition pass projects, and the phase never grows to other
 schemas:
 
-- **Tier data** always goes through 224's ingest pass, with its
+- **Tier data** always goes through 225's ingest pass, with its
   per-unit worker connection, its ledger and its three checks.
-- **`statistics`** also goes through 224's ingest, if 227 adopts it,
+- **`statistics`** also goes through 225's ingest, if 228 adopts it,
   because it carries per-session figures that need sessions and a
   ledger.
 - **A unit test enforces it.** It asserts that the definitions phase
@@ -755,7 +771,7 @@ transaction sets `new.repurchase_of_unit_id = old` and
 A CHECK keeps the column honest: `reopened_at IS NULL OR state NOT IN
 (<UNIT_STATES_WITH_FILE>)`, rendered from the enum. A unit that holds a
 file is never reopened. Replacing loaded data is a supersession, which is
-224's operation.
+225's operation.
 
 **`mt data tick reset`** (`--unit-id N` repeatable, or `--all`, with
 `--yes` and `--json`) follows the minute reset:
@@ -764,7 +780,7 @@ file is never reopened. Replacing loaded data is a supersession, which is
   given.
 - A `RETRY_EXHAUSTED` unit that is not reopened → `UNKNOWN`,
   `attempt_count = 0`, `failure_reason = NULL`. It is retried where it
-  stands. This covers units that 224's ingest exhausts, too.
+  stands. This covers units that 225's ingest exhausts, too.
 - A `PROVIDER_HOLE` unit that is not reopened → `reopened_at = now`.
 - An already reopened unit, or any other state → unchanged, and listed
   as such.
@@ -775,7 +791,7 @@ day that was never requested would need a request row with no job,
 invented only to hold it. Instead:
 
 - A `missing` day is not bought (buying it would buy nothing).
-- The day's condition row records it. 224's status already reads that
+- The day's condition row records it. 225's status already reads that
   table to give each session the worst condition of its days.
 - When the condition improves, the day becomes purchasable with no
   reopen step.
@@ -838,7 +854,7 @@ protects money always precedes new spending.
 **Waiting.** The await phase polls every `TICK_POLL_INTERVAL_SECONDS`
 (15) for up to `TICK_WAIT_BUDGET_SECONDS` (1,800). The account's jobs took
 5–84 s from submit to done, so the budget is deliberately generous. Both
-are conservative constants that 225 re-sets from measurement. When the
+are conservative constants that 226 re-sets from measurement. When the
 budget ends:
 
 - each in-flight job is printed with its id and deadline;
@@ -859,7 +875,7 @@ quietly with units in flight.
   `provider_record_count`. The design-time check showed it equals the
   file's decoded count.
 
-A decode of the whole file is 224's count check, not this step.
+A decode of the whole file is 225's count check, not this step.
 
 ### Technical Decision 10: adoption is all-or-nothing, and it also rebuilds the manifest from the archive
 
@@ -920,7 +936,7 @@ not block this slice.
   relative to the archive root (222), so the archive can move.
 - **Production value.** `MT_TICK_ARCHIVE_DIR=/data/tick-archive`. It is on
   the `/data` NVMe volume, which is manta-owned, so no root is needed. It
-  is outside `/home`, so a future service with `ProtectHome=true` (232)
+  is outside `/home`, so a future service with `ProtectHome=true` (233)
   can reach it. It is separate from `/data/market-data/databento`, which
   holds the PM's original copies and stays read-only.
 - **Backup.** `/data/tick-archive` is added to `INCLUDE_PATHS` in
@@ -949,7 +965,7 @@ not block this slice.
 
   It prints the expected and observed value at each step. Claude runs it
   under the sudo grant, and the PM reads the log. The full restore drill
-  for both the archive and the database stays 226's.
+  for both the archive and the database stays 227's.
 - **Runbook.** Runbook 200's D9 include set and restore section gain the
   path and the procedure.
 
@@ -1022,7 +1038,7 @@ tick_archive_dir: Path | None = None                                    # MT_TIC
 
 **Does this belong in the API?** No. Acquisition is an operator action
 that spends money. It is never a client request. What it records
-(coverage, conditions, units) reaches clients through 229's
+(coverage, conditions, units) reaches clients through 230's
 `/api/v1/futures/*` status surfaces, which read these tables.
 
 ### Database / Storage Schema
@@ -1035,7 +1051,7 @@ that spends money. It is never a client request. What it records
 |---|---|---|
 | `dataset` | `TEXT` PK | |
 | `available_start`, `available_end` | `TIMESTAMPTZ NOT NULL` | from `dataset_range`; end exclusive |
-| `observed_at` | `TIMESTAMPTZ NOT NULL` | 224 reports a stale observation as "edge unknown" |
+| `observed_at` | `TIMESTAMPTZ NOT NULL` | 225 reports a stale observation as "edge unknown" |
 
 `tick_day_condition`: one row per dataset and UTC day for which the
 provider has been asked.
@@ -1054,7 +1070,7 @@ provider has been asked.
 
 - **No index** beyond the primary keys. The manifest holds one unit per
   day per request, thousands of rows over the plan's year. The coverage
-  and trailing-spend queries scan it in memory. 228 adds indexes if it
+  and trailing-spend queries scan it in memory. 229 adds indexes if it
   measures a need.
 - **Grants.** Both new tables join the enumerated `GRANT SELECT, INSERT,
   UPDATE, DELETE` list in `scripts/provision_tick_roles.sql`. 222's
@@ -1094,7 +1110,7 @@ transaction (Technical Decision 8).
 
 ### Provides to Other Slices
 
-- **224 (ingest):**
+- **225 (ingest):**
   - tier units at *verified*, with `provider_record_count` per day;
   - `tick_definition` populated for every instrument that can appear in
     those units;
@@ -1102,24 +1118,24 @@ transaction (Technical Decision 8).
     missing and edge-unknown lines;
   - `reopened_at` as a state status must show ("awaiting repurchase");
   - `mt data tick reset` for units that ingest exhausts;
-  - the compare-and-set transitions in `manifest_repo.py`. 224 uses
+  - the compare-and-set transitions in `manifest_repo.py`. 225 uses
     them, and takes its own lock key (Technical Decision 2);
   - the rule that definitions are the only schema acquisition projects
     (Technical Decision 5).
-- **225 (proof):** both adopted jobs archived and verified, their
+- **226 (proof):** both adopted jobs archived and verified, their
   definitions projected, and `TICK_WAIT_BUDGET_SECONDS` and
   `TICK_POLL_INTERVAL_SECONDS` to re-set from the first measured jobs.
-  225 also sets ES's tier and range in `TICK_UNIVERSE`.
-- **226 (backup):** the archive already in the nightly backup, with a
-  one-file restore proven. The drill and the database policy are 226's.
-- **227 (roll methods):** `statistics` units, if chosen, come in through
+  226 also sets ES's tier and range in `TICK_UNIVERSE`.
+- **227 (backup):** the archive already in the nightly backup, with a
+  one-file restore proven. The drill and the database policy are 227's.
+- **228 (roll methods):** `statistics` units, if chosen, come in through
   this pass after a `TickSchema` member and a CHECK re-render. The
   planner's companion rule is the place to add them.
-- **228 / 229:** manifest and definitions data to read, and the reopen
+- **229 / 230:** manifest and definitions data to read, and the reopen
   vocabulary for debug and status output.
-- **230 (GC):** a `TICK_UNIVERSE` entry next to its
+- **231 (GC):** a `TICK_UNIVERSE` entry next to its
   `FUTURES_PRODUCT_CALENDAR` edit.
-- **232 (wiring):** the pass is the command its unit will run. The
+- **233 (wiring):** the pass is the command its unit will run. The
   retention-deadline health finding reads `download_deadline` on units at
   *submitted* and *delivered*.
 
@@ -1239,7 +1255,7 @@ transaction (Technical Decision 8).
 
 ### Integration Requirements
 
-- 224 can ingest a *verified* adopted tier unit using only 222's tables,
+- 225 can ingest a *verified* adopted tier unit using only 222's tables,
   this slice's definitions and `provider_record_count`, with no change to
   this slice.
 - The full unit and integration tiers stay green, apart from the known
@@ -1353,7 +1369,7 @@ database on the test cluster (see Dependencies). Export
      makes the purchase re-adoptable once step 10 drops the scratch
      database (review F008).
 
-   Without the ceilings, this step moves to 225.
+   Without the ceilings, this step moves to 226.
 
 7. **Idempotence.** `uv run mt data tick pass` again. Expected: nothing
    planned, no submit, exit 0.
@@ -1405,7 +1421,7 @@ database on the test cluster (see Dependencies). Export
     job records are the durable spend record, with the provider-side
     account limit behind them (review F008).
 
-No `mt data tick status` exists yet; that is 224's.
+No `mt data tick status` exists yet; that is 225's.
 
 ## Risk Assessment
 
@@ -1436,10 +1452,10 @@ No `mt data tick status` exists yet; that is 224's.
 ### Mitigation Strategies
 
 - **Spread windows:** the walkthrough's step 6 purchase (about $0.004) is
-  the check, and it runs before 224 depends on it. If spreads lack
+  the check, and it runs before 225 depends on it. If spreads lack
   windows, the design is revised: the likely remedy is to skip
   instruments with no window only when no tier record references them,
-  which 224's resolution check then proves. The constraint is never
+  which 225's resolution check then proves. The constraint is never
   widened silently (222, Technical Decision 5).
 - **Listing lag:** the measurement is a design input, taken in
   walkthrough step 6. For each of the four real definition jobs, the pass
@@ -1460,9 +1476,9 @@ No `mt data tick status` exists yet; that is 224's.
 
   The compared set is never loosened while the column is kept. That
   would store one day's value as if it were permanent.
-- **Degraded days:** the day's condition row is kept, and 224's status
+- **Degraded days:** the day's condition row is kept, and 225's status
   shows the session as degraded. Repurchasing is a supersession the
-  operator runs through `reset` semantics once 224 exists. Automatic
+  operator runs through `reset` semantics once 225 exists. Automatic
   replacement is left out on purpose: it would spend money without a
   human decision.
 
@@ -1507,13 +1523,13 @@ Kalshi contract is its own task in the task file.
     predicate would exclude the live delivery mode.
   - *Path B (historical with its ~8-hour lag):* this slice is that path's
     mechanism. The monthly grouping and manual runs do not constrain a
-    later catch-up cadence. 232 decides the cadence.
+    later catch-up cadence. 233 decides the cadence.
   - No decision here rules out either path.
 - **Journal citations.**
   - 20260725, rule 2: no aggregate informs acquisition. The planner reads
     only manifest rows, conditions and the calendar.
   - 20260901: the new CHECKs are rendered from their enums.
-  - 20260823: pass form, without its schedule (deferred to 232).
+  - 20260823: pass form, without its schedule (deferred to 233).
 - **Security.**
   - The API key comes only from `Settings`, and the adapter never logs
     it.
@@ -1542,8 +1558,8 @@ in ES (Technical Decision 3) is recorded in the same Revision Log entry.
    read the CME calendar to find session days. Reconcile, download,
    verify and definitions do not, so a production outage stops new
    purchases, not deliveries (Technical Decision 6).
-2. **224 "projects definition units first."** 223 projects them, as the
-   plan's Notes and 222's data flow already say. 224 requires definition
+2. **225 "projects definition units first."** 224 projects them, as the
+   plan's Notes and 222's data flow already say. 225 requires definition
    units to be *ingested* before tier units (Technical Decision 5).
 3. **Definition scope.** Definitions are bought per tier request shape
    (same symbols, `stype_in` and days), not per configured product

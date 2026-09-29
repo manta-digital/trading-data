@@ -1,14 +1,16 @@
 ---
 docType: tasks
-slice: historical-acquisition-pass
+slice: tick-archive-adoption
 project: trading-data
-lld: user/slices/223-slice.historical-acquisition-pass.md
+lld: user/slices/224-slice.historical-acquisition-pass.md
+slicedesign: user/slices/223-slice.tick-archive-adoption.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [923, 220, 221, 222]
-interfaces: [224, 225, 226, 227, 228, 230, 232]
+interfaces: [224, 225, 227]
 projectState: >
-  Slice design committed and reviewed (CONCERNS; F002–F009 addressed in
-  f389027, unknown MT_TICK_ key preflight in f777626). 222 is merged: the tick
+  Design of record (224-slice.historical-acquisition-pass.md) committed and
+  reviewed (CONCERNS; F002–F009 addressed in f389027, unknown MT_TICK_ key
+  preflight in f777626); split into 223 and 224 on 2026-09-28. 222 is merged: the tick
   track holds tick_001–tick_005 and the grant artifact enumerates five tables.
   No code writes the manifest yet. No production tick database exists; this
   slice runs on scratch databases on the test cluster. The PM has set both
@@ -18,18 +20,19 @@ dateUpdated: 20260928
 status: not_started
 ---
 
-# Tasks: Historical Acquisition Pass — Part 1 (foundation, adoption, reset, backup)
+# Tasks: Tick Archive Adoption
 
 ## Context Summary
 
-- Working on slice 223. The task list is in two files:
-  - **Part 1 (this file):** settings and constants, migration `tick_006`, the
-    run context, the manifest repository, verification, `mt data tick adopt`,
-    `mt data tick reset`, and archive backup enrolment. It spends no money.
-    At its end both free-credit ES jobs are archived, verified and backed up.
-  - **Part 2** (`223-tasks.historical-acquisition-pass-2.md`): the pass
-    contract, universe, planner, spend guard, availability, delivery,
-    definitions, `mt data tick pass`, documents and the walkthrough.
+- Working on slice 223: settings and constants, migration `tick_006`, the
+  run context, the manifest repository, verification, `mt data tick adopt`,
+  `mt data tick reset`, and archive backup enrolment. It spends no money. At
+  its end both free-credit ES jobs are archived, verified and backed up.
+- **The LLD is `user/slices/224-slice.historical-acquisition-pass.md`**, the
+  design of record for 223 and 224. Its "Slice Split" section says which
+  parts are 223's; `223-slice.tick-archive-adoption.md` is this slice's scope
+  document. Slice 224 (`224-tasks.historical-acquisition-pass.md`) builds the
+  pass on top of this slice.
 - Tasks cite the LLD's Technical Decisions as "TD n (short name)". The eleven:
   TD1 pass contract copy, TD2 run context and lock, TD3 universe constant,
   TD4 wanted days and monthly grouping, TD5 definitions, TD6 calendar
@@ -39,7 +42,7 @@ status: not_started
 - Every destructive statement targets a database a fixture or the
   walkthrough created (`sql.md`). No test holds a real client with a paid
   method reachable.
-- Next slice: 224 (ingest).
+- Next slice: 224 (historical acquisition pass).
 
 **Test environment.** Export `MT_TIMESCALE_TEST_URL` from `.env` with the
 quotes stripped. Run the unit and integration tiers as separate pytest
@@ -109,8 +112,7 @@ that, split along the phase or concern it holds and note the split.
 - [ ] **0.4 Batch response helpers for acquisition tests**
   - [ ] Extend `test/tick_support/batch_responses.py`: `job_record` takes
         `dataset`, `symbols`, `stype_in`, `cost_usd`, `record_count`,
-        `ts_received` and `ts_expiration` overrides; add `job_list(*records)`
-        for `batch_jobs_since`
+        `ts_received` and `ts_expiration` overrides
   - [ ] Existing 220 adapter tests still pass unchanged
   - [ ] Success: `uv run pytest test/unit/data/tick -q` passes
   - [ ] Effort: 1
@@ -121,18 +123,15 @@ that, split along the phase or concern it holds and note the split.
 ## Section 1 — Constants, settings, exit codes
 
 - [ ] **1.1 Add 223's constants to `data/tick/constants.py`**
-  - [ ] `TICK_WAIT_BUDGET_SECONDS = 1800`, `TICK_POLL_INTERVAL_SECONDS = 15`
-        (both noted as 225 re-sets them from measurement),
-        `TICK_JOB_MATCH_SKEW = timedelta(minutes=5)`,
-        `TICK_SUBMIT_RESOLVE_AGE = timedelta(hours=1)`,
-        `TICK_SPEND_WINDOW = timedelta(days=30)`,
-        `TICK_ACQUISITION_LOCK_KEY` (an int distinct from Kalshi's
+  - [ ] `TICK_ACQUISITION_LOCK_KEY` (an int distinct from Kalshi's
         `262_000_001`; grep the repo for every `pg_try_advisory_lock` key and
         choose one no other caller uses), `TICK_DB_CONNECT_TIMEOUT_SECONDS =
         10`, `TICK_SPEND_30D_CEILING_ENV = "MT_TICK_SPEND_30D_CEILING_USD"`,
         `TICK_ARCHIVE_DIR_ENV = "MT_TICK_ARCHIVE_DIR"`,
         `TICK_ENV_PREFIX = "MT_TICK_"`
-  - [ ] One-line comment per constant giving its TD
+  - [ ] One-line comment per constant giving its TD. The pass's constants
+        (wait budget, poll interval, match skew, submit-resolve age, spend
+        window) are 224's
   - [ ] Success: imports cleanly; import-boundary test passes
   - [ ] Effort: 1
 
@@ -155,7 +154,7 @@ that, split along the phase or concern it holds and note the split.
 
 - [ ] **1.4 Exit codes for `adopt` and `reset`**
   - [ ] In `cli/commands/tick.py`, add `EXIT_STORAGE = 4` beside `EXIT_OK`,
-        `EXIT_PREFLIGHT`, `EXIT_PROVIDER` (the rest arrive in Part 2 with
+        `EXIT_PREFLIGHT`, `EXIT_PROVIDER` (the rest arrive in 224 with
         `TickOutcome`)
   - [ ] Success: existing CLI tick tests pass
   - [ ] Effort: 1
@@ -287,7 +286,7 @@ that, split along the phase or concern it holds and note the split.
         `state` and `fetch_status` (and `reopened_at IS NULL` where TD8 says);
         a zero-row match raises `ManifestTransitionError` naming the unit and
         the expected state (TD2, compare-and-set)
-  - [ ] Functions needed by Part 1: insert adopted request with units;
+  - [ ] Functions needed by 223: insert adopted request with units;
         request-by-job-id lookup; mark downloaded (file columns); mark
         verified (`provider_record_count`); record failure (transient: attempt
         + 1, exhaust at `MAX_RETRY_COUNT`; deterministic: straight to
@@ -299,13 +298,13 @@ that, split along the phase or concern it holds and note the split.
         this module's
   - [ ] The coverage predicate (`superseded_by_unit_id IS NULL AND
         reopened_at IS NULL`) is one SQL fragment constant, used everywhere
-  - [ ] Part 2 adds its functions here (submit, reconcile, sweep, trailing
+  - [ ] 224 adds its functions here (submit, reconcile, sweep, trailing
         spend, supersession). If the file passes ~300 lines, split reads
         from transitions
   - [ ] Success: imports; no SQL outside this module and `availability.py`
   - [ ] Effort: 3
 
-- [ ] **5.2 Integration tests for every Part 1 transition**
+- [ ] **5.2 Integration tests for every 223 transition**
   - [ ] `test/integration/data/test_tick_manifest_repo.py` on
         `migrated_tick_db`, rows from `test/tick_support/rows.py`
   - [ ] Each transition succeeds from its expected state and raises
@@ -495,15 +494,37 @@ nothing).
 
 ---
 
-## Section 10 — Part 1 checkpoint
+## Section 10 — Documents
 
-- [ ] **10.1 Lint, types and tiers**
+- [ ] **10.1 Contract rows**
+  - [ ] `user/reference/data-correctness-architecture.md`: 223's part in rows
+        I9 (loud preflight refusals, the lock), I10 (the `adopt` and `reset`
+        verbs), I11 (the manifest writes, the availability tables created)
+  - [ ] Success: `dateUpdated` bumped; no other row changed
+  - [ ] Effort: 1
+
+- [ ] **10.2 README, `.env_sample`, migrations README, CHANGELOG**
+  - [ ] README "Futures tick data": `adopt` and `reset`, the archive location
+        and its backup; environment table gains `MT_TICK_SPEND_30D_CEILING_USD`
+        (read by 224's pass) and `MT_TICK_ARCHIVE_DIR`
+  - [ ] `.env_sample`: both variables, archive value `/data/tick-archive`
+  - [ ] Migrations README: `tick_006`
+  - [ ] CHANGELOG `[Unreleased]` Added entries, user-facing wording
+  - [ ] Success: all updated
+  - [ ] Effort: 1
+  - [ ] Commit: `docs: record tick archive adoption in contract and readmes`
+
+---
+
+## Section 11 — Validation
+
+- [ ] **11.1 Lint, types and tiers**
   - [ ] ruff and mypy per the test environment note; unit then integration
         tier; compare with the Section 0 baseline
   - [ ] Success: no failure outside the baseline
   - [ ] Effort: 2
 
-- [ ] **10.2 Walkthrough steps 1–4, 8 and 9 on the real archive**
+- [ ] **11.2 Walkthrough steps 1–4, 8 and 9 on the real archive**
   - [ ] Run LLD walkthrough steps 1–4 (tests, scratch database
         `mt_scratch_tick_223`, the pre-init refusal, adopting both
         free-credit jobs, the manifest query), step 8 (reset) and step 9
@@ -512,11 +533,11 @@ nothing).
   - [ ] Run step 9 with the Bash sandbox disabled (the sandbox sets "no new
         privileges", which blocks sudo). Only if sudo is still refused, STOP
         and give the PM the single step 9 command and the log path
-  - [ ] Keep `mt_scratch_tick_223`: Part 2 continues in it
+  - [ ] Keep `mt_scratch_tick_223`: 224's walkthrough continues in it
   - [ ] Record actual outputs in the LLD walkthrough; correct any command or
         expected value that differed
   - [ ] Success: 26 and 52 units *verified*, provider records equal job
         records (10,049,172 and 17,642,240), re-adopt exits 0, backup log
         shows equal counts and hashes
   - [ ] Effort: 2
-  - [ ] Commit: `docs: record slice 223 part 1 walkthrough`
+  - [ ] Commit: `docs: record slice 223 verification walkthrough`

@@ -2,43 +2,98 @@
 docType: tasks
 slice: historical-acquisition-pass
 project: trading-data
-lld: user/slices/223-slice.historical-acquisition-pass.md
+lld: user/slices/224-slice.historical-acquisition-pass.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
-dependencies: [923, 220, 221, 222]
-interfaces: [224, 225, 226, 227, 228, 230, 232]
+dependencies: [923, 220, 221, 222, 223]
+interfaces: [225, 226, 228, 229, 230, 231, 233]
 projectState: >
-  Part 1 (223-tasks.historical-acquisition-pass-1.md) complete: tick_006,
-  run context, manifest repository, verification, adopt and reset verbs,
-  archive backup enrolment; both free-credit jobs adopted into the scratch
-  database mt_scratch_tick_223. No purchase code exists yet.
+  Slice 223 (tick archive adoption) complete: tick_006, run context and lock,
+  compare-and-set manifest repository, verification, session days, adopt and
+  reset verbs, archive backup enrolment; both free-credit jobs adopted into
+  the scratch database mt_scratch_tick_223. No purchase code exists yet. The
+  PM has set both spend ceilings in the dev .env (0.50 per pass, 5 per 30
+  days).
 dateCreated: 20260928
 dateUpdated: 20260928
 status: not_started
 ---
 
-# Tasks: Historical Acquisition Pass — Part 2 (the pass)
+# Tasks: Historical Acquisition Pass
 
 ## Context Summary
 
-- Part 2 of slice 223. It builds `mt data tick pass`: five phases
+- Working on slice 224. It builds `mt data tick pass`: five phases
   (reconcile, availability, purchase, await, definitions) on a copy of the
-  Kalshi pass contract, the pure planner and spend guard behind them, and
-  the documents. Its walkthrough makes the slice's one live purchase: the
+  Kalshi pass contract, with the pure planner and spend guard behind them.
+  Its walkthrough makes the initiative's first live purchase: the
   definitions for the two adopted jobs, about $0.004.
-- Part 1's context summary applies unchanged: the TD key (TD1 pass contract
-  copy … TD11 archive and backup), FR numbering, the test environment, the
-  fakes and the file-size rule. Read it first.
+- The LLD is `user/slices/224-slice.historical-acquisition-pass.md`. Its
+  "Slice Split" section lists what 223 already built; this slice uses those
+  modules and does not rebuild them.
+- Tasks cite the LLD's Technical Decisions as "TD n (short name)": TD1 pass
+  contract copy, TD2 run context and lock, TD3 universe constant, TD4 wanted
+  days and monthly grouping, TD5 definitions, TD6 calendar dependency, TD7
+  spend guard, TD8 reopened units, TD9 submit and reconcile, TD10 adoption,
+  TD11 archive and backup. FR n means the LLD's Functional Requirement n.
 - **Money rules for every task here.** The only paid call is
   `submit_batch`, and only after the guard allows it. Nothing calls
   `fetch_range`. No test builds a real client.
+- Every destructive statement targets a database a fixture or the
+  walkthrough created (`sql.md`).
+- Next slice: 225 (ingest pass and proof parity).
+
+**Test environment.** Export `MT_TIMESCALE_TEST_URL` from `.env` with the
+quotes stripped. Run the unit and integration tiers as separate pytest
+invocations (`test/unit/data` and `test/integration/data` both import as
+`data`). Run mypy on the src kalshi paths, the touched src paths and the
+tests in one invocation. **Before every commit step**, run ruff check and
+ruff format on that commit's touched files only, then grep `git diff main`
+for swept pre-existing lines. Known pre-existing failures are not
+regressions; re-run a failure in isolation before investigating.
+
+**Fakes.** Provider tests drive the real `DatabentoTickProvider` over
+`test/tick_support/fake_historical.py` with `batch_responses.py` and
+`metadata_responses.py`. Day files and job directories come from 223's
+`test/tick_support/dbn_files.py`. The calendar in integration tests comes
+from `session_migrated_db` (it holds `CME_EQUITY`).
+
+**File size.** Source files stay under about 300 lines. If one would pass
+that, split along the phase or concern it holds and note the split.
 
 **Effort scale:** 1 (trivial) to 5 (hard).
 
 ---
 
-## Section 11 — Pass contract (TD1)
+## Section 0 — Baseline, helpers and constants
 
-- [ ] **11.1 Create `data/tick/pass_contract.py`**
+- [ ] **0.1 Record the pre-change test baseline**
+  - [ ] On the slice branch before any change, run the unit tier, then the
+        integration tier; save failing ids to `/tmp/224-baseline-unit.txt`
+        and `/tmp/224-baseline-integration.txt`
+  - [ ] Confirm `mt_scratch_tick_223` exists and holds the two adopted jobs
+        (the LLD walkthrough step 4 query). If it is gone, re-create it with
+        walkthrough steps 2–3 (re-adopting from `/data/tick-archive`)
+  - [ ] Success: both files exist; the scratch manifest holds 26 + 52 units
+  - [ ] Effort: 1
+
+- [ ] **0.2 Job-list helper and the pass's constants**
+  - [ ] `test/tick_support/batch_responses.py`: add `job_list(*records)` for
+        `batch_jobs_since`
+  - [ ] `data/tick/constants.py`: `TICK_WAIT_BUDGET_SECONDS = 1800`,
+        `TICK_POLL_INTERVAL_SECONDS = 15` (both noted as 226 re-sets them
+        from measurement), `TICK_JOB_MATCH_SKEW = timedelta(minutes=5)`,
+        `TICK_SUBMIT_RESOLVE_AGE = timedelta(hours=1)`, `TICK_SPEND_WINDOW =
+        timedelta(days=30)`, each with a one-line comment giving its TD
+  - [ ] Extend `test/unit/data/tick/test_constants.py` with their values
+  - [ ] Success: `uv run pytest test/unit/data/tick -q` passes
+  - [ ] Effort: 1
+  - [ ] Commit: `feat(tick): add acquisition pass constants`
+
+---
+
+## Section 1 — Pass contract (TD1)
+
+- [ ] **1.1 Create `data/tick/pass_contract.py`**
   - [ ] Copy of `data/kalshi/collection_pass.py`'s `PhaseReport`,
         `PassResult` (with `to_dict()`), `PassPhase` protocol, `SKIPPED`,
         `classify_pass` and runner, field for field; no import of
@@ -53,7 +108,7 @@ status: not_started
   - [ ] Success: imports; under ~300 lines
   - [ ] Effort: 2
 
-- [ ] **11.2 Parity test (FR9)**
+- [ ] **1.2 Parity test (FR9)**
   - [ ] `test/unit/data/tick/test_pass_contract_parity.py`, the four checks
         in TD1 (the test): field names, order and annotations of both
         dataclasses (differing only in the outcome type); `set(TickOutcome) −
@@ -64,7 +119,7 @@ status: not_started
         it fail (check, then revert)
   - [ ] Effort: 2
 
-- [ ] **11.3 Review the rest of the Kalshi contract diff**
+- [ ] **1.3 Review the rest of the Kalshi contract diff**
   - [ ] Read `data/kalshi/collection_pass.py` and `sync_types.py` beside the
         copy. For every Kalshi element not copied (event sink, `on_phase`,
         historical phase, anything else), confirm it is one of TD1's declared
@@ -72,7 +127,7 @@ status: not_started
   - [ ] Success: note lists each element and its disposition
   - [ ] Effort: 1
 
-- [ ] **11.4 Remaining exit codes**
+- [ ] **1.4 Remaining exit codes**
   - [ ] In `cli/commands/tick.py`: `EXIT_PARTIAL = 3`, `EXIT_REFUSED = 5`,
         `EXIT_IN_FLIGHT = 6`, and `EXIT_BY_OUTCOME` over `TickOutcome` with a
         module-level exhaustiveness assert, as Kalshi's
@@ -83,9 +138,9 @@ status: not_started
 
 ---
 
-## Section 12 — Universe (TD3)
+## Section 2 — Universe (TD3)
 
-- [ ] **12.1 Create `data/tick/universe.py`**
+- [ ] **2.1 Create `data/tick/universe.py`**
   - [ ] `TickUniverseEntry` and `TICK_UNIVERSE` exactly as TD3's code block:
         ES, `("ES.FUT",)`, `SType.PARENT`, `tier=None`, no range
   - [ ] Import-time validation per TD3 (validated at import), each failure
@@ -93,11 +148,11 @@ status: not_started
         sorted; tier in `STORED_TIERS` when set; `start` required with a
         tier; `end > start`; unique products
   - [ ] Comment: spreads are included by explicit configuration, 2.35% of
-        adopted trades, 225 re-confirms (TD3, review F004)
+        adopted trades, 226 re-confirms (TD3, review F004)
   - [ ] Success: imports
   - [ ] Effort: 1
 
-- [ ] **12.2 Universe tests**
+- [ ] **2.2 Universe tests**
   - [ ] Validation function tested with each bad entry (parametrized); the
         shipped constant validates
   - [ ] Success: passes
@@ -105,9 +160,9 @@ status: not_started
 
 ---
 
-## Section 13 — Planner (TD4, TD5)
+## Section 3 — Planner (TD4, TD5)
 
-- [ ] **13.1 Create `data/tick/planner.py` (pure, no I/O)**
+- [ ] **3.1 Create `data/tick/planner.py` (pure, no I/O)**
   - [ ] Inputs: universe, owned tier days from the manifest (dataset, schema,
         symbols, stype, day), covered keys, session days per product, day
         conditions, `--start/--end` window. Output: `PlannedRequest` list plus
@@ -125,7 +180,7 @@ status: not_started
   - [ ] Success: imports; no psycopg or provider import
   - [ ] Effort: 3
 
-- [ ] **13.2 Planner unit tests**
+- [ ] **3.2 Planner unit tests**
   - [ ] Parametrized cases: month boundary splits; a covered day splits; a
         Saturday inside a run does not; pending and missing are tallied and
         not planned; `tier=None` yields companion definitions only; the two
@@ -137,9 +192,9 @@ status: not_started
 
 ---
 
-## Section 14 — Spend guard (TD7)
+## Section 4 — Spend guard (TD7)
 
-- [ ] **14.1 Create `data/tick/spend_guard.py` (pure)**
+- [ ] **4.1 Create `data/tick/spend_guard.py` (pure)**
   - [ ] `evaluate_spend(planned, trailing_rows, per_pass, cap_30d, now,
         estimate_only) -> SpendVerdict` per TD7: both ceilings required;
         per-pass and 30-day checks in `Decimal`; re-submits already in the
@@ -151,7 +206,7 @@ status: not_started
   - [ ] Success: imports; no I/O
   - [ ] Effort: 2
 
-- [ ] **14.2 Guard unit tests (FR4)**
+- [ ] **4.2 Guard unit tests (FR4)**
   - [ ] Either ceiling absent with wants → refused naming both variables; a
         plan inside per-pass but over 30-day → refused with overage and fit
         date; planned alone over the cap → "raise"; $0 plan passes; adopted
@@ -163,9 +218,9 @@ status: not_started
 
 ---
 
-## Section 15 — Availability (TD8 hole reopen)
+## Section 5 — Availability (TD8 hole reopen)
 
-- [ ] **15.1 Create `data/tick/availability.py`**
+- [ ] **5.1 Create `data/tick/availability.py`**
   - [ ] Span per the LLD's "Availability capture": universe tier ranges,
         owned tier days and holed units' days, narrowed by the window and
         clipped to `dataset_range`
@@ -177,7 +232,7 @@ status: not_started
   - [ ] Success: imports
   - [ ] Effort: 2
 
-- [ ] **15.2 Availability integration tests (FR6, reopen on change)**
+- [ ] **5.2 Availability integration tests (FR6, reopen on change)**
   - [ ] On `migrated_tick_db` with the metadata fakes: first run inserts rows;
         a second identical run changes nothing; a changed condition on a
         holed day reopens that unit and leaves other days alone
@@ -187,9 +242,9 @@ status: not_started
 
 ---
 
-## Section 16 — Delivery and reconcile (TD9)
+## Section 6 — Delivery and reconcile (TD9)
 
-- [ ] **16.1 Manifest functions for Part 2**
+- [ ] **6.1 Manifest functions for the pass**
   - [ ] Add to `manifest_repo.py`: insert request and units at *requested*
         (with repurchase and supersession links for reopened days, one
         transaction, TD8); record submit (job id, `committed_at`, units →
@@ -202,7 +257,7 @@ status: not_started
   - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add submit and delivery manifest transitions`
 
-- [ ] **16.2 Create `data/tick/in_flight.py`**
+- [ ] **6.2 Create `data/tick/in_flight.py`**
   - [ ] `resolve_unsubmitted(run)`: for each request with no job id,
         `batch_jobs_since(requested_at − TICK_JOB_MATCH_SKEW)`; exact
         `TickRequest` match whose id no row holds → record submit; no match
@@ -225,7 +280,7 @@ status: not_started
         if not)
   - [ ] Effort: 4
 
-- [ ] **16.3 Delivery tests (FR5, FR6)**
+- [ ] **6.3 Delivery tests (FR5, FR6)**
   - [ ] Unknown submit then a listed job → units *submitted*, zero submits
   - [ ] No listed job: stays retryable under the age, exhausted after it (a
         fixed clock)
@@ -245,9 +300,9 @@ status: not_started
 
 ---
 
-## Section 17 — Definitions projection (TD5)
+## Section 7 — Definitions projection (TD5)
 
-- [ ] **17.1 Create `data/tick/definitions.py`**
+- [ ] **7.1 Create `data/tick/definitions.py`**
   - [ ] Scope: definition units at *verified*, open status, earliest day
         first; selects only `TickSchema.DEFINITION` requests
   - [ ] Per unit, one transaction: decode through `DbnFileReader`, map via
@@ -261,7 +316,7 @@ status: not_started
   - [ ] Success: imports
   - [ ] Effort: 3
 
-- [ ] **17.2 Definitions tests (FR7)**
+- [ ] **7.2 Definitions tests (FR7)**
   - [ ] Integration on `migrated_tick_db` over day files built from the
         definition fixture with hand-set windows: insert; identical re-send
         no-op; one changed kept field fails naming it; undefined activation
@@ -275,15 +330,15 @@ status: not_started
 
 ---
 
-## Section 18 — The pass and its verb
+## Section 8 — The pass and its verb
 
 Error mapping for every phase: `ProviderError` → `provider_abort`,
 `psycopg.OperationalError` and the archive write error → `storage_abort`,
 calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
 `storage_abort` naming it. No catch-all.
 
-- [ ] **18.1 Create `data/tick/purchase_phase.py`**
-  - [ ] Calendar (as Part 1's 7.3) → `session_days` → planner → free `cost`
+- [ ] **8.1 Create `data/tick/purchase_phase.py`**
+  - [ ] Calendar (as 223's `adopt.py` opens it) → `session_days` → planner → free `cost`
         and `billable_size` per request → space guard (free bytes of the
         archive volume) → spend guard → submit in order: insert at
         *requested*, `submit_batch`, record submit (TD9)
@@ -295,7 +350,7 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
   - [ ] Success: imports; under ~300 lines
   - [ ] Effort: 3
 
-- [ ] **18.2 Purchase phase tests**
+- [ ] **8.2 Purchase phase tests**
   - [ ] Integration, fake provider, `migrated_tick_db`, calendar from
         `session_migrated_db`:
     1. a 4xx refusal on the first of two requests: its units exhausted, the
@@ -313,17 +368,17 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
   - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add tick purchase phase`
 
-- [ ] **18.3 Create `data/tick/acquisition_pass.py`**
+- [ ] **8.3 Create `data/tick/acquisition_pass.py`**
   - [ ] The other four phases and `PASS_PHASES`, following the LLD's pass
         data flow: reconcile (`resolve_unsubmitted`, `sweep_expired`, one
-        `advance`); availability; purchase (18.1); await (`advance` every
+        `advance`); availability; purchase (8.1); await (`advance` every
         poll interval up to the wait budget, then `in_flight` listing jobs
         and deadlines; budget and interval injectable); definitions
   - [ ] Success: imports; under ~300 lines
   - [ ] Effort: 2
 
-- [ ] **18.4 Whole-pass tests**
-  - [ ] Integration, same setup as 18.2:
+- [ ] **8.4 Whole-pass tests**
+  - [ ] Integration, same setup as 8.2:
     1. two passes back to back after an unknown submit: exactly one
        `submit_batch` call (FR5)
     2. reset of an unresolved-exhausted row: the next pass searches the list
@@ -340,11 +395,11 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
   - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add tick acquisition pass`
 
-- [ ] **18.5 `mt data tick pass` verb and report**
+- [ ] **8.5 `mt data tick pass` verb and report**
   - [ ] `pass [--start] [--end] [--estimate-only] [--json]` in
         `cli/commands/tick.py`; `--end` exclusive; exit from
         `EXIT_BY_OUTCOME`
-  - [ ] Extend Part 1's `tick_pass_render.py` with the pass report: phase table, per-phase summaries
+  - [ ] Extend 223's `tick_pass_render.py` with the pass report: phase table, per-phase summaries
         as the LLD's API Contracts list, closing line; `--json` emits
         `{**PassResult.to_dict(), "exit_code": n}`
   - [ ] CLI tests: exit code per outcome, `--json` shape, window parsing
@@ -355,25 +410,22 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
 
 ---
 
-## Section 19 — Documents
+## Section 9 — Documents
 
-- [ ] **19.1 Contract rows and plan Notes**
-  - [ ] `user/reference/data-correctness-architecture.md`: 223's part in
-        rows I9 (loud refusals, lock, unknown-outcome reconcile), I10 (the
-        three verbs), I11 (manifest writes, availability tables), I12
+- [ ] **9.1 Contract rows and plan Notes**
+  - [ ] `user/reference/data-correctness-architecture.md`: 224's part in
+        rows I9 (the unknown-outcome reconcile), I10 (the `pass` verb), I11
+        (the pass's manifest writes, availability capture), I12
         (repurchase and supersession links), I14 (definitions with enforced
         windows)
-  - [ ] Slice plan Notes: "Statements superseded by 223's slice design",
+  - [ ] Slice plan Notes: "Statements superseded by 224's slice design",
         the six items from the LLD section of that name, one line each
   - [ ] Success: `dateUpdated` bumped on both
   - [ ] Effort: 1
 
-- [ ] **19.2 README, `.env_sample`, migrations README, CHANGELOG**
-  - [ ] README "Futures tick data": the three verbs, the spend ceilings, the
-        archive location and its backup; environment table gains
-        `MT_TICK_SPEND_30D_CEILING_USD` and `MT_TICK_ARCHIVE_DIR`
-  - [ ] `.env_sample`: both variables, archive value `/data/tick-archive`
-  - [ ] Migrations README: `tick_006`
+- [ ] **9.2 README and CHANGELOG**
+  - [ ] README "Futures tick data": `mt data tick pass`, its phases, both
+        spend ceilings and the exit codes
   - [ ] CHANGELOG `[Unreleased]` Added entries, user-facing wording
   - [ ] Success: all updated
   - [ ] Effort: 1
@@ -381,19 +433,19 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
 
 ---
 
-## Section 20 — Validation
+## Section 10 — Validation
 
-- [ ] **20.1 Lint, types and tiers**
-  - [ ] ruff and mypy per Part 1's note; unit then integration tier; compare
+- [ ] **10.1 Lint, types and tiers**
+  - [ ] ruff and mypy per the test environment note; unit then integration tier; compare
         with the Section 0 baseline
   - [ ] Success: no failure outside the baseline
   - [ ] Effort: 2
 
-- [ ] **20.2 Walkthrough steps 5 and 6: plan, then the live purchase**
+- [ ] **10.2 Walkthrough steps 5 and 6: plan, then the live purchase**
   - [ ] Confirm both ceilings load from the dev `.env` (`uv run python -c`
         printing the two `Settings` fields). If either is absent, run step 5
-        only, record step 6 as deferred to 225 (LLD Dependencies), skip the
-        listing-lag and definition-window observations, and in 20.3 re-adopt
+        only, record step 6 as deferred to 226 (LLD Dependencies), skip the
+        listing-lag and definition-window observations, and in 10.3 re-adopt
         only the two free-credit jobs
   - [ ] In `mt_scratch_tick_223`: step 5 (`--estimate-only` shows four
         definition requests ≈ $0.004; with both ceiling variables unset in
@@ -410,9 +462,9 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
         note it
   - [ ] Success: steps 5 and 6 match (or step 6 recorded as deferred)
   - [ ] Effort: 2
-  - [ ] Commit: `docs: record slice 223 purchase walkthrough findings`
+  - [ ] Commit: `docs: record slice 224 purchase walkthrough findings`
 
-- [ ] **20.3 Walkthrough steps 7 and 10: idempotence, rebuild, teardown**
+- [ ] **10.3 Walkthrough steps 7 and 10: idempotence, rebuild, teardown**
   - [ ] Step 7: a second `pass` plans nothing and exits 0
   - [ ] Step 10: rebuild into `mt_scratch_tick_223b` from every job
         directory under the archive (six, or two if step 6 was deferred),
@@ -422,4 +474,4 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
   - [ ] Success: rows match; both scratch databases gone; the archive
         remains
   - [ ] Effort: 1
-  - [ ] Commit: `docs: record slice 223 verification walkthrough`
+  - [ ] Commit: `docs: record slice 224 verification walkthrough`

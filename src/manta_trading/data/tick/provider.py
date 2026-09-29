@@ -26,7 +26,7 @@ from manta_trading.data.tick.constants import (
 )
 
 # ---------------------------------------------------------------------------
-# File reading (224 decodes through these)
+# File reading (225 decodes through these)
 # ---------------------------------------------------------------------------
 
 
@@ -82,7 +82,7 @@ class ITickFileReader(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Requests and free metadata (the preflight; 223's planning)
+# Requests and free metadata (the preflight; 224's planning)
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +181,7 @@ class ITickMetadataProvider(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Acquisition (223 only; two methods spend money)
+# Acquisition (224 only; two methods spend money)
 # ---------------------------------------------------------------------------
 
 

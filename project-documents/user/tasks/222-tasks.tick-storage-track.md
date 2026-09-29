@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/222-slice.tick-storage-track.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [923, 220, 221]
-interfaces: [223, 224, 225, 226, 227, 228, 229]
+interfaces: [223, 224, 225, 226, 227, 228, 229, 230]
 projectState: >
   Slice design committed and reviewed (CONCERNS; F004 addressed in abfb5f1).
   923 (tick track, fixtures, grant artifact), 220 (tick enums, DBN reader,
@@ -32,12 +32,12 @@ status: complete
   - removal of slice 105's `TickEventType`;
   - contract, slice plan and README updates.
 - **It writes no market data** and adds no pass, CLI verb or API route. 223
-  writes requests, units and definitions; 224 writes ticks and ledger rows.
+  and 224 write requests and units, 224 writes definitions; 225 writes ticks and ledger rows.
 - Every schema decision is in the LLD. Read Technical Decisions 1–9 and
   "Database / Storage Schema" before starting. Tasks cite them as "TD n".
 - Everything is proven on the test cluster. Every destructive statement
   targets a database a fixture or the walkthrough created (`sql.md`).
-- Next slice: 223 (historical acquisition pass).
+- Next slice: 223 (tick archive adoption).
 
 **Test environment.** Export `MT_TIMESCALE_TEST_URL` from `.env` with the
 quotes stripped. Run mypy on the src kalshi paths, the touched src paths and
@@ -94,7 +94,7 @@ may import `databento` (`test/unit/data/tick/test_import_boundary.py`).
         COMPANION_SCHEMAS`. Comment: `mbp-1` stays estimate-only (TD9)
   - [x] `TICK_TRADE_CHUNK_INTERVAL = timedelta(days=7)` with a docstring
         giving TD8's rule (wall-clock span ÷ 1,000–2,000 chunks, journal
-        20260719) and that 225 validates it
+        20260719) and that 226 validates it
   - [x] Update the module docstring to name slice 222's additions
   - [x] Success: module imports cleanly; no new import of `databento`
   - [x] Effort: 1
@@ -137,9 +137,9 @@ may import `databento` (`test/unit/data/tick/test_import_boundary.py`).
         `unit_of_measure_qty`, `contract_multiplier` (the architecture's
         "multiplier"), `ts_recv` → `ts_recv_ns`
   - [x] `TICK_DEFINITION_DERIVED_COLUMNS` = `unit_id`
-  - [x] Module docstring: 223 and 224 write through these maps; sentinels are
+  - [x] Module docstring: 224 and 225 write through these maps; sentinels are
         kept in `tick_trade` and become `NULL` in `tick_definition` (TD3); the
-        conversion itself is the writer's (223/224), not this module's
+        conversion itself is the writer's (224/225), not this module's
   - [x] Success: imports cleanly; import-boundary test still passes
   - [x] Effort: 2
 
@@ -444,7 +444,7 @@ walkthrough's step 1 command.
   - [x] `src/manta_trading/market/schema/migrations/README.md`: the tick
         track's description names `tick_001`–`tick_005` and the five tables
   - [x] `README.md` "Futures tick data": a short storage paragraph (five
-        tables, nanosecond integer time, no data written until 223/224) and
+        tables, nanosecond integer time, no data written until 224/225) and
         update the sentence saying the tick database arrives later
   - [x] `CHANGELOG.md` `[Unreleased]`: an Added entry for the tick storage
         schema and a Removed entry for `TickEventType`, user-facing wording

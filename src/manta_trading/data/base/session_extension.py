@@ -1,6 +1,6 @@
 """The one routine that writes ``trading_sessions`` forward (221 D6).
 
-``mt data extend``, the auto-extend hook, migration 058 and (from 224) the
+``mt data extend``, the auto-extend hook, migration 058 and (from 225) the
 ingest pass all extend a calendar's sessions through
 :func:`extend_calendar_sessions`. It never writes a session dated after the
 calendar's ``holidays_seeded_through``: past that date the calendar's closures

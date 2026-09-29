@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/220-slice.databento-adapter-and-cost-preflight.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [902]
-interfaces: [222, 223, 224, 225, 228, 229]
+interfaces: [222, 223, 224, 225, 226, 229, 230]
 projectState: >
   Slice 220 design committed at f706c71 (review round 2 CONCERNS, passes the
   gate). No tick code exists yet: no `databento` dependency, no
@@ -54,7 +54,7 @@ status: complete
   no key. Run mypy over the touched `src` paths and tests in one invocation.
 - Commit at least once per section. Scope `ruff format` to touched files and
   check `git diff main` for unintended deletions before each commit.
-- Next slices: 222 (tick storage) and 223 (acquisition pass) consume this
+- Next slices: 222 (tick storage) and 224 (acquisition pass) consume this
   slice's protocols, enums, and error class.
 
 ## Section 1: Dependency, constants, error class, setting
@@ -79,7 +79,7 @@ spend ceiling, error mapping), *Settings*.
   - [x] `DeliveryMode(StrEnum)`: `BATCH_JOB="batch_job"`,
         `DIRECT_RANGE="direct_range"`.
   - [x] `CME_DATASET = "GLBX.MDP3"`; `TICK_DECODE_BATCH_BYTES = 32 * 1024 * 1024`
-        with a docstring saying 225 replaces it from measurements;
+        with a docstring saying 226 replaces it from measurements;
         `TICK_DOWNLOAD_TIMEOUT_SECONDS` (choose a value and state the reason
         in its comment); `TICK_SPEND_CEILING_ENV = "MT_TICK_SPEND_CEILING_USD"`.
   - [x] Success: each value is defined once; module ≤ ~300 lines.
@@ -381,7 +381,7 @@ benchmark input is real records and is not a correctness fixture).
         `--threads` threads; prints wall time, records/s, speedup.
   - [x] Docstring states the throughput caveat: decode only, repeated
         records, no `COPY` — an upper bound that can fail the architecture's
-        ingest target, never pass it; 225 decides.
+        ingest target, never pass it; 226 decides.
   - [x] Success: `uv run python scripts/bench_dbn_decode.py --records 2000000 --threads 4`
         completes and prints the table.
 - [x] **Task 6.2: Run and record the benchmark** (effort: 1)
@@ -423,11 +423,11 @@ Requirements* (docs), *Verification Walkthrough*.
         per-mode (batch, direct) size limits. If a figure cannot be found,
         write "not published" with where you looked — never a guessed value.
   - [x] Beside each figure, name its consumer: the retention window feeds
-        223's retention check (the window must cover several consecutive
-        missed firings at 223's cadence); the size limits feed 223's
+        224's retention check (the window must cover several consecutive
+        missed firings at 224's cadence); the size limits feed 224's
         batch-versus-direct delivery choice.
   - [x] Copy both figures into the design's findings table (the "Delivery
-        modes" and "Batch retention window" rows) so a 223 author reading
+        modes" and "Batch retention window" rows) so a 224 author reading
         only the design finds them.
 - [x] **Task 7.5: README and `.env_sample`** (effort: 2)
   - [x] Add `tick` to the `mt data …` row of the CLI map.
@@ -489,7 +489,7 @@ Filled in by Tasks 6.2, 7.4, and 7.7.
   **Verdict:** the array path showed a multi-thread speedup (3.2–3.7x at 4
   threads) and the per-record path did not (0.95–0.98x) — Technical
   Decision 6 holds. Caveat (TD 12): decode only, repeated records, no `COPY`
-  — an upper bound that can fail the ingest target, never pass it; 225
+  — an upper bound that can fail the ingest target, never pass it; 226
   decides.
 - **Batch retention window (Task 7.4):** **30 days after the job finishes
   processing.** Measured 2026-09-27 from the account with free calls
@@ -497,9 +497,9 @@ Filled in by Tasks 6.2, 7.4, and 7.7.
   (2024-07 to 2025-01, GLBX.MDP3 and XNAS.ITCH), `ts_expiration −
   ts_process_done` is exactly 30 days (for example `GLBX-20250123-XT4GD5UM6C`:
   done 2025-01-23T05:18:12.939863Z, expires 2025-02-22T05:18:12.939863Z). All
-  7 are now `expired`. Consumer: **223's retention check.** The window must
-  cover several consecutive missed firings at 223's cadence. At one firing a
-  day, 30 days covers about 29 missed firings. 223 still reads each unit's own
+  7 are now `expired`. Consumer: **224's retention check.** The window must
+  cover several consecutive missed firings at 224's cadence. At one firing a
+  day, 30 days covers about 29 missed firings. 224 still reads each unit's own
   `ts_expiration` and never this constant.
 - **Per-mode size limits (Task 7.4):** **not published** in any source
   readable here. Looked in: the SDK v0.87.0 source (`batch.py`,
@@ -507,8 +507,8 @@ Filled in by Tasks 6.2, 7.4, and 7.7.
   SDK changelog and quickstart notebook, and Databento's blog ("streaming for
   small on-demand work; batch for larger requests, typically over 5 GB" is
   guidance, not a limit). The account API exposes no limit, and the docs site
-  is client-rendered and unreadable by this tooling. Consumer: **223's
-  batch-versus-direct delivery choice**. Until a limit is found, 223 should
+  is client-rendered and unreadable by this tooling. Consumer: **224's
+  batch-versus-direct delivery choice**. Until a limit is found, 224 should
   prefer batch jobs (re-downloadable free for 30 days; a repeated stream is
   billed again). Open item for the PM: check the portal or docs for a
   published per-request limit.

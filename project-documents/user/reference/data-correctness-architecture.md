@@ -107,7 +107,7 @@ Considerations, "Completeness definitions") and slice 221, D10.
   raw-table counts. It never reads `acquisition_state`, `data_gaps` or
   `data_status`, and never any aggregate.
 - `Granularity.TICK` (in `data/acquisition/state.py`) names a granularity.
-  `PassKind.TICK` (deferred with the cadence decision, slice 232) names a
+  `PassKind.TICK` (deferred with the cadence decision, slice 233) names a
   run. The two are not interchangeable.
 - `granularity = 'tick'` enters a minute-track enumeration (`data_gaps`,
   `data_status`) only where a surface reads it. The surfaces that do are
@@ -394,10 +394,10 @@ include verifying the invariant holds.
 | I8 — Debug primacy | 145 (`mt data status` is the primary debug surface) | `mt data status` | Designed. Status command surfaces all per-symbol state; ad-hoc SQL not required for normal operation. |
 | I9 — Loud failure | Cross-cutting; every slice has a loud-failure obligation | n/a (review) | Ongoing discipline; not a single-slice deliverable. 220: the tick preflight (`mt data tick estimate`) refuses loudly: exit 1 naming `MT_DATABENTO_API_KEY` when it is unset, and exit 1 naming the dataset's available end when `--end` is past it. A paid Databento call whose outcome is unknown (timeout, disconnect, 5xx, mid-stream error) raises `ProviderOutcomeUnknownError`, never a retryable transient, and a batch file reaches its final name only after its SHA-256 matches. |
 | I10 — Tooling consistency | All daily/minute/tick slices must follow shape | review against this document | Ongoing discipline. Initiative 220 (tick) inherits slice 141-147 shape. 220 fixes the tick shape: `mt data tick` subgroup, verb vocabulary as I10 (`status`, `coverage`, `pass`, `ingest`, `backfill`, `debug`, plus `estimate` and `get`); API namespace `/api/v1/futures/*`. |
-| I11 — Tick completeness from the manifest | 222, 224 | manifest + ingest-ledger + raw-count checks (defined by 224) | Framed (221). 222: the manifest tables (`tick_request`, `tick_archive_unit`) and the ingest ledger (`tick_ingest_ledger`) exist on the tick track; 224 defines the checks. |
-| I12 — Tick provenance and supersession | 222, 224 | archive-unit id on every row; manifest supersession records | Framed (221). 222: `unit_id` is NOT NULL on every `tick_trade` row; `tick_archive_unit.superseded_by_unit_id` records supersession; the key `(instrument_id, ts_event, sequence, sequence_ordinal)` makes two overlapping current units conflict instead of merging silently (TD1). |
-| I13 — Session-assigned ticks | 221 (model and lookup), 224 (the check) | `scripts/verify_cme_sessions.py`; tests | Framed (221). |
-| I14 — Futures identity is explicit | 227, 228, 229 | review + tests (defined by 227) | Framed (221). |
+| I11 — Tick completeness from the manifest | 222, 225 | manifest + ingest-ledger + raw-count checks (defined by 225) | Framed (221). 222: the manifest tables (`tick_request`, `tick_archive_unit`) and the ingest ledger (`tick_ingest_ledger`) exist on the tick track; 225 defines the checks. |
+| I12 — Tick provenance and supersession | 222, 225 | archive-unit id on every row; manifest supersession records | Framed (221). 222: `unit_id` is NOT NULL on every `tick_trade` row; `tick_archive_unit.superseded_by_unit_id` records supersession; the key `(instrument_id, ts_event, sequence, sequence_ordinal)` makes two overlapping current units conflict instead of merging silently (TD1). |
+| I13 — Session-assigned ticks | 221 (model and lookup), 225 (the check) | `scripts/verify_cme_sessions.py`; tests | Framed (221). |
+| I14 — Futures identity is explicit | 228, 229, 230 | review + tests (defined by 228) | Framed (221). |
 
 ## Notes
 

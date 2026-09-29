@@ -106,7 +106,7 @@ def test_application_role_reads_the_ledger(
 def test_application_role_creates_temp_tables(
     tick_app_conn: psycopg.Connection[Any],
 ) -> None:
-    """TEMPORARY is granted for slice 224's COPY staging."""
+    """TEMPORARY is granted for slice 225's COPY staging."""
     tick_app_conn.execute("BEGIN")
     try:
         tick_app_conn.execute("CREATE TEMP TABLE staging_probe (x int) ON COMMIT DROP")
