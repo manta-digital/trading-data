@@ -21,6 +21,7 @@ def adopt_to_dict(result: AdoptResult) -> dict[str, Any]:
     return {
         "job_id": result.job_id,
         "already_adopted": result.already_adopted,
+        "reverified": result.reverified,
         "cost_usd": None if result.cost_usd is None else str(result.cost_usd),
         "files": [
             {"name": f.name, "size": f.size, "sha256": f.sha256, "copied": f.copied}
@@ -38,9 +39,13 @@ def print_adopt(result: AdoptResult, *, json_mode: bool) -> None:
         print_result(adopt_to_dict(result), json_mode=True)
         return
     if result.already_adopted:
-        print_result(
-            f"{result.job_id}: already adopted; nothing written.", json_mode=False
+        done = (
+            f"verified the {result.reverified} unit(s) left unverified"
+            if result.reverified
+            else "nothing written"
         )
+        print_result(f"{result.job_id}: already adopted; {done}.", json_mode=False)
+        _print_verify_failures(result)
         return
     copied = sum(f.copied for f in result.files)
     size = sum(f.size for f in result.files)
@@ -57,6 +62,10 @@ def print_adopt(result: AdoptResult, *, json_mode: bool) -> None:
     holes = ", ".join(day.isoformat() for day in result.holes) or "none"
     strays = ", ".join(result.strays) or "none"
     rprint(f"Holes: {holes}\nStray files (no session day): {strays}")
+    _print_verify_failures(result)
+
+
+def _print_verify_failures(result: AdoptResult) -> None:
     for failure in result.verify_failures:
         rprint(f"[red]Verification failed: {failure}[/red]")
 

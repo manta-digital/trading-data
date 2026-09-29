@@ -11,10 +11,9 @@ and 09-08, so 09-09 is a hole; a file for Saturday 09-07 is a stray.
 
 from __future__ import annotations
 
+import itertools
 import os
-import socket
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -23,13 +22,20 @@ from typing import Any
 import httpx
 import psycopg
 import pytest
+from psycopg_pool import PoolTimeout
 from tick_support.batch_responses import batch_api, job_record
 from tick_support.dbn_files import day_file_bytes, write_job_dir
-from tick_support.fake_historical import FakeApi, FakeHistorical
+from tick_support.fake_historical import FakeApi, FakeHistorical, server_error
 
 from manta_trading.config import Settings
 from manta_trading.data.quality.fetch_status import FetchStatus
-from manta_trading.data.tick.adopt import AdoptResult, TickCalendarError, adopt_job
+from manta_trading.data.tick import adopt
+from manta_trading.data.tick.adopt import (
+    AdoptResult,
+    TickCalendarError,
+    TickVerifyInterrupted,
+    adopt_job,
+)
 from manta_trading.data.tick.adopt_files import TickAdoptionRefused
 from manta_trading.data.tick.constants import (
     CME_DATASET,
@@ -39,7 +45,7 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
 from manta_trading.data.tick.databento.dbn_file import DbnFileReader
-from manta_trading.data.tick.run_context import TickRun, open_tick_run
+from manta_trading.data.tick.run_context import open_tick_run
 
 JOB = "GLBX-20240910-ADOPTTEST"
 RECORDS_PER_DAY = 3
@@ -97,14 +103,17 @@ RunFactory = Callable[..., Any]
 
 @pytest.fixture
 def make_run(archive: Path, session_migrated_db: str) -> RunFactory:
-    """``make_run(tick_url, job=..., calendar_url=...)`` → an ``open_tick_run``."""
+    """``make_run(tick_url, job=..., calendar_url=..., record_count=...)``."""
 
     def factory(
-        tick_url: str, job: dict[str, Any] | None = None, calendar_url: str = ""
+        tick_url: str,
+        job: dict[str, Any] | None = None,
+        calendar_url: str = "",
+        record_count: object = RECORDS_PER_DAY,
     ) -> Any:
         record = job if job is not None else _job()
         historical = FakeHistorical(
-            metadata=FakeApi({"get_record_count": RECORDS_PER_DAY}),
+            metadata=FakeApi({"get_record_count": record_count}),
             batch=batch_api({JOB: record}),
         )
         settings = Settings(
@@ -126,18 +135,10 @@ def make_run(archive: Path, session_migrated_db: str) -> RunFactory:
     return factory
 
 
-@asynccontextmanager
-async def _running(
-    make_run: RunFactory, *args: Any, **kw: Any
-) -> AsyncIterator[TickRun]:
-    async with make_run(*args, **kw) as run:
-        yield run
-
-
 async def _adopt(
     make_run: RunFactory, tick_url: str, source: Path, **kw: Any
 ) -> AdoptResult:
-    async with _running(make_run, tick_url, **kw) as run:
+    async with make_run(tick_url, **kw) as run:
         return await adopt_job(run, JOB, source, DbnFileReader())
 
 
@@ -197,6 +198,37 @@ async def test_second_adoption_writes_nothing(
     assert _rows(migrated_tick_db, _UNIT_QUERY) == before
 
 
+def _fails_after_first() -> Callable[[dict[str, Any]], int]:
+    """A record count that answers once, then the provider goes down."""
+    calls = itertools.count(1)
+
+    def answer(kwargs: dict[str, Any]) -> int:
+        if next(calls) > 1:
+            raise server_error(503)
+        return RECORDS_PER_DAY
+
+    return answer
+
+
+async def test_readoption_resumes_an_interrupted_verification(
+    make_run: RunFactory, migrated_tick_db: str, source: Path
+) -> None:
+    with pytest.raises(TickVerifyInterrupted, match="1 unit\\(s\\) left unverified"):
+        await _adopt(
+            make_run, migrated_tick_db, source, record_count=_fails_after_first()
+        )
+    states = [u[1] for u in _rows(migrated_tick_db, _UNIT_QUERY)]
+    assert states.count(UnitState.DOWNLOADED.value) == 1
+    again = await _adopt(make_run, migrated_tick_db, source)
+    assert (again.already_adopted, again.reverified, again.verify_failures) == (
+        True,
+        1,
+        (),
+    )
+    states = [u[1] for u in _rows(migrated_tick_db, _UNIT_QUERY)]
+    assert states.count(UnitState.VERIFIED.value) == 2
+
+
 async def test_rebuild_from_the_archive_gives_identical_rows(
     make_run: RunFactory,
     migrated_tick_db: str,
@@ -234,24 +266,21 @@ async def test_queued_job_is_refused_naming_the_state(
     assert _rows(migrated_tick_db, "SELECT 1 FROM tick_request") == []
 
 
-def _closed_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-#: Above the calendar pool's fixed 30 s wait for a connection.
-_CALENDAR_WAIT_TIMEOUT = 90
-
-
-@pytest.mark.timeout(_CALENDAR_WAIT_TIMEOUT)
 async def test_unreachable_calendar_raises_with_no_rows(
-    make_run: RunFactory, migrated_tick_db: str, source: Path, archive: Path
+    make_run: RunFactory,
+    migrated_tick_db: str,
+    source: Path,
+    archive: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Waits out the calendar pool's own 30 s connection timeout."""
-    url = f"postgresql://nobody@127.0.0.1:{_closed_port()}/trading"
-    with pytest.raises(TickCalendarError, match="CME_EQUITY"):
-        await _adopt(make_run, migrated_tick_db, source, calendar_url=url)
+    """The calendar pool's timeout (a ``psycopg.OperationalError``), raised at once."""
+
+    def unreachable(*args: Any) -> list[date]:
+        raise PoolTimeout("couldn't get a connection after 30.00 sec")
+
+    monkeypatch.setattr(adopt, "session_days", unreachable)
+    with pytest.raises(TickCalendarError, match="CME_EQUITY unavailable"):
+        await _adopt(make_run, migrated_tick_db, source)
     assert _rows(migrated_tick_db, "SELECT 1 FROM tick_request") == []
     assert not (archive / JOB).exists()
 

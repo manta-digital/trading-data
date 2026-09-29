@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 EXIT_OK = 0
 EXIT_PREFLIGHT = 1
 EXIT_PROVIDER = 2
+EXIT_UNITS_FAILED = 3  # adopt finished, but some units failed verification (223)
 EXIT_STORAGE = 4  # archive write, calendar, or tick database failure (223)
 
 _DATE_FORMAT = "%Y-%m-%d"
@@ -121,7 +122,9 @@ def tick_estimate(
 _WRITER_EPILOG = (
     f"Exit codes: {EXIT_OK} ok; {EXIT_PREFLIGHT} preflight or refusal (a setting, "
     "a pending tick migration, the run lock, or an adoption refused before any "
-    f"row was written); {EXIT_PROVIDER} provider error; {EXIT_STORAGE} storage "
+    f"row was written); {EXIT_PROVIDER} provider error (an adopt interrupted "
+    f"while verifying resumes when run again); {EXIT_UNITS_FAILED} adopt "
+    f"finished but some units failed verification; {EXIT_STORAGE} storage "
     "(archive write, calendar, or tick database)."
 )
 _CONFIRM_WORD = "reset"
@@ -141,7 +144,7 @@ def _exit_code(exc: BaseException) -> int | None:
     """The exit code for a verb's failure; ``None`` lets it propagate."""
     import psycopg
 
-    from manta_trading.data.tick.adopt import TickCalendarError
+    from manta_trading.data.tick.adopt import TickCalendarError, TickVerifyInterrupted
     from manta_trading.data.tick.adopt_files import (
         TickAdoptionRefused,
         TickArchiveWriteError,
@@ -150,7 +153,7 @@ def _exit_code(exc: BaseException) -> int | None:
 
     if isinstance(exc, TickPreflightError | TickAdoptionRefused):
         return EXIT_PREFLIGHT
-    if isinstance(exc, ProviderError):
+    if isinstance(exc, ProviderError | TickVerifyInterrupted):
         return EXIT_PROVIDER
     if isinstance(
         exc, TickArchiveWriteError | TickCalendarError | psycopg.OperationalError
@@ -198,6 +201,8 @@ def tick_adopt(
         json_output,
     )
     print_adopt(result, json_mode=json_output)
+    if result.verify_failures:
+        raise typer.Exit(EXIT_UNITS_FAILED)
 
 
 @tick_app.command("reset", epilog=_WRITER_EPILOG)
@@ -212,12 +217,16 @@ def tick_reset(
     from manta_trading.cli.commands.tick_pass_render import print_reset
     from manta_trading.data.tick import reset
 
-    if every == bool(unit_ids):
+    if (every and unit_ids) or (not every and not unit_ids):
         print_error(
             "give either --unit-id (repeatable) or --all", json_mode=json_output
         )
         raise typer.Exit(EXIT_PREFLIGHT)
-    if not yes and not json_output:
+    if json_output and not yes:
+        # --json cannot prompt, and an output format is not consent.
+        print_error("--json needs --yes; nothing changed.", json_mode=True)
+        raise typer.Exit(EXIT_PREFLIGHT)
+    if not yes:
         target = "every eligible unit" if every else f"unit(s) {unit_ids}"
         typed = typer.prompt(f"Reset {target}? Type '{_CONFIRM_WORD}'", default="")
         if typed.strip().lower() != _CONFIRM_WORD:

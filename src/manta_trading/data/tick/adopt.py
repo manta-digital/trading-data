@@ -2,7 +2,8 @@
 
 LLD 224 Technical Decision 10 and the Adoption data flow:
 
-1. a job id already in ``tick_request`` → "already adopted"; nothing written;
+1. a job id already in ``tick_request`` → "already adopted": only units a
+   previous run left *downloaded* are verified (step 6), nothing else;
 2. ``batch_job(ID)`` (free) must be ``done`` or ``expired``; its request,
    cost, record count and ``ts_received`` are the facts recorded;
 3. the product's calendar, read from the production database (TD6), gives
@@ -16,7 +17,9 @@ LLD 224 Technical Decision 10 and the Adoption data flow:
 
 Refusals before step 5 write no row; a calendar refusal also copies no file.
 Calendar failures raise :class:`TickCalendarError` (exit 4, the calendar
-named).
+named). A ``ProviderError`` during step 6 leaves the rest *downloaded* and
+raises :class:`TickVerifyInterrupted` (exit 2), which says to run the same
+command again.
 """
 
 from __future__ import annotations
@@ -70,6 +73,7 @@ from manta_trading.market.schema.databases import (
     DatabaseNotConfiguredError,
     resolve_database_url,
 )
+from manta_trading.providers.errors import ProviderError
 
 #: Job states whose files exist (or existed) and whose record is final.
 ADOPTABLE_STATES = frozenset({BatchJobState.DONE, BatchJobState.EXPIRED})
@@ -84,12 +88,17 @@ class TickCalendarError(Exception):
     """The calendar could not give session days: nothing written (exit 4)."""
 
 
+class TickVerifyInterrupted(Exception):
+    """The provider failed mid-verification; re-running adopt resumes (exit 2)."""
+
+
 @dataclass(frozen=True)
 class AdoptResult:
     """What ``adopt`` did, for rendering."""
 
     job_id: str
     already_adopted: bool
+    reverified: int = 0
     cost_usd: Decimal | None = None
     files: tuple[ArchivedFile, ...] = ()
     units_by_state: dict[str, int] = field(default_factory=dict)
@@ -200,6 +209,30 @@ def _calendar_url(run: TickRun) -> str:
         raise TickAdoptionRefused(f"{exc.env_var} (the calendar) is not set") from exc
 
 
+async def _verify_downloaded(
+    run: TickRun, job_id: str, request_id: int, reader: ITickFileReader
+) -> tuple[int, tuple[str, ...]]:
+    """Verify the request's *downloaded* units: (how many checked, failures)."""
+    pending = [
+        u
+        for u in await units_of_request(run.conn, request_id)
+        if u.state is UnitState.DOWNLOADED
+    ]
+    failures = []
+    for done, unit in enumerate(pending):
+        try:
+            outcome = await check(run, unit, reader)
+        except ProviderError as exc:
+            raise TickVerifyInterrupted(
+                f"job {job_id}: provider error while verifying {unit.unit_date}: "
+                f"{exc}; {len(pending) - done} unit(s) left unverified. Run the "
+                "same adopt command again to verify them."
+            ) from exc
+        if outcome.failure is not None:
+            failures.append(f"{unit.unit_date}: {outcome.failure}")
+    return len(pending), tuple(failures)
+
+
 async def adopt_job(
     run: TickRun,
     job_id: str,
@@ -207,9 +240,13 @@ async def adopt_job(
     reader: ITickFileReader,
     free: FreeBytes = free_bytes,
 ) -> AdoptResult:
-    """Adopt one job; idempotent by job id."""
-    if await request_id_for_job(run.conn, job_id) is not None:
-        return AdoptResult(job_id, already_adopted=True)
+    """Adopt one job; idempotent by job id, and resumes an interrupted verify."""
+    existing = await request_id_for_job(run.conn, job_id)
+    if existing is not None:
+        checked, failures = await _verify_downloaded(run, job_id, existing, reader)
+        return AdoptResult(
+            job_id, already_adopted=True, reverified=checked, verify_failures=failures
+        )
     calendar_url = _calendar_url(run)
     job = await _job(run, job_id)
     # Calendar before copy: a calendar refusal leaves no files in the archive.
@@ -219,14 +256,8 @@ async def adopt_job(
     )
     by_day = await asyncio.to_thread(_files_by_day, run, job_id, files, reader)
     wanted = set(days)
-    units = _units(days, by_day)
-    request_id = await _insert(run, job, units)
-    failures = []
-    for unit in await units_of_request(run.conn, request_id):
-        if unit.state is UnitState.DOWNLOADED:
-            outcome = await check(run, unit, reader)
-            if outcome.failure is not None:
-                failures.append(f"{unit.unit_date}: {outcome.failure}")
+    request_id = await _insert(run, job, _units(days, by_day))
+    _, failures = await _verify_downloaded(run, job_id, request_id, reader)
     final = await units_of_request(run.conn, request_id)
     return AdoptResult(
         job_id=job_id,
@@ -238,7 +269,7 @@ async def adopt_job(
             u.unit_date for u in final if u.fetch_status is FetchStatus.PROVIDER_HOLE
         ),
         strays=tuple(sorted(f.name for d, (f, _) in by_day.items() if d not in wanted)),
-        verify_failures=tuple(failures),
+        verify_failures=failures,
     )
 
 

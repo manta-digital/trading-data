@@ -11,6 +11,7 @@ import errno
 import json
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -29,7 +30,11 @@ from manta_trading.cli.commands import tick as cmd
 from manta_trading.cli.commands.tick_render import VERDICT_LABELS, human_bytes, usd
 from manta_trading.config import Settings
 from manta_trading.data.tick import adopt, reset, run_context
-from manta_trading.data.tick.adopt import AdoptResult, TickCalendarError
+from manta_trading.data.tick.adopt import (
+    AdoptResult,
+    TickCalendarError,
+    TickVerifyInterrupted,
+)
 from manta_trading.data.tick.adopt_files import (
     ArchivedFile,
     TickAdoptionRefused,
@@ -271,6 +276,7 @@ def test_adopt_text_names_holes(writer_run: None) -> None:
         ),
         (TickCalendarError("calendar CME_EQUITY unavailable"), cmd.EXIT_STORAGE),
         (psycopg.OperationalError("gone"), cmd.EXIT_STORAGE),
+        (TickVerifyInterrupted("run it again"), cmd.EXIT_PROVIDER),
     ],
 )
 def test_adopt_exit_codes(writer_run: None, exc: BaseException, code: int) -> None:
@@ -278,6 +284,30 @@ def test_adopt_exit_codes(writer_run: None, exc: BaseException, code: int) -> No
         result = runner.invoke(app, [*ADOPT, "--json"])
     assert result.exit_code == code, result.output
     assert json.loads(result.stderr)["error"] == str(exc)
+
+
+@pytest.mark.parametrize("already_adopted", [False, True])
+def test_adopt_with_failed_units_exits_3(
+    writer_run: None, already_adopted: bool
+) -> None:
+    failed = replace(
+        ADOPTED,
+        already_adopted=already_adopted,
+        reverified=1,
+        verify_failures=("2024-09-03: size 9, recorded 10",),
+    )
+    with _adopt_returning(failed):
+        result = runner.invoke(app, ADOPT, env={"COLUMNS": "200"})
+    assert result.exit_code == cmd.EXIT_UNITS_FAILED, result.output
+    assert "Verification failed: 2024-09-03" in result.stdout
+
+
+def test_readopt_names_the_units_it_verified(writer_run: None) -> None:
+    resumed = AdoptResult("GLBX-TEST", already_adopted=True, reverified=2)
+    with _adopt_returning(resumed):
+        result = runner.invoke(app, ADOPT)
+    assert result.exit_code == cmd.EXIT_OK, result.output
+    assert "verified the 2 unit(s) left unverified" in result.stdout
 
 
 def test_preflight_refusal_exits_1(env: pytest.MonkeyPatch) -> None:
@@ -301,7 +331,7 @@ def _reset_returning(changes: list[ResetChange]) -> Any:
 def test_reset_json_shape(writer_run: None) -> None:
     changes = [ResetChange(9, ResetAction.NOT_FOUND, None, None)]
     with _reset_returning(changes) as core:
-        result = runner.invoke(app, [*RESET, "--unit-id", "9", "--json"])
+        result = runner.invoke(app, [*RESET, "--unit-id", "9", "--json", "--yes"])
     assert result.exit_code == cmd.EXIT_OK, result.output
     [change] = json.loads(result.stdout)["changes"]
     assert change == {
@@ -311,6 +341,14 @@ def test_reset_json_shape(writer_run: None) -> None:
         "after": None,
     }
     assert core.call_args.args[1] == [9]
+
+
+def test_reset_json_refuses_without_yes(writer_run: None) -> None:
+    with _reset_returning([]) as core:
+        result = runner.invoke(app, [*RESET, "--all", "--json"])
+    assert result.exit_code == cmd.EXIT_PREFLIGHT
+    assert "--json needs --yes" in json.loads(result.stderr)["error"]
+    core.assert_not_called()
 
 
 def test_reset_refuses_without_the_typed_word(writer_run: None) -> None:
