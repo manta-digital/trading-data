@@ -7,12 +7,18 @@ The provider is a real ``DatabentoTickProvider`` over a fake ``Historical``
 
 from __future__ import annotations
 
+import errno
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from datetime import date
 from decimal import Decimal
+from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import httpx
+import psycopg
 import pytest
 from tick_support.fake_historical import FakeApi, FakeHistorical, server_error
 from tick_support.metadata_responses import bundle, metadata_api, symbology_api
@@ -22,6 +28,13 @@ from manta_trading.cli.app import app
 from manta_trading.cli.commands import tick as cmd
 from manta_trading.cli.commands.tick_render import VERDICT_LABELS, human_bytes, usd
 from manta_trading.config import Settings
+from manta_trading.data.tick import adopt, reset, run_context
+from manta_trading.data.tick.adopt import AdoptResult, TickCalendarError
+from manta_trading.data.tick.adopt_files import (
+    ArchivedFile,
+    TickAdoptionRefused,
+    TickArchiveWriteError,
+)
 from manta_trading.data.tick.constants import (
     ESTIMATE_SCHEMAS,
     TICK_SPEND_CEILING_ENV,
@@ -29,6 +42,9 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
 from manta_trading.data.tick.estimate import CeilingVerdict
+from manta_trading.data.tick.reset import ResetAction, ResetChange
+from manta_trading.data.tick.run_context import TickPreflightError
+from manta_trading.providers.errors import ProviderTransientError
 
 runner = CliRunner()
 ESTIMATE = ["data", "tick", "estimate", "--symbols", "ES.c.0", "--stype", "continuous"]
@@ -130,8 +146,9 @@ def test_stype_outside_the_choices_is_a_usage_error(env: pytest.MonkeyPatch) -> 
     assert result.exit_code == 2
 
 
-def test_group_lists_estimate_only() -> None:
-    assert [c.name for c in cmd.tick_app.registered_commands] == ["estimate"]
+def test_group_lists_its_verbs() -> None:
+    names = [c.name for c in cmd.tick_app.registered_commands]
+    assert names == ["estimate", "adopt", "reset"]
 
 
 @pytest.mark.parametrize(
@@ -175,3 +192,144 @@ def test_every_verdict_has_operator_wording() -> None:
     assert (
         f"{TICK_SPEND_CEILING_ENV} unset" in VERDICT_LABELS[CeilingVerdict.NO_CEILING]
     )
+
+
+# -- adopt and reset (slice 223) -----------------------------------------------
+
+
+class _Run:
+    """What the patched ``open_tick_run`` yields; the cores are patched too."""
+
+
+@asynccontextmanager
+async def _fake_run(settings: Settings) -> AsyncIterator[_Run]:
+    yield _Run()
+
+
+def _raising_run(exc: BaseException) -> Any:
+    @asynccontextmanager
+    async def fake(settings: Settings) -> AsyncIterator[_Run]:
+        raise exc
+        yield _Run()  # pragma: no cover - makes this an async generator
+
+    return fake
+
+
+ADOPT = ["data", "tick", "adopt", "--job-id", "GLBX-TEST", "--source", "/tmp/job"]
+ADOPTED = AdoptResult(
+    job_id="GLBX-TEST",
+    already_adopted=False,
+    cost_usd=Decimal("12.5785"),
+    files=(ArchivedFile("glbx-mdp3-20240903.trades.dbn.zst", 10, "ab", True),),
+    units_by_state={"verified": 1},
+    holes=(date(2024, 9, 9),),
+    strays=(),
+)
+
+
+@pytest.fixture
+def writer_run(env: pytest.MonkeyPatch) -> Iterator[None]:
+    with patch.object(run_context, "open_tick_run", side_effect=_fake_run):
+        yield
+
+
+def _adopt_returning(result: Any) -> Any:
+    async def core(*args: Any) -> Any:
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    return patch.object(adopt, "adopt_job", side_effect=core)
+
+
+def test_adopt_json_shape(writer_run: None) -> None:
+    with _adopt_returning(ADOPTED):
+        result = runner.invoke(app, [*ADOPT, "--json"])
+    assert result.exit_code == cmd.EXIT_OK, result.output
+    body = json.loads(result.stdout)
+    assert body["cost_usd"] == "12.5785"
+    assert body["units_by_state"] == {"verified": 1}
+    assert body["holes"] == ["2024-09-09"]
+    assert body["files"][0]["copied"] is True
+
+
+def test_adopt_text_names_holes(writer_run: None) -> None:
+    with _adopt_returning(ADOPTED):
+        result = runner.invoke(app, ADOPT, env={"COLUMNS": "200"})
+    assert result.exit_code == cmd.EXIT_OK, result.output
+    assert "Holes: 2024-09-09" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("exc", "code"),
+    [
+        (TickAdoptionRefused("refused"), cmd.EXIT_PREFLIGHT),
+        (ProviderTransientError("down"), cmd.EXIT_PROVIDER),
+        (
+            TickArchiveWriteError(Path("/a/b"), OSError(errno.ENOSPC, "full")),
+            cmd.EXIT_STORAGE,
+        ),
+        (TickCalendarError("calendar CME_EQUITY unavailable"), cmd.EXIT_STORAGE),
+        (psycopg.OperationalError("gone"), cmd.EXIT_STORAGE),
+    ],
+)
+def test_adopt_exit_codes(writer_run: None, exc: BaseException, code: int) -> None:
+    with _adopt_returning(exc):
+        result = runner.invoke(app, [*ADOPT, "--json"])
+    assert result.exit_code == code, result.output
+    assert json.loads(result.stderr)["error"] == str(exc)
+
+
+def test_preflight_refusal_exits_1(env: pytest.MonkeyPatch) -> None:
+    refusal = TickPreflightError("MT_TICK_ARCHIVE_DIR is not set")
+    with patch.object(run_context, "open_tick_run", side_effect=_raising_run(refusal)):
+        result = runner.invoke(app, [*ADOPT, "--json"])
+    assert result.exit_code == cmd.EXIT_PREFLIGHT
+    assert "MT_TICK_ARCHIVE_DIR" in result.stderr
+
+
+RESET = ["data", "tick", "reset"]
+
+
+def _reset_returning(changes: list[ResetChange]) -> Any:
+    async def core(run: Any, targets: Any) -> list[ResetChange]:
+        return changes
+
+    return patch.object(reset, "reset_units", side_effect=core)
+
+
+def test_reset_json_shape(writer_run: None) -> None:
+    changes = [ResetChange(9, ResetAction.NOT_FOUND, None, None)]
+    with _reset_returning(changes) as core:
+        result = runner.invoke(app, [*RESET, "--unit-id", "9", "--json"])
+    assert result.exit_code == cmd.EXIT_OK, result.output
+    [change] = json.loads(result.stdout)["changes"]
+    assert change == {
+        "unit_id": 9,
+        "action": "not_found",
+        "before": None,
+        "after": None,
+    }
+    assert core.call_args.args[1] == [9]
+
+
+def test_reset_refuses_without_the_typed_word(writer_run: None) -> None:
+    with _reset_returning([]) as core:
+        result = runner.invoke(app, [*RESET, "--all"], input="yes\n")
+    assert result.exit_code == cmd.EXIT_PREFLIGHT
+    core.assert_not_called()
+
+
+def test_reset_proceeds_on_the_typed_word(writer_run: None) -> None:
+    with _reset_returning([]) as core:
+        result = runner.invoke(app, [*RESET, "--all"], input="reset\n")
+    assert result.exit_code == cmd.EXIT_OK, result.output
+    assert core.call_args.args[1] == reset.ALL
+
+
+@pytest.mark.parametrize("args", [["--all", "--unit-id", "3"], []])
+def test_reset_needs_exactly_one_target(writer_run: None, args: list[str]) -> None:
+    with _reset_returning([]) as core:
+        result = runner.invoke(app, [*RESET, *args, "--yes"])
+    assert result.exit_code == cmd.EXIT_PREFLIGHT
+    core.assert_not_called()
