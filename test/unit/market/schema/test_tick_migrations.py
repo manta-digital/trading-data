@@ -20,9 +20,9 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.market.schema.migrations.tick import (
     TICK_MIGRATIONS,
-    _check_in,
-    _in_list,
-    _interval_ns,
+    interval_to_ns,
+    render_enum_check,
+    render_enum_list,
 )
 from manta_trading.market.schema.runner import BOOTSTRAP_MIGRATION_ID
 
@@ -41,22 +41,23 @@ _SOURCES: dict[str, Iterable[StrEnum]] = {
 
 @pytest.mark.parametrize("source", _SOURCES.values(), ids=_SOURCES.keys())
 def test_rendered_list_equals_the_enum(source: Iterable[StrEnum]) -> None:
-    rendered = _in_list(source)
+    rendered = render_enum_list(source)
     values = _QUOTED.findall(rendered)
     assert set(values) == {m.value for m in source}
     assert values == sorted(values)
 
 
 def test_check_in_names_the_column() -> None:
-    assert _check_in("state", UnitState) == f"CHECK (state IN ({_in_list(UnitState)}))"
+    expected = f"CHECK (state IN ({render_enum_list(UnitState)}))"
+    assert render_enum_check("state", UnitState) == expected
 
 
 def test_chunk_interval_renders_to_exact_nanoseconds() -> None:
-    assert _interval_ns(TICK_TRADE_CHUNK_INTERVAL) == 604_800_000_000_000
+    assert interval_to_ns(TICK_TRADE_CHUNK_INTERVAL) == 604_800_000_000_000
 
 
 def test_interval_ns_keeps_sub_second_precision() -> None:
-    assert _interval_ns(timedelta(seconds=1, microseconds=1)) == 1_000_001_000
+    assert interval_to_ns(timedelta(seconds=1, microseconds=1)) == 1_000_001_000
 
 
 def test_track_starts_with_the_bootstrap() -> None:

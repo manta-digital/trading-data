@@ -29,7 +29,7 @@ from manta_trading.data.tick.storage_columns import (
     TICK_TRADE_KEY,
 )
 from manta_trading.market.schema.migrations import TRACKS
-from manta_trading.market.schema.migrations.tick import _interval_ns
+from manta_trading.market.schema.migrations.tick import interval_to_ns
 from manta_trading.market.schema.runner import apply_migrations
 
 Conn = psycopg.Connection[Any]
@@ -76,7 +76,7 @@ def test_trade_hypertable_has_one_integer_dimension(tick_conn: Conn) -> None:
         " FROM timescaledb_information.dimensions"
         " WHERE hypertable_name = 'tick_trade'"
     ).fetchall()
-    assert rows == [("ts_event", "bigint", _interval_ns(TICK_TRADE_CHUNK_INTERVAL))]
+    assert rows == [("ts_event", "bigint", interval_to_ns(TICK_TRADE_CHUNK_INTERVAL))]
 
 
 def test_trade_hypertable_has_no_compression(tick_conn: Conn) -> None:

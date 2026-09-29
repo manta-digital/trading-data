@@ -8,7 +8,6 @@ exercised by one row that passes and one that is rejected. Rows come from
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 import psycopg
@@ -32,9 +31,6 @@ from manta_trading.data.tick.constants import (
 from manta_trading.data.tick.storage_columns import TICK_TRADE_BBO_COLUMNS
 
 Conn = psycopg.Connection[Any]
-
-NOT_A_MEMBER = "not-a-member"
-_DAY = date(2024, 9, 3)
 
 
 # --------------------------------------------------------------------------

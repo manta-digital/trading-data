@@ -40,7 +40,7 @@ from manta_trading.market.schema.runner import BOOTSTRAP_MIGRATION_ID
 _NS_PER_MICROSECOND = 1_000
 
 
-def _in_list(members: Iterable[StrEnum]) -> str:
+def render_enum_list(members: Iterable[StrEnum]) -> str:
     """Render enum members as a quoted SQL list, sorted by value.
 
     The Kalshi track's idiom, copied: the tick track must not import from
@@ -49,11 +49,11 @@ def _in_list(members: Iterable[StrEnum]) -> str:
     return ", ".join(f"'{m.value}'" for m in sorted(members, key=lambda m: m.value))
 
 
-def _check_in(column: str, members: Iterable[StrEnum]) -> str:
-    return f"CHECK ({column} IN ({_in_list(members)}))"
+def render_enum_check(column: str, members: Iterable[StrEnum]) -> str:
+    return f"CHECK ({column} IN ({render_enum_list(members)}))"
 
 
-def _interval_ns(span: timedelta) -> int:
+def interval_to_ns(span: timedelta) -> int:
     """A timedelta as exact integer nanoseconds (no float arithmetic)."""
     return span // timedelta(microseconds=1) * _NS_PER_MICROSECOND
 
@@ -92,18 +92,18 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                 dataset               TEXT        NOT NULL,
                 schema                TEXT        NOT NULL
                     CONSTRAINT tick_request_schema_check
-                    {_check_in("schema", ARCHIVED_SCHEMAS)},
+                    {render_enum_check("schema", ARCHIVED_SCHEMAS)},
                 symbols               TEXT[]      NOT NULL
                     CONSTRAINT tick_request_symbols_check
                     CHECK (cardinality(symbols) > 0),
                 stype_in              TEXT        NOT NULL
                     CONSTRAINT tick_request_stype_in_check
-                    {_check_in("stype_in", SType)},
+                    {render_enum_check("stype_in", SType)},
                 range_start           DATE        NOT NULL,
                 range_end             DATE        NOT NULL,
                 delivery_mode         TEXT        NOT NULL
                     CONSTRAINT tick_request_delivery_mode_check
-                    {_check_in("delivery_mode", DeliveryMode)},
+                    {render_enum_check("delivery_mode", DeliveryMode)},
                 is_adopted            BOOLEAN     NOT NULL,
                 provider_job_id       TEXT
                     CONSTRAINT tick_request_provider_job_id_key UNIQUE,
@@ -130,11 +130,11 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                 unit_date             DATE        NOT NULL,
                 state                 TEXT        NOT NULL
                     CONSTRAINT tick_archive_unit_state_check
-                    {_check_in("state", UnitState)},
+                    {render_enum_check("state", UnitState)},
                 state_changed_at      TIMESTAMPTZ NOT NULL,
                 fetch_status          TEXT        NOT NULL
                     CONSTRAINT tick_archive_unit_fetch_status_check
-                    {_check_in("fetch_status", FetchStatus)},
+                    {render_enum_check("fetch_status", FetchStatus)},
                 failure_reason        TEXT,
                 attempt_count         INTEGER     NOT NULL
                     CONSTRAINT tick_archive_unit_attempt_count_check
@@ -160,7 +160,7 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                 CONSTRAINT tick_archive_unit_superseded_by_check
                     CHECK (superseded_by_unit_id <> unit_id),
                 CONSTRAINT tick_archive_unit_file_check
-                    CHECK (state NOT IN ({_in_list(UNIT_STATES_WITH_FILE)})
+                    CHECK (state NOT IN ({render_enum_list(UNIT_STATES_WITH_FILE)})
                            OR (file_path IS NOT NULL
                                AND file_size_bytes IS NOT NULL
                                AND file_sha256 IS NOT NULL))
@@ -246,7 +246,7 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
             SELECT create_hypertable(
                 'tick_trade',
                 'ts_event',
-                chunk_time_interval    => {_interval_ns(TICK_TRADE_CHUNK_INTERVAL)},
+                chunk_time_interval    => {interval_to_ns(TICK_TRADE_CHUNK_INTERVAL)},
                 create_default_indexes => FALSE,
                 if_not_exists          => TRUE
             );
