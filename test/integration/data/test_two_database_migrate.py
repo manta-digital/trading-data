@@ -26,7 +26,6 @@ from manta_trading.config import Settings
 from manta_trading.market.schema import migrations as migrations_pkg
 from manta_trading.market.schema.databases import Database
 from manta_trading.market.schema.migrations import TRACKS, TrackSpec
-from manta_trading.market.schema.runner import BOOTSTRAP_MIGRATION_ID
 
 runner = CliRunner()
 
@@ -58,6 +57,11 @@ def _ledger(url: str) -> list[str]:
     return [r[0] for r in rows]
 
 
+def _tick_track_ids() -> list[str]:
+    """Every id of the tick track, in ledger order (slice 222 extends it)."""
+    return sorted(m["id"] for m in TRACKS["tick"])
+
+
 def _ledger_exists(url: str) -> bool:
     with psycopg.connect(url) as conn:
         row = conn.execute("SELECT to_regclass('schema_migrations')").fetchone()
@@ -74,7 +78,7 @@ def test_apply_tick_writes_only_the_tick_ledger(
     result = _invoke(settings, "migrate", "apply", "--track", "tick")
 
     assert result.exit_code == 0, result.output
-    assert _ledger(ephemeral_tick_db) == [BOOTSTRAP_MIGRATION_ID]
+    assert _ledger(ephemeral_tick_db) == _tick_track_ids()
     assert _ledger(migrated_db) == primary_before
 
 
@@ -88,7 +92,7 @@ def test_status_tick_reads_the_tick_ledger(
 
     assert result.exit_code == 0, result.output
     state = json.loads(result.output)
-    assert [e["id"] for e in state["applied"]] == [BOOTSTRAP_MIGRATION_ID]
+    assert sorted(e["id"] for e in state["applied"]) == _tick_track_ids()
     assert state["pending"] == []
 
 
@@ -155,7 +159,13 @@ def test_init_tick_brings_a_bare_database_to_head(
     payload = json.loads(result.output)
     assert payload["pending_remaining"] == 0
     assert payload["applied_total"] == len(TRACKS["tick"])
-    assert _ledger(ephemeral_tick_db) == sorted(m["id"] for m in TRACKS["tick"])
+    assert _ledger(ephemeral_tick_db) == _tick_track_ids()
+
+    again = _invoke(settings, "init", "--database", "tick", "--json")
+
+    assert again.exit_code == 0, again.output
+    assert json.loads(again.output)["applied_now"] == []
+    assert _ledger(ephemeral_tick_db) == _tick_track_ids()
 
 
 def test_init_without_option_still_reports_the_minute_track(

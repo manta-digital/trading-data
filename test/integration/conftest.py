@@ -155,3 +155,13 @@ def provisioned_tick_db(test_admin_url: str) -> Iterator[ProvisionedTickDb]:
         yield tick
     finally:
         drop_tick_db(tick, test_admin_url)
+
+
+@pytest.fixture
+def tick_conn(migrated_tick_db: str) -> Iterator[psycopg.Connection[Any]]:
+    """An autocommit connection to :func:`migrated_tick_db` (slice 222).
+
+    Autocommit, so a statement a constraint rejects does not abort the next.
+    """
+    with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
+        yield conn
