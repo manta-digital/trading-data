@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from manta_trading.config import ENV_FILE, Settings
 from manta_trading.constants import API_MAX_BARS_PER_REQUEST, API_SERVING_SESSION
-from manta_trading.data.tick.constants import TICK_SPEND_CEILING_ENV
+from manta_trading.data.tick.constants import (
+    TICK_ARCHIVE_DIR_ENV,
+    TICK_SPEND_30D_CEILING_ENV,
+    TICK_SPEND_CEILING_ENV,
+)
 
 
 class TestSettingsDefaults:
@@ -251,3 +256,41 @@ class TestTickSpendCeiling:
         monkeypatch.setenv(TICK_SPEND_CEILING_ENV, value)
         with pytest.raises(ValidationError, match="tick_spend_ceiling_usd"):
             Settings(_env_file=None)
+
+
+class TestTickSpend30dCeiling:
+    """Slice 223 (LLD 224 TD7): optional, exact, positive when set."""
+
+    def test_unset_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(TICK_SPEND_30D_CEILING_ENV, raising=False)
+        assert Settings(_env_file=None).tick_spend_30d_ceiling_usd is None
+
+    def test_loads_decimal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(TICK_SPEND_30D_CEILING_ENV, "0.50")
+        value = Settings(_env_file=None).tick_spend_30d_ceiling_usd
+        assert value == Decimal("0.50")
+        assert isinstance(value, Decimal)
+
+    @pytest.mark.parametrize("value", ["0", "-1"])
+    def test_non_positive_rejected_naming_field(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv(TICK_SPEND_30D_CEILING_ENV, value)
+        with pytest.raises(ValidationError, match="tick_spend_30d_ceiling_usd"):
+            Settings(_env_file=None)
+
+
+class TestTickArchiveDir:
+    """Slice 223 (LLD 224 TD11): a path, never created by loading settings."""
+
+    def test_unset_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(TICK_ARCHIVE_DIR_ENV, raising=False)
+        assert Settings(_env_file=None).tick_archive_dir is None
+
+    def test_loads_path(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        missing = tmp_path / "tick-archive"
+        monkeypatch.setenv(TICK_ARCHIVE_DIR_ENV, str(missing))
+        assert Settings(_env_file=None).tick_archive_dir == missing
+        assert not missing.exists()

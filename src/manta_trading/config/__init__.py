@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     # Unset means "no ceiling configured", which slice 223 treats as "refuse
     # to purchase" — never a number. Decimal for exact money.
     tick_spend_ceiling_usd: Decimal | None = Field(default=None, gt=0)
+    # Trailing 30-day tick spend ceiling in USD (slice 223, LLD 224 TD7):
+    # MT_TICK_SPEND_30D_CEILING_USD. Unset refuses every purchase, as above.
+    tick_spend_30d_ceiling_usd: Decimal | None = Field(default=None, gt=0)
+    # Tick archive root (slice 223, LLD 224 TD11): MT_TICK_ARCHIVE_DIR. Never
+    # created implicitly; the run-context preflight refuses it unset, missing
+    # or not writable.
+    tick_archive_dir: Path | None = None
     # Kalshi collection rule (slice 264, Decision 2; renamed from
     # MT_KALSHI_CANDLE_* in slice 265, Decision 3, because one rule now governs
     # candles and trades). Defaults are the PM's rule C; every value is

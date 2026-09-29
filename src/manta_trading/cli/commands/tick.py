@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 EXIT_OK = 0
 EXIT_PREFLIGHT = 1
 EXIT_PROVIDER = 2
+EXIT_STORAGE = 4  # archive write, calendar, or tick database failure (223)
 
 _DATE_FORMAT = "%Y-%m-%d"
 

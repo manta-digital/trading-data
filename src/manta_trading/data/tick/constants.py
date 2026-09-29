@@ -153,3 +153,26 @@ def calendar_for_product(product: str) -> str:
         raise KeyError(
             f"futures product {product!r} has no trading calendar (known: {known})"
         ) from None
+
+
+# -- Slice 223: the acquisition run context and archive (LLD 224 TD2, TD11) ---
+
+#: Session-level advisory lock held by every manifest writer (``adopt``,
+#: ``reset``, 224's ``pass``) for the whole run (TD2). Distinct from Kalshi's
+#: ``SYNC_ADVISORY_LOCK_KEY`` (262_000_001); 220 is this initiative's number.
+TICK_ACQUISITION_LOCK_KEY = 220_000_001
+
+#: Seconds allowed to connect to the tick database before the preflight
+#: refuses it as unreachable (TD2).
+TICK_DB_CONNECT_TIMEOUT_SECONDS = 10
+
+#: ``Settings.tick_spend_30d_ceiling_usd``'s environment name (TD7; stored in
+#: 223, read by 224's spend guard).
+TICK_SPEND_30D_CEILING_ENV = "MT_TICK_SPEND_30D_CEILING_USD"
+
+#: ``Settings.tick_archive_dir``'s environment name (TD2 refusal, TD11 layout).
+TICK_ARCHIVE_DIR_ENV = "MT_TICK_ARCHIVE_DIR"
+
+#: Every tick setting's environment prefix; an unknown key under it is refused
+#: by the preflight so a misspelt ceiling never reads as "no ceiling" (TD2).
+TICK_ENV_PREFIX = "MT_TICK_"
