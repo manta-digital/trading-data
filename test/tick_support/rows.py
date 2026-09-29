@@ -22,6 +22,7 @@ from manta_trading.data.tick.constants import (
     SType,
     TickSchema,
     UnitState,
+    calendar_for_product,
 )
 
 #: A fixed instant for timestamptz columns; tests never depend on its value.
@@ -131,3 +132,19 @@ TBBO_TRADE: dict[str, Any] = {
 
 def insert_trade(conn: psycopg.Connection[Any], unit_id: int, **overrides: Any) -> None:
     _insert(conn, "tick_trade", TBBO_TRADE | {"unit_id": unit_id} | overrides, None)
+
+
+def insert_ledger_row(
+    conn: psycopg.Connection[Any], unit_id: int, **overrides: Any
+) -> None:
+    row: dict[str, Any] = {
+        "unit_id": unit_id,
+        "instrument_id": 42_035_063,
+        "calendar_id": calendar_for_product("ES"),
+        "session_date": date(2024, 9, 3),
+        "record_count": 2,
+        "volume": 3,
+        "first_event_ns": ACTIVATION_NS,
+        "last_event_ns": ACTIVATION_NS + 1,
+    }
+    _insert(conn, "tick_ingest_ledger", row | overrides, None)

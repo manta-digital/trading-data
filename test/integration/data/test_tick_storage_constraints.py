@@ -21,6 +21,7 @@ from tick_support.rows import (
     FILE_COLUMNS,
     WINDOW_NS,
     insert_definition,
+    insert_ledger_row,
     insert_request,
     insert_trade,
     insert_unit,
@@ -322,3 +323,72 @@ def test_bbo_all_null_or_all_set(tick_conn: Conn, trade_unit: int) -> None:
     insert_trade(tick_conn, trade_unit)
     no_bbo = dict.fromkeys(TICK_TRADE_BBO_COLUMNS)
     insert_trade(tick_conn, trade_unit, sequence=2, **no_bbo)
+
+
+# --------------------------------------------------------------------------
+# Ingest ledger (Functional Requirement 7)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ingested_unit(tick_conn: Conn) -> int:
+    return insert_unit(
+        tick_conn,
+        insert_request(tick_conn),
+        state=UnitState.INGESTED.value,
+        **FILE_COLUMNS,
+    )
+
+
+def test_quiet_session_is_a_zero_row_with_no_times(
+    tick_conn: Conn, ingested_unit: int
+) -> None:
+    insert_ledger_row(
+        tick_conn,
+        ingested_unit,
+        record_count=0,
+        volume=0,
+        first_event_ns=None,
+        last_event_ns=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"record_count": 0, "volume": 0},
+        {"record_count": 0, "volume": 0, "first_event_ns": None},
+        {"first_event_ns": None},
+        {"last_event_ns": None},
+        {"first_event_ns": ACTIVATION_NS + 2},
+        {"record_count": -1},
+        {"volume": -1},
+    ],
+    ids=[
+        "zero-with-times",
+        "zero-with-last-time",
+        "records-without-first",
+        "records-without-last",
+        "first-after-last",
+        "negative-count",
+        "negative-volume",
+    ],
+)
+def test_ledger_value_checks(
+    tick_conn: Conn, ingested_unit: int, overrides: dict[str, Any]
+) -> None:
+    with pytest.raises(errors.CheckViolation):
+        insert_ledger_row(tick_conn, ingested_unit, **overrides)
+
+
+def test_ledger_names_a_real_unit(tick_conn: Conn) -> None:
+    with pytest.raises(errors.ForeignKeyViolation):
+        insert_ledger_row(tick_conn, 999_999)
+
+
+def test_one_ledger_row_per_unit_instrument_session(
+    tick_conn: Conn, ingested_unit: int
+) -> None:
+    insert_ledger_row(tick_conn, ingested_unit)
+    with pytest.raises(errors.UniqueViolation):
+        insert_ledger_row(tick_conn, ingested_unit)

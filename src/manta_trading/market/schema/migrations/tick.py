@@ -252,4 +252,37 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
             );
         """,
     },
+    {
+        "id": "tick_005_ingest_ledger",
+        "description": "Create tick_ingest_ledger: one row per unit and session",
+        # TD7 (the ledger carries calendar_id, not the tier): the calendar
+        # set grows, so no CHECK; the tier is reached through unit → request.
+        # A zero-record instrument-session is a complete row with NULL times.
+        "sql": """
+            CREATE TABLE IF NOT EXISTS tick_ingest_ledger (
+                unit_id        BIGINT NOT NULL
+                    CONSTRAINT tick_ingest_ledger_unit_fkey
+                    REFERENCES tick_archive_unit (unit_id),
+                instrument_id  BIGINT NOT NULL,
+                calendar_id    TEXT   NOT NULL,
+                session_date   DATE   NOT NULL,
+                record_count   BIGINT NOT NULL
+                    CONSTRAINT tick_ingest_ledger_record_count_check
+                    CHECK (record_count >= 0),
+                volume         BIGINT NOT NULL
+                    CONSTRAINT tick_ingest_ledger_volume_check
+                    CHECK (volume >= 0),
+                first_event_ns BIGINT,
+                last_event_ns  BIGINT,
+                CONSTRAINT tick_ingest_ledger_pkey
+                    PRIMARY KEY (unit_id, instrument_id, session_date),
+                CONSTRAINT tick_ingest_ledger_first_event_check
+                    CHECK ((first_event_ns IS NULL) = (record_count = 0)),
+                CONSTRAINT tick_ingest_ledger_last_event_check
+                    CHECK ((last_event_ns IS NULL) = (record_count = 0)),
+                CONSTRAINT tick_ingest_ledger_event_order_check
+                    CHECK (first_event_ns <= last_event_ns)
+            );
+        """,
+    },
 ]
