@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The tick database's tables.** `mt data init --database tick` now creates
+  the storage for CME futures tick data: the request and archive-unit
+  manifest, contract definitions whose validity windows cannot overlap, a
+  trades hypertable holding both the `trades` and `tbbo` tiers at nanosecond
+  precision, and the per-session ingest ledger. Two fills that share an event
+  time and sequence number are both kept. Nothing writes these tables yet;
+  acquisition and ingest come next.
+- `scripts/provision_tick_roles.sql` grants the tick application role read
+  and write access to the five tick tables (never TRUNCATE or DDL).
+
+### Removed
+- The unused `TickEventType` enum (`manta_trading.data.base.tick_schema`),
+  superseded by the Databento schema names in `data/tick/constants.py`.
+
 ## [0.20.0] - 2026-09-28
 
 ### Added
