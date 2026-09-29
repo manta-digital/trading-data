@@ -31,7 +31,10 @@ the application credential for `status`, the maintenance credential for `apply`
   btree_gist), `tick_002_manifest` (`tick_request`, `tick_archive_unit`),
   `tick_003_definitions` (`tick_definition`), `tick_004_trades` (the
   `tick_trade` hypertable on integer nanosecond `ts_event`) and
-  `tick_005_ingest_ledger` (`tick_ingest_ledger`). It contains no `GRANT`:
+  `tick_005_ingest_ledger` (`tick_ingest_ledger`). Slice 223 adds
+  `tick_006_availability`: `tick_dataset_edge`, `tick_day_condition` (CHECK
+  rendered from `DatasetCondition`) and `tick_archive_unit.reopened_at`, which
+  a CHECK refuses on any unit holding a file. It contains no `GRANT`:
   `scripts/provision_tick_roles.sql` enumerates the application role's write
   surface.
 - **Misroute guard.** Before applying, `apply` reads the target ledger and

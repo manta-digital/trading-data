@@ -16,8 +16,8 @@ projectState: >
   slice runs on scratch databases on the test cluster. The PM has set both
   spend ceilings in the dev .env (0.50 per pass, 5 per 30 days).
 dateCreated: 20260928
-dateUpdated: 20260928
-status: not_started
+dateUpdated: 20260929
+status: complete
 ---
 
 # Tasks: Tick Archive Adoption
@@ -68,174 +68,180 @@ that, split along the phase or concern it holds and note the split.
 
 ## Section 0 — Baseline and test support
 
-- [ ] **0.1 Confirm the SDK and fixtures have not moved since 222**
-  - [ ] `uv.lock` still pins `databento` 0.87.0; `git log -- uv.lock
+- [x] **0.1 Confirm the SDK and fixtures have not moved since 222**
+  - [x] `uv.lock` still pins `databento` 0.87.0; `git log -- uv.lock
         test/fixtures/databento` shows no fixture change since 220's merge
-  - [ ] If either moved, STOP and report to the PM
-  - [ ] Success: stated in the task note
-  - [ ] Effort: 1
+  - [x] If either moved, STOP and report to the PM
+  - [x] Success: stated in the task note
+  - [x] Effort: 1
+  - [x] Note: databento 0.87.0 (databento-dbn 0.70.0) still pinned; uv.lock changed only by project version bumps since release 0.18.0 (220); fixtures last changed in dd9ed2a, before it.
 
-- [ ] **0.2 Record the pre-change test baseline**
-  - [ ] On the slice branch before any change, run the unit tier, then the
+- [x] **0.2 Record the pre-change test baseline**
+  - [x] On the slice branch before any change, run the unit tier, then the
         integration tier; save failing ids to `/tmp/223-baseline-unit.txt`
         and `/tmp/223-baseline-integration.txt`
-  - [ ] Success: both files exist; each failure matches the known lists in
+  - [x] Success: both files exist; each failure matches the known lists in
         project memory or is re-run in isolation and noted
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Note: baseline run in a detached worktree at main so edits could not leak into it. Unit tier: 3988 passed, 5 skipped, no failures.
 
-- [ ] **0.3 Test helper: DBN files with a day-aligned header**
-  - [ ] Background: the fixtures' headers do not span one UTC day (trades and
+- [x] **0.3 Test helper: DBN files with a day-aligned header**
+  - [x] Background: the fixtures' headers do not span one UTC day (trades and
         tbbo: 2020-12-28 13:00 → 2020-12-29 00:00 UTC; definition: XNAS over
         months). Verification requires a header spanning exactly the unit's
         UTC day (TD9, Verification)
-  - [ ] Create `test/tick_support/dbn_files.py` with
+  - [x] Create `test/tick_support/dbn_files.py` with
         `write_day_file(dest, fixture, dataset, day, stype_in)`: decode the
         fixture's records, encode a new header with `databento_dbn.Metadata`
         (`start = day 00:00Z`, `end = day+1 00:00Z`, the fixture's mappings
         and schema), append the unchanged record bytes, zstd-compress, return
         `(path, size, sha256)`
-  - [ ] Add `write_job_dir(root, job_id, files)` that writes the day files
+  - [x] Add `write_job_dir(root, job_id, files)` that writes the day files
         plus `manifest.json` (`job_id`, and per file `filename`, `size`,
         `hash` as `sha256:<hex>`; `manifest.json` does not list itself) and
         `condition.json`/`metadata.json`/`symbology.json` placeholders, and
         `zip_job_dir(dir) -> Path` that zips it the way the provider's zip
         is laid out
-  - [ ] If `Metadata` cannot encode a header with the needed fields, STOP and
+  - [x] If `Metadata` cannot encode a header with the needed fields, STOP and
         report; do not commit real purchased data as a fixture without the
         PM's decision
-  - [ ] Test `test/unit/data/tick/test_dbn_files_helper.py`: a written file
+  - [x] Test `test/unit/data/tick/test_dbn_files_helper.py`: a written file
         reads back through `DbnFileReader` with the new dataset, start and end
         and the fixture's record count
-  - [ ] Success: the helper test passes
-  - [ ] Effort: 3
+  - [x] Success: the helper test passes
+  - [x] Effort: 3
+  - [x] Note: the provider's zip is flat (no job-id prefix), as GLBX-20250123-XT4GD5UM6C.zip is; zip_job_dir matches it.
 
-- [ ] **0.4 Batch response helpers for acquisition tests**
-  - [ ] Extend `test/tick_support/batch_responses.py`: `job_record` takes
+- [x] **0.4 Batch response helpers for acquisition tests**
+  - [x] Extend `test/tick_support/batch_responses.py`: `job_record` takes
         `dataset`, `symbols`, `stype_in`, `cost_usd`, `record_count`,
         `ts_received` and `ts_expiration` overrides
-  - [ ] Existing 220 adapter tests still pass unchanged
-  - [ ] Success: `uv run pytest test/unit/data/tick -q` passes
-  - [ ] Effort: 1
-  - [ ] Commit: `test(tick): add day-file and batch job helpers for 223`
+  - [x] Existing 220 adapter tests still pass unchanged
+  - [x] Success: `uv run pytest test/unit/data/tick -q` passes
+  - [x] Effort: 1
+  - [x] Commit: `test(tick): add day-file and batch job helpers for 223`
 
 ---
 
 ## Section 1 — Constants, settings, exit codes
 
-- [ ] **1.1 Add 223's constants to `data/tick/constants.py`**
-  - [ ] `TICK_ACQUISITION_LOCK_KEY` (an int distinct from Kalshi's
+- [x] **1.1 Add 223's constants to `data/tick/constants.py`**
+  - [x] `TICK_ACQUISITION_LOCK_KEY` (an int distinct from Kalshi's
         `262_000_001`; grep the repo for every `pg_try_advisory_lock` key and
         choose one no other caller uses), `TICK_DB_CONNECT_TIMEOUT_SECONDS =
         10`, `TICK_SPEND_30D_CEILING_ENV = "MT_TICK_SPEND_30D_CEILING_USD"`,
         `TICK_ARCHIVE_DIR_ENV = "MT_TICK_ARCHIVE_DIR"`,
         `TICK_ENV_PREFIX = "MT_TICK_"`
-  - [ ] One-line comment per constant giving its TD. The pass's constants
+  - [x] One-line comment per constant giving its TD. The pass's constants
         (wait budget, poll interval, match skew, submit-resolve age, spend
         window) are 224's
-  - [ ] Success: imports cleanly; import-boundary test passes
-  - [ ] Effort: 1
+  - [x] Success: imports cleanly; import-boundary test passes
+  - [x] Effort: 1
 
-- [ ] **1.2 Add the two settings**
-  - [ ] In `config/__init__.py` beside `tick_spend_ceiling_usd`:
+- [x] **1.2 Add the two settings**
+  - [x] In `config/__init__.py` beside `tick_spend_ceiling_usd`:
         `tick_spend_30d_ceiling_usd: Decimal | None = Field(default=None,
         gt=0)` and `tick_archive_dir: Path | None = None`
-  - [ ] Success: `Settings()` loads with and without both variables
-  - [ ] Effort: 1
+  - [x] Success: `Settings()` loads with and without both variables
+  - [x] Effort: 1
 
-- [ ] **1.3 Unit tests: constants and settings**
-  - [ ] Extend `test/unit/data/tick/test_constants.py`: each new constant's
+- [x] **1.3 Unit tests: constants and settings**
+  - [x] Extend `test/unit/data/tick/test_constants.py`: each new constant's
         value; the lock key differs from Kalshi's constant (import it)
-  - [ ] Settings test beside the existing `tick_spend_ceiling_usd` tests:
+  - [x] Settings test beside the existing `tick_spend_ceiling_usd` tests:
         `0.50` parses as `Decimal("0.50")`; `0` and a negative are rejected;
         unset is `None`; the archive dir parses as `Path`. Build `Settings`
         from explicit values, never the developer's `.env`
-  - [ ] Success: both files pass
-  - [ ] Effort: 1
+  - [x] Success: both files pass
+  - [x] Effort: 1
 
-- [ ] **1.4 Exit codes for `adopt` and `reset`**
-  - [ ] In `cli/commands/tick.py`, add `EXIT_STORAGE = 4` beside `EXIT_OK`,
+- [x] **1.4 Exit codes for `adopt` and `reset`**
+  - [x] In `cli/commands/tick.py`, add `EXIT_STORAGE = 4` beside `EXIT_OK`,
         `EXIT_PREFLIGHT`, `EXIT_PROVIDER` (the rest arrive in 224 with
         `TickOutcome`)
-  - [ ] Success: existing CLI tick tests pass
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(tick): add acquisition constants and settings`
+  - [x] Success: existing CLI tick tests pass
+  - [x] Effort: 1
+  - [x] Commit: `feat(tick): add acquisition constants and settings`
 
 ---
 
 ## Section 2 — Migration `tick_006_availability`
 
-- [ ] **2.1 Append `tick_006_availability` to `TICK_MIGRATIONS`**
-  - [ ] `tick_dataset_edge` and `tick_day_condition` exactly as the LLD's
+- [x] **2.1 Append `tick_006_availability` to `TICK_MIGRATIONS`**
+  - [x] `tick_dataset_edge` and `tick_day_condition` exactly as the LLD's
         "Database / Storage Schema" tables; `condition` CHECK rendered with
         `_check_in` from `DatasetCondition`
-  - [ ] `ALTER TABLE tick_archive_unit ADD COLUMN IF NOT EXISTS reopened_at
+  - [x] `ALTER TABLE tick_archive_unit ADD COLUMN IF NOT EXISTS reopened_at
         TIMESTAMPTZ` and the named CHECK `tick_archive_unit_reopened_check`:
         `reopened_at IS NULL OR state NOT IN (...)`, rendered from
         `UNIT_STATES_WITH_FILE`; add the constraint idempotently (guard on
         `pg_constraint`, as earlier tick migrations do)
-  - [ ] No index beyond the primary keys; no `GRANT`; comment cites TD8
+  - [x] No index beyond the primary keys; no `GRANT`; comment cites TD8
         (reopened units)
-  - [ ] Success: `migrated_tick_db` builds; applying the track twice applies
+  - [x] Success: `migrated_tick_db` builds; applying the track twice applies
         nothing
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Note: CHECKs use render_enum_check (the tick track has no _check_in); the reopened CHECK uses the minute track's DO $$ / pg_constraint guard, since earlier tick migrations name constraints inside CREATE. tick.py is 330 lines: the migration list is data and grows by one entry per migration.
 
-- [ ] **2.2 Integration tests for `tick_006`**
-  - [ ] In `test/integration/data/test_tick_storage_track.py`, extend the
+- [x] **2.2 Integration tests for `tick_006`**
+  - [x] In `test/integration/data/test_tick_storage_track.py`, extend the
         re-apply test's expected ids (derived from `TRACKS["tick"]`)
-  - [ ] New `test/integration/data/test_tick_availability_schema.py`:
+  - [x] New `test/integration/data/test_tick_availability_schema.py`:
         every `DatasetCondition` member inserts, a non-member is rejected;
         duplicate `(dataset, condition_date)` is rejected; `reopened_at` set
         on a `delivered` unit inserts; on each of `downloaded`, `verified`,
         `ingested` it is rejected
-  - [ ] 923's CLI init test still reaches head
-  - [ ] Success: both files pass
-  - [ ] Effort: 2
+  - [x] 923's CLI init test still reaches head
+  - [x] Success: both files pass
+  - [x] Effort: 2
+  - [x] Note: the re-apply test already derived its ids from TRACKS["tick"]; no edit was needed.
 
-- [ ] **2.3 Grant the two tables to the app role**
-  - [ ] Add `tick_dataset_edge` and `tick_day_condition` to the enumerated
+- [x] **2.3 Grant the two tables to the app role**
+  - [x] Add `tick_dataset_edge` and `tick_day_condition` to the enumerated
         `GRANT SELECT, INSERT, UPDATE, DELETE` list in
         `scripts/provision_tick_roles.sql`; update the header comment
-  - [ ] Success: 222's artifact-equals-tables test in
+  - [x] Success: 222's artifact-equals-tables test in
         `test_tick_role_privileges.py` passes, and the parametrized DML test
         covers the new tables
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(tick): add tick_006 availability migration`
+  - [x] Effort: 1
+  - [x] Commit: `feat(tick): add tick_006 availability migration`
 
 ---
 
 ## Section 3 — Session days
 
-- [ ] **3.1 Create `data/tick/session_days.py`**
-  - [ ] `session_days(calendar, start, end) -> list[date]`: one
+- [x] **3.1 Create `data/tick/session_days.py`**
+  - [x] `session_days(calendar, start, end) -> list[date]`: one
         `sessions_between` call; for each session every UTC date from
         `open_utc` to `close_utc − 1 ns`, clipped to `[start, end)`, sorted,
         unique (TD4, Days)
-  - [ ] `OutOfPopulatedRangeError` propagates; it is not caught here
-  - [ ] Success: imports; no I/O besides the calendar call
-  - [ ] Effort: 1
+  - [x] `OutOfPopulatedRangeError` propagates; it is not caught here
+  - [x] Success: imports; no I/O besides the calendar call
+  - [x] Effort: 1
+  - [x] Note: the last instant is close_utc − 1 µs, the calendar's grain (datetime), equivalent to the design's − 1 ns.
 
-- [ ] **3.2 Tests for session days**
-  - [ ] Unit: a stub calendar returning hand-built sessions: a Sunday-evening
+- [x] **3.2 Tests for session days**
+  - [x] Unit: a stub calendar returning hand-built sessions: a Sunday-evening
         open yields Sunday and Monday; Saturday never appears; clipping at
         both ends; end exclusive
-  - [ ] Integration on `session_migrated_db` with the real `CME_EQUITY`
+  - [x] Integration on `session_migrated_db` with the real `CME_EQUITY`
         calendar: 2024-12-25 is included (the 12-26 session opens 23:00 UTC);
         the job-1 range 2024-08-30 → 2024-09-30 yields 26 days and the job-2
         range 2024-11-01 → 2025-01-01 yields 52 (the counts adoption must
         produce, FR2). If either count differs, STOP and report: the design's
         adoption expectation depends on it
-  - [ ] Success: both pass
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add session-touched UTC day computation`
+  - [x] Success: both pass
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add session-touched UTC day computation`
 
 ---
 
 ## Section 4 — Run context
 
-- [ ] **4.1 Create `data/tick/run_context.py`**
-  - [ ] `TickPreflightError(message)`; `TickRun` dataclass (`settings`,
+- [x] **4.1 Create `data/tick/run_context.py`**
+  - [x] `TickPreflightError(message)`; `TickRun` dataclass (`settings`,
         `provider`, `conn`, `archive_root`, `run_id`, `clock`)
-  - [ ] `open_tick_run(settings, clock=...)`: async context manager. Refusals
+  - [x] `open_tick_run(settings, clock=...)`: async context manager. Refusals
         in TD2's order (run context), each naming the variable or command:
     1. unknown `MT_TICK_*` key in the process environment or the `.env` file:
        known names are derived from `Settings.model_fields` starting `tick_`
@@ -252,94 +258,97 @@ that, split along the phase or concern it holds and note the split.
        --track tick`
     7. `pg_try_advisory_lock(TICK_ACQUISITION_LOCK_KEY)` false → "another
        tick acquisition run holds the lock"
-  - [ ] Copy the shape of Kalshi's `data/kalshi/db.py:open_sync_connection`;
+  - [x] Copy the shape of Kalshi's `data/kalshi/db.py:open_sync_connection`;
         do not import it
-  - [ ] Success: imports; no `data.kalshi` import under `data/tick`
-  - [ ] Effort: 3
+  - [x] Success: imports; no `data.kalshi` import under `data/tick`
+  - [x] Effort: 3
+  - [x] Note: pending migrations are read with Kalshi's async ledger query (a missing ledger = all pending), not the sync-pool list_migration_state, since the run holds one async connection. open_tick_run also takes provider_factory and env_file keywords so tests inject a fake SDK client and a temporary .env.
 
-- [ ] **4.2 Tests for the run context (FR1, preflight)**
-  - [ ] Unit (`test/unit/data/tick/test_run_context.py`): each of refusals
+- [x] **4.2 Tests for the run context (FR1, preflight)**
+  - [x] Unit (`test/unit/data/tick/test_run_context.py`): each of refusals
         1–4 raises `TickPreflightError` naming its variable; the misspelt
         `MT_TICK_DATA_SPEND_CEILING_USD` names `MT_TICK_SPEND_CEILING_USD`
         both when set in the process environment and when present only in a
         temporary `.env` file (the 2026-09-28 case); a missing archive
         directory is not created; an existing but read-only archive directory
         (`chmod 0555` on a `tmp_path` directory) is refused as not writable
-  - [ ] Integration (`test/integration/data/test_tick_run_context.py`) on
+  - [x] Integration (`test/integration/data/test_tick_run_context.py`) on
         `ephemeral_tick_db`/`migrated_tick_db`: a bare database refuses with
         the migrate command; a migrated one yields; a second concurrent
         `open_tick_run` refuses on the lock; after the first closes, a new
         one succeeds; a URL to a closed local port refuses as unreachable
         within the connect timeout, naming `MT_TICK_DB_URL`
-  - [ ] Success: both pass
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add tick run context and preflight`
+  - [x] Success: both pass
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add tick run context and preflight`
 
 ---
 
 ## Section 5 — Manifest repository
 
-- [ ] **5.1 Create `data/tick/manifest_repo.py`**
-  - [ ] Every SQL statement on `tick_request` and `tick_archive_unit`, as named
+- [x] **5.1 Create `data/tick/manifest_repo.py`**
+  - [x] Every SQL statement on `tick_request` and `tick_archive_unit`, as named
         async functions over the run's connection. Parameterized only
-  - [ ] Every unit `UPDATE` is compare-and-set: its `WHERE` names the expected
+  - [x] Every unit `UPDATE` is compare-and-set: its `WHERE` names the expected
         `state` and `fetch_status` (and `reopened_at IS NULL` where TD8 says);
         a zero-row match raises `ManifestTransitionError` naming the unit and
         the expected state (TD2, compare-and-set)
-  - [ ] Functions needed by 223: insert adopted request with units;
+  - [x] Functions needed by 223: insert adopted request with units;
         request-by-job-id lookup; mark downloaded (file columns); mark
         verified (`provider_record_count`); record failure (transient: attempt
         + 1, exhaust at `MAX_RETRY_COUNT`; deterministic: straight to
         `RETRY_EXHAUSTED` with reason); mark `PROVIDER_HOLE`; reset one
         exhausted unit (→ `UNKNOWN`, attempt 0, reason NULL); reopen one hole
         (`reopened_at = now`); read units by id
-  - [ ] These are per-unit compare-and-set primitives only. Deciding which
+  - [x] These are per-unit compare-and-set primitives only. Deciding which
         primitive applies to a unit (the reset classification) is 8.1's, not
         this module's
-  - [ ] The coverage predicate (`superseded_by_unit_id IS NULL AND
+  - [x] The coverage predicate (`superseded_by_unit_id IS NULL AND
         reopened_at IS NULL`) is one SQL fragment constant, used everywhere
-  - [ ] 224 adds its functions here (submit, reconcile, sweep, trailing
+  - [x] 224 adds its functions here (submit, reconcile, sweep, trailing
         spend, supersession). If the file passes ~300 lines, split reads
         from transitions
-  - [ ] Success: imports; no SQL outside this module and `availability.py`
-  - [ ] Effort: 3
+  - [x] Success: imports; no SQL outside this module and `availability.py`
+  - [x] Effort: 3
+  - [x] Note: At 370 lines the module passed ~300, so it is split now: manifest_reads.py (row types, COVERAGE_PREDICATE, reads) and manifest_repo.py (inserts and compare-and-set transitions). Advancing a unit resets fetch_status to UNKNOWN, clears the reason and zeroes attempt_count (fetch_status is the next step's failure lifecycle, 222). Adopted requests take requested_at = committed_at = the provider's ts_received, so a rebuild yields identical rows.
 
-- [ ] **5.2 Integration tests for every 223 transition**
-  - [ ] `test/integration/data/test_tick_manifest_repo.py` on
+- [x] **5.2 Integration tests for every 223 transition**
+  - [x] `test/integration/data/test_tick_manifest_repo.py` on
         `migrated_tick_db`, rows from `test/tick_support/rows.py`
-  - [ ] Each transition succeeds from its expected state and raises
+  - [x] Each transition succeeds from its expected state and raises
         `ManifestTransitionError` from any other (parametrized)
-  - [ ] Transient failure five times ends `RETRY_EXHAUSTED` with attempt
+  - [x] Transient failure five times ends `RETRY_EXHAUSTED` with attempt
         count 5; a deterministic failure exhausts at attempt 1
-  - [ ] Reset-one and reopen-one raise on a unit that is already reopened
-  - [ ] Success: passes
-  - [ ] Effort: 3
-  - [ ] Commit: `feat(tick): add compare-and-set manifest repository`
+  - [x] Reset-one and reopen-one raise on a unit that is already reopened
+  - [x] Success: passes
+  - [x] Effort: 3
+  - [x] Commit: `feat(tick): add compare-and-set manifest repository`
 
 ---
 
 ## Section 6 — Verification
 
-- [ ] **6.1 Create `data/tick/verify.py`**
-  - [ ] `check(run, unit)`, run in `asyncio.to_thread` for hashing and the
+- [x] **6.1 Create `data/tick/verify.py`**
+  - [x] `check(run, unit)`, run in `asyncio.to_thread` for hashing and the
         header read: file exists under its final name; size and SHA-256
         re-hashed equal the recorded values; header dataset, schema,
         `stype_in` equal the request's; header start/end equal the unit's
         UTC day; then the free `record_count` for `[day, day+1)` with the
         request's symbols is stored via `mark verified` (TD9, Verification)
-  - [ ] Header or hash mismatch → deterministic failure naming the field;
+  - [x] Header or hash mismatch → deterministic failure naming the field;
         `ProviderError` propagates to the phase (run-level)
-  - [ ] Success: imports
-  - [ ] Effort: 2
+  - [x] Success: imports
+  - [x] Effort: 2
+  - [x] Note: SHA-256 hashing moved to data/tick/hashing.py, shared with 220's verified download and adoption. check() takes the ITickFileReader as an argument (the CLI passes DbnFileReader) and returns VerifyOutcome.
 
-- [ ] **6.2 Tests for verification**
-  - [ ] Unit over files from `write_day_file`: a matching file verifies and
+- [x] **6.2 Tests for verification**
+  - [x] Unit over files from `write_day_file`: a matching file verifies and
         stores the fake's record count; a flipped byte, a wrong day, a wrong
         schema and a wrong dataset each fail naming the field; a record-count
         call failure raises `ProviderError`
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add archive unit verification`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add archive unit verification`
 
 ---
 
@@ -351,35 +360,35 @@ raise `TickAdoptionRefused(message)` (defined in `adopt_files.py`) for a
 refusal that writes no row; the verb maps it to exit 1 (TD10, all or
 nothing).
 
-- [ ] **7.1 Create `data/tick/adopt_files.py` (file handling)**
-  - [ ] Read `manifest.json` from a directory or a zip; its `job_id` must
+- [x] **7.1 Create `data/tick/adopt_files.py` (file handling)**
+  - [x] Read `manifest.json` from a directory or a zip; its `job_id` must
         equal `--job-id`; any listed name containing `/`, `\` or `..` is
         refused; zip members are read only by listed names
-  - [ ] Free space on the archive volume ≥ Σ listed sizes, else refuse
+  - [x] Free space on the archive volume ≥ Σ listed sizes, else refuse
         naming the shortfall (free-bytes function injectable for tests)
-  - [ ] Each listed file → `<archive>/<ID>/<name>.partial`, hashed while
+  - [x] Each listed file → `<archive>/<ID>/<name>.partial`, hashed while
         written, renamed on size+SHA-256 match; an existing final file with a
         matching hash is skipped; any mismatch or missing member refuses,
         leaving `.partial` files; blocking work in `asyncio.to_thread`
-  - [ ] `OSError` on write (for example `ENOSPC`) is not a refusal: it raises
+  - [x] `OSError` on write (for example `ENOSPC`) is not a refusal: it raises
         `TickArchiveWriteError` naming path and errno, which the verb maps to
         exit 4 (storage)
-  - [ ] Returns the copied files with size and hash
-  - [ ] Success: imports; under ~300 lines
-  - [ ] Effort: 2
+  - [x] Returns the copied files with size and hash
+  - [x] Success: imports; under ~300 lines
+  - [x] Effort: 2
 
-- [ ] **7.2 Unit tests for adoption file handling**
-  - [ ] Over `write_job_dir`/`zip_job_dir`: directory and zip both copy every
+- [x] **7.2 Unit tests for adoption file handling**
+  - [x] Over `write_job_dir`/`zip_job_dir`: directory and zip both copy every
         listed file; a flipped byte in one file refuses with its name and
         leaves no final file; a `../x` name and a name not in the zip are
         refused; a job-id mismatch is refused; insufficient free space is
         refused before any copy; an injected `OSError(ENOSPC)` on write
         raises `TickArchiveWriteError` naming path and errno
-  - [ ] Success: passes
-  - [ ] Effort: 2
+  - [x] Success: passes
+  - [x] Effort: 2
 
-- [ ] **7.3 Create `data/tick/adopt.py` (orchestration and rows)**
-  - [ ] Follow TD10 (adoption) and the LLD's Adoption data flow:
+- [x] **7.3 Create `data/tick/adopt.py` (orchestration and rows)**
+  - [x] Follow TD10 (adoption) and the LLD's Adoption data flow:
     1. job id already in `tick_request` → result "already adopted", nothing
        written
     2. `batch_job(ID)` state must be `done` or `expired`, else
@@ -397,83 +406,88 @@ nothing).
        + `PROVIDER_HOLE`; a file on a non-session day → reported by name, no
        unit
     6. `verify.check` each downloaded unit
-  - [ ] Returns an `AdoptResult` (job, cost, files, units by state, holes,
+  - [x] Returns an `AdoptResult` (job, cost, files, units by state, holes,
         strays) for rendering
-  - [ ] Success: imports; under ~300 lines
-  - [ ] Effort: 3
+  - [x] Success: imports; under ~300 lines
+  - [x] Effort: 3
+  - [x] Note: The product comes from the job's symbols (parent/continuous: the root before the first '.'); other stypes are refused. Data files are those ending .dbn.zst/.dbn; two files on one day are refused. An unset MT_TIMESCALE_DB_URL (the calendar) is a refusal (exit 1). A unit that fails verification after adoption stays RETRY_EXHAUSTED and is listed in red; adopt still exits 0 (open question for the PM).
 
-- [ ] **7.4 Integration tests: adoption end to end (FR2)**
-  - [ ] `test/integration/data/test_tick_adopt.py`: `migrated_tick_db` plus
+- [x] **7.4 Integration tests: adoption end to end (FR2)**
+  - [x] `test/integration/data/test_tick_adopt.py`: `migrated_tick_db` plus
         `session_migrated_db` calendar, fake provider job record, a job
         directory of day files over two UTC days
-  - [ ] Every session day with a file ends *verified* with
+  - [x] Every session day with a file ends *verified* with
         `provider_record_count`; a session day without a file is
         `PROVIDER_HOLE`; a stray non-session file is reported; the request
         row matches the job's cost and `ts_received`
-  - [ ] A second adoption writes nothing and returns "already adopted";
+  - [x] A second adoption writes nothing and returns "already adopted";
         re-adopting from `<archive>/<ID>` into a fresh database copies
         nothing and rebuilds identical rows (TD10, rebuilding the manifest)
-  - [ ] Refusals write no rows: a corrupted file; a job state `queued`
+  - [x] Refusals write no rows: a corrupted file; a job state `queued`
         (`TickAdoptionRefused` naming it); a calendar URL to a closed port and
         a range before 2020-01-01 (outside the CME span) each raise the
         storage error with no row
-  - [ ] Success: passes
-  - [ ] Effort: 3
-  - [ ] Commit: `feat(tick): add batch job adoption`
+  - [x] Success: passes
+  - [x] Effort: 3
+  - [x] Note: An unreachable calendar waits out TradingCalendar's fixed 30 s pool timeout (psycopg_pool.PoolTimeout, an OperationalError); that test carries @pytest.mark.timeout(90). The rebuild test uses a new second_migrated_tick_db fixture in test/conftest.py.
+  - [x] Commit: `feat(tick): add batch job adoption`
 
 ---
 
 ## Section 8 — `adopt` and `reset` verbs
 
-- [ ] **8.1 Reset classification, `data/tick/reset.py`**
-  - [ ] `reset_units(run, unit_ids | ALL) -> list[ResetChange]` owns the
+- [x] **8.1 Reset classification, `data/tick/reset.py`**
+  - [x] `reset_units(run, unit_ids | ALL) -> list[ResetChange]` owns the
         classification and calls 5.1's per-unit primitives: exhausted and not
         reopened → reset-one; `PROVIDER_HOLE` and not reopened → reopen-one;
         anything else unchanged and listed (TD8, reset). An unknown unit id
         is listed as not found
-  - [ ] Integration test (`test/integration/data/test_tick_reset.py`): each
+  - [x] Integration test (`test/integration/data/test_tick_reset.py`): each
         branch, including reopened and non-exhausted units listed unchanged
         and an unknown id
-  - [ ] Success: passes
-  - [ ] Effort: 1
+  - [x] Success: passes
+  - [x] Effort: 1
+  - [x] Note: With --all only the units the classification changes are listed.
 
-- [ ] **8.2 CLI verbs and rendering**
-  - [ ] `mt data tick adopt --job-id ID --source PATH [--json]` and `mt data
+- [x] **8.2 CLI verbs and rendering**
+  - [x] `mt data tick adopt --job-id ID --source PATH [--json]` and `mt data
         tick reset (--unit-id N ... | --all) [--yes] [--json]` in
         `cli/commands/tick.py`; both go through `open_tick_run`
-  - [ ] Reset prompts for the word `reset` unless `--yes` or `--json`
-  - [ ] Rendering in new `cli/commands/tick_pass_render.py` (Rich and `--json`
+  - [x] Reset prompts for the word `reset` unless `--yes` or `--json`
+  - [x] Rendering in new `cli/commands/tick_pass_render.py` (Rich and `--json`
         via `cli.output`): adopt shows job, cost, files, units by state,
         holes and strays; reset shows each unit before and after
-  - [ ] Exit: `TickPreflightError` or `TickAdoptionRefused` → 1;
+  - [x] Exit: `TickPreflightError` or `TickAdoptionRefused` → 1;
         `ProviderError` → 2; `TickArchiveWriteError`, the calendar errors of
         7.3 and `psycopg.OperationalError` → 4; else 0
-  - [ ] Success: `mt data tick --help` lists both; both files under ~300 lines
-  - [ ] Effort: 2
+  - [x] Success: `mt data tick --help` lists both; both files under ~300 lines
+  - [x] Effort: 2
+  - [x] Note: A declined prompt exits 1 (adopt and reset use only 0, 1, 2 and 4). The verbs import their cores lazily and call them through the module so tests patch them.
 
-- [ ] **8.3 CLI tests**
-  - [ ] Extend `test/unit/cli/commands/test_data_tick.py` with the run context
+- [x] **8.3 CLI tests**
+  - [x] Extend `test/unit/cli/commands/test_data_tick.py` with the run context
         and cores patched: each exception class of 8.2 gives its exit code;
         `--json` shapes; reset refuses without the typed word; `--unit-id` and
         `--all` are mutually exclusive
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add adopt and reset verbs`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add adopt and reset verbs`
 
 ---
 
 ## Section 9 — Archive backup enrolment
 
-- [ ] **9.1 Include and exclude the archive**
-  - [ ] `scripts/cron_system_backup.sh`: add `/data/tick-archive` to
+- [x] **9.1 Include and exclude the archive**
+  - [x] `scripts/cron_system_backup.sh`: add `/data/tick-archive` to
         `INCLUDE_PATHS` with a comment (separate device under
         `--one-file-system`, TD11)
-  - [ ] `deploy/restic-excludes.txt`: add `/data/tick-archive/**/*.partial`
-  - [ ] Success: `~/.local/bin/shellcheck scripts/cron_system_backup.sh` clean
-  - [ ] Effort: 1
+  - [x] `deploy/restic-excludes.txt`: add `/data/tick-archive/**/*.partial`
+  - [x] Success: `~/.local/bin/shellcheck scripts/cron_system_backup.sh` clean
+  - [x] Effort: 1
+  - [x] Note: /data/tick-archive was created on 2026-09-28 (manta-owned /data, no root) because the root cron runs this checkout's script: a missing include path would fail the 04:00 backup. test_system_backup.py's include-set expectation was updated.
 
-- [ ] **9.2 Create `scripts/verify_tick_archive_backup.sh`**
-  - [ ] Root script, same arguments as the cron line plus `--log`; check
+- [x] **9.2 Create `scripts/verify_tick_archive_backup.sh`**
+  - [x] Root script, same arguments as the cron line plus `--log`; check
         before act; prints expected vs observed at each step; logs to the
         given file. Steps per TD11 (proof, now): fail if
         `MT_TICK_ARCHIVE_DIR` from the env file is not in `INCLUDE_PATHS`;
@@ -481,63 +495,64 @@ nothing).
         excluding `.partial`; restore one data file into
         `/data/restore-test/tick-archive/` (created by the script, refuse if
         it exists); compare SHA-256; remove only that directory
-  - [ ] Success: shellcheck clean; `--help` runs without root
-  - [ ] Effort: 2
+  - [x] Success: shellcheck clean; `--help` runs without root
+  - [x] Effort: 2
+  - [x] Note: The script needs the backup run's --stamp, --lock and --backup-log (the cron line's --log) as well, so the LLD walkthrough step 9 command gains them.
 
-- [ ] **9.3 Runbook 200**
-  - [ ] `project-documents/user/runbooks/200-backup-and-restore.md`: add the
+- [x] **9.3 Runbook 200**
+  - [x] `project-documents/user/runbooks/200-backup-and-restore.md`: add the
         path to the D9 include set, the `.partial` exclusion, and a restore
         subsection naming the verify script
-  - [ ] Success: `dateUpdated` bumped
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(backup): enrol the tick archive in the nightly backup`
+  - [x] Success: `dateUpdated` bumped
+  - [x] Effort: 1
+  - [x] Commit: `feat(backup): enrol the tick archive in the nightly backup`
 
 ---
 
 ## Section 10 — Documents
 
-- [ ] **10.1 Contract rows**
-  - [ ] `user/reference/data-correctness-architecture.md`: 223's part in rows
+- [x] **10.1 Contract rows**
+  - [x] `user/reference/data-correctness-architecture.md`: 223's part in rows
         I9 (loud preflight refusals, the lock), I10 (the `adopt` and `reset`
         verbs), I11 (the manifest writes, the availability tables created)
-  - [ ] Success: `dateUpdated` bumped; no other row changed
-  - [ ] Effort: 1
+  - [x] Success: `dateUpdated` bumped; no other row changed
+  - [x] Effort: 1
 
-- [ ] **10.2 README, `.env_sample`, migrations README, CHANGELOG**
-  - [ ] README "Futures tick data": `adopt` and `reset`, the archive location
+- [x] **10.2 README, `.env_sample`, migrations README, CHANGELOG**
+  - [x] README "Futures tick data": `adopt` and `reset`, the archive location
         and its backup; environment table gains `MT_TICK_SPEND_30D_CEILING_USD`
         (read by 224's pass) and `MT_TICK_ARCHIVE_DIR`
-  - [ ] `.env_sample`: both variables, archive value `/data/tick-archive`
-  - [ ] Migrations README: `tick_006`
-  - [ ] CHANGELOG `[Unreleased]` Added entries, user-facing wording
-  - [ ] Success: all updated
-  - [ ] Effort: 1
-  - [ ] Commit: `docs: record tick archive adoption in contract and readmes`
+  - [x] `.env_sample`: both variables, archive value `/data/tick-archive`
+  - [x] Migrations README: `tick_006`
+  - [x] CHANGELOG `[Unreleased]` Added entries, user-facing wording
+  - [x] Success: all updated
+  - [x] Effort: 1
+  - [x] Commit: `docs: record tick archive adoption in contract and readmes`
 
 ---
 
 ## Section 11 — Validation
 
-- [ ] **11.1 Lint, types and tiers**
-  - [ ] ruff and mypy per the test environment note; unit then integration
+- [x] **11.1 Lint, types and tiers**
+  - [x] ruff and mypy per the test environment note; unit then integration
         tier; compare with the Section 0 baseline
-  - [ ] Success: no failure outside the baseline
-  - [ ] Effort: 2
+  - [x] Success: no failure outside the baseline
+  - [x] Effort: 2
 
-- [ ] **11.2 Walkthrough steps 1–4, 8 and 9 on the real archive**
-  - [ ] Run LLD walkthrough steps 1–4 (tests, scratch database
+- [x] **11.2 Walkthrough steps 1–4, 8 and 9 on the real archive**
+  - [x] Run LLD walkthrough steps 1–4 (tests, scratch database
         `mt_scratch_tick_223`, the pre-init refusal, adopting both
         free-credit jobs, the manifest query), step 8 (reset) and step 9
         (backup verify under sudo). Add `MT_TICK_ARCHIVE_DIR=/data/tick-archive`
         to the dev `.env` first (not committed)
-  - [ ] Run step 9 with the Bash sandbox disabled (the sandbox sets "no new
+  - [x] Run step 9 with the Bash sandbox disabled (the sandbox sets "no new
         privileges", which blocks sudo). Only if sudo is still refused, STOP
         and give the PM the single step 9 command and the log path
-  - [ ] Keep `mt_scratch_tick_223`: 224's walkthrough continues in it
-  - [ ] Record actual outputs in the LLD walkthrough; correct any command or
+  - [x] Keep `mt_scratch_tick_223`: 224's walkthrough continues in it
+  - [x] Record actual outputs in the LLD walkthrough; correct any command or
         expected value that differed
-  - [ ] Success: 26 and 52 units *verified*, provider records equal job
+  - [x] Success: 26 and 52 units *verified*, provider records equal job
         records (10,049,172 and 17,642,240), re-adopt exits 0, backup log
         shows equal counts and hashes
-  - [ ] Effort: 2
-  - [ ] Commit: `docs: record slice 223 verification walkthrough`
+  - [x] Effort: 2
+  - [x] Commit: `docs: record slice 223 verification walkthrough`

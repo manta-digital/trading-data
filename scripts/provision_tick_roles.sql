@@ -9,7 +9,7 @@
 -- Two roles, never the primary ones (D3). Roles are cluster-wide, so reusing
 -- trading_app / trading_migrate would let one leaked credential reach both
 -- databases on a shared cluster, and on a separate cluster they do not exist:
---   tick_app      DML on the enumerated write surface (the five tick tables),
+--   tick_app      DML on the enumerated write surface (the seven tick tables),
 --                 TEMPORARY for COPY staging, SELECT-only on the ledger.
 --   tick_migrate  Owns the tick database and everything its migrations create.
 --
@@ -134,10 +134,11 @@ SELECT format(
 \gexec
 
 -- ---------------------------------------------------------------------------
--- Write surface — enumerated, not inferred. The five tables of the tick track
--- (slice 222): the manifest (tick_request, tick_archive_unit), contract
--- definitions (tick_definition), trades (tick_trade) and the ingest ledger
--- (tick_ingest_ledger). Filtered on pg_tables so the file applies before they
+-- Write surface — enumerated, not inferred. The seven tables of the tick track:
+-- slice 222's manifest (tick_request, tick_archive_unit), contract definitions
+-- (tick_definition), trades (tick_trade) and ingest ledger
+-- (tick_ingest_ledger); slice 223's availability metadata (tick_dataset_edge,
+-- tick_day_condition). Filtered on pg_tables so the file applies before they
 -- exist. DML only: no TRUNCATE, and no sequence grant (identity columns draw
 -- their values without one).
 -- ---------------------------------------------------------------------------
@@ -151,7 +152,9 @@ WHERE schemaname = 'public'
     'tick_archive_unit',
     'tick_definition',
     'tick_trade',
-    'tick_ingest_ledger'
+    'tick_ingest_ledger',
+    'tick_dataset_edge',
+    'tick_day_condition'
   )
 ORDER BY tablename
 \gexec

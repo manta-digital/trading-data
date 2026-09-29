@@ -6,7 +6,7 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [923, 220, 221, 222, 223]
 interfaces: [225, 226, 227, 228, 229, 231, 233]
 dateCreated: 20260928
-dateUpdated: 20260928
+dateUpdated: 20260929
 status: not_started
 review: none
 ---
@@ -314,14 +314,16 @@ for each downloaded unit: verify.check(unit) → verified
 **Adoption** (`mt data tick adopt --job-id ID --source PATH [--json]`):
 
 ```
-open_tick_run  ─► refuse when job id is already in tick_request ("already adopted", exit 0)
+open_tick_run  ─► job id already in tick_request → "already adopted": verify its
+                   downloaded units (left by an interrupted run), nothing else
 batch_job(ID)  ─► state done|expired (else refuse); request, cost, counts, ts_received
+session days of the job range (calendar; refusal → nothing copied or written, exit 4)
 read manifest.json from PATH (dir or zip); manifest.job_id == ID
 for each listed file: copy/extract → <archive>/<ID>/<name>.partial, hashing
                       size + sha256 match → rename   (any mismatch: nothing written, exit 1)
-session days of the job range (calendar) ─► one txn: request (is_adopted) + units:
+one txn: request (is_adopted) + units:
     day with a file → downloaded;  session day without a file → delivered + PROVIDER_HOLE
-verify.check(each downloaded unit) → verified
+verify.check(each downloaded unit) → verified   (any failure: exit 3)
 ```
 
 ### State Management
@@ -428,6 +430,10 @@ new codes, after Kalshi's pattern:
 | 4 | `EXIT_STORAGE` |
 | 5 | `EXIT_REFUSED` |
 | 6 | `EXIT_IN_FLIGHT` |
+
+Slice 223 defines `EXIT_PARTIAL` and `EXIT_STORAGE`: `adopt` exits 3
+when a unit fails verification, and 4 on a storage fault. The pass
+reuses both.
 
 `EXIT_BY_OUTCOME` has a module-level exhaustiveness assert, as Kalshi's
 does.
@@ -913,8 +919,17 @@ a job directory or the provider's zip.
     unit. This is loud, so a calendar–provider disagreement is seen.
 
   `verify.check` then runs on each downloaded unit in the same command.
+  A unit that fails is recorded as a deterministic failure and the
+  command exits 3 (`EXIT_PARTIAL`, the pass's code for the same case).
+  A `ProviderError` from the record-count call stops verification,
+  leaves the remaining units *downloaded*, and exits 2 with a message
+  saying how many are left and to run the same command again.
 - **Idempotent.** A job id already in the manifest is reported as
-  "already adopted" with exit 0, and nothing is written.
+  "already adopted", and no file or request row is written. Units still
+  *downloaded* (an earlier run interrupted by a provider error) are
+  verified; the exit code is 0, or 3 if one of them fails. (Review
+  finding, 223 code review: without this, nothing could verify them
+  until the pass exists.)
 
 **Rebuilding the manifest.** Every job under the archive can be adopted
 again:
@@ -1311,10 +1326,24 @@ database on the test cluster (see Dependencies). Export
    - The first two exit 0, with cost $12.58 / $36.80, 26 / 52 units
      *verified*, and no holes and no stray files.
    - The third reports "already adopted" and exits 0.
-   - `sha256sum -c` against each job's `manifest.json` in
-     `/data/tick-archive/<job>/` passes.
+   - Each job's files pass a check against its `manifest.json`. The
+     manifest is JSON, not `sha256sum` format, so convert it first:
+
+     ```bash
+     cd /data/tick-archive/<job> && jq -r '.files[] |
+       "\(.hash|sub("^sha256:";""))  \(.filename)"' manifest.json | sha256sum -c --quiet
+     ```
+
    - The originals under `/data/market-data/databento` are unchanged
      (`ls -la` times).
+
+   Result (223, 2026-09-29): as expected. Both exit 0 with 26 and 52
+   *verified*, no holes, no strays; the re-adopt printed "already adopted;
+   nothing written" and exited 0. The checks passed on 29 and 55 files. A
+   full-iso `ls -laR` of both originals was identical before and after.
+   The first run of this step had refused at the calendar (production
+   lacked migrations 057/058) *after* copying job 1's files. Adoption now
+   reads the calendar before copying.
 
 4. **Look at the manifest.**
 
@@ -1328,6 +1357,10 @@ database on the test cluster (see Dependencies). Export
    Expected: two rows. For each, `provider_records` equals
    `job_records`: 10,049,172 and 17,642,240. This is the per-day count
    finding holding over whole jobs.
+
+   Result (223, 2026-09-29): as expected. `trades` 26/26 verified,
+   10,049,172 = 10,049,172, $12.5785; `tbbo` 52/52 verified, 17,642,240 =
+   17,642,240, $36.8046. Both `is_adopted`.
 
 5. **Plan without buying.**
 
@@ -1387,11 +1420,18 @@ database on the test cluster (see Dependencies). Export
    Expected: before `RETRY_EXHAUSTED`, after `UNKNOWN`, `attempt_count`
    0.
 
+   Result (223, 2026-09-29): as expected on unit 1. It went from `verified
+   / RETRY_EXHAUSTED (attempts 5)` to `verified / UNKNOWN (attempts 0)`,
+   with `failure_reason` cleared. Exit 0.
+
 9. **The archive is in the backup.**
 
    ```bash
    sudo scripts/verify_tick_archive_backup.sh --env-file .env --repo-prefix system \
-       --exclude-file deploy/restic-excludes.txt --log /data/backup/tick-archive-verify.log
+       --exclude-file deploy/restic-excludes.txt \
+       --stamp /data/backup/system-backup.stamp --lock /data/backup/system-backup.lock \
+       --backup-log /data/backup/system-backup.log \
+       --log /data/backup/tick-archive-verify.log
    ```
 
    Expected: each step prints the expected and observed value. The
@@ -1399,6 +1439,15 @@ database on the test cluster (see Dependencies). Export
    archive's, and the restored file's SHA-256 equals the original's.
    Claude runs this under the sudo grant, and the log is what the PM
    reads.
+
+   Result (223, 2026-09-29, run by the PM): as expected. Snapshot
+   `5a28cbcc` holds 86 files under `/data/tick-archive`, the same as the
+   archive, and the restored `glbx-mdp3-20240830.trades.dbn.zst` hashes to
+   `57e8ad7f…80b2e0` on both sides. The first run counted 0, because
+   `restic ls` with a directory filter lists only direct children; the
+   script now passes `--recursive`. Adding the archive changed the
+   snapshot path set, so restic applies retention to the old and new sets
+   separately. The old set ages out under the same policy.
 
 10. **Prove the rebuild, then tear down.** The archive stays: it is the
     record. Re-adopting its job directories (step 3's form, with

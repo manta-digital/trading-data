@@ -17,6 +17,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`mt data tick adopt`** records a Databento batch job you already have on
+  disk (its directory or zip). Every file is checked against the job's
+  `manifest.json`, copied into the tick archive (`MT_TICK_ARCHIVE_DIR`), and
+  each trading day's file is verified against its header and Databento's free
+  record count. The cost and times come from Databento's own job record. A
+  bad byte refuses the whole job; a unit that fails verification exits `3`;
+  adopting again changes nothing but verifies any units a provider error left
+  unverified; adopting the archive into an empty tick database rebuilds its
+  records. A malformed `manifest.json` entry is refused, not a crash.
+- **`mt data tick reset`** returns exhausted tick units to be retried and
+  reopens days a job delivered no file for; it asks you to type `reset`
+  unless `--yes` or `--json` is given.
+- The tick commands that write the manifest refuse to start, naming what to
+  fix, on a misspelt `MT_TICK_*` setting (in the environment or `.env`, with
+  the closest real name), a missing key, database URL or archive directory, a
+  pending tick migration, or another run already in progress.
+- New settings `MT_TICK_ARCHIVE_DIR` and `MT_TICK_SPEND_30D_CEILING_USD`.
+- The tick archive (`/data/tick-archive`) is in the nightly restic backup,
+  and `scripts/verify_tick_archive_backup.sh` proves a one-file restore.
+- Migration `tick_006_availability`: tables for Databento's dataset range
+  and per-day data condition, and a marker for units whose day must be bought
+  again.
 - **The tick database's tables.** `mt data init --database tick` now creates
   the storage for CME futures tick data: the request and archive-unit
   manifest, contract definitions whose validity windows cannot overlap, a
@@ -25,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   time and sequence number are both kept. Nothing writes these tables yet;
   acquisition and ingest come next.
 - `scripts/provision_tick_roles.sql` grants the tick application role read
-  and write access to the five tick tables (never TRUNCATE or DDL).
+  and write access to the seven tick tables (never TRUNCATE or DDL).
 
 ### Removed
 - The unused `TickEventType` enum (`manta_trading.data.base.tick_schema`),

@@ -10,7 +10,6 @@ resumed, and the caller's reconcile phase is the retry.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
@@ -18,6 +17,7 @@ from pathlib import Path
 import httpx
 
 from manta_trading.data.tick.databento._status import refusal_error
+from manta_trading.data.tick.hashing import sha256_file
 from manta_trading.providers.errors import (
     ProviderError,
     ProviderPermanentError,
@@ -25,7 +25,6 @@ from manta_trading.providers.errors import (
 )
 
 PARTIAL_SUFFIX = ".partial"
-_HASH_CHUNK_BYTES = 1024 * 1024
 #: The job's files are gone (expired or never existed): re-download is futile.
 _GONE_STATUSES = frozenset({HTTPStatus.NOT_FOUND, HTTPStatus.GONE})
 
@@ -101,14 +100,6 @@ def _status_error(status: int, file: BatchFile) -> ProviderError:
     return refusal_error(status, detail)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(_HASH_CHUNK_BYTES):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _verify(partial: Path, file: BatchFile) -> None:
     """Size and SHA-256 must match; a mismatch deletes the ``.partial``."""
     size = partial.stat().st_size
@@ -117,14 +108,14 @@ def _verify(partial: Path, file: BatchFile) -> None:
         raise ProviderTransientError(
             f"download {file.filename}: {size} bytes, expected {file.size}"
         )
-    if _sha256(partial) != file.sha256:
+    if sha256_file(partial) != file.sha256:
         partial.unlink()
         raise ProviderTransientError(f"download {file.filename}: SHA-256 mismatch")
 
 
 def _require_verified(final: Path, file: BatchFile) -> None:
     """A final name already present must be this very file."""
-    if final.stat().st_size != file.size or _sha256(final) != file.sha256:
+    if final.stat().st_size != file.size or sha256_file(final) != file.sha256:
         raise ProviderPermanentError(
             f"{final} exists but does not match the listed file; refusing to touch it"
         )

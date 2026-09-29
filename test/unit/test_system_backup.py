@@ -142,7 +142,7 @@ class TestBackup:
         assert argv[1] == "unlock"
         assert argv[2] == (
             f"backup --one-file-system --exclude-file {sysbk['excludes']} "
-            "/etc /root /var/spool/cron/crontabs /home/manta"
+            "/etc /root /var/spool/cron/crontabs /home/manta /data/tick-archive"
         )
         assert (
             argv[3] == "forget --keep-daily 7 --keep-weekly 4 --keep-monthly 3 --prune"

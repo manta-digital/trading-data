@@ -18,6 +18,7 @@ from psycopg import sql
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import (
     CME_DATASET,
+    DatasetCondition,
     DeliveryMode,
     SType,
     TickSchema,
@@ -148,3 +149,24 @@ def insert_ledger_row(
         "last_event_ns": ACTIVATION_NS + 1,
     }
     _insert(conn, "tick_ingest_ledger", row | overrides, None)
+
+
+def insert_dataset_edge(conn: psycopg.Connection[Any], **overrides: Any) -> None:
+    row: dict[str, Any] = {
+        "dataset": CME_DATASET,
+        "available_start": datetime(2010, 6, 6, tzinfo=UTC),
+        "available_end": _AT,
+        "observed_at": _AT,
+    }
+    _insert(conn, "tick_dataset_edge", row | overrides, None)
+
+
+def insert_day_condition(conn: psycopg.Connection[Any], **overrides: Any) -> None:
+    row: dict[str, Any] = {
+        "dataset": CME_DATASET,
+        "condition_date": date(2024, 9, 3),
+        "condition": DatasetCondition.AVAILABLE.value,
+        "last_modified_date": date(2024, 9, 4),
+        "observed_at": _AT,
+    }
+    _insert(conn, "tick_day_condition", row | overrides, None)

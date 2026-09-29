@@ -3,7 +3,8 @@
 # state to B2, run as root from cron.d (slice 920, D9).
 #
 # Include set (constants below): /etc, /root, /var/spool/cron/crontabs,
-# /home/manta. Excludes come from --exclude-file (deploy/restic-excludes.txt).
+# /home/manta, /data/tick-archive (slice 223). Excludes come from
+# --exclude-file (deploy/restic-excludes.txt).
 # The repository and its credentials are assembled by deploy/lib/restic_repo.sh
 # from the env file's MT_BACKUP_S3_* keys and MT_BACKUP_RESTIC_PASSWORD; they
 # reach restic only through its environment and are never printed here.
@@ -28,7 +29,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RESTIC_REPO_LIB="$SCRIPT_DIR/../deploy/lib/restic_repo.sh"
 
-INCLUDE_PATHS=(/etc /root /var/spool/cron/crontabs /home/manta)
+# /data/tick-archive (slice 223, LLD 224 TD11): the purchased tick files, which
+# may not be buyable again. /data is a separate device and backup runs with
+# --one-file-system, so the path is listed explicitly. It must equal
+# MT_TICK_ARCHIVE_DIR; scripts/verify_tick_archive_backup.sh checks that.
+INCLUDE_PATHS=(/etc /root /var/spool/cron/crontabs /home/manta /data/tick-archive)
 KEEP_DAILY=7
 KEEP_WEEKLY=4
 KEEP_MONTHLY=3

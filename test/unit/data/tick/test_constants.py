@@ -7,11 +7,18 @@ from datetime import timedelta
 
 import pytest
 
+from manta_trading.data.kalshi.constants import SYNC_ADVISORY_LOCK_KEY
 from manta_trading.data.tick.constants import (
     ARCHIVED_SCHEMAS,
     COMPANION_SCHEMAS,
     ESTIMATE_SCHEMAS,
     STORED_TIERS,
+    TICK_ACQUISITION_LOCK_KEY,
+    TICK_ARCHIVE_DIR_ENV,
+    TICK_DB_CONNECT_TIMEOUT_SECONDS,
+    TICK_ENV_PREFIX,
+    TICK_SPEND_30D_CEILING_ENV,
+    TICK_SPEND_CEILING_ENV,
     TICK_TIERS,
     TICK_TRADE_CHUNK_INTERVAL,
     UNIT_STATES_WITH_FILE,
@@ -103,3 +110,24 @@ def test_archived_schemas_are_stored_tiers_and_definition() -> None:
 
 def test_tick_trade_chunk_interval_is_seven_days() -> None:
     assert TICK_TRADE_CHUNK_INTERVAL == timedelta(days=7)
+
+
+def test_acquisition_lock_key_is_its_own() -> None:
+    assert TICK_ACQUISITION_LOCK_KEY == 220_000_001
+    assert TICK_ACQUISITION_LOCK_KEY != SYNC_ADVISORY_LOCK_KEY
+
+
+def test_run_context_constants() -> None:
+    assert TICK_DB_CONNECT_TIMEOUT_SECONDS == 10
+    assert TICK_SPEND_30D_CEILING_ENV == "MT_TICK_SPEND_30D_CEILING_USD"
+    assert TICK_ARCHIVE_DIR_ENV == "MT_TICK_ARCHIVE_DIR"
+    assert TICK_ENV_PREFIX == "MT_TICK_"
+
+
+def test_every_tick_env_name_carries_the_prefix() -> None:
+    for name in (
+        TICK_SPEND_CEILING_ENV,
+        TICK_SPEND_30D_CEILING_ENV,
+        TICK_ARCHIVE_DIR_ENV,
+    ):
+        assert name.startswith(TICK_ENV_PREFIX)

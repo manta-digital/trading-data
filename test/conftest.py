@@ -323,6 +323,24 @@ def migrated_tick_db(ephemeral_tick_db: str) -> str:
 
 
 @pytest.fixture
+def second_migrated_tick_db() -> Iterator[str]:
+    """A second, independent migrated tick database (slice 223).
+
+    For tests that rebuild one database's manifest in another, such as
+    re-adopting the archive into a fresh tick database.
+    """
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.market.schema.migrations import TRACKS
+    from manta_trading.market.schema.runner import apply_migrations
+
+    with _throwaway_database("mt_test_t") as url:
+        with ConnectionPool(url, min_size=1, max_size=2) as pool:
+            apply_migrations(pool, TRACKS["tick"])
+        yield url
+
+
+@pytest.fixture
 def market_db_url() -> str:
     """PostgreSQL connection URL for the market (daily OHLCV) database.
 

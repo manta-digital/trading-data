@@ -6,8 +6,8 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [923, 220, 221, 222]
 interfaces: [224, 225, 227]
 dateCreated: 20260928
-dateUpdated: 20260928
-status: not_started
+dateUpdated: 20260929
+status: complete
 ---
 
 # Slice Design: tick-archive-adoption
