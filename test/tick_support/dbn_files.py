@@ -103,7 +103,7 @@ def write_job_dir(root: Path, job_id: str, files: dict[str, bytes]) -> Path:
     """``<root>/<job_id>/`` with ``files``, JSON placeholders and ``manifest.json``.
 
     ``manifest.json`` lists every other file (``filename``, ``size``, ``hash``
-    as ``sha256:<hex>``) but not itself, as the provider writes it.
+    as ``sha256:<hex>``, ``urls``) but not itself, as the provider writes it.
     """
     job_dir = root / job_id
     job_dir.mkdir(parents=True)
@@ -115,6 +115,7 @@ def write_job_dir(root: Path, job_id: str, files: dict[str, bytes]) -> Path:
             "filename": name,
             "size": written.size,
             "hash": f"sha256:{written.sha256}",
+            "urls": {"https": f"https://example.invalid/{job_id}/{name}"},
         }
         for name, content in sorted(contents.items())
         for written in (_write(job_dir / name, content),)

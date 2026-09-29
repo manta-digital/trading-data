@@ -19,14 +19,15 @@ exit 4. Every call here blocks; the caller runs it in a thread.
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any
+from typing import IO
+
+from pydantic import BaseModel, ValidationError
 
 from manta_trading.data.tick.hashing import HASH_CHUNK_BYTES, sha256_file
 
@@ -108,30 +109,41 @@ def _open_zip(path: Path) -> zipfile.ZipFile:
     return zipfile.ZipFile(path)
 
 
-def _listed(entry: dict[str, Any]) -> ListedFile:
-    name = str(entry["filename"])
+class _ManifestEntry(BaseModel):
+    """The fields adoption reads from one ``files`` entry; others are ignored."""
+
+    filename: str
+    size: int
+    hash: str
+
+
+class _Manifest(BaseModel):
+    job_id: str
+    files: list[_ManifestEntry]
+
+
+def _listed(entry: _ManifestEntry) -> ListedFile:
+    name = entry.filename
     if not name or any(part in name for part in _UNSAFE_NAME_PARTS):
         raise TickAdoptionRefused(f"manifest.json lists an unsafe name {name!r}")
-    digest = str(entry["hash"])
-    if not digest.startswith(_HASH_PREFIX):
-        raise TickAdoptionRefused(f"{name}: unsupported hash {digest!r}")
-    sha256 = digest.removeprefix(_HASH_PREFIX).lower()
-    return ListedFile(name, int(entry["size"]), sha256)
+    if not entry.hash.startswith(_HASH_PREFIX):
+        raise TickAdoptionRefused(f"{name}: unsupported hash {entry.hash!r}")
+    sha256 = entry.hash.removeprefix(_HASH_PREFIX).lower()
+    return ListedFile(name, entry.size, sha256)
 
 
 def _read_manifest(source: _Source, job_id: str) -> tuple[bytes, list[ListedFile]]:
     with source.open(MANIFEST_NAME) as handle:
         raw = handle.read()
     try:
-        body = json.loads(raw)
-        listed_job, entries = body["job_id"], body["files"]
-    except (ValueError, KeyError, TypeError) as exc:
-        raise TickAdoptionRefused(f"{MANIFEST_NAME} is unreadable: {exc!r}") from exc
-    if listed_job != job_id:
+        manifest = _Manifest.model_validate_json(raw)
+    except ValidationError as exc:
+        raise TickAdoptionRefused(f"{MANIFEST_NAME} is unreadable: {exc}") from exc
+    if manifest.job_id != job_id:
         raise TickAdoptionRefused(
-            f"{MANIFEST_NAME} is for job {listed_job}, not --job-id {job_id}"
+            f"{MANIFEST_NAME} is for job {manifest.job_id}, not --job-id {job_id}"
         )
-    return raw, [_listed(entry) for entry in entries]
+    return raw, [_listed(entry) for entry in manifest.files]
 
 
 def _already_archived(final: Path, listed: ListedFile) -> bool:

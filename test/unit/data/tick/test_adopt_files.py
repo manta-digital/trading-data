@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from tick_support.dbn_files import (
+    FIXTURES,
     JOB_JSON_FILES,
     MANIFEST_NAME,
     day_file_bytes,
@@ -21,6 +22,8 @@ from manta_trading.data.tick.adopt_files import (
     PARTIAL_SUFFIX,
     TickAdoptionRefused,
     TickArchiveWriteError,
+    _read_manifest,
+    _Source,
     archive_job_files,
 )
 from manta_trading.data.tick.constants import CME_DATASET, SType
@@ -28,6 +31,8 @@ from manta_trading.data.tick.constants import CME_DATASET, SType
 JOB = "GLBX-20240930-TESTJOB"
 DAY_FILE = "glbx-mdp3-20240903.trades.dbn.zst"
 PLENTY = 10**12
+REAL_JOB = "GLBX-20240930-USM7UXXJBA"
+REAL_MANIFEST_DIR = FIXTURES / "batch" / REAL_JOB
 
 
 def _plenty(path: Path) -> int:
@@ -100,6 +105,33 @@ def test_traversal_name_is_refused(job_dir: Path, archive: Path) -> None:
     _relist(job_dir, lambda b: b["files"][0].update(filename="../x"))
     with pytest.raises(TickAdoptionRefused, match="unsafe name '../x'"):
         _archive(job_dir, archive)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "field"),
+    [
+        (lambda b: b["files"][0].pop("size"), "size"),
+        (lambda b: b["files"][0].pop("hash"), "hash"),
+        (lambda b: b["files"][0].update(size="large"), "size"),
+        (lambda b: b["files"].append("condition.json"), "files"),
+        (lambda b: b.pop("job_id"), "job_id"),
+    ],
+    ids=["no-size", "no-hash", "text-size", "bare-string-entry", "no-job-id"],
+)
+def test_malformed_manifest_is_refused(
+    job_dir: Path, archive: Path, mutate: Any, field: str
+) -> None:
+    _relist(job_dir, mutate)
+    with pytest.raises(TickAdoptionRefused, match=f"unreadable(.|\n)*{field}"):
+        _archive(job_dir, archive)
+    assert not (archive / JOB).exists()
+
+
+def test_real_provider_manifest_parses() -> None:
+    """The manifest of a job the provider delivered, as it was downloaded."""
+    listed = _read_manifest(_Source(REAL_MANIFEST_DIR), REAL_JOB)[1]
+    assert {item.name for item in listed} >= {"condition.json", "metadata.json"}
+    assert all(len(item.sha256) == 64 for item in listed)
 
 
 def test_name_missing_from_zip_is_refused(job_dir: Path, archive: Path) -> None:

@@ -2,7 +2,7 @@
 docType: reference
 project: trading-data
 dateCreated: 20260927
-dateUpdated: 20260927
+dateUpdated: 20260929
 ---
 
 # Databento DBN sample files — provenance
@@ -27,3 +27,10 @@ Copied unmodified from the `databento/dbn` repository, `tests/data/`.
 These are correctness fixtures for the DBN file reader (slice 220, Technical
 Decision 11). They are not throughput input; `scripts/bench_dbn_decode.py`
 builds its own input from the trades file in memory.
+
+## Provider batch manifest
+
+`batch/GLBX-20240930-USM7UXXJBA/manifest.json` is the `manifest.json` of a
+trades job the provider delivered (adopted in slice 223), byte for byte except
+that the account segment of every download URL reads `REDACTED`. It keeps
+adoption's manifest parser honest against the real format.
