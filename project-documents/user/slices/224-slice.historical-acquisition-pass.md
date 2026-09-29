@@ -1414,7 +1414,10 @@ database on the test cluster (see Dependencies). Export
 
    ```bash
    sudo scripts/verify_tick_archive_backup.sh --env-file .env --repo-prefix system \
-       --exclude-file deploy/restic-excludes.txt --log /data/backup/tick-archive-verify.log
+       --exclude-file deploy/restic-excludes.txt \
+       --stamp /data/backup/system-backup.stamp --lock /data/backup/system-backup.lock \
+       --backup-log /data/backup/system-backup.log \
+       --log /data/backup/tick-archive-verify.log
    ```
 
    Expected: each step prints the expected and observed value. The
