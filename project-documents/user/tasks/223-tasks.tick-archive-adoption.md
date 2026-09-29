@@ -17,7 +17,7 @@ projectState: >
   spend ceilings in the dev .env (0.50 per pass, 5 per 30 days).
 dateCreated: 20260928
 dateUpdated: 20260928
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Tick Archive Adoption
@@ -68,174 +68,180 @@ that, split along the phase or concern it holds and note the split.
 
 ## Section 0 — Baseline and test support
 
-- [ ] **0.1 Confirm the SDK and fixtures have not moved since 222**
-  - [ ] `uv.lock` still pins `databento` 0.87.0; `git log -- uv.lock
+- [x] **0.1 Confirm the SDK and fixtures have not moved since 222**
+  - [x] `uv.lock` still pins `databento` 0.87.0; `git log -- uv.lock
         test/fixtures/databento` shows no fixture change since 220's merge
-  - [ ] If either moved, STOP and report to the PM
-  - [ ] Success: stated in the task note
-  - [ ] Effort: 1
+  - [x] If either moved, STOP and report to the PM
+  - [x] Success: stated in the task note
+  - [x] Effort: 1
+  - [x] Note: databento 0.87.0 (databento-dbn 0.70.0) still pinned; uv.lock changed only by project version bumps since release 0.18.0 (220); fixtures last changed in dd9ed2a, before it.
 
-- [ ] **0.2 Record the pre-change test baseline**
-  - [ ] On the slice branch before any change, run the unit tier, then the
+- [x] **0.2 Record the pre-change test baseline**
+  - [x] On the slice branch before any change, run the unit tier, then the
         integration tier; save failing ids to `/tmp/223-baseline-unit.txt`
         and `/tmp/223-baseline-integration.txt`
-  - [ ] Success: both files exist; each failure matches the known lists in
+  - [x] Success: both files exist; each failure matches the known lists in
         project memory or is re-run in isolation and noted
-  - [ ] Effort: 1
+  - [x] Effort: 1
+  - [x] Note: baseline run in a detached worktree at main so edits could not leak into it. Unit tier: 3988 passed, 5 skipped, no failures.
 
-- [ ] **0.3 Test helper: DBN files with a day-aligned header**
-  - [ ] Background: the fixtures' headers do not span one UTC day (trades and
+- [x] **0.3 Test helper: DBN files with a day-aligned header**
+  - [x] Background: the fixtures' headers do not span one UTC day (trades and
         tbbo: 2020-12-28 13:00 → 2020-12-29 00:00 UTC; definition: XNAS over
         months). Verification requires a header spanning exactly the unit's
         UTC day (TD9, Verification)
-  - [ ] Create `test/tick_support/dbn_files.py` with
+  - [x] Create `test/tick_support/dbn_files.py` with
         `write_day_file(dest, fixture, dataset, day, stype_in)`: decode the
         fixture's records, encode a new header with `databento_dbn.Metadata`
         (`start = day 00:00Z`, `end = day+1 00:00Z`, the fixture's mappings
         and schema), append the unchanged record bytes, zstd-compress, return
         `(path, size, sha256)`
-  - [ ] Add `write_job_dir(root, job_id, files)` that writes the day files
+  - [x] Add `write_job_dir(root, job_id, files)` that writes the day files
         plus `manifest.json` (`job_id`, and per file `filename`, `size`,
         `hash` as `sha256:<hex>`; `manifest.json` does not list itself) and
         `condition.json`/`metadata.json`/`symbology.json` placeholders, and
         `zip_job_dir(dir) -> Path` that zips it the way the provider's zip
         is laid out
-  - [ ] If `Metadata` cannot encode a header with the needed fields, STOP and
+  - [x] If `Metadata` cannot encode a header with the needed fields, STOP and
         report; do not commit real purchased data as a fixture without the
         PM's decision
-  - [ ] Test `test/unit/data/tick/test_dbn_files_helper.py`: a written file
+  - [x] Test `test/unit/data/tick/test_dbn_files_helper.py`: a written file
         reads back through `DbnFileReader` with the new dataset, start and end
         and the fixture's record count
-  - [ ] Success: the helper test passes
-  - [ ] Effort: 3
+  - [x] Success: the helper test passes
+  - [x] Effort: 3
+  - [x] Note: the provider's zip is flat (no job-id prefix), as GLBX-20250123-XT4GD5UM6C.zip is; zip_job_dir matches it.
 
-- [ ] **0.4 Batch response helpers for acquisition tests**
-  - [ ] Extend `test/tick_support/batch_responses.py`: `job_record` takes
+- [x] **0.4 Batch response helpers for acquisition tests**
+  - [x] Extend `test/tick_support/batch_responses.py`: `job_record` takes
         `dataset`, `symbols`, `stype_in`, `cost_usd`, `record_count`,
         `ts_received` and `ts_expiration` overrides
-  - [ ] Existing 220 adapter tests still pass unchanged
-  - [ ] Success: `uv run pytest test/unit/data/tick -q` passes
-  - [ ] Effort: 1
-  - [ ] Commit: `test(tick): add day-file and batch job helpers for 223`
+  - [x] Existing 220 adapter tests still pass unchanged
+  - [x] Success: `uv run pytest test/unit/data/tick -q` passes
+  - [x] Effort: 1
+  - [x] Commit: `test(tick): add day-file and batch job helpers for 223`
 
 ---
 
 ## Section 1 — Constants, settings, exit codes
 
-- [ ] **1.1 Add 223's constants to `data/tick/constants.py`**
-  - [ ] `TICK_ACQUISITION_LOCK_KEY` (an int distinct from Kalshi's
+- [x] **1.1 Add 223's constants to `data/tick/constants.py`**
+  - [x] `TICK_ACQUISITION_LOCK_KEY` (an int distinct from Kalshi's
         `262_000_001`; grep the repo for every `pg_try_advisory_lock` key and
         choose one no other caller uses), `TICK_DB_CONNECT_TIMEOUT_SECONDS =
         10`, `TICK_SPEND_30D_CEILING_ENV = "MT_TICK_SPEND_30D_CEILING_USD"`,
         `TICK_ARCHIVE_DIR_ENV = "MT_TICK_ARCHIVE_DIR"`,
         `TICK_ENV_PREFIX = "MT_TICK_"`
-  - [ ] One-line comment per constant giving its TD. The pass's constants
+  - [x] One-line comment per constant giving its TD. The pass's constants
         (wait budget, poll interval, match skew, submit-resolve age, spend
         window) are 224's
-  - [ ] Success: imports cleanly; import-boundary test passes
-  - [ ] Effort: 1
+  - [x] Success: imports cleanly; import-boundary test passes
+  - [x] Effort: 1
 
-- [ ] **1.2 Add the two settings**
-  - [ ] In `config/__init__.py` beside `tick_spend_ceiling_usd`:
+- [x] **1.2 Add the two settings**
+  - [x] In `config/__init__.py` beside `tick_spend_ceiling_usd`:
         `tick_spend_30d_ceiling_usd: Decimal | None = Field(default=None,
         gt=0)` and `tick_archive_dir: Path | None = None`
-  - [ ] Success: `Settings()` loads with and without both variables
-  - [ ] Effort: 1
+  - [x] Success: `Settings()` loads with and without both variables
+  - [x] Effort: 1
 
-- [ ] **1.3 Unit tests: constants and settings**
-  - [ ] Extend `test/unit/data/tick/test_constants.py`: each new constant's
+- [x] **1.3 Unit tests: constants and settings**
+  - [x] Extend `test/unit/data/tick/test_constants.py`: each new constant's
         value; the lock key differs from Kalshi's constant (import it)
-  - [ ] Settings test beside the existing `tick_spend_ceiling_usd` tests:
+  - [x] Settings test beside the existing `tick_spend_ceiling_usd` tests:
         `0.50` parses as `Decimal("0.50")`; `0` and a negative are rejected;
         unset is `None`; the archive dir parses as `Path`. Build `Settings`
         from explicit values, never the developer's `.env`
-  - [ ] Success: both files pass
-  - [ ] Effort: 1
+  - [x] Success: both files pass
+  - [x] Effort: 1
 
-- [ ] **1.4 Exit codes for `adopt` and `reset`**
-  - [ ] In `cli/commands/tick.py`, add `EXIT_STORAGE = 4` beside `EXIT_OK`,
+- [x] **1.4 Exit codes for `adopt` and `reset`**
+  - [x] In `cli/commands/tick.py`, add `EXIT_STORAGE = 4` beside `EXIT_OK`,
         `EXIT_PREFLIGHT`, `EXIT_PROVIDER` (the rest arrive in 224 with
         `TickOutcome`)
-  - [ ] Success: existing CLI tick tests pass
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(tick): add acquisition constants and settings`
+  - [x] Success: existing CLI tick tests pass
+  - [x] Effort: 1
+  - [x] Commit: `feat(tick): add acquisition constants and settings`
 
 ---
 
 ## Section 2 — Migration `tick_006_availability`
 
-- [ ] **2.1 Append `tick_006_availability` to `TICK_MIGRATIONS`**
-  - [ ] `tick_dataset_edge` and `tick_day_condition` exactly as the LLD's
+- [x] **2.1 Append `tick_006_availability` to `TICK_MIGRATIONS`**
+  - [x] `tick_dataset_edge` and `tick_day_condition` exactly as the LLD's
         "Database / Storage Schema" tables; `condition` CHECK rendered with
         `_check_in` from `DatasetCondition`
-  - [ ] `ALTER TABLE tick_archive_unit ADD COLUMN IF NOT EXISTS reopened_at
+  - [x] `ALTER TABLE tick_archive_unit ADD COLUMN IF NOT EXISTS reopened_at
         TIMESTAMPTZ` and the named CHECK `tick_archive_unit_reopened_check`:
         `reopened_at IS NULL OR state NOT IN (...)`, rendered from
         `UNIT_STATES_WITH_FILE`; add the constraint idempotently (guard on
         `pg_constraint`, as earlier tick migrations do)
-  - [ ] No index beyond the primary keys; no `GRANT`; comment cites TD8
+  - [x] No index beyond the primary keys; no `GRANT`; comment cites TD8
         (reopened units)
-  - [ ] Success: `migrated_tick_db` builds; applying the track twice applies
+  - [x] Success: `migrated_tick_db` builds; applying the track twice applies
         nothing
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - [x] Note: CHECKs use render_enum_check (the tick track has no _check_in); the reopened CHECK uses the minute track's DO $$ / pg_constraint guard, since earlier tick migrations name constraints inside CREATE. tick.py is 330 lines: the migration list is data and grows by one entry per migration.
 
-- [ ] **2.2 Integration tests for `tick_006`**
-  - [ ] In `test/integration/data/test_tick_storage_track.py`, extend the
+- [x] **2.2 Integration tests for `tick_006`**
+  - [x] In `test/integration/data/test_tick_storage_track.py`, extend the
         re-apply test's expected ids (derived from `TRACKS["tick"]`)
-  - [ ] New `test/integration/data/test_tick_availability_schema.py`:
+  - [x] New `test/integration/data/test_tick_availability_schema.py`:
         every `DatasetCondition` member inserts, a non-member is rejected;
         duplicate `(dataset, condition_date)` is rejected; `reopened_at` set
         on a `delivered` unit inserts; on each of `downloaded`, `verified`,
         `ingested` it is rejected
-  - [ ] 923's CLI init test still reaches head
-  - [ ] Success: both files pass
-  - [ ] Effort: 2
+  - [x] 923's CLI init test still reaches head
+  - [x] Success: both files pass
+  - [x] Effort: 2
+  - [x] Note: the re-apply test already derived its ids from TRACKS["tick"]; no edit was needed.
 
-- [ ] **2.3 Grant the two tables to the app role**
-  - [ ] Add `tick_dataset_edge` and `tick_day_condition` to the enumerated
+- [x] **2.3 Grant the two tables to the app role**
+  - [x] Add `tick_dataset_edge` and `tick_day_condition` to the enumerated
         `GRANT SELECT, INSERT, UPDATE, DELETE` list in
         `scripts/provision_tick_roles.sql`; update the header comment
-  - [ ] Success: 222's artifact-equals-tables test in
+  - [x] Success: 222's artifact-equals-tables test in
         `test_tick_role_privileges.py` passes, and the parametrized DML test
         covers the new tables
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(tick): add tick_006 availability migration`
+  - [x] Effort: 1
+  - [x] Commit: `feat(tick): add tick_006 availability migration`
 
 ---
 
 ## Section 3 — Session days
 
-- [ ] **3.1 Create `data/tick/session_days.py`**
-  - [ ] `session_days(calendar, start, end) -> list[date]`: one
+- [x] **3.1 Create `data/tick/session_days.py`**
+  - [x] `session_days(calendar, start, end) -> list[date]`: one
         `sessions_between` call; for each session every UTC date from
         `open_utc` to `close_utc − 1 ns`, clipped to `[start, end)`, sorted,
         unique (TD4, Days)
-  - [ ] `OutOfPopulatedRangeError` propagates; it is not caught here
-  - [ ] Success: imports; no I/O besides the calendar call
-  - [ ] Effort: 1
+  - [x] `OutOfPopulatedRangeError` propagates; it is not caught here
+  - [x] Success: imports; no I/O besides the calendar call
+  - [x] Effort: 1
+  - [x] Note: the last instant is close_utc − 1 µs, the calendar's grain (datetime), equivalent to the design's − 1 ns.
 
-- [ ] **3.2 Tests for session days**
-  - [ ] Unit: a stub calendar returning hand-built sessions: a Sunday-evening
+- [x] **3.2 Tests for session days**
+  - [x] Unit: a stub calendar returning hand-built sessions: a Sunday-evening
         open yields Sunday and Monday; Saturday never appears; clipping at
         both ends; end exclusive
-  - [ ] Integration on `session_migrated_db` with the real `CME_EQUITY`
+  - [x] Integration on `session_migrated_db` with the real `CME_EQUITY`
         calendar: 2024-12-25 is included (the 12-26 session opens 23:00 UTC);
         the job-1 range 2024-08-30 → 2024-09-30 yields 26 days and the job-2
         range 2024-11-01 → 2025-01-01 yields 52 (the counts adoption must
         produce, FR2). If either count differs, STOP and report: the design's
         adoption expectation depends on it
-  - [ ] Success: both pass
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add session-touched UTC day computation`
+  - [x] Success: both pass
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add session-touched UTC day computation`
 
 ---
 
 ## Section 4 — Run context
 
-- [ ] **4.1 Create `data/tick/run_context.py`**
-  - [ ] `TickPreflightError(message)`; `TickRun` dataclass (`settings`,
+- [x] **4.1 Create `data/tick/run_context.py`**
+  - [x] `TickPreflightError(message)`; `TickRun` dataclass (`settings`,
         `provider`, `conn`, `archive_root`, `run_id`, `clock`)
-  - [ ] `open_tick_run(settings, clock=...)`: async context manager. Refusals
+  - [x] `open_tick_run(settings, clock=...)`: async context manager. Refusals
         in TD2's order (run context), each naming the variable or command:
     1. unknown `MT_TICK_*` key in the process environment or the `.env` file:
        known names are derived from `Settings.model_fields` starting `tick_`
@@ -252,28 +258,29 @@ that, split along the phase or concern it holds and note the split.
        --track tick`
     7. `pg_try_advisory_lock(TICK_ACQUISITION_LOCK_KEY)` false → "another
        tick acquisition run holds the lock"
-  - [ ] Copy the shape of Kalshi's `data/kalshi/db.py:open_sync_connection`;
+  - [x] Copy the shape of Kalshi's `data/kalshi/db.py:open_sync_connection`;
         do not import it
-  - [ ] Success: imports; no `data.kalshi` import under `data/tick`
-  - [ ] Effort: 3
+  - [x] Success: imports; no `data.kalshi` import under `data/tick`
+  - [x] Effort: 3
+  - [x] Note: pending migrations are read with Kalshi's async ledger query (a missing ledger = all pending), not the sync-pool list_migration_state, since the run holds one async connection. open_tick_run also takes provider_factory and env_file keywords so tests inject a fake SDK client and a temporary .env.
 
-- [ ] **4.2 Tests for the run context (FR1, preflight)**
-  - [ ] Unit (`test/unit/data/tick/test_run_context.py`): each of refusals
+- [x] **4.2 Tests for the run context (FR1, preflight)**
+  - [x] Unit (`test/unit/data/tick/test_run_context.py`): each of refusals
         1–4 raises `TickPreflightError` naming its variable; the misspelt
         `MT_TICK_DATA_SPEND_CEILING_USD` names `MT_TICK_SPEND_CEILING_USD`
         both when set in the process environment and when present only in a
         temporary `.env` file (the 2026-09-28 case); a missing archive
         directory is not created; an existing but read-only archive directory
         (`chmod 0555` on a `tmp_path` directory) is refused as not writable
-  - [ ] Integration (`test/integration/data/test_tick_run_context.py`) on
+  - [x] Integration (`test/integration/data/test_tick_run_context.py`) on
         `ephemeral_tick_db`/`migrated_tick_db`: a bare database refuses with
         the migrate command; a migrated one yields; a second concurrent
         `open_tick_run` refuses on the lock; after the first closes, a new
         one succeeds; a URL to a closed local port refuses as unreachable
         within the connect timeout, naming `MT_TICK_DB_URL`
-  - [ ] Success: both pass
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add tick run context and preflight`
+  - [x] Success: both pass
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add tick run context and preflight`
 
 ---
 
