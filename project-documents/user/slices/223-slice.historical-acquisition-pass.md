@@ -58,6 +58,7 @@ endpoints, through the project's own adapter
 | Day-file header | The DBN header of a day file spans exactly that UTC day. For example, `glbx-mdp3-20240903.trades.dbn.zst` has start `2024-09-03T00:00Z` and end `2024-09-04T00:00Z`. | A file is matched to its unit by its header, not by parsing the file name. |
 | Per-day record count | The free `record_count` for `[day, day+1)` with the job's symbols equals the file's decoded count on all three days checked: 3,191 (Sunday 09-01), 511,965 (09-03) and 6,985 (09-29). | Verification records each unit's provider count. 224's count check can then compare per unit. |
 | Spreads in the parent symbol | `ES.FUT` covers the outrights and the calendar spreads. The job's `symbology.json` maps `ESH6-ESU6` → 42004904. The trades contain spread trades. | Definitions must be bought with the same symbols as the tier data, or 224's resolution check fails on the spread trades (Technical Decision 5). |
+| Spread share | Across all 26 files of the `trades` job, 236,017 of 10,049,172 records (2.35%) are spread trades, on 7 spread and 5 outright instruments. Every record's `instrument_id` appears in its file header's mappings. | Including spreads is an explicit configuration decision with a stated cost (Technical Decision 3). The header-mapping premise held on this job, which is early evidence for 225's mapping-completeness criterion. |
 | Definition cost | With `ES.FUT` parent there are 61 definition records per day (each instrument is sent again every day). The job-1 range is 1,694 records, 880,880 billable bytes, $0.0014. The job-2 range is 3,280 records, 1,705,600 bytes, $0.0027. | The proof's definition purchase is about $0.004 across four monthly requests. |
 | Job files | Each job holds one `.dbn.zst` file per UTC day that has data, plus `condition.json`, `metadata.json`, `symbology.json` and `manifest.json`. `manifest.json` lists the other files (`filename`, `size`, `hash` as `sha256:<hex>`) but not itself. The `tbbo` job exists only as its zip, and the zip contains `manifest.json`. | Adoption reads either a directory or a zip, and verifies against `manifest.json` in both cases. |
 | Existing final file | `_download.download_file` re-verifies a file that already has its final name and returns it. It refuses to touch one that does not match. | A crash between the download and the database update costs one re-hash, not a re-download. |
@@ -215,8 +216,9 @@ recommendation is to assign cluster provisioning to 224 or 225.
 
 ```
 src/manta_trading/data/tick/
-  constants.py        + wait budget, poll interval, job-match skew, spend window,
-                        lock key, DB connect timeout, env-name constants
+  constants.py        + wait budget, poll interval, job-match skew, submit-resolve age,
+                        spend window, lock key, DB connect timeout, env-name constants
+                        (TICK_DOWNLOAD_TIMEOUT_SECONDS, 100 s, is 220's and reused)
   universe.py         TickUniverseEntry, TICK_UNIVERSE (ES, tier unset)
   pass_contract.py    TickPassPhaseName, TickOutcome, PhaseReport, PassResult,
                       classify_pass, TickPass runner      (copy of the Kalshi contract)
@@ -442,6 +444,25 @@ initiative exists to prevent. The lock is session-level, so it is
 released when the connection closes, including on a crash. The key is a
 named constant, distinct from Kalshi's `262_000_001`.
 
+**Every unit transition is compare-and-set** (review F009). Each
+`UPDATE` in `manifest_repo.py` names the state and `fetch_status` it
+expects to move from, in its `WHERE` clause (for example `reset` updates
+only `WHERE fetch_status = 'RETRY_EXHAUSTED' AND reopened_at IS NULL`).
+An update that matches zero rows raises, and it is never skipped
+quietly. So the lock is not what keeps concurrent writers correct. It
+exists to stop a double purchase, and 224's ingest does not need it:
+
+- Acquisition moves units up to *verified* (and definition units to
+  *ingested*).
+- Ingest moves tier units from *verified* to *ingested*.
+- The two sets of transitions are disjoint.
+- `reset` touches only exhausted units that are not reopened, which no
+  pass is advancing.
+
+**224's obligation:** ingest takes its own advisory lock key, so two
+ingest runs serialize, and it uses the same compare-and-set transitions
+from `manifest_repo.py`. Neither lock waits for the other.
+
 The connection is one `psycopg.AsyncConnection` in autocommit. Each
 manifest transition is an explicit transaction. Blocking calls go
 through `asyncio.to_thread`: every provider call, hashing, header reads
@@ -476,6 +497,25 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
 - **ES matches the adopted jobs** (`ES.FUT`, `parent`). So coverage
   computed from adopted units applies unchanged once 225 chooses the tier
   and a range.
+- **Spreads are included in ES by explicit configuration** (review F004).
+  - The architecture excludes calendar spreads "unless explicitly
+    configured", and `ES.FUT` (`parent`) includes them by construction.
+    This entry is that explicit configuration, and the design records it
+    as a departure from the default.
+  - The reason is the data in hand: both adopted jobs were bought with
+    `ES.FUT` and already contain spread trades. On the `trades` job,
+    spreads are 236,017 of 10,049,172 records (2.35%), across 7 spread
+    and 5 outright instruments (design-time findings). Excluding them
+    would mean different symbols from the adopted jobs, so no adopted day
+    would count as covered.
+  - **Cost bound:** spreads add about 2.35% to an ES tier purchase at
+    these rates. The planner reports cost per request, so the share is
+    visible in every estimate.
+  - **225's go/no-go must re-confirm it**, with the choices "parent
+    including spreads" or "outrights only". Outrights only means raw
+    contract symbols or continuous symbols, and the adopted days would
+    then be re-bought or kept as a separate request shape. 230 decides
+    the same question for GC and does not inherit ES's answer.
 - **`tier=None` is the honest state before the go/no-go.** An entry with
   no tier produces no tier wants. The pass still buys the definitions for
   tier days the manifest already owns, which after this slice means the
@@ -583,6 +623,30 @@ supersession list). The definitions phase:
 
 Two records with the same key inside one file are compared the same way
 before any insert.
+
+**This exception is bounded** (review F005). Definitions are the only
+schema the acquisition pass projects, and the phase never grows to other
+schemas:
+
+- **Tier data** always goes through 224's ingest pass, with its
+  per-unit worker connection, its ledger and its three checks.
+- **`statistics`** also goes through 224's ingest, if 227 adopts it,
+  because it carries per-session figures that need sessions and a
+  ledger.
+- **A unit test enforces it.** It asserts that the definitions phase
+  selects only units whose request schema is `TickSchema.DEFINITION`.
+
+The architecture's reasons for a dedicated per-unit connection do not
+apply to definitions:
+
+- They are multi-gigabyte `COPY` loads, while a definition day is about
+  61 rows.
+- The ledger rows must commit with the load, but definitions have no
+  sessions and so no ledger rows.
+
+So the phase writes on the run's connection, in one transaction per
+unit. *ingested* on a definition unit means "projected into
+`tick_definition`". It says nothing about a ledger.
 
 ### Technical Decision 6: planning reads the calendar; reconcile, download and verify do not
 
@@ -732,10 +796,29 @@ hole. Only the row that says so differs.
   no `tick_request` row holds yet.
   - **Found:** reconcile adopts the job id and `ts_received`, and the
     units move to *submitted*. It was bought once.
-  - **Not found:** the submit never reached the provider. The units stay
-    at *requested* with `FAILED_RETRYABLE`, and the purchase phase
-    re-submits the same row, with its estimate already counted by the
-    guard. At `MAX_RETRY_COUNT` the units are exhausted.
+  - **Not found:** this is never treated as proof that nothing was
+    bought. A listing that lags the submit would make a real job look
+    absent, and a manual run can follow immediately. So an unresolved
+    request is **never re-submitted automatically** (review F002):
+    - While the submit attempt (`last_attempt_at`) is younger than
+      `TICK_SUBMIT_RESOLVE_AGE` (1 hour), the units stay
+      `FAILED_RETRYABLE` ("submit outcome unresolved"). Every run
+      searches for the job again, and the purchase phase skips the row.
+    - Once the attempt is older than that and still no job is listed,
+      the units become `RETRY_EXHAUSTED` ("submit outcome unknown; no
+      job listed after 1 h; `reset` to re-submit").
+    - Only `mt data tick reset` puts the row back to `UNKNOWN`. The next
+      run's reconcile searches once more, and only then does the purchase
+      phase re-submit the same row. Its estimate is already counted by
+      the guard.
+
+    Re-buying after an unknown outcome is therefore always an operator
+    decision, made at least an hour after the attempt, and the job list
+    is searched before every re-submit.
+
+    This rule covers only the *unknown* outcome. A submit the provider
+    definitely refused charged nothing, and it follows the two rules
+    below.
 - **Other refusals.** A 4xx refusal other than 429 (nothing charged) →
   the units are `RETRY_EXHAUSTED`, and the phase continues with the other
   requests (`partial`). A 429 → `FAILED_RETRYABLE` and `PROVIDER_ABORT`.
@@ -813,7 +896,7 @@ a job directory or the provider's zip.
 again:
 
 - A job the pass bought already has `manifest.json` written beside it
-  (see Technical Decision 9, *in_flight* data flow) when the provider did
+  (see `in_flight.advance()` under Architecture, Data Flow) when the provider did
   not supply one.
 - Job records stay readable after expiry, as the design-time check
   showed.
@@ -873,7 +956,7 @@ it is given) is not in `INCLUDE_PATHS`.
 
 - **Constants.** Every new comparison value is defined once in
   `data/tick/constants.py`: the wait budget, poll interval, match skew,
-  spend window, lock key, connect timeout, and the env names
+  submit-resolve age, spend window, lock key, connect timeout, and the env names
   `TICK_SPEND_30D_CEILING_ENV` and `TICK_ARCHIVE_DIR_ENV`. `TickOutcome`
   and the phase names are defined in `pass_contract.py`.
 - **SQL.** Every statement lives in `manifest_repo.py` or
@@ -990,13 +1073,14 @@ transaction (Technical Decision 8).
 | Path | Cost | Bound on waiting | Outcome of a failure | Left behind |
 |---|---|---|---|---|
 | Free provider calls (job, jobs since, range, condition, cost, record count) | free | SDK's fixed 100 s | `ProviderTransientError`/`AuthError` → phase `provider_abort`; later phases skipped | nothing |
-| `submit_batch` | **paid** | SDK's 100 s | outcome unknown → units `FAILED_RETRYABLE`, reconciled by job list next run; 429 → `FAILED_RETRYABLE`; other 4xx → `RETRY_EXHAUSTED` | request + units at *requested* |
+| `submit_batch` | **paid** | SDK's 100 s | outcome unknown → units `FAILED_RETRYABLE`. Every run searches the job list; the row is never re-submitted without `reset`, and it is exhausted after `TICK_SUBMIT_RESOLVE_AGE`. 429 → `FAILED_RETRYABLE`; other 4xx → `RETRY_EXHAUSTED` | request + units at *requested* |
 | `download_batch` | free | `TICK_DOWNLOAD_TIMEOUT_SECONDS` per file | unit `FAILED_RETRYABLE` (attempt counted); `provider_abort` | `.partial`, resumed next call |
 | Verify (hash, header, count) | free | file read; one 100 s call | header mismatch → `RETRY_EXHAUSTED`; call failure → `provider_abort` | nothing |
 | Await loop | free | `TICK_WAIT_BUDGET_SECONDS` | `in_flight`, jobs listed with deadlines | units at *submitted* |
 | Tick database | — | `TICK_DB_CONNECT_TIMEOUT_SECONDS` at connect | `storage_abort`; each transition is one transaction | a consistent manifest |
 | Calendar (production DB) | — | `TradingCalendar`'s connection | purchase / adopt `storage_abort`; nothing bought | nothing |
 | Adoption file copy | — | local I/O | refusal naming the file; no rows | `.partial` for inspection |
+| Archive volume full or unwritable (download, adoption copy, `manifest.json` write) | — | local I/O | Checked first: before any submit, the purchase phase requires free space on the archive volume ≥ Σ `billable_size` of the planned requests (free calls; uncompressed, so a safe upper bound for the zstd files), else `refused` naming the shortfall. `adopt` requires free space ≥ Σ `manifest.json` sizes before copying, else exit 1. A write failure that happens anyway (`OSError`, for example `ENOSPC`) is a host fault, not a unit fault: the run ends `storage_abort`, no attempt is counted, and the path and errno are named. | `.partial`, resumed by the next run once space exists |
 | Advisory lock | — | `pg_try_advisory_lock` never waits | exit 1, lock holder named as "another tick acquisition run" | nothing |
 
 ## Integration Points
@@ -1011,7 +1095,10 @@ transaction (Technical Decision 8).
     missing and edge-unknown lines;
   - `reopened_at` as a state status must show ("awaiting repurchase");
   - `mt data tick reset` for units that ingest exhausts;
-  - the advisory-lock key, which 224 decides whether to share.
+  - the compare-and-set transitions in `manifest_repo.py`. 224 uses
+    them, and takes its own lock key (Technical Decision 2);
+  - the rule that definitions are the only schema acquisition projects
+    (Technical Decision 5).
 - **225 (proof):** both adopted jobs archived and verified, their
   definitions projected, and `TICK_WAIT_BUDGET_SECONDS` and
   `TICK_POLL_INTERVAL_SECONDS` to re-set from the first measured jobs.
@@ -1078,11 +1165,18 @@ transaction (Technical Decision 8).
    - A $0 plan passes.
    - Unaccepted rows and adopted rows inside the window count toward the
      trailing sum.
+   - A plan whose Σ `billable_size` exceeds the archive volume's free
+     space is refused before any submit, and the shortfall is named. So is
+     an `adopt` whose files do not fit.
 5. **Money-safety paths** (unit tests over fake providers):
    - An outcome-unknown submit leaves the units at *requested*. The next
      run matches the job from `batch_jobs_since` and moves them to
      *submitted* without a second submit.
-   - With no matching job, the next run re-submits the same request row.
+   - With no matching job, no run re-submits the row automatically. It
+     stays `FAILED_RETRYABLE` for `TICK_SUBMIT_RESOLVE_AGE`, then becomes
+     `RETRY_EXHAUSTED`. Only after `reset` does a run re-submit it, and
+     it searches the job list again first. A test runs two passes back to
+     back and asserts exactly one `submit_batch` call.
    - A job past its deadline is swept to `RETRY_EXHAUSTED` with
      `reopened_at`. The next plan re-buys the day, with the repurchase
      and supersession links written in one transaction.
@@ -1243,6 +1337,14 @@ database on the test cluster (see Dependencies). Export
      spreads), each with a defined window. This confirms the risk item in
      222's Technical Decision 5 live.
    - The portal shows four jobs totalling under $0.01.
+   - The run log shows, for each job, whether `batch_jobs_since` listed
+     it on the first poll after its submit. This is the listing-lag
+     measurement (see Risk Assessment). It is copied into the findings
+     table.
+   - Each of the four job directories under `/data/tick-archive` holds a
+     `manifest.json`, and `sha256sum -c` against it passes. This is what
+     makes the purchase re-adoptable once step 10 drops the scratch
+     database (review F008).
 
    Without the ceilings, this step moves to 225.
 
@@ -1274,14 +1376,27 @@ database on the test cluster (see Dependencies). Export
    Claude runs this under the sudo grant, and the log is what the PM
    reads.
 
-10. **Tear down the scratch database** (created in step 2):
-    `dropdb --maintenance-db="$MT_TIMESCALE_TEST_URL" mt_scratch_tick_223`.
-    Confirm with a count of 0 from `pg_database`.
-    
-    The archive stays: it is the record. Re-adopting its job directories
-    (step 3's form, with `--source /data/tick-archive/<job>`) rebuilds the
-    manifest in whichever tick database comes next, including the
-    definition jobs from step 6.
+10. **Prove the rebuild, then tear down.** The archive stays: it is the
+    record. Re-adopting its job directories (step 3's form, with
+    `--source /data/tick-archive/<job>`) rebuilds the manifest in
+    whichever tick database comes next. Prove that before dropping
+    anything:
+
+    1. Create a second scratch database, `mt_scratch_tick_223b`, point
+       `MT_TICK_DB_URL` at it, and `init` it.
+    2. Re-adopt all six job directories: the two free-credit jobs and
+       the four definition jobs from step 6.
+    3. Check that each `tick_request` row shows the same
+       `provider_job_id`, `actual_cost_usd` and `committed_at` as in
+       `mt_scratch_tick_223`.
+
+    Then drop both databases (both created by this walkthrough) with
+    `dropdb --maintenance-db="$MT_TIMESCALE_TEST_URL" <name>`. Confirm
+    with a count of 0 from `pg_database` for each.
+
+    Until a durable tick database exists, the archive plus the provider's
+    job records are the durable spend record, with the provider-side
+    account limit behind them (review F008).
 
 No `mt data tick status` exists yet; that is 224's.
 
@@ -1292,9 +1407,22 @@ No `mt data tick status` exists yet; that is 224's.
 - **Spread definitions may lack validity windows.** No CME definition has
   been decoded yet. If some instruments under `ES.FUT` carry an undefined
   activation or expiration, the definitions phase fails those units.
-- **The job-match reconcile relies on `list_jobs` returning a job right
-  after it is accepted.** If the provider's listing lags, a real submit
-  could look unaccepted, and the same range would be submitted again.
+- **How fast the provider's job listing shows a new job is unmeasured.**
+  It no longer decides money safety, because an unresolved submit is
+  never re-submitted without `reset` (Technical Decision 9). It only
+  decides how long `TICK_SUBMIT_RESOLVE_AGE` must be before "not listed"
+  can be trusted enough to exhaust the units.
+- **A kept definition column may change across the daily re-sends**
+  (review F006). Each instrument's definition is re-sent about 27 times a
+  month, and any difference fails the unit terminally.
+  `TICK_DEFINITION_COLUMNS` keeps only fixed contract terms:
+  - identity, activation and expiration, symbol, asset and exchange;
+  - class, security type, CFI and currency;
+  - minimum price increment, display factor, unit of measure and its
+    quantity, and contract multiplier.
+
+  It keeps no daily limit or reference price. So a legitimate change is
+  unlikely, but no CME definition has been decoded yet to prove it.
 - **Degraded days are kept once bought.** A later provider correction is
   not picked up automatically.
 
@@ -1306,13 +1434,25 @@ No `mt data tick status` exists yet; that is 224's.
   instruments with no window only when no tier record references them,
   which 224's resolution check then proves. The constraint is never
   widened silently (222, Technical Decision 5).
-- **Listing lag:** a re-submit happens only on the next run, after a
-  whole run's interval. The match window starts 5 minutes before
-  `requested_at`. A duplicate would still be caught before any cost was
-  lost unaccounted: two `tick_request` rows for one range each hold a
-  job id, and the trailing sum counts both. The walkthrough's four real
-  jobs are the first evidence of the listing's timing, and it is recorded
-  in the task file.
+- **Listing lag:** the measurement is a design input, taken in
+  walkthrough step 6. For each of the four real definition jobs, the pass
+  logs whether `batch_jobs_since(requested_at − TICK_JOB_MATCH_SKEW)`
+  lists the job on the first poll after the submit. The observed values
+  are recorded in this document's findings table at implementation. If
+  any job is not listed at once, `TICK_SUBMIT_RESOLVE_AGE` is re-set from
+  the measurement before the slice closes. The 1-hour starting value is
+  conservative against jobs that finished in 5–84 s.
+- **Definition changes:** walkthrough step 6 is the first observation.
+  It covers about 78 days of re-sends across two roll periods, and the
+  run either passes or names the instrument and the field that changed.
+  If a column does change legitimately:
+  - it is dropped from the model table by a tick-track migration, and
+    from `TICK_DEFINITION_COLUMNS`, because a value that changes daily is
+    not a fixed contract term;
+  - the comparison stays strict on every remaining column.
+
+  The compared set is never loosened while the column is kept. That
+  would store one day's value as if it were permanent.
 - **Degraded days:** the day's condition row is kept, and 224's status
   shows the session as degraded. Repurchasing is a supersession the
   operator runs through `reset` semantics once 224 exists. Automatic
@@ -1385,7 +1525,11 @@ Kalshi contract is its own task in the task file.
 
 ### Architecture and plan statements this design supersedes
 
-Each is recorded in the slice plan's Notes when the slice is implemented:
+Each is recorded in the architecture's Revision Log (entry 2026-09-28,
+added with this design after review F003). The architecture's coupling
+paragraph now lists the calendar edge. Each is also recorded in the slice
+plan's Notes when the slice is implemented. Explicitly including spreads
+in ES (Technical Decision 3) is recorded in the same Revision Log entry.
 
 1. **"Tick acquisition, which needs no calendar."** Planning and adoption
    read the CME calendar to find session days. Reconcile, download,
