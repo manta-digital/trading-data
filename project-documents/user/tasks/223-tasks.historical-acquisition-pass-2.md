@@ -200,6 +200,7 @@ status: not_started
         atomically and the sweep excluding `PROVIDER_HOLE`
   - [ ] Success: passes
   - [ ] Effort: 3
+  - [ ] Commit: `feat(tick): add submit and delivery manifest transitions`
 
 - [ ] **16.2 Create `data/tick/in_flight.py`**
   - [ ] `resolve_unsubmitted(run)`: for each request with no job id,
@@ -235,6 +236,9 @@ status: not_started
         counts one attempt, the fifth exhausts
   - [ ] `manifest.json` written when the job lacked one, and it lists every
         other file
+  - [ ] An injected `OSError(ENOSPC)` during download raises the storage
+        error naming path and errno, and the unit's `attempt_count` is
+        unchanged
   - [ ] Success: passes
   - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add in-flight reconcile, delivery and expiry`
@@ -273,50 +277,79 @@ status: not_started
 
 ## Section 18 — The pass and its verb
 
-- [ ] **18.1 Create `data/tick/acquisition_pass.py`**
-  - [ ] Five `PassPhase` implementations and `PASS_PHASES`, following the
-        LLD's pass data flow: reconcile (`resolve_unsubmitted`,
-        `sweep_expired`, one `advance`); availability; purchase (calendar →
-        `session_days` → planner → free `cost` and `billable_size` per
-        request → space and spend guards → submit in order, insert-then-
-        submit-then-record, TD9 outcome rules); await (`advance` every poll
-        interval up to the wait budget, then `in_flight` listing jobs and
-        deadlines); definitions
-  - [ ] Error mapping: `ProviderError` → `provider_abort`,
-        `psycopg.OperationalError` → `storage_abort`, calendar
-        `OutOfPopulatedRangeError` → `storage_abort` naming it; no catch-all
-  - [ ] If over ~300 lines, move the purchase phase to `purchase_phase.py`
-  - [ ] Success: imports
-  - [ ] Effort: 4
+Error mapping for every phase: `ProviderError` → `provider_abort`,
+`psycopg.OperationalError` and the archive write error → `storage_abort`,
+calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
+`storage_abort` naming it. No catch-all.
 
-- [ ] **18.2 Pass tests**
+- [ ] **18.1 Create `data/tick/purchase_phase.py`**
+  - [ ] Calendar (as Part 1's 7.3) → `session_days` → planner → free `cost`
+        and `billable_size` per request → space guard (free bytes of the
+        archive volume) → spend guard → submit in order: insert at
+        *requested*, `submit_batch`, record submit (TD9)
+  - [ ] TD9 outcome rules: `ProviderOutcomeUnknownError` → units
+        `FAILED_RETRYABLE`, stop submitting, `provider_abort`; 429 →
+        `FAILED_RETRYABLE`, `provider_abort`; other 4xx → units exhausted,
+        continue, `partial`; rows unresolved by reconcile are skipped
+  - [ ] Summary fields per the LLD's API Contracts purchase line
+  - [ ] Success: imports; under ~300 lines
+  - [ ] Effort: 3
+
+- [ ] **18.2 Purchase phase tests**
   - [ ] Integration, fake provider, `migrated_tick_db`, calendar from
         `session_migrated_db`:
+    1. a 4xx refusal on the first of two requests: its units exhausted, the
+       second submitted, outcome `partial`
+    2. a 429: units `FAILED_RETRYABLE`, no further submit, `provider_abort`
+    3. an unknown outcome on the first of two requests: exactly one
+       `submit_batch` call, `provider_abort`
+    4. ceilings unset with wants → `refused`, no submit; `--estimate-only` →
+       `ok`, no submit
+    5. Σ `billable_size` above an injected free-bytes value → `refused`
+       naming the shortfall, no submit
+  - [ ] Unit: the only paid method invoked on the fake is `submit_batch`, and
+        `fetch_range` is never called
+  - [ ] Success: passes
+  - [ ] Effort: 3
+  - [ ] Commit: `feat(tick): add tick purchase phase`
+
+- [ ] **18.3 Create `data/tick/acquisition_pass.py`**
+  - [ ] The other four phases and `PASS_PHASES`, following the LLD's pass
+        data flow: reconcile (`resolve_unsubmitted`, `sweep_expired`, one
+        `advance`); availability; purchase (18.1); await (`advance` every
+        poll interval up to the wait budget, then `in_flight` listing jobs
+        and deadlines; budget and interval injectable); definitions
+  - [ ] Success: imports; under ~300 lines
+  - [ ] Effort: 2
+
+- [ ] **18.4 Whole-pass tests**
+  - [ ] Integration, same setup as 18.2:
     1. two passes back to back after an unknown submit: exactly one
        `submit_batch` call (FR5)
     2. reset of an unresolved-exhausted row: the next pass searches the list
        again, then re-submits the same row
-    3. ceilings unset with wants → `refused`, no submit; `--estimate-only` →
-       `ok`, no submit
+    3. a delivered job is downloaded before the first `submit_batch` of the
+       same pass (the fake's recorded call order) (FR5)
     4. a job still processing at budget end → `in_flight` with its deadline
-       (tiny budget via parameter) (FR8)
+       (FR8)
     5. a second pass after success plans nothing, `ok` (FR10)
     6. a swept expired day is re-bought with supersession links (FR5)
-  - [ ] Unit: the only paid method invoked on the fake is `submit_batch`, and
-        `fetch_range` is never called
+    7. an `ENOSPC` during reconcile's download → `storage_abort`, later
+       phases `SKIPPED`
   - [ ] Success: passes
-  - [ ] Effort: 4
+  - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add tick acquisition pass`
 
-- [ ] **18.3 `mt data tick pass` verb and report**
+- [ ] **18.5 `mt data tick pass` verb and report**
   - [ ] `pass [--start] [--end] [--estimate-only] [--json]` in
         `cli/commands/tick.py`; `--end` exclusive; exit from
         `EXIT_BY_OUTCOME`
-  - [ ] Renderer in `tick_pass_render.py`: phase table, per-phase summaries
+  - [ ] Extend Part 1's `tick_pass_render.py` with the pass report: phase table, per-phase summaries
         as the LLD's API Contracts list, closing line; `--json` emits
         `{**PassResult.to_dict(), "exit_code": n}`
   - [ ] CLI tests: exit code per outcome, `--json` shape, window parsing
-  - [ ] Success: passes; both CLI files under ~300 lines
+  - [ ] Success: passes; `tick.py` and `tick_pass_render.py` each under ~300
+        lines after both parts' additions
   - [ ] Effort: 2
   - [ ] Commit: `feat(tick): add mt data tick pass verb`
 
@@ -356,15 +389,18 @@ status: not_started
   - [ ] Success: no failure outside the baseline
   - [ ] Effort: 2
 
-- [ ] **20.2 Walkthrough steps 5–7 and 10**
+- [ ] **20.2 Walkthrough steps 5 and 6: plan, then the live purchase**
+  - [ ] Confirm both ceilings load from the dev `.env` (`uv run python -c`
+        printing the two `Settings` fields). If either is absent, run step 5
+        only, record step 6 as deferred to 225 (LLD Dependencies), skip the
+        listing-lag and definition-window observations, and in 20.3 re-adopt
+        only the two free-credit jobs
   - [ ] In `mt_scratch_tick_223`: step 5 (`--estimate-only` shows four
-        definition requests ≈ $0.004; with ceilings unset in the shell the
-        pass exits 5 naming both variables). Step 6 (live purchase with the
-        PM's `.env` ceilings): four jobs, definitions *ingested*,
+        definition requests ≈ $0.004; with both ceiling variables unset in
+        the shell the pass exits 5 naming both). Step 6 (live purchase with
+        the `.env` ceilings): four jobs, definitions *ingested*,
         `tick_definition` query, `manifest.json` in each job directory with
-        `sha256sum -c` passing. Step 7 (idempotent re-run). Step 10 (rebuild
-        into `mt_scratch_tick_223b` from all six job directories, compare
-        rows, drop both scratch databases, confirm `pg_database` count 0)
+        `sha256sum -c` passing
   - [ ] If step 6 fails on a spread without a window or a changed definition
         field, STOP and report the named instrument and field (LLD Risk
         Assessment); do not loosen the rule
@@ -372,7 +408,18 @@ status: not_started
         observation in the findings table; if any job was not listed on the
         first poll, re-set `TICK_SUBMIT_RESOLVE_AGE` from the measurement and
         note it
-  - [ ] Success: every step matches; both scratch databases gone; the archive
+  - [ ] Success: steps 5 and 6 match (or step 6 recorded as deferred)
+  - [ ] Effort: 2
+  - [ ] Commit: `docs: record slice 223 purchase walkthrough findings`
+
+- [ ] **20.3 Walkthrough steps 7 and 10: idempotence, rebuild, teardown**
+  - [ ] Step 7: a second `pass` plans nothing and exits 0
+  - [ ] Step 10: rebuild into `mt_scratch_tick_223b` from every job
+        directory under the archive (six, or two if step 6 was deferred),
+        compare `provider_job_id`, `actual_cost_usd` and `committed_at` with
+        `mt_scratch_tick_223`, then drop both scratch databases and confirm
+        a `pg_database` count of 0 for each
+  - [ ] Success: rows match; both scratch databases gone; the archive
         remains
-  - [ ] Effort: 3
+  - [ ] Effort: 1
   - [ ] Commit: `docs: record slice 223 verification walkthrough`

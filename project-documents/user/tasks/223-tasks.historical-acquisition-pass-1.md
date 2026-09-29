@@ -261,13 +261,17 @@ that, split along the phase or concern it holds and note the split.
 - [ ] **4.2 Tests for the run context (FR1, preflight)**
   - [ ] Unit (`test/unit/data/tick/test_run_context.py`): each of refusals
         1–4 raises `TickPreflightError` naming its variable; the misspelt
-        `MT_TICK_DATA_SPEND_CEILING_USD` names `MT_TICK_SPEND_CEILING_USD`;
-        a missing archive directory is not created
+        `MT_TICK_DATA_SPEND_CEILING_USD` names `MT_TICK_SPEND_CEILING_USD`
+        both when set in the process environment and when present only in a
+        temporary `.env` file (the 2026-09-28 case); a missing archive
+        directory is not created; an existing but read-only archive directory
+        (`chmod 0555` on a `tmp_path` directory) is refused as not writable
   - [ ] Integration (`test/integration/data/test_tick_run_context.py`) on
         `ephemeral_tick_db`/`migrated_tick_db`: a bare database refuses with
         the migrate command; a migrated one yields; a second concurrent
         `open_tick_run` refuses on the lock; after the first closes, a new
-        one succeeds
+        one succeeds; a URL to a closed local port refuses as unreachable
+        within the connect timeout, naming `MT_TICK_DB_URL`
   - [ ] Success: both pass
   - [ ] Effort: 2
   - [ ] Commit: `feat(tick): add tick run context and preflight`
@@ -287,9 +291,12 @@ that, split along the phase or concern it holds and note the split.
         request-by-job-id lookup; mark downloaded (file columns); mark
         verified (`provider_record_count`); record failure (transient: attempt
         + 1, exhaust at `MAX_RETRY_COUNT`; deterministic: straight to
-        `RETRY_EXHAUSTED` with reason); mark `PROVIDER_HOLE`; reset exhausted
-        (→ `UNKNOWN`, attempt 0, reason NULL); reopen a hole (`reopened_at =
-        now`)
+        `RETRY_EXHAUSTED` with reason); mark `PROVIDER_HOLE`; reset one
+        exhausted unit (→ `UNKNOWN`, attempt 0, reason NULL); reopen one hole
+        (`reopened_at = now`); read units by id
+  - [ ] These are per-unit compare-and-set primitives only. Deciding which
+        primitive applies to a unit (the reset classification) is 8.1's, not
+        this module's
   - [ ] The coverage predicate (`superseded_by_unit_id IS NULL AND
         reopened_at IS NULL`) is one SQL fragment constant, used everywhere
   - [ ] Part 2 adds its functions here (submit, reconcile, sweep, trailing
@@ -305,8 +312,7 @@ that, split along the phase or concern it holds and note the split.
         `ManifestTransitionError` from any other (parametrized)
   - [ ] Transient failure five times ends `RETRY_EXHAUSTED` with attempt
         count 5; a deterministic failure exhausts at attempt 1
-  - [ ] Reset leaves reopened and non-exhausted units unchanged and returns
-        them as such
+  - [ ] Reset-one and reopen-one raise on a unit that is already reopened
   - [ ] Success: passes
   - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add compare-and-set manifest repository`
@@ -340,42 +346,64 @@ that, split along the phase or concern it holds and note the split.
 
 ## Section 7 — Adoption
 
-- [ ] **7.1 Create `data/tick/adopt.py`**
-  - [ ] Follow TD10 (adoption) and the LLD's Adoption data flow:
-    1. job id already in `tick_request` → result "already adopted", nothing
-       written
-    2. `batch_job(ID)` state must be `done` or `expired`, else refuse
-    3. read `manifest.json` from a directory or a zip; `job_id` must equal
-       `--job-id`; any listed name containing `/`, `\` or `..` is refused;
-       zip members are read only by listed names
-    4. free space on the archive volume ≥ Σ listed sizes, else refuse naming
-       the shortfall
-    5. each listed file → `<archive>/<ID>/<name>.partial`, hashed while
-       written, renamed on size+SHA-256 match; an existing final file with a
-       matching hash is skipped; any mismatch refuses the whole adoption,
-       leaves `.partial` files and writes no row
-    6. session days of the job's range (`session_days`); one transaction:
-       adopted request (`estimated = actual = cost_usd`, `committed_at =
-       ts_received`, no deadline) and one unit per session day: file present
-       (matched by header) → downloaded; none → delivered + `PROVIDER_HOLE`;
-       a file on a non-session day → reported by name, no unit
-    7. `verify.check` each downloaded unit
-  - [ ] `OSError` on write → run-level storage failure naming path and errno
-  - [ ] Returns an `AdoptResult` (job, cost, files, units by state, holes,
-        strays) for rendering
-  - [ ] Success: imports; file under ~300 lines
-  - [ ] Effort: 4
+Adoption is split in two modules at a natural seam (review F003): file
+handling in `adopt_files.py`, orchestration and rows in `adopt.py`. Both
+raise `TickAdoptionRefused(message)` (defined in `adopt_files.py`) for a
+refusal that writes no row; the verb maps it to exit 1 (TD10, all or
+nothing).
+
+- [ ] **7.1 Create `data/tick/adopt_files.py` (file handling)**
+  - [ ] Read `manifest.json` from a directory or a zip; its `job_id` must
+        equal `--job-id`; any listed name containing `/`, `\` or `..` is
+        refused; zip members are read only by listed names
+  - [ ] Free space on the archive volume ≥ Σ listed sizes, else refuse
+        naming the shortfall (free-bytes function injectable for tests)
+  - [ ] Each listed file → `<archive>/<ID>/<name>.partial`, hashed while
+        written, renamed on size+SHA-256 match; an existing final file with a
+        matching hash is skipped; any mismatch or missing member refuses,
+        leaving `.partial` files; blocking work in `asyncio.to_thread`
+  - [ ] `OSError` on write (for example `ENOSPC`) is not a refusal: it raises
+        `TickArchiveWriteError` naming path and errno, which the verb maps to
+        exit 4 (storage)
+  - [ ] Returns the copied files with size and hash
+  - [ ] Success: imports; under ~300 lines
+  - [ ] Effort: 2
 
 - [ ] **7.2 Unit tests for adoption file handling**
   - [ ] Over `write_job_dir`/`zip_job_dir`: directory and zip both copy every
         listed file; a flipped byte in one file refuses with its name and
         leaves no final file; a `../x` name and a name not in the zip are
-        refused; a job-id mismatch is refused; insufficient free space
-        (injected free-bytes function) is refused before any copy
+        refused; a job-id mismatch is refused; insufficient free space is
+        refused before any copy; an injected `OSError(ENOSPC)` on write
+        raises `TickArchiveWriteError` naming path and errno
   - [ ] Success: passes
   - [ ] Effort: 2
 
-- [ ] **7.3 Integration tests: adoption end to end (FR2)**
+- [ ] **7.3 Create `data/tick/adopt.py` (orchestration and rows)**
+  - [ ] Follow TD10 (adoption) and the LLD's Adoption data flow:
+    1. job id already in `tick_request` → result "already adopted", nothing
+       written
+    2. `batch_job(ID)` state must be `done` or `expired`, else
+       `TickAdoptionRefused` naming the state
+    3. `adopt_files` copies and verifies the files
+    4. calendar: `calendar_for_product` for the job's product, opened as
+       `TradingCalendar(id, str(settings.timescale_db_url))` (the pattern in
+       `cli/commands/calendar_sessions.py`; the production database, TD6);
+       `session_days` of the job's range. An unreachable calendar database or
+       `OutOfPopulatedRangeError` raises before any row is written and maps to
+       exit 4 naming the calendar
+    5. one transaction: adopted request (`estimated = actual = cost_usd`,
+       `committed_at = ts_received`, no deadline) and one unit per session
+       day: file present (matched by header) → downloaded; none → delivered
+       + `PROVIDER_HOLE`; a file on a non-session day → reported by name, no
+       unit
+    6. `verify.check` each downloaded unit
+  - [ ] Returns an `AdoptResult` (job, cost, files, units by state, holes,
+        strays) for rendering
+  - [ ] Success: imports; under ~300 lines
+  - [ ] Effort: 3
+
+- [ ] **7.4 Integration tests: adoption end to end (FR2)**
   - [ ] `test/integration/data/test_tick_adopt.py`: `migrated_tick_db` plus
         `session_migrated_db` calendar, fake provider job record, a job
         directory of day files over two UTC days
@@ -386,7 +414,10 @@ that, split along the phase or concern it holds and note the split.
   - [ ] A second adoption writes nothing and returns "already adopted";
         re-adopting from `<archive>/<ID>` into a fresh database copies
         nothing and rebuilds identical rows (TD10, rebuilding the manifest)
-  - [ ] A corrupted file writes no rows
+  - [ ] Refusals write no rows: a corrupted file; a job state `queued`
+        (`TickAdoptionRefused` naming it); a calendar URL to a closed port and
+        a range before 2020-01-01 (outside the CME span) each raise the
+        storage error with no row
   - [ ] Success: passes
   - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add batch job adoption`
@@ -395,13 +426,16 @@ that, split along the phase or concern it holds and note the split.
 
 ## Section 8 — `adopt` and `reset` verbs
 
-- [ ] **8.1 Reset core**
-  - [ ] `reset_units(run, unit_ids | ALL) -> list[ResetChange]` in
-        `manifest_repo.py` callers (a small `data/tick/reset.py` if needed):
-        exhausted and not reopened → `UNKNOWN`, attempt 0; `PROVIDER_HOLE`
-        and not reopened → reopened; anything else unchanged and listed
-        (TD8, reset)
-  - [ ] Success: imports
+- [ ] **8.1 Reset classification, `data/tick/reset.py`**
+  - [ ] `reset_units(run, unit_ids | ALL) -> list[ResetChange]` owns the
+        classification and calls 5.1's per-unit primitives: exhausted and not
+        reopened → reset-one; `PROVIDER_HOLE` and not reopened → reopen-one;
+        anything else unchanged and listed (TD8, reset). An unknown unit id
+        is listed as not found
+  - [ ] Integration test (`test/integration/data/test_tick_reset.py`): each
+        branch, including reopened and non-exhausted units listed unchanged
+        and an unknown id
+  - [ ] Success: passes
   - [ ] Effort: 1
 
 - [ ] **8.2 CLI verbs and rendering**
@@ -412,17 +446,17 @@ that, split along the phase or concern it holds and note the split.
   - [ ] Rendering in new `cli/commands/tick_pass_render.py` (Rich and `--json`
         via `cli.output`): adopt shows job, cost, files, units by state,
         holes and strays; reset shows each unit before and after
-  - [ ] Exit: preflight 1, provider 2, storage 4, else 0
+  - [ ] Exit: `TickPreflightError` or `TickAdoptionRefused` → 1;
+        `ProviderError` → 2; `TickArchiveWriteError`, the calendar errors of
+        7.3 and `psycopg.OperationalError` → 4; else 0
   - [ ] Success: `mt data tick --help` lists both; both files under ~300 lines
   - [ ] Effort: 2
 
 - [ ] **8.3 CLI tests**
   - [ ] Extend `test/unit/cli/commands/test_data_tick.py` with the run context
-        and cores patched: exit codes per failure class; `--json` shapes;
-        reset refuses without the typed word; `--unit-id` and `--all` are
-        mutually exclusive
-  - [ ] Integration: reset of a hole and of an exhausted unit on
-        `migrated_tick_db` (FR6, reset part)
+        and cores patched: each exception class of 8.2 gives its exit code;
+        `--json` shapes; reset refuses without the typed word; `--unit-id` and
+        `--all` are mutually exclusive
   - [ ] Success: passes
   - [ ] Effort: 2
   - [ ] Commit: `feat(tick): add adopt and reset verbs`
@@ -475,8 +509,9 @@ that, split along the phase or concern it holds and note the split.
         free-credit jobs, the manifest query), step 8 (reset) and step 9
         (backup verify under sudo). Add `MT_TICK_ARCHIVE_DIR=/data/tick-archive`
         to the dev `.env` first (not committed)
-  - [ ] If `sudo` is refused in this session, STOP and give the PM the single
-        step 9 command and the log path
+  - [ ] Run step 9 with the Bash sandbox disabled (the sandbox sets "no new
+        privileges", which blocks sudo). Only if sudo is still refused, STOP
+        and give the PM the single step 9 command and the log path
   - [ ] Keep `mt_scratch_tick_223`: Part 2 continues in it
   - [ ] Record actual outputs in the LLD walkthrough; correct any command or
         expected value that differed
