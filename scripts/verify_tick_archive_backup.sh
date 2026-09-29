@@ -103,8 +103,10 @@ echo "    backup: OK"
 restic_run() { "$RESTIC_REPO_LIB" --env-file "$ENV_FILE" --prefix "$REPO_PREFIX" run -- "$@"; }
 
 step "4. snapshot file count"
-SNAPSHOT_COUNT=$(restic_run ls --json latest "$ARCHIVE" \
-  | grep '"type":"file"' | grep -cv '\.partial"' || true)
+# --recursive: a directory filter otherwise lists only its direct children,
+# and every archived file sits in a job directory. A restic failure stops here.
+LISTING=$(restic_run ls --json --recursive latest "$ARCHIVE")
+SNAPSHOT_COUNT=$(printf '%s\n' "$LISTING" | grep '"type":"file"' | grep -cv '\.partial"' || true)
 compare "files under $ARCHIVE" "$LOCAL_COUNT" "$SNAPSHOT_COUNT"
 
 step "5. restore one file"
