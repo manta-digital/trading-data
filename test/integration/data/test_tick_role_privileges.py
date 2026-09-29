@@ -9,15 +9,36 @@ a statement (913 D8).
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Iterator
 from typing import Any
 
 import psycopg
 import pytest
-from tick_support.database import ProvisionedTickDb
+from psycopg import sql
+from tick_support.database import PROVISION_TICK_SQL, ProvisionedTickDb
+from tick_support.rows import (
+    FILE_COLUMNS,
+    insert_definition,
+    insert_ledger_row,
+    insert_request,
+    insert_trade,
+    insert_unit,
+)
+
+from manta_trading.data.tick.constants import UnitState
 
 LEDGER = "schema_migrations"
+
+#: Slice 222's tables, each with a column the DML probe may rewrite in place.
+TICK_TABLES: dict[str, str] = {
+    "tick_request": "dataset",
+    "tick_archive_unit": "attempt_count",
+    "tick_definition": "raw_symbol",
+    "tick_trade": "flags",
+    "tick_ingest_ledger": "volume",
+}
 
 
 @pytest.fixture
@@ -93,27 +114,39 @@ def test_application_role_creates_temp_tables(
         tick_app_conn.execute("ROLLBACK")
 
 
-def test_migrate_role_owns_database_and_installs_timescaledb(
+def test_migrate_role_owns_database_and_the_extensions(
     provisioned_tick_db: ProvisionedTickDb,
 ) -> None:
-    """D4: ownership, not membership in ``postgres``, is what permits the extension."""
+    """D4: ownership, not membership in ``postgres``, is what permits extensions.
+
+    ``tick_001`` installs both while the fixture applies the track as the
+    migrate role, so each extension's owner is that role (slice 222).
+    """
     tick = provisioned_tick_db
-    with psycopg.connect(tick.url, autocommit=True) as conn:
+    with psycopg.connect(tick.url) as conn:
         owner = conn.execute(
             "SELECT pg_get_userbyid(datdba) FROM pg_database "
             "WHERE datname = current_database()"
         ).fetchone()
         assert owner is not None and owner[0] == tick.migrate_role
-        conn.execute(f'SET ROLE "{tick.migrate_role}"')
-        conn.execute("CREATE EXTENSION timescaledb")
-        try:
-            ext = conn.execute(
-                "SELECT pg_get_userbyid(extowner) FROM pg_extension "
-                "WHERE extname = 'timescaledb'"
-            ).fetchone()
-            assert ext is not None and ext[0] == tick.migrate_role
-        finally:
-            conn.execute("DROP EXTENSION timescaledb")
+        extensions = conn.execute(
+            "SELECT extname, pg_get_userbyid(extowner) FROM pg_extension "
+            "WHERE extname IN ('timescaledb', 'btree_gist') ORDER BY 1"
+        ).fetchall()
+    assert extensions == [
+        ("btree_gist", tick.migrate_role),
+        ("timescaledb", tick.migrate_role),
+    ]
+
+
+def test_migrate_role_has_only_login(provisioned_tick_db: ProvisionedTickDb) -> None:
+    with psycopg.connect(provisioned_tick_db.url) as conn:
+        row = conn.execute(
+            "SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,"
+            " rolreplication, rolbypassrls FROM pg_roles WHERE rolname = %s",
+            (provisioned_tick_db.migrate_role,),
+        ).fetchone()
+    assert row == (True, False, False, False, False, False)
 
 
 def test_migrate_role_has_no_membership_in_postgres(
@@ -196,10 +229,10 @@ def _catalog_snapshot(tick: ProvisionedTickDb) -> dict[str, Any]:
                 "SELECT datdba::regrole::text, datacl::text FROM pg_database "
                 "WHERE datname = current_database()"
             ).fetchall(),
-            "ledger": conn.execute(
-                "SELECT relowner::regrole::text, relacl::text FROM pg_class "
-                "WHERE relname = %s",
-                (LEDGER,),
+            "tables": conn.execute(
+                "SELECT relname, relowner::regrole::text, relacl::text FROM pg_class "
+                "WHERE relname = ANY(%s) ORDER BY 1",
+                ([LEDGER, *TICK_TABLES],),
             ).fetchall(),
             "public schema": conn.execute(
                 "SELECT nspacl::text FROM pg_namespace WHERE nspname = 'public'"
@@ -229,3 +262,78 @@ def test_reapplying_the_artifact_changes_nothing(
     result = provisioned_tick_db.apply_artifact(test_admin_url)
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     assert _catalog_snapshot(provisioned_tick_db) == before
+
+
+# --------------------------------------------------------------------------
+# Write surface: the five tick tables (slice 222)
+# --------------------------------------------------------------------------
+
+
+def _insert_into(conn: psycopg.Connection[Any], table: str) -> None:
+    """One valid row in ``table``, plus the manifest rows it depends on."""
+    request_id = insert_request(conn)
+    if table == "tick_request":
+        return
+    unit_id = insert_unit(
+        conn, request_id, state=UnitState.INGESTED.value, **FILE_COLUMNS
+    )
+    if table == "tick_definition":
+        insert_definition(conn, unit_id)
+    elif table == "tick_trade":
+        insert_trade(conn, unit_id)
+    elif table == "tick_ingest_ledger":
+        insert_ledger_row(conn, unit_id)
+
+
+@pytest.mark.parametrize(("table", "column"), TICK_TABLES.items())
+def test_application_role_has_dml_on_tick_tables(
+    tick_app_conn: psycopg.Connection[Any], table: str, column: str
+) -> None:
+    """Identity inserts included: no sequence grant is needed. Rolled back."""
+    target = sql.Identifier(table)
+    tick_app_conn.execute("BEGIN")
+    try:
+        _insert_into(tick_app_conn, table)
+        updated = tick_app_conn.execute(
+            sql.SQL("UPDATE {} SET {} = {}").format(
+                target, sql.Identifier(column), sql.Identifier(column)
+            )
+        )
+        assert updated.rowcount == 1
+        count = tick_app_conn.execute(
+            sql.SQL("SELECT count(*) FROM {}").format(target)
+        ).fetchone()
+        assert count == (1,)
+        deleted = tick_app_conn.execute(sql.SQL("DELETE FROM {}").format(target))
+        assert deleted.rowcount == 1
+    finally:
+        tick_app_conn.execute("ROLLBACK")
+
+
+@pytest.mark.parametrize("table", TICK_TABLES)
+@pytest.mark.parametrize(
+    "template", ["TRUNCATE {}", "ALTER TABLE {} ADD COLUMN probe INTEGER"]
+)
+def test_application_role_cannot_truncate_or_alter_tick_tables(
+    tick_app_conn: psycopg.Connection[Any], table: str, template: str
+) -> None:
+    _assert_denied(tick_app_conn, template.format(table))
+
+
+def _artifact_tables() -> set[str]:
+    """Table names in the artifact's enumerated write surface."""
+    text = PROVISION_TICK_SQL.read_text()
+    block = re.search(r"tablename IN \(([^)]*)\)", text)
+    assert block is not None, "write surface list not found in the artifact"
+    return set(re.findall(r"'([^']+)'", block.group(1)))
+
+
+def test_artifact_enumerates_every_tick_table(
+    provisioned_tick_db: ProvisionedTickDb,
+) -> None:
+    """A new table cannot be left out of the audited write surface."""
+    with psycopg.connect(provisioned_tick_db.url) as conn:
+        rows = conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+        ).fetchall()
+    assert _artifact_tables() == {r[0] for r in rows} - {LEDGER}
