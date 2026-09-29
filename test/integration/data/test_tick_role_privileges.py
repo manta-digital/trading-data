@@ -20,6 +20,8 @@ from psycopg import sql
 from tick_support.database import PROVISION_TICK_SQL, ProvisionedTickDb
 from tick_support.rows import (
     FILE_COLUMNS,
+    insert_dataset_edge,
+    insert_day_condition,
     insert_definition,
     insert_ledger_row,
     insert_request,
@@ -31,13 +33,22 @@ from manta_trading.data.tick.constants import UnitState
 
 LEDGER = "schema_migrations"
 
-#: Slice 222's tables, each with a column the DML probe may rewrite in place.
+#: The tick tables (slices 222, 223), each with a column the DML probe may
+#: rewrite in place.
 TICK_TABLES: dict[str, str] = {
     "tick_request": "dataset",
     "tick_archive_unit": "attempt_count",
     "tick_definition": "raw_symbol",
     "tick_trade": "flags",
     "tick_ingest_ledger": "volume",
+    "tick_dataset_edge": "observed_at",
+    "tick_day_condition": "observed_at",
+}
+
+#: Tables with no manifest dependency: one row each from its helper.
+_STANDALONE_ROWS = {
+    "tick_dataset_edge": insert_dataset_edge,
+    "tick_day_condition": insert_day_condition,
 }
 
 
@@ -265,12 +276,15 @@ def test_reapplying_the_artifact_changes_nothing(
 
 
 # --------------------------------------------------------------------------
-# Write surface: the five tick tables (slice 222)
+# Write surface: the tick tables (slices 222, 223)
 # --------------------------------------------------------------------------
 
 
 def _insert_into(conn: psycopg.Connection[Any], table: str) -> None:
     """One valid row in ``table``, plus the manifest rows it depends on."""
+    if table in _STANDALONE_ROWS:
+        _STANDALONE_ROWS[table](conn)
+        return
     request_id = insert_request(conn)
     if table == "tick_request":
         return

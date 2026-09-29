@@ -8,7 +8,8 @@ It starts with the shared ``001_schema_migrations`` bootstrap, reused from the
 minute track rather than copied. Every later id is prefixed ``tick_NNN_*``
 (slice 222 onward) so it can never collide with a primary-track id.
 
-Slice 222 adds the five storage tables. SQL is idempotent (IF NOT EXISTS,
+Slice 222 adds the five storage tables; slice 223 adds availability metadata
+and ``reopened_at`` (``tick_006``). SQL is idempotent (IF NOT EXISTS,
 ``if_not_exists => TRUE``, constraints named inside the CREATE). Every enum
 CHECK is rendered from its enum, never hand-listed (222 TD9). No migration
 grants anything: ``tick_migrate``'s default privileges give ``tick_app`` DML,
@@ -26,6 +27,7 @@ from manta_trading.data.tick.constants import (
     ARCHIVED_SCHEMAS,
     TICK_TRADE_CHUNK_INTERVAL,
     UNIT_STATES_WITH_FILE,
+    DatasetCondition,
     DeliveryMode,
     SType,
     UnitState,
@@ -283,6 +285,46 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                 CONSTRAINT tick_ingest_ledger_event_order_check
                     CHECK (first_event_ns <= last_event_ns)
             );
+        """,
+    },
+    {
+        "id": "tick_006_availability",
+        "description": "Add availability tables and tick_archive_unit.reopened_at",
+        # LLD 224 (slice 223): the dataset edge and per-day conditions that
+        # 224's pass writes and 225's status reads; TD8 (reopened units):
+        # reopened_at marks a unit that can never produce its file and whose
+        # day is wanted again. A unit holding a file is never reopened.
+        "sql": f"""
+            CREATE TABLE IF NOT EXISTS tick_dataset_edge (
+                dataset         TEXT        PRIMARY KEY,
+                available_start TIMESTAMPTZ NOT NULL,
+                available_end   TIMESTAMPTZ NOT NULL,
+                observed_at     TIMESTAMPTZ NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS tick_day_condition (
+                dataset            TEXT        NOT NULL,
+                condition_date     DATE        NOT NULL,
+                condition          TEXT        NOT NULL
+                    CONSTRAINT tick_day_condition_condition_check
+                    {render_enum_check("condition", DatasetCondition)},
+                last_modified_date DATE,
+                observed_at        TIMESTAMPTZ NOT NULL,
+                CONSTRAINT tick_day_condition_pkey
+                    PRIMARY KEY (dataset, condition_date)
+            );
+            ALTER TABLE tick_archive_unit
+                ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMPTZ;
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'tick_archive_unit_reopened_check'
+                ) THEN
+                    ALTER TABLE tick_archive_unit
+                        ADD CONSTRAINT tick_archive_unit_reopened_check
+                        CHECK (reopened_at IS NULL OR state NOT IN (
+                            {render_enum_list(UNIT_STATES_WITH_FILE)}));
+                END IF;
+            END $$;
         """,
     },
 ]
