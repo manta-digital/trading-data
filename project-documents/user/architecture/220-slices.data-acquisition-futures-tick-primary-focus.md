@@ -26,7 +26,7 @@ status: in_progress
 
    This is the first slice to touch a governed surface, so it also writes the frame of the contract amendment: the tick invariants, the I7 exception with its reason, the vocabulary rules (manifest-based completeness, and where `granularity = 'tick'` may appear), and sequence-gap detection moved to the realtime initiative. The slice needs no purchase and no tick database. Dependencies: none within this plan. Risk: Medium. Effort: 3/5
 
-3. [ ] **(222) Tick Storage Track** — Appends to the `tick` migration track that 923 registers (ledger bootstrap only, routed to the tick database). Its tables are:
+3. [x] **(222) Tick Storage Track** — Appends to the `tick` migration track that 923 registers (ledger bootstrap only, routed to the tick database). Its tables are:
    - The trades-tier hypertable, with trade fields always present and nullable BBO fields, plus each row's archive-unit integer id (not a string, not in the natural key). Its chunk interval is set explicitly and conservatively from wall-clock span (journal 20260719). Physical grouping by instrument waits for the proof.
    - Definitions (the futures instrument model, with identifier validity windows).
    - The manifest of archive units: state machine (rows written at *requested*), delivery-mode discriminator, tier, download deadline, estimated and actual cost, the minute tier's fetch-state vocabulary (`FetchStatus`: attempt count, `FAILED_RETRYABLE`, `RETRY_EXHAUSTED`, `PROVIDER_HOLE`), and links to the unit it repurchases or supersedes.
@@ -145,6 +145,12 @@ status: in_progress
   - The decode batch bound is a byte budget (`TICK_DECODE_BATCH_BYTES`) with the record count derived per schema, not "a record count, one named constant" — a count cannot bound memory across 48-byte trades and 520-byte definitions.
   - Delivered historical files carry no symbol-mapping records. The mappings live in the DBN file's metadata header (`mappings`, `partial`, `not_found`); in-stream mapping records are a live-API feature only. 224 and 225 read the header.
 - **Architecture statement superseded by 221's slice design:** ES and GC do not share a calendar row. Regular hours match (17:00–16:00 CT), but holiday halts and early closes differ (equity 12:00 CT vs metals 13:30 CT on US holidays; Black Friday 12:15 vs 12:45; equity-only abbreviated Good Friday sessions). Calendars are keyed per schedule: `CME_EQUITY` (221) and `CME_METALS` (230).
+- **Architecture statements superseded by 222's slice design:**
+  - The natural key is `(instrument, event time, sequence, sequence_ordinal)`, not the provider's triple, which repeats for 1.95% of real ES trades (TD1).
+  - The *failed* state is `fetch_status` (`FetchStatus`) beside a furthest-reached `state`, so a failed unit keeps its resume point (TD4).
+  - The manifest is two tables: job-grain facts on `tick_request`, the unit lifecycle on `tick_archive_unit` (TD4).
+  - The archive unit is one UTC day of a request, normally one provider file, not "one provider file": a provider hole has no file (TD4).
+  - The tier is reached through the unit's request, not stored on the ledger (TD7).
 - **No billable request before 223.** 220's preflight uses only free metadata endpoints, and its test fixtures must be free real DBN files. The first real purchase happens only after the PM sets `MT_TICK_SPEND_CEILING_USD`.
 - **The CLI and API surface decision was made at 220 design:** an `mt data tick` subgroup and a `/api/v1/futures/*` namespace. 228 and 229 apply it.
 - **Standing obligations on every 220 slice:** diff the tick pass contract against the Kalshi original, as a named task in the slice's task file (from 223 on). 223 also adds a unit test comparing the tick copy's fields with the Kalshi original's, so divergence fails a test rather than waiting for a checklist (review F015). Include a "realtime paths" check naming any decision that rules out path A (assemble from realtime) or path B (historical with delay). Add the slice's rows to the data-correctness contract's slice-mapping table. Answer "does this belong in the API?" for any new surface.

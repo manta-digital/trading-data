@@ -27,6 +27,13 @@ the application credential for `status`, the maintenance credential for `apply`
 - **One ledger per database.** The primary's `schema_migrations` is shared by
   `minute`, `daily` and `kalshi`; the tick database has its own, holding the
   bootstrap and `tick_*` ids only.
+- **The tick track (slice 222)** is `tick_001_extensions` (TimescaleDB,
+  btree_gist), `tick_002_manifest` (`tick_request`, `tick_archive_unit`),
+  `tick_003_definitions` (`tick_definition`), `tick_004_trades` (the
+  `tick_trade` hypertable on integer nanosecond `ts_event`) and
+  `tick_005_ingest_ledger` (`tick_ingest_ledger`). It contains no `GRANT`:
+  `scripts/provision_tick_roles.sql` enumerates the application role's write
+  surface.
 - **Misroute guard.** Before applying, `apply` reads the target ledger and
   refuses if it holds ids of a track routed to another database (for example a
   tick maintenance URL that points at `trading`). It checks the ledger, not

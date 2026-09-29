@@ -7,7 +7,7 @@ dependencies: [923, 220, 221]
 interfaces: [223, 224, 225, 226, 227, 228, 229]
 dateCreated: 20260928
 dateUpdated: 20260928
-status: not_started
+status: complete
 ---
 
 # Slice Design: tick-storage-track
@@ -701,16 +701,25 @@ These steps run against the test cluster, because no production tick
 database exists. Export `MT_TIMESCALE_TEST_URL` from `.env` first (strip
 the quotes).
 
-1. **The storage suites.**
+1. **The storage suites.** Two invocations: `test/unit/data` and
+   `test/integration/data` both import as the package `data`, so one
+   combined command fails at collection with `ModuleNotFoundError: No module
+   named 'data.tick'` (found at implementation).
 
    ```bash
    uv run pytest test/integration/data/test_tick_storage_track.py \
-                 test/integration/data/test_tick_role_privileges.py \
-                 test/unit/data/tick/ -q
+                 test/integration/data/test_tick_storage_constraints.py \
+                 test/integration/data/test_tick_manifest_constraints.py \
+                 test/integration/data/test_tick_role_privileges.py -q
+   uv run pytest test/unit/data/tick/ \
+                 test/unit/market/schema/test_tick_migrations.py -q
    ```
 
-   Expected: all pass. The privilege file now includes the write-surface
-   and `btree_gist` cases.
+   Expected: all pass. Recorded 20260928: `90 passed`, then `194 passed`.
+   The constraint cases are split across two files (manifest in
+   `test_tick_manifest_constraints.py`; definitions, trades and ledger in
+   `test_tick_storage_constraints.py`). The privilege file now includes the
+   write-surface, extension-owner and migrate-role-attribute cases.
 
 2. **Apply by hand to a scratch database and look at it.** Point both tick
    variables at a throwaway database created on the test cluster:
@@ -724,7 +733,11 @@ the quotes).
    ```
 
    Expected: `001_schema_migrations` and `tick_001`–`tick_005` are listed
-   as applied. A second `init` reports nothing to apply.
+   as applied. A second `init` reports nothing to apply. Recorded: the first
+   `init` table shows `Applied this run 5`, `Total applied 6`, `Pending
+   remaining 0` (the bootstrap is logged as "Bootstrapped schema_migrations
+   table" and not counted in this run); status ends `6 applied, 0 pending`;
+   the second `init` shows `Applied this run 0`.
 
 3. **Inspect the geometry.**
 
@@ -736,7 +749,11 @@ the quotes).
 
    Expected: one dimension, `ts_event`, `bigint`, `604800000000000`. The
    primary key is `(instrument_id, ts_event, sequence, sequence_ordinal)`,
-   there is no other index, and the BBO CHECK is present.
+   there is no other index, and the BBO CHECK is present. Recorded as
+   expected: `\d` lists only `tick_trade_pkey` under Indexes, and two checks,
+   `tick_trade_bbo_check` and `tick_trade_sequence_ordinal_check`. Column
+   order is the `TICK_TRADE_COLUMNS` order, then `sequence_ordinal` and
+   `unit_id` (the parity test pins it).
 
 4. **See the key decision's evidence on real data (read-only).** This
    repeats the design measurement on one adopted day:
@@ -750,10 +767,12 @@ the quotes).
    ```
 
    Expected: `511965 9922`. Nearly 10,000 rows would collide on the
-   architecture's key.
+   architecture's key. Recorded 20260928: `511965 9922`.
 
 5. **Tear down the scratch database** (it was created by step 2):
    `dropdb --maintenance-db="$MT_TIMESCALE_TEST_URL" mt_scratch_tick_222`.
+   Confirm: `psql "$MT_TIMESCALE_TEST_URL" -tAc "SELECT count(*) FROM
+   pg_database WHERE datname = 'mt_scratch_tick_222'"` prints `0` (recorded).
 
 No command lists tick tables or units yet. `mt data tick status` is 224's.
 

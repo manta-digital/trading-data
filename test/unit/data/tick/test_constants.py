@@ -1,17 +1,24 @@
-"""Tick constants: provider spellings and the tier sets (slice 220, TD 4)."""
+"""Tick constants: provider spellings, tier sets (slice 220, TD 4) and the
+storage vocabulary (slice 222, TD 4, 8, 9)."""
 
 from __future__ import annotations
+
+from datetime import timedelta
 
 import pytest
 
 from manta_trading.data.tick.constants import (
+    ARCHIVED_SCHEMAS,
     COMPANION_SCHEMAS,
     ESTIMATE_SCHEMAS,
     STORED_TIERS,
     TICK_TIERS,
+    TICK_TRADE_CHUNK_INTERVAL,
+    UNIT_STATES_WITH_FILE,
     DeliveryMode,
     SType,
     TickSchema,
+    UnitState,
     calendar_for_product,
 )
 from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
@@ -61,3 +68,38 @@ def test_calendar_for_known_product() -> None:
 def test_calendar_for_unknown_product_names_known_ones() -> None:
     with pytest.raises(KeyError, match="'GC'.*known: ES"):
         calendar_for_product("GC")
+
+
+def test_unit_state_values_in_lifecycle_order() -> None:
+    assert [s.value for s in UnitState] == [
+        "requested",
+        "submitted",
+        "delivered",
+        "downloaded",
+        "verified",
+        "ingested",
+    ]
+
+
+def test_unit_states_with_file_come_after_delivery() -> None:
+    order = list(UnitState)
+    assert UNIT_STATES_WITH_FILE == {
+        UnitState.DOWNLOADED,
+        UnitState.VERIFIED,
+        UnitState.INGESTED,
+    }
+    delivered = order.index(UnitState.DELIVERED)
+    assert all(order.index(s) > delivered for s in UNIT_STATES_WITH_FILE)
+
+
+def test_archived_schemas_are_stored_tiers_and_definition() -> None:
+    assert ARCHIVED_SCHEMAS == {
+        TickSchema.TRADES,
+        TickSchema.TBBO,
+        TickSchema.DEFINITION,
+    }
+    assert TickSchema.MBP_1 not in ARCHIVED_SCHEMAS
+
+
+def test_tick_trade_chunk_interval_is_seven_days() -> None:
+    assert TICK_TRADE_CHUNK_INTERVAL == timedelta(days=7)

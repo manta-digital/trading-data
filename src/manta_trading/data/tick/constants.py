@@ -2,12 +2,16 @@
 
 Schemas and tier sets, symbology types, delivery modes, the dataset code, the
 decode byte budget, the download timeout, and env-var names are defined here
-and only here (slice 220 design, Technical Decisions 4, 5, 7, 9).
+and only here (slice 220 design, Technical Decisions 4, 5, 7, 9). Slice 222
+adds the storage vocabulary: the archive unit's lifecycle (``UnitState``,
+``UNIT_STATES_WITH_FILE``), the schemas a request may archive
+(``ARCHIVED_SCHEMAS``) and the trade hypertable's chunk interval.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import timedelta
 from enum import StrEnum
 from typing import Final
 
@@ -36,6 +40,10 @@ STORED_TIERS: frozenset[TickSchema] = frozenset({TickSchema.TRADES, TickSchema.T
 #: Bought together with a tier, never a tier itself.
 COMPANION_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.DEFINITION})
 
+#: What a ``tick_request`` may archive. ``mbp-1`` stays estimate-only
+#: (slice 222 TD9).
+ARCHIVED_SCHEMAS: frozenset[TickSchema] = STORED_TIERS | COMPANION_SCHEMAS
+
 #: The one tuple the preflight iterates: every tier, then the companion.
 ESTIMATE_SCHEMAS: tuple[TickSchema, ...] = (*TICK_TIERS, TickSchema.DEFINITION)
 
@@ -54,6 +62,37 @@ class DeliveryMode(StrEnum):
 
     BATCH_JOB = "batch_job"
     DIRECT_RANGE = "direct_range"
+
+
+class UnitState(StrEnum):
+    """An archive unit's lifecycle, in order (slice 222 TD4).
+
+    The state is the furthest step reached and never moves backward. Failure
+    is not a state: it is the unit's ``fetch_status`` (``FetchStatus``), the
+    failure lifecycle of the next step, so a failed unit keeps its resume point.
+    """
+
+    REQUESTED = "requested"
+    SUBMITTED = "submitted"
+    DELIVERED = "delivered"
+    DOWNLOADED = "downloaded"
+    VERIFIED = "verified"
+    INGESTED = "ingested"
+
+
+#: States in which a unit has its file: path, size and SHA-256 are required.
+UNIT_STATES_WITH_FILE: frozenset[UnitState] = frozenset(
+    {UnitState.DOWNLOADED, UnitState.VERIFIED, UnitState.INGESTED}
+)
+
+TICK_TRADE_CHUNK_INTERVAL: timedelta = timedelta(days=7)
+"""``tick_trade``'s chunk interval, rendered to integer nanoseconds.
+
+Rule (journal 20260719): the table's wall-clock span divided by 1,000–2,000
+target chunks. About 20 years of plausible span gives about 1,040 chunks at
+7 days (slice 222 TD8). Slice 225 validates it from measurements and may
+re-set it with a tick-track migration.
+"""
 
 
 class DatasetCondition(StrEnum):
