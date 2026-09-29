@@ -21,6 +21,14 @@ from collections.abc import Iterable
 from datetime import timedelta
 from enum import StrEnum
 
+from manta_trading.data.quality.fetch_status import FetchStatus
+from manta_trading.data.tick.constants import (
+    ARCHIVED_SCHEMAS,
+    UNIT_STATES_WITH_FILE,
+    DeliveryMode,
+    SType,
+    UnitState,
+)
 from manta_trading.data.tick.storage_columns import (
     TICK_TRADE_BBO_COLUMNS,
 )
@@ -66,6 +74,95 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
         "sql": """
             CREATE EXTENSION IF NOT EXISTS timescaledb;
             CREATE EXTENSION IF NOT EXISTS btree_gist;
+        """,
+    },
+    {
+        "id": "tick_002_manifest",
+        "description": "Create the tick manifest: tick_request and tick_archive_unit",
+        # TD4 (the manifest is two tables, request and unit, and failure is a
+        # column rather than a state): job-grain facts once on tick_request;
+        # the unit is one UTC day of a request and carries the whole
+        # lifecycle. TD9 (every CHECK is rendered from its enum).
+        "sql": f"""
+            CREATE TABLE IF NOT EXISTS tick_request (
+                request_id            BIGINT GENERATED ALWAYS AS IDENTITY
+                                      PRIMARY KEY,
+                dataset               TEXT        NOT NULL,
+                schema                TEXT        NOT NULL
+                    CONSTRAINT tick_request_schema_check
+                    {_check_in("schema", ARCHIVED_SCHEMAS)},
+                symbols               TEXT[]      NOT NULL
+                    CONSTRAINT tick_request_symbols_check
+                    CHECK (cardinality(symbols) > 0),
+                stype_in              TEXT        NOT NULL
+                    CONSTRAINT tick_request_stype_in_check
+                    {_check_in("stype_in", SType)},
+                range_start           DATE        NOT NULL,
+                range_end             DATE        NOT NULL,
+                delivery_mode         TEXT        NOT NULL
+                    CONSTRAINT tick_request_delivery_mode_check
+                    {_check_in("delivery_mode", DeliveryMode)},
+                is_adopted            BOOLEAN     NOT NULL,
+                provider_job_id       TEXT
+                    CONSTRAINT tick_request_provider_job_id_key UNIQUE,
+                estimated_cost_usd    NUMERIC     NOT NULL
+                    CONSTRAINT tick_request_estimated_cost_check
+                    CHECK (estimated_cost_usd >= 0),
+                actual_cost_usd       NUMERIC
+                    CONSTRAINT tick_request_actual_cost_check
+                    CHECK (actual_cost_usd >= 0),
+                provider_record_count BIGINT,
+                billed_size_bytes     BIGINT,
+                requested_at          TIMESTAMPTZ NOT NULL,
+                committed_at          TIMESTAMPTZ,
+                download_deadline     TIMESTAMPTZ,
+                CONSTRAINT tick_request_range_check
+                    CHECK (range_end > range_start)
+            );
+            CREATE TABLE IF NOT EXISTS tick_archive_unit (
+                unit_id               BIGINT GENERATED ALWAYS AS IDENTITY
+                                      PRIMARY KEY,
+                request_id            BIGINT      NOT NULL
+                    CONSTRAINT tick_archive_unit_request_fkey
+                    REFERENCES tick_request (request_id),
+                unit_date             DATE        NOT NULL,
+                state                 TEXT        NOT NULL
+                    CONSTRAINT tick_archive_unit_state_check
+                    {_check_in("state", UnitState)},
+                state_changed_at      TIMESTAMPTZ NOT NULL,
+                fetch_status          TEXT        NOT NULL
+                    CONSTRAINT tick_archive_unit_fetch_status_check
+                    {_check_in("fetch_status", FetchStatus)},
+                failure_reason        TEXT,
+                attempt_count         INTEGER     NOT NULL
+                    CONSTRAINT tick_archive_unit_attempt_count_check
+                    CHECK (attempt_count >= 0),
+                last_attempt_at       TIMESTAMPTZ,
+                file_path             TEXT,
+                file_size_bytes       BIGINT,
+                file_sha256           TEXT,
+                provider_record_count BIGINT,
+                decoded_record_count  BIGINT,
+                superseded_by_unit_id BIGINT
+                    CONSTRAINT tick_archive_unit_superseded_by_fkey
+                    REFERENCES tick_archive_unit (unit_id),
+                repurchase_of_unit_id BIGINT
+                    CONSTRAINT tick_archive_unit_repurchase_of_key UNIQUE
+                    CONSTRAINT tick_archive_unit_repurchase_of_fkey
+                    REFERENCES tick_archive_unit (unit_id),
+                CONSTRAINT tick_archive_unit_request_day_key
+                    UNIQUE (request_id, unit_date),
+                CONSTRAINT tick_archive_unit_failure_reason_check
+                    CHECK ((fetch_status = '{FetchStatus.UNKNOWN.value}')
+                           = (failure_reason IS NULL)),
+                CONSTRAINT tick_archive_unit_superseded_by_check
+                    CHECK (superseded_by_unit_id <> unit_id),
+                CONSTRAINT tick_archive_unit_file_check
+                    CHECK (state NOT IN ({_in_list(UNIT_STATES_WITH_FILE)})
+                           OR (file_path IS NOT NULL
+                               AND file_size_bytes IS NOT NULL
+                               AND file_sha256 IS NOT NULL))
+            );
         """,
     },
 ]
