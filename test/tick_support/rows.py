@@ -83,3 +83,23 @@ def insert_unit(
         "attempt_count": 0,
     }
     return int(_insert(conn, "tick_archive_unit", row | overrides, "unit_id"))
+
+
+#: A definition window: 2024-09-01T00:00Z for 90 days, in nanoseconds.
+ACTIVATION_NS = 1_725_148_800_000_000_000
+WINDOW_NS = 90 * 86_400 * 1_000_000_000
+
+
+def insert_definition(
+    conn: psycopg.Connection[Any], unit_id: int, **overrides: Any
+) -> None:
+    row: dict[str, Any] = {
+        "instrument_id": 42_035_063,
+        "activation_ns": ACTIVATION_NS,
+        "expiration_ns": ACTIVATION_NS + WINDOW_NS,
+        "raw_symbol": "ESZ4",
+        "asset": "ES",
+        "ts_recv_ns": ACTIVATION_NS,
+        "unit_id": unit_id,
+    }
+    _insert(conn, "tick_definition", row | overrides, None)

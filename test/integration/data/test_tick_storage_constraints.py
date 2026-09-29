@@ -16,7 +16,14 @@ from typing import Any
 import psycopg
 import pytest
 from psycopg import errors
-from tick_support.rows import FILE_COLUMNS, insert_request, insert_unit
+from tick_support.rows import (
+    ACTIVATION_NS,
+    FILE_COLUMNS,
+    WINDOW_NS,
+    insert_definition,
+    insert_request,
+    insert_unit,
+)
 
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import (
@@ -202,3 +209,67 @@ def test_unit_links_must_name_real_units(tick_conn: Conn) -> None:
         insert_unit(tick_conn, request_id, repurchase_of_unit_id=999_999)
     with pytest.raises(errors.ForeignKeyViolation):
         insert_unit(tick_conn, 999_999)
+
+
+# --------------------------------------------------------------------------
+# Definition windows (Functional Requirement 5)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def definition_unit(tick_conn: Conn) -> int:
+    request_id = insert_request(tick_conn, schema=TickSchema.DEFINITION.value)
+    return insert_unit(tick_conn, request_id)
+
+
+@pytest.mark.parametrize(
+    "activation_ns",
+    [ACTIVATION_NS + WINDOW_NS // 2, ACTIVATION_NS + WINDOW_NS],
+    ids=["overlapping", "touching-endpoint"],
+)
+def test_overlapping_windows_are_rejected(
+    tick_conn: Conn, definition_unit: int, activation_ns: int
+) -> None:
+    insert_definition(tick_conn, definition_unit)
+    with pytest.raises(errors.ExclusionViolation):
+        insert_definition(
+            tick_conn,
+            definition_unit,
+            activation_ns=activation_ns,
+            expiration_ns=activation_ns + WINDOW_NS,
+        )
+
+
+def test_disjoint_windows_for_a_reused_id_insert(
+    tick_conn: Conn, definition_unit: int
+) -> None:
+    insert_definition(tick_conn, definition_unit)
+    later = ACTIVATION_NS + WINDOW_NS + 1
+    insert_definition(
+        tick_conn, definition_unit, activation_ns=later, expiration_ns=later + 1
+    )
+
+
+def test_same_window_for_two_ids_inserts(tick_conn: Conn, definition_unit: int) -> None:
+    insert_definition(tick_conn, definition_unit)
+    insert_definition(tick_conn, definition_unit, instrument_id=1)
+
+
+def test_expiration_before_activation_is_rejected(
+    tick_conn: Conn, definition_unit: int
+) -> None:
+    with pytest.raises(errors.CheckViolation):
+        insert_definition(tick_conn, definition_unit, expiration_ns=ACTIVATION_NS - 1)
+
+
+@pytest.mark.parametrize("column", ["activation_ns", "expiration_ns"])
+def test_window_bounds_are_required(
+    tick_conn: Conn, definition_unit: int, column: str
+) -> None:
+    with pytest.raises(errors.NotNullViolation):
+        insert_definition(tick_conn, definition_unit, **{column: None})
+
+
+def test_definition_names_a_real_unit(tick_conn: Conn) -> None:
+    with pytest.raises(errors.ForeignKeyViolation):
+        insert_definition(tick_conn, 999_999)

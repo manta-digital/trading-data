@@ -165,4 +165,44 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
             );
         """,
     },
+    {
+        "id": "tick_003_definitions",
+        "description": "Create tick_definition with server-enforced validity windows",
+        # TD5 (definitions carry a server-enforced validity window): ids are
+        # reused and symbols recycle, so windows for one instrument_id may
+        # never overlap. Columns follow TICK_DEFINITION_COLUMNS; a provider
+        # "undefined" value is stored as NULL (TD3), so only the window,
+        # receive time and provenance are NOT NULL.
+        "sql": """
+            CREATE TABLE IF NOT EXISTS tick_definition (
+                instrument_id       BIGINT  NOT NULL,
+                activation_ns       BIGINT  NOT NULL,
+                expiration_ns       BIGINT  NOT NULL,
+                raw_symbol          TEXT,
+                asset               TEXT,
+                exchange            TEXT,
+                instrument_class    TEXT,
+                security_type       TEXT,
+                cfi                 TEXT,
+                currency            TEXT,
+                min_price_increment BIGINT,
+                display_factor      BIGINT,
+                unit_of_measure     TEXT,
+                unit_of_measure_qty BIGINT,
+                contract_multiplier INTEGER,
+                ts_recv_ns          BIGINT  NOT NULL,
+                unit_id             BIGINT  NOT NULL
+                    CONSTRAINT tick_definition_unit_fkey
+                    REFERENCES tick_archive_unit (unit_id),
+                CONSTRAINT tick_definition_pkey
+                    PRIMARY KEY (instrument_id, activation_ns),
+                CONSTRAINT tick_definition_window_check
+                    CHECK (expiration_ns >= activation_ns),
+                CONSTRAINT tick_definition_window_excl EXCLUDE USING gist (
+                    instrument_id WITH =,
+                    int8range(activation_ns, expiration_ns, '[]') WITH &&
+                )
+            );
+        """,
+    },
 ]
