@@ -1312,10 +1312,24 @@ database on the test cluster (see Dependencies). Export
    - The first two exit 0, with cost $12.58 / $36.80, 26 / 52 units
      *verified*, and no holes and no stray files.
    - The third reports "already adopted" and exits 0.
-   - `sha256sum -c` against each job's `manifest.json` in
-     `/data/tick-archive/<job>/` passes.
+   - Each job's files pass a check against its `manifest.json`. The
+     manifest is JSON, not `sha256sum` format, so convert it first:
+
+     ```bash
+     cd /data/tick-archive/<job> && jq -r '.files[] |
+       "\(.hash|sub("^sha256:";""))  \(.filename)"' manifest.json | sha256sum -c --quiet
+     ```
+
    - The originals under `/data/market-data/databento` are unchanged
      (`ls -la` times).
+
+   Result (223, 2026-09-29): as expected. Both exit 0 with 26 and 52
+   *verified*, no holes, no strays; the re-adopt printed "already adopted;
+   nothing written" and exited 0. The checks passed on 29 and 55 files. A
+   full-iso `ls -laR` of both originals was identical before and after.
+   The first run of this step had refused at the calendar (production
+   lacked migrations 057/058) *after* copying job 1's files. Adoption now
+   reads the calendar before copying.
 
 4. **Look at the manifest.**
 
@@ -1329,6 +1343,10 @@ database on the test cluster (see Dependencies). Export
    Expected: two rows. For each, `provider_records` equals
    `job_records`: 10,049,172 and 17,642,240. This is the per-day count
    finding holding over whole jobs.
+
+   Result (223, 2026-09-29): as expected. `trades` 26/26 verified,
+   10,049,172 = 10,049,172, $12.5785; `tbbo` 52/52 verified, 17,642,240 =
+   17,642,240, $36.8046. Both `is_adopted`.
 
 5. **Plan without buying.**
 
@@ -1387,6 +1405,10 @@ database on the test cluster (see Dependencies). Export
 
    Expected: before `RETRY_EXHAUSTED`, after `UNKNOWN`, `attempt_count`
    0.
+
+   Result (223, 2026-09-29): as expected on unit 1. It went from `verified
+   / RETRY_EXHAUSTED (attempts 5)` to `verified / UNKNOWN (attempts 0)`,
+   with `failure_reason` cleared. Exit 0.
 
 9. **The archive is in the backup.**
 
