@@ -286,67 +286,69 @@ that, split along the phase or concern it holds and note the split.
 
 ## Section 5 — Manifest repository
 
-- [ ] **5.1 Create `data/tick/manifest_repo.py`**
-  - [ ] Every SQL statement on `tick_request` and `tick_archive_unit`, as named
+- [x] **5.1 Create `data/tick/manifest_repo.py`**
+  - [x] Every SQL statement on `tick_request` and `tick_archive_unit`, as named
         async functions over the run's connection. Parameterized only
-  - [ ] Every unit `UPDATE` is compare-and-set: its `WHERE` names the expected
+  - [x] Every unit `UPDATE` is compare-and-set: its `WHERE` names the expected
         `state` and `fetch_status` (and `reopened_at IS NULL` where TD8 says);
         a zero-row match raises `ManifestTransitionError` naming the unit and
         the expected state (TD2, compare-and-set)
-  - [ ] Functions needed by 223: insert adopted request with units;
+  - [x] Functions needed by 223: insert adopted request with units;
         request-by-job-id lookup; mark downloaded (file columns); mark
         verified (`provider_record_count`); record failure (transient: attempt
         + 1, exhaust at `MAX_RETRY_COUNT`; deterministic: straight to
         `RETRY_EXHAUSTED` with reason); mark `PROVIDER_HOLE`; reset one
         exhausted unit (→ `UNKNOWN`, attempt 0, reason NULL); reopen one hole
         (`reopened_at = now`); read units by id
-  - [ ] These are per-unit compare-and-set primitives only. Deciding which
+  - [x] These are per-unit compare-and-set primitives only. Deciding which
         primitive applies to a unit (the reset classification) is 8.1's, not
         this module's
-  - [ ] The coverage predicate (`superseded_by_unit_id IS NULL AND
+  - [x] The coverage predicate (`superseded_by_unit_id IS NULL AND
         reopened_at IS NULL`) is one SQL fragment constant, used everywhere
-  - [ ] 224 adds its functions here (submit, reconcile, sweep, trailing
+  - [x] 224 adds its functions here (submit, reconcile, sweep, trailing
         spend, supersession). If the file passes ~300 lines, split reads
         from transitions
-  - [ ] Success: imports; no SQL outside this module and `availability.py`
-  - [ ] Effort: 3
+  - [x] Success: imports; no SQL outside this module and `availability.py`
+  - [x] Effort: 3
+  - [x] Note: At 370 lines the module passed ~300, so it is split now: manifest_reads.py (row types, COVERAGE_PREDICATE, reads) and manifest_repo.py (inserts and compare-and-set transitions). Advancing a unit resets fetch_status to UNKNOWN, clears the reason and zeroes attempt_count (fetch_status is the next step's failure lifecycle, 222). Adopted requests take requested_at = committed_at = the provider's ts_received, so a rebuild yields identical rows.
 
-- [ ] **5.2 Integration tests for every 223 transition**
-  - [ ] `test/integration/data/test_tick_manifest_repo.py` on
+- [x] **5.2 Integration tests for every 223 transition**
+  - [x] `test/integration/data/test_tick_manifest_repo.py` on
         `migrated_tick_db`, rows from `test/tick_support/rows.py`
-  - [ ] Each transition succeeds from its expected state and raises
+  - [x] Each transition succeeds from its expected state and raises
         `ManifestTransitionError` from any other (parametrized)
-  - [ ] Transient failure five times ends `RETRY_EXHAUSTED` with attempt
+  - [x] Transient failure five times ends `RETRY_EXHAUSTED` with attempt
         count 5; a deterministic failure exhausts at attempt 1
-  - [ ] Reset-one and reopen-one raise on a unit that is already reopened
-  - [ ] Success: passes
-  - [ ] Effort: 3
-  - [ ] Commit: `feat(tick): add compare-and-set manifest repository`
+  - [x] Reset-one and reopen-one raise on a unit that is already reopened
+  - [x] Success: passes
+  - [x] Effort: 3
+  - [x] Commit: `feat(tick): add compare-and-set manifest repository`
 
 ---
 
 ## Section 6 — Verification
 
-- [ ] **6.1 Create `data/tick/verify.py`**
-  - [ ] `check(run, unit)`, run in `asyncio.to_thread` for hashing and the
+- [x] **6.1 Create `data/tick/verify.py`**
+  - [x] `check(run, unit)`, run in `asyncio.to_thread` for hashing and the
         header read: file exists under its final name; size and SHA-256
         re-hashed equal the recorded values; header dataset, schema,
         `stype_in` equal the request's; header start/end equal the unit's
         UTC day; then the free `record_count` for `[day, day+1)` with the
         request's symbols is stored via `mark verified` (TD9, Verification)
-  - [ ] Header or hash mismatch → deterministic failure naming the field;
+  - [x] Header or hash mismatch → deterministic failure naming the field;
         `ProviderError` propagates to the phase (run-level)
-  - [ ] Success: imports
-  - [ ] Effort: 2
+  - [x] Success: imports
+  - [x] Effort: 2
+  - [x] Note: SHA-256 hashing moved to data/tick/hashing.py, shared with 220's verified download and adoption. check() takes the ITickFileReader as an argument (the CLI passes DbnFileReader) and returns VerifyOutcome.
 
-- [ ] **6.2 Tests for verification**
-  - [ ] Unit over files from `write_day_file`: a matching file verifies and
+- [x] **6.2 Tests for verification**
+  - [x] Unit over files from `write_day_file`: a matching file verifies and
         stores the fake's record count; a flipped byte, a wrong day, a wrong
         schema and a wrong dataset each fail naming the field; a record-count
         call failure raises `ProviderError`
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add archive unit verification`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add archive unit verification`
 
 ---
 
@@ -358,35 +360,35 @@ raise `TickAdoptionRefused(message)` (defined in `adopt_files.py`) for a
 refusal that writes no row; the verb maps it to exit 1 (TD10, all or
 nothing).
 
-- [ ] **7.1 Create `data/tick/adopt_files.py` (file handling)**
-  - [ ] Read `manifest.json` from a directory or a zip; its `job_id` must
+- [x] **7.1 Create `data/tick/adopt_files.py` (file handling)**
+  - [x] Read `manifest.json` from a directory or a zip; its `job_id` must
         equal `--job-id`; any listed name containing `/`, `\` or `..` is
         refused; zip members are read only by listed names
-  - [ ] Free space on the archive volume ≥ Σ listed sizes, else refuse
+  - [x] Free space on the archive volume ≥ Σ listed sizes, else refuse
         naming the shortfall (free-bytes function injectable for tests)
-  - [ ] Each listed file → `<archive>/<ID>/<name>.partial`, hashed while
+  - [x] Each listed file → `<archive>/<ID>/<name>.partial`, hashed while
         written, renamed on size+SHA-256 match; an existing final file with a
         matching hash is skipped; any mismatch or missing member refuses,
         leaving `.partial` files; blocking work in `asyncio.to_thread`
-  - [ ] `OSError` on write (for example `ENOSPC`) is not a refusal: it raises
+  - [x] `OSError` on write (for example `ENOSPC`) is not a refusal: it raises
         `TickArchiveWriteError` naming path and errno, which the verb maps to
         exit 4 (storage)
-  - [ ] Returns the copied files with size and hash
-  - [ ] Success: imports; under ~300 lines
-  - [ ] Effort: 2
+  - [x] Returns the copied files with size and hash
+  - [x] Success: imports; under ~300 lines
+  - [x] Effort: 2
 
-- [ ] **7.2 Unit tests for adoption file handling**
-  - [ ] Over `write_job_dir`/`zip_job_dir`: directory and zip both copy every
+- [x] **7.2 Unit tests for adoption file handling**
+  - [x] Over `write_job_dir`/`zip_job_dir`: directory and zip both copy every
         listed file; a flipped byte in one file refuses with its name and
         leaves no final file; a `../x` name and a name not in the zip are
         refused; a job-id mismatch is refused; insufficient free space is
         refused before any copy; an injected `OSError(ENOSPC)` on write
         raises `TickArchiveWriteError` naming path and errno
-  - [ ] Success: passes
-  - [ ] Effort: 2
+  - [x] Success: passes
+  - [x] Effort: 2
 
-- [ ] **7.3 Create `data/tick/adopt.py` (orchestration and rows)**
-  - [ ] Follow TD10 (adoption) and the LLD's Adoption data flow:
+- [x] **7.3 Create `data/tick/adopt.py` (orchestration and rows)**
+  - [x] Follow TD10 (adoption) and the LLD's Adoption data flow:
     1. job id already in `tick_request` → result "already adopted", nothing
        written
     2. `batch_job(ID)` state must be `done` or `expired`, else
@@ -404,83 +406,88 @@ nothing).
        + `PROVIDER_HOLE`; a file on a non-session day → reported by name, no
        unit
     6. `verify.check` each downloaded unit
-  - [ ] Returns an `AdoptResult` (job, cost, files, units by state, holes,
+  - [x] Returns an `AdoptResult` (job, cost, files, units by state, holes,
         strays) for rendering
-  - [ ] Success: imports; under ~300 lines
-  - [ ] Effort: 3
+  - [x] Success: imports; under ~300 lines
+  - [x] Effort: 3
+  - [x] Note: The product comes from the job's symbols (parent/continuous: the root before the first '.'); other stypes are refused. Data files are those ending .dbn.zst/.dbn; two files on one day are refused. An unset MT_TIMESCALE_DB_URL (the calendar) is a refusal (exit 1). A unit that fails verification after adoption stays RETRY_EXHAUSTED and is listed in red; adopt still exits 0 (open question for the PM).
 
-- [ ] **7.4 Integration tests: adoption end to end (FR2)**
-  - [ ] `test/integration/data/test_tick_adopt.py`: `migrated_tick_db` plus
+- [x] **7.4 Integration tests: adoption end to end (FR2)**
+  - [x] `test/integration/data/test_tick_adopt.py`: `migrated_tick_db` plus
         `session_migrated_db` calendar, fake provider job record, a job
         directory of day files over two UTC days
-  - [ ] Every session day with a file ends *verified* with
+  - [x] Every session day with a file ends *verified* with
         `provider_record_count`; a session day without a file is
         `PROVIDER_HOLE`; a stray non-session file is reported; the request
         row matches the job's cost and `ts_received`
-  - [ ] A second adoption writes nothing and returns "already adopted";
+  - [x] A second adoption writes nothing and returns "already adopted";
         re-adopting from `<archive>/<ID>` into a fresh database copies
         nothing and rebuilds identical rows (TD10, rebuilding the manifest)
-  - [ ] Refusals write no rows: a corrupted file; a job state `queued`
+  - [x] Refusals write no rows: a corrupted file; a job state `queued`
         (`TickAdoptionRefused` naming it); a calendar URL to a closed port and
         a range before 2020-01-01 (outside the CME span) each raise the
         storage error with no row
-  - [ ] Success: passes
-  - [ ] Effort: 3
-  - [ ] Commit: `feat(tick): add batch job adoption`
+  - [x] Success: passes
+  - [x] Effort: 3
+  - [x] Note: An unreachable calendar waits out TradingCalendar's fixed 30 s pool timeout (psycopg_pool.PoolTimeout, an OperationalError); that test carries @pytest.mark.timeout(90). The rebuild test uses a new second_migrated_tick_db fixture in test/conftest.py.
+  - [x] Commit: `feat(tick): add batch job adoption`
 
 ---
 
 ## Section 8 — `adopt` and `reset` verbs
 
-- [ ] **8.1 Reset classification, `data/tick/reset.py`**
-  - [ ] `reset_units(run, unit_ids | ALL) -> list[ResetChange]` owns the
+- [x] **8.1 Reset classification, `data/tick/reset.py`**
+  - [x] `reset_units(run, unit_ids | ALL) -> list[ResetChange]` owns the
         classification and calls 5.1's per-unit primitives: exhausted and not
         reopened → reset-one; `PROVIDER_HOLE` and not reopened → reopen-one;
         anything else unchanged and listed (TD8, reset). An unknown unit id
         is listed as not found
-  - [ ] Integration test (`test/integration/data/test_tick_reset.py`): each
+  - [x] Integration test (`test/integration/data/test_tick_reset.py`): each
         branch, including reopened and non-exhausted units listed unchanged
         and an unknown id
-  - [ ] Success: passes
-  - [ ] Effort: 1
+  - [x] Success: passes
+  - [x] Effort: 1
+  - [x] Note: With --all only the units the classification changes are listed.
 
-- [ ] **8.2 CLI verbs and rendering**
-  - [ ] `mt data tick adopt --job-id ID --source PATH [--json]` and `mt data
+- [x] **8.2 CLI verbs and rendering**
+  - [x] `mt data tick adopt --job-id ID --source PATH [--json]` and `mt data
         tick reset (--unit-id N ... | --all) [--yes] [--json]` in
         `cli/commands/tick.py`; both go through `open_tick_run`
-  - [ ] Reset prompts for the word `reset` unless `--yes` or `--json`
-  - [ ] Rendering in new `cli/commands/tick_pass_render.py` (Rich and `--json`
+  - [x] Reset prompts for the word `reset` unless `--yes` or `--json`
+  - [x] Rendering in new `cli/commands/tick_pass_render.py` (Rich and `--json`
         via `cli.output`): adopt shows job, cost, files, units by state,
         holes and strays; reset shows each unit before and after
-  - [ ] Exit: `TickPreflightError` or `TickAdoptionRefused` → 1;
+  - [x] Exit: `TickPreflightError` or `TickAdoptionRefused` → 1;
         `ProviderError` → 2; `TickArchiveWriteError`, the calendar errors of
         7.3 and `psycopg.OperationalError` → 4; else 0
-  - [ ] Success: `mt data tick --help` lists both; both files under ~300 lines
-  - [ ] Effort: 2
+  - [x] Success: `mt data tick --help` lists both; both files under ~300 lines
+  - [x] Effort: 2
+  - [x] Note: A declined prompt exits 1 (adopt and reset use only 0, 1, 2 and 4). The verbs import their cores lazily and call them through the module so tests patch them.
 
-- [ ] **8.3 CLI tests**
-  - [ ] Extend `test/unit/cli/commands/test_data_tick.py` with the run context
+- [x] **8.3 CLI tests**
+  - [x] Extend `test/unit/cli/commands/test_data_tick.py` with the run context
         and cores patched: each exception class of 8.2 gives its exit code;
         `--json` shapes; reset refuses without the typed word; `--unit-id` and
         `--all` are mutually exclusive
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add adopt and reset verbs`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add adopt and reset verbs`
 
 ---
 
 ## Section 9 — Archive backup enrolment
 
-- [ ] **9.1 Include and exclude the archive**
-  - [ ] `scripts/cron_system_backup.sh`: add `/data/tick-archive` to
+- [x] **9.1 Include and exclude the archive**
+  - [x] `scripts/cron_system_backup.sh`: add `/data/tick-archive` to
         `INCLUDE_PATHS` with a comment (separate device under
         `--one-file-system`, TD11)
-  - [ ] `deploy/restic-excludes.txt`: add `/data/tick-archive/**/*.partial`
-  - [ ] Success: `~/.local/bin/shellcheck scripts/cron_system_backup.sh` clean
-  - [ ] Effort: 1
+  - [x] `deploy/restic-excludes.txt`: add `/data/tick-archive/**/*.partial`
+  - [x] Success: `~/.local/bin/shellcheck scripts/cron_system_backup.sh` clean
+  - [x] Effort: 1
+  - [x] Note: /data/tick-archive was created on 2026-09-28 (manta-owned /data, no root) because the root cron runs this checkout's script: a missing include path would fail the 04:00 backup. test_system_backup.py's include-set expectation was updated.
 
-- [ ] **9.2 Create `scripts/verify_tick_archive_backup.sh`**
-  - [ ] Root script, same arguments as the cron line plus `--log`; check
+- [x] **9.2 Create `scripts/verify_tick_archive_backup.sh`**
+  - [x] Root script, same arguments as the cron line plus `--log`; check
         before act; prints expected vs observed at each step; logs to the
         given file. Steps per TD11 (proof, now): fail if
         `MT_TICK_ARCHIVE_DIR` from the env file is not in `INCLUDE_PATHS`;
@@ -488,16 +495,17 @@ nothing).
         excluding `.partial`; restore one data file into
         `/data/restore-test/tick-archive/` (created by the script, refuse if
         it exists); compare SHA-256; remove only that directory
-  - [ ] Success: shellcheck clean; `--help` runs without root
-  - [ ] Effort: 2
+  - [x] Success: shellcheck clean; `--help` runs without root
+  - [x] Effort: 2
+  - [x] Note: The script needs the backup run's --stamp, --lock and --backup-log (the cron line's --log) as well, so the LLD walkthrough step 9 command gains them.
 
-- [ ] **9.3 Runbook 200**
-  - [ ] `project-documents/user/runbooks/200-backup-and-restore.md`: add the
+- [x] **9.3 Runbook 200**
+  - [x] `project-documents/user/runbooks/200-backup-and-restore.md`: add the
         path to the D9 include set, the `.partial` exclusion, and a restore
         subsection naming the verify script
-  - [ ] Success: `dateUpdated` bumped
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(backup): enrol the tick archive in the nightly backup`
+  - [x] Success: `dateUpdated` bumped
+  - [x] Effort: 1
+  - [x] Commit: `feat(backup): enrol the tick archive in the nightly backup`
 
 ---
 
