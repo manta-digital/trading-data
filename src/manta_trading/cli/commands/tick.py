@@ -222,11 +222,7 @@ def tick_reset(
             "give either --unit-id (repeatable) or --all", json_mode=json_output
         )
         raise typer.Exit(EXIT_PREFLIGHT)
-    if json_output and not yes:
-        # --json cannot prompt, and an output format is not consent.
-        print_error("--json needs --yes; nothing changed.", json_mode=True)
-        raise typer.Exit(EXIT_PREFLIGHT)
-    if not yes:
+    if not yes and not json_output:  # --json skips the prompt, as minute reset
         target = "every eligible unit" if every else f"unit(s) {unit_ids}"
         typed = typer.prompt(f"Reset {target}? Type '{_CONFIRM_WORD}'", default="")
         if typed.strip().lower() != _CONFIRM_WORD:

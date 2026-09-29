@@ -331,7 +331,7 @@ def _reset_returning(changes: list[ResetChange]) -> Any:
 def test_reset_json_shape(writer_run: None) -> None:
     changes = [ResetChange(9, ResetAction.NOT_FOUND, None, None)]
     with _reset_returning(changes) as core:
-        result = runner.invoke(app, [*RESET, "--unit-id", "9", "--json", "--yes"])
+        result = runner.invoke(app, [*RESET, "--unit-id", "9", "--json"])
     assert result.exit_code == cmd.EXIT_OK, result.output
     [change] = json.loads(result.stdout)["changes"]
     assert change == {
@@ -341,14 +341,6 @@ def test_reset_json_shape(writer_run: None) -> None:
         "after": None,
     }
     assert core.call_args.args[1] == [9]
-
-
-def test_reset_json_refuses_without_yes(writer_run: None) -> None:
-    with _reset_returning([]) as core:
-        result = runner.invoke(app, [*RESET, "--all", "--json"])
-    assert result.exit_code == cmd.EXIT_PREFLIGHT
-    assert "--json needs --yes" in json.loads(result.stderr)["error"]
-    core.assert_not_called()
 
 
 def test_reset_refuses_without_the_typed_word(writer_run: None) -> None:
