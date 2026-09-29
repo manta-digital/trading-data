@@ -60,7 +60,7 @@ def test_reopened_at_allowed_on_a_unit_without_a_file(tick_conn: Conn) -> None:
 
 
 @pytest.mark.parametrize(
-    "state", sorted(UNIT_STATES_WITH_FILE, key=list(UnitState).index)
+    "state", [state for state in UnitState if state in UNIT_STATES_WITH_FILE]
 )
 def test_reopened_at_rejected_on_a_unit_with_a_file(
     tick_conn: Conn, state: UnitState

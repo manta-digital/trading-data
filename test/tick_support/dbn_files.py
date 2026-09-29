@@ -69,13 +69,15 @@ def day_file_bytes(fixture: str, dataset: str, day: date, stype_in: SType) -> by
     _, length = _PRELUDE.unpack_from(raw)
     records = raw[_PRELUDE.size + length :]
     source = databento_dbn.Metadata.decode(raw)
+    if source.schema is None:
+        raise ValueError(f"{fixture}: mixed-schema fixture, no header schema")
     header = databento_dbn.Metadata(
         dataset=dataset,
         start=_ns(day),
         end=_ns(day + timedelta(days=1)),
         stype_in=databento_dbn.SType(stype_in.value),
         stype_out=source.stype_out,
-        schema=source.schema,
+        schema=databento_dbn.Schema(source.schema),
         symbols=list(source.symbols),
         partial=list(source.partial),
         not_found=list(source.not_found),
