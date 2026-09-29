@@ -156,7 +156,9 @@ data is acquired; the preflight needs only the key.
 |---|---|---|
 | `MT_DATABENTO_API_KEY` | — | Databento API key. `mt data tick estimate` exits `1` naming this variable when it is unset. The SDK's own `DATABENTO_API_KEY` is never read. |
 | `MT_TICK_SPEND_CEILING_USD` | unset | Spend ceiling in USD, `> 0` when set (`0` or negative fails every `mt` command at startup). Unset means *no ceiling configured*, which the acquisition pass (slice 224) treats as "refuse to purchase". The preflight judges each stored tier's bundle (tier + `definition`) against it. |
-| `MT_TICK_DB_URL` | — | Tick database URL (application credential). Read by `mt data migrate status --track tick`; the tick passes that write the database arrive in slices 223, 224 and 225. |
+| `MT_TICK_SPEND_30D_CEILING_USD` | unset | Trailing 30-day tick spend ceiling in USD, `> 0` when set. Read by the acquisition pass (slice 224), which refuses to purchase while it is unset, as for the per-pass ceiling. |
+| `MT_TICK_ARCHIVE_DIR` | — | Root of the tick archive, `/data/tick-archive` in production (`<job_id>/<file>` under it). Must be an existing, writable directory: `adopt` and `reset` exit `1` naming it otherwise, and it is never created for you. The path is also in the nightly backup's include list. |
+| `MT_TICK_DB_URL` | — | Tick database URL (application credential). Read by `mt data migrate status --track tick`, `mt data tick adopt` and `mt data tick reset`. |
 
 ### Serving API
 
@@ -565,17 +567,18 @@ neither. `MT_KALSHI_REQUESTS_PER_MINUTE` overrides either budget.
 ## Futures tick data
 
 CME futures tick data from [Databento](https://databento.com) (initiative
-220). So far there is one command, a cost-and-size preflight. It calls only
-Databento's free metadata endpoints and buys nothing. The acquisition pass and
-ingest arrive in later slices.
+220). None of the commands below buys anything: `estimate` is a
+cost-and-size preflight over Databento's free metadata endpoints. `adopt` and `reset` maintain the
+manifest; the acquisition pass (224) and ingest (225) arrive next.
 
 **Storage.** The tick database lives apart from `trading`. `mt data init
---database tick` builds it: five tables on the `tick` migration track. They
+--database tick` builds it: seven tables on the `tick` migration track. They
 are the manifest (`tick_request`, `tick_archive_unit`), contract definitions
 (`tick_definition`), the trades hypertable (`tick_trade`, both `trades` and
-`tbbo` tiers) and the ingest ledger (`tick_ingest_ledger`). Event times are
-integer nanoseconds since the epoch, exactly as Databento delivers them. No
-data is written until the acquisition pass (224) and ingest (225) land.
+`tbbo` tiers), the ingest ledger (`tick_ingest_ledger`), and Databento's
+dataset range and per-day condition (`tick_dataset_edge`,
+`tick_day_condition`). Event times are
+integer nanoseconds since the epoch, exactly as Databento delivers them.
 
 ```sh
 # Records, billable size, and cost for each schema tier (trades, tbbo, mbp-1)
@@ -597,6 +600,45 @@ Exit codes: `0` OK; `1` preflight (missing key, `--end` not after `--start`,
 `--end` past the dataset's available end, which the message names); `2`
 provider error. Click's own usage errors (a missing required option, an
 `--stype` outside the choices) also exit `2`.
+
+**The archive.** Purchased files live under `MT_TICK_ARCHIVE_DIR`
+(`/data/tick-archive`), one directory per Databento batch job, exactly as the
+provider lays it out. The directory is in the nightly restic backup (runbook
+200), and `scripts/verify_tick_archive_backup.sh` proves a one-file restore.
+
+**Adopting a job already on disk.** `adopt` takes a job directory or the
+provider's zip, checks every file against the job's `manifest.json` (size and
+SHA-256), copies it into the archive, and records the job in the manifest with
+the cost and times from Databento's own job record (a free call). Each UTC day
+a trading session touches gets one unit, verified against its file's header
+and Databento's free per-day record count. A session day with no file is
+recorded as a provider hole; a file on a day no session touches is named. Any
+mismatch refuses the whole job and writes nothing. Adopting a job again does
+nothing, and adopting from the archive into an empty tick database rebuilds
+its manifest.
+
+```sh
+mt data tick adopt --job-id GLBX-20240930-USM7UXXJBA \
+    --source /data/market-data/databento/GLBX-20240930-USM7UXXJBA
+mt data tick adopt --job-id GLBX-20250123-XT4GD5UM6C \
+    --source /data/market-data/databento/GLBX-20250123-XT4GD5UM6C.zip --json
+```
+
+**Resetting failed units.** `reset` puts exhausted units back to `UNKNOWN`
+(retried where they stand) and reopens provider holes so the day is wanted
+again. It asks you to type `reset` unless `--yes` or `--json` is given.
+
+```sh
+mt data tick reset --unit-id 17 --unit-id 18
+mt data tick reset --all --yes
+```
+
+Both commands run behind one preflight and a run lock: they exit `1` naming
+the setting or command to fix (an unknown `MT_TICK_*` name, with the closest
+real one; the key; `MT_TICK_DB_URL`; `MT_TICK_ARCHIVE_DIR`; a pending tick
+migration; another run holding the lock). Exit codes: `0` OK; `1` preflight or
+a refusal that wrote nothing; `2` provider error; `4` storage (archive write,
+the calendar, or the tick database).
 
 ## Data Serving API
 
