@@ -22,6 +22,7 @@ from tick_support.rows import (
     WINDOW_NS,
     insert_definition,
     insert_request,
+    insert_trade,
     insert_unit,
 )
 
@@ -34,6 +35,7 @@ from manta_trading.data.tick.constants import (
     TickSchema,
     UnitState,
 )
+from manta_trading.data.tick.storage_columns import TICK_TRADE_BBO_COLUMNS
 
 Conn = psycopg.Connection[Any]
 
@@ -273,3 +275,50 @@ def test_window_bounds_are_required(
 def test_definition_names_a_real_unit(tick_conn: Conn) -> None:
     with pytest.raises(errors.ForeignKeyViolation):
         insert_definition(tick_conn, 999_999)
+
+
+# --------------------------------------------------------------------------
+# Trade key and BBO rule (Functional Requirements 3, 4; TD6)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def trade_unit(tick_conn: Conn) -> int:
+    return insert_unit(tick_conn, insert_request(tick_conn))
+
+
+def test_identical_fills_differ_only_by_ordinal(
+    tick_conn: Conn, trade_unit: int
+) -> None:
+    insert_trade(tick_conn, trade_unit, sequence_ordinal=0)
+    insert_trade(tick_conn, trade_unit, sequence_ordinal=1)
+    with pytest.raises(errors.UniqueViolation):
+        insert_trade(tick_conn, trade_unit, sequence_ordinal=1)
+
+
+def test_negative_ordinal_is_rejected(tick_conn: Conn, trade_unit: int) -> None:
+    with pytest.raises(errors.CheckViolation):
+        insert_trade(tick_conn, trade_unit, sequence_ordinal=-1)
+
+
+def test_trade_has_no_foreign_key(tick_conn: Conn) -> None:
+    rows = tick_conn.execute(
+        "SELECT conname FROM pg_constraint"
+        " WHERE conrelid = 'tick_trade'::regclass AND contype = 'f'"
+    ).fetchall()
+    assert rows == []
+    insert_trade(tick_conn, 999_999)  # names no unit, and inserts
+
+
+@pytest.mark.parametrize("column", TICK_TRADE_BBO_COLUMNS)
+def test_one_null_bbo_column_is_rejected(
+    tick_conn: Conn, trade_unit: int, column: str
+) -> None:
+    with pytest.raises(errors.CheckViolation):
+        insert_trade(tick_conn, trade_unit, **{column: None})
+
+
+def test_bbo_all_null_or_all_set(tick_conn: Conn, trade_unit: int) -> None:
+    insert_trade(tick_conn, trade_unit)
+    no_bbo = dict.fromkeys(TICK_TRADE_BBO_COLUMNS)
+    insert_trade(tick_conn, trade_unit, sequence=2, **no_bbo)

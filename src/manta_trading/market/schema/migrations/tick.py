@@ -24,6 +24,7 @@ from enum import StrEnum
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import (
     ARCHIVED_SCHEMAS,
+    TICK_TRADE_CHUNK_INTERVAL,
     UNIT_STATES_WITH_FILE,
     DeliveryMode,
     SType,
@@ -31,6 +32,7 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.data.tick.storage_columns import (
     TICK_TRADE_BBO_COLUMNS,
+    TICK_TRADE_KEY,
 )
 from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
 from manta_trading.market.schema.runner import BOOTSTRAP_MIGRATION_ID
@@ -202,6 +204,51 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                     instrument_id WITH =,
                     int8range(activation_ns, expiration_ns, '[]') WITH &&
                 )
+            );
+        """,
+    },
+    {
+        "id": "tick_004_trades",
+        "description": "Create the tick_trade hypertable on integer nanosecond time",
+        # TD1 (the key is the provider's triple plus a delivery-order
+        # ordinal), TD2 (BIGINT nanoseconds; integer-time hypertable), TD6
+        # (unit_id on every row, with no foreign key) and TD8 (7-day chunks,
+        # no compression, no space dimension, no index beyond the key).
+        # Columns follow TICK_TRADE_COLUMNS, then the derived columns; types
+        # follow TD3, and sentinels are stored as delivered.
+        "sql": f"""
+            CREATE TABLE IF NOT EXISTS tick_trade (
+                ts_event         BIGINT   NOT NULL,
+                ts_recv          BIGINT   NOT NULL,
+                instrument_id    BIGINT   NOT NULL,
+                publisher_id     INTEGER  NOT NULL,
+                sequence         BIGINT   NOT NULL,
+                price            BIGINT   NOT NULL,
+                size             BIGINT   NOT NULL,
+                action           TEXT     NOT NULL,
+                side             TEXT     NOT NULL,
+                flags            SMALLINT NOT NULL,
+                depth            SMALLINT NOT NULL,
+                ts_in_delta      INTEGER  NOT NULL,
+                bid_px_00        BIGINT,
+                ask_px_00        BIGINT,
+                bid_sz_00        BIGINT,
+                ask_sz_00        BIGINT,
+                bid_ct_00        BIGINT,
+                ask_ct_00        BIGINT,
+                sequence_ordinal SMALLINT NOT NULL
+                    CONSTRAINT tick_trade_sequence_ordinal_check
+                    CHECK (sequence_ordinal >= 0),
+                unit_id          BIGINT   NOT NULL,
+                CONSTRAINT tick_trade_pkey PRIMARY KEY ({", ".join(TICK_TRADE_KEY)}),
+                CONSTRAINT tick_trade_bbo_check {_bbo_check()}
+            );
+            SELECT create_hypertable(
+                'tick_trade',
+                'ts_event',
+                chunk_time_interval    => {_interval_ns(TICK_TRADE_CHUNK_INTERVAL)},
+                create_default_indexes => FALSE,
+                if_not_exists          => TRUE
             );
         """,
     },

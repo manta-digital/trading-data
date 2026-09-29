@@ -103,3 +103,31 @@ def insert_definition(
         "unit_id": unit_id,
     }
     _insert(conn, "tick_definition", row | overrides, None)
+
+
+#: A ``tbbo``-tier trade: every column set, BBO included.
+TBBO_TRADE: dict[str, Any] = {
+    "ts_event": ACTIVATION_NS,
+    "ts_recv": ACTIVATION_NS + 1,
+    "instrument_id": 42_035_063,
+    "publisher_id": 1,
+    "sequence": 1,
+    "price": 5_600_250_000_000,
+    "size": 1,
+    "action": "T",
+    "side": "A",
+    "flags": 0,
+    "depth": 0,
+    "ts_in_delta": 0,
+    "bid_px_00": 5_600_000_000_000,
+    "ask_px_00": 5_600_250_000_000,
+    "bid_sz_00": 3,
+    "ask_sz_00": 4,
+    "bid_ct_00": 1,
+    "ask_ct_00": 2,
+    "sequence_ordinal": 0,
+}
+
+
+def insert_trade(conn: psycopg.Connection[Any], unit_id: int, **overrides: Any) -> None:
+    _insert(conn, "tick_trade", TBBO_TRADE | {"unit_id": unit_id} | overrides, None)

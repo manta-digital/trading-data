@@ -14,7 +14,12 @@ from typing import Any
 import psycopg
 from psycopg_pool import ConnectionPool
 
+from manta_trading.data.tick.constants import TICK_TRADE_CHUNK_INTERVAL
+from manta_trading.data.tick.storage_columns import (
+    TICK_TRADE_KEY,
+)
 from manta_trading.market.schema.migrations import TRACKS
+from manta_trading.market.schema.migrations.tick import _interval_ns
 from manta_trading.market.schema.runner import apply_migrations
 
 Conn = psycopg.Connection[Any]
@@ -38,3 +43,48 @@ def test_second_apply_is_a_no_op(migrated_tick_db: str, tick_conn: Conn) -> None
         "SELECT migration_id FROM schema_migrations ORDER BY 1"
     ).fetchall()
     assert [r[0] for r in rows] == sorted(m["id"] for m in TRACKS["tick"])
+
+
+def _columns(conn: Conn, table: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT column_name FROM information_schema.columns"
+        " WHERE table_schema = 'public' AND table_name = %s"
+        " ORDER BY ordinal_position",
+        (table,),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+# --------------------------------------------------------------------------
+# Hypertable geometry (Functional Requirement 2)
+# --------------------------------------------------------------------------
+
+
+def test_trade_hypertable_has_one_integer_dimension(tick_conn: Conn) -> None:
+    rows = tick_conn.execute(
+        "SELECT column_name, column_type::text, integer_interval"
+        " FROM timescaledb_information.dimensions"
+        " WHERE hypertable_name = 'tick_trade'"
+    ).fetchall()
+    assert rows == [("ts_event", "bigint", _interval_ns(TICK_TRADE_CHUNK_INTERVAL))]
+
+
+def test_trade_hypertable_has_no_compression(tick_conn: Conn) -> None:
+    row = tick_conn.execute(
+        "SELECT compression_enabled FROM timescaledb_information.hypertables"
+        " WHERE hypertable_name = 'tick_trade'"
+    ).fetchone()
+    assert row == (False,)
+
+
+def test_trade_has_only_the_primary_key_index(tick_conn: Conn) -> None:
+    rows = tick_conn.execute(
+        "SELECT indexname FROM pg_indexes"
+        " WHERE schemaname = 'public' AND tablename = 'tick_trade'"
+    ).fetchall()
+    assert rows == [("tick_trade_pkey",)]
+    key = tick_conn.execute(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
+        " WHERE conname = 'tick_trade_pkey'"
+    ).fetchone()
+    assert key == (f"PRIMARY KEY ({', '.join(TICK_TRADE_KEY)})",)
