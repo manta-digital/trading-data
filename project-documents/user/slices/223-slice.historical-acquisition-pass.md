@@ -424,6 +424,13 @@ or command named) when:
 
 - `MT_DATABENTO_API_KEY` is unset. `from_settings` raises
   `ProviderAuthError`.
+- A key beginning `MT_TICK_`, in the process environment or the `.env`
+  file, is not a known tick setting. `Settings` ignores unknown keys, so
+  a misspelt ceiling would otherwise read as "no ceiling". This happened
+  on 2026-09-28: `MT_TICK_DATA_SPEND_CEILING_USD` was written instead of
+  `MT_TICK_SPEND_CEILING_USD`. The refusal names the key and the closest
+  known name. The known set is derived from the `Settings` fields that
+  start with `tick_`, so it is never spelled out as a second list.
 - `MT_TICK_DB_URL` does not resolve (`DatabaseNotConfiguredError`, whose
   `.env_var` is shown).
 - `MT_TICK_ARCHIVE_DIR` is unset, is not an existing directory, or is not
