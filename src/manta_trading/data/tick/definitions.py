@@ -88,7 +88,9 @@ def _value(source: str, raw: object) -> object:
     if isinstance(raw, bytes):
         return raw.decode("ascii") or None
     if not isinstance(raw, int | np.integer):
-        raise TypeError(f"definition field {source}: unexpected {type(raw).__name__}")
+        raise DefinitionRejected(
+            f"definition field {source}: unexpected {type(raw).__name__}"
+        )
     value = int(raw)
     return None if DEFINITION_UNDEFINED.get(source) == value else value
 

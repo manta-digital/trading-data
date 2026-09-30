@@ -37,7 +37,7 @@ from manta_trading.data.tick.constants import (
     TickSchema,
     UnitState,
 )
-from manta_trading.data.tick.manifest_reads import UnitRow
+from manta_trading.data.tick.manifest_reads import UnitRow, units_by_id
 from manta_trading.data.tick.pass_contract import PhaseReport, TickOutcome
 from manta_trading.data.tick.purchase_phase import PassState, PurchasePhase
 from manta_trading.data.tick.run_context import TickRun
@@ -118,14 +118,10 @@ async def _phase(
 
 
 async def _units(run: TickRun) -> list[UnitRow]:
-    from manta_trading.data.tick.manifest_reads import open_units_in  # noqa: F401
-
     cursor = await run.conn.execute(
         "SELECT u.unit_id FROM tick_archive_unit u JOIN tick_request r USING"
         " (request_id) WHERE r.schema = 'definition' ORDER BY u.unit_date"
     )
-    from manta_trading.data.tick.manifest_reads import units_by_id
-
     return await units_by_id(run.conn, [row[0] for row in await cursor.fetchall()])
 
 

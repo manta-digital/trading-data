@@ -29,9 +29,11 @@ from manta_trading.data.tick.constants import (
 from manta_trading.data.tick.manifest_reads import (
     covered_keys,
     owned_tier_days,
+    units_of_request,
+)
+from manta_trading.data.tick.manifest_request_reads import (
     resubmittable_requests,
     trailing_spend_rows,
-    units_of_request,
 )
 from manta_trading.data.tick.planner import (
     OwnedTierDay,
@@ -55,7 +57,7 @@ from manta_trading.data.tick.spend_guard import (
 )
 from manta_trading.data.tick.tick_calendar import (
     calendar_url,
-    product_of_shape,
+    planning_product,
     product_session_days,
 )
 from manta_trading.data.tick.universe import TICK_UNIVERSE
@@ -125,7 +127,7 @@ async def _sessions(
 def _owned(keys: Sequence[Any]) -> list[OwnedTierDay]:
     return [
         OwnedTierDay(
-            product_of_shape(key.stype_in, key.symbols),
+            planning_product(key.stype_in, key.symbols),
             key.dataset,
             key.schema,
             key.symbols,
@@ -148,7 +150,7 @@ async def _resubmits(run: TickRun) -> list[PlanItem]:
             if unit.state is UnitState.REQUESTED
         )
         planned = PlannedRequest(
-            product_of_shape(request.stype_in, request.symbols), request, days
+            planning_product(request.stype_in, request.symbols), request, days
         )
         size = await asyncio.to_thread(run.provider.billable_size, request)
         items.append(PlanItem(planned, row.estimated_cost_usd, size, row.request_id))

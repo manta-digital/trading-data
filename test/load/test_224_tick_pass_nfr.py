@@ -144,6 +144,8 @@ def run(conn: AConn, tmp_path: Path, session_migrated_db: str) -> TickRun:
 
 async def _timed_pass(run: TickRun) -> tuple[PassResult, float, float]:
     """The pass, its wall time and the longest event-loop gap during it."""
+    clock = run.clock
+    assert isinstance(clock, FakeClock)
     started = time.monotonic()
     with Heartbeat() as beat:
         result = await run_pass(
@@ -152,7 +154,7 @@ async def _timed_pass(run: TickRun) -> tuple[PassResult, float, float]:
             False,
             DbnFileReader(),
             timing=TIMING,
-            sleep=Sleeper(run.clock),  # type: ignore[arg-type]
+            sleep=Sleeper(clock),
             free=lambda _: 10**12,
         )
     return result, time.monotonic() - started, beat.max_gap

@@ -34,7 +34,9 @@ from manta_trading.data.tick.manifest_pass import (
     record_submit,
     restamp_attempt,
 )
-from manta_trading.data.tick.manifest_reads import reopened_unit_ids
+from manta_trading.data.tick.manifest_request_reads import (
+    reopened_unit_ids,
+)
 from manta_trading.data.tick.pass_contract import (
     PhaseReport,
     TickOutcome,

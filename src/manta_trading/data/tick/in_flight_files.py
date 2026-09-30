@@ -31,7 +31,6 @@ from manta_trading.data.tick.adopt_files import (
 from manta_trading.data.tick.constants import UnitState
 from manta_trading.data.tick.hashing import sha256_file
 from manta_trading.data.tick.manifest_reads import (
-    RequestRow,
     UnitFile,
     UnitRow,
     units_of_request,
@@ -40,6 +39,9 @@ from manta_trading.data.tick.manifest_repo import (
     mark_downloaded,
     mark_provider_hole,
     record_failure,
+)
+from manta_trading.data.tick.manifest_request_reads import (
+    RequestRow,
 )
 from manta_trading.data.tick.provider import ITickFileReader
 from manta_trading.data.tick.run_context import TickRun

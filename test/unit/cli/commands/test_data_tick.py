@@ -22,6 +22,7 @@ from uuid import UUID
 import httpx
 import psycopg
 import pytest
+from click.exceptions import UsageError
 from tick_support.fake_historical import FakeApi, FakeHistorical, server_error
 from tick_support.metadata_responses import bundle, metadata_api, symbology_api
 from typer.testing import CliRunner
@@ -538,7 +539,7 @@ def test_an_end_not_after_start_exits_preflight_without_running(
 
 def test_a_bad_date_is_a_usage_error(writer_run: None) -> None:
     result = runner.invoke(app, [*PASS, "--start", "09/01/2024"])
-    assert result.exit_code == cmd.EXIT_PROVIDER  # click's own usage code
+    assert result.exit_code == UsageError.exit_code
 
 
 def test_a_provider_error_out_of_the_run_exits_provider(writer_run: None) -> None:

@@ -133,7 +133,8 @@ def evaluate_space(planned_bytes: int, free_bytes: int) -> SpaceVerdict:
     return SpaceVerdict(shortfall == 0, planned_bytes, free_bytes, shortfall)
 
 
-def _usd(amount: Decimal) -> str:
+def usd4(amount: Decimal) -> str:
+    """Dollars to four decimals: a first purchase is a fraction of a cent."""
     return f"${amount:.4f}"
 
 
@@ -179,10 +180,38 @@ def _cap_reasons(
         else f"the plan fits from {fits_from.isoformat()}"
     )
     return [
-        f"trailing {_usd(trailing_total)} + unheld {_usd(unheld_total)} + planned "
-        f"{_usd(planned_new)} is {_usd(over)} over the 30-day cap {_usd(cap)}",
+        f"trailing {usd4(trailing_total)} + unheld {usd4(unheld_total)} + planned "
+        f"{usd4(planned_new)} is {usd4(over)} over the 30-day cap {usd4(cap)}",
         fit,
     ]
+
+
+def _breach_reasons(
+    absent: tuple[str, ...],
+    planned_total: Decimal,
+    over_pass: Decimal,
+    per_pass: Decimal | None,
+    cap_lines: list[str],
+    unheld: Sequence[UnheldJob],
+) -> list[str]:
+    """Why a breached plan is refused, one line per broken rule."""
+    reasons: list[str] = []
+    if absent:
+        reasons.append(
+            f"both {TICK_SPEND_CEILING_ENV} and {TICK_SPEND_30D_CEILING_ENV} must "
+            f"be set to buy; absent: {', '.join(absent)}"
+        )
+    if over_pass and per_pass is not None:
+        reasons.append(
+            f"planned {usd4(planned_total)} is {usd4(over_pass)} over the per-pass "
+            f"ceiling {usd4(per_pass)}"
+        )
+    reasons.extend(cap_lines)
+    reasons.extend(
+        f"unheld provider job {job.job_id} ({usd4(job.cost)}) counts toward the cap"
+        for job in unheld
+    )
+    return reasons
 
 
 def evaluate_spend(
@@ -215,27 +244,15 @@ def evaluate_spend(
     breached = bool(planned) and bool(absent or over_pass or over_30d)
     reasons: list[str] = []
     fits_from = None
-    if breached and absent:
-        reasons.append(
-            f"both {TICK_SPEND_CEILING_ENV} and {TICK_SPEND_30D_CEILING_ENV} must "
-            f"be set to buy; absent: {', '.join(absent)}"
-        )
-    if breached and over_pass and per_pass is not None:
-        reasons.append(
-            f"planned {_usd(planned_total)} is {_usd(over_pass)} over the per-pass "
-            f"ceiling {_usd(per_pass)}"
-        )
-    if breached and over_30d and cap_30d is not None:
-        fits_from = _fits_from(trailing, unheld, planned_new, cap_30d)
-        reasons.extend(
-            _cap_reasons(
+    if breached:
+        cap_lines: list[str] = []
+        if over_30d and cap_30d is not None:
+            fits_from = _fits_from(trailing, unheld, planned_new, cap_30d)
+            cap_lines = _cap_reasons(
                 trailing_total, unheld_total, planned_new, over_30d, cap_30d, fits_from
             )
-        )
-    if breached:
-        reasons.extend(
-            f"unheld provider job {job.job_id} ({_usd(job.cost)}) counts toward the cap"
-            for job in unheld
+        reasons = _breach_reasons(
+            absent, planned_total, over_pass, per_pass, cap_lines, unheld
         )
     if estimate_only:
         status = VerdictStatus.ESTIMATE_ONLY

@@ -36,16 +36,18 @@ from manta_trading.data.tick.manifest_pass import (
 )
 from manta_trading.data.tick.manifest_reads import (
     covered_keys,
-    jobless_requests,
-    reopened_unit_ids,
-    requests_with_units_in,
-    swept_candidates,
-    trailing_spend_rows,
     units_of_request,
 )
 from manta_trading.data.tick.manifest_repo import (
     ManifestTransitionError,
     reset_exhausted,
+)
+from manta_trading.data.tick.manifest_request_reads import (
+    jobless_requests,
+    reopened_unit_ids,
+    requests_with_units_in,
+    swept_candidates,
+    trailing_spend_rows,
 )
 from manta_trading.data.tick.planner import DayKey, PlannedRequest
 

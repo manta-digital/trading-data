@@ -27,6 +27,7 @@ from tick_support.fake_provider import (
 from tick_support.runs import connect, tick_run
 from tick_support.seed import seed_availability, seed_owned_days
 
+from manta_trading.cli.commands.tick_pass_render import print_pass
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick import tick_calendar
 from manta_trading.data.tick.acquisition_pass import AwaitTiming, run_pass
@@ -118,7 +119,8 @@ async def _pass(
     window: tuple[date | None, date | None] = NO_WINDOW,
     sleeper: Sleeper | None = None,
 ) -> PassResult:
-    sleeper = sleeper or Sleeper(run.clock)  # type: ignore[arg-type]
+    assert isinstance(run.clock, FakeClock)
+    sleeper = sleeper or Sleeper(run.clock)
     return await run_pass(
         run,
         window,
@@ -189,6 +191,27 @@ async def test_a_full_pass_buys_downloads_verifies_and_projects_the_definitions(
     assert (definitions["projected"], definitions["inserted"]) == (2, 2)
     assert definitions["noops"] == 2  # the second day re-sent both, unchanged
     assert provider.calls_to("fetch_range") == []
+
+
+async def test_the_report_renders_a_real_pass_summary(
+    run: TickRun, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The summaries are dicts; this pins the keys the renderer reads to the
+    keys the phases write, so a rename fails here instead of in the report."""
+    print_pass(await _pass(run), 0, json_mode=False)
+    out = capsys.readouterr().out
+    for line in (
+        "unknown submits: 0 matched",  # reconcile
+        "GLBX.MDP3: edge",  # availability
+        "wanted ES/definition: 2 day(s)",  # purchase: per-key wants
+        "planned $",  # purchase: totals and ceilings
+        "verdict: allowed",
+        "submitted job GLBX-FAKE-0001",
+        "units downloaded: 2",  # await: a delivery counter
+        "units projected: 2",  # definitions
+        "Outcome: ok",
+    ):
+        assert line in out, f"{line!r} missing from:\n{out}"
 
 
 async def test_a_second_pass_after_success_plans_nothing(
@@ -320,7 +343,9 @@ async def test_a_swept_expired_day_is_rebought_with_supersession_links(
         " WHERE unit_id = %s",
         (old,),
     )
-    superseded_by, reopened = await cursor.fetchone()  # type: ignore[misc]
+    row = await cursor.fetchone()
+    assert row is not None
+    superseded_by, reopened = row
     assert reopened and superseded_by is not None
     cursor = await run.conn.execute(
         "SELECT repurchase_of_unit_id, state FROM tick_archive_unit WHERE unit_id = %s",

@@ -47,6 +47,15 @@ def product_of_shape(stype_in: SType, symbols: tuple[str, ...]) -> str:
     return roots.pop()
 
 
+def planning_product(stype_in: SType, symbols: tuple[str, ...]) -> str:
+    """:func:`product_of_shape` for planning: a shape with no product has no
+    calendar, so it ends the pass like any other calendar failure."""
+    try:
+        return product_of_shape(stype_in, symbols)
+    except ValueError as exc:
+        raise TickCalendarError(f"no calendar for {list(symbols)}: {exc}") from exc
+
+
 def calendar_url(settings: Settings) -> str:
     """The production database URL the calendar is read from."""
     try:
@@ -57,7 +66,10 @@ def calendar_url(settings: Settings) -> str:
 
 def product_session_days(url: str, product: str, start: date, end: date) -> list[date]:
     """The UTC days of ``[start, end)`` a session of ``product`` touches. Blocking."""
-    calendar_id = calendar_for_product(product)
+    try:
+        calendar_id = calendar_for_product(product)
+    except KeyError as exc:
+        raise TickCalendarError(str(exc.args[0])) from exc
     calendar = TradingCalendar(calendar_id, url)
     try:
         return session_days(calendar, start, end)

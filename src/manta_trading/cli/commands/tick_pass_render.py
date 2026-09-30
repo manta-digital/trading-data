@@ -24,6 +24,7 @@ from manta_trading.data.tick.pass_contract import (
     TickPassPhaseName,
 )
 from manta_trading.data.tick.reset import ResetChange
+from manta_trading.data.tick.spend_guard import usd4
 
 
 def adopt_to_dict(result: AdoptResult) -> dict[str, Any]:
@@ -147,9 +148,9 @@ def pass_to_dict(result: PassResult, exit_code: int) -> dict[str, Any]:
 
 
 def _money(value: str | None) -> str:
-    """Four decimals: a first purchase is a fraction of a cent (``usd`` would
-    show it as ``<$0.01``). ``None`` is an unset ceiling."""
-    return "unset" if value is None else f"${Decimal(value):.4f}"
+    """``usd4`` (``usd`` would show a fraction of a cent as ``<$0.01``) of a
+    summary's decimal string. ``None`` is an unset ceiling."""
+    return "unset" if value is None else usd4(Decimal(value))
 
 
 def _present(summary: dict[str, Any], labels: dict[str, str]) -> list[str]:

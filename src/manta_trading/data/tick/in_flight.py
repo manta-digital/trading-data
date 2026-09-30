@@ -40,16 +40,18 @@ from manta_trading.data.tick.manifest_pass import (
     record_submit,
 )
 from manta_trading.data.tick.manifest_reads import (
-    RequestRow,
     UnitRow,
-    jobless_requests,
     open_units_in,
     request_id_for_job,
-    requests_with_units_in,
-    swept_candidates,
     units_of_request,
 )
 from manta_trading.data.tick.manifest_repo import record_failure
+from manta_trading.data.tick.manifest_request_reads import (
+    RequestRow,
+    jobless_requests,
+    requests_with_units_in,
+    swept_candidates,
+)
 from manta_trading.data.tick.provider import BatchJob, ITickFileReader
 from manta_trading.data.tick.run_context import TickRun
 from manta_trading.data.tick.verify import check
