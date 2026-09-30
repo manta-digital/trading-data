@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/224-slice.historical-acquisition-pass.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [923, 220, 221, 222, 223]
-interfaces: [225, 226, 228, 229, 230, 231, 233]
+interfaces: [225, 226, 227, 228, 229, 231, 233]
 projectState: >
   Slice 223 (tick archive adoption) complete: tick_006, run context and lock,
   compare-and-set manifest repository, verification, session days, adopt and
@@ -128,8 +128,9 @@ that, split along the phase or concern it holds and note the split.
   - [ ] Effort: 1
 
 - [ ] **1.4 Remaining exit codes**
-  - [ ] In `cli/commands/tick.py`: `EXIT_PARTIAL = 3`, `EXIT_REFUSED = 5`,
-        `EXIT_IN_FLIGHT = 6`, and `EXIT_BY_OUTCOME` over `TickOutcome` with a
+  - [ ] In `cli/commands/tick.py`: add `EXIT_REFUSED = 5` and
+        `EXIT_IN_FLIGHT = 6` (223 already defines `EXIT_PARTIAL = 3` and
+        `EXIT_STORAGE = 4`; reuse them, do not redefine), and `EXIT_BY_OUTCOME` over `TickOutcome` with a
         module-level exhaustiveness assert, as Kalshi's
   - [ ] Test: every `TickOutcome` maps; the values are 0–6 and unique
   - [ ] Success: passes
@@ -214,7 +215,8 @@ that, split along the phase or concern it holds and note the split.
         and unaccepted rows in window count; rows outside the window do not;
         `estimate_only` never allows; space shortfall refused; an unheld
         job counts (at `cost_usd`, or at the supplied request cost when
-        unpriced) and is named in the refusal
+        unpriced) and is named in the refusal; a listed job whose id a row
+        holds is not counted (total unchanged)
   - [ ] Success: passes
   - [ ] Effort: 2
   - [ ] Commit: `feat(tick): add spend and space guards`
@@ -224,6 +226,10 @@ that, split along the phase or concern it holds and note the split.
 ## Section 5 — Availability (TD8 hole reopen)
 
 - [ ] **5.1 Create `data/tick/availability.py`**
+  - [ ] First add to `manifest_repo.py` what this phase needs (6.1 builds on
+        them): owned tier days, holed units' days, and a compare-and-set
+        "reopen a day's holed units" transition (`reopened_at = now` on
+        `PROVIDER_HOLE` units not yet reopened)
   - [ ] Span per the LLD's "Availability capture": universe tier ranges,
         owned tier days and holed units' days, narrowed by the window and
         clipped to `dataset_range`
@@ -278,7 +284,9 @@ that, split along the phase or concern it holds and note the split.
         missing day → hole; write `manifest.json` if absent; verify each
         downloaded unit
   - [ ] Download failure → transient attempt + provider abort; `OSError` →
-        storage abort with no attempt counted
+        storage abort with no attempt counted; a `ProviderError` from
+        `verify.check`'s record-count call → provider abort, remaining units
+        left *downloaded* for the next run (LLD failure table, as adopt)
   - [ ] Log per job whether the first `batch_jobs_since` after submit listed
         it (listing-lag measurement, LLD Risk Assessment)
   - [ ] Success: imports; under ~300 lines (split resolve/sweep from advance
@@ -301,6 +309,9 @@ that, split along the phase or concern it holds and note the split.
         counts one attempt, the fifth exhausts
   - [ ] `manifest.json` written when the job lacked one, and it lists every
         other file
+  - [ ] A `ProviderError` from the record-count call during verify →
+        provider abort; the unverified units stay *downloaded*, and the next
+        `advance()` verifies them
   - [ ] An injected `OSError(ENOSPC)` during download raises the storage
         error naming path and errno, and the unit's `attempt_count` is
         unchanged
@@ -377,7 +388,10 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
     5. Σ `billable_size` above an injected free-bytes value → `refused`
        naming the shortfall, no submit
     6. a listed job no row holds pushes the plan over the 30-day cap →
-       `refused` naming the job id, no submit
+       `refused` naming the job id, no submit; a listed job a row holds is
+       filtered out and not counted
+    7. the calendar raises `OutOfPopulatedRangeError` (and, separately, is
+       unreachable) → `storage_abort` naming it, no submit
   - [ ] Unit: the only paid method invoked on the fake is `submit_batch`, and
         `fetch_range` is never called
   - [ ] Success: passes
@@ -407,6 +421,9 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
     6. a swept expired day is re-bought with supersession links (FR5)
     7. an `ENOSPC` during reconcile's download → `storage_abort`, later
        phases `SKIPPED`
+    8. calendar unreachable with a delivered job in flight: reconcile still
+       downloads and verifies it, purchase ends `storage_abort` with no
+       submit (TD6)
   - [ ] Success: passes
   - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add tick acquisition pass`
