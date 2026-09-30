@@ -107,10 +107,15 @@ async def test_coverage_is_ok_then_names_a_deleted_row(
         (date(2024, 9, 4), "ok"),
     ]
     assert coverage.sessions[0].ledger == coverage.sessions[0].raw > 0
-    await ingested.execute(
-        "DELETE FROM tick_trade WHERE ctid = (SELECT ctid FROM tick_trade"
-        " WHERE instrument_id = 46995 ORDER BY ts_event LIMIT 1)"
+    # By primary key: ``ctid`` is per chunk on a hypertable, so a ctid match
+    # deletes one row in every chunk.
+    deleted = await ingested.execute(
+        "DELETE FROM tick_trade WHERE (instrument_id, ts_event, sequence,"
+        " sequence_ordinal) = (SELECT instrument_id, ts_event, sequence,"
+        " sequence_ordinal FROM tick_trade WHERE instrument_id = 46995"
+        " ORDER BY ts_event LIMIT 1)"
     )
+    assert deleted.rowcount == 1
     after = await build_coverage(ingested, session_migrated_db, ES, start, end)
     assert after.mismatched
     (bad,) = [s for s in after.sessions if s.mismatches]

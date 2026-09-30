@@ -120,10 +120,13 @@ def test_coverage_json_is_to_dict_plus_exit_code(
 
 def test_a_coverage_mismatch_exits_3(ingested: None, migrated_tick_db: str) -> None:
     with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
-        conn.execute(
-            "DELETE FROM tick_trade WHERE ctid ="
-            " (SELECT ctid FROM tick_trade ORDER BY ts_event LIMIT 1)"
+        # By primary key: ``ctid`` is per chunk on a hypertable.
+        deleted = conn.execute(
+            "DELETE FROM tick_trade WHERE (instrument_id, ts_event, sequence,"
+            " sequence_ordinal) = (SELECT instrument_id, ts_event, sequence,"
+            " sequence_ordinal FROM tick_trade ORDER BY ts_event LIMIT 1)"
         )
+        assert deleted.rowcount == 1
     result = runner.invoke(app, COVERAGE)
     assert result.exit_code == 3, result.output
     assert "mismatch" in result.stdout
