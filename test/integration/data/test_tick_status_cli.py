@@ -143,6 +143,17 @@ def test_preflight_refusals_exit_1(ingested: None, args: list[str]) -> None:
     assert runner.invoke(app, args).exit_code == 1
 
 
+def test_dates_past_the_calendar_are_a_refusal_naming_the_remedy(
+    ingested: None,
+) -> None:
+    """The database answered; the calendar has no rows that far: exit 1 with
+    the remedy, never the storage exit (which would claim an outage)."""
+    args = ["data", "tick", "coverage", "--start", "2031-01-06", "--end", "2031-01-08"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 1, result.output
+    assert "mt data extend" in result.output
+
+
 @pytest.mark.parametrize("verb", [["status"], COVERAGE[2:]])
 def test_an_unreachable_tick_database_exits_4(
     session_migrated_db: str, verb: list[str]

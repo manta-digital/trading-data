@@ -36,15 +36,17 @@ if TYPE_CHECKING:
 
 READ_EPILOG = (
     f"Exit codes: {EXIT_OK} ok; {EXIT_PREFLIGHT} preflight (a setting, a pending "
-    f"tick migration, an unknown --product, --end not after --start); "
+    "tick migration, an unknown --product, --end not after --start, or dates "
+    "past the calendar's populated sessions: run mt data extend); "
     f"{EXIT_PARTIAL} coverage found a raw-count mismatch; {EXIT_STORAGE} the tick "
     "or production (calendar) database is unreachable."
 )
 INGEST_EPILOG = (
     f"Exit codes: {EXIT_OK} ok (skips included); {EXIT_PREFLIGHT} preflight (a "
-    "setting, a pending tick migration, the ingest lock); "
-    f"{EXIT_PARTIAL} some units failed a check (see each reason; fix, then "
-    f"mt data tick reset); {EXIT_STORAGE} storage (tick database or calendar)."
+    "setting, a pending tick migration, the ingest lock, or the tick database "
+    f"unreachable at start); {EXIT_PARTIAL} some units failed a check (see each "
+    f"reason; fix, then mt data tick reset); {EXIT_STORAGE} storage (the tick "
+    "database lost or hung during the run, or the calendar unreachable)."
 )
 _UNIT_ID_OPTION = typer.Option(
     [], "--unit-id", help="Ingest only this unit; repeatable. Never overrides a rule."

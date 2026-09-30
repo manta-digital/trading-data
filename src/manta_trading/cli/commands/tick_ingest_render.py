@@ -14,17 +14,23 @@ from rich.markup import escape
 from manta_trading.cli.commands.tick_pass_render import pass_to_dict
 from manta_trading.cli.output import print_result
 from manta_trading.data.tick.ingest_select import SkipKind
+from manta_trading.data.tick.ingest_worker import UnitResult
 from manta_trading.data.tick.pass_contract import PassResult, PhaseReport
 
 _SKIP_LABELS = {kind: kind.value.replace("_", " ") for kind in SkipKind}
 
 
+#: Outcomes of a unit that was not attempted: its entry has no day, schema
+#: or records (``_Tally.skip``).
+_SKIP_OUTCOMES = frozenset(kind.value for kind in SkipKind)
+
+
 def _unit_line(unit: dict[str, Any]) -> str:
     head = f"unit {unit['unit_id']}"
-    if "unit_date" in unit:
+    if unit["outcome"] not in _SKIP_OUTCOMES:
         head += f"  {unit['unit_date']} {unit['schema']}  {unit['records']} rec"
     line = f"{head}  → {unit['outcome']}"
-    if "duration_seconds" in unit:
+    if unit["outcome"] == UnitResult.INGESTED.value:
         line += f"  ({unit['duration_seconds']} s)"
     if unit.get("reason"):
         line += f"  {unit['reason']}"

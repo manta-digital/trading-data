@@ -43,6 +43,7 @@ from manta_trading.data.tick.status_reads import (
     dataset_edge,
     shape_units,
 )
+from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.tick_calendar import TickCalendarError
 from manta_trading.data.tick.tick_status import (
     DayFacts,
@@ -70,7 +71,9 @@ def calendar_sessions(
     except (psycopg.OperationalError, CalendarNotFoundError) as exc:
         raise TickCalendarError(f"calendar {calendar_id} unavailable: {exc}") from exc
     except OutOfPopulatedRangeError as exc:
-        raise TickCalendarError(f"calendar {calendar_id}: {exc}") from exc
+        # The database answered; the calendar just has no rows that far. A
+        # refusal naming the remedy (mt data extend), not a storage outage.
+        raise TickPreflightError(f"calendar {calendar_id}: {exc}") from exc
     finally:
         calendar.close()
 

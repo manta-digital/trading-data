@@ -712,8 +712,10 @@ mt data tick ingest --unit-id 17 --json    # one unit; a unit that cannot load s
 ```
 
 Exit codes for `ingest`: `0` OK (skips included); `1` preflight (as above, but
-no API key is needed); `3` some units failed a check; `4` storage (the tick
-database or the calendar went away; units already committed stay loaded).
+no API key is needed; this includes a tick database unreachable at start);
+`3` some units failed a check; `4` storage (the tick database lost or hung
+during the run, or the calendar unreachable; units already committed stay
+loaded).
 
 **Status and coverage.** `status` shows, per product, the sessions held and
 how many are complete, awaiting ingest, in flight, pending, missing, failed,
@@ -731,7 +733,8 @@ mt data tick coverage --start 2024-09-03 --end 2024-09-07   # --end EXCLUSIVE
 
 Neither command needs the API key or `MT_TICK_ARCHIVE_DIR`, and neither takes
 the run lock. Exit codes: `0` OK; `1` preflight (a setting, a pending tick
-migration, an unknown `--product`, `--end` not after `--start`); `3` coverage
+migration, an unknown `--product`, `--end` not after `--start`, or dates past
+the calendar's populated sessions: run `mt data extend`); `3` coverage
 found a mismatch (it names the contract and both counts); `4` the tick or
 production (calendar) database is unreachable.
 
