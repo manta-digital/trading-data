@@ -52,6 +52,14 @@ class RecordBatch:
     count: int
 
 
+class TickFileDecodeError(Exception):
+    """A tick file's bytes cannot be decoded (corrupt or truncated framing).
+
+    The reader raises this in place of the SDK's own errors, so callers need no
+    SDK import (220 TD 4). A missing or unreadable file stays an ``OSError``.
+    """
+
+
 class ITickFile(Protocol):
     """One opened tick archive file: its header, then its records in batches.
 

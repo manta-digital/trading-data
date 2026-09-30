@@ -11,6 +11,8 @@ Two SDK behaviours callers rely on knowing:
   file yields v2-layout arrays); it does not upgrade. The record size, and so
   the batch count, is taken from the same per-version struct map the SDK
   uses.
+- The SDK's decode failures (``DBNError``, ``BentoError``) are raised as
+  ``TickFileDecodeError``; a missing file stays ``FileNotFoundError``.
 - A file whose record bytes end mid-record yields a short final batch and
   only a ``BentoWarning``. The adapter's file-name rule (a final name is a
   completed, and for batch files checksum-verified, download) is what
@@ -29,11 +31,16 @@ from databento.common.constants import (
     SCHEMA_STRUCT_MAP_V1,
     SCHEMA_STRUCT_MAP_V2,
 )
-from databento_dbn import Schema
+from databento.common.error import BentoError
+from databento_dbn import DBNError, Schema
 
 from manta_trading.data.tick import constants
 from manta_trading.data.tick.constants import SType, TickSchema
-from manta_trading.data.tick.provider import RecordBatch, SymbolInterval
+from manta_trading.data.tick.provider import (
+    RecordBatch,
+    SymbolInterval,
+    TickFileDecodeError,
+)
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _NS_PER_US = 1_000
@@ -108,7 +115,11 @@ class DbnFile:
     """``ITickFile`` over one DBN file. One thread; owns its ``DBNStore``."""
 
     def __init__(self, path: Path) -> None:
-        store = databento.DBNStore.from_file(path)
+        self._path = path
+        try:
+            store = databento.DBNStore.from_file(path)
+        except (DBNError, BentoError) as exc:
+            raise TickFileDecodeError(f"{path}: {exc}") from exc
         metadata = store.metadata
         if metadata.ts_out:
             # Live-only framing; the SDK's array path ignores the extra field
@@ -139,8 +150,13 @@ class DbnFile:
                 f"TICK_DECODE_BATCH_BYTES={budget} is below one {self.schema} "
                 f"record ({self.record_size} bytes)"
             )
-        for records in self._store.to_ndarray(count=records_per_batch):
-            yield RecordBatch(schema=self.schema, records=records, count=len(records))
+        try:
+            for records in self._store.to_ndarray(count=records_per_batch):
+                yield RecordBatch(
+                    schema=self.schema, records=records, count=len(records)
+                )
+        except (DBNError, BentoError) as exc:
+            raise TickFileDecodeError(f"{self._path}: {exc}") from exc
 
 
 class DbnFileReader:
