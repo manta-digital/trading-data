@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 
+import pytest
+
 from manta_trading.data.base.session_index import Session
+from manta_trading.data.base.trading_calendar import OutOfPopulatedRangeError
 from manta_trading.data.tick.session_days import session_days
 
 
@@ -72,3 +75,43 @@ def test_one_calendar_call_over_the_utc_range() -> None:
     calendar = StubCalendar(WEEK)
     session_days(calendar, date(2024, 9, 5), date(2024, 9, 11))
     assert calendar.calls == [(_utc(9, 5, 0), _utc(9, 11, 0))]
+
+
+class HorizonCalendar:
+    """``sessions_between`` with the real calendar's populated-span refusal:
+    sessions through one whose close is mid-day X (LLD 225 TD7)."""
+
+    def __init__(self, sessions: Sequence[Session]) -> None:
+        self.sessions = sessions
+        self.first_open = sessions[0].open_utc
+        self.last_close = sessions[-1].close_utc
+
+    def sessions_between(
+        self, start_utc: datetime, end_utc: datetime
+    ) -> Sequence[Session]:
+        for bound in (start_utc, end_utc):
+            if not self.first_open <= bound <= self.last_close:
+                raise OutOfPopulatedRangeError(
+                    "CME_EQUITY", bound, self.first_open, self.last_close
+                )
+        return [
+            s
+            for s in self.sessions
+            if s.close_utc >= start_utc and s.open_utc < end_utc
+        ]
+
+
+def test_no_day_at_or_after_a_mid_day_horizon_is_emitted() -> None:
+    """225 TD7: ingest's ``sessions_between(d, d+1)`` never passes the horizon,
+    because ``session_days`` never emits a day whose next midnight lies past
+    the last populated close."""
+    sessions = [
+        _session(3, _utc(9, 2, 22), _utc(9, 3, 21)),
+        _session(4, _utc(9, 3, 22), _utc(9, 4, 12)),  # horizon: mid-day X = 09-04
+    ]
+    calendar = HorizonCalendar(sessions)
+    days = session_days(calendar, date(2024, 9, 3), date(2024, 9, 4))
+    assert days == [date(2024, 9, 3)]
+    assert all(day < date(2024, 9, 4) for day in days)
+    with pytest.raises(OutOfPopulatedRangeError):
+        session_days(calendar, date(2024, 9, 3), date(2024, 9, 5))

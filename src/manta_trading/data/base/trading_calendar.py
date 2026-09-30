@@ -208,6 +208,16 @@ class TradingCalendar:
         self.extended_close_time = row["extended_close_time"]
         self._loaded = True
 
+    def zone(self) -> ZoneInfo:
+        """The calendar's time zone (loads the calendar row on first use).
+
+        Raises:
+            CalendarNotFoundError: ``calendar_id`` has no row.
+        """
+        self._ensure_loaded()
+        assert self.timezone is not None  # set by _ensure_loaded
+        return self.timezone
+
     def _invalidate_cache(self) -> None:
         """Clear the per-instance cache."""
         self._cache.clear()
@@ -461,7 +471,9 @@ class TradingCalendar:
         early_close = holiday_row["early_close_time"] if holiday_row else None
         late_open = holiday_row["late_open_time"] if holiday_row else None
 
-        result = self._build_trading_hours(trade_date, session_type, early_close, late_open)
+        result = self._build_trading_hours(
+            trade_date, session_type, early_close, late_open
+        )
         self._cache[key] = result
         return result
 
@@ -551,6 +563,9 @@ class TradingCalendar:
             rth_open = late_open if late_open else self.market_open_time
             rth_close = early_close if early_close else self.market_close_time
             if self.has_extended_hours:
+                # A calendar with extended hours has both bounds and RTH set.
+                assert self.extended_open_time is not None and rth_open is not None
+                assert self.extended_close_time is not None and rth_close is not None
                 open_t = min(self.extended_open_time, rth_open)
                 close_t = max(self.extended_close_time, rth_close)
             else:
