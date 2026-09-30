@@ -4,13 +4,13 @@
 endpoints. ``adopt`` and ``reset`` (223): manifest writers that run inside
 ``open_tick_run`` (preflight and advisory lock). ``pass`` (224): the acquisition
 pass — the only verb that can buy, and only within both spend ceilings.
+``ingest`` (225): provider-free, in ``tick_store_cmds.py``.
 Exit codes are defined once, in ``tick_exit.py`` (slice 220 design, *CLI verb*);
 Rich rendering lives in ``tick_render.py`` and ``tick_pass_render.py``.
 """
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from pathlib import Path
@@ -27,9 +27,13 @@ from manta_trading.cli.commands.tick_exit import (
     EXIT_PROVIDER,
     EXIT_REFUSED,
     EXIT_STORAGE,
-    exit_code_for,
 )
 from manta_trading.cli.commands.tick_render import print_estimate
+from manta_trading.cli.commands.tick_store_cmds import (
+    INGEST_EPILOG,
+    run_mapped,
+    tick_ingest,
+)
 from manta_trading.cli.output import print_error
 from manta_trading.data.tick.constants import CME_DATASET, ESTIMATE_SCHEMAS, SType
 from manta_trading.data.tick.estimate import EstimateRefusedError, build_estimate
@@ -52,7 +56,8 @@ _EXIT_EPILOG = (
 
 tick_app = typer.Typer(
     name="tick",
-    help="Futures tick data (Databento): cost preflight, adoption, reset, pass.",
+    help="Futures tick data (Databento): cost preflight, adoption, reset, pass, "
+    "ingest.",
     no_args_is_help=True,
 )
 
@@ -155,14 +160,7 @@ def _run_writer[T](
         async with run_context.open_tick_run(settings) as tick_run:
             return await core(tick_run)
 
-    try:
-        return asyncio.run(run())
-    except Exception as exc:  # process boundary: every mapped class exits
-        code = exit_code_for(exc)
-        if code is None:
-            raise
-        print_error(str(exc), json_mode=json_output)
-        raise typer.Exit(code) from exc
+    return run_mapped(run, json_output)
 
 
 @tick_app.command("adopt", epilog=_WRITER_EPILOG)
@@ -277,3 +275,8 @@ def tick_pass(
     print_pass(result, exit_code, json_mode=json_output)
     if exit_code != EXIT_OK:
         raise typer.Exit(exit_code)
+
+
+# -- provider-free verbs (slice 225) -----------------------------------------------
+
+tick_app.command("ingest", epilog=INGEST_EPILOG)(tick_ingest)
