@@ -244,7 +244,7 @@ src/manta_trading/data/tick/
   availability.py     edge + day-condition capture, hole reopen
   session_days.py     session-touched UTC days from TradingCalendar
   planner.py          PURE: wants → PlannedRequest[]      (Technical Decisions 4, 5)
-  spend_guard.py      PURE: planned costs + trailing rows → SpendVerdict (Technical Decision 7)
+  spend_guard.py      PURE: planned costs + trailing rows + unheld jobs → SpendVerdict (Technical Decision 7)
   in_flight.py        poll → deliver → download → verify → expire (Technical Decision 9)
   verify.py           one unit's file checks + provider count
   definitions.py      definition-unit projection            (Technical Decision 5)
@@ -695,7 +695,7 @@ nothing:
 
 This is recorded as a refinement of the architecture statement.
 
-### Technical Decision 7: the spend guard is all-or-nothing, both ceilings are required, and the 30-day sum comes from the manifest
+### Technical Decision 7: the spend guard is all-or-nothing, both ceilings are required, and the 30-day sum comes from the manifest plus the provider's unheld jobs
 
 The guard is a pure function, `evaluate_spend(planned, trailing, per_pass,
 cap_30d, now) -> SpendVerdict`.
@@ -711,12 +711,26 @@ cap_30d, now) -> SpendVerdict`.
     date.
   - It counts rows that were never accepted, conservatively. A refused
     submit is over-counted for 30 days; an accepted one is never missed.
+    Refused rows are not told apart: the refusal lives only in
+    `failure_reason`, a label, and logic never keys on one. If such a row
+    holds the plan over the cap, the remedy is the one the refusal
+    already names: wait for the fit date, or raise the cap.
   - A re-submit reuses its row, so nothing is counted twice.
+- **Unheld** is the provider's own record of the same window:
+  `batch_jobs_since(now − TICK_SPEND_WINDOW)` (free), keeping every job
+  whose id no `tick_request` row holds, at its `cost_usd`, or at
+  `cost(job.request)` while the provider has not yet priced it. Reconcile
+  runs first, so a submit of ours that the provider accepted already holds
+  its id by then. What is left is spend the manifest cannot see: a portal
+  purchase not yet adopted, or anything a rebuilt manifest lost
+  (Technical Decision 10). The 30-day check uses `trailing + unheld`, and
+  a refusal lists each unheld job by id. So the cap never depends on the
+  manifest being complete.
 - **The verdict** allows purchase only when all four of these hold:
   1. both settings are present;
   2. `Σ planned ≤ MT_TICK_SPEND_CEILING_USD`;
-  3. `trailing + Σ planned` (re-submits already in `trailing` are not
-     added again) `≤ MT_TICK_SPEND_30D_CEILING_USD`;
+  3. `trailing + unheld + Σ planned` (re-submits already in `trailing`
+     are not added again) `≤ MT_TICK_SPEND_30D_CEILING_USD`;
   4. `--estimate-only` is not set.
 - **When it refuses**, it reports four things:
   - the planned total and each ceiling;
@@ -810,14 +824,23 @@ hole. Only the row that says so differs.
 
 - **Before submitting.** One transaction inserts the `tick_request` row
   (estimate, `requested_at`, `is_adopted = FALSE`, `delivery_mode =
-  batch_job`) and its units at *requested*.
+  batch_job`) and its units at *requested*, with `fetch_status =
+  UNKNOWN`, `attempt_count = 1` and `last_attempt_at = now`. The attempt
+  is stamped *before* the paid call, so every jobless row that may have
+  been charged carries its attempt time, whatever happens next. A
+  re-submit after `reset` re-stamps the same row the same way.
 - **Success.** A second transaction records `provider_job_id`,
   `committed_at = job.ts_received` (the provider's clock, the same one
   adoption uses) and moves the units to *submitted*.
 - **`ProviderOutcomeUnknownError`.** The units get `FAILED_RETRYABLE`
-  ("submit outcome unknown") with `attempt_count + 1`. The phase stops
-  submitting and ends `PROVIDER_ABORT`, because stacking unknowns
-  compounds the risk.
+  ("submit outcome unknown"). The attempt was already counted, so it is
+  not counted again. The phase stops submitting and ends
+  `PROVIDER_ABORT`, because stacking unknowns compounds the risk.
+- **A crash** between the two transactions, before or after the provider
+  accepted the job, leaves a jobless row whose units are `UNKNOWN` with
+  `attempt_count = 1`. Reconcile treats it exactly like an unknown
+  outcome (below). The only jobless state the purchase phase may submit
+  is `attempt_count = 0`, which only `reset` produces.
 - **Reconcile, at the start of every pass.** For each request with no
   `provider_job_id`, reconcile calls `batch_jobs_since(requested_at −
   TICK_JOB_MATCH_SKEW)` (5 minutes, which absorbs clock skew between host
@@ -831,16 +854,16 @@ hole. Only the row that says so differs.
     absent, and a manual run can follow immediately. So an unresolved
     request is **never re-submitted automatically** (review F002):
     - While the submit attempt (`last_attempt_at`) is younger than
-      `TICK_SUBMIT_RESOLVE_AGE` (1 hour), the units stay
+      `TICK_SUBMIT_RESOLVE_AGE` (1 hour), the units are
       `FAILED_RETRYABLE` ("submit outcome unresolved"). Every run
       searches for the job again, and the purchase phase skips the row.
     - Once the attempt is older than that and still no job is listed,
       the units become `RETRY_EXHAUSTED` ("submit outcome unknown; no
       job listed after 1 h; `reset` to re-submit").
-    - Only `mt data tick reset` puts the row back to `UNKNOWN`. The next
-      run's reconcile searches once more, and only then does the purchase
-      phase re-submit the same row. Its estimate is already counted by
-      the guard.
+    - Only `mt data tick reset` puts the row back to `UNKNOWN` with
+      `attempt_count = 0`. The next run's reconcile searches once more,
+      and only then does the purchase phase re-submit the same row. Its
+      estimate is already counted by the guard.
 
     Re-buying after an unknown outcome is therefore always an operator
     decision, made at least an hour after the attempt, and the job list
@@ -854,9 +877,11 @@ hole. Only the row that says so differs.
   requests (`partial`). A 429 → `FAILED_RETRYABLE` and `PROVIDER_ABORT`.
 
 **Deadlines.** A job's `download_deadline` is its `ts_expiration`, set
-when it reports `done` (220). In-flight jobs are downloaded earliest
-deadline first, before the purchase phase runs, so free work that
-protects money always precedes new spending.
+when it reports `done` (220): the provider keeps a finished job's files
+for 30 days, and that window is the target every download must beat.
+In-flight jobs are downloaded earliest deadline first, before the
+purchase phase runs, so free work that protects money always precedes
+new spending.
 
 **Waiting.** The await phase polls every `TICK_POLL_INTERVAL_SECONDS`
 (15) for up to `TICK_WAIT_BUDGET_SECONDS` (1,800). The account's jobs took
@@ -870,6 +895,15 @@ budget ends:
 
 This is the architecture's manual regime: a submitting run does not exit
 quietly with units in flight.
+
+The budget bounds **waiting for the provider**, not downloading. It is
+checked between polls, never inside `advance()`. A job that reports
+`done` is downloaded to the end in that call, however long its files
+take: each file is bounded by `TICK_DOWNLOAD_TIMEOUT_SECONDS`, the
+download is free and resumable, and stopping it would only push paid data
+toward its deadline. The advisory lock is held throughout. That shuts out
+other tick writers, which in the manual regime means only a second
+operator command, and it refuses at once rather than waiting.
 
 **Verification** (*downloaded → verified*, `verify.check`):
 
@@ -941,9 +975,25 @@ again:
   showed.
 
 So a lost or scratch tick database is rebuilt by running `adopt` once per
-job directory. The manifest's facts, costs included, come back from the
-provider's own records. This is why the missing production cluster does
-not block this slice.
+job directory. What comes back is every job **with files**, and its facts
+and cost come from the provider's own records. Three things do not come
+back:
+
+- **Paid jobs with no files in the archive:** expired jobs, unresolved
+  submits, and jobs still in flight. Their spend is not lost to the
+  guard, which reads the provider's job list for exactly this
+  (Technical Decision 7, "unheld"). An in-flight job is adopted once it
+  is downloaded by hand.
+- **Provenance of pass purchases.** They return as `is_adopted = TRUE`,
+  with no estimate, no `download_deadline` and no repurchase or
+  supersession links.
+- **`reopened_at` marks.** An expired job's days are uncovered and wanted
+  again anyway. A reopened hole comes back as a plain `PROVIDER_HOLE`,
+  which waits for the next condition change or a `reset`.
+
+For the data and the money, that is enough, and it is why the missing
+production tick cluster does not block this slice. Provenance is kept
+only by a durable tick database.
 
 ### Technical Decision 11: the archive is `/data/tick-archive`, enrolled in the nightly restic backup
 
@@ -1030,7 +1080,8 @@ mt data tick reset  (--unit-id N ... | --all) [--yes] [--json]
   - **availability:** the edge, and a condition tally over the planned
     span;
   - **purchase:** wanted days per product and schema, pending and missing
-    days, planned requests with their costs, the trailing 30-day sum,
+    days, planned requests with their costs, the trailing 30-day sum, unheld
+    provider jobs by id,
     both ceilings, the verdict, and the jobs submitted;
   - **await:** seconds waited, jobs delivered, and jobs still in flight
     with their deadlines;
@@ -1112,8 +1163,8 @@ transaction (Technical Decision 8).
 | Path | Cost | Bound on waiting | Outcome of a failure | Left behind |
 |---|---|---|---|---|
 | Free provider calls (job, jobs since, range, condition, cost, record count) | free | SDK's fixed 100 s | `ProviderTransientError`/`AuthError` → phase `provider_abort`; later phases skipped | nothing |
-| `submit_batch` | **paid** | SDK's 100 s | outcome unknown → units `FAILED_RETRYABLE`. Every run searches the job list; the row is never re-submitted without `reset`, and it is exhausted after `TICK_SUBMIT_RESOLVE_AGE`. 429 → `FAILED_RETRYABLE`; other 4xx → `RETRY_EXHAUSTED` | request + units at *requested* |
-| `download_batch` | free | `TICK_DOWNLOAD_TIMEOUT_SECONDS` per file | unit `FAILED_RETRYABLE` (attempt counted); `provider_abort` | `.partial`, resumed next call |
+| `submit_batch` | **paid** | SDK's 100 s | outcome unknown, or a crash before the job id is recorded (the attempt is stamped before the call) → units `FAILED_RETRYABLE`. Every run searches the job list; the row is never re-submitted without `reset`, and it is exhausted after `TICK_SUBMIT_RESOLVE_AGE`. 429 → `FAILED_RETRYABLE`; other 4xx → `RETRY_EXHAUSTED` | request + units at *requested* |
+| `download_batch` | free | `TICK_DOWNLOAD_TIMEOUT_SECONDS` per file; a job's download runs to the end, outside the wait budget | unit `FAILED_RETRYABLE` (attempt counted); `provider_abort` | `.partial`, resumed next call |
 | Verify (hash, header, count) | free | file read; one 100 s call | header mismatch → `RETRY_EXHAUSTED`; call failure → `provider_abort` | nothing |
 | Await loop | free | `TICK_WAIT_BUDGET_SECONDS` | `in_flight`, jobs listed with deadlines | units at *submitted* |
 | Tick database | — | `TICK_DB_CONNECT_TIMEOUT_SECONDS` at connect | `storage_abort`; each transition is one transaction | a consistent manifest |
@@ -1204,11 +1255,17 @@ transaction (Technical Decision 8).
    - A $0 plan passes.
    - Unaccepted rows and adopted rows inside the window count toward the
      trailing sum.
+   - A listed provider job that no manifest row holds counts toward the
+     30-day check (at its cost, or at `cost()` of its request when not
+     yet priced) and is named in a refusal. A job a row holds is not
+     counted twice.
    - A plan whose Σ `billable_size` exceeds the archive volume's free
      space is refused before any submit, and the shortfall is named. So is
      an `adopt` whose files do not fit.
 5. **Money-safety paths** (unit tests over fake providers):
-   - An outcome-unknown submit leaves the units at *requested*. The next
+   - An outcome-unknown submit, and a crash between the pre-submit and
+     record transactions (both points tested), leave the units at
+     *requested* with `attempt_count = 1` and `last_attempt_at` set. The next
      run matches the job from `batch_jobs_since` and moves them to
      *submitted* without a second submit.
    - With no matching job, no run re-submits the row automatically. It

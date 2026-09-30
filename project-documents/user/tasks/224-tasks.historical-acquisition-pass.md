@@ -195,10 +195,11 @@ that, split along the phase or concern it holds and note the split.
 ## Section 4 — Spend guard (TD7)
 
 - [ ] **4.1 Create `data/tick/spend_guard.py` (pure)**
-  - [ ] `evaluate_spend(planned, trailing_rows, per_pass, cap_30d, now,
-        estimate_only) -> SpendVerdict` per TD7: both ceilings required;
-        per-pass and 30-day checks in `Decimal`; re-submits already in the
-        trailing rows not added again; a refusal reports planned total, each
+  - [ ] `evaluate_spend(planned, trailing_rows, unheld_jobs, per_pass,
+        cap_30d, now, estimate_only) -> SpendVerdict` per TD7: both ceilings
+        required; per-pass and 30-day checks in `Decimal`; the 30-day check
+        is trailing + unheld + planned; re-submits already in the trailing
+        rows not added again; a refusal names each unheld job and reports planned total, each
         ceiling, each overage, absent settings, and the date the plan fits
         (ageing oldest in-window rows out) or "cap must be raised"
   - [ ] `evaluate_space(planned_bytes, free_bytes) -> SpaceVerdict` naming
@@ -211,7 +212,9 @@ that, split along the phase or concern it holds and note the split.
         plan inside per-pass but over 30-day → refused with overage and fit
         date; planned alone over the cap → "raise"; $0 plan passes; adopted
         and unaccepted rows in window count; rows outside the window do not;
-        `estimate_only` never allows; space shortfall refused
+        `estimate_only` never allows; space shortfall refused; an unheld
+        job counts (at `cost_usd`, or at the supplied request cost when
+        unpriced) and is named in the refusal
   - [ ] Success: passes
   - [ ] Effort: 2
   - [ ] Commit: `feat(tick): add spend and space guards`
@@ -246,7 +249,9 @@ that, split along the phase or concern it holds and note the split.
 
 - [ ] **6.1 Manifest functions for the pass**
   - [ ] Add to `manifest_repo.py`: insert request and units at *requested*
-        (with repurchase and supersession links for reopened days, one
+        with `fetch_status = UNKNOWN`, `attempt_count = 1`, `last_attempt_at
+        = now` (TD9: stamped before the paid call; a re-submit after `reset`
+        re-stamps the same row) (with repurchase and supersession links for reopened days, one
         transaction, TD8); record submit (job id, `committed_at`, units →
         *submitted*); requests without a job id; mark delivered (actual cost,
         counts, deadline); expiry sweep candidates; trailing spend rows; owned
@@ -282,6 +287,11 @@ that, split along the phase or concern it holds and note the split.
 
 - [ ] **6.3 Delivery tests (FR5, FR6)**
   - [ ] Unknown submit then a listed job → units *submitted*, zero submits
+  - [ ] Crash after the pre-submit insert (before `submit_batch`) and crash
+        after an accepted submit (before recording it): both leave
+        `attempt_count = 1` with `last_attempt_at` set; the next run matches
+        the accepted one, holds the other unresolved, and neither is
+        re-submitted
   - [ ] No listed job: stays retryable under the age, exhausted after it (a
         fixed clock)
   - [ ] Past-deadline unit swept with `reopened_at`; expired and unknown job
@@ -340,12 +350,16 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
 - [ ] **8.1 Create `data/tick/purchase_phase.py`**
   - [ ] Calendar (as 223's `adopt.py` opens it) → `session_days` → planner → free `cost`
         and `billable_size` per request → space guard (free bytes of the
-        archive volume) → spend guard → submit in order: insert at
+        archive volume) → unheld jobs (`batch_jobs_since(now −
+        TICK_SPEND_WINDOW)`, ids no row holds, `cost()` for unpriced ones)
+        → spend guard → submit in order: insert at
         *requested*, `submit_batch`, record submit (TD9)
   - [ ] TD9 outcome rules: `ProviderOutcomeUnknownError` → units
         `FAILED_RETRYABLE`, stop submitting, `provider_abort`; 429 →
         `FAILED_RETRYABLE`, `provider_abort`; other 4xx → units exhausted,
-        continue, `partial`; rows unresolved by reconcile are skipped
+        continue, `partial`; a jobless row is submitted only at
+        `attempt_count = 0` (after `reset`); every other jobless row is
+        skipped; the unknown path does not count the attempt again
   - [ ] Summary fields per the LLD's API Contracts purchase line
   - [ ] Success: imports; under ~300 lines
   - [ ] Effort: 3
@@ -362,6 +376,8 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
        `ok`, no submit
     5. Σ `billable_size` above an injected free-bytes value → `refused`
        naming the shortfall, no submit
+    6. a listed job no row holds pushes the plan over the 30-day cap →
+       `refused` naming the job id, no submit
   - [ ] Unit: the only paid method invoked on the fake is `submit_batch`, and
         `fetch_range` is never called
   - [ ] Success: passes
