@@ -152,7 +152,7 @@ def _tier_wants(inputs: PlanInputs) -> dict[_Shape, set[date]]:
         )
         wants[shape] = {
             day
-            for day in inputs.sessions[entry.product]
+            for day in inputs.sessions.get(entry.product, ())
             if entry.start <= day < end and _in_window(day, inputs)
         }
     return wants
@@ -266,7 +266,8 @@ def plan_purchases(inputs: PlanInputs) -> Plan:
     requests: list[PlannedRequest] = []
     for shape, days in wants.items():
         purchasable = _classify(shape, days, inputs, tallies)
-        requests.extend(_requests(shape, purchasable, inputs.sessions[shape.product]))
+        sessions = inputs.sessions.get(shape.product, ())
+        requests.extend(_requests(shape, purchasable, sessions))
     return Plan(
         requests=tuple(sorted(requests, key=_order)),
         wanted=dict(tallies.wanted),

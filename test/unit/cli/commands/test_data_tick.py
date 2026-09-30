@@ -32,7 +32,6 @@ from manta_trading.config import Settings
 from manta_trading.data.tick import adopt, reset, run_context
 from manta_trading.data.tick.adopt import (
     AdoptResult,
-    TickCalendarError,
     TickVerifyInterrupted,
 )
 from manta_trading.data.tick.adopt_files import (
@@ -50,6 +49,7 @@ from manta_trading.data.tick.estimate import CeilingVerdict
 from manta_trading.data.tick.pass_contract import TickOutcome
 from manta_trading.data.tick.reset import ResetAction, ResetChange
 from manta_trading.data.tick.run_context import TickPreflightError
+from manta_trading.data.tick.tick_calendar import TickCalendarError
 from manta_trading.providers.errors import ProviderTransientError
 
 runner = CliRunner()

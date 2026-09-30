@@ -119,12 +119,14 @@ async def test_a_repurchase_writes_both_supersession_links_in_one_transaction(
             reopened_at=NOW,
         )
     key = DayKey(CME_DATASET, TickSchema.DEFINITION, ("ES.FUT",), SType.PARENT, DAYS[0])
-    assert await reopened_unit_ids(conn, key, list(DAYS)) == {DAYS[0]: old}
+    assert await reopened_unit_ids(conn, _planned().request, list(DAYS)) == {
+        DAYS[0]: old
+    }
     pending = await insert_pending_request(conn, _planned(), COST, NOW, {DAYS[0]: old})
     new = pending.unit_ids[DAYS[0]]
     assert (await _unit(conn, new))["repurchase_of"] == old
     assert (await _unit(conn, old))["superseded_by"] == new
-    assert await reopened_unit_ids(conn, key, list(DAYS)) == {}
+    assert await reopened_unit_ids(conn, _planned().request, list(DAYS)) == {}
     covered = await covered_keys(conn)
     assert key in covered
 

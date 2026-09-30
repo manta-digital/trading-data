@@ -262,6 +262,19 @@ async def jobless_requests(conn: Conn) -> list[RequestRow]:
     )
 
 
+async def resubmittable_requests(conn: Conn) -> list[RequestRow]:
+    """Jobless requests whose units are back at *requested* with no attempts:
+    what ``reset`` produces, and the only jobless state the purchase phase
+    submits (TD9)."""
+    return await _requests(
+        conn,
+        "r.provider_job_id IS NULL AND EXISTS (SELECT 1 FROM tick_archive_unit u"
+        " WHERE u.request_id = r.request_id AND u.state = %s AND u.fetch_status = %s"
+        " AND u.attempt_count = 0 AND u.reopened_at IS NULL)",
+        (UnitState.REQUESTED.value, FetchStatus.UNKNOWN.value),
+    )
+
+
 async def requests_with_units_in(conn: Conn, state: UnitState) -> list[RequestRow]:
     """Requests holding a job id and an open unit in ``state``, earliest
     download deadline first (the order downloads run in, TD9)."""
@@ -295,10 +308,10 @@ async def swept_candidates(conn: Conn, now: datetime) -> dict[datetime, list[int
 
 
 async def reopened_unit_ids(
-    conn: Conn, key: DayKey, days: list[date]
+    conn: Conn, request: TickRequest, days: list[date]
 ) -> dict[date, int]:
-    """Reopened, not-yet-superseded units of one request shape, by day: the
-    units a repurchase supersedes (TD8)."""
+    """Reopened, not-yet-superseded units of ``request``'s shape (dataset,
+    schema, symbols, ``stype_in``), by day: what a repurchase supersedes (TD8)."""
     cursor = await conn.execute(
         "SELECT u.unit_date, u.unit_id FROM tick_archive_unit u"
         " JOIN tick_request r USING (request_id) WHERE r.dataset = %s"
@@ -306,10 +319,10 @@ async def reopened_unit_ids(
         " AND u.unit_date = ANY(%s) AND u.reopened_at IS NOT NULL"
         " AND u.superseded_by_unit_id IS NULL",
         (
-            key.dataset,
-            key.schema.value,
-            list(key.symbols),
-            key.stype_in.value,
+            request.dataset,
+            request.schema.value,
+            list(request.symbols),
+            request.stype_in.value,
             days,
         ),
     )

@@ -19,7 +19,7 @@ import asyncio
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from manta_trading.data.tick.constants import CME_DATASET, DatasetCondition
 from manta_trading.data.tick.manifest_pass import reopen_holes_on_day
@@ -166,3 +166,22 @@ async def capture_dataset(
         written,
         reopened,
     )
+
+
+async def planning_state(
+    conn: Conn,
+) -> tuple[dict[str, date], dict[tuple[str, date], DatasetCondition]]:
+    """What the planner reads: each dataset's edge as its first day past the
+    available range (UTC), and every recorded day condition."""
+    cursor = await conn.execute("SELECT dataset, available_end FROM tick_dataset_edge")
+    edges = {
+        dataset: end.astimezone(UTC).date() for dataset, end in await cursor.fetchall()
+    }
+    cursor = await conn.execute(
+        "SELECT dataset, condition_date, condition FROM tick_day_condition"
+    )
+    conditions = {
+        (dataset, day): DatasetCondition(condition)
+        for dataset, day, condition in await cursor.fetchall()
+    }
+    return edges, conditions

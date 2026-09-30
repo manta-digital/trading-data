@@ -162,12 +162,13 @@ def _exit_code(exc: BaseException) -> int | None:
     """The exit code for a verb's failure; ``None`` lets it propagate."""
     import psycopg
 
-    from manta_trading.data.tick.adopt import TickCalendarError, TickVerifyInterrupted
+    from manta_trading.data.tick.adopt import TickVerifyInterrupted
     from manta_trading.data.tick.adopt_files import (
         TickAdoptionRefused,
         TickArchiveWriteError,
     )
     from manta_trading.data.tick.run_context import TickPreflightError
+    from manta_trading.data.tick.tick_calendar import TickCalendarError
 
     if isinstance(exc, TickPreflightError | TickAdoptionRefused):
         return EXIT_PREFLIGHT

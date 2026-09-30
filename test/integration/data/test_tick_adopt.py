@@ -29,10 +29,9 @@ from tick_support.fake_historical import FakeApi, FakeHistorical, server_error
 
 from manta_trading.config import Settings
 from manta_trading.data.quality.fetch_status import FetchStatus
-from manta_trading.data.tick import adopt
+from manta_trading.data.tick import tick_calendar
 from manta_trading.data.tick.adopt import (
     AdoptResult,
-    TickCalendarError,
     TickVerifyInterrupted,
     adopt_job,
 )
@@ -46,6 +45,7 @@ from manta_trading.data.tick.constants import (
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
 from manta_trading.data.tick.databento.dbn_file import DbnFileReader
 from manta_trading.data.tick.run_context import open_tick_run
+from manta_trading.data.tick.tick_calendar import TickCalendarError
 
 JOB = "GLBX-20240910-ADOPTTEST"
 RECORDS_PER_DAY = 3
@@ -278,7 +278,7 @@ async def test_unreachable_calendar_raises_with_no_rows(
     def unreachable(*args: Any) -> list[date]:
         raise PoolTimeout("couldn't get a connection after 30.00 sec")
 
-    monkeypatch.setattr(adopt, "session_days", unreachable)
+    monkeypatch.setattr(tick_calendar, "session_days", unreachable)
     with pytest.raises(TickCalendarError, match="CME_EQUITY unavailable"):
         await _adopt(make_run, migrated_tick_db, source)
     assert _rows(migrated_tick_db, "SELECT 1 FROM tick_request") == []

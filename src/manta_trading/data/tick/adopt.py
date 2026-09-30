@@ -31,13 +31,6 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-import psycopg
-
-from manta_trading.data.base.trading_calendar import (
-    CalendarNotFoundError,
-    OutOfPopulatedRangeError,
-    TradingCalendar,
-)
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.adopt_files import (
     ArchivedFile,
@@ -48,9 +41,7 @@ from manta_trading.data.tick.adopt_files import (
 )
 from manta_trading.data.tick.constants import (
     BatchJobState,
-    SType,
     UnitState,
-    calendar_for_product,
 )
 from manta_trading.data.tick.manifest_reads import (
     UnitFile,
@@ -65,7 +56,10 @@ from manta_trading.data.tick.manifest_repo import (
 )
 from manta_trading.data.tick.provider import BatchJob, ITickFileReader
 from manta_trading.data.tick.run_context import TickRun
-from manta_trading.data.tick.session_days import session_days
+from manta_trading.data.tick.tick_calendar import (
+    product_of_shape,
+    product_session_days,
+)
 from manta_trading.data.tick.verify import check
 from manta_trading.market.schema.databases import (
     Credential,
@@ -77,15 +71,8 @@ from manta_trading.providers.errors import ProviderError
 
 #: Job states whose files exist (or existed) and whose record is final.
 ADOPTABLE_STATES = frozenset({BatchJobState.DONE, BatchJobState.EXPIRED})
-#: Symbologies whose symbols begin with the product root (``ES.FUT``, ``ES.c.0``).
-_ROOTED_STYPES = frozenset({SType.PARENT, SType.CONTINUOUS})
-_ROOT_SEPARATOR = "."
 #: Provider data-file suffixes; every other listed file is job metadata.
 DATA_FILE_SUFFIXES = (".dbn.zst", ".dbn")
-
-
-class TickCalendarError(Exception):
-    """The calendar could not give session days: nothing written (exit 4)."""
 
 
 class TickVerifyInterrupted(Exception):
@@ -110,27 +97,15 @@ class AdoptResult:
 def product_of(job: BatchJob) -> str:
     """The futures product every symbol of the job belongs to."""
     request = job.request
-    if request.stype_in not in _ROOTED_STYPES:
-        raise TickAdoptionRefused(
-            f"job {job.job_id}: stype_in {request.stype_in} does not name a product"
-        )
-    roots = {symbol.split(_ROOT_SEPARATOR, 1)[0] for symbol in request.symbols}
-    if len(roots) != 1:
-        raise TickAdoptionRefused(f"job {job.job_id} spans products {sorted(roots)}")
-    return roots.pop()
+    try:
+        return product_of_shape(request.stype_in, request.symbols)
+    except ValueError as exc:
+        raise TickAdoptionRefused(f"job {job.job_id}: {exc}") from exc
 
 
 def _session_days_blocking(url: str, job: BatchJob) -> list[date]:
-    calendar_id = calendar_for_product(product_of(job))
-    calendar = TradingCalendar(calendar_id, url)
-    try:
-        return session_days(calendar, job.request.start, job.request.end)
-    except (psycopg.OperationalError, CalendarNotFoundError) as exc:
-        raise TickCalendarError(f"calendar {calendar_id} unavailable: {exc}") from exc
-    except OutOfPopulatedRangeError as exc:
-        raise TickCalendarError(f"calendar {calendar_id}: {exc}") from exc
-    finally:
-        calendar.close()
+    request = job.request
+    return product_session_days(url, product_of(job), request.start, request.end)
 
 
 async def _job(run: TickRun, job_id: str) -> BatchJob:
