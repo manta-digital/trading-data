@@ -1054,12 +1054,19 @@ jobs and the four definition jobs `GLBX-20260930-*`, so nothing is bought.
    integration tests. The one to watch by hand is the raw-count proof:
 
    ```bash
-   psql "$MT_TICK_DB_URL" -c "DELETE FROM tick_trade WHERE ctid IN
-     (SELECT ctid FROM tick_trade WHERE ts_event BETWEEN
+   psql "$MT_TICK_DB_URL" -c "DELETE FROM tick_trade WHERE
+     (instrument_id, ts_event, sequence, sequence_ordinal) =
+     (SELECT instrument_id, ts_event, sequence, sequence_ordinal FROM tick_trade
+      WHERE ts_event BETWEEN
         extract(epoch FROM timestamptz '2024-09-18 14:00Z')::bigint*1000000000
     AND extract(epoch FROM timestamptz '2024-09-18 15:00Z')::bigint*1000000000 LIMIT 1)"
    uv run mt data tick coverage --start 2024-09-18 --end 2024-09-19; echo "exit $?"
    ```
+
+   Delete by the primary key, not `ctid`: `ctid` is unique only within a
+   chunk, so `WHERE ctid IN (… LIMIT 1)` deletes that position in every
+   chunk (at implementation it deleted 9 rows, and coverage over the whole
+   range named all 9).
 
    Expected: the 2024-09-18 session shows `mismatch`, naming the
    instrument, ledger 1 more than raw, exit 3. This scratch database is
@@ -1078,6 +1085,49 @@ jobs and the four definition jobs `GLBX-20260930-*`, so nothing is bought.
    ```
 
    The archive stays. It is the source of truth, and 226 rebuilds from it.
+
+**Results, 2026-09-30** (manta9000, test cluster, scratch database
+`mt_scratch_tick_225`, dropped afterwards; nothing bought):
+
+- **Step 1.** Unit tier clean (4,233 passed). Integration: the 6 baseline
+  failures only, after fixing 4 new ones caused by 225's own CLI tests
+  (they left logging bound to a closed CliRunner stream; they now patch
+  `setup_logging` like every other CLI test).
+- **Step 2.** Six adoptions; `pass --estimate-only` planned $0.0000
+  (`nothing_to_buy`), and the real pass exited 0 with nothing bought. The
+  manifest: 26 `trades` units, provider sum **10,049,172** (as expected);
+  52 `tbbo` units, provider sum **17,642,240**; 78 definition units
+  *ingested*.
+- **Step 3.** Status ran without the key: 64 sessions held, all
+  `awaiting_ingest`; caught up n/a. The job-boundary sessions do not show
+  `missing` or `edge_unknown` before ingest, because their held day is
+  `awaiting_ingest`, which ranks worse (TD9's precedence). They surface
+  after ingest (step 6).
+- **Step 4.** Exit 0; 78 ingested, 0 failed. Provider = decoded per schema
+  (`trades` 10,049,172; `tbbo` 17,642,240); `tick_trade` holds
+  **27,691,412** rows, their sum. Whole run **55 s** wall (54.3 s in the
+  pass). Per unit 0.04–3.98 s (sum 106 s over two workers); decode at most
+  0.52 s, write at most 3.76 s. Both targets met: the slowest unit is
+  1/21,700 of the day it covers (bound 120 s), and 3.5 months of sessions
+  took under a minute (bound 2 h).
+- **Step 5.** Second run: nothing selected, exit 0, 27,691,412 rows.
+- **Step 6.** 61 sessions `complete`, 3 not, each a job boundary:
+  - 2024-08-30 `edge_unknown`: its first day, 08-29, is before the trades
+    job and has no condition row;
+  - 2024-09-30 `missing`: its second day, 09-30, is after the trades job;
+  - 2024-11-01 `missing`: its first day, 10-31, is before the tbbo job.
+
+  Contracts ESU4, ESZ4 and ESH5 are present (18 instruments with records,
+  12 of them spreads); ESU4's last session is 2024-09-20, its expiry, with
+  ESZ4's volume (52.2 M) far above it. Both coverage ranges read `ok` on
+  every session (ledger = raw), exit 0.
+- **Step 7.** The session 2024-09-18 showed `mismatch` naming instrument
+  183748 (ESZ4), ledger 573,847 against raw 573,846, exit 3. The original
+  `ctid` delete removed 9 rows, one per chunk; coverage over
+  2024-08-30 → 2025-01-01 named all 9, each in its own session.
+- **Step 8.** `test_tick_ingest_supersession.py::test_tbbo_replaces_an_ingested_trades_unit_in_one_transaction`
+  PASSED.
+- **Step 9.** Dropped; `pg_database` count 0. The archive is unchanged.
 
 ## Risk Assessment
 
