@@ -362,25 +362,26 @@ Error mapping for every phase: `ProviderError` → `provider_abort`,
 calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
 `storage_abort` naming it. No catch-all.
 
-- [ ] **8.1 Create `data/tick/purchase_phase.py`**
-  - [ ] Calendar (as 223's `adopt.py` opens it) → `session_days` → planner → free `cost`
+- [x] **8.1 Create `data/tick/purchase_phase.py`**
+  - [x] Calendar (as 223's `adopt.py` opens it) → `session_days` → planner → free `cost`
         and `billable_size` per request → space guard (free bytes of the
         archive volume) → unheld jobs (`batch_jobs_since(now −
         TICK_SPEND_WINDOW)`, ids no row holds, `cost()` for unpriced ones)
         → spend guard → submit in order: insert at
         *requested*, `submit_batch`, record submit (TD9)
-  - [ ] TD9 outcome rules: `ProviderOutcomeUnknownError` → units
+  - [x] TD9 outcome rules: `ProviderOutcomeUnknownError` → units
         `FAILED_RETRYABLE`, stop submitting, `provider_abort`; 429 →
         `FAILED_RETRYABLE`, `provider_abort`; other 4xx → units exhausted,
         continue, `partial`; a jobless row is submitted only at
         `attempt_count = 0` (after `reset`); every other jobless row is
         skipped; the unknown path does not count the attempt again
-  - [ ] Summary fields per the LLD's API Contracts purchase line
-  - [ ] Success: imports; under ~300 lines
-  - [ ] Effort: 3
+  - [x] Summary fields per the LLD's API Contracts purchase line
+  - [x] Success: imports; under ~300 lines
+  - [x] Effort: 3
+  - Note (splits): the phase is split along its concern. data/tick/purchase_plan.py builds the plan (calendar sessions, planner inputs, costs, unheld jobs, both guards, summary); purchase_phase.py holds the submit loop and PurchasePhase; phase_support.py holds run_phase (the shared error-to-outcome mapping, the tick equivalent of Kalshi's classify_outcome noted in 1.3). The calendar access shared with adopt was extracted into data/tick/tick_calendar.py (TickCalendarError, product_of_shape, product_session_days); adopt.py now uses it and TickCalendarError is imported from there. Tests: test/integration/data/test_tick_purchase_phase.py (the seven listed cases plus estimate-only, a reset row re-submitted on the same request, and a no-wants case) and test/unit/data/tick/test_pass_money_paths.py (an AST check: nothing calls fetch_range; only purchase_phase.py calls submit_batch).
 
-- [ ] **8.2 Purchase phase tests**
-  - [ ] Integration, fake provider, `migrated_tick_db`, calendar from
+- [x] **8.2 Purchase phase tests**
+  - [x] Integration, fake provider, `migrated_tick_db`, calendar from
         `session_migrated_db`:
     1. a 4xx refusal on the first of two requests: its units exhausted, the
        second submitted, outcome `partial`
@@ -396,23 +397,24 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
        filtered out and not counted
     7. the calendar raises `OutOfPopulatedRangeError` (and, separately, is
        unreachable) → `storage_abort` naming it, no submit
-  - [ ] Unit: the only paid method invoked on the fake is `submit_batch`, and
+  - [x] Unit: the only paid method invoked on the fake is `submit_batch`, and
         `fetch_range` is never called
-  - [ ] Success: passes
-  - [ ] Effort: 3
-  - [ ] Commit: `feat(tick): add tick purchase phase`
+  - [x] Success: passes
+  - [x] Effort: 3
+  - [x] Commit: `feat(tick): add tick purchase phase`
 
-- [ ] **8.3 Create `data/tick/acquisition_pass.py`**
-  - [ ] The other four phases and `PASS_PHASES`, following the LLD's pass
+- [x] **8.3 Create `data/tick/acquisition_pass.py`**
+  - [x] The other four phases and `PASS_PHASES`, following the LLD's pass
         data flow: reconcile (`resolve_unsubmitted`, `sweep_expired`, one
         `advance`); availability; purchase (8.1); await (`advance` every
         poll interval up to the wait budget, then `in_flight` listing jobs
         and deadlines; budget and interval injectable); definitions
-  - [ ] Success: imports; under ~300 lines
-  - [ ] Effort: 2
+  - [x] Success: imports; under ~300 lines
+  - [x] Effort: 2
+  - Note: PASS_PHASES is the factory pass_phases(window, estimate_only, reader, ...) rather than a module tuple, because the purchase phase hands the await phase the jobs it submitted (PassState) and the await phase needs the run's timing. run_pass() runs it. The await phase skips waiting under --estimate-only; the wait budget counts time slept between polls, never time inside advance().
 
-- [ ] **8.4 Whole-pass tests**
-  - [ ] Integration, same setup as 8.2:
+- [x] **8.4 Whole-pass tests**
+  - [x] Integration, same setup as 8.2:
     1. two passes back to back after an unknown submit: exactly one
        `submit_batch` call (FR5)
     2. reset of an unresolved-exhausted row: the next pass searches the list
@@ -428,22 +430,23 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
     8. calendar unreachable with a delivered job in flight: reconcile still
        downloads and verifies it, purchase ends `storage_abort` with no
        submit (TD6)
-  - [ ] Success: passes
-  - [ ] Effort: 3
-  - [ ] Commit: `feat(tick): add tick acquisition pass`
+  - [x] Success: passes
+  - [x] Effort: 3
+  - [x] Commit: `feat(tick): add tick acquisition pass`
 
-- [ ] **8.5 `mt data tick pass` verb and report**
-  - [ ] `pass [--start] [--end] [--estimate-only] [--json]` in
+- [x] **8.5 `mt data tick pass` verb and report**
+  - [x] `pass [--start] [--end] [--estimate-only] [--json]` in
         `cli/commands/tick.py`; `--end` exclusive; exit from
         `EXIT_BY_OUTCOME`
-  - [ ] Extend 223's `tick_pass_render.py` with the pass report: phase table, per-phase summaries
+  - [x] Extend 223's `tick_pass_render.py` with the pass report: phase table, per-phase summaries
         as the LLD's API Contracts list, closing line; `--json` emits
         `{**PassResult.to_dict(), "exit_code": n}`
-  - [ ] CLI tests: exit code per outcome, `--json` shape, window parsing
-  - [ ] Success: passes; `tick.py` and `tick_pass_render.py` each under ~300
+  - [x] CLI tests: exit code per outcome, `--json` shape, window parsing
+  - [x] Success: passes; `tick.py` and `tick_pass_render.py` each under ~300
         lines after both parts' additions
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add mt data tick pass verb`
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add mt data tick pass verb`
+  - Note (split): the exit-code constants, EXIT_BY_OUTCOME and exit_code_for moved to cli/commands/tick_exit.py so tick.py stays under ~300 lines (279); tick.py re-exports what it uses, so cmd.EXIT_* is unchanged. tick_pass_render.py is 296 lines.
 
 ---
 

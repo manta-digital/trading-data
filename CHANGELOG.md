@@ -16,6 +16,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`mt data tick pass`** is the first command that can buy tick data. It
+  reconciles earlier purchases, records Databento's availability, plans and
+  buys within your spend limits, waits for delivery, and stores contract
+  definitions. Today it buys the definitions for the trading days already in
+  the manifest (about $0.004 for the two adopted jobs). `--estimate-only`
+  plans and prices without buying; `--start`/`--end` narrow a run.
+- Buying needs **both** `MT_TICK_SPEND_CEILING_USD` (per pass) and
+  `MT_TICK_SPEND_30D_CEILING_USD` (rolling 30 days). Without either, the pass
+  buys nothing and exits `5`, naming both. A refused plan buys nothing at all.
+  The 30-day total includes jobs Databento lists that the manifest does not
+  hold, such as a portal purchase not yet adopted.
+- A purchase whose result is unknown (a timeout, a crash) is matched against
+  Databento's job list on the next run and never bought twice; an unmatched
+  one is exhausted after an hour and re-bought only after `mt data tick
+  reset`. Finished jobs are downloaded, earliest retention deadline first,
+  before anything new is bought, and a job with no `manifest.json` gets one
+  written beside its files.
+- Days Databento marks `missing` are recorded and not bought; a changed day
+  condition reopens that day's holes, and a day whose retention expired is
+  bought again with its provenance linked to the old unit.
+- Contract definitions are stored with their validity windows enforced: an
+  undefined window, a changed definition or an overlapping window fails the
+  unit with the instrument and fields named, instead of being merged.
+- New exit codes `5` (a spend guard refused) and `6` (jobs still processing
+  when the wait budget ended) for `mt data tick pass`.
+
 ## [0.21.0] - 2026-09-29
 
 ### Added

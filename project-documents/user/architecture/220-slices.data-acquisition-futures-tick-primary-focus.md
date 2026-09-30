@@ -3,7 +3,7 @@ docType: slice-plan
 parent: user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
 project: trading
 dateCreated: 20260923
-dateUpdated: 20260928
+dateUpdated: 20260929
 status: in_progress
 ---
 
@@ -150,6 +150,13 @@ status: in_progress
   - The manifest is two tables: job-grain facts on `tick_request`, the unit lifecycle on `tick_archive_unit` (TD4).
   - The archive unit is one UTC day of a request, normally one provider file, not "one provider file": a provider hole has no file (TD4).
   - The tier is reached through the unit's request, not stored on the ledger (TD7).
+- **Architecture and plan statements superseded by 224's slice design** (recorded in the architecture's Revision Log, entry 2026-09-28):
+  - "Tick acquisition, which needs no calendar" — planning and adoption read the CME calendar for session days; reconcile, download, verify and definitions do not, so a production outage stops new purchases, not deliveries (TD6).
+  - 225 "projects definition units first" — 224 projects them; 225 requires definition units to be *ingested* before tier units (TD5).
+  - Definition scope — definitions are bought per tier request shape (same symbols, `stype_in` and days), not per configured product (TD5).
+  - `PROVIDER_HOLE` from missing days — a `missing` day is recorded in `tick_day_condition` and not bought; `PROVIDER_HOLE` marks a unit only when a completed job delivered no file for a session day (TD8).
+  - 222 "no schema change of their own" — 223 adds `tick_006`: the two availability tables and `reopened_at` (TD8).
+  - "A file that fails verification is not adopted" — adoption is all-or-nothing per job (TD10).
 - **No billable request before 224.** 220's preflight uses only free metadata endpoints, and its test fixtures must be free real DBN files. The first real purchase happens only after the PM sets `MT_TICK_SPEND_CEILING_USD`.
 - **The CLI and API surface decision was made at 220 design:** an `mt data tick` subgroup and a `/api/v1/futures/*` namespace. 229 and 230 apply it.
 - **Standing obligations on every 220 slice:** diff the tick pass contract against the Kalshi original, as a named task in the slice's task file (from 224 on). 224 also adds a unit test comparing the tick copy's fields with the Kalshi original's, so divergence fails a test rather than waiting for a checklist (review F015). Include a "realtime paths" check naming any decision that rules out path A (assemble from realtime) or path B (historical with delay). Add the slice's rows to the data-correctness contract's slice-mapping table. Answer "does this belong in the API?" for any new surface.

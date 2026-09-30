@@ -567,9 +567,10 @@ neither. `MT_KALSHI_REQUESTS_PER_MINUTE` overrides either budget.
 ## Futures tick data
 
 CME futures tick data from [Databento](https://databento.com) (initiative
-220). None of the commands below buys anything: `estimate` is a
-cost-and-size preflight over Databento's free metadata endpoints. `adopt` and `reset` maintain the
-manifest; the acquisition pass (224) and ingest (225) arrive next.
+220). `estimate`, `adopt` and `reset` buy nothing: `estimate` is a
+cost-and-size preflight over Databento's free metadata endpoints, and `adopt`
+and `reset` maintain the manifest. **`pass` is the only command that can spend
+money**, and only inside both spend ceilings. Ingest (225) arrives next.
 
 **Storage.** The tick database lives apart from `trading`. `mt data init
 --database tick` builds it: seven tables on the `tick` migration track. They
@@ -635,13 +636,59 @@ mt data tick reset --unit-id 17 --unit-id 18
 mt data tick reset --all --yes
 ```
 
-Both commands run behind one preflight and a run lock: they exit `1` naming
-the setting or command to fix (an unknown `MT_TICK_*` name, with the closest
-real one; the key; `MT_TICK_DB_URL`; `MT_TICK_ARCHIVE_DIR`; a pending tick
-migration; another run holding the lock). Exit codes: `0` OK; `1` preflight or
-a refusal that wrote nothing; `2` provider error; `3` adopt finished but some
-units failed verification; `4` storage (archive write, the calendar, or the
-tick database).
+**The acquisition pass.** `pass` runs five phases and buys only what both
+spend ceilings allow. Every purchase is a batch job.
+
+1. **reconcile** — matches any submit whose outcome was unknown to the job
+   Databento lists (it was bought once, so it is never bought again), sweeps
+   jobs whose 30-day retention has passed, and downloads, verifies and
+   records finished jobs, earliest deadline first.
+2. **availability** — records the dataset's edge and each day's condition; a
+   changed condition reopens that day's holes.
+3. **purchase** — plans monthly requests, costs each (free), applies both
+   guards and submits. Today the plan is the definitions for the tier days the
+   manifest already holds (about $0.004 for the two adopted jobs); the tier
+   itself is chosen in slice 226.
+4. **await** — polls until nothing is in flight or `TICK_WAIT_BUDGET_SECONDS`
+   (1,800) is spent, then lists what is still running with its deadline.
+5. **definitions** — projects verified definition units into
+   `tick_definition`, refusing an undefined validity window, a changed
+   definition or an overlapping window rather than guessing.
+
+```sh
+mt data tick pass --estimate-only          # plan and cost; buy nothing
+mt data tick pass                          # the real run
+mt data tick pass --start 2024-09-01 --end 2024-10-01   # narrow, never widen
+mt data tick pass --json
+```
+
+`--end` is exclusive. **Both spend ceilings must be set** or the pass refuses
+(exit `5`, naming both) and buys nothing:
+
+| Variable | Meaning |
+|---|---|
+| `MT_TICK_SPEND_CEILING_USD` | The most one pass may spend. |
+| `MT_TICK_SPEND_30D_CEILING_USD` | The most that may be spent in any rolling 30 days. Counts every manifest request (adopted and unaccepted included) and every job Databento lists that the manifest does not hold. |
+
+A refused plan buys nothing at all, and the report says how far over each
+ceiling it is and from when it would fit. A submit whose outcome is unknown is
+never bought again blind: the next run searches the job list, and a request
+still unmatched after an hour is exhausted and re-submitted only after
+`reset`.
+
+Exit codes for `pass`: `0` OK; `1` preflight (or `--end` not after `--start`);
+`2` provider abort; `3` some units failed; `4` storage abort (archive write,
+calendar, tick database); `5` a guard refused the purchase; `6` jobs still
+processing when the wait budget ended (run it again to continue).
+
+Every manifest writer (`adopt`, `reset`, `pass`) runs behind one preflight and
+a run lock: they exit `1` naming the setting or command to fix (an unknown
+`MT_TICK_*` name, with the closest real one; the key; `MT_TICK_DB_URL`;
+`MT_TICK_ARCHIVE_DIR`; a pending tick migration; another run holding the
+lock). Exit codes for `adopt` and `reset`: `0` OK; `1` preflight or a refusal
+that wrote nothing; `2` provider error; `3` adopt finished but some units
+failed verification; `4` storage (archive write, the calendar, or the tick
+database).
 
 ## Data Serving API
 
