@@ -333,63 +333,67 @@ real batch.
 
 ## Section 3: Selection and plan (TD4, TD5, TD7)
 
-- [ ] **3.1 Create `data/tick/ingest_select.py`**
-  - [ ] Select units that meet all of these: the schema is in
+- [x] **3.1 Create `data/tick/ingest_select.py`**
+  - [x] Select units that meet all of these: the schema is in
         `STORED_TIERS`; `state = verified`; `fetch_status` is open; the unit
         is current (`COVERAGE_PREDICATE`); no current higher-tier unit
         exists for the same shape and day (the rank SQL from 0.3); its
         companion definition unit is *ingested*
-  - [ ] Skip, do not fail, with a reason: "outranked by unit N" or
+  - [x] Skip, do not fail, with a reason: "outranked by unit N" or
         "awaiting definitions"
-  - [ ] `--unit-id` narrows the selection and never overrides it. A named
+  - [x] `--unit-id` narrows the selection and never overrides it. A named
         unit that is not selectable is reported with its reason
-  - [ ] Order by `unit_date`, then `unit_id`
-  - [ ] Success: imports
-  - [ ] Effort: 2
+  - [x] Order by `unit_date`, then `unit_id`
+  - [x] Success: imports
+  - [x] Effort: 2
+  - Note: `select_units(conn, unit_ids=()) -> Selection(selected, skipped)`. `Skipped(unit_id, kind, detail)` uses `SkipKind` (`awaiting_definitions`, `outranked`, `changed_during_ingest`, `not_selectable`); a named unit that is not selectable gets `not_selectable` with a reason such as "fetch_status is RETRY_EXHAUSTED; reset it first", "superseded by unit N" or "no such unit". Outranking counts any current higher-tier unit of the shape and day in any state. `manifest_reads.py` now exposes `UNIT_COLUMNS`, `UNIT_FROM` and `unit_row` (renamed from `_unit_row`) so the selection query extends the unit select list without string surgery.
 
-- [ ] **3.2 Selection tests (FR4)**
-  - [ ] Integration on `migrated_tick_db`, one case per rule:
-    - a unit is skipped as "awaiting definitions" until its companion is
+- [x] **3.2 Selection tests (FR4)**
+  - [x] Integration on `migrated_tick_db`, one case per rule:
+    - [x] a unit is skipped as "awaiting definitions" until its companion is
       *ingested*, and selected after
-    - a `trades` unit with a current `tbbo` unit on the same day is
+    - [x] a `trades` unit with a current `tbbo` unit on the same day is
       "outranked"
-    - a superseded unit, a reopened unit and an exhausted unit are not
+    - [x] a superseded unit, a reopened unit and an exhausted unit are not
       selected
-    - an explicit `--unit-id` for an unselectable unit returns its reason
-    - order follows `unit_date`, then `unit_id`
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): select units for ingest`
+    - [x] an explicit `--unit-id` for an unselectable unit returns its reason
+    - [x] order follows `unit_date`, then `unit_id`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): select units for ingest` (045503d)
+  - Note: the tests are in `test/integration/data/test_tick_ingest_select.py` (5 cases).
 
-- [ ] **3.3 Create `data/tick/ingest_plan.py`**
-  - [ ] An immutable `UnitIngestPlan` per unit, built on the loop through
+- [x] **3.3 Create `data/tick/ingest_plan.py`**
+  - [x] An immutable `UnitIngestPlan` per unit, built on the loop through
         `asyncio.to_thread`: product (`planning_product`), calendar,
         `sessions_between(day 00:00Z, day+1 00:00Z)`, populated span,
         `SessionIndex`, definition arrays (`asset = product`, windows
         meeting the unit's session span), and the superseded current
         lower-tier units with their ledger min/max event times
-  - [ ] A non-`parent` `stype_in` becomes a `shape` failure
-  - [ ] `OutOfPopulatedRangeError` becomes a `session_boundary` failure
+  - [x] A non-`parent` `stype_in` becomes a `shape` failure
+  - [x] `OutOfPopulatedRangeError` becomes a `session_boundary` failure
         naming the day and span (TD7). An unreachable calendar raises
         `TickCalendarError` (→ `storage_abort`)
-  - [ ] Success: imports
-  - [ ] Effort: 2
+  - [x] Success: imports
+  - [x] Effort: 2
+  - Note: `build_plan(conn, calendars, unit) -> UnitIngestPlan(unit, product, calendar_id, frame, definitions, superseded)`. `Calendars(url)` keeps one `TradingCalendar` per product for the run, and its blocking `frame(product, day)` runs through `asyncio.to_thread`. `SupersededUnit(unit_id, state, first_event_ns, last_event_ns)` covers current lower-tier units in any state; only ingested ones have rows to delete. A new public `TradingCalendar.zone()` returns the calendar's time zone. The same commit fixes that file's pre-existing E501 and two mypy errors (asserts in the extended-hours branch), so the touched file is clean.
 
-- [ ] **3.4 Plan tests and the horizon test (TD7)**
-  - [ ] Unit: `session_days` over a calendar whose last close is mid-day X
+- [x] **3.4 Plan tests and the horizon test (TD7)**
+  - [x] Unit: `session_days` over a calendar whose last close is mid-day X
         returns no day at or after X, and raises for `[.., X+1)`
-  - [ ] Integration:
-    - a plan for a real day holds two sessions and 61 definitions
-    - a `raw_symbol` unit fails as `shape`
-    - a unit whose day lies past the populated span fails as
+  - [x] Integration:
+    - [x] a plan for a real day holds two sessions and 41 definitions
+    - [x] a `raw_symbol` unit fails as `shape`
+    - [x] a unit whose day lies past the populated span fails as
       `session_boundary`
-    - an unreachable calendar URL raises `TickCalendarError`
-    - with an ingested `trades` unit and a verified `tbbo` unit on the same
+    - [x] an unreachable calendar URL raises `TickCalendarError`
+    - [x] with an ingested `trades` unit and a verified `tbbo` unit on the same
       day, the `tbbo` plan's superseded list holds the `trades` unit with
       the min first and max last event times from its ledger
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): build per-unit ingest plans`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): build per-unit ingest plans` (ec1f7a2)
+  - Note: **design correction.** A real day's definition file holds 61 *records* but **41 instruments**: 21 outrights and 20 spreads, each spread sent twice under one key. The LLD's "61 instruments per day, 21 outrights and 40 spreads" is wrong, so a unit writes about 82 ledger rows, not about 122. Correct the LLD (Prerequisites, TD6 ledger rows, the status sample's "40 spreads hidden") in Section 7. The plan test asserts 41. The horizon test is `test_no_day_at_or_after_a_mid_day_horizon_is_emitted` in `test/unit/data/tick/test_session_days.py`; the plan tests are in `test/integration/data/test_tick_ingest_plan.py`.
 
 ---
 

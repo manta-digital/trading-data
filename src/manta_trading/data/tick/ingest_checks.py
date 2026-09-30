@@ -102,10 +102,13 @@ def planning_span_reason(
     )
 
 
-def overlap_reason(key: str | None, day: date, other_units: Sequence[int]) -> str:
-    """A ``UniqueViolation`` on ``COPY``: another current unit holds the key."""
+def overlap_reason(detail: str | None, day: date, other_units: Sequence[int]) -> str:
+    """A ``UniqueViolation`` on ``COPY``: another current unit holds the key.
+
+    ``detail`` is PostgreSQL's own ("Key (...)=(...) already exists.").
+    """
     return (
-        f"{IngestCheck.OVERLAP}: key {key or 'unknown'} is already stored;"
+        f"{IngestCheck.OVERLAP}: {detail or 'a tick_trade key already exists'}"
         f" other current units on {day}: {list(other_units)}"
     )
 

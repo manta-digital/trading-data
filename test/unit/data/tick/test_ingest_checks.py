@@ -37,7 +37,10 @@ REASONS = [
         no_session_reason(TS_NS, CHICAGO, SESSION, None, 1),
     ),
     (IngestCheck.SESSION_BOUNDARY, planning_span_reason(date(2031, 1, 2), None, None)),
-    (IngestCheck.OVERLAP, overlap_reason("(42, 1, 7, 0)", date(2024, 9, 3), [5])),
+    (
+        IngestCheck.OVERLAP,
+        overlap_reason("Key (k)=(1) already exists.", date(2024, 9, 3), [5]),
+    ),
     (IngestCheck.SHAPE, shape_reason("raw_symbol")),
     (IngestCheck.DECODE, decode_reason(Path("JOB/f.dbn.zst"), OSError("gone"))),
 ]
