@@ -3,7 +3,7 @@ docType: slice-plan
 parent: user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
 project: trading
 dateCreated: 20260923
-dateUpdated: 20260929
+dateUpdated: 20260930
 status: in_progress
 ---
 
@@ -157,6 +157,12 @@ status: in_progress
   - `PROVIDER_HOLE` from missing days — a `missing` day is recorded in `tick_day_condition` and not bought; `PROVIDER_HOLE` marks a unit only when a completed job delivered no file for a session day (TD8).
   - 222 "no schema change of their own" — 223 adds `tick_006`: the two availability tables and `reopened_at` (TD8).
   - "A file that fails verification is not adopted" — adoption is all-or-nothing per job (TD10).
+- **Architecture and plan statements superseded by 225's slice design:**
+  - Ingest commits a unit in one transaction (rows, ledger, *ingested*), so a pass that dies mid-unit leaves nothing, not rows for a later conflict-ignore (TD2).
+  - Ingest does not extend the calendar; every unit's day is already inside the populated span (TD7).
+  - A higher tier supersedes a loaded lower tier at ingest, by tier rank (TD5). No earlier step writes that link.
+  - Status adds `awaiting_ingest`; `edge_unknown` means a day with no condition row, and the edge's observation age is printed instead of a staleness threshold (TD9).
+  - Production tick-cluster provisioning stays with 226; 225 needs only a scratch database.
 - **No billable request before 224.** 220's preflight uses only free metadata endpoints, and its test fixtures must be free real DBN files. The first real purchase happens only after the PM sets `MT_TICK_SPEND_CEILING_USD`.
 - **The CLI and API surface decision was made at 220 design:** an `mt data tick` subgroup and a `/api/v1/futures/*` namespace. 229 and 230 apply it.
 - **Standing obligations on every 220 slice:** diff the tick pass contract against the Kalshi original, as a named task in the slice's task file (from 224 on). 224 also adds a unit test comparing the tick copy's fields with the Kalshi original's, so divergence fails a test rather than waiting for a checklist (review F015). Include a "realtime paths" check naming any decision that rules out path A (assemble from realtime) or path B (historical with delay). Add the slice's rows to the data-correctness contract's slice-mapping table. Answer "does this belong in the API?" for any new surface.
