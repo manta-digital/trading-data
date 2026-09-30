@@ -34,25 +34,26 @@ status: not_started
 
 ## Section 5: The pass and its verb
 
-- [ ] **5.1 Create `data/tick/ingest_pass.py`**
-  - [ ] `IngestPhase` (a `PassPhase[TickStore]`) and `run_ingest`: select,
+- [x] **5.1 Create `data/tick/ingest_pass.py`**
+  - [x] `IngestPhase` (a `PassPhase[TickStore]`) and `run_ingest`: select,
         then plan each unit on the loop, then run workers through
         `asyncio.to_thread`, at most `TICK_INGEST_WORKERS` at once
-  - [ ] A failed unit: `record_failure(deterministic=True)` on the run
+  - [x] A failed unit: `record_failure(deterministic=True)` on the run
         connection, with the reason from 2.1 → outcome `partial`
-  - [ ] Abort: stop starting units, await every in-flight future
+  - [x] Abort: stop starting units, await every in-flight future
         (`gather(..., return_exceptions=True)`), then re-raise the first
         exception into `run_phase`. Units committed while waiting are in
         the summary
-  - [ ] Summary: `ingested`, `failed`, `records`, `skipped` (by
+  - [x] Summary: `ingested`, `failed`, `records`, `skipped` (by
         `awaiting_definitions`, `outranked`, `changed_during_ingest`),
         `superseded`, and `units` (per unit: `unit_id`, `unit_date`,
         `schema`, `outcome`, `records`, `reason`, durations)
-  - [ ] Success: imports; under ~300 lines
-  - [ ] Effort: 3
+  - [x] Success: imports; under ~300 lines
+  - [x] Effort: 3
+  - Note: `run_ingest(store, inputs, summary)` and `IngestPhase(inputs)`; `IngestInputs(reader, worker_settings, calendar_url, workers, unit_ids)` is built by the CLI from constants. The summary's `skipped` also carries `not_selectable` (named units that fail a rule), and `units` lists skipped and unselectable units with their reason. During an abort, only units that committed are reported; nothing is recorded for a unit that did not commit, so it stays *verified* and open and the next run retries it. A `ManifestTransitionError` from `record_failure` itself (the unit changed after its worker returned) is tallied as changed during ingest. 200 lines.
 
-- [ ] **5.2 Pass tests (FR1, FR2, FR7)**
-  - [ ] Integration:
+- [x] **5.2 Pass tests (FR1, FR2, FR7)**
+  - [x] Integration:
     1. two real days ingest; a second run selects nothing and exits `ok`
        with the row count unchanged (FR2)
     2. the tick database drops mid-run (terminate the backend): the outcome
@@ -74,51 +75,54 @@ status: not_started
     9. a `raw_symbol` unit alongside a good one: the good one ingests, the
        outcome is `partial`, and the bad one is `RETRY_EXHAUSTED` with a
        `shape:` reason
-  - [ ] Case 1 uses the 0.2 fixture slices. The full real adopted day end
+  - [x] Case 1 uses the 0.2 fixture slices. The full real adopted day end
         to end is covered by the load test in 5.4 and by walkthrough step 4
-  - [ ] Success: passes
-  - [ ] Effort: 3
-  - [ ] Commit: `feat(tick): add the ingest pass`
+  - [x] Success: passes
+  - [x] Effort: 3
+  - [x] Commit: `feat(tick): add the ingest pass`
+  - Note: the tests are in `test/integration/data/test_tick_ingest_pass.py`, with helpers (`HookedReader`, `ingest_inputs`, `run_ingest_phase`) in `test/tick_support/ingest.py`. `HookedReader` runs a hook on the worker thread after a file's first batch, which injects mid-unit failures (terminating backends, a worker raising while the other is held mid-unit by events, an operator's status change). The concurrent-acquisition case runs the real acquisition pass (fake provider, no wants) alongside ingest. Stable over 3 runs.
 
-- [ ] **5.3 `mt data tick ingest` verb**
-  - [ ] Build the ingest pass: `TickPass[TickStore]` with the one
+- [x] **5.3 `mt data tick ingest` verb**
+  - [x] Build the ingest pass: `TickPass[TickStore]` with the one
         `IngestPhase`, run on `open_tick_store(settings,
         lock_key=TICK_INGEST_LOCK_KEY)`, and the `WorkerConnectionSettings`
         built from the 0.3 constants
-  - [ ] `ingest [--unit-id N]... [--json]`. `tick.py` is at 279 lines, so
+  - [x] `ingest [--unit-id N]... [--json]`. `tick.py` is at 279 lines, so
         put this verb, and later status and coverage, in a new
         `cli/commands/tick_store_cmds.py` and register them on `tick_app` in
         `tick.py`. The exit comes from `EXIT_BY_OUTCOME`
-  - [ ] The report reuses `tick_pass_render.py`'s phase rendering and adds
+  - [x] The report reuses `tick_pass_render.py`'s phase rendering and adds
         the per-unit lines and skip tally shown in the LLD's API Contracts.
         `--json` emits `{**PassResult.to_dict(), "exit_code": n}`
-  - [ ] CLI tests: the exit code per outcome, the `--json` shape, repeated
+  - [x] CLI tests: the exit code per outcome, the `--json` shape, repeated
         `--unit-id`, an unselectable `--unit-id` whose reason appears in the
         report and in `--json`, and running with `MT_DATABENTO_API_KEY`
         unset (FR11, ingest part)
-  - [ ] Success: passes; each touched CLI file is under ~300 lines
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add mt data tick ingest verb`
+  - [x] Success: passes; each touched CLI file is under ~300 lines
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add mt data tick ingest verb`
+  - Note: the new files are `cli/commands/tick_store_cmds.py` (the verb, and `run_mapped`, the one place run failures become exit codes; `tick.py`'s `_run_writer` now uses it) and `cli/commands/tick_ingest_render.py`. `tick.py` is 282 lines. Unit tests are in `test/unit/cli/commands/test_data_tick_ingest.py`; the end-to-end test with no Databento key is in `test/integration/data/test_tick_ingest_cli.py`. `test_data_tick.py`'s verb list gains `ingest`. Found in passing: Rich fixes its console width at the first print of the process, so `test_data_tick.py`'s long-line assertions depend on test order. The new test modules pin `COLUMNS=200` on their `CliRunner`.
 
-- [ ] **5.4 Ingest load test (TD2 throughput targets)**
-  - [ ] `test/load/test_225_tick_ingest_nfr.py`, following
+- [x] **5.4 Ingest load test (TD2 throughput targets)**
+  - [x] `test/load/test_225_tick_ingest_nfr.py`, following
         `test_224_tick_pass_nfr.py`'s pattern: gated by
         `MT_RUN_LOAD_TESTS=1`, test cluster only, never reading the
         production URL. CI runs no test job (slice 907), so this gate is
         the load tier's gate, as for every other load test. The docstring
         states that
-  - [ ] Scale: the largest real adopted day, 2024-09-03 `trades` (511,965
+  - [x] Scale: the largest real adopted day, 2024-09-03 `trades` (511,965
         records), from `/data/tick-archive`, ingested through `run_ingest`
         into a fixture database. If the archive file is absent, the test
         fails naming the path. It does not skip
-  - [ ] Bounds, derived from the targets and recorded in the docstring:
+  - [x] Bounds, derived from the targets and recorded in the docstring:
     - the unit's ingest takes at most 120 s, 1/720 of the 24 h of market
       time it covers ("far faster than a day of market time")
     - a heartbeat task shows no event-loop gap above 250 ms. The worker
       runs in a thread, so a long gap means blocking work ran on the loop
-  - [ ] Success: passes with the gate set; the measured time is noted
-  - [ ] Effort: 2
-  - [ ] Commit: `test(tick): add ingest load test`
+  - [x] Success: passes with the gate set; the measured time is noted
+  - [x] Effort: 2
+  - [x] Commit: `test(tick): add ingest load test`
+  - Note: **measured** on manta9000, 3 runs. The 511,965-record day ingests in 1.19–1.23 s (decode 0.04 s, write about 1.17 s) against a 120 s budget, with a longest loop gap of 28–38 ms. The first run failed the gap bound at 336 ms: a 2-D `np.unique` in `LedgerAccumulator.add` held the GIL on the worker thread for 342 ms. It was replaced by a packed 1-D key, one stable argsort and `reduceat` (30 ms). `ingest_records.py` is now 305 lines. `seed_tier_unit` gained `tier_file`/`definition_file` overrides for the archived files.
 
 ---
 
