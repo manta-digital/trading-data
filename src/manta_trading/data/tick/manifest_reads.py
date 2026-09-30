@@ -79,16 +79,19 @@ async def request_id_for_job(conn: Conn, job_id: str) -> int | None:
     return None if row is None else int(row[0])
 
 
-_UNIT_SELECT: LiteralString = (
-    "SELECT u.unit_id, u.request_id, u.unit_date, u.state, u.fetch_status,"
+#: The columns :func:`unit_row` reads, over :data:`UNIT_FROM`; 225's
+#: selection extends this select list.
+UNIT_COLUMNS: LiteralString = (
+    "u.unit_id, u.request_id, u.unit_date, u.state, u.fetch_status,"
     " u.failure_reason, u.attempt_count, u.reopened_at, u.file_path,"
     " u.file_size_bytes, u.file_sha256, u.provider_record_count,"
     " r.dataset, r.schema, r.symbols, r.stype_in, u.last_attempt_at"
-    " FROM tick_archive_unit u JOIN tick_request r USING (request_id)"
 )
+UNIT_FROM: LiteralString = "tick_archive_unit u JOIN tick_request r USING (request_id)"
+_UNIT_SELECT: LiteralString = f"SELECT {UNIT_COLUMNS} FROM {UNIT_FROM}"
 
 
-def _unit_row(row: dict[str, Any]) -> UnitRow:
+def unit_row(row: dict[str, Any]) -> UnitRow:
     has_file = row["file_path"] is not None
     return UnitRow(
         unit_id=row["unit_id"],
@@ -119,7 +122,7 @@ async def _unit_rows(
 ) -> list[UnitRow]:
     async with conn.cursor(row_factory=dict_row) as cursor:
         await cursor.execute(f"{_UNIT_SELECT} WHERE {where} ORDER BY {order}", params)
-        return [_unit_row(row) for row in await cursor.fetchall()]
+        return [unit_row(row) for row in await cursor.fetchall()]
 
 
 async def units_by_id(conn: Conn, unit_ids: Iterable[int]) -> list[UnitRow]:
