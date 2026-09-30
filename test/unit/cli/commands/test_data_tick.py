@@ -165,7 +165,7 @@ def test_stype_outside_the_choices_is_a_usage_error(env: pytest.MonkeyPatch) -> 
 
 def test_group_lists_its_verbs() -> None:
     names = [c.name for c in cmd.tick_app.registered_commands]
-    assert names == ["estimate", "adopt", "reset", "pass", "ingest"]
+    assert names == ["estimate", "adopt", "reset", "pass", "ingest", "status", "coverage"]
 
 
 @pytest.mark.parametrize(

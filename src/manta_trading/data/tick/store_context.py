@@ -73,6 +73,14 @@ class TickPreflightError(Exception):
     """The run cannot start; the message says what an operator must fix."""
 
 
+class TickDatabaseUnreachable(TickPreflightError):
+    """The tick database did not answer within the connect timeout.
+
+    A preflight refusal for the writers (223); ``status`` and ``coverage`` map
+    it to the storage exit instead (LLD 225 API Contracts).
+    """
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -153,7 +161,7 @@ async def _connect(url: str) -> psycopg.AsyncConnection[Any]:
         )
     except psycopg.OperationalError as exc:
         env_var = env_var_for(Database.TICK, Credential.APPLICATION)
-        raise TickPreflightError(
+        raise TickDatabaseUnreachable(
             f"tick database ({env_var}) unreachable within "
             f"{TICK_DB_CONNECT_TIMEOUT_SECONDS} s: {exc}"
         ) from exc

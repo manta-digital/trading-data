@@ -4,7 +4,8 @@
 endpoints. ``adopt`` and ``reset`` (223): manifest writers that run inside
 ``open_tick_run`` (preflight and advisory lock). ``pass`` (224): the acquisition
 pass — the only verb that can buy, and only within both spend ceilings.
-``ingest`` (225): provider-free, in ``tick_store_cmds.py``.
+``ingest``, ``status`` and ``coverage`` (225): provider-free, in
+``tick_store_cmds.py``.
 Exit codes are defined once, in ``tick_exit.py`` (slice 220 design, *CLI verb*);
 Rich rendering lives in ``tick_render.py`` and ``tick_pass_render.py``.
 """
@@ -31,8 +32,11 @@ from manta_trading.cli.commands.tick_exit import (
 from manta_trading.cli.commands.tick_render import print_estimate
 from manta_trading.cli.commands.tick_store_cmds import (
     INGEST_EPILOG,
+    READ_EPILOG,
     run_mapped,
+    tick_coverage,
     tick_ingest,
+    tick_status,
 )
 from manta_trading.cli.output import print_error
 from manta_trading.data.tick.constants import CME_DATASET, ESTIMATE_SCHEMAS, SType
@@ -57,7 +61,7 @@ _EXIT_EPILOG = (
 tick_app = typer.Typer(
     name="tick",
     help="Futures tick data (Databento): cost preflight, adoption, reset, pass, "
-    "ingest.",
+    "ingest, status, coverage.",
     no_args_is_help=True,
 )
 
@@ -280,3 +284,5 @@ def tick_pass(
 # -- provider-free verbs (slice 225) -----------------------------------------------
 
 tick_app.command("ingest", epilog=INGEST_EPILOG)(tick_ingest)
+tick_app.command("status", epilog=READ_EPILOG)(tick_status)
+tick_app.command("coverage", epilog=READ_EPILOG)(tick_coverage)
