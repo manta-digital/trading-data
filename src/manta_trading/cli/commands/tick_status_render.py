@@ -91,6 +91,9 @@ def _product_lines(p: ProductStatus) -> list[str]:
         if p.spreads_hidden
         else "all instruments"
     )
+    if not p.contracts and not p.spreads_hidden:
+        lines.append("  contracts: none with ingested records yet")
+        return lines
     lines.append(f"  contracts ({hidden}):")
     for c in p.contracts:
         expiry = (
