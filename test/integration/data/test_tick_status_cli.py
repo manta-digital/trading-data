@@ -11,6 +11,7 @@ import json
 import os
 import socket
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,17 @@ def _closed_port() -> int:
         return int(probe.getsockname()[1])
 
 
+@contextmanager
+def _app_patches(settings: Settings) -> Iterator[None]:
+    """The settings, and no logging setup: the app's handlers would bind
+    CliRunner's stream, closed after each invoke, and break a later module."""
+    with (
+        patch("manta_trading.cli.app.Settings", side_effect=lambda: settings),
+        patch("manta_trading.cli.app.setup_logging"),
+    ):
+        yield
+
+
 def _patched(tick_url: str, calendar_url: str) -> Any:
     settings = Settings(
         _env_file=None,  # type: ignore[call-arg]
@@ -47,7 +59,7 @@ def _patched(tick_url: str, calendar_url: str) -> Any:
         timescale_db_url=calendar_url,
     )
     assert settings.databento_api_key is None and settings.tick_archive_dir is None
-    return patch("manta_trading.cli.app.Settings", side_effect=lambda: settings)
+    return _app_patches(settings)
 
 
 @pytest.fixture

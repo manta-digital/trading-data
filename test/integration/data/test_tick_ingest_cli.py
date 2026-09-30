@@ -44,7 +44,12 @@ def no_key(
         timescale_db_url=session_migrated_db,
     )
     assert settings.databento_api_key is None
-    with patch("manta_trading.cli.app.Settings", side_effect=lambda: settings):
+    with (
+        patch("manta_trading.cli.app.Settings", side_effect=lambda: settings),
+        # The app's handlers would bind CliRunner's stream, closed after each
+        # invoke, and break a later module's logging (as every CLI test does).
+        patch("manta_trading.cli.app.setup_logging"),
+    ):
         yield
 
 
