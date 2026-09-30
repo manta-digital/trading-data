@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-09-29
+
 ### Added
 - **`mt data tick adopt`** records a Databento batch job you already have on
   disk (its directory or zip). Every file is checked against the job's
