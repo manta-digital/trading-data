@@ -273,7 +273,8 @@ class FakeTickProvider:
             raise self.download_errors.popleft()
         job = self.jobs[job_id]
         files = self.job_files(job)
-        dest_dir.mkdir(parents=True, exist_ok=True)
+        if not dest_dir.is_dir():  # as the adapter: it never creates the directory
+            raise FileNotFoundError(f"[Errno 2] No such file or directory: {dest_dir}")
         written = []
         for name, content in files.items():
             path = dest_dir / name

@@ -6,8 +6,9 @@ Runs on a fake ``Historical``; no network, no key.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import httpx
 import pytest
@@ -90,6 +91,43 @@ def test_dataset_condition_short_answer_is_permanent() -> None:
     provider, _, _ = _provider(metadata)
     with pytest.raises(ProviderPermanentError, match="expected one per day"):
         provider.dataset_condition(CME_DATASET, REQUEST_START, REQUEST_END)
+
+
+def _condition_response(days: list[date]) -> list[dict[str, Any]]:
+    template = recorded("get_dataset_condition")[0]
+    return [{**template, "date": day.isoformat()} for day in days]
+
+
+def test_dataset_condition_accepts_the_omitted_saturday() -> None:
+    """Measured on the live provider: no entry for a Saturday, all others present."""
+    friday, sunday, monday = date(2025, 1, 3), date(2025, 1, 5), date(2025, 1, 6)
+    metadata = metadata_api()
+    metadata.responses["get_dataset_condition"] = _condition_response(
+        [friday, sunday, monday]
+    )
+    provider, _, _ = _provider(metadata)
+    conditions = provider.dataset_condition(CME_DATASET, friday, monday + timedelta(1))
+    assert [c.day for c in conditions] == [friday, sunday, monday]
+
+
+@pytest.mark.parametrize(
+    "days",
+    [
+        [date(2025, 1, 3), date(2025, 1, 6)],  # Sunday absent
+        [date(2025, 1, 3), date(2025, 1, 5), date(2025, 1, 5), date(2025, 1, 6)],
+        [date(2025, 1, 6), date(2025, 1, 5), date(2025, 1, 3)],  # out of order
+        [date(2025, 1, 3), date(2025, 1, 5), date(2025, 1, 6), date(2025, 1, 7)],
+    ],
+    ids=["absent-sunday", "repeated", "unordered", "outside-range"],
+)
+def test_dataset_condition_refuses_any_other_gap_or_disorder(
+    days: list[date],
+) -> None:
+    metadata = metadata_api()
+    metadata.responses["get_dataset_condition"] = _condition_response(days)
+    provider, _, _ = _provider(metadata)
+    with pytest.raises(ProviderPermanentError, match="expected one per day"):
+        provider.dataset_condition(CME_DATASET, date(2025, 1, 3), date(2025, 1, 7))
 
 
 def test_dataset_range_parses_nanosecond_timestamps() -> None:

@@ -10,6 +10,7 @@ adds the storage vocabulary: the archive unit's lifecycle (``UnitState``,
 
 from __future__ import annotations
 
+import calendar
 from collections.abc import Mapping
 from datetime import timedelta
 from enum import StrEnum
@@ -102,6 +103,13 @@ class DatasetCondition(StrEnum):
     DEGRADED = "degraded"
     PENDING = "pending"
     MISSING = "missing"
+
+
+#: The one weekday Databento's ``get_dataset_condition`` leaves out of its
+#: answer for ``GLBX.MDP3``: it lists no condition for a Saturday (no trading
+#: day touches it). Measured 2026-09-29 over 2024-08-30 → 2024-12-31: 106 of 124
+#: days answered, the 18 absent all Saturdays, Sundays and holidays present.
+CONDITION_ABSENT_WEEKDAY = calendar.SATURDAY
 
 
 class BatchJobState(StrEnum):

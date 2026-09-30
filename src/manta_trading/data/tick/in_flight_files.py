@@ -110,6 +110,8 @@ async def _download(
     """The job's files. A provider failure counts one attempt on every waiting
     unit and propagates; an ``OSError`` is a host fault with no attempt."""
     try:
+        # The provider's download writes into an existing directory.
+        await asyncio.to_thread(job_dir.mkdir, exist_ok=True)
         return await asyncio.to_thread(run.provider.download_batch, job_id, job_dir)
     except ProviderError as exc:
         for unit in waiting.values():

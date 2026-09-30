@@ -19,6 +19,7 @@ from typing import TypedDict
 import pandas as pd
 
 from manta_trading.data.tick.constants import (
+    CONDITION_ABSENT_WEEKDAY,
     BatchJobState,
     DatasetCondition,
     SType,
@@ -137,13 +138,20 @@ def _condition(raw: object) -> DayCondition:
 
 
 def parse_conditions(raw: object, start: date, end: date) -> tuple[DayCondition, ...]:
-    """Exactly one condition per day of ``[start, end)``, in date order."""
+    """One condition per day of ``[start, end)``, in date order.
+
+    The provider omits Saturdays (``CONDITION_ABSENT_WEEKDAY``), so a Saturday
+    may be absent; any other absent, repeated, unordered or out-of-range day is
+    an unusable answer.
+    """
     conditions = tuple(_condition(item) for item in _as_list(raw, "conditions"))
-    expected = [start + timedelta(days=n) for n in range((end - start).days)]
-    if [c.day for c in conditions] != expected:
+    days = [c.day for c in conditions]
+    every = [start + timedelta(days=n) for n in range((end - start).days)]
+    required = {d for d in every if d.weekday() != CONDITION_ABSENT_WEEKDAY}
+    if days != sorted(set(days)) or not required <= set(days) <= set(every):
         raise ValueError(
             f"dataset condition covers {len(conditions)} day(s); expected one "
-            f"per day of [{start}, {end})"
+            f"per day of [{start}, {end}) (a Saturday may be absent)"
         )
     return conditions
 
