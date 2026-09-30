@@ -224,104 +224,110 @@ unit tests run on the 0.2 real slices. Synthetic data is used only for
 failure shapes a real file cannot produce, and it is built by editing a
 real batch.
 
-- [ ] **2.1 Create `data/tick/ingest_checks.py`**
-  - [ ] `IngestCheck(StrEnum)`: `counts`, `resolution`, `session_boundary`,
+- [x] **2.1 Create `data/tick/ingest_checks.py`**
+  - [x] `IngestCheck(StrEnum)`: `counts`, `resolution`, `session_boundary`,
         `overlap`, `shape`, `decode`
-  - [ ] One reason formatter per check, each reason starting with
+  - [x] One reason formatter per check, each reason starting with
         `<check>:`, carrying the evidence TD8's table names (counts P/D/S;
         first id, time and count; UTC and calendar-zone time with
         neighbouring sessions; the conflicting key and other units; the
         path and error; the populated span for a planning failure)
-  - [ ] Unit test: every formatter's text starts with its check's value
-  - [ ] Success: passes
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(tick): add ingest check names and reasons`
+  - [x] Unit test: every formatter's text starts with its check's value
+  - [x] Success: passes
+  - [x] Effort: 1
+  - [x] Commit: `feat(tick): add ingest check names and reasons` (fdf5c24)
+  - Note: reasons are formatted by `counts_reason`, `resolution_reason`, `outside_span_reason`, `no_session_reason`, `planning_span_reason`, `overlap_reason`, `shape_reason` and `decode_reason`, plus the helper `utc_of_ns`. The tests are in `test/unit/data/tick/test_ingest_checks.py`.
 
-- [ ] **2.2 Contract resolution in `ingest_records.py` (TD6)**
-  - [ ] Definitions arrive as arrays sorted by `(instrument_id,
+- [x] **2.2 Contract resolution in `ingest_records.py` (TD6)**
+  - [x] Definitions arrive as arrays sorted by `(instrument_id,
         activation_ns)`. Resolve each record by `searchsorted` on the id and
         then the window test, looping only over ids with more than one
         window that day
-  - [ ] Return the resolved mask, plus the first unresolved id, its time
+  - [x] Return the resolved mask, plus the first unresolved id, its time
         and the unresolved count
-  - [ ] Success: imports
-  - [ ] Effort: 2
+  - [x] Success: imports
+  - [x] Effort: 2
 
-- [ ] **2.3 Resolution tests**
-  - [ ] The real trades slice resolves fully against its day's definitions
-  - [ ] A record whose id is edited to an unknown id is reported with its
+- [x] **2.3 Resolution tests**
+  - [x] The real trades slice resolves fully against its day's definitions
+  - [x] A record whose id is edited to an unknown id is reported with its
         time and count
-  - [ ] A record outside its id's window fails
-  - [ ] An id with two windows on one day resolves each record to the
+  - [x] A record outside its id's window fails
+  - [x] An id with two windows on one day resolves each record to the
         window that holds it
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): resolve tick records to contracts`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): resolve tick records to contracts` (01b1771)
+  - Note: `ingest_records.py` (299 lines) holds resolution, sessions, ordinals and the ledger, so 2.2–2.9 went in as one commit (01b1771, "resolve, place and order tick records and accumulate the ledger"). The three per-pair commit lines are satisfied by it. A failed check raises `UnitCheckFailed(check, reason)`. All the tests are in `test/unit/data/tick/test_ingest_records.py` (13 tests), with sessions built by hand as CME_EQUITY's 17:00→16:00 America/Chicago.
 
-- [ ] **2.4 Session location (TD6)**
-  - [ ] Test the populated span first: a record outside it is the "outside
+- [x] **2.4 Session location (TD6)**
+  - [x] Test the populated span first: a record outside it is the "outside
         the populated calendar range" failure. Then `locate_ns`, where `-1`
         is the "in no session" failure
-  - [ ] Return session positions per record
-  - [ ] Success: imports
-  - [ ] Effort: 1
+  - [x] Return session positions per record
+  - [x] Success: imports
+  - [x] Effort: 1
 
-- [ ] **2.5 Session location tests**
-  - [ ] The real slice's records on both sides of 00:00 UTC land in the
+- [x] **2.5 Session location tests**
+  - [x] The real slice's records on both sides of 00:00 UTC land in the
         right sessions
-  - [ ] A record edited into the daily break fails as "in no session"
-  - [ ] A record edited past the populated span fails as "outside",
+  - [x] A record edited into the daily break fails as "in no session"
+  - [x] A record edited past the populated span fails as "outside",
         not as a break
-  - [ ] Success: passes
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(tick): assign tick records to sessions`
+  - [x] Success: passes
+  - [x] Effort: 1
+  - [x] Commit: `feat(tick): assign tick records to sessions` (01b1771)
+  - Note: `SessionFrame(index, first_open, last_close, zone)` carries the calendar's populated span and time zone; `locate_sessions(frame, ts_event)` returns positions or raises.
 
-- [ ] **2.6 `sequence_ordinal` with a cross-batch carry (TD6, 222 TD1)**
-  - [ ] Within a batch: stable lexsort and run lengths. Across batches: add
+- [x] **2.6 `sequence_ordinal` with a cross-batch carry (TD6, 222 TD1)**
+  - [x] Within a batch: stable lexsort and run lengths. Across batches: add
         each triple's earlier count from a sorted carry array of distinct
         triples, merged per batch. No contiguity assumption
-  - [ ] Success: imports
-  - [ ] Effort: 3
+  - [x] Success: imports
+  - [x] Effort: 3
 
-- [ ] **2.7 Ordinal tests (FR8, part)**
-  - [ ] A non-adjacent repeat gets ordinals 0 and 1
-  - [ ] A repeat that straddles a batch boundary gets 0 and 1 (split one
+- [x] **2.7 Ordinal tests (FR8, part)**
+  - [x] A non-adjacent repeat gets ordinals 0 and 1
+  - [x] A repeat that straddles a batch boundary gets 0 and 1 (split one
         real batch in two)
-  - [ ] Ordinals for the whole real slice equal a brute-force count
+  - [x] Ordinals for the whole real slice equal a brute-force count
         computed in the test
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): compute sequence ordinals across batches`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): compute sequence ordinals across batches` (01b1771)
+  - Note: `OrdinalCarry` packs `instrument_id << 32 | sequence` into one uint64 beside `ts_event`. A test also runs the whole real file through the reader in more than 30 batches (patched `TICK_DECODE_BATCH_BYTES`) and compares against the brute-force count.
 
-- [ ] **2.8 Ledger accumulation (TD6)**
-  - [ ] Accumulate per (instrument, session): count, volume (sum of
+- [x] **2.8 Ledger accumulation (TD6)**
+  - [x] Accumulate per (instrument, session): count, volume (sum of
         `size`), first and last `ts_event`
-  - [ ] The ledger's instrument set: every definition with `asset =
+  - [x] The ledger's instrument set: every definition with `asset =
         product` whose window meets the session. Missing instruments become
         zero-record rows with NULL times. `calendar_id` comes from
         `FUTURES_PRODUCT_CALENDAR`; `session_date` comes from the session
-  - [ ] Success: imports
-  - [ ] Effort: 2
+  - [x] Success: imports
+  - [x] Effort: 2
 
-- [ ] **2.9 Ledger tests**
-  - [ ] Over the real slice:
-    - the ledger's `record_count` sums to the decoded count
-    - zero-record rows exist for valid instruments with no records
-    - the instrument set equals the definitions valid in each session
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): accumulate the ingest ledger`
+- [x] **2.9 Ledger tests**
+  - [x] Over the real slice:
+    - [x] the ledger's `record_count` sums to the decoded count
+    - [x] zero-record rows exist for valid instruments with no records
+    - [x] the instrument set equals the definitions valid in each session
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): accumulate the ingest ledger` (01b1771)
+  - Note: `LedgerAccumulator.add(ids, positions, size, ts_event)` and `.rows(definitions, frame, calendar_id)` return `LedgerRow`s. `rows` asserts that no accumulated (instrument, session) falls outside the instrument set, because that would be a defect.
 
-- [ ] **2.10 COPY row building (TD2)**
-  - [ ] In its own module (for example `ingest_rows.py`), since this is
+- [x] **2.10 COPY row building (TD2)**
+  - [x] In its own module (for example `ingest_rows.py`), since this is
         the seam 226 may replace with a NumPy binary encoder: one function
         building rows in `TICK_TRADE_COLUMNS` order plus `sequence_ordinal`
         and `unit_id`, plus the matching COPY column list and types
-  - [ ] Test: row tuples match the column list; values round-trip for one
+  - [x] Test: row tuples match the column list; values round-trip for one
         real record
-  - [ ] Success: passes; `ingest_records.py` under ~300 lines
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(tick): build tick_trade COPY rows`
+  - [x] Success: passes; `ingest_records.py` under ~300 lines
+  - [x] Effort: 1
+  - [x] Commit: `feat(tick): build tick_trade COPY rows` (2cab9f2)
+  - Note: `ingest_rows.py` exports `COPY_COLUMNS`, `COPY_TYPES`, `COPY_SQL` and `copy_rows(records, ordinals, unit_id)`. The unit test is `test/unit/data/tick/test_ingest_rows.py`. The integration test `test/integration/data/test_tick_ingest_rows.py` checks `COPY_TYPES` against the migrated table's column types and round-trips one real record of each tier through `COPY`.
 
 ---
 
