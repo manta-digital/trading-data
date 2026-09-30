@@ -39,6 +39,9 @@ I64 = npt.NDArray[np.int64]
 U64 = npt.NDArray[np.uint64]
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _ID_SHIFT = np.uint64(32)
+#: A day touches a handful of sessions; 16 bits of position is ample.
+_POSITION_BITS = 16
+_POSITION_MASK = (1 << _POSITION_BITS) - 1
 
 
 class UnitCheckFailed(Exception):
@@ -243,17 +246,20 @@ class LedgerAccumulator:
         self._totals: dict[tuple[int, int], list[int]] = {}
 
     def add(self, instrument_id: I64, positions: I64, size: I64, ts_event: I64) -> None:
-        keys = np.stack((instrument_id.astype(np.int64), positions), axis=1)
-        unique, inverse = np.unique(keys, axis=0, return_inverse=True)
-        inverse = inverse.reshape(-1)
-        count = np.bincount(inverse, minlength=len(unique))
-        volume = np.zeros(len(unique), dtype=np.int64)
-        np.add.at(volume, inverse, size.astype(np.int64))
-        first = np.full(len(unique), np.iinfo(np.int64).max, dtype=np.int64)
-        np.minimum.at(first, inverse, ts_event.astype(np.int64))
-        last = np.full(len(unique), np.iinfo(np.int64).min, dtype=np.int64)
-        np.maximum.at(last, inverse, ts_event.astype(np.int64))
-        for i, (instrument, position) in enumerate(unique.tolist()):
+        """Fold one batch in. One stable sort of a packed 1-D key, then
+        ``reduceat``: short NumPy calls, so this worker never holds the GIL
+        long enough to stall the event loop (a 2-D ``np.unique`` did, 225 5.4)."""
+        key = (instrument_id.astype(np.int64) << _POSITION_BITS) | positions
+        order = np.argsort(key, kind="stable")
+        key_sorted = key[order]
+        starts = np.flatnonzero(np.diff(key_sorted, prepend=-1))
+        count = np.diff(np.append(starts, len(key_sorted)))
+        volume = np.add.reduceat(size.astype(np.int64)[order], starts)
+        ts = ts_event.astype(np.int64)[order]
+        first = np.minimum.reduceat(ts, starts)
+        last = np.maximum.reduceat(ts, starts)
+        for i, packed in enumerate(key_sorted[starts].tolist()):
+            instrument, position = packed >> _POSITION_BITS, packed & _POSITION_MASK
             total = self._totals.setdefault(
                 (instrument, position), [0, 0, int(first[i]), int(last[i])]
             )

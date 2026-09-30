@@ -96,13 +96,17 @@ async def seed_tier_unit(
     *,
     job_id: str,
     provider_record_count: int | None = None,
+    tier_file: Path | None = None,
+    definition_file: Path | None = None,
 ) -> SeededUnit:
     """Seed a selectable ``schema`` unit for ``day`` from its real slice.
 
     ``provider_record_count`` defaults to the file's true count; a test of the
-    counts check passes a different one.
+    counts check passes a different one. ``tier_file`` and ``definition_file``
+    replace the committed slices (the load test uses whole archived days).
     """
-    tier, definition = real_file(day, schema), real_file(day, TickSchema.DEFINITION)
+    tier = tier_file or real_file(day, schema)
+    definition = definition_file or real_file(day, TickSchema.DEFINITION)
     job_dir = write_job_dir(
         archive_root,
         job_id,
