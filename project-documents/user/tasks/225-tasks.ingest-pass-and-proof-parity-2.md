@@ -15,7 +15,7 @@ projectState: >
   (CONCERNS, findings addressed in 19b6ae3).
 dateCreated: 20260930
 dateUpdated: 20260930
-status: not_started
+status: complete
 ---
 
 # Tasks: Ingest Pass and Proof Parity (part 2 of 2)
@@ -227,100 +227,108 @@ status: not_started
 
 ## Section 7: Standing checks and documents
 
-- [ ] **7.1 Kalshi contract diff**
-  - [ ] Compare `pass_contract.py` with `data/kalshi/collection_pass.py`.
+- [x] **7.1 Kalshi contract diff**
+  - [x] Compare `pass_contract.py` with `data/kalshi/collection_pass.py`.
         Every difference must be a declared divergence (224's list plus the
         generic run type)
-  - [ ] Write the result as a `Note:` line under this task, as 224's task
+  - [x] Write the result as a `Note:` line under this task, as 224's task
         1.3 did. If a difference is not declared, STOP and report it to the
         PM before 7.3
-  - [ ] Success: the note lists each difference and its disposition
-  - [ ] Effort: 1
+  - [x] Success: the note lists each difference and its disposition
+  - [x] Effort: 1
+  - Note (Kalshi contract diff, `pass_contract.py` vs `data/kalshi/collection_pass.py`): (1) outcomes `refused`/`in_flight` — declared (224 TD1). (2) Phase names (tick's reconcile…definitions, plus `ingest`) — declared (224 TD1; `ingest` by 225 TD1). (3) No event sink, no `on_phase`, no historical phase, start log without the Kalshi client's mode and budget fields — declared (224 TD1 and 224 task 1.3). (4) `PassPhase`/`TickPass` generic in `RunT` bound to `TickStore` — declared (225 TD1), and pinned by `test_generic_run_type_is_the_declared_divergence`. (5) `ACQUISITION_PHASE_NAMES` — a tick-only addition that follows from (2) and (4). (6) `TickStore` imported at runtime rather than under `TYPE_CHECKING`, so the PEP 695 bound can be evaluated — an implementation detail with no contract change. Every difference is declared; no STOP.
 
-- [ ] **7.2 Realtime paths and the API answer**
-  - [ ] Confirm the LLD's "Realtime paths" points still hold against the
+- [x] **7.2 Realtime paths and the API answer**
+  - [x] Confirm the LLD's "Realtime paths" points still hold against the
         code as built (bounded unit transaction, rank-based supersession,
         per-unit ledger). Note any change
-  - [ ] Confirm `build_status`/`build_coverage` return `to_dict()`
+  - [x] Confirm `build_status`/`build_coverage` return `to_dict()`
         dataclasses usable by 230 unchanged (TD11)
-  - [ ] Write both results as a `Note:` line under this task. If a
+  - [x] Write both results as a `Note:` line under this task. If a
         realtime point no longer holds, STOP and report it to the PM
-  - [ ] Success: note written
-  - [ ] Effort: 1
+  - [x] Success: note written
+  - [x] Effort: 1
+  - Note: realtime paths still hold as built. The unit transaction is bounded by the unit (`ingest_unit`, one transaction). Supersession by rank happens at ingest (`TICK_TIER_RANK`, `plan.superseded`, `supersede()`), which is where historical-over-live plugs in. The ledger is per unit (its primary key includes `unit_id`). The parent-shape constraint on the ledger's instrument set is enforced by the `shape` check. API: `build_status` and `build_coverage` return frozen dataclasses with `to_dict()`, which are exactly the CLI's `--json`, usable by 230 unchanged. No STOP.
 
-- [ ] **7.3 Contract rows, plan Notes and architecture flag**
-  - [ ] `user/reference/data-correctness-architecture.md`:
+- [x] **7.3 Contract rows, plan Notes and architecture flag**
+  - [x] `user/reference/data-correctness-architecture.md`:
     - I10: the three verbs
     - I11: the check and completeness grains (status unit-complete,
       coverage raw-proved)
     - I12: supersession at ingest by tier rank
     - I13: the session check as shipped
-  - [ ] 220 slice plan Notes: extend the "superseded by 225" block with LLD
+  - [x] 220 slice plan Notes: extend the "superseded by 225" block with LLD
         supersedes items 6–9, one line each
-  - [ ] Add to the architecture's Revision Log (as 224 did): the fourth
+  - [x] Add to the architecture's Revision Log (as 224 did): the fourth
         tick → production edge (status and coverage read sessions)
-  - [ ] Success: `dateUpdated` bumped on each file
-  - [ ] Effort: 1
+  - [x] Success: `dateUpdated` bumped on each file
+  - [x] Effort: 1
+  - Note: rows I10–I13 of the data-correctness contract are extended. The 220 slice plan's "superseded by 225" block gains items 6–9. The architecture's coupling paragraph now lists four edges and its Revision Log has a 2026-09-30 entry. The LLD's instrument counts are corrected (61/70 records per day = 41/46 instruments; about 82–92 ledger rows per unit; 20 spreads).
 
-- [ ] **7.4 README and CHANGELOG**
-  - [ ] README "Futures tick data": `ingest`, `status` and `coverage`, their
+- [x] **7.4 README and CHANGELOG**
+  - [x] README "Futures tick data": `ingest`, `status` and `coverage`, their
         exit codes, and that none needs the API key
-  - [ ] CHANGELOG `[Unreleased]` Added entries, user-facing wording
-  - [ ] Success: both updated
-  - [ ] Effort: 1
-  - [ ] Commit: `docs: record tick ingest, status and coverage`
+  - [x] CHANGELOG `[Unreleased]` Added entries, user-facing wording
+  - [x] Success: both updated
+  - [x] Effort: 1
+  - [x] Commit: `docs: record tick ingest, status and coverage`
 
 ---
 
 ## Section 8: Validation and walkthrough
 
-- [ ] **8.1 Lint, types and tiers**
-  - [ ] ruff and mypy per the test environment note; unit tier, then
+- [x] **8.1 Lint, types and tiers**
+  - [x] ruff and mypy per the test environment note; unit tier, then
         integration tier; compare with the 0.1 baseline
-  - [ ] Success: no failure outside the baseline
-  - [ ] Effort: 2
+  - [x] Success: no failure outside the baseline
+  - [x] Effort: 2
+  - Note: ruff (check and format) is clean on every touched file; the pre-existing formatting in `trading_calendar.py` is not swept. mypy is clean. Unit tier: 4,233 passed, 0 failed. Integration tier: the 6 baseline failures plus 4 new ones in `test_two_database_migrate.py`, caused by 225's CLI tests leaving logging bound to a closed CliRunner stream. Fixed in 96fc399 (patch `setup_logging` like every other CLI test); the three files pass together.
 
-- [ ] **8.2 Walkthrough steps 2 and 3: scratch database, status before ingest**
-  - [ ] Run LLD walkthrough step 2 into `mt_scratch_tick_225`
-  - [ ] Record from the manifest the unit count and `provider_record_count`
+- [x] **8.2 Walkthrough steps 2 and 3: scratch database, status before ingest**
+  - [x] Run LLD walkthrough step 2 into `mt_scratch_tick_225`
+  - [x] Record from the manifest the unit count and `provider_record_count`
         sum per schema. Expect 26 `trades` units summing to 10,049,172 and
         52 `tbbo` units, and record the `tbbo` total. A different count
         stops the walkthrough: report it to the PM
-  - [ ] Step 3: status runs without the key. Record whether each
+  - [x] Step 3: status runs without the key. Record whether each
         job-boundary session shows `missing` or `edge_unknown`, and why
-  - [ ] Success: outputs recorded in the LLD walkthrough
-  - [ ] Effort: 1
+  - [x] Success: outputs recorded in the LLD walkthrough
+  - [x] Effort: 1
+  - Note: 26 `trades` units summing to 10,049,172 (as expected); 52 `tbbo` units summing to **17,642,240**. The pass bought nothing (estimate-only planned $0.0000). Before ingest, all 64 held sessions show `awaiting_ingest`, including the job-boundary ones, because the held day's `awaiting_ingest` outranks the unheld day's `missing`. Full results are in the LLD walkthrough.
 
-- [ ] **8.3 Walkthrough steps 4 and 5: ingest and idempotence**
-  - [ ] Step 4: 78 units ingested, none failed, provider = decoded per
+- [x] **8.3 Walkthrough steps 4 and 5: ingest and idempotence**
+  - [x] Step 4: 78 units ingested, none failed, provider = decoded per
         schema, `tick_trade` count = their sum
-  - [ ] Record the wall time and per-unit decode and write durations.
+  - [x] Record the wall time and per-unit decode and write durations.
         Check both throughput targets from TD2 against fixed ceilings:
     - every unit ≤ 120 s (the 5.4 bound: 1/720 of the day it covers)
     - the whole run ≤ 2 h. The run covers about 3.5 months of sessions, so
       this puts one month well inside a working session
 
     A miss on either fails the walkthrough
-  - [ ] Step 5: a second run selects nothing, exits 0, row count unchanged
-  - [ ] If a unit fails a check, STOP and report the check and its reason.
+  - [x] Step 5: a second run selects nothing, exits 0, row count unchanged
+  - [x] If a unit fails a check, STOP and report the check and its reason.
         Do not loosen a check
-  - [ ] Success: all match; numbers recorded in the LLD walkthrough
-  - [ ] Effort: 2
+  - [x] Success: all match; numbers recorded in the LLD walkthrough
+  - [x] Effort: 2
+  - Note: 78 ingested, 0 failed; `tick_trade` holds 27,691,412 rows. The run took 55 s wall; per unit 0.04–3.98 s, decode at most 0.52 s, write at most 3.76 s. Both targets met (unit ≤ 120 s, run ≤ 2 h). The second run selected nothing and exited 0 with the row count unchanged.
 
-- [ ] **8.4 Walkthrough steps 6 and 7: status, coverage, a loud mismatch**
-  - [ ] Step 6: sessions `complete` except the job-boundary ones, each
+- [x] **8.4 Walkthrough steps 6 and 7: status, coverage, a loud mismatch**
+  - [x] Step 6: sessions `complete` except the job-boundary ones, each
         listed; ESU4, ESZ4 and ESH5 present, with the September roll
         visible; both coverage ranges `ok`, exit 0
-  - [ ] Step 7: the hand delete in the scratch database gives `mismatch`
+  - [x] Step 7: the hand delete in the scratch database gives `mismatch`
         on 2024-09-18, naming the instrument, exit 3
-  - [ ] Success: outputs recorded
-  - [ ] Effort: 1
+  - [x] Success: outputs recorded
+  - [x] Effort: 1
+  - Note: 61 complete; the job-boundary sessions are 08-30 `edge_unknown`, 09-30 `missing` and 11-01 `missing`, each explained in the LLD. ESU4, ESZ4 and ESH5 are present, with ESU4 ending 2024-09-20. Both coverage ranges are `ok`. Step 7 found a mismatch on 2024-09-18 (instrument 183748, ledger 573,847 vs raw 573,846), exit 3. **Found:** the LLD's `ctid` delete removed 9 rows, because `ctid` is only unique within one chunk of the hypertable; coverage named all 9. The LLD step and two tests now delete by primary key (8574ad3).
 
-- [ ] **8.5 Walkthrough steps 8 and 9: supersession evidence, teardown**
-  - [ ] Step 8: name the FR6 test (part 1, 4.4 case 1) and paste its passing
+- [x] **8.5 Walkthrough steps 8 and 9: supersession evidence, teardown**
+  - [x] Step 8: name the FR6 test (part 1, 4.4 case 1) and paste its passing
         output into the LLD walkthrough
-  - [ ] Step 9: drop `mt_scratch_tick_225` and confirm a `pg_database`
+  - [x] Step 9: drop `mt_scratch_tick_225` and confirm a `pg_database`
         count of 0; the archive stays
-  - [ ] Success: recorded; scratch database gone
-  - [ ] Effort: 1
-  - [ ] Commit: `docs: record slice 225 verification walkthrough`
+  - [x] Success: recorded; scratch database gone
+  - [x] Effort: 1
+  - [x] Commit: `docs: record slice 225 verification walkthrough`
+  - Note: `test_tick_ingest_supersession.py::test_tbbo_replaces_an_ingested_trades_unit_in_one_transaction` PASSED. `mt_scratch_tick_225` was dropped (`pg_database` count 0); the archive is unchanged.
