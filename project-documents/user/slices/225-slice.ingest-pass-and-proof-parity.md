@@ -214,7 +214,14 @@ mt data tick status / coverage
 
 Only a `UnitOutcome` (unit id, counts, check failure or none, duration)
 returns from a worker to the loop. Records never cross into the event
-loop.
+loop. There is no per-batch progress between a unit's start and its
+commit. The architecture asks for it so that a long ingest stays
+observable under a start timeout. 225 is a manual command with no timeout,
+and its units take seconds, so the omission is recorded as a deviation. It
+is handed to 233, which adds the timer and systemd timeouts, and to 226,
+which measures the larger days. The worker takes no progress hook today,
+and adding one later means adding a callback argument, not a
+restructure.
 
 ### State Management
 
@@ -322,9 +329,14 @@ splitting, that is Future Work item 3 (intra-unit checkpoints).
 **`write_row`, not a hand-built binary buffer.** Row building is
 per-record Python and holds the interpreter lock. At an estimated few
 microseconds a row, one unit takes seconds, and the whole 27.7 M-record
-proof set takes minutes. The architecture's pass/fail, a day's sessions
-ingesting far faster than a day of market time, is met by orders of
-magnitude. A NumPy-built binary `COPY` buffer would be faster, but it is
+proof set takes minutes. The architecture's pass/fail has two targets:
+
+- a day's sessions ingest far faster than a day of market time;
+- a month of sessions ingests within an operator's working session.
+
+The estimate meets both by orders of magnitude. Walkthrough step 4 checks
+both against the measured wall time (Success Criteria), so 226 starts from
+a stated baseline. A NumPy-built binary `COPY` buffer would be faster, but it is
 an encoder to write and test. It is 226's option if the measured rate
 calls for it, and nothing in this design blocks it: row building sits
 behind one function in `ingest_records.py`.
@@ -506,10 +518,28 @@ not adjacent and a repeat that straddles a batch boundary.
 221 listed "the ingest pass" as a trigger for `extend_calendar_sessions`.
 It is not needed. Every unit's day was produced by `session_days` over the
 populated calendar: 224's planner for bought units, and 223's adoption for
-adopted ones. Sessions only grow. So a unit's day is always inside the
-populated span when it is ingested. Ingest stays read-only on the
-production database, and the other triggers (`mt data extend`,
-`mt data status`, the daemon idle hook) are unchanged.
+adopted ones. Both call `product_session_days(url, product, start, end)`,
+which calls `sessions_between(start 00:00Z, end 00:00Z)`. That raises
+`OutOfPopulatedRangeError` unless `end 00:00Z` is at or before the last
+populated close. Every day `d` it returns is `< end`, so `d+1 00:00Z` is at
+or before the last close too, and that is exactly the upper bound of
+ingest's own `sessions_between(d 00:00Z, d+1 00:00Z)`. The lower bound
+holds by the same argument against the first open. The session that holds
+`d`'s evening reopen closes after `d+1 00:00Z`, and it is populated because
+the populated span reaches that instant. The review's horizon case (a day
+whose evening session is not populated) therefore cannot be emitted:
+asking for it raises in the planner or in adoption first.
+
+Sessions are only ever added, so the bound still holds at ingest time. A
+unit test pins this: `session_days` over a calendar whose last close is
+mid-day X returns no day at or after X, and raises when asked for
+`[.., X+1)`. If rows were deleted from `trading_sessions` by hand,
+ingest's planning call raises `OutOfPopulatedRangeError`. The unit then
+fails with `session_boundary:` naming the day and the populated span
+(Technical Decision 8). The remedy is `mt data extend` and then `reset`.
+
+Ingest stays read-only on the production database, and the other triggers
+(`mt data extend`, `mt data status`, the daemon idle hook) are unchanged.
 
 ### Technical Decision 8: how failures are classified
 
@@ -518,11 +548,34 @@ production database, and the other triggers (`mt data extend`,
 | Counts: provider ≠ decoded, or decoded ≠ rows with `unit_id = N` | worker | `RETRY_EXHAUSTED`, reason `counts: provider P, decoded D, stored S` | `partial` |
 | Resolution: a record resolves to no definition of the product | worker | exhausted, reason names id, time, count | `partial` |
 | Session boundary: outside the populated range, or in no session | worker | exhausted, reason names time, sessions, count | `partial` |
+| Session boundary: `OutOfPopulatedRangeError` while planning (calendar rows deleted by hand; Technical Decision 7) | plan | exhausted, reason names the day and the populated span | `partial` |
 | Overlap: `UniqueViolation` on `COPY` | worker | exhausted, reason names the key and the other current units that day | `partial` |
 | Unsupported shape (`stype_in` not `parent`) | plan | exhausted | `partial` |
 | Decode error, or the archive file missing or unreadable | worker | exhausted, reason names the path and the error | `partial` |
 | Tick database lost (`OperationalError`) | worker or loop | none: no attempt counted | `storage_abort` |
+| Tick database hung: a silent partition, or a row lock held past `lock_timeout` (`QueryCanceled`, `LockNotAvailable`; both are `OperationalError`) | worker | none | `storage_abort` |
+| Lost compare-and-set: `ManifestTransitionError` from `mark_ingested` or `mark_superseded` (an operator reopened or reset the unit mid-run) | worker | rolled back, no failure recorded; reported as skipped "changed during ingest" | `ok` |
+| Any other database error (`DataError`, `CheckViolation`, an `IntegrityError` other than `UniqueViolation`) | worker | rolled back, nothing recorded | propagates: a code defect, traceback, non-zero exit |
 | Calendar unreachable (`TickCalendarError`) | plan | none | `storage_abort` |
+
+**No hang.** The worker's connection uses `connect_timeout =
+TICK_DB_CONNECT_TIMEOUT_SECONDS` (223's constant), TCP keepalives
+(`TICK_DB_KEEPALIVES_IDLE_SECONDS`, `_INTERVAL_SECONDS`, `_COUNT`), and
+`lock_timeout = TICK_INGEST_LOCK_TIMEOUT_SECONDS`, all defined in
+`constants.py` as starting values. A silent partition breaks the socket
+within the keepalive window. A delete or update stuck behind another
+session's row lock is cancelled. psycopg raises both as
+`OperationalError`, so both land in the `storage_abort` row. No
+`statement_timeout` is set: a large day's `COPY` is legitimate work, and
+226 sizes units.
+
+**Abort with a worker still running.** The loop does not cancel threads.
+When one unit raises, the loop stops starting units and awaits every
+in-flight `to_thread` future (`asyncio.gather(..., return_exceptions=True)`).
+Each in-flight unit then commits, fails its checks or rolls back. The
+timeouts above bound that wait. Only then does the first exception
+propagate to `run_phase`. Units that committed during the wait are in the
+report.
 
 Every unit failure is deterministic. The file is immutable and
 SHA-256-verified, the definitions and calendar are fixed inputs, and
@@ -530,8 +583,8 @@ retrying without a change produces the same result. So a failure goes
 straight to `RETRY_EXHAUSTED` (`record_failure(deterministic=True)`), and
 the operator runs `reset` after fixing the cause (buying definitions,
 seeding a calendar exception, restoring the file). A host fault is not a
-unit fault, as in 224. The run stops with `storage_abort`: workers already
-running finish or roll back, and no new unit starts.
+unit fault, as in 224. The run stops with `storage_abort` after the in-flight
+units settle, as described under "Abort with a worker still running".
 
 `IngestCheck` (`counts`, `resolution`, `session_boundary`, `overlap`,
 `shape`, `decode`) is the one spelling of check names. Every reason starts
@@ -608,7 +661,10 @@ current units' ledger counts. The raw count is a `count(*)` over
   edge. It never scans `tick_trade`. Its `complete` means every covering
   unit is *ingested*. That is the architecture's unit completeness, and
   the counts check proved raw = decoded at the moment each unit
-  committed.
+  committed. This is weaker than the architecture's definition, so it is
+  in the supersedes list, and every status output (Rich and `--json`,
+  as `complete_basis: "units"`) says that `complete` is unit-level and
+  points to `coverage` for the raw proof.
 - **`coverage --start --end`** adds the raw-count proof for the sessions
   in the range. It runs one grouped count over `tick_trade`, bounded by
   the range's first open and last close in `ts_event`. Each row is
@@ -645,7 +701,8 @@ CLI and 230 serialize the same object. No endpoint is added here.
   unchanged (220 Technical Decision 6).
 - Exception handling follows the project rule. The worker catches
   `UniqueViolation` and the named decode errors specifically, rolls back
-  and returns a failure. `OperationalError` propagates to `run_phase`,
+  and returns a failure. It catches `ManifestTransitionError`, rolls back
+  and returns a "changed during ingest" skip. `OperationalError` propagates to `run_phase`,
   which logs it and maps it to `storage_abort`. There is no bare
   `except Exception`.
 
@@ -660,7 +717,7 @@ $ mt data tick ingest
 ingest  run 3f2c…  2 workers
   unit <id>  <day> <tier>  <n> rec  → ingested  (<s> s)
   …
-  skipped: 0 awaiting definitions, 0 outranked
+  skipped: 0 awaiting definitions, 0 outranked, 0 changed during ingest
   ingested <n> units, <n> records; failed <n>
 outcome ok  (exit 0)
 ```
@@ -669,7 +726,8 @@ The `--json` payload is `PassResult.to_dict()` with one phase, `ingest`,
 plus `exit_code`. The phase summary has:
 
 - `ingested`, `failed` and `records`;
-- `skipped`, broken down into `awaiting_definitions` and `outranked`;
+- `skipped`, broken down into `awaiting_definitions`, `outranked` and
+  `changed_during_ingest`;
 - `superseded`, the ids of units this run replaced;
 - `units`, one entry per unit: `unit_id`, `unit_date`, `schema`,
   `outcome`, `records`, `reason`.
@@ -686,6 +744,7 @@ ES  (CME_EQUITY, GLBX.MDP3, ES.FUT parent)   tier: not configured — no wanted 
     complete <n>   awaiting ingest <n>   in flight <n>   pending <n>   missing <n>
     failed <n>   retry exhausted <n>   provider hole <n>   edge unknown <n>   (degraded <n>)
   caught up: n/a (no wanted range)
+  complete = every unit ingested; raw-count proof: mt data tick coverage
   contracts (outrights; 40 spreads hidden, --all-instruments to list):
     <raw_symbol>   exp <date>   sessions <n>   records <n>   volume <n>   <first session> → <last session>
 ```
@@ -701,6 +760,14 @@ The per-contract lines come from the current units' ledger rows joined to
 Sessions are counted where the contract had at least one record. Exit: 0,
 or 1 on preflight, or 4 if the tick or production database is
 unreachable.
+
+Reading sessions from production is a coupling edge the architecture did
+not list. Its "Operational state has one home" principle names three tick →
+production edges, and this is a fourth, recorded in the supersedes list.
+A production outage fails `status` with exit 4 instead of degrading it.
+Classifying sessions is the whole job of the command. A tally of units and
+ledger rows with no sessions would look like an answer and hide the gaps
+status exists to show, so it is not offered.
 
 **`mt data tick coverage --start D --end D [--product P] [--json]`**
 
@@ -754,7 +821,11 @@ No migration. The tables exist from 222 and 223. What changes is use:
   It also gets the counts, resolution and session checks passing on every
   adopted unit, and `coverage` to prove raw counts on the whole proof
   range. `TICK_INGEST_WORKERS` and the `write_row` path are what 226 may
-  replace.
+  replace. 226 must also re-verify supersession's time-bounded `DELETE`
+  and overlap detection by `UniqueViolation` under the compression
+  policy it chooses. Both are designed and tested on uncompressed chunks,
+  and TimescaleDB handles deletes and unique constraints differently on
+  compressed chunks.
 - **227 (backup):** the rebuild-from-archive path is `adopt` plus
   `pass` (definitions) plus `ingest`, so the measured rebuild cost is one
   ingest run.
@@ -767,7 +838,9 @@ No migration. The tables exist from 222 and 223. What changes is use:
 - **231 (GC):** nothing product-specific. A second product works through
   `FUTURES_PRODUCT_CALENDAR`, `asset = product` and the universe.
 - **233 (production wiring):** `mt data tick ingest` as a pass on the pass
-  contract, ready for a `PassKind` and a timer.
+  contract, ready for a `PassKind` and a timer. 233 owns the per-batch
+  progress heartbeat that 225 omits (Data Flow), because its systemd
+  timeouts are what the heartbeat serves.
 
 ### Consumes from Other Slices
 
@@ -825,7 +898,12 @@ No migration. The tables exist from 222 and 223. What changes is use:
    unit; it is reported as "outranked".
 7. A tick database lost mid-run ends the run with `storage_abort` (exit 4)
    and counts no attempts. Units already committed stay *ingested*; the
-   unit in progress leaves nothing.
+   unit in progress leaves nothing. A row lock held by another session
+   past `TICK_INGEST_LOCK_TIMEOUT_SECONDS` ends the same way instead of
+   hanging. A unit reopened by another session mid-ingest rolls back and
+   is reported as skipped "changed during ingest", with no failure
+   recorded. When one worker aborts, the loop waits for the other unit
+   to settle before the run ends.
 8. `sequence_ordinal` matches 222's definition on a fixture with a
    non-adjacent repeat and a repeat across a batch boundary. Re-ingesting
    the same file in a fresh database produces identical rows.
@@ -942,7 +1020,15 @@ jobs and the four definition jobs `GLBX-20260930-*`, so nothing is bought.
    Expected: exit 0, 78 units ingested and none failed. `provider =
    decoded` per schema, and the `tick_trade` count equals their sum. Record
    the wall time and the per-unit durations in the task file; 226 starts
-   from them.
+   from them. Check both of the architecture's throughput targets
+   (Technical Decision 2):
+   - every per-unit duration is far below 24 hours, the market time one
+     unit covers;
+   - the whole run fits inside an operator's working session. The run
+     covers about three and a half months of sessions (26 `trades` days
+     plus 52 `tbbo` days), so this meets the one-month target with margin.
+
+   A miss on either target fails the walkthrough.
 
 5. **Idempotence.** Run the ingest again. Expected: nothing selected,
    exit 0, row count unchanged.
@@ -1096,3 +1182,20 @@ Commit at each numbered step.
 5. **Architecture, supersession:** it names tier upgrades as a
    supersession but assigns no step to write the link. Ingest writes it,
    by tier rank, in the loading transaction (Technical Decision 5).
+6. **Architecture, completeness:** "complete" needs every covering unit
+   complete **and** raw count = ledger sum. `status` reports unit-level
+   completeness only, labelled as such. `coverage` does the raw-count
+   proof over a bounded range (Technical Decision 10).
+7. **Architecture, "Operational state has one home":** it lists three
+   tick → production edges. `status` and `coverage` reading sessions from
+   the production calendar is a fourth. A production outage fails them
+   with exit 4. Flag this for the architecture's Revision Log, as 224 did
+   (API Contracts, status).
+8. **Architecture and plan, "only progress returns to the loop":** 225
+   returns one outcome per unit and no per-batch progress. The heartbeat
+   is handed to 233 (Data Flow).
+9. **Architecture, failure states:** a failed attempt is
+   `FAILED_RETRYABLE` until an attempt limit makes it `RETRY_EXHAUSTED`.
+   Every ingest failure is deterministic, so it goes straight to
+   `RETRY_EXHAUSTED` and the unit stays *verified*. That matches 224's
+   fetch-status model (Technical Decision 8).
