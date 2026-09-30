@@ -222,6 +222,7 @@ real batch.
   - [ ] Unit test: every formatter's text starts with its check's value
   - [ ] Success: passes
   - [ ] Effort: 1
+  - [ ] Commit: `feat(tick): add ingest check names and reasons`
 
 - [ ] **2.2 Contract resolution in `ingest_records.py` (TD6)**
   - [ ] Definitions arrive as arrays sorted by `(instrument_id,
@@ -242,6 +243,7 @@ real batch.
         window that holds it
   - [ ] Success: passes
   - [ ] Effort: 2
+  - [ ] Commit: `feat(tick): resolve tick records to contracts`
 
 - [ ] **2.4 Session location (TD6)**
   - [ ] Test the populated span first: a record outside it is the "outside
@@ -259,6 +261,7 @@ real batch.
         not as a break
   - [ ] Success: passes
   - [ ] Effort: 1
+  - [ ] Commit: `feat(tick): assign tick records to sessions`
 
 - [ ] **2.6 `sequence_ordinal` with a cross-batch carry (TD6, 222 TD1)**
   - [ ] Within a batch: stable lexsort and run lengths. Across batches: add
@@ -275,28 +278,37 @@ real batch.
         computed in the test
   - [ ] Success: passes
   - [ ] Effort: 2
+  - [ ] Commit: `feat(tick): compute sequence ordinals across batches`
 
-- [ ] **2.8 Ledger accumulation and row building (TD6, TD2)**
+- [ ] **2.8 Ledger accumulation (TD6)**
   - [ ] Accumulate per (instrument, session): count, volume (sum of
         `size`), first and last `ts_event`
   - [ ] The ledger's instrument set: every definition with `asset =
         product` whose window meets the session. Missing instruments become
         zero-record rows with NULL times. `calendar_id` comes from
         `FUTURES_PRODUCT_CALENDAR`; `session_date` comes from the session
-  - [ ] Build COPY rows in `TICK_TRADE_COLUMNS` order plus
-        `sequence_ordinal` and `unit_id`, behind one function (the one 226
-        may replace)
-  - [ ] Success: imports; under ~300 lines (split row building out if not)
-  - [ ] Effort: 3
+  - [ ] Success: imports
+  - [ ] Effort: 2
 
-- [ ] **2.9 Ledger and row tests**
-  - [ ] Over the real slice: the ledger's `record_count` sums to the decoded
-        count; zero-record rows exist for valid instruments with no records;
-        the instrument set equals the definitions valid in each session
-  - [ ] Row tuples have the column order the COPY statement names
+- [ ] **2.9 Ledger tests**
+  - [ ] Over the real slice:
+    - the ledger's `record_count` sums to the decoded count
+    - zero-record rows exist for valid instruments with no records
+    - the instrument set equals the definitions valid in each session
   - [ ] Success: passes
   - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add ingest checks and record processing`
+  - [ ] Commit: `feat(tick): accumulate the ingest ledger`
+
+- [ ] **2.10 COPY row building (TD2)**
+  - [ ] In its own module (for example `ingest_rows.py`), since this is
+        the seam 226 may replace with a NumPy binary encoder: one function
+        building rows in `TICK_TRADE_COLUMNS` order plus `sequence_ordinal`
+        and `unit_id`, plus the matching COPY column list and types
+  - [ ] Test: row tuples match the column list; values round-trip for one
+        real record
+  - [ ] Success: passes; `ingest_records.py` under ~300 lines
+  - [ ] Effort: 1
+  - [ ] Commit: `feat(tick): build tick_trade COPY rows`
 
 ---
 
@@ -347,9 +359,15 @@ real batch.
 - [ ] **3.4 Plan tests and the horizon test (TD7)**
   - [ ] Unit: `session_days` over a calendar whose last close is mid-day X
         returns no day at or after X, and raises for `[.., X+1)`
-  - [ ] Integration: a plan for a real day holds two sessions and 61
-        definitions; a `raw_symbol` unit fails as `shape`; a unit whose day
-        lies past the populated span fails as `session_boundary`
+  - [ ] Integration:
+    - a plan for a real day holds two sessions and 61 definitions
+    - a `raw_symbol` unit fails as `shape`
+    - a unit whose day lies past the populated span fails as
+      `session_boundary`
+    - an unreachable calendar URL raises `TickCalendarError`
+    - with an ingested `trades` unit and a verified `tbbo` unit on the same
+      day, the `tbbo` plan's superseded list holds the `trades` unit with
+      the min first and max last event times from its ledger
   - [ ] Success: passes
   - [ ] Effort: 2
   - [ ] Commit: `feat(tick): build per-unit ingest plans`
@@ -358,14 +376,27 @@ real batch.
 
 ## Section 4: The worker (TD2, TD5, TD8)
 
-- [ ] **4.1 Create `data/tick/ingest_worker.py`**
-  - [ ] A plain synchronous function taking the plan and returning a
-        `UnitOutcome` (unit id, counts, check failure or none, duration,
-        decode and write time split)
-  - [ ] Open its own `psycopg.Connection` with `connect_timeout`, the
-        keepalive constants and `lock_timeout` from 0.3
-  - [ ] One transaction:
-    1. supersession (4.2)
+- [ ] **4.1 Supersession step (TD5)**
+  - [ ] In `ingest_worker.py`, a function that runs on the worker's open
+        cursor, before the COPY, for each superseded unit in the plan: call
+        `mark_superseded` through the sync executor. If that unit was
+        *ingested*, delete its rows `WHERE unit_id = O AND ts_event BETWEEN`
+        its ledger min first and max last event time. Its ledger rows stay
+  - [ ] Success: imports
+  - [ ] Effort: 2
+
+- [ ] **4.2 The worker function**
+  - [ ] A plain synchronous function
+        `ingest_unit(plan, archive_root, conn_settings) -> UnitOutcome`.
+        `UnitOutcome` holds the unit id, counts, check failure or none,
+        duration, and the decode and write time split
+  - [ ] `conn_settings` is a frozen `WorkerConnectionSettings` (tick URL,
+        connect timeout, keepalive idle, interval and count, lock timeout).
+        The pass builds it from the 0.3 constants. The worker has no
+        defaults of its own, so tests pass a short lock timeout directly
+  - [ ] Opens its own `psycopg.Connection` with those settings. One
+        transaction:
+    1. supersession (4.1)
     2. binary `COPY` with `set_types` and `write_row`, fed batch by batch
        from `iter_batches`
     3. counts check: provider = decoded = `count(*) WHERE unit_id = N`,
@@ -374,42 +405,52 @@ real batch.
     5. `mark_ingested` through the sync executor
     6. `COMMIT`
   - [ ] A check failure rolls back and returns the failure
-  - [ ] Catch only: `UniqueViolation` (→ `overlap`, naming the key and the
-        other current units on the day), the named decode and file errors
-        (→ `decode`), and `ManifestTransitionError` (→ skip "changed during
-        ingest"). Everything else propagates
+  - [ ] Catch only these:
+    - `UniqueViolation` → `overlap`, naming the key and the other current
+      units on the day
+    - the named decode and file errors → `decode`
+    - `ManifestTransitionError` → skip "changed during ingest"
+
+    Everything else propagates
   - [ ] Write the thread state review from TD2 as the module docstring
   - [ ] Success: imports; under ~300 lines
   - [ ] Effort: 4
 
-- [ ] **4.2 Supersession inside the transaction (TD5)**
-  - [ ] Before the COPY, for each superseded unit in the plan: call
-        `mark_superseded` through the sync executor. If that unit was
-        *ingested*, delete its rows `WHERE unit_id = O AND ts_event BETWEEN`
-        its ledger min first and max last event time. Its ledger rows stay
-  - [ ] Success: imports
-  - [ ] Effort: 2
-
-- [ ] **4.3 Worker tests (FR3, FR5, FR6, FR8)**
+- [ ] **4.3 Worker tests (FR3, FR5, FR8)**
   - [ ] Integration on `migrated_tick_db` with the 0.2 fixtures:
-    1. a real day ingests: unit *ingested*, `decoded_record_count` set,
-       ledger complete with zero-record rows (FR3)
-    2. each check fails its unit with the check named and leaves no rows,
-       no ledger rows and no transition: counts (provider count raised by
-       one), resolution, session boundary (break and outside span), overlap
-       (a second current unit over loaded rows) (FR5)
-    3. supersession: `tbbo` over an ingested `trades` of the same day
-       replaces its rows in one transaction, sets the link, and session
-       totals equal the `tbbo` ledger (FR6)
-    4. a unit's row is changed by another connection before
-       `mark_ingested`: the worker rolls back and returns "changed during
-       ingest"
-    5. another session holds a row lock on the unit past the lock timeout
-       (set short in the test): `OperationalError` is raised and nothing is
-       written
+    1. a real day slice ingests: the unit is *ingested*,
+       `decoded_record_count` is set, and the ledger is complete with
+       zero-record rows (FR3)
+    2. these checks fail the unit with the check named and leave no rows,
+       no ledger rows and no transition (FR5):
+       - counts (provider count raised by one)
+       - resolution
+       - session boundary (break, and outside the span)
+    3. decode: the archive file missing, and a truncated copy of a real
+       file; each fails as `decode` naming the path
+    4. "changed during ingest": build the plan, then reset or reopen the
+       unit from another connection, then call the worker. `mark_ingested`
+       matches no row; the worker rolls back and returns the skip. This
+       needs no hook
+    5. lock timeout: another connection holds `SELECT … FOR UPDATE` on the
+       unit's row. The worker, called with a lock timeout of about one
+       second, raises `OperationalError`, and nothing is written
     6. re-ingesting the same file into a fresh database gives identical rows
        (FR8)
   - [ ] Success: passes
-  - [ ] Effort: 4
+  - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add the ingest worker`
 
+- [ ] **4.4 Supersession and overlap tests (FR5, FR6)**
+  - [ ] Integration, with the 0.2 supersession fixture:
+    1. `tbbo` over an ingested `trades` unit of the same day replaces its
+       rows in one transaction: the link is set, the `trades` rows are
+       gone, its ledger rows stay, and session totals equal the `tbbo`
+       ledger (FR6)
+    2. a forced failure after supersession (the counts check) rolls back:
+       the `trades` rows and unit are untouched
+    3. overlap: a second current unit whose rows collide with loaded rows
+       fails as `overlap`, naming the key and the other unit (FR5)
+  - [ ] Success: passes
+  - [ ] Effort: 2
+  - [ ] Commit: `test(tick): cover supersession and overlap in the worker`

@@ -64,11 +64,27 @@ status: not_started
        the reason prefixed by its check, and after `reset` it ingests
     5. acquisition (fake provider) and ingest run concurrently on one
        database without interfering
+    6. a row lock held past the lock timeout (the pass built with a short
+       one) ends the run as `storage_abort`, with no attempt counted
+    7. a unit reset from another connection between plan and commit is
+       tallied in `skipped.changed_during_ingest`, the outcome is `ok`, and
+       no failure is recorded
+    8. an unreachable production calendar ends the run as `storage_abort`
+       before any unit starts
+    9. a `raw_symbol` unit alongside a good one: the good one ingests, the
+       outcome is `partial`, and the bad one is `RETRY_EXHAUSTED` with a
+       `shape:` reason
+  - [ ] Case 1 uses the 0.2 fixture slices. The full real adopted day end
+        to end is covered by the load test in 5.4 and by walkthrough step 4
   - [ ] Success: passes
   - [ ] Effort: 3
   - [ ] Commit: `feat(tick): add the ingest pass`
 
 - [ ] **5.3 `mt data tick ingest` verb**
+  - [ ] Build the ingest pass: `TickPass[TickStore]` with the one
+        `IngestPhase`, run on `open_tick_store(settings,
+        lock_key=TICK_INGEST_LOCK_KEY)`, and the `WorkerConnectionSettings`
+        built from the 0.3 constants
   - [ ] `ingest [--unit-id N]... [--json]`. `tick.py` is at 279 lines, so
         put this verb, and later status and coverage, in a new
         `cli/commands/tick_store_cmds.py` and register them on `tick_app` in
@@ -77,11 +93,32 @@ status: not_started
         the per-unit lines and skip tally shown in the LLD's API Contracts.
         `--json` emits `{**PassResult.to_dict(), "exit_code": n}`
   - [ ] CLI tests: the exit code per outcome, the `--json` shape, repeated
-        `--unit-id`, and running with `MT_DATABENTO_API_KEY` unset (FR11,
-        ingest part)
+        `--unit-id`, an unselectable `--unit-id` whose reason appears in the
+        report and in `--json`, and running with `MT_DATABENTO_API_KEY`
+        unset (FR11, ingest part)
   - [ ] Success: passes; each touched CLI file is under ~300 lines
   - [ ] Effort: 2
   - [ ] Commit: `feat(tick): add mt data tick ingest verb`
+
+- [ ] **5.4 Ingest load test (TD2 throughput targets)**
+  - [ ] `test/load/test_225_tick_ingest_nfr.py`, following
+        `test_224_tick_pass_nfr.py`'s pattern: gated by
+        `MT_RUN_LOAD_TESTS=1`, test cluster only, never reading the
+        production URL. CI runs no test job (slice 907), so this gate is
+        the load tier's gate, as for every other load test. The docstring
+        states that
+  - [ ] Scale: the largest real adopted day, 2024-09-03 `trades` (511,965
+        records), from `/data/tick-archive`, ingested through `run_ingest`
+        into a fixture database. If the archive file is absent, the test
+        fails naming the path. It does not skip
+  - [ ] Bounds, derived from the targets and recorded in the docstring:
+    - the unit's ingest takes at most 120 s, 1/720 of the 24 h of market
+      time it covers ("far faster than a day of market time")
+    - a heartbeat task shows no event-loop gap above 250 ms. The worker
+      runs in a thread, so a long gap means blocking work ran on the loop
+  - [ ] Success: passes with the gate set; the measured time is noted
+  - [ ] Effort: 2
+  - [ ] Commit: `test(tick): add ingest load test`
 
 ---
 
@@ -123,7 +160,18 @@ status: not_started
   - [ ] Success: imports
   - [ ] Effort: 2
 
-- [ ] **6.4 `build_status` and `build_coverage`**
+- [ ] **6.4 Status read tests**
+  - [ ] Integration on `migrated_tick_db` with seeded units, ledger rows
+        and a few `tick_trade` rows:
+    - each read returns the seeded values
+    - superseded units' ledger rows are excluded from the sums
+    - the raw count assigns rows on both sides of 00:00 UTC to the right
+      session, and ignores rows outside the range
+  - [ ] Success: passes
+  - [ ] Effort: 2
+  - [ ] Commit: `feat(tick): add tick status reads`
+
+- [ ] **6.5 `build_status` and `build_coverage`**
   - [ ] In `tick_status.py` (split if it passes ~300 lines): scope per TD9
         (the wanted range if a tier is set, plus sessions touched by current
         tier units), sessions from the production calendar, and frozen
@@ -136,7 +184,7 @@ status: not_started
   - [ ] Success: imports
   - [ ] Effort: 3
 
-- [ ] **6.5 Status and coverage integration tests (FR9, FR10)**
+- [ ] **6.6 Status and coverage integration tests (FR9, FR10)**
   - [ ] After ingesting fixture days: status buckets match expectations,
         spreads are hidden in the per-contract list, and `to_dict()`
         round-trips through JSON
@@ -147,7 +195,7 @@ status: not_started
   - [ ] Effort: 2
   - [ ] Commit: `feat(tick): build tick status and coverage`
 
-- [ ] **6.6 `status` and `coverage` verbs**
+- [ ] **6.7 `status` and `coverage` verbs**
   - [ ] In `tick_store_cmds.py`: `status [--product] [--all-instruments]
         [--json]` and `coverage --start --end [--product] [--json]`.
         `--start` and `--end` are required. They connect through the plain
@@ -172,8 +220,11 @@ status: not_started
 - [ ] **7.1 Kalshi contract diff**
   - [ ] Compare `pass_contract.py` with `data/kalshi/collection_pass.py`.
         Every difference must be a declared divergence (224's list plus the
-        generic run type). Otherwise name it in a note for the PM
-  - [ ] Success: note lists each difference and its disposition
+        generic run type)
+  - [ ] Write the result as a `Note:` line under this task, as 224's task
+        1.3 did. If a difference is not declared, STOP and report it to the
+        PM before 7.3
+  - [ ] Success: the note lists each difference and its disposition
   - [ ] Effort: 1
 
 - [ ] **7.2 Realtime paths and the API answer**
@@ -182,6 +233,8 @@ status: not_started
         per-unit ledger). Note any change
   - [ ] Confirm `build_status`/`build_coverage` return `to_dict()`
         dataclasses usable by 230 unchanged (TD11)
+  - [ ] Write both results as a `Note:` line under this task. If a
+        realtime point no longer holds, STOP and report it to the PM
   - [ ] Success: note written
   - [ ] Effort: 1
 
@@ -232,9 +285,12 @@ status: not_started
   - [ ] Step 4: 78 units ingested, none failed, provider = decoded per
         schema, `tick_trade` count = their sum
   - [ ] Record the wall time and per-unit decode and write durations.
-        Check both throughput targets from TD2: every unit far below 24 h,
-        and the whole run (about 3.5 months of sessions) inside an operator's
-        working session. A miss fails the walkthrough
+        Check both throughput targets from TD2 against fixed ceilings:
+    - every unit ≤ 120 s (the 5.4 bound: 1/720 of the day it covers)
+    - the whole run ≤ 2 h. The run covers about 3.5 months of sessions, so
+      this puts one month well inside a working session
+
+    A miss on either fails the walkthrough
   - [ ] Step 5: a second run selects nothing, exits 0, row count unchanged
   - [ ] If a unit fails a check, STOP and report the check and its reason.
         Do not loosen a check
@@ -251,7 +307,7 @@ status: not_started
   - [ ] Effort: 1
 
 - [ ] **8.5 Walkthrough steps 8 and 9: supersession evidence, teardown**
-  - [ ] Step 8: name the FR6 test (4.3 case 3) and paste its passing
+  - [ ] Step 8: name the FR6 test (part 1, 4.4 case 1) and paste its passing
         output into the LLD walkthrough
   - [ ] Step 9: drop `mt_scratch_tick_225` and confirm a `pg_database`
         count of 0; the archive stays
