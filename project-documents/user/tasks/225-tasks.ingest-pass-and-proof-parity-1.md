@@ -85,8 +85,8 @@ that, split it along the concern it holds and add a note on the task.
   - [ ] Success: both files exist
   - [ ] Effort: 1
 
-- [ ] **0.2 Real DBN slice fixtures**
-  - [ ] Cut small real slices from the adopted files under
+- [x] **0.2 Real DBN slice fixtures**
+  - [x] Cut small real slices from the adopted files under
         `/data/tick-archive` into `test/fixtures/databento/` (a few thousand
         records each, well under 1 MB committed), written the way
         `dbn_files.py` writes day files:
@@ -95,23 +95,27 @@ that, split it along the concern it holds and add a note on the task.
     2. `tbbo`, one day inside the `tbbo` job, the same shape of cut
     3. the definition file for each of those two days, from the matching
        `GLBX-20260930-*` job
-  - [ ] Keep at least one repeated `(instrument_id, ts_event, sequence)`
+  - [x] Keep at least one repeated `(instrument_id, ts_event, sequence)`
         triple in the trades slice. If the real day has none, record that in
         a note; 2.7 then builds the repeat by editing a real batch
-  - [ ] Supersession fixture (FR6): the adopted jobs share no day. Derive a
+  - [x] Supersession fixture (FR6): the adopted jobs share no day. Derive a
         `trades` file for the `tbbo` slice's day from the `tbbo` slice's
         trade fields (the same events on the same day). Record in a note that
         this replaces the LLD's "real trades and tbbo slice of the same day"
-  - [ ] Add `dbn_files.py` helpers that build a job directory and seed the
+  - [x] Add `dbn_files.py` helpers that build a job directory and seed the
         manifest: a tier unit at *verified* with `provider_record_count` set,
         its companion definition unit *ingested*, and its `tick_definition`
         rows projected (reuse 224's definitions projection; no copied SQL)
-  - [ ] Success: the helpers build a selectable unit on `migrated_tick_db`
+  - [x] Success: the helpers build a selectable unit on `migrated_tick_db`
         in a smoke test
-  - [ ] Effort: 3
+  - [x] Effort: 3
+  - Note: the helpers are in a new module `test/tick_support/tier_units.py` (`seed_tier_unit`, `real_file`, `record_count`, `TRADES_DAY`, `TBBO_DAY`), not `dbn_files.py`. That module re-heads the synthetic fixtures; the real slices keep their provider headers unchanged. The slices live in `test/fixtures/databento/real/` and are cut by `scripts/cut_tick_fixtures.py`. Provenance is in `SOURCES.md`.
+  - Note: the trades slice has 73 repeated `(instrument_id, ts_event, sequence)` triples and the tbbo slice has 53, so 2.7 does not need to build a repeat by hand.
+  - Note: the supersession fixture `glbx-mdp3-20241203.trades.dbn.zst` is derived from the 2024-12-03 tbbo slice (the same events cut to their trade fields). It replaces the LLD's "real trades and tbbo slice of the same day", because the adopted jobs share no day.
+  - Note: the tbbo day is 2024-12-03 (definitions from GLBX-20260930-HVGRLYKHRN) and the trades day is 2024-09-03 (definitions from GLBX-20260930-DLDYL5DM8Q). The smoke test is `test/integration/data/test_tick_tier_units.py`.
 
-- [ ] **0.3 Constants (TD2, TD4, TD5, TD8)**
-  - [ ] `data/tick/constants.py`:
+- [x] **0.3 Constants (TD2, TD4, TD5, TD8)**
+  - [x] `data/tick/constants.py`:
     - `TICK_INGEST_LOCK_KEY = 220_000_002`
     - `TICK_INGEST_WORKERS = 2`, with a note that it is a starting value
       226 re-sets
@@ -120,16 +124,17 @@ that, split it along the concern it holds and add a note on the task.
     - `TICK_INGEST_LOCK_TIMEOUT_SECONDS`
     - `TICK_DB_KEEPALIVES_IDLE_SECONDS`, `TICK_DB_KEEPALIVES_INTERVAL_SECONDS`
       and `TICK_DB_KEEPALIVES_COUNT`
-  - [ ] Each constant gets a one-line comment naming its TD. The timeout and
+  - [x] Each constant gets a one-line comment naming its TD. The timeout and
         keepalive values are starting values: pick modest ones and say so
-  - [ ] Add a helper that renders the tier-rank SQL expression
+  - [x] Add a helper that renders the tier-rank SQL expression
         (`array_position(ARRAY[...], schema)`) from `TICK_TIERS`
-  - [ ] Extend `test_constants.py`: lock keys distinct; `TICK_TIER_RANK`
+  - [x] Extend `test_constants.py`: lock keys distinct; `TICK_TIER_RANK`
         matches `TICK_TIERS` order; the rendered SQL lists the tiers in the
         same order
-  - [ ] Success: `uv run pytest test/unit/data/tick -q` passes
-  - [ ] Effort: 1
-  - [ ] Commit: `feat(tick): add ingest fixtures and constants`
+  - [x] Success: `uv run pytest test/unit/data/tick -q` passes
+  - [x] Effort: 1
+  - [x] Commit: `feat(tick): add ingest fixtures and constants`
+  - Note: `tier_rank_sql(column)` renders `array_position(ARRAY[...]::text[], column)`. The worker connect timeout reuses the existing `TICK_DB_CONNECT_TIMEOUT_SECONDS`.
 
 ---
 
