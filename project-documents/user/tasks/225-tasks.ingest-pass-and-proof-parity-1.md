@@ -185,33 +185,35 @@ that, split it along the concern it holds and add a note on the task.
   - [x] Commit: `refactor(tick): make the tick pass contract generic in its run`
   - Note: new parity test `test_generic_run_type_is_the_declared_divergence` checks that tick `PassPhase`/`TickPass` have one type parameter bound to `TickStore` and that Kalshi's `PassPhase`/`CollectionPass` have none.
 
-- [ ] **1.5 Transition statement builders and a sync executor (TD3)**
-  - [ ] In `manifest_repo.py`, each compare-and-set transition becomes a
+- [x] **1.5 Transition statement builders and a sync executor (TD3)**
+  - [x] In `manifest_repo.py`, each compare-and-set transition becomes a
         builder returning `(sql, params, expected)`, plus the existing async
         executor. Every async function keeps its signature
-  - [ ] Add `execute_transition_sync(cur, statement, unit_id)`. It runs in
+  - [x] Add `execute_transition_sync(cur, statement, unit_id)`. It runs in
         the caller's transaction and raises `ManifestTransitionError` on
         zero rows
-  - [ ] Add a builder for `mark_superseded(unit_id, by_unit_id)`,
+  - [x] Add a builder for `mark_superseded(unit_id, by_unit_id)`,
         compare-and-set on "current" (not superseded, not reopened)
-  - [ ] `manifest_repo.py` is at 295 lines. Put the sync executor and
+  - [x] `manifest_repo.py` is at 295 lines. Put the sync executor and
         `mark_superseded` in a new module (for example
         `manifest_ingest.py`) and note the split
-  - [ ] Success: imports; no SQL string is duplicated between the async and
+  - [x] Success: imports; no SQL string is duplicated between the async and
         sync paths
-  - [ ] Effort: 2
+  - [x] Effort: 2
+  - Note: the new module is `manifest_transitions.py`. It holds `ManifestTransitionError` (still importable from `manifest_repo`), `TransitionStatement` (unit_id, sql, params, expected), `transition_statement(...)`, `execute_transition` (async, own transaction), `execute_transition_sync(cur, statement)` and `mark_superseded_statement(unit_id, by_unit_id)`, which is compare-and-set on `COVERAGE_PREDICATE`. The unit id travels inside the statement, so the sync executor takes `(cur, statement)`. `manifest_repo.py` (298 lines) routes every transition through a statement and adds `mark_ingested_statement`.
 
-- [ ] **1.6 Transition tests**
-  - [ ] All existing manifest tests pass unchanged
-  - [ ] Integration on `migrated_tick_db`:
-    - `mark_ingested` through the sync executor inside an open transaction
+- [x] **1.6 Transition tests**
+  - [x] All existing manifest tests pass unchanged
+  - [x] Integration on `migrated_tick_db`:
+    - [x] `mark_ingested` through the sync executor inside an open transaction
       moves *verified* → *ingested*, and a rollback leaves the unit
       *verified*
-    - zero matched rows raises `ManifestTransitionError`
-    - `mark_superseded` sets the link once, and a second call raises
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `refactor(tick): split manifest transitions into statements and executors`
+    - [x] zero matched rows raises `ManifestTransitionError`
+    - [x] `mark_superseded` sets the link once, and a second call raises
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `refactor(tick): split manifest transitions into statements and executors`
+  - Note: tests are in `test/integration/data/test_tick_manifest_transitions.py`. The same commit updates `test/integration/data/test_tick_pass.py` to iterate `ACQUISITION_PHASE_NAMES` (a 1.3 follow-up that the integration tier caught).
 
 ---
 
