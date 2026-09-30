@@ -13,7 +13,7 @@ aiModel: claude-sonnet-5-5
 status: complete
 dateCreated: 20260930
 dateUpdated: 20260930
-reviewedSha: f715edb039f3b9bc98d574f0b8bc9bd230396021
+reviewedSha: a99dcc57a5ee1a59ee014026b8880b07e73054e4
 toolsGiven: [read_file, list_files, grep]
 toolCallsMade: 0
 diffTruncated: true
@@ -21,107 +21,107 @@ squadronVersion: 0.16.0
 findings:
   - id: F001
     severity: concern
-    category: dry
-    summary: "Data-file suffix constant defined twice"
-    location: "src/manta_trading/data/tick/in_flight_files.py:44"
+    category: design
+    summary: "Phase summaries are an untyped dict contract duplicated as string literals across modules"
+    location: "src/manta_trading/cli/commands/tick_pass_render.py:145-260"
   - id: F002
     severity: concern
-    category: dry
-    summary: "Open-status list duplicated across three manifest modules"
-    location: "src/manta_trading/data/tick/manifest_pass.py:33"
+    category: error-handling
+    summary: "A malformed definition record raises `TypeError` out of the pass instead of failing the unit"
+    location: "src/manta_trading/data/tick/definitions.py:_value"
   - id: F003
     severity: concern
-    category: maintainability
-    summary: "`AdvanceTally.add` uses string field names with setattr/getattr"
-    location: "src/manta_trading/data/tick/in_flight.py:AdvanceTally.add"
+    category: error-handling
+    summary: "`product_of_shape` `ValueError` escapes unmapped from planning"
+    location: "src/manta_trading/data/tick/purchase_plan.py:_owned, _resubmits"
   - id: F004
     severity: concern
     category: correctness
-    summary: "Edge date derived inconsistently between availability span and planning state"
-    location: "src/manta_trading/data/tick/availability.py:79-83"
+    summary: "Import-time and runtime `assert` used for invariants"
+    location: "src/manta_trading/cli/commands/tick_exit.py:34"
   - id: F005
     severity: concern
-    category: error-handling
-    summary: "Provider failure re-raised without ERROR logging"
-    location: "src/manta_trading/data/tick/in_flight_files.py:_download"
+    category: structure
+    summary: "Function and file size exceed the project guideline"
+    location: "src/manta_trading/data/tick/spend_guard.py:evaluate_spend"
   - id: F006
     severity: concern
-    category: typing
-    summary: "Type-ignore and untyped conversion in definition decoding"
-    location: "src/manta_trading/data/tick/definitions.py:_value"
+    category: design
+    summary: "`pass_contract.py` copies the Kalshi contract"
+    location: "src/manta_trading/data/tick/pass_contract.py"
   - id: F007
-    severity: note
-    category: robustness
-    summary: "Import-time `assert` for exhaustiveness"
-    location: "src/manta_trading/cli/commands/tick_exit.py:34"
+    severity: concern
+    category: testing
+    summary: "Test code weakens strict typing and hygiene"
+    location: "test/integration/data/test_tick_purchase_phase.py:_units"
   - id: F008
     severity: note
-    category: style
-    summary: "Constant-only f-string SQL and an odd comparison order"
-    location: "src/manta_trading/data/tick/definitions.py:_stored, _insert"
+    category: testing
+    summary: "Load-test tier not visible for the network and concurrency paths"
+    location: "unverified"
   - id: F009
     severity: note
-    category: dry
-    summary: "Deliberate duplication of the Kalshi pass contract"
-    location: "src/manta_trading/data/tick/pass_contract.py"
+    category: design
+    summary: "Duplicate money formatting"
+    location: "src/manta_trading/cli/commands/tick_pass_render.py:_money"
   - id: F010
-    severity: note
-    category: testing
-    summary: "Test and load-test coverage not verifiable"
-    location: "unverified"
+    severity: pass
+    category: correctness
+    summary: "Spend guards, submit path and blocking-I/O discipline"
+    location: "src/manta_trading/data/tick/purchase_phase.py"
 ---
 
 # Review: code — slice 224
 
 **Verdict:** CONCERNS
 **Model:** claude-sonnet-5-5
-**Diff:** truncated: 100000 of 288711 characters reached the model
+**Diff:** truncated: 262144 of 292325 characters reached the model
 
 ## Findings
 
-### [CONCERN] Data-file suffix constant defined twice
+### [CONCERN] Phase summaries are an untyped dict contract duplicated as string literals across modules
 
-`DATA_FILE_SUFFIXES = (".dbn.zst", ".dbn")` is redefined here with the same comment as in `adopt.py` (which the diff still keeps). Two definitions can drift, and CLAUDE.md requires one definition per comparison value. Import it from one place, or move it to `constants.py`.
+The phases build `summary: dict[str, Any]` in `acquisition_pass.py`, `purchase_phase.py`/`purchase_plan.plan_summary`, `definitions.py` and `AdvanceTally.to_dict`. The renderer then reads those keys back by literal (`"wanted_days"`, `"unheld_jobs"`, `"cap_30d_usd"`, `"skipped"`, `"waited_seconds"`, `"unknown_submits"` and so on). Producer and consumer share no definition, so renaming a key breaks the report or the JSON without any failing check. Only `_DELIVERY_LABELS` has a parity test. This conflicts with the "define a value once" rule. Use typed summary dataclasses or shared key constants.
 
-### [CONCERN] Open-status list duplicated across three manifest modules
+### [CONCERN] A malformed definition record raises `TypeError` out of the pass instead of failing the unit
 
-`_OPEN = [s.value for s in OPEN_FETCH_STATUSES]` here duplicates `_OPEN_STATUSES` in `manifest_reads.py`. `manifest_repo.py` already has its own `_OPEN`, which the diff references. Define it once and import it.
+`_value` raises `TypeError` for an unexpected field type. `project_definitions` only catches `DefinitionRejected`, and `run_phase` only maps `ProviderError` and storage failures. A bad record therefore crashes the whole run with a traceback and leaves the unit at *verified*, so every later run hits it again. Convert this to `DefinitionRejected`, so the unit is exhausted with a reason as the other rejects are.
 
-### [CONCERN] `AdvanceTally.add` uses string field names with setattr/getattr
+### [CONCERN] `product_of_shape` `ValueError` escapes unmapped from planning
 
-The counter names are listed by string, and the same names are listed again in `to_dict` and in `_DELIVERY_LABELS`. Adding a counter without updating all of these fails silently: the value is not summed, or not reported. Iterate `dataclasses.fields` over int fields, or keep the counters in a `Counter`, so the field list has one source.
+`adopt.product_of` wraps the `ValueError` as `TickAdoptionRefused`. `_owned` and `_resubmits` call `product_of_shape` directly. A manifest row with an unusual `stype_in` or symbols shape will crash the purchase phase with a raw traceback. That skips the report and the exit-code mapping. Wrap it in a domain error that `run_phase` or `exit_code_for` maps.
 
-### [CONCERN] Edge date derived inconsistently between availability span and planning state
+### [CONCERN] Import-time and runtime `assert` used for invariants
 
-`availability_span` uses `edge.start.date()` and `edge.end.date()` with no timezone conversion. `planning_state` explicitly does `astimezone(UTC).date()`. If the provider's range is timezone-aware but not UTC, the two disagree about the edge day. Convert both the same way, ideally through one helper.
+The exhaustiveness guard on `EXIT_BY_OUTCOME`, the `_PHASE_LINES` guard in `tick_pass_render.py`, and the runtime asserts in `definitions.project_unit`, `in_flight._poll`, `deliver_job` and `purchase_phase` all vanish under `python -O`. The exit-code guard is the most important one, because it is what stops a new outcome from silently exiting 0. Raise explicit errors, or rely on the unit test that already checks this.
 
-### [CONCERN] Provider failure re-raised without ERROR logging
+### [CONCERN] Function and file size exceed the project guideline
 
-The `except ProviderError` branch records failures and re-raises, but never calls `logger.exception`. CLAUDE.md option (a) requires ERROR-level logging on re-raise. The phase boundary may log it, but that is not visible in the reviewed portion. Please confirm, or log here.
+`evaluate_spend` is about 65 lines and mixes verdict computation with reason building. `manifest_reads.py` now runs well past ~300 lines (about 340 by the hunks shown). `build_plan` and `AvailabilityPhase.run` are near the limit. Extract reason building, and move the pass-specific reads out of `manifest_reads.py`, as was already done for `manifest_pass.py`.
 
-### [CONCERN] Type-ignore and untyped conversion in definition decoding
+### [CONCERN] `pass_contract.py` copies the Kalshi contract
 
-`int(raw)  # type: ignore[call-overload]` suppresses strict pyright rather than narrowing `raw`. A type-ignore on a conversion of provider data also hides bad-input errors, such as a float or None. Narrow the type explicitly (`isinstance(raw, int | np.integer)`) and fail explicitly otherwise. In `_decode`, `len(rows)` is returned alongside `rows`, which is redundant.
+This is a deliberate DRY exception (TD1), guarded by a parity test. It is still duplicated logic that will drift, and the copy already diverges by design. Consider moving the shared contract to a neutral module if a third consumer appears.
 
-### [NOTE] Import-time `assert` for exhaustiveness
+### [CONCERN] Test code weakens strict typing and hygiene
 
-The check disappears under `python -O`, and the same pattern is used in `tick_pass_render.py`. That is acceptable if a test also asserts it. Raising an explicit `RuntimeError` at import, or adding such a test, would make it robust.
+`_units` has function-local imports and an unused import kept alive with `# noqa: F401`. `test_tick_pass.py` uses `# type: ignore` on `Sleeper(run.clock)` and on the `fetchone()` unpack. `test_a_bad_date_is_a_usage_error` asserts `EXIT_PROVIDER` only because click's usage code happens to equal 2. The rules include tests in strict pyright, so type the fixtures properly. Assert click's code directly, not through an unrelated constant.
 
-### [NOTE] Constant-only f-string SQL and an odd comparison order
+### [NOTE] Load-test tier not visible for the network and concurrency paths
 
-Column names are built by f-string from module constants, not user input, so there is no injection risk. Add a short comment saying so, since the SQL rule is "never f-string SQL". In `availability._bounds`, `CME_DATASET == dataset` is evaluated per universe entry inside the comprehension; hoist it to a single `if`.
+The pass adds polling, `to_thread` I/O and executor use. The rules ask for at least one `tests/load/` test on such paths, and none appears in the reviewed part of the diff. Please confirm one exists or add one.
 
-### [NOTE] Deliberate duplication of the Kalshi pass contract
+### [NOTE] Duplicate money formatting
 
-The copy is documented (TD1) and guarded by a parity test, which is an acceptable trade-off. The parity test itself was not in the reviewed diff, so I could not verify it exists.
+`_money` here and `spend_guard._usd` both format dollars to four decimals, and `tick_render.usd` covers the same ground. Consider sharing one helper.
 
-### [NOTE] Test and load-test coverage not verifiable
+### [PASS] Spend guards, submit path and blocking-I/O discipline
 
-No test files appeared in the diff. The pass involves network, polling and concurrency paths, so the Python rules call for a load test with latency or resource assertions. Please confirm one exists under `tests/load/`. Parsers such as `parse_conditions` also need real-world fixtures, including the Saturday-absent case, per CLAUDE.md.
+Both spend ceilings must be set. The attempt is stamped before the paid call, and there is no re-submit without a job-list search. `fetch_range` is never called. Blocking calls (provider, calendar, hashing, decode) run through `asyncio.to_thread`. SQL is parameterised, and the only interpolated names come from module constants. `run_phase` is a documented boundary that logs with `logger.exception`.
 
 ### Run Digest
 
-- Response length: 4718 chars
+- Response length: 5378 chars
 - Response is newline-free: no
 - Tool calls made: 0
 - Tool calls failed: 0
