@@ -96,6 +96,15 @@ class AdvanceTally:
     strays: list[str] = field(default_factory=list)
     in_flight: list[InFlightJob] = field(default_factory=list)
 
+    def add(self, other: AdvanceTally) -> None:
+        """Fold a later poll into this total; ``in_flight`` is the latest poll's."""
+        for name in ("polled", "delivered", "expired", "refused", "downloaded"):
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+        for name in ("verified", "holed", "failed"):
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+        self.strays.extend(other.strays)
+        self.in_flight = list(other.in_flight)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "polled": self.polled,

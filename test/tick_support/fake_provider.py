@@ -24,7 +24,13 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
-from tick_support.dbn_files import JOB_JSON_FILES, MANIFEST_NAME, day_file_bytes
+from tick_support.dbn_files import (
+    CME_DEFINITION_RECORDS,
+    JOB_JSON_FILES,
+    MANIFEST_NAME,
+    day_file_bytes,
+    definition_file_bytes,
+)
 
 from manta_trading.data.tick.constants import (
     CME_DATASET,
@@ -276,6 +282,14 @@ class FakeTickProvider:
             written.append(path)
         return tuple(written)
 
+    @staticmethod
+    def _day_file(request: TickRequest, fixture: str, day: date) -> bytes:
+        if request.schema is TickSchema.DEFINITION:  # windows the projection accepts
+            return definition_file_bytes(
+                request.dataset, day, request.stype_in, CME_DEFINITION_RECORDS
+            )
+        return day_file_bytes(fixture, request.dataset, day, request.stype_in)
+
     def job_files(self, job: FakeJob) -> dict[str, bytes]:
         """The files the provider delivers for ``job``, by name."""
         request = job.request
@@ -289,9 +303,7 @@ class FakeTickProvider:
             if day.weekday() == 5 or day in self.missing_days:
                 continue
             name = f"glbx-mdp3-{day:%Y%m%d}.{request.schema.value}.dbn.zst"
-            files[name] = day_file_bytes(
-                fixture, request.dataset, day, request.stype_in
-            )
+            files[name] = self._day_file(request, fixture, day)
         for name in JOB_JSON_FILES:
             files[name] = json.dumps({"placeholder": name}).encode()
         if self.supply_manifest:

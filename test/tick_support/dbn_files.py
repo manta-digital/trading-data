@@ -118,6 +118,45 @@ def definition_file_bytes(
     return zstandard.ZstdCompressor().compress(header + array.tobytes())
 
 
+#: Two CME definitions with defined windows (an outright and a calendar spread
+#: with undefined ``asset`` and ``min_price_increment``): what a definition
+#: job delivers each day, re-sent unchanged (224's projection treats that as a
+#: no-op).
+_ACTIVATION_NS = int(datetime(2024, 6, 1, tzinfo=UTC).timestamp()) * 1_000_000_000
+_WINDOW_NS = 90 * 86_400 * 1_000_000_000
+_UNDEF_PRICE = 2**63 - 1
+CME_DEFINITION_RECORDS: list[dict[str, Any]] = [
+    {
+        "instrument_id": 42_035_063,
+        "raw_symbol": b"ESZ4",
+        "asset": b"ES",
+        "exchange": b"XCME",
+        "instrument_class": b"F",
+        "security_type": b"FUT",
+        "cfi": b"FFIXSX",
+        "currency": b"USD",
+        "activation": _ACTIVATION_NS,
+        "expiration": _ACTIVATION_NS + _WINDOW_NS,
+        "min_price_increment": 250_000_000,
+        "display_factor": 1_000_000_000,
+        "unit_of_measure": b"IPNT",
+        "unit_of_measure_qty": 50_000_000_000,
+        "contract_multiplier": 50,
+    },
+    {
+        "instrument_id": 42_004_904,
+        "raw_symbol": b"ESH6-ESU6",
+        "asset": b"",
+        "exchange": b"XCME",
+        "instrument_class": b"S",
+        "activation": _ACTIVATION_NS,
+        "expiration": _ACTIVATION_NS + _WINDOW_NS,
+        "min_price_increment": _UNDEF_PRICE,
+        "display_factor": 1_000_000_000,
+    },
+]
+
+
 def _write(path: Path, content: bytes) -> JobFile:
     path.write_bytes(content)
     return JobFile(path, len(content), hashlib.sha256(content).hexdigest())
