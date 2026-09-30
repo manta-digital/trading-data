@@ -176,3 +176,23 @@ TICK_ARCHIVE_DIR_ENV = "MT_TICK_ARCHIVE_DIR"
 #: Every tick setting's environment prefix; an unknown key under it is refused
 #: by the preflight so a misspelt ceiling never reads as "no ceiling" (TD2).
 TICK_ENV_PREFIX = "MT_TICK_"
+
+
+# -- Slice 224: the acquisition pass (LLD 224 TD7, TD9) ------------------------
+
+#: How long the await phase polls for jobs to finish (TD9); a conservative
+#: start that slice 226 re-sets from measurement.
+TICK_WAIT_BUDGET_SECONDS = 1800
+
+#: Seconds between the await phase's polls (TD9); 226 re-sets it too.
+TICK_POLL_INTERVAL_SECONDS = 15
+
+#: Slack subtracted from a request's ``requested_at`` when searching the
+#: provider's job list for an unrecorded submit: host/provider clock skew (TD9).
+TICK_JOB_MATCH_SKEW = timedelta(minutes=5)
+
+#: Age after which an unresolved submit is exhausted instead of retried (TD9).
+TICK_SUBMIT_RESOLVE_AGE = timedelta(hours=1)
+
+#: The rolling window the 30-day spend ceiling is summed over (TD7).
+TICK_SPEND_WINDOW = timedelta(days=30)

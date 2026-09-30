@@ -17,10 +17,15 @@ from manta_trading.data.tick.constants import (
     TICK_ARCHIVE_DIR_ENV,
     TICK_DB_CONNECT_TIMEOUT_SECONDS,
     TICK_ENV_PREFIX,
+    TICK_JOB_MATCH_SKEW,
+    TICK_POLL_INTERVAL_SECONDS,
     TICK_SPEND_30D_CEILING_ENV,
     TICK_SPEND_CEILING_ENV,
+    TICK_SPEND_WINDOW,
+    TICK_SUBMIT_RESOLVE_AGE,
     TICK_TIERS,
     TICK_TRADE_CHUNK_INTERVAL,
+    TICK_WAIT_BUDGET_SECONDS,
     UNIT_STATES_WITH_FILE,
     DeliveryMode,
     SType,
@@ -131,3 +136,11 @@ def test_every_tick_env_name_carries_the_prefix() -> None:
         TICK_ARCHIVE_DIR_ENV,
     ):
         assert name.startswith(TICK_ENV_PREFIX)
+
+
+def test_acquisition_pass_constants() -> None:
+    assert TICK_WAIT_BUDGET_SECONDS == 1800
+    assert TICK_POLL_INTERVAL_SECONDS == 15
+    assert TICK_JOB_MATCH_SKEW == timedelta(minutes=5)
+    assert TICK_SUBMIT_RESOLVE_AGE == timedelta(hours=1)
+    assert TICK_SPEND_WINDOW == timedelta(days=30)

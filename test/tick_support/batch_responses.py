@@ -86,9 +86,15 @@ def batch_api(jobs: dict[str, dict[str, Any]] | None = None) -> FakeApi:
         {
             "submit_job": job_record(state="queued"),
             "get_job_details": lambda kwargs: jobs[kwargs["job_id"]],
-            "list_jobs": [
-                {"id": job_id, "state": job["state"], "ts_received": job["ts_received"]}
-                for job_id, job in jobs.items()
-            ],
+            "list_jobs": job_list(*jobs.values()),
         }
     )
+
+
+def job_list(*records: dict[str, Any]) -> list[dict[str, Any]]:
+    """The ``list_jobs`` (short) answer for ``batch_jobs_since``: one id, state
+    and ``ts_received`` per job record."""
+    return [
+        {"id": r["id"], "state": r["state"], "ts_received": r["ts_received"]}
+        for r in records
+    ]
