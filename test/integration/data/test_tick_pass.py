@@ -40,6 +40,7 @@ from manta_trading.data.tick.manifest_pass import (
 )
 from manta_trading.data.tick.manifest_reads import UnitRow, units_by_id
 from manta_trading.data.tick.pass_contract import (
+    ACQUISITION_PHASE_NAMES,
     SKIPPED,
     PassResult,
     TickOutcome,
@@ -180,7 +181,7 @@ async def test_a_full_pass_buys_downloads_verifies_and_projects_the_definitions(
 ) -> None:
     result = await _pass(run)
     assert result.outcome is TickOutcome.OK
-    assert [r.name for r in result.reports] == list(PhaseName)
+    assert [r.name for r in result.reports] == list(ACQUISITION_PHASE_NAMES)
     assert len(provider.calls_to("submit_batch")) == 2
     assert {u.state for u in await _definition_units(run)} == {UnitState.INGESTED}
     cursor = await run.conn.execute("SELECT count(*) FROM tick_definition")
@@ -364,7 +365,7 @@ async def test_enospc_during_reconcile_download_aborts_and_skips_the_rest(
     assert result.outcome is TickOutcome.STORAGE_ABORT
     outcomes = _outcomes(result)
     assert outcomes[PhaseName.RECONCILE] is TickOutcome.STORAGE_ABORT
-    assert [outcomes[n] for n in list(PhaseName)[1:]] == [SKIPPED] * 4
+    assert [outcomes[n] for n in ACQUISITION_PHASE_NAMES[1:]] == [SKIPPED] * 4
     assert str(errno.ENOSPC) in (result.reports[0].error or "")
     assert provider.calls_to("submit_batch") == []
 

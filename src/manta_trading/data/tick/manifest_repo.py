@@ -6,7 +6,9 @@ LLD 224 Technical Decision 2 (compare-and-set): each unit ``UPDATE`` names,
 in its ``WHERE``, the ``state`` and ``fetch_status`` it moves from (and
 ``reopened_at IS NULL`` where TD8 requires). An update matching zero rows
 raises :class:`ManifestTransitionError`; nothing is skipped quietly, so the
-advisory lock is not what keeps concurrent writers correct.
+advisory lock is not what keeps concurrent writers correct. Each transition
+is built as a statement and run by an executor (``manifest_transitions.py``,
+LLD 225 TD3); the ``*_statement`` builders serve ingest's sync worker.
 
 These are per-unit primitives only. Deciding which one applies to a unit is
 the caller's (``reset.py`` for the reset classification). ``fetch_status`` is
@@ -31,17 +33,17 @@ from manta_trading.data.tick.manifest_reads import (
     Conn,
     UnitFile,
 )
+from manta_trading.data.tick.manifest_transitions import (
+    ManifestTransitionError as ManifestTransitionError,  # re-exported (223 API)
+)
+from manta_trading.data.tick.manifest_transitions import (
+    TransitionStatement,
+    execute_transition,
+    transition_statement,
+)
 
 #: The reason a delivered job's missing day is recorded with (TD8).
 PROVIDER_HOLE_REASON = "job delivered no file for a session day"
-
-
-class ManifestTransitionError(Exception):
-    """A compare-and-set update matched no row: the unit is not where expected."""
-
-    def __init__(self, unit_id: int, expected: str) -> None:
-        self.unit_id = unit_id
-        super().__init__(f"unit {unit_id} is not {expected}; manifest unchanged")
 
 
 @dataclass(frozen=True)
@@ -154,15 +156,8 @@ async def _transition(
     params: tuple[object, ...],
     expected: str,
 ) -> None:
-    """One compare-and-set ``UPDATE`` in its own transaction; zero rows raises."""
-    async with conn.transaction():
-        cursor = await conn.execute(
-            f"UPDATE tick_archive_unit SET {set_sql}"
-            f" WHERE {where_sql} AND unit_id = %s",
-            (*params, unit_id),
-        )
-        if cursor.rowcount != 1:
-            raise ManifestTransitionError(unit_id, expected)
+    statement = transition_statement(unit_id, set_sql, where_sql, params, expected)
+    await execute_transition(conn, statement)
 
 
 ADVANCE_SET: LiteralString = (
@@ -217,19 +212,27 @@ async def mark_verified(
     )
 
 
-async def mark_ingested(
-    conn: Conn, unit_id: int, decoded_record_count: int, now: datetime
-) -> None:
-    """*verified* → *ingested*, storing the decoded count. For a definition
-    unit this means "projected into ``tick_definition``" (TD5)."""
-    await _transition(
-        conn,
+def mark_ingested_statement(
+    unit_id: int, decoded_record_count: int, now: datetime
+) -> TransitionStatement:
+    """*verified* → *ingested*, storing the decoded count."""
+    return transition_statement(
         unit_id,
         f"{ADVANCE_SET}, decoded_record_count = %s",
         _OPEN_FROM,
         advance_params(UnitState.INGESTED, now)
         + (decoded_record_count, UnitState.VERIFIED.value, OPEN_STATUS_VALUES),
         f"{UnitState.VERIFIED} and open",
+    )
+
+
+async def mark_ingested(
+    conn: Conn, unit_id: int, decoded_record_count: int, now: datetime
+) -> None:
+    """:func:`mark_ingested_statement` in its own transaction. For a definition
+    unit this means "projected into ``tick_definition``" (TD5)."""
+    await execute_transition(
+        conn, mark_ingested_statement(unit_id, decoded_record_count, now)
     )
 
 

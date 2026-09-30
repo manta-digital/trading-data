@@ -78,12 +78,14 @@ that, split it along the concern it holds and add a note on the task.
 
 ## Section 0: Baseline, fixtures and constants
 
-- [ ] **0.1 Record the pre-change test baseline**
-  - [ ] On the slice branch before any change, run the unit tier, then the
+- [x] **0.1 Record the pre-change test baseline**
+  - [x] On the slice branch before any change, run the unit tier, then the
         integration tier. Save failing ids to `/tmp/225-baseline-unit.txt`
         and `/tmp/225-baseline-integration.txt`
-  - [ ] Success: both files exist
-  - [ ] Effort: 1
+  - [x] Success: both files exist
+  - [x] Effort: 1
+  - [x] Commit: (baseline recording, no commit required)
+  - Note: unit baseline is 0 failures (4168 passed). Integration baseline has 6 failures, all known pre-existing: test_cli_lists priority1 (2), test_migration_051_052 (2), test_policy_advances_head unaided (2).
 
 - [x] **0.2 Real DBN slice fixtures**
   - [x] Cut small real slices from the adopted files under
@@ -140,44 +142,48 @@ that, split it along the concern it holds and add a note on the task.
 
 ## Section 1: Refactors with no behaviour change (TD1, TD3)
 
-- [ ] **1.1 Split the store context from the run context (TD1)**
-  - [ ] New `data/tick/store_context.py`: `TickStore` (settings, conn,
+- [x] **1.1 Split the store context from the run context (TD1)**
+  - [x] New `data/tick/store_context.py`: `TickStore` (settings, conn,
         archive_root, run_id, clock) and `open_tick_store(settings, *,
         lock_key)`. The preflight runs in 223's order without the provider:
         unknown `MT_TICK_*` keys, the tick URL, the archive directory,
         connect, migrations, lock
-  - [ ] `run_context.py`: `TickRun(TickStore)` adds `provider`;
+  - [x] `run_context.py`: `TickRun(TickStore)` adds `provider`;
         `open_tick_run` composes `open_tick_store(lock_key=
         TICK_ACQUISITION_LOCK_KEY)` with the provider
-  - [ ] Expose the connect-and-check-migrations helper publicly, for
+  - [x] Expose the connect-and-check-migrations helper publicly, for
         status and coverage (no lock, no archive directory)
-  - [ ] Success: every 224 call site is unchanged; imports resolve
-  - [ ] Effort: 2
+  - [x] Success: every 224 call site is unchanged; imports resolve
+  - [x] Effort: 2
+  - Note: `store_context.py` holds the preflight: `open_tick_store`, `TickStore`, `TickPreflightError`, `check_env_keys`, `database_url`, `connect_migrated` (the public connect-and-check-migrations helper for status and coverage), `lock_held_message(lock_key)` and `LOCK_NAMES`. `run_context.py` re-exports its old names, and `LOCK_HELD` is now `lock_held_message(TICK_ACQUISITION_LOCK_KEY)` with unchanged text. `open_tick_run` checks env keys before building the provider (223's order), then enters `open_tick_store`, which repeats the cheap check.
 
-- [ ] **1.2 Store context tests**
-  - [ ] Every existing unit and integration test for the tick run context
+- [x] **1.2 Store context tests**
+  - [x] Every existing unit and integration test for the tick run context
         passes unchanged
-  - [ ] New: `open_tick_store` succeeds with `MT_DATABENTO_API_KEY` unset;
+  - [x] New: `open_tick_store` succeeds with `MT_DATABENTO_API_KEY` unset;
         it takes the given lock key (a second holder of the same key is
         refused, a holder of the acquisition key is not); the plain
         connection helper needs no archive directory
-  - [ ] Success: passes
-  - [ ] Effort: 1
-  - [ ] Commit: `refactor(tick): split store context from run context`
+  - [x] Success: passes
+  - [x] Effort: 1
+  - [x] Commit: `refactor(tick): split store context from run context`
+  - Note: tests are in `test/integration/data/test_tick_store_context.py`.
 
-- [ ] **1.3 Make the pass contract generic (TD1)**
-  - [ ] `pass_contract.py`: `PassPhase` and `TickPass` become generic in
+- [x] **1.3 Make the pass contract generic (TD1)**
+  - [x] `pass_contract.py`: `PassPhase` and `TickPass` become generic in
         `RunT` (bound to `TickStore`); add `TickPassPhaseName.INGEST`
-  - [ ] The acquisition pass is typed `TickPass[TickRun]`
-  - [ ] Success: mypy is clean on `data/tick` and its tests
-  - [ ] Effort: 2
+  - [x] The acquisition pass is typed `TickPass[TickRun]`
+  - [x] Success: mypy is clean on `data/tick` and its tests
+  - [x] Effort: 2
+  - Note: uses PEP 695 generics (`class TickPass[RunT: TickStore]`). New `ACQUISITION_PHASE_NAMES` in `pass_contract.py` (every phase name but `INGEST`) is used by the acquisition renderer's `_PHASE_LINES` guard in `tick_pass_render.py`, by `test_acquisition_pass.py` and by `test_data_tick.py`. Those tests had iterated all of `TickPassPhaseName`, so they could not pass unchanged once `INGEST` was added. Ingest renders its own report (5.3).
 
-- [ ] **1.4 Update the parity test**
-  - [ ] `test_pass_contract_parity.py`: add the generic run type to the
+- [x] **1.4 Update the parity test**
+  - [x] `test_pass_contract_parity.py`: add the generic run type to the
         declared-divergence list, with a comment naming TD1
-  - [ ] Success: passes; all acquisition pass tests pass unchanged
-  - [ ] Effort: 1
-  - [ ] Commit: `refactor(tick): make the tick pass contract generic in its run`
+  - [x] Success: passes; all acquisition pass tests pass unchanged
+  - [x] Effort: 1
+  - [x] Commit: `refactor(tick): make the tick pass contract generic in its run`
+  - Note: new parity test `test_generic_run_type_is_the_declared_divergence` checks that tick `PassPhase`/`TickPass` have one type parameter bound to `TickStore` and that Kalshi's `PassPhase`/`CollectionPass` have none.
 
 - [ ] **1.5 Transition statement builders and a sync executor (TD3)**
   - [ ] In `manifest_repo.py`, each compare-and-set transition becomes a
