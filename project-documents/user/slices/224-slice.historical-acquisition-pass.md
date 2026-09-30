@@ -80,6 +80,13 @@ endpoints, through the project's own adapter
 | Job files | Each job holds one `.dbn.zst` file per UTC day that has data, plus `condition.json`, `metadata.json`, `symbology.json` and `manifest.json`. `manifest.json` lists the other files (`filename`, `size`, `hash` as `sha256:<hex>`) but not itself. The `tbbo` job exists only as its zip, and the zip contains `manifest.json`. | Adoption reads either a directory or a zip, and verifies against `manifest.json` in both cases. |
 | Existing final file | `_download.download_file` re-verifies a file that already has its final name and returns it. It refuses to touch one that does not match. | A crash between the download and the database update costs one re-hash, not a re-download. |
 | Archive location | `/data` is `manta:manta 0755` and is not in any backup: restic covers `/etc /root /var/spool/cron/crontabs /home/manta` with `--one-file-system`, and `/data` is a separate device. The root cron runs `scripts/cron_system_backup.sh` directly from this checkout. | Enrolment is an edit to the include list in this repository. No root is needed to create the directory (Technical Decision 11). |
+| Listing lag (224 live, 2026-09-29) | All four purchased definition jobs were listed by `batch_jobs_since` on the first poll after their submit (the run logs it per job). | `TICK_SUBMIT_RESOLVE_AGE` stays 1 h. |
+| Job time under a burst (224 live) | Four small jobs submitted within 16 s: three were done about 7 minutes after submit and the fourth was still queued at about 13 minutes (done by about 15). The earlier 5–84 s was single jobs. | The 1,800 s wait budget held, with room. 226 re-sets it from more measurements. |
+| `ts_expiration` while a job runs (224 live) | The provider reports no expiration for a `queued` or `processing` job; it appears when the job is `done` (a job done at 21:10 local had a deadline 30 days on). | A job still in flight is reported with its deadline "not yet known"; `download_deadline` is stored when the job is delivered. |
+| Day conditions skip Saturdays (224 live) | `get_dataset_condition` for 2024-08-30 → 2024-12-31 answered 106 of 124 days: the 18 missing were exactly the Saturdays. Sundays and holidays are present. The adapter required one entry per day, so the first live availability capture failed as a provider abort. | `parse_conditions` accepts an absent Saturday (`CONDITION_ABSENT_WEEKDAY`) and still refuses any other gap, repeat, disorder or out-of-range day. |
+| Batch download directory (224 live) | The adapter's `download_batch` writes into an existing directory and does not create it; the test fake created it, which hid the bug. The first live download aborted with `ENOENT`, and the four purchases were left *submitted*/*delivered* with no attempt counted. | `deliver_job` creates `<archive>/<job_id>` first; the fake now refuses a missing directory. The next run delivered all four with no new spend. |
+| Definition windows and re-sends (224 live) | The 78 daily definition files decoded to 51 instruments (23 outrights, 28 calendar spreads), every one with a defined activation and expiration, and no kept column changed across the daily re-sends (3,267 identical keys were no-ops). | The risk items in 222 TD5 and here (spreads without windows, a changing kept field) did not occur on this data. |
+| Cost of the first purchase (224 live) | Four jobs, $0.00409504 actual against $0.0041 planned. | The estimate matched the bill. |
 
 ## Value
 
@@ -1423,16 +1430,34 @@ database on the test cluster (see Dependencies). Export
 
    ```bash
    uv run mt data tick pass --estimate-only
-   uv run mt data tick pass; echo "exit $?"
+   ```
+
+   With the ceilings absent, the pass must refuse. `.env` is read from the
+   working directory, so run it from an empty directory with the settings
+   passed in the environment and no ceiling among them (values elided):
+
+   ```bash
+   cd "$(mktemp -d)" && env -i HOME="$HOME" PATH="$PATH" \
+       MT_DATABENTO_API_KEY=… MT_TICK_DB_URL=… MT_TICK_MAINTENANCE_URL=… \
+       MT_TIMESCALE_DB_URL=… MT_TICK_ARCHIVE_DIR=/data/tick-archive \
+       uv run --project <checkout> mt data tick pass; echo "exit $?"
    ```
 
    Expected:
    - The first shows four `definition` requests, 2024-08 to 2024-12, about
      $0.004 in total, and exits 0.
-   - With the ceilings unset, the second exits 5, names both
-     `MT_TICK_SPEND_CEILING_USD` and `MT_TICK_SPEND_30D_CEILING_USD`, and
-     submits nothing.
+   - The second exits 5, names both `MT_TICK_SPEND_CEILING_USD` and
+     `MT_TICK_SPEND_30D_CEILING_USD`, and submits nothing.
    - The Databento portal shows no new job.
+
+   Result (224, 2026-09-29): as expected, after one fix. The first attempt
+   ended `provider_abort` because the provider omits Saturdays from its day
+   conditions (findings table). Then `--estimate-only` planned 78 wanted days
+   as four requests, 2024-08-30 → 08-31 ($0.0001), 09-01 → 09-30 ($0.0013),
+   11-01 → 11-30 ($0.0013) and 12-01 → 2025-01-01 ($0.0014), $0.0041 in
+   all, and exited 0. The refusal run exited 5 with the message "both
+   MT_TICK_SPEND_CEILING_USD and MT_TICK_SPEND_30D_CEILING_USD must be set to
+   buy". The manifest still held its two adopted requests after both runs.
 
 6. **The first purchase (only after the PM sets both ceilings in `.env`,
    for example 1 and 5).**
@@ -1462,8 +1487,28 @@ database on the test cluster (see Dependencies). Export
 
    Without the ceilings, this step moves to 226.
 
+   Result (224, 2026-09-29/30): the PM's ceilings (0.50 per pass, 5 per 30
+   days) loaded from `.env`, and the purchase went through. The first run
+   submitted four jobs (`GLBX-20260930-MBERAR6R7T`, `-DLDYL5DM8Q`,
+   `-VDPHT5ESUC`, `-HVGRLYKHRN`) and then ended `storage_abort` (exit 4) at the
+   first download, because the adapter does not create the job directory
+   (findings table). Nothing was lost: the units stayed *submitted* or
+   *delivered*. After the fix, `pass` again exited 0 with no new purchase
+   (`verdict: nothing_to_buy`): reconcile downloaded and verified 53 units,
+   await the other 25, and the definitions phase projected all 78 units
+   (51 rows inserted, 3,267 no-ops, no failures). `tick_definition` holds 51
+   rows for 51 instruments (23 outrights, 28 spreads), activation
+   2021-06-04 to expiration 2030-03-15, none with an undefined window. The
+   four requests total $0.00409504. Each of the four job directories holds a
+   `manifest.json` (7, 31, 31 and 33 files), and the `jq | sha256sum -c` check
+   passes on all four. The listing-lag lines showed `True` for all four jobs.
+
 7. **Idempotence.** `uv run mt data tick pass` again. Expected: nothing
    planned, no submit, exit 0.
+
+   Result (224, 2026-09-30): as expected. `verdict: nothing_to_buy`, no
+   submit, exit 0, and `tick_request` still holds six rows (two adopted, four
+   purchased).
 
 8. **Reset.** Force one unit's state in the scratch database, then reset
    it:

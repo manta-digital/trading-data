@@ -81,6 +81,8 @@ class PurchasePlan:
     spend: SpendVerdict | None
     space: SpaceVerdict | None
     trailing_total: Decimal
+    per_pass_ceiling: Decimal | None
+    cap_30d: Decimal | None
 
     @property
     def has_wants(self) -> bool:
@@ -200,8 +202,10 @@ async def build_plan(
         )
     )
     items = [*await _resubmits(run), *await _costed(run, plan.requests)]
+    per_pass = run.settings.tick_spend_ceiling_usd
+    cap_30d = run.settings.tick_spend_30d_ceiling_usd
     if not items:
-        return PurchasePlan(plan, (), None, None, Decimal(0))
+        return PurchasePlan(plan, (), None, None, Decimal(0), per_pass, cap_30d)
     now = run.clock()
     trailing = await trailing_spend_rows(conn, now - TICK_SPEND_WINDOW)
     unheld = await _unheld(run, trailing)
@@ -209,14 +213,20 @@ async def build_plan(
         [PlannedCost(i.cost, counted=i.resubmit_of is not None) for i in items],
         trailing,
         unheld,
-        run.settings.tick_spend_ceiling_usd,
-        run.settings.tick_spend_30d_ceiling_usd,
+        per_pass,
+        cap_30d,
         now,
         estimate_only,
     )
     space = evaluate_space(sum(i.billable_bytes for i in items), free(run.archive_root))
     return PurchasePlan(
-        plan, tuple(items), spend, space, sum((t.cost for t in trailing), Decimal(0))
+        plan,
+        tuple(items),
+        spend,
+        space,
+        sum((t.cost for t in trailing), Decimal(0)),
+        per_pass,
+        cap_30d,
     )
 
 
@@ -248,8 +258,8 @@ def plan_summary(purchase: PurchasePlan) -> dict[str, Any]:
             {"job_id": job.job_id, "cost_usd": str(job.cost)}
             for job in (spend.unheld_jobs if spend else ())
         ],
-        "per_pass_ceiling_usd": _money(spend.per_pass_ceiling if spend else None),
-        "cap_30d_usd": _money(spend.cap_30d if spend else None),
+        "per_pass_ceiling_usd": _money(purchase.per_pass_ceiling),
+        "cap_30d_usd": _money(purchase.cap_30d),
         "verdict": spend.status.value if spend else "nothing_to_buy",
         "reasons": [*(spend.reasons if spend else ()), *_space_reason(space)],
     }

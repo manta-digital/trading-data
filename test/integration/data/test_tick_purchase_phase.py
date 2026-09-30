@@ -330,6 +330,9 @@ async def test_no_wants_is_ok_and_never_touches_the_calendar(
     assert report.outcome is TickOutcome.OK
     assert report.summary["verdict"] == "nothing_to_buy"
     assert provider.calls_to("submit_batch") == []
+    # the report shows the configured ceilings even when nothing is bought
+    assert report.summary["per_pass_ceiling_usd"] == str(PER_PASS)
+    assert report.summary["cap_30d_usd"] == str(CAP_30D)
 
 
 async def test_a_reset_row_is_resubmitted_on_the_same_request(
