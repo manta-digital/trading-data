@@ -16,6 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`mt data tick ingest`** loads the tick files you hold into the tick
+  database. Each trading day loads completely or not at all, after three
+  checks: the record counts agree, every trade belongs to a known contract,
+  and every trade falls in a trading session. A day that fails is marked with
+  the reason (fix it, then `mt data tick reset`); a day still waiting for its
+  contract definitions, or covered by a higher tier, is skipped and loads on
+  a later run. A `tbbo` day loaded over a `trades` day replaces it. The
+  largest adopted day (511,965 trades) loads in about 1.2 s.
+- **`mt data tick status`** shows, per product, how many sessions are held
+  and their state (complete, awaiting ingest, in flight, missing, failed and
+  so on), the dataset's edge and the contracts held.
+- **`mt data tick coverage --start --end`** proves a date range: it counts
+  the stored trades per contract and session against the ingest ledger and
+  exits `3` naming any mismatch.
+- None of the three needs a Databento API key; `status` and `coverage` need
+  no archive directory either.
+
 ## [0.22.0] - 2026-09-30
 
 ### Added

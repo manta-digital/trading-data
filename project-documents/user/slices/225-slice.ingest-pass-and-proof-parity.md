@@ -133,9 +133,12 @@ Notes list this as the state 225 leaves behind.
   (relative to `MT_TICK_ARCHIVE_DIR`) and `provider_record_count`. The
   request's `dataset`, `schema`, `symbols` and `stype_in`.
 - `tick_definition` rows with `asset` equal to the product root. Measured
-  on the archived definition files: 61 instruments per day, 21 outrights
-  (`instrument_class = 'F'`) and 40 spreads (`'S'`), all with
-  `asset = 'ES'`.
+  on the 78 archived definition files: 61 or 70 definition records per
+  day, which are 41 or 46 instruments: 21–22 outrights
+  (`instrument_class = 'F'`) and 20–24 spreads (`'S'`), most spreads sent
+  twice under one key, all with `asset = 'ES'`. (Corrected at
+  implementation, task 3.4: the design first counted records as
+  instruments.)
 - The production database, read-only, for sessions.
 - `tick_day_condition` and `tick_dataset_edge` for status.
 
@@ -499,8 +502,8 @@ written for every definition with `asset = product` whose window meets
 `[S.open, S.close]`: `record_count`, `volume` (sum of `size`),
 `first_event_ns`, `last_event_ns`. Instruments with no records in S get a
 zero-record row (NULL times), which the table's CHECKs require. A day
-typically touches two sessions and holds 61 valid instruments, so a unit
-writes about 122 ledger rows. The ledger's `calendar_id` comes from
+typically touches two sessions and holds 41–46 valid instruments, so a
+unit writes about 82–92 ledger rows. The ledger's `calendar_id` comes from
 `FUTURES_PRODUCT_CALENDAR`, and `session_date` from the session.
 
 **`sequence_ordinal`.** 222 Technical Decision 1 defines it as the number
@@ -745,7 +748,7 @@ ES  (CME_EQUITY, GLBX.MDP3, ES.FUT parent)   tier: not configured — no wanted 
     failed <n>   retry exhausted <n>   provider hole <n>   edge unknown <n>   (degraded <n>)
   caught up: n/a (no wanted range)
   complete = every unit ingested; raw-count proof: mt data tick coverage
-  contracts (outrights; 40 spreads hidden, --all-instruments to list):
+  contracts (outrights; 20 spreads hidden, --all-instruments to list):
     <raw_symbol>   exp <date>   sessions <n>   records <n>   volume <n>   <first session> → <last session>
 ```
 
@@ -1162,7 +1165,7 @@ Commit at each numbered step.
   database created in step 2 and dropped in step 9.
 - **Memory.** Per worker: one decoded batch (≤ 32 MiB), the ordinal carry
   (≈ 16 MB on the largest adopted day), and the ledger accumulator
-  (≈ 122 entries). Two workers stay under about 150 MB.
+  (≈ 82–92 entries). Two workers stay under about 150 MB.
 
 ### Architecture and plan statements this design supersedes
 

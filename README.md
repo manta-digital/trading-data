@@ -570,7 +570,8 @@ CME futures tick data from [Databento](https://databento.com) (initiative
 220). `estimate`, `adopt` and `reset` buy nothing: `estimate` is a
 cost-and-size preflight over Databento's free metadata endpoints, and `adopt`
 and `reset` maintain the manifest. **`pass` is the only command that can spend
-money**, and only inside both spend ceilings. Ingest (225) arrives next.
+money**, and only inside both spend ceilings. `ingest`, `status` and
+`coverage` load and report what is held; none of them needs the API key.
 
 **Storage.** The tick database lives apart from `trading`. `mt data init
 --database tick` builds it: seven tables on the `tick` migration track. They
@@ -689,6 +690,50 @@ lock). Exit codes for `adopt` and `reset`: `0` OK; `1` preflight or a refusal
 that wrote nothing; `2` provider error; `3` adopt finished but some units
 failed verification; `4` storage (archive write, the calendar, or the tick
 database).
+
+**Ingest.** `ingest` loads every verified `trades`/`tbbo` unit into
+`tick_trade`, two units at a time, each in one transaction: the rows, their
+ledger (one row per contract and session, zero-record rows included) and the
+unit's move to *ingested* commit together or not at all. Three checks guard
+each unit: the provider's record count, the records decoded and the rows
+stored must agree; every record must belong to a known contract of the
+product; and every record must fall in a trading session. A unit that fails is
+marked exhausted with the check named first in its reason (`counts:`,
+`resolution:`, `session_boundary:`, `overlap:`, `shape:` or `decode:`); fix the
+cause, then `mt data tick reset --unit-id N`. A unit waits (it is skipped, not
+failed) while its day's definitions are not loaded yet, or while a
+higher-tier unit (`tbbo` over `trades`) holds its day. A `tbbo` unit loaded
+over an ingested `trades` day replaces that day's `trades` rows in the same
+transaction. Running it again loads nothing new.
+
+```sh
+mt data tick ingest                        # every unit ready to load
+mt data tick ingest --unit-id 17 --json    # one unit; a unit that cannot load says why
+```
+
+Exit codes for `ingest`: `0` OK (skips included); `1` preflight (as above, but
+no API key is needed); `3` some units failed a check; `4` storage (the tick
+database or the calendar went away; units already committed stay loaded).
+
+**Status and coverage.** `status` shows, per product, the sessions held and
+how many are complete, awaiting ingest, in flight, pending, missing, failed,
+exhausted, holed or of unknown condition, with the dataset's edge and the
+contracts held (spreads hidden unless `--all-instruments`). Its `complete`
+means every unit covering the session is ingested; `coverage` proves the raw
+rows for a date range: it counts `tick_trade` rows per contract and session
+and compares them with the ledger.
+
+```sh
+mt data tick status
+mt data tick status --all-instruments --json
+mt data tick coverage --start 2024-09-03 --end 2024-09-07   # --end EXCLUSIVE
+```
+
+Neither command needs the API key or `MT_TICK_ARCHIVE_DIR`, and neither takes
+the run lock. Exit codes: `0` OK; `1` preflight (a setting, a pending tick
+migration, an unknown `--product`, `--end` not after `--start`); `3` coverage
+found a mismatch (it names the contract and both counts); `4` the tick or
+production (calendar) database is unreachable.
 
 ## Data Serving API
 

@@ -128,94 +128,100 @@ status: not_started
 
 ## Section 6: Status and coverage (TD9, TD10, TD11)
 
-- [ ] **6.1 Create `data/tick/tick_status.py`: classification (pure)**
-  - [ ] `TickSessionStatus(StrEnum)` and one precedence tuple, worst first,
+- [x] **6.1 Create `data/tick/tick_status.py`: classification (pure)**
+  - [x] `TickSessionStatus(StrEnum)` and one precedence tuple, worst first,
         exactly as TD9's table (with `awaiting_ingest`)
-  - [ ] A day's unit is the highest-ranked current tier unit (TD5's rule).
+  - [x] A day's unit is the highest-ranked current tier unit (TD5's rule).
         A session's condition is the worst of its days (`missing` >
         `degraded` > `pending` > `available`, `unknown` if a day lacks a
         row), with Saturdays exempt
-  - [ ] "Caught up": every session in scope is `complete`, or
+  - [x] "Caught up": every session in scope is `complete`, or
         `provider_hole` on a provider-`missing` day. It is "n/a" with no
         wanted range
-  - [ ] Success: imports; no I/O
-  - [ ] Effort: 2
+  - [x] Success: imports; no I/O
+  - [x] Effort: 2
+  - Note: `tick_status.py` exports `TickSessionStatus` (declared worst first), `STATUS_PRECEDENCE`, `CONDITION_PRECEDENCE`, `DayUnit`, `DayFacts`, `day_unit`, `classify_day`, `classify_session`, `session_condition`, `SessionVerdict`/`verdict` and `caught_up`. A tie between two current units of the same tier on one day picks the newest `unit_id`.
 
-- [ ] **6.2 Classification tests (FR9, part)**
-  - [ ] One test per bucket; precedence when two rules match; the worst
+- [x] **6.2 Classification tests (FR9, part)**
+  - [x] One test per bucket; precedence when two rules match; the worst
         condition across a session's two days; the Saturday exemption; a
         `complete` session with a `degraded` day counted as complete and
         tallied as degraded; caught up with and without a wanted range
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): classify tick sessions for status`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): classify tick sessions for status`
+  - Note: the tests are in `test/unit/data/tick/test_tick_status.py` (22 tests).
 
-- [ ] **6.3 Create `data/tick/status_reads.py`**
-  - [ ] Reads: units per shape and day (state, fetch status, current,
+- [x] **6.3 Create `data/tick/status_reads.py`**
+  - [x] Reads: units per shape and day (state, fetch status, current,
         schema); ledger sums per (instrument, session) over current units;
         conditions; the edge with `observed_at`; per-contract lines (ledger
         joined to `tick_definition` for `raw_symbol`, `instrument_class`,
         `expiration_ns`)
-  - [ ] Raw counts for coverage: one grouped count over `tick_trade`
+  - [x] Raw counts for coverage: one grouped count over `tick_trade`
         bounded by the range's first open and last close, with rows
         assigned to sessions by a join against session arrays passed as
         parameters
-  - [ ] No read scans `tick_trade` except the coverage count
-  - [ ] Success: imports
-  - [ ] Effort: 2
+  - [x] No read scans `tick_trade` except the coverage count
+  - [x] Success: imports
+  - [x] Effort: 2
+  - Note: the reads are `shape_units`, `ledger_totals`, `conditions`, `dataset_edge`, `contract_lines` (latest definition via `DISTINCT ON`) and `raw_counts` (the one `tick_trade` scan, joining `unnest` session arrays). `Shape(dataset, symbols, stype_in)` filters to the product's own units. The tests are in `test/integration/data/test_tick_status_reads.py`.
 
-- [ ] **6.4 Status read tests**
-  - [ ] Integration on `migrated_tick_db` with seeded units, ledger rows
+- [x] **6.4 Status read tests**
+  - [x] Integration on `migrated_tick_db` with seeded units, ledger rows
         and a few `tick_trade` rows:
-    - each read returns the seeded values
-    - superseded units' ledger rows are excluded from the sums
-    - the raw count assigns rows on both sides of 00:00 UTC to the right
+    - [x] each read returns the seeded values
+    - [x] superseded units' ledger rows are excluded from the sums
+    - [x] the raw count assigns rows on both sides of 00:00 UTC to the right
       session, and ignores rows outside the range
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add tick status reads`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add tick status reads`
 
-- [ ] **6.5 `build_status` and `build_coverage`**
-  - [ ] In `tick_status.py` (split if it passes ~300 lines): scope per TD9
+- [x] **6.5 `build_status` and `build_coverage`**
+  - [x] In `tick_status.py` (split if it passes ~300 lines): scope per TD9
         (the wanted range if a tier is set, plus sessions touched by current
         tier units), sessions from the production calendar, and frozen
         dataclasses with `to_dict()`. The status result carries
         `complete_basis: "units"` (TD10)
-  - [ ] Coverage marks a session `mismatch` when the raw count differs from
+  - [x] Coverage marks a session `mismatch` when the raw count differs from
         the ledger sum, naming the instruments and both counts
-  - [ ] A production or tick outage raises (→ exit 4). There is no degraded
+  - [x] A production or tick outage raises (→ exit 4). There is no degraded
         output
-  - [ ] Success: imports
-  - [ ] Effort: 3
+  - [x] Success: imports
+  - [x] Effort: 3
+  - Note: split along its concern. `tick_status_build.py` (245 lines) holds `build_status` and the helpers coverage shares (`calendar_sessions`, `session_verdicts`, `shape_of`, `jsonable`); `tick_coverage.py` (115 lines) holds `build_coverage`, `TickCoverage`, `CoverageSession` and `Mismatch`. `session_days.py` now exposes `days_touched(session)` and `utc_midnight(day)`, which `session_days`, `ingest_plan` and the builders all use. `build_status` takes `all_instruments`; spreads (`instrument_class = 'S'`) are hidden and counted in `spreads_hidden`.
 
-- [ ] **6.6 Status and coverage integration tests (FR9, FR10)**
-  - [ ] After ingesting fixture days: status buckets match expectations,
+- [x] **6.6 Status and coverage integration tests (FR9, FR10)**
+  - [x] After ingesting fixture days: status buckets match expectations,
         spreads are hidden in the per-contract list, and `to_dict()`
         round-trips through JSON
-  - [ ] Coverage reports `ok`. After deleting one `tick_trade` row it
+  - [x] Coverage reports `ok`. After deleting one `tick_trade` row it
         reports `mismatch` naming the instrument, with the ledger one more
         than raw
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): build tick status and coverage`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): build tick status and coverage`
+  - Note: the tests are in `test/integration/data/test_tick_status_build.py`. The fixture's extra 2024-09-02 unit brings session 09-02 (it opens Sunday 09-01) into scope, so 5 sessions are held. Day 09-03 belongs to both sessions 09-03 and 09-04, so both count as degraded.
 
-- [ ] **6.7 `status` and `coverage` verbs**
-  - [ ] In `tick_store_cmds.py`: `status [--product] [--all-instruments]
+- [x] **6.7 `status` and `coverage` verbs**
+  - [x] In `tick_store_cmds.py`: `status [--product] [--all-instruments]
         [--json]` and `coverage --start --end [--product] [--json]`.
         `--start` and `--end` are required. They connect through the plain
         helper from 1.1: no lock, no archive directory
-  - [ ] Rendering goes in new `cli/commands/tick_status_render.py`,
+  - [x] Rendering goes in new `cli/commands/tick_status_render.py`,
         matching the LLD's API Contracts layout, including the line
         "complete = every unit ingested; raw-count proof: mt data tick
         coverage"
-  - [ ] Exits: 0; 1 preflight; 3 when coverage finds a mismatch; 4 for an
+  - [x] Exits: 0; 1 preflight; 3 when coverage finds a mismatch; 4 for an
         unreachable tick or production database
-  - [ ] CLI tests: exit codes, `--json` equals `to_dict()` plus
+  - [x] CLI tests: exit codes, `--json` equals `to_dict()` plus
         `exit_code`, and both verbs run with `MT_DATABENTO_API_KEY` and
         `MT_TICK_ARCHIVE_DIR` unset (FR11)
-  - [ ] Success: passes; each file under ~300 lines
-  - [ ] Effort: 2
-  - [ ] Commit: `feat(tick): add mt data tick status and coverage verbs`
+  - [x] Success: passes; each file under ~300 lines
+  - [x] Effort: 2
+  - [x] Commit: `feat(tick): add mt data tick status and coverage verbs`
+  - Note: the verbs are in `tick_store_cmds.py` (233 lines) and are registered in `tick.py` (288 lines); rendering is in `tick_status_render.py`. A new `TickDatabaseUnreachable(TickPreflightError)` in `store_context.py` keeps the writers' exit 1, and `run_mapped(..., storage=...)` maps it to exit 4 for status and coverage only. Coverage `--json` is `{"products": [to_dict()...], "exit_code": n}` because a run can cover several products. The tests are in `test/integration/data/test_tick_status_cli.py` (8 tests), run with no key and no archive directory.
 
 ---
 
