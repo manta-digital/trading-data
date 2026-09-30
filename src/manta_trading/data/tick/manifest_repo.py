@@ -163,14 +163,14 @@ async def _transition(
             raise ManifestTransitionError(unit_id, expected)
 
 
-_ADVANCE_SET: LiteralString = (
+ADVANCE_SET: LiteralString = (
     "state = %s, state_changed_at = %s, fetch_status = %s,"
     " failure_reason = NULL, attempt_count = 0"
 )
 
 
-def _advance(state: UnitState, now: datetime) -> tuple[object, ...]:
-    """Parameters for ``_ADVANCE_SET``: the new state, no failure outstanding."""
+def advance_params(state: UnitState, now: datetime) -> tuple[object, ...]:
+    """Parameters for ``ADVANCE_SET``: the new state, no failure outstanding."""
     return (state.value, now, FetchStatus.UNKNOWN.value)
 
 
@@ -186,9 +186,9 @@ async def mark_downloaded(
     await _transition(
         conn,
         unit_id,
-        f"{_ADVANCE_SET}, file_path = %s, file_size_bytes = %s, file_sha256 = %s",
+        f"{ADVANCE_SET}, file_path = %s, file_size_bytes = %s, file_sha256 = %s",
         _OPEN_FROM,
-        _advance(UnitState.DOWNLOADED, now)
+        advance_params(UnitState.DOWNLOADED, now)
         + (file.path, file.size, file.sha256, UnitState.DELIVERED.value, _OPEN),
         f"{UnitState.DELIVERED} and open",
     )
@@ -201,11 +201,27 @@ async def mark_verified(
     await _transition(
         conn,
         unit_id,
-        f"{_ADVANCE_SET}, provider_record_count = %s",
+        f"{ADVANCE_SET}, provider_record_count = %s",
         _OPEN_FROM,
-        _advance(UnitState.VERIFIED, now)
+        advance_params(UnitState.VERIFIED, now)
         + (provider_record_count, UnitState.DOWNLOADED.value, _OPEN),
         f"{UnitState.DOWNLOADED} and open",
+    )
+
+
+async def mark_ingested(
+    conn: Conn, unit_id: int, decoded_record_count: int, now: datetime
+) -> None:
+    """*verified* → *ingested*, storing the decoded count. For a definition
+    unit this means "projected into ``tick_definition``" (TD5)."""
+    await _transition(
+        conn,
+        unit_id,
+        f"{ADVANCE_SET}, decoded_record_count = %s",
+        _OPEN_FROM,
+        advance_params(UnitState.INGESTED, now)
+        + (decoded_record_count, UnitState.VERIFIED.value, _OPEN),
+        f"{UnitState.VERIFIED} and open",
     )
 
 

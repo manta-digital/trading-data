@@ -196,3 +196,24 @@ TICK_SUBMIT_RESOLVE_AGE = timedelta(hours=1)
 
 #: The rolling window the 30-day spend ceiling is summed over (TD7).
 TICK_SPEND_WINDOW = timedelta(days=30)
+
+# -- Slice 224: the provider's "undefined" values in a definition record (TD5) --
+
+#: ``activation``/``expiration`` when the provider gives no timestamp
+#: (DBN ``UNDEF_TIMESTAMP``, ``u64::MAX``).
+UNDEF_TIMESTAMP_NS = 2**64 - 1
+#: DBN ``UNDEF_PRICE`` (``i64::MAX``): an undefined price or quantity field.
+UNDEF_INT64 = 2**63 - 1
+#: An undefined ``i32`` field (``i32::MAX``), e.g. ``contract_multiplier``.
+UNDEF_INT32 = 2**31 - 1
+
+#: Definition source field → its "undefined" value; the writer stores ``NULL``
+#: for these (222 TD3: ``tick_definition`` is a model table). An empty string
+#: is undefined for every text field.
+DEFINITION_UNDEFINED: Final[Mapping[str, int]] = {
+    "activation": UNDEF_TIMESTAMP_NS,
+    "expiration": UNDEF_TIMESTAMP_NS,
+    "min_price_increment": UNDEF_INT64,
+    "unit_of_measure_qty": UNDEF_INT64,
+    "contract_multiplier": UNDEF_INT32,
+}
