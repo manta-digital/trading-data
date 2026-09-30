@@ -6,8 +6,8 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [923, 220, 221, 222, 223]
 interfaces: [225, 226, 227, 228, 229, 231, 233]
 dateCreated: 20260928
-dateUpdated: 20260929
-status: not_started
+dateUpdated: 20260930
+status: complete
 review: none
 ---
 
@@ -1358,6 +1358,13 @@ database on the test cluster (see Dependencies). Export
 
    Expected: all pass.
 
+   Result (224, 2026-09-30): the tick unit tests (372) and the tick
+   integration tests (227) pass. The full tiers show no failure beyond the
+   baseline taken on the slice branch before any change: unit 4,156 passed and
+   none failed; integration 744 passed and the same six known failures
+   (`test_cli_lists` priority1 ×2, `test_migration_051_052` ×2,
+   `test_policy_advances_head` ×2).
+
 2. **A scratch tick database, and the real archive directory.**
 
    ```bash
@@ -1568,6 +1575,13 @@ database on the test cluster (see Dependencies). Export
     Then drop both databases (both created by this walkthrough) with
     `dropdb --maintenance-db="$MT_TIMESCALE_TEST_URL" <name>`. Confirm
     with a count of 0 from `pg_database` for each.
+
+    Result (224, 2026-09-30): as expected. All six job directories
+    re-adopted into `mt_scratch_tick_223b` (six exits 0; 156 units, all
+    *verified*). `provider_job_id`, `actual_cost_usd` and `committed_at` are
+    identical to `mt_scratch_tick_223` for all six requests (`diff` of the two
+    queries is empty). Both databases were dropped, `pg_database` counts 0 for
+    each, and the archive holds its six job directories.
 
     Until a durable tick database exists, the archive plus the provider's
     job records are the durable spend record, with the provider-side

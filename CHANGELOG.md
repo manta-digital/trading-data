@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New exit codes `5` (a spend guard refused) and `6` (jobs still processing
   when the wait budget ended) for `mt data tick pass`.
 
+### Fixed
+- `mt data tick estimate` (and the pass) no longer fail on a date range that
+  contains a Saturday: Databento omits Saturdays from its per-day data
+  conditions, and any other missing or repeated day is still refused.
+
 ## [0.21.0] - 2026-09-29
 
 ### Added

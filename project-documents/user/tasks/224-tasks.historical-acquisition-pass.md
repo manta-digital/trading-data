@@ -14,8 +14,8 @@ projectState: >
   PM has set both spend ceilings in the dev .env (0.50 per pass, 5 per 30
   days).
 dateCreated: 20260928
-dateUpdated: 20260929
-status: in_progress
+dateUpdated: 20260930
+status: complete
 ---
 
 # Tasks: Historical Acquisition Pass
@@ -452,66 +452,69 @@ calendar `OutOfPopulatedRangeError` or an unreachable calendar database →
 
 ## Section 9 — Documents
 
-- [ ] **9.1 Contract rows and plan Notes**
-  - [ ] `user/reference/data-correctness-architecture.md`: 224's part in
+- [x] **9.1 Contract rows and plan Notes**
+  - [x] `user/reference/data-correctness-architecture.md`: 224's part in
         rows I9 (the unknown-outcome reconcile), I10 (the `pass` verb), I11
         (the pass's manifest writes, availability capture), I12
         (repurchase and supersession links), I14 (definitions with enforced
         windows)
-  - [ ] Slice plan Notes: "Statements superseded by 224's slice design",
+  - [x] Slice plan Notes: "Statements superseded by 224's slice design",
         the six items from the LLD section of that name, one line each
-  - [ ] Success: `dateUpdated` bumped on both
-  - [ ] Effort: 1
+  - [x] Success: `dateUpdated` bumped on both
+  - [x] Effort: 1
 
-- [ ] **9.2 README and CHANGELOG**
-  - [ ] README "Futures tick data": `mt data tick pass`, its phases, both
+- [x] **9.2 README and CHANGELOG**
+  - [x] README "Futures tick data": `mt data tick pass`, its phases, both
         spend ceilings and the exit codes
-  - [ ] CHANGELOG `[Unreleased]` Added entries, user-facing wording
-  - [ ] Success: all updated
-  - [ ] Effort: 1
-  - [ ] Commit: `docs: record tick acquisition pass in contract, plan and readmes`
+  - [x] CHANGELOG `[Unreleased]` Added entries, user-facing wording
+  - [x] Success: all updated
+  - [x] Effort: 1
+  - [x] Commit: `docs: record tick acquisition pass in contract, plan and readmes`
 
 ---
 
 ## Section 10 — Validation
 
-- [ ] **10.1 Lint, types and tiers**
-  - [ ] ruff and mypy per the test environment note; unit then integration tier; compare
+- [x] **10.1 Lint, types and tiers**
+  - [x] ruff and mypy per the test environment note; unit then integration tier; compare
         with the Section 0 baseline
-  - [ ] Success: no failure outside the baseline
-  - [ ] Effort: 2
+  - [x] Success: no failure outside the baseline
+  - [x] Effort: 2
+  - Note: final tiers vs baseline: unit 4,156 passed, 0 failed; integration 744 passed, the same six known failures as the baseline (diff of the failing ids is empty).
 
-- [ ] **10.2 Walkthrough steps 5 and 6: plan, then the live purchase**
-  - [ ] Confirm both ceilings load from the dev `.env` (`uv run python -c`
+- [x] **10.2 Walkthrough steps 5 and 6: plan, then the live purchase**
+  - [x] Confirm both ceilings load from the dev `.env` (`uv run python -c`
         printing the two `Settings` fields). If either is absent, run step 5
         only, record step 6 as deferred to 226 (LLD Dependencies), skip the
         listing-lag and definition-window observations, and in 10.3 re-adopt
         only the two free-credit jobs
-  - [ ] In `mt_scratch_tick_223`: step 5 (`--estimate-only` shows four
+  - [x] In `mt_scratch_tick_223`: step 5 (`--estimate-only` shows four
         definition requests ≈ $0.004; with both ceiling variables unset in
         the shell the pass exits 5 naming both). Step 6 (live purchase with
         the `.env` ceilings): four jobs, definitions *ingested*,
         `tick_definition` query, `manifest.json` in each job directory with
         `sha256sum -c` passing
-  - [ ] If step 6 fails on a spread without a window or a changed definition
+  - [x] If step 6 fails on a spread without a window or a changed definition
         field, STOP and report the named instrument and field (LLD Risk
         Assessment); do not loosen the rule
-  - [ ] Record outputs in the LLD walkthrough and the listing-lag
+  - [x] Record outputs in the LLD walkthrough and the listing-lag
         observation in the findings table; if any job was not listed on the
         first poll, re-set `TICK_SUBMIT_RESOLVE_AGE` from the measurement and
         note it
-  - [ ] Success: steps 5 and 6 match (or step 6 recorded as deferred)
-  - [ ] Effort: 2
-  - [ ] Commit: `docs: record slice 224 purchase walkthrough findings`
+  - [x] Success: steps 5 and 6 match (or step 6 recorded as deferred)
+  - [x] Effort: 2
+  - [x] Commit: `docs: record slice 224 purchase walkthrough findings`
+  - Note: both ceilings loaded from .env (0.50 per pass, 5 per 30 days). Step 5 needed one fix first: Databento omits Saturdays from get_dataset_condition (parse_conditions now accepts an absent Saturday). Step 6 bought four definition jobs, $0.00409504 in total; the first run then hit a second real-provider fact (download_batch does not create the job directory), fixed in deliver_job, after which the next pass delivered everything with no new spend. All four jobs were listed on the first poll after submit, so TICK_SUBMIT_RESOLVE_AGE stays 1 h. 51 definitions (23 outrights, 28 spreads), every window defined, no changed field. Results are recorded in the LLD walkthrough and its findings table.
 
-- [ ] **10.3 Walkthrough steps 7 and 10: idempotence, rebuild, teardown**
-  - [ ] Step 7: a second `pass` plans nothing and exits 0
-  - [ ] Step 10: rebuild into `mt_scratch_tick_223b` from every job
+- [x] **10.3 Walkthrough steps 7 and 10: idempotence, rebuild, teardown**
+  - [x] Step 7: a second `pass` plans nothing and exits 0
+  - [x] Step 10: rebuild into `mt_scratch_tick_223b` from every job
         directory under the archive (six, or two if step 6 was deferred),
         compare `provider_job_id`, `actual_cost_usd` and `committed_at` with
         `mt_scratch_tick_223`, then drop both scratch databases and confirm
         a `pg_database` count of 0 for each
-  - [ ] Success: rows match; both scratch databases gone; the archive
+  - [x] Success: rows match; both scratch databases gone; the archive
         remains
-  - [ ] Effort: 1
-  - [ ] Commit: `docs: record slice 224 verification walkthrough`
+  - [x] Effort: 1
+  - [x] Commit: `docs: record slice 224 verification walkthrough`
+  - Note: step 7 planned nothing (exit 0). Step 10: all six job directories re-adopted into mt_scratch_tick_223b; provider_job_id, actual_cost_usd and committed_at identical; both scratch databases dropped (pg_database count 0 each); the archive keeps its six job directories.
