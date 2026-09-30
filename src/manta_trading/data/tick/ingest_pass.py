@@ -202,4 +202,3 @@ class IngestPhase:
             return await run_ingest(run, self._inputs, summary)
 
         return await run_phase(self.name, body)
-

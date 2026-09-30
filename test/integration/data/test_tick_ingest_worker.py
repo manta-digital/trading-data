@@ -39,9 +39,16 @@ def calendars(session_migrated_db: str) -> Iterator[Calendars]:
     cache.close()
 
 
-async def _seed(url: str, archive: Path, **kwargs: int) -> SeededUnit:
+async def _seed(
+    url: str, archive: Path, provider_record_count: int | None = None
+) -> SeededUnit:
     return await seed_tier_unit(
-        url, archive, TickSchema.TRADES, TRADES_DAY, job_id="JOB", **kwargs
+        url,
+        archive,
+        TickSchema.TRADES,
+        TRADES_DAY,
+        job_id="JOB",
+        provider_record_count=provider_record_count,
     )
 
 
