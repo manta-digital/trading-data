@@ -47,6 +47,7 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
 from manta_trading.data.tick.estimate import CeilingVerdict
+from manta_trading.data.tick.pass_contract import TickOutcome
 from manta_trading.data.tick.reset import ResetAction, ResetChange
 from manta_trading.data.tick.run_context import TickPreflightError
 from manta_trading.providers.errors import ProviderTransientError
@@ -363,3 +364,24 @@ def test_reset_needs_exactly_one_target(writer_run: None, args: list[str]) -> No
         result = runner.invoke(app, [*RESET, *args, "--yes"])
     assert result.exit_code == cmd.EXIT_PREFLIGHT
     core.assert_not_called()
+
+
+# -- exit codes for the pass (slice 224) -------------------------------------
+
+
+def test_every_tick_outcome_has_an_exit_code() -> None:
+    assert set(cmd.EXIT_BY_OUTCOME) == set(TickOutcome)
+
+
+def test_exit_codes_are_zero_to_six_and_unique() -> None:
+    codes = list(cmd.EXIT_BY_OUTCOME.values())
+    assert sorted(codes) == [0, 2, 3, 4, 5, 6]
+    assert len(set(codes)) == len(codes)
+    assert {cmd.EXIT_PREFLIGHT, *codes} == set(range(7))
+
+
+def test_pass_exit_codes_reuse_223s_partial_and_storage() -> None:
+    assert cmd.EXIT_BY_OUTCOME[TickOutcome.PARTIAL] == cmd.EXIT_PARTIAL == 3
+    assert cmd.EXIT_BY_OUTCOME[TickOutcome.STORAGE_ABORT] == cmd.EXIT_STORAGE == 4
+    assert cmd.EXIT_BY_OUTCOME[TickOutcome.REFUSED] == cmd.EXIT_REFUSED == 5
+    assert cmd.EXIT_BY_OUTCOME[TickOutcome.IN_FLIGHT] == cmd.EXIT_IN_FLIGHT == 6

@@ -102,7 +102,7 @@ class TickRun:
     provider: TickProvider
     conn: psycopg.AsyncConnection[Any]
     archive_root: Path
-    run_id: str
+    run_id: uuid.UUID
     clock: Clock
 
 
@@ -251,6 +251,6 @@ async def open_tick_run(
             provider=provider,
             conn=conn,
             archive_root=archive_root,
-            run_id=uuid.uuid4().hex,
+            run_id=uuid.uuid4(),
             clock=clock,
         )

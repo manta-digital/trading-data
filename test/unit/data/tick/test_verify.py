@@ -10,6 +10,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -79,7 +80,7 @@ def run(tmp_path: Path, metadata: FakeApi) -> TickRun:
         provider=provider,
         conn=None,  # type: ignore[arg-type]
         archive_root=tmp_path,
-        run_id="test",
+        run_id=uuid4(),
         clock=lambda: NOW,
     )
 

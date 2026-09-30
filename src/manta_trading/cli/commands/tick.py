@@ -21,6 +21,7 @@ from manta_trading.cli.commands.tick_render import print_estimate
 from manta_trading.cli.output import print_error
 from manta_trading.data.tick.constants import CME_DATASET, ESTIMATE_SCHEMAS, SType
 from manta_trading.data.tick.estimate import EstimateRefusedError, build_estimate
+from manta_trading.data.tick.pass_contract import TickOutcome
 from manta_trading.data.tick.provider import TickRequest
 from manta_trading.providers.errors import ProviderAuthError, ProviderError
 
@@ -34,6 +35,23 @@ EXIT_PREFLIGHT = 1
 EXIT_PROVIDER = 2
 EXIT_PARTIAL = 3  # some units failed; the run itself finished (223 adopt, 224 pass)
 EXIT_STORAGE = 4  # archive write, calendar, or tick database failure (223)
+EXIT_REFUSED = 5  # a guard refused the purchase (224 pass)
+EXIT_IN_FLIGHT = 6  # the wait budget ended with jobs still processing (224 pass)
+
+EXIT_BY_OUTCOME: dict[TickOutcome, int] = {
+    TickOutcome.OK: EXIT_OK,
+    TickOutcome.PARTIAL: EXIT_PARTIAL,
+    TickOutcome.PROVIDER_ABORT: EXIT_PROVIDER,
+    TickOutcome.STORAGE_ABORT: EXIT_STORAGE,
+    TickOutcome.REFUSED: EXIT_REFUSED,
+    TickOutcome.IN_FLIGHT: EXIT_IN_FLIGHT,
+}
+
+# Every outcome must have a code — a new member cannot silently exit 0.
+assert set(EXIT_BY_OUTCOME) == set(TickOutcome), (
+    "the tick exit mapping is not exhaustive — update it after adding a "
+    "TickOutcome member"
+)
 
 _DATE_FORMAT = "%Y-%m-%d"
 
