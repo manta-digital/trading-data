@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-30
+
 ### Added
 - **`mt data tick pass`** is the first command that can buy tick data. It
   reconciles earlier purchases, records Databento's availability, plans and
