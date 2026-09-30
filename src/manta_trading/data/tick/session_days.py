@@ -30,8 +30,19 @@ class SessionSource(Protocol):
     ) -> Sequence[Session]: ...
 
 
-def _utc_midnight(day: date) -> datetime:
+def utc_midnight(day: date) -> datetime:
     return datetime.combine(day, time(), UTC)
+
+
+def days_touched(session: Session) -> list[date]:
+    """The UTC days a session's closed interval touches, in order."""
+    day = session.open_utc.astimezone(UTC).date()
+    last = (session.close_utc - _LAST_INSTANT).astimezone(UTC).date()
+    days = []
+    while day <= last:
+        days.append(day)
+        day += _ONE_DAY
+    return days
 
 
 def session_days(calendar: SessionSource, start: date, end: date) -> list[date]:
@@ -41,11 +52,6 @@ def session_days(calendar: SessionSource, start: date, end: date) -> list[date]:
     calendar propagates: a range outside the populated span is never guessed.
     """
     touched: set[date] = set()
-    for session in calendar.sessions_between(_utc_midnight(start), _utc_midnight(end)):
-        day = session.open_utc.astimezone(UTC).date()
-        last = (session.close_utc - _LAST_INSTANT).astimezone(UTC).date()
-        while day <= last:
-            if start <= day < end:
-                touched.add(day)
-            day += _ONE_DAY
+    for session in calendar.sessions_between(utc_midnight(start), utc_midnight(end)):
+        touched.update(day for day in days_touched(session) if start <= day < end)
     return sorted(touched)

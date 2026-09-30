@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, timedelta
 
 import psycopg
 
@@ -50,6 +50,7 @@ from manta_trading.data.tick.ingest_records import (
     utc_ns,
 )
 from manta_trading.data.tick.manifest_reads import Conn, UnitRow
+from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.tick_calendar import TickCalendarError, planning_product
 
 
@@ -73,10 +74,6 @@ class UnitIngestPlan:
     superseded: tuple[SupersededUnit, ...]
 
 
-def _midnight(day: date) -> datetime:
-    return datetime.combine(day, time(), UTC)
-
-
 class Calendars:
     """One ``TradingCalendar`` per product for a run; blocking, close when done."""
 
@@ -95,7 +92,7 @@ class Calendars:
             calendar = self._open[calendar_id] = TradingCalendar(calendar_id, self._url)
         try:
             sessions = calendar.sessions_between(
-                _midnight(day), _midnight(day + timedelta(days=1))
+                utc_midnight(day), utc_midnight(day + timedelta(days=1))
             )
             first_open, last_close = calendar.populated_span()
             zone = calendar.zone()
