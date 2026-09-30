@@ -30,7 +30,8 @@ from manta_trading.data.tick.spend_guard import TrailingRow
 
 Conn = psycopg.AsyncConnection[Any]
 
-_OPEN_STATUSES = [status.value for status in OPEN_FETCH_STATUSES]
+#: ``fetch_status`` values a unit can still move from.
+OPEN_STATUS_VALUES = [status.value for status in OPEN_FETCH_STATUSES]
 
 #: A unit that counts as holding its day (LLD 224, State Management). The one
 #: spelling of the coverage predicate; every "current unit" read uses it.
@@ -132,7 +133,7 @@ async def open_units_in(conn: Conn, state: UnitState) -> list[UnitRow]:
     return await _unit_rows(
         conn,
         "u.state = %s AND u.reopened_at IS NULL AND u.fetch_status = ANY(%s)",
-        (state.value, _OPEN_STATUSES),
+        (state.value, OPEN_STATUS_VALUES),
     )
 
 
@@ -146,7 +147,7 @@ async def verified_definition_units(conn: Conn) -> list[UnitRow]:
         conn,
         "u.state = %s AND r.schema = %s AND u.reopened_at IS NULL"
         " AND u.fetch_status = ANY(%s)",
-        (UnitState.VERIFIED.value, TickSchema.DEFINITION.value, _OPEN_STATUSES),
+        (UnitState.VERIFIED.value, TickSchema.DEFINITION.value, OPEN_STATUS_VALUES),
         order="u.unit_date, u.unit_id",
     )
 
@@ -283,7 +284,7 @@ async def requests_with_units_in(conn: Conn, state: UnitState) -> list[RequestRo
         "r.provider_job_id IS NOT NULL AND EXISTS (SELECT 1 FROM"
         " tick_archive_unit u WHERE u.request_id = r.request_id AND u.state = %s"
         " AND u.reopened_at IS NULL AND u.fetch_status = ANY(%s))",
-        (state.value, _OPEN_STATUSES),
+        (state.value, OPEN_STATUS_VALUES),
     )
 
 

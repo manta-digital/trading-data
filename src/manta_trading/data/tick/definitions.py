@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from psycopg import errors
 
 from manta_trading.data.tick.constants import DEFINITION_UNDEFINED, UnitState
@@ -57,6 +58,8 @@ _COMPARED = tuple(
     for column in TICK_DEFINITION_COLUMNS.values()
     if column not in (*_KEY_COLUMNS, "ts_recv_ns")
 )
+#: Column names only ever come from these module constants, never from input,
+#: so the SQL built from them below is safe; every value is still a parameter.
 _INSERT_COLUMNS = (*TICK_DEFINITION_COLUMNS.values(), "unit_id")
 
 
@@ -84,7 +87,9 @@ def _value(source: str, raw: object) -> object:
     """A record field as a column value: sentinels and empty strings → ``None``."""
     if isinstance(raw, bytes):
         return raw.decode("ascii") or None
-    value = int(raw)  # type: ignore[call-overload]
+    if not isinstance(raw, int | np.integer):
+        raise TypeError(f"definition field {source}: unexpected {type(raw).__name__}")
+    value = int(raw)
     return None if DEFINITION_UNDEFINED.get(source) == value else value
 
 
@@ -92,7 +97,7 @@ def _label(row: Row) -> str:
     return f"instrument {row['instrument_id']} ({row['raw_symbol']})"
 
 
-def _decode(path: Path, reader: ITickFileReader) -> tuple[list[Row], int]:
+def _decode(path: Path, reader: ITickFileReader) -> list[Row]:
     """Every record of the file as a column-keyed row. Blocking."""
     rows: list[Row] = []
     for batch in reader.open_file(path).iter_batches():
@@ -103,7 +108,7 @@ def _decode(path: Path, reader: ITickFileReader) -> tuple[list[Row], int]:
                     for source, column in TICK_DEFINITION_COLUMNS.items()
                 }
             )
-    return rows, len(rows)
+    return rows
 
 
 def _differences(first: Row, second: Row) -> list[str]:
@@ -192,7 +197,7 @@ async def project_unit(
     """
     assert unit.file is not None, f"unit {unit.unit_id} has no file to project"
     path = run.archive_root / unit.file.path
-    rows, decoded = await asyncio.to_thread(_decode, path, reader)
+    rows = await asyncio.to_thread(_decode, path, reader)
     placed = _place(rows)
     stored = await _stored(run.conn, sorted({key[0] for key in placed}))
     new, noops = _new_rows(placed, stored)
@@ -201,7 +206,7 @@ async def project_unit(
         async with run.conn.transaction():
             for current in new:
                 await _insert(run.conn, current, unit.unit_id)
-            await mark_ingested(run.conn, unit.unit_id, decoded, run.clock())
+            await mark_ingested(run.conn, unit.unit_id, len(rows), run.clock())
     except errors.ExclusionViolation as exc:
         assert current is not None  # only an insert can violate the exclusion
         raise DefinitionRejected(await _overlap(run.conn, current)) from exc

@@ -42,6 +42,7 @@ async def run_phase(name: TickPassPhaseName, body: PhaseBody) -> PhaseReport:
     try:
         outcome = await body(summary)
     except ProviderError as exc:
+        logger.exception("tick %s phase provider failure", name)
         outcome, error = TickOutcome.PROVIDER_ABORT, str(exc)
     except STORAGE_FAILURES as exc:
         logger.exception("tick %s phase storage failure", name)

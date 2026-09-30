@@ -21,7 +21,7 @@ reconcile and await phases so there is one path for delivery:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import Any
 
@@ -96,25 +96,21 @@ class AdvanceTally:
     strays: list[str] = field(default_factory=list)
     in_flight: list[InFlightJob] = field(default_factory=list)
 
+    def counts(self) -> dict[str, int]:
+        """Every integer counter by field name — the one list of them."""
+        values = {f.name: getattr(self, f.name) for f in fields(self)}
+        return {name: v for name, v in values.items() if isinstance(v, int)}
+
     def add(self, other: AdvanceTally) -> None:
         """Fold a later poll into this total; ``in_flight`` is the latest poll's."""
-        for name in ("polled", "delivered", "expired", "refused", "downloaded"):
-            setattr(self, name, getattr(self, name) + getattr(other, name))
-        for name in ("verified", "holed", "failed"):
-            setattr(self, name, getattr(self, name) + getattr(other, name))
+        for name, value in other.counts().items():
+            setattr(self, name, getattr(self, name) + value)
         self.strays.extend(other.strays)
         self.in_flight = list(other.in_flight)
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "polled": self.polled,
-            "delivered": self.delivered,
-            "expired": self.expired,
-            "refused": self.refused,
-            "downloaded": self.downloaded,
-            "verified": self.verified,
-            "holed": self.holed,
-            "failed": self.failed,
+            **self.counts(),
             "strays": list(self.strays),
             "in_flight": [
                 {

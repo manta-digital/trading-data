@@ -22,6 +22,8 @@ from pathlib import Path
 
 from manta_trading.data.quality.fetch_status import OPEN_FETCH_STATUSES
 from manta_trading.data.tick.adopt_files import (
+    DATA_FILE_SUFFIXES,
+    HASH_PREFIX,
     MANIFEST_NAME,
     PARTIAL_SUFFIX,
     TickArchiveWriteError,
@@ -45,10 +47,6 @@ from manta_trading.logging import get_logger
 from manta_trading.providers.errors import ProviderError
 
 logger = get_logger(__name__)
-
-#: Provider data-file suffixes; every other delivered file is job metadata.
-DATA_FILE_SUFFIXES = (".dbn.zst", ".dbn")
-_HASH_PREFIX = "sha256:"
 
 
 @dataclass
@@ -93,7 +91,7 @@ def _write_manifest(job_dir: Path, job_id: str) -> bool:
         {
             "filename": path.name,
             "size": path.stat().st_size,
-            "hash": f"{_HASH_PREFIX}{sha256_file(path)}",
+            "hash": f"{HASH_PREFIX}{sha256_file(path)}",
         }
         for path in sorted(job_dir.iterdir())
         if path.is_file() and not path.name.endswith(PARTIAL_SUFFIX)

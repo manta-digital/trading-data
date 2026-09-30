@@ -24,14 +24,16 @@ from decimal import Decimal
 from typing import LiteralString
 
 from manta_trading.constants import MAX_RETRY_COUNT
-from manta_trading.data.quality.fetch_status import OPEN_FETCH_STATUSES, FetchStatus
+from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import DeliveryMode, SType, TickSchema, UnitState
-from manta_trading.data.tick.manifest_reads import Conn, UnitFile
+from manta_trading.data.tick.manifest_reads import (
+    OPEN_STATUS_VALUES,
+    Conn,
+    UnitFile,
+)
 
 #: The reason a delivered job's missing day is recorded with (TD8).
 PROVIDER_HOLE_REASON = "job delivered no file for a session day"
-
-_OPEN = [status.value for status in OPEN_FETCH_STATUSES]
 
 
 class ManifestTransitionError(Exception):
@@ -189,7 +191,13 @@ async def mark_downloaded(
         f"{ADVANCE_SET}, file_path = %s, file_size_bytes = %s, file_sha256 = %s",
         _OPEN_FROM,
         advance_params(UnitState.DOWNLOADED, now)
-        + (file.path, file.size, file.sha256, UnitState.DELIVERED.value, _OPEN),
+        + (
+            file.path,
+            file.size,
+            file.sha256,
+            UnitState.DELIVERED.value,
+            OPEN_STATUS_VALUES,
+        ),
         f"{UnitState.DELIVERED} and open",
     )
 
@@ -204,7 +212,7 @@ async def mark_verified(
         f"{ADVANCE_SET}, provider_record_count = %s",
         _OPEN_FROM,
         advance_params(UnitState.VERIFIED, now)
-        + (provider_record_count, UnitState.DOWNLOADED.value, _OPEN),
+        + (provider_record_count, UnitState.DOWNLOADED.value, OPEN_STATUS_VALUES),
         f"{UnitState.DOWNLOADED} and open",
     )
 
@@ -220,7 +228,7 @@ async def mark_ingested(
         f"{ADVANCE_SET}, decoded_record_count = %s",
         _OPEN_FROM,
         advance_params(UnitState.INGESTED, now)
-        + (decoded_record_count, UnitState.VERIFIED.value, _OPEN),
+        + (decoded_record_count, UnitState.VERIFIED.value, OPEN_STATUS_VALUES),
         f"{UnitState.VERIFIED} and open",
     )
 
@@ -245,7 +253,7 @@ async def record_failure(
         " WHEN %s OR attempt_count + 1 >= %s THEN %s ELSE %s END",
         _OPEN_FROM,
         (now, reason, deterministic, MAX_RETRY_COUNT, exhausted)
-        + (FetchStatus.FAILED_RETRYABLE.value, state.value, _OPEN),
+        + (FetchStatus.FAILED_RETRYABLE.value, state.value, OPEN_STATUS_VALUES),
         f"{state} and open",
     )
 
@@ -258,7 +266,7 @@ async def mark_provider_hole(conn: Conn, unit_id: int, now: datetime) -> None:
         "fetch_status = %s, failure_reason = %s, last_attempt_at = %s",
         _OPEN_FROM,
         (FetchStatus.PROVIDER_HOLE.value, PROVIDER_HOLE_REASON, now)
-        + (UnitState.DELIVERED.value, _OPEN),
+        + (UnitState.DELIVERED.value, OPEN_STATUS_VALUES),
         f"{UnitState.DELIVERED} and open",
     )
 

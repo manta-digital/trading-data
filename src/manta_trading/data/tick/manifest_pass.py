@@ -19,17 +19,15 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from manta_trading.data.quality.fetch_status import OPEN_FETCH_STATUSES, FetchStatus
+from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import DeliveryMode, UnitState
-from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.manifest_reads import OPEN_STATUS_VALUES, Conn
 from manta_trading.data.tick.manifest_repo import (
     ADVANCE_SET,
     ManifestTransitionError,
     advance_params,
 )
 from manta_trading.data.tick.planner import PlannedRequest
-
-_OPEN = [status.value for status in OPEN_FETCH_STATUSES]
 
 
 @dataclass(frozen=True)
@@ -225,7 +223,7 @@ async def mark_delivered(
                 *advance_params(UnitState.DELIVERED, now),
                 request_id,
                 UnitState.SUBMITTED.value,
-                _OPEN,
+                OPEN_STATUS_VALUES,
             ),
         )
         if cursor.rowcount == 0:

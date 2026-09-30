@@ -33,7 +33,9 @@ from manta_trading.data.tick.hashing import HASH_CHUNK_BYTES, sha256_file
 
 MANIFEST_NAME = "manifest.json"
 PARTIAL_SUFFIX = ".partial"
-_HASH_PREFIX = "sha256:"
+HASH_PREFIX = "sha256:"
+#: Provider data-file suffixes; every other job file is metadata.
+DATA_FILE_SUFFIXES = (".dbn.zst", ".dbn")
 _UNSAFE_NAME_PARTS = ("/", "\\", "..")
 
 FreeBytes = Callable[[Path], int]
@@ -126,9 +128,9 @@ def _listed(entry: _ManifestEntry) -> ListedFile:
     name = entry.filename
     if not name or any(part in name for part in _UNSAFE_NAME_PARTS):
         raise TickAdoptionRefused(f"manifest.json lists an unsafe name {name!r}")
-    if not entry.hash.startswith(_HASH_PREFIX):
+    if not entry.hash.startswith(HASH_PREFIX):
         raise TickAdoptionRefused(f"{name}: unsupported hash {entry.hash!r}")
-    sha256 = entry.hash.removeprefix(_HASH_PREFIX).lower()
+    sha256 = entry.hash.removeprefix(HASH_PREFIX).lower()
     return ListedFile(name, entry.size, sha256)
 
 

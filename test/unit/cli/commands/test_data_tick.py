@@ -382,6 +382,13 @@ def test_every_tick_outcome_has_an_exit_code() -> None:
     assert set(cmd.EXIT_BY_OUTCOME) == set(TickOutcome)
 
 
+def test_every_delivery_counter_has_a_report_label() -> None:
+    from manta_trading.cli.commands.tick_pass_render import _DELIVERY_LABELS
+    from manta_trading.data.tick.in_flight import AdvanceTally
+
+    assert set(_DELIVERY_LABELS) == set(AdvanceTally().counts())
+
+
 def test_exit_codes_are_zero_to_six_and_unique() -> None:
     codes = list(cmd.EXIT_BY_OUTCOME.values())
     assert sorted(codes) == [0, 2, 3, 4, 5, 6]

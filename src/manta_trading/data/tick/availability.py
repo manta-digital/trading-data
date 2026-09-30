@@ -58,10 +58,12 @@ def _bounds(
     edge_end: date,
 ) -> list[tuple[date, date]]:
     """Every ``[start, end)`` the dataset's wants can touch, before narrowing."""
+    # The universe is all CME; another dataset has only owned and holed days.
+    entries = universe if dataset == CME_DATASET else ()
     bounds = [
         (entry.start, entry.end if entry.end is not None else edge_end)
-        for entry in universe
-        if entry.tier is not None and entry.start is not None and CME_DATASET == dataset
+        for entry in entries
+        if entry.tier is not None and entry.start is not None
     ]
     days = [key.day for key in owned if key.dataset == dataset]
     days += [day for held_dataset, day in holed if held_dataset == dataset]

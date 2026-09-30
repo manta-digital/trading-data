@@ -33,6 +33,7 @@ from pathlib import Path
 
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.adopt_files import (
+    DATA_FILE_SUFFIXES,
     ArchivedFile,
     FreeBytes,
     TickAdoptionRefused,
@@ -71,8 +72,6 @@ from manta_trading.providers.errors import ProviderError
 
 #: Job states whose files exist (or existed) and whose record is final.
 ADOPTABLE_STATES = frozenset({BatchJobState.DONE, BatchJobState.EXPIRED})
-#: Provider data-file suffixes; every other listed file is job metadata.
-DATA_FILE_SUFFIXES = (".dbn.zst", ".dbn")
 
 
 class TickVerifyInterrupted(Exception):
