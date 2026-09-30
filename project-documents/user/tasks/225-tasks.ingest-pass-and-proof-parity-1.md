@@ -399,25 +399,25 @@ real batch.
 
 ## Section 4: The worker (TD2, TD5, TD8)
 
-- [ ] **4.1 Supersession step (TD5)**
-  - [ ] In `ingest_worker.py`, a function that runs on the worker's open
+- [x] **4.1 Supersession step (TD5)**
+  - [x] In `ingest_worker.py`, a function that runs on the worker's open
         cursor, before the COPY, for each superseded unit in the plan: call
         `mark_superseded` through the sync executor. If that unit was
         *ingested*, delete its rows `WHERE unit_id = O AND ts_event BETWEEN`
         its ledger min first and max last event time. Its ledger rows stay
-  - [ ] Success: imports
-  - [ ] Effort: 2
+  - [x] Success: imports
+  - [x] Effort: 2
 
-- [ ] **4.2 The worker function**
-  - [ ] A plain synchronous function
+- [x] **4.2 The worker function**
+  - [x] A plain synchronous function
         `ingest_unit(plan, archive_root, conn_settings) -> UnitOutcome`.
         `UnitOutcome` holds the unit id, counts, check failure or none,
         duration, and the decode and write time split
-  - [ ] `conn_settings` is a frozen `WorkerConnectionSettings` (tick URL,
+  - [x] `conn_settings` is a frozen `WorkerConnectionSettings` (tick URL,
         connect timeout, keepalive idle, interval and count, lock timeout).
         The pass builds it from the 0.3 constants. The worker has no
         defaults of its own, so tests pass a short lock timeout directly
-  - [ ] Opens its own `psycopg.Connection` with those settings. One
+  - [x] Opens its own `psycopg.Connection` with those settings. One
         transaction:
     1. supersession (4.1)
     2. binary `COPY` with `set_types` and `write_row`, fed batch by batch
@@ -427,20 +427,22 @@ real batch.
     4. ledger insert
     5. `mark_ingested` through the sync executor
     6. `COMMIT`
-  - [ ] A check failure rolls back and returns the failure
-  - [ ] Catch only these:
+  - [x] A check failure rolls back and returns the failure
+  - [x] Catch only these:
     - `UniqueViolation` → `overlap`, naming the key and the other current
       units on the day
     - the named decode and file errors → `decode`
     - `ManifestTransitionError` → skip "changed during ingest"
 
     Everything else propagates
-  - [ ] Write the thread state review from TD2 as the module docstring
-  - [ ] Success: imports; under ~300 lines
-  - [ ] Effort: 4
+  - [x] Write the thread state review from TD2 as the module docstring
+  - [x] Success: imports; under ~300 lines
+  - [x] Effort: 4
+  - Note: the signature is `ingest_unit(plan, archive_root, settings, reader, clock) -> UnitOutcome`. The reader and clock are passed explicitly because the worker needs `now` for `mark_ingested`. `UnitOutcome` has `unit_id`, `result` (`UnitResult`: ingested, failed, changed_during_ingest), `decoded`, `check`, `reason`, `duration_seconds`, `decode_seconds` and `write_seconds`. The worker is 284 lines. The same commit adds `TickFileDecodeError` to `provider.py`, and `DbnFile` now raises it for the SDK's `DBNError`/`BentoError`, so the worker needs no SDK import. A missing file stays `FileNotFoundError` (`OSError`); the worker catches `(TickFileDecodeError, OSError)` as `decode`.
+  - Note: **measured.** A file truncated at a zstd frame boundary (60,000 of 66,000 bytes) decodes 2,661 of 3,774 records with only a `BentoWarning`. The counts check catches it, not decode. A shorter cut (20,000 bytes) raises `DBNError` → `decode`, and that is the "truncated" case the test uses. Turning the warning into an error would need `warnings.catch_warnings`, which is not thread-safe, so it is not done.
 
-- [ ] **4.3 Worker tests (FR3, FR5, FR8)**
-  - [ ] Integration on `migrated_tick_db` with the 0.2 fixtures:
+- [x] **4.3 Worker tests (FR3, FR5, FR8)**
+  - [x] Integration on `migrated_tick_db` with the 0.2 fixtures:
     1. a real day slice ingests: the unit is *ingested*,
        `decoded_record_count` is set, and the ledger is complete with
        zero-record rows (FR3)
@@ -460,12 +462,13 @@ real batch.
        second, raises `OperationalError`, and nothing is written
     6. re-ingesting the same file into a fresh database gives identical rows
        (FR8)
-  - [ ] Success: passes
-  - [ ] Effort: 3
-  - [ ] Commit: `feat(tick): add the ingest worker`
+  - [x] Success: passes
+  - [x] Effort: 3
+  - [x] Commit: `feat(tick): add the ingest worker`
+  - Note: the tests are in `test/integration/data/test_tick_ingest_worker.py` (10 tests) with helpers in `test/tick_support/ingest.py`. The session-boundary cases shrink the plan's `SessionFrame` (first session closing 10 h early for "no session"; the populated span ending there for "outside"). A unit writes 82 ledger rows (41 instruments × 2 sessions).
 
-- [ ] **4.4 Supersession and overlap tests (FR5, FR6)**
-  - [ ] Integration, with the 0.2 supersession fixture:
+- [x] **4.4 Supersession and overlap tests (FR5, FR6)**
+  - [x] Integration, with the 0.2 supersession fixture:
     1. `tbbo` over an ingested `trades` unit of the same day replaces its
        rows in one transaction: the link is set, the `trades` rows are
        gone, its ledger rows stay, and session totals equal the `tbbo`
@@ -474,6 +477,7 @@ real batch.
        the `trades` rows and unit are untouched
     3. overlap: a second current unit whose rows collide with loaded rows
        fails as `overlap`, naming the key and the other unit (FR5)
-  - [ ] Success: passes
-  - [ ] Effort: 2
-  - [ ] Commit: `test(tick): cover supersession and overlap in the worker`
+  - [x] Success: passes
+  - [x] Effort: 2
+  - [x] Commit: `test(tick): cover supersession and overlap in the worker`
+  - Note: the tests are in `test/integration/data/test_tick_ingest_supersession.py`. `overlap_reason(detail, day, others)` passes PostgreSQL's "Key (...)=(...) already exists." through unchanged.
