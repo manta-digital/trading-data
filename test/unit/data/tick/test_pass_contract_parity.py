@@ -2,8 +2,9 @@
 
 The tick copy may differ from ``data/kalshi/collection_pass.py`` only where TD1
 declares it (two more outcomes, phase names, no event sink or ``on_phase``, no
-historical phase). This test imports both packages, which the import boundary
-allows because it binds ``src``, not tests. Adding a field to either
+historical phase), plus 225 TD1's generic run type. This test imports both
+packages, which the import boundary allows because it binds ``src``, not tests.
+Adding a field to either
 ``PhaseReport`` or ``PassResult`` makes it fail.
 """
 
@@ -22,6 +23,7 @@ from manta_trading.data.kalshi import collection_pass as kalshi
 from manta_trading.data.kalshi.sync_types import SyncOutcome
 from manta_trading.data.tick import pass_contract as tick
 from manta_trading.data.tick.pass_contract import TickOutcome, TickPassPhaseName
+from manta_trading.data.tick.store_context import TickStore
 
 #: Annotation text differs only in the names TD1 declares as divergent.
 _DIVERGENT_NAMES = {
@@ -59,6 +61,20 @@ def test_outcome_members_differ_only_by_the_declared_two() -> None:
 def test_shared_outcome_values_are_equal() -> None:
     for member in SyncOutcome:
         assert TickOutcome[member.name].value == member.value
+
+
+@pytest.mark.parametrize(
+    ("tick_name", "kalshi_name"),
+    [("PassPhase", "PassPhase"), ("TickPass", "CollectionPass")],
+)
+def test_generic_run_type_is_the_declared_divergence(
+    tick_name: str, kalshi_name: str
+) -> None:
+    """225 TD1: the tick contract is generic in its run (bound to ``TickStore``)
+    so a provider-free ingest phase can form a pass; Kalshi's is not."""
+    (run_type,) = getattr(tick, tick_name).__type_params__
+    assert run_type.__bound__ is TickStore
+    assert getattr(kalshi, kalshi_name).__type_params__ == ()
 
 
 def test_skipped_marker_matches() -> None:

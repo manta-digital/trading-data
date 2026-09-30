@@ -14,7 +14,7 @@ from manta_trading.data.tick.constants import (
     TICK_POLL_INTERVAL_SECONDS,
     TICK_WAIT_BUDGET_SECONDS,
 )
-from manta_trading.data.tick.pass_contract import TickPassPhaseName
+from manta_trading.data.tick.pass_contract import ACQUISITION_PHASE_NAMES
 from manta_trading.data.tick.provider import ITickFile
 
 
@@ -25,7 +25,7 @@ class _Reader:
 
 def test_the_phases_are_the_five_in_execution_order() -> None:
     phases = pass_phases((None, None), False, _Reader())
-    assert [phase.name for phase in phases] == list(TickPassPhaseName)
+    assert tuple(phase.name for phase in phases) == ACQUISITION_PHASE_NAMES
     assert [str(p.name) for p in phases] == [
         "reconcile",
         "availability",

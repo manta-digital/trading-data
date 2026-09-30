@@ -18,6 +18,7 @@ from manta_trading.cli.output import make_table, print_result
 from manta_trading.data.tick.adopt import AdoptResult
 from manta_trading.data.tick.manifest_reads import UnitRow
 from manta_trading.data.tick.pass_contract import (
+    ACQUISITION_PHASE_NAMES,
     SKIPPED,
     PassResult,
     PhaseReport,
@@ -265,7 +266,7 @@ _PHASE_LINES: dict[TickPassPhaseName, Callable[[dict[str, Any]], list[str]]] = {
     TickPassPhaseName.AWAIT: _await_lines,
     TickPassPhaseName.DEFINITIONS: _definitions_lines,
 }
-assert set(_PHASE_LINES) == set(TickPassPhaseName), (
+assert set(_PHASE_LINES) == set(ACQUISITION_PHASE_NAMES), (
     "the pass report has no summary lines for a phase — update _PHASE_LINES"
 )
 

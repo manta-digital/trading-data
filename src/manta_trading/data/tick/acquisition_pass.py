@@ -208,7 +208,7 @@ def pass_phases(
     timing: AwaitTiming = DEFAULT_TIMING,
     sleep: Sleep = asyncio.sleep,
     free: FreeBytes = free_bytes,
-) -> Sequence[PassPhase]:
+) -> Sequence[PassPhase[TickRun]]:
     """The five phases for one run, in execution order."""
     state = PassState()
     return (
@@ -234,4 +234,4 @@ async def run_pass(
     phases = pass_phases(
         window, estimate_only, reader, timing=timing, sleep=sleep, free=free
     )
-    return await TickPass(run, phases).run()
+    return await TickPass[TickRun](run, phases).run()

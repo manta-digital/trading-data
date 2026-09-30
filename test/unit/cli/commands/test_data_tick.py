@@ -49,13 +49,14 @@ from manta_trading.data.tick.constants import (
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
 from manta_trading.data.tick.estimate import CeilingVerdict
 from manta_trading.data.tick.pass_contract import (
-    SKIPPED as PASS_SKIPPED,
-)
-from manta_trading.data.tick.pass_contract import (
+    ACQUISITION_PHASE_NAMES,
     PassResult,
     PhaseReport,
     TickOutcome,
     TickPassPhaseName,
+)
+from manta_trading.data.tick.pass_contract import (
+    SKIPPED as PASS_SKIPPED,
 )
 from manta_trading.data.tick.reset import ResetAction, ResetChange
 from manta_trading.data.tick.run_context import TickPreflightError
@@ -446,7 +447,7 @@ def _result(
     outcome: TickOutcome, reports: tuple[PhaseReport, ...] | None = None
 ) -> PassResult:
     phases = reports or tuple(
-        _report(name, TickOutcome.OK) for name in TickPassPhaseName
+        _report(name, TickOutcome.OK) for name in ACQUISITION_PHASE_NAMES
     )
     return PassResult(UUID(int=7), STARTED, phases, outcome, 345)
 
@@ -479,7 +480,7 @@ def test_the_exit_code_follows_the_outcome(
 
 def test_pass_json_shape(writer_run: None) -> None:
     reports = tuple(
-        _report(name, TickOutcome.OK, {"n": 1}) for name in TickPassPhaseName
+        _report(name, TickOutcome.OK, {"n": 1}) for name in ACQUISITION_PHASE_NAMES
     )
     with _pass_returning(_result(TickOutcome.OK, reports)):
         result = runner.invoke(app, [*PASS, "--json"])
@@ -492,7 +493,9 @@ def test_pass_json_shape(writer_run: None) -> None:
         "duration_ms",
         "exit_code",
     }
-    assert [p["name"] for p in body["phases"]] == [n.value for n in TickPassPhaseName]
+    assert [p["name"] for p in body["phases"]] == [
+        n.value for n in ACQUISITION_PHASE_NAMES
+    ]
     assert body["phases"][0]["summary"] == {"n": 1}
     assert body["run_id"] == str(UUID(int=7))
 
@@ -575,7 +578,7 @@ def test_the_text_report_shows_phases_the_plan_and_the_closing_line(
         result = runner.invoke(app, PASS)
     assert result.exit_code == cmd.EXIT_REFUSED
     text = result.stdout
-    for name in TickPassPhaseName:
+    for name in ACQUISITION_PHASE_NAMES:
         assert str(name) in text
     assert "jobs polled: 1" in text
     assert "$0.0041" in text and "$0.0014" in text  # sub-cent amounts stay visible

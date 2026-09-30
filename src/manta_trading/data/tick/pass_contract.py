@@ -5,8 +5,9 @@ in this package because ``data/tick`` never imports ``data/kalshi`` (LLD 224
 Technical Decision 1). ``test_pass_contract_parity.py`` diffs the copy against
 the original, so neither can drift unseen.
 
-One *pass* runs every :class:`PassPhase` in order over one shared
-:class:`~manta_trading.data.tick.run_context.TickRun`. A phase reports a
+One *pass* runs every :class:`PassPhase` in order over one shared run: a
+:class:`~manta_trading.data.tick.run_context.TickRun` for acquisition, a
+:class:`~manta_trading.data.tick.store_context.TickStore` for ingest. A phase reports a
 :class:`PhaseReport`; the pass aggregates them into a :class:`PassResult`
 whose ``outcome`` the CLI maps to an exit code (``EXIT_BY_OUTCOME``).
 
@@ -14,8 +15,11 @@ Sequencing: a phase that **aborts** (provider or storage) stops the pass and
 the remaining phases are reported ``SKIPPED``; a ``partial``, ``refused`` or
 ``in_flight`` phase does not. The pass outcome is the worst phase outcome.
 
-Declared divergences from Kalshi (TD1): two more outcomes (``refused``,
+Declared divergences from Kalshi (224 TD1): two more outcomes (``refused``,
 ``in_flight``), no event sink, no ``on_phase`` callback, no historical phase.
+225 TD1 adds one: ``PassPhase`` and ``TickPass`` are generic in the run type
+(``RunT``, bound to ``TickStore``), so a provider-free ingest phase can form a
+pass; the acquisition pass is ``TickPass[TickRun]``.
 An exception that is neither ``ProviderError`` nor ``psycopg.OperationalError``
 propagates; there is no catch-all here.
 """
@@ -27,13 +31,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
+from manta_trading.data.tick.store_context import TickStore
 from manta_trading.logging import get_logger
-
-if TYPE_CHECKING:
-    from manta_trading.data.tick.run_context import TickRun
 
 logger = get_logger(__name__)
 
@@ -66,6 +68,13 @@ class TickPassPhaseName(StrEnum):
     PURCHASE = "purchase"
     AWAIT = "await"
     DEFINITIONS = "definitions"
+    INGEST = "ingest"
+
+
+#: The acquisition pass's phases, in order; ingest forms its own pass (225 TD1).
+ACQUISITION_PHASE_NAMES: tuple[TickPassPhaseName, ...] = tuple(
+    name for name in TickPassPhaseName if name is not TickPassPhaseName.INGEST
+)
 
 
 #: Aggregation precedence, worst first; the first match wins.
@@ -89,12 +98,12 @@ class PhaseReport:
     error: str | None = None
 
 
-class PassPhase(Protocol):
-    """One unit of acquisition work run over the pass's shared resources."""
+class PassPhase[RunT: TickStore](Protocol):
+    """One unit of tick work run over the pass's shared resources."""
 
     name: TickPassPhaseName
 
-    async def run(self, run: TickRun) -> PhaseReport: ...
+    async def run(self, run: RunT) -> PhaseReport: ...
 
 
 @dataclass(frozen=True)
@@ -139,10 +148,10 @@ def _aborted(report: PhaseReport) -> bool:
     return report.outcome in (TickOutcome.PROVIDER_ABORT, TickOutcome.STORAGE_ABORT)
 
 
-class TickPass:
+class TickPass[RunT: TickStore]:
     """Runs ``phases`` in order over ``run``; see the module docstring."""
 
-    def __init__(self, run: TickRun, phases: Sequence[PassPhase]) -> None:
+    def __init__(self, run: RunT, phases: Sequence[PassPhase[RunT]]) -> None:
         self._run = run
         self._phases = tuple(phases)
 
