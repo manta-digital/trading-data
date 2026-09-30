@@ -12,11 +12,12 @@ import json
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+from uuid import UUID
 
 import httpx
 import psycopg
@@ -29,7 +30,7 @@ from manta_trading.cli.app import app
 from manta_trading.cli.commands import tick as cmd
 from manta_trading.cli.commands.tick_render import VERDICT_LABELS, human_bytes, usd
 from manta_trading.config import Settings
-from manta_trading.data.tick import adopt, reset, run_context
+from manta_trading.data.tick import acquisition_pass, adopt, reset, run_context
 from manta_trading.data.tick.adopt import (
     AdoptResult,
     TickVerifyInterrupted,
@@ -46,7 +47,15 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
 from manta_trading.data.tick.estimate import CeilingVerdict
-from manta_trading.data.tick.pass_contract import TickOutcome
+from manta_trading.data.tick.pass_contract import (
+    SKIPPED as PASS_SKIPPED,
+)
+from manta_trading.data.tick.pass_contract import (
+    PassResult,
+    PhaseReport,
+    TickOutcome,
+    TickPassPhaseName,
+)
 from manta_trading.data.tick.reset import ResetAction, ResetChange
 from manta_trading.data.tick.run_context import TickPreflightError
 from manta_trading.data.tick.tick_calendar import TickCalendarError
@@ -154,7 +163,7 @@ def test_stype_outside_the_choices_is_a_usage_error(env: pytest.MonkeyPatch) -> 
 
 def test_group_lists_its_verbs() -> None:
     names = [c.name for c in cmd.tick_app.registered_commands]
-    assert names == ["estimate", "adopt", "reset"]
+    assert names == ["estimate", "adopt", "reset", "pass"]
 
 
 @pytest.mark.parametrize(
@@ -385,3 +394,206 @@ def test_pass_exit_codes_reuse_223s_partial_and_storage() -> None:
     assert cmd.EXIT_BY_OUTCOME[TickOutcome.STORAGE_ABORT] == cmd.EXIT_STORAGE == 4
     assert cmd.EXIT_BY_OUTCOME[TickOutcome.REFUSED] == cmd.EXIT_REFUSED == 5
     assert cmd.EXIT_BY_OUTCOME[TickOutcome.IN_FLIGHT] == cmd.EXIT_IN_FLIGHT == 6
+
+
+# -- the pass verb and its report (slice 224) ----------------------------------
+
+PASS = ["data", "tick", "pass"]
+STARTED = datetime(2026, 9, 29, 12, tzinfo=UTC)
+PURCHASE_SUMMARY: dict[str, Any] = {
+    "wanted_days": {"ES/definition": 4},
+    "pending_days": {},
+    "missing_days": {},
+    "requests": [
+        {
+            "schema": "definition",
+            "start": "2024-09-01",
+            "end": "2024-09-30",
+            "days": 4,
+            "cost_usd": "0.0014",
+            "resubmit": False,
+        }
+    ],
+    "planned_usd": "0.0041",
+    "trailing_30d_usd": "0",
+    "unheld_jobs": [{"job_id": "GLBX-PORTAL", "cost_usd": "3.5"}],
+    "per_pass_ceiling_usd": "0.50",
+    "cap_30d_usd": None,
+    "verdict": "refused",
+    "reasons": ["absent: MT_TICK_SPEND_30D_CEILING_USD [x]"],
+    "submitted": [],
+}
+
+
+def _report(
+    name: TickPassPhaseName,
+    outcome: TickOutcome | str,
+    summary: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> PhaseReport:
+    return PhaseReport(name, outcome, summary or {}, 12, error)  # type: ignore[arg-type]
+
+
+def _result(
+    outcome: TickOutcome, reports: tuple[PhaseReport, ...] | None = None
+) -> PassResult:
+    phases = reports or tuple(
+        _report(name, TickOutcome.OK) for name in TickPassPhaseName
+    )
+    return PassResult(UUID(int=7), STARTED, phases, outcome, 345)
+
+
+def _pass_returning(result: PassResult | BaseException) -> Any:
+    calls: list[tuple[Any, ...]] = []
+
+    async def core(*args: Any, **kwargs: Any) -> PassResult:
+        calls.append(args)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    patcher = patch.object(acquisition_pass, "run_pass", side_effect=core)
+    patcher.calls = calls  # type: ignore[attr-defined]
+    return patcher
+
+
+@pytest.mark.parametrize("outcome", list(TickOutcome))
+def test_the_exit_code_follows_the_outcome(
+    writer_run: None, outcome: TickOutcome
+) -> None:
+    with _pass_returning(_result(outcome)):
+        result = runner.invoke(app, [*PASS, "--json"])
+    assert result.exit_code == cmd.EXIT_BY_OUTCOME[outcome], result.output
+    body = json.loads(result.stdout)
+    assert body["outcome"] == outcome.value
+    assert body["exit_code"] == cmd.EXIT_BY_OUTCOME[outcome]
+
+
+def test_pass_json_shape(writer_run: None) -> None:
+    reports = tuple(
+        _report(name, TickOutcome.OK, {"n": 1}) for name in TickPassPhaseName
+    )
+    with _pass_returning(_result(TickOutcome.OK, reports)):
+        result = runner.invoke(app, [*PASS, "--json"])
+    body = json.loads(result.stdout)
+    assert set(body) == {
+        "run_id",
+        "started_at",
+        "phases",
+        "outcome",
+        "duration_ms",
+        "exit_code",
+    }
+    assert [p["name"] for p in body["phases"]] == [n.value for n in TickPassPhaseName]
+    assert body["phases"][0]["summary"] == {"n": 1}
+    assert body["run_id"] == str(UUID(int=7))
+
+
+def test_pass_passes_the_window_and_estimate_flag_to_the_run(
+    writer_run: None,
+) -> None:
+    core = _pass_returning(_result(TickOutcome.OK))
+    with core:
+        result = runner.invoke(
+            app,
+            [*PASS, "--start", "2024-09-01", "--end", "2024-10-01", "--estimate-only"],
+        )
+    assert result.exit_code == cmd.EXIT_OK, result.output
+    ((_, window, estimate_only, _reader),) = core.calls
+    assert window == (date(2024, 9, 1), date(2024, 10, 1))
+    assert estimate_only is True
+
+
+def test_pass_without_flags_is_unwindowed_and_buys(writer_run: None) -> None:
+    core = _pass_returning(_result(TickOutcome.OK))
+    with core:
+        runner.invoke(app, PASS)
+    ((_, window, estimate_only, _reader),) = core.calls
+    assert window == (None, None) and estimate_only is False
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--start", "2024-10-01", "--end", "2024-10-01"],
+        ["--start", "2024-10-02", "--end", "2024-10-01"],
+    ],
+)
+def test_an_end_not_after_start_exits_preflight_without_running(
+    writer_run: None, args: list[str]
+) -> None:
+    core = _pass_returning(_result(TickOutcome.OK))
+    with core:
+        result = runner.invoke(app, [*PASS, *args])
+    assert result.exit_code == cmd.EXIT_PREFLIGHT
+    assert core.calls == []
+
+
+def test_a_bad_date_is_a_usage_error(writer_run: None) -> None:
+    result = runner.invoke(app, [*PASS, "--start", "09/01/2024"])
+    assert result.exit_code == cmd.EXIT_PROVIDER  # click's own usage code
+
+
+def test_a_provider_error_out_of_the_run_exits_provider(writer_run: None) -> None:
+    with _pass_returning(ProviderTransientError("down")):
+        result = runner.invoke(app, PASS)
+    assert result.exit_code == cmd.EXIT_PROVIDER
+
+
+def test_a_preflight_refusal_exits_preflight(env: pytest.MonkeyPatch) -> None:
+    refusal = TickPreflightError("MT_TICK_ARCHIVE_DIR is not set")
+    with patch.object(run_context, "open_tick_run", side_effect=_raising_run(refusal)):
+        result = runner.invoke(app, PASS)
+    assert result.exit_code == cmd.EXIT_PREFLIGHT
+    assert "MT_TICK_ARCHIVE_DIR" in result.output
+
+
+def test_the_text_report_shows_phases_the_plan_and_the_closing_line(
+    writer_run: None,
+) -> None:
+    reports = (
+        _report(TickPassPhaseName.RECONCILE, TickOutcome.OK, {"polled": 1}),
+        _report(TickPassPhaseName.AVAILABILITY, TickOutcome.OK, {}),
+        _report(
+            TickPassPhaseName.PURCHASE,
+            TickOutcome.REFUSED,
+            PURCHASE_SUMMARY,
+            error=None,
+        ),
+        _report(TickPassPhaseName.AWAIT, PASS_SKIPPED),
+        _report(TickPassPhaseName.DEFINITIONS, PASS_SKIPPED),
+    )
+    with _pass_returning(_result(TickOutcome.REFUSED, reports)):
+        result = runner.invoke(app, PASS)
+    assert result.exit_code == cmd.EXIT_REFUSED
+    text = result.stdout
+    for name in TickPassPhaseName:
+        assert str(name) in text
+    assert "jobs polled: 1" in text
+    assert "$0.0041" in text and "$0.0014" in text  # sub-cent amounts stay visible
+    assert "GLBX-PORTAL" in text and "verdict: refused" in text
+    assert "30-day cap unset" in text
+    assert "MT_TICK_SPEND_30D_CEILING_USD [x]" in text  # brackets are not markup
+    assert "Outcome: refused  exit 5" in text
+    assert text.count("await") == 1  # a skipped phase gets a table row, no section
+
+
+def test_the_report_lists_jobs_in_flight_with_their_deadlines(
+    writer_run: None,
+) -> None:
+    summary = {
+        "waited_seconds": 1800,
+        "in_flight": [
+            {"job_id": "GLBX-SLOW", "state": "processing", "deadline": "2026-10-29"}
+        ],
+    }
+    reports = (
+        *(_report(n, TickOutcome.OK) for n in list(TickPassPhaseName)[:3]),
+        _report(TickPassPhaseName.AWAIT, TickOutcome.IN_FLIGHT, summary),
+        _report(TickPassPhaseName.DEFINITIONS, TickOutcome.OK),
+    )
+    with _pass_returning(_result(TickOutcome.IN_FLIGHT, reports)):
+        result = runner.invoke(app, PASS)
+    assert result.exit_code == cmd.EXIT_IN_FLIGHT
+    assert "in flight: GLBX-SLOW (processing), deadline 2026-10-29" in result.stdout
+    assert "seconds waited: 1800" in result.stdout

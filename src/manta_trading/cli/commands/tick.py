@@ -2,8 +2,9 @@
 
 ``estimate`` (220): a cost-and-size preflight over Databento's free metadata
 endpoints. ``adopt`` and ``reset`` (223): manifest writers that run inside
-``open_tick_run`` (preflight and advisory lock). None of them buys anything.
-Exit codes are defined here and nowhere else (slice 220 design, *CLI verb*);
+``open_tick_run`` (preflight and advisory lock). ``pass`` (224): the acquisition
+pass — the only verb that can buy, and only within both spend ceilings.
+Exit codes are defined once, in ``tick_exit.py`` (slice 220 design, *CLI verb*);
 Rich rendering lives in ``tick_render.py`` and ``tick_pass_render.py``.
 """
 
@@ -17,41 +18,27 @@ from typing import TYPE_CHECKING
 
 import typer
 
+from manta_trading.cli.commands.tick_exit import (
+    EXIT_BY_OUTCOME,
+    EXIT_IN_FLIGHT,
+    EXIT_OK,
+    EXIT_PARTIAL,
+    EXIT_PREFLIGHT,
+    EXIT_PROVIDER,
+    EXIT_REFUSED,
+    EXIT_STORAGE,
+    exit_code_for,
+)
 from manta_trading.cli.commands.tick_render import print_estimate
 from manta_trading.cli.output import print_error
 from manta_trading.data.tick.constants import CME_DATASET, ESTIMATE_SCHEMAS, SType
 from manta_trading.data.tick.estimate import EstimateRefusedError, build_estimate
-from manta_trading.data.tick.pass_contract import TickOutcome
 from manta_trading.data.tick.provider import TickRequest
 from manta_trading.providers.errors import ProviderAuthError, ProviderError
 
 if TYPE_CHECKING:
     from manta_trading.config import Settings
     from manta_trading.data.tick.run_context import TickRun
-
-# Exit codes. Integers live here only.
-EXIT_OK = 0
-EXIT_PREFLIGHT = 1
-EXIT_PROVIDER = 2
-EXIT_PARTIAL = 3  # some units failed; the run itself finished (223 adopt, 224 pass)
-EXIT_STORAGE = 4  # archive write, calendar, or tick database failure (223)
-EXIT_REFUSED = 5  # a guard refused the purchase (224 pass)
-EXIT_IN_FLIGHT = 6  # the wait budget ended with jobs still processing (224 pass)
-
-EXIT_BY_OUTCOME: dict[TickOutcome, int] = {
-    TickOutcome.OK: EXIT_OK,
-    TickOutcome.PARTIAL: EXIT_PARTIAL,
-    TickOutcome.PROVIDER_ABORT: EXIT_PROVIDER,
-    TickOutcome.STORAGE_ABORT: EXIT_STORAGE,
-    TickOutcome.REFUSED: EXIT_REFUSED,
-    TickOutcome.IN_FLIGHT: EXIT_IN_FLIGHT,
-}
-
-# Every outcome must have a code — a new member cannot silently exit 0.
-assert set(EXIT_BY_OUTCOME) == set(TickOutcome), (
-    "the tick exit mapping is not exhaustive — update it after adding a "
-    "TickOutcome member"
-)
 
 _DATE_FORMAT = "%Y-%m-%d"
 
@@ -65,7 +52,7 @@ _EXIT_EPILOG = (
 
 tick_app = typer.Typer(
     name="tick",
-    help="Futures tick data (Databento): cost preflight, adoption, reset.",
+    help="Futures tick data (Databento): cost preflight, adoption, reset, pass.",
     no_args_is_help=True,
 )
 
@@ -158,29 +145,6 @@ _ALL_OPTION = typer.Option(False, "--all", help="Every eligible unit.")
 _YES_OPTION = typer.Option(False, "--yes", "-y", help="Skip the confirmation.")
 
 
-def _exit_code(exc: BaseException) -> int | None:
-    """The exit code for a verb's failure; ``None`` lets it propagate."""
-    import psycopg
-
-    from manta_trading.data.tick.adopt import TickVerifyInterrupted
-    from manta_trading.data.tick.adopt_files import (
-        TickAdoptionRefused,
-        TickArchiveWriteError,
-    )
-    from manta_trading.data.tick.run_context import TickPreflightError
-    from manta_trading.data.tick.tick_calendar import TickCalendarError
-
-    if isinstance(exc, TickPreflightError | TickAdoptionRefused):
-        return EXIT_PREFLIGHT
-    if isinstance(exc, ProviderError | TickVerifyInterrupted):
-        return EXIT_PROVIDER
-    if isinstance(
-        exc, TickArchiveWriteError | TickCalendarError | psycopg.OperationalError
-    ):
-        return EXIT_STORAGE
-    return None
-
-
 def _run_writer[T](
     settings: Settings, core: Callable[[TickRun], Awaitable[T]], json_output: bool
 ) -> T:
@@ -194,7 +158,7 @@ def _run_writer[T](
     try:
         return asyncio.run(run())
     except Exception as exc:  # process boundary: every mapped class exits
-        code = _exit_code(exc)
+        code = exit_code_for(exc)
         if code is None:
             raise
         print_error(str(exc), json_mode=json_output)
@@ -253,3 +217,63 @@ def tick_reset(
         settings, lambda run: reset.reset_units(run, targets), json_output
     )
     print_reset(changes, json_mode=json_output)
+
+
+# -- the acquisition pass (slice 224) ----------------------------------------------
+
+_PASS_EPILOG = (
+    f"Exit codes: {EXIT_OK} ok; {EXIT_PREFLIGHT} preflight or bad window; "
+    f"{EXIT_PROVIDER} provider abort; {EXIT_PARTIAL} some units failed; "
+    f"{EXIT_STORAGE} storage abort; {EXIT_REFUSED} a guard refused the purchase "
+    f"(nothing bought); {EXIT_IN_FLIGHT} jobs still processing at the wait "
+    "budget (run again to continue)."
+)
+_WINDOW_START_OPTION = typer.Option(
+    None, "--start", formats=[_DATE_FORMAT], help="Narrow to days from here."
+)
+_WINDOW_END_OPTION = typer.Option(
+    None,
+    "--end",
+    formats=[_DATE_FORMAT],
+    help="Narrow to days before here (EXCLUSIVE).",
+)
+_ESTIMATE_ONLY_OPTION = typer.Option(
+    False, "--estimate-only", help="Plan and cost the run; buy nothing."
+)
+
+
+@tick_app.command("pass", epilog=_PASS_EPILOG)
+def tick_pass(
+    ctx: typer.Context,
+    start: datetime | None = _WINDOW_START_OPTION,
+    end: datetime | None = _WINDOW_END_OPTION,
+    estimate_only: bool = _ESTIMATE_ONLY_OPTION,
+    json_output: bool = _JSON_OPTION,
+) -> None:
+    """Reconcile, plan, buy within both spend ceilings, await, project definitions.
+
+    --start/--end only narrow the configured universe; they never widen it.
+    """
+    from manta_trading.cli.commands.tick_pass_render import print_pass
+    from manta_trading.data.tick import acquisition_pass
+    from manta_trading.data.tick.databento.dbn_file import DbnFileReader
+
+    window = (start.date() if start else None, end.date() if end else None)
+    if window[0] and window[1] and window[1] <= window[0]:
+        print_error(
+            f"--end {window[1]} must be after --start {window[0]} (end is exclusive)",
+            json_mode=json_output,
+        )
+        raise typer.Exit(EXIT_PREFLIGHT)
+    settings: Settings = ctx.obj["settings"]
+    result = _run_writer(
+        settings,
+        lambda run: acquisition_pass.run_pass(
+            run, window, estimate_only, DbnFileReader()
+        ),
+        json_output,
+    )
+    exit_code = EXIT_BY_OUTCOME[result.outcome]
+    print_pass(result, exit_code, json_mode=json_output)
+    if exit_code != EXIT_OK:
+        raise typer.Exit(exit_code)

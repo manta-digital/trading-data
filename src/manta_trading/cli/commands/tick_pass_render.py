@@ -1,4 +1,4 @@
-"""Rendering for ``mt data tick adopt`` and ``reset`` (223; 224 adds ``pass``).
+"""Rendering for ``mt data tick adopt``, ``reset`` and ``pass`` (223; 224).
 
 Rich tables in text mode, ``cli.output``'s JSON otherwise. Kept apart from
 ``tick.py`` so the verbs and their exit codes stay under ~300 lines.
@@ -6,14 +6,23 @@ Rich tables in text mode, ``cli.output``'s JSON otherwise. Kept apart from
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 from rich import print as rprint
+from rich.markup import escape
 
 from manta_trading.cli.commands.tick_render import human_bytes, usd
 from manta_trading.cli.output import make_table, print_result
 from manta_trading.data.tick.adopt import AdoptResult
 from manta_trading.data.tick.manifest_reads import UnitRow
+from manta_trading.data.tick.pass_contract import (
+    SKIPPED,
+    PassResult,
+    PhaseReport,
+    TickPassPhaseName,
+)
 from manta_trading.data.tick.reset import ResetChange
 
 
@@ -127,3 +136,161 @@ def print_reset(changes: list[ResetChange], *, json_mode: bool) -> None:
             _cell(change.after),
         )
     print_result(table, json_mode=False)
+
+
+# -- the pass report (224) ------------------------------------------------------
+
+
+def pass_to_dict(result: PassResult, exit_code: int) -> dict[str, Any]:
+    """``--json``: the pass result plus the exit code the CLI is about to use."""
+    return {**result.to_dict(), "exit_code": exit_code}
+
+
+def _money(value: str | None) -> str:
+    """Four decimals: a first purchase is a fraction of a cent (``usd`` would
+    show it as ``<$0.01``). ``None`` is an unset ceiling."""
+    return "unset" if value is None else f"${Decimal(value):.4f}"
+
+
+def _present(summary: dict[str, Any], labels: dict[str, str]) -> list[str]:
+    return [
+        f"{label}: {summary[key]}" for key, label in labels.items() if key in summary
+    ]
+
+
+_DELIVERY_LABELS = {
+    "polled": "jobs polled",
+    "delivered": "delivered",
+    "expired": "expired",
+    "refused": "refused states",
+    "downloaded": "units downloaded",
+    "verified": "verified",
+    "holed": "holes",
+    "failed": "failed",
+}
+
+
+def _in_flight_lines(summary: dict[str, Any]) -> list[str]:
+    return [
+        f"in flight: {job['job_id']} ({job['state']}), deadline "
+        f"{job['deadline'] or 'not yet known'}"
+        for job in summary.get("in_flight", [])
+    ]
+
+
+def _reconcile_lines(summary: dict[str, Any]) -> list[str]:
+    lines = []
+    if "unknown_submits" in summary:
+        matched = summary["unknown_submits"]
+        lines.append(
+            "unknown submits: "
+            + ", ".join(f"{n} {name}" for name, n in matched.items())
+        )
+    lines += _present(summary, {"swept_expired": "swept as expired"})
+    lines += _present(summary, _DELIVERY_LABELS) + _in_flight_lines(summary)
+    return lines
+
+
+def _availability_lines(summary: dict[str, Any]) -> list[str]:
+    lines = []
+    for dataset, found in summary.items():
+        span = "no span" if found["span"] is None else " → ".join(found["span"])
+        tally = ", ".join(f"{n} {name}" for name, n in found["conditions"].items())
+        lines.append(
+            f"{dataset}: edge {found['edge_end']}; days {span}; "
+            f"{tally or 'no conditions'}; {found['written']} written, "
+            f"{found['reopened']} reopened"
+        )
+    return lines
+
+
+def _purchase_lines(summary: dict[str, Any]) -> list[str]:
+    if "verdict" not in summary:
+        return []
+    lines = []
+    for key, wanted in summary["wanted_days"].items():
+        pending = summary["pending_days"].get(key, 0)
+        missing = summary["missing_days"].get(key, 0)
+        lines.append(
+            f"wanted {key}: {wanted} day(s), {pending} pending, {missing} missing"
+        )
+    lines += [
+        f"request {r['schema']} {r['start']} → {r['end']} ({r['days']} day(s)) "
+        f"{_money(r['cost_usd'])}{' [re-submit]' if r['resubmit'] else ''}"
+        for r in summary["requests"]
+    ]
+    lines.append(
+        f"planned {_money(summary['planned_usd'])}; trailing 30 days "
+        f"{_money(summary['trailing_30d_usd'])}; per-pass ceiling "
+        f"{_money(summary['per_pass_ceiling_usd'])}; 30-day cap "
+        f"{_money(summary['cap_30d_usd'])}"
+    )
+    lines += [
+        f"unheld provider job {job['job_id']} {_money(job['cost_usd'])}"
+        for job in summary["unheld_jobs"]
+    ]
+    lines.append(f"verdict: {summary['verdict']}")
+    lines += [f"  {reason}" for reason in summary["reasons"]]
+    lines += [
+        f"submitted job {job['job_id']} (request {job['request_id']})"
+        for job in summary.get("submitted", [])
+    ]
+    return lines
+
+
+def _await_lines(summary: dict[str, Any]) -> list[str]:
+    if "skipped" in summary:
+        return [f"skipped ({summary['skipped']})"]
+    labels = {"waited_seconds": "seconds waited", **_DELIVERY_LABELS}
+    return _present(summary, labels) + _in_flight_lines(summary)
+
+
+def _definitions_lines(summary: dict[str, Any]) -> list[str]:
+    return _present(
+        summary,
+        {
+            "projected": "units projected",
+            "inserted": "rows inserted",
+            "noops": "no-ops",
+            "failed": "failures",
+        },
+    )
+
+
+_PHASE_LINES: dict[TickPassPhaseName, Callable[[dict[str, Any]], list[str]]] = {
+    TickPassPhaseName.RECONCILE: _reconcile_lines,
+    TickPassPhaseName.AVAILABILITY: _availability_lines,
+    TickPassPhaseName.PURCHASE: _purchase_lines,
+    TickPassPhaseName.AWAIT: _await_lines,
+    TickPassPhaseName.DEFINITIONS: _definitions_lines,
+}
+assert set(_PHASE_LINES) == set(TickPassPhaseName), (
+    "the pass report has no summary lines for a phase — update _PHASE_LINES"
+)
+
+
+def _print_phase(report: PhaseReport) -> None:
+    if report.outcome == SKIPPED:
+        return
+    rprint(f"[bold]{report.name}[/bold]")
+    for line in _PHASE_LINES[report.name](report.summary):
+        rprint(f"  {escape(line)}")
+    if report.error:
+        rprint(f"  [red]{escape(report.error)}[/red]")
+
+
+def print_pass(result: PassResult, exit_code: int, *, json_mode: bool) -> None:
+    if json_mode:
+        print_result(pass_to_dict(result, exit_code), json_mode=True)
+        return
+    table = make_table(
+        "Tick pass", [("Phase", "cyan"), ("Outcome", "bold"), ("Duration", "")]
+    )
+    for report in result.reports:
+        table.add_row(str(report.name), str(report.outcome), f"{report.duration_ms} ms")
+    print_result(table, json_mode=False)
+    for report in result.reports:
+        _print_phase(report)
+    rprint(
+        f"Outcome: {result.outcome}  exit {exit_code}  duration {result.duration_ms} ms"
+    )
