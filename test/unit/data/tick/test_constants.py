@@ -17,12 +17,15 @@ from manta_trading.data.tick.constants import (
     TICK_ARCHIVE_DIR_ENV,
     TICK_DB_CONNECT_TIMEOUT_SECONDS,
     TICK_ENV_PREFIX,
+    TICK_INGEST_LOCK_KEY,
+    TICK_INGEST_WORKERS,
     TICK_JOB_MATCH_SKEW,
     TICK_POLL_INTERVAL_SECONDS,
     TICK_SPEND_30D_CEILING_ENV,
     TICK_SPEND_CEILING_ENV,
     TICK_SPEND_WINDOW,
     TICK_SUBMIT_RESOLVE_AGE,
+    TICK_TIER_RANK,
     TICK_TIERS,
     TICK_TRADE_CHUNK_INTERVAL,
     TICK_WAIT_BUDGET_SECONDS,
@@ -32,6 +35,7 @@ from manta_trading.data.tick.constants import (
     TickSchema,
     UnitState,
     calendar_for_product,
+    tier_rank_sql,
 )
 from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
 
@@ -144,3 +148,24 @@ def test_acquisition_pass_constants() -> None:
     assert TICK_JOB_MATCH_SKEW == timedelta(minutes=5)
     assert TICK_SUBMIT_RESOLVE_AGE == timedelta(hours=1)
     assert TICK_SPEND_WINDOW == timedelta(days=30)
+
+
+def test_ingest_lock_key_is_its_own() -> None:
+    keys = {TICK_ACQUISITION_LOCK_KEY, TICK_INGEST_LOCK_KEY, SYNC_ADVISORY_LOCK_KEY}
+    assert len(keys) == 3
+
+
+def test_ingest_workers_is_positive() -> None:
+    assert TICK_INGEST_WORKERS >= 1
+
+
+def test_tier_rank_follows_tier_order() -> None:
+    assert sorted(TICK_TIER_RANK, key=TICK_TIER_RANK.__getitem__) == list(TICK_TIERS)
+    assert TICK_TIER_RANK[TickSchema.TBBO] > TICK_TIER_RANK[TickSchema.TRADES]
+
+
+def test_tier_rank_sql_lists_tiers_in_order() -> None:
+    rendered = tier_rank_sql("r.schema")
+    positions = [rendered.index(f"'{tier.value}'") for tier in TICK_TIERS]
+    assert positions == sorted(positions)
+    assert rendered.endswith(", r.schema)")

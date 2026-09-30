@@ -225,3 +225,45 @@ DEFINITION_UNDEFINED: Final[Mapping[str, int]] = {
     "unit_of_measure_qty": UNDEF_INT64,
     "contract_multiplier": UNDEF_INT32,
 }
+
+
+# -- Slice 225: the ingest pass (LLD 225 TD2, TD4, TD5, TD8) -------------------
+
+#: Session-level advisory lock every ingest holds for its whole run (TD4).
+#: Distinct from acquisition's, so ingest and acquisition may run together.
+TICK_INGEST_LOCK_KEY = 220_000_002
+
+#: Units loaded at once, each on its own thread and connection (TD2). A
+#: starting value; slice 226 re-sets it from measurement.
+TICK_INGEST_WORKERS = 2
+
+#: Tier → rank, higher supersedes lower (TD5). Derived from ``TICK_TIERS``
+#: order, the one place the order is stated.
+TICK_TIER_RANK: Final[Mapping[TickSchema, int]] = {
+    tier: rank for rank, tier in enumerate(TICK_TIERS)
+}
+
+
+def tier_rank_sql(column: str) -> str:
+    """SQL ranking ``column`` (a schema name) by ``TICK_TIERS`` order (TD5).
+
+    ``array_position`` is 1-based where ``TICK_TIER_RANK`` is 0-based; only the
+    order is compared. ``column`` and the tier names are code constants, never
+    input.
+    """
+    tiers = ", ".join(f"'{tier.value}'" for tier in TICK_TIERS)
+    return f"array_position(ARRAY[{tiers}]::text[], {column})"
+
+
+#: A worker's ``lock_timeout`` (TD8): a unit row or trade chunk held longer
+#: than this aborts the run as ``storage_abort`` instead of hanging. A modest
+#: starting value; 226 re-sets it.
+TICK_INGEST_LOCK_TIMEOUT_SECONDS = 30
+
+#: TCP keepalives on a worker's connection (TD8): a silently lost database is
+#: noticed after idle + interval × count seconds (about two minutes here),
+#: without a statement timeout that would cut off a large COPY. Modest
+#: starting values; 226 re-sets them.
+TICK_DB_KEEPALIVES_IDLE_SECONDS = 60
+TICK_DB_KEEPALIVES_INTERVAL_SECONDS = 10
+TICK_DB_KEEPALIVES_COUNT = 6
