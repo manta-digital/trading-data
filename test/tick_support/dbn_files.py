@@ -18,12 +18,16 @@ import hashlib
 import json
 import struct
 import zipfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
+import databento
 import databento_dbn
+import numpy as np
 import zstandard
 
 from manta_trading.data.tick.constants import SType
@@ -62,8 +66,10 @@ def _mappings(metadata: databento_dbn.Metadata) -> list[SimpleNamespace]:
     ]
 
 
-def day_file_bytes(fixture: str, dataset: str, day: date, stype_in: SType) -> bytes:
-    """The fixture's records under a header spanning exactly ``day`` (UTC)."""
+def _rehead(
+    fixture: str, dataset: str, day: date, stype_in: SType
+) -> tuple[bytes, bytes]:
+    """The fixture's header re-encoded to span ``day`` and its record bytes."""
     compressed = (FIXTURES / fixture).read_bytes()
     raw = zstandard.ZstdDecompressor().stream_reader(compressed).read()
     _, length = _PRELUDE.unpack_from(raw)
@@ -84,7 +90,32 @@ def day_file_bytes(fixture: str, dataset: str, day: date, stype_in: SType) -> by
         mappings=_mappings(source),
         version=source.version,
     )
-    return zstandard.ZstdCompressor().compress(header.encode() + records)
+    return header.encode(), records
+
+
+def day_file_bytes(fixture: str, dataset: str, day: date, stype_in: SType) -> bytes:
+    """The fixture's records under a header spanning exactly ``day`` (UTC)."""
+    header, records = _rehead(fixture, dataset, day, stype_in)
+    return zstandard.ZstdCompressor().compress(header + records)
+
+
+def definition_file_bytes(
+    dataset: str,
+    day: date,
+    stype_in: SType,
+    records: Sequence[Mapping[str, Any]],
+) -> bytes:
+    """A definition day file whose records are the fixture's first record with
+    each mapping's fields overridden (hand-set windows and terms)."""
+    fixture = "test_data.definition.v3.dbn.zst"
+    header, _ = _rehead(fixture, dataset, day, stype_in)
+    template = databento.DBNStore.from_file(FIXTURES / fixture).to_ndarray()[0]
+    array = np.zeros(len(records), dtype=template.dtype)
+    for index, overrides in enumerate(records):
+        array[index] = template
+        for name, value in overrides.items():
+            array[index][name] = value
+    return zstandard.ZstdCompressor().compress(header + array.tobytes())
 
 
 def _write(path: Path, content: bytes) -> JobFile:
