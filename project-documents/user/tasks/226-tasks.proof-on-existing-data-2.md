@@ -106,6 +106,11 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         include `tick_007`. If none exists, say so in the commit message; do
         not invent one. The 051/052 chain test belongs to the primary track
         and is not touched.
+  - [ ] Flip the assertions that say `tick_trade` is uncompressed:
+        `test_trade_hypertable_has_no_compression` in
+        `test/integration/data/test_tick_storage_track.py` now expects
+        compression enabled (rename it to say so). `git grep -n
+        "compression_enabled\|has_no_compression" test/` for any other.
   - [ ] Add the `tick_007` row to the migrations README.
   - [ ] Success: tests pass; no other integration test newly fails.
 
@@ -135,7 +140,12 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
 - [ ] **8.6 Compressed-chunk tests: `tick_app` and coverage (effort 4)**
   - [ ] Ingest as `tick_app`: the application role inserts through ingest into
         a compressed chunk. If it fails on internal compressed tables, extend
-        `provision_tick_roles.sql` with the minimal grant and add a test for it.
+        `provision_tick_roles.sql` with the minimal grant and add a privilege
+        test for it. The existing databases do not pick it up on their own:
+        the provisioning script applies that SQL to both, so re-run it (the PM's
+        one command, as in 13.3) and confirm the grant on `trading_tick` and
+        `trading_tick_proof` with the same privilege query. Do this before
+        10.3. If no grant was needed, record "no grant needed".
   - [ ] Coverage on a partial chunk: rows inserted into a compressed chunk
         before recompression give a raw count equal to the ledger; after
         `compress_chunk` the count still equals the ledger.
@@ -227,12 +237,13 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
 
 - [ ] **10.3 Migrate and load `trading_tick` (effort 3)**
   - [ ] `uv run mt data migrate apply --track tick` (maintenance URL of
-        `trading_tick`); confirm it applies through `tick_007`.
+        `trading_tick`); confirm it applies through the newest tick migration (`tick_007`, or
+        `tick_008` if 9.4 added it).
   - [ ] `adopt` each of the six job directories under `/data/tick-archive`.
   - [ ] `uv run mt data tick pass --estimate-only`. If it plans anything, stop
         and report it to the PM.
   - [ ] `time uv run mt data tick ingest`.
-  - [ ] Success: migration through `tick_007`; pass exit 0 with nothing
+  - [ ] Success: migration through the newest tick migration; pass exit 0 with nothing
         planned; ingest exit 0 with 78 ingested and 0 failed. Record the wall
         time of each command, because the total is 227's input.
 
@@ -343,10 +354,14 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         table). For each job directory it reads `manifest.json` (a JSON file
         listing each file's name and `sha256:`-prefixed hash; `sha256sum -c`
         cannot parse it) and compares each listed file's hash from
-        `tick.hashing.sha256_file`. Reuse the manifest reader in
-        `adopt_files.py` if it is public. It opens nothing for writing.
+        `tick.hashing.sha256_file`. `adopt_files._read_manifest` is private, so
+        `archive-check` parses `manifest.json` itself (job id, file names,
+        hashes) and leaves `adopt_files.py` unchanged. It opens nothing for
+        writing.
   - [ ] Add a unit test: a temp directory with a manifest and a file whose hash
-        is correct passes; one byte changed fails.
+        is correct passes; one byte changed fails. The manifest in the test copies
+        the shape of a real one under `/data/tick-archive` (`files` entries with
+        `filename`, `size`, `hash`, `urls`).
   - [ ] Run `drop-proof` only now, after the go/no-go cites every report.
   - [ ] `psql "$MT_TICK_MAINTENANCE_URL" -Atc "SELECT datname FROM pg_database
         ORDER BY 1"`, then run `archive-check`.
