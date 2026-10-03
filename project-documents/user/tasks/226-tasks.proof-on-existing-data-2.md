@@ -95,11 +95,24 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         and on a populated uncompressed one. Settings read back from the
         TimescaleDB information views match the constants; the policy exists;
         `tick_now_ns()` is within a second of `now()`.
-  - [ ] Update the migration-chain test that pins the last migration id.
+  - [ ] Find every test that pins the tick track's newest migration id or
+        its count (start with `git grep -n "tick_006"` under `test/`, and
+        `test/integration/data/test_tick_storage_track.py`). Update each to
+        include `tick_007`. If none exists, say so in the commit message; do
+        not invent one. The 051/052 chain test belongs to the primary track
+        and is not touched.
   - [ ] Add the `tick_007` row to the migrations README.
   - [ ] Success: tests pass; no other integration test newly fails.
 
-- [ ] **8.4 Compressed-chunk tests: supersession and overlap (effort 4)**
+- [ ] **8.4 Apply `tick_007` to the proof database (effort 2)**
+  - [ ] Decompress every compressed chunk in `trading_tick_proof` (behind the
+        guard), then run `mt data migrate apply --track tick` with the proof
+        maintenance URL.
+  - [ ] Success: settings read back from the information views match the
+        constants; the policy exists. The proof database now holds the chosen
+        layout, which `final`'s comparison and 10.4 use.
+
+- [ ] **8.5 Compressed-chunk tests: supersession and overlap (effort 4)**
   - [ ] Create `test/integration/data/test_tick_compressed.py`. Compress with
         `compress_chunk` explicitly; the test cluster has no scheduler.
   - [ ] Supersession: ingest a `trades` unit, compress its chunk, ingest the
@@ -109,11 +122,10 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         current unit with the same rows raises `UniqueViolation` and the unit
         fails with `overlap:`.
   - [ ] Success: both pass. If either fails, fix 225's code in this slice (a
-        failure is never fixed by dropping compression); if no fix works, stop
-        and report, because the design then falls back to compressing only past
-        a settled age.
+        failure is never fixed by dropping compression). If no fix works, stop
+        and report to the PM; 8.7 then applies.
 
-- [ ] **8.5 Compressed-chunk tests: `tick_app` and coverage (effort 4)**
+- [ ] **8.6 Compressed-chunk tests: `tick_app` and coverage (effort 4)**
   - [ ] Ingest as `tick_app`: the application role inserts through ingest into
         a compressed chunk. If it fails on internal compressed tables, extend
         `provision_tick_roles.sql` with the minimal grant and add a test for it.
@@ -122,7 +134,16 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         `compress_chunk` the count still equals the ledger.
   - [ ] Success: all five TD 5 rows pass.
 
-- [ ] **8.6 Section checkpoint**
+- [ ] **8.7 Fallback, only if a TD 5 test cannot be made to pass (effort 3)**
+  - [ ] Set `TICK_TRADE_COMPRESS_AFTER` to a settled age beyond which no
+        supersession or overlap can reach (the PM names it), re-run 8.5 and
+        8.6 under that policy, and record the failing path and the fallback for
+        the go/no-go (13.1).
+  - [ ] If all five tests passed, tick this task with "not needed".
+  - [ ] Success: either "not needed" is recorded, or the five tests pass under
+        the fallback and the go/no-go input is written.
+
+- [ ] **8.8 Section checkpoint**
   - [ ] Run unit tier, integration tier, mypy and ruff on touched files.
   - [ ] Commit: `feat: add tick_007 columnstore migration and compressed-chunk
         tests`.
@@ -140,7 +161,8 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
   - [ ] `TICK_POLL_INTERVAL_SECONDS`: kept unless the fastest job finishes
         under 15 s.
   - [ ] `TICK_INGEST_LOCK_TIMEOUT_SECONDS`: at least 4 x the slowest
-        compressed-chunk supersession delete, never below 30.
+        compressed-chunk supersession delete, never below 30. Source: the
+        `layouts` report's delete times (6.5), taking the chosen layout's.
   - [ ] `TICK_TRADE_CHUNK_INTERVAL`: the interval verdict in the `queries`
         report. If it changes, add the migration and plan the rebuild.
   - [ ] Connect timeout, keepalives, `TICK_SUBMIT_RESOLVE_AGE`: kept.
@@ -155,6 +177,14 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
   - [ ] Commit: `refactor: re-set tick constants from the 226 proof`.
   - [ ] Success: no docstring says "conservative until 226 measures".
 
+- [ ] **9.3 Re-gate ingest throughput under the new constants (effort 2)**
+  - [ ] Run the 225 load test:
+        `MT_RUN_LOAD_TESTS=1 uv run pytest
+        test/load/test_225_tick_ingest_nfr.py`.
+  - [ ] Success: it passes (unit time at most 120 s, event-loop gap at most
+        250 ms) with the re-set worker count and batch budget. A failure goes
+        to the PM before Section 10.
+
 ---
 
 ## Section 10 — Production rebuild on `trading_tick` (TD 4, walkthrough 6)
@@ -168,6 +198,13 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
   - [ ] The compression sits behind its own check that the connection's
         database is the one named in `MT_TICK_DB_URL`.
   - [ ] Success: step implemented; a re-run finishes any chunks left over.
+
+- [ ] **10.1a Test `final`'s production write guard (effort 2)**
+  - [ ] Unit test: `final` refuses to compress when the connection's database
+        is not the one named in `MT_TICK_DB_URL`, and refuses below the
+        free-space floor. A throwaway-database fixture stands in; the test
+        never reads the production URL variable.
+  - [ ] Success: tests pass; a wrong database name makes them fail.
 
 - [ ] **10.2 Migrate and load `trading_tick` (effort 3)**
   - [ ] `uv run mt data migrate apply --track tick` (maintenance URL of
@@ -186,6 +223,19 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         Q1–Q4 miss gets an index or read-side aggregate in `tick_007` and is
         re-measured. Commit the report: `docs: add 226 final proof report`.
 
+- [ ] **10.4 Load test for query latency on compressed data (effort 3)**
+  - [ ] Create `test/load/test_226_tick_query_nfr.py` in the style of
+        `test_225_tick_ingest_nfr.py`: ingest the largest real adopted day
+        from `/data/tick-archive` into a fixture database migrated through
+        `tick_007`, compress its chunk, then run Q1–Q4. It fails, never skips,
+        if the archive file is absent, and never reads the production URL
+        variable.
+  - [ ] Bound: each of Q1–Q4 at or under 1 s warm. Docstring names the gate
+        (`MT_RUN_LOAD_TESTS=1`) and cites the `final` report.
+  - [ ] Run it. Commit: `test: add compressed-chunk query latency load test`.
+  - [ ] Success: the load test passes; the load tier's
+        `test_load_tier_never_references_prod_db_url` still passes.
+
 ---
 
 ## Section 11 — Re-verify and tear down the proof database (TD 2)
@@ -200,12 +250,7 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
 - [ ] **11.2 `drop-proof` tests (effort 2)**
   - [ ] Unit test both refusals: a non-constant target, and a name equal to
         the production URL's database.
-  - [ ] Success: tests pass.
-
-- [ ] **11.3 Hold the drop until the go/no-go has its numbers (effort 1)**
-  - [ ] Do not run `drop-proof` yet. Task 13.2 runs it, after the go/no-go
-        cites every report. Nothing waits on a clock: it is a reorder only.
-  - [ ] Success: this task is closed by 13.2. Commit the step and its tests:
+  - [ ] Success: tests pass. Commit the step and its tests:
         `feat: add proof harness drop-proof step`.
 
 ---
@@ -260,17 +305,40 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         the rebuild cost handed to 227.
   - [ ] Record the Kalshi contract diff result and the capacity projection,
         labelled as a projection.
+  - [ ] Realtime paths check (TD 10): state that neither path A (assemble from
+        realtime) nor path B (historical with delay) is ruled out, naming the
+        decisions that keep each open, or name any decision that rules one out.
+  - [ ] API question (TD 10): "Does this belong in the API?" answered: no new
+        surface, the go/no-go is a document and the harness a one-off script.
+  - [ ] If the compressed-chunk fallback (8.7) was used, record it here.
   - [ ] Success: every number names its report; each of the four decisions has a
         recommendation.
 
-- [ ] **13.2 Drop the proof database and verify the archive (effort 1)**
-  - [ ] Run `uv run python scripts/proof_226_tick.py drop-proof`.
+- [ ] **13.2 Add `archive-check`, drop the proof database, verify the archive (effort 2)**
+  - [ ] Add a read-only harness step `archive-check` (an addition to TD 2's
+        table). For each job directory it reads `manifest.json` (a JSON file
+        listing each file's name and `sha256:`-prefixed hash; `sha256sum -c`
+        cannot parse it) and compares each listed file's hash from
+        `tick.hashing.sha256_file`. Reuse the manifest reader in
+        `adopt_files.py` if it is public. It opens nothing for writing.
+  - [ ] Add a unit test: a temp directory with a manifest and a file whose hash
+        is correct passes; one byte changed fails.
+  - [ ] Run `drop-proof` only now, after the go/no-go cites every report.
   - [ ] `psql "$MT_TICK_MAINTENANCE_URL" -Atc "SELECT datname FROM pg_database
-        ORDER BY 1"`.
-  - [ ] `sha256sum -c` against each job's `manifest.json`.
+        ORDER BY 1"`, then run `archive-check`.
   - [ ] Success: `trading_tick_proof` is gone; only `trading_tick` and the
-        cluster's own databases remain; every archive file verifies.
+        cluster's own databases remain; every listed archive file verifies.
   - [ ] Commit the go/no-go: `docs: add 226 tick proof go/no-go`.
+
+- [ ] **13.3 Apply any memory-setting change (effort 2)**
+  - [ ] If the go/no-go confirmed `shared_buffers` and the memory block as they
+        are, record "unchanged" and tick this task.
+  - [ ] If it changed any value: edit the memory block at the top of
+        `scripts/provision_tick_cluster.sh`, run `--check`, and give the PM the
+        one command to re-run it (it restarts only `postgresql@17-tick`).
+        Confirm the new values with `SHOW`.
+  - [ ] Success: the cluster's live settings equal the go/no-go's, or
+        "unchanged" is recorded.
 
 ---
 
@@ -301,11 +369,13 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
 
 - [ ] **14.3 Full validation (effort 2)**
   - [ ] Unit tier clean. Integration tier: only the known baseline failures,
-        with the chain test updated for `tick_007`.
+        with the tick-track tests that pin the newest migration updated for
+        `tick_007` (8.3).
   - [ ] mypy (src kalshi paths and tests in one invocation) and ruff clean on
         touched files; shellcheck clean on the provisioning script.
   - [ ] `git grep` the diff for credentials and `postgresql://` URLs carrying a
         password. None.
+  - [ ] Re-run the load tier gate for both tick load tests (9.3, 10.4).
   - [ ] Walk the Verification Walkthrough (design, steps 1–9) and tick each
         expected result against Success Criteria 1–9.
   - [ ] Success: every criterion holds; all work is committed on the slice

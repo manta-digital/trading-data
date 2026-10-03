@@ -141,8 +141,10 @@ each one. Every number in the go/no-go names its report file.
         *verified*. It sits behind the guard.
   - [ ] Add the free-space check: refuse to load data when `/data` has less
         than 50 GB free (named constant).
-  - [ ] Success: the dispatcher lists the ten steps from TD 2; the guard and the
-        space check are importable functions.
+  - [ ] Success: the dispatcher knows every step name in TD 2's table plus
+        `archive-check` (added in 13.2); a step not yet implemented exits
+        non-zero saying so. The guard and the space check are importable
+        functions.
 
 - [ ] **2.3 Guard tests (effort 2)**
   - [ ] Unit test: every destructive harness function raises on a connection
@@ -259,58 +261,61 @@ each one. Every number in the go/no-go names its report file.
 
 ## Section 5 — Uncompressed measurements (TD 3)
 
-- [ ] **5.1 `mapping` step (effort 3)**
+- [ ] **5.1 `mapping` step, and run it (effort 3)**
   - [ ] Decode every tier file with `DbnFileReader.open_file`. For every
         record, check that some interval in the file's `mappings` names its
         `instrument_id` and covers the file's day.
   - [ ] Report the count checked and the miss count.
+  - [ ] Run the step.
   - [ ] Success: the report states a percentage over exactly 27,691,412
-        records. A miss makes the report say NO-GO and name the raw-symbol
-        fallback (`stype_in=raw_symbol`).
+        records and reads `100.00 %`. A miss makes the report say NO-GO and
+        name the raw-symbol fallback (`stype_in=raw_symbol`); flag it to the
+        PM at once.
 
-- [ ] **5.2 Run `mapping` (effort 1)**
-  - [ ] Success: `100.00 %`, or the NO-GO is flagged to the PM at once.
-
-- [ ] **5.3 `size` step (effort 3)**
+- [ ] **5.2 `size` step, including the spread share (effort 4)**
   - [ ] Per tier: archive bytes, DBN record size read from
         `DbnFile.record_size` (never assumed), and uncompressed table bytes,
         each divided by an exact `count(*)`. Per-chunk sizes give per-tier
         figures, since the tiers occupy separate chunks.
   - [ ] Record rows per instrument per chunk, as the skew evidence for the
         space-partitioning rejection.
-  - [ ] Success: the report holds bytes per record for both tiers and a skew
-        table.
+  - [ ] Spread share, per tier: rows and bytes belonging to spread
+        instruments as a percentage of the tier. Identify spreads from the
+        instrument class in the definitions table (read `tick_003_definitions`
+        to find the column). If the table has no such column, stop and ask the
+        PM; do not infer spreads from symbol text.
+  - [ ] Success: the report holds bytes per record for both tiers, the skew
+        table, and the spread share for each tier (the 13.1 spreads decision
+        reads it).
 
-- [ ] **5.4 `jobs` step (effort 2)**
+- [ ] **5.3 `jobs` step (effort 2)**
   - [ ] Read every account job record through `ITickMetadataProvider`
         (`batch_jobs_since`; free). Tabulate submit → done time per job.
   - [ ] Success: the report lists every job with its duration and names the
         slowest and fastest.
 
-- [ ] **5.5 Run `size` and `jobs` (effort 1)**
+- [ ] **5.4 Run `size` and `jobs` (effort 1)**
   - [ ] Success: both reports exist and are committed. Commit:
         `feat: add proof harness mapping, size and jobs steps`.
 
-- [ ] **5.6 `workers` step (effort 3)**
+- [ ] **5.5 `workers` step (effort 3)**
   - [ ] Reset the proof database, then re-ingest with `TICK_INGEST_WORKERS`
         patched in process to 1, 2 and 4. Record wall time, per-unit decode
         and write sums, and peak host CPU.
   - [ ] Apply the TD 3 rule text in the report: keep 2 unless 4 is at least
         1.5x faster and the contention run (Section 7) stays within its bound.
+  - [ ] Check `/data` free space and `MemAvailable` first, then run the step.
   - [ ] Success: the report holds three runs and a stated verdict, marked
         provisional until contention is measured.
 
-- [ ] **5.7 `batch` step (effort 3)**
+- [ ] **5.6 `batch` step (effort 3)**
   - [ ] Re-ingest the three largest units with `TICK_DECODE_BATCH_BYTES` at
         8, 32 and 128 MiB. Record peak worker RSS and batch count.
+  - [ ] Run the step.
   - [ ] Success: the report states keep-or-change by the rule (keep 32 MiB
         unless peak RSS exceeds 4x the budget, or a smaller budget moves unit
-        time by more than 10 %).
-
-- [ ] **5.8 Run `workers` and `batch` (effort 2)**
-  - [ ] Run each; confirm free space and `MemAvailable` before each.
-  - [ ] Success: both reports exist; the proof database is reset after each
-        run; commit: `feat: add proof harness workers and batch steps`.
+        time by more than 10 %). The proof database is reset afterwards.
+        Commit both reports: `feat: add proof harness workers and batch steps`.
 
 ---
 
@@ -329,26 +334,41 @@ each one. Every number in the go/no-go names its report file.
   - [ ] Run the query set three times, warm. Also compute the chunk-count
         projection over the table's 20-year span for the chunk interval rule
         (1,000–2,000 chunks; planning at most 50 ms for Q1–Q4).
+  - [ ] Run the step.
   - [ ] Success: report written with the interval verdict.
 
-- [ ] **6.3 `layouts` step (effort 5)**
-  - [ ] Begin by decompressing every compressed chunk in the proof database.
+- [ ] **6.3 `layouts` step: shared scaffolding and layout A (effort 3)**
+  - [ ] Begin the step by decompressing every compressed chunk in the proof
+        database (behind the guard), so a re-run is safe.
+  - [ ] Write one function that takes a layout (segmentby, orderby), sets it,
+        compresses every chunk, and returns compressed bytes per row by tier.
+        It leaves the table compressed for the caller to measure.
   - [ ] Layout A: `segmentby = instrument_id`, `orderby = ts_event, sequence,
-        sequence_ordinal`. Layout B: no segmentby, `orderby = instrument_id,
-        ts_event, sequence, sequence_ordinal`. For each: set it, compress
-        every chunk, record compressed bytes per row by tier, run the query
-        set three times, then decompress.
-  - [ ] On a compressed chunk under each layout, time the supersession delete
-        (bounded by ledger times). That number feeds the lock-timeout rule.
+        sequence_ordinal`. Measure bytes per row, run the query set three
+        times, then decompress.
   - [ ] Verify TimescaleDB 2.29's rule that every unique-key column must be in
-        segmentby or orderby; if either layout is rejected, the report says so.
-  - [ ] Apply TD 4's rule: lower compressed bytes per row wins, unless it
-        misses a Q1–Q4 bound the other meets; within 10 % on both, choose A.
-  - [ ] Success: the report names A or B by the rule and states the numbers.
+        segmentby or orderby; if a layout is rejected, the report says so.
+  - [ ] Success: the report section for A holds bytes per row by tier and the
+        query timings; the table is decompressed afterwards.
 
-- [ ] **6.4 Run `queries` and `layouts` (effort 2)**
-  - [ ] Success: both reports exist. Commit: `feat: add proof harness queries
-        and layouts steps`.
+- [ ] **6.4 `layouts` step: layout B (effort 2)**
+  - [ ] Layout B: no segmentby, `orderby = instrument_id, ts_event, sequence,
+        sequence_ordinal`. Same measurements as A, through the same function.
+  - [ ] Success: the report section for B matches A's shape.
+
+- [ ] **6.5 `layouts` step: supersession delete timing (effort 3)**
+  - [ ] On a compressed chunk under each layout, time the supersession delete
+        (bounded by ledger times), through the shipped delete function.
+  - [ ] Success: the report gives one delete time per layout, labelled as the
+        input to the lock-timeout rule (9.1).
+
+- [ ] **6.6 `layouts` step: the decision, then run (effort 2)**
+  - [ ] Apply TD 4's rule in code and print it: lower compressed bytes per row
+        wins, unless it misses a Q1–Q4 bound the other meets; within 10 % on
+        both, choose A.
+  - [ ] Run `queries` and `layouts`.
+  - [ ] Success: the `layouts` report names A or B by the rule with the numbers.
+        Commit: `feat: add proof harness queries and layouts steps`.
 
 ---
 
