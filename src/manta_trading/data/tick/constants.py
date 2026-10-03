@@ -91,8 +91,9 @@ TICK_TRADE_CHUNK_INTERVAL: timedelta = timedelta(days=7)
 
 Rule (journal 20260719): the table's wall-clock span divided by 1,000–2,000
 target chunks. About 20 years of plausible span gives about 1,040 chunks at
-7 days (slice 222 TD8). Slice 226 validates it from measurements and may
-re-set it with a tick-track migration.
+7 days (slice 222 TD8). Validated by slice 226: 1,044 chunks over 20
+years, Q1–Q4 planning at most 0.44 ms against a 50 ms bound
+(``user/notes/2026-10-03-226-proof-queries.md``).
 """
 
 
@@ -128,9 +129,9 @@ TICK_DECODE_BATCH_BYTES = 32 * 1024 * 1024
 """Upper bound on one decoded batch, in bytes: one in-flight batch per worker.
 
 ``DbnFile.iter_batches`` derives its record count from this and the file's
-record size, so the bound holds for every schema. This is a starting value;
-slice 226 replaces it from measurements on purchased data and rewrites this
-docstring.
+record size, so the bound holds for every schema. Kept by slice 226: a
+worker holds 2.2× its budget (rule: at most 4×), and neither 8 nor 128 MiB
+moved unit time by more than 10 % (``user/notes/2026-10-03-226-proof-batch.md``).
 """
 
 #: Per-operation timeout (connect, read, write, pool) for the adapter's own
@@ -171,7 +172,8 @@ def calendar_for_product(product: str) -> str:
 TICK_ACQUISITION_LOCK_KEY = 220_000_001
 
 #: Seconds allowed to connect to the tick database before the preflight
-#: refuses it as unreachable (TD2).
+#: refuses it as unreachable (TD2). Kept by slice 226: connecting took 0.010 s
+#: on the production host (``user/notes/2026-10-03-226-proof-rebuild.md``).
 TICK_DB_CONNECT_TIMEOUT_SECONDS = 10
 
 #: ``Settings.tick_spend_30d_ceiling_usd``'s environment name (TD7; stored in
@@ -188,11 +190,13 @@ TICK_ENV_PREFIX = "MT_TICK_"
 
 # -- Slice 224: the acquisition pass (LLD 224 TD7, TD9) ------------------------
 
-#: How long the await phase polls for jobs to finish (TD9); a conservative
-#: start that slice 226 re-sets from measurement.
+#: How long the await phase polls for jobs to finish (TD9). Rule (226 TD3):
+#: max(1800, 2 × the slowest account job); the slowest of eight took 287 s
+#: (``user/notes/2026-10-03-226-proof-jobs.md``), so 1800 holds.
 TICK_WAIT_BUDGET_SECONDS = 1800
 
-#: Seconds between the await phase's polls (TD9); 226 re-sets it too.
+#: Seconds between the await phase's polls (TD9). Kept unless a job finishes
+#: in under 15 s; the fastest took 24 s (``user/notes/2026-10-03-226-proof-jobs.md``).
 TICK_POLL_INTERVAL_SECONDS = 15
 
 #: Slack subtracted from a request's ``requested_at`` when searching the
@@ -200,6 +204,8 @@ TICK_POLL_INTERVAL_SECONDS = 15
 TICK_JOB_MATCH_SKEW = timedelta(minutes=5)
 
 #: Age after which an unresolved submit is exhausted instead of retried (TD9).
+#: Kept by slice 226: twelve times the slowest job's 287 s
+#: (``user/notes/2026-10-03-226-proof-jobs.md``).
 TICK_SUBMIT_RESOLVE_AGE = timedelta(hours=1)
 
 #: The rolling window the 30-day spend ceiling is summed over (TD7).
@@ -233,8 +239,10 @@ DEFINITION_UNDEFINED: Final[Mapping[str, int]] = {
 #: Distinct from acquisition's, so ingest and acquisition may run together.
 TICK_INGEST_LOCK_KEY = 220_000_002
 
-#: Units loaded at once, each on its own thread and connection (TD2). A
-#: starting value; slice 226 re-sets it from measurement.
+#: Units loaded at once, each on its own thread and connection (TD2). Kept by
+#: slice 226: 4 workers were only 1.27× faster than 2 (rule: 1.5×;
+#: ``user/notes/2026-10-03-226-proof-workers.md``), and at 2 the Kalshi
+#: pass showed no contention (``user/notes/2026-10-03-226-proof-contention.md``).
 TICK_INGEST_WORKERS = 2
 
 #: Tier → rank, higher supersedes lower (TD5). Derived from ``TICK_TIERS``
@@ -257,14 +265,17 @@ def tier_rank_sql(column: str) -> str:
 
 
 #: A worker's ``lock_timeout`` (TD8): a unit row or trade chunk held longer
-#: than this aborts the run as ``storage_abort`` instead of hanging. A modest
-#: starting value; 226 re-sets it.
+#: than this aborts the run as ``storage_abort`` instead of hanging. Rule (226
+#: TD6): at least 4 × the slowest supersession delete on compressed chunks,
+#: never below 30 s; that delete took 0.10 s, so 30 holds
+#: (``user/notes/2026-10-03-226-proof-layouts.md``).
 TICK_INGEST_LOCK_TIMEOUT_SECONDS = 30
 
 #: TCP keepalives on a worker's connection (TD8): a silently lost database is
 #: noticed after idle + interval × count seconds (about two minutes here),
-#: without a statement timeout that would cut off a large COPY. Modest
-#: starting values; 226 re-sets them.
+#: without a statement timeout that would cut off a large COPY. Kept by slice
+#: 226: the slowest unit took 3.9 s on the production host, far inside the
+#: two-minute detection window (``user/notes/2026-10-03-226-proof-rebuild.md``).
 TICK_DB_KEEPALIVES_IDLE_SECONDS = 60
 TICK_DB_KEEPALIVES_INTERVAL_SECONDS = 10
 TICK_DB_KEEPALIVES_COUNT = 6
