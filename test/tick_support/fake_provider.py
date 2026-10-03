@@ -193,6 +193,7 @@ class FakeTickProvider:
             state=job.state,
             ts_received=job.ts_received,
             ts_expiration=job.ts_received + RETENTION,
+            ts_process_done=job.ts_received if priced else None,
             record_count=self._records(job) if priced else None,
             billed_size=self.day_bytes if priced else None,
             actual_size=self.day_bytes if priced else None,

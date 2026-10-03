@@ -197,7 +197,8 @@ class ITickMetadataProvider(Protocol):
 class BatchJob:
     """A batch job as the provider reports it; 222's manifest row source.
 
-    ``ts_expiration`` is the only source of a unit's download deadline. The
+    ``ts_expiration`` is the only source of a unit's download deadline.
+    ``ts_process_done`` (submit → done is 226's job-time measurement) and the
     size and cost fields are ``None`` until the provider has processed the job.
     """
 
@@ -206,6 +207,7 @@ class BatchJob:
     state: BatchJobState
     ts_received: datetime
     ts_expiration: datetime | None
+    ts_process_done: datetime | None
     record_count: int | None
     billed_size: int | None
     actual_size: int | None

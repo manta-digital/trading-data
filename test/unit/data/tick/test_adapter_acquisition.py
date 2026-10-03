@@ -112,6 +112,7 @@ def test_batch_job_parses_the_manifest_fields() -> None:
     assert job.request == REQUEST
     assert job.ts_expiration == datetime(2025, 2, 11, 0, 25, 10, tzinfo=UTC)
     assert job.ts_received == datetime(2025, 1, 12, 0, 24, 3, 786913, tzinfo=UTC)
+    assert job.ts_process_done == datetime(2025, 1, 12, 0, 25, 10, tzinfo=UTC)
     assert job.cost_usd == Decimal("1.25")
     assert (job.record_count, job.billed_size) == (2_000_000, 96_000_000)
     assert (job.actual_size, job.package_size) == (96_000_000, 30_000_000)
@@ -122,9 +123,11 @@ def test_unprocessed_job_has_no_sizes() -> None:
     for field in ("cost_usd", "record_count", "billed_size", "actual_size"):
         record[field] = None
     record["package_size"] = record["ts_expiration"] = None
+    record["ts_process_done"] = None
     job = _provider(batch_api({JOB_ID: record})).batch_job(JOB_ID)
     assert job.state is BatchJobState.QUEUED
     assert job.cost_usd is None and job.ts_expiration is None
+    assert job.ts_process_done is None
 
 
 def test_job_off_a_day_boundary_is_refused() -> None:
@@ -256,5 +259,8 @@ def test_recorded_job_parses() -> None:
         end=date(2025, 1, 1),
     )
     assert job.ts_expiration == datetime(2025, 2, 22, 5, 18, 12, 939863, tzinfo=UTC)
+    assert job.ts_process_done == datetime(
+        2025, 1, 23, 5, 18, 12, 939863, tzinfo=UTC
+    )
     assert job.cost_usd == Decimal("36.80458068847656")
     assert (job.record_count, job.billed_size) == (17_642_240, 1_411_379_200)

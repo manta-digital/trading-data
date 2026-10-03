@@ -232,6 +232,9 @@ def parse_batch_job(raw: object) -> BatchJob:
         ts_expiration=_optional(
             body["ts_expiration"], lambda v: _utc_datetime(v, "ts_expiration")
         ),
+        ts_process_done=_optional(
+            body["ts_process_done"], lambda v: _utc_datetime(v, "ts_process_done")
+        ),
         record_count=_optional(body["record_count"], lambda v: as_count(v, "records")),
         billed_size=_optional(body["billed_size"], lambda v: as_count(v, "billed")),
         actual_size=_optional(body["actual_size"], lambda v: as_count(v, "actual")),
