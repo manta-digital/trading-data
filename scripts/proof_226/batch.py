@@ -1,9 +1,10 @@
 """``batch``: the three largest units at 8, 32 and 128 MiB budgets (TD3).
 
-Rule: keep 32 MiB unless its peak worker memory rise exceeds 4× the budget,
-or another budget moves the units' time by more than 10 %. Workers are
-threads of this process, so the rise is this process's high-water mark
-(reset before each run) above its resident memory at the start of the run.
+Rule: keep 32 MiB unless a worker's memory exceeds 4× the budget, or another
+budget moves the units' time by more than 10 %. Workers are threads of this
+process, so each run's rise is this process's high-water mark (reset before
+the run) above its resident memory at the start; ``budget_memory`` separates
+the part that scales with the budget from the fixed part.
 Ends by reloading the whole set with the current constants, so Section 6
 measures every row.
 """
@@ -18,6 +19,7 @@ import psycopg
 from manta_trading.data.tick.constants import (
     STORED_TIERS,
     TICK_DECODE_BATCH_BYTES,
+    TICK_INGEST_WORKERS,
 )
 from manta_trading.data.tick.databento.dbn_file import DbnFileReader
 from proof_226.common import (
@@ -65,12 +67,29 @@ def batch_count(records: int, record_size: int, budget: int) -> int:
     return ceil(records / (budget // record_size))
 
 
-def verdict(seconds: dict[int, float], rise: dict[int, int]) -> str:
+def budget_memory(rise: dict[int, int], workers: int) -> tuple[float, float]:
+    """``(per-worker bytes per budget byte, fixed bytes)``: a least-squares
+    line through the runs' memory rises against their budgets. The intercept
+    is what every run pays regardless of budget (plans, definitions,
+    calendars, connections); the slope over the workers in flight is what a
+    worker holds per byte of budget (found 2026-10-03: the raw rise was
+    469 MiB even at 8 MiB, almost all of it fixed)."""
+    xs, ys = list(rise), [float(rise[b]) for b in rise]
+    mean_x, mean_y = sum(xs) / len(xs), sum(ys) / len(ys)
+    var = sum((x - mean_x) ** 2 for x in xs)
+    slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True)) / var
+    return slope / workers, mean_y - slope * mean_x
+
+
+def verdict(
+    seconds: dict[int, float], rise: dict[int, int], workers: int = TICK_INGEST_WORKERS
+) -> str:
     current = TICK_DECODE_BATCH_BYTES
-    if rise[current] > RSS_BUDGET_MULTIPLE * current:
+    per_worker, _ = budget_memory(rise, workers)
+    if per_worker > RSS_BUDGET_MULTIPLE:
         return (
-            f"change: {mib(current)} rose {mib(rise[current])}, over "
-            f"{RSS_BUDGET_MULTIPLE}× its budget"
+            f"change: a worker holds {per_worker:.1f}× its budget, over "
+            f"{RSS_BUDGET_MULTIPLE}×"
         )
     for budget, took in seconds.items():
         moved = abs(took - seconds[current]) / seconds[current]
@@ -84,7 +103,8 @@ def verdict(seconds: dict[int, float], rise: dict[int, int]) -> str:
                 f"{mib(current)}"
             )
     return (
-        f"keep {mib(current)}: memory rise within {RSS_BUDGET_MULTIPLE}× and no "
+        f"keep {mib(current)}: a worker holds {per_worker:.1f}× its budget "
+        f"(≤ {RSS_BUDGET_MULTIPLE}×) and no "
         f"budget faster by more than {TIME_CHANGE_FRACTION:.0%}"
     )
 

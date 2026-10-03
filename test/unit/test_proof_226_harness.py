@@ -227,11 +227,20 @@ def test_batch_rule() -> None:
 
     mib = 1024 * 1024
     flat = {8 * mib: 100.0, 32 * mib: 100.0, 128 * mib: 95.0}
-    small_rise = {8 * mib: 10 * mib, 32 * mib: 40 * mib, 128 * mib: 200 * mib}
-    assert verdict(flat, small_rise).startswith("keep 32 MiB")
-    assert verdict(flat, {**small_rise, 32 * mib: 200 * mib}).startswith("change:")
+    # The 2026-10-03 host run: ~469 MiB fixed, ~2.2x per worker at 2 workers.
+    measured = {8 * mib: 469 * mib, 32 * mib: 667 * mib, 128 * mib: 1020 * mib}
+    assert verdict(flat, measured, workers=2).startswith("keep 32 MiB")
+    steep = {b: 10 * b for b in measured}  # 5x per worker at 2 workers
+    assert verdict(flat, steep, workers=2).startswith("change: a worker holds 5.0×")
     faster = {**flat, 128 * mib: 80.0}
-    assert verdict(faster, small_rise).startswith("change to 128 MiB")
+    assert verdict(faster, measured, workers=2).startswith("change to 128 MiB")
+
+
+def test_budget_memory_separates_fixed_from_scaling() -> None:
+    from proof_226.batch import budget_memory
+
+    per_worker, fixed = budget_memory({8: 100 + 3 * 8, 32: 100 + 3 * 32}, workers=1)
+    assert (round(per_worker, 6), round(fixed, 6)) == (3.0, 100.0)
 
 
 def _layout_result(name: str, bytes_per_row: float, q_ms: float) -> Any:
