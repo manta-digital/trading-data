@@ -583,6 +583,15 @@ either pass aborts with `storage_abort` on one bad file.
   `DbnFile`, and one integration test per pass: verify reports the unit
   failed and the pass continues, and ingest reports `decode:` and the pass
   continues.
+- **Delivery and adopt** (PM decision 2026-10-03, found while testing the
+  above). Both match a file to its unit by reading its header's start day,
+  so a refused header there aborted the whole job. The shared
+  `file_days.file_days` collects refused files instead of raising. A day no
+  readable file claims then fails deterministically naming the refused
+  files (`header: no readable file for this day; refused: …`) rather than
+  being recorded as a provider hole, since a refused file may be that day's.
+  With no refused file, holes are recorded as before. Integration tests:
+  delivery in `test_tick_bad_header.py`, adopt in `test_tick_adopt.py`.
 
 ### Technical Decision 9: the go/no-go document, and ES's tier and range
 

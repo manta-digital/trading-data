@@ -28,6 +28,7 @@ from tick_support.dbn_files import (
     CME_DEFINITION_RECORDS,
     JOB_JSON_FILES,
     MANIFEST_NAME,
+    bad_header_bytes,
     day_file_bytes,
     definition_file_bytes,
 )
@@ -120,6 +121,9 @@ class FakeTickProvider:
     polls_until_done: int | None = 0  # None: a job never leaves processing
     supply_manifest: bool = True
     missing_days: set[date] = field(default_factory=set)
+    #: day → a ``BAD_HEADERS`` kind: that day's file is delivered with one
+    #: header field rewritten (226 TD8).
+    bad_header_days: dict[date, str] = field(default_factory=dict)
     submit_script: deque[str] = field(default_factory=deque)
     download_errors: deque[BaseException] = field(default_factory=deque)
     record_count_error: BaseException | None = None
@@ -305,7 +309,10 @@ class FakeTickProvider:
             if day.weekday() == 5 or day in self.missing_days:
                 continue
             name = f"glbx-mdp3-{day:%Y%m%d}.{request.schema.value}.dbn.zst"
-            files[name] = self._day_file(request, fixture, day)
+            content = self._day_file(request, fixture, day)
+            if day in self.bad_header_days:
+                content = bad_header_bytes(content, self.bad_header_days[day])
+            files[name] = content
         for name in JOB_JSON_FILES:
             files[name] = json.dumps({"placeholder": name}).encode()
         if self.supply_manifest:

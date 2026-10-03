@@ -33,7 +33,6 @@ from pathlib import Path
 
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.adopt_files import (
-    DATA_FILE_SUFFIXES,
     ArchivedFile,
     FreeBytes,
     TickAdoptionRefused,
@@ -44,6 +43,7 @@ from manta_trading.data.tick.constants import (
     BatchJobState,
     UnitState,
 )
+from manta_trading.data.tick.file_days import DuplicateDayError, FileDays, file_days
 from manta_trading.data.tick.manifest_reads import (
     UnitFile,
     request_id_for_job,
@@ -118,33 +118,42 @@ async def _job(run: TickRun, job_id: str) -> BatchJob:
     return job
 
 
+@dataclass(frozen=True)
+class _JobDays:
+    by_day: dict[date, tuple[ArchivedFile, str]]
+    found: FileDays
+
+
 def _files_by_day(
     run: TickRun, job_id: str, files: list[ArchivedFile], reader: ITickFileReader
-) -> dict[date, tuple[ArchivedFile, str]]:
+) -> _JobDays:
     """Data files keyed by the UTC day their header starts on. Blocking."""
-    by_day: dict[date, tuple[ArchivedFile, str]] = {}
-    for archived in files:
-        if not archived.name.endswith(DATA_FILE_SUFFIXES):
-            continue
-        rel_path = f"{job_id}/{archived.name}"
-        day = reader.open_file(run.archive_root / rel_path).start.date()
-        if day in by_day:
-            raise TickAdoptionRefused(
-                f"{archived.name} and {by_day[day][0].name} both start on {day}"
-            )
-        by_day[day] = (archived, rel_path)
-    return by_day
+    archived = {f"{job_id}/{f.name}": f for f in files}
+    try:
+        found = file_days((run.archive_root / rel for rel in archived), reader)
+    except DuplicateDayError as exc:
+        raise TickAdoptionRefused(str(exc)) from exc
+    by_day = {
+        day: (archived[rel], rel)
+        for day, path in found.by_day.items()
+        for rel in (f"{job_id}/{path.name}",)
+    }
+    return _JobDays(by_day, found)
 
 
-def _units(
-    days: list[date], by_day: dict[date, tuple[ArchivedFile, str]]
-) -> list[NewUnit]:
+def _units(days: list[date], job: _JobDays) -> list[NewUnit]:
     units = []
     for day in days:
-        if day in by_day:
-            archived, rel_path = by_day[day]
+        if day in job.by_day:
+            archived, rel_path = job.by_day[day]
             unit_file = UnitFile(rel_path, archived.size, archived.sha256)
             units.append(NewUnit(day, UnitState.DOWNLOADED, file=unit_file))
+        elif job.found.unreadable:
+            # A refused header may be this day's file: a failure, not a hole.
+            reason = job.found.unclaimed_reason()
+            units.append(
+                NewUnit(day, UnitState.DELIVERED, FetchStatus.RETRY_EXHAUSTED, reason)
+            )
         else:
             units.append(
                 NewUnit(
@@ -228,10 +237,12 @@ async def adopt_job(
     files = await asyncio.to_thread(
         archive_job_files, source, job_id, run.archive_root, free
     )
-    by_day = await asyncio.to_thread(_files_by_day, run, job_id, files, reader)
+    job_days = await asyncio.to_thread(_files_by_day, run, job_id, files, reader)
     wanted = set(days)
-    request_id = await _insert(run, job, _units(days, by_day))
-    _, failures = await _verify_downloaded(run, job_id, request_id, reader)
+    request_id = await _insert(run, job, _units(days, job_days))
+    _, verify_failures = await _verify_downloaded(run, job_id, request_id, reader)
+    failures = tuple(f"header: {line}" for line in job_days.found.unreadable)
+    failures += verify_failures
     final = await units_of_request(run.conn, request_id)
     return AdoptResult(
         job_id=job_id,
@@ -242,7 +253,9 @@ async def adopt_job(
         holes=tuple(
             u.unit_date for u in final if u.fetch_status is FetchStatus.PROVIDER_HOLE
         ),
-        strays=tuple(sorted(f.name for d, (f, _) in by_day.items() if d not in wanted)),
+        strays=tuple(
+            sorted(f.name for d, (f, _) in job_days.by_day.items() if d not in wanted)
+        ),
         verify_failures=failures,
     )
 

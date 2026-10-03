@@ -24,7 +24,7 @@ import psycopg
 import pytest
 from psycopg_pool import PoolTimeout
 from tick_support.batch_responses import batch_api, job_record
-from tick_support.dbn_files import day_file_bytes, write_job_dir
+from tick_support.dbn_files import bad_header_bytes, day_file_bytes, write_job_dir
 from tick_support.fake_historical import FakeApi, FakeHistorical, server_error
 
 from manta_trading.config import Settings
@@ -293,3 +293,39 @@ async def test_range_outside_the_calendar_raises_with_no_rows(
         await _adopt(make_run, migrated_tick_db, source, job=early)
     assert _rows(migrated_tick_db, "SELECT 1 FROM tick_request") == []
     assert not (archive / JOB).exists()
+
+
+async def test_a_refused_header_fails_the_unclaimed_days_not_the_adoption(
+    make_run: RunFactory, migrated_tick_db: str, tmp_path: Path
+) -> None:
+    """09-08's header is refused: it cannot name its day, so 09-08 and 09-09
+    (unclaimed) fail naming it instead of being called holes (226 TD8)."""
+    good, bad = FILE_DAYS
+    fixture = "test_data.trades.v3.dbn.zst"
+    files = {
+        _file_name(good): day_file_bytes(fixture, CME_DATASET, good, SType.PARENT),
+        _file_name(bad): bad_header_bytes(
+            day_file_bytes(fixture, CME_DATASET, bad, SType.PARENT), "stype_out"
+        ),
+    }
+    source = write_job_dir(tmp_path / "bad-source", JOB, files)
+    result = await _adopt(make_run, migrated_tick_db, source)
+    assert result.holes == ()
+    assert result.units_by_state == {
+        UnitState.VERIFIED.value: 1,
+        UnitState.DELIVERED.value: 2,
+    }
+    assert any(
+        line.startswith("header: ") and _file_name(bad) in line
+        for line in result.verify_failures
+    )
+    failed = _rows(
+        migrated_tick_db,
+        "SELECT unit_date, fetch_status, failure_reason FROM tick_archive_unit"
+        " WHERE state = 'delivered' ORDER BY unit_date",
+    )
+    assert [(day, status) for day, status, _ in failed] == [
+        (bad, FetchStatus.RETRY_EXHAUSTED.value),
+        (date(2024, 9, 9), FetchStatus.RETRY_EXHAUSTED.value),
+    ]
+    assert all(reason.startswith("header: no readable file") for *_, reason in failed)

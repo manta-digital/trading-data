@@ -264,6 +264,7 @@ async def advance(run: TickRun, reader: ITickFileReader) -> AdvanceTally:
         delivery = await deliver_job(run, request, reader)
         tally.downloaded += delivery.downloaded
         tally.holed += delivery.holed
+        tally.failed += delivery.failed
         tally.strays.extend(delivery.strays)
     for unit in await open_units_in(run.conn, UnitState.DOWNLOADED):
         outcome = await check(run, unit, reader)
