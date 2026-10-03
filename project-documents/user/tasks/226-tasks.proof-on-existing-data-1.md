@@ -269,54 +269,54 @@ each one. Every number in the go/no-go names its report file.
 
 ## Section 4 — Rebuild: the baseline on the production host (TD 2, TD 3)
 
-- [ ] **4.1 Implement the `rebuild` step (effort 4)**
-  - [ ] In the proof database from empty: migrate (tick track), `adopt` each
+- [x] **4.1 Implement the `rebuild` step (effort 4)**
+  - [x] In the proof database from empty: migrate (tick track), `adopt` each
         of the six job directories, `pass --estimate-only`, `ingest`. Time
         each. Then `coverage` over both ranges.
-  - [ ] Drive the shipped CLI or pass function; take unit timing from the
+  - [x] Drive the shipped CLI or pass function; take unit timing from the
         ingest report, not wrappers.
-  - [ ] If the estimate plans anything, stop and report the plan. Do not buy.
-  - [ ] Record connect time (for the connect-timeout rule).
-  - [ ] Refuse below the `/data` free-space floor.
-  - [ ] Success: the step writes `user/notes/<date>-226-proof-rebuild.md` or
+  - [x] If the estimate plans anything, stop and report the plan. Do not buy.
+  - [x] Record connect time (for the connect-timeout rule).
+  - [x] Refuse below the `/data` free-space floor.
+  - [x] Success: the step writes `user/notes/<date>-226-proof-rebuild.md` or
         exits non-zero with a reason and no report.
 
-- [ ] **4.2 Run `rebuild` and check it (effort 2)**
-  - [ ] Run `uv run python scripts/proof_226_tick.py rebuild`.
-  - [ ] Success: 78 tier units ingested, 0 failed, 27,691,412 rows, coverage
+- [x] **4.2 Run `rebuild` and check it (effort 2)**
+  - [x] Run `uv run python scripts/proof_226_tick.py rebuild`.
+  - [x] Success: 78 tier units ingested, 0 failed, 27,691,412 rows, coverage
         `ok` on every session, slowest unit at or under 120 s, whole set at or
         under 2 h. Any miss is reported to the PM before continuing.
-  - [ ] Commit the code and the report: `feat: add proof harness rebuild
+  - [x] Commit the code and the report: `feat: add proof harness rebuild
         step`.
 
 ---
 
 ## Section 5 — Uncompressed measurements (TD 3)
 
-- [ ] **5.1 `mapping` step, and run it (effort 3)**
-  - [ ] Decode every tier file with `DbnFileReader.open_file`. For every
+- [x] **5.1 `mapping` step, and run it (effort 3)**
+  - [x] Decode every tier file with `DbnFileReader.open_file`. For every
         record, check that some interval in the file's `mappings` names its
         `instrument_id` and covers the file's day.
-  - [ ] Report the count checked and the miss count.
-  - [ ] Run the step.
-  - [ ] Success: the report states a percentage over exactly 27,691,412
+  - [x] Report the count checked and the miss count.
+  - [x] Run the step.
+  - [x] Success: the report states a percentage over exactly 27,691,412
         records and reads `100.00 %`. A miss makes the report say NO-GO and
         name the raw-symbol fallback (`stype_in=raw_symbol`); flag it to the
         PM at once.
 
-- [ ] **5.2 `size` step, including the spread share (effort 4)**
-  - [ ] Per tier: archive bytes, DBN record size read from
+- [x] **5.2 `size` step, including the spread share (effort 4)**
+  - [x] Per tier: archive bytes, DBN record size read from
         `DbnFile.record_size` (never assumed), and uncompressed table bytes,
         each divided by an exact `count(*)`. Per-chunk sizes give per-tier
         figures, since the tiers occupy separate chunks.
-  - [ ] Record rows per instrument per chunk, as the skew evidence for the
+  - [x] Record rows per instrument per chunk, as the skew evidence for the
         space-partitioning rejection.
-  - [ ] Spread share, per tier: rows and bytes belonging to spread
+  - [x] Spread share, per tier: rows and bytes belonging to spread
         instruments as a percentage of the tier. Identify spreads from the
         instrument class in the definitions table (read `tick_003_definitions`
         to find the column). If the table has no such column, stop and ask the
         PM; do not infer spreads from symbol text.
-  - [ ] Success: the report holds bytes per record for both tiers, the skew
+  - [x] Success: the report holds bytes per record for both tiers, the skew
         table, and the spread share for each tier (the 13.1 spreads decision
         reads it).
 
@@ -326,28 +326,28 @@ each one. Every number in the go/no-go names its report file.
   - [x] Success: the report lists every job with its duration and names the
         slowest and fastest.
 
-- [ ] **5.4 Run `size` and `jobs` (effort 1)**
-  - [ ] Success: both reports exist and are committed. Commit:
+- [x] **5.4 Run `size` and `jobs` (effort 1)**
+  - [x] Success: both reports exist and are committed. Commit:
         `feat: add proof harness mapping, size and jobs steps`.
 
-- [ ] **5.5 `workers` step (effort 3)**
-  - [ ] Reset the proof database, then re-ingest with `TICK_INGEST_WORKERS`
+- [x] **5.5 `workers` step (effort 3)**
+  - [x] Reset the proof database, then re-ingest with `TICK_INGEST_WORKERS`
         patched in process to 1, 2 and 4. Record wall time, per-unit decode
         and write sums, and peak host CPU.
-  - [ ] Apply the TD 3 rule text in the report: keep 2 unless 4 is at least
+  - [x] Apply the TD 3 rule text in the report: keep 2 unless 4 is at least
         1.5x faster and the contention run (Section 7) stays within its bound.
-  - [ ] Check `/data` free space and `MemAvailable` first, then run the step.
-  - [ ] Record the tick cluster's peak resident memory under each run (the
+  - [x] Check `/data` free space and `MemAvailable` first, then run the step.
+  - [x] Record the tick cluster's peak resident memory under each run (the
         `postgresql@17-tick` unit's cgroup `memory.peak`, or the summed RSS of
         its processes if that file is absent). The go/no-go (13.1) reads it.
-  - [ ] Success: the report holds three runs, peak cluster memory, and a
+  - [x] Success: the report holds three runs, peak cluster memory, and a
         stated verdict, marked provisional until contention is measured.
 
-- [ ] **5.6 `batch` step (effort 3)**
-  - [ ] Re-ingest the three largest units with `TICK_DECODE_BATCH_BYTES` at
+- [x] **5.6 `batch` step (effort 3)**
+  - [x] Re-ingest the three largest units with `TICK_DECODE_BATCH_BYTES` at
         8, 32 and 128 MiB. Record peak worker RSS and batch count.
-  - [ ] Run the step.
-  - [ ] Success: the report states keep-or-change by the rule (keep 32 MiB
+  - [x] Run the step.
+  - [x] Success: the report states keep-or-change by the rule (keep 32 MiB
         unless peak RSS exceeds 4x the budget, or a smaller budget moves unit
         time by more than 10 %). The step ends by resetting the proof
         database and ingesting the whole set again with the current constants,
@@ -358,102 +358,102 @@ each one. Every number in the go/no-go names its report file.
 
 ## Section 6 — Compression layouts and queries (TD 3, TD 4)
 
-- [ ] **6.1 Query set (effort 3)**
-  - [ ] Pick, from the ledger, the instrument-session with the most records in
+- [x] **6.1 Query set (effort 3)**
+  - [x] Pick, from the ledger, the instrument-session with the most records in
         each range. Implement Q1–Q5 as TD 3 defines them.
-  - [ ] Run each under `SET statement_timeout` and `EXPLAIN (ANALYZE,
+  - [x] Run each under `SET statement_timeout` and `EXPLAIN (ANALYZE,
         BUFFERS)`. Record planning and execution times separately, and the
         buffer hit ratio.
-  - [ ] Success: a function takes a database connection and returns one result
+  - [x] Success: a function takes a database connection and returns one result
         row per query.
 
-- [ ] **6.2 `queries` step, uncompressed baseline (effort 2)**
-  - [ ] Run the query set three times, warm. Also compute the chunk-count
+- [x] **6.2 `queries` step, uncompressed baseline (effort 2)**
+  - [x] Run the query set three times, warm. Also compute the chunk-count
         projection over the table's 20-year span for the chunk interval rule
         (1,000–2,000 chunks; planning at most 50 ms for Q1–Q4).
-  - [ ] Run the step.
-  - [ ] Success: report written with the interval verdict.
+  - [x] Run the step.
+  - [x] Success: report written with the interval verdict.
 
-- [ ] **6.3 `layouts` step: shared scaffolding and layout A (effort 3)**
-  - [ ] Begin the step by decompressing every compressed chunk in the proof
+- [x] **6.3 `layouts` step: shared scaffolding and layout A (effort 3)**
+  - [x] Begin the step by decompressing every compressed chunk in the proof
         database (behind the guard), so a re-run is safe.
-  - [ ] Write one function that takes a layout (segmentby, orderby), sets it,
+  - [x] Write one function that takes a layout (segmentby, orderby), sets it,
         compresses every chunk, and returns compressed bytes per row by tier.
         It leaves the table compressed for the caller to measure.
-  - [ ] Layout A: `segmentby = instrument_id`, `orderby = ts_event, sequence,
+  - [x] Layout A: `segmentby = instrument_id`, `orderby = ts_event, sequence,
         sequence_ordinal`. Measure bytes per row, run the query set three
         times, then decompress.
-  - [ ] Verify TimescaleDB 2.29's rule that every unique-key column must be in
+  - [x] Verify TimescaleDB 2.29's rule that every unique-key column must be in
         segmentby or orderby; if a layout is rejected, the report says so.
-  - [ ] Success: the report section for A holds bytes per row by tier and the
+  - [x] Success: the report section for A holds bytes per row by tier and the
         query timings; the table is decompressed afterwards.
 
-- [ ] **6.4 `layouts` step: layout B (effort 2)**
-  - [ ] Layout B: no segmentby, `orderby = instrument_id, ts_event, sequence,
+- [x] **6.4 `layouts` step: layout B (effort 2)**
+  - [x] Layout B: no segmentby, `orderby = instrument_id, ts_event, sequence,
         sequence_ordinal`. Same measurements as A, through the same function.
-  - [ ] Success: the report section for B matches A's shape.
+  - [x] Success: the report section for B matches A's shape.
 
-- [ ] **6.5 `layouts` step: supersession delete timing (effort 3)**
-  - [ ] On a compressed chunk under each layout, time the supersession delete
+- [x] **6.5 `layouts` step: supersession delete timing (effort 3)**
+  - [x] On a compressed chunk under each layout, time the supersession delete
         (bounded by ledger times), through the shipped delete function.
-  - [ ] Success: the report gives one delete time per layout, labelled as the
+  - [x] Success: the report gives one delete time per layout, labelled as the
         input to the lock-timeout rule (9.1).
 
-- [ ] **6.6 `layouts` step: the decision, then run (effort 2)**
-  - [ ] Apply TD 4's rule in code and print it: lower compressed bytes per row
+- [x] **6.6 `layouts` step: the decision, then run (effort 2)**
+  - [x] Apply TD 4's rule in code and print it: lower compressed bytes per row
         wins, unless it misses a Q1–Q4 bound the other meets; within 10 % on
         both, choose A.
-  - [ ] Run `queries` and `layouts`.
-  - [ ] Success: the `layouts` report names A or B by the rule with the numbers.
+  - [x] Run `queries` and `layouts`.
+  - [x] Success: the `layouts` report names A or B by the rule with the numbers.
         Commit: `feat: add proof harness queries and layouts steps`.
 
 ---
 
 ## Section 7 — Contention against the Kalshi pass (TD 7)
 
-- [ ] **7.1 Sampler (effort 3)**
-  - [ ] Every 5 s record: host CPU busy and iowait (`/proc/stat`);
+- [x] **7.1 Sampler (effort 3)**
+  - [x] Every 5 s record: host CPU busy and iowait (`/proc/stat`);
         `MemAvailable`, `Committed_AS` and `CommitLimit` (`/proc/meminfo`);
         reads and writes per device (`nvme0n1`, `nvme1n1` from
         `/proc/diskstats`); the production cluster's `pg_stat_database` commit
         and tuple counters; the tick loop's rows per second.
-  - [ ] The production connection uses `MT_TIMESCALE_DB_URL` with
+  - [x] The production connection uses `MT_TIMESCALE_DB_URL` with
         `default_transaction_read_only = on` and a 5 s `statement_timeout`.
         Its only two reads are `pass_runs` and `pg_stat_database`.
-  - [ ] Success: the sampler runs standalone for 30 s and returns a series.
+  - [x] Success: the sampler runs standalone for 30 s and returns a series.
 
-- [ ] **7.2 Guards as named constants (effort 3)**
-  - [ ] `MemAvailable` below 16 GiB stops the loop and exits non-zero; a first
+- [x] **7.2 Guards as named constants (effort 3)**
+  - [x] `MemAvailable` below 16 GiB stops the loop and exits non-zero; a first
         sample already below the floor starts nothing.
-  - [ ] `/data` below 50 GB stops the loop and exits non-zero.
-  - [ ] A Kalshi pass still running at 2 x 324 s stops the loop and records the
+  - [x] `/data` below 50 GB stops the loop and exits non-zero.
+  - [x] A Kalshi pass still running at 2 x 324 s stops the loop and records the
         trip. The pass is left alone.
-  - [ ] The Kalshi timer not fired within 75 minutes, or no next-elapse time,
+  - [x] The Kalshi timer not fired within 75 minutes, or no next-elapse time,
         exits non-zero with no load started.
-  - [ ] Production unreachable before the start exits non-zero.
-  - [ ] A `try/finally` stops the loop, awaits the in-flight workers and
+  - [x] Production unreachable before the start exits non-zero.
+  - [x] A `try/finally` stops the loop, awaits the in-flight workers and
         closes every connection on interrupt or error.
-  - [ ] No commit-limit guard (TD 7 explains why).
-  - [ ] Success: each guard is one named constant plus one check function.
+  - [x] No commit-limit guard (TD 7 explains why).
+  - [x] Success: each guard is one named constant plus one check function.
 
-- [ ] **7.3 Guard tests (effort 3)**
-  - [ ] Unit tests with fake samples and fake clocks: each trip condition stops
+- [x] **7.3 Guard tests (effort 3)**
+  - [x] Unit tests with fake samples and fake clocks: each trip condition stops
         the loop, sets the non-zero exit and writes the report line.
-  - [ ] A first-sample-below-floor test asserts no load starts.
-  - [ ] Success: tests pass without touching a real database or timer.
+  - [x] A first-sample-below-floor test asserts no load starts.
+  - [x] Success: tests pass without touching a real database or timer.
 
-- [ ] **7.4 `contention` step (effort 4)**
-  - [ ] Read the Kalshi timer's next elapse (read only; never start or stop a
+- [x] **7.4 `contention` step (effort 4)**
+  - [x] Read the Kalshi timer's next elapse (read only; never start or stop a
         unit). Two minutes before it, start the loop in the proof database:
         reset, ingest the whole set, repeat. Stop one minute after the Kalshi
         pass ends. Two overlapped firings, then one solo firing.
-  - [ ] Report: each overlapped duration against the week's 133–324 s; median
+  - [x] Report: each overlapped duration against the week's 133–324 s; median
         and 95th percentile of each series, overlapped against solo; tick
         ingest rate under overlap against `rebuild`'s solo rate.
-  - [ ] Verdict: above 324 s is `measurable contention`; otherwise `none
+  - [x] Verdict: above 324 s is `measurable contention`; otherwise `none
         measured at two ingest workers`, with the sentence that this is not a
         clearance for the minute pass (232 measures that).
-  - [ ] Success: step written; verdict logic unit tested on synthetic numbers.
+  - [x] Success: step written; verdict logic unit tested on synthetic numbers.
 
 - [ ] **7.5 Run `contention` (effort 2)**
   - [ ] Start it in the background. State the current UTC and local time and
