@@ -1,0 +1,54 @@
+log: /var/log/manta-tick-provision-20261003T202737Z.log
+
+==> production cluster configuration (before)
+050965e811a153533f069693e4d45ce12eaca645fb52809a0696028d63110573  /etc/postgresql/17/main/pg_ctl.conf
+cc95885d44ee2c12f7ee33696c10b200367c90c77ad42d032ff024ef7378e654  /etc/postgresql/17/main/pg_hba.conf
+b4dfef08731a7d20a3bb724ad4cf3e1cd91ec01fbe51349c6a3acc5704072965  /etc/postgresql/17/main/pg_ident.conf
+e6ec5b6b47b02bbabd8aef439a6c5ab362f694f0f5ba32a6792482f19dc4de98  /etc/postgresql/17/main/postgresql.conf
+e83be42666e695b4e43c65fee5967e8f30e814ca49e473fad9ccf86a42b4f30a  /etc/postgresql/17/main/start.conf
+42c843a5ad7dd9d0aa4f2dcfe1827067cbc150a96954090f7737be68a20e6443  /var/lib/postgresql/17/main/postgresql.auto.conf
+
+==> pre-checks
+OK port 5433 held by 17/tick
+INFO /data free 1339 GB (cluster exists; floor applies only before creating it)
+OK timescaledb binaries 2.29.1 = production (port 5432) 2.29.1
+
+==> cluster 17/tick
+OK /data/postgresql postgres 700
+OK cluster exists
+OK postgresql@17-tick active
+
+==> settings
+OK shared_preload_libraries
+OK listen_addresses
+OK max_connections
+OK shared_buffers
+OK effective_cache_size
+OK work_mem
+OK maintenance_work_mem
+OK max_wal_size
+OK timescaledb.max_background_workers
+
+==> pg_hba.conf
+APPLIED /etc/postgresql/17/tick/pg_hba.conf (reloaded)
+
+==> databases and roles
+APPLIED provision_tick_roles.sql to trading_tick (idempotent grants)
+APPLIED provision_tick_roles.sql to trading_tick_proof (idempotent grants)
+
+==> role passwords
+APPLIED password for tick_app
+APPLIED password for tick_migrate
+
+==> .env
+OK /home/manta/source/repos/manta/trading-data/.env manta 600, 4 keys added
+
+==> credential scan of copied logs
+INFO no copied log yet
+
+==> production cluster configuration (after)
+OK /etc/postgresql/17/main and postgresql.auto.conf unchanged
+Ver Cluster Port Status Owner    Data directory              Log file
+17  main    5432 online postgres /var/lib/postgresql/17/main /var/log/postgresql/postgresql-17-main.log
+17  tick    5433 online postgres /data/postgresql/17/tick    /var/log/postgresql/postgresql-17-tick.log
+PASS: tick cluster 17/tick on 5433; 2 databases; .env updated (4 keys added)
