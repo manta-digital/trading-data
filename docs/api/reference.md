@@ -434,8 +434,13 @@ curl 'http://127.0.0.1:8137/api/v1/symbols?search=SPY'
 
 *Captured 2026-09-16. Truncated: 17 instruments returned, 2 shown.*
 
-**Errors**: `422` if the unfiltered registry would exceed the row ceiling —
-narrow the filter (§2.7); `504` on statement timeout.
+There is **no row ceiling** on this route: an unfiltered call returns the whole
+registry (about 32,000 rows, 3 MB, measured 0.31 s on production, 2026-10-03).
+Filter with `search` only to reduce what you transfer.
+
+**Errors**: `504` on statement timeout. The `422` in the marker above is
+FastAPI's generic validation response; no input here triggers it, and the route
+never sends the row-ceiling `422` (§2.7).
 
 ### 3.4 `GET /api/v1/symbols/{symbol}`
 
@@ -481,6 +486,10 @@ closes on its own when the coverage refresh repair lands.
 
 An empty `available` means "no bars for this symbol", not "unknown symbol" — an
 unknown symbol is a `404`.
+
+**Errors**: `404` for an unknown symbol; `504` on statement timeout. The `422` in
+the marker above is FastAPI's generic validation response; the route has no
+other `422` path.
 
 ```sh
 curl 'http://127.0.0.1:8137/api/v1/symbols/SPY'

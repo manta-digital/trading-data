@@ -137,8 +137,8 @@ symbol exists.
      params: search:string
      errors: 422, 504 -->
 
-`search` is a ticker prefix. An unfiltered call may exceed the row ceiling —
-if it does, you get a `422` telling you to narrow the filter.
+`search` is a ticker prefix. An unfiltered call is allowed and returns the whole
+registry (about 32,000 rows, 3 MB); there is no row ceiling on this route.
 
 ### "Where is data missing for this symbol?"
 
