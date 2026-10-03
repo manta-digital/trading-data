@@ -6,8 +6,8 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [221, 222, 223, 224]
 interfaces: [226, 227, 228, 229, 230, 231, 233]
 dateCreated: 20260930
-dateUpdated: 20260930
-status: not_started
+dateUpdated: 20261003
+status: complete
 ---
 
 # Slice Design: ingest-pass-and-proof-parity
