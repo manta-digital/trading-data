@@ -232,3 +232,26 @@ def test_batch_rule() -> None:
     assert verdict(flat, {**small_rise, 32 * mib: 200 * mib}).startswith("change:")
     faster = {**flat, 128 * mib: 80.0}
     assert verdict(faster, small_rise).startswith("change to 128 MiB")
+
+
+def _layout_result(name: str, bytes_per_row: float, q_ms: float) -> Any:
+    from proof_226 import layouts
+    from proof_226.queries import QueryResult
+
+    layout = layouts.LAYOUT_A if name == "A" else layouts.LAYOUT_B
+    results = [QueryResult("trades", q, 1.0, q_ms, 1.0, 1) for q in ("Q1", "Q4")]
+    return layouts.LayoutResult(layout, None, {}, bytes_per_row, results, 0.1)
+
+
+def test_layout_rule() -> None:
+    from proof_226.layouts import decide
+
+    assert decide(
+        _layout_result("A", 10, 100), _layout_result("B", 10.5, 105)
+    ).startswith("A: within")
+    assert decide(_layout_result("A", 10, 100), _layout_result("B", 6, 100)).startswith(
+        "B: lower"
+    )
+    assert decide(
+        _layout_result("A", 10, 100), _layout_result("B", 6, 1500)
+    ).startswith("A: B is smaller but misses")

@@ -14,7 +14,7 @@ projectState: >
   exist.
 dateCreated: 20261003
 dateUpdated: 20261003
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Proof on Existing Data
@@ -74,182 +74,182 @@ each one. Every number in the go/no-go names its report file.
 
 ## Section 0 — Baseline
 
-- [ ] **0.1 Record the unit and integration baselines (effort 1)**
-  - [ ] Confirm the working directory is the project root and the current
+- [x] **0.1 Record the unit and integration baselines (effort 1)**
+  - [x] Confirm the working directory is the project root and the current
         branch is the slice branch.
-  - [ ] Run the unit tier and the integration tier separately, through
+  - [x] Run the unit tier and the integration tier separately, through
         `scripts/run_tests.py`. Note every
         failure by test id in a scratch note.
-  - [ ] Success: unit tier clean; integration failures are only the known
+  - [x] Success: unit tier clean; integration failures are only the known
         baseline list above.
 
 ---
 
 ## Section 1 — The bad-header fix (TD 8)
 
-- [ ] **1.1 Convert header raises in `dbn_file.py` (effort 2)**
-  - [ ] Read `src/manta_trading/data/tick/databento/dbn_file.py` and list every
+- [x] **1.1 Convert header raises in `dbn_file.py` (effort 2)**
+  - [x] Read `src/manta_trading/data/tick/databento/dbn_file.py` and list every
         raise that comes from header content: mixed record types, unsupported
         schema, unsupported `stype_in`, wrong `stype_out`, `ts_out` records,
         and the mapping date of the wrong type.
-  - [ ] Change each to `TickFileDecodeError`, keeping the message text.
-  - [ ] Leave `iter_batches`'s byte-budget `ValueError` as it is. It is a
+  - [x] Change each to `TickFileDecodeError`, keeping the message text.
+  - [x] Leave `iter_batches`'s byte-budget `ValueError` as it is. It is a
         configuration error and must stop the run.
-  - [ ] Success: no header-content raise in the file is a bare `ValueError` or
+  - [x] Success: no header-content raise in the file is a bare `ValueError` or
         `TypeError`; the budget error is unchanged.
 
-- [ ] **1.2 Unit tests for each header case (effort 2)**
-  - [ ] One test per case in 1.1. Each builds its file by rewriting the
+- [x] **1.2 Unit tests for each header case (effort 2)**
+  - [x] One test per case in 1.1. Each builds its file by rewriting the
         header bytes of a real fixture (never an invented format).
-  - [ ] Each asserts `TickFileDecodeError` with the original message.
-  - [ ] One test asserts the byte-budget `ValueError` is still raised.
-  - [ ] `TickFileDecodeError` derives from `Exception`, not `ValueError`, so
+  - [x] Each asserts `TickFileDecodeError` with the original message.
+  - [x] One test asserts the byte-budget `ValueError` is still raised.
+  - [x] `TickFileDecodeError` derives from `Exception`, not `ValueError`, so
         the existing assertion at `test/unit/data/tick/test_dbn_file.py:120`
         (`pytest.raises(ValueError, match="unsupported DBN schema ...")`) must
         change to `TickFileDecodeError`. Update it and any other assertion on a
         header raise, and no others.
-  - [ ] Success: new unit tests pass; the only existing `DbnFile` tests edited
+  - [x] Success: new unit tests pass; the only existing `DbnFile` tests edited
         are those that assert a header raise.
 
-- [ ] **1.3 Verify maps the decode error to a unit failure (effort 2)**
-  - [ ] In `verify._file_mismatch`, catch `TickFileDecodeError` from
+- [x] **1.3 Verify maps the decode error to a unit failure (effort 2)**
+  - [x] In `verify._file_mismatch`, catch `TickFileDecodeError` from
         `open_file` and return `header: <message>`.
-  - [ ] Confirm the ingest worker already maps `TickFileDecodeError` to a
+  - [x] Confirm the ingest worker already maps `TickFileDecodeError` to a
         `decode:` failure. Change nothing there.
-  - [ ] Success: a bad-header unit yields a mismatch string, not an exception.
+  - [x] Success: a bad-header unit yields a mismatch string, not an exception.
 
-- [ ] **1.4 Integration tests: both passes continue past a bad header (effort 3)**
-  - [ ] Create `test/integration/data/test_tick_bad_header.py`.
-  - [ ] Verify: a pass over two units, one with a bad header, reports the bad
+- [x] **1.4 Integration tests: both passes continue past a bad header (effort 3)**
+  - [x] Create `test/integration/data/test_tick_bad_header.py`.
+  - [x] Verify: a pass over two units, one with a bad header, reports the bad
         unit failed with `header:` and verifies the other.
-  - [ ] Ingest: the same shape; the bad unit fails with `decode:` and the
+  - [x] Ingest: the same shape; the bad unit fails with `decode:` and the
         other is ingested.
-  - [ ] Success: both tests pass; no `storage_abort` in either.
+  - [x] Success: both tests pass; no `storage_abort` in either.
 
-- [ ] **1.5 Section checkpoint**
-  - [ ] Run unit tier, mypy and ruff on touched files.
-  - [ ] Commit: `fix: fail the unit on a bad DBN header, not the pass`.
-  - [ ] Success: tiers clean; commit exists.
+- [x] **1.5 Section checkpoint**
+  - [x] Run unit tier, mypy and ruff on touched files.
+  - [x] Commit: `fix: fail the unit on a bad DBN header, not the pass`.
+  - [x] Success: tiers clean; commit exists.
 
 ---
 
 ## Section 2 — Proof constants and the database guard (TD 2, TD 4)
 
-- [ ] **2.1 Add the new constants (effort 1)**
-  - [ ] In `constants.py` add `TICK_PROOF_DB_NAME` (`trading_tick_proof`),
+- [x] **2.1 Add the new constants (effort 1)**
+  - [x] In `constants.py` add `TICK_PROOF_DB_NAME` (`trading_tick_proof`),
         `TICK_TRADE_COMPRESS_AFTER` (`timedelta(days=14)`),
         `TICK_TRADE_SEGMENT_BY` and `TICK_TRADE_ORDER_BY`. The last two take
         layout A as a placeholder until Section 8 decides.
-  - [ ] Docstrings state the value is provisional where it is.
-  - [ ] Success: constants import; no other module hard-codes these values.
+  - [x] Docstrings state the value is provisional where it is.
+  - [x] Success: constants import; no other module hard-codes these values.
 
-- [ ] **2.2 Harness skeleton and destructive-statement guard (effort 3)**
-  - [ ] Create `scripts/proof_226_tick.py` with a step dispatcher (one
+- [x] **2.2 Harness skeleton and destructive-statement guard (effort 3)**
+  - [x] Create `scripts/proof_226_tick.py` with a step dispatcher (one
         positional step name; unknown name exits non-zero) and the report
         writer. Reuse `scripts/cutover_common.py` report helpers where they
         fit; extract nothing generic.
-  - [ ] Add the guard function: every destructive harness function first checks
+  - [x] Add the guard function: every destructive harness function first checks
         `current_database() = TICK_PROOF_DB_NAME` and raises otherwise.
         Destructive means TRUNCATE, DROP, DELETE, ALTER, decompress.
-  - [ ] Add the proof-database reset: `TRUNCATE tick_trade,
+  - [x] Add the proof-database reset: `TRUNCATE tick_trade,
         tick_ingest_ledger`, then set every ingested tier unit back to
         *verified*. It sits behind the guard.
-  - [ ] Load `.env` with `python-dotenv`, never `source`/`set -a` (the `$_`
+  - [x] Load `.env` with `python-dotenv`, never `source`/`set -a` (the `$_`
         password trap). Name the two proof URL variables as constants in the
         harness: `MT_PROOF_226_DB_URL` and `MT_PROOF_226_MAINTENANCE_URL`.
         They must not start with `MT_TICK_`, because the tick preflight
         refuses any `MT_TICK_*` key that is not a known setting.
-  - [ ] Add the free-space check: refuse to load data when `/data` has less
+  - [x] Add the free-space check: refuse to load data when `/data` has less
         than 50 GB free (named constant).
-  - [ ] Success: the dispatcher knows every step name in TD 2's table plus
+  - [x] Success: the dispatcher knows every step name in TD 2's table plus
         `archive-check` (added in 11.3); a step not yet implemented exits
         non-zero saying so. The guard and the space check are importable
         functions.
 
-- [ ] **2.3 Guard tests (effort 2)**
-  - [ ] Unit test: every destructive harness function raises on a connection
+- [x] **2.3 Guard tests (effort 2)**
+  - [x] Unit test: every destructive harness function raises on a connection
         whose database name is not `TICK_PROOF_DB_NAME`.
-  - [ ] Test (against a throwaway database from a fixture): the reset empties
+  - [x] Test (against a throwaway database from a fixture): the reset empties
         both tables and returns tier units to *verified*.
-  - [ ] Success: tests pass; a deliberately wrong name makes them fail.
+  - [x] Success: tests pass; a deliberately wrong name makes them fail.
 
-- [ ] **2.4 Section checkpoint**
-  - [ ] Run unit tier, mypy and ruff on touched files.
-  - [ ] Commit: `feat: add proof harness skeleton and database guard`.
-  - [ ] Success: tiers clean; commit exists.
+- [x] **2.4 Section checkpoint**
+  - [x] Run unit tier, mypy and ruff on touched files.
+  - [x] Commit: `feat: add proof harness skeleton and database guard`.
+  - [x] Success: tiers clean; commit exists.
 
 ---
 
 ## Section 3 — The provisioning script (TD 1)
 
-- [ ] **3.1 Script skeleton with checks and `--check` mode (effort 3)**
-  - [ ] Create `scripts/provision_tick_cluster.sh` following the host-script
+- [x] **3.1 Script skeleton with checks and `--check` mode (effort 3)**
+  - [x] Create `scripts/provision_tick_cluster.sh` following the host-script
         convention: check-then-act, expected against seen, logged to
         `/var/log/manta-tick-provision-<timestamp>.log`, safe to re-run,
         exit 0 only when every check passes. Study
         `scripts/cutover_265_trades.py` for the report style.
-  - [ ] Memory settings in one block at the top, with the values from TD 1's
+  - [x] Memory settings in one block at the top, with the values from TD 1's
         table.
-  - [ ] Pre-checks: port 5433 free; `/data` has at least 100 GB free; the
+  - [x] Pre-checks: port 5433 free; `/data` has at least 100 GB free; the
         TimescaleDB version matches the production cluster's.
-  - [ ] `--check` runs without root, prints what it would do, and changes
+  - [x] `--check` runs without root, prints what it would do, and changes
         nothing. It never touches `17/main` beyond reading its version and port.
-  - [ ] Success: `--check` runs as `manta` and prints every step with expected
+  - [x] Success: `--check` runs as `manta` and prints every step with expected
         against seen.
 
-- [ ] **3.2 Cluster creation and configuration steps (effort 4)**
-  - [ ] `/data/postgresql` owned by `postgres`, mode 0700.
-  - [ ] `pg_createcluster 17 tick --port 5433 --datadir
+- [x] **3.2 Cluster creation and configuration steps (effort 4)**
+  - [x] `/data/postgresql` owned by `postgres`, mode 0700.
+  - [x] `pg_createcluster 17 tick --port 5433 --datadir
         /data/postgresql/17/tick`, only if absent.
-  - [ ] Settings: `shared_preload_libraries = 'timescaledb'`;
+  - [x] Settings: `shared_preload_libraries = 'timescaledb'`;
         `listen_addresses = '127.0.1.1'`; the memory block; `pg_hba.conf`
         `scram-sha-256` from `127.0.1.1/32` for `tick_app` and `tick_migrate`
         only, peer access kept for `postgres`.
-  - [ ] Reconcile settings on re-run and restart only `postgresql@17-tick`,
+  - [x] Reconcile settings on re-run and restart only `postgresql@17-tick`,
         and only when a setting changed.
-  - [ ] Success: each step reads state first and acts only if different.
+  - [x] Success: each step reads state first and acts only if different.
 
-- [ ] **3.3 Databases, roles and credentials (effort 4)**
-  - [ ] Apply `provision_tick_roles.sql` to both `trading_tick` and
+- [x] **3.3 Databases, roles and credentials (effort 4)**
+  - [x] Apply `provision_tick_roles.sql` to both `trading_tick` and
         `trading_tick_proof`. Read the SQL first; extend the script, not
         the SQL, unless a grant is missing.
-  - [ ] Generate both passwords, set them with `ALTER ROLE`, and never print
+  - [x] Generate both passwords, set them with `ALTER ROLE`, and never print
         them.
-  - [ ] Write `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and the two proof
+  - [x] Write `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and the two proof
         URLs (`MT_PROOF_226_DB_URL`, `MT_PROOF_226_MAINTENANCE_URL`) into the
         checkout's `.env`: add only absent keys, write to a 0600
         temp file in the same directory, then `mv` over `.env`. Keep the file
         owned by `manta`, mode 0600.
-  - [ ] Final line: `PASS: tick cluster 17/tick on 5433; 2 databases; .env
+  - [x] Final line: `PASS: tick cluster 17/tick on 5433; 2 databases; .env
         updated (N keys added)`.
-  - [ ] Success: a second run prints `0 keys added` and exits 0.
+  - [x] Success: a second run prints `0 keys added` and exits 0.
 
-- [ ] **3.4 Log scrub (effort 2)**
-  - [ ] Before copying the log to `user/notes/`, grep it for each generated
+- [x] **3.4 Log scrub (effort 2)**
+  - [x] Before copying the log to `user/notes/`, grep it for each generated
         password and for any `postgresql://` URL carrying a password. A match
         fails the run and no copy is made. `--check` runs the same scan over
         any log already copied.
-  - [ ] Success: the scan is a callable unit that tests can run in isolation.
+  - [x] Success: the scan is a callable unit that tests can run in isolation.
 
-- [ ] **3.5 Tests for the `.env` writer and the log scrub (effort 3)**
-  - [ ] Test the `.env` writer on a temp directory: adds only absent keys,
+- [x] **3.5 Tests for the `.env` writer and the log scrub (effort 3)**
+  - [x] Test the `.env` writer on a temp directory: adds only absent keys,
         leaves existing values alone, mode ends 0600, a simulated failure
         part-way leaves the old file whole.
-  - [ ] Test that `check_env_keys` (`tick/store_context.py`) accepts the
+  - [x] Test that `check_env_keys` (`tick/store_context.py`) accepts the
         written `.env`: every `MT_TICK_*` key it holds is a known setting.
         This guards the tick preflight against the proof URLs' names.
-  - [ ] Test the scrub with a log that contains a planted password. The test
+  - [x] Test the scrub with a log that contains a planted password. The test
         must fail the scan on it, and pass it on a clean log.
-  - [ ] Success: tests pass; no real credential appears in any fixture.
+  - [x] Success: tests pass; no real credential appears in any fixture.
 
-- [ ] **3.6 shellcheck, dry run, commit (effort 1)**
-  - [ ] `~/.local/bin/shellcheck scripts/provision_tick_cluster.sh` clean.
-  - [ ] Run `--check` and read the output for anything that would touch
+- [x] **3.6 shellcheck, dry run, commit (effort 1)**
+  - [x] `~/.local/bin/shellcheck scripts/provision_tick_cluster.sh` clean.
+  - [x] Run `--check` and read the output for anything that would touch
         `17/main`.
-  - [ ] Record the checksums of `17/main`'s configuration files for the
+  - [x] Record the checksums of `17/main`'s configuration files for the
         before/after comparison in 14.2.
-  - [ ] Commit: `feat: add tick cluster provisioning script`.
-  - [ ] Success: shellcheck clean; `--check` exits 0; commit exists.
+  - [x] Commit: `feat: add tick cluster provisioning script`.
+  - [x] Success: shellcheck clean; `--check` exits 0; commit exists.
 
 - [ ] **3.7 [PM] Run the provisioning script once (effort 1)**
   - [ ] Hand the PM one command: `sudo scripts/provision_tick_cluster.sh`.
@@ -321,9 +321,9 @@ each one. Every number in the go/no-go names its report file.
         reads it).
 
 - [ ] **5.3 `jobs` step (effort 2)**
-  - [ ] Read every account job record through `ITickMetadataProvider`
+  - [x] Read every account job record through `ITickMetadataProvider`
         (`batch_jobs_since`; free). Tabulate submit → done time per job.
-  - [ ] Success: the report lists every job with its duration and names the
+  - [x] Success: the report lists every job with its duration and names the
         slowest and fastest.
 
 - [ ] **5.4 Run `size` and `jobs` (effort 1)**
