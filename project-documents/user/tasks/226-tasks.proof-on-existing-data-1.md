@@ -251,18 +251,18 @@ each one. Every number in the go/no-go names its report file.
   - [x] Commit: `feat: add tick cluster provisioning script`.
   - [x] Success: shellcheck clean; `--check` exits 0; commit exists.
 
-- [ ] **3.7 [PM] Run the provisioning script once (effort 1)**
-  - [ ] Hand the PM one command: `sudo scripts/provision_tick_cluster.sh`.
+- [x] **3.7 [PM] Run the provisioning script once (effort 1)**
+  - [x] Hand the PM one command: `sudo scripts/provision_tick_cluster.sh`.
         Nothing else for the PM to do now. Tell the PM that up to two later
         re-runs of the same command are possible, each only if its condition
         fires: 8.7 (a `tick_app` grant on compressed chunks) and 13.3 (a
         memory-setting change). Most likely neither fires.
-  - [ ] Read the report: exit 0, the PASS line, `pg_lsclusters` shows `main`
+  - [x] Read the report: exit 0, the PASS line, `pg_lsclusters` shows `main`
         5432 and `tick` 5433 online, TimescaleDB `2.29.1`.
-  - [ ] Re-run `--check` and confirm `0 keys added`.
-  - [ ] Commit the log copy under `user/notes/`. Commit:
+  - [x] Re-run `--check` and confirm `0 keys added`.
+  - [x] Commit the log copy under `user/notes/`. Commit:
         `docs: add tick cluster provisioning log`.
-  - [ ] Success: Success Criterion 1 holds; the log is committed; `.env`
+  - [x] Success: Success Criterion 1 holds; the log is committed; `.env`
         holds the four tick URLs and none is in `git status`.
 
 ---

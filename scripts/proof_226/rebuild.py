@@ -57,11 +57,16 @@ def _require_empty(urls: ProofUrls) -> float:
         (name,) = conn.execute("SELECT current_database()").fetchone()  # type: ignore[misc]
         if name != TICK_PROOF_DB_NAME:
             raise ProofSetupError(f"proof URL names {name!r}, not {TICK_PROOF_DB_NAME}")
-        held = conn.execute(
-            "SELECT to_regclass('tick_trade') IS NOT NULL"
-            " AND EXISTS (SELECT 1 FROM tick_trade)"
-        ).fetchone()
-    if held and held[0]:
+        # Two statements: SQL resolves tick_trade even behind a false AND.
+        exists = conn.execute("SELECT to_regclass('tick_trade')").fetchone()
+        held = (
+            exists is not None
+            and exists[0] is not None
+            and bool(
+                conn.execute("SELECT EXISTS (SELECT 1 FROM tick_trade)").fetchone()[0]  # type: ignore[index]
+            )
+        )
+    if held:
         raise ProofSetupError(
             "the proof database already holds ticks; rebuild starts from empty "
             "(drop and re-provision it, or use the reset in a later step)"
