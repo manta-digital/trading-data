@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
-from tick_support.dbn_files import FIXTURES, JobFile, write_job_dir
+from tick_support.dbn_files import FIXTURES, JobFile, bad_header_bytes, write_job_dir
 from tick_support.fake_provider import FakeClock, FakeTickProvider
 from tick_support.rows import insert_request, insert_unit
 from tick_support.runs import connect, tick_run
@@ -88,6 +88,11 @@ def _unit(
     )
 
 
+def _tier_bytes(tier: Path, bad_header: str | None) -> bytes:
+    content = tier.read_bytes()
+    return content if bad_header is None else bad_header_bytes(content, bad_header)
+
+
 async def seed_tier_unit(
     url: str,
     archive_root: Path,
@@ -98,19 +103,25 @@ async def seed_tier_unit(
     provider_record_count: int | None = None,
     tier_file: Path | None = None,
     definition_file: Path | None = None,
+    bad_header: str | None = None,
 ) -> SeededUnit:
     """Seed a selectable ``schema`` unit for ``day`` from its real slice.
 
     ``provider_record_count`` defaults to the file's true count; a test of the
     counts check passes a different one. ``tier_file`` and ``definition_file``
     replace the committed slices (the load test uses whole archived days).
+    ``bad_header`` (a ``BAD_HEADERS`` kind) archives the tier file with that
+    header field rewritten; ``record_count`` is still the clean file's.
     """
     tier = tier_file or real_file(day, schema)
     definition = definition_file or real_file(day, TickSchema.DEFINITION)
     job_dir = write_job_dir(
         archive_root,
         job_id,
-        {path.name: path.read_bytes() for path in (tier, definition)},
+        {
+            tier.name: _tier_bytes(tier, bad_header),
+            definition.name: definition.read_bytes(),
+        },
     )
     files = {path.name: _job_file(job_dir / path.name) for path in (tier, definition)}
     count = record_count(tier)

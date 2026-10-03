@@ -6,16 +6,23 @@ Expected values come from decoding the files themselves; see
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import databento_dbn
 import pytest
+from tick_support.dbn_files import BAD_HEADERS, bad_header_bytes, day_file_bytes
+from tick_support.tier_units import TRADES_DAY, real_file
 
 from manta_trading.data.tick import constants
 from manta_trading.data.tick.constants import CME_DATASET, SType, TickSchema
-from manta_trading.data.tick.databento.dbn_file import DbnFile, DbnFileReader
-from manta_trading.data.tick.provider import SymbolInterval
+from manta_trading.data.tick.databento.dbn_file import (
+    DbnFile,
+    DbnFileReader,
+    _as_date,
+)
+from manta_trading.data.tick.provider import SymbolInterval, TickFileDecodeError
 
 FIXTURES = Path(__file__).resolve().parents[4] / "test" / "fixtures" / "databento"
 
@@ -117,5 +124,50 @@ def test_unknown_schema_raises_naming_it(tmp_path: Path) -> None:
         ts_out=False,
     )
     path.write_bytes(bytes(metadata.encode()))
-    with pytest.raises(ValueError, match="unsupported DBN schema 'ohlcv-1m'"):
+    with pytest.raises(TickFileDecodeError, match="unsupported DBN schema 'ohlcv-1m'"):
         DbnFileReader().open_file(path)
+
+
+#: Each header refusal and the message it keeps (TD 8: one bad file fails its
+#: unit, not the pass, so every one is a ``TickFileDecodeError``).
+BAD_HEADER_MESSAGES = {
+    "mixed": "DBN file has mixed record types",
+    "schema": "unsupported DBN schema 'ohlcv-1h'",
+    "stype_in": "unsupported stype_in 'isin'",
+    "stype_out": "stype_out is raw_symbol, expected instrument_id",
+    "ts_out": "ts_out records are not supported",
+    "mapping_date": "parsing start date of mapping interval",
+}
+
+
+def test_every_bad_header_has_a_message() -> None:
+    assert set(BAD_HEADER_MESSAGES) == set(BAD_HEADERS)
+
+
+#: A synthetic v3 day file and a real v1 archive slice: the header layouts
+#: differ, and the archive holds v1.
+def _v3_day_file() -> bytes:
+    return day_file_bytes(
+        "test_data.trades.v3.dbn.zst", CME_DATASET, TRADES_DAY, SType.PARENT
+    )
+
+
+def _v1_real_file() -> bytes:
+    return real_file(TRADES_DAY, TickSchema.TRADES).read_bytes()
+
+
+@pytest.mark.parametrize("source", [_v3_day_file, _v1_real_file])
+@pytest.mark.parametrize("kind", BAD_HEADERS)
+def test_bad_header_raises_decode_error(
+    tmp_path: Path, kind: str, source: Callable[[], bytes]
+) -> None:
+    path = tmp_path / f"{kind}.dbn.zst"
+    path.write_bytes(bad_header_bytes(source(), kind))
+    with pytest.raises(TickFileDecodeError, match=BAD_HEADER_MESSAGES[kind]):
+        DbnFileReader().open_file(path)
+
+
+def test_mapping_date_of_wrong_type_raises_decode_error() -> None:
+    """The SDK always yields ``date``; this guards a change in that contract."""
+    with pytest.raises(TickFileDecodeError, match="mapping date is str"):
+        _as_date("2024-09-03")

@@ -10,7 +10,8 @@ LLD 224 Technical Decision 9 (Verification):
   is stored as ``provider_record_count``.
 
 A mismatch is a deterministic unit failure naming the field (retrying reads
-the same bytes). A ``ProviderError`` from the count call propagates: it is a
+the same bytes); a header the reader refuses is reported as ``header: …``.
+A ``ProviderError`` from the count call propagates: it is a
 run-level failure for the caller's phase. Decoding every record is 225's
 count check, not this step. Hashing and the header read run in a thread.
 """
@@ -25,7 +26,11 @@ from pathlib import Path
 from manta_trading.data.tick.hashing import sha256_file
 from manta_trading.data.tick.manifest_reads import UnitRow
 from manta_trading.data.tick.manifest_repo import mark_verified, record_failure
-from manta_trading.data.tick.provider import ITickFileReader, TickRequest
+from manta_trading.data.tick.provider import (
+    ITickFileReader,
+    TickFileDecodeError,
+    TickRequest,
+)
 from manta_trading.data.tick.run_context import TickRun
 
 
@@ -52,7 +57,12 @@ def _file_mismatch(path: Path, unit: UnitRow, reader: ITickFileReader) -> str | 
         return f"file size is {size}, recorded {unit.file.size}"
     if sha256_file(path) != unit.file.sha256:
         return "file SHA-256 differs from the recorded hash"
-    header = reader.open_file(path)
+    try:
+        header = reader.open_file(path)
+    except TickFileDecodeError as exc:
+        # A header the reader refuses is this unit's deterministic failure,
+        # not the pass's (226 TD 8).
+        return f"header: {exc}"
     start, end = _day_bounds(unit)
     observed = {
         "dataset": (header.dataset, unit.dataset),

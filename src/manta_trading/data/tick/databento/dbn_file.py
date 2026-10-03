@@ -12,7 +12,11 @@ Two SDK behaviours callers rely on knowing:
   the batch count, is taken from the same per-version struct map the SDK
   uses.
 - The SDK's decode failures (``DBNError``, ``BentoError``) are raised as
-  ``TickFileDecodeError``; a missing file stays ``FileNotFoundError``.
+  ``TickFileDecodeError``, as is every refusal of header content (mixed
+  records, unknown schema or ``stype_in``, wrong ``stype_out``, ``ts_out``,
+  a mapping date of the wrong type): one bad file fails its unit, not the
+  pass. A missing file stays ``FileNotFoundError``; the batch-budget
+  ``ValueError`` is a configuration error and stops the run.
 - A file whose record bytes end mid-record yields a short final batch and
   only a ``BentoWarning``. The adapter's file-name rule (a final name is a
   completed, and for batch files checksum-verified, download) is what
@@ -61,16 +65,18 @@ def _utc_from_ns(nanoseconds: int) -> datetime:
 def _tick_schema(store: databento.DBNStore, path: Path) -> TickSchema:
     raw = store.schema
     if raw is None:
-        raise ValueError(f"{path}: DBN file has mixed record types (no schema)")
+        raise TickFileDecodeError(
+            f"{path}: DBN file has mixed record types (no schema)"
+        )
     if raw.value not in _KNOWN_SCHEMAS:
-        raise ValueError(f"{path}: unsupported DBN schema {raw.value!r}")
+        raise TickFileDecodeError(f"{path}: unsupported DBN schema {raw.value!r}")
     return TickSchema(raw.value)
 
 
 def _stype_in(value: object, path: Path) -> SType:
     text = str(value)
     if text not in _KNOWN_STYPES:
-        raise ValueError(f"{path}: unsupported stype_in {text!r}")
+        raise TickFileDecodeError(f"{path}: unsupported stype_in {text!r}")
     return SType(text)
 
 
@@ -83,7 +89,7 @@ def _mappings(
     mapping to anything else is refused rather than half-parsed.
     """
     if str(stype_out) != SType.INSTRUMENT_ID:
-        raise ValueError(
+        raise TickFileDecodeError(
             f"{path}: stype_out is {stype_out!s}, expected {SType.INSTRUMENT_ID}"
         )
     result: dict[str, tuple[SymbolInterval, ...]] = {}
@@ -101,7 +107,9 @@ def _mappings(
 
 def _as_date(value: object) -> date:
     if not isinstance(value, date):
-        raise TypeError(f"mapping date is {type(value).__name__}, expected date")
+        raise TickFileDecodeError(
+            f"mapping date is {type(value).__name__}, expected date"
+        )
     return value
 
 
@@ -124,7 +132,7 @@ class DbnFile:
         if metadata.ts_out:
             # Live-only framing; the SDK's array path ignores the extra field
             # and would mis-slice every record.
-            raise ValueError(f"{path}: ts_out records are not supported")
+            raise TickFileDecodeError(f"{path}: ts_out records are not supported")
         self._store = store
         self.dataset: str = str(metadata.dataset)
         self.schema: TickSchema = _tick_schema(store, path)

@@ -118,6 +118,59 @@ def definition_file_bytes(
     return zstandard.ZstdCompressor().compress(header + array.tobytes())
 
 
+#: DBN metadata offsets (from the start of the file) of the header fields the
+#: reader refuses. v1 carries a u64 ``record_count`` before ``stype_in``, so
+#: the symbology bytes sit 8 later than in v2/v3 (the archive's real files are
+#: v1). Verified by decoding patched fixture headers with
+#: ``databento_dbn.Metadata.decode``.
+_SCHEMA_OFFSET = 24  # u16; 0xFFFF = no schema (mixed records)
+_STYPE_IN_OFFSET = {1: 58, 2: 50, 3: 50}  # u8; stype_out and ts_out follow
+_VERSION_BYTE = 3
+_OHLCV_1H = 7
+_STYPE_ISIN = 7
+_STYPE_RAW_SYMBOL = 1
+#: kind → (offset from ``stype_in`` or ``None`` for the schema field, bytes).
+_HEADER_PATCHES: dict[str, tuple[int | None, bytes]] = {
+    "mixed": (None, b"\xff\xff"),
+    "schema": (None, struct.pack("<H", _OHLCV_1H)),
+    "stype_in": (0, bytes([_STYPE_ISIN])),
+    "stype_out": (1, bytes([_STYPE_RAW_SYMBOL])),
+    "ts_out": (2, b"\x01"),
+}
+#: Every header refusal ``bad_header_bytes`` can build.
+BAD_HEADERS = (*_HEADER_PATCHES, "mapping_date")
+
+
+def _patch_mapping_date(raw: bytearray) -> None:
+    """Overwrite the first mapping interval's start date (u32 ``YYYYMMDD``)
+    with 0, which the SDK refuses while decoding the header."""
+    source = databento_dbn.Metadata.decode(bytes(raw))
+    first = next(iter(source.mappings.values()))[0]["start_date"]
+    encoded = struct.pack("<I", int(first.strftime("%Y%m%d")))
+    _, length = _PRELUDE.unpack_from(raw)
+    offset = raw.index(encoded, 0, _PRELUDE.size + length)
+    raw[offset : offset + len(encoded)] = struct.pack("<I", 0)
+
+
+def bad_header_bytes(content: bytes, kind: str) -> bytes:
+    """A zstd DBN file (any version) with one header field rewritten in place.
+
+    ``kind`` is one of ``BAD_HEADERS``; the record bytes are unchanged.
+    """
+    raw = bytearray(zstandard.ZstdDecompressor().stream_reader(content).read())
+    if kind == "mapping_date":
+        _patch_mapping_date(raw)
+    else:
+        delta, value = _HEADER_PATCHES[kind]
+        offset = (
+            _SCHEMA_OFFSET
+            if delta is None
+            else _STYPE_IN_OFFSET[raw[_VERSION_BYTE]] + delta
+        )
+        raw[offset : offset + len(value)] = value
+    return zstandard.ZstdCompressor().compress(bytes(raw))
+
+
 #: Two CME definitions with defined windows (an outright and a calendar spread
 #: with undefined ``asset`` and ``min_price_increment``): what a definition
 #: job delivers each day, re-sent unchanged (224's projection treats that as a
