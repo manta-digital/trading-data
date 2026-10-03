@@ -238,7 +238,9 @@ database, and `/proc` on the host.
 - `listen_addresses = '127.0.1.1'`. That is what `manta9000` resolves to on
   this host, so the URL uses the host name over TCP (architecture, "Keeping
   the move cheap"), and nothing listens on the LAN.
-- `pg_hba.conf` allows `scram-sha-256` from `127.0.1.1/32` for `tick_app`
+- `pg_hba.conf` allows `scram-sha-256` from the loopback route's source
+  address (`ip route get 127.0.1.1` → `src 127.0.0.1` on this host: a
+  connection dialled to 127.0.1.1 arrives from 127.0.0.1) for `tick_app`
   and `tick_migrate` only. Local-socket peer access stays for `postgres`.
 - **Memory**, as starting values in one block at the top of the script:
 

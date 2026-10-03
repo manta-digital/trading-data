@@ -210,13 +210,25 @@ ensure_settings() {
   apply_settings --set timescaledb.max_background_workers="$TS_MAX_BACKGROUND_WORKERS"
 }
 
+# The address a client connecting to LISTEN_ADDRESS arrives from: the kernel
+# gives loopback connections the route's source (127.0.0.1 on this host), not
+# the address dialled. Found 2026-10-03: an entry for 127.0.1.1/32 matched no
+# connection ("no pg_hba.conf entry for host 127.0.0.1").
+client_source() {
+  local src
+  src="$(ip route get "$LISTEN_ADDRESS" | sed -n 's/.* src \([0-9.]*\).*/\1/p')"
+  [ -n "$src" ] || die "no source address for a connection to $LISTEN_ADDRESS"
+  echo "$src"
+}
+
 hba_content() {
-  local dbs roles
+  local dbs roles src
   dbs="$(IFS=,; echo "${DATABASES[*]}")"; roles="$APP_ROLE,$MIGRATE_ROLE"
+  src="$(client_source)"
   printf '%s\n' \
     "# Written by scripts/provision_tick_cluster.sh (slice 226 TD1); re-run it, do not edit." \
     "local all $PG_OWNER peer" \
-    "host $dbs $roles $LISTEN_ADDRESS/32 scram-sha-256"
+    "host $dbs $roles $src/32 scram-sha-256"
 }
 
 ensure_hba() {
