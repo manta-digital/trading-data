@@ -37,6 +37,11 @@ the application credential for `status`, the maintenance credential for `apply`
   a CHECK refuses on any unit holding a file. It contains no `GRANT`:
   `scripts/provision_tick_roles.sql` enumerates the application role's write
   surface.
+  Slice 226 adds `tick_007_trade_columnstore`: `tick_now_ns()` as the
+  hypertable's integer-now function, the columnstore layout from
+  `TICK_TRADE_SEGMENT_BY` / `TICK_TRADE_ORDER_BY`, and a columnstore policy
+  at `TICK_TRADE_COMPRESS_AFTER`. `ALTER ... SET` fails while compressed
+  chunks exist, so it applies to an empty or uncompressed `tick_trade`.
 - **Misroute guard.** Before applying, `apply` reads the target ledger and
   refuses if it holds ids of a track routed to another database (for example a
   tick maintenance URL that points at `trading`). It checks the ledger, not

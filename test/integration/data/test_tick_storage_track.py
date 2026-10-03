@@ -79,12 +79,14 @@ def test_trade_hypertable_has_one_integer_dimension(tick_conn: Conn) -> None:
     assert rows == [("ts_event", "bigint", interval_to_ns(TICK_TRADE_CHUNK_INTERVAL))]
 
 
-def test_trade_hypertable_has_no_compression(tick_conn: Conn) -> None:
+def test_trade_hypertable_has_compression_enabled(tick_conn: Conn) -> None:
+    """tick_007 (slice 226) enables the columnstore; its layout and policy are
+    checked in ``test_tick_columnstore_migration.py``."""
     row = tick_conn.execute(
         "SELECT compression_enabled FROM timescaledb_information.hypertables"
         " WHERE hypertable_name = 'tick_trade'"
     ).fetchone()
-    assert row == (False,)
+    assert row == (True,)
 
 
 def test_trade_has_only_the_primary_key_index(tick_conn: Conn) -> None:

@@ -26,6 +26,9 @@ from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import (
     ARCHIVED_SCHEMAS,
     TICK_TRADE_CHUNK_INTERVAL,
+    TICK_TRADE_COMPRESS_AFTER,
+    TICK_TRADE_ORDER_BY,
+    TICK_TRADE_SEGMENT_BY,
     UNIT_STATES_WITH_FILE,
     DatasetCondition,
     DeliveryMode,
@@ -325,6 +328,34 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                             {render_enum_list(UNIT_STATES_WITH_FILE)}));
                 END IF;
             END $$;
+        """,
+    },
+    {
+        "id": "tick_007_trade_columnstore",
+        "description": "Columnstore layout and compression policy on tick_trade",
+        # LLD 226 TD4. An integer-time hypertable needs an integer-now
+        # function before any policy (222 deferred it to this first one).
+        # The layout and the policy age render from constants; ALTER ... SET
+        # fails while compressed chunks exist, so production applies this to
+        # an empty trading_tick before its rebuild. add_columnstore_policy is
+        # a procedure (CALL); ``after`` is nanoseconds, as the time column.
+        "sql": f"""
+            CREATE OR REPLACE FUNCTION tick_now_ns() RETURNS BIGINT
+                LANGUAGE SQL STABLE
+                AS $$ SELECT (extract(epoch FROM now()) * 1000000000)::BIGINT $$;
+            SELECT set_integer_now_func(
+                'tick_trade', 'tick_now_ns', replace_if_exists => TRUE
+            );
+            ALTER TABLE tick_trade SET (
+                timescaledb.enable_columnstore,
+                timescaledb.segmentby = '{", ".join(TICK_TRADE_SEGMENT_BY)}',
+                timescaledb.orderby   = '{", ".join(TICK_TRADE_ORDER_BY)}'
+            );
+            CALL add_columnstore_policy(
+                'tick_trade',
+                after         => {interval_to_ns(TICK_TRADE_COMPRESS_AFTER)}::BIGINT,
+                if_not_exists => TRUE
+            );
         """,
     },
 ]

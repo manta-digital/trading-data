@@ -281,7 +281,9 @@ TICK_PROOF_DB_NAME = "trading_tick_proof"
 #: into and its predecessor stay uncompressed.
 TICK_TRADE_COMPRESS_AFTER: timedelta = timedelta(days=14)
 
-#: Columnstore layout of ``tick_trade`` (TD4). Provisional: layout A
-#: (segment by instrument) until the ``layouts`` measurement decides.
+#: Columnstore layout of ``tick_trade`` (TD4): layout A, segment by
+#: instrument. Measured in ``user/notes/2026-10-03-226-proof-layouts.md``:
+#: 25.22 B/row against B's 25.28, and B slowed Q4 (a contract's latest tick)
+#: to 559 ms against A's 0.1 ms. Every unique-key column is in one or the other.
 TICK_TRADE_SEGMENT_BY: tuple[str, ...] = ("instrument_id",)
 TICK_TRADE_ORDER_BY: tuple[str, ...] = ("ts_event", "sequence", "sequence_ordinal")
