@@ -3,8 +3,8 @@ docType: slice-design
 slice: proof-on-existing-data
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
-dependencies: [225]
-interfaces: [227, 228, 231, 232]
+dependencies: [223, 224, 225, 923]
+interfaces: [227, 228, 229, 230, 231, 232, 233]
 dateCreated: 20261003
 dateUpdated: 20261003
 status: not_started
@@ -39,7 +39,8 @@ into decisions:
 It also carries one fix in from a late 225 review: a DBN file with a bad
 header aborts the whole pass instead of failing that one unit.
 
-Nothing is bought. Every provider call this slice makes is free metadata:
+Nothing is bought: every pass in this slice runs `--estimate-only`
+(Technical Decision 2). Every provider call this slice makes is free metadata:
 job records, record counts, and cost estimates.
 
 ## Value
@@ -284,7 +285,7 @@ backup and operations path.
 
 | Step | What it does |
 |---|---|
-| `rebuild` | In the proof database, from empty: migrate, adopt all six job directories, `pass` (nothing to buy), and `ingest`, each timed. Then `coverage` over both ranges. |
+| `rebuild` | In the proof database, from empty: migrate, adopt all six job directories, `pass --estimate-only`, and `ingest`, each timed. Then `coverage` over both ranges. |
 | `workers` | Resets the tier units and re-ingests with `TICK_INGEST_WORKERS` patched in process to 1, 2 and 4. Records wall time, the per-unit decode and write sums, and peak host CPU. |
 | `batch` | Re-ingests the three largest units with `TICK_DECODE_BATCH_BYTES` at 8, 32 and 128 MiB. Records peak worker RSS and batch count. |
 | `jobs` | Reads every account job record (free) and tabulates submit → done times. |
@@ -306,6 +307,30 @@ behind the database-name guard (State Management), never product code.
 constant, which is how the constants were designed to be tuned ("a
 constant, not a flag, until a measurement gives a reason to vary it", 225).
 Timing comes from the ingest report, not from wrappers.
+
+**No purchase is possible anywhere in this slice** (review F002). Both
+rebuilds run `pass --estimate-only`. That still reconciles, verifies,
+captures availability, and projects definitions, because only an abort
+stops the later phases (225's pass contract). It cannot submit a job. If
+the estimate plans anything at all, for example because a definition job
+is missing from the archive, the step stops and reports the plan. Buying
+it is then a PM decision taken outside the harness, against
+`trading_tick`, whose manifest the 30-day cap reads. A purchase recorded
+only in the disposable proof database would hide spend from that cap.
+
+**Failure modes** (review F003). Every step either completes and writes its
+report, or exits non-zero with the reason and no report. A re-run starts
+the step from its own beginning.
+
+| Path | Hang, timeout, or disconnect | Partial completion | Handling |
+|---|---|---|---|
+| Free provider metadata (`adopt`, `pass`, `jobs`, `estimate`) | The adapter's timeouts and error mapping (220, 224): provider error, exit 2 | `adopt` is all-or-nothing per job; `pass` resumes from the manifest | Re-run the step. An auth or outage error is reported as it is, never retried in a loop. |
+| Tick cluster down or restarting | Connect timeout (10 s) or keepalive break; storage exit 4 | Ingest commits whole units only | Re-run the step once the cluster is up. `rebuild` resumes: adopted jobs are skipped and ingested units are not selected again. |
+| `workers`, `batch`, `contention` re-ingests | As above | The proof database holds whole units only | The step resets the proof database before each ingest, so a re-run starts clean. |
+| `layouts`, between compressing and decompressing | As above | Some chunks are compressed under one layout | The step begins by decompressing every compressed chunk in the proof database, so a re-run is safe. |
+| `final`'s compression on `trading_tick` | As above | Some chunks are compressed | Compressing an already compressed chunk is skipped (`if_not_compressed`). A re-run finishes the rest, and the policy would also finish them. |
+| Production rebuild on `trading_tick` | As above | `adopt` per job, ingest per unit | The walkthrough's commands are safe to re-run as they stand (Verification Walkthrough, step 6). |
+| Provisioning script | Each step checks before acting | Any step | Re-run. It exits 0 only when every check passes. |
 
 ### Technical Decision 3: what is measured, and what passes
 
@@ -370,6 +395,15 @@ is also skewed by orders of magnitude: the `size` step records rows per
 instrument per chunk, and 225 saw ESZ4 at 52.2 M volume beside spreads with
 a few thousand rows. A hash partition would then produce partitions of
 very uneven size. The measured skew goes in the go/no-go as the evidence.
+
+This is a deliberate narrowing of the architecture's wording, recorded in
+its Revision Log (review F004). The architecture says the whole
+physical-grouping class is decided "from the proof's measurements". The
+two facts that decide space partitioning are not measurements: the cluster
+has one data volume, and partitions multiply chunk count. No skew figure
+the `size` step could report would change either. Space partitioning
+comes back into question only if the tick cluster gains a second data
+volume, for example on the move to hammerhead, and that slice decides it.
 
 **`tick_007_trade_columnstore`** (tick track, maintenance credential):
 
@@ -472,6 +506,22 @@ Within that, the result is "none measured at two ingest workers". Weights
 are not set here; 232 sets them from these numbers, as the architecture
 requires.
 
+**Guards** (review F001). The loop runs on the production host, so it is
+bounded, not only measured. Each threshold is a named constant in the
+harness.
+
+| Condition | Action |
+|---|---|
+| `MemAvailable` below 16 GiB, or `CommitLimit − Committed_AS` below 4 GiB | Stop the loop at once. The report records the trip and the step exits non-zero. |
+| An overlapped Kalshi pass still running at 2 × 324 s | Stop the loop and record "Kalshi exceeded 2× its weekly maximum under tick load". The pass is left alone; it is production's. |
+| The Kalshi timer has not fired within 75 minutes of the step's start, or its next elapse is missing (timer disabled) | Exit non-zero without starting any load. |
+| The step is interrupted (Ctrl-C, SIGTERM) or raises | A `try/finally` stops the loop, awaits the in-flight ingest workers as the ingest pass already does on abort (225), and closes every connection. An interrupted worker's transaction rolls back, so the proof database holds only whole units. The next step's reset handles them. |
+| The harness process is killed outright | The tick cluster ends each backend when its socket closes. The open transaction rolls back, and the advisory lock is released with the session (225). Nothing outside the proof database is touched. |
+
+The load cannot reach the production cluster's disk: the tick cluster is on
+`nvme1n1`. CPU and memory are what is shared, and the first two rows guard
+those.
+
 ### Technical Decision 8: a bad file header fails the unit, not the pass
 
 Found by a review of 225 after merge. `DbnFile.__init__` and its helpers
@@ -518,12 +568,28 @@ recommendation and its evidence:
   rebuild cost handed to 227.
 
 **`TICK_UNIVERSE` for ES** gets the recommended tier, with `start` and `end`
-set to the range already held at that tier: for `tbbo`, 2024-11-01 to
-2025-01-01. That is the honest wanted range before a subscription: a pass
-finds nothing to buy, and status can read caught up. Widening it to the
-plan year is a one-line edit made when the PM subscribes. The other tier's
-units stay loaded and current, outside the wanted range. The PM can change
-the tier at review; it is the same edit.
+set to the range already held at that tier. For `tbbo`, that is 2024-11-01
+to 2025-01-01. That is the honest wanted range before a subscription: a
+pass finds nothing to buy, and status can read caught up. Widening it to
+the plan year is a one-line edit made when the PM subscribes. The PM can
+change the tier at review; it is the same edit.
+
+**The other tier's range** (review F005). Its units stay loaded and
+current, outside the wanted range. No tier-mixing feature is built, and
+none is needed. 225's status already reports every session touched by a
+current tier unit, wanted or not (225, Technical Decision 9), so:
+
+- `status` lists those sessions, `complete`, under the product's one tier
+  field. The configured tier names what is wanted; it does not relabel
+  rows that were loaded at the other tier;
+- "caught up" is judged over the wanted range only, so those sessions
+  neither help nor hurt it;
+- `coverage --start --end` proves raw counts over any range, tier aside.
+  That is why success criterion 2 can require both ranges.
+
+The walkthrough checks all three (step 7). If the PM later wants that
+range at the chosen tier, buying it under the plan supersedes the loaded
+days, by tier rank, at ingest (225).
 
 ### Technical Decision 10: what this changes outside the proof
 
@@ -597,10 +663,9 @@ policy job runs as the owner. `tick_app` needs no new grant unless the
 - **225:** everything under Prerequisites. If the compressed-chunk tests in
   Technical Decision 5 fail, the fix lands in 225's code inside this
   slice, because 225 handed that verification here.
-- **224:** the four definition jobs, so `pass` buys nothing on a rebuild. If
-  one is missing from the archive, `pass` plans a purchase under the PM's
-  ceilings ($0.50 per pass), which is a visible estimate, never a silent
-  spend.
+- **224:** the four definition jobs, so a rebuild needs nothing bought. If
+  one is missing from the archive, `pass --estimate-only` shows the
+  purchase it would need, and the step stops (Technical Decision 2).
 
 ## Success Criteria
 
@@ -647,7 +712,14 @@ policy job runs as the owner. `tick_app` needs no new grant unless the
     overlap verified on compressed chunks), and the I13 row (session check
     on every unit);
   - the slice plan's Notes: the statements this design supersedes;
-  - the architecture's Revision Log;
+  - the architecture's Revision Log. It names the paragraphs it amends:
+    "Cross-source arbitration" and the "Proof on existing data" entry
+    under Anticipated Slices (contention moves from the minute pass to the
+    Kalshi pass, and the minute-pass overlap goes to 232); "Pass form" and
+    "Delivery mode and retention" (batch-job timing taken from the
+    account's job records); and "Storage" (space partitioning decided from
+    the disk layout, not from a measurement). The slice plan's 232 entry
+    gains the minute-pass overlap measurement;
   - CHANGELOG, and a README storage paragraph naming the tick cluster and
     its layout;
   - the migrations README row for `tick_007`.
@@ -734,15 +806,18 @@ Run on manta9000 from the checkout, with `.env` exported
    for d in /data/tick-archive/GLBX-*; do
      uv run mt data tick adopt --job-id "$(basename "$d")" --source "$d"
    done
-   uv run mt data tick pass; echo "exit $?"
+   uv run mt data tick pass --estimate-only; echo "exit $?"
    time uv run mt data tick ingest
    uv run python scripts/proof_226_tick.py final
    ```
 
-   Expected: migration through `tick_007`; `pass` buys nothing (exit 0);
-   ingest exits 0 with 78 ingested; `final` reports every eligible chunk
+   Expected: migration through `tick_007`; `pass` plans nothing and
+   projects the definitions (exit 0). If it plans anything, stop: that is a
+   PM decision (Technical Decision 2). Ingest exits 0 with 78 ingested; `final` reports every eligible chunk
    compressed, Q1–Q4 ≤ 1 s, and coverage `ok` on both ranges. The rebuild's
-   total wall time is the number 227 uses.
+   total wall time is the number 227 uses. Every command in this step is
+   safe to re-run after an interruption: adopted jobs are skipped, and
+   ingested units are not selected again.
 
 7. **Status reads caught up.**
 
@@ -752,7 +827,10 @@ Run on manta9000 from the checkout, with `.env` exported
    ```
 
    Expected: nothing to buy, and ES caught up over its configured range,
-   the chosen tier named.
+   the chosen tier named. The other tier's sessions are listed `complete`
+   and do not count toward caught up. `coverage --start 2024-08-30 --end
+   2025-01-01` reads `ok` on every session of both ranges (Technical
+   Decision 9).
 
 8. **Tear down the proof database.**
 
@@ -830,9 +908,10 @@ production rebuild and the go/no-go.
   elapse and `pass_runs`; it never starts or stops a unit.
 - **Archive files are read only.** Every step opens them read-only, and the
   walkthrough re-checks their SHA-256 at the end.
-- **No purchase.** If any step would buy (a definition job missing from the
-  archive), `pass` stops at the PM's ceilings and the harness reports it.
-  Nothing works around it.
+- **No purchase.** Every pass runs `--estimate-only`. If an estimate plans
+  anything (a definition job missing from the archive), the step stops and
+  reports it, and buying is the PM's call against `trading_tick`. Nothing
+  works around it.
 
 ### Architecture and plan statements this design supersedes
 
