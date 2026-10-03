@@ -48,10 +48,18 @@ status: not_started
 - Design: read Technical Decisions 1–10 and Success Criteria before starting.
   Tasks cite them as "TD n".
 - Next slice: 227 (backup), which consumes the rebuild cost measured here.
+- **Two files.** This part holds Sections 0–7. Sections 8–14 (`tick_007`, the
+  compressed-chunk tests, constants, the production rebuild, the go/no-go and
+  docs) are in `226-tasks.proof-on-existing-data-2.md`. A reference to a
+  section above 7 points there.
 
-**Test environment.** Export `MT_TIMESCALE_TEST_URL` from `.env` with the
-quotes stripped. Run mypy on the src kalshi paths and the tests in one
-invocation. Run the unit and integration tiers separately. Known baseline
+**Test environment.** Run every tier through the reviewed runner:
+`uv run python scripts/run_tests.py unit | integration | load [-- <path>]`.
+It passes each tier an explicit environment allowlist and strips the
+production and tick URLs; never export `.env` into a test run. Run mypy on
+the src kalshi paths and the tests in one invocation. Run the tiers
+separately. **CI runs no test job (slice 907)**: the load tests are gated by
+the runner's `load` tier alone, and this slice adds no CI wiring. Known baseline
 failures are not regressions (`test_cli_lists` priority1 x2,
 `test_migration_051_052` x2, `test_policy_advances_head` unaided x2); re-run
 in isolation before investigating anything else. Scope `ruff format` to
@@ -69,7 +77,8 @@ each one. Every number in the go/no-go names its report file.
 - [ ] **0.1 Record the unit and integration baselines (effort 1)**
   - [ ] Confirm the working directory is the project root and the current
         branch is the slice branch.
-  - [ ] Run the unit tier and the integration tier separately. Note every
+  - [ ] Run the unit tier and the integration tier separately, through
+        `scripts/run_tests.py`. Note every
         failure by test id in a scratch note.
   - [ ] Success: unit tier clean; integration failures are only the known
         baseline list above.
@@ -94,7 +103,13 @@ each one. Every number in the go/no-go names its report file.
         header bytes of a real fixture (never an invented format).
   - [ ] Each asserts `TickFileDecodeError` with the original message.
   - [ ] One test asserts the byte-budget `ValueError` is still raised.
-  - [ ] Success: new unit tests pass; existing `DbnFile` tests pass unedited.
+  - [ ] `TickFileDecodeError` derives from `Exception`, not `ValueError`, so
+        the existing assertion at `test/unit/data/tick/test_dbn_file.py:120`
+        (`pytest.raises(ValueError, match="unsupported DBN schema ...")`) must
+        change to `TickFileDecodeError`. Update it and any other assertion on a
+        header raise, and no others.
+  - [ ] Success: new unit tests pass; the only existing `DbnFile` tests edited
+        are those that assert a header raise.
 
 - [ ] **1.3 Verify maps the decode error to a unit failure (effort 2)**
   - [ ] In `verify._file_mismatch`, catch `TickFileDecodeError` from
@@ -139,6 +154,11 @@ each one. Every number in the go/no-go names its report file.
   - [ ] Add the proof-database reset: `TRUNCATE tick_trade,
         tick_ingest_ledger`, then set every ingested tier unit back to
         *verified*. It sits behind the guard.
+  - [ ] Load `.env` with `python-dotenv`, never `source`/`set -a` (the `$_`
+        password trap). Name the two proof URL variables as constants in the
+        harness: `MT_PROOF_226_DB_URL` and `MT_PROOF_226_MAINTENANCE_URL`.
+        They must not start with `MT_TICK_`, because the tick preflight
+        refuses any `MT_TICK_*` key that is not a known setting.
   - [ ] Add the free-space check: refuse to load data when `/data` has less
         than 50 GB free (named constant).
   - [ ] Success: the dispatcher knows every step name in TD 2's table plus
@@ -152,6 +172,11 @@ each one. Every number in the go/no-go names its report file.
   - [ ] Test (against a throwaway database from a fixture): the reset empties
         both tables and returns tier units to *verified*.
   - [ ] Success: tests pass; a deliberately wrong name makes them fail.
+
+- [ ] **2.4 Section checkpoint**
+  - [ ] Run unit tier, mypy and ruff on touched files.
+  - [ ] Commit: `feat: add proof harness skeleton and database guard`.
+  - [ ] Success: tiers clean; commit exists.
 
 ---
 
@@ -191,7 +216,8 @@ each one. Every number in the go/no-go names its report file.
   - [ ] Generate both passwords, set them with `ALTER ROLE`, and never print
         them.
   - [ ] Write `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and the two proof
-        URLs into the checkout's `.env`: add only absent keys, write to a 0600
+        URLs (`MT_PROOF_226_DB_URL`, `MT_PROOF_226_MAINTENANCE_URL`) into the
+        checkout's `.env`: add only absent keys, write to a 0600
         temp file in the same directory, then `mv` over `.env`. Keep the file
         owned by `manta`, mode 0600.
   - [ ] Final line: `PASS: tick cluster 17/tick on 5433; 2 databases; .env
@@ -209,6 +235,9 @@ each one. Every number in the go/no-go names its report file.
   - [ ] Test the `.env` writer on a temp directory: adds only absent keys,
         leaves existing values alone, mode ends 0600, a simulated failure
         part-way leaves the old file whole.
+  - [ ] Test that `check_env_keys` (`tick/store_context.py`) accepts the
+        written `.env`: every `MT_TICK_*` key it holds is a known setting.
+        This guards the tick preflight against the proof URLs' names.
   - [ ] Test the scrub with a log that contains a planted password. The test
         must fail the scan on it, and pass it on a clean log.
   - [ ] Success: tests pass; no real credential appears in any fixture.
@@ -305,8 +334,11 @@ each one. Every number in the go/no-go names its report file.
   - [ ] Apply the TD 3 rule text in the report: keep 2 unless 4 is at least
         1.5x faster and the contention run (Section 7) stays within its bound.
   - [ ] Check `/data` free space and `MemAvailable` first, then run the step.
-  - [ ] Success: the report holds three runs and a stated verdict, marked
-        provisional until contention is measured.
+  - [ ] Record the tick cluster's peak resident memory under each run (the
+        `postgresql@17-tick` unit's cgroup `memory.peak`, or the summed RSS of
+        its processes if that file is absent). The go/no-go (13.1) reads it.
+  - [ ] Success: the report holds three runs, peak cluster memory, and a
+        stated verdict, marked provisional until contention is measured.
 
 - [ ] **5.6 `batch` step (effort 3)**
   - [ ] Re-ingest the three largest units with `TICK_DECODE_BATCH_BYTES` at
@@ -420,8 +452,12 @@ each one. Every number in the go/no-go names its report file.
 
 - [ ] **7.5 Run `contention` (effort 2)**
   - [ ] Start it in the background. State the current UTC and local time and
-        the next Kalshi firing in the message to the PM. Proceed to Section 8
-        while it runs.
+        the next Kalshi firing in the message to the PM.
+  - [ ] While it runs, do edit-only work that loads nothing and does not touch
+        the proof database: Sections 8.1 and 8.2 (part 2). Run no test tier,
+        no ingest and no migration until the report is written, because they
+        would load the host and distort the measurement, and 8.4 mutates the
+        proof database the loop is using.
   - [ ] When it finishes, confirm the report, commit it, and record the
         verdict. Commit: `feat: add proof harness contention step`.
   - [ ] Success: a report with two overlapped and one solo Kalshi firing, and
