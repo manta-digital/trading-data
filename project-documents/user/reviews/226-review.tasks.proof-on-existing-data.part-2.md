@@ -11,73 +11,74 @@ aiModel: deepseek/deepseek-v4.1-flash
 status: complete
 dateCreated: 20261003
 dateUpdated: 20261003
-reviewedSha: c2bf7bd4e60cb0af8e7526d4bbd361afad542723
+reviewedSha: 4d41395774709faed95511005c1110b0fda69751
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 40
+toolCallsMade: 53
 turns: 20
-promptTokens: 875226
-cachedTokens: 738816
-completionTokens: 104652
-reasoningTokens: 93247
-durationSeconds: 909.3
+promptTokens: 1066817
+cachedTokens: 905984
+completionTokens: 84966
+reasoningTokens: 74183
+durationSeconds: 789.5
 runId: run-20261003-p5-29c1b523
 squadronVersion: 0.18.2
 findings:
   - id: F001
     severity: pass
     category: traceability
-    summary: "Every success criterion traces to at least one task"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
+    summary: "Every Technical Decision 5 row traces to a task"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:115-136"
   - id: F002
-    severity: concern
-    category: error-handling
-    summary: "`sha256sum -c` is prescribed against a JSON manifest it cannot parse"
-    location: "src/manta_trading/data/tick/adopt_files.py:34"
+    severity: pass
+    category: sequencing
+    summary: "Test-with pattern and commit checkpoints are respected"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:202-208"
   - id: F003
-    severity: concern
+    severity: pass
     category: testing
-    summary: "The restated query-latency NFR has no `test/load/` coverage and no gate"
-    location: "test/load"
+    summary: "The load tier's production-URL guard is accounted for"
+    location: "test/load/test_167_data_status_nfr.py:214"
   - id: F004
     severity: concern
-    category: error-handling
-    summary: "The compressed-chunk fallback branch has no follow-through task"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
+    category: ci-gating
+    summary: "A load test is added with no CI-gating task and no statement that CI cannot gate it"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:226-237"
   - id: F005
     severity: concern
     category: sequencing
-    summary: "`tick_007` is never applied to `trading_tick_proof`"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
+    summary: "Fixes routed into `tick_007` after it is applied will never take effect"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:220-225"
   - id: F006
     severity: concern
-    category: testing
-    summary: "`final`'s production write guard has no test"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
-  - id: F007
-    severity: note
     category: sequencing
-    summary: "The part 1 dispatcher criterion predates two steps it must list"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md:144"
+    summary: "The chunk-interval change has no migration or rebuild task, and contradicts 10.2"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:156-171"
+  - id: F007
+    severity: concern
+    category: coverage-gap
+    summary: "The go/no-go's \"resident memory under ingest\" input has no producing task"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:303"
   - id: F008
-    severity: note
-    category: operational
-    summary: "No owner for the provisioning re-run if the go/no-go moves `shared_buffers`"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
+    severity: concern
+    category: test-environment
+    summary: "Tier invocations bypass the repository's reviewed test runner"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:52"
   - id: F009
     severity: note
-    category: traceability
-    summary: "Task 9.1 names no source report for the lock-timeout rule"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
+    category: verification-scope
+    summary: "14.3 verifies the functional criteria only"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:370-378"
   - id: F010
     severity: note
-    category: traceability
-    summary: "Two standing 220 obligations have design content but no task"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
+    category: testing
+    summary: "The query-latency load test exercises one range of the two the design measures"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:226-237"
   - id: F011
     severity: note
-    category: scoping
-    summary: "Task 11.3 is a no-op"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
+    category: documentation
+    summary: "Task 10.1a breaks the section's numbering"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:202-208"
 ---
 
 # Review: tasks — slice 226
@@ -87,65 +88,65 @@ findings:
 
 ## Findings
 
-### [PASS] Every success criterion traces to at least one task
+### [PASS] Every Technical Decision 5 row traces to a task
 
-SC1 → part 1 §3 (3.1–3.7, 3.7 names the criterion); SC2 → 10.2/10.3; SC3 → 8.2 (policy) + 10.1/10.3 (compression); SC4 → all eleven TD 3 rows have a producing task (`5.1` mapping, `5.3` size, `5.4` jobs, `5.6` workers, `5.7` batch, `6.2` queries, `6.3` layouts, `4.1`/`10.3` ingest checks/rate, `9.1` interval, `13.1` intra-unit checkpoints, capacity); SC5 → 5.1/5.2; SC6 → the five TD 5 rows land in 8.3 (Migration), 8.4 (Supersession, Overlap) and 8.5 (`tick_app`, coverage-on-partial); SC7 → part 1 §1; SC8 → 12.1/12.2; SC9 → 11.1–11.3 + 13.2. No task in either half fails to trace back to a criterion or a stated technical/integration requirement, so there is no scope creep to flag.
+Success Criterion 6 ("the five compressed-chunk tests in Technical Decision 5 pass") is fully covered: supersession and overlap in 8.5, `tick_app` ingest and coverage-on-a-partial-chunk in 8.6, and the Migration row in 8.3. 8.5/8.6 also carry the design's "a failure is never fixed by dropping compression" rule and its escalation to 8.7 → 13.1, so the fallback path is not orphaned.
 
-### [CONCERN] `sha256sum -c` is prescribed against a JSON manifest it cannot parse
+### [PASS] Test-with pattern and commit checkpoints are respected
 
-Task 13.2 requires `sha256sum -c` against each job's `manifest.json` and makes "every archive file verifies" the success condition. The archive manifest is not in `sha256sum` checksum format: adoption reads it as JSON (`_Manifest` / `_ManifestEntry` at `adopt_files.py:118-130`) with a `files` list of `{filename, size, hash: "sha256:<lowercase hex>"}` objects, and `MANIFEST_NAME` is deliberately *not* listed among its own entries (`adopt_files.py:34`, and `archive_job_files` hashes the manifest separately). `sha256sum -c` on that file finds no properly formatted checksum lines and cannot confirm a single archive file, so the task's stated success cannot be reached as written. The design's own verification intent ("verify every file against the job's `manifest.json` (size and SHA-256)", 223) is what the task should call for — e.g. re-running the adoption path read-only, or a small verification step in `scripts/proof_226_tick.py` — rather than the coreutils tool.
+10.1a places the guard test immediately after 10.1's implementation; 8.2 → 8.3, 11.1 → 11.2, and 13.2's step-plus-unit-test follow the same shape. Checkpoints are distributed rather than batched: 8.8, 9.2, 10.3, 10.4, 11.2, 12.4, 13.2, 14.2 each end a section with a commit, matching the convention in 223/224/225 task files.
 
-### [CONCERN] The restated query-latency NFR has no `test/load/` coverage and no gate
+### [PASS] The load tier's production-URL guard is accounted for
 
-The slice design restates two performance bounds: the ingest-rate bound (slowest unit ≤ 120 s, whole set ≤ 2 h) and a new one, "Q1–Q4 execute in ≤ 1 s warm on the chosen layout" (TD 3), which compression newly threatens. `test/load/test_225_tick_ingest_nfr.py` covers the ingest bound on the *uncompressed* path (unit budget 120 s, loop-gap bound), and `test/load/test_224_tick_pass_nfr.py` covers the pass. Neither half of this task breakdown re-runs the existing load test against the compressed layout, and no task adds a load test for the query bound — it is checked only as one-shot harness output in `10.3` and as an integration-test assertion in 8.3/8.4, neither of which is repeatable evidence for an NFR. CI gating is likewise left implicit: `.github/workflows/ci.yml` has only the tag-gated publish job (no test job at all), the load tier is manually gated on `MT_RUN_LOAD_TESTS=1`, and the designated owner of that wiring is slice 907, which is still open. A task stating the gate for these NFR measurements (and naming 907 as the CI owner) is needed so the new ≤ 1 s bound is not an aspiration.
+10.4's success condition — "the load tier's `test_load_tier_never_references_prod_db_url` still passes" — names a guard that actually exists, and the new test's "never reads the production URL variable" requirement matches how `test/load/test_225_tick_ingest_nfr.py` is written. This part of the escape-proofing is real, not aspirational.
 
-### [CONCERN] The compressed-chunk fallback branch has no follow-through task
+### [CONCERN] A load test is added with no CI-gating task and no statement that CI cannot gate it
 
-Task 8.4 says that if a compressed-chunk path cannot be made to work, "the design then falls back to compressing only past a settled age". The design's mitigation says the same, and it changes `TICK_TRADE_COMPRESS_AFTER` and what `final` compresses. Tasks 10.1 and 10.3, however, are written unconditionally ("compress every eligible chunk", SC3 "every eligible chunk … is compressed"), and 9.1 decides `TICK_TRADE_COMPRESS_AFTER` without any branch for the fallback. If 8.4 trips, the breakdown has no task that lowers the compress-after age, no task that amends `final`'s "every eligible chunk" clause, and no task that records the fallback in the go/no-go beyond the design's prose. This is exactly the case the risk section calls the alternative outcome, so it should be a named task with a named owner rather than implied by "stop and report".
+10.4 creates `test/load/test_226_tick_query_nfr.py` and says only that its docstring "names the gate (`MT_RUN_LOAD_TESTS=1`)". No task in either part wires that gate anywhere, and neither part mentions CI or slice 907. I verified `.github/workflows/ci.yml` contains only a tag-triggered `publish` job and no test job, so the gate genuinely is unenforced — but 225's equivalent task (`225-tasks.ingest-pass-and-proof-parity-2.md:110-111`) stated this explicitly ("CI runs no test job (slice 907), so this gate is the load tier's gate"). The 226 breakdown leaves the same situation implicit, and 14.3's "Re-run the load tier gate" is a manual action, not a gate. Add a sentence (or a small task) naming the local gate and the CI owner, as 225 did.
 
-### [CONCERN] `tick_007` is never applied to `trading_tick_proof`
+### [CONCERN] Fixes routed into `tick_007` after it is applied will never take effect
 
-The design states the application order explicitly: "test cluster first, through the integration tier. Then `trading_tick_proof`, then `trading_tick`, with `mt data migrate apply --track tick` and the maintenance URL of each." Task 10.2 applies it to `trading_tick` only; 8.3 applies it on the integration fixture's throwaway databases. No task migrates the proof database. Part 1's `rebuild` (4.1) runs the tick chain while `tick_007` does not yet exist (it is written in §8), so `trading_tick_proof` can never be at the layout the migration lands — which is the state `layouts` (6.3) and the supersession-delete timing for the lock-timeout rule were measured against. Either the stated order should be dropped from the design or a task should carry it; as it stands a documented step has no owner.
+10.3's rule for a Q1–Q4 miss is "gets an index or read-side aggregate in `tick_007` and is re-measured", but by then `tick_007` has already been applied to `trading_tick_proof` (8.4) and to `trading_tick` (10.2). `apply_migrations` skips any id present in `schema_migrations` (`src/manta_trading/market/schema/runner.py`, the `if migration["id"] in applied: continue` loop), so editing `tick_007`'s SQL afterward changes nothing on either database and the re-measurement would silently measure the old layout. The same escape hatch appears in TD 4. Either add a new migration id for the index/aggregate or state that the change is applied with an explicit DDL run plus a re-measure; "edit tick_007" is not sufficient.
 
-### [CONCERN] `final`'s production write guard has no test
+### [CONCERN] The chunk-interval change has no migration or rebuild task, and contradicts 10.2
 
-Task 10.1 wires a guard that is the inverse of every other harness guard: the compression must only run when the connection's database equals the one named in `MT_TICK_DB_URL` (i.e. `trading_tick`), because this is the harness's only write to production. The Technical Requirements' guard test — implemented in part 1 §2.3 — covers only refusals against `TICK_PROOF_DB_NAME`, so the one destructive harness function that targets the keeper database is the one with no unit test, and §10 has no test task analogous to 11.2's `drop-proof` tests. Unlike the read-only measurement steps, "the harness itself is verified by the walkthrough" does not apply here: a wrong-database compression is a production write.
+9.1 says for `TICK_TRADE_CHUNK_INTERVAL`: "If it changes, add the migration and plan the rebuild." There is no task that owns that migration or the resulting rebuild, and Section 10 is written as if it never happens: 10.2's success is "migration through `tick_007`" and the production rebuild/`final` sequence assumes `tick_007` is the newest tick migration. Since the migration is applied to the proof database at 8.4 and to production at 10.2, a chunk-interval change discovered at 9.1 has to invalidate both. Either scope the interval change out of this part explicitly (record-only, defer the migration) or name the task that adds the follow-on migration and re-does the rebuild/`final`.
 
-### [NOTE] The part 1 dispatcher criterion predates two steps it must list
+### [CONCERN] The go/no-go's "resident memory under ingest" input has no producing task
 
-Task 2.2's success is "the dispatcher lists the ten steps from TD 2", but TD 2's table lists eleven (`rebuild`, `workers`, `batch`, `jobs`, `mapping`, `size`, `layouts`, `queries`, `contention`, `final`, `drop-proof`), and `final` (10.1) and `drop-proof` (11.1) are implemented only in part 2's later sections. The count and the ownership of those two steps should be stated once so the part 1 dispatcher check is not unsatisfiable at the time it runs.
+13.1 requires the go/no-go to settle "tick cluster memory (buffer hit ratio and resident memory; confirm or lower `shared_buffers`)", matching the slice design's Technical Decision 1 ("the cluster's resident memory under ingest"). The buffer hit ratio is produced (6.1 records it), but no harness step collects the *cluster's* resident memory: part 1's steps record host CPU, `MemAvailable`/`Committed_AS`/`CommitLimit`, per-device I/O, and per-worker RSS in the `batch` step — none of which is the cluster's RSS or its shared-buffer working set. Either add the measurement to the `queries`/`contention` step (for example per-backend RSS from `pg_stat_activity`/proc during ingest) or drop "resident memory" from 13.1 so the decision rests on what is actually measured.
 
-### [NOTE] No owner for the provisioning re-run if the go/no-go moves `shared_buffers`
+### [CONCERN] Tier invocations bypass the repository's reviewed test runner
 
-Task 13.1 records "confirm or lower `shared_buffers`" from the buffer-hit-ratio and resident-memory measurements, and TD 1 says that if the memory block changes, the PM re-runs the provisioning script, which restarts only the tick cluster. Tasks 13.2 and 14.2/14.3 do not mention re-running it, and 14.3 (the walkthrough pass) does not re-check the memory settings against the recorded values after such a change. A half-line in 13.1 or a small task naming who re-runs the script and what is re-verified would close it.
+Both parts instruct the implementer to "Export `MT_TIMESCALE_TEST_URL` from `.env` with the quotes stripped" and say nothing about `scripts/run_tests.py`, which the repo documents as "the reviewed entry point for DB-touching test tiers" built after a 2026-08-04 production incident (`TRUNCATE` on six production tables). The runner is what enforces the per-tier allowlist and the production-URL scrub (`test/conftest.py:pytest_configure`), and it is also what supplies `MT_RUN_LOAD_TESTS=1` for the load tier (9.3, 10.4). Hand-rolled exports are exactly the pattern the runner exists to replace, and the design's walkthrough (`set -a; . ./.env; set +a`) is the shell-source form the runner's docstring calls unusable in this project. Point the three tiers at `python scripts/run_tests.py unit|integration|load` and keep the hand-export only for the walkthrough's CLI commands.
 
-### [NOTE] Task 9.1 names no source report for the lock-timeout rule
+### [NOTE] 14.3 verifies the functional criteria only
 
-Every constant in 9.1 names the report it is read from except `TICK_INGEST_LOCK_TIMEOUT_SECONDS`, whose input — the timed supersession delete on a compressed chunk — is produced by part 1's `layouts` step (6.3) as a side measurement. Success for 9.1 requires the "source report" column to be filled for every row, so the source should be named here rather than left to be inferred.
+14.3 walks the Verification Walkthrough "and tick each expected result against Success Criteria 1–9" — the functional list. One integration requirement is not visibly confirmed anywhere: "The Kalshi, minute, daily and health timers fire as scheduled throughout. The harness stops no timer and fires no pass." 7.4 reads the Kalshi timer's next elapse, but nothing checks that the other timers were undisturbed. A single line in 14.3 (or in 7.5's report) would close it.
 
-### [NOTE] Two standing 220 obligations have design content but no task
+### [NOTE] The query-latency load test exercises one range of the two the design measures
 
-The plan's standing obligations on every 220 slice include a "realtime paths" check naming any decision that rules out path A or path B, and answering "does this belong in the API?" for any new surface. TD 10 answers both (neither path is ruled out; no new surface), and 12.4 covers the third obligation (the Kalshi contract diff), but task 14.1's document list does not carry these two into any committed document — the Revision Log list it names is limited to arbitration, pass form, delivery mode and storage. A line in 14.1 recording both answers (even as "no change") makes the obligation auditable.
+10.4 ingests "the largest real adopted day" and runs Q1–Q4 against that day's compressed chunk. Technical Decision 3 picks one instrument-session per range (Aug–Sep `trades`, Nov–Dec `tbbo`) and runs the query set "uncompressed and under each layout" in both. The ≤ 1 s bound is per-query, so a single day is defensible, but the task should say which range it covers (the archive's largest day is 2024-09-03 `trades`, per `test/load/test_225_tick_ingest_nfr.py`) so the coverage limit is explicit rather than incidental.
 
-### [NOTE] Task 11.3 is a no-op
+### [NOTE] Task 10.1a breaks the section's numbering
 
-Task 11.3's only content is "do not run `drop-proof` yet; 13.2 runs it", with the commit folded into 11.1/11.2. It is a reorder note rather than work. As written it is harmless, but it inflates the section; the ordering constraint would read better as a line inside 11.1 and 13.2.
+The inserted guard-test task is labelled `10.1a`, which does not exist in the other task files' convention (`8.5`, `13.2`, `14.3` are all sequential). Renumbering to 10.2 and shifting the rest is cosmetic, but leaving a lettered subtask makes cross-reference from 14.3 and any future review noisier than it needs to be.
 
 ### Run Digest
 
-- Response length: 10105 chars
+- Response length: 8834 chars
 - Response is newline-free: no
-- Tool calls made: 40
-- Tool calls failed: 1
+- Tool calls made: 53
+- Tool calls failed: 0
 - Stop reason: stop
 - Output budget: 384000 tokens
 - System prompt: custom
 - Settings sources: n/a (non-SDK)
-- Reasoning characters: 366009
+- Reasoning characters: 291517
 - Effort: backend default
 - Turns: 20
-- Tokens — prompt / cached / completion / reasoning: 875226 / 738816 / 104652 / 93247
-- Duration: 909.3 s
+- Tokens — prompt / cached / completion / reasoning: 1066817 / 905984 / 84966 / 74183
+- Duration: 789.5 s
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 11

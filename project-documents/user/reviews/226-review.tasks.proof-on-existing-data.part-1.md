@@ -11,58 +11,59 @@ aiModel: deepseek/deepseek-v4.1-flash
 status: complete
 dateCreated: 20261003
 dateUpdated: 20261003
-reviewedSha: c2bf7bd4e60cb0af8e7526d4bbd361afad542723
+reviewedSha: 4d41395774709faed95511005c1110b0fda69751
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 49
+toolCallsMade: 52
 turns: 20
-promptTokens: 1048437
-cachedTokens: 900096
-completionTokens: 124475
-reasoningTokens: 118792
-durationSeconds: 717.0
+promptTokens: 1104688
+cachedTokens: 932480
+completionTokens: 87175
+reasoningTokens: 80926
+durationSeconds: 535.8
 runId: run-20261003-p5-29c1b523
 squadronVersion: 0.18.2
 findings:
   - id: F001
-    severity: concern
-    category: testing
-    summary: "Constants that govern the restated ingest-throughput NFR are re-set with no load-tier task to re-gate them"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:133-156"
+    severity: pass
+    category: uncategorized
+    summary: "Every success criterion and Technical Decision traces to at least one task"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md"
   - id: F002
     severity: concern
-    category: testing
-    summary: "Task 8.3 instructs updating a tick migration-chain test whose existence I could not confirm"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:98"
+    category: uncategorized
+    summary: "Part 1 gives no signpost to part 2, and forward-references sections it does not contain"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md"
   - id: F003
     severity: concern
-    category: measurement-coverage
-    summary: "The spreads decision has no task that produces its \"measured spread share\""
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md:274-281"
+    category: uncategorized
+    summary: "The contention loop and Section 8 mutate the same proof database concurrently"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md:419-426"
   - id: F004
     severity: concern
-    category: task-sizing
-    summary: "Task 6.3 (`layouts`, effort 5) is too large for one junior-AI task"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md:334"
+    category: uncategorized
+    summary: "No CI-wiring task or explicit disclaimer for the new load test; CI gating is left implicit"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
   - id: F005
-    severity: note
-    category: documentation
-    summary: "`tick_007` is never applied to `trading_tick_proof`, though the design's Implementation Details say to"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md:71-131"
+    severity: concern
+    category: uncategorized
+    summary: "Task 1.2's \"existing `DbnFile` tests pass unedited\" contradicts a verified existing assertion"
+    location: "test/unit/data/tick/test_dbn_file.py:120"
   - id: F006
-    severity: note
-    category: documentation
-    summary: "\"Ten steps from TD 2\" undercounts the design's step table"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md:144"
+    severity: concern
+    category: uncategorized
+    summary: "The two proof URLs written into `.env` will trip the tick preflight's unknown-key refusal"
+    location: "src/manta_trading/data/tick/store_context.py:103-131"
   - id: F007
     severity: note
-    category: task-sizing
-    summary: "Run-and-verify tasks are slightly granular"
+    category: uncategorized
+    summary: "Section 2 has no commit checkpoint; its work lands inside 3.6's provisioning commit"
     location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md"
   - id: F008
-    severity: pass
-    category: coverage
-    summary: "Success criteria are fully cross-referenced and commit checkpoints are well distributed"
-    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-1.md"
+    severity: note
+    category: uncategorized
+    summary: "`archive-check` and the `manifest.json` correction are additions beyond the design, recorded only in the task file"
+    location: "project-documents/user/tasks/226-tasks.proof-on-existing-data-2.md"
 ---
 
 # Review: tasks — slice 226
@@ -72,53 +73,53 @@ findings:
 
 ## Findings
 
-### [CONCERN] Constants that govern the restated ingest-throughput NFR are re-set with no load-tier task to re-gate them
+### [PASS] Every success criterion and Technical Decision traces to at least one task
 
-The slice design restates the architecture's throughput NFR in TD3 ("Slowest unit ≤ 120 s ... the whole proof set ≤ 2 h"), and `test/load/test_225_tick_ingest_nfr.py:65` already gates exactly that bound. Section 9 then changes `TICK_INGEST_WORKERS`, `TICK_DECODE_BATCH_BYTES`, `TICK_INGEST_LOCK_TIMEOUT_SECONDS` and `TICK_TRADE_CHUNK_INTERVAL` — all on the ingest path that load test covers — yet no task in either file updates or re-runs `test/load/`. The project has an established pattern for this (slice 169 added a `test/load/` task when it touched an NFR; `test/load/test_225_tick_ingest_nfr.py:20` documents the tier's gate). Task 14.3's "Full validation" mentions only the unit and integration tiers. Add a task that re-runs the ingest load test against the new constants (and, if it exists, wire the gate per the standing 907/slice-169 out-of-band convention — but state that precedent explicitly rather than leaving CI gating implicit).
+Criteria 1→3.1–3.7; 2→10.2/10.3; 3→8.2/10.1/10.3; 4→13.1; 5→5.1/13.1; 6→8.5/8.6; 7→1.1–1.4; 8→12.1–12.3; 9→11.1/11.2/13.2. TD 6's every constant appears in 9.1; TD 3's "capacity estimate" and "intra-unit checkpoints" rows and TD 10's realtime/API checks land in 13.1; TD 1's memory confirmation lands in 13.3; the `/data` free-space floor from TD 2's failure table appears in 2.2, 4.1, 5.5 and 10.1. The design's split instruction ("split it here: (a) … (b) …") is honoured exactly by the two files' boundaries. The NFR requirement is met: the slice restates the ≤120 s unit and ≤1 s query bounds, and 9.3 plus 10.4 provide load tests in `test/load/` for them.
 
-### [CONCERN] Task 8.3 instructs updating a tick migration-chain test whose existence I could not confirm
+### [CONCERN] Part 1 gives no signpost to part 2, and forward-references sections it does not contain
 
-Task 8.3 says "Update the migration-chain test that pins the last migration id." I searched the test tree: `test/unit/market/schema/test_tick_migrations.py:68` asserts only that tick ids are prefixed, unique and ascending — it does not pin the last id — and the only last-id pin I found is the minute track's `test/integration/test_migration_051_052.py:185` (`assert applied[-1] == _MIGRATION_052_ID`). I could not locate a tick-track test pinning the last tick migration id. A junior AI following 8.3 (and 14.3's "with the chain test updated for `tick_007`") may hunt for a test that does not exist. Either name the file explicitly or replace this line with "add a tick migration-chain test if none pins the last id." Note the slice design carries the same reference, so the ambiguity originates upstream.
+The file's title is `# Tasks: Proof on Existing Data` with no "(part 1 of 2)", and its Context Summary has no "This is part 1 of 2 / Sections 8–14 are in `…-2.md`" line — unlike every other split task file in the repo (`225-…-1.md`, `187-…-1.md`, `169-…-1.md`, `264`, `265`, `267`, `920`, `921` all carry it). It also depends on sections held only in file 2: 2.1 defers the layout to "Section 8", 2.2 requires the dispatcher to know `archive-check` "(added in 13.2)", 3.6 points at "the before/after comparison in 14.2", 6.5 labels its output as "the input to the lock-timeout rule (9.1)", and 7.5 says "Proceed to Section 8 while it runs". A junior AI executing file 1 alone has no instruction that file 2 exists. File 2 carries the reverse pointer; file 1 should carry it too.
 
-### [CONCERN] The spreads decision has no task that produces its "measured spread share"
+### [CONCERN] The contention loop and Section 8 mutate the same proof database concurrently
 
-Task 13.1 requires the spreads recommendation "from the measured spread share in both tiers," and the design's TD9 says the same. The nearest producing task is 5.3 (`size`), which records bytes-per-record and "rows per instrument per chunk" for skew evidence — not a spread-vs-outright classification. The design cites 224's 2.35 % figure for trades only, so the tbbo share is unmeasured, and no task computes either from the ledger. Add a step (or extend 5.3) that derives spread share per tier from the ledger and has it recorded as a report, otherwise task 13.1 asks for a number no earlier task supplies.
+Task 7.5 starts `contention` in the background and says "Proceed to Section 8 while it runs". The contention loop is defined by 7.4 as "reset, ingest the whole set, repeat" **in `trading_tick_proof`**, spanning two overlapped Kalshi firings plus one solo firing (roughly three hours). Section 8's first mutating task, `226-tasks.proof-on-existing-data-2.md` 8.4, then runs against that same database: it decompresses every compressed chunk and applies `tick_007` to `trading_tick_proof`, and 8.5/8.6 ingest into it. Two writers on one database, with the loop's repeated `TRUNCATE tick_trade, tick_ingest_ledger` reset running underneath a migration that "fails while compressed chunks exist" (design, TD 4, "Applying it to a populated table"). Nothing in either file states a barrier — e.g. "do not begin 8.4 until `contention` has exited" or "run 8.1–8.3 before launching 7.5". Section 9 already waits on the verdict; Section 8 needs the same explicit wait, or its tasks need to be placed before 7.5.
 
-### [CONCERN] Task 6.3 (`layouts`, effort 5) is too large for one junior-AI task
+### [CONCERN] No CI-wiring task or explicit disclaimer for the new load test; CI gating is left implicit
 
-Task 6.3 bundles: decompressing all chunks; applying layout A, compressing every chunk, measuring per-tier compressed bytes/row, and running the query set three times; repeating all of that for layout B; timing the supersession delete on a compressed chunk under each layout; verifying TimescaleDB 2.29's unique-key/segmentby-orderby rule; and applying the TD4 decision rule. It is the only effort-5 item in either file, and each of those is independently failable and independently reportable. Split it into at least (a) layout A measure, (b) layout B measure, (c) decision + unique-key verification, so a failure in one half doesn't cost a re-run of the whole thing.
+Task 10.4 creates `test/load/test_226_tick_query_nfr.py` and names the manual gate (`MT_RUN_LOAD_TESTS=1 uv run pytest …`) in its docstring, but neither task file mentions CI, a workflow, or the load tier's gate anywhere — and `.github/workflows/ci.yml` contains only a `publish` job triggered on `refs/tags/v*`, so no CI job exists to run it. The repo's established form for exactly this situation is a one-line disclaimer in the new test's gating docstring (slice 187, Task 12d: "states CI wiring is slice 907's deliverable, not this slice's (D9)"), and the existing `test/load/test_225_tick_ingest_nfr.py` that 9.3 re-runs already carries "Gate (CI runs no test job; see slice 907 …)" in its module docstring. 10.4 omits the equivalent sentence, so a reader gets a bound that looks gated and is not. One line matching 187's precedent closes it; a pipeline is not required.
 
-### [NOTE] `tick_007` is never applied to `trading_tick_proof`, though the design's Implementation Details say to
+### [CONCERN] Task 1.2's "existing `DbnFile` tests pass unedited" contradicts a verified existing assertion
 
-The design says "Applying it: test cluster first ... Then `trading_tick_proof`, then `trading_tick`," but Section 8's success criteria cover only the test cluster and (in Section 10) `trading_tick`. This is probably harmless — the `layouts` step sets the columnstore settings directly rather than through the migration (TD4), and the design's own walkthrough (step 6) never applies `tick_007` to the proof database — but the discrepancy should be reconciled so the junior AI knows the proof DB is intentionally excluded.
+Task 1.1 converts the wrong-`stype_out`/unsupported-schema/mixed-schema/`ts_out`/bad-mapping-date raises to `TickFileDecodeError` "keeping the message text", and 1.2's success criterion claims "existing `DbnFile` tests pass unedited". But `test_dbn_file.py:120` asserts `pytest.raises(ValueError, match="unsupported DBN schema 'ohlcv-1m'")` against `_tick_schema`'s header raise, which 1.1 changes. Whether that assertion still holds depends entirely on whether `TickFileDecodeError` derives from `ValueError`, which I could not verify (its definition in `provider.py` was outside what I read); the message text *is* preserved, so only the class question decides it. Separately, `test/unit/data/tick/test_pass_error_mapping.py` exists to pin how a raw `ValueError`/`TypeError` escapes `run_phase`, and `test_adapter_metadata.py:332` asserts `isinstance(caught.value.__cause__, ValueError)` — both touch the same surface. Either confirm the class hierarchy and say so in 1.1/1.2, or add the test updates to 1.2 rather than asserting tests pass unedited.
 
-### [NOTE] "Ten steps from TD 2" undercounts the design's step table
+### [CONCERN] The two proof URLs written into `.env` will trip the tick preflight's unknown-key refusal
 
-Task 2.2's success line says "the dispatcher lists the ten steps from TD 2." TD 2's table (slice design lines 298–308) lists eleven rows — `rebuild`, `workers`, `batch`, `jobs`, `mapping`, `size`, `layouts`, `queries`, `contention`, `final`, `drop-proof`. State the count exactly (or name the steps) so the dispatcher's expected surface is unambiguous.
+Task 3.3 writes `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` "and the two proof URLs" into the checkout's `.env`, and 3.7's success criterion is that "`.env` holds the four tick URLs". `check_env_keys` (called from `open_tick_store`, `store_context.py:233`) refuses every `MT_TICK_*` name in `.env` that is not in `known_tick_env_names()`, with the design noting the refusal exists precisely so "a misspelt ceiling never reads as 'no ceiling'" (TD 2). The harness then drives the shipped CLI (`rebuild` "Drives the shipped CLI", 4.1) from that same checkout, so unless the two proof variable names are added to `known_tick_env_names()` and to `Settings`, Section 4 onward fails at the preflight. I verified the refusal and the call site; I did not read `known_tick_env_names()`'s body, so I cannot rule out that it already enumerates them — this needs confirmation, and no task in either file adds them or a unit test for the new variable names.
 
-### [NOTE] Run-and-verify tasks are slightly granular
+### [NOTE] Section 2 has no commit checkpoint; its work lands inside 3.6's provisioning commit
 
-Tasks 5.2 ("Run `mapping`", effort 1), 5.5 ("Run `size` and `jobs`"), 6.4 ("Run `queries` and `layouts`") and 10.3 ("Run `final`") are all "execute the step just implemented and read the report." They are low-risk but could fold into the preceding implementation task without losing any success criterion, which would shorten the checklist.
+Sections 1, 3, 4, 5, 6 and 7 each end with a commit, but Section 2 (2.1 constants, 2.2 harness skeleton/guard/space check, 2.3 guard tests) has none, so three tasks' worth of `constants.py`, `scripts/proof_226_tick.py` and guard tests are swept into 3.6's `feat: add tick cluster provisioning script` — an unrelated message for that content. The project convention is "Git add and commit from project root at least once per task". A `feat: add proof harness skeleton, constants and the database guard` checkpoint after 2.3 fixes it.
 
-### [PASS] Success criteria are fully cross-referenced and commit checkpoints are well distributed
+### [NOTE] `archive-check` and the `manifest.json` correction are additions beyond the design, recorded only in the task file
 
-All nine functional success criteria trace to tasks (SC1→3.7, SC2→4.2/10.2/10.3/12.3, SC3→10.1/10.3, SC4→Sections 5–7 + 13.1, SC5→5.1/5.2, SC6→8.4/8.5, SC7→Section 1, SC8→12.1/12.2, SC9→13.2), as do the technical requirements (guard unit test→2.3, `.env`/secret tests→3.5, docs→8.3/14.1/14.2) and integration requirements (11.3's deferred drop, 14.2's `17/main` checksum comparison). Sequenced work follows the design's Development Approach order, no circular dependency exists (11.3's forward reference to 13.2 is a reorder, not a cycle), commits land at roughly every 1–2 sections (1.5, 3.6, 4.2, 5.5, 5.8, 6.4, 7.5, 8.6, 9.2, 10.3, 11.3, 12.4, 13.2, 14.2) rather than batched at the end, and no task traces to nothing in the design.
+Task 13.2 adds harness step `archive-check`, a twelfth step outside TD 2's eleven-row table, and states that the design's walkthrough command (`sha256sum -c` against each job's `manifest.json`) cannot work because the manifest is JSON with `filename`/`size`/`hash` keys — a correction I confirmed against `adopt_files.py` (`_ManifestEntry`, `HASH_PREFIX = "sha256:"`). Both are well justified and 2.2 already declares the step, but neither is a design change, and the design's walkthrough step 8 still reads `sha256sum -c`. Task 14.1's document list (contract, slice plan Notes, architecture Revision Log, CHANGELOG, README, migrations README) does not include the design's own walkthrough or step table, so the design will remain wrong where the tasks are right. Add the design edit to 13.2 or 14.1, or note explicitly that the design is left stale.
 
 ### Run Digest
 
-- Response length: 7277 chars
+- Response length: 8868 chars
 - Response is newline-free: no
-- Tool calls made: 49
+- Tool calls made: 52
 - Tool calls failed: 0
 - Stop reason: stop
 - Output budget: 384000 tokens
 - System prompt: custom
 - Settings sources: n/a (non-SDK)
-- Reasoning characters: 435879
+- Reasoning characters: 287981
 - Effort: backend default
 - Turns: 20
-- Tokens — prompt / cached / completion / reasoning: 1048437 / 900096 / 124475 / 118792
-- Duration: 717.0 s
+- Tokens — prompt / cached / completion / reasoning: 1104688 / 932480 / 87175 / 80926
+- Duration: 535.8 s
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 8
