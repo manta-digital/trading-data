@@ -250,6 +250,7 @@ database, and `/proc` on the host.
   | `maintenance_work_mem` | 1 GB | Compression and index builds. |
   | `max_connections` | 30 | Two ingest workers, the pass's connection, and readers. |
   | `timescaledb.max_background_workers` | 4 | One compression policy and nothing else. |
+  | `max_wal_size` | 8 GB | Bounds WAL on `/data` under the contention loop's repeated reloads. A checkpoint then recycles segments, so WAL cannot grow toward the archive's free space. |
 
   The go/no-go confirms these against the measured working set (buffer hit
   ratio during the query set, and the cluster's resident memory under
@@ -260,6 +261,15 @@ database, and `/proc` on the host.
   the proof database's two URLs into the checkout's `.env`. It adds only
   keys that are absent, keeps the file owned by `manta` with mode 0600, and
   never prints a password. No credential is committed.
+  - **Atomic `.env` write** (re-review F004): the new content goes to a
+    temporary file in the same directory with mode 0600, then `mv` replaces
+    `.env`. A failure part-way leaves the old file whole.
+  - **Scrubbed log** (re-review F004): before the script copies its log to
+    `user/notes/`, it greps the log for each generated password and for any
+    `postgresql://` URL that carries a password. A match fails the run, and
+    the copy is not made. `--check` runs the same scan over any log already
+    copied. The scan is tested with a log that contains a planted password.
+    The test must fail it.
 
 **The script follows the host-script convention.** It is check-then-act:
 each step reads the current state, acts only if needed, and prints expected
@@ -295,7 +305,7 @@ backup and operations path.
 | `queries` | Runs the query set uncompressed and under each layout, three times each, warm (Technical Decision 3). |
 | `contention` | The Kalshi overlap run (Technical Decision 7). |
 | `final` | On `trading_tick` after the production rebuild: compresses every eligible chunk, then the query set on the final layout, `coverage`, and table sizes. Read-only apart from the compression. |
-| `drop-proof` | Drops `trading_tick_proof`, behind the same guard. |
+| `drop-proof` | Drops `trading_tick_proof`. `DROP DATABASE` cannot run from inside the database it drops, so this step connects to `trading_tick` with the maintenance URL. Its guard is different (re-review F008). The target is the constant `TICK_PROOF_DB_NAME`, never a parameter or a value read from a URL. The step also refuses if that name equals the database named in `MT_TICK_DB_URL`. A unit test covers both refusals. |
 
 **Resetting the proof database** for a re-ingest: `TRUNCATE tick_trade,
 tick_ingest_ledger`, then set every ingested tier unit back to *verified*.
@@ -331,6 +341,20 @@ the step from its own beginning.
 | `final`'s compression on `trading_tick` | As above | Some chunks are compressed | Compressing an already compressed chunk is skipped (`if_not_compressed`). A re-run finishes the rest, and the policy would also finish them. |
 | Production rebuild on `trading_tick` | As above | `adopt` per job, ingest per unit | The walkthrough's commands are safe to re-run as they stand (Verification Walkthrough, step 6). |
 | Provisioning script | Each step checks before acting | Any step | Re-run. It exits 0 only when every check passes. |
+| `/data` fills during a step | PostgreSQL fails the write and the step exits with storage exit 4 | The open unit rolls back; no archive file is opened for writing by any step | Every step that loads data first checks `/data` free space against the same 50 GB floor as the contention guard and refuses below it. On a trip, the operator frees space or truncates the proof database (its reset), then re-runs. |
+| Production database unreachable | The connect timeout | Nothing is written to production by any step | `rebuild`, `final` and the production rebuild need the CME calendar there (an existing product edge, 225): storage exit 4, re-run later. `contention` checks production before starting any load and exits non-zero if it is down. A loss mid-run stops the loop and writes a partial report marked incomplete. |
+
+**Production reads** (re-review F003). The harness reads the production
+database in exactly two places, both in `contention`, both read only: the
+Kalshi pass's rows in `pass_runs`, and `pg_stat_database`'s counters. It
+connects with `MT_TIMESCALE_DB_URL`, the application credential the
+checkout already holds and the CLI already uses. It sets
+`default_transaction_read_only = on` and a 5 s `statement_timeout` on that
+connection. Both tables are readable by the application role today, and the
+913 role set needs no new role for a measurement that runs once. These are
+harness reads, not product edges: no shipped command gains a production
+read. The architecture's list of four tick → production edges stays
+accurate, and the Revision Log notes the harness reads as one-off.
 
 ### Technical Decision 3: what is measured, and what passes
 
@@ -492,7 +516,7 @@ load, gives the host's solo sample. Every 5 seconds the step records:
 - reads and writes per device (`/proc/diskstats`): `nvme0n1` carries the
   production cluster, `nvme1n1` carries `/data` and the tick cluster;
 - the production cluster's `pg_stat_database` commit and tuple counters,
-  read only, for the production write throughput;
+  read only, for the production write throughput (production reads below);
 - the tick loop's rows per second.
 
 **Reported:** each overlapped Kalshi duration against the week's
@@ -504,7 +528,10 @@ overlap against `rebuild`'s solo rate.
 "measurable contention". The go/no-go says so, and 232 starts from it.
 Within that, the result is "none measured at two ingest workers". Weights
 are not set here; 232 sets them from these numbers, as the architecture
-requires.
+requires. A "none measured" result here is not a clearance for the minute
+pass (re-review F006). Kalshi writes little and often; the minute pass walks
+13,083 symbols. 232 measures the minute overlap before it relies on
+either.
 
 **Guards** (review F001). The loop runs on the production host, so it is
 bounded, not only measured. Each threshold is a named constant in the
@@ -512,15 +539,24 @@ harness.
 
 | Condition | Action |
 |---|---|
-| `MemAvailable` below 16 GiB, or `CommitLimit − Committed_AS` below 4 GiB | Stop the loop at once. The report records the trip and the step exits non-zero. |
+| `MemAvailable` below 16 GiB | Stop the loop at once. The report records the trip and the step exits non-zero. If the first sample, before any load, is already below the floor, the step exits non-zero without starting the load. |
+| `/data` free space below 50 GB | Stop the loop at once and exit non-zero. The archive's files are never written by the loop, so a full volume can stop new writes but cannot damage them. The floor leaves room for the archive's next job either way. |
 | An overlapped Kalshi pass still running at 2 × 324 s | Stop the loop and record "Kalshi exceeded 2× its weekly maximum under tick load". The pass is left alone; it is production's. |
 | The Kalshi timer has not fired within 75 minutes of the step's start, or its next elapse is missing (timer disabled) | Exit non-zero without starting any load. |
 | The step is interrupted (Ctrl-C, SIGTERM) or raises | A `try/finally` stops the loop, awaits the in-flight ingest workers as the ingest pass already does on abort (225), and closes every connection. An interrupted worker's transaction rolls back, so the proof database holds only whole units. The next step's reset handles them. |
 | The harness process is killed outright | The tick cluster ends each backend when its socket closes. The open transaction rolls back, and the advisory lock is released with the session (225). Nothing outside the proof database is touched. |
 
+**Why there is no commit-limit guard** (re-review F001). An earlier draft
+also stopped on `CommitLimit − Committed_AS` below 4 GiB. That headroom was
+3.7 GiB on 2026-10-03 before any load, so the guard would have tripped on its
+first sample. Overcommit is heuristic (`vm.overcommit_memory = 0`), so the
+kernel does not enforce that limit, and it is not a failure point. Real
+memory pressure is what `MemAvailable` measures. `Committed_AS` is still
+sampled and reported, as data only.
+
 The load cannot reach the production cluster's disk: the tick cluster is on
-`nvme1n1`. CPU and memory are what is shared, and the first two rows guard
-those.
+`nvme1n1`. CPU and memory are what is shared. The memory row guards memory,
+and the Kalshi row is the CPU-pressure signal that reaches production.
 
 ### Technical Decision 8: a bad file header fails the unit, not the pass
 
@@ -718,8 +754,10 @@ policy job runs as the owner. `tick_app` needs no new grant unless the
     Kalshi pass, and the minute-pass overlap goes to 232); "Pass form" and
     "Delivery mode and retention" (batch-job timing taken from the
     account's job records); and "Storage" (space partitioning decided from
-    the disk layout, not from a measurement). The slice plan's 232 entry
-    gains the minute-pass overlap measurement;
+    the disk layout, not from a measurement). It also records the harness's
+    one-off production reads (Technical Decision 2), which add no product
+    edge. The slice plan's 232 entry gains the minute-pass overlap
+    measurement;
   - CHANGELOG, and a README storage paragraph naming the tick cluster and
     its layout;
   - the migrations README row for `tick_007`.
@@ -854,11 +892,11 @@ Run on manta9000 from the checkout, with `.env` exported
   unique-key enforcement, the delete inside a `COPY` transaction, or
   `tick_app`'s rights on internal compressed tables may behave differently
   from the documentation.
-- **Committed memory on the host.** The host carries production, the dev
-  checkout, and a desktop. `Committed_AS` was 62.7 GiB against a 66.4 GiB
-  `CommitLimit` on 2026-10-03. Overcommit is heuristic (`0`) now, so the
-  limit is not enforced, but a second cluster's 4 GB of shared buffers is
-  still real memory.
+- **Memory on the host.** The host carries production, the dev checkout,
+  and a desktop. A second cluster's 4 GB of shared buffers is real memory.
+  `Committed_AS` is close to `CommitLimit` (62.7 of 66.4 GiB on 2026-10-03),
+  but overcommit is heuristic (`0`), so that limit is not enforced.
+  `MemAvailable` is the measure that counts.
 
 ### Mitigation Strategies
 
@@ -867,8 +905,8 @@ Run on manta9000 from the checkout, with `.env` exported
   inside this slice, never by dropping compression. If a path cannot work
   on compressed chunks, the design falls back to compressing only chunks
   past a settled age, and the go/no-go records it.
-- The contention step records `MemAvailable` and `Committed_AS` every 5
-  seconds, and the go/no-go confirms or lowers `shared_buffers` from them.
+- The contention step stops at a `MemAvailable` floor, records it every 5
+  seconds, and the go/no-go confirms or lowers `shared_buffers` from it.
   Only the tick cluster restarts if it changes.
 
 ## Implementation Notes

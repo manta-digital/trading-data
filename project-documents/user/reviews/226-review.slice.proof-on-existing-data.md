@@ -13,62 +13,62 @@ aiModel: claude-sonnet-5-5
 status: complete
 dateCreated: 20261003
 dateUpdated: 20261003
-reviewedSha: dd398ea8ea8493aea5df19169480dee775453975
+reviewedSha: 84bddf3b9a68c489d64dc3d212cfb5d535c4d3d1
 toolsGiven: [read_file, list_files, grep]
 toolCallsMade: 3
-durationSeconds: 56.5
+durationSeconds: 81.5
 squadronVersion: 0.18.2
 findings:
   - id: F001
     severity: concern
     category: error-handling
-    summary: "Contention run has no abort criteria or interruption handling on a production host"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Technical Decision 7: contention is measured against the Kalshi pass"
+    summary: "Memory-headroom guard trips against the slice's own stated baseline"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:513-516, 857-862"
   - id: F002
     severity: concern
-    category: cost-guard
-    summary: "Proof-database `pass` can spend money invisibly to the 30-day cap"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Consumes from Other Slices"
+    category: error-handling
+    summary: "Disk-full on `/data` is not enumerated, and `/data` also holds the archive"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:269-273, 325-333"
   - id: F003
     severity: concern
-    category: error-handling
-    summary: "Other new I/O and failure paths are not enumerated"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Technical Decision 2: one harness, one report per step, in the proof database"
+    category: dependency-direction
+    summary: "The harness opens an unspecified production-database read path"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:150-153, 483-496"
   - id: F004
     severity: concern
-    category: architecture-alignment
-    summary: "Space partitioning is rejected in the design, ahead of the measurement the architecture assigns it to"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Technical Decision 4: physical grouping, from two measured layouts"
+    category: security
+    summary: "Committed provisioning log and `.env` handling lack a secrets-leak check"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:258-262, 269-270, 696-705"
   - id: F005
     severity: note
-    category: architecture-alignment
-    summary: "Mixed-tier state is left standing in one table"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Technical Decision 9: the go/no-go document, and ES's tier and range"
+    category: scope
+    summary: "Space partitioning is decided without a measurement, as a deliberate narrowing of the architecture"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:391-406"
   - id: F006
     severity: note
     category: scope
-    summary: "Documented deviations from the architecture are PM-directed and recorded"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Architecture and plan statements this design supersedes"
+    summary: "Contention is measured against the Kalshi pass, not the minute pass"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:105-111, 475-507"
   - id: F007
     severity: note
     category: scope
-    summary: "The bad-header fix in 225's code is scope-adjacent but justified"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Technical Decision 8: a bad file header fails the unit, not the pass"
+    summary: "Scope is broad for a proof slice"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:63-101, 897-900"
   - id: F008
     severity: note
-    category: documentation
-    summary: "Frontmatter `dependencies` omits prerequisites the body relies on"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:6"
+    category: error-handling
+    summary: "Destructive-statement guard for `drop-proof` needs a connection design"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:212-217, 298"
   - id: F009
     severity: pass
     category: nfr
-    summary: "Throughput NFR restated with specific targets"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Technical Decision 3: what is measured, and what passes"
+    summary: "Restated NFRs carry specific targets"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:339-349"
   - id: F010
     severity: pass
     category: architecture-alignment
-    summary: "Layering, dependency direction and the realtime-paths check are respected"
-    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md#Technical Decision 10: what this changes outside the proof"
+    summary: "Boundaries, realtime check and failure-mode table follow the architecture"
+    location: "project-documents/user/slices/226-slice.proof-on-existing-data.md:229-333, 594-608"
 ---
 
 # Review: slice — slice 226
@@ -78,62 +78,62 @@ findings:
 
 ## Findings
 
-### [CONCERN] Contention run has no abort criteria or interruption handling on a production host
+### [CONCERN] Memory-headroom guard trips against the slice's own stated baseline
 
-The `contention` step loops reset → ingest against the proof database across three Kalshi firings, on the production host. The architecture's isolation goal says tick trouble must never reach production. The Risk section notes `Committed_AS` was 62.7 GiB against a 66.4 GiB `CommitLimit`. The step only records data. It names no stop condition if any of these happen:
-- `MemAvailable` falls below a floor.
-- An overlapped Kalshi run exceeds some hard multiple of its 324 s maximum, or hangs.
-- The harness process dies mid-loop. The text does not say whether the loop, its connections or its ingest workers are torn down.
-- The Kalshi timer never fires because it is disabled or has moved. The step has no wait timeout.
+The first guard row stops the contention loop if `CommitLimit − Committed_AS` is below 4 GiB. The Risk section gives the 2026-10-03 baseline as `Committed_AS` 62.7 GiB against a `CommitLimit` of 66.4 GiB, which is 3.7 GiB of headroom. The guard would therefore trip at the first sample, before any load. The tick cluster's 4 GB `shared_buffers` reduces the headroom further. The same section notes overcommit is heuristic (mode 0), so the limit is not enforced and the threshold does not map to an actual failure point. The architecture's isolation goal and its "two clusters cannot together oversubscribe the host" requirement depend on this guard being meaningful.
+- Define the threshold relative to the pre-load baseline, for example a drop of N GiB from the step's own starting sample.
+- Alternatively, rely on `MemAvailable` alone, which reflects real pressure.
+- State what the step does when the baseline is already below the threshold, with an explicit exit.
 
-"Measurable contention" is only a post-hoc verdict, not a guard. Each new I/O path needs an explicit handling strategy: add abort thresholds, a deadline on the wait, and a guaranteed-teardown rule for the loop.
+### [CONCERN] Disk-full on `/data` is not enumerated, and `/data` also holds the archive
 
-### [CONCERN] Proof-database `pass` can spend money invisibly to the 30-day cap
+The failure-mode table covers provider, cluster-down and partial-completion paths. It does not cover `/data` filling during a step. The only disk control is the 100 GB free check at provisioning (line 270). `/data` hosts the tick archive, which the architecture calls "the record" and which is not yet backed up (227), as well as the tick cluster's data and WAL. The contention loop repeatedly truncates and reloads about 27.7 M rows, which is heavy WAL and bloat churn. Neither `max_wal_size` nor any free-space check inside the harness is specified.
 
-The architecture sums the rolling 30-day cap from the manifest. The harness runs `rebuild` with a real `pass` in `trading_tick_proof`, which has an empty manifest and is dropped at the end. If a definition job is missing, the slice says `pass` plans a purchase under the $0.50 ceiling. A purchase recorded only in the disposable database never reaches the production manifest, so the cap understates committed spend. Also, "Nothing is bought" and "Every provider call … is free metadata" contradict this fallback path. Run `pass` in the proof database as `--estimate-only`, or with the spend ceilings forced to 0 or unset (which the architecture says refuses purchase), so a purchase can only happen in `trading_tick`. Alternatively, state that any proof-database purchase is reconciled into the production manifest.
+A tick-cluster disk-full event could also hit the archive volume. That is the "filling tick volume" scenario the isolation goal constrains. Add:
+- a free-space guard in the harness, alongside the contention guards;
+- `max_wal_size` in the cluster settings block;
+- a table row stating the handling: stop, report, and leave the archive untouched.
 
-### [CONCERN] Other new I/O and failure paths are not enumerated
+### [CONCERN] The harness opens an unspecified production-database read path
 
-Only the provisioning script has explicit failure handling (port, disk, version checks, re-runnable). Several other paths are left implicit:
-- `jobs` and `estimate` call the provider's free metadata API. Timeout, auth or outage behaviour is unstated.
-- A step that dies mid-run (for example `layouts` between compress and decompress) leaves the proof database in an intermediate state. Whether re-running is safe is not said.
-- Production `final` compression fails or is interrupted partway.
-- The tick cluster is down or restarting, for example after the memory re-run.
-- Production rebuild interruption: `adopt` is all-or-nothing and ingest is per-unit, so it is probably resumable, but the walkthrough never says to re-run.
+The contention step reads `pass_runs` and the production cluster's `pg_stat_database`, and the rebuild reads the CME calendar. The architecture enumerates four tick → production edges, all in product code, and none is a monitoring read of production statistics. The slice does not say which credential the harness uses. It also does not say whether a read-only role under the 913 least-privilege set suffices, or whether the harness may read `MT_TIMESCALE_DB_URL` at all. It also does not state how a production outage affects each step (exit code, partial report). Specify a read-only role and the failure behaviour. Mention the harness's production reads in the Revision Log entry so the architecture's edge list stays accurate.
 
-Add a short failure-mode table (hang, timeout, peer disconnect, partial completion) with a handling strategy for each.
+### [CONCERN] Committed provisioning log and `.env` handling lack a secrets-leak check
 
-### [CONCERN] Space partitioning is rejected in the design, ahead of the measurement the architecture assigns it to
+The script generates passwords and writes URLs containing them. Success criterion 1 requires its log to be committed under `user/notes/`. The design says the script "never prints a password", but the unit test covers only the `.env` writer (adds absent keys only, mode 0600). Nothing verifies that the committed log and the notes copy contain no credential or URL with embedded password. Add a test or `--check` assertion that the log is scrubbed. Specify an atomic write (temp file, then rename) for `.env`, so a failure mid-write does not leave a truncated file.
 
-The architecture says physical grouping, space partitioning and compression layout together, is "one class of decision … made once, from the proof's measurements". The slice decides space partitioning in the design doc, citing the tool guide and 225's observed skew, and then records measured skew afterward as "the evidence". The reasoning is plausible, but the decision precedes the data. Either make the `size` step's skew measurement an explicit gate that can reopen the decision, or note that this is a deliberate narrowing of the architecture's wording and add it to the Revision Log.
+### [NOTE] Space partitioning is decided without a measurement, as a deliberate narrowing of the architecture
 
-### [NOTE] Mixed-tier state is left standing in one table
+The architecture says the physical-grouping class (space partitioning and compression layout) is "made once, from the proof's measurements". The slice rejects space partitioning on structural grounds (one data volume, chunk-count multiplication) and records the deviation with its reasoning. It also lists the architecture's Revision Log among the required docs (lines 709-722). The reasoning is sound and the deviation is visible. The note is that the amendment must actually land, and the `size` step's skew figure should still be reported as evidence.
 
-Setting ES's `TICK_UNIVERSE` to `tbbo` over 2024-11-01 → 2025-01-01 leaves the `trades` Aug–Sep units loaded outside the wanted range. The architecture says tiers are rarely mixed and builds no tier-mixing features, only "one tier field". How `status` and `coverage` treat loaded units outside the configured range is not stated. Criterion 2 requires `coverage` `ok` on both ranges, but criterion 8 is scoped to the configured range. State the expected status output for the orphaned range, or say it is intentionally out of scope.
+### [NOTE] Contention is measured against the Kalshi pass, not the minute pass
 
-### [NOTE] Documented deviations from the architecture are PM-directed and recorded
+The architecture's "Cross-source arbitration" and "Proof on existing data" entries name the minute pass. The slice substitutes the Kalshi pass on a PM decision (2026-10-03) and moves the minute overlap to 232. The slice records this in the Revision Log, the plan Notes and the 232 entry. It also refuses to set weights from the Kalshi-only numbers, which keeps the architecture's "no weights before measurement" rule intact. The Kalshi load profile (hourly, small writes) differs from the minute pass's 13,083-symbol walk, so 232 must not treat a "none measured" verdict here as a clearance.
 
-The slice replaces minute-pass contention with Kalshi-pass contention (PM, 2026-10-03). It also replaces the first-submitted-job timing with account job records. The "Cross-source arbitration" text and the Anticipated Slices entry still say minute-pass. The Revision Log update is listed under Docs, which keeps this on track. It should name the Cross-source arbitration paragraph and the Proof entry in Anticipated Slices explicitly. The architecture's own steady-state slice should also inherit the minute-overlap measurement (the slice assigns it to 232).
+### [NOTE] Scope is broad for a proof slice
 
-### [NOTE] The bad-header fix in 225's code is scope-adjacent but justified
+The slice bundles cluster provisioning, a root script, a measurement harness, a migration, a 225 bug fix, a production rebuild, the `TICK_UNIVERSE` edit and several documents. Each item has a stated justification: the PM placed the cluster, no earlier slice creates it, and contention needs the production host. The slice also states a split point at lines 897-900. The bad-header fix and the cluster provisioning are infrastructure rather than proof. Hold the (a)/(b) split as the default if the task breakdown is large.
 
-The fix touches `dbn_file.py` and `verify.py`, which belong to the 225 pass. It is small and independent, and it protects the harness from aborting. It also preserves the architecture's unit-grain failure model, and keeping the `iter_batches` configuration error fatal is correct. It is acceptable, and the design says to do it first.
+### [NOTE] Destructive-statement guard for `drop-proof` needs a connection design
 
-### [NOTE] Frontmatter `dependencies` omits prerequisites the body relies on
+The guard checks `current_database() = TICK_PROOF_DB_NAME`. `DROP DATABASE` cannot run from a connection to the database being dropped, so `drop-proof` must connect elsewhere and the `current_database()` check does not apply as written. State how the guard works for that one step, for example by matching the target name against the constant before issuing the drop. The project's destructive-statement rule is otherwise met: the PM-run script creates and thereby designates the proof database.
 
-`dependencies: [225]` is listed, but the Prerequisites section also relies on 223, 224 and 923. The `interfaces` list (227, 228, 231, 232) omits 229, 230 and 233, which the Integration Points section names as consumers. List them all so the dependency graph tooling reads the document correctly.
+### [PASS] Restated NFRs carry specific targets
 
-### [PASS] Throughput NFR restated with specific targets
+The architecture's ingest throughput pass/fail is restated with numbers. The slowest unit must be ≤ 120 s against 24 h of market time, and the 78-unit, 3.5-month set must be ≤ 2 h, which maps to the "month within an operator's working session" bound. Query latency (Q1–Q4 ≤ 1 s warm, planning ≤ 50 ms), the chunk-count range, and the contention bound (324 s Kalshi maximum) are likewise stated as decision rules rather than left as "TBD".
 
-The architecture's ingest-throughput pass/fail (a day's sessions far faster than a day of market time, and a month within an operator's working session) is restated as concrete bounds. The slowest unit must take ≤ 120 s against 24 h of market time. The 78-unit proof set must ingest in ≤ 2 h. The worker, batch and checkpoint decisions hang off those bounds. The query bounds (Q1–Q4 ≤ 1 s, planning ≤ 50 ms) are slice-level targets the architecture does not constrain.
+### [PASS] Boundaries, realtime check and failure-mode table follow the architecture
 
-### [PASS] Layering, dependency direction and the realtime-paths check are respected
-
-The slice keeps the tick → production dependency direction. It only reads `pass_runs` and the calendar from production, and `pg_stat_database` read-only. It adds no new `mt` surface (the harness is a script), and it imports nothing across sources. It carries the required realtime-paths check and the Kalshi contract diff as a named task, and it stays inside the architecture's decided placement (second cluster, TCP by host name, matching PostgreSQL and TimescaleDB versions, own memory settings). Credentials come from `.env` with a mode test, and the destructive-statement guard follows the project's database protection rule. Backup stays with 227, which matches the architecture's deferral.
+- The cluster placement matches the PM decision: second cluster, `/data`, TCP by host name, matching TimescaleDB version check, and production left untouched.
+- The harness drives the shipped CLI and pass function rather than a parallel code path.
+- The design keeps `service environment` wiring in 233, the backup policy in 227, and the minute-pass overlap in 232.
+- Realtime Paths A and B are checked explicitly, and a Kalshi contract diff is a named task.
+- The failure-mode table covers provider metadata, cluster restart, each re-ingest, `layouts`, `final` and the production rebuild, with a resumption strategy for each.
+- Supersession and overlap on compressed chunks are re-verified before production data is loaded, as 225 handed over.
 
 ### Run Digest
 
-- Response length: 8900 chars
+- Response length: 8760 chars
 - Response is newline-free: no
 - Tool calls made: 3
 - Tool calls failed: 0
@@ -145,7 +145,7 @@ The slice keeps the tick → production dependency direction. It only reads `pas
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 56.5 s
+- Duration: 81.5 s
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 10
