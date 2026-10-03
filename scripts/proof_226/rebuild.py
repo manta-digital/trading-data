@@ -79,7 +79,7 @@ def _planned_requests(run: CliRun) -> list[dict[str, Any]]:
     return list(purchase.get("requests", []))
 
 
-def _tier_ranges(urls: ProofUrls) -> list[tuple[str, str, str]]:
+def tier_ranges(urls: ProofUrls) -> list[tuple[str, str, str]]:
     """``(tier, first day, day after last)`` per stored tier, from the manifest."""
     with psycopg.connect(urls.db_url) as conn:
         rows = conn.execute(
@@ -148,7 +148,7 @@ def run() -> Path:
     )
     _write_ingest(report, phase(ingest.payload, "ingest"), _row_count(urls))
     report.add("", "## Coverage", "")
-    for tier, start, end in _tier_ranges(urls):
+    for tier, start, end in tier_ranges(urls):
         cov = run_mt(
             urls,
             "data",

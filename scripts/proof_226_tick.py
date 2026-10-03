@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from proof_226 import (  # noqa: E402
     batch,
     contention,
+    final,
     jobs,
     layouts,
     mapping,
@@ -46,7 +47,7 @@ STEPS: dict[str, Step | None] = {
     "queries": queries.run,
     "layouts": layouts.run,
     "contention": contention.run,
-    "final": None,
+    "final": final.run,
     "drop-proof": None,
     "archive-check": None,
 }

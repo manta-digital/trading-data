@@ -264,3 +264,46 @@ def test_layout_rule() -> None:
     assert decide(
         _layout_result("A", 10, 100), _layout_result("B", 6, 1500)
     ).startswith("A: B is smaller but misses")
+
+
+def test_final_refuses_to_compress_a_database_the_tick_url_does_not_name() -> None:
+    from proof_226 import final
+
+    conn = FakeConn("trading_tick_proof")
+    with pytest.raises(final.NotProductionTickDatabaseError, match="'trading_tick'"):
+        final.compress_eligible(conn, "trading_tick")
+    assert conn.sent == []
+
+
+def test_final_refuses_below_the_free_space_floor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from functools import partial
+
+    from proof_226 import final
+
+    monkeypatch.setattr(
+        final,
+        "require_free_space",
+        partial(common.require_free_space, tmp_path, floor_bytes=10**18),
+    )
+    conn = FakeConn("trading_tick")
+    with pytest.raises(common.ProofSetupError, match="below the"):
+        final.compress_eligible(conn, "trading_tick")
+    assert conn.sent == []
+
+
+def test_final_compresses_the_named_database() -> None:
+    from proof_226 import final
+
+    conn = FakeConn("trading_tick")
+    final.compress_eligible(conn, "trading_tick")
+    assert "compress_chunk" in conn.sent[0]
+
+
+def test_database_named_reads_the_url_path() -> None:
+    from proof_226.final import database_named
+
+    assert database_named("postgresql://u:p@manta9000:5433/trading_tick") == (
+        "trading_tick"
+    )
