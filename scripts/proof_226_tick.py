@@ -29,6 +29,7 @@ from proof_226 import (  # noqa: E402
     queries,
     rebuild,
     size,
+    teardown,
     workers,
 )
 from proof_226.cli import CliStepError  # noqa: E402
@@ -48,8 +49,8 @@ STEPS: dict[str, Step | None] = {
     "layouts": layouts.run,
     "contention": contention.run,
     "final": final.run,
-    "drop-proof": None,
-    "archive-check": None,
+    "drop-proof": teardown.run_drop,
+    "archive-check": teardown.run_archive_check,
 }
 
 

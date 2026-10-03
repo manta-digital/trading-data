@@ -307,3 +307,77 @@ def test_database_named_reads_the_url_path() -> None:
     assert database_named("postgresql://u:p@manta9000:5433/trading_tick") == (
         "trading_tick"
     )
+
+
+def test_drop_proof_takes_no_target() -> None:
+    import inspect
+
+    from proof_226.teardown import drop_proof
+
+    assert list(inspect.signature(drop_proof).parameters) == ["conn", "production_db"]
+
+
+def test_drop_proof_refuses_when_production_is_the_proof_name() -> None:
+    from proof_226.teardown import ProofDropRefused, drop_proof
+
+    conn = FakeConn(TICK_PROOF_DB_NAME)
+    with pytest.raises(ProofDropRefused):
+        drop_proof(conn, TICK_PROOF_DB_NAME)
+    assert conn.sent == []
+
+
+def test_drop_proof_refuses_from_another_database() -> None:
+    from proof_226.final import NotProductionTickDatabaseError
+    from proof_226.teardown import drop_proof
+
+    conn = FakeConn("postgres")
+    with pytest.raises(NotProductionTickDatabaseError):
+        drop_proof(conn, "trading_tick")
+    assert conn.sent == []
+
+
+def test_drop_proof_drops_the_constant_only() -> None:
+    from proof_226.teardown import drop_proof
+
+    conn = FakeConn("trading_tick")
+    drop_proof(conn, "trading_tick")
+    assert len(conn.sent) == 1 and TICK_PROOF_DB_NAME in conn.sent[0]
+
+
+def _job(tmp_path: Path, content: bytes) -> Path:
+    """A job directory shaped like a real one under /data/tick-archive."""
+    import hashlib
+    import json
+
+    job = tmp_path / "GLBX-20240930-TESTJOB000"
+    job.mkdir()
+    (job / "glbx-mdp3-20240903.trades.dbn.zst").write_bytes(content)
+    entry = {
+        "filename": "glbx-mdp3-20240903.trades.dbn.zst",
+        "size": len(content),
+        "hash": f"sha256:{hashlib.sha256(content).hexdigest()}",
+        "urls": {
+            "https": "https://example.invalid/x",
+            "ftp": "ftp://example.invalid/x",
+        },
+    }
+    (job / "manifest.json").write_text(
+        json.dumps({"job_id": job.name, "files": [entry]})
+    )
+    return job
+
+
+def test_archive_check_passes_a_matching_job(tmp_path: Path) -> None:
+    from proof_226.teardown import check_job
+
+    [check] = check_job(_job(tmp_path, b"ticks"))
+    assert check.problem is None
+
+
+def test_archive_check_fails_one_changed_byte(tmp_path: Path) -> None:
+    from proof_226.teardown import check_job
+
+    job = _job(tmp_path, b"ticks")
+    (job / "glbx-mdp3-20240903.trades.dbn.zst").write_bytes(b"tickz")
+    [check] = check_job(job)
+    assert check.problem == "SHA-256 differs from the listed hash"
