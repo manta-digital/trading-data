@@ -162,7 +162,7 @@ each one. Every number in the go/no-go names its report file.
   - [ ] Add the free-space check: refuse to load data when `/data` has less
         than 50 GB free (named constant).
   - [ ] Success: the dispatcher knows every step name in TD 2's table plus
-        `archive-check` (added in 13.2); a step not yet implemented exits
+        `archive-check` (added in 11.3); a step not yet implemented exits
         non-zero saying so. The guard and the space check are importable
         functions.
 
@@ -253,7 +253,10 @@ each one. Every number in the go/no-go names its report file.
 
 - [ ] **3.7 [PM] Run the provisioning script once (effort 1)**
   - [ ] Hand the PM one command: `sudo scripts/provision_tick_cluster.sh`.
-        Nothing else for the PM to do.
+        Nothing else for the PM to do now. Tell the PM that up to two later
+        re-runs of the same command are possible, each only if its condition
+        fires: 8.7 (a `tick_app` grant on compressed chunks) and 13.3 (a
+        memory-setting change). Most likely neither fires.
   - [ ] Read the report: exit 0, the PASS line, `pg_lsclusters` shows `main`
         5432 and `tick` 5433 online, TimescaleDB `2.29.1`.
   - [ ] Re-run `--check` and confirm `0 keys added`.
@@ -346,8 +349,10 @@ each one. Every number in the go/no-go names its report file.
   - [ ] Run the step.
   - [ ] Success: the report states keep-or-change by the rule (keep 32 MiB
         unless peak RSS exceeds 4x the budget, or a smaller budget moves unit
-        time by more than 10 %). The proof database is reset afterwards.
-        Commit both reports: `feat: add proof harness workers and batch steps`.
+        time by more than 10 %). The step ends by resetting the proof
+        database and ingesting the whole set again with the current constants,
+        so Section 6 measures all 27,691,412 rows. Check `tick_trade`'s count
+        before moving on. Commit both reports: `feat: add proof harness workers and batch steps`.
 
 ---
 

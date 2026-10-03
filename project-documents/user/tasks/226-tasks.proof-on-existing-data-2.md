@@ -122,7 +122,8 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         maintenance URL.
   - [ ] Success: settings read back from the information views match the
         constants; the policy exists. The proof database now holds the chosen
-        layout, which `final`'s comparison and the load test (10.5) use.
+        layout. (`final` runs on `trading_tick`, and the load test, 10.5,
+        builds its own fixture database; neither reads the proof database.)
 
 - [ ] **8.5 Compressed-chunk tests: supersession and overlap (effort 4)**
   - [ ] Create `test/integration/data/test_tick_compressed.py`. Compress with
@@ -135,23 +136,31 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         fails with `overlap:`.
   - [ ] Success: both pass. If either fails, fix 225's code in this slice (a
         failure is never fixed by dropping compression). If no fix works, stop
-        and report to the PM; 8.7 then applies.
+        and report to the PM; 8.8 then applies.
 
 - [ ] **8.6 Compressed-chunk tests: `tick_app` and coverage (effort 4)**
   - [ ] Ingest as `tick_app`: the application role inserts through ingest into
-        a compressed chunk. If it fails on internal compressed tables, extend
-        `provision_tick_roles.sql` with the minimal grant and add a privilege
-        test for it. The existing databases do not pick it up on their own:
-        the provisioning script applies that SQL to both, so re-run it (the PM's
-        one command, as in 13.3) and confirm the grant on `trading_tick` and
-        `trading_tick_proof` with the same privilege query. Do this before
-        10.3. If no grant was needed, record "no grant needed".
+        a compressed chunk. Record whether it passes as it stands.
   - [ ] Coverage on a partial chunk: rows inserted into a compressed chunk
         before recompression give a raw count equal to the ledger; after
         `compress_chunk` the count still equals the ledger.
-  - [ ] Success: all five TD 5 rows pass.
+  - [ ] Success: the coverage test passes, and the `tick_app` test either
+        passes or fails only on privileges on TimescaleDB's internal
+        compressed tables (then 8.7 applies).
 
-- [ ] **8.7 Fallback, only if a TD 5 test cannot be made to pass (effort 3)**
+- [ ] **8.7 Grant for `tick_app`, only if 8.6 needs one (effort 3)**
+  - [ ] Extend `provision_tick_roles.sql` with the minimal grant and add a
+        privilege test for it.
+  - [ ] The existing databases do not pick it up on their own. Give the PM the
+        one command to re-run the provisioning script, which applies that SQL
+        to both databases. Confirm the grant on `trading_tick` and
+        `trading_tick_proof` with the privilege test's query. Do this before
+        10.3.
+  - [ ] If 8.6 passed as it stood, tick this task with "no grant needed".
+  - [ ] Success: the `tick_app` test passes, so all five TD 5 rows pass; or
+        "no grant needed" is recorded.
+
+- [ ] **8.8 Fallback, only if a TD 5 test cannot be made to pass (effort 3)**
   - [ ] Set `TICK_TRADE_COMPRESS_AFTER` to a settled age beyond which no
         supersession or overlap can reach (the PM names it), re-run 8.5 and
         8.6 under that policy, and record the failing path and the fallback for
@@ -160,7 +169,7 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
   - [ ] Success: either "not needed" is recorded, or the five tests pass under
         the fallback and the go/no-go input is written.
 
-- [ ] **8.8 Section checkpoint**
+- [ ] **8.9 Section checkpoint**
   - [ ] Run unit tier, integration tier, mypy and ruff on touched files.
   - [ ] Commit: `feat: add tick_007 columnstore migration and compressed-chunk
         tests`.
@@ -180,6 +189,9 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
   - [ ] `TICK_INGEST_LOCK_TIMEOUT_SECONDS`: at least 4 x the slowest
         compressed-chunk supersession delete, never below 30. Source: the
         `layouts` report's delete times (6.5), taking the chosen layout's.
+        If 8.8's fallback applied, supersession no longer reaches a compressed
+        chunk. The input is then the uncompressed delete time, which 6.5
+        also records, and the 30 s floor will almost certainly hold.
   - [ ] `TICK_TRADE_CHUNK_INTERVAL`: the interval verdict in the `queries`
         report. If it changes, 9.4 applies.
   - [ ] Connect timeout, keepalives, `TICK_SUBMIT_RESOLVE_AGE`: kept.
@@ -208,8 +220,10 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         `set_chunk_time_interval('tick_trade', <new interval>)` rendered from the
         constant. It applies to `trading_tick` in 10.3 while that table is
         still empty, so the rebuild there is the load itself.
-  - [ ] Extend the 8.3 migration test to cover `tick_008`, and the tests that
-        pin the newest tick migration.
+  - [ ] In this task, add `tick_008` to the migration test file 8.3 created,
+        and update the tests that pin the newest tick migration.
+  - [ ] Commit the migration with its tests: `feat: add tick_008 chunk
+        interval migration`.
   - [ ] If the interval is unchanged, tick this task with "not needed".
   - [ ] Success: either "not needed", or `tick_008` applies twice without error
         and the information view shows the new interval.
@@ -248,11 +262,16 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         time of each command, because the total is 227's input.
 
 - [ ] **10.4 Run `final` (effort 2)**
+  - [ ] Run `uv run python scripts/proof_226_tick.py final`.
+  - [ ] Only if a Q1–Q4 bound is missed: write a new migration (the next free
+        `tick_00N`; `tick_007` and `tick_008` are already applied and never
+        edited) adding the index or read-side aggregate that fixes it. Add it
+        to the migration test file and the newest-migration pins, run the
+        integration tier, commit it (`feat: add tick_00N <what> for query
+        latency`), apply it to `trading_tick`, and re-run `final`.
   - [ ] Success: every eligible chunk compressed, Q1–Q4 at or under 1 s,
-        coverage `ok` on both ranges, 27,691,412 rows in `tick_trade`. A
-        Q1–Q4 miss gets an index or read-side aggregate in a new migration
-        (the next free `tick_00N`; `tick_007` and `tick_008` are already applied
-        and never edited), applied to `trading_tick`, then `final` is re-run. Commit the report: `docs: add 226 final proof report`.
+        coverage `ok` on both ranges, 27,691,412 rows in `tick_trade`. Commit
+        the report: `docs: add 226 final proof report`.
 
 - [ ] **10.5 Load test for query latency on compressed data (effort 3)**
   - [ ] Create `test/load/test_226_tick_query_nfr.py` in the style of
@@ -285,8 +304,24 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
 - [ ] **11.2 `drop-proof` tests (effort 2)**
   - [ ] Unit test both refusals: a non-constant target, and a name equal to
         the production URL's database.
-  - [ ] Success: tests pass. Commit the step and its tests:
-        `feat: add proof harness drop-proof step`.
+  - [ ] Success: tests pass.
+
+- [ ] **11.3 `archive-check` step and test (effort 2)**
+  - [ ] Add a read-only harness step `archive-check` (an addition to TD 2's
+        table). For each job directory it reads `manifest.json` (a JSON file
+        listing each file's name and `sha256:`-prefixed hash; `sha256sum -c`
+        cannot parse it) and compares each listed file's hash from
+        `tick.hashing.sha256_file`. `adopt_files._read_manifest` is private, so
+        `archive-check` parses `manifest.json` itself (job id, file names,
+        hashes) and leaves `adopt_files.py` unchanged. It opens nothing for
+        writing.
+  - [ ] Add a unit test: a temp directory with a manifest and a file whose hash
+        is correct passes; one byte changed fails. The manifest in the test copies
+        the shape of a real one under `/data/tick-archive` (`files` entries with
+        `filename`, `size`, `hash`, `urls`).
+  - [ ] Success: tests pass. Commit `drop-proof`, `archive-check` and their
+        tests: `feat: add proof harness drop-proof and archive-check steps`.
+        Neither step is run until 13.2.
 
 ---
 
@@ -345,23 +380,11 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         decisions that keep each open, or name any decision that rules one out.
   - [ ] API question (TD 10): "Does this belong in the API?" answered: no new
         surface, the go/no-go is a document and the harness a one-off script.
-  - [ ] If the compressed-chunk fallback (8.7) was used, record it here.
+  - [ ] If the compressed-chunk fallback (8.8) was used, record it here.
   - [ ] Success: every number names its report; each of the four decisions has a
         recommendation.
 
-- [ ] **13.2 Add `archive-check`, drop the proof database, verify the archive (effort 2)**
-  - [ ] Add a read-only harness step `archive-check` (an addition to TD 2's
-        table). For each job directory it reads `manifest.json` (a JSON file
-        listing each file's name and `sha256:`-prefixed hash; `sha256sum -c`
-        cannot parse it) and compares each listed file's hash from
-        `tick.hashing.sha256_file`. `adopt_files._read_manifest` is private, so
-        `archive-check` parses `manifest.json` itself (job id, file names,
-        hashes) and leaves `adopt_files.py` unchanged. It opens nothing for
-        writing.
-  - [ ] Add a unit test: a temp directory with a manifest and a file whose hash
-        is correct passes; one byte changed fails. The manifest in the test copies
-        the shape of a real one under `/data/tick-archive` (`files` entries with
-        `filename`, `size`, `hash`, `urls`).
+- [ ] **13.2 Drop the proof database, verify the archive (effort 1)**
   - [ ] Run `drop-proof` only now, after the go/no-go cites every report.
   - [ ] `psql "$MT_TICK_MAINTENANCE_URL" -Atc "SELECT datname FROM pg_database
         ORDER BY 1"`, then run `archive-check`.
