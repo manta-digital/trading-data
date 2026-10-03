@@ -268,3 +268,20 @@ TICK_INGEST_LOCK_TIMEOUT_SECONDS = 30
 TICK_DB_KEEPALIVES_IDLE_SECONDS = 60
 TICK_DB_KEEPALIVES_INTERVAL_SECONDS = 10
 TICK_DB_KEEPALIVES_COUNT = 6
+
+
+# -- Slice 226: the proof on existing data (LLD 226 TD2, TD4) -----------------
+
+#: The disposable proof database the provisioning script creates. The proof
+#: harness refuses any destructive statement on a database not of this name.
+TICK_PROOF_DB_NAME = "trading_tick_proof"
+
+#: ``tick_trade`` chunks older than this are compressed by the columnstore
+#: policy (``tick_007``): two chunk intervals, so the chunk ingest is writing
+#: into and its predecessor stay uncompressed.
+TICK_TRADE_COMPRESS_AFTER: timedelta = timedelta(days=14)
+
+#: Columnstore layout of ``tick_trade`` (TD4). Provisional: layout A
+#: (segment by instrument) until the ``layouts`` measurement decides.
+TICK_TRADE_SEGMENT_BY: tuple[str, ...] = ("instrument_id",)
+TICK_TRADE_ORDER_BY: tuple[str, ...] = ("ts_event", "sequence", "sequence_ordinal")
