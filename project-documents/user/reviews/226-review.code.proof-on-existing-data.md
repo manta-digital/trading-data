@@ -13,58 +13,68 @@ aiModel: claude-sonnet-5-5
 status: complete
 dateCreated: 20261004
 dateUpdated: 20261004
-reviewedSha: fdc2a89859241d9ecae72cc711c3a1b39cba3407
+reviewedSha: b9588277c94ec810ea115cf8ec8e080f3c7e7abd
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 1
+toolCallsMade: 2
 diffTruncated: false
-durationSeconds: 34.5
+durationSeconds: 66.6
 squadronVersion: 0.18.2
 findings:
   - id: F001
     severity: concern
-    category: error-handling
-    summary: "Tick-loop thread can die silently or outlive `stop()`"
-    location: "scripts/proof_226/contention.py:97-125"
+    category: design-dry
+    summary: "Duplicated memory-floor constant across harness modules"
+    location: "scripts/proof_226/workers.py:35"
   - id: F002
     severity: concern
-    category: design
-    summary: "SQL for Q5 is built with string `.replace` hacks"
-    location: "scripts/proof_226/queries.py:36-55"
+    category: error-handling
+    summary: "Thread-boundary and sampler error handling is partly silent"
+    location: "scripts/proof_226/host.py:98"
   - id: F003
     severity: concern
-    category: design
-    summary: "Harness reaches into private names across modules"
-    location: "scripts/proof_226/layouts.py:80-86"
+    category: security
+    summary: "Dynamic SQL built with f-strings in the harness"
+    location: "scripts/proof_226/layouts.py:63"
   - id: F004
     severity: concern
-    category: design
-    summary: "Guard literals repeat values defined as constants"
-    location: "scripts/proof_226/contention_run.py:119-129"
+    category: security
+    summary: "Production URL is read by harness code"
+    location: "scripts/proof_226/contention.py:30"
   - id: F005
     severity: concern
-    category: error-handling
-    summary: "`.env` password lookup accepts one URL scheme while the production-URL regex accepts both"
-    location: "scripts/provision_tick_cluster.sh:268"
+    category: structure
+    summary: "Several functions and files exceed the size guidance"
+    location: "scripts/provision_tick_cluster.sh"
   - id: F006
     severity: concern
-    category: correctness
-    summary: "`verdict` in batch only reports a faster budget"
-    location: "scripts/proof_226/batch.py:77-92"
+    category: typing
+    summary: "Heavy use of `type: ignore` and `sys.path` insertion in a strict-pyright project"
+    location: "scripts/proof_226/queries.py:100"
   - id: F007
-    severity: note
-    category: design
-    summary: "Constant patching in `ingest_runs` is safe for the names used"
-    location: "scripts/proof_226/ingest_runs.py:38"
+    severity: concern
+    category: testing
+    summary: "Test busy-waits and relies on private state"
+    location: "test/unit/test_proof_226_contention.py:239"
   - id: F008
     severity: note
-    category: security
-    summary: "Shell helpers and provisioning script look sound"
-    location: "deploy/lib/env_add_keys.sh"
+    category: design
+    summary: "Production behaviour change from configuration edit"
+    location: "src/manta_trading/data/tick/universe.py:49"
   - id: F009
     severity: note
-    category: testing
-    summary: "Header-refusal handling is consistent and well covered"
+    category: error-handling
+    summary: "Header-refusal handling is consistent and well tested"
     location: "src/manta_trading/data/tick/file_days.py"
+  - id: F010
+    severity: note
+    category: security
+    summary: "Destructive-statement guard and migration are well designed"
+    location: "scripts/proof_226/guard.py"
+  - id: F011
+    severity: note
+    category: testing
+    summary: "Load test pins archive paths and job IDs"
+    location: "test/load/test_226_tick_query_nfr.py:50"
 ---
 
 # Review: code — slice 226
@@ -74,47 +84,57 @@ findings:
 
 ## Findings
 
-### [CONCERN] Tick-loop thread can die silently or outlive `stop()`
+### [CONCERN] Duplicated memory-floor constant across harness modules
 
-`TickLoop._loop` runs in a daemon thread with no exception handling. If `reset(self._urls)` raises, the thread dies and nothing reports it. The run then carries on with no load but still labels its firings "overlapped", which would give a false "no contention" verdict. Ingest subprocess output goes to `DEVNULL` and the exit code is never checked. `iterations` counts failed ingests as successes, so a loop that fails instantly looks healthy. There is also a race in `stop()`. If `_stop` is set while `reset()` is running, `_loop` still reaches `Popen`. `stop()` saw `_proc is None` and sent no SIGINT, so `join()` blocks until a full ingest finishes. Capture the thread's exception and the ingest exit codes, and surface them in the report or as a trip. Re-check `_stop` right before `Popen`.
+`MEM_AVAILABLE_FLOOR = 16 * 1024**3` is defined in `workers.py` and again in `contention_run.py:21`. Both are the same "16 GiB available" guard. The project rule is that changing a value should mean editing exactly one place. `common.py` already holds the shared `DATA_FREE_FLOOR_BYTES`, so this belongs there too. Other host-specific values are hard-coded in the modules that use them. These are `DEVICES = ("nvme0n1", "nvme1n1")` in `contention_sampler.py`, `EXPECTED_ROWS` in `common.py`, and `EXPECTED_TIER_UNITS` in `rebuild.py`. They are acceptable for a one-off harness, but they are magic values that go stale silently.
 
-### [CONCERN] SQL for Q5 is built with string `.replace` hacks
+### [CONCERN] Thread-boundary and sampler error handling is partly silent
 
-`_BARS` has `{minute}` substituted by `.replace`. Q5 is derived by `.replace("%(lo)s", "%(month_lo)s")` on that string. This is the kind of fragile string patching CLAUDE.md forbids. Several `# type: ignore` markers are also used to get past `LiteralString`. Define Q2 and Q5 as two explicit statements, or use one template with named bounds. Under strict pyright, `# type: ignore` should carry a rule code.
+`PeakSampler._loop` runs in a daemon thread with no exception handling. If `cgroup_rss_bytes` or `cpu_times` raises, for example because `cgroup.procs` disappears during a restart, the thread dies without a trace. The report then shows a peak RSS and CPU that look valid but are understated. Record the failure and surface it in `__exit__`, as `TickLoop` does.
 
-### [CONCERN] Harness reaches into private names across modules
+`TickLoop._loop` in `contention.py:96` uses `except Exception`. It does log with `logger.exception` and records the failure, so it satisfies rule (c), a documented boundary handler. Ruff's `BLE001` will still flag it unless there is an explicit `# noqa: BLE001`. The comment is there but the noqa is not, so add it.
 
-`layouts.py` uses `size._query`, `size._ROWS_BY_CHUNK` and `size._CHUNK_BYTES`. `ingest_runs.py` imports `_ingest` from `tick_store_cmds`. `test_proof_226_steps.py` also uses the `size._*` names. Make the shared pieces public. For `_ingest`, expose a supported entry point, since the harness's results depend on its behaviour.
+### [CONCERN] Dynamic SQL built with f-strings in the harness
 
-### [CONCERN] Guard literals repeat values defined as constants
+`set_layout` interpolates `layout.segment_by` and `layout.order_by` into `ALTER TABLE` via an f-string. `queries.py` interpolates `STATEMENT_TIMEOUT` into `SET statement_timeout`. The `_bars` helper there also builds SQL by string composition. All inputs are module constants, so this is not exploitable today. It still contradicts the "never f-string SQL" rule. Use `psycopg.sql.Identifier`/`SQL` composition, as `teardown.drop_proof` already does. In the same vein, `provision_tick_cluster.sh` builds `ALTER ROLE ... PASSWORD '%s'` with a password that may be read back from `.env`. A password containing `'` would break or inject. Generated hex passwords are safe, but the `.env`-sourced path is unvalidated.
 
-The messages "beyond 75 min" and "2× its weekly maximum" restate `TIMER_HORIZON` and `KALSHI_TRIP_SECONDS`. `contention_report.py` hardcodes "13,083 symbols" in `NOT_A_CLEARANCE`. Format these from the constants. `_refuse` always raises, so annotate it `-> NoReturn`. That removes the `assert elapse is not None` that follows it.
+### [CONCERN] Production URL is read by harness code
 
-### [CONCERN] `.env` password lookup accepts one URL scheme while the production-URL regex accepts both
+`PRODUCTION_URL_ENV = "MT_TIMESCALE_DB_URL"` is read from `.env` to sample production. The access is read-only (`default_transaction_read_only=on`, 5 s timeout, `SELECT` only), and the contention step needs it by design. It sits outside the test tiers, so it does not break the "tests never read the production URL" rule. It should still be explicitly designated by the Project Manager. The `.env` is read through `dotenv_values`, so the "one value, one source" rule is respected.
 
-`env_password` matches only `^postgresql://`. `production_ts_version` accepts `postgres(ql)://`. An existing `postgres://` URL in `.env` would be treated as having no password, and a new password would be generated and applied to the role. That would silently diverge from the stored URL, because `env_add_keys` keeps existing keys. Use one shared pattern.
+### [CONCERN] Several functions and files exceed the size guidance
 
-### [CONCERN] `verdict` in batch only reports a faster budget
+The provisioning script is 362 lines. `rebuild.run` is about 60 lines. `contention_run.Run._firing` is about 50 lines with deeply nested loops. `contention_report.write_report` is about 50 lines. These are over the ~300-line and ~50-line guidance. Splitting the provisioning script by concern (cluster, hba, roles, env) would also make each step independently testable. Today only `env_add_keys` and `log_scrub` have tests.
 
-The module docstring says to change the budget if another one "moves the units' time by more than 10 %". The code also requires `took < seconds[current]`, so a slower budget never counts. The behaviour is reasonable, but the docs and code disagree. Align them. Also, `budget_memory` fits a line through three points, and `verdict` indexes `seconds[current]`. Nothing checks that `TICK_DECODE_BATCH_BYTES` is one of `BUDGETS`, so a changed constant would raise a bare `KeyError`.
+### [CONCERN] Heavy use of `type: ignore` and `sys.path` insertion in a strict-pyright project
 
-### [NOTE] Constant patching in `ingest_runs` is safe for the names used
+`queries.py`, `final.py`, `rebuild.py` and `size.py` carry many `# type: ignore[...]` comments on `execute`/`fetchone` results. These can mask real bugs under strict pyright. `proof_226_tick.py` and four test files mutate `sys.path` to import from `scripts/`. If `scripts` is outside pyright's `include = ["src", "tests"]`, none of this is checked at all, so the zero-error gate is not enforced for it. I could not confirm the pyproject setting from the diff. Prefer typed row helpers and make `proof_226` an importable package (a `pyproject` path entry or `pythonpath` in pytest config).
 
-`patched` mutates `constants.<name>`. I checked that `dbn_file.py:154` and `tick_store_cmds.py:116` read these through the module at call time, so the patching works. Any future by-name `from ... import` of these constants would silently defeat it.
+### [CONCERN] Test busy-waits and relies on private state
 
-### [NOTE] Shell helpers and provisioning script look sound
+`test_a_stop_during_reset_starts_no_ingest` spins in `while not loop._stop.is_set(): pass`, a CPU-bound busy loop with no timeout. It can hang the suite if the stop never lands. Use a bounded `Event.wait`. Several tests also reach into `_stop`, `_thread` and `_proc`. Expose a small test seam instead.
 
-Atomic write with a 0600 temporary file and a RETURN trap cleanup looks correct. Passwords go through stdin or `PGPASSWORD`, never argv, and `log_scrub` prints line numbers only. The committed provision log contains no credentials. The unit tests cover the failure, idempotence and mode cases.
+### [NOTE] Production behaviour change from configuration edit
 
-### [NOTE] Header-refusal handling is consistent and well covered
+`TICK_UNIVERSE` for ES moves from `tier=None` to `TBBO` with a range of 2024-11-02 to 2025-01-01. This changes what `mt data tick pass` plans. The comment says the range equals what is already held, so no purchase occurs. Tests that depended on the untiered state were moved to `tick_support.universe.UNTIERED`, which is the correct isolation. The `test_universe` assertion checks shape only, which is sensible.
 
-`file_days` is shared by adopt and delivery. Refusals are typed as `TickFileDecodeError` and tested for every bad-header kind, against both v1 and v3 files. The `@destructive` guard is registered and tested for every guarded function.
+### [NOTE] Header-refusal handling is consistent and well tested
+
+`ValueError`/`TypeError` raised for bad headers in `dbn_file.py` becomes `TickFileDecodeError`. Adopt, delivery and verify each catch only that specific type. The unclaimed days fail deterministically instead of being mislabelled as provider holes. Tests cover all six header-refusal kinds, on both v1 real data and v3 synthetic data, and the adopt, verify, ingest and delivery paths. One small oddity: `adopt._files_by_day` builds its map with `for rel in (f"{job_id}/{path.name}",)`, a single-element-tuple trick. A plain helper variable would read better.
+
+### [NOTE] Destructive-statement guard and migration are well designed
+
+`@destructive` checks `current_database()` against the constant name and registers each function. A parametrised test asserts that every registered function refuses another database before sending any SQL. `drop_proof` and `compress_eligible` have their own verified guards. Migration `tick_007` is tested on both empty and populated databases. It is irreversible once chunks are compressed, which the migration comment documents. The bash `env_add_keys` writes atomically and enforces mode and owner. `log_scrub` reports line numbers only, and both are tested, including the failure path and the missing-final-newline case.
+
+### [NOTE] Load test pins archive paths and job IDs
+
+The test hard-codes `/data/tick-archive` and four job IDs. It fails instead of skipping when files are absent, as documented. It reads no production URL, and the existing guard test covers the tier. It meets the load-tier rule with a 1 s latency assertion.
 
 ### Run Digest
 
-- Response length: 4734 chars
+- Response length: 7157 chars
 - Response is newline-free: no
-- Tool calls made: 1
+- Tool calls made: 2
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -124,10 +144,10 @@ Atomic write with a 0600 temporary file and a RETURN trap cleanup looks correct.
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 34.5 s
+- Duration: 66.6 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 9
+- Finding-shaped matches — whole response: 11
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 9
-- Finding-shaped matches — surviving validation: 9
+- Finding-shaped matches — in findings section: 11
+- Finding-shaped matches — surviving validation: 11
