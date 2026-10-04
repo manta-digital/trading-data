@@ -178,7 +178,8 @@ Moving production's backups to `/data/backup/17-main/` would move roughly 300 GB
 Production keeps its root and prefix. Tick nests under `/data/backup/17-tick` and `b2:<bucket>/17-tick`.
 
 **What protects production:**
-- **Same cron lines:** a test renders the cron file from the real table and asserts that production's block is byte-identical to today's rendered production lines.
+- **Same cron jobs:** production's lines gain only the new explicit arguments (`--url-key MT_TIMESCALE_MAINTENANCE_URL`, `--replication-host 127.0.0.1`, `--remote b2:<bucket>`), which carry today's hard-wired values. A test renders the cron file from the real table, strips those argument pairs from production's lines, and asserts the result equals today's installed lines exactly. The cutover applies the same comparison to the file it installs.
+- **No gap between merge and cutover:** cron runs the wrappers from this checkout, so the merged wrappers still accept the old lines' missing arguments, with today's values, until the cutover re-renders the file. That compatibility is removed once the cutover has run.
 - **Unchanged config:** the cutover checks production's `postgresql.conf`/`postgresql.auto.conf` SHA-256 before and after, the way `provision_tick_cluster.sh` already does.
 
 ### TD4. Data directory from `pg_lsclusters`
@@ -220,9 +221,9 @@ Without this, arming would be a later manual step that waits on a Sunday.
 `scripts/cutover_227_tick_backup.py` follows the `cutover_265_trades.py` / `cutover_common.py` pattern. It runs as manta from the checkout root and uses `sudo` for the root steps. Each step prints expected against seen:
 
 1. Production config SHA-256 recorded; tick advisory lock free.
-2. `setup-backup.sh --check` shows no drift for `17/main`. Any drift there stops the cutover.
+2. `setup-backup.sh --check` shows every `17/main` item OK. `cron.d` reports DRIFT, which is expected (the new arguments); any other non-OK `17/main` item stops the cutover.
 3. `sudo scripts/provision_tick_cluster.sh` adds the replication grant, the `pg_hba` line and the parent-directory modes.
-4. `sudo deploy/setup-backup.sh` applies: no change for production; directories, settings and the cron block for tick.
+4. `sudo deploy/setup-backup.sh` applies: no change for production except the cron arguments (TD3's comparison must pass); directories, settings and the cron block for tick.
 5. If `archive_mode` is pending on `17/tick`, check the tick lock again, then restart `postgresql@17-tick` (TD6).
 6. `pg_switch_wal()` on tick; its segment appears as `.zst` in `/data/backup/17-tick/wal` within `WAL_SWITCH_WAIT_S` (one named constant, 120 s; `archive_command` normally takes under a second).
 7. The tick health job runs once and must log `PASS`. This clears any ARCHIVE-BROKEN or BACKUP-STALE the half-hourly firing set between steps 4 and 6, when the cron block existed but archiving was not on yet. It has to come before step 8, because the weekly job refuses to run while ARCHIVE-BROKEN exists. BACKUP-STALE for the missing base backup is expected here and clears in step 10.
@@ -261,7 +262,7 @@ A re-run on the same day as a successful step 8 does not take a second base back
 | `/data/market-data/databento` | no | the PM's read-only originals; every job there was adopted, so verified copies are in the archive |
 | `/data/restore-test` | no | scratch space for drills |
 
-For timeshift, the implementation checks whether its configured includes reach `/data` at all, and records the answer in runbook 200. It adds an exclude for `/data/postgresql/**` only if they do. Production's equivalent, `/var/lib/postgresql/**`, is already excluded.
+Timeshift does not reach `/data`: its backup device is the `/data` volume, and its 2026-10-01 snapshot holds `/data` as an empty mount point. No exclude is added; runbook 200 records this. Production's data directory, `/var/lib/postgresql/**`, is already excluded.
 
 ### TD10. B2 lifecycle for the tick prefix
 
@@ -295,7 +296,7 @@ The production cron file and `setup-backup.sh` invocation change shape. Producti
   - runbook 200 Step 7 (the cron table);
   - `test/unit/test_setup_backup.py`, `test_system_backup.py`, `test_wal_offsite.py`.
 - **Proof that behaviour is preserved:**
-  - Production's rendered lines are byte-identical to the current `/etc/cron.d/manta-trading-backup` production lines (unit test, plus `setup-backup.sh --check` reporting no drift for the main block before the cutover applies).
+  - Production's rendered lines equal the current `/etc/cron.d/manta-trading-backup` lines once the new arguments are stripped (unit test, and the same comparison in the cutover).
   - Production's config hash is unchanged across the cutover.
   - The next production health firing after the cutover prints `PASS … FLAGS archive=0 stale=0`.
 
@@ -325,7 +326,7 @@ There are no migrations. Storage added:
 ### Functional Requirements
 1. `deploy/backup-clusters.conf` lists `17/main` and `17/tick`. `setup-backup.sh` (and its `--check`) reads it, and any malformed row is a hard error before any change.
 2. `17/tick` runs with `archive_mode=on`, `wal_compression=zstd`, and an `archive_command` that writes to `/data/backup/17-tick/wal`. A forced WAL switch produces a `.zst` segment there.
-3. `/etc/cron.d/manta-trading-backup` holds the host block, production's block (byte-identical to before), and a tick block.
+3. `/etc/cron.d/manta-trading-backup` holds the host block, production's block (today's lines plus only the new explicit arguments, TD3), and a tick block.
 4. After the cutover, `/data/backup/17-tick/base/<date>` holds a base backup that passed `pg_verifybackup`, and `b2:<bucket>/17-tick/{base,wal}` hold matching copies (`rclone check --one-way` clean).
 5. The first tick metadata dump exists locally and offsite; the cutover runs the dump job once.
 6. `/data/backup/17-tick/RECONCILE-ARMED` exists only after the first tick weekly run passed its final check.
@@ -343,7 +344,7 @@ Stated as designed, for 228's drill to measure against:
 ### Technical Requirements
 - Unit tests:
   - table parsing (bash and Python) against the real file and a malformed row;
-  - the cron render (production block byte-identical to today's; tick block content; no production line names `17-tick`);
+  - the cron render (production lines equal today's once the new arguments are stripped; tick block content; no production line names `17-tick`);
   - the wrappers' new required arguments (missing → exit 2);
   - the `pg_lsclusters` data-directory read;
   - `provision_tick_cluster.sh --check` output with the replication line.
@@ -392,7 +393,7 @@ These are the commands as designed; Phase 6 refines them with real output.
 
 ### Mitigation Strategies
 - **For the render:**
-  - the byte-identical test for production's block;
+  - the render test comparing production's lines with today's (new arguments stripped);
   - `--check` before applying;
   - the cutover's before/after config hash;
   - the cutover stops if the main block shows any drift.
