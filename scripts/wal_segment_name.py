@@ -7,6 +7,10 @@ file holds 256 segments, so ``…FF`` rolls over to the next log file.
 
 Usage:
     wal_segment_name.py next <segment-name>       the segment after the given one
+                                                  (also accepts an archived
+                                                  ``<segment>.partial`` or
+                                                  ``<segment>.<offset>.backup``
+                                                  name: its segment is used)
     wal_segment_name.py from-lsn <tli> <lsn>      the segment holding an LSN
                                                   (LSN as PostgreSQL prints it,
                                                   e.g. ``1217/83A00000``)
@@ -25,6 +29,8 @@ WAL_SEGMENT_BYTES = 16 * 1024 * 1024
 LOG_FILE_BYTES = 1 << 32
 SEGMENTS_PER_LOG = LOG_FILE_BYTES // WAL_SEGMENT_BYTES
 SEGMENT_NAME_LEN = 24
+PARTIAL_SUFFIX = "partial"
+BACKUP_SUFFIX = "backup"
 EXIT_USAGE = 2
 
 
@@ -55,8 +61,29 @@ def parse_segment(name: str) -> tuple[int, int, int]:
     )
 
 
+def archived_segment(name: str) -> str:
+    """The segment an archived file name belongs to.
+
+    ``pg_stat_archiver.last_archived_wal`` is a plain segment most of the
+    time, but a base backup leaves its history file there
+    (``<segment>.<offset>.backup``) and a promotion archives
+    ``<segment>.partial``. Both carry the segment as a prefix. Timeline
+    history files (``<timeline>.history``) carry none and are refused.
+    """
+    if len(name) <= SEGMENT_NAME_LEN or name[SEGMENT_NAME_LEN] != ".":
+        return name
+    suffix = name[SEGMENT_NAME_LEN + 1 :]
+    if suffix == PARTIAL_SUFFIX:
+        return name[:SEGMENT_NAME_LEN]
+    offset, _, kind = suffix.partition(".")
+    if kind == BACKUP_SUFFIX and len(offset) == 8:
+        _hex(offset, "backup offset")
+        return name[:SEGMENT_NAME_LEN]
+    raise MalformedInput(f"not an archived segment name: {name!r}")
+
+
 def next_segment(name: str) -> str:
-    tli, log, seg = parse_segment(name)
+    tli, log, seg = parse_segment(archived_segment(name))
     if seg >= SEGMENTS_PER_LOG:
         raise MalformedInput(
             f"segment number {seg:X} exceeds {SEGMENTS_PER_LOG - 1:X}: {name!r}"

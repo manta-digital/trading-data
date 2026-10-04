@@ -245,6 +245,31 @@ class TestArchiveWedged:
         result = healthy.run()
         assert result.returncode == 0, result.stdout
 
+    def test_backup_history_file_checks_the_segment_after_it(
+        self, healthy: Layout
+    ) -> None:
+        # The weekly base backup leaves its history file as last_archived_wal
+        # (seen on manta9000 2026-10-04); the check must not go blind.
+        healthy.stub_psql("f", f"{_LAST_ARCHIVED}.00000028.backup", "")
+        (healthy.wal / _NEXT_SEGMENT).write_bytes(b"\0" * 1000)
+        result = healthy.run()
+        assert _fail_names(result.stdout) == ["archive_wedged"]
+        assert _flags_line(result.stdout) == "FLAGS archive=1 stale=0"
+
+    def test_backup_history_file_on_a_healthy_archive_passes(
+        self, healthy: Layout
+    ) -> None:
+        healthy.stub_psql("f", f"{_LAST_ARCHIVED}.00000028.backup", "")
+        result = healthy.run()
+        assert result.returncode == 0, result.stdout
+        assert _flags_line(result.stdout) == "FLAGS archive=0 stale=0"
+
+    def test_timeline_history_file_skips_the_check(self, healthy: Layout) -> None:
+        healthy.stub_psql("f", "00000002.history", "")
+        result = healthy.run()
+        assert result.returncode == 0, result.stdout
+        assert _flags_line(result.stdout) == "FLAGS archive=0 stale=0"
+
 
 class TestTmpLeftover:
     def test_old_tmp_is_a_leftover(self, healthy: Layout) -> None:

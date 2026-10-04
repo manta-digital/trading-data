@@ -127,7 +127,10 @@ IFS='|' read -r ARCHIVER_FAILING LAST_ARCHIVED LAST_FAILED <<< "$ARCHIVER_ROW"
 NEXT_SEGMENT=""
 if [ "${ARCHIVER_FAILING:-}" = "t" ] && [ -n "${LAST_FAILED:-}" ]; then
   NEXT_SEGMENT="$LAST_FAILED"
-elif [ -n "${LAST_ARCHIVED:-}" ]; then
+# A timeline history file (`<timeline>.history`, archived after a promotion)
+# names no segment, so there is no next segment to inspect: the wedge check
+# has nothing to look at until the archiver writes a real segment.
+elif [ -n "${LAST_ARCHIVED:-}" ] && [[ "$LAST_ARCHIVED" != *.history ]]; then
   NEXT_SEGMENT=$("$SCRIPT_DIR/wal_segment_name.py" next "$LAST_ARCHIVED")
 fi
 if [ -n "$NEXT_SEGMENT" ] && [ -f "$WAL_DIR/$NEXT_SEGMENT" ] && [ ! -e "$WAL_DIR/$NEXT_SEGMENT.zst" ]; then

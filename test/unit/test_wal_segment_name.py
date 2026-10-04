@@ -45,6 +45,36 @@ class TestNext:
         assert result.stdout.strip() == "00000001000000000000000B"
 
 
+class TestArchivedNames:
+    """Names ``pg_stat_archiver.last_archived_wal`` reports besides segments."""
+
+    def test_backup_history_file_uses_its_segment(self) -> None:
+        # The real name from manta9000's 2026-10-04 base backup.
+        result = _run("next", "00000001000012A5000000B4.00000028.backup")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "00000001000012A5000000B5"
+
+    def test_partial_segment_uses_its_segment(self) -> None:
+        result = _run("next", "000000010000121700000083.partial")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "000000010000121700000084"
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "00000002.history",  # names no segment
+            "000000010000121700000083.history",
+            "000000010000121700000083.0000002G.backup",  # non-hex offset
+            "000000010000121700000083.28.backup",  # short offset
+            "000000010000121700000083.",
+        ],
+    )
+    def test_other_names_exit_2(self, name: str) -> None:
+        result = _run("next", name)
+        assert result.returncode == 2
+        assert result.stdout == ""
+
+
 class TestFromLsn:
     def test_segment_holding_lsn(self) -> None:
         result = _run("from-lsn", "1", "1217/83A00000")
