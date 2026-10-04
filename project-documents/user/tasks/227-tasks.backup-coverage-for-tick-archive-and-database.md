@@ -423,28 +423,28 @@ in one invocation. Known baseline failures are not regressions
 
 ## Section 7 — Runbooks and validation
 
-- [ ] **7.1 Runbook 200 (effort 2)**
-  - [ ] Placement row for the tick cluster; the per-cluster cron table
+- [x] **7.1 Runbook 200 (effort 2)**
+  - [x] Placement row for the tick cluster; the per-cluster cron table
         (both blocks plus the host block); tick retention (keep-days 7, B2
         lifecycle); the TD9 exclusions table.
-  - [ ] Timeshift: record that its snapshots do not reach `/data` (the
+  - [x] Timeshift: record that its snapshots do not reach `/data` (the
         2026-10-01 snapshot holds an empty `/data` mount point), so no
         exclude is added.
-  - [ ] Update every `setup-backup.sh` invocation to the new arguments.
-  - [ ] The `cutover_227_tick_backup.py` command and what its report shows.
+  - [x] Update every `setup-backup.sh` invocation to the new arguments.
+  - [x] The `cutover_227_tick_backup.py` command and what its report shows.
 
-- [ ] **7.2 Runbook 210 (effort 1)**
-  - [ ] Step 7's bootstrap command without `--cluster`.
-  - [ ] The restic include list matches `cron_system_backup.sh`'s
+- [x] **7.2 Runbook 210 (effort 1)**
+  - [x] Step 7's bootstrap command without `--cluster`.
+  - [x] The restic include list matches `cron_system_backup.sh`'s
         `INCLUDE_PATHS` (it gained `/data/tick-archive` in 223).
-  - [ ] Commit: `docs: add tick backup coverage to backup runbooks`.
+  - [x] Commit: `docs: add tick backup coverage to backup runbooks`.
 
-- [ ] **7.3 Full validation (effort 2)**
-  - [ ] Unit tier, then integration tier, separately. Only known baseline
+- [x] **7.3 Full validation (effort 2)**
+  - [x] Unit tier, then integration tier, separately. Only known baseline
         failures.
-  - [ ] ruff, mypy, `shellcheck -x` clean on every touched file.
-  - [ ] `cf check` shows no new findings for 227.
-  - [ ] Commit any fixes.
+  - [x] ruff, mypy, `shellcheck -x` clean on every touched file.
+  - [x] `cf check` shows no new findings for 227.
+  - [x] Commit any fixes.
 
 ## Section 8 — Cutover run (PM), acceptance and close-out
 
