@@ -5,10 +5,10 @@ LLD 224 Technical Decision 3. A code constant beside
 module is imported: a bad universe fails every ``mt`` command that touches it,
 with the field named.
 
-``tier=None`` is the honest state before slice 226's go/no-go: an entry with
-no tier produces no tier wants (the pass still buys definitions for tier days
-the manifest already owns). ``--start/--end`` on ``pass`` only narrow the
-configured range.
+``tier=None`` means no tier is chosen: an entry with no tier produces no tier
+wants (the pass still buys definitions for tier days the manifest already
+owns). ES's tier and range were set by slice 226's go/no-go.
+``--start/--end`` on ``pass`` only narrow the configured range.
 """
 
 from __future__ import annotations
@@ -39,11 +39,24 @@ class TickUniverseEntry:
 
 # ES.FUT (parent) covers the outrights and the calendar spreads. Including the
 # spreads is an explicit configuration, not the default: both adopted jobs were
-# bought this way and hold spread trades (2.35% of the trades job's records), so
-# other symbols would leave no adopted day covered. 226's go/no-go re-confirms
-# it (TD3, review F004).
+# bought this way and hold spread trades, and 226 measured them at 2.3% of
+# trades and 1.8% of tbbo rows (user/notes/2026-10-03-226-proof-size.md).
+#
+# Tier tbbo (226 go/no-go, user/analysis/226-analysis.tick-proof-go-no-go.md):
+# the quote at every trade for 1.5x trades' compressed bytes per row. The range
+# is the tbbo already held, so a pass buys nothing before a subscription;
+# widening it to the plan year is this one edit. It starts 2024-11-02, not
+# 11-01: the session dated 11-01 opens at 22:00 UTC on 10-31, a day the tbbo
+# job does not hold, so the first session held whole is the one dated 11-04.
 TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
-    TickUniverseEntry("ES", ("ES.FUT",), SType.PARENT, tier=None, start=None, end=None),
+    TickUniverseEntry(
+        "ES",
+        ("ES.FUT",),
+        SType.PARENT,
+        tier=TickSchema.TBBO,
+        start=date(2024, 11, 2),
+        end=date(2025, 1, 1),
+    ),
 )
 
 

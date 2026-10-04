@@ -28,6 +28,7 @@ from tick_support.ingest import (
 from tick_support.rows import FILE_COLUMNS, insert_request, insert_unit
 from tick_support.runs import connect, tick_run
 from tick_support.tier_units import TBBO_DAY, TRADES_DAY, SeededUnit, seed_tier_unit
+from tick_support.universe import use_untiered
 
 from manta_trading.data.base.trading_calendar import TradingCalendar
 from manta_trading.data.tick.acquisition_pass import AwaitTiming, run_pass
@@ -35,6 +36,13 @@ from manta_trading.data.tick.constants import SType, TickSchema, UnitState
 from manta_trading.data.tick.databento.dbn_file import DbnFileReader
 from manta_trading.data.tick.manifest_repo import reset_exhausted
 from manta_trading.data.tick.pass_contract import TickOutcome
+
+
+@pytest.fixture(autouse=True)
+def untiered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests cover the pass with no tier chosen (``tick_support.universe``)."""
+    use_untiered(monkeypatch)
+
 
 TRADES_FILE = f"glbx-mdp3-{TRADES_DAY:%Y%m%d}.trades.dbn.zst"
 TBBO_FILE = f"glbx-mdp3-{TBBO_DAY:%Y%m%d}.tbbo.dbn.zst"

@@ -28,6 +28,7 @@ from tick_support.fake_provider import (
 )
 from tick_support.runs import connect, tick_run
 from tick_support.seed import seed_availability, seed_owned_days
+from tick_support.universe import use_untiered
 
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick import tick_calendar
@@ -41,6 +42,13 @@ from manta_trading.data.tick.manifest_reads import UnitRow, units_by_id
 from manta_trading.data.tick.pass_contract import PhaseReport, TickOutcome
 from manta_trading.data.tick.purchase_phase import PassState, PurchasePhase
 from manta_trading.data.tick.run_context import TickRun
+
+
+@pytest.fixture(autouse=True)
+def untiered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests cover the pass with no tier chosen (``tick_support.universe``)."""
+    use_untiered(monkeypatch)
+
 
 AConn = psycopg.AsyncConnection[Any]
 START = datetime(2026, 9, 29, 12, tzinfo=UTC)

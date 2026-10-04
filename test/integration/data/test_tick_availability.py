@@ -17,6 +17,7 @@ import pytest
 from tick_support.fake_provider import FakeClock, FakeTickProvider
 from tick_support.rows import FILE_COLUMNS, insert_request, insert_unit
 from tick_support.runs import connect, tick_run
+from tick_support.universe import UNTIERED
 
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.availability import capture_dataset
@@ -29,7 +30,6 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.data.tick.manifest_reads import holed_days, owned_tier_days
 from manta_trading.data.tick.planner import DayKey
-from manta_trading.data.tick.universe import TICK_UNIVERSE
 
 START = datetime(2026, 9, 29, 12, tzinfo=UTC)
 DAY = date(2024, 9, 3)
@@ -87,7 +87,7 @@ async def _capture(
     return await capture_dataset(
         run,
         CME_DATASET,
-        TICK_UNIVERSE,
+        UNTIERED,
         await owned_tier_days(conn),
         await holed_days(conn),
         window,
