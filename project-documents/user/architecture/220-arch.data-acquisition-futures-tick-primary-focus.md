@@ -12,7 +12,7 @@ relatedSlices: []
 riskLevel: medium
 archIndex: 220
 dateCreated: 20260921
-dateUpdated: 20260930
+dateUpdated: 20261004
 status: in_progress
 ---
 
@@ -66,7 +66,7 @@ Out of scope: realtime and intraday capture (its own initiative, streaming form)
 
 - **The active contract and the roll method are explicit on every surface** — No command, status line, or endpoint that touches a futures product answers without saying which contract it used and which rule chose it. A product-level request (`ES`) resolves to a contract through a named roll method with a project default defined once; a contract-level request (`ESZ6`) bypasses resolution. Status reports the active contract per configured product and rule, its expiration, and the next roll; the API and CLI accept the same method vocabulary. Back-adjustment of prices across rolls is a derived, opt-in read-time transform if it exists at all, never stored, and never the default.
 
-- **Backup is part of done** — The tick archive joins the backup regime in the slice that first writes it: 223, which adopts the free-credit files. The archive is the record, and losing it means a repurchase, or for data no longer sold, a permanent loss. The database projection can be rebuilt from the archive, so its policy is chosen once the proof has measured the rebuild cost (227). Until then, the exposure is a rebuild from a backed-up archive, not lost data. The archive is the recoverable source, so it is backed up as data; the database projection's backup weight is decided from its rebuild-from-archive cost, measured, and the restore drill covers both. A tick tier that exists only until the next disk failure is not delivered.
+- **Backup is part of done** — The tick archive joins the backup regime in the slice that first writes it: 223, which adopts the free-credit files. The archive is the record, and losing it means a repurchase, or for data no longer sold, a permanent loss. The tick rows can be rebuilt from the archive; the bookkeeping that describes the archive (pass-purchase provenance, reopenings, supersession links) cannot, and a rebuild also needs the production database and the provider API. The database's policy is chosen once the proof has measured the rebuild cost (227). Until then, the exposure is a rebuild from a backed-up archive, not lost data. The archive is the recoverable source, so it is backed up as data; the database projection's backup weight is decided from its rebuild-from-archive cost, measured, and the restore drill (228) covers both. A tick tier that exists only until the next disk failure is not delivered.
 
 - **Sessions, not calendar days** — CME trades nearly around the clock with a daily maintenance break and a Sunday open; a "trading day" spans two calendar dates. Coverage, completeness, and the operator surface are expressed per session. The equities *calendar* is not reused for this; the futures session model is its own — a CME calendar of trading-hours schedule, session rows, and exceptions (Technical Considerations, "Session model") — and it is reached through the single session-query function I4 requires, as a second calendar in the calendar tables that function already reads.
 
@@ -192,7 +192,8 @@ Sequencing rule: a slice never writes to a table a later slice creates. The firs
 - **Active contract and roll methods** — the roll-method vocabulary and project default, active-contract resolution from definitions and stored figures, roll-day handling, the continuous read-time view, and the status lines that name the active contract and next roll.
 - **Operator surface: full parity** — after the proof, the subgroup-or-switches decision applied to the verbs the proof did not need: `get` by contract or product-plus-method, health, accounting, debug reads, tick lines in `mt data overview`, the `unreachable` posture on every composed surface, the runbook's operator procedures, and the contract's mapping rows for these surfaces (the amendment's frame landed with the first slice).
 - **API surface coverage: futures tick** — the namespace decision applied: ticks and tick-derived bars by contract or product-plus-method, the contract catalog and active-contract resolution, tick coverage and freshness in `/api/v1/status` and `/api/v1/overview`, both reference documents extended under the 190 gate, `openapi.json` regenerated.
-- **Backup coverage for the tick archive and database** — the archive enrolled in the 915/920 backup set, the database policy chosen from measured rebuild cost, the 913 role set and any second-host tooling extended, the restore drill covering both, and the backup runbook updated.
+- **Backup coverage for the tick archive and database** — the archive enrolled in the 915/920 backup set, the database policy chosen from measured rebuild cost, the 913 role set and any second-host tooling extended, and the backup runbook updated.
+- **Tick restore drill** — the restore drill covering both the archive and the database, and both restore procedures in the backup runbook.
 - **Universe expansion and steady state** — GC and further products as configuration, the daily catch-up pass in production, the first roll observed end to end on a live universe, and cross-source arbitration closed from the proof's contention numbers: resource weights on `manta-acquisition.slice` and the coordination mechanism chosen among the three the 900 plan lists.
 
 Follows this initiative, not part of it: realtime capture (streaming form, own initiative) and any shared pass-framework extraction (9xx).
@@ -300,6 +301,20 @@ Follows this initiative, not part of it: realtime capture (streaming form, own i
     policy (`tick_007`); 7-day chunks validated; every measured constant
     kept; the production tick cluster `17/tick` built and rebuilt from the
     archive in 212.5 s.
+
+- **2026-10-04** (slices 227 and 228; their designs are authoritative in
+  detail):
+  - **Split:** backup coverage (227) and the restore drill (228) are two
+    slices; the former 228–233 renumber to 229–234.
+  - **"Backup is part of done":** the tick database gets full weight — a
+    weekly base backup, WAL archiving and a nightly bookkeeping dump — with
+    rebuild-from-archive as the fallback. The reason: the bookkeeping is not
+    rebuildable from the files, and a rebuild depends on the production
+    database and the provider API.
+  - **"Backup coverage":** the 915/920 tooling becomes per-cluster through
+    one checked-in table, `deploy/backup-clusters.conf`. Tick backups sit
+    under `/data/backup/17-tick` and `b2:<bucket>/17-tick`; production's
+    paths do not move.
 
 ## Related Work
 

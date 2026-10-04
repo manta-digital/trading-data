@@ -45,6 +45,7 @@ This slice:
    - Host-wide steps run once: restic, timeshift, the cron file render, the leftover-crontab report.
    - The cluster's data directory is read with `pg_lsclusters` rather than built from `/var/lib/postgresql`.
    - `--cluster` is removed. The table is the membership.
+   - `--backup-root` stays, and now names only the **host root** (`/data/backup`): where the host-wide restic stamp, log and lock live. Each cluster's own root comes from its table row. Every cluster's health check reads the restic stamp from the host root.
 3. **Cron template split** into a host-wide part (the two restic lines) and a per-cluster block (health check, WAL push, nightly metadata dump, weekly base backup), rendered once per row into the single `/etc/cron.d/manta-trading-backup`.
 4. **Cron wrappers take the URL key as an argument.** `cron_weekly_backup.sh`, `backup_health_cron.sh` and `cron_nightly_metadata.sh` gain `--url-key <ENV_KEY>` in place of the hard-wired `MT_TIMESCALE_MAINTENANCE_URL`.
    - `cron_weekly_backup.sh` gains an explicit `--replication-host <host>` in place of its hard-coded `@192.168.1.144:` → `127.0.0.1` rewrite.
@@ -52,6 +53,7 @@ This slice:
 5. **Tick roles and access for base backups.**
    - `scripts/provision_tick_roles.sql` gains `-v with_replication=1`, which grants REPLICATION to `tick_migrate`, matching `provision_roles.sql` on production.
    - `scripts/provision_tick_cluster.sh` adds a `host replication tick_migrate <src>/32 scram-sha-256` line to the tick `pg_hba.conf`.
+   - It sets `/data/postgresql` and `/data/postgresql/17` to 0755, matching `/var/lib/postgresql`. The data directory itself stays 0700. Today both parents are 0700, so the health check (run as manta) cannot `df` the tick data directory for its free-disk check and would raise ARCHIVE-BROKEN on every firing.
    - It also splits its database list: `trading_tick` is created; `trading_tick` and `trading_tick_drill` are allowed in `pg_hba` (the drill database is 228's). The proof database is gone, so a re-run must not recreate it.
 6. **Cutover script**, `scripts/cutover_227_tick_backup.py`. The PM runs one command. It:
    - enrols the tick cluster;
@@ -126,6 +128,10 @@ None of these scripts gains cluster knowledge. They already take explicit direct
 | Tick health flags and stamps | `/data/backup/17-tick/{ARCHIVE-BROKEN,BACKUP-STALE,wal-offsite.stamp,wal-offsite.lock,RECONCILE-ARMED}` | per-cluster cron block |
 | Production (unchanged paths) | `/data/backup/{base,wal,metadata,…}`, `b2:<bucket>/{base,wal,metadata}` | per-cluster cron block |
 
+**Shared volume.** Tick backups share the `/data` volume with production's backups and with the tick cluster itself (1.8 TB, 1.2 TB free on 2026-10-04). Production's data and WAL are on the root disk, so a full `/data` cannot stop production's database. It would stop production's WAL archiving and base backups. Two things keep that from happening silently:
+- **Size:** a week of tick WAL is bounded by a week of ingest. The largest planned purchase, the Standard plan's included year of ES+GC tbbo, is about 5 GB stored, which is under 0.5 % of the free space.
+- **Alarm:** the tick health check's existing `wal_disk_low` check runs `df` on the tick data directory, which is on `/data`. It raises ARCHIVE-BROKEN below 15 % free, long before production's archiving can fail. Production's own check watches the root disk, so this is the first alarm that watches `/data`.
+
 The tick root sits inside production's root, but no production job touches it. Production's jobs only ever name `base/`, `wal/` and `metadata/` explicitly, and restic does not include `/data/backup`. A unit test asserts that the main block's rendered lines never name `17-tick` (TD3).
 
 ## Technical Decisions
@@ -161,6 +167,7 @@ The measured rebuild cost still sets one thing: the fallback is cheap enough for
 - **`-` means "no override".** Production's remote is the bucket root (its existing layout). Tick connects with its URL's host as written (`manta9000`, which only listens on 127.0.1.1).
 - **Why a table and not a flag:** a repeatable flag would let a run that names only `17/main` drop tick's cron block without anyone noticing. With the table, membership is defined once.
 - **Readers:** bash (`setup-backup.sh`) and Python (the cutover, and 228's drill) both read this one file through one small parser per language. Each parser has a unit test against the real file, per CLAUDE.md's parsing rule.
+- **Host root is not a row:** `--backup-root` names the host root for the restic stamp, log and lock (Scope item 2). The table holds only per-cluster roots.
 - **Malformed rows:** a malformed row (wrong field count, unknown cluster in `pg_lsclusters`, root not under `/data`) is a hard error before any change.
 - **Schedules:** tick's jobs run before production's, so the tick base backup (seconds today) never overlaps production's three-hour one.
 
@@ -194,6 +201,8 @@ The cutover restarts only the `postgresql@17-tick` unit, and only when:
 - the setting is pending;
 - the tick advisory lock is free, meaning no tick run is active.
 
+The lock is checked again immediately before the restart, not only at step 1. It can't be held across the restart, because the restart ends the session that holds it. No tick timers exist, so the only way a run can start in between is by hand during the cutover.
+
 Production is never restarted. A pending-restart report for `17/main` makes the cutover stop.
 
 ### TD7. The first tick weekly run happens in the cutover, and arms itself
@@ -212,14 +221,34 @@ Without this, arming would be a later manual step that waits on a Sunday.
 
 1. Production config SHA-256 recorded; tick advisory lock free.
 2. `setup-backup.sh --check` shows no drift for `17/main`. Any drift there stops the cutover.
-3. `sudo scripts/provision_tick_cluster.sh` adds the replication grant and the `pg_hba` line.
+3. `sudo scripts/provision_tick_cluster.sh` adds the replication grant, the `pg_hba` line and the parent-directory modes.
 4. `sudo deploy/setup-backup.sh` applies: no change for production; directories, settings and the cron block for tick.
-5. If `archive_mode` is pending on `17/tick`, restart `postgresql@17-tick` (TD6).
-6. `pg_switch_wal()` on tick; its segment appears as `.zst` in `/data/backup/17-tick/wal` within a bounded wait.
-7. The first tick weekly run, then arm (TD7).
-8. `rclone check --one-way` of tick `base/` and `wal/` against `b2:<bucket>/17-tick`.
-9. Production config SHA-256 unchanged; production's health log still PASS.
-10. The report goes to `user/notes/<date>-227-cutover.md`. Exit 0 only when every check passed.
+5. If `archive_mode` is pending on `17/tick`, check the tick lock again, then restart `postgresql@17-tick` (TD6).
+6. `pg_switch_wal()` on tick; its segment appears as `.zst` in `/data/backup/17-tick/wal` within `WAL_SWITCH_WAIT_S` (one named constant, 120 s; `archive_command` normally takes under a second).
+7. The tick health job runs once and must log `PASS`. This clears any ARCHIVE-BROKEN or BACKUP-STALE the half-hourly firing set between steps 4 and 6, when the cron block existed but archiving was not on yet. It has to come before step 8, because the weekly job refuses to run while ARCHIVE-BROKEN exists. BACKUP-STALE for the missing base backup is expected here and clears in step 10.
+8. The first tick weekly run, then arm (TD7).
+9. The tick metadata job runs once, so the first dump exists without waiting for 02:15.
+10. The tick health job runs again and must log `PASS … FLAGS archive=0 stale=0`.
+11. `rclone check --one-way` of tick `base/`, `wal/` and `metadata/` against `b2:<bucket>/17-tick`.
+12. Production config SHA-256 unchanged; production's health log still PASS.
+13. The report goes to `user/notes/<date>-227-cutover.md`. Exit 0 only when every check passed.
+
+**On failure.** The script stops at the first failed step, prints what it expected and what it saw, and still writes the report. Recovery is: fix the cause, then re-run the whole script, the same as 265's cutover. Every step is check-then-act, so steps already done report OK and change nothing.
+
+| Step or job | If it fails | Strategy |
+|---|---|---|
+| Steps 1–2 (lock, production drift) | nothing has changed yet | stop |
+| Step 3 (provision) | its own check-then-act; production untouched | stop, re-run |
+| Step 4 (setup-backup) | partial apply; each item is idempotent | stop, re-run |
+| Step 5 (restart) | tick down or still pending; production untouched | stop; the PM reads `journalctl -u postgresql@17-tick` |
+| Step 6 (WAL switch) | no `.zst` within the wait: archiving is broken | stop; tick health will also flag ARCHIVE-BROKEN |
+| Step 8 (weekly) | `backup_prod.sh` never leaves a partial at `base/<date>`: a failed copy is removed and a failed verify is moved to `<date>.failed`. A leftover makes the next run refuse until it is inspected. A failed push or B2 outage fails the job's final check, so no arm file. | stop; remove a reported leftover, re-run |
+| Step 9 (metadata) | dump or push failed | stop, re-run |
+| Step 11 (rclone check) | offsite differs | stop, re-run (the push is idempotent) |
+| Steady state: hourly WAL push | B2 unreachable | the stamp ages; BACKUP-STALE after the existing threshold; the next push catches up |
+| Steady state: weekly, metadata, health | as for production | the existing flags; nothing new |
+
+A re-run on the same day as a successful step 8 does not take a second base backup: the weekly step is skipped when `base/<today>` exists and the arm file is present.
 
 ### TD9. Exclusions are recorded, not changed
 
@@ -240,7 +269,7 @@ Production's `wal/` and `base/` prefixes have a 30-day "delete after hidden" rul
 
 - **Detect:** `setup-backup.sh --check` reads the bucket's rules (`rclone backend lifecycle b2:<bucket>`) and reports MISSING for any row prefix not covered.
 - **Apply:** applying a per-prefix rule without replacing the bucket's existing rules is checked against rclone's B2 backend source during implementation.
-- **Fallback:** if rclone can't do that, the cutover report names the one rule to add in the B2 console. That would be the slice's only non-script PM step.
+- **Fallback:** if rclone can't do that, the cutover report names the one rule to add in the B2 console. That would be the slice's only non-script PM step. It does not affect the cutover's exit code, because a missing rule costs storage, not data. `setup-backup.sh --check` keeps reporting MISSING until the rule exists.
 
 ### Patterns and Conventions
 - **Bash and rendering:** check-then-act bash with explicit required arguments, as in 915/920. `--check` reports drift and changes nothing. Cron render tokens are `@NAME@`.
@@ -277,7 +306,7 @@ There are no migrations. Storage added:
 | Item | Size now | Growth |
 |---|---|---|
 | Tick base backup | 677 MB per weekly copy, 1–2 kept locally and offsite under keep-days 7 | about 5 GB/yr at the ES+GC tbbo projection |
-| Tick WAL | bursts during ingest, pruned weekly | bounded by one week of ingest |
+| Tick WAL | bursts during ingest, pruned weekly | bounded by one week of ingest; the ES+GC tbbo year is about 5 GB in total (see Shared volume) |
 | Tick metadata dump | < 1 MB nightly | small |
 
 ## Integration Points
@@ -298,11 +327,18 @@ There are no migrations. Storage added:
 2. `17/tick` runs with `archive_mode=on`, `wal_compression=zstd`, and an `archive_command` that writes to `/data/backup/17-tick/wal`. A forced WAL switch produces a `.zst` segment there.
 3. `/etc/cron.d/manta-trading-backup` holds the host block, production's block (byte-identical to before), and a tick block.
 4. After the cutover, `/data/backup/17-tick/base/<date>` holds a base backup that passed `pg_verifybackup`, and `b2:<bucket>/17-tick/{base,wal}` hold matching copies (`rclone check --one-way` clean).
-5. The first tick metadata dump exists locally and offsite. If the cutover runs before the nightly firing, it runs the dump job once.
+5. The first tick metadata dump exists locally and offsite; the cutover runs the dump job once.
 6. `/data/backup/17-tick/RECONCILE-ARMED` exists only after the first tick weekly run passed its final check.
 7. The tick health check logs `PASS … FLAGS archive=0 stale=0`.
 8. Runbook 200 has the tick placement row, the per-cluster cron table, tick retention and the exclusions table. Runbook 210's bootstrap command and restic include list are correct.
 9. Production is untouched: config hash unchanged, never restarted, and its backup paths and prefixes unchanged.
+10. The B2 lifecycle rule covers `17-tick/` (`setup-backup.sh --check` reports it OK). If rclone cannot add it, the cutover report names the console rule and the PM adds it (TD10).
+
+### Recovery Targets
+Stated as designed, for 228's drill to measure against:
+- **Recovery point, local:** the last archived WAL segment. `archive_timeout` is 0 on production and is kept at 0 for tick, so an idle cluster's unfilled segment is the exposure. Ingest fills segments quickly, and an idle cluster has nothing new to lose.
+- **Recovery point, offsite:** one hour (the hourly WAL push) plus the same unfilled segment.
+- **Recovery time:** not set here. 228 measures it for both procedures (restore from base plus WAL, and the rebuild, which 226 measured at 212.5 s plus compression).
 
 ### Technical Requirements
 - Unit tests:
@@ -325,13 +361,13 @@ These are the commands as designed; Phase 6 refines them with real output.
    ```
    sudo deploy/setup-backup.sh --check --checkout "$PWD" --env-file "$PWD/.env" --backup-root /data/backup
    ```
-   Expect: `17/main` all OK. `17/tick` reports MISSING for its directories, archive settings and cron block. The lifecycle check reports the tick prefix.
+   `--backup-root` is the host root (Scope item 2). Expect: `17/main` all OK. `17/tick` reports MISSING for its directories, archive settings and cron block. The lifecycle check reports the tick prefix.
 
 2. **Cutover** (PM, one command, after tagging the release):
    ```
    uv run python scripts/cutover_227_tick_backup.py
    ```
-   Expect the ten steps of TD8, each with expected and seen values. The report lands in `user/notes/<date>-227-cutover.md`. Exit 0 means every check passed.
+   Expect the thirteen steps of TD8, each with expected and seen values. The report lands in `user/notes/<date>-227-cutover.md`. Exit 0 means every check passed.
 
 3. **Read the results:**
    ```
