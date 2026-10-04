@@ -1,0 +1,9 @@
+## deploy/cron.d/manta-trading-backup.cluster — one cluster's backup jobs (slice 227).
+## Rendered by deploy/lib/render_cron.sh once per row of deploy/backup-clusters.conf
+## into the @CLUSTER_BLOCKS@ line of deploy/cron.d/manta-trading-backup. Lines
+## starting `##` are template comments and are not rendered.
+# cluster @CLUSTER@
+*/30 * * * * @CRON_USER@ @CHECKOUT@/scripts/backup_health_cron.sh --env-file @ENV_FILE@ --url-key @URL_KEY@ --pgdata @PGDATA@ --wal-dir @CLUSTER_ROOT@/wal --stamp @CLUSTER_ROOT@/wal-offsite.stamp --stale-after @STALE_AFTER@ --system-stamp @HOST_ROOT@/system-backup.stamp --base-dir @CLUSTER_ROOT@/base --flag @CLUSTER_ROOT@/ARCHIVE-BROKEN --stale-flag @CLUSTER_ROOT@/BACKUP-STALE --log @CLUSTER_ROOT@/backup-health.log >/dev/null 2>&1
+@PUSH_SCHEDULE@ @CRON_USER@ @CHECKOUT@/scripts/sync_wal_offsite.sh --wal-dir @CLUSTER_ROOT@/wal --remote @CLUSTER_REMOTE@/wal --stamp @CLUSTER_ROOT@/wal-offsite.stamp --timeout @PUSH_TIMEOUT@ --lock @CLUSTER_ROOT@/wal-offsite.lock >> @CLUSTER_ROOT@/wal-offsite.log 2>&1
+@METADATA_CRON@ @CRON_USER@ @CHECKOUT@/scripts/cron_nightly_metadata.sh --env-file @ENV_FILE@ --url-key @URL_KEY@ --remote @CLUSTER_REMOTE@ --dest @CLUSTER_ROOT@/metadata >> @CLUSTER_ROOT@/metadata.log 2>&1
+@WEEKLY_CRON@ @CRON_USER@ @CHECKOUT@/scripts/cron_weekly_backup.sh --env-file @ENV_FILE@ --url-key @URL_KEY@@REPLICATION_HOST_ARG@ --backup-root @CLUSTER_ROOT@ --base-dir @CLUSTER_ROOT@/base --wal-dir @CLUSTER_ROOT@/wal --keep-days @KEEP_DAYS@ --health-flag @CLUSTER_ROOT@/ARCHIVE-BROKEN --remote-wal @CLUSTER_REMOTE@/wal --remote-base @CLUSTER_REMOTE@/base --stamp @CLUSTER_ROOT@/wal-offsite.stamp --lock @CLUSTER_ROOT@/wal-offsite.lock --armed @CLUSTER_ROOT@/RECONCILE-ARMED >> @CLUSTER_ROOT@/base.log 2>&1

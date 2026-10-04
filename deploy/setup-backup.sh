@@ -35,6 +35,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 # shellcheck source=lib/env_value.sh
 . "$LIB_DIR/env_value.sh"
+# shellcheck source=lib/backup_clusters.sh
+. "$LIB_DIR/backup_clusters.sh"
 
 # --- Constants: the one definition of every number, name, and path -----------
 WAL_OFFSITE_INTERVAL_MIN=60   # renders the push schedule, --stale-after (3x), --timeout (-1)
@@ -49,6 +51,8 @@ TIMESHIFT_COUNT_WEEKLY=2
 TIMESHIFT_EXCLUDES=('/home/manta/**' '/var/lib/postgresql/**' '/var/lib/libvirt/**' '/root/**')
 TIMESHIFT_CONFIG=/etc/timeshift/timeshift.json
 CRON_TEMPLATE="$SCRIPT_DIR/cron.d/manta-trading-backup"
+CRON_CLUSTER_TEMPLATE="$SCRIPT_DIR/cron.d/manta-trading-backup.cluster"
+CLUSTER_TABLE="$SCRIPT_DIR/backup-clusters.conf"
 CRON_TARGET=/etc/cron.d/manta-trading-backup
 RESTIC_PACKAGE=restic
 RESTIC_PREFIX=system
@@ -95,7 +99,6 @@ if [ "$CHECK" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
 fi
 
 WAL_DIR="$BACKUP_ROOT/wal"
-PGDATA="$PG_DATA_ROOT/$CLUSTER"
 PG_CONF="$PG_CONF_ROOT/$CLUSTER/postgresql.conf"
 ARCHIVE_COMMAND=${ARCHIVE_COMMAND_TEMPLATE//@WAL_DIR@/$WAL_DIR}
 BUCKET=$(env_value "$ENV_FILE" MT_BACKUP_S3_BUCKET)
@@ -185,9 +188,13 @@ fi
 # --- Step 5: cron.d -------------------------------------------------------------
 step "Step 5/8: $CRON_TARGET"
 RENDERED=$(mktemp); trap 'rm -f "$RENDERED"' EXIT
-"$LIB_DIR/render_cron.sh" --template "$CRON_TEMPLATE" --interval "$WAL_OFFSITE_INTERVAL_MIN" \
-  --checkout "$CHECKOUT" --env-file "$ENV_FILE" --backup-root "$BACKUP_ROOT" --cron-user "$CRON_USER" \
-  --pgdata "$PGDATA" --keep-days "$KEEP_DAYS" --remote-prefix "$REMOTE_PREFIX" --restic-prefix "$RESTIC_PREFIX" \
+backup_clusters_load "$CLUSTER_TABLE" || die "cluster table rejected: $CLUSTER_TABLE"
+PGDATA_ARGS=()
+for c in "${BC_CLUSTER[@]}"; do PGDATA_ARGS+=(--pgdata "$c=$PG_DATA_ROOT/$c"); done
+"$LIB_DIR/render_cron.sh" --template "$CRON_TEMPLATE" --cluster-template "$CRON_CLUSTER_TEMPLATE" \
+  --clusters "$CLUSTER_TABLE" --interval "$WAL_OFFSITE_INTERVAL_MIN" \
+  --checkout "$CHECKOUT" --env-file "$ENV_FILE" --host-root "$BACKUP_ROOT" --cron-user "$CRON_USER" \
+  "${PGDATA_ARGS[@]}" --keep-days "$KEEP_DAYS" --remote-prefix "$REMOTE_PREFIX" --restic-prefix "$RESTIC_PREFIX" \
   --out "$RENDERED"
 cron_ok() { cmp -s "$RENDERED" "$CRON_TARGET"; }
 cron_install() { install -m 0644 -o root -g root "$RENDERED" "$CRON_TARGET"; }

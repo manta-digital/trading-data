@@ -238,10 +238,13 @@ class TestSetupCheckMode:
         assert "--repo-prefix system-accept " in subprocess.run(
             [
                 str(_LIB / "render_cron.sh"),
-                "--template", str(_TEMPLATE), "--interval", "60",
+                "--template", str(_TEMPLATE),
+                "--cluster-template", str(_CLUSTER_TEMPLATE),
+                "--clusters", str(_TABLE), "--interval", "60",
                 "--checkout", str(host["checkout"]), "--env-file", str(host["env"]),
-                "--backup-root", str(host["root"]), "--cron-user", "manta",
-                "--pgdata", "/x", "--keep-days", "7", "--remote-prefix", "b2:bucket-x",
+                "--host-root", str(host["root"]), "--cron-user", "manta",
+                "--pgdata", "17/main=/x", "--pgdata", "17/tick=/y",
+                "--keep-days", "7", "--remote-prefix", "b2:bucket-x",
                 "--restic-prefix", "system-accept",
             ],
             capture_output=True, text=True,
@@ -520,24 +523,47 @@ class TestPgSettings:
 # --- deploy/lib/render_cron.sh -------------------------------------------------
 
 _RENDER = _LIB / "render_cron.sh"
+_CLUSTER_TEMPLATE = _DEPLOY / "cron.d" / "manta-trading-backup.cluster"
+_TABLE = _DEPLOY / "backup-clusters.conf"
+_PRE227 = Path(__file__).parent / "fixtures" / "cron_main_pre227.txt"
+# Production's values, so the 17/main render compares with the installed file.
+_PROD_CHECKOUT = "/home/manta/source/repos/manta/trading-data"
+_PROD_BUCKET = "b2:manta.trading.data"
+_PROD_PGDATA = {
+    "17/main": "/var/lib/postgresql/17/main",
+    "17/tick": "/data/postgresql/17/tick",
+}
+# The argument pairs 227 adds to production's lines (TD3).
+_NEW_MAIN_ARGS = (
+    " --url-key MT_TIMESCALE_MAINTENANCE_URL",
+    " --replication-host 127.0.0.1",
+    f" --remote {_PROD_BUCKET} ",
+)
 
 
 def _render(
-    interval: str, template: Path = _TEMPLATE, out: Path | None = None
+    interval: str,
+    template: Path = _TEMPLATE,
+    out: Path | None = None,
+    table: Path = _TABLE,
+    pgdata: dict[str, str] = _PROD_PGDATA,
 ) -> subprocess.CompletedProcess[str]:
     args = [
         str(_RENDER),
         "--template", str(template),
+        "--cluster-template", str(_CLUSTER_TEMPLATE),
+        "--clusters", str(table),
         "--interval", interval,
-        "--checkout", "/home/u/trading-data",
-        "--env-file", "/home/u/trading-data/.env",
-        "--backup-root", "/data/backup",
+        "--checkout", _PROD_CHECKOUT,
+        "--env-file", f"{_PROD_CHECKOUT}/.env",
+        "--host-root", "/data/backup",
         "--cron-user", "manta",
-        "--pgdata", "/var/lib/postgresql/17/main",
         "--keep-days", "7",
-        "--remote-prefix", "b2:bucket-x",
+        "--remote-prefix", _PROD_BUCKET,
         "--restic-prefix", "system",
     ]  # fmt: skip
+    for cluster, path in pgdata.items():
+        args += ["--pgdata", f"{cluster}={path}"]
     if out is not None:
         args += ["--out", str(out)]
     return _run(args)
@@ -550,6 +576,28 @@ def _jobs(text: str) -> list[str]:
     ]  # fmt: skip
 
 
+def _block(text: str, cluster: str) -> list[str]:
+    """The job lines after `# cluster <name>` up to the next comment."""
+    lines = text.splitlines()
+    start = lines.index(f"# cluster {cluster}") + 1
+    block = []
+    for line in lines[start:]:
+        if line.startswith("#"):
+            break
+        block.append(line)
+    return block
+
+
+def _host_block(text: str) -> list[str]:
+    return [j for j in _jobs(text) if " root " in j]
+
+
+def _strip_new_args(line: str) -> str:
+    for arg in _NEW_MAIN_ARGS:
+        line = line.replace(arg, " " if arg.endswith(" ") else "")
+    return line
+
+
 class TestRenderCron:
     def test_hourly_interval(self, tmp_path: Path) -> None:
         out = tmp_path / "cron"
@@ -557,30 +605,75 @@ class TestRenderCron:
         assert result.returncode == 0, result.stderr
         text = out.read_text()
         jobs = _jobs(text)
-        assert len(jobs) == 6
-        assert [j.split()[5] for j in jobs] == [
-            "manta",
-            "manta",
-            "manta",
-            "manta",
-            "root",
-            "root",
-        ]
+        assert len(jobs) == 10  # 4 per cluster, 2 for the host
+        assert [j.split()[5] for j in jobs] == ["manta"] * 8 + ["root"] * 2
         push = [j for j in jobs if "sync_wal_offsite.sh" in j][0]
         assert push.startswith("0 * * * * manta ")
         assert "--timeout 59 " in push
-        assert "--remote b2:bucket-x/wal " in push
         health = [j for j in jobs if "backup_health_cron.sh" in j][0]
         assert "--stale-after 180 " in health
-        assert "--pgdata /var/lib/postgresql/17/main " in health
-        assert "/home/u/trading-data/scripts/backup_health_cron.sh" in health
-        assert "--env-file /home/u/trading-data/.env" in health
-        weekly = [j for j in jobs if "cron_weekly_backup.sh" in j][0]
-        assert "--keep-days 7 " in weekly
-        assert "--armed /data/backup/RECONCILE-ARMED" in weekly
-        assert "@" not in text
+        assert "@" not in text.replace("@192", "")
         assert "%" not in text
         assert text.endswith("\n") and not text.endswith("\n\n")
+
+    def test_block_order(self) -> None:
+        text = _render("60").stdout
+        comments = [x for x in text.splitlines() if x.startswith("# cluster ")]
+        assert comments == ["# cluster 17/main", "# cluster 17/tick"]
+        assert text.index("# cluster 17/tick") < text.index("# host:")
+        assert "##" not in text, "template comments must not be rendered"
+
+    def test_production_lines_gain_only_the_new_arguments(self) -> None:
+        """TD3: strip the three new argument pairs from the 17/main and host
+        lines; the result is the installed pre-227 file, line for line."""
+        text = _render("60").stdout
+        rendered = _block(text, "17/main") + _host_block(text)
+        assert [_strip_new_args(x) for x in rendered] == (
+            _PRE227.read_text().splitlines()
+        )
+
+    def test_production_blocks_never_name_tick(self) -> None:
+        text = _render("60").stdout
+        for line in _block(text, "17/main") + _host_block(text):
+            assert "17-tick" not in line
+
+    def test_tick_block(self) -> None:
+        tick = _block(_render("60").stdout, "17/tick")
+        assert len(tick) == 4
+        health, push, metadata, weekly = tick
+        for line in tick:
+            paths = [w for w in line.split() if w.startswith("/data/")]
+            assert paths
+            for path in paths:
+                assert path.startswith("/data/backup/17-tick/") or path in (
+                    "/data/backup/17-tick",
+                    "/data/backup/system-backup.stamp",
+                    "/data/postgresql/17/tick",
+                ), path
+            assert "--replication-host" not in line
+        assert "--url-key MT_TICK_MAINTENANCE_URL " in health
+        assert "--system-stamp /data/backup/system-backup.stamp " in health
+        assert "--pgdata /data/postgresql/17/tick " in health
+        assert f"--remote {_PROD_BUCKET}/17-tick/wal " in push
+        assert metadata.startswith("15 2 * * * manta ")
+        assert f"--remote {_PROD_BUCKET}/17-tick --dest" in metadata
+        assert weekly.startswith("30 2 * * 0 manta ")
+        assert "--url-key MT_TICK_MAINTENANCE_URL --backup-root" in weekly
+        assert f"--remote-base {_PROD_BUCKET}/17-tick/base " in weekly
+
+    def test_missing_pgdata_for_a_row_refused(self) -> None:
+        result = _render("60", pgdata={"17/main": "/x"})
+        assert result.returncode == 2
+        assert "no --pgdata for cluster 17/tick" in result.stderr
+        assert result.stdout == ""
+
+    def test_malformed_table_refused(self, tmp_path: Path) -> None:
+        table = tmp_path / "bad.conf"
+        table.write_text("17/main MT_A /data/x - -\n")
+        result = _render("60", table=table)
+        assert result.returncode == 1
+        assert "line 1:" in result.stderr
+        assert result.stdout == ""
 
     def test_fifteen_minute_interval(self) -> None:
         result = _render("15")
@@ -616,6 +709,11 @@ class TestRenderCron:
         result = _render("60", template=tpl)
         assert result.returncode == 1
         assert "%" in result.stderr
+
+    def test_ampersand_survives_substitution(self) -> None:
+        """bash 5.2+ patsub_replacement: `2>&1` must not become `2>@X@1`."""
+        for job in _jobs(_render("60").stdout):
+            assert job.endswith("2>&1"), job
 
 
 # --- deploy/lib/timeshift_merge.sh ---------------------------------------------
