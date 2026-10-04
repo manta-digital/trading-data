@@ -259,8 +259,6 @@ def test_recorded_job_parses() -> None:
         end=date(2025, 1, 1),
     )
     assert job.ts_expiration == datetime(2025, 2, 22, 5, 18, 12, 939863, tzinfo=UTC)
-    assert job.ts_process_done == datetime(
-        2025, 1, 23, 5, 18, 12, 939863, tzinfo=UTC
-    )
+    assert job.ts_process_done == datetime(2025, 1, 23, 5, 18, 12, 939863, tzinfo=UTC)
     assert job.cost_usd == Decimal("36.80458068847656")
     assert (job.record_count, job.billed_size) == (17_642_240, 1_411_379_200)

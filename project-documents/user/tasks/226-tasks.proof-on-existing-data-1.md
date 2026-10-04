@@ -14,7 +14,7 @@ projectState: >
   exist.
 dateCreated: 20261003
 dateUpdated: 20261003
-status: in_progress
+status: complete
 ---
 
 # Tasks: Proof on Existing Data
@@ -320,7 +320,7 @@ each one. Every number in the go/no-go names its report file.
         table, and the spread share for each tier (the 13.1 spreads decision
         reads it).
 
-- [ ] **5.3 `jobs` step (effort 2)**
+- [x] **5.3 `jobs` step (effort 2)**
   - [x] Read every account job record through `ITickMetadataProvider`
         (`batch_jobs_since`; free). Tabulate submit → done time per job.
   - [x] Success: the report lists every job with its duration and names the
@@ -455,17 +455,17 @@ each one. Every number in the go/no-go names its report file.
         clearance for the minute pass (232 measures that).
   - [x] Success: step written; verdict logic unit tested on synthetic numbers.
 
-- [ ] **7.5 Run `contention` (effort 2)**
-  - [ ] Start it in the background. State the current UTC and local time and
+- [x] **7.5 Run `contention` (effort 2)** (contention ran 20:48-23:25 UTC; report committed; verdict none measured at 2 ingest workers)
+  - [x] Start it in the background. State the current UTC and local time and
         the next Kalshi firing in the message to the PM.
-  - [ ] While it runs, do edit-only work that loads nothing and does not touch
+  - [x] While it runs, do edit-only work that loads nothing and does not touch
         the proof database: Sections 8.1 and 8.2 (part 2). Run no test tier,
         no ingest and no migration until the report is written, because they
         would load the host and distort the measurement, and 8.4 mutates the
         proof database the loop is using.
-  - [ ] When it finishes, confirm the report, commit it, and record the
+  - [x] When it finishes, confirm the report, commit it, and record the
         verdict. Commit: `feat: add proof harness contention step`.
-  - [ ] Success: a report with two overlapped and one solo Kalshi firing, and
+  - [x] Success: a report with two overlapped and one solo Kalshi firing, and
         a verdict.
 
 ---

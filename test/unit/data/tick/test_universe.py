@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from manta_trading.data.tick.constants import SType, TickSchema
+from manta_trading.data.tick.constants import STORED_TIERS, SType, TickSchema
 from manta_trading.data.tick.universe import (
     TICK_UNIVERSE,
     TickUniverseEntry,
@@ -25,10 +25,14 @@ GOOD = TickUniverseEntry(
 )
 
 
-def test_the_shipped_universe_validates_and_has_no_tier() -> None:
+def test_the_shipped_universe_validates_with_a_bounded_tier_range() -> None:
+    """226's go/no-go set ES's tier and the range held at it; the values are
+    the PM's to change, so this checks their shape, not the values."""
     validate_universe(TICK_UNIVERSE)
     assert [e.product for e in TICK_UNIVERSE] == ["ES"]
-    assert TICK_UNIVERSE[0].tier is None
+    es = TICK_UNIVERSE[0]
+    assert es.tier in STORED_TIERS
+    assert es.start is not None and es.end is not None and es.start < es.end
     assert TICK_UNIVERSE[0].symbols == ("ES.FUT",)
     assert TICK_UNIVERSE[0].stype_in is SType.PARENT
 

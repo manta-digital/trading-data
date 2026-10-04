@@ -7,7 +7,7 @@ dependencies: [223, 224, 225, 923]
 interfaces: [227, 228, 229, 230, 231, 232, 233]
 dateCreated: 20261003
 dateUpdated: 20261003
-status: not_started
+status: complete
 ---
 
 # Slice Design: proof-on-existing-data
@@ -807,11 +807,21 @@ in a password).
 
    ```bash
    pg_lsclusters
-   psql "$MT_TICK_MAINTENANCE_URL" -Atc "SELECT extversion FROM pg_extension WHERE extname='timescaledb'"
+   psql "$(. deploy/lib/env_value.sh; env_value .env MT_TICK_MAINTENANCE_URL)" \
+     -Atc "SELECT default_version FROM pg_available_extensions WHERE name='timescaledb'"
    ```
 
    Expected: two clusters (`main` 5432, `tick` 5433), both online, and
    `2.29.1`.
+
+   **Result 2026-10-03:** PASS on the second run (`2026-10-03-226-tick-provision-20261003T202737Z.log`).
+   The first run failed its login check: a connection dialled to 127.0.1.1
+   arrives from 127.0.0.1, so `pg_hba.conf` now takes the loopback route's
+   source address (commit `e3e3b90`). `--check` afterwards: `0 keys added`.
+   Both clusters online; TimescaleDB 2.29.1. `17/main`'s configuration
+   checksums were unchanged before and after. `pg_lsclusters` run as
+   `manta` shows the tick cluster's owner as `<unknown>` (its data directory
+   is mode 0700); as root it reads `postgres`.
 
 2. **Rebuild the proof database and check the pipeline.**
 
@@ -822,6 +832,9 @@ in a password).
    Expected: 78 tier units ingested, 0 failed, 27,691,412 rows, coverage
    `ok` on every session, and the slowest unit ≤ 120 s. The report is
    written to `user/notes/<date>-226-proof-rebuild.md`.
+
+   **Result:** 78/78 ingested, 0 failed, 27,691,412 rows, slowest unit 3.9 s,
+   ingest 64 s, coverage ok on both ranges, estimate plans nothing.
 
 3. **Measure.** Each step writes its own report:
 
@@ -834,6 +847,13 @@ in a password).
    Expected: mapping `100.00 %`, each table in Technical Decision 3
    filled in, and the layout step naming A or B by its rule.
 
+   **Result:** run in the order mapping, size, jobs, workers, batch, queries,
+   layouts. Mapping 100.00 %; layout A. `jobs` needs no tick cluster (free
+   metadata calls) and lists jobs submitted since 2024-09-01: three earlier
+   XNAS equities jobs have off-boundary ranges the job parser refuses.
+   `layouts` leaves the table decompressed with layout B's settings until
+   `tick_007` is applied (8.4).
+
 4. **Contention.** Started in the background; it waits for the next Kalshi
    firing and spans three.
 
@@ -845,16 +865,28 @@ in a password).
    duration set against the week's 133–324 s, and a verdict: `none
    measured` or `measurable contention`.
 
+   **Result:** 20:48–23:25 UTC; overlapped 298 s and 286 s, solo 286 s;
+   `none measured at 2 ingest workers`; no guard tripped. Caveat: nothing in
+   the tick track may change in the checkout while it runs, because each
+   loop iteration launches `mt data tick ingest`, whose preflight requires
+   every tick migration to be applied. Interrupting the last iteration
+   leaves only whole units (20,781,939 rows afterwards).
+
 5. **Compressed-chunk tests and the bad-header fix.**
 
    ```bash
-   uv run pytest test/integration/data/test_tick_compressed.py \
-     test/integration/data/test_tick_bad_header.py -v
+   uv run python scripts/run_tests.py integration -- \
+     test/integration/data/test_tick_compressed.py \
+     test/integration/data/test_tick_columnstore_migration.py \
+     test/integration/data/test_tick_bad_header.py
    ```
 
    Expected: all pass. `test_tick_compressed.py` covers the five rows of
    Technical Decision 5; `test_tick_bad_header.py` covers verify and
    ingest continuing past a bad-header unit.
+
+   **Result:** all pass, plus delivery and adopt continuing past a refused
+   header (`test_tick_adopt.py`), added at the PM's direction.
 
 6. **Production rebuild on the chosen layout.**
 
@@ -876,6 +908,11 @@ in a password).
    safe to re-run after an interruption: adopted jobs are skipped, and
    ingested units are not selected again.
 
+   **Result:** migrate 1.0 s, six adopts 151.5 s, estimate 2.1 s (nothing
+   planned), ingest 57.9 s: 212.5 s in all
+   (`2026-10-03-226-proof-production-rebuild.md`). `final`: 14/14 chunks
+   compressed (5.70 → 0.65 GiB), Q1–Q4 ≤ 258 ms, coverage ok.
+
 7. **Status reads caught up.**
 
    ```bash
@@ -888,6 +925,15 @@ in a password).
    and do not count toward caught up. `coverage --start 2024-08-30 --end
    2025-01-01` reads `ok` on every session of both ranges (Technical
    Decision 9).
+
+   **Result:** `verdict: nothing_to_buy`; `tier: tbbo, wanted from
+   2024-11-02`, `caught up: yes`; coverage ok on all 87 sessions. Two
+   corrections were needed: the wanted start is 2024-11-02 (the session
+   dated 11-01 opens on 10-31, which is not held), and 225's `caught_up()`
+   judged every session in scope, not the wanted range only (commit
+   `8a9c47e`). Status still counts 2 `missing` and 1 `edge unknown`: edge
+   sessions of the held ranges that touch unbought days, outside the wanted
+   range.
 
 8. **Tear down the proof database.**
 
@@ -903,9 +949,15 @@ in a password).
    file each job's `manifest.json` lists against its size and `sha256:`
    hash (`sha256sum -c` cannot parse that JSON).
 
+   **Result:** dropped; `postgres`, `template0`, `template1`,
+   `trading_tick`; 6 jobs, 170 files, 0 problems.
+
 9. **Read the go/no-go.** `user/analysis/226-analysis.tick-proof-go-no-go.md`
    has a recommendation for each of the four decisions, and every number in
    it names its report.
+
+   **Result:** GO; tier tbbo, spreads included, GC follows at tbbo, Standard
+   plan a technical go.
 
 ## Risk Assessment
 

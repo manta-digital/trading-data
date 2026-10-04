@@ -67,7 +67,7 @@ status: in_progress
 
    These read only the manifest, the ledger, and raw counts, never an aggregate. Dependencies: [221, 224]. Risk: High. Effort: 4/5
 
-7. [ ] **(226) Proof on Existing Data** — The proof runs first on the two adopted free-credit ES jobs: `trades` 2024-08-30 → 09-29 (10.0 M records) and `tbbo` 2024-11-01 → 12-31 (17.6 M records). Both ranges contain a quarterly roll, the September and December 2024 ES rolls. No purchase is needed. The first data under the Standard plan follows the go/no-go, through the manual pass. It measures:
+7. [x] **(226) Proof on Existing Data** — The proof runs first on the two adopted free-credit ES jobs: `trades` 2024-08-30 → 09-29 (10.0 M records) and `tbbo` 2024-11-01 → 12-31 (17.6 M records). Both ranges contain a quarterly roll, the September and December 2024 ES rolls. No purchase is needed. The first data under the Standard plan follows the go/no-go, through the manual pass. It measures:
    - bytes per record by tier, and compressed bytes per row;
    - ingest rate, against the throughput pass/fail restated for on-demand acquisition: a day of sessions far faster than a day of market time, and a month within an operator's working session;
    - typical batch-job duration and poll interval;
