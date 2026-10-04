@@ -393,3 +393,21 @@ def test_archive_check_fails_one_changed_byte(tmp_path: Path) -> None:
     (job / "glbx-mdp3-20240903.trades.dbn.zst").write_bytes(b"tickz")
     [check] = check_job(job)
     assert check.problem == "SHA-256 differs from the listed hash"
+
+
+def test_a_dying_peak_sampler_fails_its_block(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Peaks from a dead sampler would read as valid but understated."""
+    from proof_226 import host
+
+    def boom() -> tuple[int, int, int]:
+        raise OSError("stat gone")
+
+    monkeypatch.setattr(host, "cpu_times", boom)
+    with (
+        pytest.raises(RuntimeError, match="peak sampler died") as caught,
+        host.PeakSampler(tmp_path, interval=0.01),
+    ):
+        pass
+    assert isinstance(caught.value.__cause__, OSError)

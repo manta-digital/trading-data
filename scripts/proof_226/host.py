@@ -6,11 +6,14 @@ cluster's processes are found through its systemd unit's cgroup.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
+
+logger = logging.getLogger(__name__)
 
 TICK_UNIT = "postgresql@17-tick.service"
 CGROUP_ROOT = Path("/sys/fs/cgroup")
@@ -84,6 +87,8 @@ class PeakSampler:
     peak_cluster_rss: int = 0
     _stop: threading.Event = field(default_factory=threading.Event)
     _thread: threading.Thread | None = None
+    #: Set by a sampler that died; ``__exit__`` raises it after ``join``.
+    _error: Exception | None = None
 
     def __enter__(self) -> PeakSampler:
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -99,8 +104,19 @@ class PeakSampler:
         self._stop.set()
         assert self._thread is not None
         self._thread.join()
+        if self._error is not None and exc is None:
+            raise RuntimeError("peak sampler died; peaks are understated") from (
+                self._error
+            )
 
     def _loop(self) -> None:
+        try:
+            self._sample()
+        except Exception as exc:  # thread boundary: record it for __exit__
+            logger.exception("peak sampler died")
+            self._error = exc
+
+    def _sample(self) -> None:
         busy0, _, total0 = cpu_times()
         while not self._stop.wait(self.interval):
             busy, _, total = cpu_times()
