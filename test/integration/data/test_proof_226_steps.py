@@ -45,10 +45,10 @@ async def test_query_set_and_size_queries_run_on_real_slices(
     with psycopg.connect(url) as conn:
         targets = queries.pick_targets(conn)
         results = queries.run_query_set(conn, targets)
-        rows_by_chunk = size._query(conn, size._ROWS_BY_CHUNK)
-        chunk_bytes = {c: int(b) for c, b in size._query(conn, size._CHUNK_BYTES)}
-        class_rows = size._query(conn, size._CLASS_ROWS)
-        instrument_rows = size._query(conn, size._INSTRUMENT_ROWS)
+        rows_by_chunk = size.query_rows(conn, size.ROWS_BY_CHUNK)
+        chunk_bytes = {c: int(b) for c, b in size.query_rows(conn, size.CHUNK_BYTES)}
+        class_rows = size.query_rows(conn, size.CLASS_ROWS)
+        instrument_rows = size.query_rows(conn, size.INSTRUMENT_ROWS)
 
     assert [t.tier for t in targets] == ["tbbo", "trades"]
     assert len(results) == len(targets) * len(queries.QUERIES)

@@ -35,7 +35,7 @@ SPREAD_CLASSES = tuple(
 )
 _TIERS = sorted(t.value for t in STORED_TIERS)
 
-_ROWS_BY_CHUNK = """
+ROWS_BY_CHUNK = """
 SELECT trade.tableoid::regclass::text AS chunk
      , request.schema
      , count(*)
@@ -44,16 +44,16 @@ SELECT trade.tableoid::regclass::text AS chunk
   JOIN tick_request AS request USING (request_id)
  GROUP BY 1, 2
 """
-_CHUNK_BYTES = """
+CHUNK_BYTES = """
 SELECT format('%I.%I', chunk_schema, chunk_name)::regclass::text
      , table_bytes + index_bytes + toast_bytes
   FROM chunks_detailed_size('tick_trade')
 """
-_INSTRUMENT_ROWS = """
+INSTRUMENT_ROWS = """
 SELECT tableoid::regclass::text, instrument_id, count(*)
   FROM tick_trade GROUP BY 1, 2
 """
-_CLASS_ROWS = """
+CLASS_ROWS = """
 SELECT request.schema
      , coalesce(definition.instrument_class, '(none)')
      , count(*)
@@ -68,7 +68,7 @@ SELECT request.schema
 """
 
 
-def _query(conn: psycopg.Connection[Any], sql: str) -> list[tuple[Any, ...]]:
+def query_rows(conn: psycopg.Connection[Any], sql: str) -> list[tuple[Any, ...]]:
     return conn.execute(sql).fetchall()  # type: ignore[arg-type]
 
 
@@ -131,10 +131,10 @@ def run() -> Path:
     urls = load_proof_urls()
     report = Report("size", "Proof: storage size, skew and spread share (slice 226)")
     with psycopg.connect(urls.db_url) as conn:
-        rows_by_chunk = _query(conn, _ROWS_BY_CHUNK)
-        chunk_bytes = {c: int(b) for c, b in _query(conn, _CHUNK_BYTES)}
-        instrument_rows = _query(conn, _INSTRUMENT_ROWS)
-        class_rows = _query(conn, _CLASS_ROWS)
+        rows_by_chunk = query_rows(conn, ROWS_BY_CHUNK)
+        chunk_bytes = {c: int(b) for c, b in query_rows(conn, CHUNK_BYTES)}
+        instrument_rows = query_rows(conn, INSTRUMENT_ROWS)
+        class_rows = query_rows(conn, CLASS_ROWS)
     rows, table, mixed = tier_rows_and_bytes(rows_by_chunk, chunk_bytes)
     archive, record = _archive(urls.db_url)
     report.add("## Bytes per record (uncompressed table)", "")

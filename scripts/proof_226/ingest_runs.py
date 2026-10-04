@@ -2,7 +2,7 @@
 
 ``workers`` and ``batch`` tune constants the way 225 designed them to be
 tuned: patch the module attribute, run the shipped ingest. The ingest is the
-CLI's own ``_ingest`` (same inputs as ``mt data tick ingest``) on settings
+CLI's own ``ingest_units`` (same inputs as ``mt data tick ingest``) on settings
 whose tick URLs are the proof database's.
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 
 import psycopg
 
-from manta_trading.cli.commands.tick_store_cmds import _ingest
+from manta_trading.cli.commands.tick_store_cmds import ingest_units
 from manta_trading.config import Settings
 from manta_trading.data.tick import constants
 from manta_trading.data.tick.pass_contract import PassResult
@@ -61,7 +61,7 @@ def ingest(urls: ProofUrls, unit_ids: tuple[int, ...] = ()) -> IngestRun:
     settings = Settings(
         tick_db_url=urls.db_url, tick_maintenance_url=urls.maintenance_url
     )
-    result: PassResult = asyncio.run(_ingest(settings, unit_ids))
+    result: PassResult = asyncio.run(ingest_units(settings, unit_ids))
     [report] = result.reports
     summary = report.summary
     units = [u for u in summary["units"] if "duration_seconds" in u]

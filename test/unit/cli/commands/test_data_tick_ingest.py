@@ -92,7 +92,7 @@ def _returning(result: PassResult) -> Any:
         calls.append(unit_ids)
         return result
 
-    return patch.object(tick_store_cmds, "_ingest", fake), calls
+    return patch.object(tick_store_cmds, "ingest_units", fake), calls
 
 
 @pytest.mark.parametrize("outcome", list(TickOutcome))

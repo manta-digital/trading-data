@@ -99,8 +99,8 @@ def compressed_bytes_per_row(
     conn: psycopg.Connection[Any],
 ) -> tuple[dict[str, float], float]:
     """Compressed bytes per row by tier, and over the whole table."""
-    rows_by_chunk = size._query(conn, size._ROWS_BY_CHUNK)
-    after = {c: int(b) for c, b in size._query(conn, _COMPRESSED_BYTES)}
+    rows_by_chunk = size.query_rows(conn, size.ROWS_BY_CHUNK)
+    after = {c: int(b) for c, b in size.query_rows(conn, _COMPRESSED_BYTES)}
     rows, table, _ = size.tier_rows_and_bytes(rows_by_chunk, after)
     by_tier = {tier: table[tier] / rows[tier] for tier in sorted(table)}
     return by_tier, sum(after.values()) / sum(rows.values())

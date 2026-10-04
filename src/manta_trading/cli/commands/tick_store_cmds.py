@@ -84,7 +84,9 @@ def run_mapped[T](
         raise typer.Exit(code) from exc
 
 
-async def _ingest(settings: Settings, unit_ids: tuple[int, ...]) -> PassResult:
+async def ingest_units(settings: Settings, unit_ids: tuple[int, ...]) -> PassResult:
+    """The ingest pass ``mt data tick ingest`` runs, for callers that need its
+    ``PassResult`` (the 226 proof harness) rather than its rendering."""
     from manta_trading.data.tick import constants
     from manta_trading.data.tick.databento.dbn_file import DbnFileReader
     from manta_trading.data.tick.ingest_pass import IngestInputs, IngestPhase
@@ -132,7 +134,7 @@ def tick_ingest(
     from manta_trading.data.tick.constants import TICK_INGEST_WORKERS
 
     settings: Settings = ctx.obj["settings"]
-    result = run_mapped(lambda: _ingest(settings, tuple(unit_ids)), json_output)
+    result = run_mapped(lambda: ingest_units(settings, tuple(unit_ids)), json_output)
     exit_code = EXIT_BY_OUTCOME[result.outcome]
     print_ingest(result, exit_code, TICK_INGEST_WORKERS, json_mode=json_output)
     if exit_code != EXIT_OK:
