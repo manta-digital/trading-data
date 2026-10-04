@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 MAIN = "17/main"
@@ -29,13 +30,19 @@ class StepFailed(RuntimeError):
     """A step saw something other than what it expected."""
 
 
+class StepStatus(StrEnum):
+    NOT_RUN = "not run"
+    PASS = "PASS"
+    FAIL = "FAIL"
+
+
 @dataclass
 class Step:
     number: int
     title: str
     expected: str = ""
     seen: list[str] = field(default_factory=list)
-    status: str = "not run"
+    status: StepStatus = StepStatus.NOT_RUN
 
 
 def _job_lines(lines: list[str]) -> list[str]:
@@ -48,7 +55,7 @@ def block_lines(text: str, name: str) -> list[str]:
     marker = f"{CLUSTER_MARKER}{name}"
     if marker not in lines:
         raise StepFailed(f"no '{marker}' block in the cron file")
-    block = []
+    block: list[str] = []
     for line in lines[lines.index(marker) + 1 :]:
         if line.startswith("#"):
             break
@@ -61,7 +68,8 @@ def block_commands(text: str, name: str) -> dict[str, str]:
     commands: dict[str, str] = {}
     for line in block_lines(text, name):
         match = _JOB_LINE.match(line)
-        assert match is not None
+        if match is None:  # block_lines keeps only job lines
+            raise StepFailed(f"not a cron job line: {line}")
         for job, script in JOBS.items():
             if f"/scripts/{script} " in match.group(2):
                 commands[job] = match.group(2)
@@ -81,19 +89,32 @@ def production_lines(text: str) -> list[str]:
     return block_lines(text, MAIN) + host
 
 
-def strip_new_args(line: str, url_key: str, bucket_remote: str) -> str:
+@dataclass(frozen=True)
+class NewArgs:
+    """The values 227 adds to production's lines: its table row's url_key and
+    replication_host, and the bucket root its metadata job now names."""
+
+    url_key: str
+    replication_host: str | None
+    bucket_remote: str
+
+
+def strip_new_args(line: str, args: NewArgs) -> str:
     """Remove the argument pairs 227 adds to production's lines (TD3)."""
-    line = line.replace(f" --url-key {url_key}", "")
-    line = line.replace(" --replication-host 127.0.0.1", "")
-    return line.replace(f" --remote {bucket_remote} --dest", " --dest")
+    line = line.replace(f" --url-key {args.url_key}", "")
+    if args.replication_host is not None:
+        line = line.replace(f" --replication-host {args.replication_host}", "")
+    return line.replace(f" --remote {args.bucket_remote} --dest", " --dest")
 
 
-def production_changes(
-    old: str, new: str, url_key: str, bucket_remote: str
-) -> list[str]:
-    """How production's stripped new lines differ from its old ones (empty: none)."""
-    before = production_lines(old)
-    after = [strip_new_args(x, url_key, bucket_remote) for x in production_lines(new)]
+def production_changes(old: str, new: str, args: NewArgs) -> list[str]:
+    """How production's lines differ once both sides lose the new arguments.
+
+    Both sides are stripped: on a re-run the "old" file is already the
+    rendered one (review F001).
+    """
+    before = [strip_new_args(x, args) for x in production_lines(old)]
+    after = [strip_new_args(x, args) for x in production_lines(new)]
     if len(before) != len(after):
         return [f"production job count {len(before)} -> {len(after)}"]
     return [f"- {b}\n+ {a}" for b, a in zip(before, after, strict=True) if b != a]
@@ -104,7 +125,7 @@ def setup_not_ok(output: str, allowed: tuple[str, ...]) -> list[str]:
 
     A missing lifecycle rule is never counted (TD10: storage, not data).
     """
-    bad = []
+    bad: list[str] = []
     for line in output.splitlines():
         if line.split(" ", 1)[0] not in ("DRIFT", "MISSING", "PENDING"):
             continue

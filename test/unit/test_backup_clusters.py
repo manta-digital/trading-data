@@ -54,6 +54,12 @@ _MALFORMED = {
     "root_outside_data": ("17/main MT_A /srv/backup - - 0 2 * * * 0 3 * * 0\n", 1),
     "bare_data_root": ("17/main MT_A /data/ - - 0 2 * * * 0 3 * * 0\n", 1),
     "bad_url_key": ("17/main mt_a /data/backup - - 0 2 * * * 0 3 * * 0\n", 1),
+    "shell_in_host": ("17/main MT_A /data/backup - h;rm 0 2 * * * 0 3 * * 0\n", 1),
+    "space_escape_in_subpath": (
+        "17/main MT_A /data/backup a$b - 0 2 * * * 0 3 * * 0\n",
+        1,
+    ),
+    "bad_cron_field": ("17/main MT_A /data/backup - - 0 2 * * x 0 3 * * 0\n", 1),
 }
 
 

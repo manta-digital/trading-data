@@ -9,6 +9,7 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NoReturn
 
 from backup_clusters import BackupCluster
 from cutover_227_helpers import CRON_FILE, MAIN, TICK, Step, StepFailed, block_commands
@@ -26,6 +27,10 @@ HOST_BACKUP_ROOT = Path("/data/backup")
 RCLONE_REMOTE = "b2"
 BUCKET_KEY = "MT_BACKUP_S3_BUCKET"
 TICK_LOCK_KEYS = (TICK_ACQUISITION_LOCK_KEY, TICK_INGEST_LOCK_KEY)
+#: Ceiling on one cron job run by the cutover. The weekly job's longest
+#: legitimate wait is its catch-up push (180 min) after the push lock
+#: (60 min); a tick base backup takes seconds at today's 677 MB.
+JOB_TIMEOUT_S = 5 * 60 * 60
 
 
 @dataclass
@@ -51,9 +56,21 @@ class Context:
 
 
 def shell(command: str, step: Step) -> subprocess.CompletedProcess[str]:
-    """Run a cron job's command as cron would (bash, as this user)."""
+    """Run a cron job's command as cron would (bash, as this user).
+
+    Bounded by JOB_TIMEOUT_S: a hung job raises TimeoutExpired, which the
+    runner reports as that step's failure.
+    """
     step.seen.append(f"$ {command}")
-    return subprocess.run(["bash", "-c", command], capture_output=True, text=True)
+    return subprocess.run(
+        ["bash", "-c", command], capture_output=True, text=True, timeout=JOB_TIMEOUT_S
+    )
+
+
+def log_tail(path: Path) -> str:
+    """The last line of a job's log, or "" when it is missing or empty."""
+    lines = path.read_text().splitlines() if path.exists() else []
+    return lines[-1] if lines else ""
 
 
 def psql(cluster_name: str, sql: str) -> str:
@@ -100,10 +117,14 @@ def tick_commands() -> dict[str, str]:
     return block_commands(CRON_FILE.read_text(), TICK)
 
 
+def fail(step: Step, message: str) -> NoReturn:
+    step.seen.append(f"FAILED: {message}")
+    raise StepFailed(message)
+
+
 def require(condition: bool, step: Step, message: str) -> None:
     if not condition:
-        step.seen.append(f"FAILED: {message}")
-        raise StepFailed(message)
+        fail(step, message)
 
 
 def record(step: Step, result: subprocess.CompletedProcess[str]) -> None:

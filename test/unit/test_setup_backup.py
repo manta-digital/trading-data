@@ -695,10 +695,21 @@ _PROD_PGDATA = {
     "17/main": "/var/lib/postgresql/17/main",
     "17/tick": "/data/postgresql/17/tick",
 }
-# The argument pairs 227 adds to production's lines (TD3).
+
+
+def _main_row() -> list[str]:
+    """17/main's tokens from the real table (comments and blanks skipped)."""
+    for raw in _TABLE.read_text().splitlines():
+        tokens = raw.split("#", 1)[0].split()
+        if tokens and tokens[0] == "17/main":
+            return tokens
+    raise AssertionError("no 17/main row")
+
+
+# The argument pairs 227 adds to production's lines (TD3), from the table.
 _NEW_MAIN_ARGS = (
-    " --url-key MT_TIMESCALE_MAINTENANCE_URL",
-    " --replication-host 127.0.0.1",
+    f" --url-key {_main_row()[1]}",
+    f" --replication-host {_main_row()[4]}",
     f" --remote {_PROD_BUCKET} ",
 )
 

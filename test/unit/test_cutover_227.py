@@ -87,6 +87,14 @@ def rendered() -> str:
     return result.stdout
 
 
+def _new_args(helpers: ModuleType) -> Any:
+    """17/main's new arguments, from the real table as the cutover reads them."""
+    from backup_clusters import TABLE_PATH, cluster
+
+    main = cluster(TABLE_PATH, "17/main")
+    return helpers.NewArgs(main.url_key, main.replication_host, BUCKET)
+
+
 # --- pure helpers ------------------------------------------------------------------
 
 
@@ -119,7 +127,21 @@ def test_strip_and_compare_accepts_the_expected_change(
     helpers: ModuleType, rendered: str
 ) -> None:
     old = FIXTURE.read_text()
-    assert helpers.production_changes(old, rendered, MAIN_KEY, BUCKET) == []
+    assert helpers.production_changes(old, rendered, _new_args(helpers)) == []
+
+
+def test_rerun_compares_the_rendered_file_with_itself(
+    helpers: ModuleType, rendered: str
+) -> None:
+    """Review F001: after step 4, a re-run's "old" file is the rendered one."""
+    assert helpers.production_changes(rendered, rendered, _new_args(helpers)) == []
+
+
+def test_new_args_follow_the_table(helpers: ModuleType, rendered: str) -> None:
+    """Review F003: a different replication host in the table is stripped too."""
+    other = rendered.replace("--replication-host 127.0.0.1", "--replication-host ::1")
+    args = helpers.NewArgs(MAIN_KEY, "::1", BUCKET)
+    assert helpers.production_changes(FIXTURE.read_text(), other, args) == []
 
 
 @pytest.mark.parametrize(
@@ -135,7 +157,8 @@ def test_strip_and_compare_refuses_any_other_change(
 ) -> None:
     changed = rendered.replace(before, after, 1)
     assert changed != rendered
-    changes = helpers.production_changes(FIXTURE.read_text(), changed, MAIN_KEY, BUCKET)
+    old = FIXTURE.read_text()
+    changes = helpers.production_changes(old, changed, _new_args(helpers))
     assert changes and after.strip() in changes[0]
 
 
@@ -352,3 +375,59 @@ def test_any_other_not_ok_fails_step_12(
     _production_host(cutover, ctx, monkeypatch, "DRIFT 17/tick dir-wal\nSUMMARY", 1)
     with pytest.raises(cutover.StepFailed, match="not clean"):
         cutover.step_production(ctx, _step(cutover))
+
+
+def test_unreadable_production_log_fails_step_12_with_a_report(
+    cutover: ModuleType, ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review F002: a missing log is a recorded failure, not an escape."""
+    ctx.conf_sums = "abc"
+    monkeypatch.setattr(cutover, "conf_sums", lambda: "abc")
+    monkeypatch.setattr(
+        cutover, "STEPS", [("production", "x", cutover.step_production)]
+    )
+    steps = [cutover.Step(1, "production", "x")]
+    assert cutover.run_steps(ctx, steps) is False
+    assert steps[0].status == "FAIL"
+    assert "production health is not clean" in steps[0].seen[-1]
+
+
+def test_unexpected_host_error_is_recorded_not_raised(
+    cutover: ModuleType, ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(_c: Any, _s: Any) -> None:
+        raise OSError("cron file unreadable")
+
+    monkeypatch.setattr(cutover, "STEPS", [("x", "y", broken)])
+    steps = [cutover.Step(1, "x", "y")]
+    assert cutover.run_steps(ctx, steps) is False
+    assert steps[0].seen[-1] == "cron file unreadable"
+
+
+def test_failed_push_fails_the_offsite_step(
+    cutover: ModuleType, ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review F004: the push's own exit status is checked and recorded."""
+    monkeypatch.setattr(cutover, "tick_commands", lambda: {"push": "p"})
+    monkeypatch.setattr(
+        cutover,
+        "shell",
+        lambda *_a: subprocess.CompletedProcess([], 1, "", "rclone: 403"),
+    )
+    monkeypatch.setattr(cutover, "run", lambda *_a, **_k: pytest.fail("checked"))
+    step = _step(cutover)
+    with pytest.raises(cutover.StepFailed, match="push failed"):
+        cutover.step_offsite(ctx, step)
+    assert "rclone: 403" in step.seen
+
+
+def test_hung_job_is_a_step_failure(
+    cutover: ModuleType, ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def hung(_c: Any, _s: Any) -> None:
+        raise subprocess.TimeoutExpired("bash", 1, stderr=b"partial")
+
+    monkeypatch.setattr(cutover, "STEPS", [("x", "y", hung)])
+    steps = [cutover.Step(1, "x", "y")]
+    assert cutover.run_steps(ctx, steps) is False
+    assert steps[0].seen[-1] == "partial"

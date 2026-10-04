@@ -35,8 +35,10 @@ from cutover_227_helpers import (  # noqa: E402
     CRON_FILE,
     MAIN,
     TICK,
+    NewArgs,
     Step,
     StepFailed,
+    StepStatus,
     health_flags,
     lifecycle_missing,
     production_changes,
@@ -51,6 +53,8 @@ from cutover_227_host import (  # noqa: E402
     Context,
     conf_sums,
     env_value,
+    fail,
+    log_tail,
     psql,
     record,
     require,
@@ -111,9 +115,8 @@ def step_apply(ctx: Context, step: Step) -> None:
     require("SUMMARY " in result.stdout, step, "setup-backup printed no SUMMARY")
     bad = setup_not_ok(result.stdout, APPLY_ALLOWED)
     require(not bad, step, f"items not OK after apply: {bad}")
-    changes = production_changes(
-        ctx.old_cron, CRON_FILE.read_text(), ctx.main.url_key, ctx.bucket_remote
-    )
+    new_args = NewArgs(ctx.main.url_key, ctx.main.replication_host, ctx.bucket_remote)
+    changes = production_changes(ctx.old_cron, CRON_FILE.read_text(), new_args)
     step.seen += changes or [
         "production cron lines: only the new arguments added (TD3)"
     ]
@@ -156,12 +159,11 @@ def step_switch(ctx: Context, step: Step) -> None:
 
 def run_health(ctx: Context, step: Step) -> tuple[int, int]:
     shell(tick_commands()["health"], step)
-    log = ctx.tick.backup_root / "backup-health.log"
-    line = log.read_text().splitlines()[-1] if log.exists() else ""
+    line = log_tail(ctx.tick.backup_root / "backup-health.log")
     step.seen.append(line)
     flags = health_flags(line)
-    require(flags is not None, step, "no FLAGS summary in the tick health log")
-    assert flags is not None
+    if flags is None:
+        fail(step, "no FLAGS summary in the tick health log")
     return flags
 
 
@@ -178,7 +180,7 @@ def step_weekly(ctx: Context, step: Step) -> None:
         return
     result = shell(tick_commands()["weekly"], step)
     log = root / "base.log"
-    tail = log.read_text().splitlines()[-1] if log.exists() else ""
+    tail = log_tail(log)
     step.seen += [f"exit {result.returncode}", tail]
     require(
         result.returncode == 0 and tail.startswith(WEEKLY_DONE),
@@ -206,7 +208,9 @@ def step_health_clean(ctx: Context, step: Step) -> None:
 
 def step_offsite(ctx: Context, step: Step) -> None:
     started = time.time()
-    shell(tick_commands()["push"], step)
+    push = shell(tick_commands()["push"], step)
+    record(step, push)
+    require(push.returncode == 0, step, "the tick WAL push failed")
     for sub in ("base", "metadata", "wal"):
         args = ["rclone", "check", "--one-way", str(ctx.tick.backup_root / sub)]
         args += [f"{ctx.tick_remote()}/{sub}", "--exclude", "*.tmp"]
@@ -221,7 +225,7 @@ def step_production(ctx: Context, step: Step) -> None:
     sums = conf_sums()
     step.seen += sums.splitlines()
     require(sums == ctx.conf_sums, step, "production configuration changed")
-    line = (ctx.main.backup_root / "backup-health.log").read_text().splitlines()[-1]
+    line = log_tail(ctx.main.backup_root / "backup-health.log")
     step.seen.append(f"production health: {line}")
     require(health_flags(line) == (0, 0), step, "production health is not clean")
     result = setup_backup(ctx, "--check")
@@ -271,15 +275,29 @@ def run_steps(ctx: Context, steps: list[Step]) -> bool:
         say(f"Step {step.number}: {step.title}")
         try:
             action(ctx, step)
-        except (StepFailed, subprocess.CalledProcessError) as exc:
-            # A step's own failure: recorded and reported, the run stops here.
-            step.status = "FAIL"
+        except (
+            StepFailed,
+            subprocess.SubprocessError,
+            OSError,
+            ValueError,
+            IndexError,
+            StopIteration,
+        ) as exc:
+            # Process boundary: any failure of a step — its own check, a host
+            # command, an unreadable file — is recorded and the run stops
+            # here; main() still writes the report (review F002).
+            step.status = StepStatus.FAIL
             step.seen.append(str(exc))
-            if isinstance(exc, subprocess.CalledProcessError):
-                step.seen += (exc.stderr or "").splitlines()
+            if isinstance(
+                exc, subprocess.CalledProcessError | subprocess.TimeoutExpired
+            ):
+                stderr = exc.stderr or ""
+                if isinstance(stderr, bytes):  # TimeoutExpired keeps raw bytes
+                    stderr = stderr.decode(errors="replace")
+                step.seen += stderr.splitlines()
             say(f"  FAIL: {exc}")
             return False
-        step.status = "PASS"
+        step.status = StepStatus.PASS
         say("  PASS")
     return True
 
@@ -308,7 +326,7 @@ def main() -> int:
     ]
     passed = run_steps(ctx, steps)
     report = checkout / NOTES_DIR / f"{started[:10]}-227-cutover.md"
-    outcome = "PASS" if passed else "FAIL"
+    outcome = StepStatus.PASS if passed else StepStatus.FAIL
     report.write_text(render_report(steps, started, outcome, ctx.lifecycle))
     say(f"Step 13: report written to {report} — {outcome}")
     for rule in ctx.lifecycle:

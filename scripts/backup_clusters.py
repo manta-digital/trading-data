@@ -21,6 +21,10 @@ _CRON_FIELDS = 5
 _TOKENS_PER_ROW = 5 + 2 * _CRON_FIELDS
 _URL_KEY_RE = re.compile(r"^MT_[A-Z0-9_]+$")
 _ROOT_PREFIX = "/data/"
+#: Every token reaches a root-installed cron line: names, paths and hosts
+#: are held to this charset, the cron fields to cron's (review F007).
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+_CRON_FIELD_RE = re.compile(r"^[0-9*/,-]+$")
 
 
 @dataclass(frozen=True)
@@ -38,37 +42,42 @@ def _optional(token: str) -> str | None:
     return None if token == _NONE else token
 
 
-def _row_error(f: list[str], rows: list[BackupCluster]) -> str | None:
-    """Why the tokens ``f`` are not a valid row, or ``None`` when they are."""
-    if len(f) != _TOKENS_PER_ROW:
-        return f"expected {_TOKENS_PER_ROW} fields, got {len(f)}"
-    if any(r.cluster == f[0] for r in rows):
-        return f"duplicate cluster {f[0]}"
-    if not _URL_KEY_RE.match(f[1]):
-        return f"url_key {f[1]} does not match {_URL_KEY_RE.pattern}"
-    if not (f[2].startswith(_ROOT_PREFIX) and len(f[2]) > len(_ROOT_PREFIX)):
-        return f"backup_root {f[2]} is not an absolute path under {_ROOT_PREFIX}"
+def _row_error(tokens: list[str], rows: list[BackupCluster]) -> str | None:
+    """Why ``tokens`` are not a valid row, or ``None`` when they are."""
+    if len(tokens) != _TOKENS_PER_ROW:
+        return f"expected {_TOKENS_PER_ROW} fields, got {len(tokens)}"
+    if bad := [t for t in tokens[:5] if not _TOKEN_RE.match(t)]:
+        return f"field {bad[0]!r} has characters outside {_TOKEN_RE.pattern}"
+    if bad := [t for t in tokens[5:] if not _CRON_FIELD_RE.match(t)]:
+        return f"cron field {bad[0]!r} has characters outside {_CRON_FIELD_RE.pattern}"
+    if any(r.cluster == tokens[0] for r in rows):
+        return f"duplicate cluster {tokens[0]}"
+    if not _URL_KEY_RE.match(tokens[1]):
+        return f"url_key {tokens[1]} does not match {_URL_KEY_RE.pattern}"
+    root = tokens[2]
+    if not (root.startswith(_ROOT_PREFIX) and len(root) > len(_ROOT_PREFIX)):
+        return f"backup_root {root} is not an absolute path under {_ROOT_PREFIX}"
     return None
 
 
 def load_clusters(path: Path = TABLE_PATH) -> list[BackupCluster]:
     """Every row of the table, in file order; ``ValueError`` names the bad line."""
     rows: list[BackupCluster] = []
-    for n, raw in enumerate(path.read_text().splitlines(), start=1):
-        f = raw.split("#", 1)[0].split()
-        if not f:
+    for line_no, raw in enumerate(path.read_text().splitlines(), start=1):
+        tokens = raw.split("#", 1)[0].split()
+        if not tokens:
             continue
-        if (error := _row_error(f, rows)) is not None:
-            raise ValueError(f"{path} line {n}: {error}")
+        if (error := _row_error(tokens, rows)) is not None:
+            raise ValueError(f"{path} line {line_no}: {error}")
         rows.append(
             BackupCluster(
-                cluster=f[0],
-                url_key=f[1],
-                backup_root=Path(f[2]),
-                remote_subpath=_optional(f[3]),
-                replication_host=_optional(f[4]),
-                metadata_cron=" ".join(f[5 : 5 + _CRON_FIELDS]),
-                weekly_base_cron=" ".join(f[5 + _CRON_FIELDS :]),
+                cluster=tokens[0],
+                url_key=tokens[1],
+                backup_root=Path(tokens[2]),
+                remote_subpath=_optional(tokens[3]),
+                replication_host=_optional(tokens[4]),
+                metadata_cron=" ".join(tokens[5 : 5 + _CRON_FIELDS]),
+                weekly_base_cron=" ".join(tokens[5 + _CRON_FIELDS :]),
             )
         )
     if not rows:

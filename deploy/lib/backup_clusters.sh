@@ -16,6 +16,10 @@
 BC_TOKENS_PER_ROW=15
 BC_URL_KEY_RE='^MT_[A-Z0-9_]+$'
 BC_ROOT_PREFIX=/data/
+# Every token reaches a root-installed cron line: names, paths and hosts are
+# held to this charset, the cron fields to cron's (review F007).
+BC_TOKEN_RE='^[A-Za-z0-9._/-]+$'
+BC_CRON_FIELD_RE='^[0-9*/,-]+$'
 
 backup_clusters_load() {
   local file=$1 line n=0 i
@@ -31,6 +35,16 @@ backup_clusters_load() {
     if [ "${#f[@]}" -ne "$BC_TOKENS_PER_ROW" ]; then
       echo "backup-clusters: $file line $n: expected $BC_TOKENS_PER_ROW fields, got ${#f[@]}" >&2; return 1
     fi
+    for i in 0 1 2 3 4; do
+      if ! [[ ${f[$i]} =~ $BC_TOKEN_RE ]]; then
+        echo "backup-clusters: $file line $n: field '${f[$i]}' has characters outside $BC_TOKEN_RE" >&2; return 1
+      fi
+    done
+    for i in 5 6 7 8 9 10 11 12 13 14; do
+      if ! [[ ${f[$i]} =~ $BC_CRON_FIELD_RE ]]; then
+        echo "backup-clusters: $file line $n: cron field '${f[$i]}' has characters outside $BC_CRON_FIELD_RE" >&2; return 1
+      fi
+    done
     for i in "${!BC_CLUSTER[@]}"; do
       if [ "${BC_CLUSTER[$i]}" = "${f[0]}" ]; then
         echo "backup-clusters: $file line $n: duplicate cluster ${f[0]}" >&2; return 1
