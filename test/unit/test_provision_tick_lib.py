@@ -43,7 +43,7 @@ def _add(env: Path, owner: str, *pairs: str) -> subprocess.CompletedProcess[str]
 def _script_url_keys() -> list[str]:
     """The keys the provisioning script writes, read from its ``URL_KEYS``."""
     keys = re.findall(r"^\s*\[(MT_[A-Z0-9_]+)\]=", SCRIPT.read_text(), re.MULTILINE)
-    assert len(keys) == 4, keys
+    assert sorted(keys) == ["MT_TICK_DB_URL", "MT_TICK_MAINTENANCE_URL"], keys
     return keys
 
 
@@ -173,3 +173,86 @@ def test_both_url_schemes_yield_the_password(scheme: str) -> None:
         check=False,
     )
     assert done.stdout.strip() == pw
+
+
+# -- slice 227 TD5: replication, pg_hba, parent directory modes -----------------
+
+
+def _script_function(name: str) -> str:
+    """One function's source from the provisioning script, by its name."""
+    text = SCRIPT.read_text()
+    match = re.search(rf"^{name}\(\) \{{\n.*?^\}}\n", text, re.MULTILINE | re.DOTALL)
+    assert match, name
+    return match.group(0)
+
+
+def _script_assignments(*names: str) -> str:
+    text = SCRIPT.read_text()
+    lines = []
+    for name in names:
+        match = re.search(rf"^{name}=.*$", text, re.MULTILINE)
+        assert match, name
+        lines.append(match.group(0))
+    return "\n".join(lines)
+
+
+def _rendered_hba() -> list[str]:
+    """hba_content() as the script defines it, with the source address stubbed."""
+    program = "\n".join(
+        [
+            _script_assignments(
+                "PG_OWNER", "APP_ROLE", "MIGRATE_ROLE", "HBA_DATABASES"
+            ),
+            "client_source() { echo 127.0.0.1; }",
+            _script_function("hba_content"),
+            "hba_content",
+        ]
+    )
+    result = subprocess.run(
+        ["bash", "-c", program], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.splitlines()
+
+
+def test_hba_admits_replication_for_the_migrate_role() -> None:
+    assert "host replication tick_migrate 127.0.0.1/32 scram-sha-256" in _rendered_hba()
+
+
+def test_hba_admits_the_drill_database_and_not_the_proof_one() -> None:
+    hosts = [
+        x for x in _rendered_hba() if x.startswith("host ") and "replication" not in x
+    ]
+    assert hosts == [
+        "host trading_tick,trading_tick_drill tick_app,tick_migrate"
+        " 127.0.0.1/32 scram-sha-256"
+    ]
+    assert "trading_tick_proof" not in SCRIPT.read_text()
+
+
+def test_only_trading_tick_is_created() -> None:
+    assert (
+        _script_assignments("CREATED_DATABASES") == "CREATED_DATABASES=(trading_tick)"
+    )
+
+
+def test_parent_directories_755_data_directory_700() -> None:
+    assert _script_assignments("PG_PARENT_DIR_MODE", "PG_DATA_DIR_MODE").split() == [
+        "PG_PARENT_DIR_MODE=755",
+        "PG_DATA_DIR_MODE=700",
+    ]
+    assert (
+        _script_assignments("PG_PARENT_DIRS")
+        == 'PG_PARENT_DIRS=("$DATA_ROOT" "$DATA_ROOT/$PG_VERSION")'
+    )
+
+
+def test_roles_are_applied_with_replication() -> None:
+    body = _script_function("ensure_databases")
+    assert '-v with_replication=1 -f - < "$ROLES_SQL"' in body
+
+
+def test_roles_sql_grants_replication_only_when_asked() -> None:
+    sql = (ROOT / "scripts" / "provision_tick_roles.sql").read_text()
+    block = sql[sql.index("\\if :{?with_replication}\nSELECT") :]
+    assert block.index("ALTER ROLE %I REPLICATION") < block.index("\\else")

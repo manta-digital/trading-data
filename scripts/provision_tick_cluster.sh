@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# provision_tick_cluster.sh — the tick PostgreSQL cluster (slice 226, TD1).
+# provision_tick_cluster.sh — the tick PostgreSQL cluster (slice 226 TD1, 227 TD5).
 #
-# Creates and configures `17/tick` (port 5433, data on /data), the databases
-# trading_tick (the keeper) and trading_tick_proof (disposable, for the proof
-# harness), the roles tick_app and tick_migrate, and the four tick URLs in the
-# checkout's .env. Never touches the production cluster `17/main` beyond
-# reading its TimescaleDB version and its port.
+# Creates and configures `17/tick` (port 5433, data on /data), the database
+# trading_tick, the roles tick_app and tick_migrate (with REPLICATION, for the
+# weekly base backup), and the two tick URLs in the checkout's .env.
+# pg_hba admits trading_tick and trading_tick_drill (the restore drill's
+# scratch database, slice 228, which creates it itself) and replication for
+# tick_migrate. Never touches the production cluster `17/main` beyond reading
+# its TimescaleDB version and its port.
 #
 # Host-script convention: check-then-act, expected against seen. Every item
 # prints OK / DRIFT <expected> <seen> / MISSING / APPLIED / WOULD; a re-run
@@ -56,7 +58,13 @@ MIN_FREE_BYTES=$((100 * 1000 ** 3))                 # 100 GB before creating
 LISTEN_ADDRESS=127.0.1.1                            # what `manta9000` resolves to
 HOST_NAME=manta9000
 PG_OWNER=postgres
-PG_DIR_MODE=700
+# The data directory itself stays 0700 (PostgreSQL refuses anything looser).
+# Its parents are 0755 (227 TD5): the tick backup health check runs as the
+# cron user and reads the data directory's volume with `df`, which needs
+# search permission on every parent.
+PG_PARENT_DIR_MODE=755
+PG_DATA_DIR_MODE=700
+PG_PARENT_DIRS=("$DATA_ROOT" "$DATA_ROOT/$PG_VERSION")
 CONF_DIR="/etc/postgresql/$PG_VERSION/$CLUSTER"
 UNIT="postgresql@$PG_VERSION-$CLUSTER"
 PROD_PORT=5432
@@ -68,20 +76,21 @@ PG_URL_RE='^postgres(ql)?://([^:]+):([^@]+)@([^:/]+):([0-9]+)/([^?]+)'
 TS_CONTROL="/usr/share/postgresql/$PG_VERSION/extension/timescaledb.control"
 APP_ROLE=tick_app
 MIGRATE_ROLE=tick_migrate
-DATABASES=(trading_tick trading_tick_proof)
+# Created by this script / admitted by pg_hba. The drill database is created
+# and dropped by the restore drill (228).
+CREATED_DATABASES=(trading_tick)
+HBA_DATABASES=(trading_tick trading_tick_drill)
 ROLES_SQL="$SCRIPT_DIR/provision_tick_roles.sql"
 ENV_FILE="$CHECKOUT/.env"
 ENV_OWNER=manta
 NOTES_DIR="$CHECKOUT/project-documents/user/notes"
 LOG_GLOB="*-226-tick-provision-*.log"
 PASSWORD_HEX_BYTES=24
-# key → role|database. The proof URLs are MT_PROOF_226_*, never MT_TICK_*:
-# the tick preflight refuses an MT_TICK_* key no setting reads.
+# key → role|database. The tick preflight refuses an MT_TICK_* key no setting
+# reads, so only keys a setting reads belong here.
 declare -A URL_KEYS=(
   [MT_TICK_DB_URL]="$APP_ROLE|trading_tick"
   [MT_TICK_MAINTENANCE_URL]="$MIGRATE_ROLE|trading_tick"
-  [MT_PROOF_226_DB_URL]="$APP_ROLE|trading_tick_proof"
-  [MT_PROOF_226_MAINTENANCE_URL]="$MIGRATE_ROLE|trading_tick_proof"
 )
 
 CHECK=0
@@ -161,14 +170,16 @@ production_conf_sums() {
 # --- Cluster ------------------------------------------------------------------
 ensure_cluster() {
   step "cluster $PG_VERSION/$CLUSTER"
-  local seen
-  seen="$(stat -c '%U %a' "$DATA_ROOT" 2>/dev/null || echo absent)"
-  if [ "$seen" = "$PG_OWNER $PG_DIR_MODE" ]; then item "OK $DATA_ROOT $seen"
-  elif [ "$CHECK" -eq 1 ]; then item "WOULD set $DATA_ROOT to $PG_OWNER $PG_DIR_MODE (seen: $seen)"
-  else
-    install -d -o "$PG_OWNER" -g "$PG_OWNER" -m "$PG_DIR_MODE" "$DATA_ROOT"
-    item "APPLIED $DATA_ROOT $PG_OWNER $PG_DIR_MODE (was: $seen)"
-  fi
+  local seen dir
+  for dir in "${PG_PARENT_DIRS[@]}"; do
+    seen="$(stat -c '%U %a' "$dir" 2>/dev/null || echo unreadable)"
+    if [ "$seen" = "$PG_OWNER $PG_PARENT_DIR_MODE" ]; then item "OK $dir $seen"
+    elif [ "$CHECK" -eq 1 ]; then item "WOULD set $dir to $PG_OWNER $PG_PARENT_DIR_MODE (seen: $seen)"
+    else
+      install -d -o "$PG_OWNER" -g "$PG_OWNER" -m "$PG_PARENT_DIR_MODE" "$dir"
+      item "APPLIED $dir $PG_OWNER $PG_PARENT_DIR_MODE (was: $seen)"
+    fi
+  done
   if cluster_exists; then item "OK cluster exists"
   elif [ "$CHECK" -eq 1 ]; then item "WOULD pg_createcluster $PG_VERSION $CLUSTER --port $PORT --datadir $DATA_DIR"
   else
@@ -180,6 +191,13 @@ ensure_cluster() {
   elif [ "$CHECK" -eq 1 ]; then item "WOULD start $UNIT"
   else systemctl start "$UNIT"; item "APPLIED start $UNIT"
   fi
+  # Reported, never changed: pg_createcluster sets it and PostgreSQL enforces it.
+  seen="$(stat -c '%U %a' "$DATA_DIR" 2>/dev/null || echo unreadable)"
+  case "$seen" in
+    "$PG_OWNER $PG_DATA_DIR_MODE") item "OK $DATA_DIR $seen" ;;
+    unreadable) item "SKIP $DATA_DIR (its parents are not yet searchable by $(id -un))" ;;
+    *) item "DRIFT $DATA_DIR '$PG_OWNER $PG_DATA_DIR_MODE' '$seen'" ;;
+  esac
 }
 
 # --- Settings: two passes, because timescaledb.* exists only once loaded ----
@@ -225,12 +243,13 @@ client_source() {
 
 hba_content() {
   local dbs roles src
-  dbs="$(IFS=,; echo "${DATABASES[*]}")"; roles="$APP_ROLE,$MIGRATE_ROLE"
+  dbs="$(IFS=,; echo "${HBA_DATABASES[*]}")"; roles="$APP_ROLE,$MIGRATE_ROLE"
   src="$(client_source)"
   printf '%s\n' \
-    "# Written by scripts/provision_tick_cluster.sh (slice 226 TD1); re-run it, do not edit." \
+    "# Written by scripts/provision_tick_cluster.sh (slice 226 TD1, 227 TD5); re-run it, do not edit." \
     "local all $PG_OWNER peer" \
-    "host $dbs $roles $src/32 scram-sha-256"
+    "host $dbs $roles $src/32 scram-sha-256" \
+    "host replication $MIGRATE_ROLE $src/32 scram-sha-256"
 }
 
 ensure_hba() {
@@ -249,11 +268,11 @@ ensure_hba() {
 ensure_databases() {
   step "databases and roles"
   local db
-  for db in "${DATABASES[@]}"; do
-    if [ "$CHECK" -eq 1 ]; then item "WOULD apply $(basename "$ROLES_SQL") to $db"; continue; fi
+  for db in "${CREATED_DATABASES[@]}"; do
+    if [ "$CHECK" -eq 1 ]; then item "WOULD apply $(basename "$ROLES_SQL") to $db (with_replication=1)"; continue; fi
     # Root opens the file (postgres cannot read under an operator's home).
-    tick_psql -d postgres -v tick_db="$db" -f - < "$ROLES_SQL" >/dev/null
-    item "APPLIED $(basename "$ROLES_SQL") to $db (idempotent grants)"
+    tick_psql -d postgres -v tick_db="$db" -v with_replication=1 -f - < "$ROLES_SQL" >/dev/null
+    item "APPLIED $(basename "$ROLES_SQL") to $db (idempotent grants, REPLICATION for $MIGRATE_ROLE)"
   done
 }
 
@@ -268,7 +287,7 @@ env_password() {
 }
 
 can_login() {
-  PGPASSWORD="$2" psql -X -At -h "$LISTEN_ADDRESS" -p "$PORT" -U "$1" -d "${DATABASES[0]}" \
+  PGPASSWORD="$2" psql -X -At -h "$LISTEN_ADDRESS" -p "$PORT" -U "$1" -d "${CREATED_DATABASES[0]}" \
     -c "SELECT 1" >/dev/null 2>&1
 }
 
@@ -360,5 +379,5 @@ if [ "$CHECK" -eq 1 ]; then
   exit 0
 fi
 pg_lsclusters
-echo "PASS: tick cluster $PG_VERSION/$CLUSTER on $PORT; ${#DATABASES[@]} databases; .env updated ($ENV_ADDED keys added)"
+echo "PASS: tick cluster $PG_VERSION/$CLUSTER on $PORT; ${#CREATED_DATABASES[@]} database(s); .env updated ($ENV_ADDED keys added)"
 copy_log

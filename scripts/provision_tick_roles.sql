@@ -34,6 +34,8 @@
 --   migrate_role  optional, default tick_migrate. Tests pass per-run names so
 --                 the tested file is the applied file without touching real
 --                 roles (roles are cluster-wide).
+--   with_replication  optional flag: grant REPLICATION to migrate_role (the
+--                 tick base backup, slice 227). Off unless passed.
 --
 -- Apply as a superuser, connected to any existing database (e.g. `postgres`);
 -- the file creates the tick database and then connects to it:
@@ -64,6 +66,9 @@
 \echo 'Provisioning tick database:' :tick_db
 \echo '  application role:' :app_role
 \echo '  maintenance role:' :migrate_role
+\if :{?with_replication}
+\echo '  granting REPLICATION to:' :migrate_role
+\endif
 
 -- ---------------------------------------------------------------------------
 -- Roles (idempotent: CREATE ROLE has no IF NOT EXISTS, so guard on pg_roles).
@@ -96,6 +101,28 @@ WHERE NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
 \gexec
 
 COMMIT;
+
+-- ---------------------------------------------------------------------------
+-- REPLICATION for the maintenance role (slice 227, TD5): the weekly base
+-- backup is pg_basebackup over the maintenance URL. Copied from
+-- provision_roles.sql. Opt-in via `-v with_replication=1` for the same two
+-- reasons: (1) only roles that themselves hold REPLICATION may set it, so an
+-- unguarded ALTER aborts the whole artifact under any non-superuser executor
+-- (the test fixtures); (2) a throwaway test role granted REPLICATION could
+-- stream a whole cluster's WAL, so it is never conferred by default.
+-- provision_tick_cluster.sh passes it.
+-- ---------------------------------------------------------------------------
+
+\if :{?with_replication}
+SELECT format('ALTER ROLE %I REPLICATION', :'migrate_role')
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles
+  WHERE rolname = :'migrate_role' AND rolreplication
+)
+\gexec
+\else
+\echo '  REPLICATION not granted to' :migrate_role '— pass -v with_replication=1 (the tick base backup needs it)'
+\endif
 
 -- ---------------------------------------------------------------------------
 -- Database. CREATE DATABASE cannot run inside a transaction block.
