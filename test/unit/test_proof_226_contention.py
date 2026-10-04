@@ -7,6 +7,7 @@ the host readings, ``FakeLoad`` records starts and stops.
 from __future__ import annotations
 
 import sys
+import threading
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,7 +18,9 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from proof_226 import contention  # noqa: E402
 from proof_226 import contention_run as cr  # noqa: E402
+from proof_226.common import ProofUrls  # noqa: E402
 from proof_226.contention_report import verdict  # noqa: E402
 from proof_226.contention_sampler import Sample  # noqa: E402
 
@@ -145,7 +148,7 @@ def test_a_timer_beyond_75_minutes_starts_nothing() -> None:
     load = FakeLoad()
     out = cr.Run(FakeProbe(_hourly(first_in=76)), load).run()
     assert out.exit_code == 1 and load.events == []
-    assert "beyond 75 min" in out.lines[0]
+    assert "beyond 75 min" in out.lines[0]  # from TIMER_HORIZON
 
 
 def test_a_disabled_timer_starts_nothing() -> None:
@@ -169,7 +172,74 @@ def test_an_error_mid_run_still_stops_the_loop() -> None:
 
 
 def test_verdict_names_contention_above_the_weekly_max() -> None:
-    assert verdict([300.0, 330.0]).startswith("measurable contention")
-    calm = verdict([200.0, 310.0], workers=2)
+    assert verdict([300.0, 330.0], []).startswith("measurable contention")
+    calm = verdict([200.0, 310.0], [], workers=2)
     assert calm.startswith("none measured at 2 ingest workers")
     assert "not a clearance for the minute pass" in calm
+
+
+def test_a_failed_tick_loop_gives_no_verdict() -> None:
+    """Calm durations are no evidence when the load was not running."""
+    out = verdict([200.0, 210.0], ["ingest exited 1: boom"])
+    assert out.startswith("none: the tick loop failed 1 time(s)")
+
+
+def _loop(monkeypatch: pytest.MonkeyPatch, mt: str) -> contention.TickLoop:
+    monkeypatch.setattr(contention, "MT", Path(mt))
+    return contention.TickLoop(ProofUrls("postgresql://x/p", "postgresql://x/m"))
+
+
+def test_a_failing_ingest_is_recorded_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resets: list[ProofUrls] = []
+
+    def reset(urls: ProofUrls) -> None:
+        if len(resets) == 2:
+            loop._stop.set()  # pyright: ignore[reportPrivateUsage]
+        resets.append(urls)
+
+    monkeypatch.setattr(contention, "reset", reset)
+    loop = _loop(monkeypatch, "/bin/false")
+    loop.start()
+    assert loop._thread is not None  # pyright: ignore[reportPrivateUsage]
+    loop._thread.join(timeout=10)  # pyright: ignore[reportPrivateUsage]
+    loop.stop()
+    assert loop.iterations == 0
+    assert loop.failures == ["ingest exited 1: no stderr"] * 2
+
+
+def test_a_dying_loop_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    def reset(_: ProofUrls) -> None:
+        raise RuntimeError("reset failed")
+
+    monkeypatch.setattr(contention, "reset", reset)
+    loop = _loop(monkeypatch, "/bin/true")
+    loop.start()
+    loop.stop()
+    assert loop.failures == ["tick loop died: RuntimeError('reset failed')"]
+
+
+def test_a_stop_during_reset_starts_no_ingest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The race: stop lands while reset runs; no ingest may start after it."""
+    started = threading.Event()
+    release = threading.Event()
+
+    def reset(_: ProofUrls) -> None:
+        started.set()
+        release.wait()
+
+    monkeypatch.setattr(contention, "reset", reset)
+    loop = _loop(monkeypatch, "/bin/true")
+    loop.start()
+    started.wait()
+    stopper = threading.Thread(target=loop.stop)
+    stopper.start()
+    while not loop._stop.is_set():  # pyright: ignore[reportPrivateUsage]
+        pass
+    release.set()
+    stopper.join(timeout=10)
+    assert not stopper.is_alive()
+    assert loop._proc is None  # pyright: ignore[reportPrivateUsage]

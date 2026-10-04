@@ -21,7 +21,8 @@ from proof_226.contention_sampler import DEVICES, Sample
 MATCH_SECONDS = 120
 NOT_A_CLEARANCE = (
     "This is not a clearance for the minute pass: Kalshi writes little and "
-    "often, the minute pass walks 13,083 symbols, and 232 measures that overlap."
+    "often, the minute pass walks the whole equity universe, and 232 measures "
+    "that overlap."
 )
 
 _MIB = 1024 * 1024
@@ -49,7 +50,16 @@ SERIES: dict[str, Callable[[Sample], float]] = {
 }
 
 
-def verdict(overlapped_seconds: list[float], workers: int = TICK_INGEST_WORKERS) -> str:
+def verdict(
+    overlapped_seconds: list[float],
+    loop_failures: list[str],
+    workers: int = TICK_INGEST_WORKERS,
+) -> str:
+    if loop_failures:
+        return (
+            f"none: the tick loop failed {len(loop_failures)} time(s), so the "
+            "overlapped firings did not run under a known load"
+        )
     if any(s > KALSHI_WEEK_MAX_SECONDS for s in overlapped_seconds):
         return (
             "measurable contention: an overlapped Kalshi pass ran over the "
@@ -92,6 +102,7 @@ def write_report(
     week: list[tuple[datetime, float]],
     runs: list[tuple[datetime, float]],
     iterations: int,
+    loop_failures: list[str],
 ) -> None:
     durations = sorted(seconds for _, seconds in week)
     report.add(
@@ -129,5 +140,6 @@ def write_report(
             for label, f in SERIES.items()
         ],
     )
-    report.add("## Guards", "", *(outcome.lines or ["No guard tripped."]), "")
-    report.add(f"**Verdict:** {verdict(overlapped)}")
+    guards = outcome.lines + [f"TICK LOOP: {f}" for f in loop_failures]
+    report.add("## Guards", "", *(guards or ["No guard tripped."]), "")
+    report.add(f"**Verdict:** {verdict(overlapped, loop_failures)}")

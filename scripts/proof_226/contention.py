@@ -11,6 +11,7 @@ sampler and ``pass_runs`` for the Kalshi durations.
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
@@ -36,6 +37,8 @@ from proof_226.common import (
 from proof_226.contention_report import write_report
 from proof_226.contention_run import Run
 from proof_226.ingest_runs import reset
+
+logger = logging.getLogger(__name__)
 
 KALSHI_TIMER = "mt-kalshi-pass.timer"
 KALSHI_SERVICE = "mt-kalshi-pass.service"
@@ -89,9 +92,16 @@ class TickLoop:
     def __init__(self, urls: ProofUrls) -> None:
         self._urls = urls
         self._stop = threading.Event()
+        #: Orders ``stop()`` against the next ``Popen``: either stop sees the
+        #: new process and interrupts it, or the loop sees the stop and exits.
+        self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._proc: subprocess.Popen[str] | None = None
         self.iterations = 0
+        #: Ingests that failed on their own, and a loop that died: either makes
+        #: the run's "overlapped" samples untrustworthy, so the report says so.
+        #: Read only after ``stop()``, whose ``join`` publishes the thread's writes.
+        self.failures: list[str] = []
 
     def start(self) -> None:
         self._stop.clear()
@@ -99,6 +109,13 @@ class TickLoop:
         self._thread.start()
 
     def _loop(self) -> None:
+        try:
+            self._iterate()
+        except Exception as exc:  # thread boundary: record it, never die silently
+            logger.exception("tick loop died")
+            self.failures.append(f"tick loop died: {exc!r}")
+
+    def _iterate(self) -> None:
         env = {
             **os.environ,
             TICK_DB_URL_ENV: self._urls.db_url,
@@ -106,19 +123,27 @@ class TickLoop:
         }
         while not self._stop.is_set():
             reset(self._urls)
-            self._proc = subprocess.Popen(
-                [str(MT), "data", "tick", "ingest", "--json"],
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                text=True,
-            )
-            self._proc.wait()
-            self.iterations += 1
+            with self._lock:
+                if self._stop.is_set():
+                    return
+                proc = self._proc = subprocess.Popen(
+                    [str(MT), "data", "tick", "ingest", "--json"],
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            _, err = proc.communicate()
+            if proc.returncode != 0 and not self._stop.is_set():
+                last = err.strip().splitlines()[-1:] or ["no stderr"]
+                self.failures.append(f"ingest exited {proc.returncode}: {last[0]}")
+            else:
+                self.iterations += 1
 
     def stop(self) -> None:
-        self._stop.set()
-        proc = self._proc
+        with self._lock:
+            self._stop.set()
+            proc = self._proc
         if proc is not None and proc.poll() is None:
             proc.send_signal(signal.SIGINT)
             try:
@@ -159,8 +184,10 @@ def run() -> Path:
         week = kalshi_durations(prod, datetime.now(UTC) - WEEK)
         outcome = Run(HostProbe(prod, tick), loop).run()
         runs = kalshi_durations(prod, datetime.now(UTC) - timedelta(hours=4))
-    write_report(report, outcome, week, runs, loop.iterations)
+    write_report(report, outcome, week, runs, loop.iterations, loop.failures)
     path = report.write()
     if outcome.exit_code:
         raise ProofSetupError(f"contention stopped: {outcome.lines}; report {path}")
+    if loop.failures:
+        raise ProofSetupError(f"tick loop failed: {loop.failures}; report {path}")
     return path

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import NoReturn, Protocol
 
 from proof_226.common import DATA_FREE_FLOOR_BYTES
 from proof_226.contention_sampler import Sample
@@ -19,7 +19,8 @@ SAMPLE_SECONDS = 5.0
 MEM_AVAILABLE_FLOOR = 16 * 1024**3
 #: The Kalshi pass's longest run in the week before the slice (TD7).
 KALSHI_WEEK_MAX_SECONDS = 324.0
-KALSHI_TRIP_SECONDS = 2 * KALSHI_WEEK_MAX_SECONDS
+KALSHI_TRIP_MULTIPLE = 2
+KALSHI_TRIP_SECONDS = KALSHI_TRIP_MULTIPLE * KALSHI_WEEK_MAX_SECONDS
 #: The Kalshi timer must fire within this long of each wait's start.
 TIMER_HORIZON = timedelta(minutes=75)
 #: The loop starts this long before a firing and stops this long after it.
@@ -114,7 +115,7 @@ class Run:
             self.load.stop()
             self.loaded = False
 
-    def _refuse(self, reason: str) -> None:
+    def _refuse(self, reason: str) -> NoReturn:
         self.out.lines.append(f"REFUSED: {reason}; no load started")
         self.out.exit_code = 1
         raise Stop(reason)
@@ -124,9 +125,11 @@ class Run:
         now = self.probe.now()
         if elapse is None:
             self._refuse("the Kalshi timer has no next elapse (disabled?)")
-        assert elapse is not None
         if elapse - now > TIMER_HORIZON:
-            self._refuse(f"the Kalshi timer fires at {elapse:%H:%M:%S}, beyond 75 min")
+            self._refuse(
+                f"the Kalshi timer fires at {elapse:%H:%M:%S}, beyond "
+                f"{TIMER_HORIZON.total_seconds() / 60:.0f} min"
+            )
         self._wait(max((elapse - now).total_seconds() - LEAD_SECONDS, 0.0))
         if overlapped:
             self.load.start()
@@ -144,7 +147,8 @@ class Run:
                 self._stop_load()
                 self.out.kalshi_tripped = True
                 self.out.lines.append(
-                    "TRIP: Kalshi exceeded 2× its weekly maximum under tick load; "
+                    f"TRIP: Kalshi exceeded {KALSHI_TRIP_MULTIPLE}× its weekly "
+                    "maximum under tick load; "
                     "loop stopped, the pass left alone"
                 )
                 self.out.firings.append(Firing(overlapped, started, None))
