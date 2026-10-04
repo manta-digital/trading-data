@@ -48,24 +48,30 @@ _SESSION_SPAN = """
 SELECT min(first_event_ns), max(last_event_ns)
   FROM tick_ingest_ledger WHERE session_date = %s AND record_count > 0
 """
-_BARS = """
-SELECT time_bucket({minute}::bigint, ts_event) AS minute
-     , first(price, ts_event), max(price), min(price), last(price, ts_event)
-     , sum(size)
-  FROM tick_trade
- WHERE instrument_id = %(id)s AND ts_event BETWEEN %(lo)s AND %(hi)s
- GROUP BY 1 ORDER BY 1
-""".replace("{minute}", str(MINUTE_NS))
+
+
+def _bars(lo: LiteralString, hi: LiteralString) -> LiteralString:
+    """Minute bars for one instrument between two named bounds (Q2, Q5)."""
+    return (
+        "SELECT time_bucket(%(minute)s::bigint, ts_event) AS minute"
+        "     , first(price, ts_event), max(price), min(price), last(price, ts_event)"
+        "     , sum(size)"
+        "  FROM tick_trade"
+        f" WHERE instrument_id = %(id)s AND ts_event BETWEEN %({lo})s AND %({hi})s"
+        " GROUP BY 1 ORDER BY 1"
+    )
+
+
 QUERIES: dict[str, LiteralString] = {
     "Q1": "SELECT * FROM tick_trade WHERE instrument_id = %(id)s"
     " AND ts_event BETWEEN %(lo)s AND %(hi)s"
     " ORDER BY ts_event, sequence, sequence_ordinal",
-    "Q2": _BARS,  # type: ignore[dict-item]
+    "Q2": _bars("lo", "hi"),
     "Q3": "SELECT instrument_id, count(*) FROM tick_trade"
     " WHERE ts_event BETWEEN %(session_lo)s AND %(session_hi)s GROUP BY 1",
     "Q4": "SELECT * FROM tick_trade WHERE instrument_id = %(id)s"
     " ORDER BY ts_event DESC LIMIT 1",
-    "Q5": _BARS.replace("%(lo)s", "%(month_lo)s").replace("%(hi)s", "%(month_hi)s"),  # type: ignore[dict-item]
+    "Q5": _bars("month_lo", "month_hi"),
 }
 
 
@@ -112,6 +118,7 @@ def pick_targets(conn: psycopg.Connection[Any]) -> list[Target]:
         next_month = (month + timedelta(days=32)).replace(day=1)
         params = {
             "id": instrument,
+            "minute": MINUTE_NS,
             "lo": lo,
             "hi": hi,
             "session_lo": span[0],
