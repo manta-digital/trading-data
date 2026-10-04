@@ -405,6 +405,85 @@ class TestWeeklyArguments:
         assert missing in result.stderr
 
 
+class TestWeeklyUrlKey:
+    """Slice 227: --url-key and --replication-host pick and rewrite the URL."""
+
+    _MAIN = "postgresql://u:pw@192.168.1.144:5432/trading"
+    _TICK = "postgresql://t:p@ss@manta9000:5433/trading_tick"
+
+    @pytest.fixture
+    def two_urls(self, weekly: dict[str, Path]) -> dict[str, Path]:
+        weekly["env"].write_text(
+            f'MT_TIMESCALE_MAINTENANCE_URL="{self._MAIN}"\n'
+            f'MT_TICK_MAINTENANCE_URL="{self._TICK}"\n'
+        )
+        return weekly
+
+    def _base_url(self, w: dict[str, Path]) -> str:
+        (line,) = _calls(w["base_log"])
+        args = line.split()
+        return args[args.index("--db-url") + 1]
+
+    def test_no_new_arguments_keeps_pre227_rewrite(
+        self, two_urls: dict[str, Path]
+    ) -> None:
+        """The pre-227 installed cron line passes neither argument (task 2.0)."""
+        assert _weekly(two_urls).returncode == 0
+        assert self._base_url(two_urls) == "postgresql://u:pw@127.0.0.1:5432/trading"
+
+    def test_named_key_without_host_is_used_as_written(
+        self, two_urls: dict[str, Path]
+    ) -> None:
+        result = _weekly(two_urls, "--url-key", "MT_TICK_MAINTENANCE_URL")
+        assert result.returncode == 0, result.stderr
+        assert self._base_url(two_urls) == self._TICK
+
+    def test_replication_host_replaces_any_host(
+        self, two_urls: dict[str, Path]
+    ) -> None:
+        """The host after the last @ is replaced; an @ in the password stays."""
+        result = _weekly(
+            two_urls,
+            "--url-key", "MT_TICK_MAINTENANCE_URL",
+            "--replication-host", "127.0.0.1",
+        )  # fmt: skip
+        assert result.returncode == 0, result.stderr
+        assert (
+            self._base_url(two_urls)
+            == "postgresql://t:p@ss@127.0.0.1:5433/trading_tick"
+        )
+
+    def test_production_row_arguments_match_pre227_result(
+        self, two_urls: dict[str, Path]
+    ) -> None:
+        """The rendered 17/main line gives the URL today's line gives."""
+        result = _weekly(
+            two_urls,
+            "--url-key", "MT_TIMESCALE_MAINTENANCE_URL",
+            "--replication-host", "127.0.0.1",
+        )  # fmt: skip
+        assert result.returncode == 0, result.stderr
+        assert self._base_url(two_urls) == "postgresql://u:pw@127.0.0.1:5432/trading"
+
+    @pytest.mark.parametrize("key", ["mt_lower", "TIMESCALE_URL", "MT_A;rm"])
+    def test_bad_key_exits_2(self, two_urls: dict[str, Path], key: str) -> None:
+        result = _weekly(two_urls, "--url-key", key)
+        assert result.returncode == 2
+        assert "--url-key" in result.stderr
+        assert _calls(two_urls["base_log"]) == []
+
+    def test_url_without_host_refuses_replication_host(
+        self, two_urls: dict[str, Path]
+    ) -> None:
+        two_urls["env"].write_text("MT_X_URL=postgresql:///trading\n")
+        result = _weekly(
+            two_urls, "--url-key", "MT_X_URL", "--replication-host", "127.0.0.1"
+        )
+        assert result.returncode == 1
+        assert "cannot apply --replication-host" in result.stderr
+        assert _calls(two_urls["base_log"]) == []
+
+
 class TestWeeklyReconcile:
     def test_archive_flag_refuses_before_anything(
         self, weekly: dict[str, Path]

@@ -10,8 +10,11 @@ superseded by cron.d in slice 920 (``test_backup_health.py``,
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 _REPO_ROOT = Path(__file__).parents[2]
 _SCRIPTS = _REPO_ROOT / "scripts"
@@ -145,3 +148,149 @@ class TestPruneMixedArchive:
         )  # fmt: skip
         assert result.returncode == 0, result.stderr
         assert result.stdout.rstrip().splitlines()[-1] == "PRUNED wal=0 base=0"
+
+
+# --- cron_nightly_metadata.sh --url-key / --remote (slice 227, task 2.2) -------
+
+_MAIN_URL = "postgresql://main/db"
+_TICK_URL = "postgresql://tick/db"
+
+
+@pytest.fixture
+def metadata_host(tmp_path: Path) -> dict[str, Path]:
+    """psql/pg_dump/rclone stubs that record their target; two URLs in env."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls"
+    stubs = {
+        "psql": f'echo "psql $1" >> {str(calls)!r}; echo some_table\n',
+        "pg_dump": (
+            f'echo "pg_dump $1" >> {str(calls)!r}\n'
+            'while [ $# -gt 0 ]; do [ "$1" = -f ] && : > "$2"; shift; done\n'
+        ),
+        "rclone": f'echo "rclone $*" >> {str(calls)!r}\n',
+    }
+    for name, body in stubs.items():
+        stub = bin_dir / name
+        stub.write_text("#!/usr/bin/env bash\n" + body)
+        stub.chmod(0o755)
+    env = tmp_path / "env"
+    env.write_text(
+        f'MT_TIMESCALE_MAINTENANCE_URL="{_MAIN_URL}"\n'
+        f'MT_TICK_MAINTENANCE_URL="{_TICK_URL}"\n'
+        'MT_BACKUP_S3_BUCKET="bucket-x"\n'
+    )
+    return {"bin": bin_dir, "calls": calls, "env": env, "dest": tmp_path / "meta"}
+
+
+def _metadata(h: dict[str, Path], *extra: str) -> subprocess.CompletedProcess[str]:
+    args = ["--env-file", str(h["env"]), "--dest", str(h["dest"]), *extra]
+    env = dict(os.environ, PATH=f"{h['bin']}:{os.environ['PATH']}")
+    return subprocess.run(
+        [str(_SCRIPTS / "cron_nightly_metadata.sh"), *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+
+
+def _metadata_calls(h: dict[str, Path], tool: str) -> list[str]:
+    lines = h["calls"].read_text().splitlines() if h["calls"].exists() else []
+    return [x.split(" ", 1)[1] for x in lines if x.startswith(f"{tool} ")]
+
+
+class TestNightlyMetadataArguments:
+    def test_absent_arguments_read_production_url_and_bucket(
+        self, metadata_host: dict[str, Path]
+    ) -> None:
+        """The pre-227 installed cron line passes neither (task 2.0)."""
+        result = _metadata(metadata_host)
+        assert result.returncode == 0, result.stderr
+        assert _metadata_calls(metadata_host, "pg_dump") == [_MAIN_URL]
+        rclone = _metadata_calls(metadata_host, "rclone")
+        assert rclone and all("b2:bucket-x/metadata" in c.split() for c in rclone)
+
+    def test_url_key_and_remote_pick_the_tick_cluster(
+        self, metadata_host: dict[str, Path]
+    ) -> None:
+        result = _metadata(
+            metadata_host,
+            "--url-key", "MT_TICK_MAINTENANCE_URL",
+            "--remote", "b2:x/17-tick",
+        )  # fmt: skip
+        assert result.returncode == 0, result.stderr
+        assert _metadata_calls(metadata_host, "psql") == [_TICK_URL]
+        assert _metadata_calls(metadata_host, "pg_dump") == [_TICK_URL]
+        rclone = _metadata_calls(metadata_host, "rclone")
+        assert rclone and all("b2:x/17-tick/metadata" in c.split() for c in rclone)
+
+    @pytest.mark.parametrize("key", ["mt_lower", "TIMESCALE_URL", "MT_A;rm"])
+    def test_bad_key_exits_2(self, metadata_host: dict[str, Path], key: str) -> None:
+        result = _metadata(metadata_host, "--url-key", key)
+        assert result.returncode == 2
+        assert "--url-key" in result.stderr
+        assert not metadata_host["calls"].exists()
+
+    def test_missing_key_is_named(self, metadata_host: dict[str, Path]) -> None:
+        result = _metadata(metadata_host, "--url-key", "MT_NOT_THERE_URL")
+        assert result.returncode == 1
+        assert "MT_NOT_THERE_URL not in" in result.stderr
+
+
+# The read cron_nightly_metadata.sh used before 227, verbatim.
+_OLD_READ = "grep '^{key}' \"$1\" | sed 's/^[^=]*=//' | tr -d '\"'"
+_NEW_READ = f'. "{_REPO_ROOT}/deploy/lib/env_value.sh"; env_value "$1" {{key}}'
+_KEY = "MT_TIMESCALE_MAINTENANCE_URL"
+
+
+def _read(template: str, env_file: Path) -> str:
+    result = subprocess.run(
+        ["bash", "-c", template.format(key=_KEY), "_", str(env_file)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout
+
+
+class TestMetadataUrlReadParity:
+    """Task 2.2 swapped the grep|sed|tr read for env_value: same value for
+    every single-line shape a real env file holds."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            f'{_KEY}="postgresql://u:p@h:5432/db"\n',
+            f"{_KEY}=postgresql://u:p@h:5432/db\n",
+            f'{_KEY}="postgresql://u:p@h:5432/db"   \n',
+            f'OTHER=1\n{_KEY}="postgresql://u:p$x@h/db"\nMORE="2"\n',
+            f'# comment\n\n{_KEY}="postgresql://u:p=q@h/db"',
+        ],
+        ids=["quoted", "unquoted", "trailing-space", "among-keys", "eq-in-pw"],
+    )
+    def test_same_value(self, tmp_path: Path, text: str) -> None:
+        env = tmp_path / "env"
+        env.write_text(text)
+        old = _read(_OLD_READ, env)
+        assert old.strip() != ""
+        assert _read(_NEW_READ, env) == old
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            f'{_KEY}="postgresql://first/db"\n{_KEY}="postgresql://second/db"\n',
+            f'{_KEY}_OLD="postgresql://old/db"\n{_KEY}="postgresql://first/db"\n',
+        ],
+        ids=["duplicate-key", "prefix-sharing-key"],
+    )
+    def test_old_read_was_broken_where_they_differ(
+        self, tmp_path: Path, text: str
+    ) -> None:
+        """The only differences: the old unanchored read returned two lines
+        (an unusable URL); env_value returns the one `KEY=` line it should.
+        The production .env holds exactly one line per key (checked 2026-10-04)."""
+        env = tmp_path / "env"
+        env.write_text(text)
+        assert len(_read(_OLD_READ, env).splitlines()) == 2
+        assert _read(_NEW_READ, env).strip() == "postgresql://first/db"

@@ -13,34 +13,41 @@
 # --log. Nothing pushes to a person; the host has no mail transport.
 #
 # Usage:
-#   backup_health_cron.sh --env-file <path> --pgdata <dir> --wal-dir <dir> \
-#       --stamp <file> --stale-after <minutes> --system-stamp <file> \
+#   backup_health_cron.sh --env-file <path> [--url-key <MT_KEY>] --pgdata <dir> \
+#       --wal-dir <dir> --stamp <file> --stale-after <minutes> --system-stamp <file> \
 #       --base-dir <dir> --flag <path> --stale-flag <path> --log <path>
 #
-# The env file path is explicit; the URL is grep'd from it, never sourced
-# (the $-in-password trap).
+# The env file path is explicit; the URL is read from it under --url-key
+# (the cluster table's url_key, slice 227), never sourced (the $-in-password
+# trap). An absent --url-key reads MT_TIMESCALE_MAINTENANCE_URL: that form
+# exists only for the pre-227 installed cron file and goes after the cutover.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../deploy/lib/env_value.sh
 . "$SCRIPT_DIR/../deploy/lib/env_value.sh"
+# shellcheck source=../deploy/lib/backup_clusters.sh
+. "$SCRIPT_DIR/../deploy/lib/backup_clusters.sh"
 # Sibling tools resolve by name, with this script's own directory as the last
 # place searched, so a stub earlier on PATH stands in for them under test.
 PATH="$PATH:$SCRIPT_DIR"
 
 LOGGER_TAG=manta-backup
+# Pre-227 cron lines pass no --url-key (removed after the 227 cutover).
+PRE227_URL_KEY=MT_TIMESCALE_MAINTENANCE_URL
 ARCHIVE_FLAG_TITLE="WAL ARCHIVING IS BROKEN OR UNCHECKABLE — see the backup-and-restore runbook"
 STALE_FLAG_TITLE="A BACKUP TIER IS STALE — see the backup-and-restore runbook"
 
 usage() {
-  echo "usage: $0 --env-file <path> --pgdata <dir> --wal-dir <dir> --stamp <file> --stale-after <minutes> --system-stamp <file> --base-dir <dir> --flag <path> --stale-flag <path> --log <path>" >&2
+  echo "usage: $0 --env-file <path> [--url-key <MT_KEY>] --pgdata <dir> --wal-dir <dir> --stamp <file> --stale-after <minutes> --system-stamp <file> --base-dir <dir> --flag <path> --stale-flag <path> --log <path>" >&2
 }
 
-ENV_FILE=""; PGDATA_DIR=""; WAL_DIR=""; STAMP=""; STALE_AFTER_MIN=""; SYSTEM_STAMP=""
+ENV_FILE=""; URL_KEY="$PRE227_URL_KEY"; PGDATA_DIR=""; WAL_DIR=""; STAMP=""; STALE_AFTER_MIN=""; SYSTEM_STAMP=""
 BASE_DIR=""; FLAG=""; STALE_FLAG=""; LOG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --env-file)     ENV_FILE="${2:-}"; shift 2 ;;
+    --url-key)      URL_KEY="${2:-}"; shift 2 ;;
     --pgdata)       PGDATA_DIR="${2:-}"; shift 2 ;;
     --wal-dir)      WAL_DIR="${2:-}"; shift 2 ;;
     --stamp)        STAMP="${2:-}"; shift 2 ;;
@@ -58,10 +65,11 @@ for pair in "--env-file:$ENV_FILE" "--pgdata:$PGDATA_DIR" "--wal-dir:$WAL_DIR" \
             "--base-dir:$BASE_DIR" "--flag:$FLAG" "--stale-flag:$STALE_FLAG" "--log:$LOG"; do
   [ -n "${pair#*:}" ] || { echo "error: ${pair%%:*} is required" >&2; usage; exit 2; }
 done
+[[ $URL_KEY =~ $BC_URL_KEY_RE ]] || { echo "error: --url-key $URL_KEY does not match $BC_URL_KEY_RE" >&2; usage; exit 2; }
 
-DB_URL=$(env_value "$ENV_FILE" MT_TIMESCALE_MAINTENANCE_URL 2>/dev/null)
+DB_URL=$(env_value "$ENV_FILE" "$URL_KEY" 2>/dev/null)
 if [ -z "$DB_URL" ]; then
-  OUTPUT="FAIL cannot_check: MT_TIMESCALE_MAINTENANCE_URL not found in $ENV_FILE"
+  OUTPUT="FAIL cannot_check: $URL_KEY not found in $ENV_FILE"
 else
   OUTPUT=$(check_backup_health.sh --db-url "$DB_URL" --pgdata "$PGDATA_DIR" \
     --wal-dir "$WAL_DIR" --stamp "$STAMP" --stale-after "$STALE_AFTER_MIN" \

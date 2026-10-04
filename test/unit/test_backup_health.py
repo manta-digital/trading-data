@@ -390,8 +390,9 @@ class GlueLayout:
     def stub_checker(self, lines: list[str], rc: int) -> None:
         _write_stub(self.bin, "check_backup_health.sh", lines, rc)
 
-    def run(self) -> subprocess.CompletedProcess[str]:
+    def run(self, *extra: str) -> subprocess.CompletedProcess[str]:
         args = [
+            *extra,
             "--env-file", str(self.env_file),
             "--pgdata", str(self.root / "pgdata"),
             "--wal-dir", str(self.root / "wal"),
@@ -606,3 +607,48 @@ class TestGlueMixedClasses:
             "ARCHIVE-BROKEN raised: archive_wedged",
             "BACKUP-STALE raised: offsite_wal_stale system_backup_stale",
         ]
+
+
+class TestGlueUrlKey:
+    """Slice 227: --url-key names the env key read; absent means production's."""
+
+    @pytest.fixture
+    def recording(self, glue: GlueLayout) -> Path:
+        """Two URLs in the env file; the checker stub records its --db-url."""
+        glue.env_file.write_text(
+            'MT_TIMESCALE_MAINTENANCE_URL="postgresql://main/db"\n'
+            'MT_TICK_MAINTENANCE_URL="postgresql://tick/db"\n'
+        )
+        argv = glue.root / "checker-argv"
+        stub = glue.bin / "check_backup_health.sh"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "$*" > {str(argv)!r}\n'
+            "echo 'FLAGS archive=0 stale=0'\n"
+        )
+        return argv
+
+    def test_named_key_is_read(self, glue: GlueLayout, recording: Path) -> None:
+        result = glue.run("--url-key", "MT_TICK_MAINTENANCE_URL")
+        assert result.returncode == 0, result.stderr
+        assert "--db-url postgresql://tick/db " in recording.read_text()
+
+    def test_absent_key_reads_production_url(
+        self, glue: GlueLayout, recording: Path
+    ) -> None:
+        """The pre-227 installed cron line passes no --url-key (task 2.0)."""
+        assert glue.run().returncode == 0
+        assert "--db-url postgresql://main/db " in recording.read_text()
+
+    def test_missing_key_names_it(self, glue: GlueLayout) -> None:
+        result = glue.run("--url-key", "MT_NOT_THERE_URL")
+        assert result.returncode != 0
+        assert "cannot_check: MT_NOT_THERE_URL not found" in glue.log.read_text()
+        assert glue.flag.exists()
+
+    @pytest.mark.parametrize("key", ["mt_lower", "TIMESCALE_URL", "MT_A;rm", ""])
+    def test_bad_key_exits_2(self, glue: GlueLayout, key: str) -> None:
+        result = glue.run("--url-key", key)
+        assert result.returncode == 2
+        assert "--url-key" in result.stderr
+        assert not glue.log.exists()
