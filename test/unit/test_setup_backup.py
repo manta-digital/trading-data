@@ -23,7 +23,7 @@ _SETUP = _DEPLOY / "setup-backup.sh"
 _LIB = _DEPLOY / "lib"
 _TEMPLATE = _DEPLOY / "cron.d" / "manta-trading-backup"
 
-_REQUIRED = ("--checkout", "--env-file", "--backup-root", "--cluster")
+_REQUIRED = ("--checkout", "--env-file", "--backup-root")
 
 # The live /etc/timeshift/timeshift.json shape on manta9000 (2026-09-05):
 # every scalar a JSON string, `"key" : value` spacing, count_weekly 3.
@@ -116,13 +116,45 @@ def host(tmp_path: Path) -> dict[str, Path]:
     _stub(bin_dir, "dpkg", "exit 1\n")  # restic not installed
     _stub(bin_dir, "crontab", "exit 1\n")  # unreadable, as for a non-root run
     _stub(bin_dir, "restic", "exit 1\n")
+    _stub(bin_dir, "pg_lsclusters", _PG_LSCLUSTERS_STUB)
+    rules = tmp_path / "lifecycle.json"
+    rules.write_text(_lifecycle_json("base/", "wal/"))
+    _stub(bin_dir, "rclone", f'[ "$2" = lifecycle ] && cat {str(rules)!r}\n')
     return {
         "checkout": checkout,
         "env": _env_file(tmp_path / "env", password=False),
         "root": tmp_path / "backup-root",
         "rehearse": tmp_path / "rehearse",
         "bin": bin_dir,
+        "rules": rules,
     }
+
+
+# The real tool's output (manta9000, 2026-10-04), header included: the stub
+# honours --no-header the way pg_lsclusters does.
+_PG_LSCLUSTERS = """\
+Ver Cluster Port Status Owner     Data directory              Log file
+17  main    5432 online postgres  /var/lib/postgresql/17/main /var/log/postgresql/postgresql-17-main.log
+17  tick    5433 online <unknown> /data/postgresql/17/tick    /var/log/postgresql/postgresql-17-tick.log
+"""  # noqa: E501
+_PG_LSCLUSTERS_STUB = (
+    'case "${1:-}" in -h|--no-header) skip=2 ;; *) skip=1 ;; esac\n'
+    f"tail -n +$skip <<'X'\n{_PG_LSCLUSTERS}X\n"
+)
+
+
+def _lifecycle_json(*prefixes: str, days: int = 30) -> str:
+    return json.dumps(
+        [
+            {
+                "daysFromHidingToDeleting": days,
+                "daysFromUploadingToHiding": None,
+                "daysFromStartingToCancelingUnfinishedLargeFiles": None,
+                "fileNamePrefix": p,
+            }
+            for p in prefixes
+        ]
+    )
 
 
 def _check(host: dict[str, Path], *extra: str) -> subprocess.CompletedProcess[str]:
@@ -135,8 +167,6 @@ def _check(host: dict[str, Path], *extra: str) -> subprocess.CompletedProcess[st
             str(host["env"]),
             "--backup-root",
             str(host["root"]),
-            "--cluster",
-            "17/main",
             "--check",
             "--rehearse",
             str(host["rehearse"]),
@@ -155,7 +185,6 @@ class TestSetupArguments:
             "--checkout": str(host["checkout"]),
             "--env-file": str(host["env"]),
             "--backup-root": str(host["root"]),
-            "--cluster": "17/main",
         }
         args = [a for k, v in values.items() if k != missing for a in (k, v)]
         result = _run([str(_SETUP), *args, "--check"], host["bin"])
@@ -178,8 +207,6 @@ class TestSetupArguments:
                 str(host["env"]),
                 "--backup-root",
                 str(host["root"]),
-                "--cluster",
-                "17/main",
             ],  # fmt: skip
             host["bin"],
         )
@@ -196,36 +223,171 @@ class TestSetupCheckMode:
         assert result.returncode == 1, result.stdout + result.stderr
         out = result.stdout
         assert "APPLIED" not in out
-        for item in (
-            "package-restic",
-            "dir-base",
-            "dir-wal",
-            "dir-metadata",
-            "dir-system",
-        ):
-            assert f"MISSING {item}" in out, out
-        assert "MISSING wal-acl-manta" in out
-        assert "SKIPPED step-4 (rehearse)" in out
+        assert "MISSING package-restic" in out
+        assert "MISSING dir-system" in out
+        for cluster in ("17/main", "17/tick"):
+            for item in ("dir-root", "dir-base", "dir-wal", "dir-metadata"):
+                assert f"MISSING {cluster} {item} " in out, out
+            assert f"MISSING {cluster} wal-acl-manta" in out
+            assert f"SKIPPED {cluster} pg-settings (rehearse)" in out
+            assert f"MISSING {cluster} arm-file" in out
         assert "MISSING cron.d" in out
         assert "MISSING timeshift-config" in out
         assert "MISSING restic-password" in out
-        assert "MISSING arm-file" in out
         assert "MISSING user-crontab" in out
         assert out.rstrip().splitlines()[-1].startswith("SUMMARY applied=0 not-ok=")
         assert not host["root"].exists(), "--check must create nothing"
+        assert not (host["rehearse"] / "clusters").exists()
         assert not (host["rehearse"] / "cron.d").exists()
+
+    def test_rehearse_moves_every_cluster_root(self, host: dict[str, Path]) -> None:
+        out = _check(host).stdout
+        rehearse = host["rehearse"] / "clusters"
+        assert f"MISSING 17/main dir-root {rehearse}/data/backup\n" in out
+        assert f"MISSING 17/tick dir-wal {rehearse}/data/backup/17-tick/wal\n" in out
+        assert " /data/backup" not in out.replace(f"{rehearse}/data", "")
+
+    def test_host_items_reported_once_without_prefix(
+        self, host: dict[str, Path]
+    ) -> None:
+        lines = _check(host).stdout.splitlines()
+        for item in ("package-restic", "dir-system", "cron.d", "user-crontab"):
+            hits = [x for x in lines if x.split()[1:2] == [item]]
+            assert len(hits) == 1, (item, hits)
+        assert not any(" 17/" in x for x in lines if "restic-" in x)
+
+    def test_cluster_dir_shape_drift(self, host: dict[str, Path]) -> None:
+        """A cron-written directory must be the cron user's and 775."""
+        base = host["rehearse"] / "clusters" / "data" / "backup" / "17-tick" / "base"
+        base.mkdir(parents=True, mode=0o700)
+        base.chmod(0o700)
+        out = _check(host).stdout
+        assert "OK 17/tick dir-base\n" in out
+        assert "DRIFT 17/tick dir-base-owner-mode 'manta:manta 775' " in out
+        assert base.stat().st_mode & 0o777 == 0o700, "--check must change nothing"
+
+    def test_malformed_table_stops_before_any_step(
+        self, host: dict[str, Path], tmp_path: Path
+    ) -> None:
+        """The table is parsed before step 1: a bad row prints no step header.
+        Run against a copy of deploy/ whose table is broken."""
+        deploy = tmp_path / "deploy"
+        subprocess.run(["cp", "-r", str(_DEPLOY), str(deploy)], check=True)
+        table = deploy / "backup-clusters.conf"
+        table.write_text(table.read_text() + "17/x MT_A /data/x - -\n")
+        result = _run(
+            [
+                str(deploy / "setup-backup.sh"),
+                "--checkout",
+                str(host["checkout"]),
+                "--env-file",
+                str(host["env"]),
+                "--backup-root",
+                str(host["root"]),
+                "--check",
+                "--rehearse",
+                str(host["rehearse"]),
+            ],  # fmt: skip
+            host["bin"],
+        )
+        assert result.returncode == 1
+        assert "expected 15 fields" in result.stderr
+        assert "==>" not in result.stdout
+        assert not host["rehearse"].exists()
+
+    def test_cluster_absent_from_pg_lsclusters_is_fatal(
+        self, host: dict[str, Path]
+    ) -> None:
+        main_only = _PG_LSCLUSTERS.splitlines()[1]
+        _stub(host["bin"], "pg_lsclusters", f"cat <<'X'\n{main_only}\nX\n")
+        result = _check(host)
+        assert result.returncode == 1
+        assert "cluster 17/tick is in" in result.stderr
+        assert "not in pg_lsclusters (nothing changed)" in result.stderr
+        assert "==>" not in result.stdout
+
+    def test_data_directory_comes_from_pg_lsclusters(
+        self, host: dict[str, Path]
+    ) -> None:
+        out = _check(host).stdout
+        assert "cluster 17/tick (root " in out
+        assert "data /data/postgresql/17/tick)" in out
+        assert "data /var/lib/postgresql/17/main)" in out
+
+
+class TestSetupLifecycle:
+    """TD10: a missing rule is reported, never applied, never a failure."""
+
+    def _lifecycle_lines(self, out: str) -> list[str]:
+        return [x for x in out.splitlines() if " lifecycle" in x]
+
+    def test_production_rules_only_gives_missing_tick(
+        self, host: dict[str, Path]
+    ) -> None:
+        lines = self._lifecycle_lines(_check(host).stdout)
+        assert "OK 17/main lifecycle base/" in lines
+        assert "OK 17/main lifecycle wal/" in lines
+        assert any(
+            x.startswith("MISSING 17/tick lifecycle 17-tick/base/ (") for x in lines
+        )
+        assert any(
+            x.startswith("MISSING 17/tick lifecycle 17-tick/wal/ (") for x in lines
+        )
+
+    def test_both_rule_sets_ok(self, host: dict[str, Path]) -> None:
+        host["rules"].write_text(
+            _lifecycle_json("base/", "wal/", "17-tick/base/", "17-tick/wal/")
+        )
+        lines = self._lifecycle_lines(_check(host).stdout)
+        assert all(x.startswith("OK ") for x in lines) and len(lines) == 4
+
+    def test_wrong_days_is_missing(self, host: dict[str, Path]) -> None:
+        host["rules"].write_text(_lifecycle_json("base/", "wal/", days=7))
+        lines = self._lifecycle_lines(_check(host).stdout)
+        assert "MISSING 17/main lifecycle base/" in " ".join(lines)
+
+    def test_missing_rule_does_not_change_the_exit_code(
+        self, host: dict[str, Path]
+    ) -> None:
+        """The same run with and without tick's rules tallies the same."""
+
+        def not_ok() -> str:
+            return _check(host).stdout.rstrip().splitlines()[-1]
+
+        without = not_ok()
+        host["rules"].write_text(
+            _lifecycle_json("base/", "wal/", "17-tick/base/", "17-tick/wal/")
+        )
+        assert not_ok() == without
+
+    def test_unreadable_rules_are_a_failure(self, host: dict[str, Path]) -> None:
+        _stub(host["bin"], "rclone", "echo 'unauthorized' >&2; exit 1\n")
+        out = _check(host).stdout
+        assert "MISSING 17/tick lifecycle-read (rclone backend lifecycle" in out
+        assert "MISSING 17/main lifecycle-read" in out
+
+    def test_never_sets_a_rule(self, host: dict[str, Path], tmp_path: Path) -> None:
+        log = tmp_path / "rclone.log"
+        _stub(
+            host["bin"],
+            "rclone",
+            f'echo "$*" >> {str(log)!r}; cat {str(host["rules"])!r}\n',
+        )
+        _check(host)
+        calls = log.read_text().splitlines()
+        assert calls and all(c.split()[:2] == ["backend", "lifecycle"] for c in calls)
+        assert not any(" -o " in f" {c} " for c in calls)
 
     def test_arm_file_present_is_ok_and_never_created(
         self, host: dict[str, Path]
     ) -> None:
-        host["root"].mkdir()
-        (host["root"] / "RECONCILE-ARMED").touch()
+        main_root = host["rehearse"] / "clusters" / "data" / "backup"
+        main_root.mkdir(parents=True)
+        (main_root / "RECONCILE-ARMED").touch()
         result = _check(host)
-        assert "OK arm-file" in result.stdout
-        host2 = dict(host, root=host["root"].parent / "other-root")
-        host2["root"].mkdir()
-        _check(host2)
-        assert not (host2["root"] / "RECONCILE-ARMED").exists()
+        assert f"OK 17/main arm-file {main_root}/RECONCILE-ARMED" in result.stdout
+        assert "MISSING 17/tick arm-file" in result.stdout
+        assert not (main_root / "17-tick" / "RECONCILE-ARMED").exists()
 
     def test_restic_prefix_override_reaches_cron_d_render(
         self, host: dict[str, Path]
