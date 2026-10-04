@@ -231,7 +231,7 @@ Without this, arming would be a later manual step that waits on a Sunday.
 9. The tick metadata job runs once, so the first dump exists without waiting for 02:15.
 10. The tick health job runs again and must log `PASS … FLAGS archive=0 stale=0`.
 11. `rclone check --one-way` of tick `base/`, `wal/` and `metadata/` against `b2:<bucket>/17-tick`.
-12. Production config SHA-256 unchanged; production's health log still PASS.
+12. Production config SHA-256 unchanged; production's health log still PASS; `setup-backup.sh --check` (sudo) OK on both rows apart from a lifecycle MISSING, with its full output in the report.
 13. The report goes to `user/notes/<date>-227-cutover.md`. Exit 0 only when every check passed.
 
 **On failure.** The script stops at the first failed step, prints what it expected and what it saw, and still writes the report. Recovery is: fix the cause, then re-run the whole script, the same as 265's cutover. Every step is check-then-act, so steps already done report OK and change nothing.
@@ -360,11 +360,11 @@ These are the commands as designed; Phase 6 refines them with real output.
 
 1. **Check, change nothing** (agent, before the cutover):
    ```
-   sudo deploy/setup-backup.sh --check --checkout "$PWD" --env-file "$PWD/.env" --backup-root /data/backup
+   deploy/setup-backup.sh --check --checkout "$PWD" --env-file "$PWD/.env" --backup-root /data/backup
    ```
-   `--backup-root` is the host root (Scope item 2). Expect: `17/main` all OK. `17/tick` reports MISSING for its directories, archive settings and cron block. The lifecycle check reports the tick prefix.
+   Runs as manta (no root). `--backup-root` is the host root (Scope item 2). Expect: `17/main` OK for every item readable without root; the cutover's steps 2 and 12 run the sudo form. `17/tick` reports MISSING for its directories, archive settings and cron block. The lifecycle check reports the tick prefix.
 
-2. **Cutover** (PM, one command, after tagging the release):
+2. **Cutover** (PM, one command, after the code review passes and the slice is merged to main):
    ```
    uv run python scripts/cutover_227_tick_backup.py
    ```

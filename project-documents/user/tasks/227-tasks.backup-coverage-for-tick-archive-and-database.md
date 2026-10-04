@@ -7,7 +7,8 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [226]
 interfaces: [228, 230, 231, 232, 234]
 projectState: >
-  Slice design committed and reviewed (CONCERNS, findings addressed). 226 is
+  Slice design and task breakdown reviewed (both CONCERNS, findings
+  addressed). 226 is
   merged: the tick cluster 17/tick (port 5433, data /data/postgresql/17/tick,
   database trading_tick) holds the archive rebuilt in 212.5 s, with no
   backup of any kind. /data/tick-archive is already in nightly restic (223).
@@ -129,7 +130,7 @@ in one invocation. Known baseline failures are not regressions
         **absent** `--url-key` reads `MT_TIMESCALE_MAINTENANCE_URL` and an
         absent `--remote` reads `MT_BACKUP_S3_BUCKET`, exactly as today. A
         comment on each says the absent form exists only for the pre-227
-        cron file. 7.3 removes it after the cutover.
+        cron file. 8.3 removes it after the cutover.
   - [ ] Success: the rule is noted in each wrapper's header comment.
 
 - [ ] **2.1 `backup_health_cron.sh --url-key` (effort 1)**
@@ -141,7 +142,9 @@ in one invocation. Known baseline failures are not regressions
 - [ ] **2.2 `cron_nightly_metadata.sh --url-key --remote` (effort 2)**
   - [ ] `--url-key` as in 2.1. Switch the URL read to the shared
         `env_value` helper the other wrappers use, replacing the
-        `grep | sed | tr` read.
+        `grep | sed | tr` read. This is a deliberate DRY change beyond the
+        design's scope: `--url-key` needs a key-parameterised read, and the
+        helper already is one. 2.4 proves the two reads agree.
   - [ ] `--remote <rclone-path>` is the offsite prefix; the script appends
         `/metadata` the way it appends to the bucket today. Production's
         value is `b2:<bucket>`, tick's `b2:<bucket>/17-tick`.
@@ -157,7 +160,7 @@ in one invocation. Known baseline failures are not regressions
         so the result for production is unchanged. Until the cutover the old
         cron line passes no flag, so for 2.0 an absent flag **with an absent
         `--url-key`** keeps today's `@192.168.1.144:` rewrite; an absent flag
-        with `--url-key` given means "as written". 7.3 removes the old path.
+        with `--url-key` given means "as written". 8.3 removes the old path.
   - [ ] Success: shellcheck clean.
 
 - [ ] **2.4 Wrapper tests (effort 2)**
@@ -173,6 +176,11 @@ in one invocation. Known baseline failures are not regressions
         flag the URL reaches the stubbed `backup_prod.sh` unchanged.
   - [ ] Metadata: `--remote b2:x/17-tick` makes the stubbed rclone receive
         `b2:x/17-tick/metadata`.
+  - [ ] Metadata read parity (2.2): for env files with the URL quoted,
+        unquoted, with trailing whitespace and with a later duplicate key,
+        the old `grep | sed | tr` pipeline (inlined in the test) and
+        `env_value` return the same value. Any difference is a bug to
+        resolve before the swap, not a test to relax.
   - [ ] Success: tests pass; existing wrapper tests still pass.
   - [ ] Commit: `feat: add url-key and remote arguments to backup wrappers`.
 
@@ -223,7 +231,7 @@ in one invocation. Known baseline failures are not regressions
 
 ## Section 4 — `setup-backup.sh` per cluster (Scope item 2, TD4, TD10)
 
-- [ ] **4.1 Loop over the table (effort 4)**
+- [ ] **4.1 Arguments, table parse and per-row steps (effort 3)**
   - [ ] Source `deploy/lib/backup_clusters.sh`; parse the table before any
         step, so a malformed row stops the run before any change.
   - [ ] Remove `--cluster` from arguments, usage and header. `--backup-root`
@@ -232,21 +240,36 @@ in one invocation. Known baseline failures are not regressions
         WAL directory owner/mode, ACL, and the PostgreSQL settings with that
         row's `archive_command`. Report items prefixed with the cluster
         (`17/tick dir-wal`), so `--check` output says which cluster drifted.
+  - [ ] Tests in `test_setup_backup.py`: argument tests drop `--cluster`;
+        scratch-root check mode reports MISSING per cluster with the cluster
+        prefix and never applies; a malformed table row stops before any
+        step runs (no step headers printed); the tick row's
+        `archive_command` names `/data/backup/17-tick/wal`.
+  - [ ] Success: shellcheck clean; tests pass.
+
+- [ ] **4.2 Host-once steps and arm file (effort 2)**
   - [ ] Host once: package, `system` directory under the host root, cron
         render, timeshift, restic, leftover crontab.
   - [ ] Arm file: reported per row from the row's root.
-  - [ ] Success: shellcheck clean.
+  - [ ] Tests: each host-once item is reported exactly once, without a
+        cluster prefix; the arm-file item is reported once per row with the
+        row's prefix.
+  - [ ] Success: shellcheck clean; tests pass; `test_system_backup.py` and
+        `test_wal_offsite.py` still pass.
 
-- [ ] **4.2 Data directory from `pg_lsclusters` (TD4) (effort 2)**
+- [ ] **4.3 Data directory from `pg_lsclusters` (TD4) (effort 2)**
   - [ ] For each row read the data directory and config path with
         `pg_lsclusters` (parse its fields by column, not by fixed widths;
         use `--no-header` or skip the header line explicitly).
   - [ ] A cluster not listed is a hard error before any change.
   - [ ] Remove `PG_DATA_ROOT`; `PG_CONF_ROOT` goes too if the config path
         comes from the same read.
-  - [ ] Success: shellcheck clean.
+  - [ ] Tests: the fake host gains a stub `pg_lsclusters` printing both
+        clusters (in the real tool's output format, header included); a
+        cluster missing from it is a hard error before any change.
+  - [ ] Success: shellcheck clean; tests pass.
 
-- [ ] **4.3 B2 lifecycle check (TD10) (effort 3)**
+- [ ] **4.4 B2 lifecycle check (TD10) (effort 3)**
   - [ ] Read rclone's B2 backend source (`backend/b2/b2.go`, the
         `lifecycle` command; context7 or `gh api`) and record in a comment:
         whether the command can add one prefix's rule without replacing the
@@ -258,23 +281,14 @@ in one invocation. Known baseline failures are not regressions
   - [ ] Apply adds the missing rule only if the source read shows it is
         additive. Otherwise apply reports `MISSING lifecycle <prefix> (add in
         the B2 console: <rule>)` and does not act.
-  - [ ] Success: shellcheck clean; the comment cites the rclone source file
-        and version read.
-
-- [ ] **4.4 Setup tests (effort 3)**
-  - [ ] Update `test_setup_backup.py`: argument tests drop `--cluster`;
-        the fake host gains a stub `pg_lsclusters` printing both clusters.
-  - [ ] Scratch-root check mode reports MISSING per cluster with the
-        cluster prefix and never applies.
-  - [ ] A malformed table row stops before any step runs (no step headers
-        printed).
-  - [ ] A cluster missing from `pg_lsclusters` is a hard error before any
-        change.
-  - [ ] Lifecycle: stubbed rclone output with only production's rules gives
-        `MISSING lifecycle 17-tick`; with both gives OK.
-  - [ ] The tick row's `archive_command` names `/data/backup/17-tick/wal`.
-  - [ ] Success: tests pass; `test_system_backup.py` and `test_wal_offsite.py`
-        still pass.
+  - [ ] A lifecycle MISSING never changes the exit code, in `--check` or
+        apply (TD10: it costs storage, not data). Only a failure to *read*
+        the rules (rclone error) is a failure exit.
+  - [ ] Tests: stubbed rclone output with only production's rules gives
+        `MISSING lifecycle 17-tick` and exit 0 when every other item is OK;
+        with both rules gives OK; an rclone read error exits non-zero.
+  - [ ] Success: shellcheck clean; tests pass; the comment cites the rclone
+        source file and version read.
 
 - [ ] **4.5 Live read-only check (effort 1)**
   - [ ] Run as manta: `deploy/setup-backup.sh --check --checkout "$PWD"
@@ -337,6 +351,10 @@ in one invocation. Known baseline failures are not regressions
   - [ ] Constants: `WAL_SWITCH_WAIT_S = 120`, the tick unit name, the
         advisory lock key imported from where the tick pass defines it
         (`git grep -n advisory src/` to find it).
+  - [ ] Tests: new `test/unit/test_cutover_227.py`, following
+        `test_cutover_921.py`'s approach to stubbing `run`/`out`. A failed
+        step stops later steps and still writes the report.
+  - [ ] Success: ruff and mypy clean; tests pass.
 
 - [ ] **6.2 Steps 1–5: guards, provision, setup, restart (effort 3)**
   - [ ] Step 1: SHA-256 of production's `postgresql.conf` and
@@ -346,15 +364,22 @@ in one invocation. Known baseline failures are not regressions
         `cron.d` DRIFT is expected. Any other non-OK `17/main` item stops.
         Save a copy of the installed cron file for step 4's comparison.
   - [ ] Step 3: `sudo scripts/provision_tick_cluster.sh`.
-  - [ ] Step 4: `sudo deploy/setup-backup.sh`. Then compare the new cron
-        file with the saved copy using the 3.3 rule (strip the new argument
-        pairs from the production lines; they must equal the old ones).
+  - [ ] Step 4: `sudo deploy/setup-backup.sh`; a non-zero exit stops (a
+        lifecycle MISSING does not cause one, 4.4). Keep its lifecycle line
+        for the report. Then compare the new cron file with the saved copy
+        using the 3.3 rule (strip the new argument pairs from the production
+        lines; they must equal the old ones).
   - [ ] Step 5: if `pending_restart` is true for `archive_mode` on tick,
         re-check the advisory lock, then `sudo systemctl restart
         postgresql@17-tick`; confirm `archive_mode=on`. A pending restart on
         `17/main` stops the cutover.
+  - [ ] Tests: the 3.3 strip-and-compare accepts the expected change and
+        refuses any other; step 4 with a `MISSING lifecycle` line and exit 0
+        passes and carries the line forward; a pending restart on `17/main`
+        stops; a held advisory lock stops before the restart.
+  - [ ] Success: ruff and mypy clean; tests pass.
 
-- [ ] **6.3 Steps 6–13: switch, health, weekly, metadata, verify (effort 3)**
+- [ ] **6.3 Steps 6–9: switch, health, weekly, metadata (effort 3)**
   - [ ] Run the tick jobs by extracting their command lines from the
         installed `/etc/cron.d` tick block (the comment line from 3.2 marks
         it), so the cutover runs exactly what cron runs.
@@ -365,28 +390,31 @@ in one invocation. Known baseline failures are not regressions
         final check passed (TD7). Skip both when `base/<today>` and the arm
         file already exist (re-run on the same day).
   - [ ] Step 9: the metadata line once.
+  - [ ] Tests: the cron-line extraction from a rendered file; the arm file
+        is not created when the weekly final check fails; the same-day
+        re-run skips step 8; the WAL wait gives up at the bound.
+  - [ ] Success: ruff and mypy clean; tests pass.
+
+- [ ] **6.4 Steps 10–13: verify and report (effort 2)**
   - [ ] Step 10: the health line again; last line `PASS … FLAGS archive=0
         stale=0`.
   - [ ] Step 11: `rclone check --one-way` of tick `base/`, `wal/`,
         `metadata/` against the row's remote.
   - [ ] Step 12: production hashes unchanged; production health log's last
-        line still `PASS`.
-  - [ ] Step 13: write the report; exit 0 only if every step passed.
-        Include the lifecycle line from step 4's output.
-  - [ ] Success: ruff and mypy clean.
-
-- [ ] **6.4 Cutover tests (effort 3)**
-  - [ ] New `test/unit/test_cutover_227.py`, following
-        `test_cutover_921.py`'s approach to stubbing `run`/`out`.
-  - [ ] Cases: the cron-line extraction from a rendered file; the 3.3
-        strip-and-compare accepting the expected change and refusing any
-        other; a failed step stops later steps and still writes the report;
-        the arm file is not created when the weekly final check fails; the
-        same-day re-run skips step 8; a pending restart on `17/main` stops.
-  - [ ] Success: tests pass.
+        line still `PASS`; `sudo deploy/setup-backup.sh --check` with every
+        item OK on both rows apart from `MISSING lifecycle 17-tick`. Its
+        full output goes in the report, so the root-only items are verified
+        without a separate PM command.
+  - [ ] Step 13: write the report; exit 0 only if every step passed. A
+        lifecycle MISSING is not a failed step: the report names the B2
+        console rule to add under its own heading.
+  - [ ] Tests: a lifecycle MISSING in step 12 still gives exit 0 and the
+        console-rule heading in the report; any other non-OK item in step
+        12 fails it.
+  - [ ] Success: ruff and mypy clean; tests pass.
   - [ ] Commit: `feat: add slice 227 tick backup cutover`.
 
-## Section 7 — Runbooks and close-out
+## Section 7 — Runbooks and validation
 
 - [ ] **7.1 Runbook 200 (effort 2)**
   - [ ] Placement row for the tick cluster; the per-cluster cron table
@@ -404,36 +432,40 @@ in one invocation. Known baseline failures are not regressions
         `INCLUDE_PATHS` (it gained `/data/tick-archive` in 223).
   - [ ] Commit: `docs: add tick backup coverage to backup runbooks`.
 
-- [ ] **7.3 Remove the pre-227 absent forms (effort 1)**
-  - [ ] Only after the cutover report shows step 4 passed (the installed
-        cron file carries the new arguments): make `--url-key` and
-        `--remote` required in the three wrappers, remove the weekly
-        wrapper's `@192.168.1.144:` path, and drop the 2.4 absent-form
-        tests. A missing required argument exits 2 with usage.
-  - [ ] If the cutover has not run when the rest of the slice is done,
-        leave this unchecked and tell the Project Manager it is the one item
-        remaining.
-  - [ ] Commit: `refactor: require url-key in backup wrappers`.
-
-- [ ] **7.4 Full validation (effort 2)**
+- [ ] **7.3 Full validation (effort 2)**
   - [ ] Unit tier, then integration tier, separately. Only known baseline
         failures.
   - [ ] ruff, mypy, `shellcheck -x` clean on every touched file.
   - [ ] `cf check` shows no new findings for 227.
   - [ ] Commit any fixes.
 
-## Section 8 — Cutover run (PM) and acceptance
+## Section 8 — Cutover run (PM), acceptance and close-out
 
 - [ ] **8.1 [PM] Run the cutover (effort 1)**
+  - [ ] Gate: the code review has passed and the slice branch is merged to
+        main (cron runs the wrappers from this checkout, so the merge is
+        what puts the code live). No release tag is required.
   - [ ] The PM runs `uv run python scripts/cutover_227_tick_backup.py`
-        from the checkout root after the code review. The agent hands over
-        that single command.
+        from the checkout root. The agent hands over that single command.
   - [ ] If the report names a B2 console rule (TD10), the PM adds it.
 
 - [ ] **8.2 Read the report and check acceptance (effort 2)**
   - [ ] Every step passed; commit the report.
-  - [ ] Check Success Criteria 1–10 against the report and the
-        Verification Walkthrough commands (as manta); record any gap.
-  - [ ] Run `setup-backup.sh --check` again as manta: every row OK apart
-        from items that need root to read.
-  - [ ] Then do 7.3.
+  - [ ] Check Success Criteria 1–10 against the report (step 12 holds the
+        sudo `--check` output) and the Verification Walkthrough commands
+        that run as manta; record any gap.
+
+- [ ] **8.3 Remove the pre-227 absent forms (effort 2)**
+  - [ ] Only after the report shows step 4 passed (the installed cron file
+        carries the new arguments): make `--url-key` and `--remote` required
+        in the three wrappers and remove the weekly wrapper's
+        `@192.168.1.144:` path. A missing required argument exits 2 with
+        usage.
+  - [ ] Replace the 2.4 absent-form tests with: each wrapper exits 2 with
+        usage when `--url-key` is missing; the metadata wrapper also when
+        `--remote` is missing.
+  - [ ] Re-run the unit tier and ruff/`shellcheck -x` on the touched files.
+  - [ ] If the cutover has not run when the rest of the slice is done,
+        leave this unchecked and tell the Project Manager it is the one item
+        remaining.
+  - [ ] Commit: `refactor: require url-key in backup wrappers`.
