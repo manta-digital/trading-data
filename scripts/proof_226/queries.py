@@ -162,7 +162,9 @@ def run_query_set(
     conn: psycopg.Connection[Any], targets: list[Target]
 ) -> list[QueryResult]:
     """One row per (target, query), under ``STATEMENT_TIMEOUT``."""
-    conn.execute(f"SET statement_timeout = '{STATEMENT_TIMEOUT}'")  # type: ignore[arg-type]
+    conn.execute(
+        "SELECT set_config('statement_timeout', %s, false)", (STATEMENT_TIMEOUT,)
+    )
     with psycopg.ClientCursor(conn) as cur:
         return [
             measure(cur, target.tier, name, target.params)

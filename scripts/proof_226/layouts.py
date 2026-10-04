@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
+from psycopg import sql
 
 from manta_trading.config import Settings
 from manta_trading.data.tick.constants import UnitState
@@ -73,9 +74,13 @@ def decompress_all(conn: SyncConn) -> None:
 @destructive
 def set_layout(conn: SyncConn, layout: Layout) -> None:
     conn.execute(
-        "ALTER TABLE tick_trade SET (timescaledb.enable_columnstore,"
-        f" timescaledb.segmentby = '{', '.join(layout.segment_by)}',"
-        f" timescaledb.orderby = '{', '.join(layout.order_by)}')"
+        sql.SQL(
+            "ALTER TABLE tick_trade SET (timescaledb.enable_columnstore,"
+            " timescaledb.segmentby = {}, timescaledb.orderby = {})"
+        ).format(
+            sql.Literal(", ".join(layout.segment_by)),
+            sql.Literal(", ".join(layout.order_by)),
+        )
     )
 
 

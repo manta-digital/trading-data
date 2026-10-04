@@ -286,6 +286,8 @@ ensure_passwords() {
     [ -n "$pw" ] || pw="$(openssl rand -hex "$PASSWORD_HEX_BYTES")"
     PASSWORDS[$role]="$pw"
     if can_login "$role" "$pw"; then item "OK $role logs in with its .env password"; continue; fi
+    # Quoted into SQL below, so only the characters a generated password uses.
+    [[ "$pw" =~ ^[0-9a-f]+$ ]] || die "the .env password for $role is not hex; refusing to quote it into SQL"
     # Through stdin, so the password is on no command line.
     printf "ALTER ROLE %s WITH PASSWORD '%s';\n" "$role" "$pw" | tick_psql -d postgres -f - >/dev/null
     can_login "$role" "$pw" || die "$role cannot log in after setting its password"
