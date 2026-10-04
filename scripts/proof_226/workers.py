@@ -12,6 +12,7 @@ from pathlib import Path
 
 from manta_trading.data.tick.constants import TICK_INGEST_WORKERS
 from proof_226.common import (
+    MEM_AVAILABLE_FLOOR,
     ProofSetupError,
     Report,
     load_proof_urls,
@@ -29,8 +30,6 @@ from proof_226.ingest_runs import IngestRun, ingest, patched, reload_whole_set, 
 WORKER_COUNTS = (1, 2, 4)
 #: 4 workers must beat the current count's wall time by this factor.
 SPEEDUP_TO_CHANGE = 1.5
-#: Do not start a whole-set reload with less than this available.
-MEM_AVAILABLE_FLOOR = 16 * 1024**3
 
 
 def verdict(seconds: dict[int, float], current: int = TICK_INGEST_WORKERS) -> str:

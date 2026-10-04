@@ -32,6 +32,8 @@ EXPECTED_ROWS = 27_691_412
 #: (LLD 226 TD2 failure modes).
 DATA_VOLUME = Path("/data")
 DATA_FREE_FLOOR_BYTES = 50 * 1000**3
+#: No step that loads the host starts, or keeps running, below this available.
+MEM_AVAILABLE_FLOOR = 16 * 1024**3
 
 
 class ProofSetupError(RuntimeError):

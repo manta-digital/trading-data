@@ -12,11 +12,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import NoReturn, Protocol
 
-from proof_226.common import DATA_FREE_FLOOR_BYTES
+from proof_226.common import DATA_FREE_FLOOR_BYTES, MEM_AVAILABLE_FLOOR
 from proof_226.contention_sampler import Sample
 
 SAMPLE_SECONDS = 5.0
-MEM_AVAILABLE_FLOOR = 16 * 1024**3
 #: The Kalshi pass's longest run in the week before the slice (TD7).
 KALSHI_WEEK_MAX_SECONDS = 324.0
 KALSHI_TRIP_MULTIPLE = 2
