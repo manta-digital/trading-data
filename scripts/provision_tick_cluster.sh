@@ -63,6 +63,8 @@ PROD_PORT=5432
 PROD_CONF_DIR="/etc/postgresql/$PG_VERSION/main"
 PROD_AUTO_CONF="/var/lib/postgresql/$PG_VERSION/main/postgresql.auto.conf"
 PROD_URL_KEY=MT_TIMESCALE_DB_URL
+# Every .env database URL is read with this: 2 user, 3 password, 4 host, 5 port, 6 db.
+PG_URL_RE='^postgres(ql)?://([^:]+):([^@]+)@([^:/]+):([0-9]+)/([^?]+)'
 TS_CONTROL="/usr/share/postgresql/$PG_VERSION/extension/timescaledb.control"
 APP_ROLE=tick_app
 MIGRATE_ROLE=tick_migrate
@@ -136,9 +138,9 @@ prechecks() {
 # Production's installed extension version, read with its own URL from .env
 # (the password goes through PGPASSWORD, never the command line).
 production_ts_version() {
-  local url re='^postgres(ql)?://([^:]+):([^@]+)@([^:/]+):([0-9]+)/([^?]+)'
+  local url
   url="$(env_value "$ENV_FILE" "$PROD_URL_KEY")"
-  [[ "$url" =~ $re ]] || { echo "$PROD_URL_KEY in $ENV_FILE is not a user:password URL" >&2; return 1; }
+  [[ "$url" =~ $PG_URL_RE ]] || { echo "$PROD_URL_KEY in $ENV_FILE is not a user:password URL" >&2; return 1; }
   [ "${BASH_REMATCH[5]}" = "$PROD_PORT" ] || { echo "$PROD_URL_KEY port is not $PROD_PORT" >&2; return 1; }
   PGPASSWORD="${BASH_REMATCH[3]}" psql -X -At -v ON_ERROR_STOP=1 \
     -h "${BASH_REMATCH[4]}" -p "$PROD_PORT" -U "${BASH_REMATCH[2]}" -d "${BASH_REMATCH[6]}" \
@@ -261,7 +263,7 @@ env_password() {
   for key in "${!URL_KEYS[@]}"; do
     spec="${URL_KEYS[$key]}"; [ "${spec%%|*}" = "$1" ] || continue
     url="$(env_value "$ENV_FILE" "$key")"
-    if [[ "$url" =~ ^postgresql://[^:]+:([^@]+)@ ]]; then echo "${BASH_REMATCH[1]}"; return; fi
+    if [[ "$url" =~ $PG_URL_RE ]]; then echo "${BASH_REMATCH[3]}"; return; fi
   done
 }
 

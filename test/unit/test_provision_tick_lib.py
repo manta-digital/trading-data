@@ -141,3 +141,35 @@ def test_a_clean_log_passes(tmp_path: Path) -> None:
     )
     result = _scrub(log, secrets.token_hex(24), "")
     assert result.returncode == 0, result.stdout
+
+
+# -- the shared .env URL pattern ------------------------------------------------
+
+
+def _script_url_re() -> str:
+    """The script's one ``PG_URL_RE`` assignment, as bash would assign it."""
+    found = re.findall(r"^PG_URL_RE=(.+)$", SCRIPT.read_text(), re.MULTILINE)
+    assert len(found) == 1, found
+    return found[0]
+
+
+@pytest.mark.parametrize("scheme", ["postgres", "postgresql"])
+def test_both_url_schemes_yield_the_password(scheme: str) -> None:
+    """The password lookup and the production read share one pattern, so a
+    ``postgres://`` URL never reads as password-less (226 review F005)."""
+    pw = secrets.token_hex(8)
+    url = f"{scheme}://tick_app:{pw}@manta9000:5433/trading_tick"
+    done = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'PG_URL_RE={_script_url_re()}; [[ "$1" =~ $PG_URL_RE ]] '
+            '&& echo "${BASH_REMATCH[3]}"',
+            "bash",
+            url,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.stdout.strip() == pw
