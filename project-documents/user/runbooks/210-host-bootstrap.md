@@ -2,10 +2,10 @@
 docType: runbook
 project: trading-data
 parent: user/slices/920-slice.backup-hardening-and-host-bootstrap.md
-relatedSlices: [913, 915, 916, 917, 919, 920]
+relatedSlices: [913, 915, 916, 917, 919, 920, 227]
 host: <prod_host>
 dateCreated: 20260906
-dateUpdated: 20260907
+dateUpdated: 20261004
 status: complete
 ---
 
@@ -127,19 +127,28 @@ pg_stat_user_tables"` is non-zero.
 
 ```bash
 sudo -v
-sudo "$CHECKOUT/deploy/setup-backup.sh" --checkout "$CHECKOUT" --env-file "$ENV" --backup-root /data/backup --cluster 17/main
+sudo "$CHECKOUT/deploy/setup-backup.sh" --checkout "$CHECKOUT" --env-file "$ENV" --backup-root /data/backup
 ```
 
-Read the report. First run on a bare host: `APPLIED` for `dir-base`,
-`dir-wal`, `dir-metadata`, `dir-system`, `wal-dir-owner-mode`,
-`wal-acl-manta`, `archive_mode`, `archive_command`, `wal_compression`,
-`cron.d`, the timeshift keys (if timeshift is installed), `restic-repo`;
-then `SUMMARY applied=<n> not-ok=<m>` where the not-OK lines are exactly:
+`--backup-root` is the host root (restic stamp, log, lock, `system/`). The
+clusters come from `deploy/backup-clusters.conf` (slice 227): `17/main`
+backs up under `/data/backup`, `17/tick` under `/data/backup/17-tick`. Every
+row must already be a cluster `pg_lsclusters` lists, or the script stops
+before changing anything (`cluster 17/tick is in … but not in pg_lsclusters`):
+on a rebuilt host run `sudo scripts/provision_tick_cluster.sh` first.
+
+Read the report. Per-cluster items carry the cluster name
+(`17/tick dir-wal`); host items do not. First run on a bare host: `APPLIED`
+for `dir-system`, and per cluster `dir-root`, `dir-base`, `dir-metadata`,
+`dir-wal` (each with its `-owner-mode` item), `wal-acl-manta`,
+`archive_mode`, `archive_command`, `wal_compression`; then `cron.d`, the
+timeshift keys (if timeshift is installed), `restic-repo`; then
+`SUMMARY applied=<n> not-ok=<m>` where the not-OK lines are exactly:
 
 | Line | Meaning |
 |---|---|
-| `PENDING RESTART archive_mode` | archiving was off; Step 8 |
-| `MISSING arm-file /data/backup/RECONCILE-ARMED …` | expected until Step 14 |
+| `PENDING RESTART <cluster> archive_mode` | archiving was off; Step 8 |
+| `MISSING <cluster> arm-file <root>/RECONCILE-ARMED …` | expected until Step 14 |
 | `MISSING timeshift-config /etc/timeshift/timeshift.json` | only on a host without timeshift (see the Timeshift section) |
 | `DRIFT user-crontab still runs: …` | only if 915-era crontab lines exist; Step 9 |
 
@@ -153,7 +162,9 @@ investigated before continuing.
 
 ## Step 8 — Restart PostgreSQL, only if reported (sudo)
 
-Only when Step 7 printed `PENDING RESTART archive_mode`:
+Only when Step 7 printed `PENDING RESTART 17/main archive_mode` (for
+`PENDING RESTART 17/tick archive_mode`, restart `postgresql@17-tick` instead;
+no timers write to it):
 
 ```bash
 sudo systemctl stop mt-daily-pass.timer mt-minute-pass.timer mt-kalshi-pass.timer   # runbook 100: pause acquisition
@@ -178,10 +189,12 @@ sudo systemctl reload postgresql@17-main
 ## Step 10 — `--check` green
 
 ```bash
-sudo "$CHECKOUT/deploy/setup-backup.sh" --checkout "$CHECKOUT" --env-file "$ENV" --backup-root /data/backup --cluster 17/main --check
+sudo "$CHECKOUT/deploy/setup-backup.sh" --checkout "$CHECKOUT" --env-file "$ENV" --backup-root /data/backup --check
 ```
 
-Every line `OK` except `MISSING arm-file` (and `MISSING timeshift-config` on
+Every line `OK` except `MISSING <cluster> arm-file`, `MISSING <cluster>
+lifecycle …` (a B2 console rule to add; never counted in the exit code,
+runbook 200 Step 7) (and `MISSING timeshift-config` on
 a host without timeshift). Exit code 1 for those alone is the expected
 pre-arm state; anything else is drift to fix and re-check.
 
@@ -243,12 +256,12 @@ unarmed on purpose.
   timeshift excludes is restic's or PostgreSQL's job. **History:**
   `/home/manta/**` was an *include* until 2026-09-03 and made snapshots
   ~570 GB; do not "fix" it back.
-- `setup-backup.sh` step 6 merges only the managed keys (`schedule_*`,
+- `setup-backup.sh` step 5 merges only the managed keys (`schedule_*`,
   `count_weekly`, `exclude`) with `jq`; it never touches the device UUID,
   `snapshot_size`, or `snapshot_count`, and prints
   `INFO timeshift-device-uuid <uuid>` so a replacement host's operator can
   confirm it points at the right disk.
-- **A host without timeshift** (hammerhead, measured 2026-09-05): step 6
+- **A host without timeshift** (hammerhead, measured 2026-09-05): step 5
   reports `MISSING timeshift-config /etc/timeshift/timeshift.json` and never
   creates the file — the script cannot know the device UUID. To add
   timeshift: `sudo apt install timeshift`, run `sudo timeshift --list` once
@@ -259,11 +272,11 @@ unarmed on purpose.
 ## What restic holds, and what it leaves out
 
 Include set (constants in `scripts/cron_system_backup.sh`): `/etc`, `/root`,
-`/var/spool/cron/crontabs`, `/home/manta`. Excludes:
-`deploy/restic-excludes.txt` (Trash, Steam, caches, uv, `.vscode`, the FUSE
+`/var/spool/cron/crontabs`, `/home/manta`, `/data/tick-archive` (slice 223:
+purchased tick files). Excludes: `deploy/restic-excludes.txt` (Trash, Steam, caches, uv, `.vscode`, the FUSE
 drive mounts, `**/.venv`, `**/node_modules`, and `/home/manta/ai` — PM
 decision 2026-09-06; `/home/manta/Pictures` is **included** by the same
-decision). Encryption is what makes include-by-default safe: home holds
+decision; and `/data/tick-archive/**/*.partial`, unfinished copies). Encryption is what makes include-by-default safe: home holds
 `~/.ssh` and `.env`, and B2 only ever sees ciphertext.
 
 ## Acceptance test record (design D10; Task 10.1)

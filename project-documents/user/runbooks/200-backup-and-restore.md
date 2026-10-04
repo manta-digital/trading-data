@@ -2,14 +2,14 @@
 docType: runbook
 project: trading-data
 parent: user/slices/915-slice.backup-and-restore-procedures.md
-relatedSlices: [913, 915, 920, 223]
+relatedSlices: [913, 915, 920, 223, 227]
 host: <prod_host>
 dateCreated: 20260816
-dateUpdated: 20260928
+dateUpdated: 20261004
 status: current
 ---
 
-# Runbook — Backup and Restore (slices 915, 920)
+# Runbook — Backup and Restore (slices 915, 920, 227)
 
 Run every step **on the prod host, from the prod checkout**
 (`~/source/repos/manta/trading-data`). Steps are ordered; each is standalone.
@@ -34,6 +34,8 @@ mangles the credential. Always `grep` it out like the line above.
 | Base backups | `/data/backup/base/<date>` |
 | WAL archive | `/data/backup/wal` |
 | Metadata dumps | `/data/backup/metadata` |
+| Cluster table (slice 227) | `deploy/backup-clusters.conf`: one row per backed-up cluster (env key, backup root, B2 sub-prefix, replication host, metadata and weekly schedules); read by `setup-backup.sh`, the cron render and the 227 cutover |
+| Tick cluster `17/tick` (slices 226, 227) | data `/data/postgresql/17/tick` (port 5433); backups `/data/backup/17-tick/{base,wal,metadata}` with its own logs, stamps, flags and arm file; offsite `b2:$BUCKET/17-tick/{base,wal,metadata}`; URL `MT_TICK_MAINTENANCE_URL` (`tick_migrate`, REPLICATION) |
 | Tick archive (slice 223) | `/data/tick-archive` (`MT_TICK_ARCHIVE_DIR`): purchased Databento batch files, `<job_id>/<file>`; in the nightly restic backup |
 | Replication | admitted from **localhost only** — backups run on this host |
 | Backup scripts | `scripts/backup_prod.sh`, `scripts/backup_metadata.sh`, `scripts/check_archive_health.sh` — each requires explicit `--db-url`/`--dest`, none reads the environment |
@@ -129,7 +131,7 @@ Stop the daemon before restarting. If this restart interrupts acquisition during
 the week of the slice-169 criterion-18 check, that check simply gets re-run the
 following Monday — it is one query, not a blocker.
 
-**Applied by `deploy/setup-backup.sh` step 4 (slice 920, 2026-09).** The
+**Applied by `deploy/setup-backup.sh` step 3, once per cluster in the table (slice 920, 2026-09; per cluster since 227).** The
 directory, its ownership (`postgres:postgres` 0775 — the group bits are the
 ACL mask, see Step 7), and the three settings below are check-then-act items
 of that script; run `sudo deploy/setup-backup.sh --check …` to audit them and
@@ -241,11 +243,11 @@ Both clear on the next healthy check. The ten named failures:
 
 | Name | Class → flag | Cause | Fix |
 |---|---|---|---|
-| `archive_mode_off` | archive → `ARCHIVE-BROKEN` | `archive_mode` is not `on` | `sudo deploy/setup-backup.sh …` (step 4) — a restart is reported as `PENDING RESTART`, never performed |
+| `archive_mode_off` | archive → `ARCHIVE-BROKEN` | `archive_mode` is not `on` | `sudo deploy/setup-backup.sh …` (step 3) — a restart is reported as `PENDING RESTART`, never performed |
 | `archiver_failing` | archive → `ARCHIVE-BROKEN` | the most recent archive attempt failed (`last_failed_time` newer than `last_archived_time`) | fix the destination (space, permissions, a wedge below); the archiver drains its backlog on its own. Do not delete from `pg_wal` by hand |
 | `unarchived_backlog` | archive → `ARCHIVE-BROKEN` | more than 4 GiB of WAL awaiting archive | as above; watch `df -h /data` |
 | `wal_disk_low` | archive → `ARCHIVE-BROKEN` | the `pg_wal` filesystem is below 15% free | free space; then the archiver catches up |
-| `prune_permission` | archive → `ARCHIVE-BROKEN` | the cron user cannot create+delete a file in `wal/` (the ACL is gone or masked) | `sudo deploy/setup-backup.sh …` (step 3 re-applies the ACL; step 2 the 0775 mode the mask needs) |
+| `prune_permission` | archive → `ARCHIVE-BROKEN` | the cron user cannot create+delete a file in `wal/` (the ACL is gone or masked) | `sudo deploy/setup-backup.sh …` (step 3 re-applies the ACL and the 0775 mode the mask needs) |
 | `archive_wedged` | archive → `ARCHIVE-BROKEN` | a short raw file sits at the next-to-archive name with no `.zst` sibling (the 2026-09-02 shape) | see the quick reference: confirm `pg_wal` still holds it, `mv` it aside, never delete |
 | `archive_tmp_leftover` | archive → `ARCHIVE-BROKEN` | a `*.tmp` in `wal/` older than 10 min — an atomic write that never finished | `df -h /data`; remove the `.tmp`; the archiver rewrites the segment |
 | `offsite_wal_stale` | stale → `BACKUP-STALE` | `wal-offsite.stamp` missing or older than 3 × the push interval (three missed hourly pushes) | `tail /data/backup/wal-offsite.log`; run the push line from cron.d by hand; check B2 credentials/reachability |
@@ -417,19 +419,32 @@ proven, and acquisition's move to systemd timers does not pull the backup
 jobs with it. **Amended by slice 920:** the schedule is no longer hand-edited
 into the `manta` crontab; it is the root-owned file
 `/etc/cron.d/manta-trading-backup`, rendered by `deploy/setup-backup.sh`
-(step 5) from `deploy/cron.d/manta-trading-backup` with the checkout, env
-file, backup root, and cron user substituted. Change the template or the
-script's constants and re-run the script; `--check` reports `DRIFT cron.d`
-when the installed file differs from a fresh render. Six entries:
+(step 4). Since slice 227 it is two templates: `deploy/cron.d/manta-trading-backup`
+holds the header and the host block, and
+`deploy/cron.d/manta-trading-backup.cluster` is rendered once per row of
+`deploy/backup-clusters.conf` into the host template's `@CLUSTER_BLOCKS@`
+line, each block opened by a `# cluster <name>` comment. Order: header,
+`17/main`, `17/tick`, host. Change a template, the table or the script's
+constants and re-run the script; `--check` reports `DRIFT cron.d` when the
+installed file differs from a fresh render. Ten entries:
 
-| When | User | Job |
-|---|---|---|
-| `*/30 * * * *` | manta | `backup_health_cron.sh` — the ten checks, two flags (above) |
-| `0 * * * *` (from `WAL_OFFSITE_INTERVAL_MIN=60`) | manta | `sync_wal_offsite.sh` — additive `rclone copy` of `wal/` to `b2:$BUCKET/wal`, touches `wal-offsite.stamp` |
-| `0 2 * * *` | manta | `cron_nightly_metadata.sh` (unchanged from 915) |
-| `0 3 * * 0` | manta | `cron_weekly_backup.sh --keep-days 7` — base backup, catch-up push, check, prune, guards, and (only while `RECONCILE-ARMED` exists) the offsite mirror |
-| `0 4 * * *` | root | `cron_system_backup.sh` — restic snapshot of `/etc`, `/root`, crontabs, `/home/manta`, `/data/tick-archive` |
-| `0 5 1 * *` | root | `cron_system_backup.sh --check` — `restic check --read-data-subset=5%` |
+| When | User | Block | Job |
+|---|---|---|---|
+| `*/30 * * * *` | manta | each cluster | `backup_health_cron.sh --url-key <key>` — the ten checks, two flags (above), in that cluster's root |
+| `0 * * * *` (from `WAL_OFFSITE_INTERVAL_MIN=60`) | manta | each cluster | `sync_wal_offsite.sh` — additive `rclone copy` of `wal/` to `<remote>/wal`, touches `wal-offsite.stamp` |
+| `0 2 * * *` / `15 2 * * *` | manta | 17/main / 17/tick | `cron_nightly_metadata.sh --url-key <key> --remote <remote>` |
+| `0 3 * * 0` / `30 2 * * 0` | manta | 17/main / 17/tick | `cron_weekly_backup.sh --url-key <key> [--replication-host 127.0.0.1] --keep-days 7` — base backup, catch-up push, check, prune, guards, and (only while that cluster's `RECONCILE-ARMED` exists) the offsite mirror |
+| `0 4 * * *` | root | host | `cron_system_backup.sh` — restic snapshot of `/etc`, `/root`, crontabs, `/home/manta`, `/data/tick-archive` |
+| `0 5 1 * *` | root | host | `cron_system_backup.sh --check` — `restic check --read-data-subset=5%` |
+
+`<key>` and `<remote>` come from the table: `17/main` is
+`MT_TIMESCALE_MAINTENANCE_URL` and `b2:$BUCKET` (production's paths and
+prefixes never moved), with `--replication-host 127.0.0.1` because its
+replication is admitted from localhost only; `17/tick` is
+`MT_TICK_MAINTENANCE_URL` and `b2:$BUCKET/17-tick`, URL used as written
+(its `pg_hba` admits replication from the address the host's own
+connections arrive from). Both health jobs read the host's
+`system-backup.stamp`.
 
 The push interval appears in exactly one place in the repository
 (`WAL_OFFSITE_INTERVAL_MIN` in `setup-backup.sh`); it renders the schedule,
@@ -470,14 +485,26 @@ touches the current version of a live object. **Do not set "days till
 hide"**: that hides every current object N days after upload — a hard cap
 on how long a dead host's last backups survive, the opposite of a backstop.
 No rules on `metadata/` or `system/` (rclone sync and restic manage their
-own; restic must never have current files hidden from under it). Paste the resulting rule JSON below when set:
+own; restic must never have current files hidden from under it). **Tick
+(slice 227):** the same two rules for `17-tick/base/` and `17-tick/wal/`.
+`setup-backup.sh` checks them per cluster and prints `OK <cluster>
+lifecycle <prefix>` or `MISSING <cluster> lifecycle <prefix> (add in the B2
+console: …)`. It never sets one, and a missing rule never changes its exit
+code (it costs storage, not data): the `b2` rclone remote is the S3
+backend, which has no lifecycle command, so `deploy/lib/b2_lifecycle.sh`
+reads the rules through rclone's native backend with the bucket key from
+`.env`, and that backend's set replaces every rule on the bucket with one
+whole-bucket rule (rclone v1.75.0 `backend/b2/b2.go`), which would delete
+production's. Paste the resulting rule JSON below when set:
 
 Set by the PM 2026-09-07 in the console: two rules, prefixes `wal/` and
 `base/`, "days till hide" **blank**, "days till delete" (after hiding) 30.
 (First attempt had "days till hide" = 30 as well — corrected the same day;
 see the warning above.)
 
-**The reconcile arm file `/data/backup/RECONCILE-ARMED`.** The weekly job
+**The reconcile arm files `<cluster root>/RECONCILE-ARMED`**
+(`/data/backup/RECONCILE-ARMED` for production, `/data/backup/17-tick/RECONCILE-ARMED`
+for tick, created by the 227 cutover after its first tick weekly run passed). The weekly job
 runs its base backup, catch-up push, checksum check, prune, and the four
 guards every week regardless; it performs the destructive step — `rclone
 sync --max-delete <pruned + 50>` of `wal/` and the purge of offsite
@@ -486,9 +513,70 @@ Otherwise it logs `reconcile skipped: not armed` and exits 0. Nothing
 creates the file but a person: after watching the first reconcile by hand
 (unarmed run: guards pass, `skipped`; then `touch` the file and run again
 watching the sync — the 920 drill), `touch /data/backup/RECONCILE-ARMED`.
-A rebuilt host starts unarmed; `setup-backup.sh --check` reports the file's
-state as `MISSING arm-file` until it is created. Remove the file to disarm
+A rebuilt host starts unarmed; `setup-backup.sh --check` reports each file's
+state as `MISSING <cluster> arm-file` until it is created. Remove the file to disarm
 at any time.
+
+### The tick cluster (slice 227)
+
+`17/tick` gets the same coverage as production: weekly `pg_basebackup` +
+WAL archiving (zstd) + a nightly metadata dump, each pushed to
+`b2:$BUCKET/17-tick/`, keep-days 7 and the B2 lifecycle backstop as above.
+Its bookkeeping (pass-purchase provenance, reopen times, supersession links)
+cannot be rebuilt from the archive files, so rebuild-from-archive is only
+the fallback. Restore is the subject of slice 228.
+
+**Enrolment is one command, run once by the PM** after the slice is merged
+to main (cron runs the wrappers from this checkout, so the merge is what
+puts the code live):
+
+```bash
+uv run python scripts/cutover_227_tick_backup.py
+```
+
+It runs as `manta` from the checkout root and asks for `sudo` for the root
+steps. Thirteen steps, each recording expected against seen: production
+config hashed and no tick run active; `setup-backup.sh --check`;
+`provision_tick_cluster.sh` (REPLICATION for `tick_migrate`, the
+replication `pg_hba` line, `/data/postgresql` and `/data/postgresql/17` to
+0755); `setup-backup.sh` apply, with production's cron lines compared
+against the old ones with the new arguments removed; restart of
+`postgresql@17-tick` only (and only if `archive_mode` is pending and no tick
+run holds its lock); `pg_switch_wal()` and the `.zst` within 120 s; tick
+health; the first tick weekly run, then the arm file; the metadata job;
+tick health `FLAGS archive=0 stale=0`; `rclone check --one-way` of
+`base/`, `metadata/`, `wal/`; production config unchanged, production
+health clean, `setup-backup.sh --check` exit 0. The report is
+`project-documents/user/notes/<date>-227-cutover.md`, with a "B2 console
+rules to add" section when the lifecycle rules are missing. It stops at
+the first failure and still writes the report; fix the cause and re-run
+the whole script (a same-day re-run skips the weekly run when today's base
+and the arm file exist).
+
+**What restic and timeshift do not hold, on purpose:**
+
+| Path | In restic? | Why |
+|---|---|---|
+| `/data/tick-archive` | yes (223) | the record; immutable, so stored once thanks to deduplication |
+| `/data/tick-archive/**/*.partial` | excluded (223) | unfinished copies are not the record |
+| `/data/postgresql/17/tick` | no | a file copy of a live data directory can't be restored; covered by base + WAL |
+| `/data/backup` (incl. `17-tick/`) | no | goes offsite by rclone to B2 |
+| `/data/market-data/databento` | no | the PM's read-only originals; every job there was adopted, so verified copies are in the archive |
+| `/data/restore-test` | no | scratch space for drills |
+
+Timeshift does not reach `/data`: its backup device is the `/data` volume,
+and its 2026-10-01 snapshot holds `/data` as an empty mount point. No
+timeshift exclude is added for the tick paths. Production's data directory,
+`/var/lib/postgresql/**`, is already excluded.
+
+**Shared volume.** Tick backups share `/data` (1.8 TB, about 1.2 TB free on
+2026-10-04) with production's. Production's data and WAL are on the root
+disk, so a full `/data` cannot stop production's database, but it would stop
+its archiving and base backups. A tick base is 677 MB today against
+production's ~98 GB, and the planned ES+GC tbbo year is about 5 GB stored;
+the tick health check's
+`wal_disk_low` (15% free on the volume holding the tick data directory, which
+is `/data`) is the first alarm that watches this volume.
 
 ### The tick archive in the system backup (slice 223)
 
