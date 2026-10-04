@@ -582,6 +582,17 @@ dataset range and per-day condition (`tick_dataset_edge`,
 `tick_day_condition`). Event times are
 integer nanoseconds since the epoch, exactly as Databento delivers them.
 
+In production it is `trading_tick` on its own PostgreSQL cluster, `17/tick`
+(port 5433, data on `/data`, listening on `127.0.1.1` only), created by
+`sudo scripts/provision_tick_cluster.sh`. The script is check-then-act and safe
+to re-run (`--check` changes nothing and needs no root); it writes
+`MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL` into the checkout's `.env` and
+never touches the production cluster. `tick_trade` is a columnstore segmented
+by instrument and ordered by event time (`tick_007`); chunks older than 14
+days are compressed by a policy, about 25 bytes per row (5.7 GiB of the proof
+set became 0.65 GiB). ES is configured at the `tbbo` tier, which carries the
+quote at every trade (slice 226's go/no-go).
+
 ```sh
 # Records, billable size, and cost for each schema tier (trades, tbbo, mbp-1)
 # plus the definition schema bought with each tier, for one instrument set

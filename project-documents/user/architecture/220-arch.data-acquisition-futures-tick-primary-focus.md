@@ -276,6 +276,31 @@ Follows this initiative, not part of it: realtime capture (streaming form, own i
   - **Tier supersession:** a higher tier supersedes a loaded lower tier at
     ingest, by tier rank, in the loading transaction.
 
+- **2026-10-03** (slice 226, the proof on existing data; its design and the
+  go/no-go, `user/analysis/226-analysis.tick-proof-go-no-go.md`, are
+  authoritative in detail):
+  - **"Cross-source arbitration"** and the **"Proof on existing data"** entry
+    under Anticipated Slices: contention was measured against the Kalshi
+    pass (none measured at 2 ingest workers); the minute-pass overlap moves
+    to 232 (PM, 2026-10-03).
+  - **"Pass form"** and **"Delivery mode and retention":** batch-job timing
+    comes from the account's job records (24–287 s submit → done over eight
+    jobs), not from the first job a pass submits; the wait budget stays
+    1,800 s and the poll 15 s.
+  - **"Storage":** space partitioning is rejected from the disk layout (one
+    data volume; partitions multiply chunk count), not from a measurement;
+    the measured skew (one instrument holds 48–99.9 % of a chunk) is
+    recorded as evidence. It reopens only with a second data volume.
+  - **Production reads by the proof harness** (`scripts/proof_226_tick.py`):
+    `pass_runs` and `pg_stat_database` on the production database, read
+    only with a 5 s statement timeout, during the one-off contention run.
+    They add no product edge.
+  - **Outcomes:** ES at tbbo with spreads (parent); GC to follow at tbbo;
+    the Standard plan a technical go; layout A with a 14-day columnstore
+    policy (`tick_007`); 7-day chunks validated; every measured constant
+    kept; the production tick cluster `17/tick` built and rebuilt from the
+    archive in 212.5 s.
+
 ## Related Work
 
 - **001-initiative-plan.trading.md** — entry 220 and its dependency note (tick hypertable from 100; daemon patterns, provider seam, and orchestrator core from 120). The plan's original assignment of the daemon-framework extraction to this initiative is amended alongside this document: the third source is a bounded pass, not a daemon, and follows an existing shape; extraction, if warranted, is foundation work.

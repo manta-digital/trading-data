@@ -160,7 +160,8 @@ job records, record counts, and cost estimates.
 scripts/provision_tick_cluster.sh     root, PM runs once; check-then-act; logs
   └─ pg_createcluster 17 tick (port 5433, data on /data)
   └─ provision_tick_roles.sql  × {trading_tick, trading_tick_proof}
-  └─ writes MT_TICK_DB_URL / MT_TICK_MAINTENANCE_URL (+ _PROOF_) to .env
+  └─ writes MT_TICK_DB_URL / MT_TICK_MAINTENANCE_URL
+     and MT_PROOF_226_DB_URL / MT_PROOF_226_MAINTENANCE_URL to .env
 
 scripts/proof_226_tick.py             manta, no root; one step per measurement
   steps: rebuild · workers · batch · jobs · mapping · size · layouts
@@ -260,7 +261,9 @@ database, and `/proc` on the host.
   settings and restarts only the tick cluster.
 - **Credentials.** The script generates both passwords, sets them with
   `ALTER ROLE`, and writes `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and
-  the proof database's two URLs into the checkout's `.env`. It adds only
+  the proof database's two URLs, `MT_PROOF_226_DB_URL` and
+  `MT_PROOF_226_MAINTENANCE_URL` (never `MT_TICK_*`: the tick preflight
+  refuses an `MT_TICK_*` key no setting reads), into the checkout's `.env`. It adds only
   keys that are absent, keeps the file owned by `manta` with mode 0600, and
   never prints a password. No credential is committed.
   - **Atomic `.env` write** (re-review F004): the new content goes to a
@@ -308,6 +311,7 @@ backup and operations path.
 | `contention` | The Kalshi overlap run (Technical Decision 7). |
 | `final` | On `trading_tick` after the production rebuild: compresses every eligible chunk, then the query set on the final layout, `coverage`, and table sizes. Read-only apart from the compression. |
 | `drop-proof` | Drops `trading_tick_proof`. `DROP DATABASE` cannot run from inside the database it drops, so this step connects to `trading_tick` with the maintenance URL. Its guard is different (re-review F008). The target is the constant `TICK_PROOF_DB_NAME`, never a parameter or a value read from a URL. The step also refuses if that name equals the database named in `MT_TICK_DB_URL`. A unit test covers both refusals. |
+| `archive-check` | Read-only (added at task breakdown, 11.3): for each job directory, every file `manifest.json` lists is compared against its listed size and `sha256:` hash with `tick.hashing.sha256_file`. Run after `drop-proof`, as the walkthrough's archive re-check. |
 
 **Resetting the proof database** for a re-ingest: `TRUNCATE tick_trade,
 tick_ingest_ledger`, then set every ingested tier unit back to *verified*.
@@ -615,8 +619,10 @@ recommendation and its evidence:
   rebuild cost handed to 227.
 
 **`TICK_UNIVERSE` for ES** gets the recommended tier, with `start` and `end`
-set to the range already held at that tier. For `tbbo`, that is 2024-11-01
-to 2025-01-01. That is the honest wanted range before a subscription: a
+set to the range already held at that tier. For `tbbo`, that is 2024-11-02
+to 2025-01-01 (implementation: the session dated 11-01 opens at 22:00 UTC on
+10-31, a day the tbbo job does not hold, so the first session held whole is
+the one dated 11-04). That is the honest wanted range before a subscription: a
 pass finds nothing to buy, and status can read caught up. Widening it to
 the plan year is a one-line edit made when the PM subscribes. The PM can
 change the tier at review; it is the same edit.
@@ -784,8 +790,10 @@ policy job runs as the owner. `tick_app` needs no new grant unless the
 
 ### Verification Walkthrough
 
-Run on manta9000 from the checkout, with `.env` exported
-(`set -a; . ./.env; set +a`).
+Run on manta9000 from the checkout. Nothing is exported: `mt` and the
+harness load `.env` themselves (python-dotenv), and a `psql` step reads one
+key with `deploy/lib/env_value.sh` (sourcing `.env` would shell-expand a `$`
+in a password).
 
 1. **Provision (PM, once).**
 
@@ -885,11 +893,15 @@ Run on manta9000 from the checkout, with `.env` exported
 
    ```bash
    uv run python scripts/proof_226_tick.py drop-proof
-   psql "$MT_TICK_MAINTENANCE_URL" -Atc "SELECT datname FROM pg_database ORDER BY 1"
+   psql "$(. deploy/lib/env_value.sh; env_value .env MT_TICK_MAINTENANCE_URL)" \
+     -Atc "SELECT datname FROM pg_database ORDER BY 1"
+   uv run python scripts/proof_226_tick.py archive-check
    ```
 
    Expected: `trading_tick_proof` is gone. The archive is unchanged:
-   `sha256sum -c` against each job's `manifest.json` passes.
+   `uv run python scripts/proof_226_tick.py archive-check` compares every
+   file each job's `manifest.json` lists against its size and `sha256:`
+   hash (`sha256sum -c` cannot parse that JSON).
 
 9. **Read the go/no-go.** `user/analysis/226-analysis.tick-proof-go-no-go.md`
    has a recommendation for each of the four decisions, and every number in

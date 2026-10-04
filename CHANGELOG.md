@@ -33,6 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exits `3` naming any mismatch.
 - None of the three needs a Databento API key; `status` and `coverage` need
   no archive directory either.
+- **The production tick database exists.** `sudo
+  scripts/provision_tick_cluster.sh` creates the tick cluster (`17/tick`,
+  port 5433, data on `/data`), its two databases and roles, and adds the tick
+  URLs to `.env`; re-running it changes only what drifted. The held ES data
+  (78 days, 27.7 M records) is loaded and verified in it.
+- **Tick data is compressed.** `tick_trade` keeps chunks older than 14 days
+  in columnstore form, about 25 bytes per row (8.7x smaller); one session's
+  ticks, its one-minute bars, per-contract counts and a contract's latest
+  tick all read in under 260 ms on the production host.
+- **ES is configured at the `tbbo` tier** for the range already held, so a
+  pass buys nothing and `mt data tick status` reads caught up.
+
+### Fixed
+- A tick file with a bad header (an unexpected schema, symbology or record
+  framing) no longer stops `mt data tick pass`, `adopt` or `ingest`: that
+  day fails, naming the file, and the rest of the run carries on.
+- `mt data tick status` judges *caught up* over the wanted range only.
+  Sessions loaded at the other tier are still listed but no longer keep it
+  at "no".
 
 ## [0.22.0] - 2026-09-30
 
