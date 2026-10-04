@@ -1,9 +1,10 @@
 """``batch``: the three largest units at 8, 32 and 128 MiB budgets (TD3).
 
 Rule: keep 32 MiB unless a worker's memory exceeds 4× the budget, or another
-budget moves the units' time by more than 10 %. Workers are threads of this
-process, so each run's rise is this process's high-water mark (reset before
-the run) above its resident memory at the start; ``budget_memory`` separates
+budget makes the units more than 10 % faster (a slower budget never wins).
+Workers are threads of this process, so each run's rise is this process's
+high-water mark (reset before the run) above its resident memory at the
+start; ``budget_memory`` separates
 the part that scales with the budget from the fixed part.
 Ends by reloading the whole set with the current constants, so Section 6
 measures every row.
@@ -85,6 +86,11 @@ def verdict(
     seconds: dict[int, float], rise: dict[int, int], workers: int = TICK_INGEST_WORKERS
 ) -> str:
     current = TICK_DECODE_BATCH_BYTES
+    if current not in seconds:
+        raise ValueError(
+            f"TICK_DECODE_BATCH_BYTES {mib(current)} is not one of the measured "
+            f"budgets {[mib(b) for b in seconds]}"
+        )
     per_worker, _ = budget_memory(rise, workers)
     if per_worker > RSS_BUDGET_MULTIPLE:
         return (

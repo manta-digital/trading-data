@@ -234,6 +234,18 @@ def test_batch_rule() -> None:
     assert verdict(flat, steep, workers=2).startswith("change: a worker holds 5.0×")
     faster = {**flat, 128 * mib: 80.0}
     assert verdict(faster, measured, workers=2).startswith("change to 128 MiB")
+    slower = {**flat, 8 * mib: 150.0}  # moved 50 %, but slower: never a change
+    assert verdict(slower, measured, workers=2).startswith("keep 32 MiB")
+
+
+def test_batch_rule_refuses_an_unmeasured_current_budget() -> None:
+    from proof_226.batch import verdict
+
+    mib = 1024 * 1024
+    unmeasured = {8 * mib: 100.0, 128 * mib: 95.0}
+    rise = {8 * mib: 469 * mib, 128 * mib: 1020 * mib}
+    with pytest.raises(ValueError, match="not one of the measured budgets"):
+        verdict(unmeasured, rise, workers=2)
 
 
 def test_budget_memory_separates_fixed_from_scaling() -> None:
