@@ -133,11 +133,10 @@ def _files_by_day(
         found = file_days((run.archive_root / rel for rel in archived), reader)
     except DuplicateDayError as exc:
         raise TickAdoptionRefused(str(exc)) from exc
-    by_day = {
-        day: (archived[rel], rel)
-        for day, path in found.by_day.items()
-        for rel in (f"{job_id}/{path.name}",)
-    }
+    by_day: dict[date, tuple[ArchivedFile, str]] = {}
+    for day, path in found.by_day.items():
+        rel = f"{job_id}/{path.name}"
+        by_day[day] = (archived[rel], rel)
     return _JobDays(by_day, found)
 
 
