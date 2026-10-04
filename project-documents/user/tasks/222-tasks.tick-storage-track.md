@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/222-slice.tick-storage-track.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [923, 220, 221]
-interfaces: [223, 224, 225, 226, 227, 228, 229, 230]
+interfaces: [223, 224, 225, 226, 227, 229, 230, 231]
 projectState: >
   Slice design committed and reviewed (CONCERNS; F004 addressed in abfb5f1).
   923 (tick track, fixtures, grant artifact), 220 (tick enums, DBN reader,

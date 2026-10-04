@@ -1,7 +1,7 @@
 """The configured tick universe: what the pass is asked to keep in hand (224).
 
 LLD 224 Technical Decision 3. A code constant beside
-``FUTURES_PRODUCT_CALENDAR`` (which 231 edits to add GC), validated when this
+``FUTURES_PRODUCT_CALENDAR`` (which 232 edits to add GC), validated when this
 module is imported: a bad universe fails every ``mt`` command that touches it,
 with the field named.
 

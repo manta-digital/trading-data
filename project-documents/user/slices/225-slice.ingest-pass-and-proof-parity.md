@@ -4,7 +4,7 @@ slice: ingest-pass-and-proof-parity
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [221, 222, 223, 224]
-interfaces: [226, 227, 228, 229, 230, 231, 233]
+interfaces: [226, 227, 229, 230, 231, 232, 234]
 dateCreated: 20260930
 dateUpdated: 20261003
 status: complete
@@ -74,7 +74,7 @@ Notes list this as the state 225 leaves behind.
 - `mt data tick status [--product P] [--all-instruments] [--json]`.
 - `mt data tick coverage --start D --end D [--product P] [--json]`.
 - The status computation as a library function that returns plain
-  dataclasses, so 230 can serve it without reshaping.
+  dataclasses, so 231 can serve it without reshaping.
 - The data-correctness contract rows for I10, I11, I12 and I13.
 - README tick section, CHANGELOG.
 
@@ -84,14 +84,14 @@ Notes list this as the state 225 leaves behind.
   per-day record count is already on the unit (224 stores it at
   *verified*).
 - **Schedule code.** There is no `PassKind.TICK`, timer, `mt-run tick`
-  or `pass_runs` row; all of that is 233's.
+  or `pass_runs` row; all of that is 234's.
 - **Measuring.** Ingest rate, bytes per row, the decode batch budget, the
   worker count, chunk interval and physical grouping are 226's. This
   slice sets conservative named constants and does not tune them.
 - **The active contract, roll rules and the next roll** in status. They
-  are 228's.
-- **`get`, `debug`, `backfill`** and every API endpoint. They are 229's
-  and 230's.
+  are 229's.
+- **`get`, `debug`, `backfill`** and every API endpoint. They are 230's
+  and 231's.
 - **Intra-unit checkpoints.** Resumption is at the unit boundary
   (architecture; Future Work item 3 waits for 226's numbers).
 - **Provisioning the production tick cluster.** 224 recommended 225 or
@@ -221,7 +221,7 @@ loop. There is no per-batch progress between a unit's start and its
 commit. The architecture asks for it so that a long ingest stays
 observable under a start timeout. 225 is a manual command with no timeout,
 and its units take seconds, so the omission is recorded as a deviation. It
-is handed to 233, which adds the timer and systemd timeouts, and to 226,
+is handed to 234, which adds the timer and systemd timeouts, and to 226,
 which measures the larger days. The worker takes no progress hook today,
 and adding one later means adding a callback argument, not a
 restructure.
@@ -686,10 +686,10 @@ out-of-band edit or a defect, and coverage exits 3 when it finds one.
 
 Yes, but not in this slice. Tick coverage and freshness belong in
 `/api/v1/status` and `/api/v1/overview`, under the `/api/v1/futures/*`
-namespace (220 Technical Decision 3; 230's scope). This slice prepares for
+namespace (220 Technical Decision 3; 231's scope). This slice prepares for
 that by returning `build_status` and `build_coverage` results as frozen
 dataclasses with `to_dict()`. The `--json` output is `to_dict()`, so the
-CLI and 230 serialize the same object. No endpoint is added here.
+CLI and 231 serialize the same object. No endpoint is added here.
 
 ### Patterns and Conventions
 
@@ -784,7 +784,7 @@ ES  CME_EQUITY
 
 Exit: 0, 3 if any session shows `mismatch`, and 1 or 4 as for status.
 
-**Library (for 230):**
+**Library (for 231):**
 
 ```python
 def build_status(tick_conn, calendar_url, universe, now) -> TickStatus: ...        # async
@@ -832,16 +832,16 @@ No migration. The tables exist from 222 and 223. What changes is use:
 - **227 (backup):** the rebuild-from-archive path is `adopt` plus
   `pass` (definitions) plus `ingest`, so the measured rebuild cost is one
   ingest run.
-- **228 (roll methods):** per-contract, per-session `volume` in the ledger
+- **229 (roll methods):** per-contract, per-session `volume` in the ledger
   (the volume rule's input), and status's per-contract section to extend
   with the active contract and next roll.
-- **229 (operator surface):** status and coverage, to extend with `get`,
+- **230 (operator surface):** status and coverage, to extend with `get`,
   `debug` and `backfill`.
-- **230 (API):** `build_status` and `build_coverage` with `to_dict()`.
-- **231 (GC):** nothing product-specific. A second product works through
+- **231 (API):** `build_status` and `build_coverage` with `to_dict()`.
+- **232 (GC):** nothing product-specific. A second product works through
   `FUTURES_PRODUCT_CALENDAR`, `asset = product` and the universe.
-- **233 (production wiring):** `mt data tick ingest` as a pass on the pass
-  contract, ready for a `PassKind` and a timer. 233 owns the per-batch
+- **234 (production wiring):** `mt data tick ingest` as a pass on the pass
+  contract, ready for a `PassKind` and a timer. 234 owns the per-batch
   progress heartbeat that 225 omits (Data Flow), because its systemd
   timeouts are what the heartbeat serves.
 
@@ -1246,7 +1246,7 @@ Commit at each numbered step.
    (API Contracts, status).
 8. **Architecture and plan, "only progress returns to the loop":** 225
    returns one outcome per unit and no per-batch progress. The heartbeat
-   is handed to 233 (Data Flow).
+   is handed to 234 (Data Flow).
 9. **Architecture, failure states:** a failed attempt is
    `FAILED_RETRYABLE` until an attempt limit makes it `RETRY_EXHAUSTED`.
    Every ingest failure is deterministic, so it goes straight to

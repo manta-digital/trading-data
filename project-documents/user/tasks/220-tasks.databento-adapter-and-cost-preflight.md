@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/220-slice.databento-adapter-and-cost-preflight.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [902]
-interfaces: [222, 223, 224, 225, 226, 229, 230]
+interfaces: [222, 223, 224, 225, 226, 230, 231]
 projectState: >
   Slice 220 design committed at f706c71 (review round 2 CONCERNS, passes the
   gate). No tick code exists yet: no `databento` dependency, no

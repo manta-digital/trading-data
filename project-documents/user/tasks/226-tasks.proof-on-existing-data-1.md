@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/226-slice.proof-on-existing-data.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [223, 224, 225, 923]
-interfaces: [227, 228, 229, 230, 231, 232, 233]
+interfaces: [227, 229, 230, 231, 232, 233, 234]
 projectState: >
   Slice design committed and reviewed twice (findings addressed). 225 is
   merged: ingest, status, coverage, supersession and overlap paths work on
@@ -452,7 +452,7 @@ each one. Every number in the go/no-go names its report file.
         ingest rate under overlap against `rebuild`'s solo rate.
   - [x] Verdict: above 324 s is `measurable contention`; otherwise `none
         measured at two ingest workers`, with the sentence that this is not a
-        clearance for the minute pass (232 measures that).
+        clearance for the minute pass (233 measures that).
   - [x] Success: step written; verdict logic unit tested on synthetic numbers.
 
 - [x] **7.5 Run `contention` (effort 2)** (contention ran 20:48-23:25 UTC; report committed; verdict none measured at 2 ingest workers)

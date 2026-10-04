@@ -21,7 +21,7 @@ from proof_226.contention_sampler import DEVICES, Sample
 MATCH_SECONDS = 120
 NOT_A_CLEARANCE = (
     "This is not a clearance for the minute pass: Kalshi writes little and "
-    "often, the minute pass walks the whole equity universe, and 232 measures "
+    "often, the minute pass walks the whole equity universe, and 233 measures "
     "that overlap."
 )
 

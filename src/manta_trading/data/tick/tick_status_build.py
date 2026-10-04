@@ -3,7 +3,7 @@
 LLD 225 TD9–TD11. Sessions come from the production calendar (one
 ``sessions_between`` per product); everything else from the tick database
 (``status_reads``). Both return frozen dataclasses whose ``to_dict()`` is the
-``--json`` payload, so slice 230's API serializes the same object. A calendar
+``--json`` payload, so slice 231's API serializes the same object. A calendar
 or tick-database outage raises (→ exit 4); there is no degraded output.
 
 ``complete`` is unit-level (TD10, ``complete_basis: "units"``); ``coverage``

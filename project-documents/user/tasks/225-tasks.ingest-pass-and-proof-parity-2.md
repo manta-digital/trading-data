@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/225-slice.ingest-pass-and-proof-parity.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [220, 221, 222, 223, 224]
-interfaces: [226, 227, 228, 229, 230, 231, 233]
+interfaces: [226, 227, 229, 230, 231, 232, 234]
 projectState: >
   Slice 224 complete and released (v0.22.0): `mt data tick pass` buys and
   delivers units to *verified* and projects definitions into
@@ -243,12 +243,12 @@ status: complete
         code as built (bounded unit transaction, rank-based supersession,
         per-unit ledger). Note any change
   - [x] Confirm `build_status`/`build_coverage` return `to_dict()`
-        dataclasses usable by 230 unchanged (TD11)
+        dataclasses usable by 231 unchanged (TD11)
   - [x] Write both results as a `Note:` line under this task. If a
         realtime point no longer holds, STOP and report it to the PM
   - [x] Success: note written
   - [x] Effort: 1
-  - Note: realtime paths still hold as built. The unit transaction is bounded by the unit (`ingest_unit`, one transaction). Supersession by rank happens at ingest (`TICK_TIER_RANK`, `plan.superseded`, `supersede()`), which is where historical-over-live plugs in. The ledger is per unit (its primary key includes `unit_id`). The parent-shape constraint on the ledger's instrument set is enforced by the `shape` check. API: `build_status` and `build_coverage` return frozen dataclasses with `to_dict()`, which are exactly the CLI's `--json`, usable by 230 unchanged. No STOP.
+  - Note: realtime paths still hold as built. The unit transaction is bounded by the unit (`ingest_unit`, one transaction). Supersession by rank happens at ingest (`TICK_TIER_RANK`, `plan.superseded`, `supersede()`), which is where historical-over-live plugs in. The ledger is per unit (its primary key includes `unit_id`). The parent-shape constraint on the ledger's instrument set is enforced by the `shape` check. API: `build_status` and `build_coverage` return frozen dataclasses with `to_dict()`, which are exactly the CLI's `--json`, usable by 231 unchanged. No STOP.
 
 - [x] **7.3 Contract rows, plan Notes and architecture flag**
   - [x] `user/reference/data-correctness-architecture.md`:

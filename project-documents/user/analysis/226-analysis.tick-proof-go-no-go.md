@@ -68,7 +68,7 @@ held days a different shape from new purchases. Keep `ES.FUT` parent.
 
 The free estimate for `GC.FUT` over the latest year is 35,035,188 records
 (27 % of ES), projected at 1.00 GB/year stored at tbbo (`…-capacity.md`).
-Same dataset, same tables, same layout. Slice 231 still decides GC's spreads
+Same dataset, same tables, same layout. Slice 232 still decides GC's spreads
 and calendar.
 
 ### Standard plan subscription: **technical GO**
@@ -103,7 +103,7 @@ work.
   maximum of 324 s; the solo firing 286 s; tick ingest 474k rows/s overlapped
   against 473k alone (`…-contention.md`). This is not a clearance for the
   minute pass: Kalshi writes little and often, the minute pass walks 13,083
-  symbols, and slice 232 measures that overlap.
+  symbols, and slice 233 measures that overlap.
 - **Space partitioning:** rejected as designed. The skew evidence: in every
   chunk one instrument holds 48–99.9 % of the rows, and the top five hold
   100 % (`…-size.md`).

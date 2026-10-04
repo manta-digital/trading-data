@@ -4,7 +4,7 @@ slice: historical-acquisition-pass
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [923, 220, 221, 222, 223]
-interfaces: [225, 226, 227, 228, 229, 231, 233]
+interfaces: [225, 226, 227, 229, 230, 232, 234]
 dateCreated: 20260928
 dateUpdated: 20260930
 status: complete
@@ -147,10 +147,10 @@ endpoints, through the project's own adapter
   resolution and session checks are 225's. After this slice, tier units
   rest at *verified*.
 - **`mt data tick status`, `coverage`, `debug` and `get`.** Status and
-  coverage are 225's, and the rest are 229's. 224's operator output is the
+  coverage are 225's, and the rest are 230's. 224's operator output is the
   pass report. Its walkthrough reads the manifest with `psql`.
 - **Schedule code.** There is no `PassKind.TICK`, no `schedule_for`
-  branch, no timer and no `mt-run tick`; all of these are 233's. A manual
+  branch, no timer and no `mt-run tick`; all of these are 234's. A manual
   run therefore writes no `pass_runs` row, and its record is the manifest.
 - **Direct-range purchases.** No pass calls `fetch_range` (PM direction:
   batch jobs only).
@@ -208,7 +208,7 @@ to 226. No host step needs the PM.
 **Gap in the plan: the production tick cluster.** The PM decided on
 2026-09-28 that the tick database is a second cluster on the production
 host. No slice in the plan creates it. 227 extends the backup to it, and
-233 writes the service environment. This slice does not need it, for two
+234 writes the service environment. This slice does not need it, for two
 reasons:
 
 - The archive is the record. Re-running `adopt` on every job directory
@@ -407,7 +407,7 @@ without the test changing:
 - The tick copy adds the two outcome members above.
 - It has no event sink and no `on_phase` callback. Kalshi uses both for
   `pass_runs` progress and its JSONL event stream. The tick pass has no
-  `PassKind` until 233, and it logs the same two lines Kalshi logs ("tick
+  `PassKind` until 234, and it logs the same two lines Kalshi logs ("tick
   pass started run_id=… phases=…" and "tick pass finished outcome=…").
 - There is no historical phase. That phase is specific to Kalshi.
 
@@ -551,7 +551,7 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
   - **226's go/no-go must re-confirm it**, with the choices "parent
     including spreads" or "outrights only". Outrights only means raw
     contract symbols or continuous symbols, and the adopted days would
-    then be re-bought or kept as a separate request shape. 231 decides
+    then be re-bought or kept as a separate request shape. 232 decides
     the same question for GC and does not inherit ES's answer.
 - **`tier=None` is the honest state before the go/no-go.** An entry with
   no tier produces no tier wants. The pass still buys the definitions for
@@ -566,7 +566,7 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
 path in each environment, and the chance of a silent misparse. *Rejected:
 a database table.* It needs administrative verbs this initiative does not
 otherwise have. The constant sits next to `FUTURES_PRODUCT_CALENDAR`,
-which 231 already edits to add GC, so "GC is a configuration edit" means
+which 232 already edits to add GC, so "GC is a configuration edit" means
 one reviewed edit to two adjacent constants.
 
 ### Technical Decision 4: wanted days are session-touched UTC days, grouped into monthly requests
@@ -667,7 +667,7 @@ schemas:
 
 - **Tier data** always goes through 225's ingest pass, with its
   per-unit worker connection, its ledger and its three checks.
-- **`statistics`** also goes through 225's ingest, if 228 adopts it,
+- **`statistics`** also goes through 225's ingest, if 229 adopts it,
   because it carries per-session figures that need sessions and a
   ledger.
 - **A unit test enforces it.** It asserts that the definitions phase
@@ -1009,7 +1009,7 @@ only by a durable tick database.
   relative to the archive root (222), so the archive can move.
 - **Production value.** `MT_TICK_ARCHIVE_DIR=/data/tick-archive`. It is on
   the `/data` NVMe volume, which is manta-owned, so no root is needed. It
-  is outside `/home`, so a future service with `ProtectHome=true` (233)
+  is outside `/home`, so a future service with `ProtectHome=true` (234)
   can reach it. It is separate from `/data/market-data/databento`, which
   holds the PM's original copies and stays read-only.
 - **Backup.** `/data/tick-archive` is added to `INCLUDE_PATHS` in
@@ -1112,7 +1112,7 @@ tick_archive_dir: Path | None = None                                    # MT_TIC
 
 **Does this belong in the API?** No. Acquisition is an operator action
 that spends money. It is never a client request. What it records
-(coverage, conditions, units) reaches clients through 230's
+(coverage, conditions, units) reaches clients through 231's
 `/api/v1/futures/*` status surfaces, which read these tables.
 
 ### Database / Storage Schema
@@ -1144,7 +1144,7 @@ provider has been asked.
 
 - **No index** beyond the primary keys. The manifest holds one unit per
   day per request, thousands of rows over the plan's year. The coverage
-  and trailing-spend queries scan it in memory. 229 adds indexes if it
+  and trailing-spend queries scan it in memory. 230 adds indexes if it
   measures a need.
 - **Grants.** Both new tables join the enumerated `GRANT SELECT, INSERT,
   UPDATE, DELETE` list in `scripts/provision_tick_roles.sql`. 222's
@@ -1202,14 +1202,14 @@ transaction (Technical Decision 8).
   226 also sets ES's tier and range in `TICK_UNIVERSE`.
 - **227 (backup):** the archive already in the nightly backup, with a
   one-file restore proven. The drill and the database policy are 227's.
-- **228 (roll methods):** `statistics` units, if chosen, come in through
+- **229 (roll methods):** `statistics` units, if chosen, come in through
   this pass after a `TickSchema` member and a CHECK re-render. The
   planner's companion rule is the place to add them.
-- **229 / 230:** manifest and definitions data to read, and the reopen
+- **230 / 231:** manifest and definitions data to read, and the reopen
   vocabulary for debug and status output.
-- **231 (GC):** a `TICK_UNIVERSE` entry next to its
+- **232 (GC):** a `TICK_UNIVERSE` entry next to its
   `FUTURES_PRODUCT_CALENDAR` edit.
-- **233 (wiring):** the pass is the command its unit will run. The
+- **234 (wiring):** the pass is the command its unit will run. The
   retention-deadline health finding reads `download_deadline` on units at
   *submitted* and *delivered*.
 
@@ -1689,13 +1689,13 @@ Kalshi contract is its own task in the task file.
     predicate would exclude the live delivery mode.
   - *Path B (historical with its ~8-hour lag):* this slice is that path's
     mechanism. The monthly grouping and manual runs do not constrain a
-    later catch-up cadence. 233 decides the cadence.
+    later catch-up cadence. 234 decides the cadence.
   - No decision here rules out either path.
 - **Journal citations.**
   - 20260725, rule 2: no aggregate informs acquisition. The planner reads
     only manifest rows, conditions and the calendar.
   - 20260901: the new CHECKs are rendered from their enums.
-  - 20260823: pass form, without its schedule (deferred to 233).
+  - 20260823: pass form, without its schedule (deferred to 234).
 - **Security.**
   - The API key comes only from `Settings`, and the adapter never logs
     it.

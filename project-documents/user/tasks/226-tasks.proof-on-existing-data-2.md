@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/226-slice.proof-on-existing-data.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [223, 224, 225, 923]
-interfaces: [227, 228, 229, 230, 231, 232, 233]
+interfaces: [227, 229, 230, 231, 232, 233, 234]
 projectState: >
   Slice design committed and reviewed twice (findings addressed). 225 is
   merged: ingest, status, coverage, supersession and overlap paths work on
@@ -411,7 +411,7 @@ Part 1 (Sections 0–7) holds the fix, the cluster, the harness and the uncompre
         on both ranges in production), I12 (supersession and overlap verified on
         compressed chunks) and I13 (session check on every unit).
   - [x] Slice plan Notes: the statements this design supersedes, per the
-        design's list. The 232 entry gains the minute-pass overlap measurement.
+        design's list. The 233 entry gains the minute-pass overlap measurement.
   - [x] Architecture Revision Log, naming the paragraphs it amends:
         "Cross-source arbitration" and "Proof on existing data" (contention
         moves to the Kalshi pass); "Pass form" and "Delivery mode and

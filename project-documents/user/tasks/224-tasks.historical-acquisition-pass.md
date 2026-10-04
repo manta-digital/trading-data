@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/224-slice.historical-acquisition-pass.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [923, 220, 221, 222, 223]
-interfaces: [225, 226, 227, 228, 229, 231, 233]
+interfaces: [225, 226, 227, 229, 230, 232, 234]
 projectState: >
   Slice 223 (tick archive adoption) complete: tick_006, run context and lock,
   compare-and-set manifest repository, verification, session days, adopt and
@@ -127,7 +127,7 @@ that, split along the phase or concern it holds and note the split.
         divergences or name it in a task note for the PM
   - [x] Success: note lists each element and its disposition
   - [x] Effort: 1
-  - Note (dispositions of Kalshi contract elements not copied): HistoricalPhase and PassPhaseName.HISTORICAL — TD1 declared (no historical phase). CatalogPhase/CandlesPhase/TradesPhase/HistoricalPhase classes and PASS_PHASES — Kalshi-specific; the tick phases and PASS_PHASES are built in 8.3. CollectionPass on_phase callback, event sink (SyncEvent, _emit, PASS_STARTED/PASS_FINISHED) — TD1 declared. Start-log fields mode= and budget=/min (Kalshi client) — not applicable; the tick log keeps run_id and phases. sync_types.classify/classify_outcome (the shared phase classification, not in collection_pass.py) — NOT a declared divergence: the tick pass needs its own error-to-outcome mapping, built in section 8 (flag for the PM). PASS_RUN_OUTCOME_BY_SYNC_OUTCOME and pass_runs recording — 233's (LLD Excluded: no schedule code). Finished-event error extraction — dropped with the sink; PhaseReport.error is kept. One change to 223 code for field parity: TickRun.run_id is now a UUID (was str) so PassResult.run_id matches Kalshi's annotation.
+  - Note (dispositions of Kalshi contract elements not copied): HistoricalPhase and PassPhaseName.HISTORICAL — TD1 declared (no historical phase). CatalogPhase/CandlesPhase/TradesPhase/HistoricalPhase classes and PASS_PHASES — Kalshi-specific; the tick phases and PASS_PHASES are built in 8.3. CollectionPass on_phase callback, event sink (SyncEvent, _emit, PASS_STARTED/PASS_FINISHED) — TD1 declared. Start-log fields mode= and budget=/min (Kalshi client) — not applicable; the tick log keeps run_id and phases. sync_types.classify/classify_outcome (the shared phase classification, not in collection_pass.py) — NOT a declared divergence: the tick pass needs its own error-to-outcome mapping, built in section 8 (flag for the PM). PASS_RUN_OUTCOME_BY_SYNC_OUTCOME and pass_runs recording — 234's (LLD Excluded: no schedule code). Finished-event error extraction — dropped with the sink; PhaseReport.error is kept. One change to 223 code for field parity: TickRun.run_id is now a UUID (was str) so PassResult.run_id matches Kalshi's annotation.
 
 - [x] **1.4 Remaining exit codes**
   - [x] In `cli/commands/tick.py`: add `EXIT_REFUSED = 5` and

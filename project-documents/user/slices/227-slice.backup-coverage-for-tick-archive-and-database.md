@@ -4,7 +4,7 @@ slice: backup-coverage-for-tick-archive-and-database
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [226]
-interfaces: [229, 230, 231, 233]
+interfaces: [228, 230, 231, 232, 234]
 dateCreated: 20261004
 dateUpdated: 20261004
 status: not_started
@@ -14,24 +14,26 @@ status: not_started
 
 ## Overview
 
-The tick cluster `17/tick` (port 5433, data at `/data/postgresql/17/tick`, database `trading_tick`) has no backup of any kind today. Its archive, `/data/tick-archive`, has been in the nightly restic backup since slice 223, but only a one-file restore has been proven.
+The tick cluster `17/tick` (port 5433, data at `/data/postgresql/17/tick`, database `trading_tick`) has no backup of any kind today. Its archive, `/data/tick-archive`, has been in the nightly restic backup since slice 223.
 
 This slice:
 - chooses the tick database's backup policy from the rebuild cost slice 226 measured;
 - extends the existing 915/920 backup tooling (weekly `pg_basebackup`, WAL archiving, keep-days pruning, B2 offsite copy, health flags) to a second cluster by making it per-cluster, rather than copying it;
 - extends the tick role set so the tick cluster can be base-backed-up;
-- fixes a live health-check bug that the weekly base backup triggers;
-- adds a restore drill script that proves both the archive and the database come back;
-- records retention, exclusions and placement in runbook 200.
+- enrols the tick cluster through one PM-run cutover;
+- records placement, retention and exclusions in the runbooks.
 
-**Policy decision (TD1): the tick database gets the same weight as production: a weekly base backup, continuous WAL archiving, and a nightly bookkeeping dump. Rebuilding from the archive stays the documented fallback, and the drill proves it.**
+**Policy decision (TD1): the tick database gets the same weight as production: a weekly base backup, continuous WAL archiving, and a nightly bookkeeping dump. Rebuilding from the archive stays the documented fallback.**
+
+**Split (2026-10-04):** the restore drill that proves both the archive and the database come back, and both restore procedures, are slice 228. This slice delivers backups that exist and verify; 228 proves they restore.
+
+**Done separately:** the health-check fix this design first scoped, which handles the `<segment>.<offset>.backup` name a base backup leaves as `last_archived_wal`, landed on main as a plain fix (5e4a8ac). The tick cluster's weekly backup would have triggered the same failure.
 
 ## Value
 
-- **Real purchased data stops depending on one disk.** Slices 229–231 spend real money on the Standard plan. After this slice, both the files and the bookkeeping that describes them (which jobs were bought, what they cost, what superseded what) survive a disk loss.
+- **Real purchased data stops depending on one disk.** Slices 230–232 spend real money on the Standard plan. After this slice, the bookkeeping that describes the files (which jobs were bought, what they cost, what superseded what) is in the backup set next to the files.
 - **Restore is independent of outside systems.** Restoring from a base backup plus WAL needs only `/data/backup` or B2. A rebuild from the archive also needs the production database (for the CME calendar) and the Databento API (for `batch_job` records).
 - **One backup system for two clusters.** The same scripts, flags and runbook cover both clusters. When the tick cluster later moves to hammerhead, it is enrolled the same way (one more row in the table), and `pg_basebackup` is already the move mechanism the architecture names.
-- **Production's weekly backup stops blinding the health check.** Each Sunday's base backup currently makes the check fail with `cannot_check` for about an hour (FAIL lines at 05:30 and 06:00 on 2026-10-04).
 
 ## Technical Scope
 
@@ -50,20 +52,21 @@ This slice:
 5. **Tick roles and access for base backups.**
    - `scripts/provision_tick_roles.sql` gains `-v with_replication=1`, which grants REPLICATION to `tick_migrate`, matching `provision_roles.sql` on production.
    - `scripts/provision_tick_cluster.sh` adds a `host replication tick_migrate <src>/32 scram-sha-256` line to the tick `pg_hba.conf`.
-   - It also splits its database list: `trading_tick` is created; `trading_tick` and `trading_tick_drill` are allowed in `pg_hba`. The proof database is gone.
-6. **Health-check fix.** `scripts/wal_segment_name.py` (called by `check_backup_health.sh`) accepts every file name PostgreSQL archives. Today it rejects the backup-history file (`<segment>.<offset>.backup`) that a base backup leaves as `last_archived_wal`.
-7. **Restore drill script**, `scripts/drill_tick_restore.py`, a reusable quarterly drill that proves three things:
-   - **Archive:** the archive restores from restic.
-   - **Database:** the database restores from base + WAL and matches production.
-   - **Fallback:** a database rebuilt from the restored archive matches the restored one row for row.
-8. **Cutover script**, `scripts/cutover_227_tick_backup.py`. The PM runs one command. It enrols the tick cluster, takes its first base backup, arms its offsite reconcile, runs the drill and writes the report.
-9. **Runbooks.**
-   - Runbook 200 gains a tick-cluster section covering placement, retention, exclusions and the drill.
-   - Runbook 210's `setup-backup.sh` invocation and its stale restic include list are corrected.
+   - It also splits its database list: `trading_tick` is created; `trading_tick` and `trading_tick_drill` are allowed in `pg_hba` (the drill database is 228's). The proof database is gone, so a re-run must not recreate it.
+6. **Cutover script**, `scripts/cutover_227_tick_backup.py`. The PM runs one command. It:
+   - enrols the tick cluster;
+   - restarts the tick unit for `archive_mode`;
+   - takes and verifies the first tick base backup;
+   - pushes it offsite;
+   - arms the tick reconcile;
+   - writes the report.
+7. **Runbooks.**
+   - Runbook 200 gains a tick-cluster placement row, the per-cluster cron table, tick retention, and the exclusions table (TD9).
+   - Runbook 210's `setup-backup.sh` invocation and its restic include list (stale since 223) are corrected.
 
 **Excluded**
+- The restore drill and both restore procedures. That's slice 228.
 - Moving the tick cluster to hammerhead. That move adds a table row and its own host bootstrap.
-- Automating production's restore drill. Runbook 200 Step 6 stays manual for `17/main`. The drill's restore step is written per-cluster so it could serve main later, but switching main is not this slice.
 - Showing backup flags in `mt data health` or the overview. Production's flags aren't surfaced either, so parity holds. This is a candidate for the API and operator-surface question, not this slice.
 - Archive-size growth from future `ohlcv-1s` purchases (architecture Future Work 7). Restic deduplicates immutable files; the size gets revisited when that purchase is planned.
 - Removing the stale `MT_PROOF_226_*` lines from `.env`. They name a dropped database, and nothing reads them.
@@ -77,8 +80,6 @@ This slice:
 - **923 (complete):** `provision_tick_roles.sql`, the `MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL` settings, and the tick preflight. The preflight refuses unknown `MT_TICK_*` keys; this slice adds none.
 
 ### Interfaces Required
-- Production database reachable via `MT_TIMESCALE_DB_URL`. The drill's rebuild step reads the CME calendar from it.
-- `DATABENTO_API_KEY` in `.env`. Adopt's free `batch_job` reads need it during the drill's rebuild step.
 - The B2 bucket (`MT_BACKUP_S3_*`) and the restic repository, as configured by 920.
 - One PM-run `sudo` session for the cutover. The tick cluster's restart for `archive_mode` happens inside it, and running the script is the PM's go for that restart.
 
@@ -93,8 +94,7 @@ deploy/backup-clusters.conf ──read by──► deploy/setup-backup.sh ──
         │                                     │   archive settings (pg_settings.sh)
         │                                     └─ host once: restic, timeshift  └─ 17/tick block
         │
-        └──read by──► scripts/drill_tick_restore.py  ◄── called by ── scripts/cutover_227_tick_backup.py
-                      scripts/cutover_227_tick_backup.py
+        └──read by──► scripts/cutover_227_tick_backup.py   (and 228's drill)
 ```
 
 **Per-cluster jobs.** Each cluster block calls the existing scripts with that row's arguments:
@@ -116,16 +116,6 @@ None of these scripts gains cluster knowledge. They already take explicit direct
 3. The weekly run does a `pg_basebackup` of `17/tick` (677 MB today) to `/data/backup/17-tick/base/<YYYYMMDD>`, verified, then pushed offsite. WAL older than the oldest kept base backup is pruned (keep-days 7). After the reconcile guards pass, the offsite copy is synced.
 4. Nightly restic (unchanged) carries `/data/tick-archive` to `system/`.
 
-**Restore, primary path:** restore the latest base + WAL into a fresh data directory and start it. The archive comes back separately via restic. Nothing outside `/data/backup`, B2 and restic is needed.
-
-**Restore, fallback path:**
-1. Restore the archive from restic.
-2. Run `mt data migrate apply --track tick` on an empty database.
-3. Run `mt data tick adopt` once per job directory. This verifies every file's size and SHA-256 against the job's `manifest.json`.
-4. Run `mt data tick pass --estimate-only`, then `mt data tick ingest`.
-
-This needs the production database and the Databento API. It loses three things (224 slice design, the decision on adopting existing batch files): pass-purchase provenance (units return as adopted, without estimate or repurchase/supersession links), `reopened_at` marks, and any paid jobs whose files were never archived.
-
 ### State Management
 
 | State | Where | Owned by |
@@ -135,16 +125,15 @@ This needs the production database and the Databento API. It loses three things 
 | Tick offsite copy | `b2:<bucket>/17-tick/{base,wal,metadata}` | per-cluster cron block |
 | Tick health flags and stamps | `/data/backup/17-tick/{ARCHIVE-BROKEN,BACKUP-STALE,wal-offsite.stamp,wal-offsite.lock,RECONCILE-ARMED}` | per-cluster cron block |
 | Production (unchanged paths) | `/data/backup/{base,wal,metadata,…}`, `b2:<bucket>/{base,wal,metadata}` | per-cluster cron block |
-| Drill reports | `project-documents/user/notes/<date>-227-tick-restore-drill.md`, plus the runbook 200 drill record row | drill script |
 
 The tick root sits inside production's root, but no production job touches it. Production's jobs only ever name `base/`, `wal/` and `metadata/` explicitly, and restic does not include `/data/backup`. A unit test asserts that the main block's rendered lines never name `17-tick` (TD3).
 
 ## Technical Decisions
 
-### TD1. Policy: full weight (base + WAL + metadata dump); rebuild-from-archive as the proven fallback
+### TD1. Policy: full weight (base + WAL + metadata dump); rebuild-from-archive as the fallback
 
 **Option 1: rebuild from the archive on restore (rejected).** Its cost is small (212.5 s plus compression for 27.7 M rows; about 6 minutes per year of ES+GC at tbbo). But it gives back the data and the money, not the history:
-- **Lost history.** Slice 224's design for adopting existing batch files says: "Provenance is kept only by a durable tick database." Once 229–231 buy through the pass, that provenance is real.
+- **Lost history.** Slice 224's design for adopting existing batch files says: "Provenance is kept only by a durable tick database." Once 230–232 buy through the pass, that provenance is real.
 - **Outside dependencies.** A rebuild also needs the production database and the Databento API, so a host-wide loss would chain restores.
 
 **Option 2: WAL-only (rejected).** WAL replay needs a base backup to replay onto, so this isn't really an option.
@@ -157,7 +146,7 @@ The tick root sits inside production's root, but no production job touches it. P
 - **Same restore:** the tick cluster restores exactly like production.
 - **Why the dump stays:** it keeps the bookkeeping recoverable even if a base/WAL chain is broken. The bookkeeping is under 1 MB, and the dump tool needs no change, because `backup_metadata.sh` already picks "every table that is not a hypertable" from the catalog.
 
-The measured rebuild cost still sets one thing: the fallback is cheap enough to run in every drill, so the drill proves it every quarter instead of trusting a two-week-old measurement.
+The measured rebuild cost still sets one thing: the fallback is cheap enough for slice 228's drill to run every quarter.
 
 ### TD2. One checked-in cluster table, not a repeatable `--cluster` flag
 
@@ -171,7 +160,7 @@ The measured rebuild cost still sets one thing: the fallback is cheap enough to 
 
 - **`-` means "no override".** Production's remote is the bucket root (its existing layout). Tick connects with its URL's host as written (`manta9000`, which only listens on 127.0.1.1).
 - **Why a table and not a flag:** a repeatable flag would let a run that names only `17/main` drop tick's cron block without anyone noticing. With the table, membership is defined once.
-- **Readers:** bash (`setup-backup.sh`) and Python (`drill_tick_restore.py`, the cutover) both read this one file through one small parser per language. Each parser has a unit test against the real file, per CLAUDE.md's parsing rule.
+- **Readers:** bash (`setup-backup.sh`) and Python (the cutover, and 228's drill) both read this one file through one small parser per language. Each parser has a unit test against the real file, per CLAUDE.md's parsing rule.
 - **Malformed rows:** a malformed row (wrong field count, unknown cluster in `pg_lsclusters`, root not under `/data`) is a hard error before any change.
 - **Schedules:** tick's jobs run before production's, so the tick base backup (seconds today) never overlaps production's three-hour one.
 
@@ -207,34 +196,30 @@ The cutover restarts only the `postgresql@17-tick` unit, and only when:
 
 Production is never restarted. A pending-restart report for `17/main` makes the cutover stop.
 
-### TD7. The health check accepts every archived file name
+### TD7. The first tick weekly run happens in the cutover, and arms itself
 
-`wal_segment_name.py next` parses the name's 24-hex segment prefix:
-- a plain segment, `<segment>.partial`, and `<segment>.<offset>.backup` all give that segment;
-- a timeline history file (`<timeline>.history`) has no segment. `check_backup_health.sh` then reports the check as `n/a: last archived file is a timeline history file`. It still emits its FLAGS line, so the wrapper's `cannot_check` never fires on a normal archive state.
+The 920 arm file (`RECONCILE-ARMED`) gates the offsite `rclone sync --max-delete` until a person has seen a reconcile run go clean. Tick's offsite prefix starts empty, so the first sync has nothing to wrongly delete.
 
-Any other name is still an error. The test fixtures are the real file names seen on this host (`00000001000012A5000000B4.00000028.backup` from 2026-10-04).
+The cutover:
+1. runs the tick weekly job once (base backup, verify, push, prune, guards, final check);
+2. creates `/data/backup/17-tick/RECONCILE-ARMED` only if that run's final check passed.
 
-### TD8. Drill script design
+Without this, arming would be a later manual step that waits on a Sunday.
 
-`scripts/drill_tick_restore.py` runs as manta from the checkout root and uses `sudo` for the restic steps (the same model as the cutover scripts). Each step is check-then-act, and the script writes only under `/data/restore-test/227-drill-<stamp>/` plus a drill database it creates.
+### TD8. Cutover steps
 
-1. **Hold the tick cluster.** Take the tick advisory lock for the whole run, so production `trading_tick` can't change while it is compared. If a tick run holds the lock, refuse.
-2. **Make the database restore point current.** Run `pg_switch_wal()` on `17/tick` and wait (bounded) until that segment's `.zst` is in the tick WAL directory.
-3. **Restore the archive.** Use restic `restore latest --include /data/tick-archive` into the drill directory. Compare file count and total bytes with the live archive.
-4. **Restore the database.** Unpack the latest tick base backup into the drill directory. Set a `restore_command` that reads the tick WAL directory (runbook 200's two-shape command for `.zst` and raw segments). Start it as manta with `pg_ctl`, socket-only in the drill directory, `archive_mode=off`. Wait for recovery to finish.
-5. **Compare the restored database with production.** Exact row counts for every public table, plus a `tick_trade` fingerprint, must be equal.
-   - The fingerprint is per `(instrument_id, UTC day)`: row count, plus the md5 of the rows' text in `(ts_event, sequence, sequence_ordinal)` order. One SQL definition is used for every comparison.
-6. **Rebuild the fallback.** Create `trading_tick_drill` on `17/tick` through `provision_tick_roles.sql`, with a database comment marking it as created by the drill. Then run the four rebuild commands against it, with `MT_TICK_DB_URL`/`MT_TICK_MAINTENANCE_URL` pointed at the drill database and `MT_TICK_ARCHIVE_DIR` at the restored archive, set in the subprocess environment only.
-   - Adopt re-hashes every restored file against its job's `manifest.json`, so this step is also the full archive verification.
-   - Record the rebuild time.
-7. **Compare the rebuild with the restore.** `tick_trade` fingerprints must be equal, which is the architecture's "row-for-row the same projection" claim. Differences in the bookkeeping tables are listed in the report and checked against the expected set from 224's design (`is_adopted`, estimate fields, `download_deadline`, links, `reopened_at`). A difference outside that set fails.
-8. **Clean up what the script created:**
-   - Stop the scratch server.
-   - Drop `trading_tick_drill`, only when its comment marks it as the drill's.
-   - Remove the drill directory.
-   - At startup, a leftover drill database with the drill's comment is dropped. One without it is a refusal.
-9. **Report** to `user/notes/<date>-227-tick-restore-drill.md`: each step's expected and seen values, and the timings. Exit 0 only when every check passes.
+`scripts/cutover_227_tick_backup.py` follows the `cutover_265_trades.py` / `cutover_common.py` pattern. It runs as manta from the checkout root and uses `sudo` for the root steps. Each step prints expected against seen:
+
+1. Production config SHA-256 recorded; tick advisory lock free.
+2. `setup-backup.sh --check` shows no drift for `17/main`. Any drift there stops the cutover.
+3. `sudo scripts/provision_tick_cluster.sh` adds the replication grant and the `pg_hba` line.
+4. `sudo deploy/setup-backup.sh` applies: no change for production; directories, settings and the cron block for tick.
+5. If `archive_mode` is pending on `17/tick`, restart `postgresql@17-tick` (TD6).
+6. `pg_switch_wal()` on tick; its segment appears as `.zst` in `/data/backup/17-tick/wal` within a bounded wait.
+7. The first tick weekly run, then arm (TD7).
+8. `rclone check --one-way` of tick `base/` and `wal/` against `b2:<bucket>/17-tick`.
+9. Production config SHA-256 unchanged; production's health log still PASS.
+10. The report goes to `user/notes/<date>-227-cutover.md`. Exit 0 only when every check passed.
 
 ### TD9. Exclusions are recorded, not changed
 
@@ -259,7 +244,6 @@ Production's `wal/` and `base/` prefixes have a 30-day "delete after hidden" rul
 
 ### Patterns and Conventions
 - **Bash and rendering:** check-then-act bash with explicit required arguments, as in 915/920. `--check` reports drift and changes nothing. Cron render tokens are `@NAME@`.
-- **Cutover script:** follows the `cutover_265_trades.py` / `cutover_common.py` pattern (step list in the docstring, report in `user/notes`, exit status from the checks).
 - **Errors:** no silent defaults anywhere. A missing table field, URL key, data directory or WAL segment is a named error.
 
 ## Implementation Details
@@ -299,14 +283,13 @@ There are no migrations. Storage added:
 ## Integration Points
 
 ### Provides to Other Slices
-- **229–231 (Standard plan purchases, GC):** the tick database, including pass-purchase provenance and spend records, is durable from the first paid job.
-- **233 (service wiring):** a backed-up tick cluster to point the service env at. The cluster table is where any future cluster gets enrolled.
+- **228 (restore drill):** tick base backups, WAL and metadata dumps to restore; the cluster table to read paths from; `trading_tick_drill` allowed in the tick `pg_hba`.
+- **230–232 (Standard plan purchases, GC):** the tick database, including pass-purchase provenance and spend records, is in the backup set from the first paid job.
+- **234 (service wiring):** a backed-up tick cluster to point the service env at.
 - **The later hammerhead move:** that host's cluster joins the backup set as one more table row, and a weekly `pg_basebackup` is already producing the copy the move starts from.
-- **Operators:** `scripts/drill_tick_restore.py` as the quarterly tick drill, recorded next to production's in runbook 200.
 
 ### Consumes from Other Slices
-- 226's cluster and rebuild commands; 223's archive enrolment; 915/920's scripts; 923's tick credentials and preflight.
-- **If the production DB or the Databento API is unreachable:** the drill's fallback step fails and the report says which one. The primary restore and its comparison stand on their own, so the report still shows whether the primary path works.
+- 226's cluster and provisioning script; 223's archive enrolment; 915/920's scripts; 923's tick credentials and preflight.
 
 ## Success Criteria
 
@@ -314,32 +297,25 @@ There are no migrations. Storage added:
 1. `deploy/backup-clusters.conf` lists `17/main` and `17/tick`. `setup-backup.sh` (and its `--check`) reads it, and any malformed row is a hard error before any change.
 2. `17/tick` runs with `archive_mode=on`, `wal_compression=zstd`, and an `archive_command` that writes to `/data/backup/17-tick/wal`. A forced WAL switch produces a `.zst` segment there.
 3. `/etc/cron.d/manta-trading-backup` holds the host block, production's block (byte-identical to before), and a tick block.
-4. After the cutover, `/data/backup/17-tick/base/<date>` holds a verified base backup, and `b2:<bucket>/17-tick/{base,wal,metadata}` hold matching copies (`rclone check --one-way` clean).
-5. `/data/backup/17-tick/RECONCILE-ARMED` exists only after the first tick weekly run passed its final check.
-6. The tick health check logs `PASS … FLAGS archive=0 stale=0`.
-7. Production's health check no longer logs `cannot_check` when the last archived file is a `.backup` history file.
-8. The drill script exits 0, and its report shows:
-   - the archive restored, with file count and bytes equal to the live archive;
-   - the database restored from base + WAL, with every table's row count and the `tick_trade` fingerprint equal to production's;
-   - the database rebuilt from the restored archive, with a `tick_trade` fingerprint equal to the restored database's, and bookkeeping differences only from the expected set;
-   - the rebuild time;
-   - no leftovers (drill directory and drill database gone).
-9. Runbook 200 has a tick section: placement, retention, the exclusions table, both restore paths, the drill command and the drill record row. Runbook 210's bootstrap command and restic include list are correct.
-10. Production is untouched: config hash unchanged, never restarted, and its backup paths and prefixes unchanged.
+4. After the cutover, `/data/backup/17-tick/base/<date>` holds a base backup that passed `pg_verifybackup`, and `b2:<bucket>/17-tick/{base,wal}` hold matching copies (`rclone check --one-way` clean).
+5. The first tick metadata dump exists locally and offsite. If the cutover runs before the nightly firing, it runs the dump job once.
+6. `/data/backup/17-tick/RECONCILE-ARMED` exists only after the first tick weekly run passed its final check.
+7. The tick health check logs `PASS … FLAGS archive=0 stale=0`.
+8. Runbook 200 has the tick placement row, the per-cluster cron table, tick retention and the exclusions table. Runbook 210's bootstrap command and restic include list are correct.
+9. Production is untouched: config hash unchanged, never restarted, and its backup paths and prefixes unchanged.
 
 ### Technical Requirements
 - Unit tests:
   - table parsing (bash and Python) against the real file and a malformed row;
   - the cron render (production block byte-identical to today's; tick block content; no production line names `17-tick`);
-  - `wal_segment_name.py` with the real names seen on the host;
   - the wrappers' new required arguments (missing → exit 2);
-  - the `pg_lsclusters` data-directory read.
-- Integration test: the drill's fingerprint SQL and the expected-difference check, run on the test cluster's tick database. The full drill runs only in the cutover.
+  - the `pg_lsclusters` data-directory read;
+  - `provision_tick_cluster.sh --check` output with the replication line.
 - ruff, mypy and shellcheck (`-x`) clean on touched files.
 
 ### Integration Requirements
-- 229 can start buying with the tick database already in the weekly backup and the hourly WAL push.
-- The next quarterly drill (due 2026-11-17 per runbook 200) runs production's manual Step 6 plus `drill_tick_restore.py`.
+- 228 can restore the tick cluster from `/data/backup/17-tick` and B2 using paths read from the cluster table.
+- 230 can start buying with the tick database already in the weekly backup and the hourly WAL push.
 
 ### Verification Walkthrough
 
@@ -355,38 +331,22 @@ These are the commands as designed; Phase 6 refines them with real output.
    ```
    uv run python scripts/cutover_227_tick_backup.py
    ```
-   Steps the script prints, each with expected and seen values:
-   1. Production config hash.
-   2. Tick advisory lock free.
-   3. `provision_tick_cluster.sh` adds the replication grant and `pg_hba` line.
-   4. `setup-backup.sh` applies the change (production: no change; tick: dirs, settings, cron).
-   5. Restart `postgresql@17-tick` (pending `archive_mode`).
-   6. `pg_switch_wal` gives a segment in `/data/backup/17-tick/wal`.
-   7. First tick weekly run, with the base backup verified and pushed.
-   8. Arm the tick reconcile.
-   9. Drill.
-   10. Production config hash again, unchanged.
-
-   The report lands in `user/notes/2026-10-xx-227-cutover.md`. Exit 0 means every check passed.
+   Expect the ten steps of TD8, each with expected and seen values. The report lands in `user/notes/<date>-227-cutover.md`. Exit 0 means every check passed.
 
 3. **Read the results:**
    ```
-   ls /data/backup/17-tick/base/
+   ls /data/backup/17-tick/base/ /data/backup/17-tick/metadata/
    tail -2 /data/backup/17-tick/backup-health.log      # PASS … FLAGS archive=0 stale=0
    tail -2 /data/backup/backup-health.log              # production still PASS
    rclone check --one-way /data/backup/17-tick/base b2:<bucket>/17-tick/base
+   grep -c 17-tick /etc/cron.d/manta-trading-backup    # the tick block's four lines
    ```
 
-4. **Quarterly drill, standalone** (any later time):
+4. **Production unchanged:**
    ```
-   uv run python scripts/drill_tick_restore.py
+   sudo deploy/setup-backup.sh --check --checkout "$PWD" --env-file "$PWD/.env" --backup-root /data/backup
    ```
-   Expect the archive, database and fallback sections all PASS, the rebuild time near 226's 212.5 s plus compression for the current archive, and a report in `user/notes/<date>-227-tick-restore-drill.md`.
-
-5. **Health-fix spot check:**
-   ```
-   uv run python scripts/wal_segment_name.py next 00000001000012A5000000B4.00000028.backup   # prints 00000001000012A5000000B5
-   ```
+   Expect: every row OK and no drift.
 
 ## Risk Assessment
 
@@ -399,24 +359,20 @@ These are the commands as designed; Phase 6 refines them with real output.
   - the byte-identical test for production's block;
   - `--check` before applying;
   - the cutover's before/after config hash;
-  - the cutover fails if the main block shows any drift.
+  - the cutover stops if the main block shows any drift.
 - **For the restart:** it is the tick unit only, only with the tick lock free, and inside the PM's single cutover run. No tick timers exist yet (the tick schedule is still manual), so no scheduled work is interrupted.
 
 ## Implementation Notes
 
 ### Development Approach
-1. **Health-check fix** (`wal_segment_name.py` plus its tests). It's independent and fixes a live production problem, so it lands first.
-2. **The cluster table and its parsers**, with tests against the real file.
-3. **Wrapper arguments** (`--url-key`, `--replication-host`, `--remote`), plus the template split and render. The production-block test must pass before going further.
-4. **`setup-backup.sh` per-row loop and `pg_lsclusters` data directory**, with `--check` run against the live host (read-only).
-5. **Tick role and `pg_hba` changes** in `provision_tick_roles.sql` and `provision_tick_cluster.sh` (`--check` run).
-6. **`drill_tick_restore.py`**, with the fingerprint SQL integration test.
-7. **`cutover_227_tick_backup.py`**, then the runbook 200/210 updates.
-8. **PM:** tag, then run the cutover. Agent: close the slice from the report.
-
-This sits at the upper end of one session: about two task files, with the setup-backup rework and the drill as the two heavy parts. If task breakdown shows it won't fit, the clean split is "per-cluster tooling + tick enrolment" and then "drill script + runbooks".
+1. **The cluster table and its parsers**, with tests against the real file.
+2. **Wrapper arguments** (`--url-key`, `--replication-host`, `--remote`), plus the template split and render. The production-block test must pass before going further.
+3. **`setup-backup.sh` per-row loop and `pg_lsclusters` data directory**, with `--check` run against the live host (read-only).
+4. **Tick role and `pg_hba` changes** in `provision_tick_roles.sql` and `provision_tick_cluster.sh` (`--check` run).
+5. **`cutover_227_tick_backup.py`**, then the runbook 200/210 updates.
+6. **PM:** tag, then run the cutover. Agent: close the slice from the report.
 
 ### Special Considerations
-- **Production safety:** never restart `17/main`, and never move its backup paths. Destructive SQL only touches `trading_tick_drill`, which the drill itself created (marked by its comment).
-- **Preflight:** no new `MT_TICK_*` keys, so the tick preflight is unaffected. The drill's URL overrides live in a subprocess environment only, never in `.env`.
+- **Production safety:** never restart `17/main`, and never move its backup paths.
+- **Preflight:** no new `MT_TICK_*` keys, so the tick preflight is unaffected.
 - **Credentials:** the replication grant reuses `tick_migrate`'s existing scram password, so no credential is written anywhere new.

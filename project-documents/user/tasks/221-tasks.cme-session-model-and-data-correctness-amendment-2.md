@@ -5,7 +5,7 @@ project: trading-data
 lld: user/slices/221-slice.cme-session-model-and-data-correctness-amendment.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: []
-interfaces: [222, 225, 228, 231]
+interfaces: [222, 225, 229, 232]
 projectState: >
   Slice design committed; slice review PASS (993fab4). 220 (DBN reader) and
   923 (multi-database plumbing, minute track routed to primary) are released

@@ -4,7 +4,7 @@ slice: proof-on-existing-data
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [223, 224, 225, 923]
-interfaces: [227, 228, 229, 230, 231, 232, 233]
+interfaces: [227, 228, 229, 230, 231, 232, 233, 234]
 dateCreated: 20261003
 dateUpdated: 20261003
 status: complete
@@ -54,10 +54,10 @@ job records, record counts, and cost estimates.
   where a wrong choice costs one rebuild from the archive in under a
   minute, not a restructuring sweep.
 - **The tick database exists in production.** After this slice, 227 has a
-  cluster to back up, 229 and 230 have a database to read, and 233 has a URL
+  cluster to back up, 230 and 231 have a database to read, and 234 has a URL
   to write into the service environment.
-- **Later slices get their inputs.** 227 gets the rebuild cost. 228 and 231
-  get loaded data with a roll in each range. 232 gets the contention
+- **Later slices get their inputs.** 227 gets the rebuild cost. 229 and 232
+  get loaded data with a roll in each range. 233 gets the contention
   numbers.
 
 ## Technical Scope
@@ -106,7 +106,7 @@ job records, record counts, and cost estimates.
   all come from files and job records already held, and free metadata.
 - **Contention against the minute pass.** PM decision, 2026-10-03: a minute
   firing outside its schedule walks 13,083 symbols on EODHD quota, and
-  overlapping a scheduled firing means waiting for tomorrow. 232 repeats the
+  overlapping a scheduled firing means waiting for tomorrow. 233 repeats the
   contention run anyway, so it adds the minute overlap
   (Technical Decision 7).
 - **Subscribing to the Standard plan, and pulling plan data.** The go/no-go
@@ -116,7 +116,7 @@ job records, record counts, and cost estimates.
   rebuild cost. Until then, the cluster is a projection of a backed-up
   archive.
 - **Service environment and wiring.** `MT_TICK_DB_URL` goes into the dev
-  `.env` only. The service environment files belong to 233.
+  `.env` only. The service environment files belong to 234.
 - **A NumPy binary `COPY` encoder, process workers, and intra-unit
   checkpoints.** Each is built only if a measurement fails its target. 225's
   numbers met the targets by orders of magnitude, so none is expected.
@@ -384,10 +384,10 @@ In each range, that gives one contract and one session (Q5 uses its month).
 
 | Query | Shape | Stands for |
 |---|---|---|
-| Q1 | Every tick of one contract in one session | `get` ticks by contract (229, 230) |
-| Q2 | One-minute bars from Q1's ticks (`time_bucket` on nanoseconds) | Tick-derived bars (229, 230) |
+| Q1 | Every tick of one contract in one session | `get` ticks by contract (230, 231) |
+| Q2 | One-minute bars from Q1's ticks (`time_bucket` on nanoseconds) | Tick-derived bars (230, 231) |
 | Q3 | `count(*)` per instrument for one session | `coverage`'s raw count (225) |
-| Q4 | A contract's latest tick | Freshness lines (229, 230) |
+| Q4 | A contract's latest tick | Freshness lines (230, 231) |
 | Q5 | One-minute bars for one contract over a month | Research reads |
 
 Every query runs with `SET statement_timeout` and `EXPLAIN (ANALYZE,
@@ -508,7 +508,7 @@ because "conservative until 226 measures" stops being true.
 the production database. This week it ran 168 times at 133–324 s, so its
 solo duration is already measured, and `pass_runs` holds it. An overlap is
 measurable within the hour and spends no quota. The minute-pass overlap
-moves to 232, which re-runs contention to check the weights it sets.
+moves to 233, which re-runs contention to check the weights it sets.
 
 **The run.** The `contention` step reads the Kalshi timer's next elapse
 time. Two minutes before it, the step starts a loop in the proof database:
@@ -531,12 +531,12 @@ percentile, overlapped against solo; and the tick ingest rate under
 overlap against `rebuild`'s solo rate.
 
 **Bound:** an overlapped Kalshi duration above the week's maximum (324 s) is
-"measurable contention". The go/no-go says so, and 232 starts from it.
+"measurable contention". The go/no-go says so, and 233 starts from it.
 Within that, the result is "none measured at two ingest workers". Weights
-are not set here; 232 sets them from these numbers, as the architecture
+are not set here; 233 sets them from these numbers, as the architecture
 requires. A "none measured" result here is not a clearance for the minute
 pass (re-review F006). Kalshi writes little and often; the minute pass walks
-13,083 symbols. 232 measures the minute overlap before it relies on
+13,083 symbols. 233 measures the minute overlap before it relies on
 either.
 
 **Guards** (review F001). The loop runs on the production host, so it is
@@ -611,7 +611,7 @@ recommendation and its evidence:
   which matches the adopted jobs, or "outrights only". Decided from the
   measured spread share in both tiers.
 - **GC.** Whether it follows at the same tier, from the free estimate and
-  the bytes per row. 231 still decides its own spreads and calendar.
+  the bytes per row. 232 still decides its own spreads and calendar.
 - **Subscribing to the Standard plan.** A technical go or no-go. The timing
   stays the PM's, ideally with realtime work.
 - **Settled by measurement:** the chunk interval, the layout, the constants,
@@ -698,17 +698,17 @@ policy job runs as the owner. `tick_app` needs no new grant unless the
   `/data/postgresql/17/tick` to enrol, and the measured rebuild cost (adopt
   + pass + ingest + compress on `trading_tick`, end to end) for choosing the
   policy.
-- **228 (roll methods):** both ranges loaded in `trading_tick`, each with a
+- **229 (roll methods):** both ranges loaded in `trading_tick`, each with a
   quarterly roll (September and December 2024), and per-contract volume in
   the ledger.
-- **229 / 230 (operator surface, API):** a production tick database, the
+- **230 / 231 (operator surface, API):** a production tick database, the
   query latencies for their reads, and a measured basis for any index they
   add.
-- **231 (GC):** the GC estimate and the tier recommendation. 231 decides its
+- **232 (GC):** the GC estimate and the tier recommendation. 232 decides its
   own spreads and builds its calendar.
-- **232 (arbitration):** the Kalshi contention numbers and the host series.
+- **233 (arbitration):** the Kalshi contention numbers and the host series.
   It adds the minute-pass overlap.
-- **233 (wiring):** the URL and credentials to copy into the service
+- **234 (wiring):** the URL and credentials to copy into the service
   environment.
 
 ### Consumes from Other Slices
@@ -768,12 +768,12 @@ policy job runs as the owner. `tick_app` needs no new grant unless the
   - the architecture's Revision Log. It names the paragraphs it amends:
     "Cross-source arbitration" and the "Proof on existing data" entry
     under Anticipated Slices (contention moves from the minute pass to the
-    Kalshi pass, and the minute-pass overlap goes to 232); "Pass form" and
+    Kalshi pass, and the minute-pass overlap goes to 233); "Pass form" and
     "Delivery mode and retention" (batch-job timing taken from the
     account's job records); and "Storage" (space partitioning decided from
     the disk layout, not from a measurement). It also records the harness's
     one-off production reads (Technical Decision 2), which add no product
-    edge. The slice plan's 232 entry gains the minute-pass overlap
+    edge. The slice plan's 233 entry gains the minute-pass overlap
     measurement;
   - CHANGELOG, and a README storage paragraph naming the tick cluster and
     its layout;
@@ -1030,7 +1030,7 @@ production rebuild and the go/no-go.
 
 - **Contention against the minute pass** (plan entry 226, architecture
   "Cross-source arbitration"): measured against the Kalshi pass here; the
-  minute-pass overlap moves to 232 (PM, 2026-10-03).
+  minute-pass overlap moves to 233 (PM, 2026-10-03).
 - **"Typical batch-job duration and poll interval … measured on the first
   batch job the pass submits"** (architecture): measured from every account
   job's provider record (free), since 224's jobs and 220's seven are the

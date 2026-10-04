@@ -4,7 +4,7 @@ slice: tick-storage-track
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [923, 220, 221]
-interfaces: [223, 224, 225, 226, 227, 228, 229, 230]
+interfaces: [223, 224, 225, 226, 227, 229, 230, 231]
 dateCreated: 20260928
 dateUpdated: 20260928
 status: complete
@@ -175,7 +175,7 @@ Nothing flows yet. The shapes below are the contract 224 and 225 build to:
    and compute each record's `sequence_ordinal`. Load `tick_trade` with
    `unit_id`, then write the unit's ledger rows and its `ingested`
    transition in one transaction on the loading connection.
-3. **Readers (225 status, 229, 230).** Completeness comes from units,
+3. **Readers (225 status, 230, 231).** Completeness comes from units,
    ledger and raw counts. Resolution comes from definitions. Session totals
    are summed over units whose `superseded_by_unit_id IS NULL`.
 
@@ -260,7 +260,7 @@ also NautilusTrader's native form. `tick_trade` is a hypertable on
 
 Consequences, stated so later slices do not rediscover them:
 
-- Readers convert for display. 229 and 230 own that conversion. Exact
+- Readers convert for display. 230 and 231 own that conversion. Exact
   comparison stays in integers.
 - `time_bucket` takes integer widths.
 - Any policy or continuous aggregate needs `set_integer_now_func` first.
@@ -298,7 +298,7 @@ Compression, decided by 226, absorbs the wider types.
 - **`tick_trade` is a raw-record table.** It stores provider values as
   delivered, including `UNDEF_PRICE` (`INT64_MAX`) in a BBO price. That
   keeps "`NULL` BBO means a trades-tier row" true by construction, instead
-  of overloading `NULL` with "empty book side". Readers (229, 230) translate
+  of overloading `NULL` with "empty book side". Readers (230, 231) translate
   the sentinel. Neither sentinel appeared in two days of ES `tbbo`.
 - **`tick_definition` is a model table.** A provider "undefined" value
   becomes SQL `NULL`. `UNDEF_TIMESTAMP` is 2^64−1, which `BIGINT` cannot
@@ -408,7 +408,7 @@ the product. **It carries it.** Deriving it needs code (`FUTURES_PRODUCT_CALENDA
 and cannot be done in SQL. The session rows live in the production database,
 so no join exists across the two databases. A ledger row should state its
 session's full identity by itself. There is no CHECK on the calendar id:
-the set grows with 231 (GC), and 221's session lookup already refuses an
+the set grows with 232 (GC), and 221's session lookup already refuses an
 unknown calendar at ingest.
 
 The tier is not on the ledger. It is `tick_request.schema`, reached through
@@ -429,9 +429,9 @@ What it costs readers (review F004):
   join is a primary-key lookup into a table that fits in memory.
 - **Tier-aware reads are rare by design.** One tier is used almost
   everywhere, and no tier-mixing reads are built (architecture, "Storage").
-  Status and coverage (225, 229) read tier per instrument, not per ledger
+  Status and coverage (225, 230) read tier per instrument, not per ledger
   row.
-- **If 229 or 230 measure otherwise,** adding a denormalized column is an
+- **If 230 or 231 measure otherwise,** adding a denormalized column is an
   additive tick-track migration with a backfill from the join.
 
 ### Technical Decision 8: chunk interval of 7 days, from wall-clock span
@@ -467,7 +467,7 @@ instrument-session counts. 226 adds indexes from measured queries.
 | `tick_archive_unit.fetch_status` | `FetchStatus` |
 | file-required rule | `UNIT_STATES_WITH_FILE` |
 
-A new member (for example `statistics` in 228, or a live-segment delivery
+A new member (for example `statistics` in 229, or a live-segment delivery
 mode in the realtime initiative) needs a tick-track migration that
 re-renders the constraint (journal 20260901). A unit test asserts that
 every rendered list equals its enum, so hand-listing cannot creep in.
@@ -632,7 +632,7 @@ The parity tests assert:
   value to validate.
 - **227 (backup):** five named tables, with the manifest and definitions
   small and the trades table rebuildable from the archive.
-- **228–230:** `tick_definition` for resolution and catalog. The sentinel
+- **229–231:** `tick_definition` for resolution and catalog. The sentinel
   and nanosecond conventions are theirs to translate on read.
 
 ### Consumes from Other Slices
@@ -692,7 +692,7 @@ The parity tests assert:
 
 - 224 and 225 can be designed against the table, column-map and vocabulary
   names in this document with no schema change of their own, except
-  228's future `statistics` CHECK re-render.
+  229's future `statistics` CHECK re-render.
 - The full unit and integration tiers stay green apart from the known
   pre-existing failures.
 
@@ -836,7 +836,7 @@ No command lists tick tables or units yet. `mt data tick status` is 225's.
 - **Security.** No credentials or new settings. The artifact stays
   password-free. `tick_app` keeps no TRUNCATE and no DDL.
 - **Does this belong in the API?** Not in this slice: it has no reader.
-  230 serves ticks and the contract catalog from these tables.
+  231 serves ticks and the contract catalog from these tables.
 
 ### Architecture statements this design supersedes
 
