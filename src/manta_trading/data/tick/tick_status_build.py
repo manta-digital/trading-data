@@ -147,6 +147,11 @@ def _wanted_end(entry: TickUniverseEntry, edge: Edge | None) -> datetime | None:
     return min(ends) if ends else None
 
 
+def overlaps(session: Session, wanted: tuple[datetime, datetime]) -> bool:
+    """The session meets the wanted UTC window ``[start, end)``."""
+    return session.close_utc > wanted[0] and session.open_utc < wanted[1]
+
+
 async def _scope(
     conn: Conn,
     calendar_url: str,
@@ -172,9 +177,7 @@ async def _scope(
     def in_scope(session: Session) -> bool:
         if held.intersection(days_touched(session)):
             return True
-        return wanted is not None and (
-            session.close_utc > wanted[0] and session.open_utc < wanted[1]
-        )
+        return wanted is not None and overlaps(session, wanted)
 
     return [session for session in found if in_scope(session)]
 
@@ -194,9 +197,15 @@ async def _product_status(
         if wanted_start is None or wanted_end is None
         else (utc_midnight(wanted_start), wanted_end)
     )
-    verdicts = await session_verdicts(
-        conn, entry, await _scope(conn, calendar_url, entry, wanted)
-    )
+    sessions = await _scope(conn, calendar_url, entry, wanted)
+    verdicts = await session_verdicts(conn, entry, sessions)
+    # TD9 (226): caught up is judged over the wanted range only; sessions in
+    # scope because another tier's units touch them neither help nor hurt it.
+    judged = [
+        v
+        for session, v in zip(sessions, verdicts, strict=True)
+        if wanted is not None and overlaps(session, wanted)
+    ]
     lines = await contract_lines(conn, shape_of(entry))
     spreads = [c for c in lines if c.instrument_class == SPREAD_CLASS]
     buckets = Counter(v.status.value for v in verdicts)
@@ -217,7 +226,7 @@ async def _product_status(
         sessions_held=sum(v.held for v in verdicts),
         buckets={s.value: buckets.get(s.value, 0) for s in TickSessionStatus},
         degraded=sum(v.condition == DEGRADED for v in verdicts),
-        caught_up=caught_up(verdicts, wanted=wanted_start is not None),
+        caught_up=caught_up(judged, wanted=wanted_start is not None),
         holed_sessions=tuple(
             v.session_date
             for v in verdicts

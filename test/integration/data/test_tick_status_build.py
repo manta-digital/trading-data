@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -26,15 +27,15 @@ from tick_support.rows import (
 )
 from tick_support.runs import connect
 from tick_support.tier_units import TBBO_DAY, TRADES_DAY, seed_tier_unit
+from tick_support.universe import UNTIERED
 
 from manta_trading.data.tick.constants import DatasetCondition, TickSchema, UnitState
 from manta_trading.data.tick.tick_coverage import build_coverage
 from manta_trading.data.tick.tick_status_build import build_status
-from manta_trading.data.tick.universe import TICK_UNIVERSE
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 OBSERVED = datetime(2026, 9, 30, 11, tzinfo=UTC)
-ES = TICK_UNIVERSE[0]
+ES = UNTIERED[0]
 AConn = psycopg.AsyncConnection[Any]
 
 
@@ -74,7 +75,7 @@ async def ingested(
 async def test_status_buckets_contracts_and_json(
     ingested: AConn, session_migrated_db: str
 ) -> None:
-    status = await build_status(ingested, session_migrated_db, TICK_UNIVERSE, NOW)
+    status = await build_status(ingested, session_migrated_db, UNTIERED, NOW)
     (es,) = status.products
     assert {k: v for k, v in es.buckets.items() if v} == {
         "complete": 1,  # 09-03: 09-02 and 09-03 both ingested
@@ -92,7 +93,7 @@ async def test_status_buckets_contracts_and_json(
     assert body["complete_basis"] == "units"
     assert json.loads(json.dumps(body)) == body
     every = await build_status(
-        ingested, session_migrated_db, TICK_UNIVERSE, NOW, all_instruments=True
+        ingested, session_migrated_db, UNTIERED, NOW, all_instruments=True
     )
     assert len(every.products[0].contracts) == len(es.contracts) + es.spreads_hidden
 
@@ -125,3 +126,34 @@ async def test_coverage_is_ok_then_names_a_deleted_row(
     body = after.to_dict()
     assert body["mismatched"] is True
     assert json.loads(json.dumps(body)) == body
+
+
+async def test_caught_up_is_judged_over_the_wanted_range_only(
+    ingested: AConn, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    """226 TD9: the window [09-03, 09-04) meets the sessions dated 09-03 and
+    09-04 (which opens 09-03 22:00 UTC); with 09-04 held too, both are
+    complete. Held sessions outside it (09-05 lacks its 09-05 day, 12-03 its
+    12-02 day) are listed but do not decide caught up."""
+    with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
+        request = insert_request(
+            conn, range_start=date(2024, 9, 4), range_end=date(2024, 9, 5)
+        )
+        insert_unit(
+            conn,
+            request,
+            unit_date=date(2024, 9, 4),
+            state=UnitState.INGESTED.value,
+            **FILE_COLUMNS,
+        )
+    entry = replace(
+        UNTIERED[0],
+        tier=TickSchema.TRADES,
+        start=date(2024, 9, 3),
+        end=date(2024, 9, 4),
+    )
+    status = await build_status(ingested, session_migrated_db, [entry], NOW)
+    [product] = status.products
+    assert product.buckets["complete"] >= 1
+    assert sum(n for b, n in product.buckets.items() if b != "complete") > 0
+    assert product.caught_up is True
