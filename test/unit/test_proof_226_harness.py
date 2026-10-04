@@ -129,7 +129,7 @@ def test_report_writes_frontmatter_and_body(tmp_path: Path) -> None:
     path = report.write(tmp_path)
     text = path.read_text()
     assert path.name.endswith("-226-proof-size.md")
-    assert text.startswith("---\ndocType: note\n")
+    assert text.startswith("---\ndocType: notes\n")
     assert "| trades | 12.5 |" in text
 
 

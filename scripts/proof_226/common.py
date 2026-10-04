@@ -111,7 +111,7 @@ class Report:
         stamp = f"{self.started:%Y%m%d}"
         front = [
             "---",
-            "docType: note",
+            "docType: notes",
             "project: trading-data",
             f"slice: {SLICE}",
             f"dateCreated: {stamp}",

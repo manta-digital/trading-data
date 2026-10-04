@@ -1,5 +1,5 @@
 ---
-docType: note
+docType: notes
 project: trading-data
 slice: 226-slice.proof-on-existing-data
 dateCreated: 20261003
