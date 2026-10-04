@@ -237,8 +237,7 @@ def test_a_stop_during_reset_starts_no_ingest(
     started.wait()
     stopper = threading.Thread(target=loop.stop)
     stopper.start()
-    while not loop._stop.is_set():  # pyright: ignore[reportPrivateUsage]
-        pass
+    assert loop._stop.wait(timeout=10)  # pyright: ignore[reportPrivateUsage]
     release.set()
     stopper.join(timeout=10)
     assert not stopper.is_alive()
