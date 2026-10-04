@@ -7,7 +7,7 @@ dependencies: [226]
 interfaces: [228, 230, 231, 232, 234]
 dateCreated: 20261004
 dateUpdated: 20261004
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: backup-coverage-for-tick-archive-and-database
@@ -271,6 +271,7 @@ Production's `wal/` and `base/` prefixes have a 30-day "delete after hidden" rul
 - **Detect:** `setup-backup.sh --check` reads the bucket's rules (`rclone backend lifecycle b2:<bucket>`) and reports MISSING for any row prefix not covered.
 - **Apply:** applying a per-prefix rule without replacing the bucket's existing rules is checked against rclone's B2 backend source during implementation.
 - **Fallback:** if rclone can't do that, the cutover report names the one rule to add in the B2 console. That would be the slice's only non-script PM step. It does not affect the cutover's exit code, because a missing rule costs storage, not data. `setup-backup.sh --check` keeps reporting MISSING until the rule exists.
+- **Phase 6 finding (2026-10-04):** the fallback is the path. The `b2` rclone remote is the S3 backend, which has no `lifecycle` command, so `deploy/lib/b2_lifecycle.sh` reads the rules through rclone's native backend (`:b2:<bucket>`, the same bucket key from `.env`). rclone v1.75.0 `backend/b2/b2.go` `lifecycleCommand` sets `LifecycleRules: []{newRule}` with an empty prefix, which replaces every rule on the bucket, so apply never sets one. Production's rules read back as `base/` and `wal/`, 30 days from hiding to deleting; tick's are `17-tick/base/` and `17-tick/wal/` (two console rules).
 
 ### Patterns and Conventions
 - **Bash and rendering:** check-then-act bash with explicit required arguments, as in 915/920. `--check` reports drift and changes nothing. Cron render tokens are `@NAME@`.
@@ -333,7 +334,7 @@ There are no migrations. Storage added:
 7. The tick health check logs `PASS … FLAGS archive=0 stale=0`.
 8. Runbook 200 has the tick placement row, the per-cluster cron table, tick retention and the exclusions table. Runbook 210's bootstrap command and restic include list are correct.
 9. Production is untouched: config hash unchanged, never restarted, and its backup paths and prefixes unchanged.
-10. The B2 lifecycle rule covers `17-tick/` (`setup-backup.sh --check` reports it OK). If rclone cannot add it, the cutover report names the console rule and the PM adds it (TD10).
+10. The B2 lifecycle rules cover `17-tick/base/` and `17-tick/wal/`, matching production's `base/` and `wal/` rules (`setup-backup.sh --check` reports `OK 17/tick lifecycle …`). rclone cannot add a rule without replacing the bucket's others (Phase 6 finding), so the cutover report names the console rules and the PM adds them (TD10).
 
 ### Recovery Targets
 Stated as designed, for 228's drill to measure against:
@@ -356,34 +357,48 @@ Stated as designed, for 228's drill to measure against:
 
 ### Verification Walkthrough
 
-These are the commands as designed; Phase 6 refines them with real output.
+Refined in Phase 6 (2026-10-04) with real output. Steps 1 and 1a were run by the agent on manta9000; steps 2–4 are the PM's cutover and its read-back.
 
-1. **Check, change nothing** (agent, before the cutover):
+1. **Check, change nothing** (agent, before the cutover; ran 2026-10-04 as manta):
    ```
    deploy/setup-backup.sh --check --checkout "$PWD" --env-file "$PWD/.env" --backup-root /data/backup
    ```
-   Runs as manta (no root). `--backup-root` is the host root (Scope item 2). Expect: `17/main` OK for every item readable without root; the cutover's steps 2 and 12 run the sudo form. `17/tick` reports MISSING for its directories, archive settings and cron block. The lifecycle check reports the tick prefix.
+   Runs as manta (no root). `--backup-root` is the host root. Seen, and expected until the cutover:
+   - `OK` for `package-restic`, `dir-system`, every `17/main dir-*` item with its `-owner-mode` item, `17/main wal-acl-manta`, `17/main arm-file`, `OK 17/main lifecycle base/` and `wal/`, the timeshift keys, `restic-repo`, `user-crontab`.
+   - `MISSING 17/main pg-settings psql failed: … role "manta" does not exist` and the same for `17/tick`: PostgreSQL items need root to read. The cutover's steps 2 and 12 run the sudo form.
+   - `17/tick`: `MISSING` for `dir-root`, `dir-base`, `dir-metadata`, `dir-wal` (each with a `DRIFT …-owner-mode … 'absent'`), `wal-acl-manta`, `arm-file`.
+   - `MISSING 17/tick lifecycle 17-tick/base/ (add in the B2 console: fileNamePrefix=17-tick/base/ daysFromHidingToDeleting=30; …)` and the same for `17-tick/wal/`. These are not counted in `not-ok`.
+   - `DRIFT cron.d /etc/cron.d/manta-trading-backup` (the new arguments and the tick block).
+   - `SUMMARY applied=0 not-ok=13 mode=check`, exit 1.
+
+   1a. **Provisioning check** (agent; ran 2026-10-04 as manta):
+   ```
+   scripts/provision_tick_cluster.sh --check
+   ```
+   Seen: `WOULD set /data/postgresql to postgres 755 (seen: postgres 700)`, `WOULD set /data/postgresql/17 to postgres 755 (seen: unreadable)`, `WOULD apply provision_tick_roles.sql to trading_tick (with_replication=1)`, `SKIP /etc/postgresql/17/tick/pg_hba.conf (needs root to read)`, `OK /etc/postgresql/17/main and postgresql.auto.conf unchanged`, exit 0. The `pg_hba` replication line is only visible to root (the cutover's step 3).
 
 2. **Cutover** (PM, one command, after the code review passes and the slice is merged to main):
    ```
    uv run python scripts/cutover_227_tick_backup.py
    ```
-   Expect the thirteen steps of TD8, each with expected and seen values. The report lands in `user/notes/<date>-227-cutover.md`. Exit 0 means every check passed.
+   Runs as manta from the checkout root; it refuses any other user. `sudo` asks for the password at the first root step. Expect twelve `==> Step n: <title>` lines each followed by `PASS`, then `Step 13: report written to project-documents/user/notes/<date>-227-cutover.md — PASS` and exit 0. On the first run, step 4's report legitimately contains `PENDING RESTART 17/tick archive_mode` and `MISSING 17/tick arm-file`; step 5 then restarts `postgresql@17-tick`. If the B2 lifecycle rules are missing, the script ends with `B2 console: MISSING 17/tick lifecycle …` lines and the report has a "B2 console rules to add (TD10)" section; the PM adds those two rules in the console (Buckets → bucket → Lifecycle Settings → custom rules; "days till hide" blank, "days till delete" 30). On a failure: the report names the step and what it saw; fix it and re-run the whole script.
 
-3. **Read the results:**
+3. **Read the results** (as manta):
    ```
-   ls /data/backup/17-tick/base/ /data/backup/17-tick/metadata/
-   tail -2 /data/backup/17-tick/backup-health.log      # PASS … FLAGS archive=0 stale=0
-   tail -2 /data/backup/backup-health.log              # production still PASS
-   rclone check --one-way /data/backup/17-tick/base b2:<bucket>/17-tick/base
-   grep -c 17-tick /etc/cron.d/manta-trading-backup    # the tick block's four lines
+   ls /data/backup/17-tick/base/ /data/backup/17-tick/metadata/   # one <YYYYMMDD>/ base; one meta-<ts>.dump
+   ls /data/backup/17-tick/RECONCILE-ARMED                        # present
+   tail -1 /data/backup/17-tick/backup-health.log                 # … FLAGS archive=0 stale=0
+   tail -1 /data/backup/backup-health.log                         # production: … FLAGS archive=0 stale=0
+   rclone check --one-way /data/backup/17-tick/base b2:<bucket>/17-tick/base   # 0 differences
+   grep -c 17-tick /etc/cron.d/manta-trading-backup               # 4 (the tick block's four jobs)
+   deploy/lib/b2_lifecycle.sh --env-file .env --subpath 17-tick --days 30 base/ wal/   # OK lifecycle 17-tick/base/, OK lifecycle 17-tick/wal/ once the PM has added them
    ```
 
-4. **Production unchanged:**
+4. **Production unchanged:** the cutover's step 12 already ran this with sudo and put the full output in the report. To repeat it:
    ```
    sudo deploy/setup-backup.sh --check --checkout "$PWD" --env-file "$PWD/.env" --backup-root /data/backup
    ```
-   Expect: every row OK and no drift.
+   Expect every item `OK` on both rows and `SUMMARY applied=0 not-ok=0`, exit 0. `MISSING 17/tick lifecycle …` lines may remain until the console rules are added; they do not count.
 
 ## Risk Assessment
 
@@ -407,7 +422,7 @@ These are the commands as designed; Phase 6 refines them with real output.
 3. **`setup-backup.sh` per-row loop and `pg_lsclusters` data directory**, with `--check` run against the live host (read-only).
 4. **Tick role and `pg_hba` changes** in `provision_tick_roles.sql` and `provision_tick_cluster.sh` (`--check` run).
 5. **`cutover_227_tick_backup.py`**, then the runbook 200/210 updates.
-6. **PM:** tag, then run the cutover. Agent: close the slice from the report.
+6. **PM:** after review and merge, run the cutover. Agent: close the slice from the report.
 
 ### Special Considerations
 - **Production safety:** never restart `17/main`, and never move its backup paths.

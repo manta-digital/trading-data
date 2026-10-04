@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The tick database is backed up like production** (slice 227, live once
+  the PM runs `scripts/cutover_227_tick_backup.py`): weekly base backup,
+  continuous compressed WAL archiving, a nightly metadata dump, all pushed to
+  `b2:<bucket>/17-tick/`, with its own health check and alarm flags under
+  `/data/backup/17-tick`. The clusters the backup tier covers are one
+  checked-in table, `deploy/backup-clusters.conf`; `setup-backup.sh` and the
+  cron file are rendered from it. `setup-backup.sh --check` now also reports
+  whether the B2 lifecycle rules cover each cluster's prefixes.
 - **`mt data tick ingest`** loads the tick files you hold into the tick
   database. Each trading day loads completely or not at all, after three
   checks: the record counts agree, every trade belongs to a known contract,
@@ -52,6 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `mt data tick status` judges *caught up* over the wanted range only.
   Sessions loaded at the other tier are still listed but no longer keep it
   at "no".
+
+### Changed
+- `deploy/setup-backup.sh` no longer takes `--cluster`: it covers every
+  cluster in the table, and `--backup-root` is now the host root only.
+- `scripts/provision_tick_cluster.sh` creates only `trading_tick` (the
+  226 proof database is no longer admitted) and grants `tick_migrate`
+  REPLICATION for the base backup.
 
 ## [0.22.0] - 2026-09-30
 
