@@ -227,7 +227,6 @@ def test_hba_admits_the_drill_database_and_not_the_proof_one() -> None:
         "host trading_tick,trading_tick_drill tick_app,tick_migrate"
         " 127.0.0.1/32 scram-sha-256"
     ]
-    assert "trading_tick_proof" not in SCRIPT.read_text()
 
 
 def test_only_trading_tick_is_created() -> None:

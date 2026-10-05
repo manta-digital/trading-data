@@ -59,6 +59,7 @@ _MALFORMED = {
         "17/main MT_A /data/backup a$b - 0 2 * * * 0 3 * * 0\n",
         1,
     ),
+    "dotdot_root": ("17/main MT_A /data/../etc/x - - 0 2 * * * 0 3 * * 0\n", 1),
     "bad_cron_field": ("17/main MT_A /data/backup - - 0 2 * * x 0 3 * * 0\n", 1),
 }
 

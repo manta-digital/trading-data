@@ -785,7 +785,7 @@ class TestRenderCron:
         assert "--timeout 59 " in push
         health = [j for j in jobs if "backup_health_cron.sh" in j][0]
         assert "--stale-after 180 " in health
-        assert "@" not in text.replace("@192", "")
+        assert "@" not in text
         assert "%" not in text
         assert text.endswith("\n") and not text.endswith("\n\n")
 

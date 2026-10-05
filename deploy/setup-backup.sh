@@ -7,7 +7,8 @@
 # run that changes nothing prints zero APPLIED lines. `--check` changes
 # nothing and exits 1 if any item is not OK: it is the acceptance instrument
 # and the periodic drift audit. NEVER restarts PostgreSQL (reports PENDING
-# RESTART); never creates a reconcile arm file; never edits the user
+# RESTART); never creates a reconcile arm file (a person or a cutover does,
+# runbook 200); never edits the user
 # crontab; never sets a B2 lifecycle rule. Recovery for any failure: fix the
 # cause, re-run.
 #
@@ -232,7 +233,7 @@ for i in "${!BC_CLUSTER[@]}"; do
   if [ -e "$ROOT/$ARM_FILE" ]; then
     report "OK $C arm-file $ROOT/$ARM_FILE"
   else
-    report "MISSING $C arm-file $ROOT/$ARM_FILE (created after the first watched reconcile; see runbook)"
+    report "MISSING $C arm-file $ROOT/$ARM_FILE (production: created by hand after a watched reconcile; 17/tick: created by the 227 cutover after its first weekly run; see runbook 200)"
   fi
 
   # TD10: a missing rule is printed but never tallied (it costs storage, not

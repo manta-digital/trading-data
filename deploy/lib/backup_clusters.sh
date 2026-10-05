@@ -57,6 +57,9 @@ backup_clusters_load() {
       "$BC_ROOT_PREFIX"?*) ;;
       *) echo "backup-clusters: $file line $n: backup_root ${f[2]} is not an absolute path under $BC_ROOT_PREFIX" >&2; return 1 ;;
     esac
+    case "/${f[2]}/" in
+      */../*) echo "backup-clusters: $file line $n: backup_root ${f[2]} has a '..' segment" >&2; return 1 ;;
+    esac
     BC_CLUSTER+=("${f[0]}"); BC_URL_KEY+=("${f[1]}"); BC_ROOT+=("${f[2]}")
     BC_REMOTE+=("${f[3]}"); BC_REPL_HOST+=("${f[4]}")
     BC_METADATA_CRON+=("${f[*]:5:5}"); BC_WEEKLY_CRON+=("${f[*]:10:5}")

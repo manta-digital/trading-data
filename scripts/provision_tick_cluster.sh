@@ -9,6 +9,13 @@
 # tick_migrate. Never touches the production cluster `17/main` beyond reading
 # its TimescaleDB version and its port.
 #
+# 227 TD5 retired the 226 proof database: `trading_tick_proof` is no longer
+# created or admitted, and its MT_PROOF_226_* URLs are no longer written. The
+# 226 proof harness (scripts/proof_226_tick.py, scripts/proof_226/) is kept as
+# that slice's record but cannot connect on a host provisioned by this
+# script. On manta9000 the old database and .env keys are left in place,
+# unreachable; nothing here drops them.
+#
 # Host-script convention: check-then-act, expected against seen. Every item
 # prints OK / DRIFT <expected> <seen> / MISSING / APPLIED / WOULD; a re-run
 # that changes nothing prints no APPLIED line and `0 keys added`. The log goes

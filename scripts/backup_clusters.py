@@ -57,6 +57,8 @@ def _row_error(tokens: list[str], rows: list[BackupCluster]) -> str | None:
     root = tokens[2]
     if not (root.startswith(_ROOT_PREFIX) and len(root) > len(_ROOT_PREFIX)):
         return f"backup_root {root} is not an absolute path under {_ROOT_PREFIX}"
+    if ".." in root.split("/"):
+        return f"backup_root {root} has a '..' segment"
     return None
 
 

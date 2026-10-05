@@ -71,6 +71,9 @@ WAL_POLL_S = 2
 #: sync_wal_offsite.sh skips segments younger than this (its MIN_AGE, 2m).
 PUSH_MIN_AGE_S = 120
 ARM_FILE = "RECONCILE-ARMED"
+#: base/<date> as cron_weekly_backup.sh names it (its DATE_STAMP, `date +%Y%m%d`,
+#: local time); the one Python spelling of that bash format.
+BASE_DIR_DATE_FORMAT = "%Y%m%d"
 WEEKLY_DONE = "=== weekly backup done"
 #: Non-OK setup-backup items a step accepts (anything else stops it).
 CHECK_ALLOWED = (r"^(\S+|PENDING RESTART) 17/tick ", r"^(DRIFT|MISSING) cron\.d ")
@@ -175,7 +178,8 @@ def step_health_once(ctx: Context, step: Step) -> None:
 def step_weekly(ctx: Context, step: Step) -> None:
     root = ctx.tick.backup_root
     arm = root / ARM_FILE
-    if (root / "base" / datetime.now().strftime("%Y%m%d")).exists() and arm.exists():
+    today = datetime.now().strftime(BASE_DIR_DATE_FORMAT)
+    if (root / "base" / today).exists() and arm.exists():
         step.seen.append("base backup for today and arm file exist: skipped (re-run)")
         return
     result = shell(tick_commands()["weekly"], step)
