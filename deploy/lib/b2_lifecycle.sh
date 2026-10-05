@@ -62,9 +62,13 @@ if [ -z "$BUCKET" ] || [ -z "$KEY_ID" ] || [ -z "$APP_KEY" ]; then
   exit 1
 fi
 
+# stdout is the rule list; stderr is kept apart and shown only on failure.
+# Under sudo, root has no rclone.conf and rclone says so on stderr, which
+# must not reach the JSON parse (found in the 227 cutover, 2026-10-05).
+ERR_FILE=$(mktemp); trap 'rm -f "$ERR_FILE"' EXIT
 if ! RULES=$(RCLONE_B2_ACCOUNT="$KEY_ID" RCLONE_B2_KEY="$APP_KEY" \
-             rclone backend lifecycle ":b2:$BUCKET" 2>&1); then
-  echo "UNREADABLE lifecycle (rclone backend lifecycle :b2:$BUCKET failed: $(tr '\n' ' ' <<< "$RULES"))"
+             rclone backend lifecycle ":b2:$BUCKET" 2>"$ERR_FILE"); then
+  echo "UNREADABLE lifecycle (rclone backend lifecycle :b2:$BUCKET failed: $(tr '\n' ' ' < "$ERR_FILE"))"
   exit 1
 fi
 if ! jq -e 'type == "array"' >/dev/null 2>&1 <<< "$RULES"; then

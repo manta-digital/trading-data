@@ -360,6 +360,18 @@ class TestSetupLifecycle:
         )
         assert not_ok() == without
 
+    def test_rclone_notice_on_stderr_is_not_parsed(self, host: dict[str, Path]) -> None:
+        """Under sudo rclone notes root's missing config on stderr (2026-10-05)."""
+        notice = 'NOTICE: Config file "/root/.config/rclone/rclone.conf" not found'
+        _stub(
+            host["bin"],
+            "rclone",
+            f"echo {notice!r} >&2; cat {str(host['rules'])!r}\n",
+        )
+        lines = self._lifecycle_lines(_check(host).stdout)
+        assert "OK 17/main lifecycle base/" in lines
+        assert not any("lifecycle-read" in x for x in lines)
+
     def test_unreadable_rules_are_a_failure(self, host: dict[str, Path]) -> None:
         _stub(host["bin"], "rclone", "echo 'unauthorized' >&2; exit 1\n")
         out = _check(host).stdout
