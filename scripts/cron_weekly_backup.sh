@@ -18,7 +18,7 @@
 #   6. final checksum check.
 #
 # Usage:
-#   cron_weekly_backup.sh --env-file <path> [--url-key <MT_KEY>] [--replication-host <host>] \
+#   cron_weekly_backup.sh --env-file <path> --url-key <MT_KEY> [--replication-host <host>] \
 #       --backup-root <dir> --base-dir <dir> \
 #       --wal-dir <dir> --keep-days <n> --health-flag <path> --remote-wal <rclone-path> \
 #       --remote-base <rclone-path> --stamp <file> --lock <file> --armed <file> [--skip-base-backup]
@@ -30,11 +30,6 @@
 # replaces that URL's host for pg_basebackup (production's replication is
 # admitted from localhost only); without it the URL is used as written
 # (slice 227, the cluster table's url_key and replication_host).
-#
-# With neither argument the script behaves as before 227: it reads
-# MT_TIMESCALE_MAINTENANCE_URL and rewrites @192.168.1.144: to 127.0.0.1.
-# That form exists only for the pre-227 installed cron file and goes after
-# the cutover.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -57,14 +52,9 @@ PUSH_MIN_AGE_SEC=120
 CATCHUP_TIMEOUT_MIN=180
 LOCK_WAIT_MIN=60
 LOGGER_TAG=manta-backup
-# Pre-227 cron lines pass neither --url-key nor --replication-host (removed
-# after the 227 cutover).
-PRE227_URL_KEY=MT_TIMESCALE_MAINTENANCE_URL
-PRE227_HOST_FROM=@192.168.1.144:
-PRE227_HOST_TO=@127.0.0.1:
 
 usage() {
-  echo "usage: $0 --env-file <path> [--url-key <MT_KEY>] [--replication-host <host>] --backup-root <dir> --base-dir <dir> --wal-dir <dir> --keep-days <n> --health-flag <path> --remote-wal <rclone-path> --remote-base <rclone-path> --stamp <file> --lock <file> --armed <file> [--skip-base-backup]" >&2
+  echo "usage: $0 --env-file <path> --url-key <MT_KEY> [--replication-host <host>] --backup-root <dir> --base-dir <dir> --wal-dir <dir> --keep-days <n> --health-flag <path> --remote-wal <rclone-path> --remote-base <rclone-path> --stamp <file> --lock <file> --armed <file> [--skip-base-backup]" >&2
 }
 die() { echo "error: $*" >&2; logger -t "$LOGGER_TAG" "weekly backup: $*"; exit "${2:-1}"; }
 
@@ -74,7 +64,7 @@ URL_KEY=""; REPLICATION_HOST=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --env-file)    ENV_FILE="${2:-}"; shift 2 ;;
-    --url-key)     URL_KEY="${2:-}"; [ -n "$URL_KEY" ] || { usage; echo "error: --url-key needs a value" >&2; exit 2; }; shift 2 ;;
+    --url-key)     URL_KEY="${2:-}"; shift 2 ;;
     --replication-host) REPLICATION_HOST="${2:-}"; [ -n "$REPLICATION_HOST" ] || { usage; echo "error: --replication-host needs a value" >&2; exit 2; }; shift 2 ;;
     --backup-root) BACKUP_ROOT="${2:-}"; shift 2 ;;
     --base-dir)    BASE_DIR="${2:-}"; shift 2 ;;
@@ -90,14 +80,11 @@ while [ $# -gt 0 ]; do
     *) usage; echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-for pair in "--env-file:$ENV_FILE" "--backup-root:$BACKUP_ROOT" "--base-dir:$BASE_DIR" "--wal-dir:$WAL_DIR" \
+for pair in "--env-file:$ENV_FILE" "--url-key:$URL_KEY" "--backup-root:$BACKUP_ROOT" "--base-dir:$BASE_DIR" "--wal-dir:$WAL_DIR" \
             "--keep-days:$KEEP_DAYS" "--health-flag:$HEALTH_FLAG" "--remote-wal:$REMOTE_WAL" \
             "--remote-base:$REMOTE_BASE" "--stamp:$STAMP" "--lock:$LOCK" "--armed:$ARMED"; do
   [ -n "${pair#*:}" ] || { usage; echo "error: ${pair%%:*} is required" >&2; exit 2; }
 done
-PRE227_FORM=0
-[ -n "$URL_KEY" ] || [ -n "$REPLICATION_HOST" ] || PRE227_FORM=1
-URL_KEY="${URL_KEY:-$PRE227_URL_KEY}"
 [[ $URL_KEY =~ $BC_URL_KEY_RE ]] || { usage; echo "error: --url-key $URL_KEY does not match $BC_URL_KEY_RE" >&2; exit 2; }
 
 if [ -e "$HEALTH_FLAG" ]; then
@@ -110,9 +97,7 @@ DB_URL=$(env_value "$ENV_FILE" "$URL_KEY")
 # Replace the URL's host (after the last @ of the authority, before the port
 # or path) when the cluster's replication is admitted from elsewhere.
 URL_HOST_RE='^([a-z]+://[^/]*@)([^:/@]+)(.*)$'
-if [ "$PRE227_FORM" -eq 1 ]; then
-  DB_URL="${DB_URL/"$PRE227_HOST_FROM"/"$PRE227_HOST_TO"}"
-elif [ -n "$REPLICATION_HOST" ]; then
+if [ -n "$REPLICATION_HOST" ]; then
   [[ $DB_URL =~ $URL_HOST_RE ]] || die "$URL_KEY is not a postgresql://user@host URL; cannot apply --replication-host"
   DB_URL="${BASH_REMATCH[1]}$REPLICATION_HOST${BASH_REMATCH[3]}"
 fi

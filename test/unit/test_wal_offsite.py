@@ -302,6 +302,7 @@ class TestReconcileGuards:
 
 _WEEKLY_REQUIRED = (
     "--env-file",
+    "--url-key",
     "--backup-root",
     "--base-dir",
     "--wal-dir",
@@ -356,6 +357,8 @@ def _weekly(w: dict[str, Path], *extra: str) -> subprocess.CompletedProcess[str]
             str(_WEEKLY),
             "--env-file",
             str(w["env"]),
+            "--url-key",
+            "MT_TIMESCALE_MAINTENANCE_URL",
             "--backup-root",
             str(w["root"]),
             "--base-dir",
@@ -392,7 +395,9 @@ class TestWeeklyArguments:
         self, weekly: dict[str, Path], missing: str
     ) -> None:
         values = {
-            "--env-file": str(weekly["env"]), "--backup-root": str(weekly["root"]),
+            "--env-file": str(weekly["env"]),
+            "--url-key": "MT_TIMESCALE_MAINTENANCE_URL",
+            "--backup-root": str(weekly["root"]),
             "--base-dir": str(weekly["base"]), "--wal-dir": str(weekly["wal"]),
             "--keep-days": "21", "--health-flag": str(weekly["flag"]),
             "--remote-wal": "b2:x/wal", "--remote-base": "b2:x/base",
@@ -424,12 +429,13 @@ class TestWeeklyUrlKey:
         args = line.split()
         return args[args.index("--db-url") + 1]
 
-    def test_no_new_arguments_keeps_pre227_rewrite(
+    def test_production_key_without_host_is_used_as_written(
         self, two_urls: dict[str, Path]
     ) -> None:
-        """The pre-227 installed cron line passes neither argument (task 2.0)."""
+        """No silent 192.168.1.144 rewrite after 8.3: the table's
+        replication_host is the only host change."""
         assert _weekly(two_urls).returncode == 0
-        assert self._base_url(two_urls) == "postgresql://u:pw@127.0.0.1:5432/trading"
+        assert self._base_url(two_urls) == self._MAIN
 
     def test_named_key_without_host_is_used_as_written(
         self, two_urls: dict[str, Path]

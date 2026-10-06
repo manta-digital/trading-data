@@ -365,6 +365,7 @@ class TestSummaryLine:
 _GLUE = _REPO_ROOT / "scripts" / "backup_health_cron.sh"
 _GLUE_REQUIRED = (
     "--env-file",
+    "--url-key",
     "--pgdata",
     "--wal-dir",
     "--stamp",
@@ -392,8 +393,8 @@ class GlueLayout:
 
     def run(self, *extra: str) -> subprocess.CompletedProcess[str]:
         args = [
-            *extra,
             "--env-file", str(self.env_file),
+            "--url-key", "MT_TIMESCALE_MAINTENANCE_URL",
             "--pgdata", str(self.root / "pgdata"),
             "--wal-dir", str(self.root / "wal"),
             "--stamp", str(self.root / "stamp"),
@@ -403,6 +404,7 @@ class GlueLayout:
             "--flag", str(self.flag),
             "--stale-flag", str(self.stale_flag),
             "--log", str(self.log),
+            *extra,  # last, so a test's own --url-key wins
         ]  # fmt: skip
         env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}")
         return subprocess.run(
@@ -633,10 +635,7 @@ class TestGlueUrlKey:
         assert result.returncode == 0, result.stderr
         assert "--db-url postgresql://tick/db " in recording.read_text()
 
-    def test_absent_key_reads_production_url(
-        self, glue: GlueLayout, recording: Path
-    ) -> None:
-        """The pre-227 installed cron line passes no --url-key (task 2.0)."""
+    def test_production_key_is_read(self, glue: GlueLayout, recording: Path) -> None:
         assert glue.run().returncode == 0
         assert "--db-url postgresql://main/db " in recording.read_text()
 

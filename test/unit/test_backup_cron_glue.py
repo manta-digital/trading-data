@@ -184,7 +184,9 @@ def metadata_host(tmp_path: Path) -> dict[str, Path]:
 
 
 def _metadata(h: dict[str, Path], *extra: str) -> subprocess.CompletedProcess[str]:
-    args = ["--env-file", str(h["env"]), "--dest", str(h["dest"]), *extra]
+    args = ["--env-file", str(h["env"]), "--dest", str(h["dest"])]
+    args += ["--url-key", "MT_TIMESCALE_MAINTENANCE_URL", "--remote", "b2:bucket-x"]
+    args += extra  # last, so a test's own values win
     env = dict(os.environ, PATH=f"{h['bin']}:{os.environ['PATH']}")
     return subprocess.run(
         [str(_SCRIPTS / "cron_nightly_metadata.sh"), *args],
@@ -201,10 +203,7 @@ def _metadata_calls(h: dict[str, Path], tool: str) -> list[str]:
 
 
 class TestNightlyMetadataArguments:
-    def test_absent_arguments_read_production_url_and_bucket(
-        self, metadata_host: dict[str, Path]
-    ) -> None:
-        """The pre-227 installed cron line passes neither (task 2.0)."""
+    def test_production_arguments(self, metadata_host: dict[str, Path]) -> None:
         result = _metadata(metadata_host)
         assert result.returncode == 0, result.stderr
         assert _metadata_calls(metadata_host, "pg_dump") == [_MAIN_URL]
@@ -224,6 +223,30 @@ class TestNightlyMetadataArguments:
         assert _metadata_calls(metadata_host, "pg_dump") == [_TICK_URL]
         rclone = _metadata_calls(metadata_host, "rclone")
         assert rclone and all("b2:x/17-tick/metadata" in c.split() for c in rclone)
+
+    @pytest.mark.parametrize("missing", ["--url-key", "--remote"])
+    def test_missing_required_argument_exits_2(
+        self, metadata_host: dict[str, Path], missing: str
+    ) -> None:
+        """Task 8.3: no pre-227 fallback to production's key or bucket."""
+        h = metadata_host
+        args = {
+            "--env-file": str(h["env"]),
+            "--dest": str(h["dest"]),
+            "--url-key": "MT_TIMESCALE_MAINTENANCE_URL",
+            "--remote": "b2:x",
+        }
+        argv = [a for k, v in args.items() if k != missing for a in (k, v)]
+        result = subprocess.run(
+            [str(_SCRIPTS / "cron_nightly_metadata.sh"), *argv],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 2
+        assert f"{missing} is required" in result.stderr
+        assert "usage:" in result.stderr
+        assert not h["calls"].exists()
 
     @pytest.mark.parametrize("key", ["mt_lower", "TIMESCALE_URL", "MT_A;rm"])
     def test_bad_key_exits_2(self, metadata_host: dict[str, Path], key: str) -> None:

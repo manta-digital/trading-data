@@ -13,14 +13,13 @@
 # --log. Nothing pushes to a person; the host has no mail transport.
 #
 # Usage:
-#   backup_health_cron.sh --env-file <path> [--url-key <MT_KEY>] --pgdata <dir> \
+#   backup_health_cron.sh --env-file <path> --url-key <MT_KEY> --pgdata <dir> \
 #       --wal-dir <dir> --stamp <file> --stale-after <minutes> --system-stamp <file> \
 #       --base-dir <dir> --flag <path> --stale-flag <path> --log <path>
 #
 # The env file path is explicit; the URL is read from it under --url-key
 # (the cluster table's url_key, slice 227), never sourced (the $-in-password
-# trap). An absent --url-key reads MT_TIMESCALE_MAINTENANCE_URL: that form
-# exists only for the pre-227 installed cron file and goes after the cutover.
+# trap).
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -33,16 +32,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PATH="$PATH:$SCRIPT_DIR"
 
 LOGGER_TAG=manta-backup
-# Pre-227 cron lines pass no --url-key (removed after the 227 cutover).
-PRE227_URL_KEY=MT_TIMESCALE_MAINTENANCE_URL
 ARCHIVE_FLAG_TITLE="WAL ARCHIVING IS BROKEN OR UNCHECKABLE — see the backup-and-restore runbook"
 STALE_FLAG_TITLE="A BACKUP TIER IS STALE — see the backup-and-restore runbook"
 
 usage() {
-  echo "usage: $0 --env-file <path> [--url-key <MT_KEY>] --pgdata <dir> --wal-dir <dir> --stamp <file> --stale-after <minutes> --system-stamp <file> --base-dir <dir> --flag <path> --stale-flag <path> --log <path>" >&2
+  echo "usage: $0 --env-file <path> --url-key <MT_KEY> --pgdata <dir> --wal-dir <dir> --stamp <file> --stale-after <minutes> --system-stamp <file> --base-dir <dir> --flag <path> --stale-flag <path> --log <path>" >&2
 }
 
-ENV_FILE=""; URL_KEY="$PRE227_URL_KEY"; PGDATA_DIR=""; WAL_DIR=""; STAMP=""; STALE_AFTER_MIN=""; SYSTEM_STAMP=""
+ENV_FILE=""; URL_KEY=""; PGDATA_DIR=""; WAL_DIR=""; STAMP=""; STALE_AFTER_MIN=""; SYSTEM_STAMP=""
 BASE_DIR=""; FLAG=""; STALE_FLAG=""; LOG=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -60,7 +57,7 @@ while [ $# -gt 0 ]; do
     *) echo "error: unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
-for pair in "--env-file:$ENV_FILE" "--pgdata:$PGDATA_DIR" "--wal-dir:$WAL_DIR" \
+for pair in "--env-file:$ENV_FILE" "--url-key:$URL_KEY" "--pgdata:$PGDATA_DIR" "--wal-dir:$WAL_DIR" \
             "--stamp:$STAMP" "--stale-after:$STALE_AFTER_MIN" "--system-stamp:$SYSTEM_STAMP" \
             "--base-dir:$BASE_DIR" "--flag:$FLAG" "--stale-flag:$STALE_FLAG" "--log:$LOG"; do
   [ -n "${pair#*:}" ] || { echo "error: ${pair%%:*} is required" >&2; usage; exit 2; }
