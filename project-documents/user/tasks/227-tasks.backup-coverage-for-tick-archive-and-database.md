@@ -448,31 +448,31 @@ in one invocation. Known baseline failures are not regressions
 
 ## Section 8 — Cutover run (PM), acceptance and close-out
 
-- [ ] **8.1 [PM] Run the cutover (effort 1)**
-  - [ ] Gate: the code review has passed and the slice branch is merged to
+- [x] **8.1 [PM] Run the cutover (effort 1)**
+  - [x] Gate: the code review has passed and the slice branch is merged to
         main (cron runs the wrappers from this checkout, so the merge is
         what puts the code live). No release tag is required.
-  - [ ] The PM runs `uv run python scripts/cutover_227_tick_backup.py`
+  - [x] The PM runs `uv run python scripts/cutover_227_tick_backup.py`
         from the checkout root. The agent hands over that single command.
   - [ ] If the report names a B2 console rule (TD10), the PM adds it.
 
-- [ ] **8.2 Read the report and check acceptance (effort 2)**
-  - [ ] Every step passed; commit the report.
-  - [ ] Check Success Criteria 1–10 against the report (step 12 holds the
+- [x] **8.2 Read the report and check acceptance (effort 2)**
+  - [x] Every step passed; commit the report.
+  - [x] Check Success Criteria 1–10 against the report (step 12 holds the
         sudo `--check` output) and the Verification Walkthrough commands
         that run as manta; record any gap.
 
-- [ ] **8.3 Remove the pre-227 absent forms (effort 2)**
-  - [ ] Only after the report shows step 4 passed (the installed cron file
+- [x] **8.3 Remove the pre-227 absent forms (effort 2)**
+  - [x] Only after the report shows step 4 passed (the installed cron file
         carries the new arguments): make `--url-key` and `--remote` required
         in the three wrappers and remove the weekly wrapper's
         `@192.168.1.144:` path. A missing required argument exits 2 with
         usage.
-  - [ ] Replace the 2.4 absent-form tests with: each wrapper exits 2 with
+  - [x] Replace the 2.4 absent-form tests with: each wrapper exits 2 with
         usage when `--url-key` is missing; the metadata wrapper also when
         `--remote` is missing.
-  - [ ] Re-run the unit tier and ruff/`shellcheck -x` on the touched files.
-  - [ ] If the cutover has not run when the rest of the slice is done,
+  - [x] Re-run the unit tier and ruff/`shellcheck -x` on the touched files.
+  - [x] If the cutover has not run when the rest of the slice is done,
         leave this unchecked and tell the Project Manager it is the one item
         remaining.
-  - [ ] Commit: `refactor: require url-key in backup wrappers`.
+  - [x] Commit: `refactor: require url-key in backup wrappers`.
