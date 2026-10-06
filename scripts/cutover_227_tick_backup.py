@@ -77,7 +77,14 @@ BASE_DIR_DATE_FORMAT = "%Y%m%d"
 WEEKLY_DONE = "=== weekly backup done"
 #: Non-OK setup-backup items a step accepts (anything else stops it).
 CHECK_ALLOWED = (r"^(\S+|PENDING RESTART) 17/tick ", r"^(DRIFT|MISSING) cron\.d ")
-APPLY_ALLOWED = (r"^PENDING RESTART 17/tick ", r"^MISSING 17/tick arm-file ")
+#: Before step 5's restart, tick still runs archive_mode=off from its old
+#: source: pg_settings.sh reports that value and that source as DRIFT
+#: alongside PENDING RESTART. archive_command must already be persisted.
+APPLY_ALLOWED = (
+    r"^PENDING RESTART 17/tick ",
+    r"^DRIFT 17/tick archive_mode ",
+    r"^MISSING 17/tick arm-file ",
+)
 
 
 # --- Steps 1–5: guards, provision, setup, restart (TD6) -------------------------

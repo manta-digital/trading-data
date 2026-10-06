@@ -184,6 +184,26 @@ def test_setup_not_ok_patterns(helpers: ModuleType, cutover: ModuleType) -> None
     assert helpers.setup_not_ok(pending_main, cutover.APPLY_ALLOWED) == [pending_main]
 
 
+def test_apply_accepts_tick_pre_restart_lines(
+    helpers: ModuleType, cutover: ModuleType
+) -> None:
+    """The lines the 2026-10-05 cutover saw before tick's restart."""
+    output = "\n".join(
+        [
+            "DRIFT 17/tick archive_mode 'on' 'off'",
+            "PENDING RESTART 17/tick archive_command (shown as (disabled) …)",
+            "PENDING RESTART 17/tick archive_mode",
+            "DRIFT 17/tick archive_mode source postgresql.auto.conf '(none)'",
+            "DRIFT 17/tick archive_command source postgresql.auto.conf '(none)'",
+            "DRIFT 17/main archive_mode 'on' 'off'",
+        ]
+    )
+    assert helpers.setup_not_ok(output, cutover.APPLY_ALLOWED) == [
+        "DRIFT 17/tick archive_command source postgresql.auto.conf '(none)'",
+        "DRIFT 17/main archive_mode 'on' 'off'",
+    ]
+
+
 def test_health_flags(helpers: ModuleType) -> None:
     line = "2026-10-04T14:00:00+00:00 PASS a PASS b FLAGS archive=0 stale=1"
     assert helpers.health_flags(line) == (0, 1)

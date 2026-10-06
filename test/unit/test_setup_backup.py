@@ -642,6 +642,19 @@ class TestPgSettings:
         assert "DRIFT archive_command" not in result.stdout
         assert _statements(pg) == []
 
+    def test_disabled_and_never_persisted_archive_command_is_written(
+        self, pg: dict[str, Path]
+    ) -> None:
+        """A cluster that never archived (tick, 2026-10-05): the command shows
+        (disabled) from no file, and must still be written before the restart."""
+        pg["fixture"].write_text(_pg_rows("(disabled)", "", pending="f"))
+        result = _pg_run(pg)
+        assert "PENDING RESTART archive_command" in result.stdout
+        assert "APPLIED archive_command" in result.stdout
+        assert any(
+            s.startswith("ALTER SYSTEM SET archive_command = ") for s in _statements(pg)
+        )
+
     def test_hand_line_in_conf_d_is_drift(self, pg: dict[str, Path]) -> None:
         pg["fixture"].write_text(
             _pg_rows(_ARCHIVE_CMD, "/etc/postgresql/17/main/postgresql.auto.conf")

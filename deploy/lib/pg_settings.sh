@@ -90,8 +90,13 @@ compare_settings() {
     elif [ "${SETTING[$n]}" = "$DISABLED_VALUE" ]; then
       # pg_settings shows archive_command as "(disabled)" while archive_mode
       # is off; the real value cannot be read until the restart that turns
-      # archiving on, so this is a restart item, not drift.
+      # archiving on, so this is a restart item, not drift. It is still
+      # written when it is not yet in postgresql.auto.conf: on a cluster that
+      # never archived, skipping it would turn archiving on with no command
+      # (found by the 227 tick cutover, 2026-10-05). Once persisted, the
+      # source says so and it is not re-applied.
       report "PENDING RESTART $n (shown as $DISABLED_VALUE until archive_mode takes effect)"
+      case "${SOURCE[$n]}" in */$AUTO_CONF) ;; *) DRIFTED+=("$n") ;; esac
     elif [ "${SETTING[$n]}" != "${EXPECTED[$n]}" ]; then
       report "DRIFT $n '${EXPECTED[$n]}' '${SETTING[$n]}'"
       DRIFTED+=("$n")
