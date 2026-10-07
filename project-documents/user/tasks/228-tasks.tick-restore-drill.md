@@ -342,20 +342,20 @@ status: in_progress
   - [x] Cases: marked leftover → stopped then removed; unmarked → refuse, no
         `rm`; sweep without the flock held → refuse.
   - [x] Success: pass; ruff and mypy clean on touched files.
-- [ ] **4.8 Commit checkpoint** - `feat: add restore drill lifecycle with marked cleanup`
+- [x] **4.8 Commit checkpoint** - `feat: add restore drill lifecycle with marked cleanup`
 
 ---
 
 ## Section 5 - Host primitives: sudo, restic, scratch server (TD1 steps 2-4, 6)
 
-- [ ] **5.1 Implement the sudo wrapper and the `sudo -v` prompt** (effort 2)
-  - [ ] Create `scripts/drill_228_host.py`. `prime_sudo()` runs `sudo -v` once;
+- [x] **5.1 Implement the sudo wrapper and the `sudo -v` prompt** (effort 2)
+  - [x] Create `scripts/drill_228_host.py`. `prime_sudo()` runs `sudo -v` once;
         every later root call uses `sudo -n` and, on failure, raises a named
         "sudo timestamp expired" error instead of waiting on a prompt.
-  - [ ] Reuse `cutover_common.run` / `cutover_227_host.psql` per the 1.1 decision.
-  - [ ] Success: a stubbed `sudo -n` returning exit 1 yields the named error.
-- [ ] **5.2 Implement the archive-against-snapshot check** (effort 3)
-  - [ ] Pure function comparing the live archive's backed-up set (TD1 step 3:
+  - [x] Reuse `cutover_common.run` / `cutover_227_host.psql` per the 1.1 decision.
+  - [x] Success: a stubbed `sudo -n` returning exit 1 yields the named error.
+- [x] **5.2 Implement the archive-against-snapshot check** (effort 3)
+  - [x] Pure function comparing the live archive's backed-up set (TD1 step 3:
         the live archive minus the patterns read from `deploy/restic-excludes.txt`,
         today `**/*.partial`; file count, total bytes, newest mtime) with `restic ls latest` output for the live archive path from `.env`
         (count, bytes, snapshot time). Refuse with
@@ -363,65 +363,73 @@ status: in_progress
         when count or bytes differ or any live file is newer than the snapshot.
         Parse `restic ls` leniently (JSON output if available, else tolerate
         whitespace variation).
-  - [ ] Success: stubbed listings cover equal, count differs, bytes differ,
+  - [x] Success: stubbed listings cover equal, count differs, bytes differ,
         newer file; only equal passes. A live `.partial` file absent from the
         listing still passes.
-- [ ] **5.3 Unit test for 5.2 and the sudo wrapper** (effort 2)
-  - [ ] `test/unit/test_drill_228_host.py`. Use a hand-written fixture in
+- [x] **5.3 Unit test for 5.2 and the sudo wrapper** (effort 2)
+  - [x] `test/unit/test_drill_228_host.py`. Use a hand-written fixture in
         `restic ls --json` form (one snapshot line, then one node line per file
         with `type`, `path`, `size`, `mtime`). Parse leniently. The real-output
         fixture is captured in 6.8, where step 1 runs `restic ls` itself.
-  - [ ] Success: tests pass on the hand-written fixture.
-- [ ] **5.4 Implement the `postgresql.auto.conf` guard** (effort 2)
-  - [ ] `empty_auto_conf(datadir)`: truncate the file, then verify no line
+  - [x] Success: tests pass on the hand-written fixture.
+- [x] **5.4 Implement the `postgresql.auto.conf` guard** (effort 2)
+  - [x] `empty_auto_conf(datadir)`: truncate the file, then verify no line
         contains `archive` (Step 6's `grep -c archive` = 0 check). If the
         truncate or the check fails, raise and never start the server.
-  - [ ] Success: a file containing `archive_command` is truncated and passes;
+  - [x] Success: a file containing `archive_command` is truncated and passes;
         a stub that leaves a line behind raises.
-- [ ] **5.5 Implement the scratch server config writer** (effort 4)
-  - [ ] `write_scratch_conf(datadir, sockdir, prod_settings, wal_dir)`:
+- [x] **5.5 Implement the scratch server config writer** (effort 4)
+  - [x] `write_scratch_conf(datadir, sockdir, prod_settings, wal_dir)`:
         writes `postgresql.conf` and `pg_hba.conf` per TD1 step 4:
         `listen_addresses=''`, socket dir in the drill dir (mode 0700),
         `local all all trust`, `archive_mode=off`,
         `shared_preload_libraries=timescaledb`,
         `timescaledb.max_background_workers=0`, the two-shape `restore_command`
         from runbook 200 against the tick WAL dir.
-  - [ ] `max_worker_processes`, `max_locks_per_transaction`, `max_connections`
+  - [x] `max_worker_processes`, `max_locks_per_transaction`, `max_connections`
         come from `prod_settings` (read from `17/tick` in step 1), never typed.
         A missing setting raises.
-  - [ ] Create `recovery.signal`.
-  - [ ] Success: output contains every item above; no numeric default for the
+  - [x] Create `recovery.signal`.
+  - [x] Success: output contains every item above; no numeric default for the
         three production settings exists in the code.
-- [ ] **5.6 Unit tests for 5.4 and 5.5** (effort 2)
-  - [ ] Add to `test_drill_228_host.py`: auto.conf guard cases; generated
+- [x] **5.6 Unit tests for 5.4 and 5.5** (effort 2)
+  - [x] Add to `test_drill_228_host.py`: auto.conf guard cases; generated
         config contains the required lines and the supplied production values;
         a missing production setting raises; `recovery.signal` exists;
         the `restore_command` handles `.zst` and raw.
-  - [ ] Success: pass; ruff and mypy clean.
-- [ ] **5.7 Implement scratch server start and wait** (effort 3)
-  - [ ] `start_scratch(datadir)`: `pg_ctl start` (4.1 binary directory) as
+  - [x] Success: pass; ruff and mypy clean.
+- [x] **5.7 Implement scratch server start and wait** (effort 3)
+  - [x] `start_scratch(datadir)`: `pg_ctl start` (4.1 binary directory) as
         manta; wait up to the recovery bound for `pg_is_in_recovery()` false; if
         the server process exits during the wait, fail with the log tail.
         Stopping reuses 4.4's `stop_scratch_server`.
-  - [ ] Success: importable; no timeout or path literal outside 4.1.
-- [ ] **5.8 Unit tests for 5.7** (effort 2)
-  - [ ] Add to `test_drill_228_host.py` with `pg_ctl` and the recovery probe
+  - [x] Success: importable; no timeout or path literal outside 4.1.
+- [x] **5.8 Unit tests for 5.7** (effort 2)
+  - [x] Add to `test_drill_228_host.py` with `pg_ctl` and the recovery probe
         stubbed: a server that exits during the wait fails with the log tail; a
         wait past the bound fails by name; recovery finishing returns.
-  - [ ] Success: pass.
-- [ ] **5.9 Implement the recovery-target check** (effort 3)
-  - [ ] `last_restored_segment(logfile)`: parse the server log leniently (any
+  - [x] Success: pass.
+- [x] **5.9 Implement the recovery-target check** (effort 3)
+  - [x] `last_restored_segment(logfile)`: parse the server log leniently (any
         whitespace, quoting variation). `check_reached(seen, needed)` fails with
         "recovery stopped early at <segment>" when seen < needed (WAL names
         compare lexically within a timeline; use `wal_segment_name.py` helpers
         if they apply).
-  - [ ] Success: importable.
-- [ ] **5.10 Unit tests for 5.9** (effort 2)
-  - [ ] Segment comparison cases (equal, later, earlier) and the log parser on a
+  - [x] Success: importable.
+- [x] **5.10 Unit tests for 5.9** (effort 2)
+  - [x] Segment comparison cases (equal, later, earlier) and the log parser on a
         hand-written excerpt in PostgreSQL 17's `restored log file "<seg>"
         from archive` form, with whitespace variations. A real-log test is
         added in 6.8.
-  - [ ] Success: pass; ruff and mypy clean on touched files.
+  - [x] Success: pass; ruff and mypy clean on touched files.
+
+  Note (Phase 6): the scratch-server half of Section 5 lives in
+  `scripts/drill_228_scratch.py` (auto.conf guard, config, start/wait,
+  recovery target), keeping `drill_228_host.py` near 300 lines; both are
+  tested in `test/unit/test_drill_228_host.py`. The copied production
+  settings are PostgreSQL's full hot-standby check list: the design's three
+  plus `max_wal_senders` and `max_prepared_transactions`.
+
 - [ ] **5.11 Commit checkpoint** - `feat: add restore drill host primitives`
 
 ---
