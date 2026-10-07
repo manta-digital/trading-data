@@ -54,8 +54,8 @@ It also writes both restore procedures and the drill into runbook 200 (`user/run
 - **223/224:** `mt data tick adopt` re-hashes every file against its job's `manifest.json`. The 224 slice design lists what an adopt-based rebuild loses.
 
 ### Interfaces Required
-- The production database (`MT_TIMESCALE_DB_URL`), read only: adopt and the pass read the CME calendar from it (`tick_calendar.py`). No tick command writes to it; tick runs record no `pass_runs` rows.
-- `DATABENTO_API_KEY`: adopt's free `batch_job` reads and the pass's free estimate and metadata reads.
+- The production database (`MT_TIMESCALE_DB_URL`), read only: adopt and the pass read the CME calendar from it (`tick_calendar.py`). No tick command writes to it, and tick runs record no `pass_runs` rows. The tick code never extends the calendar: a range past its populated horizon fails with `TickCalendarError` (exit 4) and writes nothing.
+- `MT_DATABENTO_API_KEY`: adopt's free `batch_job` reads and the pass's free estimate and metadata reads.
 - The restic repository (root, through `deploy/lib/restic_repo.sh`).
 
 ## Architecture
@@ -98,20 +98,26 @@ Production is only read: `17/tick` for the lock, the WAL switch and the comparis
 
 The drill runs as manta from the checkout root and uses `sudo` only for restic and for the `chown` after it. Each step is check-then-act and prints expected against seen.
 
-0. **Clear leftovers** (TD5), then check free space (Special Considerations).
-1. **Hold the tick cluster.** Take the tick advisory lock on a dedicated connection. If a tick run holds it, refuse.
+0. **Prepare.**
+   - Take the drill's own lock, `flock` on `/data/restore-test/.228-drill.lock`, held for the whole run. If another drill holds it, refuse.
+   - Run `sudo -v`, so the one password prompt comes now, before any production lock. Every later `sudo` call uses `sudo -n`, so an expired timestamp fails by name instead of waiting on a prompt.
+   - Clear leftovers (TD5), then check free space (Special Considerations).
+1. **Hold the tick cluster.** Open the production connections read-only (`default_transaction_read_only=on`) with TD6's statement timeout. Take the tick advisory lock on a dedicated connection. If a tick run holds it, refuse. Read the recovery settings step 4 copies.
 2. **Make the restore point current.** Run `SELECT pg_walfile_name(pg_switch_wal())` on `17/tick`. That names the segment the restore must reach, whether or not the switch had anything to close: with no WAL activity since the last switch, it names the last completed segment, which is already archived, and the wait ends at once. Wait until that segment's `.zst` or raw file is in the tick WAL directory.
 3. **Restore the archive.** Run restic `restore latest --include /data/tick-archive` into the drill directory, then `sudo chown -R manta:manta` on that restored directory only (its path is checked to sit under the marked drill directory first). Compare file count and total bytes with the live archive.
 4. **Restore the database.**
    - Unpack the latest tick base backup into the drill directory and run `pg_verifybackup` on it.
+   - **Empty `postgresql.auto.conf`.** The base backup carries it, and it holds production's `ALTER SYSTEM` settings, including `archive_mode=on` and the `archive_command` into the live tick WAL directory. It overrides `postgresql.conf`, so a scratch server started with it would archive its new timeline into production's archive and on to B2. The drill truncates it and checks that no `archive` setting is left (runbook 200 Step 6's `grep -c archive` = 0). If either fails, it refuses to start the server.
    - Write the scratch server's own `postgresql.conf` and `pg_hba.conf` into the data directory (the Debian layout keeps production's under `/etc`, so the base backup has none). They set:
      - `listen_addresses=''`, with the socket directory in the drill directory, mode 0700;
      - `local all all trust`, so only manta can reach the socket;
      - `archive_mode=off`;
      - `shared_preload_libraries=timescaledb`, with `timescaledb.max_background_workers=0`, so no policy job runs during the comparison;
+     - `max_worker_processes`, `max_locks_per_transaction` and `max_connections` at production's values, read from `17/tick` in step 1 rather than typed in (archive recovery refuses to start below the primary's, and emptying `postgresql.auto.conf` drops them; runbook 200's 2026-09-07 PITR drill hit this);
      - runbook 200's two-shape `restore_command` (`.zst` and raw segments) against the tick WAL directory.
+   - Create `recovery.signal`. Without it the server runs crash recovery only and never calls `restore_command`.
    - Start it with `pg_ctl` as manta and wait for recovery to finish (`pg_is_in_recovery()` false). If the server process exits during the wait, the step fails with the tail of its log.
-   - A gap in the WAL chain makes recovery stop early and promote. Step 5 catches that as a count or fingerprint mismatch.
+   - **Recovery reached the target.** The server log's last restored segment must be the one named in step 2, or later. If it isn't, the step fails as "recovery stopped early at <segment>", which names a WAL-chain gap directly instead of leaving it to show up as a step-5 mismatch.
 5. **Compare the restored database with production:**
    - exact row counts for every public table;
    - the `tick_trade` fingerprint (TD3).
@@ -124,7 +130,7 @@ The drill runs as manta from the checkout root and uses `sudo` only for restic a
    mt data tick pass --estimate-only
    mt data tick ingest
    ```
-   `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` point at the scratch server's socket, the drill database and the restored archive. They are set in the subprocess environment only, never in `.env`. Adopt re-hashes every restored file against its job's `manifest.json`, so this step is also the full archive verification. The rebuild time is recorded in the report, not gated.
+   `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` point at the scratch server's socket, the drill database and the restored archive. They are set in the subprocess environment only, never in `.env`. Socket URLs are a drill-only exception to the architecture's TCP-by-host-name rule for the production URL; implementation step 2 confirms that settings validation and the migrate CLI accept them. Adopt re-hashes every restored file against its job's `manifest.json`, so this step is also the full archive verification. The rebuild time is recorded in the report, not gated.
 7. **Compare the rebuild with the restore**, both on the scratch server.
    - The `tick_trade` fingerprints must be equal: the architecture's "row-for-row the same projection".
    - The bookkeeping comparison (TD4). Any difference outside the expected set fails.
@@ -148,16 +154,20 @@ The fingerprint is per `(instrument_id, UTC day)`: row count, plus the md5 of th
 
 Every tick bookkeeping table is compared, restored against rebuilt: `tick_request`, `tick_archive_unit`, `tick_definition`, `tick_ingest_ledger`, `tick_dataset_edge`, `tick_day_condition`. The table list is checked against the tick migration's tables by a test, so a new table can't be skipped silently.
 
-- **Rows are matched by natural key, never by identity ids.** `request_id` and `unit_id` are renumbered by a rebuild. A request is keyed by `provider_job_id`, a unit by `(provider_job_id, unit_date)`. Every id-valued column (`request_id`, `unit_id`, `superseded_by_unit_id`, `repurchase_of_unit_id`) is compared through that mapping:
+- **Rows are matched by natural key, never by identity ids.** `request_id` and `unit_id` are renumbered by a rebuild. A request is keyed by `provider_job_id`, a unit by `(provider_job_id, unit_date)`.
+  - A production request with no `provider_job_id` was never accepted by the provider (written at *requested*, then exhausted or still pending). It has no job and so no files, and a rebuild can't recreate it. Such requests and their units are allowed to be missing from the rebuild and are listed in the report by count. A rebuilt request without a job id fails, since adopt only creates requests from job directories. Every id-valued column (`request_id`, `unit_id`, `superseded_by_unit_id`, `repurchase_of_unit_id`) is compared through that mapping:
   - a definition's unit;
   - a ledger row's unit, so the ledger also proves which unit wrote each session part;
   - a unit's supersession and repurchase links.
 - **Columns that may differ** (the 224 design's adopt-path losses, plus the times a rebuild sets anew):
   - `tick_request`: `is_adopted`, the estimate fields, `download_deadline`;
-  - `tick_archive_unit`: the repurchase and supersession links, `reopened_at`, `state_changed_at`, `last_attempt_at`;
+  - `tick_archive_unit`: the repurchase and supersession links, `reopened_at`, `state_changed_at`, `last_attempt_at`, `attempt_count`, `failure_reason` (a rebuild adopts each file once, with none of production's retries);
   - `tick_dataset_edge` and `tick_day_condition`: every value column. The pass re-observes them from the provider at drill time. The rebuild must still have a condition row for every `(dataset, condition_date)` the restored database has.
-- **Rows that may be missing:** rows for paid jobs with no archived files may be missing from the rebuild.
-- **Everything else must be equal:** any other differing column, or a missing row whose job *does* have files, fails.
+- **Rows that may be missing:**
+  - requests with no job id (above);
+  - rows for paid jobs with no archived files;
+  - units with no archived file, whatever their state: retention-expired failures, `RETRY_EXHAUSTED`, `PROVIDER_HOLE`. A rebuild has only units it adopted from files.
+- **Everything else must be equal:** any other differing column, a unit with a file whose state differs, or a missing row whose unit *does* have a file, fails.
 
 The set is one constant of `(table, column)` pairs. The exact column names are taken from the tick migrations during implementation and pinned by a test.
 
@@ -165,7 +175,7 @@ The set is one constant of `(table, column)` pairs. The exact column names are t
 
 `trading_tick_drill` is created on the scratch server through `provision_tick_roles.sql -v tick_db=trading_tick_drill`. The script is idempotent and the restored cluster already has the tick roles, so it creates only the database: owner `tick_migrate`, same grants as production. Dropping it is never needed: it goes with the scratch server.
 
-At startup, for each `/data/restore-test/228-drill-*` directory:
+At startup, under the drill's `flock` (step 0), so no other drill is running, for each `/data/restore-test/228-drill-*` directory:
 - **with the marker file:** if its scratch server is running, stop it with `pg_ctl stop -m fast`, then remove the directory (a run that was killed, ran out of memory, or lost the host);
 - **without the marker:** refuse, naming the path.
 
@@ -177,10 +187,13 @@ Each wait or subprocess has a bound, defined once as a constant in the drill mod
 
 | Step | Bound |
 |---|---|
+| statement timeout on production reads (1, 2, 5) | 10 min per statement |
 | WAL segment archived (2) | 120 s |
 | restic restore (3) | 30 min |
+| base backup extraction and `pg_verifybackup` (4) | 30 min each |
 | recovery finished (4) | 15 min |
 | each `mt data` rebuild command (6) | 60 min |
+| statement timeout on scratch-server reads (7) | 10 min per statement |
 
 Adopt's and the pass's Databento calls use their existing client timeouts. The per-command bound covers anything above them.
 
@@ -227,7 +240,8 @@ The drill only reads, restores and rebuilds what slices 223–227 already define
     - a ledger row moved to a different unit fails;
     - a missing row with archived files fails.
 - Unit tests:
-  - leftover handling (marked directory → stopped and removed; unmarked → refuse), with stubbed `pg_ctl`;
+  - leftover handling (marked directory → stopped and removed; unmarked → refuse; drill `flock` held → refuse), with stubbed `pg_ctl`;
+  - the `postgresql.auto.conf` guard (an `archive` line left → refuse to start);
   - the bookkeeping table list equals the tick migration's tables;
   - the report's exit status.
 - The full drill runs only on the host, as the slice's verification.
@@ -269,12 +283,12 @@ These are the commands as designed; Phase 6 refines them with real output.
 
 ### Development Approach
 1. The fingerprint SQL and the bookkeeping comparison with its expected-difference constant, with their integration tests.
-2. The drill directory lifecycle (marker, leftover handling, cleanup), with unit tests.
+2. The drill directory lifecycle (flock, marker, leftover handling, cleanup), with unit tests. Confirm the socket-path URLs pass settings validation and `mt data migrate apply`.
 3. Steps 0–5 (leftovers, hold, WAL switch, archive restore, base + WAL restore, compare with production), run on the host.
 4. Steps 6–9 (rebuild, compare, cleanup, report), run on the host.
 5. The runbook 200 sections, then the recorded drill run.
 
 ### Special Considerations
 - **Disk:** the drill needs room for the archive copy and the scratch server holding both databases: about three times the tick footprint (roughly 2.5 GB today), against 1.2 TB free on `/data`. The drill checks free space before step 3, sized from the live archive and the latest base backup.
-- **Production safety:** both production clusters are only read. The scratch server is socket-only with `archive_mode=off`, so it can't write into the tick WAL archive or accept network connections, and the rebuild's load lands on it, not on `17/tick`.
+- **Production safety:** both production clusters are only read, over read-only connections. The scratch server starts only after its `postgresql.auto.conf` is emptied and checked, and runs socket-only with `archive_mode=off`. So it can't write into the tick WAL archive or accept network connections, and the rebuild's load lands on it, not on `17/tick`.
 - **Ordering:** the drill holds the tick advisory lock for steps 1–5, so no tick run can change production during the comparison.
