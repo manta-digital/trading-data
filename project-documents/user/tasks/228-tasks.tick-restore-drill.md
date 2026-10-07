@@ -173,34 +173,34 @@ status: in_progress
   (without `--recursive` a directory filter lists only direct children).
   Restore: `restore latest --target <dir> --include <archive>`.
 
-- [ ] **1.2 Commit checkpoint** - `docs: record slice 228 preflight findings`
+- [x] **1.2 Commit checkpoint** - `docs: record slice 228 preflight findings`
 
 ---
 
 ## Section 2 - The tick_trade fingerprint (TD3)
 
-- [ ] **2.1 Implement the fingerprint SQL** (effort 3)
-  - [ ] Create `scripts/drill_228_fingerprint.py` with one SQL constant, built
+- [x] **2.1 Implement the fingerprint SQL** (effort 3)
+  - [x] Create `scripts/drill_228_fingerprint.py` with one SQL constant, built
         from `storage_columns.py`: every key of `TICK_TRADE_COLUMNS` (it already
         includes the BBO columns) plus `sequence_ordinal`; every `tick_trade`
         column except `unit_id`. Do not type the column list.
-  - [ ] Group by `(instrument_id, UTC day of ts_event)`; per group return row
+  - [x] Group by `(instrument_id, UTC day of ts_event)`; per group return row
         count and the md5 of row text ordered by
         `(ts_event, sequence, sequence_ordinal)`.
-  - [ ] Add `fingerprint(conn) -> dict[group, (count, md5)]` and a
+  - [x] Add `fingerprint(conn) -> dict[group, (count, md5)]` and a
         `diff_fingerprints(a, b) -> list[str]` naming each differing or missing
         group.
-  - [ ] Success: importable; the column list contains no literal column name;
+  - [x] Success: importable; the column list contains no literal column name;
         `unit_id` is absent from the hashed list.
-- [ ] **2.2 Integration test for the fingerprint** (effort 3)
-  - [ ] `test/integration/data/test_drill_228_fingerprint.py`, on the test
+- [x] **2.2 Integration test for the fingerprint** (effort 3)
+  - [x] `test/integration/data/test_drill_228_fingerprint.py`, on the test
         cluster's migrated tick DB (`migrated_tick_db`,
         `second_migrated_tick_db` fixtures), rows from `test/tick_support/rows.py`.
-  - [ ] Cases: identical data in two DBs → equal; only `unit_id` differs →
+  - [x] Cases: identical data in two DBs → equal; only `unit_id` differs →
         equal; one changed price → different; one missing row → different.
-  - [ ] Add a unit test that a column added to `TICK_TRADE_COLUMNS` appears in
+  - [x] Add a unit test that a column added to `TICK_TRADE_COLUMNS` appears in
         the generated SQL (the "new column is hashed automatically" claim).
-  - [ ] Success: new tests pass; ruff and mypy clean on touched files.
+  - [x] Success: new tests pass; ruff and mypy clean on touched files.
 - [ ] **2.3 Commit checkpoint** - `feat: add tick_trade fingerprint for the restore drill`
 
 ---
