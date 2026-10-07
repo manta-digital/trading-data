@@ -212,9 +212,14 @@ status: not_started
         each `mt data` command 60 min, `pg_ctl stop -t 60`).
   - [ ] Define the drill root (`/data/restore-test`), directory prefix
         (`228-drill-`), marker name (`drill-228.json`), lock path
-        (`/data/restore-test/.228-drill.lock`).
-  - [ ] Success: no bound or path literal appears anywhere else in the slice's
-        code (grep to confirm at the end of Section 6).
+        (`/data/restore-test/.228-drill.lock`), the PostgreSQL binary directory
+        (`/usr/lib/postgresql/17/bin`, for `pg_ctl` and `pg_verifybackup`), and
+        the report directory (`project-documents/user/notes`).
+  - [ ] The live archive path is **not** a constant: it is `MT_TICK_ARCHIVE_DIR`
+        from `.env` (1.1), and every later task uses that value, including for
+        restic's `--include` and `ls` path.
+  - [ ] Success: no bound, drill path, binary directory or report directory
+        literal appears anywhere else in the slice's code (grep in 9.1).
 - [ ] **4.2 Implement the drill flock and the marker** (effort 2)
   - [ ] `acquire_drill_lock()`: `flock` held for the whole run; refuse if held
         by another drill, naming it.
@@ -226,20 +231,27 @@ status: not_started
         a second acquire refuses; the marker exists with stamp and pid.
   - [ ] Success: pass.
 - [ ] **4.4 Implement the path check and cleanup** (effort 3)
-  - [ ] `assert_drill_path(path)`: path must be a direct child of
-        `/data/restore-test`, named `228-drill-*`, and contain the marker.
-        Resolve symlinks first. Anything else raises by name.
-  - [ ] `remove_drill_dir(path)`: runs the check, then `sudo -n rm -rf`. If
-        sudo is unavailable, fails by name and leaves the path for the report.
+  - [ ] `assert_drill_path(path)`: resolve symlinks first. The resolved path
+        must be a drill directory (a direct child of the drill root, named with
+        the drill prefix, containing the marker) **or lie inside one**. Anything
+        else raises by name. This is the check for `chown` of the restored
+        archive, which sits inside the drill directory.
+  - [ ] `remove_drill_dir(path)`: requires `path` to be the drill directory
+        itself (stricter than the check above: a subdirectory is refused), then
+        `sudo -n rm -rf`. If sudo is unavailable, fails by name and leaves the
+        path for the report.
   - [ ] `stop_scratch_server(path)`: `pg_ctl stop -m fast -t 60` as manta when a
         server is running from that data directory.
-  - [ ] Success: unmarked path, outside-root path, and a symlink escaping the
-        root all raise before any `rm` call.
+  - [ ] Success: unmarked path, outside-root path, a `..` escape and a symlink
+        escaping the root all raise before any `rm` call; a path inside a
+        marked drill directory passes the check but is refused by removal.
 - [ ] **4.5 Unit tests for 4.4** (effort 2)
   - [ ] Add to `test_drill_228_lifecycle.py`, with `pg_ctl` and `sudo` stubbed
         (record calls, no real `rm`): `assert_drill_path` rejects unmarked,
-        outside-root and symlink-escape paths with no `rm` issued; a marked
-        path is stopped then removed.
+        outside-root, `..`-escape and symlink-escape paths with no `rm`
+        issued, and accepts a subdirectory of a marked drill directory;
+        `remove_drill_dir` refuses that subdirectory; a marked drill directory
+        is stopped then removed.
   - [ ] Success: pass.
 - [ ] **4.6 Implement the startup leftover sweep** (effort 3)
   - [ ] For each `/data/restore-test/228-drill-*`: marked → stop its server if
@@ -264,7 +276,7 @@ status: not_started
   - [ ] Success: a stubbed `sudo -n` returning exit 1 yields the named error.
 - [ ] **5.2 Implement the archive-against-snapshot check** (effort 3)
   - [ ] Pure function comparing the live archive (file count, total bytes,
-        newest mtime) with `restic ls latest` output for `/data/tick-archive`
+        newest mtime) with `restic ls latest` output for the live archive path from `.env`
         (count, bytes, snapshot time). Refuse with
         "archive changed since snapshot <time>; run the restic backup first"
         when count or bytes differ or any live file is newer than the snapshot.
@@ -276,7 +288,7 @@ status: not_started
   - [ ] `test/unit/test_drill_228_host.py`. Use a hand-written fixture in
         `restic ls --json` form (one snapshot line, then one node line per file
         with `type`, `path`, `size`, `mtime`). Parse leniently. The real-output
-        fixture is captured in 6.7, where step 1 runs `restic ls` itself.
+        fixture is captured in 6.8, where step 1 runs `restic ls` itself.
   - [ ] Success: tests pass on the hand-written fixture.
 - [ ] **5.4 Implement the `postgresql.auto.conf` guard** (effort 2)
   - [ ] `empty_auto_conf(datadir)`: truncate the file, then verify no line
@@ -304,21 +316,31 @@ status: not_started
         a missing production setting raises; `recovery.signal` exists;
         the `restore_command` handles `.zst` and raw.
   - [ ] Success: pass; ruff and mypy clean.
-- [ ] **5.7 Implement scratch server start/wait/stop and log checks** (effort 4)
-  - [ ] `start_scratch(datadir)`: `pg_ctl start` as manta; wait up to the
-        recovery bound for `pg_is_in_recovery()` false; if the server process
-        exits during the wait, fail with the log tail.
+- [ ] **5.7 Implement scratch server start and wait** (effort 3)
+  - [ ] `start_scratch(datadir)`: `pg_ctl start` (4.1 binary directory) as
+        manta; wait up to the recovery bound for `pg_is_in_recovery()` false; if
+        the server process exits during the wait, fail with the log tail.
+        Stopping reuses 4.4's `stop_scratch_server`.
+  - [ ] Success: importable; no timeout or path literal outside 4.1.
+- [ ] **5.8 Unit tests for 5.7** (effort 2)
+  - [ ] Add to `test_drill_228_host.py` with `pg_ctl` and the recovery probe
+        stubbed: a server that exits during the wait fails with the log tail; a
+        wait past the bound fails by name; recovery finishing returns.
+  - [ ] Success: pass.
+- [ ] **5.9 Implement the recovery-target check** (effort 3)
   - [ ] `last_restored_segment(logfile)`: parse the server log leniently (any
         whitespace, quoting variation). `check_reached(seen, needed)` fails with
         "recovery stopped early at <segment>" when seen < needed (WAL names
         compare lexically within a timeline; use `wal_segment_name.py` helpers
         if they apply).
-  - [ ] `create_drill_database()`: runs `provision_tick_roles.sql -v
-        tick_db=trading_tick_drill` on the scratch server.
-  - [ ] Success: unit tests cover the segment comparison and the log parser on
-        a hand-written excerpt in PostgreSQL 17's `restored log file "<seg>"
-        from archive` form. A real-log test is added in 6.7.
-- [ ] **5.8 Commit checkpoint** - `feat: add restore drill host primitives`
+  - [ ] Success: importable.
+- [ ] **5.10 Unit tests for 5.9** (effort 2)
+  - [ ] Segment comparison cases (equal, later, earlier) and the log parser on a
+        hand-written excerpt in PostgreSQL 17's `restored log file "<seg>"
+        from archive` form, with whitespace variations. A real-log test is
+        added in 6.8.
+  - [ ] Success: pass; ruff and mypy clean on touched files.
+- **5.11 Commit checkpoint** - `feat: add restore drill host primitives`
 
 ---
 
@@ -363,16 +385,16 @@ status: not_started
   - [ ] Step 2: `SELECT pg_walfile_name(pg_switch_wal())` through
         `cutover_227_host.psql` (postgres over the socket); wait up to the TD6
         bound for that segment's `.zst` or raw file in the tick WAL dir.
-  - [ ] Step 3: restic `restore latest --include /data/tick-archive` into the
-        drill dir (bounded), `assert_drill_path` then `sudo -n chown -R
-        manta:manta` on the restored directory only; compare file count and
+  - [ ] Step 3: restic `restore latest --include <live archive path from .env>`
+        into the drill dir (bounded), `assert_drill_path` on the restored
+        archive directory (inside the drill directory, per 4.4), then
+        `sudo -n chown -R manta:manta` on that directory only; compare file count and
         bytes with the live archive.
   - [ ] Success: counts and bytes equal the live archive.
 - [ ] **6.5 Step 4: restore the database** (effort 4)
   - [ ] Unpack the latest tick base backup into the drill dir; run
-        `/usr/lib/postgresql/17/bin/pg_verifybackup` (no `/usr/bin` wrapper;
-        define the binary directory once, as `scripts/backup_prod.sh` and
-        runbook 200 do) (both bounded); `empty_auto_conf`; `write_scratch_conf`;
+        `pg_verifybackup` from the 4.1 binary directory (there is no `/usr/bin`
+        wrapper) (both bounded); `empty_auto_conf`; `write_scratch_conf`;
         `start_scratch`; `check_reached` against step 2's segment.
   - [ ] Success: scratch server is out of recovery and reached the target.
 - [ ] **6.6 Step 5: compare restored with production** (effort 3)
@@ -390,20 +412,27 @@ status: not_started
         meaning are unchanged). Cleanup (4.4) must still run.
   - [ ] Success: steps 0-5 pass on the host; no `228-drill-*` directory and no
         scratch server left.
-  - [ ] Save a short excerpt of the real recovery log, and a few real
-        `restic ls --json` lines from step 1's run, as fixtures. Add tests that
-        5.7's log parser and 5.2's listing parser read them (CLAUDE.md's
-        real-format rule). Fix either parser if it fails.
   - [ ] If a step fails, get the actual error text before any fix (CLAUDE.md);
         ask the Project Manager if it cannot be obtained.
-- [ ] **6.8 Commit checkpoint** - `feat: add tick restore drill steps 0-5`
+- [ ] **6.8 Capture real-format fixtures and test the parsers** (effort 3)
+  - [ ] From 6.7's run, save a short excerpt of the real recovery log and a few
+        real `restic ls --json` lines as fixtures under `test/fixtures`.
+  - [ ] Add tests that 5.9's log parser and 5.2's listing parser read them
+        (CLAUDE.md's real-format rule). If either parser fails on real input,
+        fix the parser, not the fixture.
+  - [ ] Success: both tests pass on the real excerpts.
+- [ ] **6.9 Commit checkpoint** - `feat: add tick restore drill steps 0-5`
 
 ---
 
 ## Section 7 - Steps 6-9 (fallback path, cleanup, report)
 
 - [ ] **7.1 Step 6: rebuild into `trading_tick_drill`** (effort 4)
-  - [ ] `create_drill_database()` (5.7), then with `rebuild_env()` run, each
+  - [ ] Implement `create_drill_database()`: runs `provision_tick_roles.sql -v
+        tick_db=trading_tick_drill` on the scratch server over its socket.
+        Unit test with `psql` stubbed: the command carries that variable and the
+        scratch socket, never a production URL.
+  - [ ] Then with `rebuild_env()` run, each
         bounded: `mt data migrate apply --track tick`; `mt data tick adopt
         --job-id <dir> --source <restored dir>` once per restored job
         directory; `mt data tick pass --estimate-only`; `mt data tick ingest`.
@@ -420,7 +449,7 @@ status: not_started
 - [ ] **7.3 Steps 8-9: cleanup in `finally`, report** (effort 3)
   - [ ] Cleanup always runs (stop server, `remove_drill_dir`). A cleanup failure
         puts the path in the report and fails the run.
-  - [ ] Report to `project-documents/user/notes/<date>-228-tick-restore-drill.md`
+  - [ ] Report to `<report directory from 4.1>/<date>-228-tick-restore-drill.md`
         with front matter per `file-naming-conventions.md`: every step's
         expected and seen values, timings, bookkeeping differences. Final line
         `PASS: archive, database, fallback` only when every check passed.
@@ -486,11 +515,17 @@ status: not_started
         invocation (the project's `files` setting covers only `src/`). If the
         scripts' sibling imports don't resolve, set `MYPYPATH=scripts`.
   - [ ] Run the new unit and integration tests, tiers separately.
-  - [ ] Grep to confirm: no TD6 bound or drill path literal outside
-        `drill_228_lifecycle.py`; no cluster path literal outside
-        `backup-clusters.conf`; no credential in any new file.
+  - [ ] Grep to confirm: no TD6 bound, drill root/prefix/marker/lock,
+        PostgreSQL binary directory or report directory literal outside
+        `drill_228_lifecycle.py`; no `/data/tick-archive` literal in the
+        new code; no cluster path literal outside `backup-clusters.conf`; no
+        credential in any new file.
   - [ ] Success: all clean; any pre-existing failure matches the known list.
 - [ ] **9.2 Walk the design's Success Criteria** (effort 2)
+  - [ ] The design says "the tick advisory lock" (TD1 step 1, Ordering). Tick
+        has two (acquisition and ingest, distinct so they can run together), and
+        the drill holds both (6.3). Edit the design's wording to "both tick
+        advisory locks" so design and code agree.
   - [ ] Check each Functional and Technical Requirement against the report and
         tests; list any gap.
   - [ ] Update the slice design's `status` and `dateUpdated`; add real output to
