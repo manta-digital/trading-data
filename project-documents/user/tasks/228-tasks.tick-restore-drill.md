@@ -78,7 +78,16 @@ status: not_started
         accept a socket-style URL (`postgresql://user@/db?host=/path`). Run
         against the test cluster if needed. If either rejects it, stop and ask
         the Project Manager (TD1 step 6 assumes they accept).
-  - [ ] Confirm the `restic_repo.sh` call shape used by runbook 200 for restore
+  - [ ] Confirm where the live archive path comes from: `MT_TICK_ARCHIVE_DIR`
+        (`TICK_ARCHIVE_DIR_ENV` in `data/tick/constants.py`) read from `.env`
+        the way `cutover_227_host.env_value` and
+        `verify_tick_archive_backup.sh` do. `backup-clusters.conf` holds only
+        the backup root, WAL and base directories, not the archive.
+  - [ ] Confirm the tick locks: `TICK_ACQUISITION_LOCK_KEY` (adopt, reset,
+        pass) and `TICK_INGEST_LOCK_KEY` (ingest) are distinct, and ingest may
+        run alongside acquisition, so holding one does not exclude the other.
+        The drill takes both (6.3), reusing `cutover_227_host.TICK_LOCK_KEYS`.
+  - [ ] Confirm the restic call shape used by runbook 200 for restore
         (`--env-file .env --prefix system run -- restore ...`).
   - [ ] Write the findings into this task file as a `Findings (1.1)` block
         directly under this task: columns, keys, id-valued columns, the sudo
@@ -92,9 +101,9 @@ status: not_started
 
 - [ ] **2.1 Implement the fingerprint SQL** (effort 3)
   - [ ] Create `scripts/drill_228_fingerprint.py` with one SQL constant, built
-        from `storage_columns.py` (`TICK_TRADE_COLUMNS`, the BBO columns,
-        `sequence_ordinal`; every `tick_trade` column except `unit_id`). Do not
-        type the column list.
+        from `storage_columns.py`: every key of `TICK_TRADE_COLUMNS` (it already
+        includes the BBO columns) plus `sequence_ordinal`; every `tick_trade`
+        column except `unit_id`. Do not type the column list.
   - [ ] Group by `(instrument_id, UTC day of ts_event)`; per group return row
         count and the md5 of row text ordered by
         `(ts_event, sequence, sequence_ordinal)`.
@@ -131,55 +140,66 @@ status: not_started
         files; units with no archived file in any state.
   - [ ] Success: each value defined once; no `(table, column)` literal appears
         outside the constant.
-- [ ] **3.2a Natural-key id mapping** (effort 3)
+- [ ] **3.2 Natural-key id mapping and row comparison** (effort 4)
   - [ ] Match requests by `provider_job_id`, units by
         `(provider_job_id, unit_date)`; never by `request_id` or `unit_id`.
-        Build the restored→rebuilt `request_id` and `unit_id` maps.
-  - [ ] Success: a function returning both maps from two connections; requests
-        without a job id are returned separately, not mapped; no SQL writes.
-- [ ] **3.2b Table row comparison through the mapping** (effort 4)
+        Build the restored→rebuilt `request_id` and `unit_id` maps; requests
+        without a job id are returned separately, not mapped.
   - [ ] Compare each bookkeeping table's rows, translating every id-valued
-        column through 3.2a's maps: definition's unit, ledger row's unit, unit
+        column through the maps: definition's unit, ledger row's unit, unit
         supersession and repurchase links. Columns in the allowed set (3.1) are
         skipped; any other differing column is a failure.
-  - [ ] Success: failures are strings naming table, column and natural key.
-- [ ] **3.2c Missing-row rules** (effort 3)
+  - [ ] Success: failures are strings naming table, column and natural key; no
+        SQL writes.
+- [ ] **3.3 Integration tests for 3.2** (effort 3)
+  - [ ] `test/integration/data/test_drill_228_bookkeeping.py`, two migrated tick
+        DBs (`migrated_tick_db`, `second_migrated_tick_db`).
+  - [ ] Cases: an allowed column differing passes; any other column differing
+        fails; renumbered `request_id`/`unit_id` with equal natural keys pass;
+        a ledger row moved to a different unit fails.
+  - [ ] Success: all pass; ruff and mypy clean on touched files.
+- [ ] **3.4 Missing-row rules, condition coverage, result object** (effort 4)
   - [ ] A rebuilt request without a job id fails. Rows missing from the rebuild
-        fail unless an allowed-missing rule from 3.1 applies; a unit with a file
-        whose state differs fails.
-  - [ ] Success: each rule from 3.1 is applied by name, none re-typed here.
-- [ ] **3.2d Condition-row coverage and the result object** (effort 2)
+        fail unless an allowed-missing rule from 3.1 applies, by name; a unit
+        with a file whose state differs fails.
   - [ ] `tick_dataset_edge` / `tick_day_condition`: values may differ, but every
         restored `(dataset, condition_date)` must exist in the rebuild.
   - [ ] Return a result object: failures, the allowed differences found
         (counted per table/column), and the count of allowed-missing requests,
-        for the report.
-  - [ ] Success: `compare_bookkeeping(restored_conn, rebuilt_conn)` is the one
-        entry point; no SQL writes.
-- [ ] **3.3 Add the primary-path md5 for restored-vs-production** (effort 2)
+        for the report. `compare_bookkeeping(restored_conn, rebuilt_conn)` is
+        the one entry point, combining 3.2 and this task.
+  - [ ] Success: each rule from 3.1 is applied by name, none re-typed here.
+- [ ] **3.5 Integration tests for 3.4** (effort 3)
+  - [ ] Add to `test_drill_228_bookkeeping.py`: a missing row whose unit has an
+        archived file fails; a request with no job id missing from the rebuild
+        passes and is counted; a rebuilt request with no job id fails; a
+        restored condition row absent from the rebuild fails; a missing
+        no-file unit (e.g. `RETRY_EXHAUSTED`) passes.
+  - [ ] Success: all pass.
+- [ ] **3.6 Primary-path table md5** (effort 2)
   - [ ] Add `table_md5(conn, table)`: md5 of the table's rows in primary-key
         order, for step 5 (exact, ids kept). Reuse the table list from 3.1.
   - [ ] Success: one function serves all six tables; the list comes from 3.1.
-- [ ] **3.4 Integration tests for the bookkeeping comparison** (effort 4)
-  - [ ] `test/integration/data/test_drill_228_bookkeeping.py`, two migrated tick
-        DBs.
-  - [ ] Cases: an allowed column differing passes; any other column differing
-        fails; renumbered `request_id`/`unit_id` with equal natural keys pass;
-        a ledger row moved to a different unit fails; a missing row whose unit
-        has an archived file fails; a request with no job id missing from the
-        rebuild passes and is counted; a rebuilt request with no job id fails;
-        a restored condition row absent from the rebuild fails.
-  - [ ] Success: all pass; `table_md5` equal for identical tables and different
-        after one changed value.
-- [ ] **3.5 Integration test: the table list equals the migrated DB's tables** (effort 2)
-  - [ ] Test that the 3.1 list plus `tick_trade` equals the set of `public`
-        tables in the migrated test DB (`migrated_tick_db`, read from
-        `information_schema.tables`). The migration module holds raw SQL
-        strings, so it can't be read for table names. A new table must fail this
-        test. It needs the test cluster, so it lives under `test/integration/data/`.
-  - [ ] Success: passes now; fails when a table is added to the migration
-        without the list (verify once by hand, do not commit the breakage).
-- [ ] **3.6 Commit checkpoint** - `feat: add bookkeeping comparison for the restore drill`
+- [ ] **3.7 Integration test for 3.6** (effort 1)
+  - [ ] `table_md5` equal for identical tables; different after one changed
+        value; different after one missing row.
+  - [ ] Success: pass.
+- [ ] **3.8 Pin tests against the migration** (effort 3)
+  - [ ] Table list: the 3.1 list plus `tick_trade` equals the set of `public`
+        tables in the migrated test DB (read from `information_schema.tables`),
+        **excluding the migration runner's tracking table `schema_migrations`**
+        (name defined once in the test; the runner also creates it). The
+        migration module holds raw SQL strings, so it can't be read for table
+        names. A new table must fail this test.
+  - [ ] Allowed set: every `(table, column)` in the 3.1 allowed-difference set
+        exists in the migrated DB's `information_schema.columns`, and every
+        value column of `tick_dataset_edge` and `tick_day_condition` is in the
+        set. A renamed or added column must fail.
+  - [ ] Both need the test cluster, so they live under `test/integration/data/`.
+  - [ ] Success: pass now; each fails when a table or column is added to the
+        migration without the constants (verify once by hand, do not commit the
+        breakage).
+- [ ] **3.9 Commit checkpoint** - `feat: add bookkeeping comparison for the restore drill`
 
 ---
 
@@ -200,8 +220,12 @@ status: not_started
         by another drill, naming it.
   - [ ] `create_drill_dir(stamp)`: makes the directory and writes the marker
         (stamp, pid) *first*, before anything else is placed in it.
-  - [ ] Success: a second acquire in the same test refuses.
-- [ ] **4.3 Implement the path check and cleanup** (effort 3)
+  - [ ] Success: importable; the marker is the first file written.
+- [ ] **4.3 Unit tests for 4.2** (effort 2)
+  - [ ] `test/unit/test_drill_228_lifecycle.py`, `tmp_path` as the root. Cases:
+        a second acquire refuses; the marker exists with stamp and pid.
+  - [ ] Success: pass.
+- [ ] **4.4 Implement the path check and cleanup** (effort 3)
   - [ ] `assert_drill_path(path)`: path must be a direct child of
         `/data/restore-test`, named `228-drill-*`, and contain the marker.
         Resolve symlinks first. Anything else raises by name.
@@ -211,19 +235,22 @@ status: not_started
         server is running from that data directory.
   - [ ] Success: unmarked path, outside-root path, and a symlink escaping the
         root all raise before any `rm` call.
-- [ ] **4.4 Implement the startup leftover sweep** (effort 3)
+- [ ] **4.5 Unit tests for 4.4** (effort 2)
+  - [ ] Add to `test_drill_228_lifecycle.py`, with `pg_ctl` and `sudo` stubbed
+        (record calls, no real `rm`): `assert_drill_path` rejects unmarked,
+        outside-root and symlink-escape paths with no `rm` issued; a marked
+        path is stopped then removed.
+  - [ ] Success: pass.
+- [ ] **4.6 Implement the startup leftover sweep** (effort 3)
   - [ ] For each `/data/restore-test/228-drill-*`: marked → stop its server if
         running, then `remove_drill_dir`; unmarked → refuse, naming the path.
-  - [ ] Runs only under the drill flock.
-  - [ ] Success: matches TD5 exactly.
-- [ ] **4.5 Unit tests for lifecycle** (effort 3)
-  - [ ] `test/unit/test_drill_228_lifecycle.py`, with `pg_ctl` and `sudo`
-        stubbed (record calls, no real `rm`). Use `tmp_path` for the root.
+  - [ ] Runs only under the drill flock. Matches TD5 exactly.
+  - [ ] Success: importable; uses 4.4's functions only.
+- [ ] **4.7 Unit tests for 4.6** (effort 2)
   - [ ] Cases: marked leftover → stopped then removed; unmarked → refuse, no
-        `rm`; flock held → refuse; `assert_drill_path` rejects unmarked,
-        outside-root, and symlink-escape paths with no `rm` issued.
-  - [ ] Success: all pass; ruff and mypy clean.
-- [ ] **4.6 Commit checkpoint** - `feat: add restore drill lifecycle with marked cleanup`
+        `rm`; sweep without the flock held → refuse.
+  - [ ] Success: pass; ruff and mypy clean on touched files.
+- [ ] **4.8 Commit checkpoint** - `feat: add restore drill lifecycle with marked cleanup`
 
 ---
 
@@ -246,12 +273,11 @@ status: not_started
   - [ ] Success: stubbed listings cover equal, count differs, bytes differ,
         newer file; only equal passes.
 - [ ] **5.3 Unit test for 5.2 and the sudo wrapper** (effort 2)
-  - [ ] `test/unit/test_drill_228_host.py`. Include a fixture built from real
-        `restic ls` output captured on the host (record a few lines from
-        `deploy/lib/restic_repo.sh --env-file .env --prefix system run -- ls
-        latest --json /data/tick-archive` into `test/fixtures`), per CLAUDE.md's
-        parser-fixture rule.
-  - [ ] Success: tests pass using the real-format fixture.
+  - [ ] `test/unit/test_drill_228_host.py`. Use a hand-written fixture in
+        `restic ls --json` form (one snapshot line, then one node line per file
+        with `type`, `path`, `size`, `mtime`). Parse leniently. The real-output
+        fixture is captured in 6.7, where step 1 runs `restic ls` itself.
+  - [ ] Success: tests pass on the hand-written fixture.
 - [ ] **5.4 Implement the `postgresql.auto.conf` guard** (effort 2)
   - [ ] `empty_auto_conf(datadir)`: truncate the file, then verify no line
         contains `archive` (Step 6's `grep -c archive` = 0 check). If the
@@ -321,12 +347,14 @@ status: not_started
   - [ ] Success: tests pass.
 - [ ] **6.3 Steps 0-1: prepare and hold** (effort 4)
   - [ ] Step 0: drill flock, `sudo -v`, leftover sweep, free-space check sized
-        from the live archive and the latest base backup (about 3x the tick
+        from the live archive (`MT_TICK_ARCHIVE_DIR` from `.env`, per 1.1) and
+        the latest base backup (about 3x the tick
         footprint; fail by name with expected and seen bytes).
   - [ ] Step 1: connect with `MT_TICK_MAINTENANCE_URL` read-only
-        (`default_transaction_read_only=on`, TD6 statement timeout); take the
-        tick advisory lock (refuse if a tick run holds it; keys in
-        `data/tick/constants.py`); `has_table_privilege(..., 'SELECT')` on every
+        (`default_transaction_read_only=on`, TD6 statement timeout); take
+        **both** tick advisory locks on that connection, acquisition then
+        ingest (`TICK_ACQUISITION_LOCK_KEY`, `TICK_INGEST_LOCK_KEY`), refusing
+        if either is held; `has_table_privilege(..., 'SELECT')` on every
         public table; read `max_worker_processes`,
         `max_locks_per_transaction`, `max_connections`; run the 5.2 archive vs
         snapshot check.
@@ -349,20 +377,23 @@ status: not_started
   - [ ] Success: scratch server is out of recovery and reached the target.
 - [ ] **6.6 Step 5: compare restored with production** (effort 3)
   - [ ] Exact row counts for every public table; `fingerprint` (2.1) on both
-        sides with `diff_fingerprints`; `table_md5` (3.3) for each bookkeeping
+        sides with `diff_fingerprints`; `table_md5` (3.6) for each bookkeeping
         table.
-  - [ ] Then confirm the advisory lock is still held on the lock connection's
-        own backend (`pg_locks`); any error on that connection or a missing lock
-        fails the step. Release the lock; production is not touched afterwards.
+  - [ ] Then confirm both advisory locks are still held on the lock
+        connection's own backend (`pg_locks`); any error on that connection or
+        a missing lock fails the step. Release the locks; production is not touched afterwards.
   - [ ] Success: all equal, or the step fails naming the first difference.
 - [ ] **6.7 Run steps 0-5 on manta9000** (effort 3)
-  - [ ] Run the script with steps 6-9 not yet wired (a `--through-step 5` style
-        option is acceptable if it is removed or kept as documented in
-        `--help`). Cleanup (4.3) must still run.
+  - [ ] Steps 6-9 are not wired yet. Run the step functions through step 5 from
+        a one-off shell call (`run_steps(through=5)`, a function parameter, not
+        a CLI option, so the finished script's interface and FR1's "exits 0"
+        meaning are unchanged). Cleanup (4.4) must still run.
   - [ ] Success: steps 0-5 pass on the host; no `228-drill-*` directory and no
         scratch server left.
-  - [ ] Save a short excerpt of the real recovery log as a fixture and add a
-        test that 5.7's parser extracts the expected last segment from it.
+  - [ ] Save a short excerpt of the real recovery log, and a few real
+        `restic ls --json` lines from step 1's run, as fixtures. Add tests that
+        5.7's log parser and 5.2's listing parser read them (CLAUDE.md's
+        real-format rule). Fix either parser if it fails.
   - [ ] If a step fails, get the actual error text before any fix (CLAUDE.md);
         ask the Project Manager if it cannot be obtained.
 - [ ] **6.8 Commit checkpoint** - `feat: add tick restore drill steps 0-5`
@@ -434,7 +465,10 @@ status: not_started
 - [ ] **8.3 Drill section and record row** (effort 2)
   - [ ] Add the drill command, what it proves (archive, database, fallback),
         its sudo prompt, and the quarterly repeat alongside production's Step 6
-        (next due 2026-11-17).
+        (next due 2026-11-17). Update the runbook's "Repeat expectation"
+        paragraph so the quarterly drill is production's Step 6 **plus** this
+        script. That wording is the slice's Integration Requirement; running it
+        on 2026-11-17 is the PM's future quarterly drill, not a task here.
   - [ ] Add a Drill record row with this run's date, duration, and outcome from
         7.4/7.5, citing the report path.
   - [ ] Success: runbook front matter `dateUpdated` bumped; links resolve.
