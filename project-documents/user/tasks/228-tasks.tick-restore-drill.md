@@ -201,82 +201,82 @@ status: in_progress
   - [x] Add a unit test that a column added to `TICK_TRADE_COLUMNS` appears in
         the generated SQL (the "new column is hashed automatically" claim).
   - [x] Success: new tests pass; ruff and mypy clean on touched files.
-- [ ] **2.3 Commit checkpoint** - `feat: add tick_trade fingerprint for the restore drill`
+- [x] **2.3 Commit checkpoint** - `feat: add tick_trade fingerprint for the restore drill`
 
 ---
 
 ## Section 3 - The bookkeeping comparison (TD4)
 
-- [ ] **3.1 Define the table list and the expected-difference constants** (effort 3)
-  - [ ] Create `scripts/drill_228_bookkeeping.py`. One constant lists the six
+- [x] **3.1 Define the table list and the expected-difference constants** (effort 3)
+  - [x] Create `scripts/drill_228_bookkeeping.py`. One constant lists the six
         bookkeeping tables. One constant is the set of allowed-to-differ
         `(table, column)` pairs, using the exact column names from 1.1:
         `tick_request` (`is_adopted`, estimate fields, `download_deadline`),
         `tick_archive_unit` (links, `reopened_at`, `state_changed_at`,
         `last_attempt_at`, `attempt_count`, `failure_reason`),
         `tick_dataset_edge` and `tick_day_condition` (every value column).
-  - [ ] Define the "may be missing" rules as named predicates or constants:
+  - [x] Define the "may be missing" rules as named predicates or constants:
         requests without `provider_job_id`; rows for paid jobs with no archived
         files; units with no archived file in any state.
-  - [ ] Success: each value defined once; no `(table, column)` literal appears
+  - [x] Success: each value defined once; no `(table, column)` literal appears
         outside the constant.
-- [ ] **3.2 Natural-key id mapping and row comparison** (effort 4)
-  - [ ] Match requests by `provider_job_id`, units by
+- [x] **3.2 Natural-key id mapping and row comparison** (effort 4)
+  - [x] Match requests by `provider_job_id`, units by
         `(provider_job_id, unit_date)`; never by `request_id` or `unit_id`.
         Build the restored→rebuilt `request_id` and `unit_id` maps; requests
         without a job id are returned separately, not mapped.
-  - [ ] Compare each bookkeeping table's rows, translating every id-valued
+  - [x] Compare each bookkeeping table's rows, translating every id-valued
         column through the maps: definition's unit, ledger row's unit, unit
         supersession and repurchase links. Columns in the allowed set (3.1) are
         skipped; any other differing column is a failure.
-  - [ ] Success: failures are strings naming table, column and natural key; no
+  - [x] Success: failures are strings naming table, column and natural key; no
         SQL writes.
-- [ ] **3.3 Integration tests for 3.2** (effort 3)
-  - [ ] `test/integration/data/test_drill_228_bookkeeping.py`, two migrated tick
+- [x] **3.3 Integration tests for 3.2** (effort 3)
+  - [x] `test/integration/data/test_drill_228_bookkeeping.py`, two migrated tick
         DBs (`migrated_tick_db`, `second_migrated_tick_db`).
-  - [ ] Cases: an allowed column differing passes; any other column differing
+  - [x] Cases: an allowed column differing passes; any other column differing
         fails; renumbered `request_id`/`unit_id` with equal natural keys pass;
         a ledger row moved to a different unit fails.
-  - [ ] Success: all pass; ruff and mypy clean on touched files.
-- [ ] **3.4 Missing-row rules, condition coverage, result object** (effort 4)
-  - [ ] A rebuilt request without a job id fails. Rows missing from the rebuild
+  - [x] Success: all pass; ruff and mypy clean on touched files.
+- [x] **3.4 Missing-row rules, condition coverage, result object** (effort 4)
+  - [x] A rebuilt request without a job id fails. Rows missing from the rebuild
         fail unless an allowed-missing rule from 3.1 applies, by name; a unit
         with a file whose state differs fails.
-  - [ ] `tick_dataset_edge` / `tick_day_condition`: values may differ, but every
+  - [x] `tick_dataset_edge` / `tick_day_condition`: values may differ, but every
         restored `(dataset, condition_date)` must exist in the rebuild.
-  - [ ] Return a result object: failures, the allowed differences found
+  - [x] Return a result object: failures, the allowed differences found
         (counted per table/column), and the count of allowed-missing requests,
         for the report. `compare_bookkeeping(restored_conn, rebuilt_conn)` is
         the one entry point, combining 3.2 and this task.
-  - [ ] Success: each rule from 3.1 is applied by name, none re-typed here.
-- [ ] **3.5 Integration tests for 3.4** (effort 3)
-  - [ ] Add to `test_drill_228_bookkeeping.py`: a missing row whose unit has an
+  - [x] Success: each rule from 3.1 is applied by name, none re-typed here.
+- [x] **3.5 Integration tests for 3.4** (effort 3)
+  - [x] Add to `test_drill_228_bookkeeping.py`: a missing row whose unit has an
         archived file fails; a request with no job id missing from the rebuild
         passes and is counted; a rebuilt request with no job id fails; a
         restored condition row absent from the rebuild fails; a missing
         no-file unit (e.g. `RETRY_EXHAUSTED`) passes.
-  - [ ] Success: all pass.
-- [ ] **3.6 Primary-path table md5** (effort 2)
-  - [ ] Add `table_md5(conn, table)`: md5 of the table's rows in primary-key
+  - [x] Success: all pass.
+- [x] **3.6 Primary-path table md5** (effort 2)
+  - [x] Add `table_md5(conn, table)`: md5 of the table's rows in primary-key
         order, for step 5 (exact, ids kept). Reuse the table list from 3.1.
-  - [ ] Success: one function serves all six tables; the list comes from 3.1.
-- [ ] **3.7 Integration test for 3.6** (effort 1)
-  - [ ] `table_md5` equal for identical tables; different after one changed
+  - [x] Success: one function serves all six tables; the list comes from 3.1.
+- [x] **3.7 Integration test for 3.6** (effort 1)
+  - [x] `table_md5` equal for identical tables; different after one changed
         value; different after one missing row.
-  - [ ] Success: pass.
-- [ ] **3.8 Pin tests against the migration** (effort 3)
-  - [ ] Table list: the 3.1 list plus `tick_trade` equals the set of `public`
+  - [x] Success: pass.
+- [x] **3.8 Pin tests against the migration** (effort 3)
+  - [x] Table list: the 3.1 list plus `tick_trade` equals the set of `public`
         tables in the migrated test DB (read from `information_schema.tables`),
         **excluding the migration runner's tracking table `schema_migrations`**
         (name defined once in the test; the runner also creates it). The
         migration module holds raw SQL strings, so it can't be read for table
         names. A new table must fail this test.
-  - [ ] Allowed set: every `(table, column)` in the 3.1 allowed-difference set
+  - [x] Allowed set: every `(table, column)` in the 3.1 allowed-difference set
         exists in the migrated DB's `information_schema.columns`, and every
         value column of `tick_dataset_edge` and `tick_day_condition` is in the
         set. A renamed or added column must fail.
-  - [ ] Both need the test cluster, so they live under `test/integration/data/`.
-  - [ ] Success: pass now; each fails when a table or column is added to the
+  - [x] Both need the test cluster, so they live under `test/integration/data/`.
+  - [x] Success: pass now; each fails when a table or column is added to the
         migration without the constants (verify once by hand, do not commit the
         breakage).
 - [ ] **3.9 Commit checkpoint** - `feat: add bookkeeping comparison for the restore drill`
