@@ -430,39 +430,39 @@ status: in_progress
   settings are PostgreSQL's full hot-standby check list: the design's three
   plus `max_wal_senders` and `max_prepared_transactions`.
 
-- [ ] **5.11 Commit checkpoint** - `feat: add restore drill host primitives`
+- [x] **5.11 Commit checkpoint** - `feat: add restore drill host primitives`
 
 ---
 
 ## Section 6 - The drill entry point, steps 0-5 (primary path)
 
-- [ ] **6.1 Skeleton: arguments, step runner, report model** (effort 3)
-  - [ ] Create `scripts/drill_tick_restore.py` following the
+- [x] **6.1 Skeleton: arguments, step runner, report model** (effort 3)
+  - [x] Create `scripts/drill_tick_restore.py` following the
         `cutover_common` / `cutover_227_tick_backup.py` pattern: `Step` records
         with expected vs seen, narration via `say`, report accumulated in
         memory, a top-level handler at the process boundary that writes the
         report even on failure, exit 0 only when every check passes.
-  - [ ] Read paths from `load_clusters()` (tick row): backup root, WAL dir, base
+  - [x] Read paths from `load_clusters()` (tick row): backup root, WAL dir, base
         dir. No tick path literal.
-  - [ ] Add `rebuild_env()`: returns the subprocess environment for step 6:
+  - [x] Add `rebuild_env()`: returns the subprocess environment for step 6:
         tick URLs pointing at the scratch socket and drill database,
         `MT_TICK_ARCHIVE_DIR` at the restored archive, and `MT_TIMESCALE_DB_URL`
         = `.env`'s value plus `options=-c default_transaction_read_only=on`.
         Never edits `.env`.
-  - [ ] Success: `--help` works; running with a stubbed step list produces a
+  - [x] Success: `--help` works; running with a stubbed step list produces a
         report file and the right exit status.
-- [ ] **6.2 Unit tests: report and exit status; rebuild environment** (effort 3)
-  - [ ] `test/unit/test_drill_tick_restore.py`: exit status 0 only when all
+- [x] **6.2 Unit tests: report and exit status; rebuild environment** (effort 3)
+  - [x] `test/unit/test_drill_tick_restore.py`: exit status 0 only when all
         steps pass, non-zero (and a report written) on any failure.
-  - [ ] Test `rebuild_env()` (6.1): the calendar URL carries `default_transaction_read_only=on`; the
+  - [x] Test `rebuild_env()` (6.1): the calendar URL carries `default_transaction_read_only=on`; the
         tick URLs do not.
-  - [ ] Success: tests pass.
-- [ ] **6.3 Steps 0-1: prepare and hold** (effort 4)
-  - [ ] Step 0: drill flock, `sudo -v`, leftover sweep, free-space check sized
+  - [x] Success: tests pass.
+- [x] **6.3 Steps 0-1: prepare and hold** (effort 4)
+  - [x] Step 0: drill flock, `sudo -v`, leftover sweep, free-space check sized
         from the live archive (`MT_TICK_ARCHIVE_DIR` from `.env`, per 1.1) and
         the latest base backup (about 3x the tick
         footprint; fail by name with expected and seen bytes).
-  - [ ] Step 1: connect with `MT_TICK_MAINTENANCE_URL` read-only
+  - [x] Step 1: connect with `MT_TICK_MAINTENANCE_URL` read-only
         (`default_transaction_read_only=on`, TD6 statement timeout); take
         **both** tick advisory locks on that connection, acquisition then
         ingest (`TICK_ACQUISITION_LOCK_KEY`, `TICK_INGEST_LOCK_KEY`), refusing
@@ -470,32 +470,32 @@ status: in_progress
         public table; read `max_worker_processes`,
         `max_locks_per_transaction`, `max_connections`; run the 5.2 archive vs
         snapshot check.
-  - [ ] Success: each check prints expected against seen.
-- [ ] **6.4 Steps 2-3: switch WAL, restore the archive** (effort 4)
-  - [ ] Step 2: `SELECT pg_walfile_name(pg_switch_wal())` through
+  - [x] Success: each check prints expected against seen.
+- [x] **6.4 Steps 2-3: switch WAL, restore the archive** (effort 4)
+  - [x] Step 2: `SELECT pg_walfile_name(pg_switch_wal())` through
         `cutover_227_host.psql` (postgres over the socket); wait up to the TD6
         bound for that segment's `.zst` or raw file in the tick WAL dir.
-  - [ ] Step 3: restic `restore latest --include <live archive path from .env>`
+  - [x] Step 3: restic `restore latest --include <live archive path from .env>`
         into the drill dir (bounded), `assert_drill_path` on the restored
         archive directory (inside the drill directory, per 4.4), then
         `sudo -n chown -R manta:manta` on that directory only; compare file count and
         bytes with the live archive's backed-up set (5.2's function, one
         definition of the set).
-  - [ ] Success: counts and bytes equal the live archive's backed-up set.
-- [ ] **6.5 Step 4: restore the database** (effort 4)
-  - [ ] Unpack the latest tick base backup into the drill dir; run
+  - [x] Success: counts and bytes equal the live archive's backed-up set.
+- [x] **6.5 Step 4: restore the database** (effort 4)
+  - [x] Unpack the latest tick base backup into the drill dir; run
         `pg_verifybackup` from the 4.1 binary directory (there is no `/usr/bin`
         wrapper) (both bounded); `empty_auto_conf`; `write_scratch_conf`;
         `start_scratch`; `check_reached` against step 2's segment.
-  - [ ] Success: scratch server is out of recovery and reached the target.
-- [ ] **6.6 Step 5: compare restored with production** (effort 3)
-  - [ ] Exact row counts for every public table; `fingerprint` (2.1) on both
+  - [x] Success: scratch server is out of recovery and reached the target.
+- [x] **6.6 Step 5: compare restored with production** (effort 3)
+  - [x] Exact row counts for every public table; `fingerprint` (2.1) on both
         sides with `diff_fingerprints`; `table_md5` (3.6) for each bookkeeping
         table.
-  - [ ] Then confirm both advisory locks are still held on the lock
+  - [x] Then confirm both advisory locks are still held on the lock
         connection's own backend (`pg_locks`); any error on that connection or
         a missing lock fails the step. Release the locks; production is not touched afterwards.
-  - [ ] Success: all equal, or the step fails naming the first difference.
+  - [x] Success: all equal, or the step fails naming the first difference.
 - [ ] **6.7 Run steps 0-5 on manta9000** (effort 3)
   - [ ] Steps 6-9 are not wired yet. Run the step functions through step 5 from
         a one-off shell call (`run_steps(through=5)`, a function parameter, not
@@ -518,34 +518,47 @@ status: in_progress
 
 ## Section 7 - Steps 6-9 (fallback path, cleanup, report)
 
-- [ ] **7.1 Step 6: rebuild into `trading_tick_drill`** (effort 4)
-  - [ ] Implement `create_drill_database()`: runs `provision_tick_roles.sql -v
+- [x] **7.1 Step 6: rebuild into `trading_tick_drill`** (effort 4)
+  - [x] Implement `create_drill_database()`: runs `provision_tick_roles.sql -v
         tick_db=trading_tick_drill` on the scratch server over its socket.
         Unit test with `psql` stubbed: the command carries that variable and the
         scratch socket, never a production URL.
-  - [ ] Then with `rebuild_env()` run, each
+  - [x] Then with `rebuild_env()` run, each
         bounded: `mt data migrate apply --track tick`; `mt data tick adopt
         --job-id <dir> --source <restored dir>` once per restored job
         directory; `mt data tick pass --estimate-only`; `mt data tick ingest`.
         Use `uv run mt ...` from the checkout root.
-  - [ ] Record the rebuild time in the report, not gated.
-  - [ ] If production DB or the Databento API is unreachable, this step fails by
+  - [x] Record the rebuild time in the report, not gated.
+  - [x] If production DB or the Databento API is unreachable, this step fails by
         name; steps 3-5 results stay in the report.
-  - [ ] Success: all four commands exit 0 against the scratch server.
-- [ ] **7.2 Step 7: compare the rebuild with the restore** (effort 3)
-  - [ ] Both on the scratch server (statement timeout per TD6): `fingerprint`
+  - [x] Success: all four commands exit 0 against the scratch server.
+- [x] **7.2 Step 7: compare the rebuild with the restore** (effort 3)
+  - [x] Both on the scratch server (statement timeout per TD6): `fingerprint`
         equality, then the TD4 comparison. List allowed differences and the
         allowed-missing request count in the report.
-  - [ ] Success: failures are named by table, column and natural key.
-- [ ] **7.3 Steps 8-9: cleanup in `finally`, report** (effort 3)
-  - [ ] Cleanup always runs (stop server, `remove_drill_dir`). A cleanup failure
+  - [x] Success: failures are named by table, column and natural key.
+- [x] **7.3 Steps 8-9: cleanup in `finally`, report** (effort 3)
+  - [x] Cleanup always runs (stop server, `remove_drill_dir`). A cleanup failure
         puts the path in the report and fails the run.
-  - [ ] Report to `<report directory from 4.1>/<date>-228-tick-restore-drill.md`
+  - [x] Report to `<report directory from 4.1>/<date>-228-tick-restore-drill.md`
         with front matter per `file-naming-conventions.md`: every step's
         expected and seen values, timings, bookkeeping differences. Final line
         `PASS: archive, database, fallback` only when every check passed.
-  - [ ] Success: unit test (extend 6.2's file) proves the report is written on a
+  - [x] Success: unit test (extend 6.2's file) proves the report is written on a
         failing step and cleanup runs when a step raises.
+
+  Note (Phase 6, 2026-10-07): steps 4, 6 and 7 were rehearsed without root
+  on the real tick backups, with a copy of the live archive standing in for
+  the restic restore: rebuild 565 s, fingerprint equal, bookkeeping
+  differences only in TD4's set (`state_changed_at` x156, edge
+  `available_end`/`observed_at`, condition `observed_at` x106). Steps 4-5
+  were rehearsed the same way: all counts, the fingerprint and all six
+  bookkeeping md5s equal production. The rehearsals found and fixed two
+  defects: a `pg_ctl status` race at start-up (now `start -w -t`), and
+  `table_md5` hashing timestamps in the session TimeZone (now pinned to UTC).
+  Steps 6-7 live in `scripts/drill_228_rebuild.py`; jobs are adopted in the
+  restored database's `request_id` order, because a definition belongs to
+  the first unit that projected it.
 - [ ] **7.4 Run the full drill on manta9000** (effort 3)
   - [ ] Run `uv run python scripts/drill_tick_restore.py`. Keep the printed
         output with the report.
@@ -565,23 +578,23 @@ status: in_progress
 
 ## Section 8 - Runbook 200
 
-- [ ] **8.1 Primary restore procedure** (effort 3)
-  - [ ] In runbook 200's tick section (`### The tick cluster (slice 227)` area),
+- [x] **8.1 Primary restore procedure** (effort 3)
+  - [x] In runbook 200's tick section (`### The tick cluster (slice 227)` area),
         add: base + WAL into a fresh data directory (the steps the drill
         automates, including emptying `postgresql.auto.conf` and the settings
         that must match the primary), and putting a restored cluster back into
         service as `17/tick`.
-  - [ ] Verify the "back into service" procedure against the system's facts
+  - [x] Verify the "back into service" procedure against the system's facts
         (Debian cluster layout under `/etc/postgresql`, `postgresql@17-tick`
         unit). If it cannot be verified without touching production, say so in
         the runbook and in the task notes; do not invent steps.
-  - [ ] Success: a reader can follow it without the drill script.
-- [ ] **8.2 Fallback procedure** (effort 2)
-  - [ ] Add the restic archive restore and the four rebuild commands (as in
+  - [x] Success: a reader can follow it without the drill script.
+- [x] **8.2 Fallback procedure** (effort 2)
+  - [x] Add the restic archive restore and the four rebuild commands (as in
         TD1 step 6), with what a rebuild loses (link to the 224 design's list).
         Replace runbook 200's line "The full archive-and-database drill is
         slice 227's" with the correct slice (228).
-  - [ ] Success: both procedures carry commands that match the drill's.
+  - [x] Success: both procedures carry commands that match the drill's.
 - [ ] **8.3 Drill section and record row** (effort 2)
   - [ ] Add the drill command, what it proves (archive, database, fallback),
         its sudo prompt, and the quarterly repeat alongside production's Step 6
