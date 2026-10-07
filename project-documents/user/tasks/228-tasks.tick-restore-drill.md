@@ -12,7 +12,7 @@ projectState: >
   archive file has ever been restored. No tick database restore has been run.
   Slice design committed and re-reviewed.
 dateCreated: 20261006
-dateUpdated: 20261006
+dateUpdated: 20261007
 status: not_started
 ---
 
@@ -83,10 +83,9 @@ status: not_started
         the way `cutover_227_host.env_value` and
         `verify_tick_archive_backup.sh` do. `backup-clusters.conf` holds only
         the backup root, WAL and base directories, not the archive.
-  - [ ] Confirm the tick locks: `TICK_ACQUISITION_LOCK_KEY` (adopt, reset,
-        pass) and `TICK_INGEST_LOCK_KEY` (ingest) are distinct, and ingest may
-        run alongside acquisition, so holding one does not exclude the other.
-        The drill takes both (6.3), reusing `cutover_227_host.TICK_LOCK_KEYS`.
+  - [ ] Confirm the tick locks match TD1 step 1: `TICK_ACQUISITION_LOCK_KEY`
+        (adopt, reset, pass) and `TICK_INGEST_LOCK_KEY` (ingest), both taken
+        through `cutover_227_host.TICK_LOCK_KEYS` (6.3).
   - [ ] Confirm the restic call shape used by runbook 200 for restore
         (`--env-file .env --prefix system run -- restore ...`).
   - [ ] Write the findings into this task file as a `Findings (1.1)` block
@@ -275,15 +274,17 @@ status: not_started
   - [ ] Reuse `cutover_common.run` / `cutover_227_host.psql` per the 1.1 decision.
   - [ ] Success: a stubbed `sudo -n` returning exit 1 yields the named error.
 - [ ] **5.2 Implement the archive-against-snapshot check** (effort 3)
-  - [ ] Pure function comparing the live archive (file count, total bytes,
-        newest mtime) with `restic ls latest` output for the live archive path from `.env`
+  - [ ] Pure function comparing the live archive's backed-up set (TD1 step 3:
+        the live archive minus the patterns read from `deploy/restic-excludes.txt`,
+        today `**/*.partial`; file count, total bytes, newest mtime) with `restic ls latest` output for the live archive path from `.env`
         (count, bytes, snapshot time). Refuse with
         "archive changed since snapshot <time>; run the restic backup first"
         when count or bytes differ or any live file is newer than the snapshot.
         Parse `restic ls` leniently (JSON output if available, else tolerate
         whitespace variation).
   - [ ] Success: stubbed listings cover equal, count differs, bytes differ,
-        newer file; only equal passes.
+        newer file; only equal passes. A live `.partial` file absent from the
+        listing still passes.
 - [ ] **5.3 Unit test for 5.2 and the sudo wrapper** (effort 2)
   - [ ] `test/unit/test_drill_228_host.py`. Use a hand-written fixture in
         `restic ls --json` form (one snapshot line, then one node line per file
@@ -340,7 +341,7 @@ status: not_started
         from archive` form, with whitespace variations. A real-log test is
         added in 6.8.
   - [ ] Success: pass; ruff and mypy clean on touched files.
-- **5.11 Commit checkpoint** - `feat: add restore drill host primitives`
+- [ ] **5.11 Commit checkpoint** - `feat: add restore drill host primitives`
 
 ---
 
@@ -354,17 +355,17 @@ status: not_started
         report even on failure, exit 0 only when every check passes.
   - [ ] Read paths from `load_clusters()` (tick row): backup root, WAL dir, base
         dir. No tick path literal.
-  - [ ] Success: `--help` works; running with a stubbed step list produces a
-        report file and the right exit status.
-- [ ] **6.2 Unit tests: report and exit status; URL environments** (effort 3)
-  - [ ] `test/unit/test_drill_tick_restore.py`: exit status 0 only when all
-        steps pass, non-zero (and a report written) on any failure.
   - [ ] Add `rebuild_env()`: returns the subprocess environment for step 6:
         tick URLs pointing at the scratch socket and drill database,
         `MT_TICK_ARCHIVE_DIR` at the restored archive, and `MT_TIMESCALE_DB_URL`
         = `.env`'s value plus `options=-c default_transaction_read_only=on`.
         Never edits `.env`.
-  - [ ] Test: the calendar URL carries `default_transaction_read_only=on`; the
+  - [ ] Success: `--help` works; running with a stubbed step list produces a
+        report file and the right exit status.
+- [ ] **6.2 Unit tests: report and exit status; rebuild environment** (effort 3)
+  - [ ] `test/unit/test_drill_tick_restore.py`: exit status 0 only when all
+        steps pass, non-zero (and a report written) on any failure.
+  - [ ] Test `rebuild_env()` (6.1): the calendar URL carries `default_transaction_read_only=on`; the
         tick URLs do not.
   - [ ] Success: tests pass.
 - [ ] **6.3 Steps 0-1: prepare and hold** (effort 4)
@@ -389,8 +390,9 @@ status: not_started
         into the drill dir (bounded), `assert_drill_path` on the restored
         archive directory (inside the drill directory, per 4.4), then
         `sudo -n chown -R manta:manta` on that directory only; compare file count and
-        bytes with the live archive.
-  - [ ] Success: counts and bytes equal the live archive.
+        bytes with the live archive's backed-up set (5.2's function, one
+        definition of the set).
+  - [ ] Success: counts and bytes equal the live archive's backed-up set.
 - [ ] **6.5 Step 4: restore the database** (effort 4)
   - [ ] Unpack the latest tick base backup into the drill dir; run
         `pg_verifybackup` from the 4.1 binary directory (there is no `/usr/bin`
@@ -522,10 +524,6 @@ status: not_started
         credential in any new file.
   - [ ] Success: all clean; any pre-existing failure matches the known list.
 - [ ] **9.2 Walk the design's Success Criteria** (effort 2)
-  - [ ] The design says "the tick advisory lock" (TD1 step 1, Ordering). Tick
-        has two (acquisition and ingest, distinct so they can run together), and
-        the drill holds both (6.3). Edit the design's wording to "both tick
-        advisory locks" so design and code agree.
   - [ ] Check each Functional and Technical Requirement against the report and
         tests; list any gap.
   - [ ] Update the slice design's `status` and `dateUpdated`; add real output to

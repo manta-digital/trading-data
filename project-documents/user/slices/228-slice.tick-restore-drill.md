@@ -6,7 +6,7 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [227]
 interfaces: []
 dateCreated: 20261004
-dateUpdated: 20261006
+dateUpdated: 20261007
 status: not_started
 ---
 
@@ -65,7 +65,7 @@ It also writes both restore procedures and the drill into runbook 200 (`user/run
 ```
 scripts/drill_tick_restore.py
   ├─ reads deploy/backup-clusters.conf (227's parser)  → tick backup root, WAL dir, base dir
-  ├─ psql on 17/tick (read only) → advisory lock, pg_switch_wal, comparison reads
+  ├─ psql on 17/tick (read only) → advisory locks, pg_switch_wal, comparison reads
   ├─ sudo restic restore  → /data/restore-test/228-drill-<stamp>/tick-archive
   ├─ pg_ctl (as manta)    → /data/restore-test/228-drill-<stamp>/pgdata   (socket-only scratch server)
   │     ├─ trading_tick        restored from base + WAL
@@ -104,12 +104,12 @@ The drill runs as manta from the checkout root and uses `sudo` only for restic a
    - Clear leftovers (TD5), then check free space (Special Considerations).
 1. **Hold the tick cluster.**
    - The drill's own connection to `17/tick` is `MT_TICK_MAINTENANCE_URL` from `.env`: `tick_migrate`, TCP by host name, database `trading_tick`. It is opened read-only (`default_transaction_read_only=on`) with TD6's statement timeout.
-   - Take the tick advisory lock on it. If a tick run holds it, refuse.
+   - Take both tick advisory locks on it, acquisition then ingest (`cutover_227_host.TICK_LOCK_KEYS`). They are distinct so ingest can run alongside acquisition, so holding one excludes only half the tick runs. If either is held, refuse.
    - Check `has_table_privilege(…, 'SELECT')` for every public table. A missing grant fails by name.
    - Read the recovery settings step 4 copies.
-   - **Archive and snapshot agree.** The restored archive comes from restic's latest snapshot, while the restored database is brought up to now. If a tick run added or changed archive files since that snapshot, steps 3 and 7 would fail even though both backups are fine. So, under the lock, the drill compares the live archive with the snapshot's listing of `/data/tick-archive` (`restic ls latest`, through `sudo -n`): file count, total bytes, and no live file newer than the snapshot time. If any differ, it refuses with "archive changed since snapshot <time>; run the restic backup first". Ingest writes only the database, so a run after the snapshot that only ingested doesn't trip this, and doesn't need to: the rebuild ingests every file anyway.
+   - **Archive and snapshot agree.** The restored archive comes from restic's latest snapshot, while the restored database is brought up to now. If a tick run added or changed archive files since that snapshot, steps 3 and 7 would fail even though both backups are fine. So, under the lock, the drill compares the live archive's backed-up set (step 3) with the snapshot's listing of `/data/tick-archive` (`restic ls latest`, through `sudo -n`): file count, total bytes, and no live file newer than the snapshot time. If any differ, it refuses with "archive changed since snapshot <time>; run the restic backup first". Ingest writes only the database, so a run after the snapshot that only ingested doesn't trip this, and doesn't need to: the rebuild ingests every file anyway.
 2. **Make the restore point current.** Run `SELECT pg_walfile_name(pg_switch_wal())` on `17/tick` as postgres over the local socket, through 227's `cutover_227_host.psql` helper (`sudo -n -u postgres`): `pg_switch_wal` needs superuser. That names the segment the restore must reach, whether or not the switch had anything to close: with no WAL activity since the last switch, it names the last completed segment, which is already archived, and the wait ends at once. Wait until that segment's `.zst` or raw file is in the tick WAL directory.
-3. **Restore the archive.** Run restic `restore latest --include /data/tick-archive` into the drill directory, then `sudo chown -R manta:manta` on that restored directory only (its path is checked to sit under the marked drill directory first). Compare file count and total bytes with the live archive.
+3. **Restore the archive.** Run restic `restore latest --include /data/tick-archive` into the drill directory, then `sudo chown -R manta:manta` on that restored directory only (its path is checked to sit under the marked drill directory first). Compare file count and total bytes with the live archive's **backed-up set**: the live archive minus the paths `deploy/restic-excludes.txt` excludes (today `**/*.partial`, an unfinished download or adoption copy, which is not the record). The exclusion is read from that file, not typed here, and step 1's snapshot check uses the same set.
 4. **Restore the database.**
    - Unpack the latest tick base backup into the drill directory and run `pg_verifybackup` on it.
    - **Empty `postgresql.auto.conf`.** The base backup carries it, and it holds production's `ALTER SYSTEM` settings, including `archive_mode=on` and the `archive_command` into the live tick WAL directory. It overrides `postgresql.conf`, so a scratch server started with it would archive its new timeline into production's archive and on to B2. The drill truncates it and checks that no `archive` setting is left (runbook 200 Step 6's `grep -c archive` = 0). If either fails, it refuses to start the server.
@@ -128,7 +128,7 @@ The drill runs as manta from the checkout root and uses `sudo` only for restic a
    - the `tick_trade` fingerprint (TD3);
    - for each bookkeeping table (TD4's list), the md5 of its rows in primary-key order. A physical restore keeps the ids, so these must match exactly. Bookkeeping is the part that can't be rebuilt, so the primary path proves it value for value.
 
-   All must be equal. Then confirm the lock is still held: `pg_locks` shows it on the lock connection's own backend. Any error on that connection, or a missing lock, fails the step, since production could have changed under the comparison. Release the lock. Production is not touched after this point.
+   All must be equal. Then confirm both locks are still held: `pg_locks` shows them on the lock connection's own backend. Any error on that connection, or a missing lock, fails the step, since production could have changed under the comparison. Release the locks. Production is not touched after this point.
 6. **Rebuild.** Create `trading_tick_drill` on the scratch server (TD5), then run against it:
    ```
    mt data migrate apply --track tick
@@ -204,7 +204,7 @@ Each wait or subprocess has a bound, defined once as a constant in the drill mod
 
 Adopt's and the pass's Databento calls use their existing client timeouts. The per-command bound covers anything above them.
 
-The production advisory lock is held for steps 1–5 only (switch, restores, comparison reads). The rebuild in step 6 runs after it is released. Tick runs are manual today, so nothing is blocked.
+The production advisory locks are held for steps 1–5 only (switch, restores, comparison reads). The rebuild in step 6 runs after they are released. Tick runs are manual today, so nothing is blocked.
 
 ### Realtime paths
 
@@ -230,7 +230,7 @@ The drill only reads, restores and rebuilds what slices 223–227 already define
 ### Functional Requirements
 1. `scripts/drill_tick_restore.py` runs on manta9000 and exits 0.
 2. Its report shows:
-   - the archive restored, with file count and bytes equal to the live archive;
+   - the archive restored, with file count and bytes equal to the live archive's backed-up set;
    - the database restored from base + WAL, with every public table's row count and the `tick_trade` fingerprint equal to production's;
    - the database rebuilt from the restored archive, with a `tick_trade` fingerprint equal to the restored database's, and bookkeeping differences only from the expected set;
    - the rebuild time (recorded, not gated);
@@ -275,7 +275,7 @@ These are the commands as designed; Phase 6 refines them with real output.
    less project-documents/user/notes/<date>-228-tick-restore-drill.md
    ```
    Expect:
-   - archive file count and bytes equal to the live archive;
+   - archive file count and bytes equal to the live archive's backed-up set;
    - all table counts equal to production;
    - fingerprints equal;
    - the bookkeeping differences listed, all in the expected set;
@@ -301,4 +301,4 @@ These are the commands as designed; Phase 6 refines them with real output.
 ### Special Considerations
 - **Disk:** the drill needs room for the archive copy and the scratch server holding both databases: about three times the tick footprint (roughly 2.5 GB today), against 1.2 TB free on `/data`. The drill checks free space before step 3, sized from the live archive and the latest base backup.
 - **Production safety:** both production clusters are only read, over read-only connections (the drill's own and, by URL option, the rebuild's calendar connection). The one write is step 2's segment switch. The scratch server starts only after its `postgresql.auto.conf` is emptied and checked, and runs socket-only with `archive_mode=off`. So it can't write into the tick WAL archive or accept network connections, and the rebuild's load lands on it, not on `17/tick`.
-- **Ordering:** the drill holds the tick advisory lock for steps 1–5, so no tick run can change production during the comparison.
+- **Ordering:** the drill holds both tick advisory locks for steps 1–5, so no tick run can change production during the comparison.
