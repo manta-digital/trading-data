@@ -2,8 +2,9 @@
 
 Covers ``drill_228_host`` (sudo wrapper, backed-up set, restic listing,
 archive-vs-snapshot) and ``drill_228_scratch`` (auto.conf guard, config,
-start/wait, recovery target). The listing fixture is hand-written in
-``restic ls --json`` form; real-format fixtures are added in task 6.8.
+start/wait, recovery target). Most listings are hand-written; the ``*_real``
+fixtures under ``test/fixtures/drill_228`` are lines captured from the 2026-10-07
+host run, so the parsers are also checked against the real formats.
 """
 
 from __future__ import annotations
@@ -331,3 +332,17 @@ def test_start_waits_for_the_server_and_a_failed_start_shows_the_log(
     assert seen[0][seen[0].index("-t") + 1] == str(
         int(RECOVERY_TIMEOUT.total_seconds())
     )
+
+
+REAL = Path(__file__).resolve().parents[1] / "fixtures" / "drill_228"
+
+
+def test_parse_restic_ls_real_output() -> None:
+    listing = host.parse_restic_ls((REAL / "restic_ls_real.jsonl").read_text(), [])
+    assert listing.time == datetime.fromisoformat("2026-10-07T04:00:11.844789-06:00")
+    assert (listing.files.count, listing.files.bytes) == (5, 14319184)
+
+
+def test_last_restored_segment_real_log() -> None:
+    log = (REAL / "recovery_log_real.txt").read_text()
+    assert scratch.last_restored_segment(log) == "00000001000000290000007B"
