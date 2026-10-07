@@ -17,6 +17,8 @@ import json
 import os
 import re
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +32,8 @@ RESTIC_REPO = CHECKOUT / "deploy" / "lib" / "restic_repo.sh"
 #: The restic repository prefix of the nightly system backup (runbook 200).
 RESTIC_PREFIX = "system"
 _SUDO_PROMPT_NEEDED = "a password is required"
+#: Seconds between timestamp refreshes; well under sudo's 15-minute default.
+SUDO_REFRESH_SECONDS = 60
 
 
 class SudoExpired(DrillError):
@@ -39,10 +43,24 @@ class SudoExpired(DrillError):
 # --- sudo ---------------------------------------------------------------------
 
 
+def _refresh_sudo() -> None:
+    """Refresh the sudo timestamp until a refresh fails; the next ``sudo_n``
+    then names the expiry itself, so a failed refresh needs no handling here."""
+    while True:
+        time.sleep(SUDO_REFRESH_SECONDS)
+        if subprocess.run(["sudo", "-n", "-v"], capture_output=True).returncode != 0:
+            return
+
+
 def prime_sudo() -> None:
-    """``sudo -v``: the run's one password prompt, before any production lock."""
+    """``sudo -v``: the run's one password prompt, before any production lock.
+
+    A drill outlasts sudo's timestamp (the 2026-10-07 re-run took 20 minutes and
+    could not clean up), so a daemon thread keeps the timestamp fresh.
+    """
     if subprocess.run(["sudo", "-v"]).returncode != 0:
         raise DrillError("sudo -v failed; the drill needs sudo for restic, chown, rm")
+    threading.Thread(target=_refresh_sudo, daemon=True).start()
 
 
 def run(

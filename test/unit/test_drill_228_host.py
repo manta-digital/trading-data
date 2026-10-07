@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -346,3 +347,22 @@ def test_parse_restic_ls_real_output() -> None:
 def test_last_restored_segment_real_log() -> None:
     log = (REAL / "recovery_log_real.txt").read_text()
     assert scratch.last_restored_segment(log) == "00000001000000290000007B"
+
+
+def test_prime_sudo_keeps_the_timestamp_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 20-minute drill outlived sudo's timestamp; priming must keep refreshing."""
+    calls: list[list[str]] = []
+    refreshed = threading.Event()
+
+    def fake_run(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args == ["sudo", "-n", "-v"]:
+            refreshed.set()
+            return done(1)  # a failed refresh ends the thread
+        return done()
+
+    monkeypatch.setattr(host.subprocess, "run", fake_run)
+    monkeypatch.setattr(host, "SUDO_REFRESH_SECONDS", 0)
+    host.prime_sudo()
+    assert refreshed.wait(5)
+    assert calls[0] == ["sudo", "-v"]
