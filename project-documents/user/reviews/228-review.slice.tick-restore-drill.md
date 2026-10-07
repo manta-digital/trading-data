@@ -6,163 +6,192 @@ slice: tick-restore-drill
 targetKind: slice
 rulesSource: project
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 verdictSource: stated
 sourceDocument: project-documents/user/slices/228-slice.tick-restore-drill.md
 aiModel: claude-opus-5-5
 status: complete
 dateCreated: 20261006
 dateUpdated: 20261006
-reviewedSha: dbb5945ddfe32c11fa51dcb49d47c53bc0230f76
+reviewedSha: 3f2f3c829306112f36da1b33da7c6500e92a938c
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 12
-durationSeconds: 97.8
+toolCallsMade: 5
+durationSeconds: 93.0
 squadronVersion: 0.18.4
 findings:
   - id: F001
-    severity: fail
-    category: production-safety
-    summary: "Scratch server inherits `archive_mode=on` from `postgresql.auto.conf`"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:107-112"
+    severity: concern
+    category: correctness
+    summary: "The restored archive and the restored database come from different points in time"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:106-107"
   - id: F002
     severity: concern
-    category: under-specification
-    summary: "Archive recovery is under-specified: no `recovery.signal`, no matching settings"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:106-114"
+    category: error-handling
+    summary: "Cleanup can't remove root-owned files left by a partial restore"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:107"
   - id: F003
     severity: concern
-    category: failure-modes
-    summary: "Leftover clearing can destroy a concurrent drill run"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:168-170"
+    category: dependencies
+    summary: "The role and privileges on the production tick cluster aren't specified"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:105-106"
   - id: F004
     severity: concern
-    category: failure-modes
-    summary: "`sudo` and production reads have no stated bound"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:174-187"
+    category: architecture
+    summary: "The rebuild's production reads are read-only only by assumption"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:57, 133"
   - id: F005
-    severity: concern
-    category: under-specification
-    summary: "The bookkeeping natural key doesn't cover requests without a job id"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:151-160"
+    severity: note
+    category: architecture
+    summary: "The socket-URL exception to the TCP-by-host-name rule is stated and checked"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:133"
   - id: F006
     severity: note
-    category: integration
-    summary: "The claim of no production writes depends on the calendar horizon"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:57,93"
+    category: error-handling
+    summary: "Two waits are missing from TD6's bounds table"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:184-198"
   - id: F007
     severity: note
-    category: integration
-    summary: "API key variable name differs from the architecture"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:58"
+    category: testing
+    summary: "The primary restore checks only row counts for bookkeeping tables"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:121-123"
   - id: F008
-    severity: note
-    category: integration
-    summary: "The rebuild uses socket URLs, unlike production's TCP-only rule"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:127"
-  - id: F009
     severity: pass
     category: scope
-    summary: "Scope and boundaries match the architecture"
+    summary: "The slice delivers what the architecture asks of the restore drill"
     location: "project-documents/user/slices/228-slice.tick-restore-drill.md#technical-scope"
+  - id: F009
+    severity: pass
+    category: architecture
+    summary: "The rebuild comparison uses the architecture's definition of \"the same\""
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:144-172"
   - id: F010
     severity: pass
-    category: alignment
-    summary: "The fingerprint matches the architecture's projection claim"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md#td3-one-tick_trade-fingerprint"
+    category: error-handling
+    summary: "Isolation, cleanup and failure handling"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:110-119, 174-182"
   - id: F011
     severity: pass
-    category: nfr
-    summary: "NFRs"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md:127,216"
+    category: architecture
+    summary: "NFRs and the realtime-paths check"
+    location: "project-documents/user/slices/228-slice.tick-restore-drill.md#realtime-paths"
 ---
 
 # Review: slice — slice 228
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS
 **Model:** claude-opus-5-5
 
 ## Findings
 
-### [FAIL] Scratch server inherits `archive_mode=on` from `postgresql.auto.conf`
+### [CONCERN] The restored archive and the restored database come from different points in time
 
-Step 4 writes a new `postgresql.conf` and `pg_hba.conf` and depends on `archive_mode=off` for safety (also stated at line 279). But 227 applies the tick cluster's `archive_mode` and `archive_command` "through `pg_settings.sh`, exactly as for production" (227, line 199). Runbook 200, Step 6, says production's settings live in `postgresql.auto.conf`. The base backup carries that file, and it overrides `postgresql.conf`.
+Step 2 brings the database restore up to *now* by switching the WAL under the advisory lock. Step 3 restores `restic … latest`, which is the last nightly snapshot. If any tick run (adopt, pass or ingest) finished between that snapshot and the drill, two checks fail even though nothing is wrong with the backups:
+- Step 3: the file count and bytes won't match the live archive.
+- Step 7: the rebuild, made from the older archive, won't match the current restored database.
 
-A restored tick tree started as-is would therefore run with `archive_mode=on` and an `archive_command` that writes into `/data/backup/17-tick/wal`. After recovery promotes, the scratch server's new timeline and its `.history` file would land in the live tick WAL archive, and the hourly push would copy them to B2. The runbook calls this out explicitly: "empty the restored `postgresql.auto.conf` first … must be empty before every start", and check it with `grep -c archive`.
+The lock protects the drill window, not the gap before it. Step 3 would also report this as an *archive restore* failure, which is misleading.
 
-The step must truncate `postgresql.auto.conf` and confirm no `archive` setting is left before `pg_ctl start`. The slice's claims that the scratch server "can't write into the tick WAL archive" and that "Production is only read" are false until it does.
+Fix: add an explicit precondition in step 0 or step 1, inside the lock. Refuse with a named error ("archive changed since snapshot <time>; run the restic backup first") when:
+- any file in `/data/tick-archive` is newer than the latest snapshot's time, or
+- the file count or bytes already differ from the snapshot.
 
-### [CONCERN] Archive recovery is under-specified: no `recovery.signal`, no matching settings
+The other option is to take a fresh archive snapshot under the lock. Either way, write the rule into runbook 200's drill procedure.
 
-The drill restores "to the end of the archived WAL" through `restore_command`. PostgreSQL only uses `restore_command` when `recovery.signal` is present. Without it, the server does crash recovery from the base backup's own `pg_wal` and stops at the end of the backup. Step 5 would then always fail on counts, and the cause would look like a WAL-chain gap when it isn't.
+### [CONCERN] Cleanup can't remove root-owned files left by a partial restore
 
-Runbook 200's PITR section also says archive recovery refuses to start below the primary's `max_worker_processes` and `max_locks_per_transaction`. Emptying `postgresql.auto.conf` (finding above) removes those values, so they have to be set in the scratch `postgresql.conf`. The slice should:
-- list `recovery.signal`;
-- name the settings that must be at least the primary's values;
-- read those values from `17/tick` at step 1, not hard-code them.
+Step 3 runs `sudo restic restore` and then `sudo -n chown`. If either fails after restic has written files, the drill directory holds root-owned files. That can happen four ways:
+- the 30-minute bound kills restic;
+- restic itself errors;
+- `sudo -n chown` fails because the sudo timestamp expired during a long restore;
+- the run is killed between the two commands.
 
-Line 114 should also distinguish "recovery stopped early" (startup log, end LSN against the segment named in step 2) from a data mismatch. As written, both show up as a step-5 count failure, which is harder to diagnose.
+Both step 8 ("remove the drill directory", run as manta) and TD5's leftover sweep would then fail, and every later drill would fail at step 0. TD5 only covers a stopped scratch server, not root-owned contents.
 
-### [CONCERN] Leftover clearing can destroy a concurrent drill run
+Fix: state how cleanup and the leftover sweep handle this. For example, a `sudo -n chown -R manta:manta` or `sudo -n rm -rf`, limited to a marked `228-drill-*` path (the same path check step 3 already does), with a named error if sudo isn't available. Add a unit test for the case.
 
-Step 0 stops and removes every marked `228-drill-*` directory. The tick advisory lock isn't taken until step 1. The marker records a pid, but nothing says the pid is checked. If a second invocation starts while a first one is mid-rebuild (steps 6–9 run after the lock is released), it will stop the first run's scratch server and delete its directory.
+### [CONCERN] The role and privileges on the production tick cluster aren't specified
 
-Fix: remove a marked directory only when its pid is no longer alive, and refuse otherwise, naming the pid. Or take a drill-local lock, such as `flock` on `/data/restore-test`, before step 0. Add the live-pid case to the unit tests at line 230.
+Steps 1, 2 and 5 need privileges that aren't named anywhere:
+- `pg_switch_wal()` (superuser or an explicit grant);
+- `SELECT` on every public table, including all bookkeeping tables, for the counts;
+- reads of the tick advisory lock and the server settings.
 
-### [CONCERN] `sudo` and production reads have no stated bound
+The design says "psql on 17/tick" but doesn't say which role, how it authenticates, or how it connects. That last point matters because the architecture requires TCP by host name for `17/tick` (arch line 156) and 913 defines least-privilege roles. The "Prerequisites" section only mentions the now-unused `trading_tick_drill` `pg_hba` entry. This is a hidden dependency.
 
-TD6 bounds four waits. Two failure modes are left out:
-- **`sudo`:** the walkthrough says the drill "prompts once for `sudo`" (line 243), but the first `sudo` call is restic at step 3, after the production advisory lock is taken. An unattended prompt there blocks for an unbounded time while the lock is held. Validate credentials (`sudo -v`) at step 0, before the lock, and use `sudo -n` afterwards so an expired timestamp fails by name instead of hanging.
-- **Step 5 reads on `17/tick`:** these are full ordered fingerprint scans (0.65 GiB today, growing) with no bound. The architecture's precedent for harness reads of production is "read only with a 5 s statement timeout" (arch, revision log 2026-10-03). A 5 s limit won't cover a fingerprint scan, but the slice should set an explicit `statement_timeout`, defined once in TD6, and say that the connections are read-only (`default_transaction_read_only`).
+Separately, "Nothing is … written to … either production cluster" (line 93) isn't quite true. `pg_switch_wal` forces a segment switch, which is archived to B2. It's harmless, but the claim should be stated precisely.
 
-`pg_verifybackup`, base-backup extraction and the step-7 comparisons also have no bounds. They run only against local scratch data, so a bound is less critical there, but TD6 says "each wait or subprocess has a bound", and these are subprocesses too.
+Fix: name the role and connection path, check its grants in step 1 with a named failure, and soften the "nothing written" wording.
 
-### [CONCERN] The bookkeeping natural key doesn't cover requests without a job id
+### [CONCERN] The rebuild's production reads are read-only only by assumption
 
-TD4 keys `tick_request` by `provider_job_id` and units by `(provider_job_id, unit_date)`. The architecture writes the request row at *requested*, before the submit. Unknown-outcome submits whose job is not listed end up exhausted, still with no job id (arch, revision log 2026-09-28). Such rows have no natural key under TD4, and the expected-difference set covers only "paid jobs with no archived files".
+The drill's own production connections set `default_transaction_read_only=on`. The step 6 subprocesses (`mt data migrate apply`, `adopt`, `pass --estimate-only`, `ingest`) connect to `MT_TIMESCALE_DB_URL` from `.env` without that setting. The "Production safety" claim (line 293) for those commands rests only on line 57's statement that tick code never writes production.
 
-Production unit states that a rebuild can't reproduce are also missing from the set. These include retention-expired failures, `FAILED_RETRYABLE`/`RETRY_EXHAUSTED` attempt counts, and `PROVIDER_HOLE` units. A rebuild has none of these; every adopted unit ends *ingested*. Say how rows without a job id are matched or excused, and add the state and attempt columns, or the rows that can't be rebuilt, to the expected set. If not, the drill will either fail on a correct rebuild or need ad-hoc exceptions later. TD4 leaves column names to implementation (line 162), which is acceptable; the key rule is a design decision and shouldn't be.
+That statement matches slice 225 TD7 (ingest does not extend the calendar). The architecture still says the opposite in "Session model": "it runs the same shared extension for the CME calendar when the unit's range reaches past the populated horizon" (arch line 149). The architecture's text is stale, and the slice's safety argument relies on behaviour the architecture doesn't describe.
 
-### [NOTE] The claim of no production writes depends on the calendar horizon
+Fix:
+- Enforce it: set `PGOPTIONS='-c default_transaction_read_only=on'` in the step 6 subprocess environment, next to the `MT_TICK_*` overrides. A write attempt then fails by name instead of silently changing production.
+- Ask the architecture owner to update "Session model" to match 225 TD7.
 
-Lines 57 and 93 say no tick command writes to the production database. The architecture's session model says the ingest pass "runs the same shared extension for the CME calendar when the unit's range reaches past the populated horizon", and that extension is a write to `17/main`'s calendar tables. For today's 2024 archive it won't run. The statement should be qualified (no write "while the archive lies inside the populated calendar horizon"), or the drill should check the horizon before step 6.
+### [NOTE] The socket-URL exception to the TCP-by-host-name rule is stated and checked
 
-### [NOTE] API key variable name differs from the architecture
+The architecture says `MT_TICK_DB_URL` "connects over TCP by host name, never through a local socket". The slice names its socket URLs as a drill-only exception, keeps them in the subprocess environment only (never in `.env`), and checks them against settings validation and the migrate CLI in development step 2. That's acceptable. The architecture's 2026-10-04 revision entry could mention the exception so the two documents agree.
 
-The slice names `DATABENTO_API_KEY`. The architecture ("Secrets and spend guards") and the code (`providers/profiles.py` tests; `test_data_tick.py` checks for `MT_DATABENTO_API_KEY` in the output) use `MT_DATABENTO_API_KEY`. Use the project name so the runbook's drill section doesn't send operators to the wrong variable.
+### [NOTE] Two waits are missing from TD6's bounds table
 
-### [NOTE] The rebuild uses socket URLs, unlike production's TCP-only rule
+TD6 bounds every production wait. Two scratch-server waits aren't listed:
+- step 5's reads on the restored database (the table only lists step 7 for the scratch server);
+- `pg_ctl stop -m fast` during cleanup and the leftover sweep.
 
-`MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL` point at the scratch socket. The architecture requires TCP by host name for the production URL ("Keeping the move cheap from day one"). It's a deliberate drill-only override, set in the subprocess environment only, and that's fine. Two things should be said, though:
-- Confirm that settings validation and the migrate CLI accept a socket-path URL.
-- Record the drill's production reads (the lock, the WAL switch, the fingerprint scans) in the architecture's 2026-10-04 revision entry, the way 226's harness reads were recorded.
+`pg_ctl` has its own `-t` default, but the bound should be stated next to the others so cleanup can't hang the drill.
 
-### [PASS] Scope and boundaries match the architecture
+### [NOTE] The primary restore checks only row counts for bookkeeping tables
 
-The slice delivers exactly the anticipated "Tick restore drill" item: both media restored, both procedures written into runbook 200. It excludes automating main's drill, scheduling and PITR targets, and so avoids scope creep. Dependencies run in the right direction: it consumes 227's cluster table and parser, 226's rebuild commands and 224's list of rebuild losses, and adds no new product edges.
+Step 5 compares `tick_trade` by fingerprint, but the bookkeeping tables by row count only. The architecture calls bookkeeping the part that can't be rebuilt, so it matters most to the primary path. `pg_verifybackup` and the WAL CRCs make silent value corruption unlikely, so this is acceptable. A per-table `md5(string_agg(... ORDER BY pk))` on the bookkeeping tables would turn "restored" into "restored exactly" for little cost.
 
-### [PASS] The fingerprint matches the architecture's projection claim
+### [PASS] The slice delivers what the architecture asks of the restore drill
 
-There is one SQL definition. Its column list comes from `storage_columns.py`, and it leaves out `unit_id` with a stated reason, checking unit attribution through the ledger by natural key instead. Compression state is explicitly not compared, which follows "physical layout, including compression state, is not part of the claim". Fingerprinting one restored database against two references gives a clean separation between proving the primary restore and proving the fallback.
+- Archive and database are both drilled.
+- Both procedures go into runbook 200.
+- The drill proves the policy 227 chose (full weight, rebuild as fallback).
+- Rebuilding from the *restored* archive (TD2) directly proves the "files are the record" principle.
 
-### [PASS] NFRs
+The exclusions (automating production's drill, scheduling, point-in-time recovery) stay inside the slice's boundaries. The claim that the restore step can serve the later hammerhead move doesn't add work.
 
-The architecture sets no recovery-time target for this path, and 227 explicitly leaves recovery time for 228 to measure. The slice records the rebuild time and cites 226's 212.5 s, which matches. The architecture's ingest-throughput pass/fail applies to production passes, not to the drill. No NFR is missing.
+### [PASS] The rebuild comparison uses the architecture's definition of "the same"
+
+TD3 matches the architecture's "row-for-row the same projection (physical layout, including compression state, is not part of the claim)":
+- it hashes every column except `unit_id`, with the column list taken from `storage_columns.py`;
+- it orders rows by the natural key.
+
+TD4 matches rows by natural key and lists the expected differences from the 224 design, so it respects the rule that bookkeeping can't be rebuilt. Both are defined once and pinned by tests.
+
+### [PASS] Isolation, cleanup and failure handling
+
+- Emptying and checking `postgresql.auto.conf` keeps the scratch server from archiving into production's WAL archive and on to B2.
+- The scratch server is socket-only with `archive_mode=off`, and its TimescaleDB background workers are off.
+- The production settings it needs are read from the server, not typed in.
+- The drill takes its own `flock`, writes a marker before creating anything, and refuses to touch unmarked directories. This follows CLAUDE.md's rule for destructive actions.
+- These failure cases each have an explicit outcome, not "TBD": lost lock connection, recovery stopping early, the server exiting, timeouts, and the production database or Databento being unreachable.
+
+### [PASS] NFRs and the realtime-paths check
+
+The architecture states no latency or throughput NFR for restore. The 226 rebuild cost (212.5 s) is cited and the drill records the rebuild time without gating on it, which is appropriate. The realtime-paths check required of every slice is present and correct: the drill changes nothing about the per-unit row id, supersession or ledger grain.
 
 ### Run Digest
 
-- Response length: 10395 chars
+- Response length: 9861 chars
 - Response is newline-free: no
-- Tool calls made: 12
+- Tool calls made: 5
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
 - System prompt: preset+append
 - Settings sources: project
-- Reasoning characters: 225
+- Reasoning characters: 0
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 97.8 s
+- Duration: 93.0 s
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 11
