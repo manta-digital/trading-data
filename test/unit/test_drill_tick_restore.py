@@ -172,3 +172,37 @@ def test_a_calendar_url_with_its_own_options_is_refused(
     ctx.drill = tmp_path / "228-drill-x"
     with pytest.raises(StepFailed, match="already sets options"):
         rebuild_env(ctx)
+
+
+# --- step 6 commands ------------------------------------------------------------------
+
+
+def test_the_drill_database_is_provisioned_on_the_scratch_socket_only(
+    ctx: DrillContext, tmp_path: Path
+) -> None:
+    import drill_228_rebuild as rebuild
+
+    ctx.drill = tmp_path / "228-drill-x"
+    args = rebuild.create_drill_database(ctx)
+    assert "tick_db=trading_tick_drill" in args
+    target = args[args.index("-d") + 1]
+    assert target == f"postgresql://postgres@/postgres?host={tmp_path}/228-drill-x/sock"
+    assert args[-1].endswith("scripts/provision_tick_roles.sql")
+    assert CALENDAR_URL not in " ".join(args) and "@db.example" not in " ".join(args)
+
+
+def test_the_rebuild_runs_the_four_commands_adopting_each_job_in_order(
+    ctx: DrillContext, tmp_path: Path
+) -> None:
+    import drill_228_rebuild as rebuild
+
+    ctx.drill = tmp_path / "228-drill-x"
+    commands = [" ".join(c[2:]) for c in rebuild.rebuild_commands(ctx, ["J2", "J1"])]
+    restored = ctx.restored_archive
+    assert commands == [
+        "mt data migrate apply --track tick",
+        f"mt data tick adopt --job-id J2 --source {restored}/J2",
+        f"mt data tick adopt --job-id J1 --source {restored}/J1",
+        "mt data tick pass --estimate-only",
+        "mt data tick ingest",
+    ]

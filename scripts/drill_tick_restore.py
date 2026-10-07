@@ -41,6 +41,7 @@ from drill_228_lifecycle import (  # noqa: E402
     remove_drill_dir,
     stop_scratch_server,
 )
+from drill_228_rebuild import step_compare_rebuild, step_rebuild  # noqa: E402
 from drill_228_steps import (  # noqa: E402
     step_compare_production,
     step_hold,
@@ -82,6 +83,16 @@ STEPS: list[StepSpec] = [
         "compare with production",
         "row counts, tick_trade fingerprint, bookkeeping md5 equal; locks held",
         step_compare_production,
+    ),
+    (
+        "rebuild from the restored archive",
+        "provision, migrate, adopt per job, pass --estimate-only, ingest exit 0",
+        step_rebuild,
+    ),
+    (
+        "compare rebuild with restore",
+        "tick_trade fingerprint equal; bookkeeping differences only in TD4's set",
+        step_compare_rebuild,
     ),
 ]
 CLEANUP_NUMBER = 8

@@ -2,14 +2,14 @@
 docType: runbook
 project: trading-data
 parent: user/slices/915-slice.backup-and-restore-procedures.md
-relatedSlices: [913, 915, 920, 223, 227]
+relatedSlices: [913, 915, 920, 223, 227, 228]
 host: <prod_host>
 dateCreated: 20260816
-dateUpdated: 20261004
+dateUpdated: 20261007
 status: current
 ---
 
-# Runbook — Backup and Restore (slices 915, 920, 227)
+# Runbook — Backup and Restore (slices 915, 920, 227, 228)
 
 Run every step **on the prod host, from the prod checkout**
 (`~/source/repos/manta/trading-data`). Steps are ordered; each is standalone.
@@ -524,7 +524,8 @@ WAL archiving (zstd) + a nightly metadata dump, each pushed to
 `b2:$BUCKET/17-tick/`, keep-days 7 and the B2 lifecycle backstop as above.
 Its bookkeeping (pass-purchase provenance, reopen times, supersession links)
 cannot be rebuilt from the archive files, so rebuild-from-archive is only
-the fallback. Restore is the subject of slice 228.
+the fallback. Both restore paths and their quarterly drill are under
+"Restoring the tick tier (slice 228)" below.
 
 **Enrolment is one command, run once by the PM** after the slice is merged
 to main (cron runs the wrappers from this checkout, so the merge is what
@@ -618,7 +619,120 @@ manifest by running `mt data tick adopt --job-id <job> --source
 /data/tick-archive/<job>` once per job directory. Adoption re-verifies every
 file against its `manifest.json`, and the costs and commit times come back
 from the provider's job records. The full archive-and-database drill is
-slice 227's.
+slice 228's (next section).
+
+### Restoring the tick tier (slice 228)
+
+Two paths. The primary one restores the database from base + WAL and keeps
+everything, bookkeeping included. The fallback rebuilds it from the archive
+and loses what the 224 design lists (`224-slice.historical-acquisition-pass.md`,
+"Rebuilding the manifest"): paid jobs with no files, pass-purchase provenance
+(estimates, `download_deadline`, supersession and repurchase links), and
+`reopened_at` marks. Use the fallback only when the base/WAL chain is broken.
+The quarterly drill below proves both paths on a scratch server.
+
+**Primary: base + WAL into a fresh data directory.** These are the steps the
+drill automates (`scripts/drill_228_steps.py`, step 4):
+
+1. Unpack the newest base backup: `base.tar.gz` into the data directory,
+   `pg_wal.tar.gz` into its `pg_wal/`. Base backups are
+   `/data/backup/17-tick/base/<YYYYMMDD>/` (manta-owned, mode 0700).
+2. `pg_verifybackup -m <base>/backup_manifest <datadir>`, from
+   `/usr/lib/postgresql/17/bin` (there is no `/usr/bin` wrapper). PostgreSQL 17
+   verifies plain format only, hence the unpacking first.
+3. **Anywhere but in place of `17/tick`, empty `postgresql.auto.conf`.** It
+   holds production's `ALTER SYSTEM` settings, including `archive_mode=on`
+   and the `archive_command` into `/data/backup/17-tick/wal`. A copy started
+   with it archives its new timeline into production's archive and on to B2.
+   Check that `grep -c archive postgresql.auto.conf` prints 0.
+4. Settings that must be at least the primary's, or archive recovery refuses
+   to start: `max_connections`, `max_worker_processes`,
+   `max_locks_per_transaction`, `max_wal_senders`, `max_prepared_transactions`.
+   Read them from `17/tick` (`SELECT name, setting FROM pg_settings WHERE name
+   IN (...)`). Emptying `postgresql.auto.conf` drops any set there.
+5. `restore_command` in the two-shape form, against the tick WAL directory:
+   ```
+   restore_command = 'test -f /data/backup/17-tick/wal/%f.zst && zstd -dq /data/backup/17-tick/wal/%f.zst -o %p || cp /data/backup/17-tick/wal/%f %p'
+   ```
+6. `touch <datadir>/recovery.signal` (without it, only crash recovery runs and
+   `restore_command` is never called), then start. The log shows `restored log
+   file "<segment>" from archive` for each segment, then `archive recovery
+   complete`. The last restored segment is how far the restore got.
+
+**Putting a restored cluster back into service as `17/tick`.** Written against
+the host layout checked 2026-10-07 (`pg_lsclusters`: `17 tick 5433`, data
+`/data/postgresql/17/tick`; config `/etc/postgresql/17/tick` with
+`include_dir = 'conf.d'`; unit `postgresql@17-tick`). **Not executed**: the
+drill proves steps 1-6 above on a scratch server, but swapping the data
+directory of the live cluster has not been run. All steps are root.
+
+1. No tick run may be active (tick runs are manual today). Stop the cluster:
+   `sudo systemctl stop postgresql@17-tick`.
+2. Keep the damaged directory until the restore is proven:
+   `sudo mv /data/postgresql/17/tick /data/postgresql/17/tick.broken-$(date +%Y%m%d)`.
+3. `sudo install -d -o postgres -g postgres -m 0700 /data/postgresql/17/tick`,
+   then unpack as root (the base directory is manta-only):
+   `sudo tar -xzf <base>/base.tar.gz -C /data/postgresql/17/tick`,
+   `sudo mkdir -p /data/postgresql/17/tick/pg_wal`,
+   `sudo tar -xzf <base>/pg_wal.tar.gz -C /data/postgresql/17/tick/pg_wal`,
+   `sudo chown -R postgres:postgres /data/postgresql/17/tick`.
+4. `sudo /usr/lib/postgresql/17/bin/pg_verifybackup -m <base>/backup_manifest /data/postgresql/17/tick`.
+5. **Keep** `postgresql.auto.conf` here: in place, its `archive_command` is
+   correct, and the promoted cluster archives its new timeline into the same
+   WAL directory. Production's settings come from `/etc/postgresql/17/tick`
+   as before.
+6. Put the `restore_command` from step 5 above in
+   `/etc/postgresql/17/tick/conf.d/228-restore.conf` (owner postgres), and
+   `sudo -u postgres touch /data/postgresql/17/tick/recovery.signal`.
+7. `sudo systemctl start postgresql@17-tick` and follow
+   `/var/log/postgresql/postgresql-17-tick.log` to `archive recovery complete`
+   and `selected new timeline ID`. Then remove `conf.d/228-restore.conf`.
+8. Check: row counts and the tick status command; `SELECT
+   pg_walfile_name(pg_switch_wal())` lands as `.zst` in the WAL directory on
+   the new timeline. Take a base backup now, since older bases are on the old
+   timeline: run the tick weekly job's command from the `# cluster 17/tick`
+   block of `/etc/cron.d/manta-trading-backup`. Remove the `.broken-*`
+   directory once the new base has been taken.
+
+**Fallback: rebuild from the archive.** Restore the archive (above), then,
+against an empty tick database provisioned by `scripts/provision_tick_roles.sql
+-v tick_db=<name>`:
+
+```bash
+uv run mt data migrate apply --track tick
+uv run mt data tick adopt --job-id <job> --source <archive>/<job>   # once per job directory
+uv run mt data tick pass --estimate-only
+uv run mt data tick ingest
+```
+
+Adopt the jobs in their original order (oldest request first) when it is
+known: a definition belongs to the first unit that projected it. Adopt
+re-hashes every file against its job's `manifest.json`, including a file
+already in place, so the rebuild is also a full archive verification. The
+pass reads the CME calendar from production (read-only) and makes only free
+Databento reads.
+
+**The quarterly tick drill** — one command, as manta from the checkout root.
+It prompts once for sudo (for restic, `chown` and `rm`), then runs unattended:
+
+```bash
+uv run python scripts/drill_tick_restore.py
+```
+
+It proves the archive restores from restic, `trading_tick` restores from
+base + WAL and matches production (row counts on every table, the
+`tick_trade` fingerprint, and an md5 of each bookkeeping table), and a
+database rebuilt from the *restored* archive matches the restored one (TD4's
+expected differences only). It holds both tick advisory locks while it
+compares with production, refuses if the live archive changed since the last
+restic snapshot ("run the restic backup first"), and does all its work in
+`/data/restore-test/228-drill-<stamp>/` on a socket-only scratch server with
+`archive_mode=off`. That directory is removed at the end, pass or fail. The
+report is `project-documents/user/notes/<date>-228-tick-restore-drill.md`,
+ending `PASS: archive, database, fallback` only when every check passed; the
+exit status is 0 only then. A failed run names the step and the first
+difference; re-run the same command after fixing the cause (leftovers from a
+killed run are cleared at start-up).
 
 ---
 
@@ -640,10 +754,11 @@ slice 227's.
 | 920 watched first offsite reconcile — unarmed, then armed (Task 9.4) | 2026-09-06/07 | All by hand with the cron.d line plus `--skip-base-backup` (the last 915 cron run had taken base 20260906 at 03:00 Sunday). Unarmed 21:00: push 15 min, check 0 differences over 6,672 files, `PRUNED wal=0 base=0`, then **guard 4 refused**: base 20260830's start segment …11CD…23 was absent locally (only its history file remained) — offsite untouched, exit 1, journal line. Unarmed 06:37: aborted at the pre-prune check on one false "missing" (a segment archived mid-push) — fixed in `cron_weekly_backup.sh` (checks skip everything younger than their push). Unarmed 07:59: 0 differences, `pruning base backup /data/backup/base/20260830 (older than 7 days)`, `reconcile guards passed`, `reconcile skipped: not armed`. `touch /data/backup/RECONCILE-ARMED`; armed 08:18: 0 differences, guards passed, `rclone sync --max-delete 50` 10 min, `removing offsite base … 20260816 / 20260817 / 20260830 (absent locally)`, final check 0 differences, done 08:54. `rclone lsf --dirs-only b2:$BUCKET/base/` → `20260903/ 20260906/`. Root `--check` 2026-09-07 ~09:20 first showed `PENDING RESTART archive_mode` + `DRIFT archive_mode source` (value matched at cutover so never persisted; the conf.d removal left it unconfigured — fixed: source drift now applies too). After one more apply run (`APPLIED archive_mode`), root `--check`: **every item OK, `SUMMARY applied=0 not-ok=0`, exit 0 — success criterion 1 closed** |
 | 920 restic first snapshot, size, check, restore diff (Task 9.5) | 2026-09-07 | First snapshot taken **by cron** (04:00 root entry, no hand run): 04:00:01 → 09:09, `system backup OK`, stamp touched, `BACKUP-STALE` cleared on the next health run. Snapshot `34e6a3d1`: 262,541 files, 107.575 GiB restore size (the `du` estimate was ~108 GB; no separate `--dry-run` taken — the real run is the number), restic compression 1.12×. `restic check --read-data-subset=5%`: 263 packs read, no errors, 56 s. Restore of `/etc/postgresql`, `/etc/timeshift`, `/var/spool/cron/crontabs`, and the checkout's `deploy/` into `/data/restore-test/restic` (52 files, instant); `diff -r` clean for `/etc/timeshift`, `deploy/`, `postgresql.conf`, and the `manta` crontab (against `crontab -l`); `sudo diff -r` of `/etc/postgresql` and the crontab spool file: clean (PM, 2026-09-07). Restore directory removed |
 
-**Repeat expectation: re-run the restore drill (Step 6, at least the count
-checks and one cagg signature) and one PITR direction every quarter, or
-after any PostgreSQL/TimescaleDB major upgrade — whichever comes first.
-Next due: 2026-11-17.** A backup regime verified once and never again is the
+**Repeat expectation: every quarter, or after any PostgreSQL/TimescaleDB
+major upgrade (whichever comes first), run production's restore drill (Step
+6, at least the count checks and one cagg signature) and one PITR direction,
+plus the tick drill `uv run python scripts/drill_tick_restore.py` ("Restoring
+the tick tier"). Next due: 2026-11-17.** A backup regime verified once and never again is the
 LLD's named rot risk.
 
 ---
@@ -694,6 +809,7 @@ onward do not). The weekly cadence keeps this true automatically.
 | Whole cluster lost | Restore newest base backup (Step 6), replay WAL from `/data/backup/wal` |
 | Need a specific point in time | Step 6 + the PITR section above |
 | Tick archive lost or damaged | Restore `/data/tick-archive` from restic, then `mt data tick adopt` each job directory (Step 7, "The tick archive in the system backup") |
+| Tick database lost | Base + WAL from `/data/backup/17-tick` back into service as `17/tick` (Step 7, "Restoring the tick tier"); rebuild from the archive only if the WAL chain is broken |
 | Local disk gone | Pull from B2 first (measured: 84.5 GB in 2h05m with rclone ≥1.75; v1.60 hangs on large objects), then as above |
 | `FAIL archive_wedged` (a short raw file sits at the next-to-archive name, no `.zst` sibling — the 2026-09-02 shape) | **Never delete it.** First confirm the source still holds the segment: `ls /var/lib/postgresql/17/main/pg_wal/<name>` (as root). If present, `mv` the partial aside (`/data/backup/wal-partial-<seg>.<reason>`, outside `wal/`) and the archiver re-archives it on its next attempt. If the source has recycled it, the partial is the only copy of that segment's first bytes: keep it, and treat every base backup before that segment as the restore floor |
 | `FAIL archive_tmp_leftover` (a `*.tmp` older than 10 min in `wal/`) | An atomic write that never finished (disk full, kill). Check `df -h /data`; remove the `.tmp` — the archiver rewrites the segment from `pg_wal` on its next attempt because the final name never appeared |
