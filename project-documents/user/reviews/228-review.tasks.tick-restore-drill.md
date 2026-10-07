@@ -11,68 +11,69 @@ aiModel: deepseek/deepseek-v4.1-flash
 status: complete
 dateCreated: 20261006
 dateUpdated: 20261006
-reviewedSha: a03695bd125eb193fc009965c3774da034193c96
+reviewedSha: e572101d81dbaceb70f32ae042c324eaaf5d80fc
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 60
+toolCallsMade: 45
 turns: 20
-promptTokens: 1198349
-cachedTokens: 848768
-completionTokens: 104154
-reasoningTokens: 97625
-durationSeconds: 855.0
+promptTokens: 1100649
+cachedTokens: 902016
+completionTokens: 88674
+reasoningTokens: 82626
+durationSeconds: 603.4
 runId: run-20261007-p5-1e5c3afc
 squadronVersion: 0.20.1
 findings:
   - id: F001
-    severity: pass
-    category: requirements-coverage
-    summary: "Every slice success criterion maps to a task"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md"
+    severity: concern
+    category: test-spec-correctness
+    summary: "Task 3.5's table-list equality test cannot pass as specified"
+    location: "src/manta_trading/market/schema/migrations/minute.py:883"
   - id: F002
-    severity: pass
-    category: delivery-hygiene
-    summary: "Commit checkpoints are distributed, not batched"
+    severity: concern
+    category: test-coverage-gap
+    summary: "The allowed-difference column set is never pinned against the migration"
     location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md"
   - id: F003
     severity: concern
-    category: sequencing
-    summary: "Task 1.1's success criterion depends on a file created in Section 3"
-    location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md:82"
+    category: missing-decision
+    summary: "The live archive path has no defined source"
+    location: "deploy/backup-clusters.conf"
   - id: F004
     severity: concern
-    category: sequencing
-    summary: "Task 5.7's parser test depends on a fixture captured in task 6.7"
-    location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md:275"
+    category: production-safety
+    summary: "Which advisory lock the drill holds is ambiguous"
+    location: "src/manta_trading/data/tick/constants.py:172"
   - id: F005
     severity: concern
-    category: test-correctness
-    summary: "Task 3.5's table-set equality is unachievable by one of the two methods it names"
+    category: sequencing
+    summary: "Task 5.3 depends on a host operation that no step sanctions"
     location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md"
   - id: F006
     severity: note
-    category: delivery-hygiene
-    summary: "Section 1 has no commit checkpoint"
-    location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md:62"
+    category: scope
+    summary: "`--through-step 5` is interim CLI scaffolding that touches FR1's meaning"
+    location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md"
   - id: F007
     severity: note
-    category: implementation-clarity
-    summary: "Task 6.5 says \"run `pg_verifybackup`\" without the versioned path"
+    category: task-ordering
+    summary: "Test tasks are batched at the end of sections 3 and 4"
     location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md"
   - id: F008
     severity: note
-    category: verification-scope
-    summary: "Task 9.1's mypy scope and diff ref may not apply to this slice"
-    location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md:424-441"
+    category: dry
+    summary: "Task 2.1 names the BBO columns separately although they are already in `TICK_TRADE_COLUMNS`"
+    location: "src/manta_trading/data/tick/storage_columns.py:41"
   - id: F009
     severity: note
-    category: task-sizing
-    summary: "Task 3.2 is the largest unit and bundles four concerns"
-    location: "project-documents/user/tasks/228-tasks.tick-restore-drill.md"
+    category: traceability
+    summary: "The Integration Requirement has no task, by construction"
+    location: "project-documents/user/runbooks/200-backup-and-restore.md:646"
   - id: F010
-    severity: note
-    category: nfr-coverage
-    summary: "No load test or CI-gating task is required for this slice"
-    location: "project-documents/user/slices/228-slice.tick-restore-drill.md"
+    severity: pass
+    category: coverage
+    summary: "Required criteria are fully mapped, and the load-test/CI rule is satisfied by an explicit decision"
+    location: "project-documents/user/tasks/228-tick-restore-drill.md"
 ---
 
 # Review: tasks — slice 228
@@ -82,61 +83,61 @@ findings:
 
 ## Findings
 
-### [PASS] Every slice success criterion maps to a task
+### [CONCERN] Task 3.5's table-list equality test cannot pass as specified
 
-Cross-referenced all of FR1–FR4, the Technical Requirements (integration and unit test lists), and the Integration Requirement against the task file. Each has a home: FR1→6.1/7.4; FR2→6.4 (archive count/bytes), 6.6 (counts + fingerprint), 7.2 (rebuild fingerprint + expected differences), 7.1 (rebuild time), 7.3/7.5 (no leftovers); FR3→7.5; FR4→8.1/8.2/8.3. The unit-test list maps to 3.5, 4.5, 5.3, 5.6, 6.2, 7.3; the integration list to 2.2 and 3.4; "runs only on the host" to 6.7/7.4; "ruff and mypy clean" to 9.1. The three exceptions are recorded as CONCERNs below. No task traces to a criterion the design does not state — 3.3 (`table_md5`), 5.2 (archive-vs-snapshot) and 6.2 (`rebuild_env`) all trace to TD1 steps 5, 1 and 6 respectively.
+Task 3.5 asserts that "the 3.1 list plus `tick_trade` equals the set of `public` tables in the migrated test DB". The `migrated_tick_db` fixture applies `TRACKS["tick"]`, whose first entry is the reused bootstrap migration `001_schema_migrations` (`src/manta_trading/market/schema/migrations/tick.py:70` takes `next(m for m in MINUTE_MIGRATIONS if m["id"] == BOOTSTRAP_MIGRATION_ID)`), and that migration creates `schema_migrations` in `public` (`src/manta_trading/market/schema/migrations/minute.py:883`). The migrated tick DB therefore holds eight `public` tables: `schema_migrations` plus the seven tick tables. The 3.1 list plus `tick_trade` is seven. The test's stated Success ("passes now") is unreachable. The same boundary is already handled deliberately elsewhere — `provision_tick_roles.sql` calls its write surface "the seven tick tables" and treats `schema_migrations` separately, and `test/integration/data/test_tick_role_privileges.py` subtracts `{LEDGER}` from the `pg_tables` set. Task 3.5 must exclude `schema_migrations` explicitly (and the exclusion should be stated, not silent, or the failure will be diagnosed as a live-rebuild bug at the worst moment). Note the same "every public table" phrasing appears in 6.3 and 6.6, where the extra table is harmless but should still be acknowledged so the row-count check is not mistaken for a seventh tick table.
 
-### [PASS] Commit checkpoints are distributed, not batched
+### [CONCERN] The allowed-difference column set is never pinned against the migration
 
-Eight checkpoints (2.3, 3.6, 4.6, 5.8, 6.8, 7.6, 8.4, 9.3) close Sections 2–9, one per coherent unit of work, none deferred to the end. Section 1 is the sole exception and is noted separately.
+TD4 ends with: "The set is one constant of `(table, column)` pairs. The exact column names are taken from the tick migrations during implementation and pinned by a test." Task 3.1 builds the constant from the 1.1 findings, and 3.1's own Success criterion only requires that no literal appears *outside* the constant — it says nothing about the literals being real columns. The only migration-vs-code test in the breakdown is 3.5, which covers the *table* list, not the *column* names. A misspelled pair (e.g. `estimated_cost` for `estimated_cost_usd`, or `state_changed_at` vs the migration's actual `state_changed_at`/`fetch_status` pair) silently drops a column from the allowed set, so the drill fails loudly later on the host with a difference the design already declared expected. A pinning test asserting every `(table, column)` in the constant exists in the migrated tick DB's `information_schema.columns` is the design's requirement and has no task. I verified the real column names in `src/manta_trading/market/schema/migrations/tick.py:94-170`; the design's prose description ("estimate fields") is not a column list, so the constant genuinely depends on a test rather than on transcription.
 
-### [CONCERN] Task 1.1's success criterion depends on a file created in Section 3
+### [CONCERN] The live archive path has no defined source
 
-Task 1.1's stated success is "a short findings block is added to the top of the `drill_228_bookkeeping.py` docstring (or the 1.1 commit message)". `drill_228_bookkeeping.py` is not created until task 3.1 ("Create `scripts/drill_228_bookkeeping.py`", Section 3), so the primary success path is unattainable when 1.1 runs. Only the parenthetical fallback (put the findings in the commit message) remains, and the task does not designate it as the operative choice. This matters because 1.1's recorded facts — the six tables' columns, keys and id-valued columns — are the input to 3.1's expected-difference constant, so the dependency is real and directional. Either name the 1.1 commit message as the sole destination, or move the docstring clause to 3.1.
+Steps 1, 3 and 7 all compare against "the live archive" (`/data/tick-archive`): task 5.2 compares the live archive with `restic ls latest` for `/data/tick-archive`, task 6.3 runs that check inside step 1, and task 6.4's step 3 compares "file count and bytes with the live archive". Task 6.1 says to read paths from `load_clusters()` and asserts "No tick path literal", but the cluster table does not carry the archive path — its columns are `cluster, url_key, backup_root, remote_subpath, replication_host, metadata_cron, weekly_base_cron` (`deploy/backup-clusters.conf`). The archive root is `MT_TICK_ARCHIVE_DIR` (`.env`, slice 223; constant at `src/manta_trading/data/tick/constants.py:184`), and runbook 200 notes it is stated in two places that cannot share a constant. Task 6.1 must name the archive's source explicitly (and the same for the restore target path in step 3), or the implementer will either hard-code `/data/tick-archive` — violating 6.1's own success criterion and 9.1's grep check — or invent a third source of truth.
 
-### [CONCERN] Task 5.7's parser test depends on a fixture captured in task 6.7
+### [CONCERN] Which advisory lock the drill holds is ambiguous
 
-5.7's success says "unit tests cover the log parser on a real recovery log excerpt (captured during Section 7)", while 6.7 says "the log excerpt from recovery is saved as the fixture for 5.7's parser test, which is completed now." The two disagree: the excerpt is captured in 6.7 (Section 6), not Section 7. More importantly, 5.7 sits in Section 5 and its success criterion cannot be met there — it requires a host run (6.7) that happens two sections later, and 6.7 itself has to reach back and finish a Section 5 task. That breaks independent completability for both tasks and leaves 5.7's parser test without a real-format fixture when Section 5's commit checkpoint (5.8) is taken. The fixture capture should be its own explicitly-ordered step, or 5.7's test should be split out to immediately follow 6.7.
+TD1 step 1 says the drill takes "the tick advisory lock" (singular) so "no tick run can change production during the comparison". Task 6.3 reproduces the singular phrasing but then points at "keys in `data/tick/constants.py`" (plural). Two tick locks exist: `TICK_ACQUISITION_LOCK_KEY = 220_000_001` (constants.py:172) and `TICK_INGEST_LOCK_KEY = 220_000_002` (constants.py:240), and 227's helper treats them as a pair (`TICK_LOCK_KEYS = (TICK_ACQUISITION_LOCK_KEY, TICK_INGEST_LOCK_KEY)` in `scripts/cutover_227_host.py`). If the drill takes only the acquisition key, an ingest running concurrently writes to `trading_tick` mid-comparison, which is exactly the condition step 5's lock-verification exists to detect; if it takes both, step 5's `pg_locks` check must look for both. The task should state which key(s) are held and which the check verifies, since the release in 6.6 and the step-5 assertion both depend on it.
 
-### [CONCERN] Task 3.5's table-set equality is unachievable by one of the two methods it names
+### [CONCERN] Task 5.3 depends on a host operation that no step sanctions
 
-Task 3.5 requires that "the 3.1 list plus `tick_trade` equals the set of tables the tick migration creates (read from the migration module or the migrated test DB's `public` tables)." The tick track includes the bootstrap migration `001_schema_migrations`, whose SQL creates the `schema_migrations` table — verified at `src/manta_trading/market/schema/migrations/minute.py:880-883`, and that migration is the first entry of `TICK_MIGRATIONS` in `src/manta_trading/market/schema/migrations/tick.py`. A migrated tick database's `public` schema therefore holds eight tables (the six bookkeeping tables, `tick_trade`, and `schema_migrations`), while the design's list is seven. Read via the second method the task offers, the test fails for a reason unrelated to the behaviour it is meant to protect. The design at `project-documents/user/slices/228-slice.tick-restore-drill.md:178` says the list "is checked against the tick migration's tables", which needs the bootstrap excluded explicitly (as the migration module reading would naturally do). The task should name `schema_migrations` as excluded rather than leaving the reader to discover it from a failing equality assertion.
+Task 5.3 requires a fixture recorded from the real host: a few lines of `deploy/lib/restic_repo.sh --env-file .env --prefix system run -- ls latest --json /data/tick-archive`, into `test/fixtures`, per CLAUDE.md's parser-fixture rule. Sections 1–5 otherwise run in the dev checkout; every other host-touching task is gated to the recorded run (6.7, 7.4, 7.5). This one has no owner, no step, and no host-access prerequisite — and it also presumes the installed restic supports `ls --json`, while the same task hedges the other way ("JSON output if available, else tolerate whitespace variation"). Either 5.3 should capture the fixture in the non-JSON form it will definitely parse, or the capture should be moved into the host run and the parser written against what is actually emitted. If `--json` is not available, the fixture the task names cannot be captured at all.
 
-### [NOTE] Section 1 has no commit checkpoint
+### [NOTE] `--through-step 5` is interim CLI scaffolding that touches FR1's meaning
 
-CLAUDE.md requires "git add and commit from project root at least once per task". Sections 2–9 each end with a checkpoint; Section 1 (task 1.1, a preflight producing recorded findings) has none, so its findings have no designated commit. The parenthetical "or the 1.1 commit message" implies one is intended.
+Task 6.7 allows an intermediate `--through-step 5` style option to run the drill before steps 6–9 exist. The task acknowledges it must be removed or documented, which is adequate, but note that TD1 step 9 ties exit 0 to *every* check passing (archive, database, fallback) and FR1 repeats it. A retained partial-run mode makes "exits 0" true of a run that never exercised the fallback, which is the one claim this slice exists to make. Removal is the cleaner resolution; if kept, `--help` and the runbook drill section (8.3) must both state what exit 0 means under it.
 
-### [NOTE] Task 6.5 says "run `pg_verifybackup`" without the versioned path
+### [NOTE] Test tasks are batched at the end of sections 3 and 4
 
-On manta9000 there is no `/usr/bin/pg_verifybackup` wrapper: it exists only at `/usr/lib/postgresql/17/bin/pg_verifybackup`. This is recorded twice in the project's own documents — `project-documents/user/runbooks/200-backup-and-restore.md:33` and `project-documents/user/notes/2026-08-16-915-host-survey.md:39` — and `scripts/backup_prod.sh` hard-codes the versioned path for exactly this reason. The design (TD1 step 4) is similarly terse, so this is inherited rather than introduced, but 6.5 is the task that runs on the host (6.7) and a bare invocation will fail there. Naming the path, or reusing `backup_prod.sh`'s constant, would remove a predictable host-run failure.
+The test-with pattern holds in sections 2, 5, 6 and 7, but section 3 implements 3.1, 3.2a–3.2d and 3.3 before any test at 3.4, and section 4 implements 4.1–4.4 before 4.5. Each section is closed by a commit checkpoint, so the exposure is bounded and the section sizes are reasonable; this is a deviation from the pattern rather than a defect. Splitting 3.4's cases across 3.2a–3.2d (each of which has a crisp Success line already) would tighten it if the implementer finds the batched test file unwieldy.
 
-### [NOTE] Task 9.1's mypy scope and diff ref may not apply to this slice
+### [NOTE] Task 2.1 names the BBO columns separately although they are already in `TICK_TRADE_COLUMNS`
 
-Two items I could not confirm. (1) 9.1 scopes mypy to "src kalshi paths and tests in one invocation", inherited from the Context Summary, while Sections 2–6 repeatedly require "ruff and mypy clean on touched files" for new `scripts/drill_228_*.py` modules. If "src kalshi paths" is the literal configured target set, mypy is not run over the new code at all in the final gate. I could not locate the mypy configuration with the tools I had, so I am flagging the apparent inconsistency rather than asserting the gate is wrong. (2) 9.1 uses `git diff main`; CLAUDE.md states the integration target is read from `cf config get git.integration_branch` and falls back to `main` only when unset, and warns against inferring it. If an integration branch is configured, `main` is the wrong ref for the unrelated-deletions check. I did not read `.context-forge.toml` to confirm whether the key is set.
+Task 2.1 builds the hashed list from "`TICK_TRADE_COLUMNS`, the BBO columns, `sequence_ordinal`". The six BBO columns are entries *inside* `TICK_TRADE_COLUMNS` (`src/manta_trading/data/tick/storage_columns.py:41-46`), and `sequence_ordinal` is in `TICK_TRADE_DERIVED_COLUMNS`. Naming the BBO columns a second time invites a duplicate list in the module, which is what TD3's "not typed out, so a new column is hashed automatically" is guarding against. Referring to `TICK_TRADE_COLUMNS` plus `TICK_TRADE_DERIVED_COLUMNS` (minus `unit_id`) would keep the single source. 2.2's unit test ("a column added to `TICK_TRADE_COLUMNS` appears in the generated SQL") already guards the right invariant.
 
-### [NOTE] Task 3.2 is the largest unit and bundles four concerns
+### [NOTE] The Integration Requirement has no task, by construction
 
-3.2 (effort 5, the scale's maximum) covers natural-key matching, comparison of every id-valued column through the restored→rebuilt mapping, the allowed-missing rules, and the returned result object, over six tables. Splitting it would fight the cohesion the design intends (TD4 is one comparison defined once), so I would not require a split — but it is the task most likely to need the design open alongside it, and its success criterion ("function takes two connections; no SQL writes") does not state what a correct partial failure looks like.
+The slice's only Integration Requirement — "the next quarterly drill (due 2026-11-17) runs production's Step 6 plus this script" — has no corresponding task. That is consistent with the slice's Excluded section (automating production's drill is out of scope) and with task 8.3, which records the drill alongside production's Step 6 and its due date in runbook 200 (which does carry "Next due: 2026-11-17"). Recording it here so the mapping is explicit rather than assumed: this criterion is satisfied by documentation plus a future manual action, not by anything verifiable at the end of Phase 6.
 
-### [NOTE] No load test or CI-gating task is required for this slice
+### [PASS] Required criteria are fully mapped, and the load-test/CI rule is satisfied by an explicit decision
 
-The slice design restates no non-functional requirement: it carries Functional Requirements, Technical Requirements and Integration Requirements only, and contains no latency or throughput criterion (the 226 proof notes are cited as inputs, not restated as NFRs). No task under `test/load/` is therefore required, and no CI-gating task applies. This is consistent with the repository's CI, which only builds and publishes on `v*` tag pushes (`.github/workflows/ci.yml`) and gates no test tier, so there is no existing CI surface for such a task to wire into.
+Cross-referencing the slice's Success Criteria against the tasks: FR1 → 7.4; FR2's five items → 6.4 (archive counts/bytes), 6.6 (counts + fingerprint vs production), 7.2 (rebuild fingerprint + bookkeeping differences), 7.1 (rebuild time recorded, not gated), 7.3/7.5 (no leftovers); FR3 → 7.5; FR4 → 8.1/8.2/8.3. The Technical Requirements map one-for-one: fingerprint integration cases → 2.2 (+ the automatic-hashing unit test); all six bookkeeping integration cases → 3.4; leftover handling, `flock`, `auto.conf` guard, snapshot precondition, cleanup path check → 4.5, 5.3, 5.6; calendar-URL override → 6.2; table list vs migration → 3.5; report exit status → 6.2/7.3; ruff/mypy and the host-only full run → 9.1, 7.4. No task lacks a criterion behind it (1.1 traces to TD1's "implementation step 2 confirms" clause, 3.3 to TD1 step 5, 8.1 to Technical Scope item 4), commit checkpoints are spread across all nine sections, and dependency order is respected with no cycles (fingerprint → bookkeeping → lifecycle → host primitives → steps 0–5 → steps 6–9 → runbook → validation; step 3's archive restore precedes the rebuild that adopts from it; step 2's target segment precedes step 4's `check_reached`). On the load/CI rule: the parent slice restates no NFR (no NFR or performance-target text in `project-documents/user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md` or the 228 design), so no `tests/load/` task and no CI-gating task are required, and the breakdown states that decision explicitly in its Scope bullet rather than leaving it implicit.
 
 ### Run Digest
 
-- Response length: 8858 chars
+- Response length: 11426 chars
 - Response is newline-free: no
-- Tool calls made: 60
-- Tool calls failed: 2
+- Tool calls made: 45
+- Tool calls failed: 1
 - Stop reason: stop
 - Output budget: 384000 tokens
 - System prompt: custom
 - Settings sources: n/a (non-SDK)
-- Reasoning characters: 358297
+- Reasoning characters: 308228
 - Effort: backend default
 - Turns: 20
-- Tokens — prompt / cached / completion / reasoning: 1198349 / 848768 / 104154 / 97625
-- Duration: 855.0 s
+- Tokens — prompt / cached / completion / reasoning: 1100649 / 902016 / 88674 / 82626
+- Duration: 603.4 s
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 10
