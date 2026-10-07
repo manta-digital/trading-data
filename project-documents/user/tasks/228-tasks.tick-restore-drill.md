@@ -496,23 +496,23 @@ status: in_progress
         connection's own backend (`pg_locks`); any error on that connection or
         a missing lock fails the step. Release the locks; production is not touched afterwards.
   - [x] Success: all equal, or the step fails naming the first difference.
-- [ ] **6.7 Run steps 0-5 on manta9000** (effort 3)
-  - [ ] Steps 6-9 are not wired yet. Run the step functions through step 5 from
+- [x] **6.7 Run steps 0-5 on manta9000** (effort 3)
+  - [x] Steps 6-9 are not wired yet. Run the step functions through step 5 from
         a one-off shell call (`run_steps(through=5)`, a function parameter, not
         a CLI option, so the finished script's interface and FR1's "exits 0"
         meaning are unchanged). Cleanup (4.4) must still run.
-  - [ ] Success: steps 0-5 pass on the host; no `228-drill-*` directory and no
+  - [x] Success: steps 0-5 pass on the host; no `228-drill-*` directory and no
         scratch server left.
-  - [ ] If a step fails, get the actual error text before any fix (CLAUDE.md);
+  - [x] If a step fails, get the actual error text before any fix (CLAUDE.md);
         ask the Project Manager if it cannot be obtained.
-- [ ] **6.8 Capture real-format fixtures and test the parsers** (effort 3)
-  - [ ] From 6.7's run, save a short excerpt of the real recovery log and a few
+- [x] **6.8 Capture real-format fixtures and test the parsers** (effort 3)
+  - [x] From 6.7's run, save a short excerpt of the real recovery log and a few
         real `restic ls --json` lines as fixtures under `test/fixtures`.
-  - [ ] Add tests that 5.9's log parser and 5.2's listing parser read them
+  - [x] Add tests that 5.9's log parser and 5.2's listing parser read them
         (CLAUDE.md's real-format rule). If either parser fails on real input,
         fix the parser, not the fixture.
-  - [ ] Success: both tests pass on the real excerpts.
-- [ ] **6.9 Commit checkpoint** - `feat: add tick restore drill steps 0-5`
+  - [x] Success: both tests pass on the real excerpts.
+- [x] **6.9 Commit checkpoint** - `feat: add tick restore drill steps 0-5`
 
 ---
 
