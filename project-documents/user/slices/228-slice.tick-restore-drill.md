@@ -7,7 +7,7 @@ dependencies: [227]
 interfaces: []
 dateCreated: 20261004
 dateUpdated: 20261007
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: tick-restore-drill
@@ -166,7 +166,7 @@ Every tick bookkeeping table is compared, restored against rebuilt: `tick_reques
   - a ledger row's unit, so the ledger also proves which unit wrote each session part;
   - a unit's supersession and repurchase links.
 - **Columns that may differ** (the 224 design's adopt-path losses, plus the times a rebuild sets anew):
-  - `tick_request`: `is_adopted`, the estimate fields, `download_deadline`;
+  - `tick_request`: `is_adopted`, the estimate fields (`estimated_cost_usd`), `download_deadline`, `requested_at` (adopt writes the provider's `ts_received`; a pass purchase writes its own clock at planning. `committed_at` is `ts_received` on both paths, so it must match; PM decision 2026-10-07);
   - `tick_archive_unit`: the repurchase and supersession links, `reopened_at`, `state_changed_at`, `last_attempt_at`, `attempt_count`, `failure_reason` (a rebuild adopts each file once, with none of production's retries);
   - `tick_dataset_edge` and `tick_day_condition`: every value column. The pass re-observes them from the provider at drill time. The rebuild must still have a condition row for every `(dataset, condition_date)` the restored database has.
 - **Rows that may be missing:**

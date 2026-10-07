@@ -13,7 +13,7 @@ projectState: >
   Slice design committed and re-reviewed.
 dateCreated: 20261006
 dateUpdated: 20261007
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Tick Restore Drill
@@ -63,35 +63,116 @@ status: not_started
 
 ## Section 1 - Preflight facts
 
-- [ ] **1.1 Confirm the code facts the design relies on** (effort 2)
-  - [ ] Read the tick migration (`src/manta_trading/market/schema/migrations/tick.py`).
+- [x] **1.1 Confirm the code facts the design relies on** (effort 2)
+  - [x] Read the tick migration (`src/manta_trading/market/schema/migrations/tick.py`).
         Record the exact columns of the six bookkeeping tables
         (`tick_request`, `tick_archive_unit`, `tick_definition`,
         `tick_ingest_ledger`, `tick_dataset_edge`, `tick_day_condition`) and
         each one's primary key, natural key, and id-valued columns
         (`request_id`, `unit_id`, `superseded_by_unit_id`, `repurchase_of_unit_id`).
-  - [ ] Read `cutover_common.run` and `cutover_227_host.psql`. Both use plain
+  - [x] Read `cutover_common.run` and `cutover_227_host.psql`. Both use plain
         `sudo`; TD1 requires `sudo -n` after step 0. Decide how `drill_228_host`
         wraps them (a `sudo_n` argument or its own helper) without editing 227's
         scripts' behaviour.
-  - [ ] Confirm the settings validation and `mt data migrate apply --track tick`
+  - [x] Confirm the settings validation and `mt data migrate apply --track tick`
         accept a socket-style URL (`postgresql://user@/db?host=/path`). Run
         against the test cluster if needed. If either rejects it, stop and ask
         the Project Manager (TD1 step 6 assumes they accept).
-  - [ ] Confirm where the live archive path comes from: `MT_TICK_ARCHIVE_DIR`
+  - [x] Confirm where the live archive path comes from: `MT_TICK_ARCHIVE_DIR`
         (`TICK_ARCHIVE_DIR_ENV` in `data/tick/constants.py`) read from `.env`
         the way `cutover_227_host.env_value` and
         `verify_tick_archive_backup.sh` do. `backup-clusters.conf` holds only
         the backup root, WAL and base directories, not the archive.
-  - [ ] Confirm the tick locks match TD1 step 1: `TICK_ACQUISITION_LOCK_KEY`
+  - [x] Confirm the tick locks match TD1 step 1: `TICK_ACQUISITION_LOCK_KEY`
         (adopt, reset, pass) and `TICK_INGEST_LOCK_KEY` (ingest), both taken
         through `cutover_227_host.TICK_LOCK_KEYS` (6.3).
-  - [ ] Confirm the restic call shape used by runbook 200 for restore
+  - [x] Confirm the restic call shape used by runbook 200 for restore
         (`--env-file .env --prefix system run -- restore ...`).
-  - [ ] Write the findings into this task file as a `Findings (1.1)` block
+  - [x] Write the findings into this task file as a `Findings (1.1)` block
         directly under this task: columns, keys, id-valued columns, the sudo
         wrapper decision, the socket-URL result. Section 3 reads it from here.
-  - [ ] Success: the findings block exists in this file; no code changes.
+  - [x] Success: the findings block exists in this file; no code changes.
+
+  **Findings (1.1)** (2026-10-07; source `migrations/tick.py` tick_002-tick_007)
+
+  | Table | Primary key | Natural key | Id-valued columns |
+  |---|---|---|---|
+  | `tick_request` | `request_id` (identity) | `provider_job_id` (UNIQUE, nullable) | `request_id` |
+  | `tick_archive_unit` | `unit_id` (identity) | `(provider_job_id via request_id, unit_date)`; UNIQUE `(request_id, unit_date)` | `unit_id`, `request_id`, `superseded_by_unit_id`, `repurchase_of_unit_id` |
+  | `tick_definition` | `(instrument_id, activation_ns)` | same as PK | `unit_id` |
+  | `tick_ingest_ledger` | `(unit_id, instrument_id, session_date)` | `(unit natural key, instrument_id, session_date)` | `unit_id` |
+  | `tick_dataset_edge` | `dataset` | same as PK | none |
+  | `tick_day_condition` | `(dataset, condition_date)` | same as PK | none |
+
+  Columns:
+  - `tick_request`: request_id, dataset, schema, symbols, stype_in, range_start,
+    range_end, delivery_mode, is_adopted, provider_job_id, estimated_cost_usd,
+    actual_cost_usd, provider_record_count, billed_size_bytes, requested_at,
+    committed_at, download_deadline.
+  - `tick_archive_unit`: unit_id, request_id, unit_date, state, state_changed_at,
+    fetch_status, failure_reason, attempt_count, last_attempt_at, file_path,
+    file_size_bytes, file_sha256, provider_record_count, decoded_record_count,
+    superseded_by_unit_id, repurchase_of_unit_id, reopened_at (tick_006).
+  - `tick_definition`: instrument_id, activation_ns, expiration_ns, raw_symbol,
+    asset, exchange, instrument_class, security_type, cfi, currency,
+    min_price_increment, display_factor, unit_of_measure, unit_of_measure_qty,
+    contract_multiplier, ts_recv_ns, unit_id.
+  - `tick_ingest_ledger`: unit_id, instrument_id, calendar_id, session_date,
+    record_count, volume, first_event_ns, last_event_ns.
+  - `tick_dataset_edge`: dataset, available_start, available_end, observed_at.
+  - `tick_day_condition`: dataset, condition_date, condition,
+    last_modified_date, observed_at.
+  - `public` tables after migrating: the six above, `tick_trade`, and the
+    runner's `schema_migrations` (8 total, confirmed on a scratch server).
+
+  Request columns, adopt vs pass (`manifest_repo.py`, `manifest_pass.py`):
+  adopt writes `estimated = actual = cost`, `requested_at = committed_at =
+  ts_received`, no `download_deadline`. The pass writes `requested_at =
+  run.clock()` at planning and `committed_at = ts_received` at submit. So
+  `requested_at` differs and `committed_at` matches. **PM decision 2026-10-07:**
+  `requested_at` joins TD4's allowed set (slice design updated);
+  `committed_at` does not. Production today: 6 requests, all adopted; 156
+  units, all `ingested`/`UNKNOWN`, none reopened, superseded or repurchased.
+
+  Sudo wrapper: `cutover_common.run(sudo=True)` and `cutover_227_host.psql`
+  prepend plain `sudo`. `drill_228_host` gets its own `sudo_n(args)` helper
+  (prepends `sudo -n`, maps exit 1 + "a password is required" to the named
+  "sudo timestamp expired" error) and its own `postgres_value(sql)`, built
+  the same way as `psql()` but through `sudo_n`. 227's scripts are not edited.
+
+  Socket URL: proven on a throwaway socket-only PG 17.11 + TimescaleDB
+  server. `mt data migrate apply --track tick` with
+  `MT_TICK_MAINTENANCE_URL=postgresql://manta@/<db>?host=<sockdir>` applied
+  all 7 tick migrations. Settings take tick URLs as plain `str` (no host
+  validation); env vars override `.env`. `options=-c%20default_transaction_read_only%3Don`
+  in a URL gives `default_transaction_read_only=on`, and a write fails with
+  `ReadOnlySqlTransaction`. **Unix socket paths cap at 107 bytes**:
+  `<sockdir>/.s.PGSQL.5432` must fit, and `/data/restore-test/228-drill-<stamp>/sock`
+  does.
+
+  Paths and backup layout:
+  - Archive: `MT_TICK_ARCHIVE_DIR` (`TICK_ARCHIVE_DIR_ENV`), read with
+    `cutover_227_host.env_value(.env, key)`. Today `/data/tick-archive`, 500 MB.
+  - From the cluster row's `backup_root` (`/data/backup/17-tick`): WAL is
+    `<root>/wal` and base backups are `<root>/base/<YYYYMMDD>/` holding
+    `base.tar.gz`, `pg_wal.tar.gz` and `backup_manifest` (setup-backup.sh
+    `WAL_DIR="$ROOT/wal"`, `CLUSTER_SUBDIRS=(base metadata)`).
+  - Restoring the base: extract `base.tar.gz` into pgdata and `pg_wal.tar.gz`
+    into `pgdata/pg_wal`, then `pg_verifybackup -m <base>/backup_manifest
+    <pgdata>` (PG 17 verifies plain format only; `backup_prod.sh` does the same).
+  - `/data` is manta-owned. `/data/restore-test` does not exist yet, so step 0
+    creates it.
+
+  Locks: `TICK_ACQUISITION_LOCK_KEY = 220_000_001`, `TICK_INGEST_LOCK_KEY =
+  220_000_002` (`data/tick/constants.py`), the tuple is
+  `cutover_227_host.TICK_LOCK_KEYS`. The `pg_locks` probe shape
+  (`classid = 0 AND objsubid = 1 AND objid IN (...)`) is in `tick_locks_held()`.
+
+  Restic: `deploy/lib/restic_repo.sh --env-file .env --prefix system run --
+  <restic args>`, run as root. Listing: `ls --json --recursive latest <archive>`
+  (without `--recursive` a directory filter lists only direct children).
+  Restore: `restore latest --target <dir> --include <archive>`.
+
 - [ ] **1.2 Commit checkpoint** - `docs: record slice 228 preflight findings`
 
 ---
