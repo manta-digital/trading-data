@@ -272,3 +272,19 @@ def test_table_md5_differs_after_one_missing_row(pair: Any) -> None:
     seed(rebuilt)
     rebuilt.execute("DELETE FROM tick_ingest_ledger WHERE session_date = %s", (DAY_2,))
     assert bk.table_md5(restored, bk.LEDGER) != bk.table_md5(rebuilt, bk.LEDGER)
+
+
+def test_table_md5_ignores_the_session_time_zone(
+    migrated_tick_db: str, second_migrated_tick_db: str
+) -> None:
+    with (
+        psycopg.connect(migrated_tick_db, autocommit=True) as utc,
+        psycopg.connect(
+            second_migrated_tick_db,
+            autocommit=True,
+            options="-c TimeZone=America/Denver -c DateStyle=SQL,DMY",
+        ) as denver,
+    ):
+        seed(utc)
+        seed(denver)
+        assert bk.table_md5(utc, bk.REQUEST) == bk.table_md5(denver, bk.REQUEST)

@@ -30,7 +30,8 @@ PROD_STATEMENT_TIMEOUT = timedelta(minutes=10)
 SCRATCH_STATEMENT_TIMEOUT = timedelta(minutes=10)
 #: Wait for step 2's WAL segment to reach the archive.
 WAL_WAIT = timedelta(seconds=120)
-RESTIC_RESTORE_TIMEOUT = timedelta(minutes=30)
+#: restic restore (step 3); also bounds step 1's `restic ls`.
+RESTIC_TIMEOUT = timedelta(minutes=30)
 BASE_EXTRACT_TIMEOUT = timedelta(minutes=30)
 VERIFYBACKUP_TIMEOUT = timedelta(minutes=30)
 #: Wait for the scratch server to leave recovery.

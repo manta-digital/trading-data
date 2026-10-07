@@ -313,3 +313,21 @@ def test_check_reached(seen: str | None, needed: str, ok: bool) -> None:
         return
     with pytest.raises(DrillError, match="recovery stopped early at"):
         scratch.check_reached(seen, needed)
+
+
+def test_start_waits_for_the_server_and_a_failed_start_shows_the_log(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "log").write_text("FATAL: could not load timescaledb\n")
+    seen: list[list[str]] = []
+
+    def run(args: list[str]) -> subprocess.CompletedProcess[str]:
+        seen.append(args)
+        return done(1)
+
+    with pytest.raises(DrillError, match="could not load timescaledb"):
+        scratch.start_scratch(tmp_path, tmp_path / "log", run, lambda: False)
+    assert seen[0][1] == "start" and "-w" in seen[0]
+    assert seen[0][seen[0].index("-t") + 1] == str(
+        int(RECOVERY_TIMEOUT.total_seconds())
+    )

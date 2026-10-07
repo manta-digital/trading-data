@@ -115,16 +115,22 @@ def start_scratch(
 ) -> float:
     """Start the server and wait for recovery to end; seconds taken.
 
-    ``in_recovery`` returns ``None`` while the server can't be reached yet. A
-    server that exits during the wait fails with its log tail; one still in
-    recovery past ``RECOVERY_TIMEOUT`` fails by name.
+    ``pg_ctl start -w`` returns once the server accepts connections (a hot
+    standby does when consistent) or reports its death, so the status checks
+    below never race the postmaster writing its pid file. ``in_recovery``
+    returns ``None`` while the server can't be reached. A server that exits
+    during the wait fails with its log tail; one still in recovery past
+    ``RECOVERY_TIMEOUT`` fails by name.
     """
-    started = run(pg_ctl("start", "-D", str(datadir), "-l", str(logfile), "-W"))
+    begin = clock()
+    bound = str(int(RECOVERY_TIMEOUT.total_seconds()))
+    started = run(
+        pg_ctl("start", "-D", str(datadir), "-l", str(logfile), "-w", "-t", bound)
+    )
     if started.returncode != 0:
         raise DrillError(
             f"pg_ctl start exited {started.returncode}:\n{log_tail(logfile)}"
         )
-    begin = clock()
     while clock() - begin < RECOVERY_TIMEOUT.total_seconds():
         if run(pg_ctl("status", "-D", str(datadir))).returncode != 0:
             raise DrillError(

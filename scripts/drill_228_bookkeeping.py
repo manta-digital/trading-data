@@ -166,10 +166,24 @@ def _primary_key(conn: psycopg.Connection[Any], table: str) -> list[str]:
     return [str(r[0]) for r in rows]
 
 
+#: Session settings that change how a row renders as text. Pinned before
+#: hashing: production's sessions run in America/Denver, the scratch server's
+#: in GMT, and ``timestamptz::text`` follows the session's TimeZone.
+TEXT_SETTINGS: dict[str, str] = {"TimeZone": "UTC", "DateStyle": "ISO, MDY"}
+
+
+def pin_text_settings(conn: psycopg.Connection[Any]) -> None:
+    for name, value in TEXT_SETTINGS.items():
+        conn.execute("SELECT set_config(%s, %s, false)", (name, value))
+
+
 def table_md5(conn: psycopg.Connection[Any], table: str) -> str | None:
-    """md5 of the table's rows in primary-key order; ``None`` for an empty table."""
+    """md5 of the table's rows in primary-key order; ``None`` for an empty table.
+    The text rendering is pinned first, so the hash is the same whatever
+    session settings the caller's connection carries."""
     if table not in BOOKKEEPING_TABLES:
         raise ValueError(f"{table} is not a bookkeeping table")
+    pin_text_settings(conn)
     order = sql.SQL(", ").join(map(sql.Identifier, _primary_key(conn, table)))
     query = sql.SQL("SELECT md5(string_agg(t::text, E'\\n' ORDER BY {})) FROM {} t")
     row = conn.execute(query.format(order, sql.Identifier(table))).fetchone()
