@@ -279,69 +279,69 @@ status: in_progress
   - [x] Success: pass now; each fails when a table or column is added to the
         migration without the constants (verify once by hand, do not commit the
         breakage).
-- [ ] **3.9 Commit checkpoint** - `feat: add bookkeeping comparison for the restore drill`
+- [x] **3.9 Commit checkpoint** - `feat: add bookkeeping comparison for the restore drill`
 
 ---
 
 ## Section 4 - Drill lifecycle: lock, marker, leftovers, cleanup, bounds (TD1 step 0/8, TD5, TD6)
 
-- [ ] **4.1 Time bounds and shared constants** (effort 1)
-  - [ ] Create `scripts/drill_228_lifecycle.py`. Define the TD6 table once as
+- [x] **4.1 Time bounds and shared constants** (effort 1)
+  - [x] Create `scripts/drill_228_lifecycle.py`. Define the TD6 table once as
         named constants (statement timeouts, WAL wait 120 s, restic 30 min,
         base extraction and `pg_verifybackup` 30 min each, recovery 15 min,
         each `mt data` command 60 min, `pg_ctl stop -t 60`).
-  - [ ] Define the drill root (`/data/restore-test`), directory prefix
+  - [x] Define the drill root (`/data/restore-test`), directory prefix
         (`228-drill-`), marker name (`drill-228.json`), lock path
         (`/data/restore-test/.228-drill.lock`), the PostgreSQL binary directory
         (`/usr/lib/postgresql/17/bin`, for `pg_ctl` and `pg_verifybackup`), and
         the report directory (`project-documents/user/notes`).
-  - [ ] The live archive path is **not** a constant: it is `MT_TICK_ARCHIVE_DIR`
+  - [x] The live archive path is **not** a constant: it is `MT_TICK_ARCHIVE_DIR`
         from `.env` (1.1), and every later task uses that value, including for
         restic's `--include` and `ls` path.
-  - [ ] Success: no bound, drill path, binary directory or report directory
+  - [x] Success: no bound, drill path, binary directory or report directory
         literal appears anywhere else in the slice's code (grep in 9.1).
-- [ ] **4.2 Implement the drill flock and the marker** (effort 2)
-  - [ ] `acquire_drill_lock()`: `flock` held for the whole run; refuse if held
+- [x] **4.2 Implement the drill flock and the marker** (effort 2)
+  - [x] `acquire_drill_lock()`: `flock` held for the whole run; refuse if held
         by another drill, naming it.
-  - [ ] `create_drill_dir(stamp)`: makes the directory and writes the marker
+  - [x] `create_drill_dir(stamp)`: makes the directory and writes the marker
         (stamp, pid) *first*, before anything else is placed in it.
-  - [ ] Success: importable; the marker is the first file written.
-- [ ] **4.3 Unit tests for 4.2** (effort 2)
-  - [ ] `test/unit/test_drill_228_lifecycle.py`, `tmp_path` as the root. Cases:
+  - [x] Success: importable; the marker is the first file written.
+- [x] **4.3 Unit tests for 4.2** (effort 2)
+  - [x] `test/unit/test_drill_228_lifecycle.py`, `tmp_path` as the root. Cases:
         a second acquire refuses; the marker exists with stamp and pid.
-  - [ ] Success: pass.
-- [ ] **4.4 Implement the path check and cleanup** (effort 3)
-  - [ ] `assert_drill_path(path)`: resolve symlinks first. The resolved path
+  - [x] Success: pass.
+- [x] **4.4 Implement the path check and cleanup** (effort 3)
+  - [x] `assert_drill_path(path)`: resolve symlinks first. The resolved path
         must be a drill directory (a direct child of the drill root, named with
         the drill prefix, containing the marker) **or lie inside one**. Anything
         else raises by name. This is the check for `chown` of the restored
         archive, which sits inside the drill directory.
-  - [ ] `remove_drill_dir(path)`: requires `path` to be the drill directory
+  - [x] `remove_drill_dir(path)`: requires `path` to be the drill directory
         itself (stricter than the check above: a subdirectory is refused), then
         `sudo -n rm -rf`. If sudo is unavailable, fails by name and leaves the
         path for the report.
-  - [ ] `stop_scratch_server(path)`: `pg_ctl stop -m fast -t 60` as manta when a
+  - [x] `stop_scratch_server(path)`: `pg_ctl stop -m fast -t 60` as manta when a
         server is running from that data directory.
-  - [ ] Success: unmarked path, outside-root path, a `..` escape and a symlink
+  - [x] Success: unmarked path, outside-root path, a `..` escape and a symlink
         escaping the root all raise before any `rm` call; a path inside a
         marked drill directory passes the check but is refused by removal.
-- [ ] **4.5 Unit tests for 4.4** (effort 2)
-  - [ ] Add to `test_drill_228_lifecycle.py`, with `pg_ctl` and `sudo` stubbed
+- [x] **4.5 Unit tests for 4.4** (effort 2)
+  - [x] Add to `test_drill_228_lifecycle.py`, with `pg_ctl` and `sudo` stubbed
         (record calls, no real `rm`): `assert_drill_path` rejects unmarked,
         outside-root, `..`-escape and symlink-escape paths with no `rm`
         issued, and accepts a subdirectory of a marked drill directory;
         `remove_drill_dir` refuses that subdirectory; a marked drill directory
         is stopped then removed.
-  - [ ] Success: pass.
-- [ ] **4.6 Implement the startup leftover sweep** (effort 3)
-  - [ ] For each `/data/restore-test/228-drill-*`: marked → stop its server if
+  - [x] Success: pass.
+- [x] **4.6 Implement the startup leftover sweep** (effort 3)
+  - [x] For each `/data/restore-test/228-drill-*`: marked → stop its server if
         running, then `remove_drill_dir`; unmarked → refuse, naming the path.
-  - [ ] Runs only under the drill flock. Matches TD5 exactly.
-  - [ ] Success: importable; uses 4.4's functions only.
-- [ ] **4.7 Unit tests for 4.6** (effort 2)
-  - [ ] Cases: marked leftover → stopped then removed; unmarked → refuse, no
+  - [x] Runs only under the drill flock. Matches TD5 exactly.
+  - [x] Success: importable; uses 4.4's functions only.
+- [x] **4.7 Unit tests for 4.6** (effort 2)
+  - [x] Cases: marked leftover → stopped then removed; unmarked → refuse, no
         `rm`; sweep without the flock held → refuse.
-  - [ ] Success: pass; ruff and mypy clean on touched files.
+  - [x] Success: pass; ruff and mypy clean on touched files.
 - [ ] **4.8 Commit checkpoint** - `feat: add restore drill lifecycle with marked cleanup`
 
 ---
