@@ -50,9 +50,11 @@ status: not_started
   `scripts/cutover_227_host.py` (`psql()`: postgres over the local socket),
   `scripts/provision_tick_roles.sql`, `storage_columns.py`.
 - **Test environment.** Export `MT_TIMESCALE_TEST_URL` from `.env` with quotes
-  stripped. Run unit and integration tiers separately. Run mypy on the src
-  kalshi paths and the tests in one invocation. Known pre-existing failures are
-  not regressions: re-run in isolation before investigating.
+  stripped. Run unit and integration tiers separately. Known pre-existing
+  failures are not regressions: re-run in isolation before investigating.
+- **Scope.** The drill is a manual quarterly script: no load test and no CI
+  gating task is needed. Its checks are the unit and integration tests below
+  plus the recorded host run.
 - Next slice: none planned after this one in 220's tick backup chain.
 
 **Effort scale:** 1 (trivial) to 5 (hard).
@@ -78,9 +80,11 @@ status: not_started
         the Project Manager (TD1 step 6 assumes they accept).
   - [ ] Confirm the `restic_repo.sh` call shape used by runbook 200 for restore
         (`--env-file .env --prefix system run -- restore ...`).
-  - [ ] Success: a short findings block is added to the top of the
-        `drill_228_bookkeeping.py` docstring (or the 1.1 commit message) listing
-        columns, keys and the socket-URL result. No code behaviour changes.
+  - [ ] Write the findings into this task file as a `Findings (1.1)` block
+        directly under this task: columns, keys, id-valued columns, the sudo
+        wrapper decision, the socket-URL result. Section 3 reads it from here.
+  - [ ] Success: the findings block exists in this file; no code changes.
+- [ ] **1.2 Commit checkpoint** - `docs: record slice 228 preflight findings`
 
 ---
 
@@ -127,20 +131,31 @@ status: not_started
         files; units with no archived file in any state.
   - [ ] Success: each value defined once; no `(table, column)` literal appears
         outside the constant.
-- [ ] **3.2 Implement natural-key matching and the comparison** (effort 5)
+- [ ] **3.2a Natural-key id mapping** (effort 3)
   - [ ] Match requests by `provider_job_id`, units by
         `(provider_job_id, unit_date)`; never by `request_id` or `unit_id`.
-  - [ ] Compare every id-valued column through the restored→rebuilt mapping:
-        definition's unit, ledger row's unit, unit supersession and repurchase
-        links.
-  - [ ] A rebuilt request without a job id fails. Missing rows outside the
-        allowed rules fail; a unit with a file whose state differs fails.
+        Build the restored→rebuilt `request_id` and `unit_id` maps.
+  - [ ] Success: a function returning both maps from two connections; requests
+        without a job id are returned separately, not mapped; no SQL writes.
+- [ ] **3.2b Table row comparison through the mapping** (effort 4)
+  - [ ] Compare each bookkeeping table's rows, translating every id-valued
+        column through 3.2a's maps: definition's unit, ledger row's unit, unit
+        supersession and repurchase links. Columns in the allowed set (3.1) are
+        skipped; any other differing column is a failure.
+  - [ ] Success: failures are strings naming table, column and natural key.
+- [ ] **3.2c Missing-row rules** (effort 3)
+  - [ ] A rebuilt request without a job id fails. Rows missing from the rebuild
+        fail unless an allowed-missing rule from 3.1 applies; a unit with a file
+        whose state differs fails.
+  - [ ] Success: each rule from 3.1 is applied by name, none re-typed here.
+- [ ] **3.2d Condition-row coverage and the result object** (effort 2)
   - [ ] `tick_dataset_edge` / `tick_day_condition`: values may differ, but every
         restored `(dataset, condition_date)` must exist in the rebuild.
-  - [ ] Return a result object: failures (list of strings) plus the allowed
-        differences found (counted per table/column) for the report, and the
-        count of allowed-missing requests.
-  - [ ] Success: function takes two connections; no SQL writes.
+  - [ ] Return a result object: failures, the allowed differences found
+        (counted per table/column), and the count of allowed-missing requests,
+        for the report.
+  - [ ] Success: `compare_bookkeeping(restored_conn, rebuilt_conn)` is the one
+        entry point; no SQL writes.
 - [ ] **3.3 Add the primary-path md5 for restored-vs-production** (effort 2)
   - [ ] Add `table_md5(conn, table)`: md5 of the table's rows in primary-key
         order, for step 5 (exact, ids kept). Reuse the table list from 3.1.
@@ -156,10 +171,12 @@ status: not_started
         a restored condition row absent from the rebuild fails.
   - [ ] Success: all pass; `table_md5` equal for identical tables and different
         after one changed value.
-- [ ] **3.5 Unit test: the table list equals the migration's tables** (effort 2)
-  - [ ] Test that the 3.1 list plus `tick_trade` equals the set of tables the
-        tick migration creates (read from the migration module or the migrated
-        test DB's `public` tables). A new table must fail this test.
+- [ ] **3.5 Integration test: the table list equals the migrated DB's tables** (effort 2)
+  - [ ] Test that the 3.1 list plus `tick_trade` equals the set of `public`
+        tables in the migrated test DB (`migrated_tick_db`, read from
+        `information_schema.tables`). The migration module holds raw SQL
+        strings, so it can't be read for table names. A new table must fail this
+        test. It needs the test cluster, so it lives under `test/integration/data/`.
   - [ ] Success: passes now; fails when a table is added to the migration
         without the list (verify once by hand, do not commit the breakage).
 - [ ] **3.6 Commit checkpoint** - `feat: add bookkeeping comparison for the restore drill`
@@ -272,8 +289,9 @@ status: not_started
         if they apply).
   - [ ] `create_drill_database()`: runs `provision_tick_roles.sql -v
         tick_db=trading_tick_drill` on the scratch server.
-  - [ ] Success: unit tests cover the log parser on a real recovery log excerpt
-        (captured during Section 7) and the segment comparison.
+  - [ ] Success: unit tests cover the segment comparison and the log parser on
+        a hand-written excerpt in PostgreSQL 17's `restored log file "<seg>"
+        from archive` form. A real-log test is added in 6.7.
 - [ ] **5.8 Commit checkpoint** - `feat: add restore drill host primitives`
 
 ---
@@ -324,7 +342,9 @@ status: not_started
   - [ ] Success: counts and bytes equal the live archive.
 - [ ] **6.5 Step 4: restore the database** (effort 4)
   - [ ] Unpack the latest tick base backup into the drill dir; run
-        `pg_verifybackup` (both bounded); `empty_auto_conf`; `write_scratch_conf`;
+        `/usr/lib/postgresql/17/bin/pg_verifybackup` (no `/usr/bin` wrapper;
+        define the binary directory once, as `scripts/backup_prod.sh` and
+        runbook 200 do) (both bounded); `empty_auto_conf`; `write_scratch_conf`;
         `start_scratch`; `check_reached` against step 2's segment.
   - [ ] Success: scratch server is out of recovery and reached the target.
 - [ ] **6.6 Step 5: compare restored with production** (effort 3)
@@ -340,8 +360,9 @@ status: not_started
         option is acceptable if it is removed or kept as documented in
         `--help`). Cleanup (4.3) must still run.
   - [ ] Success: steps 0-5 pass on the host; no `228-drill-*` directory and no
-        scratch server left; the log excerpt from recovery is saved as the
-        fixture for 5.7's parser test, which is completed now.
+        scratch server left.
+  - [ ] Save a short excerpt of the real recovery log as a fixture and add a
+        test that 5.7's parser extracts the expected last segment from it.
   - [ ] If a step fails, get the actual error text before any fix (CLAUDE.md);
         ask the Project Manager if it cannot be obtained.
 - [ ] **6.8 Commit checkpoint** - `feat: add tick restore drill steps 0-5`
@@ -424,9 +445,12 @@ status: not_started
 ## Section 9 - Final validation
 
 - [ ] **9.1 Quality gates** (effort 2)
-  - [ ] Run ruff (scoped to touched files; `git diff main` shows no unrelated
-        deletions after format) and mypy (src kalshi paths and tests in one
-        invocation) on touched files.
+  - [ ] Run ruff format and check on touched files only; `git diff <target>`
+        (target from `cf config get git.integration_branch`, else `main`) shows
+        no unrelated deletions.
+  - [ ] Run mypy on the new `scripts/drill_*` files and the new tests in one
+        invocation (the project's `files` setting covers only `src/`). If the
+        scripts' sibling imports don't resolve, set `MYPYPATH=scripts`.
   - [ ] Run the new unit and integration tests, tiers separately.
   - [ ] Grep to confirm: no TD6 bound or drill path literal outside
         `drill_228_lifecycle.py`; no cluster path literal outside
