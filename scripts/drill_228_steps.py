@@ -116,8 +116,9 @@ def _take_locks(prod: psycopg.Connection[Any], step: Step) -> None:
 
 def _privileges(prod: psycopg.Connection[Any], step: Step) -> None:
     rows = prod.execute(
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-        " AND NOT has_table_privilege(format('public.%I', tablename), 'SELECT')"
+        "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
+        " WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')"
+        " AND NOT has_table_privilege(c.oid, 'SELECT')"
     ).fetchall()
     check(step, "public tables without SELECT", [], [r[0] for r in rows])
 
