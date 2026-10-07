@@ -15,8 +15,8 @@ projectState: >
   Production backups run from this checkout via /etc/cron.d. archive_mode is
   off on 17/tick.
 dateCreated: 20261004
-dateUpdated: 20261004
-status: in_progress
+dateUpdated: 20261006
+status: complete
 ---
 
 # Tasks: Backup Coverage for Tick Archive and Database
@@ -454,7 +454,7 @@ in one invocation. Known baseline failures are not regressions
         what puts the code live). No release tag is required.
   - [x] The PM runs `uv run python scripts/cutover_227_tick_backup.py`
         from the checkout root. The agent hands over that single command.
-  - [ ] If the report names a B2 console rule (TD10), the PM adds it.
+  - [x] If the report names a B2 console rule (TD10), the PM adds it.
 
 - [x] **8.2 Read the report and check acceptance (effort 2)**
   - [x] Every step passed; commit the report.

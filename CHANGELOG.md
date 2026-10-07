@@ -18,13 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **The tick database is backed up like production** (slice 227, live once
-  the PM runs `scripts/cutover_227_tick_backup.py`): weekly base backup,
+  cutover ran 2026-10-05): weekly base backup,
   continuous compressed WAL archiving, a nightly metadata dump, all pushed to
   `b2:<bucket>/17-tick/`, with its own health check and alarm flags under
   `/data/backup/17-tick`. The clusters the backup tier covers are one
   checked-in table, `deploy/backup-clusters.conf`; `setup-backup.sh` and the
   cron file are rendered from it. `setup-backup.sh --check` now also reports
   whether the B2 lifecycle rules cover each cluster's prefixes.
+  The 30-day B2 lifecycle rules for `17-tick/base/` and `17-tick/wal/` are
+  in place.
 - **`mt data tick ingest`** loads the tick files you hold into the tick
   database. Each trading day loads completely or not at all, after three
   checks: the record counts agree, every trade belongs to a known contract,
