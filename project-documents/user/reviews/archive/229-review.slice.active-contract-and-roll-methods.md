@@ -11,68 +11,64 @@ aiModel: claude-sonnet-5-5
 status: complete
 dateCreated: 20261009
 dateUpdated: 20261009
-reviewedSha: 7dfbf7ee318bacecfe1aecefdf4b273163a309a4
+reviewedSha: 8162bf8535a68b8cfb110348971155ed5e133a04
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 4
-durationSeconds: 60.7
+toolCallsMade: 3
+durationSeconds: 42.6
 runId: run-20261010-p4-4b514b73
 squadronVersion: 0.21.2
 findings:
   - id: F001
-    severity: pass
-    category: architecture-alignment
-    summary: "Roll vocabulary, default, and read-time view match the architecture"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md#Technical Decisions"
-  - id: F002
-    severity: pass
-    category: scope
-    summary: "Open interest was evaluated, as the architecture required, and the deferral is justified"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:309-334"
-  - id: F003
-    severity: pass
-    category: dependencies
-    summary: "Dependency directions and the realtime-paths check are correct"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:130-156, 420-430"
-  - id: F004
-    severity: concern
-    category: integration-contract
-    summary: "Rule text form is inconsistent between `parse` and `render`, and 231 and 230 consume it"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:206-215, 417-418, 493-495"
-  - id: F005
-    severity: concern
-    category: correctness
-    summary: "The \"missing ledger row is a broken invariant\" rule can fire on a legitimate newly-activated contract"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:224-229, 268-274"
-  - id: F006
     severity: concern
     category: error-handling
-    summary: "Failure modes for the new read paths are only partly enumerated"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:369-372, 503-506"
-  - id: F007
+    summary: "Slice contradicts itself on whether `coverage` gets the new snapshot and timeout"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:163-165"
+  - id: F002
     severity: concern
-    category: architecture-alignment
-    summary: "\"Next roll\" is only partly delivered for the default rule"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:352-356, 480-484"
-  - id: F008
+    category: integration
+    summary: "Snapshot ownership is unclear, and `status` may mix verdicts and rolls from different snapshots"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:614-616"
+  - id: F003
     severity: concern
-    category: nfr
-    summary: "No performance or boundedness target for read-time schedule computation, though 231 will serve it per request"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:156-188, 490-494"
-  - id: F009
-    severity: note
-    category: dependencies
-    summary: "The slice depends on a private symbol from 225 and names it inconsistently"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:109-112, 124-125"
-  - id: F010
-    severity: note
-    category: reproducibility
-    summary: "The reproducibility anchor `definitions_as_of` is only a date, and supersession can change answers silently"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:175-188, 458-460"
-  - id: F011
-    severity: note
+    category: error-handling
+    summary: "The calendar read has no hang or disconnect bound"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:516"
+  - id: F004
+    severity: concern
+    category: scope
+    summary: "The slice reaches beyond roll resolution, into connection behaviour of existing commands and exit semantics"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:154-165"
+  - id: F005
+    severity: concern
+    category: architectural-alignment
+    summary: "Narrowing the architecture's \"next roll\" and calendar-offset wording is only planned, not yet recorded"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:429-433"
+  - id: F006
+    severity: concern
     category: risk
-    summary: "The provider-equivalence lag of 2 rests on two held rolls"
-    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:241-259, 644-655"
+    summary: "The default rule depends on a lag inferred from two rolls"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:283-301"
+  - id: F007
+    severity: note
+    category: architectural-alignment
+    summary: "Open interest is evaluated and deferred, as the architecture asked"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:367-392"
+  - id: F008
+    severity: pass
+    category: architectural-alignment
+    summary: "Layering and dependency direction"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:140-168"
+  - id: F009
+    severity: pass
+    category: architectural-alignment
+    summary: "Explicit contract and rule on every answer, with reproducibility"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:191-217"
+  - id: F010
+    severity: pass
+    category: error-handling
+    summary: "Failure modes, bounds and the realtime-paths check"
+    location: "project-documents/user/slices/229-slice.active-contract-and-roll-methods.md:509-565"
 ---
 
 # Review: slice — slice 229
@@ -82,86 +78,51 @@ findings:
 
 ## Findings
 
-### [PASS] Roll vocabulary, default, and read-time view match the architecture
+### [CONCERN] Slice contradicts itself on whether `coverage` gets the new snapshot and timeout
 
-- The slice uses Databento's `c`/`v` letters with a depth index, and defines one default (`DEFAULT_ROLL_RULE`) in `constants.py`.
-- The schedule is computed at read time and never stored, which is what "a continuous series is a rule" requires.
-- Volume comes from the ledger, not from the raw table or an aggregate. That follows the architecture's "Active contract and roll methods" paragraph and journal 20260725 rule 2.
-- Every answer carries `basis_session`, which meets the requirement to name the latest session the inputs cover.
-- Acquisition stays on `ES.FUT` parent requests, so this read-time concern does not leak into acquisition.
+The component changes say the `_read` connection opens a read-only snapshot with a statement timeout "for `status`, `coverage` and `active`". TD9 says the opposite at lines 521-523: the snapshot and timeout "apply to `status` and `active`" and "`coverage` keeps its current connection". Success criterion 8b names only `status` and `active`. The architecture says `coverage` adds a raw-count proof over a bounded range. If it picked up the 30 s timeout, that scan could be cancelled. Decide which is intended and make the component list, TD9 and the tests agree. If `coverage` stays unchanged, `_read` needs a per-command switch, which the slice should describe.
 
-### [PASS] Open interest was evaluated, as the architecture required, and the deferral is justified
+### [CONCERN] Snapshot ownership is unclear, and `status` may mix verdicts and rolls from different snapshots
 
-- The architecture says open interest "must be evaluated when roll methods are designed".
-- TD6 records free `symbology.resolve` evidence: ES `n.0` matched `v.0` on all 11 rolls, and GC differs.
-- It also costs out what shipping would take, and hands the question to 232.
-- That satisfies the requirement. The deferral does not silently drop it, and the cost guardrail (statistics purchases go through the archive path) is preserved.
+`build_schedule` is documented as opening its own snapshot (line 614). The component list says `_read` opens the snapshot (line 163). `latest_active` takes an already-open `conn` plus `verdicts` that `status` computed earlier (lines 186-189, 615). The slice does not say that `status` computes those verdicts inside the same `REPEATABLE READ` transaction as the roll reads. If it doesn't, the "one snapshot, consistent answer" claim in TD9 fails for `status`. Concurrent ingest could then leave a lag session marked COMPLETE while the ledger rows the roll reads differ. State who opens the transaction for each caller, and that verdicts and roll reads share it. 231 will call `build_schedule` too, so the ownership contract matters to it.
 
-### [PASS] Dependency directions and the realtime-paths check are correct
+### [CONCERN] The calendar read has no hang or disconnect bound
 
-- The only cross-database edge is the existing tick → production calendar read. The architecture lists it as the fourth edge, and the slice adds no new one.
-- `roll_resolve.py` is pure and has no I/O. The `data/kalshi` source is not imported.
-- The slice carries the mandatory "Realtime paths" section and names no choice that forecloses Path A or Path B.
+TD9 gives the tick-database path a statement timeout and keepalives. The calendar read on the production database is covered only by "existing `calendar_sessions` mapping". The slice does not say whether that read has a statement timeout or detects a peer that drops mid-read. The calendar sits outside the snapshot and is called through `asyncio.to_thread` (lines 576-577), so a hang there would block `active` and `status` with no exit code. The architecture requires hang, timeout and peer-disconnect handling for each new I/O path. Either cite the existing bound for the calendar read or add one.
 
-### [CONCERN] Rule text form is inconsistent between `parse` and `render`, and 231 and 230 consume it
+### [CONCERN] The slice reaches beyond roll resolution, into connection behaviour of existing commands and exit semantics
 
-- TD1 renders an offset rule as `c.0+5s`. The parse grammar is defined only as `{method}.{rank}`, and the offset arrives through a separate `--offset` flag.
-- The test list requires "a rule's text form surviving parse and render unchanged". That cannot hold for an offset rule unless `parse` accepts `+Ns`.
-- The slice promises 231 "the `RollRule` text form for query parameters". If `parse` doesn't accept `+Ns`, an API client can't express an offset rule in a single parameter.
-- The architecture says the API and CLI "accept the same method vocabulary". State the grammar once, covering whether `+Ns` is parseable and whether `--offset` and the suffix can both be given. Then pin it with a test.
+The slice changes `_read` connection behaviour (read-only snapshot, statement timeout, keepalives) for already-shipped verbs. It also widens `EXIT_PARTIAL` in `tick_exit.py` and makes `status` exit 3 on a roll-line error. These changes are not roll-method work. They could be justified as hardening that `status` needs once it reads rolls, but the slice does not say so, and the architecture does not assign them to this slice. Either limit the snapshot and timeout to the new roll reads, or state the reason and add regression tests for `status`'s existing exit codes and output. This also applies to the contradiction in the first finding.
 
-### [CONCERN] The "missing ledger row is a broken invariant" rule can fire on a legitimate newly-activated contract
+### [CONCERN] Narrowing the architecture's "next roll" and calendar-offset wording is only planned, not yet recorded
 
-- Eligibility (TD2/TD3) is `activation_ns ≤ S.open`.
-- The ledger invariant, as the architecture words it, writes a row for each instrument "whose definition is valid in a session the unit's range touches".
-- A contract activated between session S−2 and session S is eligible at S but has no ledger row for S−2. TD3 would then raise instead of treating the volume as absent.
-- The slice should state how the two predicates line up. One option is to rank on contracts that were valid at the lag session. The other is to say that a contract with no row because it wasn't yet valid is excluded, as distinct from a row missing from a valid window. The 21-row sample from `trading_tick` does not exercise this boundary.
+The architecture says status "reports the active contract per configured product and rule, its expiration, and the next roll." For `v.0`, the default rule, the slice reports an exact next roll only through L+2. Otherwise it gives a no-later-than bound. The architecture also says the calendar offset is "days before expiry", and the slice makes it sessions (line 258). Both are reasonable and are listed as Revision Log work (lines 726-728), but they are deliverables not yet made, so the two documents disagree until then. Make the Revision Log entry a gating task before the slice closes, not a late doc step.
 
-### [CONCERN] Failure modes for the new read paths are only partly enumerated
+### [CONCERN] The default rule depends on a lag inferred from two rolls
 
-- Exit 4 is defined for an "unreachable" tick database or calendar. The following are not covered:
-  - A query hang or timeout. No statement or connect timeout is named, and the slice does not say whether it reuses the one `status` uses.
-  - A peer disconnect mid-read, after the connection was established.
-  - Whether the three reads (definitions, ledger volumes, session verdicts) share one transaction or snapshot. A concurrent ingest between reads could give an answer built from inconsistent inputs, and the slice says answers must be re-derivable.
-- `status` gains roll lines, and `build_schedule` and `latest_active` can raise (missing ledger row, expiration outside the calendar). The slice does not say whether such an error fails the whole `status` command or degrades to a per-rule error line.
-- The architecture requires each I/O path to carry explicit handling, not an implicit one. Name the timeout, the snapshot choice, and the `status` degradation behaviour.
+The architecture requires that a request phrased either way resolves to the same contract on the same day. The lag of 2 matches only the two rolls we hold, and the slice says so (lines 832-836). The mitigations are sound: one constant, a recorded-fixture test, and a re-record task in 232. But `v.0`, the project default, is then unresolvable for the two sessions after any gap. 230 and 231 inherit that behaviour on their default path. Say explicitly in the hand-off to 230 and 231 that a product-level default read can return unresolved sessions, and how each should surface them, so the consumers don't discover it.
 
-### [CONCERN] "Next roll" is only partly delivered for the default rule
+### [NOTE] Open interest is evaluated and deferred, as the architecture asked
 
-- The architecture says status reports "the active contract per configured product and rule, its expiration, and the next roll".
-- For `v.0`, the default rule, the slice reports "not forecast" plus a no-later-than bound. This is honest and consistent with "never from data not yet held".
-- It is still a narrowing of the stated requirement on the default surface, and the Revision Log entry (TD3–TD6) does not record it.
-- Either add an explicit line to the Revision Log and the contract row, or state in this section that the no-later-than bound meets the requirement.
+The architecture says open interest "must be evaluated when roll methods are designed" and that purchased figures must be archive units with manifest provenance. The slice records free evidence (ES `n.0` equals `v.0` on all 11 rolls, GC differs), lists what shipping it would take, keeps `n` unassigned so adding it changes no existing rule, and hands the question to 232. This satisfies the evaluation obligation. No purchase is made.
 
-### [CONCERN] No performance or boundedness target for read-time schedule computation, though 231 will serve it per request
+### [PASS] Layering and dependency direction
 
-- The architecture sets no numeric latency target for this path, only that it is read-time and never cached. Both `build_schedule` and `latest_active` are exposed to 231's HTTP endpoints.
-- The slice does not state a bound on range length, on cost against ledger and calendar sizes, or on how many sessions a request may span. It also says a schedule is never cached.
-- A multi-year product-level request will re-run the definitions, ledger, verdict, and calendar reads every time. State an expected cost envelope or a cap, or hand 231 an explicit obligation to set one.
+`roll_resolve.py` is pure. Reads are isolated in `roll_inputs.py`. The only cross-database edge is the existing tick → production calendar read that `status` and `coverage` already use, and the slice adds no new edge. Nothing imports from another data source. Acquisition is untouched and stays on `ES.FUT` requests, so the rule that roll machinery is a read-time concern holds. Nothing is stored or cached, which honours "a continuous series is a rule."
 
-### [NOTE] The slice depends on a private symbol from 225 and names it inconsistently
+### [PASS] Explicit contract and rule on every answer, with reproducibility
 
-- Prerequisites cite `_SHAPE_WHERE`, a private-by-name symbol. Interfaces Required cite `COVERAGE_PREDICATE`.
-- Reconcile the names. If the predicate is meant to be shared, 225 should export it publicly.
-- The frontmatter `dependencies: [226]` also omits 220, 221, 224, and 225, which the body lists as prerequisites.
+Every answer names the contract, the rule, the expiration and the basis session. Unit-id sets let a client detect that the inputs changed. This meets the architecture's reproducibility and "names the latest session its inputs cover" requirements. The default is defined once and the grammar is shared by the CLI and the API. Roll-day handling states a default of one contract per session, with no merging across the roll.
 
-### [NOTE] The reproducibility anchor `definitions_as_of` is only a date, and supersession can change answers silently
+### [PASS] Failure modes, bounds and the realtime-paths check
 
-- The architecture requires that an answer "can be re-derived later from stored definitions and stored figures".
-- The slice acknowledges that supersession changes the current-unit set and therefore the answer. It records only a date as the definitions anchor, not the unit set.
-- This is acceptable for now. It is worth confirming that a date is enough to detect a changed answer when 231 exposes these values to clients.
-
-### [NOTE] The provider-equivalence lag of 2 rests on two held rolls
-
-- The architecture requires the vocabulary to "resolve to the same contract on the same day".
-- The lag is one named constant, pinned by a recorded-fixture test with a documented re-record path. The risk is acknowledged and mitigated.
-- TD4 correctly documents the open-to-midnight-UTC window where date-matching and a continuous-symbol stream could diverge, and why stored data is not affected.
+TD9 enumerates the failure modes: unreachable database, read hang, mid-read peer loss, calendar failure, ingest committing between reads, and broken invariants. Each has a handling strategy and an exit code. Unresolved sessions are values with reasons, not guesses, and a missing ledger row raises instead of reading as 0. TD10 measures and caps the cost of a request. The realtime-paths check is present, as the architecture requires for every 220 slice. The architecture states no latency NFR for this path, so the slice's own sub-1 s target is a self-imposed bound.
 
 ### Run Digest
 
-- Response length: 8833 chars
+- Response length: 7841 chars
 - Response is newline-free: no
-- Tool calls made: 4
+- Tool calls made: 3
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -171,10 +132,10 @@ findings:
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 60.7 s
+- Duration: 42.6 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 11
+- Finding-shaped matches — whole response: 10
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 11
-- Finding-shaped matches — surviving validation: 11
+- Finding-shaped matches — in findings section: 10
+- Finding-shaped matches — surviving validation: 10
