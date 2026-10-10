@@ -8,7 +8,7 @@ dateUpdated: 20261007
 
 # Tick restore drill (slice 228)
 
-Started 2026-10-07T10:23:12-06:00.
+Started 2026-10-07T10:40:39-06:00.
 
 ## Step 0: prepare — PASS
 
@@ -19,8 +19,8 @@ Seen:
 ```
 drill lock held: /data/restore-test/.228-drill.lock
 leftovers removed: none
-free space: need 3 x 964733640 bytes (archive + base 20261005), seen 1358030884864 free on /data/restore-test
-drill directory: /data/restore-test/228-drill-20261007T162312Z
+free space: need 3 x 964733640 bytes (archive + base 20261005), seen 1358053281792 free on /data/restore-test
+drill directory: /data/restore-test/228-drill-20261007T164039Z
 ```
 
 ## Step 1: hold production — PASS
@@ -46,8 +46,8 @@ Expected: the switched segment is archived within the bound
 Seen:
 
 ```
-segment the restore must reach: 00000001000000290000007D
-archived: /data/backup/17-tick/wal/00000001000000290000007D.zst
+segment the restore must reach: 00000001000000290000007F
+archived: /data/backup/17-tick/wal/00000001000000290000007F.zst
 ```
 
 ## Step 3: restore archive — PASS
@@ -57,7 +57,7 @@ Expected: restored files and bytes equal the live archive's backed-up set
 Seen:
 
 ```
-chown -R 1000:1000 /data/restore-test/228-drill-20261007T162312Z/restic-restore/data/tick-archive exit: expected 0, seen 0
+chown -R 1000:1000 /data/restore-test/228-drill-20261007T164039Z/restic-restore/data/tick-archive exit: expected 0, seen 0
 restored files: expected 176, seen 176
 restored bytes: expected 523349320, seen 523349320
 ```
@@ -74,7 +74,7 @@ tar -xzf pg_wal.tar.gz exit: expected 0, seen 0
 pg_verifybackup exit: expected 0, seen 0
 backup successfully verified
 postgresql.auto.conf emptied; no archive setting left
-last restored segment: 00000001000000290000007D; needed 00000001000000290000007D
+last restored segment: 00000001000000290000007F; needed 00000001000000290000007F
 ```
 
 ## Step 5: compare with production — PASS
@@ -93,10 +93,46 @@ tick_ingest_ledger md5: expected 8f03df8cde4ecc9c4a530b67bbee7985, seen 8f03df8c
 tick_dataset_edge md5: expected 8e39892a334a943236f295740c8e76bf, seen 8e39892a334a943236f295740c8e76bf
 tick_day_condition md5: expected 46552b8e06691cf5a36c15f32d04163c, seen 46552b8e06691cf5a36c15f32d04163c
 tick advisory locks still held: expected 2, seen 2
-locks released 2026-10-07T16:25:13+00:00
+locks released 2026-10-07T16:42:38+00:00
 ```
 
-## Step 8: clean up — PASS
+## Step 6: rebuild from the restored archive — PASS
+
+Expected: provision, migrate, adopt per job, pass --estimate-only, ingest exit 0
+
+Seen:
+
+```
+provision trading_tick_drill exit: expected 0, seen 0
+jobs to adopt, in order: ['GLBX-20240930-USM7UXXJBA', 'GLBX-20250123-XT4GD5UM6C', 'GLBX-20260930-DLDYL5DM8Q', 'GLBX-20260930-HVGRLYKHRN', 'GLBX-20260930-MBERAR6R7T', 'GLBX-20260930-VDPHT5ESUC']
+$ mt data migrate apply --track tick  (exit 0, 1.0 s)
+$ mt data tick adopt --job-id GLBX-20240930-USM7UXXJBA --source /data/restore-test/228-drill-20261007T164039Z/restic-restore/data/tick-archive/GLBX-20240930-USM7UXXJBA  (exit 0, 211.8 s)
+$ mt data tick adopt --job-id GLBX-20250123-XT4GD5UM6C --source /data/restore-test/228-drill-20261007T164039Z/restic-restore/data/tick-archive/GLBX-20250123-XT4GD5UM6C  (exit 0, 307.1 s)
+$ mt data tick adopt --job-id GLBX-20260930-DLDYL5DM8Q --source /data/restore-test/228-drill-20261007T164039Z/restic-restore/data/tick-archive/GLBX-20260930-DLDYL5DM8Q  (exit 0, 147.4 s)
+$ mt data tick adopt --job-id GLBX-20260930-HVGRLYKHRN --source /data/restore-test/228-drill-20261007T164039Z/restic-restore/data/tick-archive/GLBX-20260930-HVGRLYKHRN  (exit 0, 118.6 s)
+$ mt data tick adopt --job-id GLBX-20260930-MBERAR6R7T --source /data/restore-test/228-drill-20261007T164039Z/restic-restore/data/tick-archive/GLBX-20260930-MBERAR6R7T  (exit 0, 2.2 s)
+$ mt data tick adopt --job-id GLBX-20260930-VDPHT5ESUC --source /data/restore-test/228-drill-20261007T164039Z/restic-restore/data/tick-archive/GLBX-20260930-VDPHT5ESUC  (exit 0, 125.5 s)
+$ mt data tick pass --estimate-only  (exit 0, 3.0 s)
+$ mt data tick ingest  (exit 0, 77.2 s)
+```
+
+## Step 7: compare rebuild with restore — PASS
+
+Expected: tick_trade fingerprint equal; bookkeeping differences only in TD4's set
+
+Seen:
+
+```
+tick_trade fingerprint differences: expected [], seen []
+allowed difference: tick_archive_unit.state_changed_at on 156 row(s)
+allowed difference: tick_dataset_edge.available_end on 1 row(s)
+allowed difference: tick_dataset_edge.observed_at on 1 row(s)
+allowed difference: tick_day_condition.observed_at on 106 row(s)
+allowed-missing requests: 0
+bookkeeping failures: expected [], seen []
+```
+
+## Step 8: clean up — FAIL
 
 Expected: no drill directory, no scratch server
 
@@ -104,15 +140,16 @@ Seen:
 
 ```
 scratch server stopped: True
-removed /data/restore-test/228-drill-20261007T162312Z
+FAILED: DrillError: could not remove /data/restore-test/228-drill-20261007T164039Z (exit 1: sudo: interactive authentication is required); it is left in place
 ```
 
 ## Timings
 
-- restic restore (s): 15.1
+- restic restore (s): 15.3
 - base extraction (s): 2.6
-- recovery (s): 1.5
-- compare with production (s): 89.2
+- recovery (s): 0.6
+- compare with production (s): 89.6
+- rebuild (s): 993.9
 
 ## Notes
 
@@ -134,11 +171,13 @@ removed /data/restore-test/228-drill-20261007T162312Z
 ## Evidence: server log (restored lines, last)
 
 ```
-2026-10-07 16:23:42.857 GMT [242908] LOG:  restored log file "00000001000000290000007A" from archive
-2026-10-07 16:23:42.884 GMT [242908] LOG:  restored log file "00000001000000290000007B" from archive
-2026-10-07 16:23:42.907 GMT [242908] LOG:  restored log file "00000001000000290000007C" from archive
-2026-10-07 16:23:42.929 GMT [242908] LOG:  restored log file "00000001000000290000007D" from archive
-2026-10-07 16:23:42.956 GMT [242908] LOG:  restored log file "00000001000000290000007D" from archive
+2026-10-07 16:41:09.180 GMT [251864] LOG:  restored log file "00000001000000290000007A" from archive
+2026-10-07 16:41:09.208 GMT [251864] LOG:  restored log file "00000001000000290000007B" from archive
+2026-10-07 16:41:09.230 GMT [251864] LOG:  restored log file "00000001000000290000007C" from archive
+2026-10-07 16:41:09.252 GMT [251864] LOG:  restored log file "00000001000000290000007D" from archive
+2026-10-07 16:41:09.274 GMT [251864] LOG:  restored log file "00000001000000290000007E" from archive
+2026-10-07 16:41:09.296 GMT [251864] LOG:  restored log file "00000001000000290000007F" from archive
+2026-10-07 16:41:09.323 GMT [251864] LOG:  restored log file "00000001000000290000007F" from archive
 ```
 
-PASS through step 5 only (partial run)
+FAIL
