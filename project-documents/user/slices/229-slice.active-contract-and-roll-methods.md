@@ -953,7 +953,11 @@ come from the ledger and from Databento's resolve, both read on
 
 1. Constants (`RollMethod`, the default, the lag, the cap, the read
    timeout, the status rule set, the instrument classes) and
-   `roll_rules.py`, with the grammar round-trip tests.
+   `roll_rules.py`, with the grammar round-trip tests. The lag constant's
+   comment states why it is 2 (it matches Databento's `.v` switch on the
+   held rolls; CME publishes session D's statistics during D + 1), names
+   the fixture test that pins it, and says a change is a provider
+   convention change, revisited whole (TD3).
 2. `roll_resolve.py`, pure, with synthetic tests:
    - ranks, ties and expiry drop-out;
    - offsets;
