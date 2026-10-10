@@ -73,9 +73,11 @@ Nothing is bought, and there is no schema change.
 - `OUTRIGHT_CLASS` and `SPREAD_CLASS` are moved to `constants.py`. Today
   `SPREAD_CLASS` lives in `tick_status_build.py`, and resolution needs both.
 - Reads: a product's outright definitions, and outright volume per
-  (session, instrument) over current units of the product's shape. All
-  tick-database reads for one answer run in one read-only snapshot, with a
-  statement timeout (TD9).
+  (session, instrument) over current units of the product's shape. The
+  roll path owns its own connections. All of its tick-database reads run in
+  one read-only snapshot, and both of its connections are bounded by a
+  statement timeout and keepalives (TD9). Existing commands' connections
+  are not changed.
 - 225's private `_SHAPE_WHERE` in `status_reads.py` is renamed to the public
   `SHAPE_WHERE`, so roll reads share it instead of copying it.
 - A pure resolver: given sessions, definitions, volumes and session
@@ -158,11 +160,13 @@ Changes to existing modules:
   `rolls: tuple[ActiveLine, ...]`, and `SPREAD_CLASS` moves to `constants`.
 - `tick_status_render.py` prints the roll lines.
 - `tick_exit.py`: the comment on `EXIT_PARTIAL` widens to cover sessions
-  `active` could not resolve, and a roll-line error in `status` (TD9).
+  `active` could not resolve, and a failed roll line in `status` (TD9). The
+  integer values do not change.
 - `status_reads.py`: `_SHAPE_WHERE` becomes the public `SHAPE_WHERE`.
-- `cli/commands/tick_store_cmds.py` `_read`: the read connection opens one
-  read-only snapshot with a statement timeout for `status`, `coverage` and
-  `active` (TD9).
+
+Not changed: `_read` in `tick_store_cmds.py` and the connection that
+`status` and `coverage` already use. Their timeouts and transaction
+behaviour stay as they are. The roll path opens its own connection (TD9).
 
 `roll_resolve.py` is pure, so the provider-equivalence test, the rank and
 offset tests, and the edge cases all run with no database.
@@ -173,9 +177,10 @@ offset tests, and the edge cases all run with no database.
 mt data tick active --product ES --rule v.0 --start S --end E
   └─ active_contract.build_schedule
        ├─ refuse if [S, E) spans more than TICK_ROLL_MAX_SESSIONS (exit 1)
-       ├─ calendar (prod DB, to_thread): sessions in [S − lag sessions, E),
-       │   plus the session of each candidate's expiration
-       ├─ one REPEATABLE READ READ ONLY snapshot on the tick DB:
+       ├─ calendar (prod DB, to_thread, roll_conninfo): sessions in
+       │   [S − lag sessions, E), plus each candidate's expiration session
+       ├─ own tick-DB connection (roll_conninfo), one REPEATABLE READ
+       │   READ ONLY transaction:
        │   ├─ roll_inputs.outright_definitions   asset = product, class F
        │   ├─ roll_inputs.session_volumes        ledger, current units, outrights
        │   └─ session_verdicts                   which sessions are COMPLETE
@@ -183,10 +188,19 @@ mt data tick active --product ES --rule v.0 --start S --end E
             → segments → render (text | JSON)
 ```
 
-`status` calls `latest_active` once per rule in `STATUS_ROLL_RULES`. That
-resolves the latest complete session and the next roll after it. It reuses
-the verdicts `status` has already computed, so there is no second
-classification pass.
+`status` calls `latest_active` once, for every rule in
+`STATUS_ROLL_RULES`, after its own reads. `latest_active` resolves the
+latest complete session and the next roll after it. It computes its own
+verdicts inside its own snapshot, and does not reuse the verdicts `status`
+computed on its own connection. That costs one more units read, a few
+milliseconds (TD10). In exchange, each roll line is consistent with
+itself: its verdicts, ledger and definitions come from one snapshot.
+
+Because the bucket counts and the roll lines are two snapshots, a unit
+that commits between them can show in one and not the other. For example,
+the buckets may still show a session awaiting ingest that the roll line
+already used as L. Each line names its own session, so the two never
+contradict silently. They agree on the next read.
 
 ### State Management
 
@@ -506,26 +520,58 @@ fixture script is re-run over them and the test is extended. 232 has this
 as a named task. A disagreement means the lag convention is revisited as a
 whole, never patched per roll.
 
-### TD9. Read failure modes: one snapshot, bounded waits, per-rule degradation
+### TD9. Read failure modes: the roll path owns its connections and its snapshot
 
-| Failure | Handling | Surface |
-|---|---|---|
-| Tick DB unreachable at connect | existing `connect_timeout` (`TICK_DB_CONNECT_TIMEOUT_SECONDS`, 10 s) → `TickDatabaseUnreachable` | exit 4 |
-| A read hangs | `SET LOCAL statement_timeout` to `TICK_READ_STATEMENT_TIMEOUT_SECONDS` (new, 30 s) inside the snapshot → `QueryCanceled` (a `psycopg.OperationalError`) | exit 4, naming the timeout |
-| Peer lost mid-read | the read connection gets the ingest worker's TCP keepalives (`TICK_DB_KEEPALIVES_*`, about 2 min to detect) → `OperationalError` | exit 4 |
-| Calendar unreachable or out of range | existing `calendar_sessions` mapping (`TickCalendarError` → exit 4; out of range → `TickPreflightError`, exit 1, naming `mt data extend`) | as `status` today |
-| Ingest commits between reads | the tick-DB reads for one invocation run in one `REPEATABLE READ READ ONLY` transaction, so definitions, ledger and units come from one snapshot. Ingest commits a unit atomically (225 TD2), so a snapshot never sees half a unit | consistent answer |
-| Broken invariant (a missing ledger row, an expiration outside the calendar) | `RollInputError` naming the contract and session | `active`: exit 1 with the message. `status`: that rule's line becomes `error: <message>`, `rolls[i].error` is set in JSON, the other rules and the buckets still print, and status exits 3 |
+**Ownership.** `build_schedule` and `latest_active` take URLs, not
+connections:
 
-The statement timeout and the snapshot apply to `status` and `active`,
-which never scan `tick_trade`. `coverage` keeps its current connection,
-because its raw scan is bounded by its range, not by a fixed time. 30 s is
-about 7,000 times the measured roll reads (TD10) and still ends a hang
-within an operator's attention span.
+- They open their own tick-database connection and their own
+  `TradingCalendar`, both from `roll_conninfo(url)`, and close them before
+  returning.
+- On the tick connection they run exactly one
+  `REPEATABLE READ READ ONLY` transaction. It holds every tick read the
+  answer depends on: definitions, volumes, and the verdicts' units and
+  conditions.
+- No caller can pass in a transaction or verdicts from elsewhere, so the
+  one-snapshot property holds for `active`, for `status`, and for 230 and
+  231.
 
-The calendar is on the production database, outside the snapshot. Ingest
-never writes it (225 TD7), so the two reads cannot disagree because of a
-concurrent pass.
+`roll_conninfo(url)` is `psycopg.conninfo.make_conninfo(url, …)`. It adds:
+
+- `connect_timeout = TICK_DB_CONNECT_TIMEOUT_SECONDS` (10 s, existing);
+- `keepalives=1` with the ingest worker's `TICK_DB_KEEPALIVES_*` (existing;
+  a dead peer is detected in about 2 minutes);
+- `options = -c statement_timeout=<TICK_ROLL_STATEMENT_TIMEOUT_SECONDS>
+  -c default_transaction_read_only=on`. The timeout is new, 30 s.
+
+It is used only by the roll path. `status`'s own reads and `coverage` keep
+their current connections, so no shipped verb changes its timeout or
+transaction behaviour.
+
+| Failure | Tick DB (roll connection) | Calendar (production DB, roll conninfo) | `active` | `status` roll line |
+|---|---|---|---|---|
+| Unreachable at connect | `connect_timeout` → `OperationalError` | `connect_timeout`; the pool's wait ends in `PoolTimeout`, an `OperationalError`, which `calendar_sessions` maps to `TickCalendarError` | exit 4 | `error:` line, exit 3 |
+| A read hangs | `statement_timeout` → `QueryCanceled` (an `OperationalError`) | same, server side | exit 4, naming the timeout | `error:` line, exit 3 |
+| Peer lost mid-read | keepalives → `OperationalError` | keepalives → `OperationalError` → `TickCalendarError` | exit 4 | `error:` line, exit 3 |
+| Calendar out of populated range | — | existing `TickPreflightError`, naming `mt data extend` | exit 1 | `error:` line, exit 3 |
+| Ingest commits between reads | one `REPEATABLE READ` snapshot; ingest commits a unit atomically (225 TD2), so a snapshot never sees half a unit | Ingest never writes the calendar (225 TD7) | consistent answer | consistent line |
+| Broken invariant (a missing ledger row, an expiration outside the calendar) | `RollInputError` naming the contract and session | — | exit 1 | `error:` line, exit 3 |
+
+The calendar read runs through `asyncio.to_thread`. Every wait in that
+thread is bounded by the conninfo above, so the thread always returns or
+raises, and nothing outlives the command.
+
+**Why `status` exits 3 on a roll-line failure.** `status` gains lines that
+can fail independently of its existing reads. Printing `error:` and still
+exiting 0 would hide the failure from scripts (I9, loud failure). Exit 3
+already means "the run finished, and part of it failed". When every roll
+line succeeds, `status` exits exactly as today. If the tick database is
+unreachable, `status`'s own read fails first and it exits 4, as today.
+Regression tests pin both behaviours, and pin the existing text and JSON
+fields (Technical Requirements).
+
+30 s is about 7,000 times the measured roll reads (TD10), and still ends a
+hang within an operator's attention span.
 
 ### TD10. Cost and bounds of a read-time schedule
 
@@ -610,9 +656,11 @@ class RollSchedule:
     answers: tuple[ActiveContract | Unresolved, ...]   # one per session, in order
     def segments(self) -> tuple[Segment, ...]: ...      # consecutive same-contract runs
 
-async def build_schedule(conn, calendar_url, entry, rule, start: date, end: date) -> RollSchedule
-    # raises RollRangeTooLong over TICK_ROLL_MAX_SESSIONS; opens its own snapshot (TD9)
-async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
+async def build_schedule(tick_url, calendar_url, entry, rule, start: date, end: date) -> RollSchedule
+    # raises RollRangeTooLong over TICK_ROLL_MAX_SESSIONS; owns its connections
+    # and its one REPEATABLE READ snapshot (TD9)
+async def latest_active(tick_url, calendar_url, entry, rules) -> tuple[ActiveLine, ...]
+    # same ownership; one snapshot for all rules of the product
 ```
 
 `ActiveLine` is what `status` and `active` render for one rule:
@@ -637,6 +685,21 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
 - **230:** `build_schedule` for `get` by product and rule, the roll-day
   default (TD4), `DEFAULT_ROLL_RULE`, and `RollRule.parse` for the CLI's
   `--rule`.
+
+**Unresolved sessions on the default path.** Under `v.0`, the two sessions
+after the start of any held range, or after any gap, are unresolved,
+because their ranking session is not held (TD3, TD5). A product-level
+default read over such a range therefore returns `Unresolved` answers.
+Neither consumer may drop them silently:
+
+- **230's `get --product`:** serves the resolved sessions, lists each
+  unresolved session with its reason (text, and `unresolved` in JSON), and
+  exits 3, as `active` does. It never substitutes another rule or a
+  neighbouring contract.
+- **231's product-level endpoints:** carry an `unresolved` array of
+  `{session_date, reason}` in the response body beside the data. The HTTP
+  status follows 231's conventions, but the array is never omitted, and
+  documentation under the 190 gate says when it appears.
 - **231:** the same interface for the contract catalog's
   "active contract per rule" and for product-level endpoints, plus TD1's
   rule grammar as the one query-parameter form. 231 inherits two
@@ -644,7 +707,10 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
   - the `TICK_ROLL_MAX_SESSIONS` cap, which `build_schedule` enforces, and
     an endpoint latency bound measured by 231 itself (TD10);
   - exposing `definition_unit_id` and `basis_unit_ids`, so clients can
-    detect changed inputs (State Management).
+    detect changed inputs (State Management);
+  - calling the roll functions with URLs, so they own their connections
+    (TD9). A pooled variant is 231's design change to make, and only if it
+    keeps one roll-owned snapshot and `roll_conninfo`'s bounds.
 - **232:** the rules work for GC with no code change once GC's definitions
   and ledger exist. 232 inherits:
   - the open-interest question, with TD6's evidence;
@@ -655,8 +721,9 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
 
 - **225:** session verdicts and the ledger. If verdict semantics change,
   resolution follows them, because it calls the same function.
-- **221:** the production calendar. When it is unreachable, `active` and
-  `status` exit 4, as `status` already does. A session outside the
+- **221:** the production calendar, read through `roll_conninfo`'s
+  bounds. When it is unreachable, `active` exits 4 and the `status` roll
+  line becomes an `error:` line (TD9). A session outside the
   populated span is an explicit refusal naming `mt data extend`.
 
 ## Success Criteria
@@ -696,10 +763,19 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
    drops the connection.
 8a. In `status`, a broken invariant in one rule prints that rule's
     `error:` line, keeps every other line, and exits 3.
-8b. The tick-database reads of one `status` or `active` invocation run in
-    one `REPEATABLE READ READ ONLY` transaction with
-    `TICK_READ_STATEMENT_TIMEOUT_SECONDS`. A test holds a lock to force a
-    timeout and asserts exit 4.
+8b. The roll path's tick reads, in `active` and in `status`'s roll lines,
+    run in one `REPEATABLE READ READ ONLY` transaction on a connection the
+    roll path owns, opened from `roll_conninfo`. Tests:
+    - a lock is held to force `TICK_ROLL_STATEMENT_TIMEOUT_SECONDS`, and
+      `active` exits 4 while `status` prints an `error:` line and exits 3;
+    - the calendar connection's conninfo carries the same timeout and
+      keepalives;
+    - a unit committed during a roll read is either wholly visible or not
+      visible at all.
+8c. `status` and `coverage` keep their existing connection behaviour.
+    Regression tests show that `status`, with no roll error, keeps every
+    existing text line and JSON field and its exit codes (0; 4 when the
+    tick database is unreachable), and that `coverage` is unchanged.
 9. The default rule is read from `DEFAULT_ROLL_RULE` everywhere. A grep
    finds no second spelling of `"v"`/`"c"` as a rule outside `constants.py`
    and the tests.
@@ -714,7 +790,7 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
   - `roll_inputs`: current units only, outrights only, supersession
     honoured;
   - the missing-ledger-row error;
-  - the snapshot and the timeout (8b);
+  - the snapshot, the timeouts and the regressions (8b, 8c);
   - `basis_unit_ids` changing after a supersession.
 - TD10's measurement is re-run on `trading_tick` at implementation. A full
   held-range schedule must finish well inside 1 s, and the result is
@@ -723,14 +799,18 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
   lines or fewer.
 - The data-correctness contract is updated: the I14 row gets 229's
   delivery, and the I10 row gets the `active` verb.
-- The architecture's Revision Log gets an entry for TD3, TD4, TD5, TD6 and
-  TD7's "next roll" for volume (exact through L + 2, otherwise a
-  no-later-than bound).
-- The slice plan gets a "superseded by 229" note covering:
-  - the lag;
-  - sessions-based offsets;
-  - "next roll" for volume;
+- **Already recorded, at design time (2026-10-09):** the architecture's
+  Revision Log entry 2026-10-09 covers:
+  - "next roll" for volume rules;
+  - the calendar offset counted in sessions;
+  - the volume lag;
+  - the default rule;
   - open interest deferred.
+
+  The slice plan's "superseded by 229" note covers the same points. There
+  is no gap between the documents during implementation. A gating task
+  before the slice closes re-checks both entries against the shipped
+  behaviour and corrects them if implementation changed anything.
 - The Kalshi pass-contract diff test still passes (the standing
   obligation; this slice does not touch the contract).
 
@@ -859,14 +939,15 @@ come from the ledger and from Databento's resolve, both read on
    - the volume next-roll forecast.
 3. The fixture script, run once on manta9000. Commit its fixtures and the
    provider-equivalence test.
-4. `SHAPE_WHERE` made public. Then `roll_inputs.py` and
-   `active_contract.py`, with the read snapshot, the timeout and the
-   keepalives (TD9), and integration tests on a scratch tick database.
+4. `SHAPE_WHERE` made public. Then `roll_inputs.py`, `roll_conninfo` and
+   `active_contract.py`, with roll-owned connections and the snapshot
+   (TD9), and integration tests on a scratch tick database.
 5. The `active` verb and its renderer, then the status roll lines (text and
    JSON).
 6. The walkthrough on `trading_tick`, recorded in `user/notes/`.
-7. Doc rows: the contract (I10, I14), the architecture's Revision Log, and
-   the slice plan notes. Then the Kalshi-diff test check.
+7. Doc rows: the contract (I10, I14). Gating check: the architecture's
+   Revision Log entry 2026-10-09 and the slice plan's note still match the
+   shipped behaviour. Then the Kalshi-diff test check.
 
 Commit at each numbered step's checkpoint.
 

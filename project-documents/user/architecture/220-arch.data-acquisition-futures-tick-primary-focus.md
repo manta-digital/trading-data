@@ -320,6 +320,31 @@ Follows this initiative, not part of it: realtime capture (streaming form, own i
     Decision 7; the earlier text said ingest ran the shared extension.
     The 2026-09-27 round-3 calendar entry (F003) is superseded on this point.
 
+- **2026-10-09** (slice 229 design and its reviews; the slice design is
+  authoritative in detail):
+  - **"Next roll" for the volume rule:** status names the next roll
+    exactly for calendar rules. For volume rules it names it exactly
+    only when the roll falls on one of the two sessions after the latest
+    complete session, which held volume already decides. Otherwise it
+    reports no roll through that point, plus a no-later-than bound: the
+    first session after the active contract's expiration. A later volume
+    roll depends on trading that has not happened yet. This narrows "status
+    reports … the next roll" for volume rules.
+  - **Calendar offset in sessions:** "a configured offset of days before
+    expiry" is counted in trading sessions, not calendar days, written
+    `c.0+5s`. The model is keyed by session, and a day count would land on
+    weekends and holidays.
+  - **Volume ranking lag:** the volume rule ranks by the session two before
+    the one it answers for. This matches Databento's `.v` symbols on both
+    held ES rolls (2024-09, 2024-12). A volume answer therefore needs that
+    earlier session held complete; otherwise the session is reported
+    unresolved, never guessed.
+  - **Default rule:** `v.0`, defined once.
+  - **Open interest:** evaluated and deferred. For ES, Databento's `.n.0`
+    matched `.v.0` on all 11 rolls from 2023 to 2025; GC differs, so slice
+    232 revisits it. "Active contract and roll methods" above stands, and
+    open interest stays a future rule.
+
 ## Related Work
 
 - **001-initiative-plan.trading.md** — entry 220 and its dependency note (tick hypertable from 100; daemon patterns, provider seam, and orchestrator core from 120). The plan's original assignment of the daemon-framework extraction to this initiative is amended alongside this document: the third source is a bounded pass, not a daemon, and follows an existing shape; extraction, if warranted, is foundation work.

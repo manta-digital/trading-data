@@ -177,6 +177,15 @@ status: in_progress
   - Production tick-cluster provisioning (224's noted gap) lands in 226.
   - Future Work item 3, intra-unit checkpoints, is closed: the slowest unit took 3.9 s against 120 s.
   - ES's wanted range is 2024-11-02 → 2025-01-01, not 11-01: the session dated 11-01 opens on 10-31, a day the tbbo job does not hold.
+- **Architecture and plan statements superseded by 229's slice design**
+  (recorded in the architecture's Revision Log, entry 2026-10-09):
+  - "Next roll": exact for calendar rules; for volume rules, exact only
+    within the two sessions held volume already decides, otherwise a
+    no-later-than bound.
+  - The calendar offset is counted in sessions, not days.
+  - The volume rule ranks by the session two before, matching Databento's
+    `.v`.
+  - Open interest is deferred (Future Work item 2), and 232 revisits it.
 - **No billable request before 224.** 220's preflight uses only free metadata endpoints, and its test fixtures must be free real DBN files. The first real purchase happens only after the PM sets `MT_TICK_SPEND_CEILING_USD`.
 - **The CLI and API surface decision was made at 220 design:** an `mt data tick` subgroup and a `/api/v1/futures/*` namespace. 230 and 231 apply it.
 - **Standing obligations on every 220 slice:** diff the tick pass contract against the Kalshi original, as a named task in the slice's task file (from 224 on). 224 also adds a unit test comparing the tick copy's fields with the Kalshi original's, so divergence fails a test rather than waiting for a checklist (review F015). Include a "realtime paths" check naming any decision that rules out path A (assemble from realtime) or path B (historical with delay). Add the slice's rows to the data-correctness contract's slice-mapping table. Answer "does this belong in the API?" for any new surface.
