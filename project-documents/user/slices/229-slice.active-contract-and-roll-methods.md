@@ -149,8 +149,8 @@ All new code goes in `src/manta_trading/data/tick/`, plus one CLI module.
 |---|---|---|
 | `roll_rules.py` | `RollMethod`, `RollRule` (validate, `parse`, `symbol(product)`) | none |
 | `roll_inputs.py` | `outright_definitions(conn, product)`, `session_volumes(conn, shape, first, last)` | tick DB |
-| `roll_resolve.py` | `resolve_sessions(rule, sessions, contracts, volumes, complete)` → `list[SessionAnswer]`; `segments(...)`; `next_roll(...)` | none (pure) |
-| `active_contract.py` | `build_schedule(conn, calendar_url, entry, rule, start, end)` → `RollSchedule`; `latest_active(...)` for status | tick DB + calendar |
+| `roll_resolve.py` | `resolve_sessions(rule, sessions, contracts, volumes, complete)` → `list[SessionAnswer]`; `segments(...)`; `next_roll(...)`; the result types `ActiveContract`, `Unresolved`, `ActiveLine`, `RollSchedule` | none (pure) |
+| `active_contract.py` | `build_schedule(tick_url, calendar_url, entry, rule, start, end)` → `RollSchedule`; `latest_active(...)` for status; `roll_conninfo(url)` | tick DB + calendar |
 | `cli/commands/tick_active_render.py` | Rich and JSON rendering for `active` | — |
 
 Changes to existing modules:
@@ -162,7 +162,19 @@ Changes to existing modules:
 - `tick_exit.py`: the comment on `EXIT_PARTIAL` widens to cover sessions
   `active` could not resolve, and a failed roll line in `status` (TD9). The
   integer values do not change.
-- `status_reads.py`: `_SHAPE_WHERE` becomes the public `SHAPE_WHERE`.
+- `status_reads.py`: `_SHAPE_WHERE` becomes the public `SHAPE_WHERE`, and
+  `session_verdicts` and `shape_of` move here from `tick_status_build.py`
+  unchanged. Their own imports (`tick_status`, `session_days`, `constants`)
+  are already `status_reads`' dependencies.
+
+**Import direction.** `status_reads` → `roll_inputs`, `roll_resolve` →
+`active_contract` → `tick_status_build`. `tick_status_build` imports
+`latest_active` and `ActiveLine`. Nothing in the roll path imports
+`tick_status_build`, so no cycle forms. `roll_conninfo` reads the
+`TICK_DB_CONNECT_TIMEOUT_SECONDS` and `TICK_DB_KEEPALIVES_*` values that
+already live in `constants.py`. It imports nothing from the ingest worker.
+A unit test asserts that no `roll_*` module or `active_contract` imports
+`tick_status_build`.
 
 Not changed: `_read` in `tick_store_cmds.py` and the connection that
 `status` and `coverage` already use. Their timeouts and transaction
@@ -511,6 +523,8 @@ Synthetic unit tests cover:
   for S, and ranked from the first session whose lag session lists it;
 - a missing ledger row for a contract listed in the lag session, raising;
 - an incomplete lag session being unresolved;
+- a rank deeper than the session's candidates being unresolved, with the
+  rank and candidate count in the reason;
 - the `next roll` forecast for volume when the roll falls on L + 1, on
   L + 2, and beyond L + 2 (the bound only);
 - TD1's grammar round trip and refusals.
@@ -556,6 +570,8 @@ transaction behaviour.
 | Calendar out of populated range | — | existing `TickPreflightError`, naming `mt data extend` | exit 1 | `error:` line, exit 3 |
 | Ingest commits between reads | one `REPEATABLE READ` snapshot; ingest commits a unit atomically (225 TD2), so a snapshot never sees half a unit | Ingest never writes the calendar (225 TD7) | consistent answer | consistent line |
 | Broken invariant (a missing ledger row, an expiration outside the calendar) | `RollInputError` naming the contract and session | — | exit 1 | `error:` line, exit 3 |
+| `MT_TICK_DB_URL` unset | `store_context.database_url` → `TickPreflightError` naming the variable, before any connection | — | exit 1 | never reached: `status` refuses the same way before its own reads, exit 1, as today |
+| Rank deeper than the session's candidates (e.g. `c.5` with four listed) | — | — | that session is `Unresolved`, reason names the rank and the candidate count; exit 3 | the line shows the unresolved reason |
 
 The calendar read runs through `asyncio.to_thread`. Every wait in that
 thread is bounded by the conninfo above, so the thread always returns or
@@ -709,8 +725,16 @@ Neither consumer may drop them silently:
   - exposing `definition_unit_id` and `basis_unit_ids`, so clients can
     detect changed inputs (State Management);
   - calling the roll functions with URLs, so they own their connections
-    (TD9). A pooled variant is 231's design change to make, and only if it
-    keeps one roll-owned snapshot and `roll_conninfo`'s bounds.
+    (TD9). The URL comes from `create_app`'s `tick_db_url` seam, passed
+    straight through. If the architecture's pooled access and this slice's
+    one-snapshot rule ever conflict, the one-snapshot rule wins, because
+    a mixed-snapshot answer is wrong where a slow one is only slow. The
+    architecture's serving posture still holds: 231 maps the
+    `OperationalError` and `TickCalendarError` these functions raise to its
+    tick `503`. A per-request connection recovers when the database
+    returns, with no retry loop, as the pool would. A pooled variant is
+    231's change to make, and only if it keeps one roll-owned snapshot and
+    `roll_conninfo`'s bounds.
 - **232:** the rules work for GC with no code change once GC's definitions
   and ledger exist. 232 inherits:
   - the open-interest question, with TD6's evidence;
