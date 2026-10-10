@@ -18,6 +18,7 @@ from datetime import date, timedelta
 from typing import Any
 
 import psycopg
+from drill_228_bookkeeping import pin_text_settings
 from psycopg import sql
 
 from manta_trading.data.tick.storage_columns import (
@@ -75,6 +76,7 @@ FINGERPRINT_SQL = fingerprint_sql(hashed_columns())
 
 def fingerprint(conn: psycopg.Connection[Any]) -> Fingerprint:
     """``{(instrument_id, UTC day): (row count, md5)}`` for one database."""
+    pin_text_settings(conn)  # no text column today; keeps a future one stable
     rows = conn.execute(FINGERPRINT_SQL).fetchall()
     return {
         (int(inst), _EPOCH + timedelta(days=int(day))): (int(count), str(digest))

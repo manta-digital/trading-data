@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import psycopg
 
@@ -22,7 +23,7 @@ import drill_228_fingerprint as fp  # noqa: E402
 MIGRATION_LEDGER = "schema_migrations"
 
 
-def _public(conn: psycopg.Connection, query: str) -> set[tuple[str, ...]]:
+def _public(conn: psycopg.Connection[Any], query: str) -> set[tuple[str, ...]]:
     return {tuple(r) for r in conn.execute(query).fetchall()}
 
 
@@ -61,7 +62,7 @@ def test_every_id_valued_column_is_mapped(migrated_tick_db: str) -> None:
         columns = _public(
             conn,
             "SELECT table_name, column_name FROM information_schema.columns"
-            " WHERE table_schema = 'public' AND column_name LIKE '%%unit_id'"
+            " WHERE table_schema = 'public' AND column_name LIKE '%unit_id'"
             " OR (table_schema = 'public' AND column_name = 'request_id')",
         )
     ids = {(t, c) for t, c in columns if t in bk.BOOKKEEPING_TABLES}

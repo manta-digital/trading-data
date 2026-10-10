@@ -22,6 +22,7 @@ from cutover_227_helpers import Step, StepFailed
 from cutover_227_host import TICK_LOCK_KEYS
 from drill_228_bookkeeping import BOOKKEEPING_TABLES, table_md5
 from drill_228_context import (
+    SHOWN_FAILURES,
     DrillContext,
     check,
     connect_production,
@@ -161,8 +162,8 @@ def step_hold(ctx: DrillContext, step: Step) -> None:
 
 
 def step_switch(ctx: DrillContext, step: Step) -> None:
-    sql = "SELECT pg_walfile_name(pg_switch_wal())"
-    ctx.needed_segment = postgres_value(ctx.tick.cluster, sql)
+    query = "SELECT pg_walfile_name(pg_switch_wal())"
+    ctx.needed_segment = postgres_value(ctx.tick.cluster, query)
     step.seen.append(f"segment the restore must reach: {ctx.needed_segment}")
     shapes = [
         ctx.wal_dir / f"{ctx.needed_segment}.zst",
@@ -194,7 +195,8 @@ def step_restore_archive(ctx: DrillContext, step: Step) -> None:
     result = sudo_n(["chown", "-R", owner, str(restored)])
     check(step, f"chown -R {owner} {restored} exit", 0, result.returncode)
     seen = backed_up_set(restored, load_excludes(), logical_root=ctx.archive)
-    assert ctx.live_set is not None  # step 1 sets it
+    if ctx.live_set is None:
+        raise StepFailed("step 1 did not record the live archive set")
     check(step, "restored files", ctx.live_set.count, seen.count)
     check(step, "restored bytes", ctx.live_set.bytes, seen.bytes)
 
@@ -203,7 +205,8 @@ def step_restore_archive(ctx: DrillContext, step: Step) -> None:
 
 
 def _extract(ctx: DrillContext, step: Step) -> None:
-    assert ctx.base is not None  # step 0 sets it
+    if ctx.base is None:
+        raise StepFailed("step 0 did not record the base backup")
     ctx.pgdata.mkdir(mode=0o700)
     (ctx.pgdata / "pg_wal").mkdir(exist_ok=True)
     started = time.monotonic()
@@ -280,7 +283,7 @@ def step_compare_production(ctx: DrillContext, step: Step) -> None:
     with connect_scratch(ctx) as restored:
         check(step, "row counts", _row_counts(ctx.prod), _row_counts(restored))
         diffs = diff_fingerprints(fingerprint(ctx.prod), fingerprint(restored))
-        check(step, "tick_trade fingerprint differences", [], diffs[:5])
+        check(step, "tick_trade fingerprint differences", [], diffs[:SHOWN_FAILURES])
         for table in BOOKKEEPING_TABLES:
             check(
                 step,

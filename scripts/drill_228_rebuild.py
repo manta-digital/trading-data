@@ -26,6 +26,7 @@ from cutover_227_helpers import Step, StepFailed
 from drill_228_bookkeeping import compare_bookkeeping
 from drill_228_context import (
     DRILL_DB,
+    SHOWN_FAILURES,
     TICK_DB,
     DrillContext,
     check,
@@ -40,7 +41,6 @@ from drill_228_lifecycle import MT_COMMAND_TIMEOUT, PG_BIN
 PROVISION_SQL = Path(__file__).resolve().parent / "provision_tick_roles.sql"
 #: The tick migration track (``mt data migrate apply --track``).
 TICK_TRACK = "tick"
-_SHOWN = 10
 
 
 def create_drill_database(ctx: DrillContext) -> list[str]:
@@ -112,7 +112,7 @@ def _run_mt(
         f"$ {' '.join(args[2:])}  (exit {result.returncode}, {took:.1f} s)"
     )
     if result.returncode != 0:
-        tail = (result.stderr or result.stdout).strip().splitlines()[-_SHOWN:]
+        tail = (result.stderr or result.stdout).strip().splitlines()[-SHOWN_FAILURES:]
         raise StepFailed(f"{' '.join(args[2:5])} exited {result.returncode}: {tail}")
 
 
@@ -135,11 +135,11 @@ def step_compare_rebuild(ctx: DrillContext, step: Step) -> None:
         connect_scratch(ctx, DRILL_DB) as rebuilt,
     ):
         diffs = diff_fingerprints(fingerprint(restored), fingerprint(rebuilt))
-        check(step, "tick_trade fingerprint differences", [], diffs[:_SHOWN])
+        check(step, "tick_trade fingerprint differences", [], diffs[:SHOWN_FAILURES])
         result = compare_bookkeeping(restored, rebuilt)
     for (table, column), count in sorted(result.allowed_differences.items()):
         step.seen.append(f"allowed difference: {table}.{column} on {count} row(s)")
     for (table, rule), count in sorted(result.allowed_missing.items()):
         step.seen.append(f"allowed missing: {count} {table} row(s), {rule.value}")
     step.seen.append(f"allowed-missing requests: {result.allowed_missing_requests}")
-    check(step, "bookkeeping failures", [], result.failures[:_SHOWN])
+    check(step, "bookkeeping failures", [], result.failures[:SHOWN_FAILURES])

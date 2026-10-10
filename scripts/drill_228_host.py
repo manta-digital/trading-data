@@ -159,6 +159,8 @@ def backed_up_set(
     live path a restored copy stands for, so excludes match as they did live."""
     count = size = 0
     newest = 0.0
+    # The archive holds no symlinks; restic lists them apart from files, so one
+    # would show here as a count mismatch against ``parse_restic_ls``.
     for directory, _, files in os.walk(archive):
         for name in files:
             path = Path(directory, name)

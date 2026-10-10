@@ -225,7 +225,9 @@ def make_context(checkout: Path) -> DrillContext:
 
 
 def report_path(checkout: Path) -> Path:
-    return checkout / REPORT_DIR / f"{datetime.now().date().isoformat()}-{REPORT_NAME}"
+    return (
+        checkout / REPORT_DIR / f"{datetime.now(UTC).date().isoformat()}-{REPORT_NAME}"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -43,6 +43,8 @@ DRILL_DB = "trading_tick_drill"
 #: The scratch server's superuser: the restored cluster's own.
 SCRATCH_SUPERUSER = "postgres"
 #: provision_tick_roles.sql's default role names (the restored cluster has them).
+#: How many differences or output lines a failing step prints.
+SHOWN_FAILURES = 10
 TICK_APP_ROLE = "tick_app"
 TICK_MIGRATE_ROLE = "tick_migrate"
 READ_ONLY = "-c default_transaction_read_only=on"

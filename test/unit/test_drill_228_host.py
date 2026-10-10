@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -80,7 +81,9 @@ def excludes() -> list:
     return host.load_excludes()
 
 
-def test_the_real_exclude_file_drops_partial_tick_files(excludes: list) -> None:
+def test_the_real_exclude_file_drops_partial_tick_files(
+    excludes: list[re.Pattern[str]],
+) -> None:
     assert host.is_excluded(f"{ARCHIVE}/GLBX-1/glbx.dbn.zst.partial", excludes)
     assert not host.is_excluded(f"{ARCHIVE}/GLBX-1/glbx.dbn.zst", excludes)
     assert host.is_excluded("/home/manta/x/.venv/lib/a.py", excludes)
@@ -101,7 +104,9 @@ def _archive(tmp_path: Path, mtime: float = SNAPSHOT_EPOCH - 60) -> Path:
     return root
 
 
-def test_backed_up_set_skips_excluded_files(tmp_path: Path, excludes: list) -> None:
+def test_backed_up_set_skips_excluded_files(
+    tmp_path: Path, excludes: list[re.Pattern[str]]
+) -> None:
     live = host.backed_up_set(_archive(tmp_path), excludes, logical_root=ARCHIVE)
     assert (live.count, live.bytes) == (3, 8)
 
@@ -128,13 +133,17 @@ EQUAL = [("manifest.json", 2), ("a.dbn.zst", 4), ("b.dbn.zst", 2)]
 
 
 @pytest.mark.parametrize("noise", [False, True])
-def test_restic_listing_parses_leniently(noise: bool, excludes: list) -> None:
+def test_restic_listing_parses_leniently(
+    noise: bool, excludes: list[re.Pattern[str]]
+) -> None:
     listing = host.parse_restic_ls(_listing(EQUAL, noise=noise), excludes)
     assert (listing.files.count, listing.files.bytes) == (3, 8)
     assert listing.time == datetime(2026, 10, 7, 8, 0, 5, 123456, tzinfo=UTC)
 
 
-def test_a_listing_without_a_snapshot_line_fails(excludes: list) -> None:
+def test_a_listing_without_a_snapshot_line_fails(
+    excludes: list[re.Pattern[str]],
+) -> None:
     with pytest.raises(DrillError, match="no snapshot"):
         host.parse_restic_ls(_listing(EQUAL).split("\n", 1)[1], excludes)
 
@@ -149,7 +158,11 @@ def test_a_listing_without_a_snapshot_line_fails(excludes: list) -> None:
     ],
 )
 def test_archive_against_snapshot(
-    tmp_path: Path, excludes: list, files: list, mtime: float, problem: str | None
+    tmp_path: Path,
+    excludes: list[re.Pattern[str]],
+    files: list[tuple[str, int]],
+    mtime: float,
+    problem: str | None,
 ) -> None:
     live = host.backed_up_set(_archive(tmp_path, mtime), excludes, logical_root=ARCHIVE)
     listing = host.parse_restic_ls(_listing(files), excludes)
