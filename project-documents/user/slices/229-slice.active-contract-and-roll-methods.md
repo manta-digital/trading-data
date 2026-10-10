@@ -3,7 +3,7 @@ docType: slice-design
 slice: active-contract-and-roll-methods
 project: trading-data
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
-dependencies: [226]
+dependencies: [220, 221, 224, 225, 226]
 interfaces: [230, 231, 232]
 dateCreated: 20261009
 dateUpdated: 20261009
@@ -21,7 +21,9 @@ adds those rules:
 - **The vocabulary.** Two roll methods named with Databento's letters:
   calendar (`c`) and volume (`v`). Each takes a rank (`.0` is the front
   contract, `.1` the next), and calendar takes an optional offset of N
-  sessions before expiry. One project default, `v.0`, is defined once.
+  sessions before expiry. One text grammar, `c.0`, `v.1` or `c.0+5s`, is
+  shared by the CLI and the API. One project default, `v.0`, is defined
+  once.
 - **The resolver.** Given a product, a rule and a session, it names the
   contract. It reads only stored state: the definitions, the ingest ledger's
   per-session volume, and the CME calendar. Each answer also names the
@@ -65,13 +67,17 @@ Nothing is bought, and there is no schema change.
 **Included**
 
 - `RollMethod` enum (`CALENDAR = "c"`, `VOLUME = "v"`) and a `RollRule`
-  value (method, rank, calendar offset). It parses and renders the
-  Databento form `c.0` / `v.1`. `DEFAULT_ROLL_RULE` and
-  `VOLUME_RANK_LAG_SESSIONS` are in `data/tick/constants.py`.
+  value (method, rank, calendar offset). It parses and renders one
+  grammar (TD1). `DEFAULT_ROLL_RULE`, `VOLUME_RANK_LAG_SESSIONS` and
+  `TICK_ROLL_MAX_SESSIONS` are in `data/tick/constants.py`.
 - `OUTRIGHT_CLASS` and `SPREAD_CLASS` are moved to `constants.py`. Today
   `SPREAD_CLASS` lives in `tick_status_build.py`, and resolution needs both.
 - Reads: a product's outright definitions, and outright volume per
-  (session, instrument) over current units of the product's shape.
+  (session, instrument) over current units of the product's shape. All
+  tick-database reads for one answer run in one read-only snapshot, with a
+  statement timeout (TD9).
+- 225's private `_SHAPE_WHERE` in `status_reads.py` is renamed to the public
+  `SHAPE_WHERE`, so roll reads share it instead of copying it.
 - A pure resolver: given sessions, definitions, volumes and session
   completeness, return a resolution or an "unresolved" result, with its
   reason, for each session.
@@ -109,7 +115,11 @@ Nothing is bought, and there is no schema change.
 - **225 (complete):** the ingest ledger, with one row per
   (unit, instrument, session) including zero-record rows; session
   verdicts (`session_verdicts`, `TickSessionStatus.COMPLETE`); and the
-  shape predicate over current units (`_SHAPE_WHERE`).
+  shape predicate over current units (`SHAPE_WHERE` in `status_reads.py`,
+  which embeds `COVERAGE_PREDICATE`). This slice makes it public; today it
+  is `_SHAPE_WHERE`. 225 writes a ledger row for each definition whose
+  window overlaps the unit's sessions (`ingest_plan._definitions`). TD3
+  relies on that predicate.
 - **224 (complete):** definitions are projected into `tick_definition`, with
   `asset`, `instrument_class`, `raw_symbol` and the validity window.
 - **221 (complete):** the `CME_EQUITY` calendar on the production database,
@@ -121,8 +131,8 @@ Nothing is bought, and there is no schema change.
 
 - `tick_definition`: `instrument_id`, `raw_symbol`, `asset`,
   `instrument_class`, `activation_ns`, `expiration_ns`, `unit_id`.
-- `tick_ingest_ledger`: `instrument_id`, `session_date`, `volume`, joined to
-  current units of the shape (`COVERAGE_PREDICATE`).
+- `tick_ingest_ledger`: `unit_id`, `instrument_id`, `session_date` and
+  `volume`, joined to current units of the shape (`SHAPE_WHERE`).
 - The production calendar's sessions for the product
   (`calendar_for_product`). This is the existing tick → production edge
   that `status` and `coverage` already use. No new edge is added.
@@ -148,7 +158,11 @@ Changes to existing modules:
   `rolls: tuple[ActiveLine, ...]`, and `SPREAD_CLASS` moves to `constants`.
 - `tick_status_render.py` prints the roll lines.
 - `tick_exit.py`: the comment on `EXIT_PARTIAL` widens to cover sessions
-  `active` could not resolve.
+  `active` could not resolve, and a roll-line error in `status` (TD9).
+- `status_reads.py`: `_SHAPE_WHERE` becomes the public `SHAPE_WHERE`.
+- `cli/commands/tick_store_cmds.py` `_read`: the read connection opens one
+  read-only snapshot with a statement timeout for `status`, `coverage` and
+  `active` (TD9).
 
 `roll_resolve.py` is pure, so the provider-equivalence test, the rank and
 offset tests, and the edge cases all run with no database.
@@ -158,11 +172,13 @@ offset tests, and the edge cases all run with no database.
 ```
 mt data tick active --product ES --rule v.0 --start S --end E
   └─ active_contract.build_schedule
+       ├─ refuse if [S, E) spans more than TICK_ROLL_MAX_SESSIONS (exit 1)
        ├─ calendar (prod DB, to_thread): sessions in [S − lag sessions, E),
        │   plus the session of each candidate's expiration
-       ├─ roll_inputs.outright_definitions(tick DB)   asset = product, class F
-       ├─ roll_inputs.session_volumes(tick DB)         ledger, current units, outrights
-       ├─ status_reads/session_verdicts(tick DB)       which sessions are COMPLETE
+       ├─ one REPEATABLE READ READ ONLY snapshot on the tick DB:
+       │   ├─ roll_inputs.outright_definitions   asset = product, class F
+       │   ├─ roll_inputs.session_volumes        ledger, current units, outrights
+       │   └─ session_verdicts                   which sessions are COMPLETE
        └─ roll_resolve.resolve_sessions (to_thread)   → per-session answers
             → segments → render (text | JSON)
 ```
@@ -187,6 +203,19 @@ or cached. Supersession changes which units are current, so it can change a
 volume; because the answer is computed at read time, the change shows up
 on the next read.
 
+A date alone cannot show that inputs changed, so each answer names the rows
+it was decided from:
+
+- `definition_unit_id`: the archive unit of the chosen contract's
+  definition row;
+- `basis_unit_ids`: for a volume answer, the current units whose ledger rows
+  were read for the lag session. This is empty for calendar.
+
+A client holding an earlier answer (231) re-reads it. If either id set
+differs, the inputs changed, by supersession or by re-ingest. Equal ids
+with a different contract would be a resolver bug. The fixture test pins
+that case.
+
 ## Technical Decisions
 
 ### TD1. Vocabulary: Databento's letters, a rank, and an offset for calendar only
@@ -203,16 +232,29 @@ class RollRule:
     offset_sessions: int = 0  # calendar only: roll N sessions before expiry
 ```
 
-- Text form: `{method}.{rank}`, for example `v.0` and `c.1`. A rule
-  applied to a product is written `ES.v.0`, which is exactly Databento's
-  continuous symbol. Parsing is lenient about case and surrounding
-  whitespace. An unknown method fails and lists the known ones
-  (`unknown roll method 'n'; known: c, v`). A negative rank or offset
-  fails, and so does an offset on `v`.
-- The offset has no Databento symbol. A non-zero offset renders as
-  `c.0+5s`, so a status line never looks like a provider symbol the
-  provider would answer differently. `+5s` means five sessions before
-  expiry.
+- **One grammar, used for parsing and for rendering:**
+  `{method}.{rank}[+{offset}s]`, for example `v.0`, `c.1` and `c.0+5s`.
+  `RollRule.parse` and `str(RollRule)` are exact inverses: for every valid
+  rule, `parse(str(rule)) == rule`, and `str(parse(text))` is the canonical
+  form of `text`.
+- The suffix is accepted only on `c`, and only with an offset of at least 1.
+  An offset of 0 is written with no suffix, so each rule has exactly one
+  canonical form. The offset is the only way to give an offset: the CLI
+  has no `--offset` flag, and 231's query parameter takes the same string.
+  The CLI and the API therefore accept one vocabulary, as the architecture
+  requires.
+- A rule applied to a product is written `ES.v.0`. With no suffix that is
+  exactly Databento's continuous symbol. With a suffix (`ES.c.0+5s`) it is
+  deliberately not a provider symbol, because the provider has no offset.
+- Parsing is lenient about case and surrounding whitespace. Each of these
+  fails with a named message:
+  - an unknown method (`unknown roll method 'n'; known: c, v`);
+  - a negative or non-integer rank;
+  - a suffix on `v`;
+  - `+0s`;
+  - anything left over after the suffix.
+- A property test checks the round trip for every method × rank 0–3 ×
+  offset 0–10, and the refusals are tested one by one.
 - The offset is counted in sessions, not calendar days, because the whole
   model is keyed by session. A day count would land on weekends and
   holidays.
@@ -267,11 +309,27 @@ example:
 The resolver never falls back to a partial volume, to calendar, or to the
 previous answer.
 
-An eligible contract with no ledger row in a complete session is an error
-naming the contract. The ledger writes a row for every defined instrument
-in every session it touches, zero-record rows included (I13). It holds 21
-outright rows in each sampled session on `trading_tick`, so a missing row
-is a broken invariant and is never read as volume 0.
+**Which contracts are ranked: the ledger's own predicate.** 225 writes a
+ledger row for a contract and a session when the contract's definition
+window overlaps the session, zero-record rows included
+(`ingest_plan._definitions`: `activation_ns ≤ close`,
+`expiration_ns ≥ open`). Ranking for S uses the contracts that are both:
+
+- eligible at S (TD2 with offset 0), and
+- *listed in the lag session* L: their window overlaps L by that same
+  predicate.
+
+A contract listed after L opened, but by S's open, is not ranked for S. It
+had no market in L, so it has no volume to rank by. This is a stated
+exclusion, not a fallback to 0. That contract becomes rankable on the
+first session whose lag session it was listed in. A newly listed contract
+has negligible volume, so the provider's answer is the same either way. The
+synthetic tests include a contract activated between L and S.
+
+Within that set, a contract with no ledger row in a complete L is an error
+naming the contract and L. The ledger's predicate guarantees the row, so a
+missing one is a broken invariant (I13) and is never read as volume 0.
+`trading_tick` holds 21 outright rows in each sampled session.
 
 ### TD4. Roll-day handling (the stated default)
 
@@ -339,9 +397,10 @@ member and a new input. No existing rule's meaning changes.
 directory and no lock (the same as `status`):
 
 ```
-mt data tick active [--product P] [--rule c.0|v.0|…] [--offset N]
-                    [--start D --end D] [--json]
+mt data tick active [--product P] [--rule RULE] [--start D --end D] [--json]
 ```
+
+`RULE` follows TD1's grammar (`v.0`, `c.1`, `c.0+5s`).
 
 - Without `--start`/`--end` it prints, for each product and each rule
   (`--rule`, or every rule in `STATUS_ROLL_RULES`), the answer for the
@@ -350,13 +409,28 @@ mt data tick active [--product P] [--rule c.0|v.0|…] [--offset N]
   ```
   ES  v.0 (default)  ESH5 (5002)  exp 2025-03-21 13:30 UTC   session 2024-12-31
       inputs: volume of session 2024-12-27; definitions as of 2024-12-31
-      next roll: not forecast (volume); no later than session 2025-03-24
+      next roll: none through session 2025-01-03 (held volume);
+                 no later than session 2025-03-24 (expiry)
   ES  c.0            ESH5 (5002)  exp 2025-03-21 13:30 UTC   session 2024-12-31
       next roll: session 2025-03-24 → ESM5 (4916)
   ```
 
-  The forecast in "next roll" comes from definitions and the calendar,
-  never from data not yet held.
+  **"Next roll", per method.** Every value comes from stored data. None
+  comes from data not yet held.
+  - **Calendar:** the exact roll session and the incoming contract, from
+    definitions and the calendar.
+  - **Volume:** the lag makes the next two sessions after the latest
+    complete session L already decided, by the volume of L − 1 and L. If
+    the answer changes on L + 1 or L + 2, that roll is reported exactly
+    (`next roll: session X → ESZ4 (held volume)`). Otherwise the line says
+    there is no roll through L + 2, plus the hard bound: the first session
+    after the active contract's expiration session.
+
+  Beyond L + 2, a volume roll depends on trading that has not happened, so
+  the bound is the most that can be stated. This narrows the
+  architecture's "status reports … the next roll" for the default rule, and
+  the narrowing is recorded in the architecture's Revision Log and in the
+  contract's I14 row (Technical Requirements).
 - With a range it prints the segments, where the end is an exclusive
   session date as in `coverage`:
 
@@ -366,20 +440,26 @@ mt data tick active [--product P] [--rule c.0|v.0|…] [--offset N]
   ```
 
   Unresolved sessions are listed with their reasons.
-- Exit codes come from `tick_exit.py`: 0 when every session resolved; 3
-  when any session in the range is unresolved (output still printed); 1
-  for a bad rule or an unknown product; 4 when the tick database or the
-  calendar is unreachable.
+- Exit codes come from `tick_exit.py`:
+  - 0: every session resolved.
+  - 3: a session in the range is unresolved (output still printed).
+  - 1: a bad rule, an unknown product, or a range over
+    `TICK_ROLL_MAX_SESSIONS`.
+  - 4: the tick database or the calendar is unreachable, times out, or
+    drops the connection (TD9).
 - `--json` carries the same fields: `product`, `rule`, `is_default`, and
   `answers`/`segments` with `session_date`, `instrument_id`, `raw_symbol`,
-  `expiration` (ISO UTC), `basis_session` and `definitions_as_of`; plus
+  `expiration` (ISO UTC), `basis_session`, `definitions_as_of`,
+  `definition_unit_id` and `basis_unit_ids`; plus
   `unresolved` (each with `session_date` and `reason`), `next_roll` and
   `exit_code`.
 
 **`mt data tick status`** gains one line per rule in
 `STATUS_ROLL_RULES = (DEFAULT_ROLL_RULE, RollRule(RollMethod.CALENDAR))`,
 in the same form as `active` without a range, under the existing contract
-lines. Status still never scans `tick_trade`.
+lines. Status still never scans `tick_trade`. If a rule hits a broken
+invariant, its line becomes an `error:` line (TD9); the other lines and the
+session buckets still print.
 
 **Does this belong in the API?** Yes: the active contract per rule and the
 schedule are part of 231's contract catalog. 231 serves them through
@@ -413,9 +493,66 @@ Synthetic unit tests cover:
 - ties;
 - an expired contract dropping out of rank 1;
 - offsets 0, 1 and 5;
-- a missing ledger row raising;
+- a contract activated between the lag session and S: excluded from ranking
+  for S, and ranked from the first session whose lag session lists it;
+- a missing ledger row for a contract listed in the lag session, raising;
 - an incomplete lag session being unresolved;
-- a rule's text form surviving parse and render unchanged.
+- the `next roll` forecast for volume when the roll falls on L + 1, on
+  L + 2, and beyond L + 2 (the bound only);
+- TD1's grammar round trip and refusals.
+
+When more rolls enter the ledger (a plan-year purchase, or 232's GC), the
+fixture script is re-run over them and the test is extended. 232 has this
+as a named task. A disagreement means the lag convention is revisited as a
+whole, never patched per roll.
+
+### TD9. Read failure modes: one snapshot, bounded waits, per-rule degradation
+
+| Failure | Handling | Surface |
+|---|---|---|
+| Tick DB unreachable at connect | existing `connect_timeout` (`TICK_DB_CONNECT_TIMEOUT_SECONDS`, 10 s) → `TickDatabaseUnreachable` | exit 4 |
+| A read hangs | `SET LOCAL statement_timeout` to `TICK_READ_STATEMENT_TIMEOUT_SECONDS` (new, 30 s) inside the snapshot → `QueryCanceled` (a `psycopg.OperationalError`) | exit 4, naming the timeout |
+| Peer lost mid-read | the read connection gets the ingest worker's TCP keepalives (`TICK_DB_KEEPALIVES_*`, about 2 min to detect) → `OperationalError` | exit 4 |
+| Calendar unreachable or out of range | existing `calendar_sessions` mapping (`TickCalendarError` → exit 4; out of range → `TickPreflightError`, exit 1, naming `mt data extend`) | as `status` today |
+| Ingest commits between reads | the tick-DB reads for one invocation run in one `REPEATABLE READ READ ONLY` transaction, so definitions, ledger and units come from one snapshot. Ingest commits a unit atomically (225 TD2), so a snapshot never sees half a unit | consistent answer |
+| Broken invariant (a missing ledger row, an expiration outside the calendar) | `RollInputError` naming the contract and session | `active`: exit 1 with the message. `status`: that rule's line becomes `error: <message>`, `rolls[i].error` is set in JSON, the other rules and the buckets still print, and status exits 3 |
+
+The statement timeout and the snapshot apply to `status` and `active`,
+which never scan `tick_trade`. `coverage` keeps its current connection,
+because its raw scan is bounded by its range, not by a fixed time. 30 s is
+about 7,000 times the measured roll reads (TD10) and still ends a hang
+within an operator's attention span.
+
+The calendar is on the production database, outside the snapshot. Ingest
+never writes it (225 TD7), so the two reads cannot disagree because of a
+concurrent pass.
+
+### TD10. Cost and bounds of a read-time schedule
+
+**Measured on `trading_tick`, 2026-10-09:**
+
+- the ES outright definitions read: 23 rows, 3.2 ms;
+- the outright volume read over every held session: 1,346
+  (session, instrument) rows from a 5,145-row ledger, 4.2 ms.
+
+**Projected:**
+
+- a plan year adds about 310 units, or about 20,000 ledger rows;
+- a year's schedule reads about 252 sessions and about 5,000 volume rows,
+  and resolves about 252 × 20 candidate comparisons in pure Python, in
+  well under 100 ms. Nothing in the path scans `tick_trade`.
+
+**Bound.** One schedule request may span at most
+`TICK_ROLL_MAX_SESSIONS = 1_300` sessions (about five years). A longer
+range is refused with exit 1, naming the cap and asking for a narrower
+range. It is never truncated. The cap keeps the per-request cost inside the
+projected envelope even after 16 years of history is held.
+
+**Hand-off to 231.** 231 applies the same cap per request through
+`build_schedule`, which enforces it, so no caller can bypass it. 231 also
+states its own latency bound, measured on its endpoints. Schedules stay
+uncached, because an answer must reflect the current units (State
+Management).
 
 ### Realtime paths
 
@@ -458,6 +595,8 @@ class ActiveContract:
     expiration: datetime          # UTC
     basis_session: date           # volume: S − lag; calendar: S
     definitions_as_of: date       # latest ingested definition unit day
+    definition_unit_id: int       # unit of the chosen contract's definition row
+    basis_unit_ids: tuple[int, ...]  # volume: current units read for the lag session; calendar: ()
 
 @dataclass(frozen=True)
 class Unresolved:
@@ -472,16 +611,24 @@ class RollSchedule:
     def segments(self) -> tuple[Segment, ...]: ...      # consecutive same-contract runs
 
 async def build_schedule(conn, calendar_url, entry, rule, start: date, end: date) -> RollSchedule
+    # raises RollRangeTooLong over TICK_ROLL_MAX_SESSIONS; opens its own snapshot (TD9)
 async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
 ```
 
 `ActiveLine` is what `status` and `active` render for one rule:
 
-- the latest complete session and its `ActiveContract`, or the reason it is
-  unresolved;
-- `next_roll`: for calendar, `(session_date, ActiveContract)`; for volume,
-  `None`, with `roll_no_later_than` set to the first session after the
-  contract's expiration session.
+- the latest complete session L and its `ActiveContract`, or the reason it
+  is unresolved;
+- `next_roll: (session_date, ActiveContract) | None`. For calendar it is
+  always set. For volume it is set only when the roll falls on L + 1 or
+  L + 2 (TD7).
+- `known_through: date`. For volume this is L + 2. For calendar it is the
+  last populated calendar session.
+- `roll_no_later_than: date | None`. For volume it is the first session
+  after the active contract's expiration session. For calendar it is
+  `None`.
+- `error: str | None`: a broken-invariant message (TD9). When it is set,
+  the other fields are empty.
 
 ## Integration Points
 
@@ -491,11 +638,18 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
   default (TD4), `DEFAULT_ROLL_RULE`, and `RollRule.parse` for the CLI's
   `--rule`.
 - **231:** the same interface for the contract catalog's
-  "active contract per rule" and for product-level endpoints, plus the
-  `RollRule` text form for query parameters.
+  "active contract per rule" and for product-level endpoints, plus TD1's
+  rule grammar as the one query-parameter form. 231 inherits two
+  obligations:
+  - the `TICK_ROLL_MAX_SESSIONS` cap, which `build_schedule` enforces, and
+    an endpoint latency bound measured by 231 itself (TD10);
+  - exposing `definition_unit_id` and `basis_unit_ids`, so clients can
+    detect changed inputs (State Management).
 - **232:** the rules work for GC with no code change once GC's definitions
-  and ledger exist. The open-interest question is handed over with TD6's
-  evidence.
+  and ledger exist. 232 inherits:
+  - the open-interest question, with TD6's evidence;
+  - a named task to re-run the fixture script over GC's rolls and extend
+    the equivalence test (TD8).
 
 ### Consumes from Other Slices
 
@@ -509,9 +663,14 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
 
 ### Functional Requirements
 
-1. `RollRule.parse` accepts `c.N` and `v.N` (lenient case and whitespace)
-   and refuses an unknown method (listing `c, v`), a negative rank, and an
-   offset on `v`, each with a named message.
+1. `RollRule.parse` accepts TD1's grammar (`v.N`, `c.N`, `c.N+Ms`;
+   lenient case and whitespace). `parse(str(rule)) == rule` holds for every
+   valid rule. It refuses, each with a named message:
+   - an unknown method (listing `c, v`);
+   - a negative rank;
+   - a suffix on `v`;
+   - `+0s`;
+   - trailing text.
 2. The calendar rule on `trading_tick` gives ESU4 through session
    2024-09-20 and ESZ4 from 2024-09-23. It gives ESZ4 through 2024-12-20
    and ESH5 from 2024-12-23.
@@ -519,15 +678,28 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
    2024-09-18. It gives ESZ4 through 2024-12-17 and ESH5 from 2024-12-18.
 4. A session whose lag session is not complete is unresolved, with a reason
    naming that session and its status. It is never filled.
-5. `--offset 5` with `c.0` rolls five sessions earlier than `c.0`.
-6. `mt data tick active` without a range prints, for each rule, the
-   contract, the rule, the expiration, the session it answers for, its
-   inputs, and the next roll (calendar) or the no-later-than bound
-   (volume).
+5. `c.0+5s` rolls five sessions earlier than `c.0`.
+6. `mt data tick active` without a range prints, for each rule:
+   - the contract, the rule and the expiration;
+   - the session it answers for, and its inputs;
+   - the next roll. For calendar that is always exact. For volume it is
+     exact when the roll falls on L + 1 or L + 2; otherwise "none through
+     L + 2" plus the no-later-than bound.
+6a. A contract listed after its lag session opened is not ranked, and
+    raises no error. A contract listed in the lag session with no ledger
+    row raises, naming it.
 7. `mt data tick status` shows the same lines for `v.0` (marked default)
    and `c.0`.
-8. `active` exits 3 when a ranged query has an unresolved session, 1 on a
-   bad rule, and 4 on an unreachable database or calendar.
+8. `active` exits 3 when a ranged query has an unresolved session; 1 on a
+   bad rule, a range over `TICK_ROLL_MAX_SESSIONS`, or a broken invariant;
+   and 4 on a database or calendar that is unreachable, times out, or
+   drops the connection.
+8a. In `status`, a broken invariant in one rule prints that rule's
+    `error:` line, keeps every other line, and exits 3.
+8b. The tick-database reads of one `status` or `active` invocation run in
+    one `REPEATABLE READ READ ONLY` transaction with
+    `TICK_READ_STATEMENT_TIMEOUT_SECONDS`. A test holds a lock to force a
+    timeout and asserts exit 4.
 9. The default rule is read from `DEFAULT_ROLL_RULE` everywhere. A grep
    finds no second spelling of `"v"`/`"c"` as a rule outside `constants.py`
    and the tests.
@@ -538,16 +710,27 @@ async def latest_active(conn, calendar_url, entry, rule, verdicts) -> ActiveLine
 - The provider-equivalence test (TD8) passes on recorded real fixtures for
   `c.0`, `c.1`, `v.0` and `v.1` over both rolls. The fixture script is
   committed and its run is recorded in `user/notes/`.
-- Integration tests on a scratch tick database cover `roll_inputs`
-  (current units only, outrights only, supersession honoured) and the
-  missing-ledger-row error.
+- Integration tests on a scratch tick database cover:
+  - `roll_inputs`: current units only, outrights only, supersession
+    honoured;
+  - the missing-ledger-row error;
+  - the snapshot and the timeout (8b);
+  - `basis_unit_ids` changing after a supersession.
+- TD10's measurement is re-run on `trading_tick` at implementation. A full
+  held-range schedule must finish well inside 1 s, and the result is
+  recorded in `user/notes/`.
 - ruff, mypy and pyright are clean on touched files. Files are about 300
   lines or fewer.
 - The data-correctness contract is updated: the I14 row gets 229's
-  delivery, and the I10 row gets the `active` verb. The architecture's
-  Revision Log gets an entry for TD3, TD4, TD5 and TD6, and the slice plan
-  gets a "superseded by 229" note: the lag, sessions-based offsets, and
-  open interest deferred.
+  delivery, and the I10 row gets the `active` verb.
+- The architecture's Revision Log gets an entry for TD3, TD4, TD5, TD6 and
+  TD7's "next roll" for volume (exact through L + 2, otherwise a
+  no-later-than bound).
+- The slice plan gets a "superseded by 229" note covering:
+  - the lag;
+  - sessions-based offsets;
+  - "next roll" for volume;
+  - open interest deferred.
 - The Kalshi pass-contract diff test still passes (the standing
   obligation; this slice does not touch the contract).
 
@@ -572,7 +755,8 @@ come from the ledger and from Databento's resolve, both read on
      2024-12-31, expiring 2025-03-21 13:30 UTC.
    - The `v.0` line gives its inputs as the volume of session 2024-12-27.
    - `c.0`'s next roll is session 2025-03-24 → ESM5 (4916).
-   - `v.0` says "no later than session 2025-03-24".
+   - `v.0` says "none through session 2025-01-03 (held volume)" and "no
+     later than session 2025-03-24".
    - Exit 0.
 
 2. **The September volume roll.**
@@ -585,12 +769,12 @@ come from the ledger and from Databento's resolve, both read on
 3. **The same range under calendar, and with an offset.**
    ```bash
    uv run mt data tick active --product ES --rule c.0 --start 2024-09-09 --end 2024-09-28
-   uv run mt data tick active --product ES --rule c.0 --offset 5 --start 2024-09-09 --end 2024-09-28
+   uv run mt data tick active --product ES --rule c.0+5s --start 2024-09-09 --end 2024-09-28
    ```
    Expected:
    - Plain `c.0`: ESU4 through 2024-09-20, ESZ4 from 2024-09-23
      (Databento d0 2024-09-22, a Sunday).
-   - With the offset (rule rendered `c.0+5s`): ESU4 through 2024-09-13 and
+   - With the offset: ESU4 through 2024-09-13 and
      ESZ4 from 2024-09-16, five sessions before plain `c.0`'s roll.
 
 4. **The December roll and rank 1.**
@@ -616,10 +800,12 @@ come from the ledger and from Databento's resolve, both read on
 6. **Bad rules fail loudly.**
    ```bash
    uv run mt data tick active --rule n.0; echo "exit $?"
-   uv run mt data tick active --rule v.0 --offset 2; echo "exit $?"
+   uv run mt data tick active --rule v.0+2s; echo "exit $?"
+   uv run mt data tick active --product ES --start 2010-01-04 --end 2026-01-02; echo "exit $?"
    ```
-   Expected: `unknown roll method 'n'; known: c, v`, then the offset
-   refusal. Both `exit 1`.
+   Expected, in order: `unknown roll method 'n'; known: c, v`; the refusal
+   of a suffix on `v`; and the refusal naming `TICK_ROLL_MAX_SESSIONS`.
+   Each exits 1.
 
 7. **Status names the active contract.**
    ```bash
@@ -628,7 +814,9 @@ come from the ledger and from Databento's resolve, both read on
    ```
    Expected: the two roll lines from step 1 under the contract list, and a
    JSON `rolls` array with `rule`, `is_default`, `instrument_id`,
-   `raw_symbol`, `expiration`, `basis_session` and `next_roll`.
+   `raw_symbol`, `expiration`, `basis_session`, `basis_unit_ids`,
+   `definition_unit_id`, `next_roll`, `known_through`,
+   `roll_no_later_than` and `error`.
 
 8. **Provider equivalence is tested.**
    ```bash
@@ -649,23 +837,31 @@ come from the ledger and from Databento's resolve, both read on
 
 ### Mitigation Strategies
 
-- The lag is one constant, and the recorded-fixture test pins it. When 232
-  or a plan-year purchase brings more rolls into the ledger, the fixture
-  script is re-run over them. A disagreement fails the test, and the
-  convention is revisited, not patched per roll.
+- The lag is one constant, and the recorded-fixture test pins it.
+- 232 re-runs the fixture script over GC's rolls as a named task. A
+  plan-year purchase does the same for ES.
+- A disagreement fails the test, and the convention is revisited as a
+  whole, not patched per roll.
 
 ## Implementation Notes
 
 ### Development Approach
 
-1. Constants (`RollMethod`, the default, the lag, the status rule set, the
-   instrument classes) and `roll_rules.py`, with parse and render tests.
-2. `roll_resolve.py`, pure, with synthetic tests: ranks, ties, expiry
-   drop-out, offsets, unresolved lag sessions, and the missing-row error.
+1. Constants (`RollMethod`, the default, the lag, the cap, the read
+   timeout, the status rule set, the instrument classes) and
+   `roll_rules.py`, with the grammar round-trip tests.
+2. `roll_resolve.py`, pure, with synthetic tests:
+   - ranks, ties and expiry drop-out;
+   - offsets;
+   - the listed-in-lag-session exclusion;
+   - unresolved lag sessions;
+   - the missing-row error;
+   - the volume next-roll forecast.
 3. The fixture script, run once on manta9000. Commit its fixtures and the
    provider-equivalence test.
-4. `roll_inputs.py` and `active_contract.py`, with integration tests on a
-   scratch tick database.
+4. `SHAPE_WHERE` made public. Then `roll_inputs.py` and
+   `active_contract.py`, with the read snapshot, the timeout and the
+   keepalives (TD9), and integration tests on a scratch tick database.
 5. The `active` verb and its renderer, then the status roll lines (text and
    JSON).
 6. The walkthrough on `trading_tick`, recorded in `user/notes/`.
