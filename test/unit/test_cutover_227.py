@@ -28,6 +28,10 @@ MAIN_KEY = "MT_TIMESCALE_MAINTENANCE_URL"
 def _load(name: str) -> ModuleType:
     if str(SCRIPTS) not in sys.path:
         sys.path.insert(0, str(SCRIPTS))
+    # Siblings another test file already imported (the 228 drill reuses
+    # cutover_227_helpers) hold the old classes; reload them all together.
+    for cached in [m for m in sys.modules if m.startswith("cutover_227_")]:
+        del sys.modules[cached]
     spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
