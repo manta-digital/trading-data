@@ -6,8 +6,8 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [227]
 interfaces: []
 dateCreated: 20261004
-dateUpdated: 20261007
-status: in_progress
+dateUpdated: 20261009
+status: complete
 ---
 
 # Slice Design: tick-restore-drill
@@ -262,32 +262,30 @@ The drill only reads, restores and rebuilds what slices 223–227 already define
 
 ### Verification Walkthrough
 
-These are the commands as designed; Phase 6 refines them with real output.
+Run on manta9000, 2026-10-09 (reports under `project-documents/user/notes/`).
 
-1. **Run the drill** (PM or agent; prompts once for `sudo`):
+1. **Run the drill** (prompts once for `sudo`, which it then keeps fresh itself):
    ```
    uv run python scripts/drill_tick_restore.py
    ```
-   Expect each step printed with expected and seen values, ending with `PASS: archive, database, fallback`, and a report path under `user/notes/`.
+   Seen: steps 0-8 each `PASS`, then `Report: …/2026-10-09-228-tick-restore-drill.md — PASS`, in 9m40s.
 
-2. **Read the report:**
-   ```
-   less project-documents/user/notes/<date>-228-tick-restore-drill.md
-   ```
-   Expect:
-   - archive file count and bytes equal to the live archive's backed-up set;
-   - all table counts equal to production;
-   - fingerprints equal;
-   - the bookkeeping differences listed, all in the expected set;
-   - the rebuild time.
+2. **Read the report** (`2026-10-09-228-tick-restore-drill.md`). Seen:
+   - archive: 176 files, 523,349,320 bytes, equal to the live archive's backed-up set;
+   - every public table's count equal to production (`tick_trade` 27,691,412 rows, `tick_archive_unit` 156, `tick_ingest_ledger` 5,145, …), the `tick_trade` fingerprint and six bookkeeping md5s equal;
+   - rebuild equal to the restore: fingerprint equal, bookkeeping differences only `tick_archive_unit.state_changed_at` (156 rows), `tick_dataset_edge.available_end` and `observed_at` (1), `tick_day_condition.observed_at` (106);
+   - timings: restic restore 15.0 s, base extraction 2.6 s, recovery 1.6 s, compare with production 89.0 s, rebuild 363.1 s.
 
 3. **Confirm cleanup:**
    ```
-   ls /data/restore-test/          # no 228-drill-* directory
-   pgrep -u manta -a postgres      # no server with a 228-drill-* data directory
+   ls -A /data/restore-test/       # only .228-drill.lock
+   pgrep -u manta -af 'restore-test/228-drill'   # none
    ```
+   Seen: `.228-drill.lock` only, and `no scratch server`.
 
-4. **Run it again:** the same command exits 0 a second time.
+4. **Run it again:** the immediate re-run (`…-228-tick-restore-drill-rerun.md`) also passed, in 9m34s, leaving the same clean state.
+
+Earlier attempts on 2026-10-07 are kept in `notes/` as the record of three defects the host run found: a privilege query that broke on TimescaleDB chunk names, a Databento 504 during adopt verification (transient; passed on re-run), and the sudo timestamp expiring in a 20-minute run (now refreshed every 60 s).
 
 ## Implementation Notes
 

@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The tick database restore is proven** (slice 228): `scripts/drill_tick_restore.py`
+  restores the tick archive from restic and `trading_tick` from base backup
+  plus WAL into a scratch server, then rebuilds a second database from the
+  restored archive. It checks all three against production (row counts, a
+  per-day `tick_trade` fingerprint, bookkeeping checksums) and cleans up
+  after itself. First run on 2026-10-09: all match, about 10 minutes, rebuild
+  about 6. Runbook 200 has the restore procedures and the drill record; the
+  next drill is due 2026-11-17.
 - **The tick database is backed up like production** (slice 227, live once
   cutover ran 2026-10-05): weekly base backup,
   continuous compressed WAL archiving, a nightly metadata dump, all pushed to

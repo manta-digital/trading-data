@@ -12,8 +12,8 @@ projectState: >
   archive file has ever been restored. No tick database restore has been run.
   Slice design committed and re-reviewed.
 dateCreated: 20261006
-dateUpdated: 20261007
-status: in_progress
+dateUpdated: 20261009
+status: complete
 ---
 
 # Tasks: Tick Restore Drill
@@ -559,20 +559,20 @@ status: in_progress
   Steps 6-7 live in `scripts/drill_228_rebuild.py`; jobs are adopted in the
   restored database's `request_id` order, because a definition belongs to
   the first unit that projected it.
-- [ ] **7.4 Run the full drill on manta9000** (effort 3)
-  - [ ] Run `uv run python scripts/drill_tick_restore.py`. Keep the printed
+- [x] **7.4 Run the full drill on manta9000** (effort 3)
+  - [x] Run `uv run python scripts/drill_tick_restore.py`. Keep the printed
         output with the report.
-  - [ ] Success: exit 0; report shows every Functional Requirement 2 item
+  - [x] Success: exit 0; report shows every Functional Requirement 2 item
         (archive equal, all table counts and fingerprint equal, rebuilt
         fingerprint equal, allowed differences only, rebuild time, no leftovers).
-  - [ ] On any unexpected difference, diagnose from the actual values before
+  - [x] On any unexpected difference, diagnose from the actual values before
         changing the allowed set. Widening TD4's set is a design change: ask the
         Project Manager.
-- [ ] **7.5 Run it a second time** (effort 1)
-  - [ ] Success: exit 0 straight after the first run (no carried state);
+- [x] **7.5 Run it a second time** (effort 1)
+  - [x] Success: exit 0 straight after the first run (no carried state);
         `ls /data/restore-test/` shows no `228-drill-*`; `pgrep -u manta -a
         postgres` shows no scratch server.
-- [ ] **7.6 Commit checkpoint** - `feat: complete tick restore drill steps 6-9`
+- [x] **7.6 Commit checkpoint** - `feat: complete tick restore drill steps 6-9`
 
 ---
 
@@ -595,40 +595,40 @@ status: in_progress
         Replace runbook 200's line "The full archive-and-database drill is
         slice 227's" with the correct slice (228).
   - [x] Success: both procedures carry commands that match the drill's.
-- [ ] **8.3 Drill section and record row** (effort 2)
-  - [ ] Add the drill command, what it proves (archive, database, fallback),
+- [x] **8.3 Drill section and record row** (effort 2)
+  - [x] Add the drill command, what it proves (archive, database, fallback),
         its sudo prompt, and the quarterly repeat alongside production's Step 6
         (next due 2026-11-17). Update the runbook's "Repeat expectation"
         paragraph so the quarterly drill is production's Step 6 **plus** this
         script. That wording is the slice's Integration Requirement; running it
         on 2026-11-17 is the PM's future quarterly drill, not a task here.
-  - [ ] Add a Drill record row with this run's date, duration, and outcome from
+  - [x] Add a Drill record row with this run's date, duration, and outcome from
         7.4/7.5, citing the report path.
-  - [ ] Success: runbook front matter `dateUpdated` bumped; links resolve.
-- [ ] **8.4 Commit checkpoint** - `docs: add tick restore procedures and drill to runbook 200`
+  - [x] Success: runbook front matter `dateUpdated` bumped; links resolve.
+- [x] **8.4 Commit checkpoint** - `docs: add tick restore procedures and drill to runbook 200`
 
 ---
 
 ## Section 9 - Final validation
 
-- [ ] **9.1 Quality gates** (effort 2)
-  - [ ] Run ruff format and check on touched files only; `git diff <target>`
+- [x] **9.1 Quality gates** (effort 2)
+  - [x] Run ruff format and check on touched files only; `git diff <target>`
         (target from `cf config get git.integration_branch`, else `main`) shows
         no unrelated deletions.
-  - [ ] Run mypy on the new `scripts/drill_*` files and the new tests in one
+  - [x] Run mypy on the new `scripts/drill_*` files and the new tests in one
         invocation (the project's `files` setting covers only `src/`). If the
         scripts' sibling imports don't resolve, set `MYPYPATH=scripts`.
-  - [ ] Run the new unit and integration tests, tiers separately.
-  - [ ] Grep to confirm: no TD6 bound, drill root/prefix/marker/lock,
+  - [x] Run the new unit and integration tests, tiers separately.
+  - [x] Grep to confirm: no TD6 bound, drill root/prefix/marker/lock,
         PostgreSQL binary directory or report directory literal outside
         `drill_228_lifecycle.py`; no `/data/tick-archive` literal in the
         new code; no cluster path literal outside `backup-clusters.conf`; no
         credential in any new file.
-  - [ ] Success: all clean; any pre-existing failure matches the known list.
-- [ ] **9.2 Walk the design's Success Criteria** (effort 2)
-  - [ ] Check each Functional and Technical Requirement against the report and
+  - [x] Success: all clean; any pre-existing failure matches the known list.
+- [x] **9.2 Walk the design's Success Criteria** (effort 2)
+  - [x] Check each Functional and Technical Requirement against the report and
         tests; list any gap.
-  - [ ] Update the slice design's `status` and `dateUpdated`; add real output to
+  - [x] Update the slice design's `status` and `dateUpdated`; add real output to
         its Verification Walkthrough where Phase 6 refined it.
-  - [ ] Success: every criterion maps to a passing test or the recorded run.
-- [ ] **9.3 Commit checkpoint** - `docs: update slice 228 verification and status`
+  - [x] Success: every criterion maps to a passing test or the recorded run.
+- [x] **9.3 Commit checkpoint** - `docs: update slice 228 verification and status`
