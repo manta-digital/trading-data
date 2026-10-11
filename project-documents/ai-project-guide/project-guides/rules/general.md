@@ -23,10 +23,10 @@ alwaysApply: true
 - Never scatter comparison values across code. If a value is used in conditionals, switch cases, or lookups, define it once (enum, constant, or config) and reference that definition everywhere. Changing a value should require editing exactly one place.
 - Do not hard-code magic defaults.  In the example below, the defaults for model and n are both wrong.  If such defaults are needed they should be centralized at the config level.  This applies in all languages.
 ```python
-  async def _model_start(promt:str) -> str {
-    model = self._config.model or "gpt-5.3-codex"
-    n = self._config.index or 1234
-  }
+async def _model_start(self, prompt: str) -> str:
+    model = self._config.model or "gpt-5.3-codex"  # wrong: silent fallback to a magic model
+    n = self._config.index or 1234                 # wrong: magic number
+    ...
 ```
 - NEVER use user-accessible labels as logical structure.  They are fragile.
 
@@ -74,7 +74,7 @@ hallucination trap.
 
 - All markdown files must include YAML frontmatter as specified in `file-naming-conventions.md`
 - Use checklist format for all task files.  Each item and subitem should have a `[ ]` "checkbox".
-- After completing a task or subtask, delegate checklist updates to the `task-checker` agent rather than editing task files inline. This keeps the main agent's context focused on implementation. If task-checker is unavailable, check off tasks directly.
+- After completing a task or subtask, delegate checklist updates to the `task-checker` agent rather than editing task files inline. This keeps the main agent's context focused on implementation. If task-checker is unavailable, check off tasks directly. Check off only items you have verified as done. Leave unfinished items unchecked, including when work stops to wait for the Project Manager.
 - Preserve sections titled "## User-Provided Concept" exactly as 
   written — never modify or remove.
 - Keep success summaries concise and minimal.

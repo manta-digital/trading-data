@@ -12,6 +12,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.9] - 2026-10-11
+
+### Added
+- `rules/fixes.md` (always-on): a fix is any work committed as `fix:`. A small fix is made and committed straight to the target with `Fixes #n`, with no slice, task file, branch or review. A fix that needs several steps becomes a task group in the project's standing fixes slice. A new option, a changed file or state format, or a new component is a feature and gets its own slice
+- Process guide: a Fixes entry, including how to create the standing fixes slice the first time. That slice is `review: none` by definition, an exception to the review-gate rule
+
+### Changed
+- File naming: 900-999 is one operational range with no sub-ranges. Only slices claim an index. Analysis files use their initiative's base index, or are numbered in order within `user/analysis/` from 900; standalone reviews are numbered in order within `user/reviews/` from 900. Files named under the old 900-939, 940-949 and 950-999 sub-ranges keep their names
+- `git.md`: fixes commit directly to the target, with no branch
+- Phase 7 prompt: issues found during integration are filed as issues and worked as fixes, instead of logged to `950-tasks.maintenance.md`
+
+### Removed
+- Maintenance Task and Maintenance Routine prompts, and their context profiles
+- Process guide reference to a nonexistent Ad-Hoc Tasks prompt
+
+## [0.20.8] - 2026-10-11
+
+### Changed
+- Checklist rules (Phase 6 prompt, maintenance routine, `general.md` rules): check off only items verified as done, and leave unfinished items unchecked, including when work stops to wait for the Project Manager
+
+## [0.20.7] - 2026-10-11
+
+### Fixed
+- `setup-ide`: migrating a `CLAUDE.md` with the legacy marker no longer replaces project content that follows a hand-added `[//]: # (context-forge:managed end)` line; that content is kept (#33)
+- `setup-ide`: without an install manifest, a rule, agent or skill file that differs from the guide's version is left alone with a warning instead of being backed up and replaced, so customized files survive the first manifest run. Installs that predate the manifest keep older stock files until they are removed once (#34)
+
+## [0.20.6] - 2026-10-11
+
+### Added
+- `file-naming-conventions.md`: registered the optional `revision_number` frontmatter field (integer written only by tooling, for `slice-design`, `tasks`, and `review` docs) (#14)
+
+### Changed
+- Images now live in an `images/` folder next to the document that uses them. The two UI mockups moved from `z-attachments/` to `project-guides/images/`, and the Obsidian attachment guidance in `directory-structure.md` and the process guide was replaced
+- Stopped tracking `.obsidian/` (left over from editing the guide in Obsidian)
+- Added `.understand-anything/.understandignore` so the analyzer skips `.obsidian/` and `DEVLOG.md`; untracked the analyzer's `intermediate/` scratch output
+
+### Fixed
+- `rules/general.md`, `CLAUDE.md`: the magic-defaults example is now valid Python, with the two bad lines marked (#27)
+
+## [0.20.5] - 2026-10-10
+
+### Fixed
+
+- Prompts no longer contradict each other on task checkboxes: all places now say
+  delegate to `task-checker`, and check off directly if it is unavailable
+  (squadron#189).
+
+## [0.20.4] - 2026-10-10
+
+### Changed
+
+- Phase 6 prompt names its task files with the `{task-files}` variable (context-forge
+  0.19.4 or later) instead of a hard-coded `{sliceindex}-tasks.{slicename}.md`,
+  so split task files (`-1.md`, `-2.md`, ...) are found (context-forge#114).
+- Process guide, Phase 6: an orchestrating pipeline may run Phases 6 and 7 as
+  one run, provided the pipeline engine (not the implementing agent) starts
+  each review, decides from defined thresholds when review has passed, and
+  merges only after it has passed. Replaces "does not include reviews or a
+  merge" with a rule about who acts.
+
 ## [0.20.3] - 2026-10-06
 
 ### Fixed
