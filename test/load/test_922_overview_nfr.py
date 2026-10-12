@@ -116,6 +116,7 @@ def _settings() -> MagicMock:
     settings = MagicMock()
     settings.eodhd_api_key = "load-test-key"
     settings.minute_firing_days = (5,)
+    settings.tick_db_url = None  # the 230 tick line: not configured, no connect
     return settings
 
 
@@ -154,7 +155,7 @@ def test_the_overviews_database_half_stays_within_budget(
     from manta_trading.data.acquisition.pass_runs import PassKind
 
     assert all(facts.latest_ended[kind] is not None for kind in PassKind)
-    assert len(facts.sources) == 4
+    assert len(facts.sources) == 5  # four database sources + 230's tick line
 
     # And the build stays negligible — it is pure, but it walks every row.
     t0 = time.perf_counter()
