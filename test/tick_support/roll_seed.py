@@ -141,3 +141,38 @@ def seed_ledger(
 def touched_days(sessions: Iterable[date]) -> set[date]:
     """The UTC days CME sessions dated ``sessions`` touch: D and the day before."""
     return {d for s in sessions for d in (s - timedelta(days=1), s)}
+
+
+# -- The September 2024 roll, shaped like production ---------------------------
+
+ESU4 = expiring(118, "ESU4", date(2022, 6, 17), date(2024, 9, 20))
+ESZ4 = expiring(183748, "ESZ4", date(2021, 6, 4), date(2024, 12, 20))
+ESH5 = expiring(5002, "ESH5", date(2022, 12, 16), date(2025, 3, 21))
+#: The CME sessions held, 2024-09-03 → 09-27 (weekdays; no holiday inside).
+SEPTEMBER = [
+    date(2024, 9, 3) + timedelta(days=n)
+    for n in range(25)
+    if (date(2024, 9, 3) + timedelta(days=n)).weekday() < 5
+]
+#: ESZ4 out-trades ESU4 from this session on, as the ledger shows (TD3).
+SEPTEMBER_CROSS = date(2024, 9, 16)
+
+
+def september_volumes() -> dict[tuple[date, int], int]:
+    rows: dict[tuple[date, int], int] = {}
+    for day in SEPTEMBER:
+        crossed = day >= SEPTEMBER_CROSS
+        rows[day, ESU4.instrument_id] = 400 if crossed else 600
+        rows[day, ESZ4.instrument_id] = 700 if crossed else 300
+        rows[day, ESH5.instrument_id] = 5
+        rows[day, SPREAD_ID] = 50_000  # spreads never rank, however busy
+    return rows
+
+
+def seed_september_roll(url: str) -> SeededRoll:
+    """Definitions, a trades unit for every day the sessions touch, and the
+    ledger: ``v.0`` rolls ESU4 → ESZ4 on 09-18, ``c.0`` on 09-23."""
+    definition = seed_definitions(url, [ESU4, ESZ4, ESH5], date(2024, 8, 30))
+    units = seed_tier_days(url, touched_days(SEPTEMBER))
+    seed_ledger(url, units, september_volumes())
+    return SeededRoll(definition, units)

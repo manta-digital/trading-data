@@ -286,47 +286,47 @@ status: in_progress
 
 ## Section 4 - Shared reads and roll inputs
 
-- [ ] **4.1 Move shared status reads into `status_reads.py`** (effort 2)
-  - [ ] Rename `_SHAPE_WHERE` to `SHAPE_WHERE`; update its uses.
-  - [ ] Move `shape_of`, `session_verdicts` and `calendar_sessions` from
+- [x] **4.1 Move shared status reads into `status_reads.py`** (effort 2)
+  - [x] Rename `_SHAPE_WHERE` to `SHAPE_WHERE`; update its uses.
+  - [x] Move `shape_of`, `session_verdicts` and `calendar_sessions` from
         `tick_status_build.py` to `status_reads.py` unchanged. Update imports
         in `tick_status_build.py`, `tick_coverage.py` and tests (findings 1.1).
-  - [ ] Run unit and integration tests for status and coverage
+  - [x] Run unit and integration tests for status and coverage
         (`test_tick_status*.py`, coverage tests) before committing.
-  - [ ] Success: those tests pass unchanged. Commit:
+  - [x] Success: those tests pass unchanged. Commit:
         `refactor: move shared tick status reads into status_reads`.
 
-- [ ] **4.2 Implement `data/tick/roll_inputs.py`** (effort 2)
-  - [ ] `outright_definitions(conn, product)`: `asset = product` and
+- [x] **4.2 Implement `data/tick/roll_inputs.py`** (effort 2)
+  - [x] `outright_definitions(conn, product)`: `asset = product` and
         `instrument_class = OUTRIGHT_CLASS`. No rows → `RollInputError`
         naming the product (Special Considerations), never empty.
-  - [ ] `session_volumes(conn, shape, first, last)`: ledger rows of outrights
+  - [x] `session_volumes(conn, shape, first, last)`: ledger rows of outrights
         over current units of the shape (`SHAPE_WHERE`), returning resolver
         volume rows with `unit_id`.
-  - [ ] `held_session_bounds(conn, shape)`: earliest and latest ledger
+  - [x] `held_session_bounds(conn, shape)`: earliest and latest ledger
         `session_date` over current units of the shape, or `None` when the
         shape holds nothing (used by `latest_active`, task 6.2).
-  - [ ] `definitions_as_of`: latest ingested definition unit day.
-  - [ ] Success: ruff, mypy, pyright clean.
+  - [x] `definitions_as_of`: latest ingested definition unit day.
+  - [x] Success: ruff, mypy, pyright clean.
 
-- [ ] **4.3 Test `roll_inputs` on a scratch tick database** (effort 3)
-  - [ ] `test/integration/data/test_tick_roll_inputs.py`: current units only
+- [x] **4.3 Test `roll_inputs` on a scratch tick database** (effort 3)
+  - [x] `test/integration/data/test_tick_roll_inputs.py`: current units only
         (a superseded unit's rows are not returned); spreads not returned;
         unknown product raises; `held_session_bounds` on an empty and a seeded
         shape.
-  - [ ] Success: tests pass. Commit: `feat: add roll input reads`.
+  - [x] Success: tests pass. Commit: `feat: add roll input reads`.
 
 ---
 
 ## Section 5 - Recorded provider fixtures and the equivalence test
 
-- [ ] **5.1 Write `scripts/record_229_roll_fixture.py`** (effort 3)
-  - [ ] Reads `MT_TICK_DB_URL` and `MT_TIMESCALE_DB_URL` from the environment
+- [x] **5.1 Write `scripts/record_229_roll_fixture.py`** (effort 3)
+  - [x] Reads `MT_TICK_DB_URL` and `MT_TIMESCALE_DB_URL` from the environment
         (fails naming the variable if unset). Issues only `SELECT`s.
-  - [ ] Reuses, never copies, the shipped reads: `outright_definitions`,
+  - [x] Reuses, never copies, the shipped reads: `outright_definitions`,
         `session_volumes` (task 4.2), and `session_verdicts`, `shape_of`,
         `calendar_sessions` from `status_reads` (task 4.1).
-  - [ ] Writes JSON fixtures to `test/fixtures/tick/roll/`:
+  - [x] Writes JSON fixtures to `test/fixtures/tick/roll/`:
         `es_definitions.json` (ES outright definitions),
         `es_volumes.json` (outright volume per session and unit, both held
         ranges, current units only, plus the verdict per session as
@@ -335,30 +335,32 @@ status: in_progress
         expiry), `es_databento.json` (intervals for `ES.c.0`, `ES.c.1`,
         `ES.v.0`, `ES.v.1` over 2024-08-30 → 2025-01-02 from
         `ITickMetadataProvider.resolve_symbols`).
-  - [ ] Each file records its source and the UTC time it was read.
-  - [ ] Success: `--help` works; ruff and mypy clean (`MYPYPATH=scripts`).
+  - [x] Each file records its source and the UTC time it was read.
+  - [x] Success: `--help` works; ruff and mypy clean (`MYPYPATH=scripts`).
+  Note: URLs and the key come through `Settings` (same env names; the project's one config source), and an unset one stops the script naming it.
 
-- [ ] **5.2 Run the fixture script on manta9000 and record it** (effort 1)
-  - [ ] Run it once against `trading_tick` and the production calendar.
-  - [ ] Write `user/notes/229-roll-fixture-record.md` (with frontmatter): the
+- [x] **5.2 Run the fixture script on manta9000 and record it** (effort 1)
+  - [x] Run it once against `trading_tick` and the production calendar.
+  - [x] Write `user/notes/229-roll-fixture-record.md` (with frontmatter): the
         command, row counts per file, and the Databento switch dates seen
         (expected `ES.v.0` 2024-09-18 and 2024-12-18; `ES.c.0` 2024-09-22).
-  - [ ] Success: four fixture files exist; the note matches them.
+  - [x] Success: four fixture files exist; the note matches them.
 
-- [ ] **5.3 Provider-equivalence test** (effort 3)
-  - [ ] A loader in `test/tick_support/roll_fixture.py` turns the JSON into
+- [x] **5.3 Provider-equivalence test** (effort 3)
+  - [x] A loader in `test/tick_support/roll_fixture.py` turns the JSON into
         resolver inputs.
-  - [ ] `test/unit/data/tick/test_roll_provider_equivalence.py`
+  - [x] `test/unit/data/tick/test_roll_provider_equivalence.py`
         (name it in the lag constant's comment, task 2.1): for `c.0`, `c.1`,
         `v.0`, `v.1`, every resolved session in the held ranges equals the
         contract Databento's interval maps on that session date (TD4).
-  - [ ] Unresolved sessions asserted exactly: those whose lag session is not
+  - [x] Unresolved sessions asserted exactly: those whose lag session is not
         complete in the recorded verdicts (for tbbo, 11-04 and 11-05; the gap
         between ranges).
-  - [ ] FR2 and FR3 dates asserted explicitly (ESU4→ESZ4 and ESZ4→ESH5 under
+  - [x] FR2 and FR3 dates asserted explicitly (ESU4→ESZ4 and ESZ4→ESH5 under
         both rules).
-  - [ ] Success: tests pass with no database or network. Commit:
+  - [x] Success: tests pass with no database or network. Commit:
         `test: add recorded roll fixtures and provider equivalence test`.
+  Note: a one-off check with the lag set to 1 mismatches `ES.v.0` on 2024-09-17 and 2024-12-17, so the test pins the lag.
 
 ---
 

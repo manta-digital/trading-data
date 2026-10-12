@@ -10,7 +10,8 @@ never count.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
@@ -193,13 +194,16 @@ async def raw_counts(
     return {(i, d): int(n) for i, d, n in await cursor.fetchall()}
 
 
-def calendar_sessions(
-    url: str, calendar_id: str, start: datetime, end: datetime
-) -> list[Session]:
-    """Blocking: the calendar's sessions meeting ``[start, end)``."""
+@contextmanager
+def open_calendar(url: str, calendar_id: str) -> Iterator[TradingCalendar]:
+    """Blocking: a calendar whose failures are tick refusals; closed on exit.
+
+    A database failure is :class:`TickCalendarError` (exit 4); a range outside
+    the populated sessions is :class:`TickPreflightError` naming the remedy.
+    """
     calendar = TradingCalendar(calendar_id, url)
     try:
-        return calendar.sessions_between(start, end)
+        yield calendar
     except (psycopg.OperationalError, CalendarNotFoundError) as exc:
         raise TickCalendarError(f"calendar {calendar_id} unavailable: {exc}") from exc
     except OutOfPopulatedRangeError as exc:
@@ -208,6 +212,14 @@ def calendar_sessions(
         raise TickPreflightError(f"calendar {calendar_id}: {exc}") from exc
     finally:
         calendar.close()
+
+
+def calendar_sessions(
+    url: str, calendar_id: str, start: datetime, end: datetime
+) -> list[Session]:
+    """Blocking: the calendar's sessions meeting ``[start, end)``."""
+    with open_calendar(url, calendar_id) as calendar:
+        return calendar.sessions_between(start, end)
 
 
 def shape_of(entry: TickUniverseEntry) -> Shape:

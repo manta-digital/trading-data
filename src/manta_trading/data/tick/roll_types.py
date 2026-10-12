@@ -145,7 +145,8 @@ class ActiveLine:
     """One rule's answer for the latest complete session L, and what follows.
 
     When ``error`` is set, every other field but ``product`` and ``rule`` is
-    empty (TD9).
+    empty (TD9). ``reason`` says why there is no L at all (nothing held, or no
+    complete session held); it is not a failure.
     """
 
     product: str
@@ -155,4 +156,5 @@ class ActiveLine:
     next_roll: NextRoll | None = None
     known_through: date | None = None
     roll_no_later_than: date | None = None
+    reason: str | None = None
     error: str | None = None

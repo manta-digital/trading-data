@@ -252,6 +252,10 @@ class TradingCalendar:
         self._cache[key] = horizon
         return horizon
 
+    def horizon_end(self) -> date | None:
+        """The last populated session date; ``None`` when none is populated."""
+        return self._get_horizon_end()
+
     def populated_span(self) -> tuple[datetime | None, datetime | None]:
         """``(first open, last close)`` of this calendar's populated sessions.
 
