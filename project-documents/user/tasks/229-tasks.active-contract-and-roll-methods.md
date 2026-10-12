@@ -71,6 +71,9 @@ status: not_started
   - [ ] `calendar_sessions` in `tick_status_build.py` maps
         `OperationalError` (including the pool's `PoolTimeout`) to
         `TickCalendarError` and out-of-range to `TickPreflightError`.
+  - [ ] How to read a calendar's last populated session (needed for calendar
+        `known_through`, task 6.2). If `TradingCalendar` has no such read,
+        name the smallest addition in the findings.
   - [ ] Every caller of `session_verdicts`, `shape_of` and `calendar_sessions`
         (today: `tick_status_build.py`, `tick_coverage.py`, tests).
   - [ ] `ingest_plan._definitions` uses `activation_ns ≤ close` and
@@ -97,7 +100,7 @@ status: not_started
   - [ ] `VOLUME_RANK_LAG_SESSIONS = 2`. Its comment must state: why 2 (it
         matches Databento's `.v` switch on both held rolls; CME publishes
         session D's statistics during D + 1), the fixture test that pins it
-        (task 4.3's test name), and that a change is a provider convention
+        (task 5.3's test name), and that a change is a provider convention
         change revisited whole, never per roll (TD3).
   - [ ] `TICK_ROLL_MAX_SESSIONS = 1_300` (TD10) and
         `TICK_ROLL_STATEMENT_TIMEOUT_SECONDS = 30` (TD9), each with a one-line
@@ -159,7 +162,7 @@ status: not_started
         rank r takes the r-th.
   - [ ] An E(c) beyond the sessions passed in raises `RollInputError` naming
         the contract and `mt data extend` (never "not expiring"). The caller
-        (task 5.4) passes sessions through each candidate's expiration.
+        (task 6.1) passes sessions through each candidate's expiration.
   - [ ] Rank deeper than eligible candidates → `Unresolved` with the rank and
         candidate count in the reason.
   - [ ] `ActiveContract` fields: `basis_session = S`, `basis_unit_ids = ()`,
@@ -232,11 +235,48 @@ status: not_started
 
 ---
 
-## Section 4 - Recorded provider fixtures and the equivalence test
+## Section 4 - Shared reads and roll inputs
 
-- [ ] **4.1 Write `scripts/record_229_roll_fixture.py`** (effort 3)
+- [ ] **4.1 Move shared status reads into `status_reads.py`** (effort 2)
+  - [ ] Rename `_SHAPE_WHERE` to `SHAPE_WHERE`; update its uses.
+  - [ ] Move `shape_of`, `session_verdicts` and `calendar_sessions` from
+        `tick_status_build.py` to `status_reads.py` unchanged. Update imports
+        in `tick_status_build.py`, `tick_coverage.py` and tests (findings 1.1).
+  - [ ] Run unit and integration tests for status and coverage
+        (`test_tick_status*.py`, coverage tests) before committing.
+  - [ ] Success: those tests pass unchanged. Commit:
+        `refactor: move shared tick status reads into status_reads`.
+
+- [ ] **4.2 Implement `data/tick/roll_inputs.py`** (effort 2)
+  - [ ] `outright_definitions(conn, product)`: `asset = product` and
+        `instrument_class = OUTRIGHT_CLASS`. No rows → `RollInputError`
+        naming the product (Special Considerations), never empty.
+  - [ ] `session_volumes(conn, shape, first, last)`: ledger rows of outrights
+        over current units of the shape (`SHAPE_WHERE`), returning resolver
+        volume rows with `unit_id`.
+  - [ ] `held_session_bounds(conn, shape)`: earliest and latest ledger
+        `session_date` over current units of the shape, or `None` when the
+        shape holds nothing (used by `latest_active`, task 6.2).
+  - [ ] `definitions_as_of`: latest ingested definition unit day.
+  - [ ] Success: ruff, mypy, pyright clean.
+
+- [ ] **4.3 Test `roll_inputs` on a scratch tick database** (effort 3)
+  - [ ] `test/integration/data/test_tick_roll_inputs.py`: current units only
+        (a superseded unit's rows are not returned); spreads not returned;
+        unknown product raises; `held_session_bounds` on an empty and a seeded
+        shape.
+  - [ ] Success: tests pass. Commit: `feat: add roll input reads`.
+
+---
+
+## Section 5 - Recorded provider fixtures and the equivalence test
+
+- [ ] **5.1 Write `scripts/record_229_roll_fixture.py`** (effort 3)
   - [ ] Reads `MT_TICK_DB_URL` and `MT_TIMESCALE_DB_URL` from the environment
         (fails naming the variable if unset). Issues only `SELECT`s.
+  - [ ] Reuses, never copies, the shipped reads: `outright_definitions`,
+        `session_volumes` (task 4.2), and `session_verdicts`, `shape_of`,
+        `calendar_sessions` from `status_reads` (task 4.1).
   - [ ] Writes JSON fixtures to `test/fixtures/tick/roll/`:
         `es_definitions.json` (ES outright definitions),
         `es_volumes.json` (outright volume per session and unit, both held
@@ -249,14 +289,14 @@ status: not_started
   - [ ] Each file records its source and the UTC time it was read.
   - [ ] Success: `--help` works; ruff and mypy clean (`MYPYPATH=scripts`).
 
-- [ ] **4.2 Run the fixture script on manta9000 and record it** (effort 1)
+- [ ] **5.2 Run the fixture script on manta9000 and record it** (effort 1)
   - [ ] Run it once against `trading_tick` and the production calendar.
   - [ ] Write `user/notes/229-roll-fixture-record.md` (with frontmatter): the
         command, row counts per file, and the Databento switch dates seen
         (expected `ES.v.0` 2024-09-18 and 2024-12-18; `ES.c.0` 2024-09-22).
   - [ ] Success: four fixture files exist; the note matches them.
 
-- [ ] **4.3 Provider-equivalence test** (effort 3)
+- [ ] **5.3 Provider-equivalence test** (effort 3)
   - [ ] A loader in `test/tick_support/roll_fixture.py` turns the JSON into
         resolver inputs.
   - [ ] `test/unit/data/tick/test_roll_provider_equivalence.py`
@@ -273,35 +313,9 @@ status: not_started
 
 ---
 
-## Section 5 - Reads, connections and the schedule
+## Section 6 - Connections and the schedule
 
-- [ ] **5.1 Move shared status reads into `status_reads.py`** (effort 2)
-  - [ ] Rename `_SHAPE_WHERE` to `SHAPE_WHERE`; update its uses.
-  - [ ] Move `shape_of`, `session_verdicts` and `calendar_sessions` from
-        `tick_status_build.py` to `status_reads.py` unchanged. Update imports
-        in `tick_status_build.py`, `tick_coverage.py` and tests (findings 1.1).
-  - [ ] Run unit and integration tests for status and coverage
-        (`test_tick_status*.py`, coverage tests) before committing.
-  - [ ] Success: those tests pass unchanged. Commit:
-        `refactor: move shared tick status reads into status_reads`.
-
-- [ ] **5.2 Implement `data/tick/roll_inputs.py`** (effort 2)
-  - [ ] `outright_definitions(conn, product)`: `asset = product` and
-        `instrument_class = OUTRIGHT_CLASS`. No rows → `RollInputError`
-        naming the product (Special Considerations), never empty.
-  - [ ] `session_volumes(conn, shape, first, last)`: ledger rows of outrights
-        over current units of the shape (`SHAPE_WHERE`), returning resolver
-        volume rows with `unit_id`.
-  - [ ] `definitions_as_of`: latest ingested definition unit day.
-  - [ ] Success: ruff, mypy, pyright clean.
-
-- [ ] **5.3 Test `roll_inputs` on a scratch tick database** (effort 3)
-  - [ ] `test/integration/data/test_tick_roll_inputs.py`: current units only
-        (a superseded unit's rows are not returned); spreads not returned;
-        unknown product raises.
-  - [ ] Success: tests pass.
-
-- [ ] **5.4 Implement `roll_conninfo` and `build_schedule`** (effort 4)
+- [ ] **6.1 Implement `roll_conninfo` and `build_schedule`** (effort 4)
   - [ ] In `active_contract.py`: `roll_conninfo(url)` via
         `psycopg.conninfo.make_conninfo` adding `connect_timeout`, keepalives
         (`TICK_DB_KEEPALIVES_*`), and
@@ -317,44 +331,67 @@ status: not_started
         `REPEATABLE READ READ ONLY` transaction holding definitions, volumes
         and `session_verdicts`. Close both connections before returning.
   - [ ] Resolution in `asyncio.to_thread`. No parameter accepts a connection,
-        transaction or verdicts.
+        transaction or verdicts. `OperationalError` and `TickCalendarError`
+        propagate (so `active` exits 4).
   - [ ] Success: ruff, mypy, pyright clean.
 
-- [ ] **5.5 Implement `latest_active`** (effort 3)
+- [ ] **6.2 Implement `latest_active`** (effort 4)
   - [ ] `latest_active(tick_url, calendar_url, entry, rules)` → one
         `ActiveLine` per rule, same ownership and one snapshot for all rules.
-  - [ ] Finds the latest complete session L, resolves L and its forecast
-        (task 3.6). A `RollInputError` or `TickPreflightError` for one rule
-        sets that line's `error` and leaves other lines intact (TD9).
+  - [ ] **Window.** Inside the snapshot read `held_session_bounds` (task 4.2).
+        Verdict window: the held sessions ending at the latest held session,
+        at most `TICK_ROLL_MAX_SESSIONS` of them (the cap bounds the window;
+        it is never a refusal here). L is the latest `COMPLETE` session in that
+        window; if none, every line is `Unresolved` with a reason naming the
+        window. Calendar sessions: from the window start minus
+        `VOLUME_RANK_LAG_SESSIONS` through the later of L + 2 and the session
+        after the latest candidate's expiration session.
+  - [ ] Resolves L and its forecast (task 3.6). Calendar `known_through` is
+        the calendar's last populated session (findings 1.1).
+  - [ ] **Failures become line errors** (TD9; specific catches, each with a
+        comment saying why it is not re-raised):
+        - `RollInputError` and `TickPreflightError` (calendar out of range)
+          raised while resolving one rule set only that rule's `error`;
+        - `OperationalError` (unreachable, `QueryCanceled`, peer lost) and
+          `TickCalendarError` end the shared snapshot, so they set `error` on
+          every rule's line for that product.
   - [ ] Success: ruff, mypy, pyright clean; `active_contract.py` ≤ ~300 lines.
 
-- [ ] **5.6 Test the schedule, snapshot and failure modes** (effort 4)
+- [ ] **6.3 Test the schedule and its inputs** (effort 3)
   - [ ] `test/integration/data/test_tick_active_contract.py` on a scratch tick
         database: a seeded roll resolves under `v.0` and `c.0`; missing ledger
         row raises `RollInputError`; `basis_unit_ids` changes after a
-        supersession (State Management).
-  - [ ] Snapshot: a unit committed during a roll read is wholly visible or
-        not at all (FR8b).
-  - [ ] Statement timeout: hold a lock on a table the roll read needs and
-        assert `QueryCanceled` (`OperationalError`) within the timeout
-        (patch the constant low for the test).
-  - [ ] `roll_conninfo` output carries the timeout and keepalives, and the
-        calendar is opened with it (FR8b).
-  - [ ] Range over the cap raises before any tick connection opens.
+        supersession (State Management); range over the cap raises before any
+        tick connection opens.
+  - [ ] `latest_active`: L is the latest complete session; a shape with no
+        complete session gives `Unresolved` lines; a broken invariant in one
+        rule sets only that line's `error`.
   - [ ] Success: tests pass.
 
-- [ ] **5.7 Import-direction guard** (effort 1)
+- [ ] **6.4 Test snapshot, timeouts and connection failures** (effort 4)
+  - [ ] `test/integration/data/test_tick_roll_failures.py`.
+  - [ ] Snapshot: a unit committed during a roll read is wholly visible or
+        not at all (FR8b).
+  - [ ] Statement timeout: hold a lock on a table the roll read needs (patch
+        the constant low). `build_schedule` raises `QueryCanceled`;
+        `latest_active` returns `error` on every line instead of raising.
+  - [ ] Unreachable tick database: same split as the timeout.
+  - [ ] `roll_conninfo` output carries the timeout and keepalives, and the
+        calendar is opened with it (FR8b).
+  - [ ] Success: tests pass.
+
+- [ ] **6.5 Import-direction guard** (effort 1)
   - [ ] Unit test (AST walk, like `test_import_boundary.py`) asserting no
         `roll_*` module and not `active_contract` imports `tick_status_build`,
         and that `roll_resolve` imports nothing that does I/O.
   - [ ] Success: test passes. Commit:
-        `feat: add roll inputs and read-time schedule`.
+        `feat: add read-time roll schedule`.
 
 ---
 
-## Section 6 - Surfaces
+## Section 7 - Surfaces
 
-- [ ] **6.1 Renderer `cli/commands/tick_active_render.py`** (effort 3)
+- [ ] **7.1 Renderer `cli/commands/tick_active_render.py`** (effort 3)
   - [ ] Text forms from TD7: the latest-session block (contract, rule,
         `(default)` marker, expiration UTC, session, inputs line for volume,
         next-roll line per method) and the ranged segments form (exclusive
@@ -364,29 +401,33 @@ status: not_started
         ISO, expiration ISO UTC.
   - [ ] Success: ruff, mypy, pyright clean.
 
-- [ ] **6.2 Register `mt data tick active`** (effort 3)
-  - [ ] In `tick_store_cmds.py`: options `--product`, `--rule` (parsed by
-        `RollRule.parse`, default every rule in `STATUS_ROLL_RULES`),
-        `--start`/`--end` (both or neither), `--json`. No API key, archive or
-        lock. URLs via `store_context.database_url` (unset → exit 1).
+- [ ] **7.2 Register `mt data tick active`** (effort 3)
+  - [ ] In `tick_store_cmds.py`: options `--product` (omitted: every product
+        in the universe, through the existing `_entries(None)`), `--rule`
+        (parsed by `RollRule.parse`; omitted: every rule in
+        `STATUS_ROLL_RULES`), `--start`/`--end` (both or neither), `--json`.
+        No API key, archive or lock. URLs via `store_context.database_url`
+        (unset → exit 1).
   - [ ] Exit codes from `tick_exit.py` (TD7): 0 all resolved; 3 any
         unresolved; 1 bad rule, unknown product, over the cap, broken
         invariant, calendar out of range; 4 tick DB or calendar unreachable,
-        timeout, or dropped connection.
+        timeout, or dropped connection. Without a range, a line `error` from
+        `latest_active` maps the same way (connection → 4, invariant → 1).
   - [ ] Widen the `EXIT_PARTIAL` comment in `tick_exit.py` to cover
         unresolved `active` sessions and a failed `status` roll line; values
         unchanged.
   - [ ] Success: `uv run mt data tick active --help` lists the options.
 
-- [ ] **6.3 Test `active`** (effort 3)
+- [ ] **7.3 Test `active`** (effort 3)
   - [ ] Unit tests on the renderer (text and JSON shape) and integration CLI
         tests in `test/integration/data/test_tick_active_cli.py`: exit 0 on a
         resolved range, 3 with unresolved sessions (output still printed), 1
         for `n.0`, `v.0+2s` and an over-cap range, 4 for an unreachable tick
-        database and for the lock-held timeout.
+        database and for the lock-held timeout; no `--product` prints every
+        universe product.
   - [ ] Success: tests pass. Commit: `feat: add mt data tick active`.
 
-- [ ] **6.4 Add roll lines to `status`** (effort 3)
+- [ ] **7.4 Add roll lines to `status`** (effort 3)
   - [ ] `ProductStatus.rolls: tuple[ActiveLine, ...]`, filled by
         `latest_active` with `STATUS_ROLL_RULES` after status's own reads.
         The tick and calendar URLs are passed in; `status`'s own connection
@@ -398,11 +439,11 @@ status: not_started
   - [ ] Exit 3 when any roll line has `error`; otherwise exit as today.
   - [ ] Success: ruff, mypy, pyright clean.
 
-- [ ] **6.5 Test `status` roll lines and regressions** (effort 3)
+- [ ] **7.5 Test `status` roll lines and regressions** (effort 3)
   - [ ] Extend `test_tick_status_cli.py` / `test_tick_status_build.py`:
         `v.0 (default)` and `c.0` lines shown (FR7); a broken invariant in one
         rule prints its `error:` line, keeps the others and the buckets, exits
-        3 (FR8a); lock-held timeout → `error:` line, exit 3 (FR8b).
+        3 (FR8a); lock-held timeout → `error:` lines, exit 3 (FR8b).
   - [ ] Regressions (FR8c): with no roll error, every existing text line and
         JSON field is unchanged plus `rolls`; exit 0; exit 4 when the tick
         database is unreachable; `coverage` output unchanged.
@@ -413,11 +454,13 @@ status: not_started
 
 ---
 
-## Section 7 - Walkthrough, docs and closing checks
+## Section 8 - Walkthrough, docs and closing checks
 
-- [ ] **7.1 Walkthrough and timing on `trading_tick`** (effort 2)
+- [ ] **8.1 Walkthrough and timing on `trading_tick`** (effort 2)
   - [ ] Run the design's Verification Walkthrough steps 1-8 on manta9000 and
-        compare each with its expected output.
+        compare each with its expected output. Step 8's `tests/unit/data/tick`
+        path is `test/unit/data/tick` here; run it through
+        `scripts/run_tests.py unit`.
   - [ ] Re-run TD10's measurement: time a full held-range schedule
         (2024-08-30 → 2025-01-02, `v.0`); it must finish well inside 1 s.
   - [ ] Record outputs, exit codes and the timing in
@@ -425,14 +468,15 @@ status: not_started
         an expected value: stop and report to the Project Manager.
   - [ ] Success: note committed: `docs: record slice 229 walkthrough`.
 
-- [ ] **7.2 Data-correctness contract rows** (effort 1)
+- [ ] **8.2 Data-correctness contract rows** (effort 1)
   - [ ] In `user/reference/data-correctness-architecture.md`: I14 row gets
         229's delivery (rules, default `v.0`, volume next-roll narrowing,
         unresolved sessions reported); I10 row gets the `active` verb.
-  - [ ] Success: rows updated.
+  - [ ] Success: rows updated. Commit: `docs: update data-correctness
+        contract for slice 229`.
 
-- [ ] **7.3 Gating check: architecture and slice plan match what shipped**
-      (effort 1)
+- [ ] **8.3 Gating check: design, architecture and slice plan match what
+      shipped** (effort 1)
   - [ ] Compare the Revision Log entry 2026-10-09 in
         `user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md`
         and the "superseded by 229" note in
@@ -440,9 +484,14 @@ status: not_started
         against shipped behaviour: volume next roll, offset in sessions, lag
         2, default `v.0`, open interest deferred. Correct either if
         implementation changed anything.
-  - [ ] Success: both match, or are corrected in this task.
+  - [ ] Update the slice design for this file's placements: the default
+        rules in `roll_rules.py` (TD5, FR9), `calendar_sessions` moved to
+        `status_reads.py`, `test/` paths (TD8, walkthrough step 8), and
+        `latest_active`'s window (task 6.2).
+  - [ ] Success: all three match. Commit: `docs: align slice 229 design and
+        220 plan with shipped behaviour`.
 
-- [ ] **7.4 Final validation** (effort 2)
+- [ ] **8.4 Final validation** (effort 2)
   - [ ] Kalshi pass-contract diff test passes
         (`test/unit/data/tick/test_pass_contract_parity.py`).
   - [ ] ruff (check, format scoped to touched files), mypy (one invocation:
@@ -452,5 +501,5 @@ status: not_started
         failures (re-run each in isolation).
   - [ ] Touched source files ≤ ~300 lines (`wc -l`), `constants.py` excepted
         per Context Summary.
-  - [ ] Success: all green. Commit: `docs: update data-correctness contract
-        for slice 229`.
+  - [ ] Success: all green. Commit any fixes: `fix: address slice 229 final
+        validation`.
