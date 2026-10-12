@@ -366,30 +366,31 @@ status: in_progress
 
 ## Section 6 - Connections and the schedule
 
-- [ ] **6.1 Implement `roll_conninfo` and `build_schedule`** (effort 4)
-  - [ ] In `active_contract.py`: `roll_conninfo(url)` via
+- [x] **6.1 Implement `roll_conninfo` and `build_schedule`** (effort 4)
+  - [x] In `active_contract.py`: `roll_conninfo(url)` via
         `psycopg.conninfo.make_conninfo` adding `connect_timeout`, keepalives
         (`TICK_DB_KEEPALIVES_*`), and
         `options=-c statement_timeout=<…> -c default_transaction_read_only=on`
         (TD9).
-  - [ ] `build_schedule(tick_url, calendar_url, entry, rule, start, end)`:
+  - [x] `build_schedule(tick_url, calendar_url, entry, rule, start, end)`:
         `RollRangeTooLong` (names `TICK_ROLL_MAX_SESSIONS`, asks for a narrower
         range) before any tick read when `[start, end)` spans more sessions
         than the cap; calendar via `calendar_sessions` with
         `roll_conninfo(calendar_url)` in `asyncio.to_thread`, covering the lag
         sessions before `start` and each candidate's expiration session.
-  - [ ] One owned tick connection from `roll_conninfo(tick_url)`, one
+  - [x] One owned tick connection from `roll_conninfo(tick_url)`, one
         `REPEATABLE READ READ ONLY` transaction holding definitions, volumes
         and `session_verdicts`. Close both connections before returning.
-  - [ ] Resolution in `asyncio.to_thread`. No parameter accepts a connection,
+  - [x] Resolution in `asyncio.to_thread`. No parameter accepts a connection,
         transaction or verdicts. `OperationalError` and `TickCalendarError`
         propagate (so `active` exits 4).
-  - [ ] Success: ruff, mypy, pyright clean.
+  - [x] Success: ruff, mypy, pyright clean.
+        Note: the calendar read goes from the lag sessions before `start` to the calendar's last populated session (clamped), not to each candidate's expiration: ES candidates expire through 2030, past the calendar. The cap is counted on that read, then the range is checked against the populated span (TickPreflightError naming mt data extend). `RollRangeTooLong` subclasses `TickPreflightError`. Error mapping is shared through `status_reads.open_calendar`; `TradingCalendar.horizon_end()` is new.
 
-- [ ] **6.2 Implement `latest_active`** (effort 4)
-  - [ ] `latest_active(tick_url, calendar_url, entry, rules)` → one
+- [x] **6.2 Implement `latest_active`** (effort 4)
+  - [x] `latest_active(tick_url, calendar_url, entry, rules)` → one
         `ActiveLine` per rule, same ownership and one snapshot for all rules.
-  - [ ] **Window.** Inside the snapshot read `held_session_bounds` (task 4.2).
+  - [x] **Window.** Inside the snapshot read `held_session_bounds` (task 4.2).
         Verdict window: the held sessions ending at the latest held session,
         at most `TICK_ROLL_MAX_SESSIONS` of them (the cap bounds the window;
         it is never a refusal here). L is the latest `COMPLETE` session in that
@@ -397,46 +398,48 @@ status: in_progress
         window. Calendar sessions: from the window start minus
         `VOLUME_RANK_LAG_SESSIONS` through the later of L + 2 and the session
         after the latest candidate's expiration session.
-  - [ ] Resolves L and its forecast (task 3.6). Calendar `known_through` is
+  - [x] Resolves L and its forecast (task 3.6). Calendar `known_through` is
         the calendar's last populated session (findings 1.1).
-  - [ ] **Failures become line errors** (TD9; specific catches, each with a
+  - [x] **Failures become line errors** (TD9; specific catches, each with a
         comment saying why it is not re-raised):
         - `RollInputError` and `TickPreflightError` (calendar out of range)
           raised while resolving one rule set only that rule's `error`;
         - `OperationalError` (unreachable, `QueryCanceled`, peer lost) and
           `TickCalendarError` end the shared snapshot, so they set `error` on
           every rule's line for that product.
-  - [ ] Success: ruff, mypy, pyright clean; `active_contract.py` ≤ ~300 lines.
+  - [x] Success: ruff, mypy, pyright clean; `active_contract.py` ≤ ~300 lines.
+        Note: a failure of the shared reads (database, calendar range, or the product's definitions as `RollInputError`) sets `error` on every line; `RollInputError` while resolving one rule sets only that line's. `ActiveLine.reason` (new) says why there is no L at all (nothing held, or nothing complete).
 
-- [ ] **6.3 Test the schedule and its inputs** (effort 3)
-  - [ ] `test/integration/data/test_tick_active_contract.py` on a scratch tick
+- [x] **6.3 Test the schedule and its inputs** (effort 3)
+  - [x] `test/integration/data/test_tick_active_contract.py` on a scratch tick
         database: a seeded roll resolves under `v.0` and `c.0`; missing ledger
         row raises `RollInputError`; `basis_unit_ids` changes after a
         supersession (State Management); range over the cap raises before any
         tick connection opens.
-  - [ ] `latest_active`: L is the latest complete session; a shape with no
+  - [x] `latest_active`: L is the latest complete session; a shape with no
         complete session gives `Unresolved` lines; a broken invariant in one
         rule sets only that line's `error`.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **6.4 Test snapshot, timeouts and connection failures** (effort 4)
-  - [ ] `test/integration/data/test_tick_roll_failures.py`.
-  - [ ] Snapshot: a unit committed during a roll read is wholly visible or
+- [x] **6.4 Test snapshot, timeouts and connection failures** (effort 4)
+  - [x] `test/integration/data/test_tick_roll_failures.py`.
+  - [x] Snapshot: a unit committed during a roll read is wholly visible or
         not at all (FR8b).
-  - [ ] Statement timeout: hold a lock on a table the roll read needs (patch
+  - [x] Statement timeout: hold a lock on a table the roll read needs (patch
         the constant low). `build_schedule` raises `QueryCanceled`;
         `latest_active` returns `error` on every line instead of raising.
-  - [ ] Unreachable tick database: same split as the timeout.
-  - [ ] `roll_conninfo` output carries the timeout and keepalives, and the
+  - [x] Unreachable tick database: same split as the timeout.
+  - [x] `roll_conninfo` output carries the timeout and keepalives, and the
         calendar is opened with it (FR8b).
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **6.5 Import-direction guard** (effort 1)
-  - [ ] Unit test (AST walk, like `test_import_boundary.py`) asserting no
+- [x] **6.5 Import-direction guard** (effort 1)
+  - [x] Unit test (AST walk, like `test_import_boundary.py`) asserting no
         `roll_*` module and not `active_contract` imports `tick_status_build`,
         and that `roll_resolve` imports nothing that does I/O.
-  - [ ] Success: test passes. Commit:
+  - [x] Success: test passes. Commit:
         `feat: add read-time roll schedule`.
+        Note: direct imports only, against an allowlist of pure modules; package `__init__` files pull psycopg in transitively for every module.
 
 ---
 

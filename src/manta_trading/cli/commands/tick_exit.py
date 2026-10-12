@@ -14,7 +14,9 @@ from manta_trading.providers.errors import ProviderError
 EXIT_OK = 0
 EXIT_PREFLIGHT = 1
 EXIT_PROVIDER = 2
-EXIT_PARTIAL = 3  # some units failed; the run itself finished (223 adopt, 224 pass)
+#: The run finished and part of it failed: some units (223 adopt, 224 pass),
+#: a session ``active`` could not resolve, or a ``status`` roll line (229).
+EXIT_PARTIAL = 3
 EXIT_STORAGE = 4  # archive write, calendar, or tick database failure (223)
 EXIT_REFUSED = 5  # a guard refused the purchase (224 pass)
 EXIT_IN_FLIGHT = 6  # the wait budget ended with jobs still processing (224 pass)
@@ -44,10 +46,11 @@ def exit_code_for(exc: BaseException) -> int | None:
         TickAdoptionRefused,
         TickArchiveWriteError,
     )
+    from manta_trading.data.tick.roll_types import RollInputError
     from manta_trading.data.tick.run_context import TickPreflightError
     from manta_trading.data.tick.tick_calendar import TickCalendarError
 
-    if isinstance(exc, TickPreflightError | TickAdoptionRefused):
+    if isinstance(exc, TickPreflightError | TickAdoptionRefused | RollInputError):
         return EXIT_PREFLIGHT
     if isinstance(exc, ProviderError | TickVerifyInterrupted):
         return EXIT_PROVIDER

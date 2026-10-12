@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import typer
 
+from manta_trading.cli.commands.tick_active_cmds import ACTIVE_EPILOG, tick_active
 from manta_trading.cli.commands.tick_exit import (
     EXIT_BY_OUTCOME,
     EXIT_IN_FLIGHT,
@@ -286,3 +287,4 @@ def tick_pass(
 tick_app.command("ingest", epilog=INGEST_EPILOG)(tick_ingest)
 tick_app.command("status", epilog=READ_EPILOG)(tick_status)
 tick_app.command("coverage", epilog=READ_EPILOG)(tick_coverage)
+tick_app.command("active", epilog=ACTIVE_EPILOG)(tick_active)

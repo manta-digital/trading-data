@@ -173,6 +173,7 @@ def test_group_lists_its_verbs() -> None:
         "ingest",
         "status",
         "coverage",
+        "active",
     ]
 
 

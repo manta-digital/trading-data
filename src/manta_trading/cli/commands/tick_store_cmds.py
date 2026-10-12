@@ -51,17 +51,17 @@ INGEST_EPILOG = (
 _UNIT_ID_OPTION = typer.Option(
     [], "--unit-id", help="Ingest only this unit; repeatable. Never overrides a rule."
 )
-_JSON_OPTION = typer.Option(False, "--json", help="Output as JSON.")
-_PRODUCT_OPTION = typer.Option(None, "--product", help="One universe product.")
+JSON_OPTION = typer.Option(False, "--json", help="Output as JSON.")
+PRODUCT_OPTION = typer.Option(None, "--product", help="One universe product.")
 _ALL_INSTRUMENTS_OPTION = typer.Option(
     False, "--all-instruments", help="List spreads beside the outrights."
 )
-_DATE_FORMAT = "%Y-%m-%d"
+DATE_FORMAT = "%Y-%m-%d"
 _START_OPTION = typer.Option(
-    ..., "--start", formats=[_DATE_FORMAT], help="First session date."
+    ..., "--start", formats=[DATE_FORMAT], help="First session date."
 )
 _END_OPTION = typer.Option(
-    ..., "--end", formats=[_DATE_FORMAT], help="End session date, EXCLUSIVE."
+    ..., "--end", formats=[DATE_FORMAT], help="End session date, EXCLUSIVE."
 )
 
 
@@ -124,7 +124,7 @@ async def ingest_units(settings: Settings, unit_ids: tuple[int, ...]) -> PassRes
 def tick_ingest(
     ctx: typer.Context,
     unit_ids: list[int] = _UNIT_ID_OPTION,
-    json_output: bool = _JSON_OPTION,
+    json_output: bool = JSON_OPTION,
 ) -> None:
     """Load verified trades/tbbo units into tick_trade, checked, one transaction each.
 
@@ -144,7 +144,7 @@ def tick_ingest(
 # -- read-only verbs: status and coverage ------------------------------------------
 
 
-def _entries(product: str | None) -> list[TickUniverseEntry]:
+def universe_entries(product: str | None) -> list[TickUniverseEntry]:
     from manta_trading.data.tick.store_context import TickPreflightError
     from manta_trading.data.tick.universe import TICK_UNIVERSE
 
@@ -171,7 +171,7 @@ async def _read[T](
         await conn.close()
 
 
-def _read_storage() -> tuple[type[Exception], ...]:
+def read_storage() -> tuple[type[Exception], ...]:
     from manta_trading.data.tick.store_context import TickDatabaseUnreachable
 
     return (TickDatabaseUnreachable,)
@@ -179,9 +179,9 @@ def _read_storage() -> tuple[type[Exception], ...]:
 
 def tick_status(
     ctx: typer.Context,
-    product: str | None = _PRODUCT_OPTION,
+    product: str | None = PRODUCT_OPTION,
     all_instruments: bool = _ALL_INSTRUMENTS_OPTION,
-    json_output: bool = _JSON_OPTION,
+    json_output: bool = JSON_OPTION,
 ) -> None:
     """Sessions held per product: complete, awaiting ingest, in flight, holes.
 
@@ -194,7 +194,7 @@ def tick_status(
     settings: Settings = ctx.obj["settings"]
 
     async def main() -> TickStatus:
-        entries = _entries(product)
+        entries = universe_entries(product)
         return await _read(
             settings,
             lambda conn, url: build_status(
@@ -202,7 +202,7 @@ def tick_status(
             ),
         )
 
-    status = run_mapped(main, json_output, _read_storage())
+    status = run_mapped(main, json_output, read_storage())
     print_status(status, EXIT_OK, json_mode=json_output)
 
 
@@ -210,8 +210,8 @@ def tick_coverage(
     ctx: typer.Context,
     start: datetime = _START_OPTION,
     end: datetime = _END_OPTION,
-    product: str | None = _PRODUCT_OPTION,
-    json_output: bool = _JSON_OPTION,
+    product: str | None = PRODUCT_OPTION,
+    json_output: bool = JSON_OPTION,
 ) -> None:
     """The raw-count proof: tick_trade rows per session against the ledger."""
     from manta_trading.cli.commands.tick_status_render import print_coverage
@@ -227,7 +227,7 @@ def tick_coverage(
     settings: Settings = ctx.obj["settings"]
 
     async def main() -> list[TickCoverage]:
-        entries = _entries(product)
+        entries = universe_entries(product)
 
         async def read(conn: Any, url: str) -> list[TickCoverage]:
             return [
@@ -237,7 +237,7 @@ def tick_coverage(
 
         return await _read(settings, read)
 
-    results = run_mapped(main, json_output, _read_storage())
+    results = run_mapped(main, json_output, read_storage())
     exit_code = EXIT_PARTIAL if any(r.mismatched for r in results) else EXIT_OK
     print_coverage(results, exit_code, json_mode=json_output)
     if exit_code != EXIT_OK:

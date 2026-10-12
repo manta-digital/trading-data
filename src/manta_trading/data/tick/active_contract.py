@@ -218,7 +218,7 @@ async def latest_active(
     a broken invariant in one rule sets only that line's (TD9).
     """
     try:
-        return await _latest(tick_url, calendar_url, entry, rules)
+        return await latest_lines(tick_url, calendar_url, entry, rules)
     except (
         psycopg.OperationalError,
         TickCalendarError,
@@ -231,12 +231,16 @@ async def latest_active(
         return tuple(ActiveLine(entry.product, r, error=str(exc)) for r in rules)
 
 
-async def _latest(
+async def latest_lines(
     tick_url: str,
     calendar_url: str,
     entry: TickUniverseEntry,
     rules: Sequence[RollRule],
 ) -> tuple[ActiveLine, ...]:
+    """:func:`latest_active`, raising what fails the shared reads (``active``
+    maps it to an exit code). One rule's broken invariant is still its line's
+    ``error``.
+    """
     async with _snapshot(tick_url) as conn:
         bounds = await held_session_bounds(conn, shape_of(entry))
         if bounds is None:
