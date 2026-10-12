@@ -445,68 +445,71 @@ status: in_progress
 
 ## Section 7 - Surfaces
 
-- [ ] **7.1 Renderer `cli/commands/tick_active_render.py`** (effort 3)
-  - [ ] Text forms from TD7: the latest-session block (contract, rule,
+- [x] **7.1 Renderer `cli/commands/tick_active_render.py`** (effort 3)
+  - [x] Text forms from TD7: the latest-session block (contract, rule,
         `(default)` marker, expiration UTC, session, inputs line for volume,
         next-roll line per method) and the ranged segments form (exclusive
         end, as `coverage`), with unresolved sessions and reasons listed.
-  - [ ] JSON with exactly TD7's fields (`product`, `rule`, `is_default`,
+  - [x] JSON with exactly TD7's fields (`product`, `rule`, `is_default`,
         `answers`/`segments`, `unresolved`, `next_roll`, `exit_code`), dates
         ISO, expiration ISO UTC.
-  - [ ] Success: ruff, mypy, pyright clean.
+  - [x] Success: ruff, mypy, pyright clean.
+  Note: the JSON payload builders live in `data/tick/roll_payload.py` (status's `to_dict()` and 231 serialize them; the data layer cannot import the CLI). Ranged JSON carries `segments`, per-session `answers`, and `unresolved`.
 
-- [ ] **7.2 Register `mt data tick active`** (effort 3)
-  - [ ] In `tick_store_cmds.py`: options `--product` (omitted: every product
+- [x] **7.2 Register `mt data tick active`** (effort 3)
+  - [x] In `tick_store_cmds.py`: options `--product` (omitted: every product
         in the universe, through the existing `_entries(None)`), `--rule`
         (parsed by `RollRule.parse`; omitted: every rule in
         `STATUS_ROLL_RULES`), `--start`/`--end` (both or neither), `--json`.
         No API key, archive or lock. URLs via `store_context.database_url`
         (unset → exit 1).
-  - [ ] Exit codes from `tick_exit.py` (TD7): 0 all resolved; 3 any
+  - [x] Exit codes from `tick_exit.py` (TD7): 0 all resolved; 3 any
         unresolved; 1 bad rule, unknown product, over the cap, broken
         invariant, calendar out of range; 4 tick DB or calendar unreachable,
         timeout, or dropped connection. Without a range, a line `error` from
         `latest_active` maps the same way (connection → 4, invariant → 1).
-  - [ ] Widen the `EXIT_PARTIAL` comment in `tick_exit.py` to cover
+  - [x] Widen the `EXIT_PARTIAL` comment in `tick_exit.py` to cover
         unresolved `active` sessions and a failed `status` roll line; values
         unchanged.
-  - [ ] Success: `uv run mt data tick active --help` lists the options.
+  - [x] Success: `uv run mt data tick active --help` lists the options.
+  Note: the verb lives in its own module, `cli/commands/tick_active_cmds.py` (`tick_store_cmds.py` would pass 300 lines); its shared helpers there became public (`universe_entries`, `read_storage`, `JSON_OPTION`, `PRODUCT_OPTION`, `DATE_FORMAT`). `RollInputError` maps to exit 1 in `tick_exit.exit_code_for`. Without a range it uses `latest_lines` (raises shared failures, so they map to 1 or 4).
 
-- [ ] **7.3 Test `active`** (effort 3)
-  - [ ] Unit tests on the renderer (text and JSON shape) and integration CLI
+- [x] **7.3 Test `active`** (effort 3)
+  - [x] Unit tests on the renderer (text and JSON shape) and integration CLI
         tests in `test/integration/data/test_tick_active_cli.py`: exit 0 on a
         resolved range, 3 with unresolved sessions (output still printed), 1
         for `n.0`, `v.0+2s` and an over-cap range, 4 for an unreachable tick
         database and for the lock-held timeout; no `--product` prints every
         universe product.
-  - [ ] Success: tests pass. Commit: `feat: add mt data tick active`.
+  - [x] Success: tests pass. Commit: `feat: add mt data tick active`.
 
-- [ ] **7.4 Add roll lines to `status`** (effort 3)
-  - [ ] `ProductStatus.rolls: tuple[ActiveLine, ...]`, filled by
+- [x] **7.4 Add roll lines to `status`** (effort 3)
+  - [x] `ProductStatus.rolls: tuple[ActiveLine, ...]`, filled by
         `latest_active` with `STATUS_ROLL_RULES` after status's own reads.
         The tick and calendar URLs are passed in; `status`'s own connection
         is not reused or changed.
-  - [ ] `tick_status_render.py` prints roll lines under the contract lines,
+  - [x] `tick_status_render.py` prints roll lines under the contract lines,
         in `active`'s latest-session form (reuse its line formatter, do not
         copy it); an `error:` line for a rule with `error` set.
-  - [ ] JSON `rolls` per product with TD7 walkthrough step 7's fields.
-  - [ ] Exit 3 when any roll line has `error`; otherwise exit as today.
-  - [ ] Success: ruff, mypy, pyright clean.
+  - [x] JSON `rolls` per product with TD7 walkthrough step 7's fields.
+  - [x] Exit 3 when any roll line has `error`; otherwise exit as today.
+  - [x] Success: ruff, mypy, pyright clean.
 
-- [ ] **7.5 Test `status` roll lines and regressions** (effort 3)
-  - [ ] Extend `test_tick_status_cli.py` / `test_tick_status_build.py`:
+- [x] **7.5 Test `status` roll lines and regressions** (effort 3)
+  - [x] Extend `test_tick_status_cli.py` / `test_tick_status_build.py`:
         `v.0 (default)` and `c.0` lines shown (FR7); a broken invariant in one
         rule prints its `error:` line, keeps the others and the buckets, exits
         3 (FR8a); lock-held timeout → `error:` lines, exit 3 (FR8b).
-  - [ ] Regressions (FR8c): with no roll error, every existing text line and
+  - [x] Regressions (FR8c): with no roll error, every existing text line and
         JSON field is unchanged plus `rolls`; exit 0; exit 4 when the tick
         database is unreachable; `coverage` output unchanged.
-  - [ ] FR9 check: `grep` finds no rule spelled as a bare `"v"`/`"c"` outside
+  - [x] FR9 check: `grep` finds no rule spelled as a bare `"v"`/`"c"` outside
         `constants.py`, `roll_rules.py` and tests.
-  - [ ] Success: tests pass. Commit: `feat: show active contract in tick
+  - [x] Success: tests pass. Commit: `feat: show active contract in tick
         status`.
 
 ---
+  Note: the roll-line tests are their own module, `test/integration/data/test_tick_status_rolls.py`. The timeout test locks the ledger when the roll path starts: status's own reads have no statement timeout, so a lock held for the whole command would hang status itself. FR9 grep: only version-string `lstrip("v")` hits in unrelated scripts; the fixture script's continuous symbols are built from `RollRule`.
 
 ## Section 8 - Walkthrough, docs and closing checks
 
