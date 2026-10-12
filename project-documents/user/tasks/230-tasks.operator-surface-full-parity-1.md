@@ -232,130 +232,133 @@ overview lines, docs and closing checks.
 
 ## Section 3 - Tick reads per session window
 
-- [ ] **3.1 Test helper for seeded ticks** (effort 1)
-  - [ ] Per finding 1.1, add (or reuse) a helper in `test/tick_support/`
+- [x] **3.1 Test helper for seeded ticks** (effort 1)
+  - [x] Per finding 1.1, add (or reuse) a helper in `test/tick_support/`
         that inserts `tick_trade` rows for one instrument and unit with
         explicit `ts_event`, `sequence`, `sequence_ordinal`, `price`, `size`,
         `side` and optional BBO columns.
-  - [ ] It can seed two sessions around a daily break and same-nanosecond
+  - [x] It can seed two sessions around a daily break and same-nanosecond
         ties (several rows sharing `ts_event`, differing in `sequence` /
         `sequence_ordinal`).
-  - [ ] Success: helper imports cleanly; ruff and mypy clean. Task 3.4 is
+  - [x] Success: helper imports cleanly; ruff and mypy clean. Task 3.4 is
         its first user (no separate smoke test).
 
-- [ ] **3.2 Implement tick reads in `data/tick/tick_reads.py`** (effort 3)
-  - [ ] Define the frozen dataclass `TickWindow(session_date,
+- [x] **3.2 Implement tick reads in `data/tick/tick_reads.py`** (effort 3)
+  - [x] Define the frozen dataclass `TickWindow(session_date,
         instrument_id, raw_symbol, open_ns, close_ns)` here. It is the one
         definition: task 4.1 imports it as the planned segment and does not
         declare its own.
-  - [ ] `read_ticks(conn, window, on_batch)`: one statement over a named
+  - [x] `read_ticks(conn, window, on_batch)`: one statement over a named
         (server-side) cursor, `WHERE instrument_id = … AND ts_event >=
         open_ns AND ts_event < close_ns ORDER BY ts_event, sequence,
         sequence_ordinal`, fetched `TICK_GET_FETCH_ROWS` at a time. Each
         batch is shaped into tick rows (TD5 column order) and handed to
         `on_batch` before the next fetch. Nothing is collected.
-  - [ ] Raw integers are returned; formatting (`price_text`, `ts_text`)
+    Note: shipped as `ts_event BETWEEN open_ns AND close_ns` (closed session, as `Session` and ingest define it; a tick at the close is in the ledger, so FR1 needs it). Commit 543e329.
+  - [x] Raw integers are returned; formatting (`price_text`, `ts_text`)
         happens in the writer, so 231 can choose its own serialization.
-  - [ ] The caller owns the connection and transaction; the module never
+  - [x] The caller owns the connection and transaction; the module never
         commits, opens or closes a connection.
-  - [ ] Success: ruff and mypy clean.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **3.3 Implement bar reads in `tick_reads.py`** (effort 4)
-  - [ ] `read_bars(conn, window, granularity, on_batch)`: bucket start
+- [x] **3.3 Implement bar reads in `tick_reads.py`** (effort 4)
+  - [x] `read_bars(conn, window, granularity, on_batch)`: bucket start
         `GREATEST(time_bucket(width, ts_event), open_ns)` on the ns integer
         (TD3); for `D1` the whole window is one bucket stamped `open_ns`.
-  - [ ] Open and close are the first and last trade in
+  - [x] Open and close are the first and last trade in
         `(ts_event, sequence, sequence_ordinal)` order (not `first()` /
         `last()` on `ts_event` alone). High, low by `max`/`min`; volume
         `sum(size)`. Empty buckets produce no row. Ordered by bucket start.
-  - [ ] Same cursor and batching rules as 3.2.
-  - [ ] If the module passes ~300 lines, move the SQL text to
+  - [x] Same cursor and batching rules as 3.2.
+  - [x] If the module passes ~300 lines, move the SQL text to
         `tick_reads_sql.py`.
-  - [ ] Success: ruff and mypy clean.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **3.4 Test tick and bar reads** (effort 3)
-  - [ ] `test/integration/data/test_tick_reads.py` on `migrated_tick_db`
+- [x] **3.4 Test tick and bar reads** (effort 3)
+  - [x] `test/integration/data/test_tick_reads.py` on `migrated_tick_db`
         with 3.1's helper.
-  - [ ] Ticks: key order including same-ns ties; rows outside the window
+  - [x] Ticks: key order including same-ns ties; rows outside the window
         (before open, at close) excluded; another instrument's rows
         excluded.
-  - [ ] Bars: a `4h` bucket straddling the daily break yields two bars and
+    Note: the at-close row is included (see 3.2); the seed puts the same-ns ties at the close instant.
+  - [x] Bars: a `4h` bucket straddling the daily break yields two bars and
         the second starts at the session open (FR3); `1d` gives one bar per
         session whose OHLCV matches the seeded ticks, ties broken by
         `(sequence, sequence_ordinal)` (FR4); volume equals the sum of
         sizes (FR2).
-  - [ ] Streaming: with a batch size smaller than the row count (patch
+  - [x] Streaming: with a batch size smaller than the row count (patch
         `TICK_GET_FETCH_ROWS`), `on_batch` is called more than once and the
         first call happens before the last row is fetched.
-  - [ ] Success: tests pass. Commit: `feat: add per-session tick and bar
+  - [x] Success: tests pass. Commit: `feat: add per-session tick and bar
         reads`.
 
 ---
 
 ## Section 4 - The read plan
 
-- [ ] **4.1 Plan types and the contract plan in `data/tick/get_plan.py`**
+- [x] **4.1 Plan types and the contract plan in `data/tick/get_plan.py`**
       (effort 3)
-  - [ ] Frozen dataclasses `Incomplete(session_date, status)` and
+  - [x] Frozen dataclasses `Incomplete(session_date, status)` and
         `GetPlan(target, start, end, segments, unresolved, incomplete,
         definitions_as_of)`. `segments` is a tuple of `TickWindow`
         (imported from `tick_reads`, task 3.2); `unresolved` holds 229's
         `Unresolved` (imported from `roll_types`). No new segment or
         unresolved type.
-  - [ ] `ContractNotFound` and `ContractAmbiguous` errors. Ambiguous carries
+  - [x] `ContractNotFound` and `ContractAmbiguous` errors. Ambiguous carries
         every candidate `instrument_id` with its expiration (`ts_text`) and
         a message asking for a range that separates them. Both map to exit 1
         in `tick_exit.exit_code_for`.
-  - [ ] `contract_plan(...)`: raw_symbol → `instrument_id` from
+    Note: both subclass `TickPreflightError`, so `exit_code_for` maps them to 1 with no edit to `tick_exit.py`.
+  - [x] `contract_plan(...)`: raw_symbol → `instrument_id` from
         `tick_definition`, candidates whose validity window overlaps the
         range (any window with no range). Default range = the contract's
         first to last ledger session under current units
         (`COVERAGE_PREDICATE`). With a range: calendar sessions in
         `[start, end)` inside the validity window. Bounds from the calendar.
-  - [ ] `incomplete` from `session_verdicts` for the planned sessions
+  - [x] `incomplete` from `session_verdicts` for the planned sessions
         (FR6). Contract reads have no schedule, so `unresolved` is empty.
-  - [ ] Success: ruff and mypy clean; no CLI import.
+  - [x] Success: ruff and mypy clean; no CLI import.
 
-- [ ] **4.2 Test the contract plan** (effort 2)
-  - [ ] `test/integration/data/test_tick_get_plan.py`: a known contract
+- [x] **4.2 Test the contract plan** (effort 2)
+  - [x] `test/integration/data/test_tick_get_plan.py`: a known contract
         with and without a range; an unknown symbol (`ContractNotFound`
         naming it); two definitions for one raw symbol a decade apart
         (`ContractAmbiguous` listing both ids and expirations, FR7); a range
         that separates them resolves to one; an incomplete session is
         planned and listed with its verdict.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **4.3 The product plan in `get_plan.py`** (effort 3)
-  - [ ] `product_plan(...)`: resolve the range (TD2: none →
+- [x] **4.3 The product plan in `get_plan.py`** (effort 3)
+  - [x] `product_plan(...)`: resolve the range (TD2: none →
         `held_session_bounds`; `--start` alone → to the last held session;
         `--end` alone → from the first), call `build_schedule` with the
         parsed rule, then `session_verdicts` for the resolved sessions.
-  - [ ] Segments are the resolved sessions in date order with their
+  - [x] Segments are the resolved sessions in date order with their
         contract and calendar bounds. Unresolved sessions go to
         `unresolved` with 229's reason and are never filled from another
         rule or contract (FR5). Resolved but not `complete` sessions are
         planned and listed in `incomplete` (FR6).
-  - [ ] `build_schedule`'s failures (`RollRangeTooLong`, calendar
+  - [x] `build_schedule`'s failures (`RollRangeTooLong`, calendar
         refusal, unreachable) propagate unchanged, so `tick_exit` maps them
         as it does for `active`.
-  - [ ] A helper that groups consecutive segments with the same contract
+  - [x] A helper that groups consecutive segments with the same contract
         into display segments (`2024-09-16 → 2024-09-17  ESU4 (118)`).
         Reuse 229's `RollSchedule.segments()` if it fits; do not copy it.
-  - [ ] Success: ruff and mypy clean.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **4.4 Test the product plan** (effort 3)
-  - [ ] Extend `test_tick_get_plan.py` with `roll_seed` data: a range
+- [x] **4.4 Test the product plan** (effort 3)
+  - [x] Extend `test_tick_get_plan.py` with `roll_seed` data: a range
         across the seeded roll gives two display segments matching
         `active` for the same range (FR2); a range starting at the first
         held session lists the first two sessions as unresolved and plans
         the rest (FR5); an incomplete resolved session is planned and
         listed (FR6); a range over `TICK_ROLL_MAX_SESSIONS` (patched small)
         raises `RollRangeTooLong`; no range uses the held bounds (FR8).
-  - [ ] Range defaulting (TD2): `--start` alone runs to the last held
+  - [x] Range defaulting (TD2): `--start` alone runs to the last held
         session; `--end` alone starts at the first held session.
-  - [ ] No range with the held span over the cap (cap patched below it)
+  - [x] No range with the held span over the cap (cap patched below it)
         raises `RollRangeTooLong` (FR8's refusal path).
-  - [ ] Success: tests pass. Commit: `feat: add tick get read plan for
+  - [x] Success: tests pass. Commit: `feat: add tick get read plan for
         contracts and products`.
 
 ---
