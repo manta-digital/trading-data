@@ -70,11 +70,11 @@ states live in `data/tick/line_state.py` (`TickLineState`,
         choices.
 
 - [ ] **6.4 Test the `debug` verbs** (effort 2)
-  - [ ] `test/integration/data/test_tick_debug_cli.py`: each verb's text
-        and JSON on seeded rows; a value outside the enums rejected by
-        `--state` and `--fetch-status`; definitions hide spreads unless
-        `--spreads` (FR11); exit 1 for an unknown product and a pending
-        migration; exit 4 unreachable.
+  - [ ] `test/integration/data/test_tick_debug_cli.py`: one text and one
+        JSON run per verb on seeded rows (filter coverage stays in 6.2); a
+        value outside the enums rejected by `--state` and `--fetch-status`;
+        definitions hide spreads unless `--spreads` (FR11); exit 1 for an
+        unknown product and a pending migration; exit 4 unreachable.
   - [ ] Success: tests pass. Commit: `feat: add mt data tick debug reads`.
 
 - [ ] **6.5 Walkthrough step 5 on `trading_tick`** (effort 1)
@@ -106,9 +106,11 @@ states live in `data/tick/line_state.py` (`TickLineState`,
         `QueryCanceled` raised later, during the composed read, into the
         same `unreachable` state (naming the timeout), so both callers use
         one mapping.
-  - [ ] One renderer for TD8's three lines (`not configured (…)`,
+  - [ ] One function, `unavailable_text(TickUnavailable) -> str`, owns
+        TD8's wording (`not configured (MT_TICK_DB_URL unset)`,
         `unreachable: …`, `migrations pending (mt data migrate apply
-        --track tick)`), shared by accounting and overview.
+        --track tick)`). Accounting and overview both call it; no other
+        module spells these texts.
   - [ ] Success: ruff and mypy clean.
 
 - [ ] **7.2 Test the line states** (effort 2)
@@ -165,6 +167,9 @@ states live in `data/tick/line_state.py` (`TickLineState`,
         accounting`.
 
 - [ ] **7.7 Add the `futures ticks` line to `mt data overview`** (effort 3)
+  - [ ] First, per finding 1.1: if no test asserts the `/api/v1/overview`
+        payload for fixed facts, add it now and see it pass on the
+        unchanged code (the FR13 baseline 7.8 relies on).
   - [ ] `cli/overview_types.py`: `SourceFreshness.unavailable: str | None =
         None`.
   - [ ] A ledger freshness read (newest `last_event_ns` under current
@@ -172,10 +177,12 @@ states live in `data/tick/line_state.py` (`TickLineState`,
         `cli/`), so 231 can reuse it.
   - [ ] `cli/commands/overview.py` `gather`: after the credits call,
         `tick_composed.open`, the freshness read, and a fifth
-        `SourceFreshness("futures ticks", …)` with `unavailable` set from a
-        `TickUnavailable`. `gather_db_facts` is not touched.
-  - [ ] `cli/rendering/overview.py`: render the `unavailable` text in
-        place of the time; JSON sources carry `unavailable`.
+        `SourceFreshness("futures ticks", …)` whose `unavailable` is
+        exactly `unavailable_text(...)` (task 7.1). `gather_db_facts` is not
+        touched.
+  - [ ] `cli/rendering/overview.py`: print `unavailable` as given, in
+        place of the time; it never builds or re-spells state text. JSON
+        sources carry `unavailable`.
   - [ ] Overview's exit code unchanged by the tick line.
   - [ ] Success: ruff and mypy clean.
 
@@ -186,9 +193,11 @@ states live in `data/tick/line_state.py` (`TickLineState`,
   - [ ] Integration: the line's time equals the seeded newest
         `last_event_ns` (FR13); each degraded state keeps the other lines
         and the exit code (FR14).
-  - [ ] `/api/v1/overview`'s response for fixed facts is byte-identical to
-        `main`'s (snapshot comparison in the existing operations tests)
-        (FR13).
+  - [ ] `/api/v1/overview` unchanged (FR13): per finding 1.1, the existing
+        test that asserts the API payload for fixed facts passes without
+        edits. If none exists, add one in `test/unit/api_server/` that
+        builds the payload from fixed `OverviewFacts` and asserts its exact
+        keys and values (that test is 7.7's first step).
   - [ ] Existing overview, gather and load tests pass
         (`test/integration/test_overview_gather.py`,
         `test/load/test_922_overview_nfr.py`).

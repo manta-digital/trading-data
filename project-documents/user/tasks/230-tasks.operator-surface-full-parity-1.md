@@ -107,7 +107,9 @@ overview lines, docs and closing checks.
         `test/unit/cli/commands/test_health_accounting_pass_runs.py`).
   - [ ] How `/api/v1/overview` maps `SourceFreshness` into `SourceRecord`
         (`api_server`), to confirm adding a field and a CLI-only source
-        leaves the API response unchanged (FR13).
+        leaves the API response unchanged (FR13). Record whether an
+        existing test asserts the API overview payload for fixed facts
+        (exact keys and values); task 7.8 uses it or adds one.
   - [ ] How `mt-run data overview` runs in production: the checkout or an
         installed release, and whether `/etc/manta-trading.env` is readable
         without sudo (decides walkthrough step 8, task 7.9 in part 2).
@@ -161,7 +163,7 @@ overview lines, docs and closing checks.
 
 ## Section 3 - Tick reads per session window
 
-- [ ] **3.1 Test helper for seeded ticks** (effort 2)
+- [ ] **3.1 Test helper for seeded ticks** (effort 1)
   - [ ] Per finding 1.1, add (or reuse) a helper in `test/tick_support/`
         that inserts `tick_trade` rows for one instrument and unit with
         explicit `ts_event`, `sequence`, `sequence_ordinal`, `price`, `size`,
@@ -169,13 +171,14 @@ overview lines, docs and closing checks.
   - [ ] It can seed two sessions around a daily break and same-nanosecond
         ties (several rows sharing `ts_event`, differing in `sequence` /
         `sequence_ordinal`).
-  - [ ] Success: helper imported by one smoke test that inserts and counts
-        rows on `migrated_tick_db`.
+  - [ ] Success: helper imports cleanly; ruff and mypy clean. Task 3.4 is
+        its first user (no separate smoke test).
 
 - [ ] **3.2 Implement tick reads in `data/tick/tick_reads.py`** (effort 3)
-  - [ ] A window type `(session_date, instrument_id, raw_symbol, open_ns,
-        close_ns)` (or reuse the plan's segment type from task 4.1 if
-        defined first; one definition only).
+  - [ ] Define the frozen dataclass `TickWindow(session_date,
+        instrument_id, raw_symbol, open_ns, close_ns)` here. It is the one
+        definition: task 4.1 imports it as the planned segment and does not
+        declare its own.
   - [ ] `read_ticks(conn, window, on_batch)`: one statement over a named
         (server-side) cursor, `WHERE instrument_id = … AND ts_event >=
         open_ns AND ts_event < close_ns ORDER BY ts_event, sequence,
@@ -224,11 +227,12 @@ overview lines, docs and closing checks.
 
 - [ ] **4.1 Plan types and the contract plan in `data/tick/get_plan.py`**
       (effort 3)
-  - [ ] Frozen dataclasses: a planned segment
-        `(session_date, instrument_id, raw_symbol, open_ns, close_ns)`,
-        `Incomplete(session_date, status)`, and `GetPlan(target, start,
-        end, segments, unresolved, incomplete, definitions_as_of)`, where
-        `unresolved` reuses 229's `Unresolved` shape.
+  - [ ] Frozen dataclasses `Incomplete(session_date, status)` and
+        `GetPlan(target, start, end, segments, unresolved, incomplete,
+        definitions_as_of)`. `segments` is a tuple of `TickWindow`
+        (imported from `tick_reads`, task 3.2); `unresolved` holds 229's
+        `Unresolved` (imported from `roll_types`). No new segment or
+        unresolved type.
   - [ ] `ContractNotFound` and `ContractAmbiguous` errors. Ambiguous carries
         every candidate `instrument_id` with its expiration (`ts_text`) and
         a message asking for a range that separates them. Both map to exit 1
@@ -278,6 +282,10 @@ overview lines, docs and closing checks.
         the rest (FR5); an incomplete resolved session is planned and
         listed (FR6); a range over `TICK_ROLL_MAX_SESSIONS` (patched small)
         raises `RollRangeTooLong`; no range uses the held bounds (FR8).
+  - [ ] Range defaulting (TD2): `--start` alone runs to the last held
+        session; `--end` alone starts at the first held session.
+  - [ ] No range with the held span over the cap (cap patched below it)
+        raises `RollRangeTooLong` (FR8's refusal path).
   - [ ] Success: tests pass. Commit: `feat: add tick get read plan for
         contracts and products`.
 
@@ -338,8 +346,9 @@ overview lines, docs and closing checks.
         exit 0 on a clean contract read with the row count equal to the
         seeded count (FR1); exit 3 with output when a list is non-empty
         (FR5, FR6); exit 1 for each bad option combination in 5.3, an
-        unknown and an ambiguous contract (FR7), and a pending tick
-        migration; exit 4 for an unreachable tick database.
+        unknown and an ambiguous contract (FR7), a range outside the
+        populated calendar, and a pending tick migration; exit 4 for an
+        unreachable tick database.
   - [ ] Success: tests pass. Commit: `feat: add mt data tick get`.
 
 - [ ] **5.5 Handle a read that stops partway (TD11)** (effort 3)
