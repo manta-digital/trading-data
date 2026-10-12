@@ -36,7 +36,12 @@ from typing import Any
 import psycopg
 
 from manta_trading.config import Settings
-from manta_trading.data.tick.constants import CME_DATASET, SType, TickSchema
+from manta_trading.data.tick.constants import (
+    CME_DATASET,
+    RollMethod,
+    SType,
+    TickSchema,
+)
 from manta_trading.data.tick.databento.adapter import DatabentoTickProvider
 from manta_trading.data.tick.provider import ITickMetadataProvider, TickRequest
 from manta_trading.data.tick.roll_inputs import (
@@ -44,6 +49,7 @@ from manta_trading.data.tick.roll_inputs import (
     outright_definitions,
     session_volumes,
 )
+from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.status_reads import (
     calendar_sessions,
@@ -58,7 +64,10 @@ PRODUCT = "ES"
 CALENDAR_SPAN = (date(2024, 8, 28), date(2025, 4, 1))
 #: Databento's intervals over the held span; ``end`` exclusive.
 RESOLVE_SPAN = (date(2024, 8, 30), date(2025, 1, 3))
-CONTINUOUS = ("ES.c.0", "ES.c.1", "ES.v.0", "ES.v.1")
+#: ``ES.c.0``, ``ES.c.1``, ``ES.v.0``, ``ES.v.1``: Databento's continuous symbols.
+CONTINUOUS = tuple(
+    RollRule(method, rank).symbol(PRODUCT) for method in RollMethod for rank in (0, 1)
+)
 
 
 def _required(value: str | None, env: str) -> str:

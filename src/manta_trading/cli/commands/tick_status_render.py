@@ -14,6 +14,7 @@ from typing import Any
 from rich import print as rprint
 from rich.markup import escape
 
+from manta_trading.cli.commands.tick_active_render import active_line_text
 from manta_trading.cli.output import make_table, print_result
 from manta_trading.data.tick.tick_coverage import TickCoverage
 from manta_trading.data.tick.tick_status import TickSessionStatus
@@ -117,6 +118,9 @@ def print_status(status: TickStatus, exit_code: int, *, json_mode: bool) -> None
     for product in status.products:
         for line in _product_lines(product):
             rprint(escape(line))
+        for roll in product.rolls:
+            for line in active_line_text(roll):
+                rprint(escape(f"  {line}"))
 
 
 def coverage_to_dict(results: Sequence[TickCoverage], exit_code: int) -> dict[str, Any]:

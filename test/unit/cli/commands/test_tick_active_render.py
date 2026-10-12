@@ -6,12 +6,14 @@ import json
 from datetime import UTC, date, datetime
 
 from manta_trading.cli.commands.tick_active_render import (
-    CONTRACT_KEYS,
-    _contract_dict,
-    active_line_dict,
     active_line_text,
-    schedule_dict,
     schedule_text,
+)
+from manta_trading.data.tick.roll_payload import (
+    CONTRACT_KEYS,
+    active_line_dict,
+    contract_dict,
+    schedule_dict,
 )
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import (
@@ -111,7 +113,7 @@ def test_line_json_carries_step_seven_fields() -> None:
 
 
 def test_null_contract_keys_match_a_real_contract() -> None:
-    assert tuple(_contract_dict(ESH5)) == CONTRACT_KEYS
+    assert tuple(contract_dict(ESH5)) == CONTRACT_KEYS
     errored = active_line_dict(ActiveLine("ES", V0, error="boom"))
     assert errored["instrument_id"] is None
     assert errored["error"] == "boom"

@@ -73,9 +73,11 @@ async def ingested(
 
 
 async def test_status_buckets_contracts_and_json(
-    ingested: AConn, session_migrated_db: str
+    ingested: AConn, migrated_tick_db: str, session_migrated_db: str
 ) -> None:
-    status = await build_status(ingested, session_migrated_db, UNTIERED, NOW)
+    status = await build_status(
+        ingested, session_migrated_db, UNTIERED, NOW, tick_url=migrated_tick_db
+    )
     (es,) = status.products
     assert {k: v for k, v in es.buckets.items() if v} == {
         "complete": 1,  # 09-03: 09-02 and 09-03 both ingested
@@ -93,7 +95,12 @@ async def test_status_buckets_contracts_and_json(
     assert body["complete_basis"] == "units"
     assert json.loads(json.dumps(body)) == body
     every = await build_status(
-        ingested, session_migrated_db, UNTIERED, NOW, all_instruments=True
+        ingested,
+        session_migrated_db,
+        UNTIERED,
+        NOW,
+        tick_url=migrated_tick_db,
+        all_instruments=True,
     )
     assert len(every.products[0].contracts) == len(es.contracts) + es.spreads_hidden
 
@@ -152,7 +159,9 @@ async def test_caught_up_is_judged_over_the_wanted_range_only(
         start=date(2024, 9, 3),
         end=date(2024, 9, 4),
     )
-    status = await build_status(ingested, session_migrated_db, [entry], NOW)
+    status = await build_status(
+        ingested, session_migrated_db, [entry], NOW, tick_url=migrated_tick_db
+    )
     [product] = status.products
     assert product.buckets["complete"] >= 1
     assert sum(n for b, n in product.buckets.items() if b != "complete") > 0

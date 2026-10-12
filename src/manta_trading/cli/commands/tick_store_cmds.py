@@ -38,7 +38,8 @@ READ_EPILOG = (
     f"Exit codes: {EXIT_OK} ok; {EXIT_PREFLIGHT} preflight (a setting, a pending "
     "tick migration, an unknown --product, --end not after --start, or dates "
     "past the calendar's populated sessions: run mt data extend); "
-    f"{EXIT_PARTIAL} coverage found a raw-count mismatch; {EXIT_STORAGE} the tick "
+    f"{EXIT_PARTIAL} coverage found a raw-count mismatch, or a status roll line "
+    f"failed (its error: line says why); {EXIT_STORAGE} the tick "
     "or production (calendar) database is unreachable."
 )
 INGEST_EPILOG = (
@@ -183,12 +184,14 @@ def tick_status(
     all_instruments: bool = _ALL_INSTRUMENTS_OPTION,
     json_output: bool = JSON_OPTION,
 ) -> None:
-    """Sessions held per product: complete, awaiting ingest, in flight, holes.
+    """Sessions held per product: complete, awaiting ingest, in flight, holes,
+    and the active contract per roll rule.
 
-    Reads the manifest, ledger, conditions and edge; never scans tick_trade.
+    Reads the manifest, ledger, conditions, edge and definitions; never scans
+    tick_trade.
     """
     from manta_trading.cli.commands.tick_status_render import print_status
-    from manta_trading.data.tick.store_context import utc_now
+    from manta_trading.data.tick.store_context import database_url, utc_now
     from manta_trading.data.tick.tick_status_build import build_status
 
     settings: Settings = ctx.obj["settings"]
@@ -198,12 +201,22 @@ def tick_status(
         return await _read(
             settings,
             lambda conn, url: build_status(
-                conn, url, entries, utc_now(), all_instruments=all_instruments
+                conn,
+                url,
+                entries,
+                utc_now(),
+                tick_url=database_url(settings),
+                all_instruments=all_instruments,
             ),
         )
 
     status = run_mapped(main, json_output, read_storage())
-    print_status(status, EXIT_OK, json_mode=json_output)
+    # A failed roll line (229 TD9): the run finished, part of it failed.
+    failed = any(line.error for p in status.products for line in p.rolls)
+    exit_code = EXIT_PARTIAL if failed else EXIT_OK
+    print_status(status, exit_code, json_mode=json_output)
+    if exit_code != EXIT_OK:
+        raise typer.Exit(exit_code)
 
 
 def tick_coverage(

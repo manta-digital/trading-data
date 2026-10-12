@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from manta_trading.data.base.session_index import Session
+from manta_trading.data.tick.active_contract import latest_active
 from manta_trading.data.tick.constants import (
     CME_DATASET,
     SPREAD_CLASS,
@@ -27,6 +28,9 @@ from manta_trading.data.tick.constants import (
     calendar_for_product,
 )
 from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.roll_payload import active_line_dict
+from manta_trading.data.tick.roll_rules import STATUS_ROLL_RULES
+from manta_trading.data.tick.roll_types import ActiveLine
 from manta_trading.data.tick.session_days import days_touched, utc_midnight
 from manta_trading.data.tick.status_reads import (
     ContractLine,
@@ -68,6 +72,8 @@ class ProductStatus:
     holed_sessions: tuple[date, ...]
     contracts: tuple[ContractLine, ...]
     spreads_hidden: int
+    #: One line per ``STATUS_ROLL_RULES`` rule (229); its own snapshot.
+    rolls: tuple[ActiveLine, ...]
 
 
 @dataclass(frozen=True)
@@ -76,7 +82,10 @@ class TickStatus:
     complete_basis: str = COMPLETE_BASIS
 
     def to_dict(self) -> dict[str, Any]:
-        return jsonable(asdict(self))
+        body: dict[str, Any] = jsonable(asdict(self))
+        for product, out in zip(self.products, body["products"], strict=True):
+            out["rolls"] = [active_line_dict(line) for line in product.rolls]
+        return body
 
 
 def jsonable(value: Any) -> Any:
@@ -133,11 +142,12 @@ async def _scope(
 
 async def _product_status(
     conn: Conn,
-    calendar_url: str,
+    urls: tuple[str, str],
     entry: TickUniverseEntry,
     now: datetime,
     all_instruments: bool,
 ) -> ProductStatus:
+    tick_url, calendar_url = urls
     edge = await dataset_edge(conn, CME_DATASET)
     wanted_start = entry.start if entry.tier is not None else None
     wanted_end = None if wanted_start is None else _wanted_end(entry, edge)
@@ -185,6 +195,8 @@ async def _product_status(
             lines if all_instruments else [c for c in lines if c not in spreads]
         ),
         spreads_hidden=0 if all_instruments else len(spreads),
+        # After status's own reads, on the roll path's own connections (TD9).
+        rolls=await latest_active(tick_url, calendar_url, entry, STATUS_ROLL_RULES),
     )
 
 
@@ -194,12 +206,16 @@ async def build_status(
     universe: Sequence[TickUniverseEntry],
     now: datetime,
     *,
+    tick_url: str,
     all_instruments: bool = False,
 ) -> TickStatus:
+    """``tick_url`` is for the roll lines only: ``latest_active`` opens its own
+    bounded connection and never reuses ``tick_conn`` (229 TD9)."""
+    urls = (tick_url, calendar_url)
     return TickStatus(
         tuple(
             [
-                await _product_status(tick_conn, calendar_url, e, now, all_instruments)
+                await _product_status(tick_conn, urls, e, now, all_instruments)
                 for e in universe
             ]
         )
