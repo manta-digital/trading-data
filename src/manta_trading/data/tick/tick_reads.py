@@ -65,8 +65,10 @@ OnBatch = Callable[[Sequence[Row]], None]
 
 @dataclass(frozen=True)
 class TickWindow:
-    """One session of one instrument: ticks with ``open_ns <= ts_event <
-    close_ns``. The one segment type; ``get_plan`` plans these."""
+    """One session of one instrument: ticks with ``open_ns <= ts_event <=
+    close_ns``. Closed, as ``Session`` is: ingest files a tick stamped at the
+    close under that session, so the ledger and ``coverage`` count it, and
+    the read must too. The one segment type; ``get_plan`` plans these."""
 
     session_date: date
     instrument_id: int
@@ -81,7 +83,7 @@ _WINDOW_COLUMNS = sql.SQL(
 )
 _WINDOW_WHERE = sql.SQL(
     "instrument_id = %(instrument_id)s"
-    " AND ts_event >= %(open_ns)s AND ts_event < %(close_ns)s"
+    " AND ts_event BETWEEN %(open_ns)s AND %(close_ns)s"
 )
 _TICKS = sql.SQL(
     "SELECT ts_event, {window}, price, size, side, bid_px_00, ask_px_00,"

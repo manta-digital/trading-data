@@ -37,18 +37,19 @@ def _ns(hour: int, minute: int = 0, day: int = 16) -> int:
 A = TickWindow(date(2024, 9, 16), ES, "ESU4", _ns(22, day=15), _ns(21))
 B = TickWindow(date(2024, 9, 17), ES, "ESU4", _ns(22), _ns(21, day=17))
 
-#: Session A: three trades share 20:30:00 exactly, told apart by
-#: (sequence, sequence_ordinal) and inserted out of key order.
+#: Session A's last trades: three share its close instant exactly (21:00:00,
+#: inside the session, as ingest files them), told apart by (sequence,
+#: sequence_ordinal) and inserted out of key order.
 TIES = [
-    Tick(_ns(20, 30), price=5_003, size=3, sequence=7, sequence_ordinal=1),
-    Tick(_ns(20, 30), price=5_001, size=1, sequence=6, sequence_ordinal=0),
-    Tick(_ns(20, 30), price=5_002, size=2, sequence=7, sequence_ordinal=0),
+    Tick(_ns(21), price=5_003, size=3, sequence=7, sequence_ordinal=1),
+    Tick(_ns(21), price=5_001, size=1, sequence=6, sequence_ordinal=0),
+    Tick(_ns(21), price=5_002, size=2, sequence=7, sequence_ordinal=0),
 ]
 A_TICKS = [
     Tick(_ns(22, 0, day=15), price=5_000, size=4, sequence=1),  # at open: in
     Tick(_ns(9), price=5_010, size=5, sequence=2),
     *TIES,
-    Tick(_ns(21), price=9_999, size=9, sequence=8),  # at close: out (B's gap)
+    Tick(_ns(21, 30), price=9_999, size=9, sequence=11),  # the break: in no window
 ]
 B_TICKS = [
     Tick(_ns(22, 30), price=5_020, size=6, sequence=9, bbo=(5_019, 5_021, 1, 2, 1, 1)),
@@ -98,7 +99,7 @@ async def test_4h_bucket_across_the_break_is_two_bars(seeded: str) -> None:
     a = _rows(await _read(seeded, read_bars, A, Granularity.H4), BAR_COLUMNS)
     b = _rows(await _read(seeded, read_bars, B, Granularity.H4), BAR_COLUMNS)
 
-    assert a[-1]["time"] == _ns(20)  # the ties' bucket, A's side of the break
+    assert a[-1]["time"] == _ns(20)  # the close ties' bucket, A's side of the break
     assert b[0]["time"] == B.open_ns  # 22:00, not 20:00
     assert b[0]["volume"] == 13
     # A's first bar starts at A's open, not at the 20:00 bucket before it.
@@ -121,7 +122,7 @@ async def test_session_bar_matches_the_ticks_with_ties_by_key(seeded: str) -> No
 async def test_1m_volume_sums_sizes_and_skips_empty_buckets(seeded: str) -> None:
     rows = _rows(await _read(seeded, read_bars, A, Granularity.M1), BAR_COLUMNS)
 
-    assert [r["time"] for r in rows] == [A.open_ns, _ns(9), _ns(20, 30)]
+    assert [r["time"] for r in rows] == [A.open_ns, _ns(9), _ns(21)]
     assert rows[-1]["volume"] == 6
     assert (rows[-1]["open"], rows[-1]["close"]) == (5_001, 5_003)
 
