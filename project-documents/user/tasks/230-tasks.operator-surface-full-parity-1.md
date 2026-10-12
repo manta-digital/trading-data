@@ -118,6 +118,75 @@ overview lines, docs and closing checks.
         the Project Manager.
   - [ ] Success: findings block present; no code changes.
 
+**Findings (1.1)**
+
+- **Bucket step.** `_product_status` runs: `dataset_edge` → `wanted_start`
+  (`entry.start` when tiered) → `_wanted_end(entry, edge)` → the `wanted`
+  UTC window → `_scope(conn, calendar_url, entry, wanted)` →
+  `session_verdicts(conn, entry, sessions)` → `Counter` over **every**
+  verdict in scope, filled to every `TickSessionStatus`. Scope is the
+  wanted range plus every session a current tier unit touches, so in
+  production the ES buckets include the September trades sessions as well
+  as the tbbo range. `status` prints those scope buckets. Accounting
+  reports the same scope buckets (FR12 rules). The JSON field is
+  `sessions_in_scope`, not TD7's `sessions_wanted`, because "wanted" would
+  be false; 8.4 records it in the design. Task 7.3 extracts
+  `product_scope(conn, calendar_url, entry, edge)` (wanted window, sessions,
+  verdicts) and `bucket_counts(verdicts)` into public functions in
+  `tick_status_build.py`; `_product_status` calls both, so output is
+  unchanged. Importing `tick_status_build` from `tick_accounting` is a
+  data-layer import, so it stays there.
+- **229 signatures.** `build_schedule(tick_url, calendar_url, entry, rule,
+  start, end)` and `RollRangeTooLong(TickPreflightError)` and
+  `roll_conninfo(url)` in `data/tick/active_contract.py`.
+  `build_schedule` raises `RollRangeTooLong` and `TickPreflightError`
+  (outside the calendar), both exit 1. `held_session_bounds(conn, shape)
+  -> (date, date) | None` in `roll_inputs.py` takes a connection, not a
+  URL. `RollRule.parse` and `DEFAULT_ROLL_RULE` in `roll_rules.py`;
+  `TICK_ROLL_MAX_SESSIONS = 1300` in tick `constants.py`. `RollSchedule` has
+  `segments()` and `unresolved`. `Unresolved(session_date, reason)` is in
+  `roll_types.py`.
+- **`active`'s helpers.** `_range` requires both `--start` and `--end`, and
+  `_rules` returns every status rule when none is given. TD2 allows either
+  date alone and `get` takes one rule, so neither fits; `get` uses
+  `RollRule.parse` and its own range resolution. The `(default)` label is
+  `_rule_label` and the `ESU4 (118)` label is `_contract`, both private in
+  `tick_active_render.py`; 5.1 makes them public (`rule_label`,
+  `contract_label`) and reuses them. `roll_payload`'s `_unresolved_dict`
+  becomes public for the JSON lists.
+- **Bar widths.** No `time_bucket` helper exists in `src/`.
+  `GRANULARITY_BAR_MINUTES` in `manta_trading/constants.py` maps
+  `M1 M5 M15 H1 H4` to minutes; `get` reuses it. `D1` is not in it and is
+  the whole session. No new map.
+- **Seeding ticks.** `tick_support/rows.py` `insert_trade(conn, unit_id,
+  **overrides)` already inserts a tbbo-shaped `tick_trade` row with every
+  column overridable. 3.1 adds a thin helper for a trades-tier row (BBO
+  null) and a list of `(ts_event, sequence, sequence_ordinal, price, size)`.
+  Sentinels are stored as delivered (`storage_columns.py`): a BBO price can
+  be `UNDEF_INT64`, and an undefined size is `4294967295`. Only prices are
+  formatted (TD4); sizes stay raw.
+- **Accounting and overview.** Both read `ctx.obj["settings"]`, connect
+  with sync `psycopg.connect` to `timescale_db_url`, and exit 2
+  (`EXIT_UNAVAILABLE`) on `OperationalError` / `QueryCanceled`. Accounting
+  records a `PassKind.ACCOUNTING` row through `pass_run_recorder`. Overview
+  `gather` = `gather_db_facts` + `read_credits`. `read_source_freshness` is
+  also used by `mt data status`'s summary. Tests:
+  `test/unit/cli/commands/test_overview.py`, `test_overview_command.py`,
+  `test_health_accounting_pass_runs.py`,
+  `test/integration/test_overview_gather.py`, `test/load/test_922_overview_nfr.py`.
+- **API overview.** `api_server/models/operations.py`
+  `OverviewResponse.from_overview` builds `SourceRecord(name, newest)`
+  explicitly, and the route calls `gather_db_facts`. A new field and a
+  CLI-only source cannot reach it. `test/unit/api_server/test_operations_models.py`
+  already asserts the exact `sources` payload for fixed facts; that is the
+  FR13 baseline, and 7.7 needs no new test.
+- **`mt-run` in production** runs `/opt/manta-trading/.venv/bin/mt`, an
+  installed release, with `/etc/manta-trading.env`. That file is readable
+  without sudo (group `manta-trading`) and has no `MT_TICK_DB_URL`
+  (`grep -c` = 0). Step 8 therefore takes 7.9's installed-release branch.
+- **Connections are async** (`psycopg.AsyncConnection`); the tick reads use
+  an async named cursor.
+
 ---
 
 ## Section 2 - Constants and formatters
