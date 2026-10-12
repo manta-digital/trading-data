@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import typer
 
 from manta_trading.cli.commands.tick_active_cmds import ACTIVE_EPILOG, tick_active
+from manta_trading.cli.commands.tick_debug_cmds import debug_app
 from manta_trading.cli.commands.tick_exit import (
     EXIT_BY_OUTCOME,
     EXIT_IN_FLIGHT,
@@ -63,7 +64,7 @@ _EXIT_EPILOG = (
 tick_app = typer.Typer(
     name="tick",
     help="Futures tick data (Databento): cost preflight, adoption, reset, pass, "
-    "ingest, status, coverage, active, get.",
+    "ingest, status, coverage, active, get, debug.",
     no_args_is_help=True,
 )
 
@@ -290,3 +291,4 @@ tick_app.command("status", epilog=READ_EPILOG)(tick_status)
 tick_app.command("coverage", epilog=READ_EPILOG)(tick_coverage)
 tick_app.command("active", epilog=ACTIVE_EPILOG)(tick_active)
 tick_app.command("get", epilog=GET_EPILOG)(tick_get)
+tick_app.add_typer(debug_app)

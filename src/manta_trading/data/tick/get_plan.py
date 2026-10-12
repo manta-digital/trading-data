@@ -100,7 +100,7 @@ class _Candidate:
     expiration_ns: int
 
 
-async def _sessions(
+async def sessions_dated(
     calendar_url: str, product: str, start: date, end: date
 ) -> list[Session]:
     """The calendar sessions dated ``[start, end)``; a range past the calendar
@@ -222,7 +222,7 @@ async def contract_plan(
     _check_range(start, end)
     sessions = [
         s
-        for s in await _sessions(calendar_url, entry.product, start, end)
+        for s in await sessions_dated(calendar_url, entry.product, start, end)
         if utc_ns(s.open_utc) <= candidate.expiration_ns
         and utc_ns(s.close_utc) >= candidate.activation_ns
     ]
@@ -273,7 +273,7 @@ async def product_plan(
     }
     sessions = [
         s
-        for s in await _sessions(calendar_url, entry.product, start, end)
+        for s in await sessions_dated(calendar_url, entry.product, start, end)
         if s.session_date in answers
     ]
     windows = tuple(
