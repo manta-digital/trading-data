@@ -66,7 +66,7 @@ the retention-deadline finding, is 234's, as the slice plan places it.
 3. A tick section in `mt data accounting` (text and JSON), one line per
    universe product, built from the same session verdicts `status` uses.
 4. A `futures ticks` source line in `mt data overview` (text and JSON).
-5. The `not configured` / `unreachable` / `migrations pending` states on
+5. The `not configured` / `unreachable` / `migrations pending` / `failed` states on
    both composed surfaces (TD8).
 6. One fixed-point price formatter and one nanosecond timestamp formatter,
    shared by `get` and `debug` (TD4).
@@ -189,10 +189,10 @@ state), `data/tick/constants.py` (TD10 constants).
 
 ```
 mt data accounting ──▶ minute accounting (unchanged, primary DB)
-                  └─▶ tick_composed.open() ─▶ tick_accounting.lines()
+                  └─▶ tick_composed.connect() ─▶ tick_accounting.lines()
 mt data overview  ──▶ gather_db_facts (unchanged, primary DB)
                   ├─▶ EODHD credits (unchanged)
-                  └─▶ tick_composed.open() ─▶ newest event from ledger
+                  └─▶ tick_composed.connect() ─▶ newest event from ledger
 ```
 
 Each composed read opens a read-only connection with
@@ -435,7 +435,7 @@ The vocabulary and the opener are split by layer:
 - `data/tick/line_state.py` holds `TickLineState`,
   `TickUnavailable(state, detail)` and `unavailable_text`. It has no I/O and
   no CLI import, so 231 can reuse the states without depending on `cli/`.
-- `cli/tick_composed.open(settings)` connects, checks the tick track, and
+- `cli/tick_composed.connect(settings)` connects, checks the tick track, and
   returns either a connection or a `TickUnavailable`. It serves the CLI's
   one-shot commands only. The API keeps its own startup-opened,
   self-reconnecting pool (architecture, "Serving-layer failure posture")
@@ -447,7 +447,8 @@ skip the line or fail the command:
 | Condition | Line |
 |---|---|
 | `MT_TICK_DB_URL` unset | `futures ticks    not configured (MT_TICK_DB_URL unset)` |
-| connect timeout / refused / `OperationalError` / `QueryCanceled`; or the calendar the read uses failing or refusing the range | `futures ticks    unreachable: <first line of the error>` (a statement timeout is named) |
+| connect timeout / refused / `OperationalError` / `QueryCanceled`; or the calendar the read uses failing | `futures ticks    unreachable: <first line of the error>` (a statement timeout is named) |
+| reachable, but the read refused or failed: the calendar does not reach the range, or any other database error (added after code review F003: a refusal is not an outage) | `futures ticks    failed: <first line of the error>` |
 | tick track has pending migrations | `futures ticks    migrations pending (mt data migrate apply --track tick)` |
 
 - The command's exit code does not change for a tick-line state. Minute
@@ -456,7 +457,7 @@ skip the line or fail the command:
   operator screen red. The alarm surface is `health`, in 234, which is
   where the architecture puts it. The line is the report.
 - This posture is the 234 "loud line, continue" rule applied early, with
-  the same three states. 234's health line uses `tick_composed.open`, so
+  the same three states. 234's health line uses `tick_composed.connect`, so
   the states are defined once. This makes 230, not 234, the first slice
   with a tick composing surface. The slice plan's 234 entry is updated to
   say so.
@@ -587,7 +588,7 @@ their exit codes. TD7 gives the composed lines. Changed JSON contracts:
     maps its own pool's failures onto them.
 - **232:** GC appears in `get`, `debug`, accounting and overview with no
   code change once it is in `TICK_UNIVERSE`.
-- **234:** `tick_composed.open` is the health line's opener, and 230 is
+- **234:** `tick_composed.connect` is the health line's opener, and 230 is
   now the first tick composing surface (the slice plan's 234 entry is
   updated). 234 adds
   `MT_TICK_DB_URL` to `/etc/manta-trading.env`, which turns production's
