@@ -134,13 +134,14 @@ New modules, each kept near 300 lines:
 | `data/tick/get_plan.py` | Builds a `GetPlan` (the ordered list of `(session_date, instrument_id, raw_symbol, open_ns, close_ns)` to read, plus `unresolved` and `incomplete`) for a contract read or a product read. Calls `build_schedule` for products. |
 | `data/tick/tick_format.py` | `price_text(raw)` (fixed-point → exact decimal string, `UNDEF_INT64` → `None`) and `ts_text(ns)` (ISO 8601 UTC with nine fraction digits). |
 | `data/tick/debug_reads.py` | The three debug queries with their filters. |
-| `data/tick/tick_accounting.py` | One `TickAccountingLine` per universe product from the session verdicts, and the unavailable states. |
-| `cli/commands/tick_get_cmds.py` | `get`: option parsing, the plan, streaming output in three formats, exit code. |
+| `data/tick/tick_accounting.py` | One `TickAccountingLine` per universe product from `status`'s own bucket step (`product_scope`, `bucket_counts` in `tick_status_build.py`). |
+| `cli/commands/tick_get_cmds.py` | `get`: option parsing, the plan, the one read transaction, partial and closed-pipe handling, exit code. |
+| `cli/commands/tick_get_writers.py` | The three streaming writers (text, CSV, JSON) behind one interface. |
 | `cli/commands/tick_debug_cmds.py` | The `debug` sub-typer and its three verbs. |
-| `data/tick/availability.py` | The line-state vocabulary: `TickAvailability` (`ok`, `not_configured`, `unreachable`, `migrations_pending`) and `TickUnavailable(state, detail)`. No I/O, no CLI import; 231 reuses it (TD8). |
+| `data/tick/line_state.py` | The line-state vocabulary: `TickLineState` (`ok`, `not_configured`, `unreachable`, `migrations_pending`), `TickUnavailable(state, detail)`, and `unavailable_text`, the one place the line's wording lives. No I/O, no CLI import; 231 reuses it (TD8). Not `availability.py`: that is 224's dataset availability capture. |
 | `cli/tick_composed.py` | The one place a CLI composed surface (accounting, overview) opens the tick database and classifies each failure into a `TickUnavailable` (TD8). |
 
-Changed modules: `cli/commands/tick.py` (registration),
+Changed modules: `data/tick/status_reads.py` (`newest_event_ns`), `data/tick/tick_status_build.py` (the extracted bucket step), `cli/commands/tick.py` (registration),
 `cli/commands/accounting.py` (tick section), `cli/commands/overview.py`
 (`gather` adds the tick fact), `cli/overview_types.py`
 (`SourceFreshness.unavailable`), `cli/rendering/overview.py` (render the
@@ -263,6 +264,11 @@ mt data tick get WHAT (--contract SYMBOL | --product P [--rule RULE])
   no sort over the whole result.
 - Each fetch is one short statement, so the 30 s statement timeout from
   `roll_conninfo`'s bounds holds even for a multi-month read.
+- **Windows are closed, `[open_ns, close_ns]`,** as `Session` is. Ingest
+  files a tick stamped exactly at the close under that session, so the
+  ledger and `coverage` count it, and FR1 needs the read to as well.
+  Sessions never touch, so nothing is read twice. (The first draft said
+  `ts_event < close_ns`; corrected during implementation.)
 - **Ticks:** `ORDER BY ts_event, sequence, sequence_ordinal`, the table's
   key order.
 - **Bars:** grouped by bucket within the session window. The bucket start
@@ -368,6 +374,10 @@ mt data tick debug definitions [--product P] [--symbol RAW]
 - `--product` maps to the universe entry's request symbols for the
   manifest reads and to `asset` for definitions. An unknown product exits 1.
 - No row cap. The whole 2020+ manifest is a few thousand rows.
+- `--state` and `--fetch-status` take text checked against the enums
+  (choices listed in `--help`), exit 1 on any other value. Click's own
+  choice type would exit 2 with a usage error, outside this verb's codes.
+- `--as-of` needs `--product`: the product's calendar dates the session.
 - Exit codes: 0 (including no rows), 1 (bad input, unset URL, pending
   migrations), 4 (unreachable). `debug` prints facts and asserts nothing,
   so it never exits 3.
@@ -388,10 +398,13 @@ futures tick universe:
   If `build_status` does not expose the bucket step on its own, it is
   extracted, not copied.
 - Records are the ledger sum over current units.
-- JSON gains `tick: {state, products: [{product, sessions_wanted,
+- JSON gains `tick: {state, detail, products: [{product, sessions_in_scope,
   sessions_complete, buckets, records}]}`. `state` is `ok`,
-  `not_configured`, `unreachable` or `migrations_pending`. `products` is
-  empty unless `state` is `ok`.
+  `not_configured`, `unreachable` or `migrations_pending`; `detail` is the
+  state's detail (null when ok). `products` is empty unless `state` is `ok`.
+- "Sessions" are `status`'s scope: the wanted range plus every session a
+  current tier unit touches. That is what `status` prints its buckets over,
+  so the field is `sessions_in_scope`, not `sessions_wanted`.
 - The `PassKind.ACCOUNTING` detail stays the minute summary. The overview
   universe line keeps its meaning.
 
@@ -419,9 +432,9 @@ SOURCES
 
 The vocabulary and the opener are split by layer:
 
-- `data/tick/availability.py` holds `TickAvailability` and
-  `TickUnavailable(state, detail)`. It has no I/O and no CLI import, so
-  231 can reuse the states without depending on `cli/`.
+- `data/tick/line_state.py` holds `TickLineState`,
+  `TickUnavailable(state, detail)` and `unavailable_text`. It has no I/O and
+  no CLI import, so 231 can reuse the states without depending on `cli/`.
 - `cli/tick_composed.open(settings)` connects, checks the tick track, and
   returns either a connection or a `TickUnavailable`. It serves the CLI's
   one-shot commands only. The API keeps its own startup-opened,
@@ -434,7 +447,7 @@ skip the line or fail the command:
 | Condition | Line |
 |---|---|
 | `MT_TICK_DB_URL` unset | `futures ticks    not configured (MT_TICK_DB_URL unset)` |
-| connect timeout / refused / `OperationalError` / `QueryCanceled` | `futures ticks    unreachable: <first line of the error>` |
+| connect timeout / refused / `OperationalError` / `QueryCanceled`; or the calendar the read uses failing or refusing the range | `futures ticks    unreachable: <first line of the error>` (a statement timeout is named) |
 | tick track has pending migrations | `futures ticks    migrations pending (mt data migrate apply --track tick)` |
 
 - The command's exit code does not change for a tick-line state. Minute
@@ -567,9 +580,9 @@ their exit codes. TD7 gives the composed lines. Changed JSON contracts:
     `unresolved` and `incomplete` are the arrays 229 obliges 231 to carry.
   - `price_text` and `ts_text` keep exact prices and nanosecond times
     identical between the CLI and the API.
-  - The accounting function feeds `/api/v1/status`.
-  - The ledger freshness read feeds `/api/v1/overview`.
-  - `data/tick/availability.py`'s states are the vocabulary for the API's
+  - The accounting function (`tick_accounting.accounting_lines`) feeds `/api/v1/status`.
+  - The ledger freshness read (`status_reads.newest_event_ns`) feeds `/api/v1/overview`.
+  - `data/tick/line_state.py`'s states are the vocabulary for the API's
     503 and health field. 231 reuses the states, not the CLI opener, and
     maps its own pool's failures onto them.
 - **232:** GC appears in `get`, `debug`, accounting and overview with no
@@ -717,8 +730,20 @@ ESZ4 = 183748).
    mt data tick coverage --product ES --start 2024-09-18 --end 2024-09-19
    ```
 
-   The CSV line count, minus the header, equals the ledger records for
-   ESZ4 on 09-18. Prices read like `5650.25`.
+   The CSV line count, minus the header, equals ESZ4's own ledger
+   `record_count` for session 09-18 under current units: **573,847** (so
+   `wc -l` prints 573848). Prices read like `5701` or `5650.25`; trades-tier
+   rows leave the BBO columns empty. *Correction (run 2026-10-12):*
+   `coverage`'s `ledger` column (748,819) sums every instrument in the
+   session (ESU4 holds 148,080), so compare against the per-instrument
+   ledger figure, e.g.
+
+   ```sql
+   SELECT sum(l.record_count) FROM tick_ingest_ledger l
+     JOIN tick_archive_unit u USING (unit_id)
+    WHERE l.session_date = '2024-09-18' AND l.instrument_id = 183748
+      AND <COVERAGE_PREDICATE>;   -- read-only; 573847
+   ```
 
 3. **Session bars and the unresolved head of a held range.**
 
@@ -729,14 +754,22 @@ ESZ4 = 183748).
    The first held tbbo sessions have no ranking session held, so the
    sessions within two of 2024-11-04 appear in `unresolved` with 229's
    reason, and `exit_code` is 3. The remaining sessions have one bar each.
+   Observed: `unresolved` = 2024-11-04 (`volume inputs: session 2024-10-31
+   is missing`) and 2024-11-05 (`… 2024-11-01 is missing`), `n` = 2
+   (sessions 11-06 and 11-07, stamped at their 23:00 UTC opens), exit 3.
 
 4. **Ambiguous and unknown contracts.**
 
    ```
-   mt data tick get ticks --contract ESZ9; echo $?
+   mt data tick get ticks --contract ESM4; echo $?
    ```
 
-   This exits 1 naming the symbol, because no definition is held for it.
+   This exits 1 with `no definition held for contract ESM4`: ESM4 expired
+   in June 2024, before any held definition file. *Correction:* the first
+   draft used `ESZ9`, but CME lists years ahead and ESZ9 (the December 2029
+   contract, instrument 42004134) **is** defined. With nothing held and no
+   range it is an empty read that exits 0 and prints
+   `ESZ9 (42004134)  ticks  nothing held`.
    The ambiguous case (one raw symbol, two held contracts a decade apart)
    cannot be shown on today's data. Its integration test seeds two
    definitions for the same raw symbol.
@@ -749,10 +782,11 @@ ESZ4 = 183748).
    mt data tick debug definitions --product ES --as-of 2024-09-18
    ```
 
-   The requests show both adopted jobs with their costs. The units count
-   matches `status`'s awaiting-ingest bucket (0 today). The definitions
-   list ESU4, ESZ4, ESH5 and the rest with exact tick sizes (`0.25`), and
-   no spreads.
+   The requests show both adopted jobs with their costs (trades $12.58,
+   tbbo $36.80) beside the four definition jobs. The units count matches
+   `status`'s awaiting-ingest bucket (0 today). The definitions list ESU4,
+   ESZ4, ESH5 and the rest (21 outrights valid at 09-18's open) with exact
+   tick sizes (`0.25`), and no spreads.
 
 6. **Accounting and overview, healthy.**
 
@@ -766,9 +800,13 @@ ESZ4 = 183748).
    walkthrough notes.
 
    Accounting ends with the `futures tick universe` line, whose session
-   counts match `mt data tick status --product ES`. The overview SOURCES
-   block has `futures ticks` with the newest ingested event, around
-   2025-01-01 21:59 UTC.
+   counts match `mt data tick status --product ES`:
+   `ES  61/64 sessions complete (95.3%); 2 missing; 1 edge unknown  ·
+   27,691,412 records`. The whole command took 1:29, almost all of it the
+   minute scan; the tick read alone took 0.05 s. The overview SOURCES block
+   has `futures ticks    2024-12-31 21:59 UTC`. *Correction:* not
+   2025-01-01 — the tbbo range ends 2025-01-01 exclusive (a holiday), so the
+   last held session is dated 2024-12-31.
 
 7. **The three degraded lines.**
 
@@ -789,9 +827,14 @@ ESZ4 = 183748).
    mt-run data overview
    ```
 
-   It prints `futures ticks    not configured (MT_TICK_DB_URL unset)`,
-   because the production env file does not carry the tick URL until 234.
-   That proves the line is present and explicit on the production path.
+   `mt-run` runs the *installed release* (`/opt/manta-trading`), so this
+   step follows deploy. After 230 is deployed it prints
+   `futures ticks    not configured (MT_TICK_DB_URL unset)`, because the
+   production env file does not carry the tick URL until 234
+   (`grep -c '^MT_TICK_DB_URL' /etc/manta-trading.env` prints 0, readable
+   without sudo for the `manta-trading` group). Before deploy (run
+   2026-10-12) it shows no tick line. Step 7's unset case proves the exact
+   text and exit 0 meanwhile. Run log: `user/notes/230-walkthrough.md`.
 
 ## Implementation Notes
 
