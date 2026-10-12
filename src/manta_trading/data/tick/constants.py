@@ -298,3 +298,39 @@ TICK_TRADE_COMPRESS_AFTER: timedelta = timedelta(days=14)
 #: to 559 ms against A's 0.1 ms. Every unique-key column is in one or the other.
 TICK_TRADE_SEGMENT_BY: tuple[str, ...] = ("instrument_id",)
 TICK_TRADE_ORDER_BY: tuple[str, ...] = ("ts_event", "sequence", "sequence_ordinal")
+
+
+# -- Slice 229: active contract and roll rules (LLD 229 TD1, TD3, TD9, TD10) --
+
+
+class RollMethod(StrEnum):
+    """Roll methods, named with Databento's continuous-symbol letters (TD1).
+
+    ``n`` (open interest) is deliberately unassigned: deferred (TD6).
+    """
+
+    CALENDAR = "c"  # nearest expiration
+    VOLUME = "v"  # highest traded volume, ranked by an earlier session
+
+
+#: ``tick_definition.instrument_class`` of an outright future (a roll candidate).
+OUTRIGHT_CLASS = "F"
+#: ``tick_definition.instrument_class`` of a calendar spread (hidden by default
+#: in ``status``; never a roll candidate).
+SPREAD_CLASS = "S"
+
+#: The volume rule ranks session S by the volume of the session this many
+#: before it (TD3). Why 2: Databento's ``ES.v.0`` switched on 2024-09-18 and
+#: 2024-12-18, two sessions after the ledger's volume crossed (09-16, 12-16);
+#: CME publishes session D's statistics during D + 1. Pinned by
+#: ``test/unit/data/tick/test_roll_provider_equivalence.py``. A change means the
+#: provider's convention changed: revisit it whole, never per roll.
+VOLUME_RANK_LAG_SESSIONS = 2
+
+#: Most sessions one schedule request may span (TD10): about five years, which
+#: keeps one read inside the measured cost envelope. Longer ranges are refused.
+TICK_ROLL_MAX_SESSIONS = 1_300
+
+#: Statement timeout on the roll path's own connections (TD9): about 7,000 ×
+#: the measured roll reads, yet it ends a hang within an operator's patience.
+TICK_ROLL_STATEMENT_TIMEOUT_SECONDS = 30

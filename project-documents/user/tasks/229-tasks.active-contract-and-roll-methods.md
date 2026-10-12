@@ -13,7 +13,7 @@ projectState: >
   committed and reviewed (round 2 CONCERNS, gate passed).
 dateCreated: 20261012
 dateUpdated: 20261012
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Active Contract and Roll Methods
@@ -63,30 +63,76 @@ status: not_started
 
 ## Section 1 - Preflight facts
 
-- [ ] **1.1 Confirm the code facts the design relies on** (effort 1)
-  - [ ] `TradingCalendar(calendar_id, url)` accepts a conninfo string with
+- [x] **1.1 Confirm the code facts the design relies on** (effort 1)
+  - [x] `TradingCalendar(calendar_id, url)` accepts a conninfo string with
         `connect_timeout`, keepalives and `options` (what `roll_conninfo`
         returns). Read `data/base/trading_calendar.py` for how the pool is
         built and whether `options` reach each pooled connection.
-  - [ ] `calendar_sessions` in `tick_status_build.py` maps
+  - [x] `calendar_sessions` in `tick_status_build.py` maps
         `OperationalError` (including the pool's `PoolTimeout`) to
         `TickCalendarError` and out-of-range to `TickPreflightError`.
-  - [ ] How to read a calendar's last populated session (needed for calendar
+  - [x] How to read a calendar's last populated session (needed for calendar
         `known_through`, task 6.2). If `TradingCalendar` has no such read,
         name the smallest addition in the findings.
-  - [ ] Every caller of `session_verdicts`, `shape_of` and `calendar_sessions`
+  - [x] Every caller of `session_verdicts`, `shape_of` and `calendar_sessions`
         (today: `tick_status_build.py`, `tick_coverage.py`, tests).
-  - [ ] `ingest_plan._definitions` uses `activation_ns ≤ close` and
+  - [x] `ingest_plan._definitions` uses `activation_ns ≤ close` and
         `expiration_ns ≥ open` (the listed-in-session predicate TD3 relies on).
-  - [ ] Outright `instrument_class` value in `trading_tick` is `"F"`
+  - [x] Outright `instrument_class` value in `trading_tick` is `"F"`
         (read-only `SELECT DISTINCT instrument_class FROM tick_definition`).
-  - [ ] Which test fixture builds a scratch tick database with definitions,
+  - [x] Which test fixture builds a scratch tick database with definitions,
         units and ledger rows (`test/tick_support/database.py`, `seed.py`,
         `rows.py`), and how `test_tick_status_build.py` uses it.
-  - [ ] Write a `Findings (1.1)` block under this task. If `TradingCalendar`
+  - [x] Write a `Findings (1.1)` block under this task. If `TradingCalendar`
         cannot carry the conninfo bounds, stop and ask the Project Manager
         (TD9 depends on it).
-  - [ ] Success: findings block present; no code changes.
+  - [x] Success: findings block present; no code changes.
+
+**Findings (1.1)**, read 2026-10-12:
+
+- `TradingCalendar(calendar_id, conninfo)` builds
+  `ConnectionPool(conninfo, min_size=1, max_size=3, open=True)`. Every pooled
+  connection is opened from that one conninfo string, so `connect_timeout`,
+  keepalives and `options` reach each of them. TD9 holds. One detail: when the
+  host is unreachable, the pool keeps retrying in the background and the
+  caller's `getconn` waits the pool's default 30 s before `PoolTimeout` (an
+  `OperationalError`). Each attempt is still bounded by `connect_timeout`, so
+  the wait is bounded, but a dead calendar costs about 30 s, not 10 s.
+- `calendar_sessions` (`tick_status_build.py`) maps `OperationalError` and
+  `CalendarNotFoundError` to `TickCalendarError`, and
+  `OutOfPopulatedRangeError` to `TickPreflightError` naming `mt data extend`.
+  `PoolTimeout` subclasses `OperationalError`, so it is covered.
+- Last populated session: `TradingCalendar._get_horizon_end()` already reads
+  `MAX(session_date)`, but it is private. Smallest addition: a public
+  `horizon_end()` that returns it. The roll path's blocking calendar helper
+  calls it on the same calendar instance that reads the sessions.
+- Callers of the moved functions: `calendar_sessions`, `session_verdicts` and
+  `shape_of` are used only by `tick_status_build.py` and `tick_coverage.py`.
+  No test imports them directly (tests go through `build_status` and
+  `build_coverage`). Same-named `calendar_sessions` in `cli/commands/` and
+  `data/maintenance/` are unrelated.
+- `ingest_plan._definitions` reads definitions meeting the unit day's sessions,
+  and `LedgerAccumulator.rows` writes one row per definition with
+  `activation_ns <= session close` and `expiration_ns >= session open`, per
+  session. That is TD3's listed-in-session predicate. A session touches two
+  UTC days, so it carries rows from up to two units; volume per
+  (session, instrument) is the sum over current units.
+- `trading_tick` classes: `ES F` (23 rows) and `ES S` (28 rows). Outright is
+  `"F"`.
+- `tick_definition` keys on `(instrument_id, activation_ns)` and carries the
+  `unit_id` of the definition unit that first inserted the row. Definition
+  units share the tier shape (`GLBX.MDP3`, `{ES.FUT}`, `parent`) with
+  `schema = definition`; 78 are `ingested`, 2024-08-30 → 2024-12-31.
+  `definitions_as_of` = latest `unit_date` of current ingested definition
+  units of the shape.
+- Fixtures: `migrated_tick_db` (scratch tick database, tick track applied)
+  and `session_migrated_db` (scratch production database, CME calendar
+  seeded) in `test/conftest.py`. `tick_support/rows.py` inserts requests,
+  units, definitions, ledger rows and conditions; `tier_units.seed_tier_unit`
+  plus `ingest.run_ingest_phase` ingest real DBN slices
+  (`test_tick_status_build.py` uses that path). Roll tests can seed
+  definitions and ledger rows directly through `rows.py`.
+- Production calendar `CME_EQUITY` is populated 2020-01-02 → 2027-12-31.
 
 ---
 

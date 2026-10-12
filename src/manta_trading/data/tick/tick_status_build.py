@@ -29,6 +29,7 @@ from manta_trading.data.base.trading_calendar import (
 )
 from manta_trading.data.tick.constants import (
     CME_DATASET,
+    SPREAD_CLASS,
     DatasetCondition,
     calendar_for_product,
 )
@@ -56,8 +57,6 @@ from manta_trading.data.tick.tick_status import (
 from manta_trading.data.tick.universe import TickUniverseEntry
 
 COMPLETE_BASIS = "units"
-#: ``tick_definition.instrument_class`` of a calendar spread (hidden by default).
-SPREAD_CLASS = "S"
 DEGRADED = DatasetCondition.DEGRADED.value
 
 
