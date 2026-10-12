@@ -52,10 +52,15 @@ Re-exported from ``api.credit_report``; see :data:`CREDITS_NO_KEY`.
 
 @dataclass(frozen=True)
 class SourceFreshness:
-    """The newest row in one source table."""
+    """The newest row in one source table.
+
+    ``unavailable`` is set when the source could not be read and says why
+    (230: the tick line's state text); ``newest`` is then ``None``.
+    """
 
     name: str
     newest: datetime | None
+    unavailable: str | None = None
 
 
 @dataclass

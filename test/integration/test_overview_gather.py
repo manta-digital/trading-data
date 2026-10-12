@@ -44,6 +44,7 @@ def _settings(*, api_key: str | None = "k") -> MagicMock:
     settings = MagicMock()
     settings.eodhd_api_key = api_key
     settings.minute_firing_days = (5,)
+    settings.tick_db_url = None  # the 230 tick line: not configured, no connect
     return settings
 
 
@@ -152,6 +153,7 @@ class TestGatherReadsSources:
             "daily bars",
             "kalshi candles",
             "kalshi trades",
+            "futures ticks",  # 230: gathered on the CLI side only
         ]
 
     def test_an_empty_table_reports_no_newest_row(
@@ -252,7 +254,7 @@ class TestAPrePassRunsDatabase:
         transaction would fail every later read and lose the whole screen."""
         conn.execute("DROP TABLE pass_runs CASCADE")
         facts = gather(conn, _settings(api_key=None), now=_NOW, hostname=_HOST)
-        assert len(facts.sources) == 4
+        assert len(facts.sources) == 5  # four database sources + 230's tick line
 
     def test_it_warns_once_not_once_per_read(
         self, conn: psycopg.Connection, caplog

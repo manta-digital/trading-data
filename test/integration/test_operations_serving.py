@@ -283,14 +283,14 @@ class TestTheSplitGuard:
 
         assert db_only.open_runs == both.open_runs
         assert db_only.latest_ended == both.latest_ended
-        assert db_only.sources == both.sources
+        # The CLI adds one source the API never sees (230 TD7, FR13).
+        assert db_only.sources == both.sources[:-1]
+        assert both.sources[-1].name == "futures ticks"
         assert db_only.now == both.now
         assert db_only.hostname == both.hostname
         assert db_only.minute_firing_days == both.minute_firing_days
 
-    def test_only_gather_carries_the_credit_fields(
-        self, migrated_db: str
-    ) -> None:
+    def test_only_gather_carries_the_credit_fields(self, migrated_db: str) -> None:
         settings = _StubSettings(eodhd_api_key="stub-key-never-sent")
 
         with psycopg.connect(migrated_db) as conn:
@@ -317,6 +317,9 @@ class _StubSettings:
     """
 
     minute_firing_days = (0, 3)
+    #: ``gather`` (CLI) also opens the tick database for its 230 line; unset,
+    #: the line is "not configured" and nothing connects.
+    tick_db_url = None
 
     def __init__(self, *, eodhd_api_key: str | None = None) -> None:
         self.eodhd_api_key = eodhd_api_key

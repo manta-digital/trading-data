@@ -126,6 +126,17 @@ async def ledger_totals(
     return {(i, d): int(n) for i, d, n in await cursor.fetchall()}
 
 
+async def newest_event_ns(conn: Conn) -> int | None:
+    """The newest stored tick, from the ledger over current units (230 TD7):
+    ``max(last_event_ns)``, never a scan of ``tick_trade``. ``None`` if empty."""
+    cursor = await conn.execute(
+        "SELECT max(l.last_event_ns) FROM tick_ingest_ledger l"
+        f" JOIN tick_archive_unit u USING (unit_id) WHERE {COVERAGE_PREDICATE}"
+    )
+    row = await cursor.fetchone()
+    return None if row is None or row[0] is None else int(row[0])
+
+
 async def conditions(
     conn: Conn, dataset: str, first: date, last: date
 ) -> dict[date, DatasetCondition]:

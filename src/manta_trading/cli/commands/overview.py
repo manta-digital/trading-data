@@ -46,6 +46,9 @@ _logger = get_logger(__name__)
 _JSON_OPTION = typer.Option(False, "--json", help="Emit JSON.")
 """The command's only option (design: no others)."""
 
+#: The overview's fifth source (230 TD7): gathered here, on the CLI side only.
+TICK_SOURCE_NAME = "futures ticks"
+
 # The shapes live in a leaf module both this and the renderer depend on;
 # re-exported here because every existing caller (tests, the load tier, the
 # integration tier) imports them from this module (922 review F008).
@@ -239,7 +242,25 @@ def gather(
     report = read_credits(settings, fetch=fetch_credits, context="overview")
     facts.credits = report.credits
     facts.credits_error = report.error
+    # CLI-only (230 TD7): gather_db_facts, and so /api/v1/overview, is unchanged.
+    facts.sources.append(read_tick_source(settings))
     return facts
+
+
+def read_tick_source(settings: Any) -> SourceFreshness:
+    """The ``futures ticks`` line: the newest stored tick, or why it is not
+    known. A tick outage is this line, never a failed overview (TD8)."""
+    from manta_trading.cli.tick_composed import read_line
+    from manta_trading.data.tick.line_state import TickUnavailable, unavailable_text
+    from manta_trading.data.tick.roll_types import utc_from_ns
+    from manta_trading.data.tick.status_reads import newest_event_ns
+
+    newest = read_line(settings, newest_event_ns)
+    if isinstance(newest, TickUnavailable):
+        return SourceFreshness(TICK_SOURCE_NAME, None, unavailable_text(newest))
+    return SourceFreshness(
+        TICK_SOURCE_NAME, None if newest is None else utc_from_ns(newest)
+    )
 
 
 class _borrowed:

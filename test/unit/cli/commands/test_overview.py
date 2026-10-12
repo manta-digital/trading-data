@@ -571,6 +571,12 @@ class TestTheGatherSplit:
 
         monkeypatch.setattr(mod, "PassRunRepository", _Repo)
         monkeypatch.setattr(mod, "read_source_freshness", lambda _conn: sources)
+        # 230's CLI-only tick line reads its own database.
+        monkeypatch.setattr(
+            mod,
+            "read_tick_source",
+            lambda _settings: SourceFreshness(mod.TICK_SOURCE_NAME, None, "stub"),
+        )
 
     def test_it_populates_the_db_fields(self, monkeypatch) -> None:
         from manta_trading.cli.commands.overview import gather_db_facts
