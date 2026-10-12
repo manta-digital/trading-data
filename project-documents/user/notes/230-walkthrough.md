@@ -148,3 +148,82 @@ TD6 column.)
   an exact tick size of `0.25` and no spreads.
   - `contract_multiplier` is null on these rows, so it shows as `-`.
   - All 21 rows are valid at session 09-18's open.
+
+## Step 6: accounting and overview, healthy (task 7.9)
+
+```
+$ time mt data accounting
+...
+minute universe: 11,733,755/13,905,612 symbol-sessions covered (84.4%); 464,737 untraded; 1,707,120 fillable (...)
+futures tick universe:
+  ES  61/64 sessions complete (95.3%); 2 missing; 1 edge unknown  · 27,691,412 records
+exit 0    1:29.26 total
+```
+
+- **Timing.** The tick section's own read, timed in isolation through
+  `tick_composed.read_line`, took **0.05 s**. That is far inside
+  `TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS` (10). Almost all of the
+  1:29 total is the minute scan against the production database.
+- **The counts match status.** `mt data tick status --product ES` shows
+  `complete 61 … missing 2 … edge unknown 1`, the same 64 sessions in
+  scope.
+
+```
+$ mt data overview
+SOURCES          newest                      health (15:50 UTC): healthy
+minute bars      2026-10-09 18:00 UTC (2 d ago)
+daily bars       2026-10-08 18:00 UTC (3 d ago)
+kalshi candles   2026-10-12 15:21 UTC (47 min ago)
+kalshi trades    2026-10-12 15:19 UTC (49 min ago)
+futures ticks    2024-12-31 21:59 UTC (650 d ago)
+exit 0
+```
+
+**Correction to the design.** The design expected "around 2025-01-01 21:59
+UTC". The tbbo range ends on 2025-01-01 *exclusive* (New Year's Day, no
+session), so the last held session is dated 2024-12-31 and closes at
+22:00 UTC. The newest event is at 21:59, just before that close.
+
+## Step 7: the degraded lines
+
+```
+$ MT_TICK_DB_URL= mt data overview
+futures ticks    not configured (MT_TICK_DB_URL unset)
+exit 0
+$ MT_TICK_DB_URL=postgresql://nobody@127.0.0.1:1/x mt data overview
+futures ticks    unreachable: connection failed: connection to server at "127.0.0.1", port 1 failed: Connection refused
+exit 0
+$ MT_TICK_DB_URL=postgresql://nobody@127.0.0.1:1/x mt data accounting
+... (the minute section, unchanged)
+futures tick universe:  unreachable: connection failed: connection to server at "127.0.0.1", port 1 failed: Connection refused
+exit 0
+```
+
+The other source lines and the minute section print as usual. The
+`migrations pending` line is proven on the test cluster by
+`test_tick_accounting.py` and `test_tick_overview.py` (parametrized
+`migrations_pending`).
+
+## Step 8: production
+
+`mt-run` runs the installed release (`/opt/manta-trading/.venv/bin/mt`),
+which predates this slice, so `mt-run data overview` does not show the
+tick line yet:
+
+```
+$ mt-run data overview      # 2026-10-12, release before 230
+SOURCES ... minute bars / daily bars / kalshi candles / kalshi trades (no futures ticks line)
+exit 0
+$ grep -c '^MT_TICK_DB_URL' /etc/manta-trading.env
+0
+```
+
+The production line is proven by two things together:
+
+- Step 7's unset case prints the exact text
+  `futures ticks    not configured (MT_TICK_DB_URL unset)` and exits 0.
+- The key is absent from production's env file.
+
+After 230 is deployed, `mt-run data overview` prints that line. Run it as
+part of the deploy check. Slice 234 adds the key, which turns the line into
+a real timestamp.

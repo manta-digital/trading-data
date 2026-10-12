@@ -11,7 +11,7 @@ projectState: >
   walkthrough steps 1-4.
 dateCreated: 20261012
 dateUpdated: 20261012
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Operator Surface Full Parity (part 2 of 2)
@@ -29,176 +29,182 @@ states live in `data/tick/line_state.py` (`TickLineState`,
 
 ## Section 6 - `mt data tick debug`
 
-- [ ] **6.1 Implement `data/tick/debug_reads.py`** (effort 3)
-  - [ ] `requests(conn, product, start, end)`: `tick_request` rows with
+- [x] **6.1 Implement `data/tick/debug_reads.py`** (effort 3)
+  - [x] `requests(conn, product, start, end)`: `tick_request` rows with
         TD6's columns. `--product` maps to the universe entry's request
         symbols; `--start/--end` filters on range overlap.
-  - [ ] `units(conn, product, start, end, state, fetch_status)`:
+  - [x] `units(conn, product, start, end, state, fetch_status)`:
         `tick_archive_unit` joined to its request's schema, TD6's columns;
         `unit_date` in `[start, end)`; state and fetch status as
         `UnitState` / `FetchStatus` members.
-  - [ ] `definitions(conn, product, symbol, as_of_open_ns, spreads)`:
+  - [x] `definitions(conn, product, symbol, as_of_open_ns, spreads)`:
         `tick_definition` rows, TD6's columns. Outrights only
         (`OUTRIGHT_CLASS`) unless `spreads`. `as_of` keeps rows valid at
         that session's open (`activation_ns ≤ open ≤ expiration_ns`);
         the caller resolves the session open from the calendar.
-  - [ ] Rows returned raw (ints, enums, timestamps); formatting is the
+  - [x] Rows returned raw (ints, enums, timestamps); formatting is the
         renderer's. Parameterized SQL only; no row cap.
-  - [ ] Success: ruff and mypy clean; no CLI import.
+  - [x] Success: ruff and mypy clean; no CLI import.
 
-- [ ] **6.2 Test `debug_reads`** (effort 2)
-  - [ ] `test/integration/data/test_tick_debug_reads.py` with
+- [x] **6.2 Test `debug_reads`** (effort 2)
+  - [x] `test/integration/data/test_tick_debug_reads.py` with
         `tick_support/rows.py` seeding: each filter selects and excludes
         the right rows (product, range overlap, unit-date window end
         exclusive, state, fetch status, symbol, as-of, spreads on/off);
         no filters returns everything; empty result is an empty list.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **6.3 Implement `cli/commands/tick_debug_cmds.py`** (effort 3)
-  - [ ] A `debug` sub-typer with `requests`, `units`, `definitions` and
+- [x] **6.3 Implement `cli/commands/tick_debug_cmds.py`** (effort 3)
+  - [x] A `debug` sub-typer with `requests`, `units`, `definitions` and
         TD6's options. `--state` / `--fetch-status` choices rendered from
         the enums; `--product` from `PRODUCT_OPTION`; `--json` from
         `JSON_OPTION`. Unknown product → exit 1.
-  - [ ] Text is a Rich table per verb; prices through `price_text`, ns
+        Note: `--state`/`--fetch-status` take text validated against the enums (exit 1, choices listed in --help), not Click choices, whose usage error would exit 2. `--as-of` needs `--product` (its calendar dates the session); without it, exit 1.
+  - [x] Text is a Rich table per verb; prices through `price_text`, ns
         times through `ts_text`. JSON is `{rows, exit_code}`.
-  - [ ] `connect_migrated` on the tick track, a `READ ONLY` transaction,
+  - [x] `connect_migrated` on the tick track, a `READ ONLY` transaction,
         `run_mapped` with `read_storage()`. Exits 0 (including no rows), 1,
         4; never 3.
-  - [ ] Register the sub-typer in `cli/commands/tick.py`, with an `epilog`
+  - [x] Register the sub-typer in `cli/commands/tick.py`, with an `epilog`
         per verb.
-  - [ ] Success: `uv run mt data tick debug units --help` lists the enum
+  - [x] Success: `uv run mt data tick debug units --help` lists the enum
         choices.
 
-- [ ] **6.4 Test the `debug` verbs** (effort 2)
-  - [ ] `test/integration/data/test_tick_debug_cli.py`: one text and one
+- [x] **6.4 Test the `debug` verbs** (effort 2)
+  - [x] `test/integration/data/test_tick_debug_cli.py`: one text and one
         JSON run per verb on seeded rows (filter coverage stays in 6.2); a
         value outside the enums rejected by `--state` and `--fetch-status`;
         definitions hide spreads unless `--spreads` (FR11); exit 1 for an
         unknown product and a pending migration; exit 4 unreachable.
-  - [ ] Success: tests pass. Commit: `feat: add mt data tick debug reads`.
+  - [x] Success: tests pass. Commit: `feat: add mt data tick debug reads`.
 
-- [ ] **6.5 Walkthrough step 5 on `trading_tick`** (effort 1)
-  - [ ] Run step 5 and compare: both adopted jobs with costs; the
+- [x] **6.5 Walkthrough step 5 on `trading_tick`** (effort 1)
+  - [x] Run step 5 and compare: both adopted jobs with costs; the
         `verified` units count equals `status`'s awaiting-ingest bucket;
         definitions show ESU4, ESZ4, ESH5 … with tick size `0.25` and no
         spreads.
-  - [ ] Append to `user/notes/230-walkthrough.md`. A mismatch: stop and
+  - [x] Append to `user/notes/230-walkthrough.md`. A mismatch: stop and
         report to the Project Manager.
-  - [ ] Success: note committed: `docs: record slice 230 debug walkthrough`.
+  - [x] Success: note committed: `docs: record slice 230 debug walkthrough`.
 
 ---
 
 ## Section 7 - Line states and composed lines
 
-- [ ] **7.1 Implement `data/tick/line_state.py` and
+- [x] **7.1 Implement `data/tick/line_state.py` and
       `cli/tick_composed.py`** (effort 3)
-  - [ ] `line_state.py`: `TickLineState(StrEnum)` with `ok`,
+  - [x] `line_state.py`: `TickLineState(StrEnum)` with `ok`,
         `not_configured`, `unreachable`, `migrations_pending`, and frozen
         `TickUnavailable(state, detail)`. No I/O, no CLI import (TD8).
-  - [ ] `tick_composed.open(settings)`: `MT_TICK_DB_URL` unset →
+  - [x] `tick_composed.open(settings)`: `MT_TICK_DB_URL` unset →
         `TickUnavailable(not_configured, "MT_TICK_DB_URL unset")`. Otherwise
         connect with `TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS` and a session
         `statement_timeout` of `TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS`,
         read-only. Pending tick migrations → `migrations_pending`.
         Refused / timeout / `OperationalError` → `unreachable` with the
         error's first line. Returns the connection otherwise.
-  - [ ] A helper that classifies an `OperationalError` /
+        Note: the composed read also classifies `TickCalendarError` and `TickPreflightError` (the calendar the accounting read uses) as `unreachable`, so a calendar refusal is a line, never a failed command (FR14). `unavailable_text` lives in `line_state.py`. The remedy text is now one constant, `TICK_MIGRATE_COMMAND`, used by `store_context` too; `_missing_migrations` became public `missing_migrations`.
+  - [x] A helper that classifies an `OperationalError` /
         `QueryCanceled` raised later, during the composed read, into the
         same `unreachable` state (naming the timeout), so both callers use
         one mapping.
-  - [ ] One function, `unavailable_text(TickUnavailable) -> str`, owns
+  - [x] One function, `unavailable_text(TickUnavailable) -> str`, owns
         TD8's wording (`not configured (MT_TICK_DB_URL unset)`,
         `unreachable: …`, `migrations pending (mt data migrate apply
         --track tick)`). Accounting and overview both call it; no other
         module spells these texts.
-  - [ ] Success: ruff and mypy clean.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **7.2 Test the line states** (effort 2)
-  - [ ] `test/unit/cli/test_tick_composed.py`: each state from `open`
+- [x] **7.2 Test the line states** (effort 2)
+  - [x] `test/unit/cli/test_tick_composed.py`: each state from `open`
         (unset URL, refused port, pending migrations faked at the
         migration check, a late `QueryCanceled`); the rendered line for
         each.
-  - [ ] Password never printed: a URL with a distinctive password at an
+  - [x] Password never printed: a URL with a distinctive password at an
         unreachable host; the rendered line and `detail` do not contain it.
-  - [ ] Success: tests pass. Commit: `feat: add tick line states and the
+  - [x] Success: tests pass. Commit: `feat: add tick line states and the
         composed-surface opener`.
 
-- [ ] **7.3 Extract the status bucket step** (effort 3)
-  - [ ] Per finding 1.1, move the wanted-range / scope / verdicts / bucket
+- [x] **7.3 Extract the status bucket step** (effort 3)
+  - [x] Per finding 1.1, move the wanted-range / scope / verdicts / bucket
         count out of `_product_status` into one public function (in
         `tick_status_build.py`, or `status_reads.py` if that avoids an
         import of `tick_status_build` from accounting). `_product_status`
         calls it; its output is unchanged.
-  - [ ] Do not copy the logic; there is exactly one bucket computation
+  - [x] Do not copy the logic; there is exactly one bucket computation
         afterwards.
-  - [ ] Success: `test_tick_status_build.py`, `test_tick_status_cli.py`,
+  - [x] Success: `test_tick_status_build.py`, `test_tick_status_cli.py`,
         `test_tick_status_rolls.py` and `test_tick_status.py` pass
         unchanged. Commit: `refactor: extract tick status bucket step`.
 
-- [ ] **7.4 Implement `data/tick/tick_accounting.py`** (effort 2)
-  - [ ] `TickAccountingLine(product, sessions_wanted, sessions_complete,
+- [x] **7.4 Implement `data/tick/tick_accounting.py`** (effort 2)
+  - [x] `TickAccountingLine(product, sessions_wanted, sessions_complete,
         buckets, records)` per universe product, from 7.3's function and
         `ledger_totals` (records = ledger sum over current units).
-  - [ ] `accounting_lines(conn, calendar_url, universe)` returns the lines;
+        Note: the field is `sessions_in_scope`, not `sessions_wanted` (status's buckets cover the scope, not the wanted range; Findings 1.1). JSON `tick` also carries `detail` (the state's detail, null when ok).
+  - [x] `accounting_lines(conn, calendar_url, universe)` returns the lines;
         no CLI import (231 reuses it for `/api/v1/status`).
-  - [ ] Success: ruff and mypy clean.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **7.5 Add the tick section to `mt data accounting`** (effort 3)
-  - [ ] After the minute section, `tick_composed.open`; on a connection,
+- [x] **7.5 Add the tick section to `mt data accounting`** (effort 3)
+  - [x] After the minute section, `tick_composed.open`; on a connection,
         `accounting_lines` and print `futures tick universe:` with TD7's
         line per product; on `TickUnavailable` (or a late failure
         classified by 7.1's helper), print the state line.
-  - [ ] JSON gains `tick: {state, products: [...]}`; `products` empty
+  - [x] JSON gains `tick: {state, products: [...]}`; `products` empty
         unless `state` is `ok`. Existing keys unchanged.
-  - [ ] The exit code and the `PassKind.ACCOUNTING` detail are unchanged by
+  - [x] The exit code and the `PassKind.ACCOUNTING` detail are unchanged by
         the tick section (TD7, TD8).
-  - [ ] Success: ruff and mypy clean.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **7.6 Test accounting** (effort 3)
-  - [ ] `test/integration/data/test_tick_accounting.py`: the line's figures
+- [x] **7.6 Test accounting** (effort 3)
+  - [x] `test/integration/data/test_tick_accounting.py`: the line's figures
         equal `build_status`'s buckets for the same seeded product (FR12);
         JSON `tick` object shape.
-  - [ ] Each state line with the minute section still printed and the exit
+  - [x] Each state line with the minute section still printed and the exit
         code as without the tick line: URL unset, unreachable tick
         database, pending tick migration (FR14).
-  - [ ] Existing accounting tests pass; the recorded `PassKind.ACCOUNTING`
+  - [x] Existing accounting tests pass; the recorded `PassKind.ACCOUNTING`
         detail is unchanged.
-  - [ ] Success: tests pass. Commit: `feat: add futures tick line to data
+        Note: `test_health_accounting_pass_runs.py`'s harness fakes settings with a MagicMock; it now also stubs `_tick_lines` (not configured). No assertion changed.
+  - [x] Success: tests pass. Commit: `feat: add futures tick line to data
         accounting`.
 
-- [ ] **7.7 Add the `futures ticks` line to `mt data overview`** (effort 3)
-  - [ ] First, per finding 1.1: if no test asserts the `/api/v1/overview`
+- [x] **7.7 Add the `futures ticks` line to `mt data overview`** (effort 3)
+  - [x] First, per finding 1.1: if no test asserts the `/api/v1/overview`
         payload for fixed facts, add it now and see it pass on the
         unchanged code (the FR13 baseline 7.8 relies on).
-  - [ ] `cli/overview_types.py`: `SourceFreshness.unavailable: str | None =
+  - [x] `cli/overview_types.py`: `SourceFreshness.unavailable: str | None =
         None`.
-  - [ ] A ledger freshness read (newest `last_event_ns` under current
+  - [x] A ledger freshness read (newest `last_event_ns` under current
         units, via `COVERAGE_PREDICATE`) as `newest_event_ns(conn)` in
         `data/tick/status_reads.py` (the ledger read helpers' home, not
         `cli/`), so 231 can reuse it.
-  - [ ] `cli/commands/overview.py` `gather`: after the credits call,
+        Note: `newest_event_ns(conn)` in `status_reads.py`.
+  - [x] `cli/commands/overview.py` `gather`: after the credits call,
         `tick_composed.open`, the freshness read, and a fifth
         `SourceFreshness("futures ticks", …)` whose `unavailable` is
         exactly `unavailable_text(...)` (task 7.1). `gather_db_facts` is not
         touched.
-  - [ ] `cli/rendering/overview.py`: print `unavailable` as given, in
+  - [x] `cli/rendering/overview.py`: print `unavailable` as given, in
         place of the time; it never builds or re-spells state text. JSON
         sources carry `unavailable`.
-  - [ ] Overview's exit code unchanged by the tick line.
-  - [ ] Success: ruff and mypy clean.
+  - [x] Overview's exit code unchanged by the tick line.
+  - [x] Success: ruff and mypy clean.
 
 - [ ] **7.8 Test overview** (effort 3)
-  - [ ] Unit (`test/unit/cli/commands/test_overview*.py` or a new
+  - [x] Unit (`test/unit/cli/commands/test_overview*.py` or a new
         `test_overview_tick.py`): each state renders TD8's line; JSON has
         `unavailable` on every source, `null` on the existing four.
-  - [ ] Integration: the line's time equals the seeded newest
+  - [x] Integration: the line's time equals the seeded newest
         `last_event_ns` (FR13); each degraded state keeps the other lines
         and the exit code (FR14).
-  - [ ] `/api/v1/overview` unchanged (FR13): per finding 1.1, the existing
+  - [x] `/api/v1/overview` unchanged (FR13): per finding 1.1, the existing
         test that asserts the API payload for fixed facts passes without
         edits. If none exists, add one in `test/unit/api_server/` that
         builds the payload from fixed `OverviewFacts` and asserts its exact
         keys and values (that test is 7.7's first step).
+        Note: `test_operations_models.py` passes unedited; `test_overview_gather.py` and `test_operations_serving.py` now expect the fifth, CLI-only source (`gather` ≠ `gather_db_facts` by one source, by design) and their fake settings carry `tick_db_url = None`.
   - [ ] Existing overview, gather and load tests pass
         (`test/integration/test_overview_gather.py`,
         `test/load/test_922_overview_nfr.py`).

@@ -365,99 +365,101 @@ overview lines, docs and closing checks.
 
 ## Section 5 - `mt data tick get`
 
-- [ ] **5.1 Implement the writers in `cli/commands/tick_get_writers.py`**
+- [x] **5.1 Implement the writers in `cli/commands/tick_get_writers.py`**
       (effort 4)
-  - [ ] One writer interface: `begin(plan)`, `rows(batch)`,
+  - [x] One writer interface: `begin(plan)`, `rows(batch)`,
         `finish(exit_code)`, `partial(n_rows, error_first_line)`. Three
         implementations; formatting through `price_text` / `ts_text` only.
-  - [ ] **Text:** header naming the target, the rule (with `(default)`),
+  - [x] **Text:** header naming the target, the rule (with `(default)`),
         and each display segment; one fixed-width line per row as it
         arrives (no Rich table); `N row(s)` footer; then `unresolved` and
         `incomplete` lists.
-  - [ ] **CSV:** header and rows only on stdout; segments and both lists
+  - [x] **CSV:** header and rows only on stdout; segments and both lists
         to stderr. Undefined prices are empty fields.
-  - [ ] **JSON:** written incrementally as one object in TD5's key order;
+  - [x] **JSON:** written incrementally as one object in TD5's key order;
         every key except `rows`, `row_count`, `exit_code` (and `complete`,
         `error`) written in `begin`. Prices as strings, undefined as `null`.
         `target` is `{product, rule, is_default}` or
         `{contract, instrument_id}`.
-  - [ ] Tick rows and bar rows use TD5's column sets; BBO columns always
+  - [x] Tick rows and bar rows use TD5's column sets; BBO columns always
         present on tick rows.
-  - [ ] Success: ruff and mypy clean.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **5.2 Test the writers** (effort 3)
-  - [ ] `test/unit/cli/commands/test_tick_get_writers.py`, writing to
+- [x] **5.2 Test the writers** (effort 3)
+  - [x] `test/unit/cli/commands/test_tick_get_writers.py`, writing to
         string buffers: each format for ticks and for bars; JSON parses and
         has TD5's keys in order with `complete: true`, `error: null`; CSV
         stdout has no segment text; undefined BBO price is `null` / empty
         (FR9, FR10); an empty plan prints the header and `0 row(s)`.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **5.3 Implement the `get` verb in `cli/commands/tick_get_cmds.py`**
+- [x] **5.3 Implement the `get` verb in `cli/commands/tick_get_cmds.py`**
       (effort 3)
-  - [ ] Options per TD1, using `tick_store_cmds`'s `JSON_OPTION`,
+  - [x] Options per TD1, using `tick_store_cmds`'s `JSON_OPTION`,
         `PRODUCT_OPTION`, `DATE_FORMAT` (no re-declared option). `WHAT` is a
         required positional validated against `TICK_GET_CHOICES`.
-  - [ ] Exit 1 for: neither or both of `--contract`/`--product`; `--rule`
+  - [x] Exit 1 for: neither or both of `--contract`/`--product`; `--rule`
         without `--product`; `--csv` with `--json`; unknown product; bad
         rule (`RollRule.parse`'s message).
-  - [ ] Help text states "end exclusive, in session dates, unlike
+  - [x] Help text states "end exclusive, in session dates, unlike
         `mt data get`" (TD2). An `epilog` with examples, as the other tick
         verbs have.
-  - [ ] Flow: `connect_migrated` on the tick track (pending → exit 1), the
+  - [x] Flow: `connect_migrated` on the tick track (pending → exit 1), the
         plan (task 4), then one `REPEATABLE READ READ ONLY` transaction
         that runs 3.2 / 3.3 per segment in order, feeding the writer. Exit
         3 when `unresolved` or `incomplete` is non-empty, else 0. Runs
         through `run_mapped(main, json, storage=read_storage())`.
-  - [ ] Register `get` in `cli/commands/tick.py`.
-  - [ ] Success: `uv run mt data tick get --help` lists the options and the
+  - [x] Register `get` in `cli/commands/tick.py`.
+  - [x] Success: `uv run mt data tick get --help` lists the options and the
         end-exclusive note.
 
-- [ ] **5.4 Test the `get` verb** (effort 3)
-  - [ ] `test/integration/data/test_tick_get_cli.py` with seeded ticks:
+- [x] **5.4 Test the `get` verb** (effort 3)
+  - [x] `test/integration/data/test_tick_get_cli.py` with seeded ticks:
         exit 0 on a clean contract read with the row count equal to the
         seeded count (FR1); exit 3 with output when a list is non-empty
         (FR5, FR6); exit 1 for each bad option combination in 5.3, an
         unknown and an ambiguous contract (FR7), a range outside the
         populated calendar, and a pending tick migration; exit 4 for an
         unreachable tick database.
-  - [ ] Success: tests pass. Commit: `feat: add mt data tick get`.
+  - [x] Success: tests pass. Commit: `feat: add mt data tick get`.
 
-- [ ] **5.5 Handle a read that stops partway (TD11)** (effort 3)
-  - [ ] After the first row, an `OperationalError` (including
+- [x] **5.5 Handle a read that stops partway (TD11)** (effort 3)
+  - [x] After the first row, an `OperationalError` (including
         `QueryCanceled`) stops the read: roll back, call the writer's
         `partial`, exit 4. JSON closes valid with `complete: false`,
         `error`, `exit_code: 4`; CSV writes `partial output: N rows
         written, then: <first line>` to stderr only; text prints
         `PARTIAL: N row(s), then: <first line>` in place of the footer and
         the error on stderr.
-  - [ ] Before the first row, the same errors take the ordinary path
+  - [x] Before the first row, the same errors take the ordinary path
         (exit 4 via `run_mapped`).
-  - [ ] `BrokenPipeError` on write: close the cursor, roll back, close the
+  - [x] `BrokenPipeError` on write: close the cursor, roll back, close the
         connection, point stdout at `/dev/null` (`os.dup2`), exit 0 with
         nothing on stderr.
-  - [ ] Success: ruff and mypy clean.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **5.6 Test the partial and closed-pipe paths** (effort 3)
-  - [ ] Extend `test_tick_get_cli.py`: with a small fetch size, terminate
+- [x] **5.6 Test the partial and closed-pipe paths** (effort 3)
+  - [x] Extend `test_tick_get_cli.py`: with a small fetch size, terminate
         the backend (`pg_terminate_backend` from a second connection) after
         the first batch, once per format, and check TD11's table (JSON
         parses, `complete` false; CSV stdout clean, stderr line; text
         `PARTIAL:` footer; exit 4) (FR10a).
-  - [ ] Run `get` as a subprocess piped into a reader that closes after
+  - [x] Run `get` as a subprocess piped into a reader that closes after
         the first lines: exit 0, empty stderr, and `pg_stat_activity` shows
         no open transaction from the test's application name.
-  - [ ] Success: tests pass. Commit: `feat: report partial tick get output
+  - [x] Success: tests pass. Commit: `feat: report partial tick get output
         explicitly`.
+    Note: landed in 1f412ef with 5.4 (one module); no separate commit.
 
-- [ ] **5.7 Walkthrough steps 1–4 on `trading_tick`** (effort 2)
-  - [ ] Run the design's Verification Walkthrough steps 1–4 with `.env`
+- [x] **5.7 Walkthrough steps 1–4 on `trading_tick`** (effort 2)
+  - [x] Run the design's Verification Walkthrough steps 1–4 with `.env`
         loaded and compare each with its expected output (segments vs
         `active`, CSV count vs ledger, unresolved head with exit 3, unknown
         contract exit 1).
-  - [ ] Record commands, outputs (trimmed) and exit codes in
+  - [x] Record commands, outputs (trimmed) and exit codes in
         `user/notes/230-walkthrough.md` (with frontmatter). Any mismatch
         with an expected value: stop and report to the Project Manager.
-  - [ ] Success: note committed: `docs: record slice 230 get walkthrough`.
+    Note: two walkthrough corrections recorded in the note, not code mismatches: step 2 compares ESZ4's own ledger count (coverage's ledger column sums every instrument); step 4 uses ESM4, because ESZ9 is a listed Dec 2029 contract. Two bugs found and fixed in 3709f34 (bar volume numeric → JSON crash; 'None → None' header).
+  - [x] Success: note committed: `docs: record slice 230 get walkthrough`.
 
 Continue in `230-tasks.operator-surface-full-parity-2.md`.
