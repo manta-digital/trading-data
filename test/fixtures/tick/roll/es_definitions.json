@@ -1,0 +1,168 @@
+{
+ "source": "trading_tick (read-only): roll_inputs.outright_definitions",
+ "read_at": "2026-10-12T13:30:05.368343+00:00",
+ "definitions_as_of": "2024-12-31",
+ "rows": [
+  {
+   "instrument_id": 118,
+   "raw_symbol": "ESU4",
+   "activation_ns": 1655472600000000000,
+   "expiration_ns": 1726839000000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 183748,
+   "raw_symbol": "ESZ4",
+   "activation_ns": 1622842200000000000,
+   "expiration_ns": 1734705000000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 5002,
+   "raw_symbol": "ESH5",
+   "activation_ns": 1671201000000000000,
+   "expiration_ns": 1742563800000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 4916,
+   "raw_symbol": "ESM5",
+   "activation_ns": 1679059800000000000,
+   "expiration_ns": 1750426200000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 14160,
+   "raw_symbol": "ESU5",
+   "activation_ns": 1686922200000000000,
+   "expiration_ns": 1758288600000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 294973,
+   "raw_symbol": "ESZ5",
+   "activation_ns": 1622842200000000000,
+   "expiration_ns": 1766154600000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140878,
+   "raw_symbol": "ESH6",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1774013400000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140864,
+   "raw_symbol": "ESM6",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1781789400000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140870,
+   "raw_symbol": "ESU6",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1789738200000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 10252,
+   "raw_symbol": "ESZ6",
+   "activation_ns": 1631885400000000000,
+   "expiration_ns": 1797604200000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140860,
+   "raw_symbol": "ESH7",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1805463000000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140856,
+   "raw_symbol": "ESM7",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1813239000000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140874,
+   "raw_symbol": "ESU7",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1821187800000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 17740,
+   "raw_symbol": "ESZ7",
+   "activation_ns": 1663335000000000000,
+   "expiration_ns": 1829053800000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140879,
+   "raw_symbol": "ESH8",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1836912600000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140863,
+   "raw_symbol": "ESM8",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1844775000000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42140861,
+   "raw_symbol": "ESU8",
+   "activation_ns": 1692394200000000000,
+   "expiration_ns": 1852637400000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42033138,
+   "raw_symbol": "ESZ8",
+   "activation_ns": 1694784600000000000,
+   "expiration_ns": 1860503400000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42002687,
+   "raw_symbol": "ESH9",
+   "activation_ns": 1702650600000000000,
+   "expiration_ns": 1868362200000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42005050,
+   "raw_symbol": "ESM9",
+   "activation_ns": 1710509400000000000,
+   "expiration_ns": 1876224600000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42000977,
+   "raw_symbol": "ESU9",
+   "activation_ns": 1718976600000000000,
+   "expiration_ns": 1884691800000000000,
+   "unit_id": 131
+  },
+  {
+   "instrument_id": 42004134,
+   "raw_symbol": "ESZ9",
+   "activation_ns": 1726839000000000000,
+   "expiration_ns": 1892557800000000000,
+   "unit_id": 85
+  },
+  {
+   "instrument_id": 42000746,
+   "raw_symbol": "ESH0",
+   "activation_ns": 1734705000000000000,
+   "expiration_ns": 1899811800000000000,
+   "unit_id": 110
+  }
+ ]
+}
