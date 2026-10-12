@@ -45,6 +45,7 @@ from manta_trading.data.tick.roll_inputs import (
 from manta_trading.data.tick.roll_resolve import active_line, resolve_sessions
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import (
+    EXTEND_REMEDY,
     ActiveLine,
     RollInputError,
     RollInputs,
@@ -60,9 +61,6 @@ from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.tick_calendar import TickCalendarError
 from manta_trading.data.tick.tick_status import TickSessionStatus
 from manta_trading.data.tick.universe import TickUniverseEntry
-
-#: ``mt data extend``, the remedy for a calendar that does not reach a range.
-_EXTEND = "run mt data extend"
 
 
 class RollRangeTooLong(TickPreflightError):
@@ -106,7 +104,7 @@ def _read_calendar(url: str, calendar_id: str, start: datetime) -> _CalendarRead
         horizon = calendar.horizon_end()
         if first_open is None or last_close is None or horizon is None:
             raise TickPreflightError(
-                f"calendar {calendar_id} has no sessions; {_EXTEND}"
+                f"calendar {calendar_id} has no sessions; {EXTEND_REMEDY}"
             )
         sessions = calendar.sessions_between(max(start, first_open), last_close)
     return _CalendarRead(tuple(sessions), horizon, first_open, last_close)
@@ -194,7 +192,7 @@ async def build_schedule(
     ):
         raise TickPreflightError(
             f"{start} → {end} is outside the calendar's sessions "
-            f"({calendar.first_open:%Y-%m-%d} → {calendar.horizon}); {_EXTEND}"
+            f"({calendar.first_open:%Y-%m-%d} → {calendar.horizon}); {EXTEND_REMEDY}"
         )
     if not wanted:
         return RollSchedule(entry.product, rule, ())
@@ -259,7 +257,7 @@ async def latest_lines(
         if not held:
             raise TickPreflightError(
                 f"held sessions {bounds[0]} → {bounds[1]} are outside the "
-                f"calendar; {_EXTEND}"
+                f"calendar; {EXTEND_REMEDY}"
             )
         first = max(held[0] - VOLUME_RANK_LAG_SESSIONS, 0)
         context = calendar.sessions[first : held[-1] + 1]

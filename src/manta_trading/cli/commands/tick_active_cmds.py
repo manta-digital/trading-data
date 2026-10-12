@@ -9,7 +9,7 @@ the segments of each schedule. Registered on ``tick_app`` in ``tick.py``.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, NoReturn
 
 import typer
@@ -39,6 +39,7 @@ from manta_trading.data.tick.roll_rules import (
 if TYPE_CHECKING:
     from manta_trading.config import Settings
     from manta_trading.data.tick.roll_types import ActiveLine, RollSchedule
+    from manta_trading.data.tick.universe import TickUniverseEntry
 
 ACTIVE_EPILOG = (
     f"Exit codes: {EXIT_OK} every session resolved; {EXIT_PARTIAL} a session is "
@@ -96,15 +97,48 @@ def _range(
     return start, end
 
 
-async def _urls(settings: Settings) -> tuple[str, str]:
-    """Both URLs, after the tick track is checked (refusals as ``status``)."""
+async def _targets(
+    settings: Settings, product: str | None
+) -> tuple[list[TickUniverseEntry], str, str]:
+    """The products, then both URLs once the tick track is checked (refusals
+    as ``status``)."""
     from manta_trading.data.tick.store_context import connect_migrated, database_url
     from manta_trading.data.tick.tick_calendar import calendar_url
 
+    entries = universe_entries(product)
     tick_url = database_url(settings)
     conn = await connect_migrated(tick_url)
     await conn.close()
-    return tick_url, calendar_url(settings)
+    return entries, tick_url, calendar_url(settings)
+
+
+async def _schedules(
+    settings: Settings,
+    product: str | None,
+    rules: tuple[RollRule, ...],
+    span: tuple[date, date],
+) -> list[RollSchedule]:
+    from manta_trading.data.tick.active_contract import build_schedule
+
+    entries, tick_url, calendar = await _targets(settings, product)
+    return [
+        await build_schedule(tick_url, calendar, e, r, *span)
+        for e in entries
+        for r in rules
+    ]
+
+
+async def _latest(
+    settings: Settings, product: str | None, rules: tuple[RollRule, ...]
+) -> list[ActiveLine]:
+    from manta_trading.data.tick.active_contract import latest_lines
+
+    entries, tick_url, calendar = await _targets(settings, product)
+    return [
+        line
+        for e in entries
+        for line in await latest_lines(tick_url, calendar, e, rules)
+    ]
 
 
 def _lines_exit(lines: list[ActiveLine]) -> int:
@@ -131,38 +165,23 @@ def tick_active(
         print_active_lines,
         print_schedules,
     )
-    from manta_trading.data.tick.active_contract import build_schedule, latest_lines
 
     rules = _rules(rule, json_output)
     span = _range(start, end, json_output)
     settings: Settings = ctx.obj["settings"]
-
-    async def schedules() -> list[RollSchedule]:
-        assert span is not None
-        entries = universe_entries(product)
-        tick_url, calendar = await _urls(settings)
-        first, last = span[0].date(), span[1].date()
-        return [
-            await build_schedule(tick_url, calendar, e, r, first, last)
-            for e in entries
-            for r in rules
-        ]
-
-    async def lines() -> list[ActiveLine]:
-        entries = universe_entries(product)
-        tick_url, calendar = await _urls(settings)
-        return [
-            line
-            for e in entries
-            for line in await latest_lines(tick_url, calendar, e, rules)
-        ]
-
     if span is None:
-        answered = run_mapped(lines, json_output, read_storage())
+        answered = run_mapped(
+            lambda: _latest(settings, product, rules), json_output, read_storage()
+        )
         exit_code = _lines_exit(answered)
         print_active_lines(answered, exit_code, json_mode=json_output)
     else:
-        built = run_mapped(schedules, json_output, read_storage())
+        days = (span[0].date(), span[1].date())
+        built = run_mapped(
+            lambda: _schedules(settings, product, rules, days),
+            json_output,
+            read_storage(),
+        )
         exit_code = EXIT_PARTIAL if any(s.unresolved for s in built) else EXIT_OK
         print_schedules(built, exit_code, json_mode=json_output)
     if exit_code != EXIT_OK:

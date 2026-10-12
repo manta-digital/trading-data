@@ -24,6 +24,7 @@ from manta_trading.data.tick.constants import VOLUME_RANK_LAG_SESSIONS, RollMeth
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import (
+    EXTEND_REMEDY,
     ActiveContract,
     ActiveLine,
     Answer,
@@ -35,8 +36,6 @@ from manta_trading.data.tick.roll_types import (
     utc_from_ns,
 )
 from manta_trading.data.tick.tick_status import TickSessionStatus
-
-_EXTEND = "run mt data extend"
 
 
 class _Resolver:
@@ -67,7 +66,8 @@ class _Resolver:
         if index >= len(self.sessions):
             last = self.sessions[-1].session_date if self.sessions else None
             raise RollInputError(
-                f"session {needed_by} needs a calendar session after {last}; {_EXTEND}"
+                f"session {needed_by} needs a calendar session after {last};"
+                f" {EXTEND_REMEDY}"
             )
         return index
 
@@ -185,11 +185,14 @@ def active_line(
     return _volume_forecast(resolver, rule, index, answer, line)
 
 
-def _differs(answer: Answer, current: ActiveContract) -> bool:
-    return (
+def _changed(answer: Answer, current: ActiveContract) -> ActiveContract | None:
+    """``answer`` when it names a different contract than ``current``."""
+    if (
         isinstance(answer, ActiveContract)
         and answer.instrument_id != current.instrument_id
-    )
+    ):
+        return answer
+    return None
 
 
 def _calendar_forecast(
@@ -201,9 +204,8 @@ def _calendar_forecast(
 ) -> ActiveLine:
     """Exact: the first later session whose answer differs."""
     for later in range(index + 1, len(resolver.sessions)):
-        answer = resolver.answer(rule, later)
-        if _differs(answer, current):
-            assert isinstance(answer, ActiveContract)
+        answer = _changed(resolver.answer(rule, later), current)
+        if answer is not None:
             return replace(
                 line,
                 next_roll=NextRoll(answer.session_date, answer),
@@ -211,7 +213,7 @@ def _calendar_forecast(
             )
     raise RollInputError(
         f"no {rule} roll after session {current.session_date} within the "
-        f"calendar read; {_EXTEND}"
+        f"calendar read; {EXTEND_REMEDY}"
     )
 
 
@@ -229,9 +231,8 @@ def _volume_forecast(
     last = resolver.session_at(index + VOLUME_RANK_LAG_SESSIONS, day)
     next_roll = None
     for later in range(index + 1, last + 1):
-        answer = resolver.answer(rule, later)
-        if _differs(answer, current):
-            assert isinstance(answer, ActiveContract)
+        answer = _changed(resolver.answer(rule, later), current)
+        if answer is not None:
             next_roll = NextRoll(answer.session_date, answer)
             break
     expiry = utc_ns(current.expiration)
@@ -242,7 +243,7 @@ def _volume_forecast(
     if after is None:
         raise RollInputError(
             f"session {day}: the calendar read ends before {current.raw_symbol}'s"
-            f" expiration session; {_EXTEND}"
+            f" expiration session; {EXTEND_REMEDY}"
         )
     return replace(
         line,

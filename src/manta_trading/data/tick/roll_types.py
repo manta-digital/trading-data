@@ -19,6 +19,9 @@ from manta_trading.data.tick.tick_status import TickSessionStatus
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
+#: The remedy when the calendar does not reach a session the roll path needs.
+EXTEND_REMEDY = "run mt data extend"
+
 
 class RollInputError(Exception):
     """A broken invariant in the stored inputs (TD9): never read as an answer.
