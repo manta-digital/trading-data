@@ -173,7 +173,8 @@ states live in `data/tick/line_state.py` (`TickLineState`,
   - [ ] `cli/overview_types.py`: `SourceFreshness.unavailable: str | None =
         None`.
   - [ ] A ledger freshness read (newest `last_event_ns` under current
-        units, via `COVERAGE_PREDICATE`) in a data-layer module (not
+        units, via `COVERAGE_PREDICATE`) as `newest_event_ns(conn)` in
+        `data/tick/status_reads.py` (the ledger read helpers' home, not
         `cli/`), so 231 can reuse it.
   - [ ] `cli/commands/overview.py` `gather`: after the credits call,
         `tick_composed.open`, the freshness read, and a fifth
@@ -243,8 +244,7 @@ states live in `data/tick/line_state.py` (`TickLineState`,
         (TD2); I14 gains the product-level `get` rule (one contract per
         session, lists, exit 3); the Required CLI commands list gains the
         new verbs.
-  - [ ] Success: rows updated. Commit: `docs: add tick runbook section and
-        contract rows for slice 230`.
+  - [ ] Success: rows updated (committed with 8.3).
 
 - [ ] **8.3 Architecture Revision Log entry for TD2 (required)** (effort 1)
   - [ ] In `user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md`
@@ -253,6 +253,8 @@ states live in `data/tick/line_state.py` (`TickLineState`,
         `mt data get`'s inclusive end; one line on why (one convention
         within the tick subgroup).
   - [ ] Success: entry present, dated 2026-10-12 or the commit date.
+        Commit (8.1–8.3): `docs: add tick runbook section, contract rows and
+        revision log for slice 230`.
 
 - [ ] **8.4 Gating check: design and slice plan match what shipped**
       (effort 1)
@@ -270,6 +272,8 @@ states live in `data/tick/line_state.py` (`TickLineState`,
 - [ ] **8.5 Final validation** (effort 2)
   - [ ] Kalshi pass-contract diff: `test/unit/data/tick/test_pass_contract_parity.py`
         passes; no change expected (this slice does not touch the pass).
+  - [ ] The design's "Realtime paths" and "Does this belong in the API?"
+        sections still hold for what shipped; correct them in place if not.
   - [ ] FR coverage: every Functional Requirement 1–14 (and 10a) maps to a
         passing test or a walkthrough step; list the map in the
         walkthrough note.
