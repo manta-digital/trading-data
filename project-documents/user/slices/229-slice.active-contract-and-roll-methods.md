@@ -7,7 +7,7 @@ dependencies: [220, 221, 224, 225, 226]
 interfaces: [230, 231, 232]
 dateCreated: 20261009
 dateUpdated: 20261012
-status: in_progress
+status: complete
 ---
 
 # Slice Design: active-contract-and-roll-methods
