@@ -19,14 +19,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-import psycopg
-
 from manta_trading.data.base.session_index import Session
-from manta_trading.data.base.trading_calendar import (
-    CalendarNotFoundError,
-    OutOfPopulatedRangeError,
-    TradingCalendar,
-)
 from manta_trading.data.tick.constants import (
     CME_DATASET,
     SPREAD_CLASS,
@@ -38,64 +31,21 @@ from manta_trading.data.tick.session_days import days_touched, utc_midnight
 from manta_trading.data.tick.status_reads import (
     ContractLine,
     Edge,
-    Shape,
-    conditions,
+    calendar_sessions,
     contract_lines,
     dataset_edge,
+    session_verdicts,
+    shape_of,
     shape_units,
 )
-from manta_trading.data.tick.store_context import TickPreflightError
-from manta_trading.data.tick.tick_calendar import TickCalendarError
 from manta_trading.data.tick.tick_status import (
-    DayFacts,
-    SessionVerdict,
     TickSessionStatus,
     caught_up,
-    day_unit,
-    verdict,
 )
 from manta_trading.data.tick.universe import TickUniverseEntry
 
 COMPLETE_BASIS = "units"
 DEGRADED = DatasetCondition.DEGRADED.value
-
-
-def calendar_sessions(
-    url: str, calendar_id: str, start: datetime, end: datetime
-) -> list[Session]:
-    """Blocking: the calendar's sessions meeting ``[start, end)``."""
-    calendar = TradingCalendar(calendar_id, url)
-    try:
-        return calendar.sessions_between(start, end)
-    except (psycopg.OperationalError, CalendarNotFoundError) as exc:
-        raise TickCalendarError(f"calendar {calendar_id} unavailable: {exc}") from exc
-    except OutOfPopulatedRangeError as exc:
-        # The database answered; the calendar just has no rows that far. A
-        # refusal naming the remedy (mt data extend), not a storage outage.
-        raise TickPreflightError(f"calendar {calendar_id}: {exc}") from exc
-    finally:
-        calendar.close()
-
-
-def shape_of(entry: TickUniverseEntry) -> Shape:
-    return Shape(CME_DATASET, entry.symbols, entry.stype_in)
-
-
-async def session_verdicts(
-    conn: Conn, entry: TickUniverseEntry, sessions: Sequence[Session]
-) -> list[SessionVerdict]:
-    if not sessions:
-        return []
-    units = await shape_units(conn, shape_of(entry))
-    days = [days_touched(s) for s in sessions]
-    held = await conditions(conn, CME_DATASET, days[0][0], days[-1][-1])
-    return [
-        verdict(
-            session.session_date,
-            [DayFacts(d, day_unit(units.get(d, [])), held.get(d)) for d in touched],
-        )
-        for session, touched in zip(sessions, days, strict=True)
-    ]
 
 
 @dataclass(frozen=True)

@@ -138,130 +138,133 @@ status: in_progress
 
 ## Section 2 - Rules and constants
 
-- [ ] **2.1 Add roll constants to `data/tick/constants.py`** (effort 1)
-  - [ ] `RollMethod(StrEnum)`: `CALENDAR = "c"`, `VOLUME = "v"` (TD1). Leave
+- [x] **2.1 Add roll constants to `data/tick/constants.py`** (effort 1)
+  - [x] `RollMethod(StrEnum)`: `CALENDAR = "c"`, `VOLUME = "v"` (TD1). Leave
         `n` unassigned.
-  - [ ] `OUTRIGHT_CLASS = "F"` and `SPREAD_CLASS = "S"` (moved from
+  - [x] `OUTRIGHT_CLASS = "F"` and `SPREAD_CLASS = "S"` (moved from
         `tick_status_build.py`; update its import, keep its comment).
-  - [ ] `VOLUME_RANK_LAG_SESSIONS = 2`. Its comment must state: why 2 (it
+  - [x] `VOLUME_RANK_LAG_SESSIONS = 2`. Its comment must state: why 2 (it
         matches Databento's `.v` switch on both held rolls; CME publishes
         session D's statistics during D + 1), the fixture test that pins it
         (task 5.3's test name), and that a change is a provider convention
         change revisited whole, never per roll (TD3).
-  - [ ] `TICK_ROLL_MAX_SESSIONS = 1_300` (TD10) and
+  - [x] `TICK_ROLL_MAX_SESSIONS = 1_300` (TD10) and
         `TICK_ROLL_STATEMENT_TIMEOUT_SECONDS = 30` (TD9), each with a one-line
         reason.
-  - [ ] Success: `test_constants.py` and `test_tick_status_build.py` pass;
+  - [x] Success: `test_constants.py` and `test_tick_status_build.py` pass;
         no other definition of `"S"` as a class remains in `src`.
 
-- [ ] **2.2 Implement `data/tick/roll_rules.py`** (effort 2)
-  - [ ] Frozen dataclass `RollRule(method, rank=0, offset_sessions=0)`.
+- [x] **2.2 Implement `data/tick/roll_rules.py`** (effort 2)
+  - [x] Frozen dataclass `RollRule(method, rank=0, offset_sessions=0)`.
         Validation in `__post_init__` raises `ValueError` naming the field,
         following `TickUniverseEntry`: negative rank, negative offset, offset
         on `VOLUME`.
-  - [ ] `RollRule.parse(text)`: grammar `{method}.{rank}[+{offset}s]`,
+  - [x] `RollRule.parse(text)`: grammar `{method}.{rank}[+{offset}s]`,
         lenient on case and surrounding whitespace. Named refusals (TD1):
         unknown method (`unknown roll method 'n'; known: c, v`, listing from
         `RollMethod`), negative or non-integer rank, suffix on `v`, `+0s`,
         trailing text.
-  - [ ] `__str__` renders the canonical form (no suffix for offset 0);
+  - [x] `__str__` renders the canonical form (no suffix for offset 0);
         `symbol(product)` returns `f"{product}.{rule}"`.
-  - [ ] `DEFAULT_ROLL_RULE = RollRule(RollMethod.VOLUME, 0)` and
+  - [x] `DEFAULT_ROLL_RULE = RollRule(RollMethod.VOLUME, 0)` and
         `STATUS_ROLL_RULES = (DEFAULT_ROLL_RULE, RollRule(RollMethod.CALENDAR))`
         defined here (see Context Summary).
-  - [ ] Success: module has no I/O; ruff, mypy and pyright clean.
+  - [x] Success: module has no I/O; ruff, mypy and pyright clean.
+        Note: the project's type checker is mypy (pyproject.toml); pyright is not installed. mypy clean.
 
-- [ ] **2.3 Test `roll_rules`** (effort 2)
-  - [ ] `test/unit/data/tick/test_roll_rules.py`: round trip
+- [x] **2.3 Test `roll_rules`** (effort 2)
+  - [x] `test/unit/data/tick/test_roll_rules.py`: round trip
         `parse(str(rule)) == rule` for every method × rank 0-3 × offset 0-10
         that is valid (offset only on `c`).
-  - [ ] Canonicalisation: `" V.0 "` → `v.0`; `c.0+5S` → `c.0+5s`.
-  - [ ] One test per refusal in 2.2, asserting the message text.
-  - [ ] `symbol("ES")` gives `ES.v.0` and `ES.c.0+5s`.
-  - [ ] Success: tests pass. Commit: `feat: add roll rule grammar and roll
+  - [x] Canonicalisation: `" V.0 "` → `v.0`; `c.0+5S` → `c.0+5s`.
+  - [x] One test per refusal in 2.2, asserting the message text.
+  - [x] `symbol("ES")` gives `ES.v.0` and `ES.c.0+5s`.
+  - [x] Success: tests pass. Commit: `feat: add roll rule grammar and roll
         constants`.
 
 ---
 
 ## Section 3 - Pure resolver
 
-- [ ] **3.1 Define resolver input and result types** (effort 2)
-  - [ ] In `roll_resolve.py` (or `roll_types.py`, see Context Summary): input
+- [x] **3.1 Define resolver input and result types** (effort 2)
+  - [x] In `roll_resolve.py` (or `roll_types.py`, see Context Summary): input
         records for a contract definition (`instrument_id`, `raw_symbol`,
         `activation_ns`, `expiration_ns`, `unit_id`) and a session volume row
         (`session_date`, `instrument_id`, `volume`, `unit_id`).
-  - [ ] Result types exactly as API Contracts: `ActiveContract`,
+  - [x] Result types exactly as API Contracts: `ActiveContract`,
         `Unresolved`, `Segment` (first session, last session, contract),
         `RollSchedule` with `segments()`, and `ActiveLine` (latest complete
         session L and its answer or reason, `next_roll`, `known_through`,
         `roll_no_later_than`, `error`).
-  - [ ] `RollInputError` for broken invariants (TD9): message names the
+  - [x] `RollInputError` for broken invariants (TD9): message names the
         contract and the session.
-  - [ ] Success: types import cleanly; no I/O imports in the module.
+  - [x] Success: types import cleanly; no I/O imports in the module.
+        Note: types live in `roll_types.py` from the start (resolver module stays small).
 
-- [ ] **3.2 Implement the calendar rule (TD2)** (effort 3)
-  - [ ] `resolve_sessions(rule, sessions, contracts, volumes, complete)` for
+- [x] **3.2 Implement the calendar rule (TD2)** (effort 3)
+  - [x] `resolve_sessions(rule, sessions, contracts, volumes, complete)` for
         `CALENDAR`: candidates are outright definitions with
         `activation_ns ≤ S.open`; E(c) is the last session opening at or
         before `expiration_ns`; eligible when
         `index(S) ≤ index(E(c)) − offset_sessions`; order by `expiration_ns`;
         rank r takes the r-th.
-  - [ ] An E(c) beyond the sessions passed in raises `RollInputError` naming
+  - [x] An E(c) beyond the sessions passed in raises `RollInputError` naming
         the contract and `mt data extend` (never "not expiring"). The caller
         (task 6.1) passes sessions through each candidate's expiration.
-  - [ ] Rank deeper than eligible candidates → `Unresolved` with the rank and
+  - [x] Rank deeper than eligible candidates → `Unresolved` with the rank and
         candidate count in the reason.
-  - [ ] `ActiveContract` fields: `basis_session = S`, `basis_unit_ids = ()`,
+  - [x] `ActiveContract` fields: `basis_session = S`, `basis_unit_ids = ()`,
         `definition_unit_id` from the chosen row, `definitions_as_of` passed
         in.
-  - [ ] Success: ruff, mypy, pyright clean.
+  - [x] Success: ruff, mypy, pyright clean.
+        Note: eligibility tests the session `offset` after S against expiration, not E(c) itself: ES contracts run to 2030 while CME_EQUITY ends 2027-12-31, so locating E(c) for every candidate would fail every answer. The extend error fires only when a session the rule needs is past the calendar read.
 
-- [ ] **3.3 Test the calendar rule** (effort 2)
-  - [ ] `test/unit/data/tick/test_roll_resolve_calendar.py`, synthetic
+- [x] **3.3 Test the calendar rule** (effort 2)
+  - [x] `test/unit/data/tick/test_roll_resolve_calendar.py`, synthetic
         sessions and contracts.
-  - [ ] Offsets 0, 1 and 5; `c.0+5s` rolls exactly five sessions earlier than
+  - [x] Offsets 0, 1 and 5; `c.0+5s` rolls exactly five sessions earlier than
         `c.0` (FR5).
-  - [ ] Expired contract drops out of rank 1; expiry inside a session keeps
+  - [x] Expired contract drops out of rank 1; expiry inside a session keeps
         the contract front through that session (TD2's ESU4 example).
-  - [ ] Deep rank (`c.5` with four candidates) → `Unresolved` naming 5 and 4.
-  - [ ] Expiration beyond the sessions → `RollInputError`.
-  - [ ] Success: tests pass with no database.
+  - [x] Deep rank (`c.5` with four candidates) → `Unresolved` naming 5 and 4.
+  - [x] Expiration beyond the sessions → `RollInputError`.
+  - [x] Success: tests pass with no database.
 
-- [ ] **3.4 Implement the volume rule (TD3)** (effort 4)
-  - [ ] For session S with lag session L = S − `VOLUME_RANK_LAG_SESSIONS`
+- [x] **3.4 Implement the volume rule (TD3)** (effort 4)
+  - [x] For session S with lag session L = S − `VOLUME_RANK_LAG_SESSIONS`
         (by session index): if L is outside the sessions passed in or not in
         `complete`, return `Unresolved` with reason naming L and its status,
         e.g. `volume inputs: session 2024-11-01 is missing`. Never fall back to
         partial volume, calendar, or the previous answer.
-  - [ ] Ranked set: eligible at S (TD2, offset 0) and listed in L
+  - [x] Ranked set: eligible at S (TD2, offset 0) and listed in L
         (`activation_ns ≤ L.close` and `expiration_ns ≥ L.open`). A contract
         listed after L opened is excluded, not ranked as 0.
-  - [ ] A ranked contract with no volume row for a complete L raises
+  - [x] A ranked contract with no volume row for a complete L raises
         `RollInputError` naming the contract and L (I13).
-  - [ ] Order by volume descending, ties by earlier expiration; rank r takes
+  - [x] Order by volume descending, ties by earlier expiration; rank r takes
         the r-th; deeper rank → `Unresolved` as in 3.2.
-  - [ ] `basis_session = L`; `basis_unit_ids` = sorted distinct unit ids of
+  - [x] `basis_session = L`; `basis_unit_ids` = sorted distinct unit ids of
         L's rows that were read.
-  - [ ] Success: ruff, mypy, pyright clean.
+  - [x] Success: ruff, mypy, pyright clean.
 
-- [ ] **3.5 Test the volume rule** (effort 3)
-  - [ ] `test/unit/data/tick/test_roll_resolve_volume.py`, synthetic inputs.
-  - [ ] Volume crosses at L → the switch shows on L + 2 (lag applied).
-  - [ ] Tie broken by earlier expiration.
-  - [ ] Contract activated between L and S: excluded for S, ranked from the
+- [x] **3.5 Test the volume rule** (effort 3)
+  - [x] `test/unit/data/tick/test_roll_resolve_volume.py`, synthetic inputs.
+  - [x] Volume crosses at L → the switch shows on L + 2 (lag applied).
+  - [x] Tie broken by earlier expiration.
+  - [x] Contract activated between L and S: excluded for S, ranked from the
         first session whose lag session lists it; no error (FR6a).
-  - [ ] Missing row for a contract listed in a complete L raises, naming it
+  - [x] Missing row for a contract listed in a complete L raises, naming it
         (FR6a).
-  - [ ] Incomplete L → `Unresolved` naming L and its status; first two
+  - [x] Incomplete L → `Unresolved` naming L and its status; first two
         sessions of a range are unresolved (FR4).
-  - [ ] `v.1` while the old front is still listed (walkthrough step 4 shape).
-  - [ ] `basis_unit_ids` lists L's units.
-  - [ ] Success: tests pass with no database.
+  - [x] `v.1` while the old front is still listed (walkthrough step 4 shape).
+  - [x] `basis_unit_ids` lists L's units.
+  - [x] Success: tests pass with no database.
 
-- [ ] **3.6 Implement segments and the next-roll forecast** (effort 3)
-  - [ ] `RollSchedule.segments()`: consecutive same-`instrument_id` runs;
+- [x] **3.6 Implement segments and the next-roll forecast** (effort 3)
+  - [x] `RollSchedule.segments()`: consecutive same-`instrument_id` runs;
         unresolved sessions break segments and are not part of any segment.
-  - [ ] `next_roll` for an `ActiveLine` (TD7, API Contracts):
+  - [x] `next_roll` for an `ActiveLine` (TD7, API Contracts):
         - calendar: exact first session after L whose answer differs, with
           the incoming contract; `known_through` = last session passed in;
           `roll_no_later_than = None`;
@@ -270,14 +273,14 @@ status: in_progress
           `next_roll = None`; `known_through = L + 2`;
           `roll_no_later_than` = first session after the active contract's
           expiration session.
-  - [ ] Success: ruff, mypy, pyright clean; module ≤ ~300 lines (split types
+  - [x] Success: ruff, mypy, pyright clean; module ≤ ~300 lines (split types
         per Context Summary if not).
 
-- [ ] **3.7 Test segments and next roll** (effort 2)
-  - [ ] `test/unit/data/tick/test_roll_next.py`: segments over a run with an
+- [x] **3.7 Test segments and next roll** (effort 2)
+  - [x] `test/unit/data/tick/test_roll_next.py`: segments over a run with an
         unresolved gap; volume roll on L + 1, on L + 2, and beyond L + 2 (bound
         only, `next_roll` None); calendar next roll exact.
-  - [ ] Success: tests pass. Commit: `feat: add pure roll resolver`.
+  - [x] Success: tests pass. Commit: `feat: add pure roll resolver`.
 
 ---
 

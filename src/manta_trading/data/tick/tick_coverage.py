@@ -18,14 +18,15 @@ from manta_trading.data.tick.constants import calendar_for_product
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.session_days import utc_midnight
-from manta_trading.data.tick.status_reads import ledger_totals, raw_counts
-from manta_trading.data.tick.tick_status import SessionVerdict
-from manta_trading.data.tick.tick_status_build import (
+from manta_trading.data.tick.status_reads import (
     calendar_sessions,
-    jsonable,
+    ledger_totals,
+    raw_counts,
     session_verdicts,
     shape_of,
 )
+from manta_trading.data.tick.tick_status import SessionVerdict
+from manta_trading.data.tick.tick_status_build import jsonable
 from manta_trading.data.tick.universe import TickUniverseEntry
 
 MISMATCH, OK = "mismatch", "ok"
