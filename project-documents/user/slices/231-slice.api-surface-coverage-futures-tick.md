@@ -84,8 +84,9 @@ slice builds it.
 - Both reference documents (`docs/api/reference.md`, `docs/api/agents.md`)
   extended under the 190 documentation gate, and `openapi.json` regenerated.
 - Load-tier latency bounds for the new endpoints, set from measurement.
-- Document updates: 180's exclusion marked closed, and a 220 architecture
-  Revision Log entry.
+- Document updates: 180's tick exclusion marked closed; an "Extended by
+  slice 231" paragraph in 180's Range Policy (TD4); and a 220 architecture
+  Revision Log entry (TD7).
 
 **Excluded**
 
@@ -133,7 +134,7 @@ slice builds it.
 | 230 `tick_accounting` | `accounting_lines(conn, calendar_url, universe)` | `/api/v1/status` tick block |
 | 230 `status_reads` | `newest_event_ns(conn)` | `/api/v1/overview` source |
 | 230 `line_state` | `TickLineState`, `TickUnavailable`, `unavailable_text`, `first_line` | `503` bodies, health field, status and overview states |
-| 229 `active_contract` | `build_schedule(tick_url, calendar_url, entry, rule, start, end)`, `latest_active(tick_url, calendar_url, entry, rules)`, `RollRangeTooLong` | Schedule and products routes; product-level plans |
+| 229 `active_contract` | `build_schedule(tick_url, calendar_url, entry, rule, start, end)`, `latest_lines(tick_url, calendar_url, entry, rules)` (the raising variant of `latest_active`), `roll_conninfo`, `RollRangeTooLong` | Schedule and products routes; product-level plans |
 | 229 `roll_payload` | `contract_dict`, `unresolved_dict`, `active_line_dict`, `schedule_dict` | Field sets for the catalog models |
 | 222/225 `store_context` | `missing_migrations(conn)` | Tick track check per checkout |
 | `universe` | `TICK_UNIVERSE`, `TickUniverseEntry` | Known products; unknown → `404` |
@@ -150,15 +151,16 @@ slice builds it.
 | `api_server/models/futures.py` (new) | Response models for all seven routes, plus the `TickBlock` used by `/api/v1/status`. |
 | `data/tick/catalog_reads.py` (new) | `contracts_for(conn, product)`: definition rows joined to each instrument's first and last held session under current units. No API import, so the CLI could use it later. |
 | `data/tick/line_state.py` (changed) | Gains `classify(exc, password)`, moved from `cli/tick_composed.py` with the scrubbing. The CLI's `classify(exc, settings)` becomes a thin wrapper. |
-| `data/tick/constants.py` (changed) | `TICK_API_POOL_MIN`, `TICK_API_POOL_MAX`, `TICK_API_CHECKOUT_TIMEOUT_SECONDS`. |
+| `data/tick/constants.py` (changed) | `TICK_API_POOL_MIN`, `TICK_API_POOL_MAX`, `TICK_API_CHECKOUT_TIMEOUT_SECONDS`; and `TICK_SOURCE_NAME`, moved here from `cli/commands/overview.py`, which now imports it. |
 | `api_server/app.py` (changed) | `create_app(db_url=None, tick_db_url=None)`; `lifespan` opens and closes the tick pool; registers both routers and the `503` handler. |
 | `api_server/routes/health.py`, `status.py`, `operations.py` (changed) | The composed additions. |
 | `api_server/models/responses.py`, `models/operations.py` (changed) | `HealthResponse.tick_db` and `tick_detail`, `StatusResponse.tick`, `SourceRecord.unavailable`. |
 
-The routes import no `cli/` module for tick work, with one exception: the
-`TICK_SOURCE_NAME` constant, from `cli/commands/overview.py`, which
-`operations.py` already imports for `build_overview`. The source name is
-then defined in exactly one place.
+The routes import no `cli/` module for tick work. `TICK_SOURCE_NAME` moves to
+`data/tick/constants.py`, so the source name has one home that the CLI and
+the API both import. `operations.py`'s existing imports of `build_overview`
+and `gather_db_facts` from `cli/commands/overview.py` predate this slice and
+are unchanged.
 
 ### Data Flow
 
@@ -182,15 +184,19 @@ request ──► parse: symbol | product (404 if not in TICK_UNIVERSE),
         ──► timeseries_response(model, format)  (json | msgpack)
 ```
 
-**Catalog:**
+**Catalog:** every catalog route depends on `tick_connection` too, so
+not-configured, unreachable and migrations-pending are a `503` before any
+roll call (TD2).
 
-- `products` calls `latest_active(tick_url, calendar_url, entry,
+- `products` calls `latest_lines(tick_url, calendar_url, entry,
   STATUS_ROLL_RULES)` for each universe entry.
-- `contracts` calls `catalog_reads.contracts_for` on a pooled connection.
+- `contracts` calls `catalog_reads.contracts_for` on the pooled connection.
 - `schedule` calls `build_schedule` with the parsed rule and range.
 
-`latest_active` and `build_schedule` own their connections and snapshots
-(229, Technical Decision 9), so these two routes pass URLs, not the pool.
+`latest_lines` and `build_schedule` own their connections and snapshots
+(229, Technical Decision 9), so these two routes pass URLs. They still hold
+the pooled checkout for the request, and that checkout is what bounds how
+many roll connections can be open at once (TD2).
 
 **Composed:**
 
@@ -283,6 +289,47 @@ Credential.APPLICATION)`.
 helper. One app-level handler turns it into the response, the same pattern
 as the existing `QueryCanceled` handler.
 
+**Every futures route depends on `tick_connection`, catalog routes
+included.** Not-configured, unreachable and migrations-pending are therefore
+a `503` before any planner or roll call runs.
+
+**The roll functions' own connections** (`build_schedule`, `latest_lines`,
+and the calendar reads behind `sessions_dated`) are outside the pool, so the
+checkout timeout does not bound them. Three things do:
+
+- **Timeouts:** they connect through 229's `roll_conninfo`, which sets
+  `connect_timeout=TICK_DB_CONNECT_TIMEOUT_SECONDS`, TCP keepalives,
+  `statement_timeout=TICK_ROLL_STATEMENT_TIMEOUT_SECONDS` (30 s) and
+  read-only transactions. An unreachable host is therefore a `503` within
+  the connect timeout, never the operating system's TCP timeout. The
+  closed-port integration test covers a product route as well as a contract
+  route.
+- **Session budget:** it is 229's roll budget, not the pool's `configure`.
+  That is deliberate: 229 requires these connections to keep
+  `roll_conninfo`'s bounds, and a pooled variant is allowed only if it keeps
+  them. This slice does not build one.
+- **Count:** each one runs inside a request that already holds a pooled
+  tick checkout, so at most `TICK_API_POOL_MAX` requests per worker can be
+  in the roll path at once. Special Considerations gives the resulting
+  connection budget.
+
+**Outage versus refusal in the roll path.** One rule applies to every
+futures route:
+
+- an outage (`OperationalError` other than `QueryCanceled`, or
+  `TickCalendarError`) is a `503`;
+- a statement timeout is a `504`;
+- a refusal (`TickPreflightError`) is a `422`, except in `products`.
+
+`products` keeps 229's per-line reporting for anything that is not an
+outage. It calls `latest_lines`, the raising variant, and not
+`latest_active`, which would turn an outage into a line `error` with HTTP
+200. It maps outages to `503`, and turns `TickPreflightError` and
+`RollInputError` into that product's line `error`s, exactly as
+`latest_active` does. A product with nothing held is a line `reason`, not
+an error. So `/futures/products` is a `503` only when the tick or calendar
+database is down.
+
 ### TD3. Windows: session dates with an exclusive end, plus instant bounds for ticks
 
 - **`start` and `end` are session dates, and `end` is exclusive.** This is
@@ -335,6 +382,22 @@ as the existing `QueryCanceled` handler.
   routes' `from`/`until` are the paging tool, and they are stateless.
 - The roll cap still applies: `RollRangeTooLong` (more than
   `TICK_ROLL_MAX_SESSIONS` = 1,300 sessions) is a `422`.
+- **This is a third enforcement style**, so 180's Range Policy gains an
+  "Extended by slice 231" paragraph, as 188 added its own:
+  - **186 bars:** the bars are estimated before the query, and no database
+    work is done for a refused request.
+  - **188 Kalshi:** an exact `count(*)` is taken first, and the `422`
+    quotes the true count.
+  - **231 futures:** the ceiling is enforced during the read. A refused
+    request reads at most the ceiling plus one batch (85,000 rows) and
+    quotes no count.
+
+  The reason is measured: a single session holds up to 687,287 ticks, so a
+  `count(*)` costs a full session scan on every request, admitted or not,
+  and a window estimate is useless because tick density varies by orders of
+  magnitude across instruments and hours. The paragraph also states that
+  "no DB work is done for a rejected request" holds only for the bars
+  route.
 
 ### TD5. Response shape: the plan's facts, then rows; exact text for prices and times
 
@@ -388,8 +451,8 @@ present, possibly empty.
 **Catalog bodies:**
 
 - `products`: `[{product, calendar, active: [active_line_dict…]}]`, one
-  active line per status rule. A per-product failure of `latest_active`
-  sets that line's `error`, as in the CLI (229, Technical Decision 9).
+  active line per status rule. A refusal or broken invariant sets the
+  line's `error` (as in the CLI, 229 TD9); an outage is a `503` (TD2).
 - `contracts`: `{product, contracts: [{instrument_id, raw_symbol,
   instrument_class, activation, expiration, exchange, currency,
   min_price_increment, contract_multiplier, unit_of_measure,
@@ -493,13 +556,13 @@ event, which whichever writer keeps the ledger advances.
 
 | Route | Success | Errors | Ceiling |
 |---|---|---|---|
-| `GET /futures/products` | 200 `FuturesProductsResponse` | 503 | — |
+| `GET /futures/products` | 200 `FuturesProductsResponse` | 503, 504 | — |
 | `GET /futures/products/{product}/contracts` | 200 `FuturesContractsResponse` | 404, 503, 504 | — |
-| `GET /futures/products/{product}/schedule` | 200 `FuturesScheduleResponse` | 404, 422, 503 | roll cap |
+| `GET /futures/products/{product}/schedule` | 200 `FuturesScheduleResponse` | 404, 422, 503, 504 | roll cap |
 | `GET /futures/products/{product}/ticks` | 200 `FuturesTicksResponse` (json or msgpack) | 404, 422, 503, 504 | rows + roll cap |
 | `GET /futures/products/{product}/bars` | 200 `FuturesBarsResponse` (json or msgpack) | 404, 422, 503, 504 | rows + roll cap |
-| `GET /futures/contracts/{symbol}/ticks` | 200 `FuturesTicksResponse` | 404, 422, 503, 504 | rows |
-| `GET /futures/contracts/{symbol}/bars` | 200 `FuturesBarsResponse` | 404, 422, 503, 504 | rows |
+| `GET /futures/contracts/{symbol}/ticks` | 200 `FuturesTicksResponse` (json or msgpack) | 404, 422, 503, 504 | rows |
+| `GET /futures/contracts/{symbol}/bars` | 200 `FuturesBarsResponse` (json or msgpack) | 404, 422, 503, 504 | rows |
 | `GET /health` (changed) | 200, plus `tick_db` and `tick_detail` | — | — |
 | `GET /status` (changed) | 200, plus `tick` | unchanged | — |
 | `GET /overview` (changed) | 200, plus a `futures ticks` source and `sources[].unavailable` | unchanged | — |
@@ -607,11 +670,18 @@ load tier passes the test tick database explicitly.
   - the latency of a 75,000-tick read;
   - the latency of a ceiling-refused read;
   - the latency of a 54-session `1m` product bars read across a roll;
-  - the latency of `/api/v1/status` with the tick block.
+  - the cost the tick block adds to `/api/v1/status`, measured as the
+    difference with and without a tick pool configured.
 
   Each bound is set from the measured value and recorded with the
-  measurement in the test's docstring. The equities and Kalshi load tests
-  still pass with a tick pool configured.
+  measurement in the test's docstring, and each is pass/fail.
+  - **The tick block's added cost is its own pass/fail item.**
+    `/api/v1/status`'s existing whole-route bound (2.79 s measured against
+    1.5 s) already fails on `main`. That failure is known debt from before
+    this slice (load-tier memory), not 231's to fix or to make worse
+    unnoticed.
+  - The equities and Kalshi load tests still pass with a tick pool
+    configured, apart from that known failure.
 
 ### Integration Requirements
 
@@ -715,10 +785,11 @@ implemented; none exist today.
 
 ### Mitigation Strategies
 
-- **Latency:** measure in the load tier before setting bounds. If the
-  status tick block costs too much, it reads the CLI's accounting path
-  unchanged, so a fix there helps both surfaces. It is not grounds to drop
-  the block.
+- **Latency:** measure in the load tier before setting bounds; the tick
+  block's added cost to `/status` is a separate pass/fail item, so it cannot
+  hide inside the route's pre-existing failure. If that cost is too high, the
+  fix goes in the shared accounting path, which helps the CLI as well. A slow
+  block is not grounds to drop it.
 - **Outage behaviour:** the checkout timeout is a named constant, and an
   integration test against a closed port asserts that a `503` arrives
   within it.
@@ -742,8 +813,9 @@ implemented; none exist today.
    (capability index, window choice, the `503` retry verdict "retry later;
    the tick database is down or unconfigured", vocabularies); regenerate
    `openapi.json`; run the gate.
-7. Load tier, then the architecture Revision Log entry and 180's exclusion
-   marked closed.
+7. Load tier, then the document updates: the 220 architecture Revision Log
+   entry, 180's tick exclusion marked closed, and 180's Range Policy
+   "Extended by slice 231" paragraph.
 
 Commit at each numbered step.
 
@@ -759,10 +831,18 @@ tick_db_url=tick_test_url)`.
   existing routes' `run_in_executor` over sync connections. 229's calendar
   reads already use `asyncio.to_thread`. Nothing blocking may be added to
   these routes.
-- **`mt serve --workers N`** gives each worker its own tick pool. With
-  `TICK_API_POOL_MAX` at 4 and 4 workers, that is 16 tick connections at
-  most; the tick database's `max_connections` must allow it. The task list
-  checks the value on the dev cluster.
+- **Connection budget under `mt serve --workers N`.** Each worker has its
+  own tick pool. A request in the roll path holds its pooled checkout and
+  opens at most one roll snapshot connection to the tick database at a time,
+  plus short-lived calendar connections to the primary, opened one after
+  another (TD2). Per worker, at most:
+  - tick database: `2 × TICK_API_POOL_MAX` = 8;
+  - primary database: `TICK_API_POOL_MAX` = 4 calendar connections, on top
+    of the existing pools.
+
+  With 4 workers that is 32 tick connections and 16 extra primary
+  connections. The task list checks both clusters' `max_connections`
+  against these figures and records the values.
 - **Security:** read-only sessions at the database level; no secret in any
   body; the tick credential is the DML-only application role (923), never
   the maintenance role.
