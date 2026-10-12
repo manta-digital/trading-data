@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`mt data tick active`: which ES contract counts on a session** (slice
+  229). Roll rules are written `c.0` (calendar: nearest expiry), `v.0`
+  (volume: most traded, ranked by the session two before, as Databento's
+  `ES.v.0` is), a rank (`v.1`, `c.1`), and for calendar an offset in sessions
+  (`c.0+5s`). The default is `v.0`. With no range it names the contract for
+  the latest complete session, the session's inputs, the expiry and the next
+  roll; with `--start/--end` it prints the schedule's segments. A session
+  whose ranking session is not held is listed as unresolved with the reason,
+  never guessed (exit 3). `mt data tick status` shows the same lines for
+  `v.0` and `c.0`, and `--json` gains `rolls`. Checked against Databento's
+  `ES.c.0/c.1/v.0/v.1` on both held rolls (September and December 2024).
 - **The tick database restore is proven** (slice 228): `scripts/drill_tick_restore.py`
   restores the tick archive from restic and `trading_tick` from base backup
   plus WAL into a scratch server, then rebuilds a second database from the
