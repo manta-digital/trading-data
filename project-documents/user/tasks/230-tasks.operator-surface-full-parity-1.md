@@ -14,7 +14,7 @@ projectState: >
   Slice design committed and reviewed (CONCERNS, all six findings fixed).
 dateCreated: 20261012
 dateUpdated: 20261012
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Operator Surface Full Parity (part 1 of 2)
@@ -78,45 +78,45 @@ overview lines, docs and closing checks.
 
 ## Section 1 - Preflight facts
 
-- [ ] **1.1 Confirm the code facts the design relies on** (effort 2)
-  - [ ] Read `data/tick/tick_status_build.py` `_product_status`: name the
+- [x] **1.1 Confirm the code facts the design relies on** (effort 2)
+  - [x] Read `data/tick/tick_status_build.py` `_product_status`: name the
         exact steps (wanted range, `_scope`, `session_verdicts`, `Counter`
         over verdicts) that task 7.3 will extract for accounting (TD7). Note
         that `buckets` counts every session in scope, not only the wanted
         range, and record which one accounting reports (it must equal what
         `status` prints, FR12).
-  - [ ] Confirm `held_session_bounds`, `build_schedule`, `RollRule.parse`,
+  - [x] Confirm `held_session_bounds`, `build_schedule`, `RollRule.parse`,
         `DEFAULT_ROLL_RULE`, `roll_conninfo`, `RollRangeTooLong` and
         `TICK_ROLL_MAX_SESSIONS` exist with the signatures the design uses,
         and where each lives.
-  - [ ] How `active` (`cli/commands/tick_active_cmds.py`) parses
+  - [x] How `active` (`cli/commands/tick_active_cmds.py`) parses
         `--start/--end`, applies TD4's roll-day default, and marks a default
         rule `(default)`. `get` reuses these, not copies.
-  - [ ] Whether the existing `time_bucket` helpers or any `Granularity` →
+  - [x] Whether the existing `time_bucket` helpers or any `Granularity` →
         duration map exist (`grep` `src/` for both). TD10: reuse if one
         exists, else one new map in tick `constants.py`.
-  - [ ] Whether `roll_seed.py` / `roll_synthetic.py` / `rows.py` can insert
+  - [x] Whether `roll_seed.py` / `roll_synthetic.py` / `rows.py` can insert
         `tick_trade` rows (with chosen `ts_event`, `sequence`,
         `sequence_ordinal`, price and BBO columns). If not, name the
         smallest helper to add in task 3.1.
-  - [ ] How `mt data accounting` and `mt data overview` get their settings,
+  - [x] How `mt data accounting` and `mt data overview` get their settings,
         connect, and choose exit codes (`cli/commands/accounting.py`,
         `cli/commands/overview.py` `gather` / `data_overview`), and which
         tests cover them (`test/unit/cli/commands/test_overview*.py`,
         `test/integration/test_overview_gather.py`,
         `test/unit/cli/commands/test_health_accounting_pass_runs.py`).
-  - [ ] How `/api/v1/overview` maps `SourceFreshness` into `SourceRecord`
+  - [x] How `/api/v1/overview` maps `SourceFreshness` into `SourceRecord`
         (`api_server`), to confirm adding a field and a CLI-only source
         leaves the API response unchanged (FR13). Record whether an
         existing test asserts the API overview payload for fixed facts
         (exact keys and values); task 7.8 uses it or adds one.
-  - [ ] How `mt-run data overview` runs in production: the checkout or an
+  - [x] How `mt-run data overview` runs in production: the checkout or an
         installed release, and whether `/etc/manta-trading.env` is readable
         without sudo (decides walkthrough step 8, task 7.9 in part 2).
-  - [ ] Write a `Findings (1.1)` block under this task. If the bucket step
+  - [x] Write a `Findings (1.1)` block under this task. If the bucket step
         cannot be shared without changing `status`'s output, stop and ask
         the Project Manager.
-  - [ ] Success: findings block present; no code changes.
+  - [x] Success: findings block present; no code changes.
 
 **Findings (1.1)**
 
@@ -191,41 +191,41 @@ overview lines, docs and closing checks.
 
 ## Section 2 - Constants and formatters
 
-- [ ] **2.1 Add TD10 constants to `data/tick/constants.py`** (effort 1)
-  - [ ] `TICK_GET_TICKS = "ticks"`; `TICK_BAR_GRANULARITIES` as a tuple of
+- [x] **2.1 Add TD10 constants to `data/tick/constants.py`** (effort 1)
+  - [x] `TICK_GET_TICKS = "ticks"`; `TICK_BAR_GRANULARITIES` as a tuple of
         `Granularity` members (`M1 M5 M15 H1 H4 D1`), never re-spelled
         strings; `TICK_GET_CHOICES = (TICK_GET_TICKS,
         *TICK_BAR_GRANULARITIES)`.
-  - [ ] `TICK_PRICE_SCALE = 10**9`, commented as DBN's
+  - [x] `TICK_PRICE_SCALE = 10**9`, commented as DBN's
         `FIXED_PRICE_SCALE`.
-  - [ ] `TICK_GET_FETCH_ROWS` (server-side cursor batch size) with a
+  - [x] `TICK_GET_FETCH_ROWS` (server-side cursor batch size) with a
         one-line reason for the value.
-  - [ ] `TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS = 5` and
+  - [x] `TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS = 5` and
         `TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS = 10`, each with TD10's
         reason.
-  - [ ] The bar-width map (`Granularity` → width) per finding 1.1, with
+  - [x] The bar-width map (`Granularity` → width) per finding 1.1, with
         `D1` marked as "whole session", not 24 h.
-  - [ ] Success: `test_constants.py` passes; ruff and mypy clean.
+  - [x] Success: `test_constants.py` passes; ruff and mypy clean.
 
-- [ ] **2.2 Implement `data/tick/tick_format.py`** (effort 2)
-  - [ ] `price_text(raw: int) -> str | None`: `UNDEF_INT64` → `None`;
+- [x] **2.2 Implement `data/tick/tick_format.py`** (effort 2)
+  - [x] `price_text(raw: int) -> str | None`: `UNDEF_INT64` → `None`;
         otherwise `Decimal(raw) / TICK_PRICE_SCALE`, normalized to drop
         trailing zeros but never to exponent form (`5950.25`, `5950`,
         `-0.5`). No `float` anywhere.
-  - [ ] `ts_text(ns: int) -> str`: ISO 8601 UTC with exactly nine fraction
+  - [x] `ts_text(ns: int) -> str`: ISO 8601 UTC with exactly nine fraction
         digits and `Z` (`2024-09-16T13:30:00.123456789Z`), built from the
         integer (seconds via `datetime`, fraction from `ns % 10**9`).
-  - [ ] Module has no I/O and no CLI import.
-  - [ ] Success: ruff and mypy clean.
+  - [x] Module has no I/O and no CLI import.
+  - [x] Success: ruff and mypy clean.
 
-- [ ] **2.3 Test the formatters** (effort 1)
-  - [ ] `test/unit/data/tick/test_tick_format.py`: `price_text` for a
+- [x] **2.3 Test the formatters** (effort 1)
+  - [x] `test/unit/data/tick/test_tick_format.py`: `price_text` for a
         quarter-tick price, a whole number, a negative price, a sub-cent
         value, `0`, and `UNDEF_INT64` (→ `None`, never
         `9223372036.854775807`, FR9).
-  - [ ] `ts_text` for the epoch, a whole second, and a one-digit ns
+  - [x] `ts_text` for the epoch, a whole second, and a one-digit ns
         fraction (zero-padded to nine digits).
-  - [ ] Success: tests pass. Commit: `feat: add tick get constants and exact
+  - [x] Success: tests pass. Commit: `feat: add tick get constants and exact
         price and time formatters`.
 
 ---
