@@ -99,7 +99,10 @@ def data_accounting(
 
     # The tick section comes after the pass row is closed: its state never
     # changes the exit code or the recorded minute detail (230 TD7, TD8).
-    tick = _tick_lines(settings)
+    _print(rows, _tick_lines(settings), json_output)
+
+
+def _print(rows: list[Any], tick: _TickResult, json_output: bool) -> None:
     if json_output:
         print_result(
             {
