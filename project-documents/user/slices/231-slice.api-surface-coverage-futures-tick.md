@@ -111,7 +111,7 @@ slice builds it.
 
 ### Prerequisites
 
-- **229 (complete):** `build_schedule`, `latest_active`, `RollRule.parse`,
+- **229 (complete):** `build_schedule`, `latest_lines`, `RollRule.parse`,
   `DEFAULT_ROLL_RULE`, `STATUS_ROLL_RULES`, the `TICK_ROLL_MAX_SESSIONS`
   cap, and `roll_payload`'s dictionaries.
 - **230 (complete):** `get_plan`, `tick_reads`, `tick_format`,
