@@ -13,7 +13,7 @@ projectState: >
   committed and reviewed (round 2 CONCERNS, gate passed).
 dateCreated: 20261012
 dateUpdated: 20261012
-status: in_progress
+status: complete
 ---
 
 # Tasks: Active Contract and Roll Methods
@@ -507,56 +507,58 @@ status: in_progress
         `constants.py`, `roll_rules.py` and tests.
   - [x] Success: tests pass. Commit: `feat: show active contract in tick
         status`.
+  Note: the roll-line tests are their own module, `test/integration/data/test_tick_status_rolls.py`. The timeout test locks the ledger when the roll path starts: status's own reads have no statement timeout, so a lock held for the whole command would hang status itself. FR9 grep: only version-string `lstrip("v")` hits in unrelated scripts; the fixture script's continuous symbols are built from `RollRule`.
 
 ---
-  Note: the roll-line tests are their own module, `test/integration/data/test_tick_status_rolls.py`. The timeout test locks the ledger when the roll path starts: status's own reads have no statement timeout, so a lock held for the whole command would hang status itself. FR9 grep: only version-string `lstrip("v")` hits in unrelated scripts; the fixture script's continuous symbols are built from `RollRule`.
 
 ## Section 8 - Walkthrough, docs and closing checks
 
-- [ ] **8.1 Walkthrough and timing on `trading_tick`** (effort 2)
-  - [ ] Run the design's Verification Walkthrough steps 1-8 on manta9000 and
+- [x] **8.1 Walkthrough and timing on `trading_tick`** (effort 2)
+  - [x] Run the design's Verification Walkthrough steps 1-8 on manta9000 and
         compare each with its expected output. Step 8's `tests/unit/data/tick`
         path is `test/unit/data/tick` here; run it through
         `scripts/run_tests.py unit`.
-  - [ ] Re-run TD10's measurement: time a full held-range schedule
+  - [x] Re-run TD10's measurement: time a full held-range schedule
         (2024-08-30 → 2025-01-02, `v.0`); it must finish well inside 1 s.
-  - [ ] Record outputs, exit codes and the timing in
+  - [x] Record outputs, exit codes and the timing in
         `user/notes/229-walkthrough.md` (with frontmatter). Any mismatch with
         an expected value: stop and report to the Project Manager.
-  - [ ] Success: note committed: `docs: record slice 229 walkthrough`.
+  - [x] Success: note committed: `docs: record slice 229 walkthrough`.
+  Note: one mismatch, reported to the PM: step 5 also lists session 2024-11-01 as unresolved (its lag session 10-30 is not held); the design's expected text missed it and now says so. Timing: `build_schedule` 0.048–0.056 s; whole process about 0.96 s (Python start-up).
 
-- [ ] **8.2 Data-correctness contract rows** (effort 1)
-  - [ ] In `user/reference/data-correctness-architecture.md`: I14 row gets
+- [x] **8.2 Data-correctness contract rows** (effort 1)
+  - [x] In `user/reference/data-correctness-architecture.md`: I14 row gets
         229's delivery (rules, default `v.0`, volume next-roll narrowing,
         unresolved sessions reported); I10 row gets the `active` verb.
-  - [ ] Success: rows updated. Commit: `docs: update data-correctness
+  - [x] Success: rows updated. Commit: `docs: update data-correctness
         contract for slice 229`.
 
-- [ ] **8.3 Gating check: design, architecture and slice plan match what
+- [x] **8.3 Gating check: design, architecture and slice plan match what
       shipped** (effort 1)
-  - [ ] Compare the Revision Log entry 2026-10-09 in
+  - [x] Compare the Revision Log entry 2026-10-09 in
         `user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md`
         and the "superseded by 229" note in
         `user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md`
         against shipped behaviour: volume next roll, offset in sessions, lag
         2, default `v.0`, open interest deferred. Correct either if
         implementation changed anything.
-  - [ ] Update the slice design for this file's placements: the default
+  - [x] Update the slice design for this file's placements: the default
         rules in `roll_rules.py` (TD5, FR9), `calendar_sessions` moved to
         `status_reads.py`, `test/` paths (TD8, walkthrough step 8), and
         `latest_active`'s window (task 6.2).
-  - [ ] Success: all three match. Commit: `docs: align slice 229 design and
+  - [x] Success: all three match. Commit: `docs: align slice 229 design and
         220 plan with shipped behaviour`.
 
-- [ ] **8.4 Final validation** (effort 2)
-  - [ ] Kalshi pass-contract diff test passes
+- [x] **8.4 Final validation** (effort 2)
+  - [x] Kalshi pass-contract diff test passes
         (`test/unit/data/tick/test_pass_contract_parity.py`).
-  - [ ] ruff (check, format scoped to touched files), mypy (one invocation:
+  - [x] ruff (check, format scoped to touched files), mypy (one invocation:
         src, kalshi paths and tests, `MYPYPATH=scripts`) and pyright clean on
         touched files.
-  - [ ] Unit tier and integration tier pass, except known pre-existing
+  - [x] Unit tier and integration tier pass, except known pre-existing
         failures (re-run each in isolation).
-  - [ ] Touched source files ≤ ~300 lines (`wc -l`), `constants.py` excepted
+  - [x] Touched source files ≤ ~300 lines (`wc -l`), `constants.py` excepted
         per Context Summary.
-  - [ ] Success: all green. Commit any fixes: `fix: address slice 229 final
+  - [x] Success: all green. Commit any fixes: `fix: address slice 229 final
         validation`.
+  Note: unit tier 4,620 passed; integration tier 888 passed, 6 failed, all known pre-existing (test_cli_lists priority1 ×2, test_migration_051_052 ×2, test_policy_advances_head unaided ×2). `trading_calendar.py` was already off-format and 589 lines on main; this slice added a 4-line method and left its formatting alone.
