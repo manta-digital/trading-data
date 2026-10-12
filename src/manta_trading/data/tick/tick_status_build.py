@@ -43,6 +43,7 @@ from manta_trading.data.tick.status_reads import (
     shape_units,
 )
 from manta_trading.data.tick.tick_status import (
+    SessionVerdict,
     TickSessionStatus,
     caught_up,
 )
@@ -140,15 +141,25 @@ async def _scope(
     return [session for session in found if in_scope(session)]
 
 
-async def _product_status(
-    conn: Conn,
-    urls: tuple[str, str],
-    entry: TickUniverseEntry,
-    now: datetime,
-    all_instruments: bool,
-) -> ProductStatus:
-    tick_url, calendar_url = urls
-    edge = await dataset_edge(conn, CME_DATASET)
+@dataclass(frozen=True)
+class ProductScope:
+    """The sessions ``status`` judges a product on, and their verdicts (TD9).
+
+    ``sessions`` is the wanted range plus every session a current tier unit
+    touches; ``wanted`` is the UTC window, ``None`` for an untiered product.
+    """
+
+    wanted_start: date | None
+    wanted_end: datetime | None
+    wanted: tuple[datetime, datetime] | None
+    sessions: list[Session]
+    verdicts: list[SessionVerdict]
+
+
+async def product_scope(
+    conn: Conn, calendar_url: str, entry: TickUniverseEntry, edge: Edge | None
+) -> ProductScope:
+    """The one bucket step: ``status`` and 230's accounting line both call it."""
     wanted_start = entry.start if entry.tier is not None else None
     wanted_end = None if wanted_start is None else _wanted_end(entry, edge)
     wanted = (
@@ -158,6 +169,31 @@ async def _product_status(
     )
     sessions = await _scope(conn, calendar_url, entry, wanted)
     verdicts = await session_verdicts(conn, entry, sessions)
+    return ProductScope(wanted_start, wanted_end, wanted, sessions, verdicts)
+
+
+def bucket_counts(verdicts: Sequence[SessionVerdict]) -> dict[str, int]:
+    """Sessions per status, every status present (zeros included)."""
+    counted = Counter(v.status.value for v in verdicts)
+    return {s.value: counted.get(s.value, 0) for s in TickSessionStatus}
+
+
+async def _product_status(
+    conn: Conn,
+    urls: tuple[str, str],
+    entry: TickUniverseEntry,
+    now: datetime,
+    all_instruments: bool,
+) -> ProductStatus:
+    tick_url, calendar_url = urls
+    edge = await dataset_edge(conn, CME_DATASET)
+    scope = await product_scope(conn, calendar_url, entry, edge)
+    wanted_start, wanted_end, wanted = (
+        scope.wanted_start,
+        scope.wanted_end,
+        scope.wanted,
+    )
+    sessions, verdicts = scope.sessions, scope.verdicts
     # TD9 (226): caught up is judged over the wanted range only; sessions in
     # scope because another tier's units touch them neither help nor hurt it.
     judged = [
@@ -167,7 +203,6 @@ async def _product_status(
     ]
     lines = await contract_lines(conn, shape_of(entry))
     spreads = [c for c in lines if c.instrument_class == SPREAD_CLASS]
-    buckets = Counter(v.status.value for v in verdicts)
     return ProductStatus(
         product=entry.product,
         calendar_id=calendar_for_product(entry.product),
@@ -183,7 +218,7 @@ async def _product_status(
             None if edge is None else (now - edge.observed_at).total_seconds()
         ),
         sessions_held=sum(v.held for v in verdicts),
-        buckets={s.value: buckets.get(s.value, 0) for s in TickSessionStatus},
+        buckets=bucket_counts(verdicts),
         degraded=sum(v.condition == DEGRADED for v in verdicts),
         caught_up=caught_up(judged, wanted=wanted_start is not None),
         holed_sessions=tuple(
