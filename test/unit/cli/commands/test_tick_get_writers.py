@@ -191,3 +191,12 @@ def test_partial_text_replaces_the_footer() -> None:
     assert out.splitlines()[-1] == "PARTIAL: 2 row(s), then: server closed"
     assert "row(s)\n" not in out.replace("PARTIAL: 2 row(s), then", "")
     assert err == "server closed\n"
+
+
+def test_nothing_held_says_so_in_the_header() -> None:
+    plan = GetPlan(ContractTarget("ESZ9", 42004134), None, None, (), (), (), (), None)
+
+    out, _ = _run(TICK_GET_TICKS, plan, [], "text")
+
+    assert out.splitlines()[0] == "ESZ9 (42004134)  ticks  nothing held"
+    assert "None" not in out

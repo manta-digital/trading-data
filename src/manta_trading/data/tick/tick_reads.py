@@ -100,7 +100,7 @@ _BARS = sql.SQL(
     " max(price), min(price),"
     " (array_agg(price ORDER BY ts_event DESC, sequence DESC,"
     " sequence_ordinal DESC))[1],"
-    " sum(size)"
+    " sum(size)::bigint"  # numeric otherwise; a bar volume is an integer
     " FROM (SELECT {bucket} AS bucket, ts_event, sequence, sequence_ordinal,"
     " price, size FROM tick_trade WHERE {where}) AS t"
     " GROUP BY bucket ORDER BY bucket"

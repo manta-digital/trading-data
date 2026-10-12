@@ -117,6 +117,7 @@ async def test_session_bar_matches_the_ticks_with_ties_by_key(seeded: str) -> No
         5_003,  # the last tie in key order, not the first inserted
     )
     assert bar["volume"] == 4 + 5 + 1 + 2 + 3
+    assert type(bar["volume"]) is int  # not numeric: JSON must serialize it
 
 
 async def test_1m_volume_sums_sizes_and_skips_empty_buckets(seeded: str) -> None:

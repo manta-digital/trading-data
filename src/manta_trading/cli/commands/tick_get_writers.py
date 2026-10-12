@@ -117,7 +117,10 @@ def _head_lines(plan: GetPlan, what: str) -> list[str]:
         name = f"{target.product}  {rule_label(target.rule).rstrip()}"
         if plan.definitions_as_of is not None:
             name += f"  definitions as of {plan.definitions_as_of}"
-    span = f"{plan.start} → {plan.end} (end exclusive)"
+    if plan.start is None or plan.end is None:
+        span = "nothing held"  # no range given, and no held session to default to
+    else:
+        span = f"{plan.start} → {plan.end} (end exclusive)"
     return [f"{name}  {what}  {span}", *(f"  {_segment_text(s)}" for s in plan.display)]
 
 

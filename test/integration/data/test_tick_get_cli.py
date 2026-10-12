@@ -82,6 +82,18 @@ def test_product_bars_follow_the_schedule(seeded: SeededRoll) -> None:
     assert "1 row(s)" in result.stdout  # the five ticks fall in one hour
 
 
+def test_product_bars_as_json(seeded: SeededRoll) -> None:
+    result = _invoke("1d", "--product", "ES", *SESSION_0918, "--json")
+
+    assert result.exit_code == 0, result.output
+    (bar,) = json.loads(result.stdout)["rows"]
+    assert (bar["raw_symbol"], bar["volume"], bar["open"]) == (
+        "ESZ4",
+        N_TICKS,
+        "5650.25",
+    )
+
+
 def test_unresolved_sessions_print_and_exit_three(seeded: SeededRoll) -> None:
     result = _invoke(
         "1d",
