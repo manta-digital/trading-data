@@ -137,7 +137,8 @@ New modules, each kept near 300 lines:
 | `data/tick/tick_accounting.py` | One `TickAccountingLine` per universe product from the session verdicts, and the unavailable states. |
 | `cli/commands/tick_get_cmds.py` | `get`: option parsing, the plan, streaming output in three formats, exit code. |
 | `cli/commands/tick_debug_cmds.py` | The `debug` sub-typer and its three verbs. |
-| `cli/tick_composed.py` | The one place a composed surface (accounting, overview) opens the tick database and turns each failure into a line state (TD8). |
+| `data/tick/availability.py` | The line-state vocabulary: `TickAvailability` (`ok`, `not_configured`, `unreachable`, `migrations_pending`) and `TickUnavailable(state, detail)`. No I/O, no CLI import; 231 reuses it (TD8). |
+| `cli/tick_composed.py` | The one place a CLI composed surface (accounting, overview) opens the tick database and classifies each failure into a `TickUnavailable` (TD8). |
 
 Changed modules: `cli/commands/tick.py` (registration),
 `cli/commands/accounting.py` (tick section), `cli/commands/overview.py`
@@ -193,9 +194,11 @@ mt data overview  ──▶ gather_db_facts (unchanged, primary DB)
                   └─▶ tick_composed.open() ─▶ newest event from ledger
 ```
 
-Each composed read uses the overview's connect timeout
-(`OVERVIEW_DB_CONNECT_TIMEOUT_SECONDS`) and a read-only connection with a
-statement timeout, so a hung tick cluster cannot stall the screen.
+Each composed read opens a read-only connection with
+`TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS` and
+`TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS` (TD10), so a hung tick cluster
+cannot stall the screen. A statement that hits the timeout gives the
+`unreachable` line, naming the timeout.
 
 ### State Management
 
@@ -233,8 +236,14 @@ mt data tick get WHAT (--contract SYMBOL | --product P [--rule RULE])
   session, and `--end` alone starts at the first.
 - **End date:** exclusive, in session dates, as in every tick verb that
   takes a range (`coverage`, `active`, `pass`). `mt data get` treats its
-  end as inclusive in UTC days. The tick subgroup has one convention, and
-  the help text, runbook and contract row say "end exclusive".
+  end as inclusive in UTC days, so the same `--end` means different ranges
+  on the two tiers. This departs from the architecture's "same questions,
+  same defaults" constraint, on purpose: a tick subgroup with two date
+  conventions would be worse. The departure is recorded, not left implied:
+  - an architecture Revision Log entry (a required task, not optional);
+  - the `get` help text and the runbook both state "end exclusive, unlike
+    `mt data get`";
+  - the I10 contract row names the difference.
 - **The cap:** a product read is bounded by 229's
   `TICK_ROLL_MAX_SESSIONS`, because `build_schedule` enforces it. When the
   held range is longer (the 2020+ universe will be), the default read
@@ -308,7 +317,8 @@ low, close, volume`.
   the two lists go to stderr, so a redirected file stays clean.
 - **JSON:** one object, written incrementally:
   `{target, what, start, end, segments, unresolved, incomplete, rows,
-  row_count, exit_code}`.
+  row_count, complete, error, exit_code}`. `complete` is `false` and
+  `error` is set only when the read stops partway (TD11).
   - `target` is `{product, rule, is_default}` or
     `{contract, instrument_id}`.
   - `unresolved` is `[{session_date, reason}]` (229's shape). `incomplete`
@@ -332,8 +342,7 @@ low, close, volume`.
 ```
 mt data tick debug requests    [--product P] [--start D --end D] [--json]
 mt data tick debug units       [--product P] [--start D --end D]
-                               [--state S] [--fetch-status F]
-                               [--request-id N] [--unit-id N ...] [--json]
+                               [--state S] [--fetch-status F] [--json]
 mt data tick debug definitions [--product P] [--symbol RAW]
                                [--as-of D] [--spreads] [--json]
 ```
@@ -348,7 +357,9 @@ mt data tick debug definitions [--product P] [--symbol RAW]
   counts, superseded-by, repurchase-of, reopened-at. `--state` and
   `--fetch-status` take the `UnitState` / `FetchStatus` values (choices
   rendered from the enums). `--start/--end` filters on `unit_date`,
-  end exclusive.
+  end exclusive. These are the filters an investigation starts from
+  (which units failed, which are stuck, which days). Narrowing to one
+  unit or request is `--json | jq`, so there are no id filters.
 - **definitions:** `tick_definition` rows: instrument id, raw symbol,
   class, activation and expiration (`ts_text`), tick size (`price_text`),
   multiplier, currency, unit id. Outrights only unless `--spreads`, the
@@ -406,9 +417,19 @@ SOURCES
 
 ### TD8. One function opens the tick database for composed surfaces
 
-`tick_composed.open(settings)` returns either a connection or a
-`TickUnavailable(state, detail)`. Accounting and overview render that as
-the line. They never skip the line or fail the command:
+The vocabulary and the opener are split by layer:
+
+- `data/tick/availability.py` holds `TickAvailability` and
+  `TickUnavailable(state, detail)`. It has no I/O and no CLI import, so
+  231 can reuse the states without depending on `cli/`.
+- `cli/tick_composed.open(settings)` connects, checks the tick track, and
+  returns either a connection or a `TickUnavailable`. It serves the CLI's
+  one-shot commands only. The API keeps its own startup-opened,
+  self-reconnecting pool (architecture, "Serving-layer failure posture")
+  and maps that pool's failures onto the same states.
+
+Accounting and overview render a `TickUnavailable` as the line. They never
+skip the line or fail the command:
 
 | Condition | Line |
 |---|---|
@@ -423,7 +444,9 @@ the line. They never skip the line or fail the command:
   where the architecture puts it. The line is the report.
 - This posture is the 234 "loud line, continue" rule applied early, with
   the same three states. 234's health line uses `tick_composed.open`, so
-  the states are defined once.
+  the states are defined once. This makes 230, not 234, the first slice
+  with a tick composing surface. The slice plan's 234 entry is updated to
+  say so.
 - No credential appears in a line. Errors are reduced to their first line,
   and psycopg's connection errors name the host, not the password. A test
   asserts that the URL's password never appears.
@@ -446,9 +469,53 @@ tier has no `backfill` verb either; `pull` plays that role.
 - `TICK_GET_CHOICES = (TICK_GET_TICKS, *TICK_BAR_GRANULARITIES)`
 - `TICK_PRICE_SCALE = 10**9`
 - `TICK_GET_FETCH_ROWS`: the server-side cursor batch size
+- `TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS = 5`: the same bound the overview
+  uses for the primary database, defined separately because accounting
+  uses it too and should not borrow an overview-named constant
+- `TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS = 10`: the bound for any one
+  statement on the accounting or overview tick read. The accounting read
+  is `status`'s verdict step over each product's wanted range, which
+  finishes far inside it on today's data. The walkthrough times it (step
+  6), and the 2020+ universe re-checks it in 232.
 
 Bucket widths come from an existing `Granularity` → duration map if one
 exists, and from one new map otherwise.
+
+### TD11. A streamed `get` that stops partway
+
+Rows are already on stdout when a failure happens, so the output has to
+say it is partial. Exit 0 must never mean that.
+
+**The database drops or a fetch times out** (`OperationalError`, which
+includes `QueryCanceled`, after the first row). The writer stops, rolls
+back the transaction, and finishes the output:
+
+| Format | stdout | stderr | Exit |
+|---|---|---|---|
+| JSON | The object is closed and stays valid: the rows so far, `row_count`, `"complete": false`, `"error": "<first line>"`, `"exit_code": 4` | — | 4 |
+| CSV | The rows so far. No in-band marker, which would corrupt the file | `partial output: N rows written, then: <first line>` | 4 |
+| Text | The rows so far, then `PARTIAL: N row(s), then: <first line>` in place of the `N row(s)` footer | the error | 4 |
+
+A failure before the first row takes the ordinary error path (TD5's exit
+table). On success, JSON carries `"complete": true` and `"error": null`.
+
+**The reader goes away** (`get … | head`, a closed terminal). Python raises
+`BrokenPipeError` on write:
+
+- The writer catches it, closes the cursor, rolls back the transaction and
+  closes the connection.
+- It points stdout at `/dev/null`, so the interpreter's final flush does
+  not raise a second error.
+- It exits 0 with nothing on stderr.
+
+The reader chose to stop, so this is not a failure of `get`. With
+`pipefail`, the pipeline's status is the reader's.
+
+Tests: an integration test terminates the backend
+(`pg_terminate_backend` from a second connection) after the first batch,
+in each format, and checks the output above. A test closes the read end
+of a pipe after the first rows and checks for exit 0, an empty stderr,
+and no open transaction left on the server.
 
 ### Realtime paths
 
@@ -502,10 +569,14 @@ their exit codes. TD7 gives the composed lines. Changed JSON contracts:
     identical between the CLI and the API.
   - The accounting function feeds `/api/v1/status`.
   - The ledger freshness read feeds `/api/v1/overview`.
-  - `tick_composed`'s three states map to the API's 503 / health field.
+  - `data/tick/availability.py`'s states are the vocabulary for the API's
+    503 and health field. 231 reuses the states, not the CLI opener, and
+    maps its own pool's failures onto them.
 - **232:** GC appears in `get`, `debug`, accounting and overview with no
   code change once it is in `TICK_UNIVERSE`.
-- **234:** `tick_composed.open` is the health line's opener. 234 adds
+- **234:** `tick_composed.open` is the health line's opener, and 230 is
+  now the first tick composing surface (the slice plan's 234 entry is
+  updated). 234 adds
   `MT_TICK_DB_URL` to `/etc/manta-trading.env`, which turns production's
   `not configured` overview line into a real one.
 
@@ -549,6 +620,10 @@ their exit codes. TD7 gives the composed lines. Changed JSON contracts:
    is null or empty, never `9223372036.854775807`.
 10. `--csv` writes only the header and rows to stdout. Segments and lists
     go to stderr.
+10a. A tick connection killed after the first batch gives TD11's partial
+    output in each format and exits 4. JSON stays parseable with
+    `"complete": false`. A reader that closes the pipe early gets exit 0,
+    an empty stderr, and no transaction is left open.
 11. `debug requests`, `debug units` and `debug definitions` return the
     rows their filters select. `--state`/`--fetch-status` reject values
     outside the enums. Definitions hide spreads unless `--spreads`.
@@ -599,7 +674,9 @@ their exit codes. TD7 gives the composed lines. Changed JSON contracts:
 - Contract (`reference/data-correctness-architecture.md`):
   - I8 gains `mt data tick debug` as the tick tier's no-SQL investigation
     surface;
-  - I10 gains `get`, `debug`, and `pass` as the backfill (TD9);
+  - I10 gains `get`, `debug`, and `pass` as the backfill (TD9), and
+    states that tick `--end` is exclusive in session dates while
+    `mt data get`'s is inclusive (TD2);
   - I14 gains 230's rule: a product-level `get` serves one contract per
     session, lists unresolved and incomplete sessions, and exits 3;
   - the Required CLI commands list gains the new verbs.
@@ -680,9 +757,13 @@ ESZ4 = 183748).
 6. **Accounting and overview, healthy.**
 
    ```
-   mt data accounting
+   time mt data accounting
    mt data overview
    ```
+
+   The accounting run finishes well inside
+   `TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS`. Record the time in the
+   walkthrough notes.
 
    Accounting ends with the `futures tick universe` line, whose session
    counts match `mt data tick status --product ES`. The overview SOURCES
@@ -724,9 +805,9 @@ ESZ4 = 183748).
 4. The `get` command and its three writers; the walkthrough steps 1–4.
 5. `debug_reads` and `tick_debug_cmds`; step 5.
 6. `tick_composed`, then the accounting and overview lines; steps 6–8.
-7. Runbook, contract rows, the pass-contract diff task, and the
-   architecture Revision Log entry if any statement is narrowed (TD2's
-   end-exclusive date is the candidate).
+7. Runbook, contract rows, the pass-contract diff task, the architecture
+   Revision Log entry for TD2's end-exclusive date (required), and the
+   slice plan's 234 entry (230 is the first tick composing surface).
 
 Commit after each of these groups.
 
