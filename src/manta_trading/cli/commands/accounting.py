@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 import psycopg
 import typer
@@ -23,6 +24,18 @@ from manta_trading.data.gaps.minute_accounting import (
     summary_line,
 )
 from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
+from manta_trading.data.tick.line_state import (
+    TickLineState,
+    TickUnavailable,
+    unavailable_text,
+)
+from manta_trading.data.tick.tick_accounting import TickAccountingLine
+from manta_trading.data.tick.tick_status import TickSessionStatus
+
+if TYPE_CHECKING:
+    from manta_trading.config import Settings
+
+TICK_SECTION_TITLE = "futures tick universe:"
 
 
 EXIT_ACCOUNTING_OK = 0
@@ -84,11 +97,65 @@ def data_accounting(
                 detail=summary_line(rows),
             )
 
+    # The tick section comes after the pass row is closed: its state never
+    # changes the exit code or the recorded minute detail (230 TD7, TD8).
+    tick = _tick_lines(settings)
     if json_output:
         print_result(
-            {"rows": [asdict(r) for r in rows], "summary": summary_line(rows)},
+            {
+                "rows": [asdict(r) for r in rows],
+                "summary": summary_line(rows),
+                "tick": _tick_payload(tick),
+            },
             json_mode=True,
         )
         return
     typer.echo(render_minute_accounting(rows))
     typer.echo(summary_line(rows))
+    typer.echo(_tick_text(tick))
+
+
+_TickResult = list[TickAccountingLine] | TickUnavailable
+
+
+def _tick_lines(settings: Settings) -> _TickResult:
+    from manta_trading.cli.tick_composed import read_line
+    from manta_trading.data.tick.tick_accounting import accounting_lines
+    from manta_trading.data.tick.tick_calendar import calendar_url
+    from manta_trading.data.tick.universe import TICK_UNIVERSE
+
+    url = calendar_url(settings)
+    return read_line(settings, lambda conn: accounting_lines(conn, url, TICK_UNIVERSE))
+
+
+def _tick_payload(tick: _TickResult) -> dict[str, Any]:
+    if isinstance(tick, TickUnavailable):
+        return {"state": tick.state.value, "detail": tick.detail, "products": []}
+    return {
+        "state": TickLineState.OK.value,
+        "detail": None,
+        "products": [asdict(line) for line in tick],
+    }
+
+
+def _tick_line_text(line: TickAccountingLine) -> str:
+    if line.sessions_in_scope == 0:
+        return f"  {line.product}  no sessions in scope"
+    share = 100 * line.sessions_complete / line.sessions_in_scope
+    rest = "; ".join(
+        f"{count} {status.replace('_', ' ')}"
+        for status, count in line.buckets.items()
+        if count and status != TickSessionStatus.COMPLETE.value
+    )
+    return (
+        f"  {line.product}  {line.sessions_complete}/{line.sessions_in_scope}"
+        f" sessions complete ({share:.1f}%)"
+        + (f"; {rest}" if rest else "")
+        + f"  · {line.records:,} records"
+    )
+
+
+def _tick_text(tick: _TickResult) -> str:
+    if isinstance(tick, TickUnavailable):
+        return f"{TICK_SECTION_TITLE}  {unavailable_text(tick)}"
+    return "\n".join([TICK_SECTION_TITLE, *(_tick_line_text(line) for line in tick)])

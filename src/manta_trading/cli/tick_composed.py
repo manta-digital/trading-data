@@ -28,7 +28,11 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
 from manta_trading.data.tick.manifest_reads import Conn
-from manta_trading.data.tick.store_context import missing_migrations
+from manta_trading.data.tick.store_context import (
+    TickPreflightError,
+    missing_migrations,
+)
+from manta_trading.data.tick.tick_calendar import TickCalendarError
 from manta_trading.market.schema.databases import (
     Credential,
     Database,
@@ -37,6 +41,11 @@ from manta_trading.market.schema.databases import (
 )
 
 _SCRUBBED = "***"
+#: What a composed read can raise once connected: the tick database dropping
+#: or timing out (``QueryCanceled`` is an ``OperationalError``), or the
+#: calendar it reads sessions from failing or refusing the range. Each is the
+#: line's ``unreachable`` state, never a failed command (FR14).
+_READ_FAILURES = (psycopg.OperationalError, TickCalendarError, TickPreflightError)
 
 
 def _first_line(exc: BaseException, password: str | None) -> str:
@@ -54,7 +63,7 @@ def _password(settings: Settings) -> str | None:
     return None if password is None else str(password)
 
 
-def classify(exc: psycopg.OperationalError, settings: Settings) -> TickUnavailable:
+def classify(exc: Exception, settings: Settings) -> TickUnavailable:
     """A connect or read failure as the ``unreachable`` line; a cancelled
     statement names the timeout. The URL's password is scrubbed."""
     detail = _first_line(exc, _password(settings))
@@ -103,7 +112,7 @@ async def _read[T](
         return opened
     try:
         return await read(opened)
-    except psycopg.OperationalError as exc:  # QueryCanceled included
+    except _READ_FAILURES as exc:
         return classify(exc, settings)
     finally:
         await opened.close()

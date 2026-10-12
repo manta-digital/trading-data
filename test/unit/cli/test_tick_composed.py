@@ -140,3 +140,23 @@ def test_a_good_read_returns_its_value(
 
     assert tick_composed.read_line(_settings(_dead_url()), read) == 42
     assert fake.closed
+
+
+def test_a_calendar_refusal_during_the_read_is_a_line_not_a_crash(
+    no_tick_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from manta_trading.data.tick.tick_calendar import TickCalendarError
+
+    async def opened(_: Settings) -> _FakeConn:
+        return _FakeConn()
+
+    async def read(_: Any) -> int:
+        raise TickCalendarError("calendar CME_EQUITY unavailable: refused")
+
+    monkeypatch.setattr(tick_composed, "open", opened)
+
+    line = tick_composed.read_line(_settings(_dead_url()), read)
+
+    assert line == TickUnavailable(
+        TickLineState.UNREACHABLE, "calendar CME_EQUITY unavailable: refused"
+    )

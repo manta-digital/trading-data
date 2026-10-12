@@ -39,6 +39,7 @@ from manta_trading.cli.commands.health import (
 )
 from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.gaps.minute_accounting import MinuteAccountingRow
+from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
 
 runner = CliRunner()
 
@@ -221,6 +222,14 @@ def _run_accounting(
                 "manta_trading.cli.commands.accounting.compute_minute_accounting",
                 side_effect=compute_raises,
                 return_value=rows,
+            ),
+            # The 230 tick section reads its own database; a MagicMock
+            # settings has no tick URL to give it.
+            patch(
+                "manta_trading.cli.commands.accounting._tick_lines",
+                return_value=TickUnavailable(
+                    TickLineState.NOT_CONFIGURED, "MT_TICK_DB_URL unset"
+                ),
             ),
         ):
             result = runner.invoke(app, ["data", "accounting"])
