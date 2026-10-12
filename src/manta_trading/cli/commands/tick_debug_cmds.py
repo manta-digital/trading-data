@@ -35,7 +35,7 @@ from manta_trading.cli.commands.tick_store_cmds import (
 from manta_trading.cli.output import make_table, print_result
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import UnitState
-from manta_trading.data.tick.debug_reads import NS_COLUMNS, PRICE_COLUMNS, Row
+from manta_trading.data.tick.debug_reads import NS_COLUMNS, PRICE_COLUMNS, DebugRow
 from manta_trading.data.tick.tick_format import price_text, ts_text
 
 if TYPE_CHECKING:
@@ -109,7 +109,7 @@ def _cell(name: str, value: Any) -> Any:
     return value
 
 
-def _print(title: str, rows: list[Row], json_output: bool) -> None:
+def _print(title: str, rows: list[DebugRow], json_output: bool) -> None:
     cells = [{k: _cell(k, v) for k, v in row.items()} for row in rows]
     if json_output:
         print_result({"rows": cells, "exit_code": EXIT_OK}, json_mode=True)
@@ -124,15 +124,15 @@ def _print(title: str, rows: list[Row], json_output: bool) -> None:
 def _run(
     ctx: typer.Context,
     json_output: bool,
-    read: Callable[[Conn, Settings], Coroutine[Any, Any, list[Row]]],
-) -> list[Row]:
+    read: Callable[[Conn, Settings], Coroutine[Any, Any, list[DebugRow]]],
+) -> list[DebugRow]:
     """Connect (migrations checked), read in one READ ONLY transaction."""
     from manta_trading.data.tick.active_contract import roll_conninfo
     from manta_trading.data.tick.store_context import connect_migrated, database_url
 
     settings: Settings = ctx.obj["settings"]
 
-    async def main() -> list[Row]:
+    async def main() -> list[DebugRow]:
         conn = await connect_migrated(roll_conninfo(database_url(settings)))
         try:
             await conn.set_read_only(True)
@@ -159,7 +159,7 @@ def debug_requests(
     """tick_request rows: shape, range, adoption, job, costs, times."""
     from manta_trading.data.tick.debug_reads import requests
 
-    async def read(conn: Conn, _: Settings) -> list[Row]:
+    async def read(conn: Conn, _: Settings) -> list[DebugRow]:
         return await requests(conn, _symbols(product), _day(start), _day(end))
 
     _print("requests", _run(ctx, json_output, read), json_output)
@@ -182,7 +182,7 @@ def debug_units(
     chosen = _member(UnitState, state, "--state", json_output)
     status = _member(FetchStatus, fetch_status, "--fetch-status", json_output)
 
-    async def read(conn: Conn, _: Settings) -> list[Row]:
+    async def read(conn: Conn, _: Settings) -> list[DebugRow]:
         span = (_day(start), _day(end))
         return await units(conn, _symbols(product), span, chosen, status)
 
@@ -219,7 +219,7 @@ def debug_definitions(
     if as_of is not None and product is None:
         refuse("--as-of needs --product (its calendar dates the session)", json_output)
 
-    async def read(conn: Conn, settings: Settings) -> list[Row]:
+    async def read(conn: Conn, settings: Settings) -> list[DebugRow]:
         asset = None if product is None else universe_entries(product)[0].product
         at_ns = None
         if as_of is not None and asset is not None:

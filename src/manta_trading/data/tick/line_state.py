@@ -22,6 +22,9 @@ class TickLineState(StrEnum):
     NOT_CONFIGURED = "not_configured"
     UNREACHABLE = "unreachable"
     MIGRATIONS_PENDING = "migrations_pending"
+    #: Reachable, but the read was refused or failed: a calendar that does not
+    #: reach the range, or an unexpected database error. Not an outage.
+    FAILED = "failed"
 
 
 @dataclass(frozen=True)
@@ -32,9 +35,16 @@ class TickUnavailable:
     detail: str
 
 
+def first_line(exc: BaseException) -> str:
+    """An error as one line for an operator: its first line, or its type."""
+    lines = str(exc).strip().splitlines()
+    return lines[0] if lines else type(exc).__name__
+
+
 def unavailable_text(unavailable: TickUnavailable) -> str:
     """The line's text: ``not configured (MT_TICK_DB_URL unset)``,
-    ``unreachable: <error>``, ``migrations pending (<remedy>)``."""
+    ``unreachable: <error>``, ``migrations pending (<remedy>)``,
+    ``failed: <error>``."""
     match unavailable.state:
         case TickLineState.NOT_CONFIGURED:
             return f"not configured ({unavailable.detail})"
@@ -42,5 +52,7 @@ def unavailable_text(unavailable: TickUnavailable) -> str:
             return f"unreachable: {unavailable.detail}"
         case TickLineState.MIGRATIONS_PENDING:
             return f"migrations pending ({TICK_MIGRATE_COMMAND})"
+        case TickLineState.FAILED:
+            return f"failed: {unavailable.detail}"
         case TickLineState.OK:
             raise ValueError("an ok tick line is not unavailable")

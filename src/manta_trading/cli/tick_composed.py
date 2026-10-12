@@ -1,7 +1,7 @@
 """Open the tick database for a CLI composed surface (slice 230, TD8).
 
 ``mt data accounting`` and ``mt data overview`` (and 234's ``health``) read
-the tick database for one line. :func:`open` returns a connection or a
+the tick database for one line. :func:`connect` returns a connection or a
 :class:`TickUnavailable` saying why not; :func:`classify` turns a failure
 during the read itself into the same states; :func:`read_line` composes the
 two for a synchronous command. A tick outage never fails the command: the
@@ -26,7 +26,11 @@ from manta_trading.data.tick.constants import (
     TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS,
     TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS,
 )
-from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
+from manta_trading.data.tick.line_state import (
+    TickLineState,
+    TickUnavailable,
+    first_line,
+)
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.store_context import (
     TickPreflightError,
@@ -41,17 +45,14 @@ from manta_trading.market.schema.databases import (
 )
 
 _SCRUBBED = "***"
-#: What a composed read can raise once connected: the tick database dropping
-#: or timing out (``QueryCanceled`` is an ``OperationalError``), or the
-#: calendar it reads sessions from failing or refusing the range. Each is the
-#: line's ``unreachable`` state, never a failed command (FR14).
-_READ_FAILURES = (psycopg.OperationalError, TickCalendarError, TickPreflightError)
-
-
-def _first_line(exc: BaseException, password: str | None) -> str:
-    lines = str(exc).strip().splitlines()
-    text = lines[0] if lines else type(exc).__name__
-    return text.replace(password, _SCRUBBED) if password else text
+#: Outages: the tick database or the calendar did not answer, dropped, or
+#: timed out (``QueryCanceled`` is an ``OperationalError``) → ``unreachable``.
+_OUTAGES = (psycopg.OperationalError, TickCalendarError)
+#: Everything a composed read can raise once connected: the outages, a
+#: calendar refusing the range (``TickPreflightError``), and any other
+#: database error. Each becomes the line (``failed`` unless an outage), never
+#: a failed command: the tick line must not take down the minute screen (FR14).
+_READ_FAILURES = (psycopg.Error, TickCalendarError, TickPreflightError)
 
 
 def _password(settings: Settings) -> str | None:
@@ -64,9 +65,15 @@ def _password(settings: Settings) -> str | None:
 
 
 def classify(exc: Exception, settings: Settings) -> TickUnavailable:
-    """A connect or read failure as the ``unreachable`` line; a cancelled
-    statement names the timeout. The URL's password is scrubbed."""
-    detail = _first_line(exc, _password(settings))
+    """A connect or read failure as the line: an outage is ``unreachable``
+    (a cancelled statement names the timeout), anything else ``failed``. The
+    URL's password is scrubbed."""
+    password = _password(settings)
+    detail = first_line(exc)
+    if password:
+        detail = detail.replace(password, _SCRUBBED)
+    if not isinstance(exc, _OUTAGES):
+        return TickUnavailable(TickLineState.FAILED, detail)
     if isinstance(exc, psycopg.errors.QueryCanceled):
         detail = (
             f"statement timeout ({TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS} s): {detail}"
@@ -74,7 +81,7 @@ def classify(exc: Exception, settings: Settings) -> TickUnavailable:
     return TickUnavailable(TickLineState.UNREACHABLE, detail)
 
 
-async def open(settings: Settings) -> Conn | TickUnavailable:
+async def connect(settings: Settings) -> Conn | TickUnavailable:
     """A bounded, read-only, autocommit tick connection, or why there is none.
     The caller closes the connection."""
     try:
@@ -95,7 +102,7 @@ async def open(settings: Settings) -> Conn | TickUnavailable:
         return classify(exc, settings)
     try:
         missing = await missing_migrations(conn)
-    except psycopg.OperationalError as exc:
+    except psycopg.Error as exc:
         await conn.close()
         return classify(exc, settings)
     if missing:
@@ -107,12 +114,14 @@ async def open(settings: Settings) -> Conn | TickUnavailable:
 async def _read[T](
     settings: Settings, read: Callable[[Conn], Awaitable[T]]
 ) -> T | TickUnavailable:
-    opened = await open(settings)
+    opened = await connect(settings)
     if isinstance(opened, TickUnavailable):
         return opened
     try:
         return await read(opened)
     except _READ_FAILURES as exc:
+        # Not swallowed: the error becomes the line the command prints, with
+        # its first line as the detail (FR14, TD8).
         return classify(exc, settings)
     finally:
         await opened.close()

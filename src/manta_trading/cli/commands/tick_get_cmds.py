@@ -39,6 +39,7 @@ from manta_trading.cli.commands.tick_store_cmds import (
     run_mapped,
 )
 from manta_trading.data.tick.constants import TICK_GET_CHOICES, TICK_GET_TICKS
+from manta_trading.data.tick.line_state import first_line
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE, RollRule
 
 if TYPE_CHECKING:
@@ -94,11 +95,6 @@ _END_OPTION = typer.Option(
 _CSV_OPTION = typer.Option(
     False, "--csv", help="CSV on stdout: header and rows only (lists on stderr)."
 )
-
-
-def _first_line(exc: BaseException) -> str:
-    lines = str(exc).strip().splitlines()
-    return lines[0] if lines else type(exc).__name__
 
 
 def _rule(
@@ -161,8 +157,12 @@ async def _stream(conn: Conn, plan: GetPlan, what: str, writer: GetWriter) -> in
                     await read_bars(conn, window, Granularity(what), on_batch)
     except psycopg.OperationalError as exc:  # QueryCanceled included
         if written == 0:
-            raise  # nothing printed yet: the ordinary error path
-        writer.partial(written, _first_line(exc))
+            raise  # nothing printed yet: the ordinary error path (run_mapped)
+        # Not swallowed: rows are already on stdout, so this is the output
+        # boundary. The writer reports the error in the output itself
+        # (PARTIAL footer, stderr line, or "complete": false) and the run
+        # exits 4 (TD11); raising here would leave a truncated, unmarked file.
+        writer.partial(written, first_line(exc))
         return EXIT_STORAGE
     if written == 0:
         writer.begin(plan)

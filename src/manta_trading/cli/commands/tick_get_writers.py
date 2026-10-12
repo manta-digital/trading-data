@@ -54,6 +54,8 @@ _WIDTHS = {
     "side": 4,
     "sequence": 12,
 }
+#: Text width for a column ``_WIDTHS`` does not list (sizes, counts).
+_DEFAULT_WIDTH = 8
 _TEXT_NULL = "-"
 
 
@@ -98,6 +100,11 @@ def _target_dict(plan: GetPlan) -> dict[str, Any]:
     }
 
 
+def _members(values: dict[str, Any]) -> str:
+    """JSON object members, ``"key": value, ...``, without the braces."""
+    return ", ".join(f"{json.dumps(k)}: {json.dumps(v)}" for k, v in values.items())
+
+
 def _iso(day: Any) -> str | None:
     return None if day is None else day.isoformat()
 
@@ -135,17 +142,17 @@ class TextWriter:
     def __init__(self, what: str, out: TextIO, err: TextIO) -> None:
         self._what, self._out, self._err = what, out, err
         self._columns = columns_for(what)
-        self._plan: GetPlan | None = None
+        self._lists: list[str] = []
         self._n = 0
 
     def _line(self, cells: Sequence[Any]) -> str:
         return "  ".join(
-            str(c).ljust(_WIDTHS.get(n, 8))
+            str(c).ljust(_WIDTHS.get(n, _DEFAULT_WIDTH))
             for n, c in zip(self._columns, cells, strict=True)
         ).rstrip()
 
     def begin(self, plan: GetPlan) -> None:
-        self._plan = plan
+        self._lists = _list_lines(plan)  # printed after the rows
         lines = [*_head_lines(plan, self._what), self._line(self._columns)]
         self._out.write("\n".join(lines) + "\n")
 
@@ -161,19 +168,17 @@ class TextWriter:
             )
         )
 
-    def _lists(self) -> None:
-        assert self._plan is not None
-        lines = _list_lines(self._plan)
-        if lines:
-            self._out.write("\n".join(lines) + "\n")
+    def _write_lists(self) -> None:
+        if self._lists:
+            self._out.write("\n".join(self._lists) + "\n")
 
     def finish(self, exit_code: int) -> None:
         self._out.write(f"{self._n} row(s)\n")
-        self._lists()
+        self._write_lists()
 
     def partial(self, n_rows: int, error: str) -> None:
         self._out.write(f"PARTIAL: {n_rows} row(s), then: {error}\n")
-        self._lists()
+        self._write_lists()
         self._err.write(f"{error}\n")
 
 
@@ -231,8 +236,9 @@ class JsonWriter:
                 for i in plan.incomplete
             ],
         }
-        # The object stays open at "rows": [ ; the tail closes it.
-        self._out.write(json.dumps(head)[:-1] + ', "rows": [')
+        # Written member by member: the object stays open inside "rows" until
+        # _close writes the remaining members and the closing brace.
+        self._out.write("{" + _members(head) + ', "rows": [')
 
     def rows(self, batch: Sequence[Row]) -> None:
         if not batch:
@@ -252,7 +258,7 @@ class JsonWriter:
             "error": error,
             "exit_code": exit_code,
         }
-        self._out.write("], " + json.dumps(tail)[1:] + "\n")
+        self._out.write("], " + _members(tail) + "}\n")
 
     def finish(self, exit_code: int) -> None:
         self._close(True, None, exit_code)

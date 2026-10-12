@@ -19,7 +19,8 @@ from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import OUTRIGHT_CLASS, UnitState
 from manta_trading.data.tick.manifest_reads import Conn
 
-Row = dict[str, Any]
+#: One debug row, keyed by column (``tick_reads.Row`` is a positional tuple).
+DebugRow = dict[str, Any]
 
 #: Columns holding epoch nanoseconds and fixed-point prices, for the renderer.
 NS_COLUMNS = frozenset({"activation_ns", "expiration_ns"})
@@ -63,7 +64,7 @@ _DEFINITIONS = (
 )
 
 
-async def _rows(conn: Conn, query: str, params: dict[str, Any]) -> list[Row]:
+async def _rows(conn: Conn, query: str, params: dict[str, Any]) -> list[DebugRow]:
     async with conn.cursor(row_factory=dict_row) as cursor:
         await cursor.execute(query, params)  # type: ignore[arg-type]
         return await cursor.fetchall()
@@ -74,7 +75,7 @@ async def requests(
     symbols: Sequence[str] | None,
     start: date | None,
     end: date | None,
-) -> list[Row]:
+) -> list[DebugRow]:
     """``tick_request`` rows of the shape ``symbols``, meeting ``[start, end)``."""
     params = {
         "symbols": None if symbols is None else list(symbols),
@@ -90,7 +91,7 @@ async def units(
     span: tuple[date | None, date | None],
     state: UnitState | None,
     fetch_status: FetchStatus | None,
-) -> list[Row]:
+) -> list[DebugRow]:
     """``tick_archive_unit`` rows with their request's schema; ``unit_date``
     in ``span`` (end exclusive)."""
     params = {
@@ -113,7 +114,7 @@ async def definitions(
     symbol: str | None,
     at_ns: int | None,
     spreads: bool,
-) -> list[Row]:
+) -> list[DebugRow]:
     """``tick_definition`` rows; outrights only unless ``spreads``. ``at_ns``
     keeps the rows valid at that instant (a session's open, resolved by the
     caller from the calendar)."""

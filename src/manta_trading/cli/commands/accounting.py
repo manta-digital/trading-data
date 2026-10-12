@@ -127,8 +127,12 @@ def _tick_lines(settings: Settings) -> _TickResult:
     from manta_trading.data.tick.tick_calendar import calendar_url
     from manta_trading.data.tick.universe import TICK_UNIVERSE
 
-    url = calendar_url(settings)
-    return read_line(settings, lambda conn: accounting_lines(conn, url, TICK_UNIVERSE))
+    # The calendar URL is resolved inside the guarded read, so even its
+    # refusal becomes the line rather than a failed command.
+    return read_line(
+        settings,
+        lambda conn: accounting_lines(conn, calendar_url(settings), TICK_UNIVERSE),
+    )
 
 
 def _tick_payload(tick: _TickResult) -> dict[str, Any]:

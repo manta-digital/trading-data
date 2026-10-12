@@ -21,6 +21,7 @@ from manta_trading.data.tick.line_state import (
     TickUnavailable,
     unavailable_text,
 )
+from manta_trading.data.tick.store_context import TickPreflightError
 
 SECRET = "Sw0rdf1sh-tick-pw"
 
@@ -52,7 +53,7 @@ def no_tick_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_unset_url_is_not_configured(no_tick_env: None) -> None:
-    line = asyncio.run(tick_composed.open(_settings(None)))
+    line = asyncio.run(tick_composed.connect(_settings(None)))
 
     assert line == TickUnavailable(TickLineState.NOT_CONFIGURED, "MT_TICK_DB_URL unset")
     assert unavailable_text(line) == "not configured (MT_TICK_DB_URL unset)"
@@ -61,7 +62,7 @@ def test_unset_url_is_not_configured(no_tick_env: None) -> None:
 def test_refused_port_is_unreachable_and_never_shows_the_password(
     no_tick_env: None,
 ) -> None:
-    line = asyncio.run(tick_composed.open(_settings(_dead_url())))
+    line = asyncio.run(tick_composed.connect(_settings(_dead_url())))
 
     assert isinstance(line, TickUnavailable)
     assert line.state is TickLineState.UNREACHABLE
@@ -91,7 +92,7 @@ def test_pending_migrations(no_tick_env: None, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(psycopg.AsyncConnection, "connect", connect)
     monkeypatch.setattr(tick_composed, "missing_migrations", missing)
 
-    line = asyncio.run(tick_composed.open(_settings(_dead_url())))
+    line = asyncio.run(tick_composed.connect(_settings(_dead_url())))
 
     assert isinstance(line, TickUnavailable)
     assert unavailable_text(line) == (
@@ -113,7 +114,7 @@ def test_a_late_statement_timeout_is_unreachable_naming_it(
             "canceling statement due to statement timeout"
         )
 
-    monkeypatch.setattr(tick_composed, "open", opened)
+    monkeypatch.setattr(tick_composed, "connect", opened)
 
     line = tick_composed.read_line(_settings(_dead_url()), read)
 
@@ -136,7 +137,7 @@ def test_a_good_read_returns_its_value(
     async def read(_: Any) -> int:
         return 42
 
-    monkeypatch.setattr(tick_composed, "open", opened)
+    monkeypatch.setattr(tick_composed, "connect", opened)
 
     assert tick_composed.read_line(_settings(_dead_url()), read) == 42
     assert fake.closed
@@ -153,10 +154,36 @@ def test_a_calendar_refusal_during_the_read_is_a_line_not_a_crash(
     async def read(_: Any) -> int:
         raise TickCalendarError("calendar CME_EQUITY unavailable: refused")
 
-    monkeypatch.setattr(tick_composed, "open", opened)
+    monkeypatch.setattr(tick_composed, "connect", opened)
 
     line = tick_composed.read_line(_settings(_dead_url()), read)
 
     assert line == TickUnavailable(
         TickLineState.UNREACHABLE, "calendar CME_EQUITY unavailable: refused"
     )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TickPreflightError("calendar CME_EQUITY: no sessions after 2026-12-31"),
+        psycopg.errors.UndefinedTable('relation "tick_x" does not exist'),
+    ],
+    ids=["calendar refusal", "unexpected database error"],
+)
+def test_a_refusal_or_unexpected_error_is_failed_not_unreachable(
+    no_tick_env: None, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    async def opened(_: Settings) -> _FakeConn:
+        return _FakeConn()
+
+    async def read(_: Any) -> int:
+        raise error
+
+    monkeypatch.setattr(tick_composed, "connect", opened)
+
+    line = tick_composed.read_line(_settings(_dead_url()), read)
+
+    assert isinstance(line, TickUnavailable)
+    assert line.state is TickLineState.FAILED
+    assert unavailable_text(line) == f"failed: {str(error).splitlines()[0]}"
