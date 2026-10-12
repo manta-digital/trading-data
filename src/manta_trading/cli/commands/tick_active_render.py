@@ -29,7 +29,8 @@ _RULE_WIDTH = len(f"{DEFAULT_ROLL_RULE} (default)")
 _INDENT = "    "
 
 
-def _rule_label(rule: RollRule) -> str:
+def rule_label(rule: RollRule) -> str:
+    """``v.0 (default)`` for the default rule; padded to a fixed width."""
     label = f"{rule} (default)" if rule == DEFAULT_ROLL_RULE else str(rule)
     return label.ljust(_RULE_WIDTH)
 
@@ -38,8 +39,13 @@ def _expiry(moment: datetime) -> str:
     return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
 
 
+def contract_label(raw_symbol: str, instrument_id: int) -> str:
+    """``ESU4 (118)``: the symbol and the id that pins it (230 reuses it)."""
+    return f"{raw_symbol} ({instrument_id})"
+
+
 def _contract(answer: ActiveContract) -> str:
-    return f"{answer.raw_symbol} ({answer.instrument_id})"
+    return contract_label(answer.raw_symbol, answer.instrument_id)
 
 
 def _next_roll_lines(line: ActiveLine) -> list[str]:
@@ -57,7 +63,7 @@ def _next_roll_lines(line: ActiveLine) -> list[str]:
 
 def active_line_text(line: ActiveLine) -> list[str]:
     """One rule's latest-session block, as TD7 shows it."""
-    head = f"{line.product}  {_rule_label(line.rule)}  "
+    head = f"{line.product}  {rule_label(line.rule)}  "
     if line.error is not None:
         return [f"{head}error: {line.error}"]
     if line.reason is not None:
@@ -82,7 +88,7 @@ def active_line_text(line: ActiveLine) -> list[str]:
 
 
 def schedule_text(schedule: RollSchedule) -> list[str]:
-    head = f"{schedule.product}  {_rule_label(schedule.rule)}  "
+    head = f"{schedule.product}  {rule_label(schedule.rule)}  "
     pad = " " * len(head)
     segments = schedule.segments()
     lines = [

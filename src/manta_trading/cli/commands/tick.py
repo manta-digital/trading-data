@@ -30,6 +30,7 @@ from manta_trading.cli.commands.tick_exit import (
     EXIT_REFUSED,
     EXIT_STORAGE,
 )
+from manta_trading.cli.commands.tick_get_cmds import GET_EPILOG, tick_get
 from manta_trading.cli.commands.tick_render import print_estimate
 from manta_trading.cli.commands.tick_store_cmds import (
     INGEST_EPILOG,
@@ -62,7 +63,7 @@ _EXIT_EPILOG = (
 tick_app = typer.Typer(
     name="tick",
     help="Futures tick data (Databento): cost preflight, adoption, reset, pass, "
-    "ingest, status, coverage.",
+    "ingest, status, coverage, active, get.",
     no_args_is_help=True,
 )
 
@@ -288,3 +289,4 @@ tick_app.command("ingest", epilog=INGEST_EPILOG)(tick_ingest)
 tick_app.command("status", epilog=READ_EPILOG)(tick_status)
 tick_app.command("coverage", epilog=READ_EPILOG)(tick_coverage)
 tick_app.command("active", epilog=ACTIVE_EPILOG)(tick_active)
+tick_app.command("get", epilog=GET_EPILOG)(tick_get)

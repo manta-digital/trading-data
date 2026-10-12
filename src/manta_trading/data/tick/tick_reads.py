@@ -58,6 +58,8 @@ BAR_COLUMNS = (
 #: The columns that hold fixed-point prices, for the writers.
 TICK_PRICE_COLUMNS = frozenset({"price", "bid_px", "ask_px"})
 BAR_PRICE_COLUMNS = frozenset({"open", "high", "low", "close"})
+#: The columns that hold epoch nanoseconds, for the writers.
+TIME_COLUMNS = frozenset({"ts_event", "time"})
 
 Row = tuple[Any, ...]
 OnBatch = Callable[[Sequence[Row]], None]

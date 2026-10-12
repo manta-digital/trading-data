@@ -67,7 +67,7 @@ _END_OPTION = typer.Option(
 )
 
 
-def _refuse(message: str, json_output: bool) -> NoReturn:
+def refuse(message: str, json_output: bool) -> NoReturn:
     print_error(message, json_mode=json_output)
     raise typer.Exit(EXIT_PREFLIGHT)
 
@@ -78,7 +78,7 @@ def _rules(rule: str | None, json_output: bool) -> tuple[RollRule, ...]:
     try:
         return (RollRule.parse(rule),)
     except ValueError as exc:
-        _refuse(str(exc), json_output)
+        refuse(str(exc), json_output)
 
 
 def _range(
@@ -87,9 +87,9 @@ def _range(
     if start is None and end is None:
         return None
     if start is None or end is None:
-        _refuse("--start and --end go together", json_output)
+        refuse("--start and --end go together", json_output)
     if end <= start:
-        _refuse(
+        refuse(
             f"--end {end:%Y-%m-%d} must be after --start {start:%Y-%m-%d}"
             " (end is exclusive)",
             json_output,

@@ -44,7 +44,7 @@ CONTRACT_KEYS = (
 )
 
 
-def _unresolved_dict(answer: Unresolved) -> dict[str, str]:
+def unresolved_dict(answer: Unresolved) -> dict[str, str]:
     return {"session_date": answer.session_date.isoformat(), "reason": answer.reason}
 
 
@@ -67,7 +67,7 @@ def active_line_dict(line: ActiveLine) -> dict[str, Any]:
         "is_default": line.rule == DEFAULT_ROLL_RULE,
         **contract,
         "unresolved": (
-            [_unresolved_dict(answer)] if isinstance(answer, Unresolved) else []
+            [unresolved_dict(answer)] if isinstance(answer, Unresolved) else []
         ),
         "next_roll": None if roll is None else contract_dict(roll.contract),
         "known_through": _iso(line.known_through),
@@ -97,5 +97,5 @@ def schedule_dict(schedule: RollSchedule) -> dict[str, Any]:
         "answers": [
             contract_dict(a) for a in schedule.answers if isinstance(a, ActiveContract)
         ],
-        "unresolved": [_unresolved_dict(u) for u in schedule.unresolved],
+        "unresolved": [unresolved_dict(u) for u in schedule.unresolved],
     }
