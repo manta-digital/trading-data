@@ -115,3 +115,36 @@ Error: no definition held for contract ESM4
   cannot be shown on today's data. It is covered by
   `test_tick_get_plan.py::test_ambiguous_contract_lists_every_candidate`
   and `test_tick_get_cli.py::test_an_ambiguous_contract_exits_one_listing_both`.
+
+## Step 5: debug reads (task 6.5)
+
+```
+$ mt data tick debug requests
+requests: 6 row(s)
+request_id  schema      symbols  range                    is_adopted  provider_job_id  estimated / actual cost  records
+1           trades      ES.FUT   2024-08-30 → 2024-09-30  True        GLBX-20240930-…  12.5785…                 10049172
+2           tbbo        ES.FUT   2024-11-01 → 2025-01-01  True        GLBX-20250123-…  36.8045…                 17642240
+3–6         definition  ES.FUT   (the four definition jobs, $0.00005–$0.0014 each)
+exit 0
+$ mt data tick debug units --state verified --json | jq '.rows | length'
+0
+$ mt data tick debug definitions --product ES --as-of 2024-09-18
+definitions: 21 row(s)
+118       ESU4  F  2022-06-17T13:30:00.000000000Z  2024-09-20T13:30:00.000000000Z  0.25  -  USD  131
+183748    ESZ4  F  2021-06-04T21:30:00.000000000Z  2024-12-20T14:30:00.000000000Z  0.25  -  USD  131
+5002      ESH5  F  2022-12-16T14:30:00.000000000Z  2025-03-21T13:30:00.000000000Z  0.25  -  USD  131
+... (ESM5 through ESU9)
+exit 0
+```
+
+(The tables above are condensed. The real ones are Rich tables with every
+TD6 column.)
+
+- **Requests.** Both adopted jobs appear with their costs: trades
+  $12.58 and tbbo $36.80. The four definition jobs appear too.
+- **Units.** No unit is in the `verified` state, which matches
+  `mt data tick status --product ES`'s `awaiting ingest 0`.
+- **Definitions.** ESU4, ESZ4, ESH5 and the later outrights are listed with
+  an exact tick size of `0.25` and no spreads.
+  - `contract_multiplier` is null on these rows, so it shows as `-`.
+  - All 21 rows are valid at session 09-18's open.
