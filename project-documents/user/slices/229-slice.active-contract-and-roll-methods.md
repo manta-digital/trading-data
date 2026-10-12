@@ -6,8 +6,8 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [220, 221, 224, 225, 226]
 interfaces: [230, 231, 232]
 dateCreated: 20261009
-dateUpdated: 20261009
-status: not_started
+dateUpdated: 20261012
+status: in_progress
 ---
 
 # Slice Design: active-contract-and-roll-methods
@@ -68,8 +68,10 @@ Nothing is bought, and there is no schema change.
 
 - `RollMethod` enum (`CALENDAR = "c"`, `VOLUME = "v"`) and a `RollRule`
   value (method, rank, calendar offset). It parses and renders one
-  grammar (TD1). `DEFAULT_ROLL_RULE`, `VOLUME_RANK_LAG_SESSIONS` and
-  `TICK_ROLL_MAX_SESSIONS` are in `data/tick/constants.py`.
+  grammar (TD1). `VOLUME_RANK_LAG_SESSIONS`, `TICK_ROLL_MAX_SESSIONS` and
+  `RollMethod` are in `data/tick/constants.py`. `DEFAULT_ROLL_RULE` and
+  `STATUS_ROLL_RULES` are `RollRule` values, so they live beside the class in
+  `roll_rules.py` (`constants` cannot import it without a cycle).
 - `OUTRIGHT_CLASS` and `SPREAD_CLASS` are moved to `constants.py`. Today
   `SPREAD_CLASS` lives in `tick_status_build.py`, and resolution needs both.
 - Reads: a product's outright definitions, and outright volume per
@@ -147,11 +149,14 @@ All new code goes in `src/manta_trading/data/tick/`, plus one CLI module.
 
 | Module | Role | I/O |
 |---|---|---|
-| `roll_rules.py` | `RollMethod`, `RollRule` (validate, `parse`, `symbol(product)`) | none |
-| `roll_inputs.py` | `outright_definitions(conn, product)`, `session_volumes(conn, shape, first, last)` | tick DB |
-| `roll_resolve.py` | `resolve_sessions(rule, sessions, contracts, volumes, complete)` → `list[SessionAnswer]`; `segments(...)`; `next_roll(...)`; the result types `ActiveContract`, `Unresolved`, `ActiveLine`, `RollSchedule` | none (pure) |
-| `active_contract.py` | `build_schedule(tick_url, calendar_url, entry, rule, start, end)` → `RollSchedule`; `latest_active(...)` for status; `roll_conninfo(url)` | tick DB + calendar |
-| `cli/commands/tick_active_render.py` | Rich and JSON rendering for `active` | — |
+| `roll_rules.py` | `RollRule` (validate, `parse`, `symbol(product)`), `DEFAULT_ROLL_RULE`, `STATUS_ROLL_RULES` | none |
+| `roll_types.py` | inputs (`RollInputs`, `ContractDefinition`, `SessionVolume`) and results (`ActiveContract`, `Unresolved`, `RollSchedule` with `segments()`, `ActiveLine`, `NextRoll`), `RollInputError` | none (pure) |
+| `roll_inputs.py` | `outright_definitions`, `session_volumes`, `held_session_bounds`, `definitions_as_of` | tick DB |
+| `roll_resolve.py` | `resolve_sessions(rule, inputs, start, end)`; `active_line(product, rule, inputs, latest)` (answer plus next-roll forecast) | none (pure) |
+| `roll_payload.py` | JSON payloads (`active_line_dict`, `schedule_dict`) for `active`, `status --json` and 231 | none |
+| `active_contract.py` | `build_schedule(tick_url, calendar_url, entry, rule, start, end)` → `RollSchedule`; `latest_active(...)` for status (never raises); `latest_lines(...)` for `active` (raises shared failures); `roll_conninfo(url)` | tick DB + calendar |
+| `cli/commands/tick_active_cmds.py` | the `active` verb | — |
+| `cli/commands/tick_active_render.py` | text rendering for `active`; `status` reuses its line formatter | — |
 
 Changes to existing modules:
 
@@ -163,9 +168,11 @@ Changes to existing modules:
   `active` could not resolve, and a failed roll line in `status` (TD9). The
   integer values do not change.
 - `status_reads.py`: `_SHAPE_WHERE` becomes the public `SHAPE_WHERE`, and
-  `session_verdicts` and `shape_of` move here from `tick_status_build.py`
-  unchanged. Their own imports (`tick_status`, `session_days`, `constants`)
-  are already `status_reads`' dependencies.
+  `session_verdicts`, `shape_of` and `calendar_sessions` move here from
+  `tick_status_build.py`. `calendar_sessions`' error mapping becomes
+  `open_calendar`, which the roll path's calendar read shares.
+- `TradingCalendar.horizon_end()`: a public read of the last populated
+  session (calendar `known_through`).
 
 **Import direction.** `status_reads` → `roll_inputs`, `roll_resolve` →
 `active_contract` → `tick_status_build`. `tick_status_build` imports
@@ -188,9 +195,10 @@ offset tests, and the edge cases all run with no database.
 ```
 mt data tick active --product ES --rule v.0 --start S --end E
   └─ active_contract.build_schedule
-       ├─ refuse if [S, E) spans more than TICK_ROLL_MAX_SESSIONS (exit 1)
-       ├─ calendar (prod DB, to_thread, roll_conninfo): sessions in
-       │   [S − lag sessions, E), plus each candidate's expiration session
+       ├─ calendar (prod DB, to_thread, roll_conninfo): sessions from
+       │   S − lag sessions to the last populated one
+       ├─ refuse if [S, E) spans more than TICK_ROLL_MAX_SESSIONS (exit 1),
+       │   then if [S, E) is outside the calendar (exit 1, mt data extend)
        ├─ own tick-DB connection (roll_conninfo), one REPEATABLE READ
        │   READ ONLY transaction:
        │   ├─ roll_inputs.outright_definitions   asset = product, class F
@@ -201,7 +209,11 @@ mt data tick active --product ES --rule v.0 --start S --end E
 ```
 
 `status` calls `latest_active` once, for every rule in
-`STATUS_ROLL_RULES`, after its own reads. `latest_active` resolves the
+`STATUS_ROLL_RULES`, after its own reads. Its window is the held sessions
+ending at the latest held ledger session, at most `TICK_ROLL_MAX_SESSIONS`
+of them (the cap trims, never refuses here); L is the latest `COMPLETE`
+session in it. The calendar read runs from the lag sessions before the
+window to the calendar's last populated session. `latest_active` resolves the
 latest complete session and the next roll after it. It computes its own
 verdicts inside its own snapshot, and does not reuse the verdicts `status`
 computed on its own connection. That costs one more units read, a few
@@ -302,9 +314,13 @@ and ESZ4 is front from the session dated 09-23. Databento's `ES.c.0`
 switches at its date 2024-09-22, a Sunday with no session dated on it, so
 the two agree on every session date.
 
-Any candidate's E(c) that falls outside the populated calendar is an
-explicit error naming the contract and the remedy (`mt data extend`). It is
-never treated as "not expiring".
+Implementation tests the equivalent condition without locating E(c): the
+session `offset_sessions` after S opens at or before `expiration_ns`. ES
+contracts expire through 2030 while CME_EQUITY is populated through
+2027-12-31, so locating E(c) for every candidate would fail every answer. A
+session the rule needs (S + offset, or a forecast's sessions) past the
+calendar read is an explicit error naming `mt data extend`. Expiry is never
+treated as "not expiring".
 
 ### TD3. Volume rule: rank by the session two before, as the provider does
 
@@ -377,7 +393,7 @@ missing one is a broken invariant (I13) and is never read as volume 0.
 ### TD5. Default rule: `v.0`
 
 `DEFAULT_ROLL_RULE = RollRule(RollMethod.VOLUME, 0)` is defined once in
-`constants.py`. Every surface that accepts a rule (here `active` and
+`roll_rules.py`. Every surface that accepts a rule (here `active` and
 `status`; later 230's `get` and 231's endpoints) defaults through it.
 
 - **Why volume.** It follows liquidity, which is what "the ES contract"
@@ -495,8 +511,8 @@ schedule are part of 231's contract catalog. 231 serves them through
 
 `scripts/record_229_roll_fixture.py` is a one-off that the developer runs.
 It reads the production tick database (read-only `SELECT`) and calls the
-free `symbology.resolve` endpoint. It writes three JSON fixtures under
-`tests/fixtures/tick/roll/`:
+free `symbology.resolve` endpoint. It writes JSON fixtures under
+`test/fixtures/tick/roll/` (its run: `user/notes/229-roll-fixture-record.md`):
 
 - ES outright definitions;
 - ES outright volume per session, over both held ranges;
@@ -801,8 +817,8 @@ Neither consumer may drop them silently:
     existing text line and JSON field and its exit codes (0; 4 when the
     tick database is unreachable), and that `coverage` is unchanged.
 9. The default rule is read from `DEFAULT_ROLL_RULE` everywhere. A grep
-   finds no second spelling of `"v"`/`"c"` as a rule outside `constants.py`
-   and the tests.
+   finds no second spelling of `"v"`/`"c"` as a rule outside `constants.py`,
+   `roll_rules.py` and the tests.
 
 ### Technical Requirements
 
@@ -897,9 +913,12 @@ come from the ledger and from Databento's resolve, both read on
    ```bash
    uv run mt data tick active --product ES --start 2024-11-01 --end 2024-11-08; echo "exit $?"
    ```
-   Expected: sessions 11-04 and 11-05 are unresolved, each naming its lag
-   session (10-31, then 11-01) and that session's status. ESZ4 is the
-   answer from 11-06 on. `exit 3`.
+   Expected (both status rules print; this is `v.0`): sessions 11-01,
+   11-04 and 11-05 are unresolved, each naming its lag session (10-30,
+   10-31, then 11-01) as `missing`. 11-01 is in the range and its lag
+   session is not held either; the original text missed it. ESZ4 is the
+   answer from 11-06 on, and `c.0` gives ESZ4 for every session. `exit 3`.
+   Actual output: `user/notes/229-walkthrough.md`.
 
 6. **Bad rules fail loudly.**
    ```bash
@@ -924,10 +943,15 @@ come from the ledger and from Databento's resolve, both read on
 
 8. **Provider equivalence is tested.**
    ```bash
-   uv run pytest tests/unit/data/tick -k roll -q
+   uv run python scripts/run_tests.py unit -- test/unit/data/tick -k roll -q
    ```
-   Expected: everything passes, including the recorded-fixture equivalence
-   test for `c.0`, `c.1`, `v.0` and `v.1`.
+   Expected: everything passes (115 on 2026-10-12), including the
+   recorded-fixture equivalence test for `c.0`, `c.1`, `v.0` and `v.1`.
+
+9. **Timing (TD10).** A full held-range schedule (`v.0`, 2024-08-30 →
+   2025-01-02, 87 sessions) took 0.048–0.056 s in `build_schedule`, and the
+   whole `mt data tick active` process about 0.96 s, nearly all Python
+   start-up.
 
 ## Risk Assessment
 

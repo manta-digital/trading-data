@@ -185,6 +185,7 @@ status: in_progress
   - The calendar offset is counted in sessions, not days.
   - The volume rule ranks by the session two before, matching Databento's
     `.v`.
+  - The default rule is `v.0`, defined once.
   - Open interest is deferred (Future Work item 2), and 232 revisits it.
 - **No billable request before 224.** 220's preflight uses only free metadata endpoints, and its test fixtures must be free real DBN files. The first real purchase happens only after the PM sets `MT_TICK_SPEND_CEILING_USD`.
 - **The CLI and API surface decision was made at 220 design:** an `mt data tick` subgroup and a `/api/v1/futures/*` namespace. 230 and 231 apply it.
