@@ -174,7 +174,9 @@ def render_next_firings(overview: Overview, *, width: int = _SCREEN_WIDTH) -> li
     return lines
 
 
-def render_source_lines(sources: Sequence[SourceFreshness], now: datetime) -> list[str]:
+def render_source_lines(
+    sources: Sequence[SourceFreshness], now: datetime
+) -> list[str]:
     """The per-source freshness rows, without a header.
 
     Shared by the overview's SOURCES block and ``mt data status``'s default
@@ -193,7 +195,9 @@ def render_source_lines(sources: Sequence[SourceFreshness], now: datetime) -> li
     return lines
 
 
-def render_status_sources(sources: Sequence[SourceFreshness], *, now: datetime) -> str:
+def render_status_sources(
+    sources: Sequence[SourceFreshness], *, now: datetime
+) -> str:
     """The SOURCES block for ``mt data status``'s default summary."""
     header = f"{'SOURCES':<{_SOURCE_WIDTH}} newest"
     return "\n".join([header, *render_source_lines(sources, now)])
@@ -226,7 +230,9 @@ def render_universe(overview: Overview) -> list[str]:
         # sides read the word from one constant, so rewording it cannot make
         # this print the label twice (922 review F007).
         summary = summary[len(prefix) :]
-    return _wrapped(f"{MINUTE_UNIVERSE_LABEL:<{_SOURCE_WIDTH}}", f"{stamp}{summary}")
+    return _wrapped(
+        f"{MINUTE_UNIVERSE_LABEL:<{_SOURCE_WIDTH}}", f"{stamp}{summary}"
+    )
 
 
 def _wrapped(label: str, body: str, *, width: int = _SCREEN_WIDTH) -> list[str]:

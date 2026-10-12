@@ -290,7 +290,9 @@ class TestTheSplitGuard:
         assert db_only.hostname == both.hostname
         assert db_only.minute_firing_days == both.minute_firing_days
 
-    def test_only_gather_carries_the_credit_fields(self, migrated_db: str) -> None:
+    def test_only_gather_carries_the_credit_fields(
+        self, migrated_db: str
+    ) -> None:
         settings = _StubSettings(eodhd_api_key="stub-key-never-sent")
 
         with psycopg.connect(migrated_db) as conn:
