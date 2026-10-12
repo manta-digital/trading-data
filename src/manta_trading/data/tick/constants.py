@@ -187,6 +187,8 @@ TICK_ARCHIVE_DIR_ENV = "MT_TICK_ARCHIVE_DIR"
 #: Every tick setting's environment prefix; an unknown key under it is refused
 #: by the preflight so a misspelt ceiling never reads as "no ceiling" (TD2).
 TICK_ENV_PREFIX = "MT_TICK_"
+#: The remedy for a pending tick migration, as every refusal and line names it.
+TICK_MIGRATE_COMMAND = "mt data migrate apply --track tick"
 
 
 # -- Slice 224: the acquisition pass (LLD 224 TD7, TD9) ------------------------

@@ -48,6 +48,7 @@ from manta_trading.data.tick.constants import (
     TICK_DB_CONNECT_TIMEOUT_SECONDS,
     TICK_ENV_PREFIX,
     TICK_INGEST_LOCK_KEY,
+    TICK_MIGRATE_COMMAND,
 )
 from manta_trading.market.schema.databases import (
     Credential,
@@ -60,7 +61,7 @@ from manta_trading.market.schema.migrations import TRACKS
 
 #: Operator-facing remedies, defined once.
 TRACK_NOT_APPLIED = (
-    "tick track has pending migrations: {missing} — mt data migrate apply --track tick"
+    "tick track has pending migrations: {missing} — " + TICK_MIGRATE_COMMAND
 )
 #: What each tick lock serializes, for the "lock held" refusal.
 LOCK_NAMES = {TICK_ACQUISITION_LOCK_KEY: "acquisition", TICK_INGEST_LOCK_KEY: "ingest"}
@@ -177,7 +178,7 @@ async def _scalar(
     return row[0] if row else None
 
 
-async def _missing_migrations(conn: psycopg.AsyncConnection[Any]) -> list[str]:
+async def missing_migrations(conn: psycopg.AsyncConnection[Any]) -> list[str]:
     """Ids in ``TRACKS["tick"]`` absent from the ledger, in track order."""
     expected = [migration["id"] for migration in TRACKS["tick"]]
     try:
@@ -198,7 +199,7 @@ async def connect_migrated(url: str) -> psycopg.AsyncConnection[Any]:
     """Connect and require every tick migration; the caller closes it."""
     conn = await _connect(url)
     try:
-        missing = await _missing_migrations(conn)
+        missing = await missing_migrations(conn)
         if missing:
             raise TickPreflightError(
                 TRACK_NOT_APPLIED.format(missing=", ".join(missing))
