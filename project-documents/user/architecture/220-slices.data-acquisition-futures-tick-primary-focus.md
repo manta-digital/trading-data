@@ -88,7 +88,7 @@ status: in_progress
 
    The vocabulary matches Databento's continuous-symbol conventions. A test resolves the same contract both ways, over a roll in the purchased range. Dependencies: [226]. Risk: Medium. Effort: 3/5
 
-11. [ ] **(230) Operator Surface Full Parity** — Applies 220's `mt data tick` subgroup decision. Covers the verbs the proof did not need:
+11. [x] **(230) Operator Surface Full Parity** — Applies 220's `mt data tick` subgroup decision. Covers the verbs the proof did not need:
     - `get` for ticks and for tick-derived bars, by contract or by product plus roll method;
     - accounting lines;
     - debug reads of the manifest and definitions;

@@ -17,6 +17,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`mt data tick get`: ES ticks and bars from the command line** (slice
+  230).
+  - `get ticks` or a bar size (`1m 5m 15m 1h 4h 1d`, where `1d` is the whole
+    session), for one contract (`--contract ESZ4`) or for the continuous
+    front month under a roll rule (`--product ES [--rule c.0]`, default
+    `v.0`).
+  - A product read serves one contract per session, never merges two, and
+    names each segment. Bars never cross a session boundary.
+  - Sessions the rule cannot resolve are listed as `unresolved`, and
+    sessions not fully held are served and listed as `incomplete`; either
+    one exits 3.
+  - Prices are exact decimals (strings in JSON) and times are UTC to the
+    nanosecond.
+  - Output is text, `--csv` (stdout holds only the header and rows) or
+    `--json`, streamed so memory stays flat however long the range.
+  - A read that drops partway says `PARTIAL` and exits 4; `| head` exits 0
+    quietly.
+  - `--end` is exclusive, in session dates, like every tick verb, and unlike
+    `mt data get`.
+- **`mt data tick debug {requests, units, definitions}`** (slice 230): the
+  tick manifest and contract definitions without SQL. Filter by product,
+  dates, unit state, fetch status, symbol, or `--as-of` a session.
+  Definitions hide spreads unless `--spreads`.
+- **Tick lines in `mt data accounting` and `mt data overview`** (slice 230).
+  - Accounting ends with `futures tick universe:`, one line per product,
+    using the same session buckets as `mt data tick status`, plus the
+    record count.
+  - The overview gains a `futures ticks` source with the newest stored
+    tick.
+  - When the tick database is unset, unreachable or awaiting a migration,
+    the line says so, and the command's exit code does not change.
+  - `/api/v1/overview` is unchanged.
+- **Runbook: "Operating the tick tier"** (slice 230): reading state, `get`,
+  `debug`, running passes by hand, backfill as a universe edit followed by
+  `pass`, and the exit codes.
 - **`mt data tick active`: which ES contract counts on a session** (slice
   229). Roll rules are written `c.0` (calendar: nearest expiry), `v.0`
   (volume: most traded, ranked by the session two before, as Databento's

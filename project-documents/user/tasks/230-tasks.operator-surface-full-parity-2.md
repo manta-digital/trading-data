@@ -11,7 +11,7 @@ projectState: >
   walkthrough steps 1-4.
 dateCreated: 20261012
 dateUpdated: 20261012
-status: in_progress
+status: complete
 ---
 
 # Tasks: Operator Surface Full Parity (part 2 of 2)
@@ -192,7 +192,7 @@ states live in `data/tick/line_state.py` (`TickLineState`,
   - [x] Overview's exit code unchanged by the tick line.
   - [x] Success: ruff and mypy clean.
 
-- [ ] **7.8 Test overview** (effort 3)
+- [x] **7.8 Test overview** (effort 3)
   - [x] Unit (`test/unit/cli/commands/test_overview*.py` or a new
         `test_overview_tick.py`): each state renders TD8's line; JSON has
         `unavailable` on every source, `null` on the existing four.
@@ -205,92 +205,95 @@ states live in `data/tick/line_state.py` (`TickLineState`,
         builds the payload from fixed `OverviewFacts` and asserts its exact
         keys and values (that test is 7.7's first step).
         Note: `test_operations_models.py` passes unedited; `test_overview_gather.py` and `test_operations_serving.py` now expect the fifth, CLI-only source (`gather` ≠ `gather_db_facts` by one source, by design) and their fake settings carry `tick_db_url = None`.
-  - [ ] Existing overview, gather and load tests pass
+  - [x] Existing overview, gather and load tests pass
         (`test/integration/test_overview_gather.py`,
         `test/load/test_922_overview_nfr.py`).
-  - [ ] Success: tests pass. Commit: `feat: add futures ticks line to data
+  - [x] Success: tests pass. Commit: `feat: add futures ticks line to data
         overview`.
 
-- [ ] **7.9 Walkthrough steps 6–8** (effort 2)
-  - [ ] Step 6: `time mt data accounting` (record the time; it must be well
+- [x] **7.9 Walkthrough steps 6–8** (effort 2)
+  - [x] Step 6: `time mt data accounting` (record the time; it must be well
         inside `TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS`), counts match
         `mt data tick status --product ES`; overview's `futures ticks`
         near 2025-01-01 21:59 UTC.
-  - [ ] Step 7: both degraded commands print their lines and exit 0.
-  - [ ] Step 8: per finding 1.1. If `mt-run data overview` runs the
+  - [x] Step 7: both degraded commands print their lines and exit 0.
+  - [x] Step 8: per finding 1.1. If `mt-run data overview` runs the
         checkout, run it and confirm `not configured`. If it runs an
         installed release, record that the production line is proven by
         step 7's unset case plus the absent key in
         `/etc/manta-trading.env` (checked with a read-only `grep -c`), and
         that the `mt-run` run follows deploy.
-  - [ ] Append to `user/notes/230-walkthrough.md`. A mismatch: stop and
+        Note: installed-release branch; `mt-run data overview` (pre-230 release) shows no tick line; key absent (`grep -c` = 0).
+  - [x] Append to `user/notes/230-walkthrough.md`. A mismatch: stop and
         report to the Project Manager.
-  - [ ] Success: note committed: `docs: record slice 230 composed-line
+  - [x] Success: note committed: `docs: record slice 230 composed-line
         walkthrough`.
 
 ---
 
 ## Section 8 - Docs and closing checks
 
-- [ ] **8.1 Runbook: "Operating the tick tier"** (effort 2)
-  - [ ] In `user/runbooks/100-production-operations.md`, a new section:
+- [x] **8.1 Runbook: "Operating the tick tier"** (effort 2)
+  - [x] In `user/runbooks/100-production-operations.md`, a new section:
         reading state (`status`, `coverage`, `active`, `accounting`,
         `overview`); reading data (`get`, bulk reads as `--csv > file`,
         end exclusive unlike `mt data get`); investigating (`debug`);
         running passes by hand (`estimate`, `pass`, `ingest`, `adopt`,
         `reset`; backfill = universe edit + `pass`); the exit-code table
         (0/1/3/4 for reads).
-  - [ ] Quick reference gains the tick rows.
-  - [ ] Success: commands in the section match `--help` output.
+  - [x] Quick reference gains the tick rows.
+  - [x] Success: commands in the section match `--help` output.
 
-- [ ] **8.2 Data-correctness contract rows** (effort 1)
-  - [ ] In `user/reference/data-correctness-architecture.md`: I8 gains
+- [x] **8.2 Data-correctness contract rows** (effort 1)
+  - [x] In `user/reference/data-correctness-architecture.md`: I8 gains
         `mt data tick debug`; I10 gains `get`, `debug`, `pass` as the tick
         backfill (TD9), and the end-exclusive vs inclusive difference
         (TD2); I14 gains the product-level `get` rule (one contract per
         session, lists, exit 3); the Required CLI commands list gains the
         new verbs.
-  - [ ] Success: rows updated (committed with 8.3).
+  - [x] Success: rows updated (committed with 8.3).
 
-- [ ] **8.3 Architecture Revision Log entry for TD2 (required)** (effort 1)
-  - [ ] In `user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md`
+- [x] **8.3 Architecture Revision Log entry for TD2 (required)** (effort 1)
+  - [x] In `user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md`
         Revision Log: tick `get --end` is exclusive in session dates,
         departing on purpose from "same questions, same defaults" with
         `mt data get`'s inclusive end; one line on why (one convention
         within the tick subgroup).
-  - [ ] Success: entry present, dated 2026-10-12 or the commit date.
+  - [x] Success: entry present, dated 2026-10-12 or the commit date.
         Commit (8.1–8.3): `docs: add tick runbook section, contract rows and
         revision log for slice 230`.
 
-- [ ] **8.4 Gating check: design and slice plan match what shipped**
+- [x] **8.4 Gating check: design and slice plan match what shipped**
       (effort 1)
-  - [ ] Confirm the slice plan's 234 entry (already edited in 8c70036)
+  - [x] Confirm the slice plan's 234 entry (already edited in 8c70036)
         still says 234 reuses 230's line states and `tick_composed.open`
         and that 230 is the first tick composing surface; fix the module
         name to `line_state.py` if it names `availability.py`.
-  - [ ] Update the slice design for this file's placements:
+  - [x] Update the slice design for this file's placements:
         `line_state.py` / `TickLineState` (TD8, Component Structure,
         Provides to 231), `tick_get_writers.py`, `test/` paths, and any
         change found during implementation.
-  - [ ] Success: both documents match. Commit: `docs: align slice 230
+  - [x] Success: both documents match. Commit: `docs: align slice 230
         design and 220 plan with shipped behaviour`.
 
-- [ ] **8.5 Final validation** (effort 2)
-  - [ ] Kalshi pass-contract diff: `test/unit/data/tick/test_pass_contract_parity.py`
+- [x] **8.5 Final validation** (effort 2)
+  - [x] Kalshi pass-contract diff: `test/unit/data/tick/test_pass_contract_parity.py`
         passes; no change expected (this slice does not touch the pass).
-  - [ ] The design's "Realtime paths" and "Does this belong in the API?"
+  - [x] The design's "Realtime paths" and "Does this belong in the API?"
         sections still hold for what shipped; correct them in place if not.
-  - [ ] FR coverage: every Functional Requirement 1–14 (and 10a) maps to a
+  - [x] FR coverage: every Functional Requirement 1–14 (and 10a) maps to a
         passing test or a walkthrough step; list the map in the
         walkthrough note.
-  - [ ] ruff (check; format scoped to touched files) and mypy (one
+  - [x] ruff (check; format scoped to touched files) and mypy (one
         invocation, `MYPYPATH=scripts`) clean on touched files.
-  - [ ] Unit tier and integration tier pass, except the known pre-existing
+        Note: `test_overview.py` has pre-existing format drift in lines this slice did not write; left as is (scoped formatting).
+  - [x] Unit tier and integration tier pass, except the known pre-existing
         failures (re-run each in isolation).
-  - [ ] New and touched source files ≤ ~300 lines (`wc -l`), tick
+  - [x] New and touched source files ≤ ~300 lines (`wc -l`), tick
         `constants.py` excepted per part 1's Context Summary; functions
         ≤ ~50 lines.
-  - [ ] `grep` finds no tick `get` choice, bar token or price scale spelled
+        Note: over the limit and pre-existing: `cli/commands/overview.py` (396 → 417), `cli/rendering/overview.py` (348), tick `constants.py` (excepted); `overview_payload` and `_product_status` were already over 50 lines (`_product_status` shrank).
+  - [x] `grep` finds no tick `get` choice, bar token or price scale spelled
         as a literal outside `constants.py` and tests.
-  - [ ] Success: all green. Commit any fixes: `fix: address slice 230 final
+  - [x] Success: all green. Commit any fixes: `fix: address slice 230 final
         validation`.

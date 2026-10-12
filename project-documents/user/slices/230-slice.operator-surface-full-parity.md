@@ -7,7 +7,7 @@ dependencies: [221, 225, 229]
 interfaces: [231, 232, 234]
 dateCreated: 20261012
 dateUpdated: 20261012
-status: not_started
+status: complete
 ---
 
 # Slice Design: operator-surface-full-parity

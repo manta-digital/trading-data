@@ -227,3 +227,26 @@ The production line is proven by two things together:
 After 230 is deployed, `mt-run data overview` prints that line. Run it as
 part of the deploy check. Slice 234 adds the key, which turns the line into
 a real timestamp.
+
+## Functional requirement coverage (task 8.5)
+
+Each FR maps to a passing test, a walkthrough step, or both. Test paths are
+under `test/`.
+
+| FR | Proven by |
+|---|---|
+| 1. Contract ticks in key order, count = ledger | `integration/data/test_tick_get_cli.py::test_a_clean_contract_read_exits_zero_with_every_tick`; `test_tick_reads.py::test_ticks_in_key_order_inside_the_window`; walkthrough step 2 (573,847 = ESZ4 ledger) |
+| 2. Product 1m follows `active`, no mixed bar, volume = Σ size | `test_tick_get_plan.py::test_product_across_the_roll_matches_active`; `test_tick_get_cli.py::test_product_bars_follow_the_schedule`; `test_tick_reads.py::test_1m_volume_sums_sizes_and_skips_empty_buckets`; walkthrough step 1 |
+| 3. A bar never spans a session boundary | `test_tick_reads.py::test_4h_bucket_across_the_break_is_two_bars` |
+| 4. `1d` OHLCV, ties by `(sequence, sequence_ordinal)` | `test_tick_reads.py::test_session_bar_matches_the_ticks_with_ties_by_key`; walkthrough step 3 |
+| 5. Unresolved head listed, never filled, exit 3 | `test_tick_get_plan.py::test_first_held_sessions_are_unresolved_never_filled`; `test_tick_get_cli.py::test_unresolved_sessions_print_and_exit_three`; walkthrough step 3 |
+| 6. Incomplete session served, listed, exit 3 | `test_tick_get_plan.py::test_contract_lists_an_incomplete_session_and_still_plans_it`, `…product_lists_an_incomplete…`; `test_tick_get_cli.py::test_an_incomplete_session_is_read_listed_and_exits_three` |
+| 7. Ambiguous / unknown contract exit 1 | `test_tick_get_plan.py::test_ambiguous_contract_lists_every_candidate`, `::test_unknown_contract_names_the_symbol`; `test_tick_get_cli.py::test_an_ambiguous_contract_exits_one_listing_both`; walkthrough step 4 |
+| 8. No range: held sessions or the cap refusal; contract held sessions | `test_tick_get_plan.py::test_missing_ends_default_to_the_held_sessions`, `::test_a_range_over_the_cap_refuses`, `::test_contract_without_a_range_covers_its_held_sessions` |
+| 9. Exact prices; undefined BBO null/empty | `unit/data/tick/test_tick_format.py`; `unit/cli/commands/test_tick_get_writers.py::test_json_has_td5_keys_in_order_and_exact_prices`, `::test_csv_stdout_is_header_and_rows_only` |
+| 10. CSV stdout is header + rows only | `test_tick_get_writers.py::test_csv_stdout_is_header_and_rows_only`; `test_tick_get_cli.py::test_an_incomplete_session_is_read_listed_and_exits_three`; walkthrough step 2 |
+| 10a. Partial output per format exit 4; closed pipe exit 0, clean stderr, no open transaction | `test_tick_get_cli.py::test_partial_json_stays_valid_and_exits_four`, `::test_partial_csv_keeps_stdout_clean_and_exits_four`, `::test_partial_text_ends_with_the_partial_footer`, `::test_a_reader_that_closes_the_pipe_gets_exit_zero` |
+| 11. Debug filters, enum rejection, spreads default | `integration/data/test_tick_debug_reads.py`; `test_tick_debug_cli.py`; walkthrough step 5 |
+| 12. Accounting figures = status buckets; JSON `tick` | `integration/data/test_tick_accounting.py::test_the_line_equals_status_buckets`, `::test_text_and_json_with_a_reachable_tick_database`; walkthrough step 6 |
+| 13. Overview newest event; `/api/v1/overview` unchanged | `integration/data/test_tick_overview.py::test_the_line_shows_the_newest_ingested_event`; `unit/api_server/test_operations_models.py` (unedited); `unit/cli/commands/test_overview_tick.py::test_the_api_record_never_carries_the_tick_state`, `::test_gather_appends_the_tick_line_and_gather_db_facts_does_not`; walkthrough step 6 |
+| 14. Unset / unreachable / pending lines, exit unchanged | `test_tick_accounting.py::test_each_degraded_state_is_a_line_and_keeps_the_exit`; `test_tick_overview.py::test_each_degraded_state_keeps_the_screen_and_the_exit`; `unit/cli/test_tick_composed.py`; walkthrough step 7 |
