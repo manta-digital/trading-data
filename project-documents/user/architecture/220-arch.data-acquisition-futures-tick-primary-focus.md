@@ -12,7 +12,7 @@ relatedSlices: []
 riskLevel: medium
 archIndex: 220
 dateCreated: 20260921
-dateUpdated: 20261006
+dateUpdated: 20261012
 status: in_progress
 ---
 
@@ -344,6 +344,27 @@ Follows this initiative, not part of it: realtime capture (streaming form, own i
     matched `.v.0` on all 11 rolls from 2023 to 2025; GC differs, so slice
     232 revisits it. "Active contract and roll methods" above stands, and
     open interest stays a future rule.
+- **2026-10-12** (slice 230, operator surface; the slice design is
+  authoritative in detail):
+  - **Tick `--end` is exclusive, in session dates. This is a deliberate
+    departure from "the same questions … with the same defaults."**
+    - `mt data get` treats its end as inclusive, in UTC days.
+    - `mt data tick get`, like every other tick verb that takes a range
+      (`coverage`, `active`, `pass`, `debug`), treats it as exclusive, in
+      session dates.
+    - So the same `--end` names different ranges on the two tiers.
+    - We chose this because a tick subgroup with two date conventions would
+      be worse than one difference between tiers.
+    - The `get` help text, the runbook and the contract's I10 row all state
+      the difference.
+  - **No `backfill` verb.** In the tick tier the wanted range lives in the
+    universe, so backfill means widening the universe, then running
+    `mt data tick pass`. This matches `pull`'s role for the minute tier.
+  - **The overview tick line comes before `PassKind.TICK`.** Accounting and
+    overview gain their tick lines in 230. A line whose figures cannot be
+    read shows `not configured` / `unreachable` / `migrations pending`
+    instead, and the command's exit code is unchanged. 234 still owns
+    `health`, `PassKind.TICK` and the production environment key.
 
 ## Related Work
 

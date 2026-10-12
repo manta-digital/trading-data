@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20260927
+dateUpdated: 20261012
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -45,6 +45,9 @@ A reboot needs **no operator action**: everything above comes back, and
 | See timer schedule | `systemctl list-timers 'mt-*'` | no |
 | Run ANY production `mt` command | `mt-run <mt args>`, e.g. `mt-run data caggs status` | no¹ |
 | Check the Kalshi catalog | `mt-run data kalshi status` | no¹ |
+| See what the tick tier holds | `mt data tick status` (also `coverage`, `active`) — see *Operating the tick tier* | no² |
+| Pull ES ticks or bars | `mt data tick get 1m --product ES --start D --end D` (`--csv > file` for bulk) | no² |
+| Investigate a tick unit, job or contract | `mt data tick debug units --state verified` (also `requests`, `definitions`) | no² |
 | Read a pass's full log | `journalctl -u mt-daily-pass.service -e` | no |
 | Pause a source (survives reboot) | `systemctl disable --now mt-minute-pass.timer` | yes |
 | Resume it (fires catch-up at once) | `systemctl enable --now mt-minute-pass.timer` | yes |
@@ -53,6 +56,7 @@ A reboot needs **no operator action**: everything above comes back, and
 | Update production code | see *Update procedure* below | yes |
 
 ¹ after a one-time `sudo usermod -aG manta-trading <user>` (new shell); otherwise prefix `sudo`.
+² from the dev checkout (`uv run mt …`) until slice 234 puts `MT_TICK_DB_URL` in `/etc/manta-trading.env`; then `mt-run data tick …`.
 
 Things to know before touching anything: **`mt-run` is the production front
 door — there is never a reason to operate production from the dev checkout.** a completed pass shows
@@ -797,6 +801,130 @@ The Kalshi timer pauses and resumes the same way
 pause makes the next pass a catch-up: it walks several settled windows instead
 of one and logs a `settled window …` line per window, which is the progress
 signal to watch.
+
+## Operating the tick tier (slice 230)
+
+**Where the tick commands run.** Until slice 234 adds `MT_TICK_DB_URL` to
+`/etc/manta-trading.env`, the tick commands run from the dev checkout, whose
+`.env` holds the tick URL: `uv run mt data tick …`. Production's
+`mt-run data overview` prints `futures ticks    not configured
+(MT_TICK_DB_URL unset)` until then. That line is correct and explicit, and
+it is not a fault. After 234, `mt-run data tick …` runs the same commands.
+
+Every read below is provider-free: no Databento key, no lock, and no
+archive directory. All of them refuse with exit 1 while a tick migration is
+pending (`mt data migrate apply --track tick`).
+
+### Reading state
+
+| Question | Command |
+|---|---|
+| What is held, per product: sessions complete, awaiting ingest, in flight, holes; the active contract per roll rule | `mt data tick status` |
+| Does `tick_trade` hold what the ledger says, session by session (the raw-count proof) | `mt data tick coverage --start D --end D` |
+| Which contract a roll rule picks, now or over a range | `mt data tick active --product ES` · `… --rule v.0 --start D --end D` |
+| The tick tier beside the minute universe | `mt data accounting` (a `futures tick universe:` line per product; the same buckets as `status`) |
+| The newest stored tick beside the other sources | `mt data overview` (the `futures ticks` source line) |
+
+On `accounting` and `overview`, a tick database that is unset, unreachable or
+has pending migrations shows up as that line's text, and the command's exit
+code is unchanged. A tick outage never turns the minute screen red. The tick
+alarm is `health`'s, in slice 234.
+
+### Reading data: `mt data tick get`
+
+```bash
+# Continuous front month under the default rule (v.0), 1-minute bars
+mt data tick get 1m --product ES --start 2024-09-16 --end 2024-09-20
+# One contract's ticks, to a file (bulk reads: always --csv > file)
+mt data tick get ticks --contract ESZ4 --start 2024-09-18 --end 2024-09-19 --csv > esz4.csv
+# Session bars, JSON
+mt data tick get 1d --product ES --rule c.0 --start 2024-11-04 --end 2024-11-08 --json
+```
+
+- **What to read.** `WHAT` is `ticks` or a bar size: `1m 5m 15m 1h 4h 1d`.
+  `1d` is the whole session.
+- **Bars stay inside sessions.** A bar never crosses a session boundary,
+  so the first bar of a session starts at its open.
+- **One contract per session.** A product read serves one contract per
+  session, the one the rule picks, and never merges two. The header names
+  each segment, for example `2024-09-16 → 2024-09-17  ESU4 (118)`.
+- **Dates are session dates, and `--end` is EXCLUSIVE.** This is unlike
+  `mt data get`, whose end is inclusive.
+  - With no dates, the read covers every held session.
+  - `--start` alone runs to the last held session. `--end` alone starts at
+    the first.
+  - A product read longer than `TICK_ROLL_MAX_SESSIONS` (1,300 sessions)
+    refuses. Narrow the range.
+- **Unresolved and incomplete sessions.** A session the rule cannot
+  resolve is listed `unresolved` with its reason, and nothing is served for
+  it. A session that is not fully held is served and listed `incomplete`.
+  Either list makes the exit code 3.
+- **Output.** Prices are exact decimals; JSON carries them as strings. An
+  undefined quote price is empty in CSV and `null` in JSON. Times are UTC
+  with nine fraction digits.
+- **CSV.** Only the header and rows go to stdout. Segments and the lists go
+  to stderr.
+- **A read that drops partway** (the database goes away, or a statement
+  times out) exits 4, and the output says it is partial:
+  - text ends `PARTIAL: N row(s), then: …`;
+  - CSV writes `partial output: …` to stderr;
+  - JSON closes with `"complete": false`.
+- **Closing the pipe** (`| head`) ends the read with exit 0.
+- **Contracts.** An exchange symbol can name two contracts a decade apart.
+  `get` then refuses with exit 1, listing both. Give `--start/--end` that
+  separate them.
+- **Size.** A multi-month read is millions of rows. Memory stays flat, but
+  the terminal is the bottleneck.
+
+### Investigating: `mt data tick debug`
+
+```bash
+mt data tick debug requests                       # jobs: range, adoption, job id, costs, times
+mt data tick debug units --state verified         # units awaiting ingest
+mt data tick debug units --fetch-status FAILED_RETRYABLE --start D --end D
+mt data tick debug definitions --product ES --as-of 2024-09-18   # contracts valid at that session's open
+mt data tick debug definitions --symbol ESZ4 --spreads --json
+```
+
+- These are plain reads: one table each, or `{rows, exit_code}` with
+  `--json`.
+- `--state` and `--fetch-status` take the values `--help` lists.
+- Definitions show outrights only unless you pass `--spreads`.
+- `--as-of` needs `--product`, whose calendar dates the session.
+- To narrow to one unit or request, use `--json | jq`. There are no id
+  filters.
+- `debug` asserts nothing, so it exits 0 (including when there are no
+  rows), 1 or 4, and never 3.
+
+### Running passes by hand
+
+| Step | Command | Note |
+|---|---|---|
+| Cost a request (free calls) | `mt data tick estimate --symbols ES.FUT --stype parent --start D --end D` | needs the Databento key |
+| Buy what the universe wants | `mt data tick pass` (`--estimate-only` first; `--start/--end` narrow within the universe) | buys only within both spend ceilings |
+| Load verified units | `mt data tick ingest` (`--unit-id N` to pick) | no Databento key |
+| Record a job already on disk | `mt data tick adopt --job-id GLBX-… --source <dir or zip>` | free calls only |
+| Retry exhausted or reopen holed units | `mt data tick reset --unit-id N` (or `--all`) | asks first unless `--yes` |
+
+**Backfill is a universe edit, then `pass`.** The wanted range lives in
+`TICK_UNIVERSE` (`src/manta_trading/data/tick/universe.py`). To backfill
+an older range:
+
+1. Widen the entry's `start`.
+2. Run `mt data tick pass --estimate-only` to cost it.
+3. Run `mt data tick pass`.
+
+There is no `backfill` verb, just as the minute tier has none (`pull` plays
+that role there).
+
+### Exit codes (the read verbs)
+
+| Code | `get` | `status` / `coverage` / `active` | `debug` |
+|---|---|---|---|
+| 0 | every session resolved and complete | ok | ok, including no rows |
+| 1 | bad `WHAT`, rule, dates or options; unknown product; unknown or ambiguous contract; range over the cap or outside the calendar; pending migration; `MT_TICK_DB_URL` unset | the same preflight refusals | bad option value, unknown product, pending migration, URL unset |
+| 3 | output printed, and a session is unresolved or incomplete | `coverage` mismatch; `active` unresolved session; `status` roll line failed | never |
+| 4 | tick or calendar database unreachable, timed out, or dropped (after rows: `PARTIAL`) | the same | the same |
 
 ## Provisioning a tick database (slice 923)
 
