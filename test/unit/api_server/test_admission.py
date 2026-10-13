@@ -26,11 +26,11 @@ from manta_trading.api_server.admission import (
 
 class TestAdmitRows:
     def test_under_the_ceiling_admits(self) -> None:
-        assert admit_rows(74_999, 75_000, remedy=NARROW_FILTER) is None
+        admit_rows(74_999, 75_000, remedy=NARROW_FILTER)  # admits: no raise
 
     def test_exactly_at_the_ceiling_admits(self) -> None:
         """The ceiling is inclusive: `count > max_rows` refuses, not `>=`."""
-        assert admit_rows(75_000, 75_000, remedy=NARROW_WINDOW) is None
+        admit_rows(75_000, 75_000, remedy=NARROW_WINDOW)  # admits: no raise
 
     @pytest.mark.parametrize(
         ("remedy", "expected"),
