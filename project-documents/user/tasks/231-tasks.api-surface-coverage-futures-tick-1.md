@@ -12,8 +12,8 @@ projectState: >
   lines in accounting and overview. The API knows nothing about ticks.
   Slice design committed and reviewed (CONCERNS, all findings fixed).
 dateCreated: 20261012
-dateUpdated: 20261012
-status: not_started
+dateUpdated: 20261013
+status: complete
 ---
 
 # Tasks: API Surface Coverage — Futures Tick (part 1 of 2)

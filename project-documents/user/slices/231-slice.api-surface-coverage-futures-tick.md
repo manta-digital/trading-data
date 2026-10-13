@@ -7,7 +7,7 @@ dependencies: [229, 230]
 interfaces: [232, 234]
 dateCreated: 20261012
 dateUpdated: 20261013
-status: in_progress
+status: complete
 ---
 
 # Slice Design: api-surface-coverage-futures-tick

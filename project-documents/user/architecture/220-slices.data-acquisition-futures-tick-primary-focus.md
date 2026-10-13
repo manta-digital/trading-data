@@ -96,7 +96,7 @@ status: in_progress
 
     Every composed surface reports "unreachable" rather than omitting the line. The slice also writes the runbook's operator procedures and adds contract mapping rows for these surfaces. The same questions get answers with the same defaults as the minute tier. Dependencies: [229]. Risk: Low. Effort: 3/5
 
-12. [ ] **(231) API Surface Coverage — Futures Tick** — Applies 220's `/api/v1/futures/*` namespace decision. The endpoints serve:
+12. [x] **(231) API Surface Coverage — Futures Tick** — Applies 220's `/api/v1/futures/*` namespace decision. The endpoints serve:
     - ticks and tick-derived bars by contract or by product plus roll method;
     - the contract catalog, with definitions, expirations, and the active contract per rule;
     - tick coverage and freshness in `/api/v1/status` and `/api/v1/overview`.

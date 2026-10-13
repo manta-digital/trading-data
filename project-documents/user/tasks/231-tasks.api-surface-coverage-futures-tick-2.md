@@ -9,8 +9,8 @@ projectState: >
   Part 1 complete: the tick pool and its 503, the response models, and the
   catalog routes (products, contracts, schedule).
 dateCreated: 20261012
-dateUpdated: 20261012
-status: not_started
+dateUpdated: 20261013
+status: complete
 ---
 
 # Tasks: API Surface Coverage — Futures Tick (part 2 of 2)
@@ -292,16 +292,16 @@ paths, test environment, lint and production safety.
 
 ## Section 9 - Load tier and connection budget
 
-- [ ] **9.1 A ceiling-sized seed helper** (effort 2)
-  - [ ] Add a load-tier helper that seeds one instrument-session of about
+- [x] **9.1 A ceiling-sized seed helper** (effort 2)
+  - [x] Add a load-tier helper that seeds one instrument-session of about
         690,000 ticks (the busiest measured session) into a throwaway tick
         test database. Use the fastest existing insert path (`COPY` if a
         helper exists; 1.1 named it), plus the ledger row and the unit it
         needs.
-  - [ ] Success: the seed finishes, and the ledger `record_count` equals
+  - [x] Success: the seed finishes, and the ledger `record_count` equals
         the rows inserted.
-- [ ] **9.2 Add `test/load/test_231_futures_api_nfr.py`** (effort 3)
-  - [ ] Use `create_app(db_url=…, tick_db_url=…)` over the seeded
+- [x] **9.2 Add `test/load/test_231_futures_api_nfr.py`** (effort 3)
+  - [x] Use `create_app(db_url=…, tick_db_url=…)` over the seeded
         databases, never the production URLs. Measure, in this order:
     - a 75,000-tick read through `from`/`until`;
     - a ceiling-refused whole-session read;
@@ -310,72 +310,72 @@ paths, test environment, lint and production safety.
       actually reachable);
     - the cost the tick block adds to `/api/v1/status`, as the difference
       in median latency with and without a tick pool.
-  - [ ] Each test asserts a bound set from its measured value (about 2× the
+  - [x] Each test asserts a bound set from its measured value (about 2× the
         median of 5 runs), and records the measurement and date in its
         docstring. The status addition is its own pass/fail test (design,
         Technical Requirements).
-  - [ ] Also measure the 75,000-tick read with the rows built through
+  - [x] Also measure the 75,000-tick read with the rows built through
         validation instead of `model_construct`. Record both figures. Keep
         `model_construct` only if it is measurably faster; otherwise
         switch to validated construction and update the design's TD5
         bullet.
-  - [ ] **Existing load tests with a tick pool configured** (Technical
+  - [x] **Existing load tests with a tick pool configured** (Technical
         Requirements): pass the seeded test tick URL explicitly to the
         `create_app` calls in `test_187_api_nfr.py`,
         `test_188_kalshi_api_nfr.py` and `test_189_operations_nfr.py`. Part
         1's guard (task 3.2) keeps `.env`'s URL out; this puts a real pool
         in, never the dev or production one.
-  - [ ] Success: the four tests pass; the existing load tests, now with a
+  - [x] Success: the four tests pass; the existing load tests, now with a
         tick pool, show no new failure beyond the 4 known ones.
-- [ ] **9.3 Check the connection budget** (effort 1)
-  - [ ] Compare the design's figures (per worker, 8 tick connections and 4
+- [x] **9.3 Check the connection budget** (effort 1)
+  - [x] Compare the design's figures (per worker, 8 tick connections and 4
         primary connections; with 4 workers, 32 and 16) with the
         `max_connections` values recorded in 1.1, and add the primary
         cluster's existing API pools.
-  - [ ] If either cluster cannot hold them, stop and ask the Project
+  - [x] If either cluster cannot hold them, stop and ask the Project
         Manager. Do not change a cluster setting.
-  - [ ] Record the figures in the design's Special Considerations as dev
+  - [x] Record the figures in the design's Special Considerations as dev
         values.
-  - [ ] Production is not checked here. Add "check production
+  - [x] Production is not checked here. Add "check production
         `max_connections` on both clusters against 231's per-worker
         connection budget for the configured `--workers`" to the 234 entry
         in the 220 slice plan.
-  - [ ] Success: the figures are recorded.
-- [ ] **9.4 Commit:** `test: add futures API load-tier bounds` (effort 1)
+  - [x] Success: the figures are recorded.
+- [x] **9.4 Commit:** `test: add futures API load-tier bounds` (effort 1)
 
 ## Section 10 - Closing
 
-- [ ] **10.1 Full validation** (effort 2)
-  - [ ] Unit tier, then the integration tier (6 known failures only), then
+- [x] **10.1 Full validation** (effort 2)
+  - [x] Unit tier, then the integration tier (6 known failures only), then
         the load tier (4 known failures only), each run separately.
-  - [ ] mypy across every touched source and test path in one
+  - [x] mypy across every touched source and test path in one
         invocation; ruff check and scoped format; `scripts/check_api_docs.py
         --check`.
-  - [ ] **The load tier is gated by this manual run, not by CI.** Record
+  - [x] **The load tier is gated by this manual run, not by CI.** Record
         this in the closing notes: `.github/workflows/ci.yml` publishes on
         tags and runs no test tier, and the load tier needs the private test
         cluster, so CI cannot run it. Wiring CI is not part of this slice.
         If the Project Manager wants it, it is a separate slice.
-  - [ ] Create `user/notes/231-walkthrough.md` (frontmatter per
+  - [x] Create `user/notes/231-walkthrough.md` (frontmatter per
         `file-naming-conventions.md`) with a "Load-tier gate" section
         holding that decision; 10.2 adds the walkthrough to it.
-  - [ ] Success: all clean apart from the known lists; the gate decision is
+  - [x] Success: all clean apart from the known lists; the gate decision is
         recorded.
-- [ ] **10.2 Run the Verification Walkthrough** (effort 3)
-  - [ ] Run the design's steps 1–9 against the dev tick database and the
+- [x] **10.2 Run the Verification Walkthrough** (effort 3)
+  - [x] Run the design's steps 1–9 against the dev tick database and the
         primary calendar. Record each command, output excerpt and outcome
         in `user/notes/231-walkthrough.md`. Step 4 picks the largest session
         from `mt data tick coverage`.
-  - [ ] Step 10 (production after 234) is recorded as not runnable in
+  - [x] Step 10 (production after 234) is recorded as not runnable in
         this slice, with the reason.
-  - [ ] Where the design's expected output was wrong, correct the
+  - [x] Where the design's expected output was wrong, correct the
         walkthrough in the design and note the correction in the notes
         file.
-  - [ ] Success: every step 1–9 is recorded as passing, or as corrected
+  - [x] Success: every step 1–9 is recorded as passing, or as corrected
         and passing.
-- [ ] **10.3 Align the design with what shipped** (effort 1)
-  - [ ] Update the design for anything decided during implementation: 1.1
+- [x] **10.3 Align the design with what shipped** (effort 1)
+  - [x] Update the design for anything decided during implementation: 1.1
         findings, file splits, the `model_construct` choice, and the
         measured bounds. Set `status: complete` and `dateUpdated`.
-  - [ ] Success: the design matches the code.
-- [ ] **10.4 Final commit:** `docs: mark slice 231 complete` (effort 1)
+  - [x] Success: the design matches the code.
+- [x] **10.4 Final commit:** `docs: mark slice 231 complete` (effort 1)

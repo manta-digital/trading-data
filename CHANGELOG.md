@@ -17,6 +17,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Futures ticks over the API: `/api/v1/futures/*`** (slice 231).
+  - Catalog: `products` (each product's active contract per status rule and
+    the next roll), `products/{product}/contracts` (every definition, spreads
+    included, with the sessions held), and `products/{product}/schedule`
+    (which contract serves each session under a roll rule).
+  - Time series: ticks and session-bounded bars (`1m 5m 15m 1h 4h 1d`), by
+    contract (`contracts/{symbol}/…`) or by product under a roll rule
+    (`products/{product}/…?rule=`), in JSON or msgpack.
+  - Prices are exact decimal strings and times are UTC strings to the
+    nanosecond. Each response names its `segments`, `unresolved` sessions and
+    `incomplete` sessions.
+  - Windows are session dates with `end` exclusive, like `mt data tick get`.
+    Tick routes add `from`/`until` instants to page through a session larger
+    than the 75,000-row ceiling.
+  - When the tick database is not configured, down, or behind on
+    migrations, the futures routes answer `503` saying which, and every
+    equity and Kalshi route carries on.
+- **Tick lines in `/api/v1/health`, `/api/v1/status` and `/api/v1/overview`**
+  (slice 231): `tick_db` (`ok`, `not_configured`, `unreachable`,
+  `migrations_pending`, `failed`), a `tick` accounting block equal to
+  `mt data accounting`'s, and a `futures ticks` source with a new
+  `sources[].unavailable` field. None of them can fail the route.
 - **`mt data tick get`: ES ticks and bars from the command line** (slice
   230).
   - `get ticks` or a bar size (`1m 5m 15m 1h 4h 1d`, where `1d` is the whole
@@ -110,6 +132,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pass buys nothing and `mt data tick status` reads caught up.
 
 ### Fixed
+- An unreachable calendar database no longer stalls `mt data tick active`,
+  `get --product` or the futures API for 30 s: the roll path's calendar read
+  gives up within the 10 s connect timeout.
 - A tick file with a bad header (an unexpected schema, symbology or record
   framing) no longer stops `mt data tick pass`, `adopt` or `ingest`: that
   day fails, naming the file, and the rest of the run carries on.

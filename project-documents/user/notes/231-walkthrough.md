@@ -24,6 +24,26 @@ this slice is the run recorded under "Load tier" below. Wiring CI is not part
 of this slice; if the Project Manager wants it, it is a separate slice (907
 already names the load tier in its scope).
 
+## Full validation (task 10.1), 2026-10-13
+
+Each tier run on its own, in order, from the slice branch.
+
+- **Unit:** 4,703 passed, 5 skipped.
+- **Integration:** 1,018 passed, 10 failed. Six are the known list (priority1
+  lists ×2, migration 051/052 ×2, policy-advances-head unaided ×2). The other
+  four were in `test_two_database_migrate.py`, which passed 7/7 when re-run on
+  its own: the known setup flake under concurrent database churn.
+- **Load:** 43 passed, 4 failed, exactly the known list: `/status` latency
+  (187) and the three 921 session-mass tests. All five 231 tests passed.
+- **mypy:** every touched source and test path in one invocation (26 source,
+  24 test files, `test/tick_support` and conftests excepted per the project
+  convention): no issues. The run surfaced two existing `admit_rows(...) is
+  None` assertions in `test_admission.py`; they now call the function.
+- **ruff check:** clean on every touched file. **ruff format:** every new
+  file is formatted; eleven touched files were already unformatted on `main`,
+  and their format diffs fall only on lines this slice did not write.
+- **Docs gate:** `scripts/check_api_docs.py --check` passes.
+
 ## Servers
 
 ```bash
