@@ -242,8 +242,8 @@ and the closing checks.
 
 ## Section 3 - The tick pool and the `503` (TD2)
 
-- [ ] **3.1 Build `api_server/tick_access.py` and the app seam** (effort 4)
-  - [ ] **`create_app` and `lifespan`:**
+- [x] **3.1 Build `api_server/tick_access.py` and the app seam** (effort 4)
+  - [x] **`create_app` and `lifespan`:**
     - `create_app(db_url=None, tick_db_url=None)`, with `tick_db_url`
       passed to `lifespan` the way `db_url` is.
     - `lifespan` resolves the tick URL: the explicit value, otherwise
@@ -252,7 +252,7 @@ and the closing checks.
     - `DatabaseNotConfiguredError` → `app.state.tick_pool = None`, and the
       not-configured detail (`f"{exc.env_var} unset"`) is held on
       `app.state`.
-  - [ ] **The pool**, when the URL is set:
+  - [x] **The pool**, when the URL is set:
     - `AsyncConnectionPool(..., open=False)` with the 2.3 constants, then
       `await pool.open(wait=False)`.
     - The pool's `configure` sets read-only transactions, the API
@@ -264,22 +264,22 @@ and the closing checks.
     - `app.state.tick_url` and `app.state.calendar_url` (the resolved
       primary URL) are held for the roll functions.
     - The pool is closed in `lifespan`'s `finally`.
-  - [ ] **`TickServiceUnavailable(Exception)`**, which carries a
+  - [x] **`TickServiceUnavailable(Exception)`**, which carries a
         `TickUnavailable`.
-  - [ ] **The `tick_connection` dependency:**
+  - [x] **The `tick_connection` dependency:**
     - pool `None` → `NOT_CONFIGURED`;
     - a `PoolTimeout` or `OperationalError` on checkout → `UNREACHABLE`,
       through 2.1's `classify` with the tick URL's password and the API
       `statement_timeout`;
     - `missing_migrations` non-empty → `MIGRATIONS_PENDING`;
     - otherwise it yields the connection.
-  - [ ] **The migration check leaves the connection idle.** Using 1.1's
+  - [x] **The migration check leaves the connection idle.** Using 1.1's
         answer, run it in autocommit, or commit straight after it. Task 6.2
         then sets `REPEATABLE READ` on the same connection, and that fails
         if a transaction is still open.
-  - [ ] **`probe_tick(app) -> TickUnavailable | None`** for health, status
+  - [x] **`probe_tick(app) -> TickUnavailable | None`** for health, status
         and overview: the same checks, returned rather than raised.
-  - [ ] **`tick_errors()`, the one error mapping for every futures route.**
+  - [x] **`tick_errors()`, the one error mapping for every futures route.**
         It is a context manager. Order matters:
     1. `psycopg.errors.QueryCanceled` is re-raised unchanged, so the
        existing `504` handler gets it. It must come first, because it is a
@@ -292,23 +292,23 @@ and the closing checks.
 
     Tasks 5.3, 5.5, 5.7 and 6.2 all use it; none writes its own catch
     tuple.
-  - [ ] **An app-level handler** maps `TickServiceUnavailable` to
+  - [x] **An app-level handler** maps `TickServiceUnavailable` to
         `503 {"error": unavailable_text(...)}`. It is registered beside the
         `QueryCanceled` handler in `app.py`.
-  - [ ] **`TICK_UNAVAILABLE_RESPONSE`** in `models/responses.py`, shaped
+  - [x] **`TICK_UNAVAILABLE_RESPONSE`** in `models/responses.py`, shaped
         like `GATEWAY_TIMEOUT_RESPONSE`, declares the `503`.
-  - [ ] Success: `tick_access.py` is under ~200 lines; no equities or
+  - [x] Success: `tick_access.py` is under ~200 lines; no equities or
         Kalshi route imports it.
-- [ ] **3.2 Test infrastructure, and keeping the dev tick database out of
+- [x] **3.2 Test infrastructure, and keeping the dev tick database out of
       tests** (effort 3)
-  - [ ] **The leak:** `lifespan` builds `Settings()`, which reads `.env`.
+  - [x] **The leak:** `lifespan` builds `Settings()`, which reads `.env`.
         With `tick_db_url=None`, every existing test that calls
         `create_app(db_url=…)` would open a pool against the dev tick
         database (1.1 lists them: unit `test/unit/api_server/*`,
         `test/integration/test_operations_serving.py`,
         `test/integration/test_api_docs_examples.py`, and
         `test/load/test_187/188/189_*`).
-  - [ ] **The guard:** add an autouse fixture, `no_dev_tick_settings`, in a
+  - [x] **The guard:** add an autouse fixture, `no_dev_tick_settings`, in a
         shared helper (`test/tick_support/api.py`). It patches the
         `Settings` that `api_server/app.py` uses to return the loaded
         settings with `tick_db_url` and `tick_maintenance_url` set to
@@ -316,7 +316,7 @@ and the closing checks.
         `test/unit/api_server/`, `test/integration/api_server/`, the two
         integration modules above, and `test/load/`. Production code is
         unchanged.
-  - [ ] **Fixtures** in `test/integration/api_server/conftest.py`:
+  - [x] **Fixtures** in `test/integration/api_server/conftest.py`:
     - a `TestClient` over `create_app(db_url=<primary test URL>,
       tick_db_url=<migrated tick test URL>)`, using the real `lifespan`;
     - a client whose tick URL is a `closed_port()` URL with a password in
@@ -327,14 +327,14 @@ and the closing checks.
       through `test/tick_support/database.py`'s pattern, for the tests that
       delete a migration ledger row (3.3, 7.2). Never the shared session
       database.
-  - [ ] Seeding goes through the existing helpers (`seed_september_roll`,
+  - [x] Seeding goes through the existing helpers (`seed_september_roll`,
         `seed_ticks`); add none unless 1.1 found a gap.
-  - [ ] Success: a smoke test, `GET /api/v1/health` returning 200 through
+  - [x] Success: a smoke test, `GET /api/v1/health` returning 200 through
         each fixture, passes. A test asserts that under the guard, an app
         built with `tick_db_url=None` has `tick_pool is None` even when
         `.env` sets `MT_TICK_DB_URL`.
-- [ ] **3.3 Test the pool posture** (effort 3)
-  - [ ] These tests use a throwaway probe route registered only in the test
+- [x] **3.3 Test the pool posture** (effort 3)
+  - [x] These tests use a throwaway probe route registered only in the test
         (depending on `tick_connection`), because the real futures routes
         come later. Integration tests:
     - not configured → `503` with `not configured (MT_TICK_DB_URL unset)`;
@@ -345,24 +345,24 @@ and the closing checks.
       pending (…)` (FR10);
     - after the row is restored, the same client gets 200, with no
       restart (FR9 recovery).
-  - [ ] Unit tests for `tick_errors()`, one case per mapping. A raised
+  - [x] Unit tests for `tick_errors()`, one case per mapping. A raised
         `QueryCanceled` must reach the `504` handler, not become a `503`.
-  - [ ] The app starts under all three fixtures: startup never raises for
+  - [x] The app starts under all three fixtures: startup never raises for
         the tick pool.
-  - [ ] **Equities and Kalshi are unaffected:** with the closed-port
+  - [x] **Equities and Kalshi are unaffected:** with the closed-port
         fixture, `/api/v1/bars/{symbol}`, `/api/v1/symbols`,
         `/api/v1/kalshi/categories` and `/api/v1/overview` keep their
         existing status codes. Seed the minimum each needs; reuse the
         existing tests' seeding.
-  - [ ] **No secret:** the closed-port `503` body does not contain the
+  - [x] **No secret:** the closed-port `503` body does not contain the
         URL's password (FR11; 7.2 and 7.4 cover `/health` and `/status`).
-  - [ ] Success: all pass; existing `test_app.py` tests pass unchanged
+  - [x] Success: all pass; existing `test_app.py` tests pass unchanged
         apart from the guard.
-- [ ] **3.4 Commit** (effort 1)
-  - [ ] Unit tier for `test/unit/api_server`; the integration tier for
+- [x] **3.4 Commit** (effort 1)
+  - [x] Unit tier for `test/unit/api_server`; the integration tier for
         `test/integration/api_server` and the two integration modules; mypy;
         ruff.
-  - [ ] Commit: `feat: add tick pool with 503 posture to the API`.
+  - [x] Commit: `feat: add tick pool with 503 posture to the API`.
 
 ## Section 4 - Response models (TD5)
 

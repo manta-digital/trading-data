@@ -26,13 +26,10 @@ from manta_trading.data.tick.get_plan import (
 )
 from manta_trading.data.tick.roll_payload import unresolved_dict
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
-from manta_trading.data.tick.tick_format import price_text, ts_text
+from manta_trading.data.tick.tick_format import row_cells
 from manta_trading.data.tick.tick_reads import (
     BAR_COLUMNS,
-    BAR_PRICE_COLUMNS,
     TICK_COLUMNS,
-    TICK_PRICE_COLUMNS,
-    TIME_COLUMNS,
     Row,
 )
 
@@ -68,24 +65,6 @@ class GetWriter(Protocol):
 
 def columns_for(what: str) -> tuple[str, ...]:
     return TICK_COLUMNS if what == TICK_GET_TICKS else BAR_COLUMNS
-
-
-def _cells(columns: Sequence[str], row: Row) -> list[Any]:
-    """JSON-ready values: exact prices as strings (``None`` if undefined),
-    times as ISO with nine digits, dates as ISO, the rest as stored."""
-    out: list[Any] = []
-    for name, value in zip(columns, row, strict=True):
-        if value is None:
-            out.append(None)
-        elif name in TICK_PRICE_COLUMNS or name in BAR_PRICE_COLUMNS:
-            out.append(price_text(value))
-        elif name in TIME_COLUMNS:
-            out.append(ts_text(value))
-        elif name == "session_date":
-            out.append(value.isoformat())
-        else:
-            out.append(value)
-    return out
 
 
 def _target_dict(plan: GetPlan) -> dict[str, Any]:
@@ -161,7 +140,10 @@ class TextWriter:
         self._out.write(
             "".join(
                 self._line(
-                    [_TEXT_NULL if c is None else c for c in _cells(self._columns, r)]
+                    [
+                        _TEXT_NULL if c is None else c
+                        for c in row_cells(self._columns, r)
+                    ]
                 )
                 + "\n"
                 for r in batch
@@ -197,7 +179,7 @@ class CsvWriter:
 
     def rows(self, batch: Sequence[Row]) -> None:
         self._csv.writerows(
-            ["" if c is None else c for c in _cells(self._columns, r)] for r in batch
+            ["" if c is None else c for c in row_cells(self._columns, r)] for r in batch
         )
 
     def finish(self, exit_code: int) -> None:
@@ -244,7 +226,9 @@ class JsonWriter:
         if not batch:
             return
         objects = (
-            json.dumps(dict(zip(self._columns, _cells(self._columns, r), strict=True)))
+            json.dumps(
+                dict(zip(self._columns, row_cells(self._columns, r), strict=True))
+            )
             for r in batch
         )
         lead = "" if self._n == 0 else ",\n"
