@@ -135,6 +135,66 @@ and the closing checks.
         both.
   - [ ] Success: findings block present; no code changes.
 
+  **Findings (1.1)**, 2026-10-13:
+
+  - **psycopg_pool 3.3.0** (psycopg 3.3.3). `AsyncConnectionPool.__init__`
+    takes `open`, `timeout` (the checkout timeout, default 30), `configure`
+    (async callback) and `reset`. `open(wait=False, timeout=…)` returns
+    without waiting for connections. `PoolTimeout` subclasses
+    `psycopg.OperationalError`, so one `OperationalError` catch covers both.
+    A connection that `configure` leaves non-idle is discarded. TD2 holds; no
+    stop.
+  - **Pool connection mode.** The tick pool's `configure` turns autocommit
+    on and leaves it on, so `missing_migrations` (which catches
+    `UndefinedTable`) never leaves a transaction open. The time-series path
+    sets `REPEATABLE_READ` and `read_only` and opens `conn.transaction()`,
+    which issues `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`, as the
+    CLI's `connect_migrated` connection does (autocommit). Those attributes
+    persist on a pooled connection, so the pool's `reset` callback clears
+    them.
+  - **Roll functions.** `build_schedule(tick_url, calendar_url, entry, rule,
+    start, end)` raises `RollRangeTooLong`, `TickPreflightError` (range
+    outside the calendar), `RollInputError`, `OperationalError` and
+    `TickCalendarError`. It returns an empty schedule when no session falls
+    in range. `latest_lines(tick_url, calendar_url, entry, rules)` raises the
+    same, and gives a `reason` line when nothing is held.
+    `roll_conninfo` uses `TICK_DB_CONNECT_TIMEOUT_SECONDS` = 10 and
+    `TICK_ROLL_STATEMENT_TIMEOUT_SECONDS` = 30. `missing_migrations(conn)`
+    needs no transaction; under autocommit it leaves the connection idle.
+  - **API test fixtures.** Unit tests build `create_app()` and enter
+    `TestClient` without the context manager (no lifespan), overriding
+    `get_db`. `test_app.py`'s `started_app` enters the real lifespan with
+    the pool classes patched and `MT_TIMESCALE_DB_URL` set via
+    `monkeypatch`. Integration and load tests pass `create_app(db_url=…)`.
+    Modules calling `create_app(`: unit `test/unit/api_server/` (test_app,
+    test_bars, test_gaps, test_health, test_kalshi_catalog,
+    test_kalshi_timeseries, test_openapi_artifact, test_operations,
+    test_query_canceled, test_status, test_symbols);
+    `test/integration/test_operations_serving.py`,
+    `test/integration/test_api_docs_examples.py`; `test/load/test_187_api_nfr.py`,
+    `test_188_kalshi_api_nfr.py`, `test_189_operations_nfr.py`.
+  - **Tick test database.** `test/conftest.py` provides `migrated_tick_db`
+    (function-scoped, `TRACKS["tick"]` applied) on the test cluster, and
+    `session_migrated_db` (primary chain, holds the CME calendar). 230's
+    `test_tick_get_cli.py` pairs them with `seed_september_roll` and
+    `seed_ticks`. A function-scoped `migrated_tick_db` is already a throwaway
+    per test, so the migration-deletion tests use it directly.
+  - **Granularity.** `/api/v1/bars` declares `granularity: Granularity` (a
+    `StrEnum`). The tick routes use a `StrEnum` subset built from
+    `TICK_BAR_GRANULARITIES` (functional API), so the schema lists exactly
+    those six values and the tuple stays the one source.
+  - **CLI move sites.** `classify(exc, settings)` is called only inside
+    `cli/tick_composed.py` (three sites) and in
+    `test/unit/cli/test_tick_composed.py`. `TICK_SOURCE_NAME` is defined in
+    `cli/commands/overview.py` and read through `mod.TICK_SOURCE_NAME` in
+    `test/unit/cli/commands/test_overview_tick.py` and `test_overview.py`.
+    The re-export through `overview.py` keeps those working.
+  - **Connection limits (dev).** Dev tick cluster (manta9000:5433):
+    `max_connections` = 30. Dev primary (192.168.1.144): 100. Test cluster
+    (192.168.1.143): 100. `mt-serve.service` runs `mt serve` with no
+    `--workers`, so 1 worker: 8 tick connections fits 30. Four workers (32)
+    would not fit the dev tick cluster; 9.3 records this for 234.
+
 ## Section 2 - Shared moves (no behaviour change)
 
 - [ ] **2.1 Move `classify` into `data/tick/line_state.py`** (effort 2)

@@ -369,3 +369,19 @@ TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS = 5
 #: Bound on any one statement of a composed tick read: the accounting read is
 #: status's verdict step, far inside this on today's data; 232 re-checks it.
 TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS = 10
+
+
+# -- Slice 231: the API's tick pool and overview source (LLD 231 TD2, TD7) ---
+
+#: The overview's tick source name, shared by ``mt data overview`` and
+#: ``/api/v1/overview`` (moved from ``cli/commands/overview.py``).
+TICK_SOURCE_NAME = "futures ticks"
+#: Connections the API's tick pool keeps open while idle.
+TICK_API_POOL_MIN = 1
+#: Ceiling on the API's tick pool: also caps requests in the roll path at once,
+#: since each holds a checkout (TD2's connection budget).
+TICK_API_POOL_MAX = 4
+#: How long a request waits for a tick checkout before its ``503``; no longer
+#: than ``TICK_DB_CONNECT_TIMEOUT_SECONDS``, so a tick ``503`` never outwaits
+#: a roll connect.
+TICK_API_CHECKOUT_TIMEOUT_SECONDS = 5

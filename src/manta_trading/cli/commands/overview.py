@@ -38,6 +38,7 @@ from manta_trading.data.acquisition.pass_runs import (
     PassRun,
     PassRunRepository,
 )
+from manta_trading.data.tick.constants import TICK_SOURCE_NAME
 from manta_trading.firing_schedule import next_firing_at, schedule_for
 from manta_trading.logging import get_logger
 
@@ -46,8 +47,6 @@ _logger = get_logger(__name__)
 _JSON_OPTION = typer.Option(False, "--json", help="Emit JSON.")
 """The command's only option (design: no others)."""
 
-#: The overview's fifth source (230 TD7): gathered here, on the CLI side only.
-TICK_SOURCE_NAME = "futures ticks"
 
 # The shapes live in a leaf module both this and the renderer depend on;
 # re-exported here because every existing caller (tests, the load tier, the

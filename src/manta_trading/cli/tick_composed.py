@@ -27,32 +27,19 @@ from manta_trading.data.tick.constants import (
     TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS,
 )
 from manta_trading.data.tick.line_state import (
+    READ_FAILURES,
     TickLineState,
     TickUnavailable,
-    first_line,
 )
+from manta_trading.data.tick.line_state import classify as classify_failure
 from manta_trading.data.tick.manifest_reads import Conn
-from manta_trading.data.tick.store_context import (
-    TickPreflightError,
-    missing_migrations,
-)
-from manta_trading.data.tick.tick_calendar import TickCalendarError
+from manta_trading.data.tick.store_context import missing_migrations
 from manta_trading.market.schema.databases import (
     Credential,
     Database,
     DatabaseNotConfiguredError,
     resolve_database_url,
 )
-
-_SCRUBBED = "***"
-#: Outages: the tick database or the calendar did not answer, dropped, or
-#: timed out (``QueryCanceled`` is an ``OperationalError``) → ``unreachable``.
-_OUTAGES = (psycopg.OperationalError, TickCalendarError)
-#: Everything a composed read can raise once connected: the outages, a
-#: calendar refusing the range (``TickPreflightError``), and any other
-#: database error. Each becomes the line (``failed`` unless an outage), never
-#: a failed command: the tick line must not take down the minute screen (FR14).
-_READ_FAILURES = (psycopg.Error, TickCalendarError, TickPreflightError)
 
 
 def _password(settings: Settings) -> str | None:
@@ -65,20 +52,11 @@ def _password(settings: Settings) -> str | None:
 
 
 def classify(exc: Exception, settings: Settings) -> TickUnavailable:
-    """A connect or read failure as the line: an outage is ``unreachable``
-    (a cancelled statement names the timeout), anything else ``failed``. The
-    URL's password is scrubbed."""
-    password = _password(settings)
-    detail = first_line(exc)
-    if password:
-        detail = detail.replace(password, _SCRUBBED)
-    if not isinstance(exc, _OUTAGES):
-        return TickUnavailable(TickLineState.FAILED, detail)
-    if isinstance(exc, psycopg.errors.QueryCanceled):
-        detail = (
-            f"statement timeout ({TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS} s): {detail}"
-        )
-    return TickUnavailable(TickLineState.UNREACHABLE, detail)
+    """:func:`line_state.classify` with the settings' tick password and the
+    composed statement timeout."""
+    return classify_failure(
+        exc, _password(settings), f"{TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS} s"
+    )
 
 
 async def connect(settings: Settings) -> Conn | TickUnavailable:
@@ -119,7 +97,7 @@ async def _read[T](
         return opened
     try:
         return await read(opened)
-    except _READ_FAILURES as exc:
+    except READ_FAILURES as exc:
         # Not swallowed: the error becomes the line the command prints, with
         # its first line as the detail (FR14, TD8).
         return classify(exc, settings)
