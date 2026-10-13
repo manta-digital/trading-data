@@ -3,7 +3,7 @@ docType: reference
 title: Data Serving API — agent reference
 project: trading-data
 dateCreated: 20260916
-dateUpdated: 20260916
+dateUpdated: 20261013
 status: complete
 ---
 
@@ -27,22 +27,25 @@ tables; it tells you which route to call and how to read what happens.
 - **Base URL**: all routes are prefixed `/api/v1`. The server default is
   `0.0.0.0:8100`.
 - **Every response is JSON** unless you ask for msgpack with `format=msgpack`,
-  which three routes accept. It saves 14–36% (see
-  [`reference.md` §6](reference.md#6-msgpack-what-it-actually-saves)); prefer
+  which the time-series routes accept. It saves 14–36% (see
+  [`reference.md` §7](reference.md#7-msgpack-what-it-actually-saves)); prefer
   JSON unless bandwidth is the constraint.
 - **All timestamps are UTC**, RFC 3339 with a `Z` suffix. Naive input is read
   as UTC.
 - **Fields ending `_dollars` or `_fp` are decimal strings**, not numbers:
   `"0.4900"`. Parse into a decimal type, never a float.
-- **Date windows are inclusive at both ends**, with one exception
-  (`/api/v1/gaps`, whose day end is exclusive at the next midnight).
+- **Date windows are inclusive at both ends**, with two exceptions:
+  `/api/v1/gaps`, whose day end is exclusive at the next midnight, and every
+  `/api/v1/futures/*` route, whose `start`/`end` are session dates with `end`
+  exclusive (§3).
 - **No pagination.** A request is answered completely or refused with `422`.
 
 ## 2. Capability index
 
 ### "Is the server up?"
 
-`GET /api/v1/health` → `{status, db, coverage}`.
+`GET /api/v1/health` → `{status, db, coverage, tick_db}` (`tick_detail` when
+`tick_db` is not `ok`).
 
 <!-- endpoint: /api/v1/health
      params: -
@@ -259,6 +262,80 @@ route reports, not a fault of the server.
 than the rest and fails in ways a database read cannot. Do not poll it the way
 you would poll `/api/v1/overview`.
 
+### "What futures products and contracts are there, and which is active?"
+
+`GET /api/v1/futures/products` → `{products[{product, calendar, active[]}]}`:
+for each product, the contract each status rule (`v.0`, `c.0`) names for the
+latest complete session, and the next roll when known.
+
+<!-- endpoint: /api/v1/futures/products
+     params: -
+     errors: 503, 504 -->
+
+`GET /api/v1/futures/products/{product}/contracts` → every defined instrument,
+spreads included, with `held: {first_session, last_session}` or null.
+
+<!-- endpoint: /api/v1/futures/products/{product}/contracts
+     params: -
+     errors: 503, 504 -->
+
+**Not this:** `/api/v1/symbols` lists the equity universe; futures are not in
+it.
+
+### "Which contract serves each session, and when does it roll?"
+
+`GET /api/v1/futures/products/{product}/schedule?rule=&start=&end=` →
+`{segments[], answers[], unresolved[]}`. Read `segments` for the runs and
+`unresolved` for sessions the rule cannot answer.
+
+<!-- endpoint: /api/v1/futures/products/{product}/schedule
+     params: rule:string, start:date, end:date
+     errors: 422, 503, 504 -->
+
+### "Give me futures ticks."
+
+`GET /api/v1/futures/contracts/{symbol}/ticks` for one contract, or
+`GET /api/v1/futures/products/{product}/ticks?rule=` for a product stitched by
+a roll rule. Rows are `ticks[]` with string prices and nanosecond string times.
+
+<!-- endpoint: /api/v1/futures/contracts/{symbol}/ticks
+     params: start:date, end:date, from:date-time, until:date-time,
+             format:json|msgpack
+     errors: 422, 503, 504 -->
+
+<!-- endpoint: /api/v1/futures/products/{product}/ticks
+     params: rule:string, start:date, end:date, from:date-time,
+             until:date-time, format:json|msgpack
+     errors: 422, 503, 504 -->
+
+**A whole busy session is always refused** (up to ~690,000 ticks against a
+75,000-row ceiling). Ask for a few minutes with `from`/`until` and page (§3).
+
+### "Give me futures bars."
+
+`GET /api/v1/futures/contracts/{symbol}/bars?granularity=` or
+`GET /api/v1/futures/products/{product}/bars?granularity=&rule=`. Bars are
+built from ticks at read time and never cross a session; `1d` is the whole
+session.
+
+<!-- endpoint: /api/v1/futures/contracts/{symbol}/bars
+     params: granularity:TickBarGranularity, start:date, end:date,
+             format:json|msgpack
+     errors: 422, 503, 504 -->
+
+<!-- endpoint: /api/v1/futures/products/{product}/bars
+     params: granularity:TickBarGranularity, rule:string, start:date,
+             end:date, format:json|msgpack
+     errors: 422, 503, 504 -->
+
+**Not this:** `/api/v1/bars/{symbol}` is the equity store. It does not know
+futures symbols, and its `end` is inclusive.
+
+**Before trusting a product read, check three arrays:** `segments` (which
+contract served which sessions), `unresolved` (sessions with no rows at all),
+and `incomplete` (sessions whose rows may be partial). All three come with HTTP
+`200`.
+
 ## 3. Choosing a window
 
 The ceiling is **75,000 rows**, shared by every list and time-series route.
@@ -292,6 +369,17 @@ the same request — is never correct.
 
 Equity bars are refused from an **estimate** computed before any database work.
 Kalshi routes take an exact `count(*)` first and quote the real number.
+Futures routes stop reading at the ceiling and quote no count.
+
+**Futures windows are different.** `start` and `end` are session dates and
+`end` is **exclusive**: `start=2024-09-16&end=2024-09-21` is five sessions,
+09-16 through 09-20. Omit both to get every held session. The tick routes add
+`from`/`until`, UTC instants, half-open `[from, until)`. To read a session
+larger than the ceiling, page: take a window, and use its `until` as the next
+request's `from`; pages never overlap or skip. A refusal reads
+`the request matches more than the 75,000 row limit; narrow start/end or
+from/until`. Bars take no instant bounds; at `1m` one request covers about 54
+sessions.
 
 ## 4. Reading a result
 
@@ -327,6 +415,7 @@ change that resolves it.
 | `404` | **No.** The identifier is unknown. | Check spelling; use `/api/v1/symbols/{symbol}` or the Kalshi catalog routes to find a valid one. Retrying will never succeed. |
 | `422` | **No. Retrying the same request cannot help.** | The request is malformed or asks for too much. **Narrow the window**, filter the list, fix the reversed range, or correct the invalid token. The message names what to change. |
 | `500` | **Once, then stop.** | An unexpected server fault; the body is sanitized. If it repeats, the server needs attention — a client cannot fix it. |
+| `503` | **Later, not now.** | Futures routes only: the tick database is down or unconfigured; equities routes are unaffected. `not configured …` and `migrations pending …` need an operator, so do not retry those; `unreachable: …` may clear. `/api/v1/health`'s `tick_db` says which without failing. |
 | `504` | **Yes, retry may help.** | The database cancelled the query at the statement timeout. The same request may succeed under lighter load, but **narrowing the window is more reliable** than retrying unchanged. |
 
 ### What a `504` does not mean
@@ -406,7 +495,7 @@ second apart can legitimately differ if a pass wrote rows between them.
 
 ## 7. Vocabularies
 
-Five closed token sets. Each is checked against the code that defines it, so
+Eight closed token sets. Each is checked against the code that defines it, so
 these lists cannot silently fall behind.
 
 **Bar granularity** — `/api/v1/bars` and `/api/v1/gaps`:
@@ -443,6 +532,25 @@ key.
 `COMPLETE_QUOTA` means the pass finished by exhausting its provider quota, not
 that it failed. `PROVIDER_UNAVAILABLE` means the provider did not answer.
 
+**Futures bar size** — `/api/v1/futures/*/bars` `granularity`:
+`1m` `5m` `15m` `1h` `4h` `1d`.
+<!-- from: manta_trading.api_server.routes.futures_params.TickBarGranularity -->
+
+A subset of the bar granularity above; `1d` is one whole session.
+
+**Roll method** — the first part of a futures `rule`, `{method}.{rank}[+{offset}s]`:
+`v` `c`.
+<!-- from: manta_trading.data.tick.constants.RollMethod -->
+
+`v` is by volume (ranked on an earlier session, never looking ahead), `c` by
+nearest expiration; rank `0` is the front contract, and only `c` takes an
+offset (`c.0+2s` rolls two sessions early). The default is `v.0`.
+
+**Tick state** — `tick_db` on `/api/v1/health`, `tick.state` on
+`/api/v1/status`:
+`ok` `not_configured` `unreachable` `migrations_pending` `failed`.
+<!-- from: manta_trading.data.tick.line_state.TickLineState -->
+
 **Storage family** — the `/api/v1/status` `granularity` parameter and the
 `granularity` echoed by `/api/v1/gaps`: `daily` or `minute`. This is **not**
 the bar granularity vocabulary above, and the two are not interchangeable:
@@ -466,8 +574,8 @@ uv run python scripts/check_api_docs.py --check
 
 The conventions — `<!-- endpoint: -->` blocks and `<!-- from: -->` markers —
 are specified in
-[`reference.md` §8](reference.md#8-keeping-this-accurate). Every one of the 17
-paths must appear in **both** documents; the gate enforces it, because two
+[`reference.md` §9](reference.md#9-keeping-this-accurate). Every path
+must appear in **both** documents; the gate enforces it, because two
 descriptions of one surface that can disagree is the condition these files
 exist to end.
 

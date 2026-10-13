@@ -152,20 +152,20 @@ paths, test environment, lint and production safety.
 
 ## Section 7 - Health, status and overview (TD7)
 
-- [ ] **7.1 Add `tick_db` to `/api/v1/health`** (effort 2)
-  - [ ] `HealthResponse` gains `tick_db: TickLineState` and
+- [x] **7.1 Add `tick_db` to `/api/v1/health`** (effort 2)
+  - [x] `HealthResponse` gains `tick_db: TickLineState` and
         `tick_detail: str | None`. The detail is the `TickUnavailable`
         detail, dropped by `exclude_none` when the state is ok.
-  - [ ] Make the handler `async`:
+  - [x] Make the handler `async`:
     - the existing `SELECT 1` and freshness probe run in
       `run_in_executor` on a pooled connection (keep `get_db_pool`
       semantics);
     - `probe_tick(app)` is awaited;
     - HTTP is 200 in every case.
-  - [ ] Success: the existing `test_health.py` passes after only fixture
+  - [x] Success: the existing `test_health.py` passes after only fixture
         changes; record any it needed in the commit message.
-- [ ] **7.2 Test health** (effort 2)
-  - [ ] Integration tests:
+- [x] **7.2 Test health** (effort 2)
+  - [x] Integration tests:
     - `tick_db: "ok"` with no `tick_detail`;
     - `not_configured`, `unreachable` and `migrations_pending` through
       part 1's fixtures (task 3.2) and the ledger-row deletion on the
@@ -174,10 +174,10 @@ paths, test environment, lint and production safety.
     - with the closed-port URL carrying a password, `tick_detail` does not
       contain it (FR11);
     - a primary database failure still reports `db: "error"`, as before.
-  - [ ] Success: passes.
-- [ ] **7.3 Add the `tick` block to `/api/v1/status`** (effort 2)
-  - [ ] `StatusResponse.tick: TickBlock`, always present.
-  - [ ] The route probes the tick pool:
+  - [x] Success: passes.
+- [x] **7.3 Add the `tick` block to `/api/v1/status`** (effort 2)
+  - [x] `StatusResponse.tick: TickBlock`, always present.
+  - [x] The route probes the tick pool:
     - on success it runs `accounting_lines(conn, calendar_url,
       TICK_UNIVERSE)`, giving `state: "ok"`;
     - a probe failure, or an exception from the read classified through
@@ -185,9 +185,9 @@ paths, test environment, lint and production safety.
       and detail with `products: []`.
 
     The equities rows and filters are unchanged.
-  - [ ] Success: no `5xx` can come from the tick block.
-- [ ] **7.4 Test status** (effort 2)
-  - [ ] Integration tests:
+  - [x] Success: no `5xx` can come from the tick block.
+- [x] **7.4 Test status** (effort 2)
+  - [x] Integration tests:
     - the `tick` block equals `mt data accounting --json`'s `tick` over
       the same seed (FR8, Integration Requirements), computed in-process;
     - with `symbol=AAPL&health=OK` the block is unchanged;
@@ -195,20 +195,20 @@ paths, test environment, lint and production safety.
       present, and `tick.detail` does not contain the URL's password
       (FR11);
     - not configured → `tick.state == "not_configured"`, HTTP 200 (FR8).
-  - [ ] Success: passes; existing `test_status.py` passes.
-- [ ] **7.5 Add the `futures ticks` source to `/api/v1/overview`**
+  - [x] Success: passes; existing `test_status.py` passes.
+- [x] **7.5 Add the `futures ticks` source to `/api/v1/overview`**
       (effort 2)
-  - [ ] `SourceRecord` gains `unavailable: str | None`. The existing four
+  - [x] `SourceRecord` gains `unavailable: str | None`. The existing four
         sources map `unavailable=None` explicitly.
-  - [ ] The route probes the tick pool and appends
+  - [x] The route probes the tick pool and appends
         `SourceRecord(TICK_SOURCE_NAME, newest, unavailable)`:
     - `newest` comes from `newest_event_ns` through `utc_from_ns`;
     - on failure, `newest` is null and `unavailable` is
       `unavailable_text(...)`.
-  - [ ] Success: `gather_db_facts` is untouched; the order of the sources
+  - [x] Success: `gather_db_facts` is untouched; the order of the sources
         matches the CLI's.
-- [ ] **7.6 Test overview** (effort 2)
-  - [ ] Integration tests:
+- [x] **7.6 Test overview** (effort 2)
+  - [x] Integration tests:
     - the record equals `mt data overview --json`'s `futures ticks`
       source (name, `newest`, `unavailable`) over the same seed;
     - not configured → `unavailable` carries the not-configured text and
@@ -217,13 +217,13 @@ paths, test environment, lint and production safety.
       (FR9);
     - the four existing sources keep their values with
       `unavailable: null`.
-  - [ ] Update `test_operations_models.py` and
+  - [x] Update `test_operations_models.py` and
         `test_openapi_operations_schema.py` for the new field.
-  - [ ] Success: passes.
-- [ ] **7.7 Commit** (effort 1)
-  - [ ] Unit and integration tiers for the touched directories; mypy; ruff;
+  - [x] Success: passes.
+- [x] **7.7 Commit** (effort 1)
+  - [x] Unit and integration tiers for the touched directories; mypy; ruff;
         `git diff main` checked.
-  - [ ] Commit: `feat: add tick lines to health, status and overview`.
+  - [x] Commit: `feat: add tick lines to health, status and overview`.
 
 ## Section 8 - Documents (the 190 gate)
 

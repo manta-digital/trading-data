@@ -10,7 +10,7 @@ relatedSlices: [181, 182, 183, 184, 185, 186, 187, 188, 189, 190]
 riskLevel: low
 archIndex: 180
 dateCreated: 20260512
-dateUpdated: 20260921
+dateUpdated: 20261013
 status: complete
 ---
 
@@ -314,6 +314,14 @@ The API now applies a **pre-query admission cap**: estimated bars for the reques
 
 **Extended by slice 188 (2026-09-13): one ceiling, two enforcement styles.** The Kalshi lists and time series reuse `MT_API_MAX_BARS_PER_REQUEST` — it bounds rows per response, which is exactly what they need, and a second setting with the same number would be two things to keep in step. But they enforce it with an exact `count(*)` taken before any rows are read, not with a window estimate. The reason is measured, not stylistic: Kalshi row density is not a function of the window. A quiet market produces no candle for a period it was nonetheless asked for, and trade rates across markets differ by orders of magnitude, so a window estimate would be wrong in both directions — refusing servable requests and admitting unservable ones. The count is milliseconds against an indexed range, and it lets the `422` quote the actual number of rows the client asked for rather than an estimate. See slice 188 D4 and D8.
 
+**Extended by slice 231 (2026-10-13): a third enforcement style.** The futures tick routes (`/api/v1/futures/*`) reuse the same ceiling and enforce it *while reading*: rows are collected as the read streams them, and the read stops as soon as the total passes the ceiling. A refused request therefore reads at most the ceiling plus one fetch batch (`TICK_GET_FETCH_ROWS`, 10,000 — 85,000 rows), and its `422` quotes the ceiling but no count, because the true count is never computed. Neither earlier style works here, and the reason is measured: the busiest session held has 687,287 ticks (the median is 88), so a `count(*)` would cost a full session scan on every request, admitted or not, and a window estimate is useless when tick density varies by orders of magnitude across instruments and hours. The three styles, side by side:
+
+- **186 equity bars:** estimated before the query; no DB work for a refused request.
+- **188 Kalshi:** an exact `count(*)` first; the `422` quotes the true count.
+- **231 futures:** enforced during the read; a refusal reads at most 85,000 rows and quotes no count.
+
+"No DB work is done for a rejected request" therefore holds for the bars route only. The tick routes' `from`/`until` instant bounds are how a client reads a session larger than the ceiling; there is still no server-side pagination. See slice 231 TD4.
+
 The ceiling bounds rows, not bytes, and the two paths differ there: a ceiling-sized bars response measured 11.58 MB (slice 186), a ceiling-sized Kalshi candle response 34.80 MB (slice 188, 2026-09-13), because a candle carries sixteen decimal strings where a bar carries five floats. Whether a byte ceiling is ever wanted is open; no slice has needed one yet.
 
 ## What This Does NOT Include
@@ -322,7 +330,7 @@ The ceiling bounds rows, not bytes, and the two paths differ there: a ceiling-si
 - **Rate limiting** — unnecessary for single-user.
 - **Caching layer** — the data rarely changes (daily update at EOD, minute backfill in progress). If the UI re-requests the same range, the DB query is fast enough. Add Redis or in-memory caching only if measurement shows a problem.
 - **WebSocket streaming** — not needed until live tick data flows, which is a trading-feed concern. Historical data is request/response.
-- **Tick data endpoints** — initiative 220 (Futures Tick) hasn't landed yet. Tick endpoints are added when tick storage exists.
+- ~~**Tick data endpoints** — initiative 220 (Futures Tick) hasn't landed yet. Tick endpoints are added when tick storage exists.~~ **Closed by slice 231 (2026-10-13):** tick storage exists, and `/api/v1/futures/*` serves the catalog, ticks and session-bounded bars.
 
 **Amendment 2026-09-12 — an unserved surface is a sequencing note, not a boundary.** The tick exclusion above states the rule this initiative actually follows: a data surface is absent from the API because its storage has not landed, and it is added once that storage exists. Kalshi (initiative 260) and the slice-922 operator surfaces both landed without anyone asking the question, leaving 585M+ rows of collected Kalshi data (`kalshi.trades` 345.1M, `kalshi.candlesticks` 239.8M, measured on production 2026-09-12) reachable only by CLI or direct SQL. Slices 188-190 close that gap.
 

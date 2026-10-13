@@ -3,7 +3,7 @@ docType: reference
 title: Data Serving API reference
 project: trading-data
 dateCreated: 20260916
-dateUpdated: 20260916
+dateUpdated: 20261013
 status: complete
 ---
 
@@ -95,6 +95,11 @@ window ending 06-14. The correction lives at
 and `window_end_utc` now resolves an inclusive day end to that day's last
 instant.
 
+**The futures routes (`/api/v1/futures/*`) differ by design**: their `start`
+and `end` are *session dates* and `end` is **exclusive**, plus half-open
+`from`/`until` instants on the tick routes. A CME session opens the evening
+before its date, so a UTC-day window would cut every session in two. See §6.1.
+
 ### 2.3 Numbers: decimals are strings on the wire
 
 Every field suffixed `_dollars` or `_fp` is a **decimal string**, not a JSON
@@ -109,7 +114,7 @@ A client that needs arithmetic should parse these into its own decimal type,
 never into a float.
 
 This has a consequence for `format=msgpack`, covered in
-[§6](#6-msgpack-what-it-actually-saves): because the values are already strings
+[§7](#7-msgpack-what-it-actually-saves): because the values are already strings
 by the time msgpack sees them, it cannot pack them any tighter than JSON can.
 
 Plain integers and floats — `count`, `volume`, `bars_stored`, `lag_seconds` —
@@ -164,6 +169,10 @@ in the error message:
   reading any rows, and quote the actual count. Their row density does not
   follow the window the way a bar series' does, so an estimate would be
   worthless.
+- **Futures routes stop reading at the ceiling** and quote no count: a single
+  session can hold hundreds of thousands of ticks, so a `count(*)` would cost a
+  full scan on every request, and tick density varies too much to estimate. A
+  refused request reads at most the ceiling plus one fetch batch. See §6.1.
 
 Because the equity store covers extended hours (08:00–23:59 UTC, ~960
 one-minute bars on a dense day), the cap binds only at intraday grains:
@@ -220,6 +229,7 @@ its native body so clients retain the per-field detail:
 | `404` | The symbol, series, event or market is not known. **Only** that. |
 | `422` | The request is malformed, the range is reversed, or the result would exceed the row ceiling. |
 | `500` | An unexpected server fault. The body is sanitized. |
+| `503` | Futures routes only: the tick database is not configured, unreachable, or has migrations pending (§6.1). Every other route is unaffected. |
 | `504` | The database cancelled the query at the statement timeout. Narrow the range or use a coarser granularity. |
 
 #### The two `422` shapes
@@ -268,11 +278,13 @@ recorded as Future Work in
 
 #### Remedy strings
 
-Refusals that a caller can act on quote one of two fixed remedies, defined once
-at [`admission.py:21,24`](../../src/manta_trading/api_server/admission.py):
+Refusals that a caller can act on quote one of three fixed remedies, defined
+once in [`admission.py`](../../src/manta_trading/api_server/admission.py):
 
 - `narrow the filter` — a catalog list; bound it with query parameters.
 - `narrow start/end` — a time series; bound it with a shorter window.
+- `narrow start/end or from/until` — futures ticks; a session can exceed the
+  ceiling, so the instant bounds are the way through it (§6.1).
 
 ### 2.8 Auth, CORS and pagination
 
@@ -302,16 +314,27 @@ route to poll from a monitor.
 | `status` | string | no | `ok` when the server is serving. |
 | `db` | string | no | `ok` when the pooled connection answers. |
 | `coverage` | string | no | Coarse whole-system freshness verdict. |
+| `tick_db` | string | no | The futures tick database's state; see below. |
+| `tick_detail` | string | — | Why `tick_db` is not `ok`. Absent when it is. |
+
+Tick states are `ok` `not_configured` `unreachable` `migrations_pending`
+`failed`.
+<!-- from: manta_trading.data.tick.line_state.TickLineState -->
+They are kept apart because the remedies differ: `not_configured` needs a
+setting, `unreachable` needs the database, `migrations_pending` needs a
+migration. A tick outage never changes `status` or `db`, and the route still
+answers `200`.
 
 ```sh
 curl 'http://127.0.0.1:8137/api/v1/health'
 ```
 
 ```json
-{"status":"ok","db":"ok","coverage":"ok"}
+{"status":"ok","db":"ok","coverage":"ok","tick_db":"ok"}
 ```
 
-*Captured 2026-09-16.*
+*Captured 2026-10-13 with the dev tick database configured.* Without one:
+`"tick_db":"not_configured","tick_detail":"MT_TICK_DB_URL unset"`.
 
 **Errors**: none. This route answers `200` or the server is not running.
 
@@ -336,7 +359,7 @@ OHLCV bars for one instrument over an inclusive date window.
 | `start` | date | yes | — | Inclusive first day, UTC. |
 | `end` | date | yes | — | Inclusive last day, UTC (§2.2). |
 | `adjusted` | boolean | no | `true` | Split/dividend-adjusted prices. |
-| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§6). |
+| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
 
 Granularity tokens are
 `1m` `5m` `15m` `1h` `4h` `1d` `1w` `1mo` `1q`.
@@ -570,6 +593,7 @@ Health tokens are `OK` `GAPS` `STALE` `FAILED`.
 | `rows[].effective_start` | string | yes | UTC date | First day acquisition considers in scope. |
 | `summary` | object | no | counts | Whole-registry health breakdown, unfiltered. |
 | `coverage` | object | no | — | Freshness verdict; see below. |
+| `tick` | object | no | — | The futures tick tier; see below. |
 
 Two of these changed meaning in slice 922 without changing name or type
 ([`models/responses.py:208-222`](../../src/manta_trading/api_server/models/responses.py)):
@@ -618,6 +642,30 @@ curl 'http://127.0.0.1:8137/api/v1/status?symbol=SPY'
 
 *Captured 2026-09-16. `count: 0` with a healthy SPY — the default filter at
 work, not an absent symbol. Truncated: two verdicts returned, one shown.*
+
+**The `tick` block** is always present and ignores `symbol`, `health` and
+`granularity`, which select equity rows. It holds the same figures as
+`mt data accounting --json`'s `tick`, from the same function:
+
+| Field | Type | Null? | Meaning |
+|---|---|---|---|
+| `tick.state` | string | no | A tick state (§3.1). |
+| `tick.detail` | string | yes | Why it is not `ok`. |
+| `tick.products[].product` | string | no | Product code. |
+| `tick.products[].sessions_in_scope` | integer | no | Sessions judged. |
+| `tick.products[].sessions_complete` | integer | no | Of those, complete. |
+| `tick.products[].buckets` | object | no | Sessions per status (§6.1's session statuses). |
+| `tick.products[].records` | integer | no | Ticks held under current data. |
+
+```json
+"tick": {"state":"ok","detail":null,"products":[{"product":"ES","sessions_in_scope":64,"sessions_complete":61,
+  "buckets":{"retry_exhausted":0,"failed":0,"provider_hole":0,"in_flight":0,"awaiting_ingest":0,"missing":2,"pending":0,"edge_unknown":1,"complete":61},
+  "records":27691412}]}
+```
+
+*Captured 2026-10-13 against the dev tick database.* A tick outage is the
+block's `state` with `products: []`; the route still answers `200` with its
+equity rows.
 
 **Errors**: `404` for an unknown symbol; `422` for an invalid health or
 granularity token; `504` on statement timeout.
@@ -1005,7 +1053,7 @@ Candlesticks for one market over a window.
 |---|---|---|---|---|
 | `start` | date or date-time | no | — | Inclusive window start, UTC. |
 | `end` | date or date-time | no | — | Inclusive window end, UTC. |
-| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§6). |
+| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
 
 **Response**
 
@@ -1154,6 +1202,7 @@ with `getattr(obj, "pass_")` or by key.
 | `passes[].next_firing` | string | yes | UTC | Next scheduled run. |
 | `sources[].name` | string | no | — | Source table label, e.g. `minute bars`. |
 | `sources[].newest` | string | yes | UTC | Newest row in that table. |
+| `sources[].unavailable` | string | yes | — | Why the source could not be read; `newest` is then null. |
 | `health.verdict` | string | no | — | Whole-system health verdict. |
 | `health.at` | string | no | UTC | When the verdict was computed. |
 | `universe.summary` | string | no | — | Universe accounting line. |
@@ -1169,6 +1218,12 @@ always false is worse than publishing none
 Use `mt data overview` on the host that owns the run.
 
 **Credits are not here either**, for a different reason: see §5.4.
+
+**The last source is `futures ticks`**, the newest stored tick, read from the
+tick database's ledger. When that database is not configured or down,
+`newest` is null and `unavailable` carries the reason
+(`not configured (MT_TICK_DB_URL unset)`, `unreachable: …`); the route still
+answers `200`. `unavailable` is null for every other source.
 
 ```sh
 curl 'http://127.0.0.1:8137/api/v1/overview'
@@ -1191,8 +1246,10 @@ curl 'http://127.0.0.1:8137/api/v1/overview'
 }
 ```
 
-*Captured 2026-09-16. Truncated: five passes and four sources returned, one and
-two shown.*
+*Captured 2026-09-16, before `unavailable` and the `futures ticks` source
+existed. Truncated: five passes and four sources returned, one and two shown.*
+Since 2026-10-13 each source also carries `"unavailable":null`, and a fifth
+follows: `{"name":"futures ticks","newest":"2024-12-31T21:59:59.257498Z","unavailable":null}`.
 
 **Errors**: `504` on statement timeout.
 
@@ -1236,7 +1293,352 @@ keeps `/api/v1/overview` pure database and safe to poll.
 
 **Errors**: none. Failures are reported in the body.
 
-## 6. msgpack: what it actually saves
+## 6. Endpoints: futures
+
+Futures tick data: the configured products, their contract definitions and roll
+schedules, and ticks or session-bounded bars by contract or by product under a
+roll rule. Served from the tick database (`MT_TICK_DB_URL`), not the equity
+store. When that database is not configured, unreachable, or missing a
+migration, every route here answers `503` (§6.1) and the rest of the API is
+unaffected.
+
+### 6.1 Futures conventions
+
+These differ from §2 on purpose. Read them before calling any route below.
+
+**Windows are session dates, and `end` is exclusive.** `start=2024-09-16&end=2024-09-21`
+reads the sessions dated 09-16 through 09-20. A CME session opens the evening
+before its date (the session dated 09-18 runs 22:00 UTC 09-17 → 21:00 UTC
+09-18), so a UTC-day window would cut every session in two. This is the
+opposite of §2.2's inclusive `end`; it is the tick tier's convention, shared
+with `mt data tick get`. An omitted `start` or `end` defaults to the first held
+session, or the day after the last one. `end` at or before `start` is a `422`.
+
+**Ticks also take `from` and `until`**, UTC instants (naive input is UTC, as in
+§2.1), half-open: `[from, until)`. They clip each session to the instants
+between them, which is how a client reads a session larger than the row
+ceiling. To page, pass the previous request's `until` as the next `from`; pages
+neither overlap nor skip. `from` must be before `until` (`422` otherwise). Bars
+take no instant bounds: a bar starts at its bucket or the session open, so
+clipping would move the first bar's stamp. Bound a bars request by sessions.
+
+**Roll rules** name the contract a product read uses for each session:
+`{method}.{rank}[+{offset}s]`, case-insensitive. The default is `v.0`, the
+front contract by volume.
+Roll methods are `v` `c`.
+<!-- from: manta_trading.data.tick.constants.RollMethod -->
+`v` ranks contracts by the volume of an earlier session, so it never looks
+ahead; `c` takes the nearest expiration, and `c.0+2s` rolls two sessions before
+it. A bad rule is a `422` naming what is wrong.
+
+**What a time-series response says about itself.** Every array is present,
+possibly empty:
+
+- `segments`: runs of consecutive sessions served by one contract, in order.
+  A product read lists the roll here; a contract read lists one run.
+- `unresolved`: sessions the rule could not answer, each with a `reason`.
+  They have **no rows**, never rows from a guessed contract. The volume rule
+  cannot answer the first sessions held, because it ranks by an earlier
+  session that is not held. Always empty for a contract read.
+- `incomplete`: served sessions whose data is not complete, each with its
+  `status`. Their rows are returned; they may be partial.
+
+Both arrays come with HTTP `200`: the rows returned are correct, and the
+arrays say what is missing. `mt data tick get` exits 3 in the same situation.
+Session statuses are `retry_exhausted` `failed` `provider_hole` `in_flight`
+`awaiting_ingest` `missing` `pending` `edge_unknown` `complete`.
+<!-- from: manta_trading.data.tick.tick_status.TickSessionStatus -->
+
+**Prices and times are strings.** Every price is exact decimal text
+(`"5950.25"`), `null` when undefined. Every tick or bar time is RFC 3339 with
+nine fraction digits (`"2024-12-18T14:30:00.001440845Z"`). Epoch nanoseconds
+exceed 2^53 and a JavaScript number would round them, so none is sent.
+
+**The row ceiling is enforced while reading.** A futures request that would
+return more than 75,000 rows is refused with a `422`.
+<!-- from: manta_trading.constants.API_MAX_BARS_PER_REQUEST -->
+The read stops at the ceiling, so the refusal quotes the limit but no count:
+`the request matches more than the 75,000 row limit; narrow start/end or
+from/until` (bars say `narrow start/end`). A single ES session holds up to
+about 690,000 ticks, so ticks over a whole busy session are always refused;
+use `from`/`until`.
+
+**Product reads span at most 1,300 sessions** of roll schedule; a longer range
+is a `422` naming the cap.
+<!-- from: manta_trading.data.tick.constants.TICK_ROLL_MAX_SESSIONS -->
+
+**`503` means the tick tier is down, not the server.** The body is the
+standard error shape, and the message says which:
+
+| Message starts | Meaning | What to do |
+|---|---|---|
+| `not configured (MT_TICK_DB_URL unset)` | The server has no tick database. | Nothing to retry; an operator sets it. |
+| `unreachable: …` | The tick database, or the calendar the roll path reads, did not answer within the timeout. | Retry later. |
+| `migrations pending (mt data migrate apply --track tick)` | The tick database is behind the code. | An operator runs the command. |
+
+`/api/v1/health`'s `tick_db` field reports the same state without a request
+failing (§3.1).
+
+**`404`** is an unknown product (`Product 'ZZ' not found`) or a contract with
+no definition (`no definition held for contract ZZZ9`). Like every `404` in
+this API it is not declared in `openapi.json` (§9).
+
+### 6.2 `GET /api/v1/futures/products`
+
+<!-- endpoint: /api/v1/futures/products
+     params: -
+     errors: 503, 504 -->
+
+Every configured product, its trading calendar, and the contract each status
+rule names for the latest complete session held, with the next roll when it is
+known. No parameters.
+
+| Field | Type | Null? | Meaning |
+|---|---|---|---|
+| `products[].product` | string | no | Product code, e.g. `ES`. |
+| `products[].calendar` | string | no | Trading calendar id the sessions come from. |
+| `products[].active[]` | array of object | no | One line per status rule (`v.0`, `c.0`). |
+| `active[].rule`, `is_default` | string, boolean | no | The rule; whether it is the default. |
+| `active[].session_date` | date | yes | The latest complete session held. |
+| `active[].raw_symbol`, `instrument_id`, `expiration` | string, integer, string | yes | The contract the rule names for it. |
+| `active[].basis_session`, `definitions_as_of`, `definition_unit_id`, `basis_unit_ids` | | yes | What the answer was decided from; a change means the inputs changed. |
+| `active[].unresolved[]` | array of object | no | The session, when the rule could not answer it. |
+| `active[].next_roll` | object | yes | The next session served by a different contract, when known. |
+| `active[].known_through` | date | yes | The last session the answer is known for. |
+| `active[].roll_no_later_than` | date | yes | The latest session the current contract can serve. |
+| `active[].reason` | string | yes | Why there is no answer (nothing held). Not a failure. |
+| `active[].error` | string | yes | A refusal or broken invariant for this rule. HTTP stays `200`. |
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/futures/products'
+```
+
+```json
+{"products":[{"product":"ES","calendar":"CME_EQUITY","active":[
+  {"product":"ES","rule":"v.0","is_default":true,"session_date":"2024-12-31","instrument_id":5002,"raw_symbol":"ESH5","expiration":"2025-03-21T13:30:00+00:00",…,"next_roll":null,"known_through":"2025-01-03","roll_no_later_than":"2025-03-24","reason":null,"error":null},
+  {"product":"ES","rule":"c.0","is_default":false,"session_date":"2024-12-31","raw_symbol":"ESH5",…,"next_roll":{"session_date":"2025-03-24","raw_symbol":"ESM5",…},"known_through":"2027-12-31",…}]}]}
+```
+
+*Captured 2026-10-13 against the dev tick database. Abridged.*
+
+**Errors**: `503` only when the tick or calendar database is down; a product
+whose rules cannot be answered keeps HTTP `200` with `error` on its lines.
+
+### 6.3 `GET /api/v1/futures/products/{product}/contracts`
+
+<!-- endpoint: /api/v1/futures/products/{product}/contracts
+     params: -
+     errors: 503, 504 -->
+
+Every instrument defined for the product, calendar spreads included, with the
+first and last session holding its records. Ordered by expiration, then
+instrument id.
+
+| Field | Type | Null? | Meaning |
+|---|---|---|---|
+| `product` | string | no | Echoed. |
+| `contracts[].instrument_id` | integer | no | Exchange instrument id. |
+| `contracts[].raw_symbol` | string | yes | Exchange symbol, e.g. `ESZ4`, or `ESZ4-ESH5` for a spread. |
+| `contracts[].instrument_class` | string | yes | `F` outright, `S` spread. |
+| `contracts[].activation`, `expiration` | string | no | Validity window, UTC. |
+| `contracts[].exchange`, `currency` | string | yes | e.g. `XCME`, `USD`. |
+| `contracts[].min_price_increment` | string | yes | Tick size, exact decimal text. |
+| `contracts[].contract_multiplier` | integer | yes | As defined; often null. |
+| `contracts[].unit_of_measure`, `unit_of_measure_qty` | string | yes | e.g. `IPNT` and `"50"` (decimal text). |
+| `contracts[].held` | object | yes | `{first_session, last_session}`; null when nothing is held. |
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/futures/products/ES/contracts'
+```
+
+```json
+{"product":"ES","contracts":[
+  {"instrument_id":118,"raw_symbol":"ESU4","instrument_class":"F","activation":"2022-06-17T13:30:00+00:00","expiration":"2024-09-20T13:30:00+00:00","exchange":"XCME","currency":"USD","min_price_increment":"0.25","contract_multiplier":null,"unit_of_measure":"IPNT","unit_of_measure_qty":"50","held":{"first_session":"2024-08-30","last_session":"2024-09-20"}},
+  …]}
+```
+
+*Captured 2026-10-13: 51 contracts, one shown.*
+
+**Errors**: `404` for an unknown product; `503`.
+
+### 6.4 `GET /api/v1/futures/products/{product}/schedule`
+
+<!-- endpoint: /api/v1/futures/products/{product}/schedule
+     params: rule:string, start:date, end:date
+     errors: 422, 503, 504 -->
+
+The contract the rule names for each session in `[start, end)`: as runs
+(`segments`), per session (`answers`), and the sessions it could not answer
+(`unresolved`). The same body as `mt data tick active --product … --start …
+--end … --json`'s schedule. With nothing held and a date omitted, every array
+is empty.
+
+| Name | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `rule` | string | no | `v.0` | Roll rule (§6.1). |
+| `start` | date | no | first held session | First session date. |
+| `end` | date | no | after the last held | End session date, **exclusive**. |
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/futures/products/ES/schedule?start=2024-09-16&end=2024-09-21'
+```
+
+```json
+{"product":"ES","rule":"v.0","is_default":true,
+ "segments":[{"first_session":"2024-09-16","last_session":"2024-09-17","instrument_id":118,"raw_symbol":"ESU4","expiration":"2024-09-20T13:30:00+00:00"},
+             {"first_session":"2024-09-18","last_session":"2024-09-20","instrument_id":183748,"raw_symbol":"ESZ4","expiration":"2024-12-20T14:30:00+00:00"}],
+ "answers":[{"session_date":"2024-09-16","instrument_id":118,"raw_symbol":"ESU4","expiration":"2024-09-20T13:30:00+00:00","basis_session":"2024-09-12","definitions_as_of":"2024-12-31","definition_unit_id":131,"basis_unit_ids":[11,12]},…],
+ "unresolved":[]}
+```
+
+*Captured 2026-10-13. Four of five answers elided.*
+
+**Errors**: `404` unknown product; `422` bad rule, empty range, over 1,300
+sessions, or a range outside the calendar; `503`.
+
+### 6.5 `GET /api/v1/futures/contracts/{symbol}/ticks`
+
+<!-- endpoint: /api/v1/futures/contracts/{symbol}/ticks
+     params: start:date, end:date, from:date-time, until:date-time,
+             format:json|msgpack
+     errors: 422, 503, 504 -->
+
+One contract's ticks, in key order (`ts_event`, then `sequence`).
+
+| Name | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `start`, `end` | date | no | the contract's held sessions | Session dates; `end` **exclusive**. |
+| `from` | date-time | no | — | First instant, inclusive. |
+| `until` | date-time | no | — | Instant bound, **exclusive**. |
+| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
+
+| Field | Type | Null? | Meaning |
+|---|---|---|---|
+| `target` | object | no | `{kind: "contract", contract, instrument_id}`; `product`, `rule`, `is_default` null. |
+| `start`, `end` | date | yes | The window read (null only when nothing is held). |
+| `from`, `until` | string | yes | The instant bounds, echoed in UTC. |
+| `definitions_as_of` | date | yes | Product reads only. |
+| `segments`, `unresolved`, `incomplete` | array | no | §6.1. |
+| `count` | integer | no | Rows returned. |
+| `ticks[].ts_event` | string | no | Exchange time, nine fraction digits. |
+| `ticks[].session_date`, `raw_symbol`, `instrument_id` | | no | Which session and contract. |
+| `ticks[].price` | string | yes | Trade price. |
+| `ticks[].size`, `side`, `sequence` | integer, string, integer | no | Size, aggressor side (`A`/`B`/`N`), venue sequence. |
+| `ticks[].bid_px`, `ask_px` | string | yes | Best bid and offer at the trade; null on trades-tier data. |
+| `ticks[].bid_sz`, `ask_sz`, `bid_ct`, `ask_ct` | integer | yes | Their sizes and order counts. |
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/futures/contracts/ESZ4/ticks?start=2024-12-18&end=2024-12-19&from=2024-12-18T14:30:00Z&until=2024-12-18T14:35:00Z'
+```
+
+```json
+{"target":{"kind":"contract","product":null,"contract":"ESZ4","instrument_id":183748,"rule":null,"is_default":null},
+ "start":"2024-12-18","end":"2024-12-19","from":"2024-12-18T14:30:00Z","until":"2024-12-18T14:35:00Z",
+ "definitions_as_of":null,"segments":[{"first_session":"2024-12-18","last_session":"2024-12-18","raw_symbol":"ESZ4","instrument_id":183748}],
+ "unresolved":[],"incomplete":[],"count":1792,
+ "ticks":[{"ts_event":"2024-12-18T14:30:00.001440845Z","session_date":"2024-12-18","raw_symbol":"ESZ4","instrument_id":183748,"price":"6050.25","size":1,"side":"B","bid_px":"6050","ask_px":"6050.25","bid_sz":17,"ask_sz":18,"bid_ct":17,"ask_ct":13,"sequence":29838835},…]}
+```
+
+*Captured 2026-10-13 against the dev tick database. 1,791 of 1,792 ticks
+elided.*
+
+The whole session is refused:
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/futures/contracts/ESZ4/ticks?start=2024-12-18&end=2024-12-19'
+```
+
+```json
+{"error":"the request matches more than the 75,000 row limit; narrow start/end or from/until"}
+```
+
+*Captured 2026-10-13: HTTP 422.*
+
+**Errors**: `404` no definition for the symbol; `422` an ambiguous symbol
+(two instruments share it; the message lists both, and a narrower
+`start`/`end` separates them), an empty range, `from` not before `until`, or
+over the row ceiling; `503`.
+
+### 6.6 `GET /api/v1/futures/contracts/{symbol}/bars`
+
+<!-- endpoint: /api/v1/futures/contracts/{symbol}/bars
+     params: granularity:TickBarGranularity, start:date, end:date,
+             format:json|msgpack
+     errors: 422, 503, 504 -->
+
+One contract's bars, built from its ticks. A bar never crosses a session: the
+first bar of a session starts at the session open, and `1d` is the whole
+session, stamped with its open. Empty buckets are omitted.
+
+Futures bar sizes are `1m` `5m` `15m` `1h` `4h` `1d`.
+<!-- from: manta_trading.api_server.routes.futures_params.TickBarGranularity -->
+
+| Name | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `granularity` | bar size | **yes** | — | One of the sizes above; others are a `422`. |
+| `start`, `end` | date | no | the contract's held sessions | Session dates; `end` **exclusive**. |
+| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
+
+The body is the ticks envelope (§6.5) without `from`/`until`, plus
+`granularity`, with `bars[]` in place of `ticks[]`:
+
+| Field | Type | Null? | Meaning |
+|---|---|---|---|
+| `bars[].time` | string | no | Bucket start (or the session open), nine fraction digits. |
+| `bars[].session_date`, `raw_symbol`, `instrument_id` | | no | Which session and contract. |
+| `bars[].open`, `high`, `low`, `close` | string | yes | Exact decimal text. |
+| `bars[].volume` | integer | no | Contracts traded. |
+
+**Errors**: as §6.5, plus `422` for a size outside the list.
+
+### 6.7 `GET /api/v1/futures/products/{product}/ticks`
+
+<!-- endpoint: /api/v1/futures/products/{product}/ticks
+     params: rule:string, start:date, end:date, from:date-time,
+             until:date-time, format:json|msgpack
+     errors: 422, 503, 504 -->
+
+A product's ticks under a roll rule: each session from the contract the rule
+names for it, never merged across contracts. The parameters and body are
+§6.5's, plus `rule` (default `v.0`); `target` is `{kind: "product", product,
+rule, is_default}`, and `segments` shows the roll. Sessions in `unresolved`
+have no rows.
+
+**Errors**: `404` unknown product; `422` as §6.5, plus a bad rule or a range
+over 1,300 sessions; `503`, including when the calendar database is down.
+
+### 6.8 `GET /api/v1/futures/products/{product}/bars`
+
+<!-- endpoint: /api/v1/futures/products/{product}/bars
+     params: granularity:TickBarGranularity, rule:string, start:date,
+             end:date, format:json|msgpack
+     errors: 422, 503, 504 -->
+
+A product's bars under a roll rule: §6.6's parameters and body, plus `rule`.
+Each bar comes from one contract; a roll shows in `segments` and in each bar's
+`raw_symbol`.
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/futures/products/ES/bars?granularity=1d&start=2024-09-16&end=2024-09-21'
+```
+
+```json
+{"target":{"kind":"product","product":"ES","contract":null,"instrument_id":null,"rule":"v.0","is_default":true},
+ "granularity":"1d","start":"2024-09-16","end":"2024-09-21","definitions_as_of":"2024-12-31",
+ "segments":[{"first_session":"2024-09-16","last_session":"2024-09-17","raw_symbol":"ESU4","instrument_id":118},
+             {"first_session":"2024-09-18","last_session":"2024-09-20","raw_symbol":"ESZ4","instrument_id":183748}],
+ "unresolved":[],"incomplete":[],"count":5,
+ "bars":[{"time":"2024-09-15T22:00:00.000000000Z","session_date":"2024-09-16","raw_symbol":"ESU4","instrument_id":118,"open":"5622.75","high":"5641.5","low":"5609.25","close":"5633.75","volume":461273},…]}
+```
+
+*Captured 2026-10-13 against the dev tick database. Four of five bars elided.*
+
+At `1m`, a session yields about 1,380 bars, so one request covers about 54
+sessions before the row ceiling.
+
+**Errors**: as §6.7, plus `422` for a size outside the list.
+
+## 7. msgpack: what it actually saves
 
 Three routes accept `format=msgpack` — equity bars (§3.2), Kalshi candlesticks
 (§5.1) and Kalshi trades (§5.2). The response body is
@@ -1267,7 +1669,7 @@ Two things follow that are easy to get wrong:
 Use it when bandwidth is the constraint and you already have a decoder. It is
 not a substitute for narrowing a window.
 
-## 7. Field glossary
+## 8. Field glossary
 
 Terms that mean something specific here, gathered in one place. Each links to
 where it is specified.
@@ -1286,7 +1688,7 @@ where it is specified.
 | `complete_through` | §5.1 | Requested and stored through this instant — not "the newest stored candle". |
 | `coverage_from` | §5.1, §5.2 | The oldest instant the stored data reaches. |
 
-## 8. Keeping this accurate
+## 9. Keeping this accurate
 
 This document is hand-written, and checked mechanically by
 `scripts/check_api_docs.py`:

@@ -12,7 +12,7 @@ relatedSlices: []
 riskLevel: medium
 archIndex: 220
 dateCreated: 20260921
-dateUpdated: 20261012
+dateUpdated: 20261013
 status: in_progress
 ---
 
@@ -365,6 +365,20 @@ Follows this initiative, not part of it: realtime capture (streaming form, own i
     read shows `not configured` / `unreachable` / `migrations pending`
     instead, and the command's exit code is unchanged. 234 still owns
     `health`, `PassKind.TICK` and the production environment key.
+- **2026-10-12** (slice 231, API surface; the slice design is authoritative
+  in detail):
+  - **The health field uses the five tick states, not "`ok` or `error`".**
+    "Serving-layer failure posture" wrote `/api/v1/health`'s tick field as
+    `ok` or `error`. 231 publishes `tick_db` as one of `ok`, `not_configured`,
+    `unreachable`, `migrations_pending`, `failed` (230's `TickLineState`),
+    with `tick_detail` when not `ok`. A single `error` would merge "a setting
+    is missing" with "the database is down", and those have different
+    remedies. HTTP stays 200 and the primary fields are unchanged.
+  - **Futures windows follow the tick convention on the wire too.** `start`
+    and `end` are session dates with `end` exclusive, as in `mt data tick
+    get`, where `/api/v1/bars` is inclusive in UTC days. The tick routes add
+    `from`/`until`, UTC instants, half-open `[from, until)`, which is how a
+    client pages through a session larger than the row ceiling.
 
 ## Related Work
 

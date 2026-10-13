@@ -1,6 +1,201 @@
 {
   "components": {
     "schemas": {
+      "ActiveLineRecord": {
+        "description": "One rule's answer for the latest complete session (``/futures/products``):\nthe keys of ``roll_payload.active_line_dict``. Contract fields are null\nwithout a contract; ``error`` is set when the rule could not be answered.",
+        "properties": {
+          "basis_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis Session"
+          },
+          "basis_unit_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis Unit Ids"
+          },
+          "definition_unit_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition Unit Id"
+          },
+          "definitions_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definitions As Of"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "expiration": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiration"
+          },
+          "instrument_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Id"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "known_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Through"
+          },
+          "next_roll": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContractAnswerRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "raw_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Symbol"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "roll_no_later_than": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roll No Later Than"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "session_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Date"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/UnresolvedRecord"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "product",
+          "rule",
+          "is_default",
+          "session_date",
+          "instrument_id",
+          "raw_symbol",
+          "expiration",
+          "basis_session",
+          "definitions_as_of",
+          "definition_unit_id",
+          "basis_unit_ids",
+          "unresolved",
+          "next_roll",
+          "known_through",
+          "roll_no_later_than",
+          "reason",
+          "error"
+        ],
+        "title": "ActiveLineRecord",
+        "type": "object"
+      },
       "AvailableRange": {
         "description": "Date range over which data is available for a granularity group.",
         "properties": {
@@ -420,6 +615,192 @@
         "title": "CategoryRecord",
         "type": "object"
       },
+      "ContractAnswerRecord": {
+        "description": "One session's active contract (``schedule.answers``, ``next_roll``): the\nkeys of ``roll_payload.contract_dict``.",
+        "properties": {
+          "basis_session": {
+            "format": "date",
+            "title": "Basis Session",
+            "type": "string"
+          },
+          "basis_unit_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Basis Unit Ids",
+            "type": "array"
+          },
+          "definition_unit_id": {
+            "title": "Definition Unit Id",
+            "type": "integer"
+          },
+          "definitions_as_of": {
+            "format": "date",
+            "title": "Definitions As Of",
+            "type": "string"
+          },
+          "expiration": {
+            "title": "Expiration",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "raw_symbol": {
+            "title": "Raw Symbol",
+            "type": "string"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_date",
+          "instrument_id",
+          "raw_symbol",
+          "expiration",
+          "basis_session",
+          "definitions_as_of",
+          "definition_unit_id",
+          "basis_unit_ids"
+        ],
+        "title": "ContractAnswerRecord",
+        "type": "object"
+      },
+      "ContractRecord": {
+        "description": "One defined instrument (``/futures/products/{product}/contracts``),\nspreads included. ``min_price_increment`` and ``unit_of_measure_qty`` are\nstored fixed-point, so they are exact text like every price.",
+        "properties": {
+          "activation": {
+            "title": "Activation",
+            "type": "string"
+          },
+          "contract_multiplier": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Multiplier"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "expiration": {
+            "title": "Expiration",
+            "type": "string"
+          },
+          "held": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HeldRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instrument_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Class"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "min_price_increment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Price Increment"
+          },
+          "raw_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Symbol"
+          },
+          "unit_of_measure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Of Measure"
+          },
+          "unit_of_measure_qty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Of Measure Qty"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "raw_symbol",
+          "instrument_class",
+          "activation",
+          "expiration",
+          "exchange",
+          "currency",
+          "min_price_increment",
+          "contract_multiplier",
+          "unit_of_measure",
+          "unit_of_measure_qty",
+          "held"
+        ],
+        "title": "ContractRecord",
+        "type": "object"
+      },
       "CoverageStatus": {
         "description": "Freshness of the caggs behind ``data_status``, one per ``COVERAGE_VIEWS``.",
         "properties": {
@@ -749,6 +1130,463 @@
         "title": "EventRecord",
         "type": "object"
       },
+      "FuturesBarRecord": {
+        "description": "One session-bounded bar (``/futures/.../bars``): ``BAR_COLUMNS`` in\norder. ``time`` is the bucket start; ``1d`` is the whole session.",
+        "properties": {
+          "close": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
+          },
+          "open": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open"
+          },
+          "raw_symbol": {
+            "title": "Raw Symbol",
+            "type": "string"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "time",
+          "session_date",
+          "raw_symbol",
+          "instrument_id",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume"
+        ],
+        "title": "FuturesBarRecord",
+        "type": "object"
+      },
+      "FuturesBarsResponse": {
+        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars``.\n\n``end`` is exclusive (session dates); a bar never crosses a session.",
+        "properties": {
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/FuturesBarRecord"
+            },
+            "title": "Bars",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "definitions_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definitions As Of"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "granularity": {
+            "title": "Granularity",
+            "type": "string"
+          },
+          "incomplete": {
+            "items": {
+              "$ref": "#/components/schemas/IncompleteRecord"
+            },
+            "title": "Incomplete",
+            "type": "array"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentRecord"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "target": {
+            "$ref": "#/components/schemas/FuturesTarget"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/UnresolvedRecord"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "target",
+          "granularity",
+          "start",
+          "end",
+          "definitions_as_of",
+          "segments",
+          "unresolved",
+          "incomplete",
+          "count",
+          "bars"
+        ],
+        "title": "FuturesBarsResponse",
+        "type": "object"
+      },
+      "FuturesContractsResponse": {
+        "description": "``GET /api/v1/futures/products/{product}/contracts``: by expiration,\nthen instrument id.",
+        "properties": {
+          "contracts": {
+            "items": {
+              "$ref": "#/components/schemas/ContractRecord"
+            },
+            "title": "Contracts",
+            "type": "array"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product",
+          "contracts"
+        ],
+        "title": "FuturesContractsResponse",
+        "type": "object"
+      },
+      "FuturesProductsResponse": {
+        "description": "``GET /api/v1/futures/products``: every product in the tick universe.",
+        "properties": {
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductRecord"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": [
+          "products"
+        ],
+        "title": "FuturesProductsResponse",
+        "type": "object"
+      },
+      "FuturesScheduleResponse": {
+        "description": "``GET /api/v1/futures/products/{product}/schedule``: the keys of\n``roll_payload.schedule_dict``.",
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/ContractAnswerRecord"
+            },
+            "title": "Answers",
+            "type": "array"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleSegmentRecord"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/UnresolvedRecord"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "product",
+          "rule",
+          "is_default",
+          "segments",
+          "answers",
+          "unresolved"
+        ],
+        "title": "FuturesScheduleResponse",
+        "type": "object"
+      },
+      "FuturesTarget": {
+        "description": "What a futures time-series response read: one contract, or a product\nunder a roll rule (``rule`` and ``is_default`` null for a contract).",
+        "properties": {
+          "contract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract"
+          },
+          "instrument_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Id"
+          },
+          "is_default": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Default"
+          },
+          "kind": {
+            "enum": [
+              "contract",
+              "product"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          }
+        },
+        "required": [
+          "kind",
+          "product",
+          "contract",
+          "instrument_id",
+          "rule",
+          "is_default"
+        ],
+        "title": "FuturesTarget",
+        "type": "object"
+      },
+      "FuturesTicksResponse": {
+        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/ticks``.\n\n``end`` is exclusive (session dates). ``from``/``until`` echo the instant\nbounds, half-open, null when not given.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "definitions_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definitions As Of"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "incomplete": {
+            "items": {
+              "$ref": "#/components/schemas/IncompleteRecord"
+            },
+            "title": "Incomplete",
+            "type": "array"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentRecord"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "target": {
+            "$ref": "#/components/schemas/FuturesTarget"
+          },
+          "ticks": {
+            "items": {
+              "$ref": "#/components/schemas/TickRecord"
+            },
+            "title": "Ticks",
+            "type": "array"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/UnresolvedRecord"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "target",
+          "start",
+          "end",
+          "from",
+          "until",
+          "definitions_as_of",
+          "segments",
+          "unresolved",
+          "incomplete",
+          "count",
+          "ticks"
+        ],
+        "title": "FuturesTicksResponse",
+        "type": "object"
+      },
       "GapRecord": {
         "description": "A single row from the ``data_gaps`` table.",
         "properties": {
@@ -929,13 +1767,68 @@
             "const": "ok",
             "title": "Status",
             "type": "string"
+          },
+          "tick_db": {
+            "$ref": "#/components/schemas/TickLineState"
+          },
+          "tick_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tick Detail"
           }
         },
         "required": [
           "status",
-          "db"
+          "db",
+          "tick_db"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "HeldRange": {
+        "description": "The first and last session holding a contract's records.",
+        "properties": {
+          "first_session": {
+            "format": "date",
+            "title": "First Session",
+            "type": "string"
+          },
+          "last_session": {
+            "format": "date",
+            "title": "Last Session",
+            "type": "string"
+          }
+        },
+        "required": [
+          "first_session",
+          "last_session"
+        ],
+        "title": "HeldRange",
+        "type": "object"
+      },
+      "IncompleteRecord": {
+        "description": "A served session whose data is not complete (its 225 verdict).",
+        "properties": {
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TickSessionStatus"
+          }
+        },
+        "required": [
+          "session_date",
+          "status"
+        ],
+        "title": "IncompleteRecord",
         "type": "object"
       },
       "LastRunRecord": {
@@ -1675,6 +2568,33 @@
         "title": "PassRunOutcome",
         "type": "string"
       },
+      "ProductRecord": {
+        "description": "One configured product, its calendar, and one active line per status\nrule (``/futures/products``).",
+        "properties": {
+          "active": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveLineRecord"
+            },
+            "title": "Active",
+            "type": "array"
+          },
+          "calendar": {
+            "title": "Calendar",
+            "type": "string"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product",
+          "calendar",
+          "active"
+        ],
+        "title": "ProductRecord",
+        "type": "object"
+      },
       "RunningRecord": {
         "description": "One still-open run of a pass kind.\n\nMirrors 922's ``RunningRow`` **minus ``abandoned``** (189 D4). That field\nis not omitted by oversight and must not be restored here: 922 infers it\nby testing the recorded pid against the *local* process table, which is\nsound for a CLI run beside the pass and meaningless in the API server,\nwhere a pid recorded on another host says nothing about a process here.\nThe route passes ``pid_alive=lambda _pid: True`` so the value would be\nstructurally ``False`` for every row, and publishing a field that is\nalways false is worse than publishing none. Real abandonment over HTTP\nneeds a heartbeat column written by the pass itself (D7, future work).",
         "properties": {
@@ -1747,6 +2667,73 @@
           "pid"
         ],
         "title": "RunningRecord",
+        "type": "object"
+      },
+      "ScheduleSegmentRecord": {
+        "description": "A run of sessions under one contract in ``/futures/.../schedule``: the\nkeys of ``schedule_dict``'s segments (it carries ``expiration``, unlike the\ntime series' ``SegmentRecord``).",
+        "properties": {
+          "expiration": {
+            "title": "Expiration",
+            "type": "string"
+          },
+          "first_session": {
+            "format": "date",
+            "title": "First Session",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "last_session": {
+            "format": "date",
+            "title": "Last Session",
+            "type": "string"
+          },
+          "raw_symbol": {
+            "title": "Raw Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "first_session",
+          "last_session",
+          "instrument_id",
+          "raw_symbol",
+          "expiration"
+        ],
+        "title": "ScheduleSegmentRecord",
+        "type": "object"
+      },
+      "SegmentRecord": {
+        "description": "A run of consecutive served sessions from one contract (time series).",
+        "properties": {
+          "first_session": {
+            "format": "date",
+            "title": "First Session",
+            "type": "string"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "last_session": {
+            "format": "date",
+            "title": "Last Session",
+            "type": "string"
+          },
+          "raw_symbol": {
+            "title": "Raw Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "first_session",
+          "last_session",
+          "raw_symbol",
+          "instrument_id"
+        ],
+        "title": "SegmentRecord",
         "type": "object"
       },
       "SeriesListResponse": {
@@ -1925,11 +2912,23 @@
               }
             ],
             "title": "Newest"
+          },
+          "unavailable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable"
           }
         },
         "required": [
           "name",
-          "newest"
+          "newest",
+          "unavailable"
         ],
         "title": "SourceRecord",
         "type": "object"
@@ -1976,6 +2975,9 @@
               }
             ],
             "title": "Symbol"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/TickBlock"
           }
         },
         "required": [
@@ -1984,7 +2986,8 @@
           "count",
           "rows",
           "summary",
-          "coverage"
+          "coverage",
+          "tick"
         ],
         "title": "StatusResponse",
         "type": "object"
@@ -2254,6 +3257,244 @@
         "title": "SymbolsResponse",
         "type": "object"
       },
+      "TickAccountingRecord": {
+        "description": "One product's tick accounting in ``/api/v1/status``'s ``tick`` block:\nthe keys of ``mt data accounting --json``'s ``tick.products``.",
+        "properties": {
+          "buckets": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Buckets",
+            "type": "object"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          },
+          "sessions_complete": {
+            "title": "Sessions Complete",
+            "type": "integer"
+          },
+          "sessions_in_scope": {
+            "title": "Sessions In Scope",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product",
+          "sessions_in_scope",
+          "sessions_complete",
+          "buckets",
+          "records"
+        ],
+        "title": "TickAccountingRecord",
+        "type": "object"
+      },
+      "TickBarGranularity": {
+        "enum": [
+          "1m",
+          "5m",
+          "15m",
+          "1h",
+          "4h",
+          "1d"
+        ],
+        "title": "TickBarGranularity",
+        "type": "string"
+      },
+      "TickBlock": {
+        "description": "``/api/v1/status``'s ``tick`` block (231 TD7): always present; when the\ntick tier cannot be read, ``state`` says why and ``products`` is empty.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/TickAccountingRecord"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TickLineState"
+          }
+        },
+        "required": [
+          "state",
+          "detail",
+          "products"
+        ],
+        "title": "TickBlock",
+        "type": "object"
+      },
+      "TickLineState": {
+        "enum": [
+          "ok",
+          "not_configured",
+          "unreachable",
+          "migrations_pending",
+          "failed"
+        ],
+        "title": "TickLineState",
+        "type": "string"
+      },
+      "TickRecord": {
+        "description": "One tick (``/futures/.../ticks``): ``TICK_COLUMNS`` in order. The BBO\nfields are null on trades-tier rows.",
+        "properties": {
+          "ask_ct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask Ct"
+          },
+          "ask_px": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask Px"
+          },
+          "ask_sz": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask Sz"
+          },
+          "bid_ct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid Ct"
+          },
+          "bid_px": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid Px"
+          },
+          "bid_sz": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid Sz"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "raw_symbol": {
+            "title": "Raw Symbol",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "ts_event": {
+            "title": "Ts Event",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts_event",
+          "session_date",
+          "raw_symbol",
+          "instrument_id",
+          "price",
+          "size",
+          "side",
+          "bid_px",
+          "ask_px",
+          "bid_sz",
+          "ask_sz",
+          "bid_ct",
+          "ask_ct",
+          "sequence"
+        ],
+        "title": "TickRecord",
+        "type": "object"
+      },
+      "TickSessionStatus": {
+        "description": "A session's status, declared worst first (TD9's table order).",
+        "enum": [
+          "retry_exhausted",
+          "failed",
+          "provider_hole",
+          "in_flight",
+          "awaiting_ingest",
+          "missing",
+          "pending",
+          "edge_unknown",
+          "complete"
+        ],
+        "title": "TickSessionStatus",
+        "type": "string"
+      },
       "TradeRecord": {
         "description": "One trade off the tape. Field names are the Kalshi/DB names verbatim.",
         "properties": {
@@ -2414,6 +3655,26 @@
           "at"
         ],
         "title": "UniverseBlock",
+        "type": "object"
+      },
+      "UnresolvedRecord": {
+        "description": "A session the roll rule could not answer; it has no rows.",
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_date",
+          "reason"
+        ],
+        "title": "UnresolvedRecord",
         "type": "object"
       },
       "ValidationError": {
@@ -2591,6 +3852,842 @@
         "summary": "Get Credits"
       }
     },
+    "/api/v1/futures/contracts/{symbol}/bars": {
+      "get": {
+        "description": "One contract's session-bounded bars over ``[start, end)`` sessions.",
+        "operationId": "contract_bars_api_v1_futures_contracts__symbol__bars_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bar size; 1d is the whole session.",
+            "in": "query",
+            "name": "granularity",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TickBarGranularity",
+              "description": "Bar size; 1d is the whole session."
+            }
+          },
+          {
+            "description": "First session date. Omitted: the first held session.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First session date. Omitted: the first held session.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesBarsResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesBarsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Contract Bars",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
+    "/api/v1/futures/contracts/{symbol}/ticks": {
+      "get": {
+        "description": "One contract's ticks over ``[start, end)`` sessions, clipped to\n``[from, until)``, in key order. Refused past the row ceiling.",
+        "operationId": "contract_ticks_api_v1_futures_contracts__symbol__ticks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "description": "First session date. Omitted: the first held session.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First session date. Omitted: the first held session.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "title": "End"
+            }
+          },
+          {
+            "description": "Ticks only: first instant, inclusive (UTC; naive is UTC).",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ticks only: first instant, inclusive (UTC; naive is UTC).",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC).",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC).",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesTicksResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesTicksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Contract Ticks",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
+    "/api/v1/futures/products": {
+      "get": {
+        "description": "Every configured product, its calendar, and the active contract under\neach status rule for the latest complete session held.\n\nA refusal or broken invariant is that product's line ``error`` (HTTP 200);\nonly an outage of the tick or calendar database is a ``503`` (TD2).",
+        "operationId": "list_products_api_v1_futures_products_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesProductsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "List Products",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
+    "/api/v1/futures/products/{product}/bars": {
+      "get": {
+        "description": "A product's bars under ``rule``, one contract per session, never merged.",
+        "operationId": "product_bars_api_v1_futures_products__product__bars_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product",
+            "required": true,
+            "schema": {
+              "title": "Product",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bar size; 1d is the whole session.",
+            "in": "query",
+            "name": "granularity",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TickBarGranularity",
+              "description": "Bar size; 1d is the whole session."
+            }
+          },
+          {
+            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+            "in": "query",
+            "name": "rule",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+              "title": "Rule"
+            }
+          },
+          {
+            "description": "First session date. Omitted: the first held session.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First session date. Omitted: the first held session.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesBarsResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesBarsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Product Bars",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
+    "/api/v1/futures/products/{product}/contracts": {
+      "get": {
+        "description": "Every instrument defined for ``product``, spreads included, with the\nfirst and last session held (``held`` null when none), by expiration.",
+        "operationId": "list_contracts_api_v1_futures_products__product__contracts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product",
+            "required": true,
+            "schema": {
+              "title": "Product",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesContractsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "List Contracts",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
+    "/api/v1/futures/products/{product}/schedule": {
+      "get": {
+        "description": "The contract serving each session in ``[start, end)`` under ``rule``,\nas runs (``segments``), per session (``answers``) and the sessions the rule\ncould not answer (``unresolved``).",
+        "operationId": "product_schedule_api_v1_futures_products__product__schedule_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product",
+            "required": true,
+            "schema": {
+              "title": "Product",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+            "in": "query",
+            "name": "rule",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+              "title": "Rule"
+            }
+          },
+          {
+            "description": "First session date. Omitted: the first held session.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First session date. Omitted: the first held session.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesScheduleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Product Schedule",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
+    "/api/v1/futures/products/{product}/ticks": {
+      "get": {
+        "description": "A product's ticks under ``rule``: each session from the contract the\nrule names (``segments``); ``unresolved`` sessions have no rows.",
+        "operationId": "product_ticks_api_v1_futures_products__product__ticks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product",
+            "required": true,
+            "schema": {
+              "title": "Product",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+            "in": "query",
+            "name": "rule",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+              "title": "Rule"
+            }
+          },
+          {
+            "description": "First session date. Omitted: the first held session.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First session date. Omitted: the first held session.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "title": "End"
+            }
+          },
+          {
+            "description": "Ticks only: first instant, inclusive (UTC; naive is UTC).",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ticks only: first instant, inclusive (UTC; naive is UTC).",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC).",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC).",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesTicksResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesTicksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Product Ticks",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
     "/api/v1/gaps/{symbol}": {
       "get": {
         "description": "Return data gaps for ``symbol``, filtered by granularity and date window.",
@@ -2693,7 +4790,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "description": "Liveness/readiness probe.\n\nReturns HTTP 200 in both healthy and DB-error cases \u2014 callers\ndistinguish DB state via the ``db`` field of the response body.\n\n``coverage`` is a coarse pipeline-health signal: exactly the two coverage\ncaggs behind ``data_status`` (slice 185 D6), not a probe of all seven\nbar-serving caggs. Per-granularity truth belongs to the bars endpoint's own\n``is_stale`` field.\n\nDeliberately a **sync** handler: FastAPI runs sync routes in a worker\nthread, so the blocking freshness probe needs no ``run_in_executor``.",
+        "description": "Liveness/readiness probe.\n\nReturns HTTP 200 in every case \u2014 callers distinguish database state via\nthe ``db`` and ``tick_db`` fields of the body, not the status code.\n\n``coverage`` is a coarse pipeline-health signal: exactly the two coverage\ncaggs behind ``data_status`` (slice 185 D6), not a probe of all seven\nbar-serving caggs. Per-granularity truth belongs to the bars endpoint's own\n``is_stale`` field.\n\n``tick_db`` (231 TD7) is the tick pool's state; a tick outage never changes\nthe primary fields. The blocking primary probe runs in the executor and the\ntick probe is awaited.",
         "operationId": "health_api_v1_health_get",
         "responses": {
           "200": {
@@ -3365,7 +5462,7 @@
     },
     "/api/v1/status": {
       "get": {
-        "description": "Return ``data_status`` health rows plus coverage-cagg freshness.\n\nAn unknown or non-matching ``symbol`` is a 200 with ``rows: []`` (D5) \u2014\n``scope`` still reports ``\"symbol\"`` so a client can tell \"filtered scope,\nnothing matched\" from \"whole registry\".\n\nDB failures are not caught here (D9): the freshness probes never raise (a\nfailed probe is a stale verdict), and a genuine ``data_status`` query\nfailure propagates to the global 500 handler in ``app.py``.",
+        "description": "Return ``data_status`` health rows plus coverage-cagg freshness.\n\nAn unknown or non-matching ``symbol`` is a 200 with ``rows: []`` (D5) \u2014\n``scope`` still reports ``\"symbol\"`` so a client can tell \"filtered scope,\nnothing matched\" from \"whole registry\".\n\nDB failures are not caught here (D9): the freshness probes never raise (a\nfailed probe is a stale verdict), and a genuine ``data_status`` query\nfailure propagates to the global 500 handler in ``app.py``.\n\nThe ``tick`` block (231 TD7) is read concurrently on the tick pool and\nnever fails the route: an outage or a refused read is the block's state.",
         "operationId": "get_status_api_v1_status_get",
         "parameters": [
           {
