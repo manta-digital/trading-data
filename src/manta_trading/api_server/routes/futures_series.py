@@ -45,7 +45,6 @@ from manta_trading.api_server.routes.futures_params import (
     parse_rule,
     product_entry,
 )
-from manta_trading.api_server.routes.windows import instant_utc
 from manta_trading.api_server.serialization import (
     ResponseFormat,
     timeseries_200,
@@ -147,10 +146,9 @@ async def _ticks(
 ) -> Response:
     bounds = instant_bounds(*instants)
     plan, rows = await _serve(
-        request, conn, plan_for, read_ticks, (limit, NARROW_TICKS), bounds
+        request, conn, plan_for, read_ticks, (limit, NARROW_TICKS), bounds.ns()
     )
-    lower, upper = (None if i is None else instant_utc(i) for i in instants)
-    model = FuturesTicksResponse.from_plan(plan, rows, (lower, upper))
+    model = FuturesTicksResponse.from_plan(plan, rows, (bounds.lower, bounds.upper))
     return timeseries_response(model, fmt)
 
 

@@ -8,6 +8,7 @@ from typing import Annotated, Any
 import psycopg
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from starlette import status as http_status
 
 from manta_trading.api_server.deps import get_db
 from manta_trading.api_server.models.responses import HealthResponse
@@ -48,7 +49,9 @@ async def health(
         tick_db=TickLineState.OK if tick is None else tick.state,
         tick_detail=None if tick is None else tick.detail,
     )
-    return JSONResponse(status_code=200, content=body.model_dump(exclude_none=True))
+    return JSONResponse(
+        status_code=http_status.HTTP_200_OK, content=body.model_dump(exclude_none=True)
+    )
 
 
 def _probe_primary(db: psycopg.Connection[Any]) -> dict[str, Any]:

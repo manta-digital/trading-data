@@ -362,3 +362,30 @@ class TestTheCreditExecutorLifecycle:
             assert CREDIT_EXECUTOR_THREADS < 32
         finally:
             executor.shutdown(wait=False)
+
+
+def test_a_tick_startup_failure_still_closes_the_primary_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """231 code review F002: ``open_tick_pool`` runs inside the lifespan's
+    ``try``, so its failure still runs the teardown."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("MT_TIMESCALE_DB_URL", _DB_URL)
+    app = create_app()
+
+    async def failing(*_args: Any) -> None:
+        raise RuntimeError("tick pool construction failed")
+
+    with (
+        patch(f"{_APP_MODULE}.ConnectionPool") as pool_cls,
+        patch(f"{_APP_MODULE}.TimescaleMinuteDataDB"),
+        patch(f"{_APP_MODULE}.TimescaleDailyDataDB"),
+        patch(f"{_APP_MODULE}.open_tick_pool", side_effect=failing),
+        pytest.raises(RuntimeError, match="tick pool construction failed"),
+    ):
+        with TestClient(app):
+            pass
+
+    pool_cls.return_value.close.assert_called_once()
+    assert app.state.credit_executor._shutdown is True

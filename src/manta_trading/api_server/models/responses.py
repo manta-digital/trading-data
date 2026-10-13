@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
+from starlette import status as http_status
 
 from manta_trading.api_server.models.futures import TickBlock
 from manta_trading.data.tick.line_state import TickLineState
@@ -303,7 +304,7 @@ schema. Defined once — a per-route literal would drift the moment a route is
 added."""
 
 TICK_UNAVAILABLE_RESPONSE: dict[int | str, dict[str, Any]] = {
-    503: {
+    http_status.HTTP_503_SERVICE_UNAVAILABLE: {
         "model": ErrorResponse,
         "description": (
             "The tick database is not configured, unreachable, or has "

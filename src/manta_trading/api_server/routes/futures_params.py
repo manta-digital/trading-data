@@ -7,6 +7,7 @@ there (232's GC) is served with no route change. Rules go through 229's
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated
@@ -62,11 +63,23 @@ def parse_rule(rule: str | None) -> RollRule:
         ) from exc
 
 
-def instant_bounds(
-    from_: datetime | None, until: datetime | None
-) -> tuple[int | None, int | None]:
-    """``[from, until)`` as epoch ns (TD3); naive reads as UTC. ``422`` unless
-    ``from`` is before ``until``."""
+@dataclass(frozen=True)
+class InstantBounds:
+    """``[from, until)`` as aware UTC instants (echoed) and epoch ns (read)."""
+
+    lower: datetime | None
+    upper: datetime | None
+
+    def ns(self) -> tuple[int | None, int | None]:
+        return (
+            None if self.lower is None else utc_ns(self.lower),
+            None if self.upper is None else utc_ns(self.upper),
+        )
+
+
+def instant_bounds(from_: datetime | None, until: datetime | None) -> InstantBounds:
+    """``[from, until)`` (TD3), normalized once; naive reads as UTC. ``422``
+    unless ``from`` is before ``until``."""
     lower = None if from_ is None else instant_utc(from_)
     upper = None if until is None else instant_utc(until)
     if lower is not None and upper is not None and lower >= upper:
@@ -75,10 +88,7 @@ def instant_bounds(
             f"from ({lower.isoformat()}) must be before until "
             f"({upper.isoformat()}); the bounds are half-open, [from, until)",
         )
-    return (
-        None if lower is None else utc_ns(lower),
-        None if upper is None else utc_ns(upper),
-    )
+    return InstantBounds(lower, upper)
 
 
 RuleParam = Annotated[str | None, Query(description=RULE_DESCRIPTION)]

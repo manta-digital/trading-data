@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg_pool import ConnectionPool
+from starlette import status as http_status
 
 from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.api_server.routes.bars import router as bars_router
@@ -134,8 +135,10 @@ async def lifespan(
         session.statement_timeout,
         app.state.max_bars_per_request,
     )
-    await open_tick_pool(app, tick_db_url, settings, conninfo, session)
     try:
+        # Inside the try, so a tick startup failure still closes the primary
+        # pool and the credit executor below (231 code review F002).
+        await open_tick_pool(app, tick_db_url, settings, conninfo, session)
         yield
     finally:
         await close_tick_pool(app)
@@ -267,7 +270,10 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
             request.url.path,
             exc,
         )
-        return JSONResponse(status_code=503, content=tick_unavailable_body(exc))
+        return JSONResponse(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=tick_unavailable_body(exc),
+        )
 
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(

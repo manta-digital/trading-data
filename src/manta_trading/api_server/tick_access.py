@@ -141,7 +141,10 @@ async def open_tick_pool(
 
 
 async def close_tick_pool(app: FastAPI) -> None:
-    pool: AsyncConnectionPool[Conn] | None = app.state.tick_pool
+    """Close the pool if there is one. Absent, not just ``None``, when
+    :func:`open_tick_pool` failed before setting it: the lifespan's teardown
+    must still run and let that failure through."""
+    pool: AsyncConnectionPool[Conn] | None = getattr(app.state, "tick_pool", None)
     if pool is not None:
         await pool.close()
 
@@ -168,16 +171,28 @@ async def _checkout(app: FastAPI) -> Conn:
     except psycopg.OperationalError as exc:  # PoolTimeout included
         raise TickServiceUnavailable(_classify(app, exc)) from exc
     try:
+        unavailable = await _migration_state(app, conn)
+    except BaseException:
+        # A cancelled request, or anything unforeseen: the connection goes
+        # back before the error continues, or a pool of four leaks dry.
+        await pool.putconn(conn)
+        raise
+    if unavailable is not None:
+        await pool.putconn(conn)
+        raise TickServiceUnavailable(unavailable)
+    return conn
+
+
+async def _migration_state(app: FastAPI, conn: Conn) -> TickUnavailable | None:
+    """Why the tick track cannot serve on ``conn``, or ``None`` when it can."""
+    try:
         missing = await missing_migrations(conn)
     except psycopg.Error as exc:
-        await pool.putconn(conn)
-        raise TickServiceUnavailable(_classify(app, exc)) from exc
+        # Reported, not raised: the caller turns it into the 503 line.
+        return _classify(app, exc)
     if missing:
-        await pool.putconn(conn)
-        raise TickServiceUnavailable(
-            TickUnavailable(TickLineState.MIGRATIONS_PENDING, ", ".join(missing))
-        )
-    return conn
+        return TickUnavailable(TickLineState.MIGRATIONS_PENDING, ", ".join(missing))
+    return None
 
 
 async def tick_connection(request: Request) -> AsyncIterator[Conn]:
