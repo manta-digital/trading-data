@@ -226,7 +226,15 @@ async def latest_active(
         # Reported, not raised: a shared read failed (a database, the calendar's
         # range, or the product's definitions), so every rule's line carries it
         # and the caller (status) still prints its own lines.
-        return tuple(ActiveLine(entry.product, r, error=str(exc)) for r in rules)
+        return error_lines(entry.product, rules, exc)
+
+
+def error_lines(
+    product: str, rules: Sequence[RollRule], exc: Exception
+) -> tuple[ActiveLine, ...]:
+    """Every rule's line carrying one shared failure (TD9). ``latest_active``
+    uses it for any failure; 231's products route for refusals only."""
+    return tuple(ActiveLine(product, r, error=str(exc)) for r in rules)
 
 
 async def latest_lines(

@@ -28,6 +28,7 @@ from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import (
     CME_DATASET,
     STORED_TIERS,
+    TICK_DB_CONNECT_TIMEOUT_SECONDS,
     DatasetCondition,
     SType,
     TickSchema,
@@ -212,7 +213,11 @@ def open_calendar(url: str, calendar_id: str) -> Iterator[TradingCalendar]:
     A database failure is :class:`TickCalendarError` (exit 4); a range outside
     the populated sessions is :class:`TickPreflightError` naming the remedy.
     """
-    calendar = TradingCalendar(calendar_id, url)
+    # Bounded like the roll path's own connections (231 TD2): a refused
+    # calendar is an outage within the connect timeout, not the pool's 30 s.
+    calendar = TradingCalendar(
+        calendar_id, url, checkout_timeout=TICK_DB_CONNECT_TIMEOUT_SECONDS
+    )
     try:
         yield calendar
     except (psycopg.OperationalError, CalendarNotFoundError) as exc:

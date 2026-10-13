@@ -143,6 +143,23 @@ def _check_range(start: date, end: date) -> None:
         )
 
 
+async def resolve_range(
+    conn: Conn, entry: TickUniverseEntry, start: date | None, end: date | None
+) -> tuple[date, date] | None:
+    """``start``/``end`` with a missing side defaulted to the held sessions
+    (TD2; ``end`` exclusive, so the last held session plus a day). ``None``
+    when a side is missing and nothing is held. Raises ``TickPreflightError``
+    on an empty range. The product plan and 231's schedule route share it."""
+    if start is None or end is None:
+        held = await held_session_bounds(conn, shape_of(entry))
+        if held is None:
+            return None
+        start = start or held[0]
+        end = end or held[1] + _DAY
+    _check_range(start, end)
+    return start, end
+
+
 # -- contract ------------------------------------------------------------------
 
 
@@ -260,13 +277,10 @@ async def product_plan(
     (``RollRangeTooLong``, a calendar refusal, an outage) propagate."""
     tick_url, calendar_url = urls
     target = ProductTarget(entry.product, rule)
-    if start is None or end is None:
-        held = await held_session_bounds(conn, shape_of(entry))
-        if held is None:
-            return GetPlan(target, start, end, (), (), (), (), None)
-        start = start or held[0]
-        end = end or held[1] + _DAY
-    _check_range(start, end)
+    span = await resolve_range(conn, entry, start, end)
+    if span is None:
+        return GetPlan(target, start, end, (), (), (), (), None)
+    start, end = span
     schedule = await build_schedule(tick_url, calendar_url, entry, rule, start, end)
     answers = {
         a.session_date: a for a in schedule.answers if isinstance(a, ActiveContract)

@@ -149,9 +149,23 @@ class TradingCalendar:
     cross-instance pollution. Lazy-loads calendar metadata on first use.
     """
 
-    def __init__(self, calendar_id: str, conninfo: str) -> None:
+    def __init__(
+        self,
+        calendar_id: str,
+        conninfo: str,
+        *,
+        checkout_timeout: float | None = None,
+    ) -> None:
+        """``checkout_timeout`` bounds the wait for a connection, so an
+        unreachable database fails within it; ``None`` keeps psycopg_pool's
+        own default (231: the tick roll path passes its connect timeout)."""
         self.calendar_id = calendar_id
-        self._pool = ConnectionPool(conninfo, min_size=1, max_size=3, open=True)
+        if checkout_timeout is None:
+            self._pool = ConnectionPool(conninfo, min_size=1, max_size=3, open=True)
+        else:
+            self._pool = ConnectionPool(
+                conninfo, min_size=1, max_size=3, open=True, timeout=checkout_timeout
+            )
         self._loaded = False
         self._cache: dict[str, Any] = {}
 
