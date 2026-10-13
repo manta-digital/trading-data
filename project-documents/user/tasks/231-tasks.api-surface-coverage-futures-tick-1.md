@@ -110,7 +110,8 @@ and the closing checks.
         client (`test/unit/api_server/test_app.py`, `test_health.py`,
         `test_operations.py`). Whether they use `TestClient` with the real
         `lifespan` or a stub, and how a test database URL reaches
-        `create_app`.
+        `create_app`. List every test module that calls `create_app`
+        (`grep -rln "create_app(" test`) for 3.2's guard.
   - [ ] **Tick test database:** how the integration tier creates a migrated
         tick test database (`test/tick_support/database.py` and the
         fixtures 230's `get` integration tests use), so an API test can
@@ -126,7 +127,8 @@ and the closing checks.
         `TICK_SOURCE_NAME`.
   - [ ] **Connection limits:** `SHOW max_connections` on the dev tick
         cluster and the dev primary cluster (read-only), for task 9.3
-        (part 2).
+        (part 2). Record them as dev values. Production's limits are 234's
+        check (9.3 hands it over).
   - [ ] Write a `Findings (1.1)` block under this task. If
         `AsyncConnectionPool` cannot open without blocking or cannot time
         out a checkout, stop and ask the Project Manager: TD2 depends on
@@ -136,23 +138,27 @@ and the closing checks.
 ## Section 2 - Shared moves (no behaviour change)
 
 - [ ] **2.1 Move `classify` into `data/tick/line_state.py`** (effort 2)
-  - [ ] Add `classify(exc, password: str | None) -> TickUnavailable` to
-        `line_state.py`, moved from `cli/tick_composed.py`. It keeps the
-        outage tuple, the `QueryCanceled` wording and the scrubbing exactly
-        as they are.
+  - [ ] Add `classify(exc, password: str | None, statement_timeout: str)
+        -> TickUnavailable` to `line_state.py`, moved from
+        `cli/tick_composed.py`. It keeps the outage tuple and the scrubbing
+        as they are. The `QueryCanceled` wording names the timeout passed
+        in: a timeout constant would be wrong for the API, whose
+        connections run under the API `statement_timeout`.
   - [ ] Keep the module free of I/O and of any CLI import. The outage
         tuple's `TickCalendarError` import comes from
         `data/tick/tick_calendar.py`.
   - [ ] `cli/tick_composed.classify(exc, settings)` becomes a wrapper that
         resolves the password (its existing `_password`) and calls the
-        moved function.
+        moved function with `f"{TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS} s"`.
+        The CLI's text is then byte-for-byte unchanged.
   - [ ] Success: `tick_composed.py` has no classification logic of its
         own; the CLI tests for accounting, overview and `tick_composed`
         pass unchanged.
 - [ ] **2.2 Test the moved `classify`** (effort 1)
   - [ ] Unit tests in `test/unit/data/tick/test_line_state.py`:
     - `OperationalError` → `unreachable`;
-    - `QueryCanceled` → `unreachable` with the timeout named;
+    - `QueryCanceled` → `unreachable`, naming the timeout argument it was
+      given (two different values, two different texts);
     - `TickPreflightError` and a generic `psycopg.Error` → `failed`;
     - a password in the message is replaced by `***`;
     - `password=None` leaves the text alone.
@@ -176,20 +182,7 @@ and the closing checks.
 
 ## Section 3 - The tick pool and the `503` (TD2)
 
-- [ ] **3.1 Test infrastructure for futures API tests** (effort 3)
-  - [ ] Add `test/integration/api_server/conftest.py` with a fixture that
-        yields a `TestClient` over `create_app(db_url=<primary test URL>,
-        tick_db_url=<migrated tick test URL>)`, using the real `lifespan`.
-        The fixture comes after 3.2's seam exists; write it in the same
-        commit.
-  - [ ] Add a second fixture for a client whose tick URL is a
-        `closed_port()` URL, and a third with tick settings cleared
-        (`clear_tick_env`) and `tick_db_url=None`.
-  - [ ] Seeding goes through the existing helpers (`seed_september_roll`,
-        `seed_ticks`); add none unless 1.1 found a gap.
-  - [ ] Success: one smoke test, `GET /api/v1/health` returning 200
-        through each fixture, passes.
-- [ ] **3.2 Build `api_server/tick_access.py` and the app seam** (effort 4)
+- [ ] **3.1 Build `api_server/tick_access.py` and the app seam** (effort 4)
   - [ ] **`create_app` and `lifespan`:**
     - `create_app(db_url=None, tick_db_url=None)`, with `tick_db_url`
       passed to `lifespan` the way `db_url` is.
@@ -203,7 +196,10 @@ and the closing checks.
     - `AsyncConnectionPool(..., open=False)` with the 2.3 constants, then
       `await pool.open(wait=False)`.
     - The pool's `configure` sets read-only transactions, the API
-      `statement_timeout` and `API_SERVING_SESSION.work_mem`.
+      `statement_timeout` and `API_SERVING_SESSION.work_mem`, and leaves
+      the connection idle. psycopg_pool discards a connection that
+      `configure` leaves inside a transaction, so commit, or use
+      autocommit, inside it.
     - A failure at startup is logged at WARNING and not raised.
     - `app.state.tick_url` and `app.state.calendar_url` (the resolved
       primary URL) are held for the roll functions.
@@ -213,11 +209,29 @@ and the closing checks.
   - [ ] **The `tick_connection` dependency:**
     - pool `None` → `NOT_CONFIGURED`;
     - a `PoolTimeout` or `OperationalError` on checkout → `UNREACHABLE`,
-      through 2.1's `classify` with the tick URL's password;
+      through 2.1's `classify` with the tick URL's password and the API
+      `statement_timeout`;
     - `missing_migrations` non-empty → `MIGRATIONS_PENDING`;
     - otherwise it yields the connection.
+  - [ ] **The migration check leaves the connection idle.** Using 1.1's
+        answer, run it in autocommit, or commit straight after it. Task 6.2
+        then sets `REPEATABLE READ` on the same connection, and that fails
+        if a transaction is still open.
   - [ ] **`probe_tick(app) -> TickUnavailable | None`** for health, status
         and overview: the same checks, returned rather than raised.
+  - [ ] **`tick_errors()`, the one error mapping for every futures route.**
+        It is a context manager. Order matters:
+    1. `psycopg.errors.QueryCanceled` is re-raised unchanged, so the
+       existing `504` handler gets it. It must come first, because it is a
+       subclass of `OperationalError`.
+    2. Any other `psycopg.OperationalError`, or a `TickCalendarError`, →
+       `TickServiceUnavailable(UNREACHABLE)` through `classify`.
+    3. `ContractNotFound` → `404`.
+    4. `TickPreflightError` (which includes `ContractAmbiguous` and
+       `RollRangeTooLong`) → `422` with the message.
+
+    Tasks 5.3, 5.5, 5.7 and 6.2 all use it; none writes its own catch
+    tuple.
   - [ ] **An app-level handler** maps `TickServiceUnavailable` to
         `503 {"error": unavailable_text(...)}`. It is registered beside the
         `QueryCanceled` handler in `app.py`.
@@ -225,6 +239,40 @@ and the closing checks.
         like `GATEWAY_TIMEOUT_RESPONSE`, declares the `503`.
   - [ ] Success: `tick_access.py` is under ~200 lines; no equities or
         Kalshi route imports it.
+- [ ] **3.2 Test infrastructure, and keeping the dev tick database out of
+      tests** (effort 3)
+  - [ ] **The leak:** `lifespan` builds `Settings()`, which reads `.env`.
+        With `tick_db_url=None`, every existing test that calls
+        `create_app(db_url=…)` would open a pool against the dev tick
+        database (1.1 lists them: unit `test/unit/api_server/*`,
+        `test/integration/test_operations_serving.py`,
+        `test/integration/test_api_docs_examples.py`, and
+        `test/load/test_187/188/189_*`).
+  - [ ] **The guard:** add an autouse fixture, `no_dev_tick_settings`, in a
+        shared helper (`test/tick_support/api.py`). It patches the
+        `Settings` that `api_server/app.py` uses to return the loaded
+        settings with `tick_db_url` and `tick_maintenance_url` set to
+        `None` (`model_copy(update=…)`). Enable it from the conftest of
+        `test/unit/api_server/`, `test/integration/api_server/`, the two
+        integration modules above, and `test/load/`. Production code is
+        unchanged.
+  - [ ] **Fixtures** in `test/integration/api_server/conftest.py`:
+    - a `TestClient` over `create_app(db_url=<primary test URL>,
+      tick_db_url=<migrated tick test URL>)`, using the real `lifespan`;
+    - a client whose tick URL is a `closed_port()` URL with a password in
+      it;
+    - a client with `tick_db_url=None`, so not configured through the
+      guard;
+    - a **function-scoped throwaway tick database**, created by the fixture
+      through `test/tick_support/database.py`'s pattern, for the tests that
+      delete a migration ledger row (3.3, 7.2). Never the shared session
+      database.
+  - [ ] Seeding goes through the existing helpers (`seed_september_roll`,
+        `seed_ticks`); add none unless 1.1 found a gap.
+  - [ ] Success: a smoke test, `GET /api/v1/health` returning 200 through
+        each fixture, passes. A test asserts that under the guard, an app
+        built with `tick_db_url=None` has `tick_pool is None` even when
+        `.env` sets `MT_TICK_DB_URL`.
 - [ ] **3.3 Test the pool posture** (effort 3)
   - [ ] These tests use a throwaway probe route registered only in the test
         (depending on `tick_connection`), because the real futures routes
@@ -232,10 +280,13 @@ and the closing checks.
     - not configured → `503` with `not configured (MT_TICK_DB_URL unset)`;
     - closed port → `503` `unreachable: …` within
       `TICK_API_CHECKOUT_TIMEOUT_SECONDS` plus 1 s (FR9);
-    - a tick test database with the newest tick-track migration's ledger
-      row deleted → `503` `migrations pending (…)` (FR10);
+    - on the function-scoped throwaway tick database, with the newest
+      tick-track migration's ledger row deleted → `503` `migrations
+      pending (…)` (FR10);
     - after the row is restored, the same client gets 200, with no
       restart (FR9 recovery).
+  - [ ] Unit tests for `tick_errors()`, one case per mapping. A raised
+        `QueryCanceled` must reach the `504` handler, not become a `503`.
   - [ ] The app starts under all three fixtures: startup never raises for
         the tick pool.
   - [ ] **Equities and Kalshi are unaffected:** with the closed-port
@@ -243,12 +294,14 @@ and the closing checks.
         `/api/v1/kalshi/categories` and `/api/v1/overview` keep their
         existing status codes. Seed the minimum each needs; reuse the
         existing tests' seeding.
-  - [ ] **No secret:** with a password in the tick URL pointing at a
-        closed port, the `503` body does not contain it (FR11).
-  - [ ] Success: all pass; existing `test_app.py` tests pass unchanged.
+  - [ ] **No secret:** the closed-port `503` body does not contain the
+        URL's password (FR11; 7.2 and 7.4 cover `/health` and `/status`).
+  - [ ] Success: all pass; existing `test_app.py` tests pass unchanged
+        apart from the guard.
 - [ ] **3.4 Commit** (effort 1)
   - [ ] Unit tier for `test/unit/api_server`; the integration tier for
-        `test/integration/api_server`; mypy; ruff.
+        `test/integration/api_server` and the two integration modules; mypy;
+        ruff.
   - [ ] Commit: `feat: add tick pool with 503 posture to the API`.
 
 ## Section 4 - Response models (TD5)
@@ -284,9 +337,17 @@ and the closing checks.
   - [ ] Unit tests:
     - `TickRecord` and `FuturesBarRecord` field names equal `TICK_COLUMNS`
       and `BAR_COLUMNS`, in order;
-    - `ActiveLineRecord`'s fields equal `active_line_dict`'s keys, and the
-      schedule model's fields equal `schedule_dict`'s keys (computed from
-      sample dataclasses, not typed lists);
+    - each catalog model's fields equal its `roll_payload` dictionary's
+      keys, at every level, computed from sample dataclasses (not typed
+      lists):
+      - `ActiveLineRecord` against `active_line_dict`;
+      - the schedule model against `schedule_dict`;
+      - the contract record (used in `answers` and `next_roll`) against
+        `contract_dict`;
+      - the unresolved record against `unresolved_dict`;
+      - the schedule segment record against the segment dictionary
+        `schedule_dict` produces. It carries `expiration`, unlike the
+        time-series `SegmentRecord`; two models, both pinned;
     - `UNDEF_INT64` serializes to `null`, and a price serializes exactly
       (`"5950.25"`);
     - a JSON dump of a tick response with a 2024 `ts_event` has no integer
@@ -319,8 +380,8 @@ and the closing checks.
   - [ ] `GET /api/v1/futures/products/{product}/contracts`:
     - an unknown product (not in `TICK_UNIVERSE`) → `404 "Product 'X' not
       found"`, through `admission.not_found`;
-    - it depends on `tick_connection`, calls `contracts_for`, and returns
-      `FuturesContractsResponse`;
+    - it depends on `tick_connection`, calls `contracts_for` inside
+      `tick_errors()`, and returns `FuturesContractsResponse`;
     - `responses=TICK_UNAVAILABLE_RESPONSE | GATEWAY_TIMEOUT_RESPONSE`.
   - [ ] Register the router in `create_app`.
   - [ ] Success: the route appears in `/openapi.json` with its model.
@@ -338,15 +399,12 @@ and the closing checks.
     - for each `TICK_UNIVERSE` entry it calls `latest_lines(app tick_url,
       calendar_url, entry, STATUS_ROLL_RULES)`.
   - [ ] **Error mapping (TD2):**
-    - `OperationalError` (not `QueryCanceled`) and `TickCalendarError` →
-      `TickServiceUnavailable(UNREACHABLE)`;
-    - `QueryCanceled` propagates to the `504` handler;
-    - `TickPreflightError` and `RollInputError` → that product's lines
-      each carry the error text, as `latest_active` builds them.
-
-    Reuse its construction; do not restate the catch tuple a third time.
-    If sharing needs a small public helper in `active_contract.py`, add it
-    there.
+    - first, `TickPreflightError` and `RollInputError` from one product's
+      `latest_lines` → that product's lines each carry the error text, as
+      `latest_active` builds them. Reuse that construction; if sharing it
+      needs a small public helper in `active_contract.py`, add it there;
+    - everything else goes through 3.1's `tick_errors()`: outages → `503`,
+      `QueryCanceled` → `504`.
   - [ ] Returns `FuturesProductsResponse`, with each product's `calendar`
         from `calendar_for_product`.
   - [ ] Success: no `latest_active` call in the route.
@@ -361,18 +419,30 @@ and the closing checks.
       `503` (outage in the roll path).
   - [ ] Unit test with `latest_lines` patched to raise `RollInputError`:
         the line carries `error` and the response is 200.
+  - [ ] **Two-product universe** (Integration Requirements; GC needs no API
+        change). Patch `TICK_UNIVERSE` to ES plus a second entry with a
+        known calendar, and seed one definition for the second product.
+        Then:
+    - `/futures/products` lists both;
+    - the second product's `contracts` and `schedule` routes answer 200,
+      not `404`.
+
+    The same fixture is reused in 6.9.
   - [ ] Success: passes.
 - [ ] **5.7 Add the `schedule` route** (effort 2)
   - [ ] `GET /api/v1/futures/products/{product}/schedule?rule=&start=&end=`:
     - `rule` goes through `RollRule.parse`; a `ValueError` → `422` with its
       message; the default is `DEFAULT_ROLL_RULE`;
-    - `start`/`end` are session dates with `end` exclusive (TD3); when
-      either is omitted, the held bounds are used, as `product_plan` does;
-    - it calls `build_schedule`.
-  - [ ] **Error mapping:**
-    - `RollRangeTooLong` and other `TickPreflightError` → `422`;
-    - outages → `503`, as in 5.5;
-    - an empty range → `422`.
+    - `start`/`end` are session dates with `end` exclusive (TD3). When
+      either is omitted, read `held_session_bounds(conn,
+      shape_of(entry))` on the pooled connection and fill the missing side
+      as `product_plan` does (`end` = last held + 1 day);
+    - if nothing is held and a side is missing → 200 with empty
+      `segments`, `answers` and `unresolved` (the same as `get_plan`'s
+      empty plan); `build_schedule` is not called;
+    - otherwise it calls `build_schedule`.
+  - [ ] **Error mapping:** through 3.1's `tick_errors()`. An empty range
+        (`end` ≤ `start`) is a `TickPreflightError` → `422`.
   - [ ] Success: route in the schema with `FuturesScheduleResponse`.
 - [ ] **5.8 Test the `schedule` route** (effort 2)
   - [ ] Integration tests:

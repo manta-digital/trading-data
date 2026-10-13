@@ -51,15 +51,12 @@ paths, test environment, lint and production safety.
     - reads each window in order, through an `on_batch` collector that
       appends rows and raises `RowCeilingExceeded` once the total passes
       the ceiling (TD4).
-  - [ ] **Error mapping**, in one place (a small function the routes
-        call):
-    - `ContractNotFound` → `404`;
-    - `ContractAmbiguous`, `RollRangeTooLong` and other
-      `TickPreflightError` → `422`;
-    - `RowCeilingExceeded` → 6.1's `422`, raised after the connection is
-      released;
-    - outages → `TickServiceUnavailable(UNREACHABLE)`;
-    - `QueryCanceled` propagates to `504`.
+  - [ ] **Error mapping:** the plan and the reads run inside part 1's
+        `tick_errors()` (task 3.1), which already orders `QueryCanceled` →
+        `504` before `OperationalError`/`TickCalendarError` → `503`, then
+        `ContractNotFound` → `404` and `TickPreflightError` → `422`. Do not
+        add a second mapping. The only addition is `RowCeilingExceeded` →
+        6.1's `422`, raised after the connection is released.
   - [ ] `from` must be before `until`; otherwise `422`. A naive datetime is
         read as UTC, as in `windows.py`.
   - [ ] Success: no route repeats this logic; nothing in the helper formats
@@ -71,12 +68,14 @@ paths, test environment, lint and production safety.
     - a window fully outside the bounds;
     - adjacent `[a, b)` and `[b, c)` bounds that partition a window with no
       overlap.
-  - [ ] Integration tests (seed with `seed_ticks`, about 30 ticks across one
-        session, and patch the ceiling to 10 through
-        `app.dependency_overrides[get_max_bars]`):
-    - over the ceiling → `422`, and a spy on the collector shows at most
-      ceiling + `TICK_GET_FETCH_ROWS` rows read;
-    - consecutive `[from, until)` pages over the session return exactly
+  - [ ] Integration tests that call the helper directly, with an explicit
+        ceiling argument; no route exists yet. Seed with `seed_ticks`,
+        about 30 ticks across one session:
+    - ceiling 10 → `RowCeilingExceeded`, and a spy on the collector shows
+      at most ceiling + `TICK_GET_FETCH_ROWS` rows read;
+    - exactly 10 ticks in the bounds with ceiling 10 → all 10 returned
+      (FR5: at the ceiling succeeds);
+    - consecutive `[from, until)` bounds over the session return exactly
       the session's ledger `record_count`, with no duplicate
       `(ts_event, sequence)` (FR6).
   - [ ] Success: passes.
@@ -100,6 +99,12 @@ paths, test environment, lint and production safety.
     - an ambiguous symbol (seed two instruments with one raw symbol a
       decade apart) → `422` naming both;
     - an empty range → `422`;
+    - `from == until` and `from > until` → `422` naming the problem
+      (FR4);
+    - a naive `from` is read as UTC: the same result as the `Z` form;
+    - with the ceiling patched to 10 through
+      `app.dependency_overrides[get_max_bars]`, a wider window → `422`
+      whose body names 10 and `from/until` (FR5);
     - the closed-port fixture → `503`.
   - [ ] Success: passes.
 - [ ] **6.6 Add the contract bars route** (effort 2)
@@ -134,7 +139,11 @@ paths, test environment, lint and production safety.
     - a session seeded `partial` appears in `incomplete` (FR3);
     - `rule=c.0` changes the segments;
     - `rule=bad` → `422`;
-    - a range over 1,300 sessions → `422` (FR4).
+    - a range over 1,300 sessions → `422` (FR4);
+    - a calendar URL pointing at a closed port, with a live tick database
+      → `503` (an outage in `product_plan`'s roll path);
+    - with part 1's two-product fixture (5.6), the second product's
+      `bars?granularity=1d` answers 200, not `404`.
   - [ ] Success: passes.
 - [ ] **6.10 Commit** (effort 1)
   - [ ] Unit and integration tiers for the touched directories; mypy; ruff;
@@ -158,9 +167,12 @@ paths, test environment, lint and production safety.
 - [ ] **7.2 Test health** (effort 2)
   - [ ] Integration tests:
     - `tick_db: "ok"` with no `tick_detail`;
-    - `not_configured`, `unreachable` and `migrations_pending` through the
-      3.1 fixtures and 3.3's ledger-row trick, each with HTTP 200 and the
+    - `not_configured`, `unreachable` and `migrations_pending` through
+      part 1's fixtures (task 3.2) and the ledger-row deletion on the
+      function-scoped throwaway tick database, each with HTTP 200 and the
       matching detail;
+    - with the closed-port URL carrying a password, `tick_detail` does not
+      contain it (FR11);
     - a primary database failure still reports `db: "error"`, as before.
   - [ ] Success: passes.
 - [ ] **7.3 Add the `tick` block to `/api/v1/status`** (effort 2)
@@ -169,7 +181,8 @@ paths, test environment, lint and production safety.
     - on success it runs `accounting_lines(conn, calendar_url,
       TICK_UNIVERSE)`, giving `state: "ok"`;
     - a probe failure, or an exception from the read classified through
-      2.1's `classify`, gives that state and detail with `products: []`.
+      2.1's `classify` (with the API `statement_timeout`), gives that state
+      and detail with `products: []`.
 
     The equities rows and filters are unchanged.
   - [ ] Success: no `5xx` can come from the tick block.
@@ -179,7 +192,9 @@ paths, test environment, lint and production safety.
       the same seed (FR8, Integration Requirements), computed in-process;
     - with `symbol=AAPL&health=OK` the block is unchanged;
     - closed port → `tick.state == "unreachable"`, HTTP 200, equities rows
-      present.
+      present, and `tick.detail` does not contain the URL's password
+      (FR11);
+    - not configured → `tick.state == "not_configured"`, HTTP 200 (FR8).
   - [ ] Success: passes; existing `test_status.py` passes.
 - [ ] **7.5 Add the `futures ticks` source to `/api/v1/overview`**
       (effort 2)
@@ -197,7 +212,9 @@ paths, test environment, lint and production safety.
     - the record equals `mt data overview --json`'s `futures ticks`
       source (name, `newest`, `unavailable`) over the same seed;
     - not configured → `unavailable` carries the not-configured text and
-      HTTP 200;
+      HTTP 200 (FR8);
+    - closed port → `unavailable` starts `unreachable:` and HTTP 200
+      (FR9);
     - the four existing sources keep their values with
       `unavailable: null`.
   - [ ] Update `test_operations_models.py` and
@@ -302,8 +319,14 @@ paths, test environment, lint and production safety.
         `model_construct` only if it is measurably faster; otherwise
         switch to validated construction and update the design's TD5
         bullet.
-  - [ ] Success: the four tests pass; the existing load tests show no new
-        failure beyond the 4 known ones.
+  - [ ] **Existing load tests with a tick pool configured** (Technical
+        Requirements): pass the seeded test tick URL explicitly to the
+        `create_app` calls in `test_187_api_nfr.py`,
+        `test_188_kalshi_api_nfr.py` and `test_189_operations_nfr.py`. Part
+        1's guard (task 3.2) keeps `.env`'s URL out; this puts a real pool
+        in, never the dev or production one.
+  - [ ] Success: the four tests pass; the existing load tests, now with a
+        tick pool, show no new failure beyond the 4 known ones.
 - [ ] **9.3 Check the connection budget** (effort 1)
   - [ ] Compare the design's figures (per worker, 8 tick connections and 4
         primary connections; with 4 workers, 32 and 16) with the
@@ -311,7 +334,12 @@ paths, test environment, lint and production safety.
         cluster's existing API pools.
   - [ ] If either cluster cannot hold them, stop and ask the Project
         Manager. Do not change a cluster setting.
-  - [ ] Record the figures in the design's Special Considerations.
+  - [ ] Record the figures in the design's Special Considerations as dev
+        values.
+  - [ ] Production is not checked here. Add "check production
+        `max_connections` on both clusters against 231's per-worker
+        connection budget for the configured `--workers`" to the 234 entry
+        in the 220 slice plan.
   - [ ] Success: the figures are recorded.
 - [ ] **9.4 Commit:** `test: add futures API load-tier bounds` (effort 1)
 
@@ -323,12 +351,20 @@ paths, test environment, lint and production safety.
   - [ ] mypy across every touched source and test path in one
         invocation; ruff check and scoped format; `scripts/check_api_docs.py
         --check`.
-  - [ ] Success: all clean apart from the known lists.
+  - [ ] **The load tier is gated by this manual run, not by CI.** Record
+        this in the closing notes: `.github/workflows/ci.yml` publishes on
+        tags and runs no test tier, and the load tier needs the private test
+        cluster, so CI cannot run it. Wiring CI is not part of this slice.
+        If the Project Manager wants it, it is a separate slice.
+  - [ ] Create `user/notes/231-walkthrough.md` (frontmatter per
+        `file-naming-conventions.md`) with a "Load-tier gate" section
+        holding that decision; 10.2 adds the walkthrough to it.
+  - [ ] Success: all clean apart from the known lists; the gate decision is
+        recorded.
 - [ ] **10.2 Run the Verification Walkthrough** (effort 3)
   - [ ] Run the design's steps 1–9 against the dev tick database and the
         primary calendar. Record each command, output excerpt and outcome
-        in `user/notes/231-walkthrough.md` (frontmatter per
-        `file-naming-conventions.md`). Step 4 picks the largest session
+        in `user/notes/231-walkthrough.md`. Step 4 picks the largest session
         from `mt data tick coverage`.
   - [ ] Step 10 (production after 234) is recorded as not runnable in
         this slice, with the reason.
