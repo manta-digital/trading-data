@@ -119,6 +119,7 @@ status: in_progress
    - `MT_TICK_DB_URL`, `MT_DATABENTO_API_KEY`, and `MT_TICK_SPEND_CEILING_USD` in the service environment files of every process with a tick duty.
    - The tick archive directory on the host.
    - The runbook's add-a-source entries.
+   - A check of production `max_connections` on both clusters against 231's per-worker connection budget (8 tick, 4 extra primary, on top of the API's existing primary pools) for the configured `--workers`. 231 recorded the dev values: one worker fits; four would exceed the tick cluster's 30.
 
    It also adds the second connection pool from `MT_TICK_DB_URL` to the health check, reusing the tick line states (`data/tick/line_state.py`: `TickLineState`, `TickUnavailable`, `unavailable_text`) and the composed-surface opener (`cli/tick_composed.connect`) that 230 introduced (230 is the first tick composing surface: accounting and overview). The check gains a retention-deadline finding for any in-flight unit whose deadline falls before the next scheduled firing, or, with a manual-only pass, within a fixed number of days. When the setting is absent, health prints a loud "not configured" line and continues, so minute, daily, and Kalshi monitoring are never silenced. When the tick database is unreachable, health reports "unreachable" rather than omitting the line. The minute, daily, and Kalshi passes never read the tick setting. Cutover is a script per the PM-host-step convention. Dependencies: [225]. Risk: Medium. Effort: 3/5
 

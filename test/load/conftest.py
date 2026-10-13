@@ -37,6 +37,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 
 import psycopg
 import pytest
@@ -44,6 +45,7 @@ from kalshi_support.schema import apply_kalshi_track
 from psycopg_pool import ConnectionPool
 from tick_support.api import no_dev_tick_settings  # noqa: F401  (231 guard)
 
+from manta_trading.api_server.app import create_app
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
     COVERAGE_BUCKET_INTERVAL,
@@ -556,3 +558,21 @@ def kalshi_dense_db(ephemeral_db: str) -> str:
     apply_kalshi_track(ephemeral_db)
     _seed_kalshi_dense(ephemeral_db)
     return ephemeral_db
+
+
+# --- a real tick pool for the existing API load tests (slice 231) -------------
+
+
+@pytest.fixture
+def api_tick_pool(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    migrated_tick_db: str,
+) -> None:
+    """Point the requesting module's ``create_app`` at a migrated throwaway tick
+    database, so its measurements include a live tick pool (231 Technical
+    Requirements). The guard keeps ``.env``'s URL out; this puts a real pool
+    in, never the dev or production one."""
+    monkeypatch.setattr(
+        request.module, "create_app", partial(create_app, tick_db_url=migrated_tick_db)
+    )

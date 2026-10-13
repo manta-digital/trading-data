@@ -6,8 +6,8 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [229, 230]
 interfaces: [232, 234]
 dateCreated: 20261012
-dateUpdated: 20261012
-status: not_started
+dateUpdated: 20261013
+status: in_progress
 ---
 
 # Slice Design: api-surface-coverage-futures-tick
@@ -147,10 +147,15 @@ slice builds it.
 |---|---|
 | `api_server/tick_access.py` (new) | Owns the tick pool: opens it in `lifespan` without blocking, closes it on shutdown. The `tick_connection` dependency checks out a connection, verifies the tick track's migrations, and yields; otherwise it raises `TickServiceUnavailable`. `probe_tick()` returns a `TickLineState` for health. The app-level handler turns `TickServiceUnavailable` into `503 {"error": …}`. |
 | `api_server/routes/futures_catalog.py` (new) | `products`, `contracts`, `schedule`. |
-| `api_server/routes/futures_series.py` (new) | The four time-series routes and one shared read helper: plan, then read under the ceiling, then build the model. |
-| `api_server/models/futures.py` (new) | Response models for all seven routes, plus the `TickBlock` used by `/api/v1/status`. |
+| `api_server/routes/futures_series.py` (new) | The four time-series routes over one serve path. |
+| `api_server/futures_read.py` (new) | The shared read helper: plan, then read under the ceiling in one snapshot, with `[from, until)` clipping. |
+| `api_server/routes/futures_params.py` (new) | Product lookup (`404`), rule parsing (`422`), the `TickBarGranularity` enum built from `TICK_BAR_GRANULARITIES`, instant bounds, and the shared query-parameter types. |
+| `api_server/models/futures.py` (new) | The time-series response models and the `TickBlock` used by `/api/v1/status`. |
+| `api_server/models/futures_catalog.py` (new) | The catalog response models. |
 | `data/tick/catalog_reads.py` (new) | `contracts_for(conn, product)`: definition rows joined to each instrument's first and last held session under current units. No API import, so the CLI could use it later. |
-| `data/tick/line_state.py` (changed) | Gains `classify(exc, password)`, moved from `cli/tick_composed.py` with the scrubbing. The CLI's `classify(exc, settings)` becomes a thin wrapper. |
+| `data/tick/line_state.py` (changed) | Gains `classify(exc, password, statement_timeout)`, moved from `cli/tick_composed.py` with the scrubbing and the outage and read-failure tuples. The CLI's `classify(exc, settings)` becomes a thin wrapper. |
+| `data/tick/tick_format.py`, `get_plan.py`, `active_contract.py` (changed) | Shared pieces the API reuses instead of copying: `cell_value`/`row_cells` (the CLI writer's row formatting), `resolve_range` (held-session defaults), `error_lines` (one failure on every rule's line). |
+| `data/base/trading_calendar.py`, `data/tick/status_reads.py` (changed) | `TradingCalendar` takes an optional `checkout_timeout`; `open_calendar` passes `TICK_DB_CONNECT_TIMEOUT_SECONDS`, so a calendar outage in the roll path fails within the connect timeout instead of the pool's 30 s default. |
 | `data/tick/constants.py` (changed) | `TICK_API_POOL_MIN`, `TICK_API_POOL_MAX`, `TICK_API_CHECKOUT_TIMEOUT_SECONDS`; and `TICK_SOURCE_NAME`, moved here from `cli/commands/overview.py`, which now imports it. |
 | `api_server/app.py` (changed) | `create_app(db_url=None, tick_db_url=None)`; `lifespan` opens and closes the tick pool; registers both routers and the `503` handler. |
 | `api_server/routes/health.py`, `status.py`, `operations.py` (changed) | The composed additions. |
@@ -354,7 +359,8 @@ database is down.
   - The busiest session held has 687,287 ticks (measured on the tick
     database 2026-10-12; the median is 88, because most rows are thin
     spreads). With a 75,000-row ceiling, ticks cannot be served at all
-    without bounds inside a session.
+    without bounds inside a session. Re-read 2026-10-13 against more held
+    data: the busiest is now ESU4 2024-09-06, 690,908 ticks.
 - **Bars take no `from`/`until`.** Clipping `open_ns` would move the first
   bucket's stamp, because a bar's start is
   `GREATEST(time_bucket, open_ns)`. Bar requests are bounded by session
@@ -416,7 +422,7 @@ present, possibly empty.
                {"first_session": "2024-09-19", "last_session": "2024-09-19",
                 "raw_symbol": "ESZ4", "instrument_id": 183748}],
   "unresolved": [],
-  "incomplete": [{"session_date": "2024-09-17", "status": "partial"}],
+  "incomplete": [{"session_date": "2024-09-17", "status": "missing"}],
   "count": 5512,
   "bars": [{"time": "2024-09-15T22:00:00.000000000Z", "session_date": "2024-09-16",
             "raw_symbol": "ESU4", "instrument_id": 118,
@@ -443,10 +449,12 @@ present, possibly empty.
 - **Both JSON and msgpack go through `timeseries_response`.** Routes use
   `response_class=Response` with `timeseries_200(Model)`, so the schema
   publishes the body (190 fixed this).
-- **Rows are built with `model_construct`.** The values are already
-  validated strings and ints. Validating 75,000 pydantic rows would cost
-  time for nothing; the load test measures the difference before this
-  choice is kept.
+- **Rows are validated, not built with `model_construct`.** The design
+  proposed `model_construct` to skip validating 75,000 rows; the load test
+  measured the opposite (2026-10-13, 75,000 ticks, build plus JSON dump):
+  `model_construct` 1.446 s, validated 1.185 s, because dumping
+  unvalidated models takes pydantic's slower path. The models validate, and
+  the load test keeps that choice honest.
 
 **Catalog bodies:**
 
@@ -754,9 +762,12 @@ implemented; none exist today.
      200 as before.
    - `/status`: `.tick.state == "unreachable"`.
 
-8. **Not configured.** Restart with `MT_TICK_DB_URL` unset (`env -u
-   MT_TICK_DB_URL uv run mt serve …`). Expect the not-configured text in the
-   futures `503`s and `tick_db: "not_configured"`.
+8. **Not configured.** Restart with `MT_TICK_DB_URL` set **empty**
+   (`MT_TICK_DB_URL= uv run mt serve …`). `env -u` is not enough: `Settings`
+   reads `.env` itself, so an absent variable falls back to the file's value,
+   while an empty one overrides it. Expect the not-configured text in the
+   futures `503`s and `tick_db: "not_configured"`. (Corrected during the
+   2026-10-13 walkthrough, `user/notes/231-walkthrough.md`.)
 
 9. **Documentation gate.**
    ```bash
@@ -843,6 +854,19 @@ tick_db_url=tick_test_url)`.
   With 4 workers that is 32 tick connections and 16 extra primary
   connections. The task list checks both clusters' `max_connections`
   against these figures and records the values.
+
+  **Dev values, checked 2026-10-13 (task 9.3).** `mt-serve.service` runs
+  `mt serve` with no `--workers`, so one worker:
+
+  | Cluster | `max_connections` | Existing API pools | Added by 231 | Per worker |
+  |---|---|---|---|---|
+  | Tick (manta9000:5433) | 30 | 0 | 8 | 8 |
+  | Primary (192.168.1.144) | 100 | 26 (`db_pool` 8, minute 10, daily 8) | 4 | 30 |
+
+  One worker fits both. Four workers would not fit the dev tick cluster
+  (32 > 30), and the primary's existing pools alone would need 104 of 100
+  before 231 adds any. Nothing configures more than one worker today;
+  production's limits, for the configured `--workers`, are 234's check.
 - **Security:** read-only sessions at the database level; no secret in any
   body; the tick credential is the DML-only application role (923), never
   the maintenance role.

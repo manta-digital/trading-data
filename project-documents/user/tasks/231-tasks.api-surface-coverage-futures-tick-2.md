@@ -227,68 +227,68 @@ paths, test environment, lint and production safety.
 
 ## Section 8 - Documents (the 190 gate)
 
-- [ ] **8.1 Regenerate `openapi.json`** (effort 1)
-  - [ ] Run `uv run python scripts/dump_openapi.py`, and the unit tests
+- [x] **8.1 Regenerate `openapi.json`** (effort 1)
+  - [x] Run `uv run python scripts/dump_openapi.py`, and the unit tests
         `test_openapi_artifact.py` and `test_openapi_operations_schema.py`.
-  - [ ] Success: the artifact lists the seven new paths, each `200` with a
+  - [x] Success: the artifact lists the seven new paths, each `200` with a
         `$ref` model; the tests pass.
-- [ ] **8.2 Add the futures section to `docs/api/reference.md`** (effort 4)
-  - [ ] A new section, "Endpoints: futures", with one subsection per route.
+- [x] **8.2 Add the futures section to `docs/api/reference.md`** (effort 4)
+  - [x] A new section, "Endpoints: futures", with one subsection per route.
         Each carries an `<!-- endpoint: … params: … errors: … -->` marker
         in the gate's canonical types, an example request and an abridged
         response.
-  - [ ] **Shared content:**
+  - [x] **Shared content:**
     - session dates with an exclusive `end`;
     - `from`/`until` as half-open instants, with a paging example;
     - the roll-rule grammar and the default;
     - what `segments`, `unresolved` and `incomplete` mean and when each
       appears (229 requires the unresolved part);
     - prices and times as strings.
-  - [ ] **Value markers:** the 75,000 ceiling (`from:
+  - [x] **Value markers:** the 75,000 ceiling (`from:
         manta_trading.constants.API_MAX_BARS_PER_REQUEST`) and the 1,300
         session cap (`from:
         manta_trading.data.tick.constants.TICK_ROLL_MAX_SESSIONS`).
-  - [ ] **Conventions sections:**
+  - [x] **Conventions sections:**
     - §2.2 gains the futures exception to inclusive windows, with the
       reason;
     - §2.5 explains the futures ceiling (enforced while reading; the
       refusal quotes no count);
     - §2.7 adds the `503` and its body.
-  - [ ] **Existing route sections:** §3.1 health (`tick_db`,
+  - [x] **Existing route sections:** §3.1 health (`tick_db`,
         `tick_detail`, enum-marked against `TickLineState`), §3.5 status
         (the `tick` block), §5.3 overview (`futures ticks`,
         `unavailable`).
-  - [ ] Success: `scripts/check_api_docs.py` reports no failure for
+  - [x] Success: `scripts/check_api_docs.py` reports no failure for
         `reference.md`.
-- [ ] **8.3 Extend `docs/api/agents.md`** (effort 3)
-  - [ ] §2 capability index: one row per new route.
-  - [ ] §3 choosing a window: the futures window rule and paging.
-  - [ ] §5 failure modes: the `503` verdict ("retry later; the tick
+- [x] **8.3 Extend `docs/api/agents.md`** (effort 3)
+  - [x] §2 capability index: one row per new route.
+  - [x] §3 choosing a window: the futures window rule and paging.
+  - [x] §5 failure modes: the `503` verdict ("retry later; the tick
         database is down or unconfigured; equities routes are unaffected").
-  - [ ] §7 vocabularies: the bar sizes, the rule grammar and the line
+  - [x] §7 vocabularies: the bar sizes, the rule grammar and the line
         states, each enum-marked.
-  - [ ] The endpoint markers, as in 8.2.
-  - [ ] Success: `uv run python scripts/check_api_docs.py --check` exits
+  - [x] The endpoint markers, as in 8.2.
+  - [x] Success: `uv run python scripts/check_api_docs.py --check` exits
         0.
-- [ ] **8.4 Update the 180 serving architecture**
+- [x] **8.4 Update the 180 serving architecture**
       (`user/architecture/180-arch.data-serving.md`) (effort 1)
-  - [ ] Mark the "Tick data endpoints" exclusion closed by slice 231, dated.
-  - [ ] Add the "Extended by slice 231" paragraph to the Range Policy,
+  - [x] Mark the "Tick data endpoints" exclusion closed by slice 231, dated.
+  - [x] Add the "Extended by slice 231" paragraph to the Range Policy,
         after 188's, covering the content of the design's TD4 bullet: the
         third enforcement style, the measured 687,287-tick session, and
         "no DB work for a rejected request" holding for bars only.
-  - [ ] Success: both edits present; nothing else in 180 changed.
-- [ ] **8.5 Add the 220 architecture Revision Log entry** (effort 1)
-  - [ ] Under a 2026-10-12 slice 231 entry:
+  - [x] Success: both edits present; nothing else in 180 changed.
+- [x] **8.5 Add the 220 architecture Revision Log entry** (effort 1)
+  - [x] Under a 2026-10-12 slice 231 entry:
     - the health field uses the five `TickLineState` values, not
       "`ok` or `error`", with the reason;
     - futures windows are session dates with an exclusive end, plus
       half-open instants for ticks.
-  - [ ] Success: entry present.
-- [ ] **8.6 Commit** (effort 1)
-  - [ ] Check gate and the docs tests (`test_api_docs.py`, and the
+  - [x] Success: entry present.
+- [x] **8.6 Commit** (effort 1)
+  - [x] Check gate and the docs tests (`test_api_docs.py`, and the
         integration `test_api_docs_examples.py`).
-  - [ ] Commit: `docs: document futures API routes and tick lines`.
+  - [x] Commit: `docs: document futures API routes and tick lines`.
 
 ## Section 9 - Load tier and connection budget
 

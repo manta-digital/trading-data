@@ -74,6 +74,8 @@ pytestmark = [
         os.environ.get("MT_RUN_LOAD_TESTS") != "1",
         reason="MT_RUN_LOAD_TESTS=1 required",
     ),
+    # 231: every app here runs with a live tick pool, as production will.
+    pytest.mark.usefixtures("api_tick_pool"),
     # Seeding 12,000 symbols plus three cagg refreshes far exceeds the 30 s
     # ini default; the measurements themselves are seconds at most.
     pytest.mark.timeout(900),

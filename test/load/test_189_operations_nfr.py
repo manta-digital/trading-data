@@ -53,6 +53,8 @@ pytestmark = [
         os.environ.get("MT_RUN_LOAD_TESTS") != "1",
         reason="MT_RUN_LOAD_TESTS=1 required",
     ),
+    # 231: every app here runs with a live tick pool, as production will.
+    pytest.mark.usefixtures("api_tick_pool"),
     # The prod-shaped fixture seeds 12,000 symbols; the measurements
     # themselves are milliseconds.
     pytest.mark.timeout(900),
