@@ -12,21 +12,29 @@ import asyncio
 from typing import Annotated, Any, Literal
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi import status as http_status
 
 from manta_trading.api_server.deps import get_db
+from manta_trading.api_server.models.futures import TickBlock
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
     CoverageStatus,
     StatusResponse,
     StatusRowRecord,
 )
+from manta_trading.api_server.tick_access import read_tick
 from manta_trading.cli.rendering.status_table import HealthStatus
 from manta_trading.data.maintenance.status_queries import (
     fetch_all_health_counts_with_freshness,
     fetch_status_rows_with_freshness,
 )
+from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.tick_accounting import (
+    TickAccountingLine,
+    accounting_lines,
+)
+from manta_trading.data.tick.universe import TICK_UNIVERSE
 
 router = APIRouter()
 
@@ -98,6 +106,7 @@ def _resolve_health_filter(health: str | None, *, all_rows: bool) -> list[str] |
 
 @router.get("/api/v1/status", responses=GATEWAY_TIMEOUT_RESPONSE)
 async def get_status(
+    request: Request,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)],
     symbol: str | None = None,
     health: str | None = None,
@@ -113,6 +122,9 @@ async def get_status(
     DB failures are not caught here (D9): the freshness probes never raise (a
     failed probe is a stale verdict), and a genuine ``data_status`` query
     failure propagates to the global 500 handler in ``app.py``.
+
+    The ``tick`` block (231 TD7) is read concurrently on the tick pool and
+    never fails the route: an outage or a refused read is the block's state.
     """
     health_filter = _resolve_health_filter(health, all_rows=all_rows)
     loop = asyncio.get_running_loop()
@@ -138,7 +150,9 @@ async def get_status(
             CoverageStatus.from_freshness(coverage),
         )
 
-    records, summary, coverage_status = await loop.run_in_executor(None, _fetch)
+    (records, summary, coverage_status), tick = await asyncio.gather(
+        loop.run_in_executor(None, _fetch), _tick_block(request.app)
+    )
 
     return StatusResponse(
         scope="symbol" if symbol is not None else "all",
@@ -147,4 +161,15 @@ async def get_status(
         rows=records,
         summary=summary,
         coverage=coverage_status,
+        tick=tick,
     )
+
+
+async def _tick_block(app: FastAPI) -> TickBlock:
+    """``mt data accounting``'s tick figures, from the same function (TD7)."""
+    calendar_url = app.state.calendar_url
+
+    async def read(conn: Conn) -> list[TickAccountingLine]:
+        return await accounting_lines(conn, calendar_url, TICK_UNIVERSE)
+
+    return TickBlock.from_result(await read_tick(app, read))

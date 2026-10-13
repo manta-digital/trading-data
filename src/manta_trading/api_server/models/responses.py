@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
+from manta_trading.api_server.models.futures import TickBlock
+from manta_trading.data.tick.line_state import TickLineState
+
 if TYPE_CHECKING:
     from manta_trading.cli.rendering.status_table import StatusRow
     from manta_trading.constants import Granularity
@@ -36,6 +39,12 @@ class HealthResponse(BaseModel):
     """
 
     detail: str | None = None
+    tick_db: TickLineState
+    """The tick database's state (231 TD7): one of the five ``TickLineState``
+    values, not ``ok``/``error``, so "not configured" is never read as "down".
+    """
+    tick_detail: str | None = None
+    """Why ``tick_db`` is not ``ok``; absent when it is (``exclude_none``)."""
 
 
 class BarRecord(BaseModel):
@@ -264,6 +273,9 @@ class StatusResponse(BaseModel):
     rows: list[StatusRowRecord]
     summary: dict[str, int]
     coverage: CoverageStatus
+    tick: TickBlock
+    """The futures tick tier (231 TD7): always present, independent of the
+    ``symbol``/``health``/``granularity`` filters, which select equities rows."""
 
 
 class ErrorResponse(BaseModel):

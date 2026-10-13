@@ -26,16 +26,16 @@ paths, test environment, lint and production safety.
 
 ## Section 6 - Time-series routes (TD3, TD4, TD5, TD6)
 
-- [ ] **6.1 Add the ceiling refusal to `admission.py`** (effort 1)
-  - [ ] `over_ceiling(max_rows: int, *, remedy: str) -> HTTPException`
+- [x] **6.1 Add the ceiling refusal to `admission.py`** (effort 1)
+  - [x] `over_ceiling(max_rows: int, *, remedy: str) -> HTTPException`
         returns the `422` "the request matches more than the {max_rows:,}
         row limit; {remedy}", in the existing refusal's style.
-  - [ ] Add `NARROW_TICKS = "narrow start/end or from/until"` beside
+  - [x] Add `NARROW_TICKS = "narrow start/end or from/until"` beside
         `NARROW_WINDOW`; bars use `NARROW_WINDOW`.
-  - [ ] Success: `test_admission.py` gains a case for the new helper;
+  - [x] Success: `test_admission.py` gains a case for the new helper;
         passes.
-- [ ] **6.2 Build the shared read helper** (effort 4)
-  - [ ] In `routes/futures_series.py`, or in `api_server/futures_read.py`
+- [x] **6.2 Build the shared read helper** (effort 4)
+  - [x] In `routes/futures_series.py`, or in `api_server/futures_read.py`
         if the route file would pass ~300 lines, write one async function
         that takes a pooled connection, a plan builder, a row reader
         (ticks or bars) and the ceiling, and returns `(plan, rows)`. It:
@@ -51,24 +51,24 @@ paths, test environment, lint and production safety.
     - reads each window in order, through an `on_batch` collector that
       appends rows and raises `RowCeilingExceeded` once the total passes
       the ceiling (TD4).
-  - [ ] **Error mapping:** the plan and the reads run inside part 1's
+  - [x] **Error mapping:** the plan and the reads run inside part 1's
         `tick_errors()` (task 3.1), which already orders `QueryCanceled` →
         `504` before `OperationalError`/`TickCalendarError` → `503`, then
         `ContractNotFound` → `404` and `TickPreflightError` → `422`. Do not
         add a second mapping. The only addition is `RowCeilingExceeded` →
         6.1's `422`, raised after the connection is released.
-  - [ ] `from` must be before `until`; otherwise `422`. A naive datetime is
+  - [x] `from` must be before `until`; otherwise `422`. A naive datetime is
         read as UTC, as in `windows.py`.
-  - [ ] Success: no route repeats this logic; nothing in the helper formats
+  - [x] Success: no route repeats this logic; nothing in the helper formats
         a price or a time (the models do).
-- [ ] **6.3 Test the read helper** (effort 3)
-  - [ ] Unit tests for clipping on synthetic windows:
+- [x] **6.3 Test the read helper** (effort 3)
+  - [x] Unit tests for clipping on synthetic windows:
     - a `from` inside a window;
     - an `until` exactly at a window's open (the window is dropped);
     - a window fully outside the bounds;
     - adjacent `[a, b)` and `[b, c)` bounds that partition a window with no
       overlap.
-  - [ ] Integration tests that call the helper directly, with an explicit
+  - [x] Integration tests that call the helper directly, with an explicit
         ceiling argument; no route exists yet. Seed with `seed_ticks`,
         about 30 ticks across one session:
     - ceiling 10 → `RowCeilingExceeded`, and a spy on the collector shows
@@ -78,19 +78,19 @@ paths, test environment, lint and production safety.
     - consecutive `[from, until)` bounds over the session return exactly
       the session's ledger `record_count`, with no duplicate
       `(ts_event, sequence)` (FR6).
-  - [ ] Success: passes.
-- [ ] **6.4 Add the contract ticks route** (effort 2)
-  - [ ] `GET /api/v1/futures/contracts/{symbol}/ticks?start=&end=&from=&until=&format=`:
+  - [x] Success: passes.
+- [x] **6.4 Add the contract ticks route** (effort 2)
+  - [x] `GET /api/v1/futures/contracts/{symbol}/ticks?start=&end=&from=&until=&format=`:
     - `response_class=Response`,
       `responses=timeseries_200(FuturesTicksResponse) |
       TICK_UNAVAILABLE_RESPONSE | GATEWAY_TIMEOUT_RESPONSE`;
     - it depends on `tick_connection` and `get_max_bars`;
     - it serializes through `timeseries_response`.
-  - [ ] Register `futures_series`'s router in `create_app`.
-  - [ ] Success: route in the schema with its `200` model, for both media
+  - [x] Register `futures_series`'s router in `create_app`.
+  - [x] Success: route in the schema with its `200` model, for both media
         types.
-- [ ] **6.5 Test the contract ticks route** (effort 3)
-  - [ ] Integration tests:
+- [x] **6.5 Test the contract ticks route** (effort 3)
+  - [x] Integration tests:
     - field-for-field equality with the CLI's JSON writer over the same
       seed and bounds (FR1). Call the `get` writer path in-process and
       compare parsed JSON rows;
@@ -106,32 +106,32 @@ paths, test environment, lint and production safety.
       `app.dependency_overrides[get_max_bars]`, a wider window → `422`
       whose body names 10 and `from/until` (FR5);
     - the closed-port fixture → `503`.
-  - [ ] Success: passes.
-- [ ] **6.6 Add the contract bars route** (effort 2)
-  - [ ] `GET /api/v1/futures/contracts/{symbol}/bars?granularity=&start=&end=&format=`:
+  - [x] Success: passes.
+- [x] **6.6 Add the contract bars route** (effort 2)
+  - [x] `GET /api/v1/futures/contracts/{symbol}/bars?granularity=&start=&end=&format=`:
     - `granularity` is restricted to `TICK_BAR_GRANULARITIES` (1.1 found
       how) and required;
     - no `from`/`until` (TD3);
     - bars models and the read helper.
-  - [ ] Success: the schema lists exactly the tick bar sizes.
-- [ ] **6.7 Test the contract bars route** (effort 2)
-  - [ ] Integration tests:
+  - [x] Success: the schema lists exactly the tick bar sizes.
+- [x] **6.7 Test the contract bars route** (effort 2)
+  - [x] Integration tests:
     - `1m` and `1d` equal the CLI's JSON bars over the same seed;
     - `granularity=2h`, or a size outside the tuple → `422`.
-  - [ ] Success: passes.
-- [ ] **6.8 Add the product ticks and product bars routes** (effort 3)
-  - [ ] `GET /api/v1/futures/products/{product}/ticks` and
+  - [x] Success: passes.
+- [x] **6.8 Add the product ticks and product bars routes** (effort 3)
+  - [x] `GET /api/v1/futures/products/{product}/ticks` and
         `GET /api/v1/futures/products/{product}/bars`:
     - the same as 6.4 and 6.6, plus `rule`, parsed as in 5.7;
     - an unknown product → `404`;
     - the plan is `product_plan`.
-  - [ ] `target` carries `kind: "product"`, `rule` and `is_default`;
+  - [x] `target` carries `kind: "product"`, `rule` and `is_default`;
         `segments`, `unresolved` and `incomplete` come straight from the
         plan.
-  - [ ] Success: the four time-series routes share the 6.2 helper and the
+  - [x] Success: the four time-series routes share the 6.2 helper and the
         6.2 error mapping; none has its own `try`.
-- [ ] **6.9 Test the product routes** (effort 3)
-  - [ ] Integration tests over `seed_september_roll`:
+- [x] **6.9 Test the product routes** (effort 3)
+  - [x] Integration tests over `seed_september_roll`:
     - `1d` bars across the roll: `segments` name ESU4 then ESZ4 under
       `v.0`, `is_default` is true, and the bars equal the CLI's (FR2);
     - a range starting at the first held session lists those sessions in
@@ -144,11 +144,11 @@ paths, test environment, lint and production safety.
       → `503` (an outage in `product_plan`'s roll path);
     - with part 1's two-product fixture (5.6), the second product's
       `bars?granularity=1d` answers 200, not `404`.
-  - [ ] Success: passes.
-- [ ] **6.10 Commit** (effort 1)
-  - [ ] Unit and integration tiers for the touched directories; mypy; ruff;
+  - [x] Success: passes.
+- [x] **6.10 Commit** (effort 1)
+  - [x] Unit and integration tiers for the touched directories; mypy; ruff;
         `git diff main` checked.
-  - [ ] Commit: `feat: add futures ticks and bars routes`.
+  - [x] Commit: `feat: add futures ticks and bars routes`.
 
 ## Section 7 - Health, status and overview (TD7)
 

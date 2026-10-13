@@ -129,7 +129,11 @@ class TestEveryFieldTranslates:
             "at": "2026-09-13T03:22:03Z",
         }
         assert body["sources"] == [
-            {"name": "minute bars", "newest": "2026-09-12T20:22:03Z"}
+            {
+                "name": "minute bars",
+                "newest": "2026-09-12T20:22:03Z",
+                "unavailable": None,
+            }
         ]
 
     def test_the_pass_line(self) -> None:
@@ -233,7 +237,23 @@ class TestTheStatesAScreenBlurs:
     def test_a_source_that_holds_nothing_serves_a_null_newest(self) -> None:
         body = _body(_overview(sources=(SourceFreshness("kalshi trades", None),)))
 
-        assert body["sources"] == [{"name": "kalshi trades", "newest": None}]
+        assert body["sources"] == [
+            {"name": "kalshi trades", "newest": None, "unavailable": None}
+        ]
+
+    def test_an_unread_source_says_why(self) -> None:
+        """231: the tick line's state text, with ``newest`` null."""
+        unread = SourceFreshness("futures ticks", None, "unreachable: refused")
+
+        body = _body(_overview(sources=(unread,)))
+
+        assert body["sources"] == [
+            {
+                "name": "futures ticks",
+                "newest": None,
+                "unavailable": "unreachable: refused",
+            }
+        ]
 
 
 class TestTheDeliberateOmissions:

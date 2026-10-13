@@ -80,14 +80,16 @@ def test_json_carries_unavailable_on_every_source() -> None:
     }
 
 
-def test_the_api_record_never_carries_the_tick_state() -> None:
-    """Even handed a tick source, ``SourceRecord`` keeps its two fields; and
-    the route never is (it calls ``gather_db_facts``)."""
+def test_the_api_record_carries_the_tick_state() -> None:
+    """231 TD7 closed 230's gap: ``SourceRecord`` carries ``unavailable``, so
+    the API and the CLI say the same thing about an unread source."""
     tick = SourceFreshness(mod.TICK_SOURCE_NAME, None, "unreachable: x")
 
     body = json.loads(OverviewResponse.from_overview(_overview(tick)).model_dump_json())
 
-    assert body["sources"] == [{"name": "futures ticks", "newest": None}]
+    assert body["sources"] == [
+        {"name": "futures ticks", "newest": None, "unavailable": "unreachable: x"}
+    ]
 
 
 def test_gather_appends_the_tick_line_and_gather_db_facts_does_not(

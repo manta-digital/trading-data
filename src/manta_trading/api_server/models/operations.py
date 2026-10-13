@@ -92,6 +92,9 @@ class SourceRecord(BaseModel):
 
     name: str
     newest: datetime | None
+    unavailable: str | None
+    """Why the source could not be read (the tick line's state text, 231);
+    ``newest`` is then null. Null for every source that was read."""
 
 
 class HealthBlock(BaseModel):
@@ -139,7 +142,11 @@ class OverviewResponse(BaseModel):
             now=overview.now,
             passes=[_pass_line(line) for line in overview.passes],
             sources=[
-                SourceRecord(name=source.name, newest=source.newest)
+                SourceRecord(
+                    name=source.name,
+                    newest=source.newest,
+                    unavailable=source.unavailable,
+                )
                 for source in overview.sources
             ],
             health=HealthBlock(

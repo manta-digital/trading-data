@@ -15,14 +15,13 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from kalshi_support.schema import apply_kalshi_track
+from tick_support.api import CLOSED_PORT_SECRET, closed_port_url
 
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.tick_access import tick_connection
 from manta_trading.data.tick.constants import TICK_API_CHECKOUT_TIMEOUT_SECONDS
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.market.schema.migrations import TRACKS
-
-from .conftest import CLOSED_PORT_SECRET, closed_port_url
 
 PROBE = "/test/tick-probe"
 NEWEST_TICK_MIGRATION = TRACKS["tick"][-1]["id"]

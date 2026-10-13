@@ -74,7 +74,8 @@ class TestDocumentedEnvelopes:
 
         assert response.status_code == 200
         body = response.json()
-        assert set(body) == {"status", "db", "coverage"}
+        # 231: the tick fields; no tick URL here, so the detail is present.
+        assert set(body) == {"status", "db", "coverage", "tick_db", "tick_detail"}
         assert all(isinstance(value, str) for value in body.values())
 
     def test_symbols_shape(self, migrated_db: str) -> None:

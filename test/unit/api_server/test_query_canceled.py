@@ -17,6 +17,7 @@ import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tick_support.api import tick_not_configured
 
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.deps import get_db, get_db_pool
@@ -59,7 +60,7 @@ def _clear_verdict_cache() -> Iterator[None]:
 
 @pytest.fixture
 def test_app() -> FastAPI:
-    app = create_app()
+    app = tick_not_configured(create_app())
     app.state.db_pool = MagicMock(name="sentinel_pool")
     app.state.minute_db = MagicMock(spec=TimescaleMinuteDataDB)
     app.state.daily_db = MagicMock(spec=TimescaleDailyDataDB)

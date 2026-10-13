@@ -17,6 +17,7 @@ import msgpack
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from tick_support.api import SECOND, client_for
 from tick_support.cli import clear_tick_env, cli_settings, closed_port
 from tick_support.roll_seed import ESU4, ESZ4, SeededRoll, seed_september_roll
 from tick_support.rows import (
@@ -42,8 +43,6 @@ from manta_trading.data.tick.get_plan import GetPlan, contract_plan
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.tick_reads import OnBatch, Row, TickWindow, read_ticks
-
-from .conftest import SECOND, client_for
 
 N_TICKS = 30
 SESSION = date(2024, 9, 18)

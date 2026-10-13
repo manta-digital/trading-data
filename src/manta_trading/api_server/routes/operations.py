@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any
 
 import psycopg
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 
 from manta_trading.api.credit_report import read_credits
 from manta_trading.api_server.deps import get_db
@@ -26,9 +26,15 @@ from manta_trading.api_server.models.operations import (
     CreditsRecord,
     CreditsResponse,
     OverviewResponse,
+    SourceRecord,
 )
 from manta_trading.api_server.models.responses import GATEWAY_TIMEOUT_RESPONSE
+from manta_trading.api_server.tick_access import read_tick
 from manta_trading.cli.commands.overview import build_overview, gather_db_facts
+from manta_trading.data.tick.constants import TICK_SOURCE_NAME
+from manta_trading.data.tick.line_state import TickUnavailable, unavailable_text
+from manta_trading.data.tick.roll_types import utc_from_ns
+from manta_trading.data.tick.status_reads import newest_event_ns
 from manta_trading.logging import get_logger
 
 router = APIRouter()
@@ -104,7 +110,27 @@ async def get_overview(
         overview = build_overview(facts, pid_alive=lambda _pid: True)
         return OverviewResponse.from_overview(overview)
 
-    return await loop.run_in_executor(None, _read)
+    response, tick = await asyncio.gather(
+        loop.run_in_executor(None, _read), _tick_source(request.app)
+    )
+    # Appended last, as ``mt data overview`` gathers it (230 TD7).
+    response.sources.append(tick)
+    return response
+
+
+async def _tick_source(app: FastAPI) -> SourceRecord:
+    """The ``futures ticks`` source: the newest stored tick from the ledger, or
+    why it is unknown (231 TD7). Never fails the route."""
+    newest = await read_tick(app, newest_event_ns)
+    if isinstance(newest, TickUnavailable):
+        return SourceRecord(
+            name=TICK_SOURCE_NAME, newest=None, unavailable=unavailable_text(newest)
+        )
+    return SourceRecord(
+        name=TICK_SOURCE_NAME,
+        newest=None if newest is None else utc_from_ns(newest),
+        unavailable=None,
+    )
 
 
 @router.get("/api/v1/credits")

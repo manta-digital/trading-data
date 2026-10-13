@@ -14,6 +14,13 @@ from typing import Any
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from tick_support.api import (
+    SECOND,
+    SECOND_CONTRACT_ID,
+    client_for,
+    definition_unit,
+    seed_second_product,
+)
 from tick_support.cli import clear_tick_env, cli_settings, closed_port
 from tick_support.roll_seed import ESH5, ESU4, ESZ4, SPREAD_ID, seed_september_roll
 from tick_support.rows import (
@@ -28,14 +35,6 @@ from manta_trading.data.tick.catalog_reads import contracts_for
 from manta_trading.data.tick.constants import (
     CME_EQUITY_CALENDAR_ID,
     TICK_ROLL_MAX_SESSIONS,
-)
-
-from .conftest import (
-    SECOND,
-    SECOND_CONTRACT_ID,
-    client_for,
-    definition_unit,
-    seed_second_product,
 )
 
 CONTRACTS = "/api/v1/futures/products/{}/contracts"

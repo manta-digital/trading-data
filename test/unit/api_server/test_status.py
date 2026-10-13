@@ -18,6 +18,7 @@ import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tick_support.api import tick_not_configured
 
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.deps import get_db
@@ -169,7 +170,7 @@ def _stub_db() -> Iterator[psycopg.Connection[Any]]:
 @pytest.fixture
 def test_app() -> FastAPI:
     """A fresh app with ``get_db`` overridden; lifespan is never entered."""
-    app = create_app()
+    app = tick_not_configured(create_app())
     app.state.db_pool = MagicMock(name="sentinel_pool")
     app.dependency_overrides[get_db] = _stub_db
     return app

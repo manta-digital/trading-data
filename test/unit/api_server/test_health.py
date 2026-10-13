@@ -17,6 +17,7 @@ import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tick_support.api import tick_not_configured
 
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.deps import get_db
@@ -80,7 +81,7 @@ def test_app() -> FastAPI:
     manager; the dependency override on ``get_db`` means the sentinel
     pool is never read.
     """
-    app = create_app()
+    app = tick_not_configured(create_app())
     app.state.db_pool = MagicMock(name="sentinel_pool")
     return app
 
@@ -91,7 +92,14 @@ def test_health_ok(test_app: FastAPI) -> None:
     with _mocked_coverage(stale=False):
         response = client.get("/api/v1/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "db": "ok", "coverage": "ok"}
+    assert response.json() == {
+        "status": "ok",
+        "db": "ok",
+        "coverage": "ok",
+        # 231: this app has no tick URL; the detail says which variable.
+        "tick_db": "not_configured",
+        "tick_detail": "MT_TICK_DB_URL unset",
+    }
 
 
 def test_health_stale_coverage(test_app: FastAPI) -> None:

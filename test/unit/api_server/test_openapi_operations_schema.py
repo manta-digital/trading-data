@@ -165,3 +165,13 @@ class TestTheDeliberateOmissions:
 
         assert "pass" in properties
         assert "pass_" not in properties
+
+
+class TestTheTickSource:
+    """231 TD7: every source can say why it was not read."""
+
+    def test_a_source_record_declares_unavailable(self) -> None:
+        schema = _artifact()["components"]["schemas"]["SourceRecord"]
+
+        assert set(schema["properties"]) == {"name", "newest", "unavailable"}
+        assert "unavailable" in schema["required"]

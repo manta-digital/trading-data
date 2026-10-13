@@ -28,6 +28,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tick_support.api import tick_not_configured
 
 from manta_trading.api.eodhd_account import CreditUsage
 from manta_trading.api_server.app import create_app
@@ -66,7 +67,7 @@ def app() -> Iterator[FastAPI]:
     (189 F001) and these tests never enter lifespan. Shut down on teardown so
     a test session does not accumulate thread pools.
     """
-    built = create_app()
+    built = tick_not_configured(create_app())
     built.state.db_pool = MagicMock(name="sentinel_pool")
     built.state.settings = SimpleNamespace(
         minute_firing_days=(0, 3), eodhd_api_key="secret-key-value"
@@ -99,7 +100,17 @@ class TestOverviewRoute:
             kind.value for kind in PassKind
         }
         assert body["sources"] == [
-            {"name": "minute bars", "newest": "2026-09-12T20:22:03Z"}
+            {
+                "name": "minute bars",
+                "newest": "2026-09-12T20:22:03Z",
+                "unavailable": None,
+            },
+            # 231: the tick source is appended last; this app has no tick URL.
+            {
+                "name": "futures ticks",
+                "newest": None,
+                "unavailable": "not configured (MT_TICK_DB_URL unset)",
+            },
         ]
         assert "health" in body
         assert "universe" in body

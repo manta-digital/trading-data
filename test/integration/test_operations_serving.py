@@ -254,6 +254,7 @@ class TestPre055Degradation:
             "daily bars",
             "kalshi candles",
             "kalshi trades",
+            "futures ticks",  # 231: always present; unconfigured here
         ]
 
 
