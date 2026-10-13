@@ -289,3 +289,16 @@ GATEWAY_TIMEOUT_RESPONSE: dict[int | str, dict[str, Any]] = {
 """Declared on every data route so ``504`` (186 D10) appears in the committed
 schema. Defined once — a per-route literal would drift the moment a route is
 added."""
+
+TICK_UNAVAILABLE_RESPONSE: dict[int | str, dict[str, Any]] = {
+    503: {
+        "model": ErrorResponse,
+        "description": (
+            "The tick database is not configured, unreachable, or has "
+            "migrations pending. Retry later; equities and Kalshi routes are "
+            "unaffected."
+        ),
+    }
+}
+"""Declared on every ``/api/v1/futures`` route (231 TD2), as
+``GATEWAY_TIMEOUT_RESPONSE`` is for ``504``."""

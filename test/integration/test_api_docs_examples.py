@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from tick_support.api import no_dev_tick_settings  # noqa: F401  (231 guard)
 
 from manta_trading.api_server.app import create_app
 from manta_trading.data.maintenance.status_coverage import COVERAGE_VIEWS

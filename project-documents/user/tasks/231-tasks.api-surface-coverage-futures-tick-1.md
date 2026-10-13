@@ -94,46 +94,46 @@ and the closing checks.
 
 ## Section 1 - Preflight facts
 
-- [ ] **1.1 Confirm the code facts the design relies on** (effort 2)
-  - [ ] **psycopg_pool:** the installed `psycopg_pool` version, and whether
+- [x] **1.1 Confirm the code facts the design relies on** (effort 2)
+  - [x] **psycopg_pool:** the installed `psycopg_pool` version, and whether
         `AsyncConnectionPool` supports each of these in it:
         `open=False`, `await pool.open(wait=False)`, `timeout=` (the
         checkout timeout), an async `configure` callback, and
         `PoolTimeout` on checkout. Use context7 for the version's docs if
         the installed source is unclear.
-  - [ ] **Roll functions:** `latest_lines` and `build_schedule` signatures
+  - [x] **Roll functions:** `latest_lines` and `build_schedule` signatures
         and what they raise; `roll_conninfo`'s constants
         (`TICK_DB_CONNECT_TIMEOUT_SECONDS`, its value).
         `missing_migrations(conn)`: whether it needs a transaction or
         autocommit.
-  - [ ] **API test fixtures:** how existing API tests build an app and a
+  - [x] **API test fixtures:** how existing API tests build an app and a
         client (`test/unit/api_server/test_app.py`, `test_health.py`,
         `test_operations.py`). Whether they use `TestClient` with the real
         `lifespan` or a stub, and how a test database URL reaches
         `create_app`. List every test module that calls `create_app`
         (`grep -rln "create_app(" test`) for 3.2's guard.
-  - [ ] **Tick test database:** how the integration tier creates a migrated
+  - [x] **Tick test database:** how the integration tier creates a migrated
         tick test database (`test/tick_support/database.py` and the
         fixtures 230's `get` integration tests use), so an API test can
         hold both a primary test URL (for the calendar) and a tick test
         URL.
-  - [ ] **Granularity parameter:** how `/api/v1/bars` declares
+  - [x] **Granularity parameter:** how `/api/v1/bars` declares
         `granularity: Granularity`, and how to restrict a FastAPI query
         parameter to `TICK_BAR_GRANULARITIES` so the OpenAPI schema lists
         exactly those values. Expect a `Literal` or a subset enum built
         from the tuple; never a hand-typed list.
-  - [ ] **CLI paths that move:** where `classify(exc, settings)` is called
+  - [x] **CLI paths that move:** where `classify(exc, settings)` is called
         (`cli/tick_composed.py` and its tests), and every importer of
         `TICK_SOURCE_NAME`.
-  - [ ] **Connection limits:** `SHOW max_connections` on the dev tick
+  - [x] **Connection limits:** `SHOW max_connections` on the dev tick
         cluster and the dev primary cluster (read-only), for task 9.3
         (part 2). Record them as dev values. Production's limits are 234's
         check (9.3 hands it over).
-  - [ ] Write a `Findings (1.1)` block under this task. If
+  - [x] Write a `Findings (1.1)` block under this task. If
         `AsyncConnectionPool` cannot open without blocking or cannot time
         out a checkout, stop and ask the Project Manager: TD2 depends on
         both.
-  - [ ] Success: findings block present; no code changes.
+  - [x] Success: findings block present; no code changes.
 
   **Findings (1.1)**, 2026-10-13:
 
@@ -197,47 +197,47 @@ and the closing checks.
 
 ## Section 2 - Shared moves (no behaviour change)
 
-- [ ] **2.1 Move `classify` into `data/tick/line_state.py`** (effort 2)
-  - [ ] Add `classify(exc, password: str | None, statement_timeout: str)
+- [x] **2.1 Move `classify` into `data/tick/line_state.py`** (effort 2)
+  - [x] Add `classify(exc, password: str | None, statement_timeout: str)
         -> TickUnavailable` to `line_state.py`, moved from
         `cli/tick_composed.py`. It keeps the outage tuple and the scrubbing
         as they are. The `QueryCanceled` wording names the timeout passed
         in: a timeout constant would be wrong for the API, whose
         connections run under the API `statement_timeout`.
-  - [ ] Keep the module free of I/O and of any CLI import. The outage
+  - [x] Keep the module free of I/O and of any CLI import. The outage
         tuple's `TickCalendarError` import comes from
         `data/tick/tick_calendar.py`.
-  - [ ] `cli/tick_composed.classify(exc, settings)` becomes a wrapper that
+  - [x] `cli/tick_composed.classify(exc, settings)` becomes a wrapper that
         resolves the password (its existing `_password`) and calls the
         moved function with `f"{TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS} s"`.
         The CLI's text is then byte-for-byte unchanged.
-  - [ ] Success: `tick_composed.py` has no classification logic of its
+  - [x] Success: `tick_composed.py` has no classification logic of its
         own; the CLI tests for accounting, overview and `tick_composed`
         pass unchanged.
-- [ ] **2.2 Test the moved `classify`** (effort 1)
-  - [ ] Unit tests in `test/unit/data/tick/test_line_state.py`:
+- [x] **2.2 Test the moved `classify`** (effort 1)
+  - [x] Unit tests in `test/unit/data/tick/test_line_state.py`:
     - `OperationalError` → `unreachable`;
     - `QueryCanceled` → `unreachable`, naming the timeout argument it was
       given (two different values, two different texts);
     - `TickPreflightError` and a generic `psycopg.Error` → `failed`;
     - a password in the message is replaced by `***`;
     - `password=None` leaves the text alone.
-  - [ ] Success: tests pass; the existing `tick_composed` tests pass.
-- [ ] **2.3 Move `TICK_SOURCE_NAME`; add the pool constants** (effort 1)
-  - [ ] Move `TICK_SOURCE_NAME = "futures ticks"` to
+  - [x] Success: tests pass; the existing `tick_composed` tests pass.
+- [x] **2.3 Move `TICK_SOURCE_NAME`; add the pool constants** (effort 1)
+  - [x] Move `TICK_SOURCE_NAME = "futures ticks"` to
         `data/tick/constants.py`, and import it in
         `cli/commands/overview.py` and every importer found in 1.1.
-  - [ ] Add `TICK_API_POOL_MIN` (1), `TICK_API_POOL_MAX` (4) and
+  - [x] Add `TICK_API_POOL_MIN` (1), `TICK_API_POOL_MAX` (4) and
         `TICK_API_CHECKOUT_TIMEOUT_SECONDS` to `data/tick/constants.py`,
         each with a one-line comment. The checkout timeout must be no
         larger than `TICK_DB_CONNECT_TIMEOUT_SECONDS` (from 1.1), so a
         tick `503` never waits longer than a roll connect.
-  - [ ] Success: `grep -rn '"futures ticks"' src` finds one definition;
+  - [x] Success: `grep -rn '"futures ticks"' src` finds one definition;
         overview CLI tests pass.
-- [ ] **2.4 Commit** (effort 1)
-  - [ ] Unit tier for `test/unit/data/tick` and `test/unit/cli`; mypy and
+- [x] **2.4 Commit** (effort 1)
+  - [x] Unit tier for `test/unit/data/tick` and `test/unit/cli`; mypy and
         ruff on touched files.
-  - [ ] Commit: `refactor: move tick classify and source name out of the
+  - [x] Commit: `refactor: move tick classify and source name out of the
         CLI`.
 
 ## Section 3 - The tick pool and the `503` (TD2)

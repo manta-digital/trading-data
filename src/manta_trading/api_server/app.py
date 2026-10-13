@@ -29,6 +29,12 @@ from manta_trading.api_server.routes.operations import (
 )
 from manta_trading.api_server.routes.status import router as status_router
 from manta_trading.api_server.routes.symbols import router as symbols_router
+from manta_trading.api_server.tick_access import (
+    TickServiceUnavailable,
+    close_tick_pool,
+    open_tick_pool,
+    tick_unavailable_body,
+)
 from manta_trading.config import Settings
 from manta_trading.constants import API_SERVING_SESSION, DbSessionSettings
 from manta_trading.logging import get_logger
@@ -44,7 +50,7 @@ __all__ = ["create_app", "lifespan", "make_configure_connection"]
 
 @asynccontextmanager
 async def lifespan(
-    app: FastAPI, db_url: str | None = None
+    app: FastAPI, db_url: str | None = None, tick_db_url: str | None = None
 ) -> AsyncIterator[None]:
     """Open and close the shared ``ConnectionPool`` over the app lifetime.
 
@@ -58,6 +64,9 @@ async def lifespan(
     parameter is the seam; an environment side channel would defeat that rule
     rather than satisfy it. ``None`` means "read ``Settings()``", which is every
     production path, unchanged.
+
+    ``tick_db_url`` is the same seam for the tick database (231 TD2). Unlike the
+    primary, an unset tick URL is not fatal: the futures routes answer ``503``.
     """
     settings = Settings()
     resolved_url = db_url or settings.timescale_db_url
@@ -119,9 +128,11 @@ async def lifespan(
         session.statement_timeout,
         app.state.max_bars_per_request,
     )
+    await open_tick_pool(app, tick_db_url, settings, conninfo, session)
     try:
         yield
     finally:
+        await close_tick_pool(app)
         pool.close()
         # wait=False: a credit fetch can legitimately be blocked for the full
         # EODHD_ACCOUNT_TIMEOUT_SECONDS, and shutdown must not add that to the
@@ -134,7 +145,7 @@ async def lifespan(
         _logger.info("API server connection pool closed")
 
 
-def create_app(db_url: str | None = None) -> FastAPI:
+def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> FastAPI:
     """Build a configured FastAPI application.
 
     Args:
@@ -143,6 +154,8 @@ def create_app(db_url: str | None = None) -> FastAPI:
             before. The load tier passes an ephemeral database explicitly
             (187 D9); see ``lifespan`` for why this is a parameter and not an
             environment variable.
+        tick_db_url: The tick database URL, the same seam (231 TD2). ``None``
+            reads ``MT_TICK_DB_URL``; unset leaves the futures routes ``503``.
     """
     app = FastAPI(
         title="Manta Trading API",
@@ -156,7 +169,7 @@ def create_app(db_url: str | None = None) -> FastAPI:
         # Bound rather than passed through app.state: the pool must be opened
         # before the first request, and app.state is not populated until
         # lifespan itself runs.
-        lifespan=partial(lifespan, db_url=db_url),
+        lifespan=partial(lifespan, db_url=db_url, tick_db_url=tick_db_url),
     )
     app.add_middleware(
         CORSMiddleware,
@@ -232,6 +245,21 @@ def create_app(db_url: str | None = None) -> FastAPI:
                 )
             },
         )
+
+    @app.exception_handler(TickServiceUnavailable)
+    async def _tick_unavailable_handler(
+        request: Request, exc: TickServiceUnavailable
+    ) -> JSONResponse:
+        """Map a tick outage, a missing setting or a pending migration to
+        ``503`` (231 TD2). Logged at WARNING: the process is healthy and keeps
+        serving equities and Kalshi; the tick tier is what is down."""
+        _logger.warning(
+            "Tick database unavailable on %s %s: %s",
+            request.method,
+            request.url.path,
+            exc,
+        )
+        return JSONResponse(status_code=503, content=tick_unavailable_body(exc))
 
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(

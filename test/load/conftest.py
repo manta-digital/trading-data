@@ -42,6 +42,7 @@ import psycopg
 import pytest
 from kalshi_support.schema import apply_kalshi_track
 from psycopg_pool import ConnectionPool
+from tick_support.api import no_dev_tick_settings  # noqa: F401  (231 guard)
 
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
