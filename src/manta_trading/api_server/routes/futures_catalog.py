@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Request
 
 from manta_trading.api_server.models.futures_catalog import (
     ContractRecord,
@@ -26,7 +26,9 @@ from manta_trading.api_server.models.responses import (
     TICK_UNAVAILABLE_RESPONSE,
 )
 from manta_trading.api_server.routes.futures_params import (
-    RULE_DESCRIPTION,
+    EndParam,
+    RuleParam,
+    StartParam,
     parse_rule,
     product_entry,
 )
@@ -48,11 +50,6 @@ router = APIRouter(prefix="/api/v1/futures", tags=["futures"])
 
 _TICK_ERRORS = TICK_UNAVAILABLE_RESPONSE | GATEWAY_TIMEOUT_RESPONSE
 TickConn = Annotated[Conn, Depends(tick_connection)]
-START_DESCRIPTION = "First session date. Omitted: the first held session."
-END_DESCRIPTION = (
-    "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day "
-    "after the last held session."
-)
 
 
 @router.get("/products", response_model=FuturesProductsResponse, responses=_TICK_ERRORS)
@@ -106,9 +103,9 @@ async def product_schedule(
     request: Request,
     product: str,
     conn: TickConn,
-    rule: Annotated[str | None, Query(description=RULE_DESCRIPTION)] = None,
-    start: Annotated[date | None, Query(description=START_DESCRIPTION)] = None,
-    end: Annotated[date | None, Query(description=END_DESCRIPTION)] = None,
+    rule: RuleParam = None,
+    start: StartParam = None,
+    end: EndParam = None,
 ) -> FuturesScheduleResponse:
     """The contract serving each session in ``[start, end)`` under ``rule``,
     as runs (``segments``), per session (``answers``) and the sessions the rule

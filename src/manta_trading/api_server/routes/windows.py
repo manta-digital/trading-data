@@ -45,6 +45,12 @@ def _as_utc(value: datetime | date, *, upper: bool) -> datetime:
     """
     if not isinstance(value, datetime):
         return window_end_utc(value) if upper else window_start_utc(value)
+    return instant_utc(value)
+
+
+def instant_utc(value: datetime) -> datetime:
+    """``value`` as an aware UTC instant; a naive one is read as UTC (see
+    :func:`_as_utc`). The futures ``from``/``until`` bounds use it too (231)."""
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 

@@ -18,6 +18,9 @@ from manta_trading.api_server.routes.bars import router as bars_router
 from manta_trading.api_server.routes.futures_catalog import (
     router as futures_catalog_router,
 )
+from manta_trading.api_server.routes.futures_series import (
+    router as futures_series_router,
+)
 from manta_trading.api_server.routes.gaps import router as gaps_router
 from manta_trading.api_server.routes.health import router as health_router
 from manta_trading.api_server.routes.kalshi_catalog import (
@@ -189,6 +192,7 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
     app.include_router(kalshi_catalog_router)
     app.include_router(kalshi_timeseries_router)
     app.include_router(futures_catalog_router)
+    app.include_router(futures_series_router)
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(

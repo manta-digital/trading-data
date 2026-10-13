@@ -8,7 +8,6 @@ run ``mt data tick active --json`` in-process over the same databases.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from datetime import date
 from typing import Any
 
@@ -18,28 +17,26 @@ from fastapi.testclient import TestClient
 from tick_support.cli import clear_tick_env, cli_settings, closed_port
 from tick_support.roll_seed import ESH5, ESU4, ESZ4, SPREAD_ID, seed_september_roll
 from tick_support.rows import (
-    FILE_COLUMNS,
     insert_definition,
-    insert_request,
-    insert_unit,
 )
 from typer.testing import CliRunner
 
-from manta_trading.api_server.routes import futures_catalog, futures_params
+from manta_trading.api_server.routes import futures_catalog
 from manta_trading.cli.app import app as cli_app
-from manta_trading.data.tick import constants
 from manta_trading.data.tick.active_contract import RollInputError
 from manta_trading.data.tick.catalog_reads import contracts_for
 from manta_trading.data.tick.constants import (
     CME_EQUITY_CALENDAR_ID,
     TICK_ROLL_MAX_SESSIONS,
-    SType,
-    TickSchema,
-    UnitState,
 )
-from manta_trading.data.tick.universe import TICK_UNIVERSE, TickUniverseEntry
 
-from .conftest import client_for
+from .conftest import (
+    SECOND,
+    SECOND_CONTRACT_ID,
+    client_for,
+    definition_unit,
+    seed_second_product,
+)
 
 CONTRACTS = "/api/v1/futures/products/{}/contracts"
 PRODUCTS = "/api/v1/futures/products"
@@ -47,9 +44,6 @@ SCHEDULE = "/api/v1/futures/products/{}/schedule"
 SEPTEMBER = {"start": "2024-09-05", "end": "2024-09-28"}
 #: A defined contract with no ledger rows: its ``held`` is null.
 UNHELD = ESH5
-#: The second product of the two-product universe, and its one contract.
-SECOND = TickUniverseEntry("GC", ("GC.FUT",), SType.PARENT, None, None, None)
-SECOND_CONTRACT_ID = 777
 
 
 @pytest.fixture
@@ -93,7 +87,7 @@ async def test_contracts_for_lists_held_ranges_in_expiration_order(
 async def test_a_defined_contract_with_no_ledger_rows_has_no_held_range(
     migrated_tick_db: str,
 ) -> None:
-    _seed_second_product(migrated_tick_db)
+    seed_second_product(migrated_tick_db)
     async with await psycopg.AsyncConnection.connect(
         migrated_tick_db, autocommit=True
     ) as conn:
@@ -124,7 +118,7 @@ def test_contracts_lists_the_seeded_definitions(seeded: TestClient) -> None:
 def test_contracts_formats_fixed_point_fields_as_decimal_text(
     migrated_tick_db: str, tick_client: TestClient
 ) -> None:
-    unit = _definition_unit(migrated_tick_db)
+    unit = definition_unit(migrated_tick_db)
     with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
         insert_definition(
             conn,
@@ -269,51 +263,6 @@ def test_schedule_refusals_are_422(
 
     assert response.status_code == 422
     assert message in response.json()["error"]
-
-
-# -- two-product universe (Integration Requirements; 232 needs no change) -----
-
-
-def _definition_unit(url: str) -> int:
-    with psycopg.connect(url, autocommit=True) as conn:
-        request = insert_request(conn, schema=TickSchema.DEFINITION.value)
-        return insert_unit(
-            conn,
-            request,
-            unit_date=date(2024, 8, 30),
-            state=UnitState.INGESTED.value,
-            **FILE_COLUMNS,
-        )
-
-
-def _seed_second_product(url: str) -> None:
-    unit = _definition_unit(url)
-    with psycopg.connect(url, autocommit=True) as conn:
-        insert_definition(
-            conn,
-            unit,
-            instrument_id=SECOND_CONTRACT_ID,
-            raw_symbol="GCZ4",
-            asset=SECOND.product,
-        )
-
-
-@pytest.fixture
-def two_products(
-    migrated_tick_db: str, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[None]:
-    """ES plus a second product on a calendar the test primary holds."""
-    universe = (*TICK_UNIVERSE, SECOND)
-    for module in (futures_catalog, futures_params):
-        monkeypatch.setattr(module, "TICK_UNIVERSE", universe)
-    monkeypatch.setitem(
-        constants.FUTURES_PRODUCT_CALENDAR,  # type: ignore[arg-type]
-        SECOND.product,
-        CME_EQUITY_CALENDAR_ID,
-    )
-    seed_september_roll(migrated_tick_db)
-    _seed_second_product(migrated_tick_db)
-    yield
 
 
 def test_a_second_product_is_served_with_no_route_change(

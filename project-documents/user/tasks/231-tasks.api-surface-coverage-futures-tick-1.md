@@ -366,8 +366,8 @@ and the closing checks.
 
 ## Section 4 - Response models (TD5)
 
-- [ ] **4.1 Build `api_server/models/futures.py`** (effort 3)
-  - [ ] **Time-series envelope** (TD5's example is the reference):
+- [x] **4.1 Build `api_server/models/futures.py`** (effort 3)
+  - [x] **Time-series envelope** (TD5's example is the reference):
     - `FuturesTarget`: `kind`, `product`, `contract`, `instrument_id`,
       `rule`, `is_default`;
     - `SegmentRecord`, `UnresolvedRecord`, `IncompleteRecord`;
@@ -378,23 +378,23 @@ and the closing checks.
     - `FuturesTicksResponse`, with `from`/`until` aliased, since `from`
       is a Python keyword;
     - `FuturesBarsResponse`.
-  - [ ] **Builders:** `from_plan(plan, rows, ...)` classmethods that format
+  - [x] **Builders:** `from_plan(plan, rows, ...)` classmethods that format
         through `price_text` and `ts_text` and build rows with
         `model_construct`.
-  - [ ] **Catalog models**, each with a `from_…` classmethod over 229's
+  - [x] **Catalog models**, each with a `from_…` classmethod over 229's
         dataclasses, never over the `roll_payload` dicts:
     - `FuturesProductsResponse`, `ActiveLineRecord`;
     - `FuturesContractsResponse`, `ContractRecord`, with a `held` sub-object;
     - `FuturesScheduleResponse`.
-  - [ ] **Status block:** `TickBlock` (`state`, `detail`, `products`) and
+  - [x] **Status block:** `TickBlock` (`state`, `detail`, `products`) and
         `TickAccountingRecord`, the same keys as `mt data accounting
         --json`'s `tick`.
-  - [ ] If the file passes ~300 lines, split the catalog models into
+  - [x] If the file passes ~300 lines, split the catalog models into
         `models/futures_catalog.py`.
-  - [ ] Success: every model has a docstring naming its route; no integer
+  - [x] Success: every model has a docstring naming its route; no integer
         field can carry nanoseconds.
-- [ ] **4.2 Test the models** (effort 2)
-  - [ ] Unit tests:
+- [x] **4.2 Test the models** (effort 2)
+  - [x] Unit tests:
     - `TickRecord` and `FuturesBarRecord` field names equal `TICK_COLUMNS`
       and `BAR_COLUMNS`, in order;
     - each catalog model's fields equal its `roll_payload` dictionary's
@@ -413,63 +413,63 @@ and the closing checks.
     - a JSON dump of a tick response with a 2024 `ts_event` has no integer
       above 2^53;
     - `from`/`until` appear under those names in the dump.
-  - [ ] Success: all pass.
-- [ ] **4.3 Commit:** `feat: add futures API response models` (effort 1)
+  - [x] Success: all pass.
+- [x] **4.3 Commit:** `feat: add futures API response models` (effort 1)
 
 ## Section 5 - Catalog routes (TD1, TD5)
 
-- [ ] **5.1 Add `data/tick/catalog_reads.py`** (effort 2)
-  - [ ] `contracts_for(conn, product) -> list[CatalogContract]`:
+- [x] **5.1 Add `data/tick/catalog_reads.py`** (effort 2)
+  - [x] `contracts_for(conn, product) -> list[CatalogContract]`:
     - every `tick_definition` instrument whose `asset` is the product, one
       row per instrument (aggregate as `get_plan._candidates` does);
     - LEFT JOINed to the first and last `tick_ingest_ledger` session with
       `record_count > 0` under `COVERAGE_PREDICATE`;
     - ordered by expiration, then instrument id.
-  - [ ] No API import. A frozen dataclass result.
-  - [ ] Success: one statement; no hypertable scan (`EXPLAIN` shows no
+  - [x] No API import. A frozen dataclass result.
+  - [x] Success: one statement; no hypertable scan (`EXPLAIN` shows no
         `tick_trade`).
-- [ ] **5.2 Test `catalog_reads`** (effort 2)
-  - [ ] Integration test over `seed_september_roll`:
+- [x] **5.2 Test `catalog_reads`** (effort 2)
+  - [x] Integration test over `seed_september_roll`:
     - both contracts listed in expiration order;
     - `held` matches each one's seeded sessions;
     - a defined contract with no ledger rows has `held` null;
     - a different product's definitions are excluded.
-  - [ ] Success: passes.
-- [ ] **5.3 Add `routes/futures_catalog.py` with the `contracts` route**
+  - [x] Success: passes.
+- [x] **5.3 Add `routes/futures_catalog.py` with the `contracts` route**
       (effort 2)
-  - [ ] `GET /api/v1/futures/products/{product}/contracts`:
+  - [x] `GET /api/v1/futures/products/{product}/contracts`:
     - an unknown product (not in `TICK_UNIVERSE`) → `404 "Product 'X' not
       found"`, through `admission.not_found`;
     - it depends on `tick_connection`, calls `contracts_for` inside
       `tick_errors()`, and returns `FuturesContractsResponse`;
     - `responses=TICK_UNAVAILABLE_RESPONSE | GATEWAY_TIMEOUT_RESPONSE`.
-  - [ ] Register the router in `create_app`.
-  - [ ] Success: the route appears in `/openapi.json` with its model.
-- [ ] **5.4 Test the `contracts` route** (effort 1)
-  - [ ] Integration tests:
+  - [x] Register the router in `create_app`.
+  - [x] Success: the route appears in `/openapi.json` with its model.
+- [x] **5.4 Test the `contracts` route** (effort 1)
+  - [x] Integration tests:
     - 200 with the seeded contracts and `min_price_increment` as a
       decimal string;
     - `404` for `ZZ`;
     - `503` under the closed-port fixture.
-  - [ ] Success: passes.
-- [ ] **5.5 Add the `products` route** (effort 3)
-  - [ ] `GET /api/v1/futures/products`:
+  - [x] Success: passes.
+- [x] **5.5 Add the `products` route** (effort 3)
+  - [x] `GET /api/v1/futures/products`:
     - it depends on `tick_connection`, held for the request (TD2's
       connection bound);
     - for each `TICK_UNIVERSE` entry it calls `latest_lines(app tick_url,
       calendar_url, entry, STATUS_ROLL_RULES)`.
-  - [ ] **Error mapping (TD2):**
+  - [x] **Error mapping (TD2):**
     - first, `TickPreflightError` and `RollInputError` from one product's
       `latest_lines` → that product's lines each carry the error text, as
       `latest_active` builds them. Reuse that construction; if sharing it
       needs a small public helper in `active_contract.py`, add it there;
     - everything else goes through 3.1's `tick_errors()`: outages → `503`,
       `QueryCanceled` → `504`.
-  - [ ] Returns `FuturesProductsResponse`, with each product's `calendar`
+  - [x] Returns `FuturesProductsResponse`, with each product's `calendar`
         from `calendar_for_product`.
-  - [ ] Success: no `latest_active` call in the route.
-- [ ] **5.6 Test the `products` route** (effort 3)
-  - [ ] Integration tests:
+  - [x] Success: no `latest_active` call in the route.
+- [x] **5.6 Test the `products` route** (effort 3)
+  - [x] Integration tests:
     - 200 with ES's two lines, matching `mt data tick active --json` over
       the same seed (FR7). Run the CLI function in-process; do not
       shell out.
@@ -477,9 +477,9 @@ and the closing checks.
     - the closed-port fixture → `503`;
     - a calendar URL pointing at a closed port with a live tick database →
       `503` (outage in the roll path).
-  - [ ] Unit test with `latest_lines` patched to raise `RollInputError`:
+  - [x] Unit test with `latest_lines` patched to raise `RollInputError`:
         the line carries `error` and the response is 200.
-  - [ ] **Two-product universe** (Integration Requirements; GC needs no API
+  - [x] **Two-product universe** (Integration Requirements; GC needs no API
         change). Patch `TICK_UNIVERSE` to ES plus a second entry with a
         known calendar, and seed one definition for the second product.
         Then:
@@ -488,9 +488,9 @@ and the closing checks.
       not `404`.
 
     The same fixture is reused in 6.9.
-  - [ ] Success: passes.
-- [ ] **5.7 Add the `schedule` route** (effort 2)
-  - [ ] `GET /api/v1/futures/products/{product}/schedule?rule=&start=&end=`:
+  - [x] Success: passes.
+- [x] **5.7 Add the `schedule` route** (effort 2)
+  - [x] `GET /api/v1/futures/products/{product}/schedule?rule=&start=&end=`:
     - `rule` goes through `RollRule.parse`; a `ValueError` → `422` with its
       message; the default is `DEFAULT_ROLL_RULE`;
     - `start`/`end` are session dates with `end` exclusive (TD3). When
@@ -501,19 +501,19 @@ and the closing checks.
       `segments`, `answers` and `unresolved` (the same as `get_plan`'s
       empty plan); `build_schedule` is not called;
     - otherwise it calls `build_schedule`.
-  - [ ] **Error mapping:** through 3.1's `tick_errors()`. An empty range
+  - [x] **Error mapping:** through 3.1's `tick_errors()`. An empty range
         (`end` ≤ `start`) is a `TickPreflightError` → `422`.
-  - [ ] Success: route in the schema with `FuturesScheduleResponse`.
-- [ ] **5.8 Test the `schedule` route** (effort 2)
-  - [ ] Integration tests:
+  - [x] Success: route in the schema with `FuturesScheduleResponse`.
+- [x] **5.8 Test the `schedule` route** (effort 2)
+  - [x] Integration tests:
     - equals `mt data tick active --product ES --start … --end … --json`'s
       schedule over the September seed (FR7), including
       `definition_unit_id` and `basis_unit_ids`;
     - a bad rule (`x.0`) → `422`;
     - a range over `TICK_ROLL_MAX_SESSIONS` → `422` naming the cap;
     - `end` ≤ `start` → `422`.
-  - [ ] Success: passes.
-- [ ] **5.9 Commit** (effort 1)
-  - [ ] Unit and integration tiers for the touched test directories; mypy;
+  - [x] Success: passes.
+- [x] **5.9 Commit** (effort 1)
+  - [x] Unit and integration tiers for the touched test directories; mypy;
         ruff; `git diff main` checked for swept lines.
-  - [ ] Commit: `feat: add futures catalog routes`.
+  - [x] Commit: `feat: add futures catalog routes`.

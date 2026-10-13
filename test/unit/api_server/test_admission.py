@@ -16,9 +16,11 @@ from fastapi import HTTPException
 
 from manta_trading.api_server.admission import (
     NARROW_FILTER,
+    NARROW_TICKS,
     NARROW_WINDOW,
     admit_rows,
     not_found,
+    over_ceiling,
 )
 
 
@@ -74,3 +76,23 @@ class TestNotFound:
         """Callers raise it themselves, which is what lets a route build it
         inside an executor callback where a raise would be lost."""
         assert isinstance(not_found("Market", "X"), HTTPException)
+
+
+class TestOverCeiling:
+    @pytest.mark.parametrize(
+        ("remedy", "expected"),
+        [
+            (NARROW_TICKS, "narrow start/end or from/until"),
+            (NARROW_WINDOW, "narrow start/end"),
+        ],
+    )
+    def test_names_the_limit_and_the_remedy_but_no_count(
+        self, remedy: str, expected: str
+    ) -> None:
+        """231 TD4: the read stops at the ceiling, so no true count exists."""
+        exc = over_ceiling(75_000, remedy=remedy)
+
+        assert exc.status_code == 422
+        assert exc.detail == (
+            f"the request matches more than the 75,000 row limit; {expected}"
+        )

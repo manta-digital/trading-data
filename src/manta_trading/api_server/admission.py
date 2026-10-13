@@ -16,13 +16,24 @@ from __future__ import annotations
 from fastapi import HTTPException
 from starlette import status as http_status
 
-__all__ = ["NARROW_FILTER", "NARROW_WINDOW", "admit_rows", "not_found"]
+__all__ = [
+    "NARROW_FILTER",
+    "NARROW_TICKS",
+    "NARROW_WINDOW",
+    "admit_rows",
+    "not_found",
+    "over_ceiling",
+]
 
 NARROW_FILTER = "narrow the filter"
 """Remedy for a catalog list: the caller bounds it with query parameters."""
 
 NARROW_WINDOW = "narrow start/end"
 """Remedy for a time series: the caller bounds it with a shorter window."""
+
+NARROW_TICKS = "narrow start/end or from/until"
+"""Remedy for futures ticks: a session can hold more than the ceiling, so the
+instant bounds are the way through it (231 TD3)."""
 
 
 def admit_rows(count: int, max_rows: int, *, remedy: str) -> None:
@@ -42,6 +53,19 @@ def admit_rows(count: int, max_rows: int, *, remedy: str) -> None:
                 f"row limit; {remedy}"
             ),
         )
+
+
+def over_ceiling(max_rows: int, *, remedy: str) -> HTTPException:
+    """The refusal for a read stopped at the ceiling (231 TD4).
+
+    The futures routes enforce the ceiling while reading, so the true count
+    is never computed and the message quotes only the limit. Returned, like
+    :func:`not_found`, so the caller raises it after releasing its connection.
+    """
+    return HTTPException(
+        status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail=(f"the request matches more than the {max_rows:,} row limit; {remedy}"),
+    )
 
 
 def not_found(resource: str, ticker: str) -> HTTPException:
