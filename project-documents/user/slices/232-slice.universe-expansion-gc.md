@@ -173,7 +173,16 @@ The range is ES's range. The reasons:
 - **Same sessions as ES,** so cross-product comparisons need no alignment.
 - **The same start reasoning as 226:** the first whole session starts at 17:00 CT on Sunday 11-03.
 
-**TD5 — Spreads: parent including spreads.** GC uses `GC.FUT` parent, matching ES (226: spreads are immaterial in bytes, and one request shape per product keeps held and new days alike). Status already hides spreads by default (`SPREAD_CLASS`), and they are never roll candidates. GC's spread share of rows is measured after ingest and recorded in the walkthrough notes. It is not a gate.
+**TD5 — Spreads: parent including spreads, decided on GC's own measurement.** GC uses `GC.FUT` parent, matching ES. Status already hides spreads by default (`SPREAD_CLASS`), and they are never roll candidates.
+
+GC's share was measured before purchase with two free estimates over 2024-11-03 → 2025-01-01, run 2026-10-14:
+
+| request | tbbo records | tbbo cost |
+|---|---|---|
+| `GC.FUT` parent (outrights + spreads) | 4,031,298 | $8.41 |
+| 25 outright raw symbols (GCX4 … GCZ9) | 3,766,376 | $7.86 |
+
+Spreads are 6.6% of GC's rows (ES: 2.35%) and $0.55 of the purchase. Spreads are dropped for a product only when they exceed a quarter of its rows. Below that, one request shape per product, with no hand-kept outright list to go stale as months list, is worth more than the saving. The post-ingest spread share is recorded in the walkthrough notes as a cross-check on this estimate.
 
 **TD6 — Cost and purchase.** The free estimate, run 2026-10-14:
 
@@ -289,7 +298,7 @@ There is no tick-track migration. GC uses the same tables, layout, tier CHECK an
 ### Integration Requirements
 
 - 234 can schedule passes over the two-product universe with no universe or calendar edit.
-- No tick or minute pass code, and no API code, changed in this slice's diff, apart from the two constants, the seed module and the migration list.
+- No product surface changed in this slice's diff: no pass, ingest, status, overview, `get`, `active` or API code. The expected source diff is the two constants, the seed modules (TD3 builders and the metals table), the migration list, and the developer-only recorder script's `--product` option (TD8). Test changes are limited to those named in TD10. Anything else is the leaked product assumption this slice exists to find, and it goes to the PM.
 
 ### Verification Walkthrough
 
