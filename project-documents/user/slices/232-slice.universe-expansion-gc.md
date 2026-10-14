@@ -205,7 +205,7 @@ The "roll inputs for the range" in the slice plan are covered as follows:
 
 The pass's own `--estimate-only` figure is the number of record. It is printed in the walkthrough before anything is bought.
 
-**The Standard plan is not subscribed, so this is a purchase outside the plan.** That is the architecture's third stage ("rare purchases outside the plan"). It is not bundled into a subscription decision. **PM decision point:** confirm that this use (a roll inside a bounded range, bought before any subscription) counts as one of the architecture's rare purchases, not only that the ceilings allow it. The PM then sets both ceilings for this run and restores the per-pass ceiling afterwards. If the plan is subscribed first, the estimate prints $0 and nothing else changes.
+**The Standard plan is not subscribed, so this is a purchase outside the plan.** That is the architecture's third stage ("rare purchases outside the plan"). It is not bundled into a subscription decision. **PM decision (2026-10-14): authorised** as one of the architecture's rare purchases. The PM sets both ceilings when the walkthrough reaches the purchase, and restores the per-pass ceiling afterwards. If the plan is subscribed first, the estimate prints $0 and nothing else changes.
 
 **TD7 — Session-model verification for GC.** It runs in two directions, because the boundary check alone proves only one.
 
@@ -229,7 +229,7 @@ This puts `VOLUME_RANK_LAG_SESSIONS = 2` to its first test outside ES. The const
 - **Size:** shipping it needs a new archived schema, a tick-track migration, a table, a projection and universe entries. That is a slice of its own, larger than this one.
 - **Need:** the default rule `v.0` is Databento's own default convention, and no consumer has asked for an open-interest roll.
 
-Slice plan Future Work item 2 gets the GC evidence and a trigger: build it in the first subscription month, beside the `ohlcv` history pull (Future Work item 7), or earlier if a consumer needs it. If no subscription date has been set when 234 is designed, 234's design asks the question again, because 234 is the first slice that runs passes unattended. **PM decision point:** confirm the deferral, or direct that it ship here. Shipping it here moves this slice's effort from 3 to 5 and adds a second purchase.
+Slice plan Future Work item 2 gets the GC evidence and a trigger: build it in the first subscription month, beside the `ohlcv` history pull (Future Work item 7), or earlier if a consumer needs it. If no subscription date has been set when 234 is designed, 234's design asks the question again, because 234 is the first slice that runs passes unattended. **PM decision (2026-10-14): deferred.** Open interest does not ship in this slice.
 
 ### Patterns and Conventions
 

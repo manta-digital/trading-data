@@ -88,7 +88,7 @@ integration flakes, migration 051/052, load tier).
   - [ ] In `test/unit/test_seed_cme_calendar.py` add tests: the equity wrappers
         return exactly what the seed-taking builders return for `CME_EQUITY_SEED`;
         the seed dataclass is frozen
-  - [ ] Run `test_seed_cme_calendar.py`, `test_cme_equity_boundaries.py`,
+  - [ ] Run `test_seed_cme_calendar.py`, `test/unit/data/base/test_cme_equity_boundaries.py`,
         `test_migration_057_058_cme_calendar.py`, `test_schema_migrations.py`
         **without editing any existing assertion**
   - [ ] Success: all pass; `git diff main` shows no edit to migration 058 or
@@ -253,7 +253,7 @@ integration flakes, migration 051/052, load tier).
         hard-coded `ES.{rule}` and `es_*` references. Keep the module docstring
         accurate
   - [ ] GC's fixtures do not exist yet (recorded in Section 9), so GC is added to
-        the product list only in task 9.2; at this task ES alone must pass unchanged
+        the product list only in task 9.4; at this task ES alone must pass unchanged
   - [ ] Success: the ES cases pass with the same assertions as before
 
 - [ ] **5.3 Commit checkpoint** — `refactor: parametrize roll fixture recorder and equivalence test by product`
@@ -277,7 +277,9 @@ integration flakes, migration 051/052, load tier).
 
 - [ ] **7.1 Apply 059 to production** (effort 2)
   - [ ] Production is outward-facing: ask the PM for an explicit go for this apply
-        and proceed only on their yes
+        and proceed only on their yes. Tell them in the same message that 059 is
+        frozen once applied: any metals-seed correction from code review needs a
+        new migration 060
   - [ ] `uv run mt data migrate status` shows `059_seed_cme_metals_calendar`
         pending, nothing else. Then `uv run mt data migrate apply`
   - [ ] Snapshot `CME_EQUITY`, `NYSE`, `NASDAQ` session counts before and after;
@@ -294,9 +296,9 @@ integration flakes, migration 051/052, load tier).
   - [ ] Record the printed figure (the number of record), and report it to the PM
         with the two variables to set: `MT_TICK_SPEND_CEILING_USD` and
         `MT_TICK_SPEND_30D_CEILING_USD`
-  - [ ] Also ask the PM to confirm TD6's decision point (this purchase counts as one
-        of the architecture's rare purchases outside the plan) and TD9's (open
-        interest stays deferred)
+  - [ ] Both decision points are already answered (PM, 2026-10-14): the purchase
+        is authorised as one of the architecture's rare purchases outside the plan
+        (TD6), and open interest stays deferred (TD9). Only the ceilings remain
   - [ ] Success: the figure is in Implementation Findings; the report to the PM is
         sent. **This is where the agent's work on Sections 8 onward is gated by
         the PM's answer.** Do not edit the ceilings
@@ -307,8 +309,8 @@ integration flakes, migration 051/052, load tier).
 
 ## Section 8 — Purchase and Ingest (PM ceilings set)
 
-*Precondition: the PM has set both ceilings at or above the figure from 7.2 and
-confirmed TD6. If not, stop at 7.2.*
+*Precondition: the PM has set both ceilings at or above the figure from 7.2. If
+not, stop at 7.2.*
 
 - [ ] **8.1 Run the pass** (effort 2)
   - [ ] Re-run `uv run mt data tick pass --estimate-only` and confirm it is within
@@ -397,7 +399,8 @@ confirmed TD6. If not, stop at 7.2.*
         Future Work item 2 with the GC evidence (`GC.n.0` rolled 2024-11-21 against
         `GC.v.0` 2024-11-29) and the trigger (first subscription month, beside the
         `ohlcv` history pull, or earlier if a consumer asks; 234's design asks again
-        if no subscription date is set); record the PM's TD9 answer
+        if no subscription date is set); record the PM's TD9 answer (deferred,
+        2026-10-14)
   - [ ] Success: Future Work item 2 states the trigger; the plan matches TD9
 
 - [ ] **10.4 Add the architecture Revision Log entry** (effort 1)
