@@ -602,3 +602,11 @@ Unit 4724 passed, 5 skipped, 0 failed. Integration (after the coverage fix) 6 fa
 7. **Met, one expectation corrected.** Status shows GC caught up at tbbo with its active contracts; the API lists GC on `CME_METALS` and its schedule shows GCZ4 → GCG5. The overview's tick line names no product (by 230's design). Surface code: only coverage's `raw_counts` changed, the leaked assumption found and fixed with the PM's approval.
 8. **Met for `v.0`, `c.0`, `c.1`;** `v.1` differs on 3 GC sessions, accepted by the PM and pinned in the test.
 9. **Met.** Open interest deferred (PM, 2026-10-14), recorded in the slice plan (Future Work 2) and the architecture Revision Log.
+
+### Code review (user/reviews/232-review.code.universe-expansion-gc.md, CONCERNS)
+- F001 (the metals seed imported private helpers): fixed. `_closed`/`_early_close` became the public `closed_day`/`early_close_day` in `seed_cme_calendar.py`. The ~390-line metals module is a dated data table and stays in one piece.
+- F002 (the equivalence test accepts known divergences): kept as is. Comparing against the exact set already fails on any change. The only regression it would hide is a different wrong contract on exactly those three `GC.v.1` dates, and the PM accepted `v.1` as not relied on.
+- F003 (calendar id and bound written as literals in the integration tests): fixed. Both tests now use `CME_METALS_CALENDAR_ID` / `CME_METALS_HOLIDAYS_SEEDED_THROUGH`. The unit test's `date(2027, 12, 31)` stays on purpose: it is the one place that pins the constant's value.
+- F004 (`raw_counts` filters through `tick_definition`): kept. Ingest writes a trade only together with its definition, so a trade with no definition can't exist.
+- F005 (migration 059 depends on the wall-clock year): kept. It is 058's pattern and is clamped to the holiday bound.
+- F006 (GC fixtures not in the diff): the four `gc_*.json` fixtures are tracked under `test/fixtures/tick/roll/`.

@@ -35,8 +35,8 @@ from typing import Any, Final
 
 from manta_trading.market.schema.seed_cme_calendar import (
     CmeCalendarSeed,
-    _closed,
-    _early_close,
+    closed_day,
+    early_close_day,
 )
 
 CME_METALS_CALENDAR_ID: Final = "CME_METALS"
@@ -64,322 +64,322 @@ CME_METALS_EXCEPTIONS: Final[tuple[dict[str, Any], ...]] = (
     # (in the year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row,
     # via Wayback:
     # https://web.archive.org/web/20210126094837/https://www.cmegroup.com/tools-information/holiday-calendar/files/2019-holiday-calendars.zip
-    _closed(date(2020, 1, 1), "New Year's Day"),
+    closed_day(date(2020, 1, 1), "New Year's Day"),
     # source: CME Globex holiday spreadsheet 2020-mlk-day-schedule.xls (in the year's
     # holiday-calendars.zip), "Energy, Metal, Softs & DME Products" row, via Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _early_close(date(2020, 1, 20), "Martin Luther King Jr. Day", time(12, 0)),
+    early_close_day(date(2020, 1, 20), "Martin Luther King Jr. Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2020-presidents-day-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _early_close(date(2020, 2, 17), "Presidents Day", time(12, 0)),
+    early_close_day(date(2020, 2, 17), "Presidents Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2020-good-friday-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _closed(date(2020, 4, 10), "Good Friday"),
+    closed_day(date(2020, 4, 10), "Good Friday"),
     # source: CME Globex holiday spreadsheet 2020-memorial-day-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _early_close(date(2020, 5, 25), "Memorial Day", time(12, 0)),
+    early_close_day(date(2020, 5, 25), "Memorial Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2020-independence-day-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _early_close(date(2020, 7, 3), "Independence Day (observed)", time(12, 0)),
+    early_close_day(date(2020, 7, 3), "Independence Day (observed)", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2020-labor-day-schedule.xls (in the year's
     # holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _early_close(date(2020, 9, 7), "Labor Day", time(12, 0)),
+    early_close_day(date(2020, 9, 7), "Labor Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2020-thanksgiving-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _early_close(date(2020, 11, 26), "Thanksgiving Day", time(12, 0)),
+    early_close_day(date(2020, 11, 26), "Thanksgiving Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2020-thanksgiving-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _early_close(date(2020, 11, 27), "Day after Thanksgiving", time(12, 45)),
+    early_close_day(date(2020, 11, 27), "Day after Thanksgiving", time(12, 45)),
     # source: CME Globex holiday spreadsheet 2020-christmas-holiday-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _early_close(date(2020, 12, 24), "Christmas Eve", time(12, 45)),
+    early_close_day(date(2020, 12, 24), "Christmas Eve", time(12, 45)),
     # source: CME Globex holiday spreadsheet 2020-christmas-holiday-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _closed(date(2020, 12, 25), "Christmas Day"),
+    closed_day(date(2020, 12, 25), "Christmas Day"),
     # source: CME Globex holiday spreadsheet 2021-new-years-holiday-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260730111834/https://www.cmegroup.com/tools-information/holiday-calendar/files/2020-holiday-calendars.zip
-    _closed(date(2021, 1, 1), "New Year's Day"),
+    closed_day(date(2021, 1, 1), "New Year's Day"),
     # source: CME Globex holiday spreadsheet 2021-mlk-day-holiday-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metal, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _early_close(date(2021, 1, 18), "Martin Luther King Jr. Day", time(12, 0)),
+    early_close_day(date(2021, 1, 18), "Martin Luther King Jr. Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2021-presidents-day-holiday-schedule.xls
     # (in the year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row,
     # via Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _early_close(date(2021, 2, 15), "Presidents Day", time(12, 0)),
+    early_close_day(date(2021, 2, 15), "Presidents Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2021-good-friday-holiday-schedule.xls (in
     # the year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _closed(date(2021, 4, 2), "Good Friday"),
+    closed_day(date(2021, 4, 2), "Good Friday"),
     # source: CME Globex holiday spreadsheet 2021-memorial-day-holiday-schedule.xls (in
     # the year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _early_close(date(2021, 5, 31), "Memorial Day", time(12, 0)),
+    early_close_day(date(2021, 5, 31), "Memorial Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2021-independence-day-holiday-schedule.xls
     # (in the year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row,
     # via Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _early_close(date(2021, 7, 5), "Independence Day (observed)", time(12, 0)),
+    early_close_day(date(2021, 7, 5), "Independence Day (observed)", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2021-labor-day-holiday-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _early_close(date(2021, 9, 6), "Labor Day", time(12, 0)),
+    early_close_day(date(2021, 9, 6), "Labor Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2021-thanksgiving-holiday-schedule.xls (in
     # the year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _early_close(date(2021, 11, 25), "Thanksgiving Day", time(12, 0)),
+    early_close_day(date(2021, 11, 25), "Thanksgiving Day", time(12, 0)),
     # source: CME Globex holiday spreadsheet 2021-thanksgiving-holiday-schedule.xls (in
     # the year's holiday-calendars.zip), "Energy, Metals, Softs & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _early_close(date(2021, 11, 26), "Day after Thanksgiving", time(12, 45)),
+    early_close_day(date(2021, 11, 26), "Day after Thanksgiving", time(12, 45)),
     # source: CME Globex holiday spreadsheet 2021-christmas-holiday-schedule.xls (in the
     # year's holiday-calendars.zip), "Energy, Metals, Softs & DME products" row, via
     # Wayback:
     # https://web.archive.org/web/20260830100327/https://www.cmegroup.com/tools-information/holiday-calendar/files/2021-holiday-calendars.zip
-    _closed(date(2021, 12, 24), "Christmas Day (observed)"),
+    closed_day(date(2021, 12, 24), "Christmas Day (observed)"),
     # source: CME Globex holiday spreadsheet, "Energy, Metals. Softs & DME Products"
     # row, via Wayback:
     # https://web.archive.org/web/20220117212230/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-mlk-day-holiday-schedule.xls
-    _early_close(date(2022, 1, 17), "Martin Luther King Jr. Day", time(13, 30)),
+    early_close_day(date(2022, 1, 17), "Martin Luther King Jr. Day", time(13, 30)),
     # source: CME Globex holiday spreadsheet, "Energy, Metals, Softs & DME Products"
     # row, via Wayback:
     # https://web.archive.org/web/20220704073810/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-presidents-day-holiday-schedule.xls
-    _early_close(date(2022, 2, 21), "Presidents Day", time(13, 30)),
+    early_close_day(date(2022, 2, 21), "Presidents Day", time(13, 30)),
     # source: CME Globex holiday spreadsheet, "Energy, Metals, Softs & DME Products"
     # row, via Wayback:
     # https://web.archive.org/web/20220704065501/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-good-friday-holiday-schedule.xls
-    _closed(date(2022, 4, 15), "Good Friday"),
+    closed_day(date(2022, 4, 15), "Good Friday"),
     # source: CME Globex holiday spreadsheet, "Energy, Metals & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20220704065438/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-memorial-day-holiday-schedule.xls
-    _early_close(date(2022, 5, 30), "Memorial Day", time(13, 30)),
+    early_close_day(date(2022, 5, 30), "Memorial Day", time(13, 30)),
     # source: CME Globex holiday spreadsheet, "Energy, Metals & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20220620200210/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-juneteenth-holiday-schedule.xls
-    _early_close(date(2022, 6, 20), "Juneteenth (observed)", time(13, 30)),
+    early_close_day(date(2022, 6, 20), "Juneteenth (observed)", time(13, 30)),
     # source: CME Globex holiday spreadsheet, "Energy, Metals & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20220704065450/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-independence-day-holiday-schedule.xls
-    _early_close(date(2022, 7, 4), "Independence Day", time(13, 30)),
+    early_close_day(date(2022, 7, 4), "Independence Day", time(13, 30)),
     # source: CME Globex holiday spreadsheet, "Energy, Metals & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20220704065441/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-labor-day-holiday-schedule.xls
-    _early_close(date(2022, 9, 5), "Labor Day", time(13, 30)),
+    early_close_day(date(2022, 9, 5), "Labor Day", time(13, 30)),
     # source: CME Globex holiday spreadsheet, "Energy, Metals & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20221125112802/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-thanksgiving-holiday-schedule.xls
-    _early_close(date(2022, 11, 24), "Thanksgiving Day", time(13, 30)),
+    early_close_day(date(2022, 11, 24), "Thanksgiving Day", time(13, 30)),
     # source: CME Globex holiday spreadsheet, "Energy, Metals & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20221125112802/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-thanksgiving-holiday-schedule.xls
-    _early_close(date(2022, 11, 25), "Day after Thanksgiving", time(12, 45)),
+    early_close_day(date(2022, 11, 25), "Day after Thanksgiving", time(12, 45)),
     # source: CME Globex holiday spreadsheet, "Energy, Metals & DME products" row, via
     # Wayback:
     # https://web.archive.org/web/20220704065430/https://www.cmegroup.com/tools-information/holiday-calendar/files/2022-christmas-holiday-schedule.xls
-    _closed(date(2022, 12, 26), "Christmas Day (observed)"),
+    closed_day(date(2022, 12, 26), "Christmas Day (observed)"),
     # source: CME Globex holiday spreadsheet, "Energy, Metals & DME Products" row, via
     # Wayback:
     # https://web.archive.org/web/20220704065501/https://www.cmegroup.com/tools-information/holiday-calendar/files/2023-new-years-holiday-schedule.xls
-    _closed(date(2023, 1, 2), "New Year's Day (observed)"),
+    closed_day(date(2023, 1, 2), "New Year's Day (observed)"),
     # source: no CME document archived for this date. Databento GLBX.MDP3 GC.FUT trades,
     # free metadata.get_record_count (2026-10-14): 222 trades 13:00-13:30 CT, 0 trades
     # 13:30-16:59 CT. Matches CME's 13:30 metals halt on every other 2022-2023 US
     # holiday (same method as CME_EQUITY's row).
-    _early_close(date(2023, 1, 16), "Martin Luther King Jr. Day", time(13, 30)),
+    early_close_day(date(2023, 1, 16), "Martin Luther King Jr. Day", time(13, 30)),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20230329115747/https://www.cmegroup.com/files/presidents-day.pdf
-    _early_close(date(2023, 2, 20), "Presidents Day", time(13, 30)),
+    early_close_day(date(2023, 2, 20), "Presidents Day", time(13, 30)),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20240708160009/https://www.cmegroup.com/files/good-friday.pdf
-    _closed(date(2023, 4, 7), "Good Friday"),
+    closed_day(date(2023, 4, 7), "Good Friday"),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20230420224018/https://www.cmegroup.com/trading-hours/files/memorial-day-2023.pdf
-    _early_close(date(2023, 5, 29), "Memorial Day", time(13, 30)),
+    early_close_day(date(2023, 5, 29), "Memorial Day", time(13, 30)),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20230613185949/https://www.cmegroup.com/trading-hours/files/juneteenth-2023.pdf
-    _early_close(date(2023, 6, 19), "Juneteenth", time(13, 30)),
+    early_close_day(date(2023, 6, 19), "Juneteenth", time(13, 30)),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20230627125057/https://www.cmegroup.com/trading-hours/files/4th-of-july-2023.pdf
-    _early_close(date(2023, 7, 4), "Independence Day", time(13, 30)),
+    early_close_day(date(2023, 7, 4), "Independence Day", time(13, 30)),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20230802192446/https://www.cmegroup.com/trading-hours/files/labor-day-2023.pdf
-    _early_close(date(2023, 9, 4), "Labor Day", time(13, 30)),
+    early_close_day(date(2023, 9, 4), "Labor Day", time(13, 30)),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20231203205929/https://www.cmegroup.com/trading-hours/files/thanksgiving-day-2023.pdf
-    _early_close(date(2023, 11, 23), "Thanksgiving Day", time(13, 30)),
+    early_close_day(date(2023, 11, 23), "Thanksgiving Day", time(13, 30)),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20231203205929/https://www.cmegroup.com/trading-hours/files/thanksgiving-day-2023.pdf
-    _early_close(date(2023, 11, 24), "Day after Thanksgiving", time(12, 45)),
+    early_close_day(date(2023, 11, 24), "Day after Thanksgiving", time(12, 45)),
     # source: CME holiday schedule PDF, METALS row, via Wayback:
     # https://web.archive.org/web/20260719095248/https://www.cmegroup.com/trading-hours/files/christmas-day-2023.pdf
-    _closed(date(2023, 12, 25), "Christmas Day"),
+    closed_day(date(2023, 12, 25), "Christmas Day"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155339/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2023-12-31&toEventDate=2024-01-02&isProtected&_t=1734710019525
-    _closed(date(2024, 1, 1), "New Year's Day"),
+    closed_day(date(2024, 1, 1), "New Year's Day"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155339/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-01-14&toEventDate=2024-01-16&isProtected&_t=1734710019526
-    _early_close(date(2024, 1, 15), "Martin Luther King Jr. Day", time(13, 30)),
+    early_close_day(date(2024, 1, 15), "Martin Luther King Jr. Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155339/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-02-18&toEventDate=2024-02-20&isProtected&_t=1734710019528
-    _early_close(date(2024, 2, 19), "Presidents Day", time(13, 30)),
+    early_close_day(date(2024, 2, 19), "Presidents Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155339/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-03-28&toEventDate=2024-03-30&isProtected&_t=1734710019530
-    _closed(date(2024, 3, 29), "Good Friday"),
+    closed_day(date(2024, 3, 29), "Good Friday"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155339/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-05-26&toEventDate=2024-05-28&isProtected&_t=1734710019531
-    _early_close(date(2024, 5, 27), "Memorial Day", time(13, 30)),
+    early_close_day(date(2024, 5, 27), "Memorial Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-06-18&toEventDate=2024-06-20&isProtected&_t=1734710019532
-    _early_close(date(2024, 6, 19), "Juneteenth", time(13, 30)),
+    early_close_day(date(2024, 6, 19), "Juneteenth", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-07-03&toEventDate=2024-07-05&isProtected&_t=1734710019533
-    _early_close(date(2024, 7, 4), "Independence Day", time(13, 30)),
+    early_close_day(date(2024, 7, 4), "Independence Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-09-01&toEventDate=2024-09-03&isProtected&_t=1734710019534
-    _early_close(date(2024, 9, 2), "Labor Day", time(13, 30)),
+    early_close_day(date(2024, 9, 2), "Labor Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-11-27&toEventDate=2024-11-29&isProtected&_t=1734710019535
-    _early_close(date(2024, 11, 28), "Thanksgiving Day", time(13, 30)),
+    early_close_day(date(2024, 11, 28), "Thanksgiving Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-11-27&toEventDate=2024-11-29&isProtected&_t=1734710019535
-    _early_close(date(2024, 11, 29), "Day after Thanksgiving", time(13, 45)),
+    early_close_day(date(2024, 11, 29), "Day after Thanksgiving", time(13, 45)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-12-24&toEventDate=2024-12-26&isProtected&_t=1734710019537
-    _early_close(date(2024, 12, 24), "Christmas Eve", time(12, 45)),
+    early_close_day(date(2024, 12, 24), "Christmas Eve", time(12, 45)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-12-24&toEventDate=2024-12-26&isProtected&_t=1734710019537
-    _closed(date(2024, 12, 25), "Christmas Day"),
+    closed_day(date(2024, 12, 25), "Christmas Day"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2024-12-31&toEventDate=2025-01-02&isProtected&_t=1734710019538
-    _closed(date(2025, 1, 1), "New Year's Day"),
+    closed_day(date(2025, 1, 1), "New Year's Day"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-01-19&toEventDate=2025-01-21&isProtected&_t=1734710019539
-    _early_close(date(2025, 1, 20), "Martin Luther King Jr. Day", time(13, 30)),
+    early_close_day(date(2025, 1, 20), "Martin Luther King Jr. Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-02-16&toEventDate=2025-02-18&isProtected&_t=1734710019540
-    _early_close(date(2025, 2, 17), "Presidents Day", time(13, 30)),
+    early_close_day(date(2025, 2, 17), "Presidents Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-04-17&toEventDate=2025-04-19&isProtected&_t=1734710019542
-    _closed(date(2025, 4, 18), "Good Friday"),
+    closed_day(date(2025, 4, 18), "Good Friday"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-05-25&toEventDate=2025-05-27&isProtected&_t=1734710019543
-    _early_close(date(2025, 5, 26), "Memorial Day", time(13, 30)),
+    early_close_day(date(2025, 5, 26), "Memorial Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-06-18&toEventDate=2025-06-20&isProtected&_t=1734710019544
-    _early_close(date(2025, 6, 19), "Juneteenth", time(13, 30)),
+    early_close_day(date(2025, 6, 19), "Juneteenth", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-07-03&toEventDate=2025-07-05&isProtected&_t=1734710019545
-    _early_close(date(2025, 7, 4), "Independence Day", time(12, 0)),
+    early_close_day(date(2025, 7, 4), "Independence Day", time(12, 0)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20241220155340/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-08-31&toEventDate=2025-09-02&isProtected&_t=1734710019546
-    _early_close(date(2025, 9, 1), "Labor Day", time(13, 30)),
+    early_close_day(date(2025, 9, 1), "Labor Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260129012309/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-11-26&toEventDate=2025-11-28&isProtected&_t=1769649789739
-    _early_close(date(2025, 11, 27), "Thanksgiving Day", time(13, 30)),
+    early_close_day(date(2025, 11, 27), "Thanksgiving Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260129012309/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-11-26&toEventDate=2025-11-28&isProtected&_t=1769649789739
-    _early_close(date(2025, 11, 28), "Day after Thanksgiving", time(13, 45)),
+    early_close_day(date(2025, 11, 28), "Day after Thanksgiving", time(13, 45)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260129012309/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-12-24&toEventDate=2025-12-26&isProtected&_t=1769649789742
-    _early_close(date(2025, 12, 24), "Christmas Eve", time(12, 45)),
+    early_close_day(date(2025, 12, 24), "Christmas Eve", time(12, 45)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260129012309/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-12-24&toEventDate=2025-12-26&isProtected&_t=1769649789742
-    _closed(date(2025, 12, 25), "Christmas Day"),
+    closed_day(date(2025, 12, 25), "Christmas Day"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260722114222/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2025-12-31&toEventDate=2026-01-02&isProtected&_t=1784720542553
-    _closed(date(2026, 1, 1), "New Year's Day"),
+    closed_day(date(2026, 1, 1), "New Year's Day"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260812185118/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-01-18&toEventDate=2026-01-20&isProtected&_t=1720455320274
-    _early_close(date(2026, 1, 19), "Martin Luther King Jr. Day", time(13, 30)),
+    early_close_day(date(2026, 1, 19), "Martin Luther King Jr. Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260812185118/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-02-15&toEventDate=2026-02-17&isProtected&_t=1720455320274
-    _early_close(date(2026, 2, 16), "Presidents Day", time(13, 30)),
+    early_close_day(date(2026, 2, 16), "Presidents Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260722114222/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-04-01&toEventDate=2026-04-03&isProtected&_t=1784720542559
-    _closed(date(2026, 4, 3), "Good Friday (jobs report)"),
+    closed_day(date(2026, 4, 3), "Good Friday (jobs report)"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260722114222/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-05-24&toEventDate=2026-05-26&isProtected&_t=1784720542560
-    _early_close(date(2026, 5, 25), "Memorial Day", time(13, 30)),
+    early_close_day(date(2026, 5, 25), "Memorial Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260722114222/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-06-18&toEventDate=2026-06-20&isProtected&_t=1784720542562
-    _early_close(date(2026, 6, 19), "Juneteenth", time(12, 0)),
+    early_close_day(date(2026, 6, 19), "Juneteenth", time(12, 0)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20260722114223/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-07-03&toEventDate=2026-07-05&isProtected&_t=1784720542563
-    _early_close(date(2026, 7, 3), "Independence Day (observed)", time(12, 0)),
+    early_close_day(date(2026, 7, 3), "Independence Day (observed)", time(12, 0)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060748/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-09-06&toEventDate=2026-09-08&isProtected&_t=1791266868928
-    _early_close(date(2026, 9, 7), "Labor Day", time(13, 30)),
+    early_close_day(date(2026, 9, 7), "Labor Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060750/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-11-25&toEventDate=2026-11-27&isProtected&_t=1791266870317
-    _early_close(date(2026, 11, 26), "Thanksgiving Day", time(13, 30)),
+    early_close_day(date(2026, 11, 26), "Thanksgiving Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060750/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-11-25&toEventDate=2026-11-27&isProtected&_t=1791266870317
-    _early_close(date(2026, 11, 27), "Day after Thanksgiving", time(13, 45)),
+    early_close_day(date(2026, 11, 27), "Day after Thanksgiving", time(13, 45)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-12-24&toEventDate=2026-12-26&isProtected&_t=1791266868936
-    _early_close(date(2026, 12, 24), "Christmas Eve", time(12, 45)),
+    early_close_day(date(2026, 12, 24), "Christmas Eve", time(12, 45)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-12-24&toEventDate=2026-12-26&isProtected&_t=1791266868936
-    _closed(date(2026, 12, 25), "Christmas Day"),
+    closed_day(date(2026, 12, 25), "Christmas Day"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2026-12-31&toEventDate=2027-01-02&isProtected&_t=1791266868938
-    _closed(date(2027, 1, 1), "New Year's Day"),
+    closed_day(date(2027, 1, 1), "New Year's Day"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-01-17&toEventDate=2027-01-19&isProtected&_t=1791266868948
-    _early_close(date(2027, 1, 18), "Martin Luther King Jr. Day", time(13, 30)),
+    early_close_day(date(2027, 1, 18), "Martin Luther King Jr. Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-02-14&toEventDate=2027-02-16&isProtected&_t=1791266868949
-    _early_close(date(2027, 2, 15), "Presidents Day", time(13, 30)),
+    early_close_day(date(2027, 2, 15), "Presidents Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-03-25&toEventDate=2027-03-27&isProtected&_t=1791266868951
-    _closed(date(2027, 3, 26), "Good Friday"),
+    closed_day(date(2027, 3, 26), "Good Friday"),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-05-30&toEventDate=2027-06-01&isProtected&_t=1791266868952
-    _early_close(date(2027, 5, 31), "Memorial Day", time(13, 30)),
+    early_close_day(date(2027, 5, 31), "Memorial Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-06-17&toEventDate=2027-06-19&isProtected&_t=1791266868953
-    _early_close(date(2027, 6, 18), "Juneteenth (observed)", time(12, 0)),
+    early_close_day(date(2027, 6, 18), "Juneteenth (observed)", time(12, 0)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-07-04&toEventDate=2027-07-06&isProtected&_t=1791266868956
-    _early_close(date(2027, 7, 5), "Independence Day (observed)", time(13, 30)),
+    early_close_day(date(2027, 7, 5), "Independence Day (observed)", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-09-05&toEventDate=2027-09-07&isProtected&_t=1791266868957
-    _early_close(date(2027, 9, 6), "Labor Day", time(13, 30)),
+    early_close_day(date(2027, 9, 6), "Labor Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-11-24&toEventDate=2027-11-26&isProtected&_t=1791266868958
-    _early_close(date(2027, 11, 25), "Thanksgiving Day", time(13, 30)),
+    early_close_day(date(2027, 11, 25), "Thanksgiving Day", time(13, 30)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-11-24&toEventDate=2027-11-26&isProtected&_t=1791266868958
-    _early_close(date(2027, 11, 26), "Day after Thanksgiving", time(13, 45)),
+    early_close_day(date(2027, 11, 26), "Day after Thanksgiving", time(13, 45)),
     # source: CME trading-hours JSON, product 437 (Gold Futures), via Wayback:
     # https://web.archive.org/web/20261006060749/https://www.cmegroup.com/services/trading-hours-by-product?id=316,133,425,300,58,437,22,8478,5201,10191&pageNumber=1&pageSize=999&sortAsc=true&fromEventDate=2027-12-22&toEventDate=2027-12-24&isProtected&_t=1791266868960
-    _closed(date(2027, 12, 24), "Christmas Day (observed)"),
+    closed_day(date(2027, 12, 24), "Christmas Day (observed)"),
 )
 
 CME_METALS_SEED: Final = CmeCalendarSeed(

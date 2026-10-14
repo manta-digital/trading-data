@@ -99,7 +99,7 @@ def test_cme_metals_row_matches_td1(conn: psycopg.Connection[Any]) -> None:
         None,
         None,
         False,
-        date(2027, 12, 31),
+        CME_METALS_HOLIDAYS_SEEDED_THROUGH,
     )
 
 
@@ -203,7 +203,8 @@ def test_calendars_list_shows_cme_metals(session_migrated_db: str) -> None:
         r["calendar_id"]: r["holidays_seeded_through"]
         for r in json.loads(result.stdout)
     }
-    assert bounds[CME_METALS_CALENDAR_ID] == "2027-12-31"
+    bound = CME_METALS_HOLIDAYS_SEEDED_THROUGH.isoformat()
+    assert bounds[CME_METALS_CALENDAR_ID] == bound
 
 
 def test_calendar_sessions_thanksgiving_week_2024(session_migrated_db: str) -> None:

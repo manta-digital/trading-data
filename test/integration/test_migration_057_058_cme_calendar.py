@@ -31,6 +31,10 @@ from manta_trading.market.schema.seed_cme_calendar import (
     CME_EQUITY_HOLIDAYS_SEEDED_THROUGH,
     CME_EQUITY_SEED_START,
 )
+from manta_trading.market.schema.seed_cme_metals_calendar import (
+    CME_METALS_CALENDAR_ID,
+    CME_METALS_HOLIDAYS_SEEDED_THROUGH,
+)
 
 _CT = ZoneInfo("America/Chicago")
 _EXIT_HORIZON_WARN = 4
@@ -247,7 +251,7 @@ def test_calendars_list_shows_every_calendar(session_migrated_db: str) -> None:
     }
     assert bounds == {
         CME_EQUITY_CALENDAR_ID: CME_EQUITY_HOLIDAYS_SEEDED_THROUGH.isoformat(),
-        "CME_METALS": "2027-12-31",  # migration 059 (slice 232)
+        CME_METALS_CALENDAR_ID: CME_METALS_HOLIDAYS_SEEDED_THROUGH.isoformat(),
         "NASDAQ": "2026-12-31",
         "NYSE": "2026-12-31",
     }

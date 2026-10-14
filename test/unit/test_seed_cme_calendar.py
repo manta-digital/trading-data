@@ -24,7 +24,7 @@ from manta_trading.market.schema.seed_cme_calendar import (
 )
 
 _REGULAR_CLOSE = time(16, 0)
-_ENTRY_START = re.compile(r"^\s+_(closed|early_close)\(")
+_ENTRY_START = re.compile(r"^\s+(closed_day|early_close_day)\(")
 
 
 def test_dates_are_unique_weekdays_in_seed_range() -> None:
