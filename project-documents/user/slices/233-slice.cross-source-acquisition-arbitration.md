@@ -43,8 +43,16 @@ This slice does three things:
    overlapped a heavy minute pass. The slice names what reopens the
    question, and closes 900 Future Work item 4.
 
-The measurement is repeated after the slice file is installed. It shows the
-bound is in force and that no pass under it is slowed or killed.
+The plan asks for the measurement to be repeated with the chosen setting in
+force. With no weights chosen, that re-run has nothing to show, so the
+design replaces it with a verify-only check at install. Both this and the
+dropped weights are plan scope, and they need the PM's confirmation
+(Technical Decision 6).
+
+**Cutover timing (decided):** the install is held for the release that
+follows 234. 233 closes with the measurement, the unit file, the drift
+guard, the documents, and a cutover script that has passed its `--check`
+(Technical Decision 7).
 
 ## Value
 
@@ -60,8 +68,9 @@ bound is in force and that no pass under it is slowed or killed.
   would look like protection and do nothing. The design records why it is
   not set, so a later reader does not "fix" it.
 - **234 inherits a decided rule.** Production wiring knows where a tick pass
-  unit goes, what its memory peak adds to the bound, and that its firing
-  time follows the existing stagger convention. It needs no new mechanism.
+  unit goes and how to add its memory peak to the bound. If it gets a
+  timer, its firing time follows the existing stagger convention. It needs
+  no new mechanism.
 
 ## Technical Scope
 
@@ -82,23 +91,27 @@ bound is in force and that no pass under it is slowed or killed.
 2. **The memory-bound derivation**, in the same report. Members are the
    units whose shipped unit file declares `Slice=manta-acquisition.slice`.
    For each one, the run reads its peak memory from the journal over the
-   last 30 days. It adds the tick ingest client's peak RSS, measured by the
-   run, and applies the rule in Technical Decision 4.
+   last 30 days and applies the rule in Technical Decision 4.
 3. **`deploy/systemd/manta-acquisition.slice`** gains `MemoryMax=` with a
    comment that states the derivation. The comment also records why
    `CPUWeight` and `IOWeight` are absent, replacing the current "deliberately
    carries no resource settings" text.
 4. **A drift guard** in `test/unit/deploy/test_units.py`. The slice declares
    a parseable `MemoryMax` and no `CPUWeight`/`IOWeight`. Every unit in
-   `deploy/systemd/` that names the slice is a `Type=oneshot` pass.
-5. **The cutover script** (`scripts/cutover_233_arbitration.py`). It does
-   the following in order:
+   `deploy/systemd/` that names the slice is a `Type=oneshot` pass. The
+   guard's comment says the weight assertion is intentional: taking up a
+   reopen trigger (Technical Decision 5) means editing this test on purpose.
+5. **The cutover script** (`scripts/cutover_233_arbitration.py`), verify
+   only. It does the following in order:
    - installs the given ref through `cutover_common` (preflight, install);
    - verifies that the slice's `MemoryMax` is live in systemd and in
      `memory.max`;
-   - re-runs the contention run with the bound in force;
-   - checks the slice's `memory.events` for `max` and `oom_kill`;
+   - reads the slice's `memory.events` (`max`, `oom_kill`);
    - writes the cutover report.
+
+   Failure handling is in Technical Decision 7. The script runs at the
+   release after 234, not in this slice. In this slice it only has to pass
+   `--check`.
 6. **Documents**:
    - Runbook 100: the unit table row; a new add-a-source step to re-derive
      the bound when a unit joins the slice; and the "two limits" bullet,
@@ -124,9 +137,9 @@ bound is in force and that no pass under it is slowed or killed.
   runs only on a firing day. It is paced by the provider (about 75 s per
   250 symbols, 5 CPU-minutes over 88 minutes), so host contention cannot be
   what limits it. Waiting for Saturday is a wait-blocked task. The weekday
-  walk is the database-bound part, where contention would show. The next
-  Saturday pass under the bound is an observation for normal monitoring,
-  not a task.
+  walk is the database-bound part, where contention would show. Whether
+  Saturday's pass fits under the bound rests on the 2× headroom over its
+  measured peak (Technical Decision 4). Nothing in this slice exercises it.
 - **Tick pass units, timers, or a tick firing time.** All of these are
   234's.
 - **The Saturday 6.2 GiB minute-pass peak itself.** It is recorded and
@@ -176,11 +189,10 @@ bound is in force and that no pass under it is slowed or killed.
 ### Component Structure
 
 ```
-scripts/contention_233.py                 entry: --check | run | --label after-install
+scripts/contention_233.py                 entry: --check | --memory-bound | run; writes the report
 scripts/contention_233_scratch.py         initdb + conf + start/stop of the scratch tick server
 scripts/contention_233_run.py             the firing schedule, guards, verdict (pure, unit-tested)
 scripts/contention_233_memory.py          journal-peak parse + MemoryMax rule (pure, unit-tested)
-scripts/contention_233_report.py          report writer
 scripts/cutover_233_arbitration.py        install → verify bound → contention again → report
 
 reused, unchanged:
@@ -213,11 +225,11 @@ control walk   sudo systemctl start mt-minute-pass.service   (blocking; solo)
 TickLoop start (reset → ingest, repeated) ─┐
 overlapped walk 1   (clear window)          │  sampler every 5 s, slice memory.current
 overlapped walk 2   (clear window)          │
-TickLoop stop  ◄───────────────────────────┘  child peak RSS via getrusage(RUSAGE_CHILDREN)
+TickLoop stop  ◄───────────────────────────┘
         │
 teardown (finally): stop scratch server · remove the run's directory
         │
-report  project-documents/user/notes/<date>-233-contention-minute[-after-install].md
+report  project-documents/user/notes/<date>-233-contention-minute.md
         durations vs control and 30-day walk max · series overlapped / solo / tick alone
         memory-bound derivation · credits before/after · verdict
 ```
@@ -267,6 +279,19 @@ CPU contention. A drop-in on `postgresql@17-tick.service` would also slow
 the API's tick reads, and the installer's unit list does not carry it. The
 reopen trigger is a "measurable contention" verdict from this run, or from
 234's run once a tick pass unit exists.
+
+**What decides it.** The table above is the pre-measurement baseline, and
+226 measured Kalshi only. The minute run in this slice is the deciding
+evidence:
+- **"None measured":** the omission stands, and Technical Decision 6
+  records it.
+- **"Measurable contention":** the omission is not taken. The slice stops
+  at the report, and the PM chooses a placement for a weight (Technical
+  Decision 5).
+
+**PM confirmation required.** Dropping plan-assigned `CPUWeight`/`IOWeight`
+is plan scope. It is listed for the PM at slice review and has not yet been
+confirmed.
 
 #### Technical Decision 2: the tick load runs on a scratch server, not on `17/tick`
 
@@ -338,8 +363,7 @@ floors, imported):
 #### Technical Decision 4: the `MemoryMax` rule
 
 ```
-MemoryMax = ceil_GiB( 2 × ( Σ over slice members of max 30-day journal memory peak
-                            + tick ingest client peak RSS ) )
+MemoryMax = ceil_GiB( 2 × Σ over slice members of max 30-day journal memory peak )
 ```
 
 - **Members** are discovered from `deploy/systemd/*.service` files that
@@ -350,13 +374,13 @@ MemoryMax = ceil_GiB( 2 × ( Σ over slice members of max 30-day journal memory 
   the 2× covers growth. The journal's `memory peak` is cgroup memory,
   including page cache, so it overstates resident memory. That errs toward
   a larger bound.
-- **The tick term** is included now, so 234 can put its pass unit in the
-  slice without changing the bound unless its own measured peak differs.
+- **No tick term.** 234's unit does not exist yet and may never get a
+  timer. When 234 adds it, the unit becomes a member and its peak joins the
+  sum through the add-a-source step.
 - **Current inputs**, from journal peaks since 2026-09-11 (the uptime
   window): minute 6.2 G (Saturdays; other days 75–144 M), daily 426 M,
-  Kalshi 317 M. Before the tick term, that gives ≈ 6.9 GiB → 14 GiB. The
-  run computes the final value, and the unit file's comment cites the
-  report.
+  Kalshi 317 M. That gives ≈ 6.9 GiB → 14 GiB. The run computes the final
+  value, and the unit file's comment cites the report.
 - **What happens at the bound.** Page cache is reclaimed first. Only
   anonymous memory beyond the bound triggers the slice-local OOM killer,
   which picks the largest process. That is the runaway: the alternative is
@@ -408,7 +432,13 @@ verdict.
   entry's "sets `IOWeight`, `CPUWeight`, and `MemoryMax` on
   `manta-acquisition.slice`" becomes "sets `MemoryMax`". Weights on the
   slice have no sibling to act against, and `io.weight` is inert on this
-  host (Technical Decision 1).
+  host (Technical Decision 1). The entry's "the contention measurement is
+  repeated to show the chosen setting works" becomes "the install is
+  verified in place". With no weight chosen, a re-run under the bound would
+  repeat weekday walks that peak at 75–144 M against a bound of about
+  14 GiB, which shows nothing. If a weight is ever set (a reopen trigger),
+  the re-run comes back with it. Both changes need the PM's confirmation at
+  slice review.
 - **Architecture Revision Log, entry for 233:** "Cross-source arbitration".
   The weights are not set, for the reasons above. The mechanism is calendar
   stagger, kept. The tick load runs on a scratch server because `17/tick`
@@ -424,6 +454,33 @@ verdict.
   - The second "limit of the pattern" is rewritten. Concurrency was measured
     to be harmless, stagger is kept for quota reasons, and the bullet names
     the reopen triggers.
+
+#### Technical Decision 7: the cutover is held for the release after 234, and is verify-only
+
+**Timing.** `install-production.sh` installs the whole checkout at a ref.
+Production `/opt` is at `v0.19.0`, 351 commits behind main, so any install
+is a production code upgrade. The PM already plans one release after 233
+and 234 (project memory), so the one-line bound rides that release. That
+also puts 234's tick unit, and its peak, in the same derivation before
+anything is installed. 233 closes without installing: its success criteria
+are what can be shown before the install.
+
+**At the release**, the script does the following, with no contention
+re-run:
+1. `cutover_common` preflight and install (the minute timer is held during
+   the install, and the installed commit is verified).
+2. Reads `systemctl show manta-acquisition.slice -p MemoryMax` and the
+   cgroup's `memory.max`.
+3. Reads `memory.events`.
+4. Writes `<date>-233-cutover.md`.
+
+**Failure handling after the install step:**
+
+| Seen | Meaning | Script | Operator |
+|---|---|---|---|
+| `memory.max` ≠ the declared value | The file is installed but the bound is not applied. Behaviour is unchanged from today, with no limit. | Exit 1. The report shows expected against seen. It never restarts the slice, which would stop running passes. | Re-run the installer, whose `daemon-reload` applies slice properties. If it still differs, the bound applies at the next boot; record that and do nothing else. |
+| `memory.events` `oom_kill` > 0 | A pass was killed at the bound since install. | Exit 1. The report names the units whose journal shows `Result=oom-kill`. | The killed pass is closed as abandoned and re-runs at its next firing; pass semantics make that safe. Re-derive with `--memory-bound`, raise `MemoryMax` in a follow-up commit, and reinstall. |
+| `memory.events` `max` > 0, `oom_kill` = 0 | The bound throttled reclaim but killed nothing. | Exit 0, with a warning in the report. | Re-derive at the next add-a-source edit. |
 
 ### Patterns and Conventions
 
@@ -456,10 +513,10 @@ The harness's command line:
 | Invocation | Does | Exit |
 |---|---|---|
 | `uv run python scripts/contention_233.py --check` | Preflight only. Prints each condition, expected against seen. | 0 ready / 1 not ready |
-| `uv run python scripts/contention_233.py --memory-bound` | Derivation only: members, peaks, tick term from the latest report, the result. | 0 / 2 could not read the journal |
+| `uv run python scripts/contention_233.py --memory-bound` | Derivation only: members, their peaks, the result. | 0 / 2 could not read the journal |
 | `uv run python scripts/contention_233.py` | The full run. Writes `<date>-233-contention-minute.md`. | 0 none measured / 1 measurable contention / 2 guard trip or setup failure |
-| `uv run python scripts/contention_233.py --label after-install` | The same run, with the report suffixed and the slice's `memory.events` checked. | As above; also 1 if `memory.events` `max` or `oom_kill` rose |
-| `uv run python scripts/cutover_233_arbitration.py --ref <ref>` | `cutover_common` preflight and install, bound verification, the after-install run, then `<date>-233-cutover.md`. | 0 only when every step passes |
+| `uv run python scripts/cutover_233_arbitration.py --check` | The cutover's preflight only. Installs nothing. | 0 ready / 1 not |
+| `uv run python scripts/cutover_233_arbitration.py --ref <ref>` | At the release after 234: install, bound verification, `memory.events`, then `<date>-233-cutover.md` (Technical Decision 7). | 0 / 1 per the Technical Decision 7 table |
 
 ## Integration Points
 
@@ -467,12 +524,12 @@ The harness's command line:
 
 - **234 (Tick Pass Production Wiring):**
   - the tick pass unit sets `Slice=manta-acquisition.slice`;
-  - the bound already includes a tick ingest client term;
-  - adding the unit re-runs `--memory-bound`, and a full contention run if
-    the unit makes the tick pass scheduled;
-  - its firing time follows the stagger convention: no shared start minute
-    with existing timers, and outside the backup window that shares
-    `nvme1n1`.
+  - adding the unit re-runs `--memory-bound`, which adds the unit's peak to
+    the bound;
+  - only if the cadence decision gives the tick pass a timer: a full
+    contention run, and a firing time that follows the stagger convention
+    (no shared start minute with existing timers, and outside the backup
+    window that shares `nvme1n1`). A manual-only tick pass needs neither.
 - **The realtime initiative:** the reopen trigger for a coordinator, stated
   in the 900 plan and the runbook.
 - **Every later source:** the add-a-source step that keeps the bound honest.
@@ -504,12 +561,15 @@ The harness's command line:
 3. `manta-acquisition.slice` declares `MemoryMax` equal to the
    derivation's result. The unit file's comment cites the report and states
    why `CPUWeight`/`IOWeight` are absent.
-4. After the cutover, the following hold:
+4. `scripts/cutover_233_arbitration.py --check` passes. The cutover itself
+   runs at the release after 234 (Technical Decision 7). This slice's claim
+   is narrower: the bound is in force, and weekday passes are unaffected.
+   Whether Saturday's 6.2 GiB pass fits is argued from the 2× headroom, not
+   shown, since no weekday run can reach that peak.
+   At that release, the following hold:
    - `systemctl show manta-acquisition.slice -p MemoryMax` and the cgroup's
      `memory.max` both equal the declared value;
-   - the after-install run's verdict is again "none measured";
-   - the slice's `memory.events` `max` and `oom_kill` counters did not rise
-     during the run.
+   - the slice's `memory.events` `oom_kill` is 0.
 5. The scratch directory is gone after every run, including an interrupted
    one. Production received only the minute pass's own run rows.
 6. EODHD credits spent by all of the run's walks are reported. A walk that
@@ -576,8 +636,7 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
    ```
 
    Expected: three members (minute, daily, Kalshi), each with its 30-day
-   peak (minute about 6.2 G), the tick term (or "no report yet" before the
-   first run), and the result in GiB.
+   peak (minute about 6.2 G), and the result in GiB (about 14).
 3. **The minute overlap.**
 
    ```bash
@@ -595,17 +654,23 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
    ```bash
    uv run pytest test/unit/deploy/test_units.py -q
    ```
-5. **Cutover**, after merge, on the merged commit, which must be on origin:
+5. **Cutover preflight** (in this slice):
+
+   ```bash
+   uv run python scripts/cutover_233_arbitration.py --check
+   ```
+
+   Expected: exit 0, with nothing installed.
+6. **At the release after 234** (not this slice): on the release commit,
+   which must be on origin:
 
    ```bash
    uv run python scripts/cutover_233_arbitration.py --ref <sha>
    ```
 
    Expected: install OK; `MemoryMax=<n>G` seen in systemd and in
-   `memory.max`; the after-install run's verdict `none measured`;
-   `memory.events max 0 → 0, oom_kill 0 → 0`. The report sits at
-   `<date>-233-cutover.md`. Exit 0.
-6. **Spot check.**
+   `memory.max`; `memory.events oom_kill 0`. The report sits at
+   `<date>-233-cutover.md`. Exit 0. Then the spot check:
 
    ```bash
    systemctl show manta-acquisition.slice -p MemoryMax -p MemoryPeak
@@ -620,11 +685,6 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
 
 ### Technical Risks
 
-- **The cutover installs all of main.** Production `/opt/manta-trading` is
-  at `v0.19.0`, and main is 351 commits ahead. `install-production.sh` is
-  the only root path for a unit file in `manta-ops`, and it installs the
-  whole checkout at the ref. So 233's cutover is also the first production
-  code upgrade since 923.
 - **The bound is too low for a pass not yet seen at its peak.** The
   Saturday minute peak dominates the sum and is covered by the 2× headroom.
   A new peak shape from 234's tick pass is covered by the add-a-source
@@ -632,16 +692,9 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
 
 ### Mitigation Strategies
 
-- **For the install:** the PM chooses the timing at slice review. Either
-  233's cutover runs at merge, or it is held for the release that follows
-  234 (project memory: one release after 233 and 234). In the second case,
-  233 closes with the run, the unit file and the documents, and its cutover
-  script runs at that release unchanged.
-- `cutover_common` holds the minute timer during the install and verifies
-  the installed commit. The cutover never restarts the slice. If
-  `memory.max` does not show the value after `daemon-reload`, the script
-  fails and says so. It does not try a remedy that would stop running
-  passes.
+- An OOM kill at the bound is detected and handled by the cutover's
+  `memory.events` check (Technical Decision 7). The install's coupling to a
+  full code upgrade is settled in the same decision.
 
 ## Implementation Notes
 
@@ -660,8 +713,8 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
    full run on a weekday afternoon. Commit after each section.
 5. **Unit file and drift guard** from the report's numbers.
 6. **Documents:** runbook, plans, architecture, CHANGELOG.
-7. **Cutover script:** dry preflight (`--check`), then the cutover at the
-   point the PM chose (Risk Assessment).
+7. **Cutover script:** dry preflight (`--check`) only. The cutover runs at
+   the release after 234 (Technical Decision 7).
 
 ### Special Considerations
 
