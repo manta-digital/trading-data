@@ -14,49 +14,44 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261014
 dateUpdated: 20261014
-reviewedSha: adcd1d75d212c9b106955d6a9bc21f922b405130
-revision_number: 1
+reviewedSha: eeae6e98ad89678d462ee9a415274f5ec685978c
+revision_number: 2
 toolsGiven: [read_file, list_files, grep]
 toolCallsMade: 2
-durationSeconds: 33.6
+durationSeconds: 37.5
 runId: run-20261014-p5-ea0063b3
 squadronVersion: 0.21.7
 findings:
   - id: F001
-    severity: pass
-    category: coverage
-    summary: "Success criteria coverage is complete"
-    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md"
+    severity: concern
+    category: sequencing
+    summary: "Task 5.2 points at the wrong task for adding GC to the equivalence test"
+    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:255"
   - id: F002
-    severity: pass
-    category: sequencing
-    summary: "PM-gated spend and merge handling are sequenced correctly"
-    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:279-337"
-  - id: F003
-    severity: concern
-    category: sequencing
-    summary: "Migration-chain tail test is fixed two tasks after the change that breaks it"
-    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:160-190"
-  - id: F004
-    severity: concern
-    category: process
-    summary: "Documentation tasks 10.1–10.5 have no intermediate commit checkpoint"
-    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:382-428"
-  - id: F005
     severity: concern
     category: proportionality
-    summary: "A few tasks are heavier than the slice needs"
-    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:332-335"
+    summary: "Task granularity and duplicated gates are heavier than a 3/5 configuration slice needs"
+    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:195-232"
+  - id: F003
+    severity: note
+    category: nfr-coverage
+    summary: "No load test is added for the ingest-throughput NFR, and the slice justifies that"
+    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md:385"
+  - id: F004
+    severity: note
+    category: sequencing
+    summary: "Migration 059 is applied to production before the slice's code review and merge"
+    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:278-288"
+  - id: F005
+    severity: pass
+    category: coverage
+    summary: "Success criteria coverage"
+    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md"
   - id: F006
-    severity: note
-    category: risk
-    summary: "Scratch sourcing list in 2.1 has no durable home"
-    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:114-116"
-  - id: F007
-    severity: note
+    severity: pass
     category: process
-    summary: "Production migration apply is an outward-facing step without an explicit PM go-ahead"
-    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:281-289"
+    summary: "Sequencing, spend gating and branch rules"
+    location: "project-documents/user/tasks/232-tasks.universe-expansion-gc.md:263-335"
 ---
 
 # Review: tasks — slice 232
@@ -66,58 +61,50 @@ findings:
 
 ## Findings
 
-### [PASS] Success criteria coverage is complete
+### [CONCERN] Task 5.2 points at the wrong task for adding GC to the equivalence test
 
-Every Functional Requirement in the slice design maps to a task:
-- FR1 maps to 3.2 (fresh database) and 7.1 (production).
-- FR2 maps to 2.2 and 2.4.
-- FR3 maps to 7.1.
-- FR4 maps to 4.1–4.3.
-- FR5 maps to 7.2, 8.1, 8.2 and 9.1.
-- FR6 maps to 9.2.
-- FR7 maps to 9.1 and 9.3.
-- FR8 maps to 9.4.
-- FR9 maps to 7.2 and 10.3.
+Task 5.2 says GC "is added to the product list only in task 9.2". Task 9.2 is the too-wide session check. GC's fixtures are recorded and added to the test in task 9.4. A junior agent following 5.2 would look in the wrong place, or add GC before its fixtures exist and break the test. Change the reference to 9.4.
 
-The Technical Requirements are covered as well:
-- Shared builders and an untouched 058 are covered by 1.1 and 1.2.
-- ruff, mypy and the test tiers are in 6.1 and 10.5.
-- The Kalshi parity test is in 0.1, 6.1 and 10.5.
-- The Revision Log entry, the contract rows and the runbook are in 10.4, 10.1 and 10.2.
+### [CONCERN] Task granularity and duplicated gates are heavier than a 3/5 configuration slice needs
 
-The ingest throughput bounds are checked in 8.2. The design states that no new load test is needed, so the absence of a load test and a CI-gating task is correct. I found no scope creep: 4.5 and 5.x trace to TD10 and TD8.
+- **Section 4:** tasks 4.1 and 4.2 are each a one-line constant edit (effort 1). 4.3 only tests those edits. Merge 4.1, 4.2 and 4.3 into one implementation-plus-test task. This also gives the slice's "test-with" pattern.
+- **Quality gates:** 6.1 and 10.5 both re-run ruff, mypy, all three test tiers and the parity test against the 0.1 baseline. Keep one full gate before production at 6.1. Reduce 10.5 to a diff-scope check plus a unit and fixture re-run, since only 9.4's test and fixtures change after 6.1.
+- **Documentation:** 10.1, 10.3 and 10.4 are each effort 1 and edit one document. They could merge into one "documentation updates" task with 10.2 left separate.
+- **Commit checkpoints:** the checkpoints at 1.3, 2.5, 3.3, 4.6, 5.3, 7.3, 8.3 and 9.5 are separate task rows, while 10.2 and 10.4 embed their commits. Use one convention. Folding them into the preceding task's last step would remove about eight rows.
 
-### [PASS] PM-gated spend and merge handling are sequenced correctly
+### [NOTE] No load test is added for the ingest-throughput NFR, and the slice justifies that
 
-Section 7 stops at the free estimate, and Section 8 has an explicit precondition that the PM has set both ceilings. No task edits a ceiling. The last task ends at a commit on the slice branch, and no merge is written as a task. Section 6 gates the work before anything touches production, and the recorder and test parametrization (Section 5) precede the GC fixtures (9.4).
+The slice restates a throughput bound: slowest unit at most 120 s, whole range at most 2 h. It deliberately adds no `tests/load/` test, because the ingest path is unchanged and walkthrough step 3 measures real GC data. Task 8.2 implements that measurement and makes a miss fail the slice. The task file does not reopen the decision, and with no load test there is nothing to wire into CI. This is acceptable as designed. If the PM wants the NFR gated in CI, that needs a new task.
 
-### [CONCERN] Migration-chain tail test is fixed two tasks after the change that breaks it
+### [NOTE] Migration 059 is applied to production before the slice's code review and merge
 
-Task 3.1 appends 059 to the migration list, which makes `test_chain_ends_at_058` fail. Task 3.2 (integration test) comes next, and the unit test is only repaired in 3.3. The test-with pattern wants the fix to follow its cause immediately. Move 3.3 up to directly after 3.1, or fold it into 3.1 as a sub-item, so no task finishes with a red test.
+Task 7.1 applies 059 from the unmerged slice branch. An applied migration is frozen under TD3, so any seed correction raised in Phase 6 or Phase 7 review would need a new migration. The slice's own Development Approach (step 5) orders it this way, and 7.1 asks the PM for an explicit go, so no change is required. Task 7.1 could add one line telling the PM that review fixes to the metals seed after this point need migration 060.
 
-### [CONCERN] Documentation tasks 10.1–10.5 have no intermediate commit checkpoint
+### [PASS] Success criteria coverage
 
-Five documentation and gate tasks end in a single commit at 10.6. Every earlier section has its own checkpoint, and the project rule is at least one commit per task. Add a commit checkpoint after 10.4 (the docs edits), for example `docs: record GC contract rows, runbook and plan updates`. 10.6 then commits only the LLD finalization.
+- **Criterion 1:** 3.1, 3.2 and 7.1 (migration 059 and byte-identical other calendars).
+- **Criterion 2:** 2.1 to 2.4 (source comments and cross-check).
+- **Criterion 3:** 7.1 (sessions at 13:30 and 12:45 for metals, 12:00 and 12:15 for equity).
+- **Criterion 4:** 4.1 to 4.3.
+- **Criterion 5:** 7.2, 8.1, 8.2 and 9.1.
+- **Criterion 6:** 9.2.
+- **Criterion 7:** 9.1 and 9.3.
+- **Criterion 8:** 9.4.
+- **Criterion 9:** 7.2 and 10.3.
+- **Technical requirements:** the seed-sharing check and the 058 diff check are in 1.2 and 4.5. The parity test is in 0.1, 6.1 and 10.5. The Revision Log, contract rows and runbook are in 10.1, 10.2 and 10.4.
+- **Scope creep:** none found. The 4.4 fixture rename and the 4.5 sweep both trace to TD10.
 
-### [CONCERN] A few tasks are heavier than the slice needs
+### [PASS] Sequencing, spend gating and branch rules
 
-- 8.3 is a message to the PM with no work in it. Merge it into 8.2 or 8.4 as a sub-item.
-- 4.1 and 4.2 are each effort 1 and edit the same two constants; they could be one task.
-- 10.5 re-runs the full gate that 6.1 already ran. After 6.1 the only code change is the GC fixture and test edit in 9.4, so 10.5 can be reduced to the diff-scope check plus a targeted re-run of the equivalence test, parity test and lint.
-
-None of these affect correctness. They are trims to keep a 3/5 slice from carrying roughly 35 tasks.
-
-### [NOTE] Scratch sourcing list in 2.1 has no durable home
-
-Task 2.1 produces a "scratch list" that 2.2 consumes. Eight years of sourced rows would be costly to lose if the session is interrupted. Consider having 2.1 write the list to a file named in the task (for example in the Implementation Findings or an uncommitted scratch path) so 2.2 can resume from it.
-
-### [NOTE] Production migration apply is an outward-facing step without an explicit PM go-ahead
-
-Task 7.1 applies 059 to production. The migration is additive and idempotent, and the design includes the step. A one-line "confirm with the PM before apply" would still match the spend-gating style used elsewhere in the file. This is optional.
+- Each implementation task is followed by its test task: 1.1 with 1.2, 2.2 with 2.3, 3.1 with 3.2.
+- The chain-tail test moves in the same task as 059.
+- Spend is gated explicitly: 7.2 stops at the free estimate, Section 8 has a PM-ceiling precondition, and no task edits ceilings.
+- The file ends at a commit on the slice branch. No merge task is written, matching the Git Rules.
+- No hallucination traps found. Expected values in 9.2 are derived from the seeded closes, not retrieved from a source that could return empty.
 
 ### Run Digest
 
-- Response length: 4223 chars
+- Response length: 4696 chars
 - Response is newline-free: no
 - Tool calls made: 2
 - Tool calls failed: 0
@@ -129,10 +116,10 @@ Task 7.1 applies 059 to production. The migration is additive and idempotent, an
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 33.6 s
+- Duration: 37.5 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 7
+- Finding-shaped matches — whole response: 6
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 7
-- Finding-shaped matches — surviving validation: 7
+- Finding-shaped matches — in findings section: 6
+- Finding-shaped matches — surviving validation: 6
