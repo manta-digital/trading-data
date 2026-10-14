@@ -14,43 +14,49 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261014
 dateUpdated: 20261014
-reviewedSha: 2554fc7c99553db6cebed7155baa26eecf4be4e7
+reviewedSha: 2191d15a63f97ae1a85e80fcc5301ccad728e2c8
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 8
-durationSeconds: 58.7
+toolCallsMade: 7
+durationSeconds: 52.5
 runId: run-20261014-p4-5335a10f
 squadronVersion: 0.21.7
 findings:
   - id: F001
-    severity: concern
-    category: proportionality
-    summary: "Calendar seed range reaches back to 2020 although the purchased range is late 2024"
-    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Technical Decisions (TD2, lines 132-142)"
-  - id: F002
-    severity: concern
-    category: proportionality
-    summary: "Refactoring applied migration 058 and renaming the recorder go beyond \"follow 221's pattern\""
-    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md:144-154, 200-207"
-  - id: F003
-    severity: concern
-    category: nfr
-    summary: "Ingest NFR is not restated for the GC ingest path"
-    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Implementation Notes (Testing, line 367)"
-  - id: F004
-    severity: note
-    category: scope
-    summary: "Out-of-plan purchase is acknowledged but stretches the architecture's third stage"
-    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md:64, 191"
-  - id: F005
-    severity: note
-    category: scope
-    summary: "Open-interest deferral is explicit, evidenced and gated on a PM decision"
-    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md:209-215"
-  - id: F006
     severity: pass
     category: architecture-alignment
-    summary: "Architectural boundaries, dependency direction and integration points"
+    summary: "Layering and dependency direction match the architecture"
     location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Architecture"
+  - id: F002
+    severity: pass
+    category: nfr
+    summary: "Ingest-throughput NFR is restated with specific targets"
+    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Implementation Notes"
+  - id: F003
+    severity: concern
+    category: testing
+    summary: "Test fixture rewrite couples API tests to the production universe"
+    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Patterns and Conventions (TD10)"
+  - id: F004
+    severity: concern
+    category: proportionality
+    summary: "Seed scope is the heaviest option relative to Effort 2/5"
+    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Technical Decisions (TD2)"
+  - id: F005
+    severity: concern
+    category: documentation-consistency
+    summary: "Architecture text is left disagreeing with the slice and the plan"
+    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Technical Scope (Documentation)"
+  - id: F006
+    severity: note
+    category: error-handling
+    summary: "Failure handling for the one real purchase is inherited but not restated"
+    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Verification Walkthrough (step 3)"
+  - id: F007
+    severity: note
+    category: scope
+    summary: "Open-interest deferral and spend authorisation await PM decisions"
+    location: "project-documents/user/slices/232-slice.universe-expansion-gc.md#Technical Decisions (TD6, TD9)"
 ---
 
 # Review: slice — slice 232
@@ -60,57 +66,52 @@ findings:
 
 ## Findings
 
-### [CONCERN] Calendar seed range reaches back to 2020 although the purchased range is late 2024
+### [PASS] Layering and dependency direction match the architecture
 
-TD2 and the Technical Scope require a sourced exception row for every weekday from 2020-01-01 to 2027-12-31. The data this slice buys and verifies is 2024-11-02 → 2025-01-01. The Risk section admits that pre-2022 metals schedules "may be unsourceable" because Wayback coverage has gaps. TD2 also forbids extrapolating those years. The mitigation is "report to the PM", so the slice can stall on 2020–2022 rows that nothing in it consumes.
+- `CME_METALS` goes in the production database's calendar tables via a minute-track migration. This is the carve-out the architecture allows ("Operational state has one home", "Session model").
+- GC reaches the tick tier only through `TICK_UNIVERSE` and `calendar_for_product`, which I4's single session-query surface requires.
+- There is no tick-track migration and no source-to-source import.
+- The realtime-paths check, the Kalshi parity test and the cadence statement (manual) are all present, as the slice plan requires.
+- The scope matches the slice plan entry: a second calendar, the mapping entry, a roll inside the purchased range, a manually fired pass, and no code change on the surfaces.
 
-The architecture's session model asks for the calendar to be populated "backward over the wanted range". It does not ask for it to match ES's 2020 start. The wanted range is Nov 2024 → Jan 2025, plus the plan year later.
+### [PASS] Ingest-throughput NFR is restated with specific targets
 
-Cut or defer:
-- Seed from a start that covers the wanted range plus the Standard plan's included 12-month window, which ends 2027-12-31.
-- Record the start as a declared lower bound, as 225 TD7 does for ES.
-- Widening backward becomes a later, separately sourced edit.
+The architecture's "Ingest throughput and the write path" target is restated with 226's bounds: slowest unit at most 120 s, whole range at most 2 h. A miss fails the slice. Walkthrough step 3 measures it, and no redundant load test is added.
 
-This also drops the pandas_market_calendars cross-check for years that are never used. The slice plan entry (effort 2/5, risk Low) does not budget for eight years of sourcing.
+### [CONCERN] Test fixture rewrite couples API tests to the production universe
 
-### [CONCERN] Refactoring applied migration 058 and renaming the recorder go beyond "follow 221's pattern"
+- TD10 removes the monkeypatch of `TICK_UNIVERSE` and `FUTURES_PRODUCT_CALENDAR` from the `two_products` fixture. The API integration tests would then run against the real universe, GC's range and the live `CME_METALS` seed.
+- The architecture's premise is that expanding the universe is "a configuration edit followed by a cost estimate." Under this change, every later universe or range edit (the Standard-plan widening, a third product) breaks fixtures that assert on shape.
+- The stated reason is that the synthetic `SECOND = ("GC", …)` collides with the real GC. Renaming the synthetic product removes that collision and keeps the isolation.
+- Cut or reconsider: keep the monkeypatch and give the synthetic second product a non-real symbol. Add one separate test that asserts the real universe lists GC on `CME_METALS`.
 
-The slice plan scopes 232 as a configuration edit plus a calendar seeded "following 221's pattern". TD3 goes further. It renames the equity builders, moves the body of an already-applied production migration into a shared `_seed_cme_calendar`, and asserts that this changes no output. The design itself calls this "the only edit to an applied migration". The lighter option meets the requirement: the metals module defines its own `CmeCalendarSeed` instance and passes it to builders that take a seed argument. Existing 058 behaviour stays untouched, and the shared builders still avoid duplicated SQL. The design does not say why a signature-compatible extension is insufficient. If the refactor stays, record the reason, such as the DRY rule or the 440-line module size.
+### [CONCERN] Seed scope is the heaviest option relative to Effort 2/5
 
-TD8 changes the recorder CLI to a required `--product` and renames the ES fixture files. That adds churn to a test that is deliberately "pinned to the data it was written against".
+- The slice plan rates this Effort 2/5, Risk Low. The design commits to sourcing every metals exception from 2020-01-01 through 2027-12-31, one CME source comment per row. It also commits to a `pandas_market_calendars` cross-check with each difference resolved from a CME document and recorded.
+- The only data consumed is 2024-11-02 → 2025-01-01. TD2 already admits the early years may be unsourceable and defines a fallback `CME_METALS_SEED_START`.
+- The 2020 reach-back follows the PM's standing direction and 221's precedent, so I'm not asking to drop it. The Effort 2/5 rating understates it, because the sourcing is open-ended. Either re-rate the effort, or make the 2024-onward rows the required deliverable and the reach-back a time-boxed best effort, with the GitHub issue filed up front.
+- Also cuttable: the slice defines the `CmeCalendarSeed` abstraction and the new `cme_calendar_insert(seed)` / `cme_holidays_insert(seed)` builders, but it still keeps 058's functions as one-line wrappers. State that the wrappers exist only to leave 058 and its tests untouched, since the seed-taking builders are what 059 uses.
 
-The design also contradicts itself on this point. The component diagram (line 86) says "`--product` (ES default kept explicit)", while TD8 says it is required with no default. Pick one. CLAUDE.md forbids hard-coded magic defaults, so the required form is the likelier intent.
+### [CONCERN] Architecture text is left disagreeing with the slice and the plan
 
-### [CONCERN] Ingest NFR is not restated for the GC ingest path
+- The architecture's "Session model" still says "ES and GC both trade … so one row serves both." The slice plan notes record that 221 superseded this with separate calendars, and 232 now implements it.
+- The architecture's "Active contract and roll methods" still describes open interest as something to evaluate, and TD9 defers it a second time.
+- The slice's documentation list covers the contract mapping rows, the runbook, and the slice plan's Future Work item 2. It does not name an entry in the architecture's Revision Log. Every earlier slice that superseded architecture text added one (for example 229 and 230), and the log exists so the two documents don't disagree.
+- Add a Revision Log task. It should record the calendar split, the 232 open-interest decision and, once measured, GC's spread share.
 
-GC is ingested through the existing tick-ingest path, and the architecture states an NFR for that path ("Ingest throughput and the write path"). A day's sessions for the configured universe must ingest far faster than a day of market time, and a month of sessions must ingest within an operator's working session. The slice doc does not restate this. It says only that no load test is needed because GC volume is 27% of ES, "already projected in 226". A projection is not a target the slice checks. The walkthrough ingests a roughly 4.13 M-record range with no timing check. Add the target to the slice, and record the GC ingest wall-clock in the walkthrough alongside the other recorded measurements. That costs one line in step 3 and ties the "no load test" claim to a measured number.
+### [NOTE] Failure handling for the one real purchase is inherited but not restated
 
-### [NOTE] Out-of-plan purchase is acknowledged but stretches the architecture's third stage
+The slice adds no I/O path, and the pass, ingest and guards are unchanged. This step is nevertheless a real $8.43 purchase. The walkthrough expects every unit to end *ingested*. It does not say what the operator does if the 1,800 s wait budget ends with the job still at *submitted*. The architecture's manual regime makes downloading by the 30-day deadline the operator's job, with the deadline printed loudly. One line pointing to that rule would cover this. Failed units are already addressed, since the success criterion rules them out.
 
-The architecture's sourcing sequence reserves out-of-plan purchases for rare cases such as studying an older period. It says the Standard plan is subscribed "ideally not before realtime work begins". The slice plan says 232 acquires "plan-included where possible". The design buys $8.63 outside the plan and labels it the "third stage". The reasoning is acceptable: the cost is small, the roll inside the range is needed, and PM ceilings gate the spend. The PM should confirm that this use counts as a "rare purchase" and not only authorize the ceilings.
+### [NOTE] Open-interest deferral and spend authorisation await PM decisions
 
-The estimate command uses `--start 2024-11-01`, while the universe entry starts 2024-11-02 and the walkthrough plans days from 11-03. The design correctly makes the pass's `--estimate-only` figure the number of record, so this is only a presentation inconsistency.
-
-### [NOTE] Open-interest deferral is explicit, evidenced and gated on a PM decision
-
-The architecture and the 229 handoff require open interest to be evaluated, and TD9 does that with GC evidence (`n.0` rolls 6–12 days before `v.0`). Deferral to the first subscription month is consistent with the architecture's statement that the plan removes the purchase block. The trigger depends on a subscription date that is not set. Slice plan Future Work item 2 should therefore also say what happens if no subscription occurs, such as a consumer request or the 234 wiring slice. The PM decision point is correctly shown with its effort impact (2 → 4).
-
-### [PASS] Architectural boundaries, dependency direction and integration points
-
-- **Calendar placement:** `CME_METALS` is a second calendar row in the production minute-track calendar tables, reached through `calendar_for_product` and `extend_calendar_sessions`. That honors I4's single session function and the carve-out for shared reference data. The slice plan's note that the architecture's "one CME row for ES and GC" statement was superseded is respected.
-- **Tick isolation:** no tick-track migration is added, and the tick → production coupling stays one-directional.
-- **Reused machinery:** the 224 estimate → guard → manifest path, the spend ceilings, the 225 ingest checks and 229's roll rules and `VOLUME_RANK_LAG_SESSIONS` are used unchanged. A lag disagreement stops the slice instead of adding a per-product constant.
-- **Spend:** the PM owns both ceilings, and no agent raises them.
-- **Provider surfaces:** the design excludes pass, ingest, status and API code changes, and reports any needed change as a finding. It tests the "no code change" claim (TD10) by listing the three ES-only test assumptions.
-- **Session verification:** the two-direction check (too narrow via the 225 boundary check, too wide via last-bar reads) covers a gap the architecture's boundary check cannot see.
-- **Failure modes:** the slice adds no new I/O or message types. The one new write path, migration 059, is idempotent (`ON CONFLICT DO NOTHING`). A production calendar outage halts ingest and status as the architecture specifies. The purchase relies on the existing 1,800 s wait budget and the 30-day retention rule.
-- **Realtime paths and cadence:** the realtime-paths check is present, and the cadence stays manual.
+Both decision points are flagged correctly: whether this out-of-plan purchase counts as one of the architecture's "rare purchases", and whether to confirm deferring open interest or ship it here (effort 2→4, a second purchase). The architecture does not forbid deferring. It requires the rule to be evaluated, and 229 handed that evaluation to 232. TD9 evaluates it with GC evidence (`n.0` rolls 6–12 days before `v.0`) and sets a trigger. Success criterion 9 correctly makes the PM's confirmation a gate.
 
 ### Run Digest
 
-- Response length: 7543 chars
+- Response length: 6604 chars
 - Response is newline-free: no
-- Tool calls made: 8
+- Tool calls made: 7
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -120,10 +121,10 @@ The architecture and the 229 handoff require open interest to be evaluated, and 
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 58.7 s
+- Duration: 52.5 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 6
+- Finding-shaped matches — whole response: 7
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 6
-- Finding-shaped matches — surviving validation: 6
+- Finding-shaped matches — in findings section: 7
+- Finding-shaped matches — surviving validation: 7
