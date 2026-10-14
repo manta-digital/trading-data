@@ -109,7 +109,7 @@ integration flakes, migration 051/052, load tier).
   - [ ] Confirm GC hours are 17:00 → 16:00 CT in every year read. A change
         inside the range stops the work and goes to the PM
   - [ ] Expected patterns to confirm per year (not to assume): US holidays halt
-        at 13:30 CT from 2022; day after Thanksgiving closes 12:45 CT; Good
+        at 13:30 CT from 2022; day after Thanksgiving closes 12:45 CT (13:45 from 2024, as sourced); Good
         Friday is closed in years equities trade an abbreviated session
   - [ ] Success: a list of (date, name, closed/early_close, time, source
         URL), written to Implementation Findings in the LLD, for every weekday GC did not trade the regular session. Any year
@@ -134,7 +134,7 @@ integration flakes, migration 051/052, load tier).
         `[seed_start, holidays_seeded_through]`; statuses are `closed` or
         `early_close`; early closes have a time and closures have none; no
         duplicate dates; row values match TD1
-  - [ ] Add explicit assertions for 2024-11-28 (13:30), 2024-11-29 (12:45),
+  - [ ] Add explicit assertions for 2024-11-28 (13:30), 2024-11-29 (13:45, sourced; the LLD's 12:45 was corrected),
         2024-12-25 and 2025-01-01 (closed)
   - [ ] Success: tests pass; a mutation (delete a source comment) fails the
         source test
@@ -179,7 +179,7 @@ integration flakes, migration 051/052, load tier).
         on `test_migration_057_058_cme_calendar.py`, on a throwaway database
   - [ ] Assert: the `CME_METALS` row and `holidays_seeded_through = 2027-12-31`;
         every exception row present; sessions populated from seed start to the
-        bound; 11-28 closes 13:30 CT and 11-29 closes 12:45 CT in the sessions
+        bound; 11-28 closes 13:30 CT and 11-29 closes 13:45 CT in the sessions
         table; no session dated 2024-12-25 or 2025-01-01
   - [ ] Assert byte-identical `NYSE`, `NASDAQ`, `CME_EQUITY` rows, holidays and
         sessions before and after 059 (snapshot, apply, compare)
@@ -286,7 +286,7 @@ integration flakes, migration 051/052, load tier).
         they must match
   - [ ] Success: `uv run mt data calendars list` shows `CME_METALS` with
         `holidays seeded through 2027-12-31`; walkthrough step 1 sessions output
-        shows 13:30 CT on 11-28 and 12:45 CT on 11-29 for `CME_METALS`, and 12:00
+        shows 13:30 CT on 11-28 and 13:45 CT on 11-29 for `CME_METALS`, and 12:00
         and 12:15 for `CME_EQUITY`; no 12-25 or 2025-01-01 session on either
 
 - [ ] **7.2 Run the free estimate and report** (effort 1)
@@ -353,7 +353,7 @@ not, stop at 7.2.*
   - [ ] Check each metals exception session in the range, including the Christmas
         and New Year closures, which must have no bars
   - [ ] Success: the 11-28 last bar is 13:29 CT (19:29 UTC); the 11-29 last bar is
-        12:44 CT (18:44 UTC); the next bar of each is at or after the following 17:00
+        13:44 CT (19:44 UTC); the next bar of each is at or after the following 17:00
         CT open. Record every exception session's last-bar time in Implementation
         Findings. A miss means the seed is too wide: stop and report
 

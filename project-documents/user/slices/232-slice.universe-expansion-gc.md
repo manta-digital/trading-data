@@ -134,7 +134,7 @@ The archive directory is already in the backup set (223), and the tick cluster i
 The 221 findings say what to expect, and each still has to be sourced per year:
 
 - On US holidays, metals halt at 13:30 CT from 2022, where equities halt at 12:00. Pre-2022 years are read from their own spreadsheets, never extrapolated.
-- On the day after Thanksgiving, metals close at 12:45 CT, where equities close at 12:15.
+- On the day after Thanksgiving, metals close at 12:45 CT through 2023 and 13:45 CT from 2024, where equities close at 12:15. *(Corrected in implementation: the design said 12:45 for every year; CME's 2024–2027 documents and the 2024–2025 trades say 13:45. See Implementation Findings.)*
 - Metals are closed on Good Friday in the years equities trade an abbreviated session.
 
 A one-off cross-check is run from the scratchpad against `pandas_market_calendars`' `CMEGlobex_GC`, with `uv run --no-project --with pandas_market_calendars`. It is never a project dependency (221 D5). Each difference is resolved from a CME document and recorded in this design's Implementation Findings. A year that cannot be sourced is reported to the PM, not guessed.
@@ -169,7 +169,7 @@ TickUniverseEntry("GC", ("GC.FUT",), SType.PARENT,
 The range is ES's range. The reasons:
 
 - **A roll inside the range.** Databento's `GC.v.0` switched GCZ4 → GCG5 on 2024-11-29, and `GC.n.0` on 2024-11-21 (229 TD6). The calendar rule also switches inside the range.
-- **Metals-specific exceptions inside the range.** Thanksgiving (13:30) and the day after Thanksgiving (12:45) both differ from equity. Christmas Day and New Year's Day are closures. TD7 depends on these.
+- **Metals-specific exceptions inside the range.** Thanksgiving (13:30) and the day after Thanksgiving (13:45, corrected from 12:45 in implementation) both differ from equity. Christmas Day and New Year's Day are closures. TD7 depends on these.
 - **Same sessions as ES,** so cross-product comparisons need no alignment.
 - **The same start reasoning as 226:** the first whole session starts at 17:00 CT on Sunday 11-03.
 
@@ -210,7 +210,7 @@ The pass's own `--estimate-only` figure is the number of record. It is printed i
 **TD7 — Session-model verification for GC.** It runs in two directions, because the boundary check alone proves only one.
 
 - **The calendar is not too narrow.** This is 225's session-boundary check, which runs on every GC unit at ingest: no trade in a break, on a closed day, or outside the populated range. A metals session seeded with equity times (a 12:00 close on Thanksgiving) fails the unit, naming the check.
-- **The calendar is not too wide.** The boundary check cannot see an early close seeded too late. The walkthrough reads 1-minute bars for the GC front contract over each exception session in the range, using the shipped `mt data tick get 1m`. The last bar must fall just before the seeded close: 13:29 CT on 11-28 and 12:44 CT on 11-29. The next bar must be at or after the following 17:00 CT open. Each result is recorded in the walkthrough notes.
+- **The calendar is not too wide.** The boundary check cannot see an early close seeded too late. The walkthrough reads 1-minute bars for the GC front contract over each exception session in the range, using the shipped `mt data tick get 1m`. The last bar must fall just before the seeded close: 13:29 CT on 11-28 and 13:44 CT on 11-29. The next bar must be at or after the following 17:00 CT open. Each result is recorded in the walkthrough notes.
 
 Every GC unit must reach *ingested*, and `coverage` must return ok over the range.
 
@@ -278,7 +278,7 @@ There is no tick-track migration. GC uses the same tables, layout, tier CHECK an
 
 1. Migration 059 applies on a fresh test database and on production. Afterwards `mt data calendars list` shows `CME_METALS` with `holidays seeded through 2027-12-31`, and `CME_EQUITY`, `NYSE` and `NASDAQ` rows and sessions are byte-identical before and after (test).
 2. Every `CME_METALS_EXCEPTIONS` row carries a CME source comment. The `pandas_market_calendars` cross-check differences, each with its resolution, are recorded in Implementation Findings.
-3. `mt data calendars sessions --calendar CME_METALS --from 2024-11-27 --to 2024-12-02` shows the 11-28 session closing 13:30 CT and the 11-29 session closing 12:45 CT. `--calendar CME_EQUITY` over the same dates still shows 12:00 and 12:15.
+3. `mt data calendars sessions --calendar CME_METALS --from 2024-11-27 --to 2024-12-02` shows the 11-28 session closing 13:30 CT and the 11-29 session closing 13:45 CT. `--calendar CME_EQUITY` over the same dates still shows 12:00 and 12:15.
 4. `calendar_for_product("GC")` returns `CME_METALS`. The universe validates with ES and GC.
 5. `mt data tick pass --estimate-only` plans only GC days and prints the bundle cost. A pass within the PM's ceilings buys them. Every GC unit reaches *ingested* with all three checks passing, and `mt data tick coverage --start 2024-11-02 --end 2025-01-01` is ok for GC.
 6. The too-wide check (TD7) is recorded for every metals exception session in the range.
@@ -312,7 +312,7 @@ This is a draft, refined after implementation. The commands run from the dev che
    uv run mt data calendars sessions --calendar CME_METALS --from 2024-11-27 --to 2024-12-02
    uv run mt data calendars sessions --calendar CME_EQUITY --from 2024-11-27 --to 2024-12-02
    ```
-   Expected: metals closes at 13:30 CT on 11-28 and 12:45 CT on 11-29. Equity is unchanged at 12:00 and 12:15. There is no session dated 12-25 or 2025-01-01 on either calendar.
+   Expected: metals closes at 13:30 CT on 11-28 and 13:45 CT on 11-29. Equity is unchanged at 12:00 and 12:15. There is no session dated 12-25 or 2025-01-01 on either calendar.
 
 2. **Estimate (free).**
    ```bash
@@ -340,7 +340,7 @@ This is a draft, refined after implementation. The commands run from the dev che
    uv run mt data tick get 1m --product GC --start 2024-11-28 --end 2024-11-29
    uv run mt data tick get 1m --product GC --start 2024-11-29 --end 2024-11-30
    ```
-   The dates are session dates, so `--start 2024-11-28` is the session that opens on 11-27 at 17:00 CT. Expected: the last bar of the 11-28 session is at 13:29 CT (19:29 UTC), and the last bar of the 11-29 session is at 12:44 CT (18:44 UTC). Record each exception session's last-bar time in the walkthrough notes.
+   The dates are session dates, so `--start 2024-11-28` is the session that opens on 11-27 at 17:00 CT. Expected: the last bar of the 11-28 session is at 13:29 CT (19:29 UTC), and the last bar of the 11-29 session is at 13:44 CT (19:44 UTC). Record each exception session's last-bar time in the walkthrough notes.
 
 6. **Roll.**
    ```bash
@@ -396,3 +396,122 @@ This is a draft, refined after implementation. The commands run from the dev che
 - Unit tier: 4707 passed, 5 skipped, 0 failed.
 - `ruff check src test scripts`: 1479 pre-existing errors on main, so the ruff gate runs on touched files only.
 - `test/unit/data/tick/test_pass_contract_parity.py`: 31 passed.
+
+### CME_METALS sources (tasks 2.1–2.3)
+
+Every year from 2020 through 2027 was sourced, so `CME_METALS_SEED_START` stays 2020-01-01 and no backward-widening issue is needed. 89 rows. Each row's full Wayback URL is in its `# source:` comment in `seed_cme_metals_calendar.py`; the table below names the document.
+
+- **Documents read.** 2020–2022 and 2023-01-02: the product-group row that holds metals ("Energy, Metals, Softs & DME Products" and its variants; "Energy, Metal, …" in the 2020 and 2021 MLK sheets) of CME's Globex holiday spreadsheets, the same files 221 cited. 2023: the METALS row of CME's holiday PDFs. From 2023-09: product 437 (Gold Futures) in the trading-hours JSON captures (56 holiday windows, one capture each). The Wayback captures of past windows taken after the fact are empty (all of 2023 before September, and Thanksgiving 2023), so those rows come from the PDFs.
+- **Reading the JSON.** The same reading as CME_EQUITY's: a weekday with no events is closed; a `closed` event before 16:00 is an early close; a holiday whose first event is the next session's `preopen` before 16:00 is a halt (early close) on the holiday. Applied to product 133 (ES), the reading reproduces all 35 JSON-sourced CME_EQUITY rows exactly.
+- **Hours (TD1).** Every document shows the regular 16:00 CT close and 17:00 CT open around each holiday, 2020–2027. No change inside the range.
+- **Ignored rows.** The "Gold" rows at the foot of the 2020–2023 spreadsheets are Bursa Malaysia's gold contract (the partner-exchange table), not COMEX GC. The "Gold TAS early close 11:30 CT" notes concern trade-at-settlement only, not the outright session.
+- **One row with no CME document: 2023-01-16 (MLK).** None is archived for any product (221 found the same for equity). It is settled from Databento trade counts, as CME_EQUITY's row was (PM decision, 2026-09-28): 222 GC trades 13:00–13:30 CT, 0 from 13:30–16:59 CT. **PM confirmation requested** that the 2026-09-28 decision covers this metals row too.
+- **Independent check.** Every row dated up to 2026-10-13 (74) was checked against Databento GLBX.MDP3 `GC.FUT` trade counts (free `metadata.get_record_count`): trades in the 30 minutes before each early close and none from the close to 16:59 CT; none from 00:00 to 16:59 CT on each closed day. 74 of 74 pass. Equity-only exception days that metals trade normally were also checked: 2023-07-03, 2024-07-03 and 2025-07-03 (3,571 / 6,650 / 4,692 trades 12:15–15:59 CT) and 2025-01-09, the National Day of Mourning (25,788 trades 08:30–15:59 CT; CME's PDF: "CME GROUP METALS NORMAL HOURS").
+
+**Design correction.** TD2 expected the day after Thanksgiving to close at 12:45 CT. That holds through 2023. From 2024 CME publishes 13:45, and the trades agree (2024-11-29: 371 trades 13:30–13:45 CT, 0 after; 2025-11-28: 817 trades in the 30 minutes before 13:45, 0 after). The TD2 bullet, TD4, TD7, criterion 3 and walkthrough steps 1 and 5 now read 13:45 / 13:44 CT (19:44 UTC). The design's "12:45" belongs to Christmas Eve, which metals close at 12:45 in every year of the range.
+
+Other per-year differences from the equity table that the sources show: US holidays halt at 12:00 in 2020–2021 and 13:30 from 2022; a Friday holiday (2020-07-03, 2025-07-04, 2026-06-19, 2026-07-03, 2027-06-18) closes at 12:00, because no session reopens until Sunday; Good Friday 2021 and 2026 is closed for metals where equities traded until 08:15.
+
+| date | name | status | close CT | source | Databento check |
+|---|---|---|---|---|---|
+| 2020-01-01 | New Year's Day | closed | — | CME holiday spreadsheet `2019-2020-new-years` | verified |
+| 2020-01-20 | Martin Luther King Jr. Day | early_close | 12:00 | CME holiday spreadsheet `2020-mlk` | verified |
+| 2020-02-17 | Presidents Day | early_close | 12:00 | CME holiday spreadsheet `2020-presidents` | verified |
+| 2020-04-10 | Good Friday | closed | — | CME holiday spreadsheet `2020-good-friday` | verified |
+| 2020-05-25 | Memorial Day | early_close | 12:00 | CME holiday spreadsheet `2020-memorial` | verified |
+| 2020-07-03 | Independence Day (observed) | early_close | 12:00 | CME holiday spreadsheet `2020-independence` | verified |
+| 2020-09-07 | Labor Day | early_close | 12:00 | CME holiday spreadsheet `2020-labor` | verified |
+| 2020-11-26 | Thanksgiving Day | early_close | 12:00 | CME holiday spreadsheet `2020-thanksgiving` | verified |
+| 2020-11-27 | Day after Thanksgiving | early_close | 12:45 | CME holiday spreadsheet `2020-thanksgiving` | verified |
+| 2020-12-24 | Christmas Eve | early_close | 12:45 | CME holiday spreadsheet `2020-christmas` | verified |
+| 2020-12-25 | Christmas Day | closed | — | CME holiday spreadsheet `2020-christmas` | verified |
+| 2021-01-01 | New Year's Day | closed | — | CME holiday spreadsheet `2021-new-years` | verified |
+| 2021-01-18 | Martin Luther King Jr. Day | early_close | 12:00 | CME holiday spreadsheet `2021-mlk` | verified |
+| 2021-02-15 | Presidents Day | early_close | 12:00 | CME holiday spreadsheet `2021-presidents` | verified |
+| 2021-04-02 | Good Friday | closed | — | CME holiday spreadsheet `2021-good-friday` | verified |
+| 2021-05-31 | Memorial Day | early_close | 12:00 | CME holiday spreadsheet `2021-memorial` | verified |
+| 2021-07-05 | Independence Day (observed) | early_close | 12:00 | CME holiday spreadsheet `2021-independence` | verified |
+| 2021-09-06 | Labor Day | early_close | 12:00 | CME holiday spreadsheet `2021-labor` | verified |
+| 2021-11-25 | Thanksgiving Day | early_close | 12:00 | CME holiday spreadsheet `2021-thanksgiving` | verified |
+| 2021-11-26 | Day after Thanksgiving | early_close | 12:45 | CME holiday spreadsheet `2021-thanksgiving` | verified |
+| 2021-12-24 | Christmas Day (observed) | closed | — | CME holiday spreadsheet `2021-christmas` | verified |
+| 2022-01-17 | Martin Luther King Jr. Day | early_close | 13:30 | CME holiday spreadsheet `2022-mlk` | verified |
+| 2022-02-21 | Presidents Day | early_close | 13:30 | CME holiday spreadsheet `2022-presidents` | verified |
+| 2022-04-15 | Good Friday | closed | — | CME holiday spreadsheet `2022-good-friday` | verified |
+| 2022-05-30 | Memorial Day | early_close | 13:30 | CME holiday spreadsheet `2022-memorial` | verified |
+| 2022-06-20 | Juneteenth (observed) | early_close | 13:30 | CME holiday spreadsheet `2022-juneteenth` | verified |
+| 2022-07-04 | Independence Day | early_close | 13:30 | CME holiday spreadsheet `2022-independence` | verified |
+| 2022-09-05 | Labor Day | early_close | 13:30 | CME holiday spreadsheet `2022-labor` | verified |
+| 2022-11-24 | Thanksgiving Day | early_close | 13:30 | CME holiday spreadsheet `2022-thanksgiving` | verified |
+| 2022-11-25 | Day after Thanksgiving | early_close | 12:45 | CME holiday spreadsheet `2022-thanksgiving` | verified |
+| 2022-12-26 | Christmas Day (observed) | closed | — | CME holiday spreadsheet `2022-christmas` | verified |
+| 2023-01-02 | New Year's Day (observed) | closed | — | CME holiday spreadsheet `2023-new-years` | verified |
+| 2023-01-16 | Martin Luther King Jr. Day | early_close | 13:30 | Databento trade counts | verified |
+| 2023-02-20 | Presidents Day | early_close | 13:30 | CME holiday PDF `presidents-day` | verified |
+| 2023-04-07 | Good Friday | closed | — | CME holiday PDF `good-friday` | verified |
+| 2023-05-29 | Memorial Day | early_close | 13:30 | CME holiday PDF `memorial-day-2023` | verified |
+| 2023-06-19 | Juneteenth | early_close | 13:30 | CME holiday PDF `juneteenth-2023` | verified |
+| 2023-07-04 | Independence Day | early_close | 13:30 | CME holiday PDF `4th-of-july-2023` | verified |
+| 2023-09-04 | Labor Day | early_close | 13:30 | CME holiday PDF `labor-day-2023` | verified |
+| 2023-11-23 | Thanksgiving Day | early_close | 13:30 | CME holiday PDF `thanksgiving-day-2023` | verified |
+| 2023-11-24 | Day after Thanksgiving | early_close | 12:45 | CME holiday PDF `thanksgiving-day-2023` | verified |
+| 2023-12-25 | Christmas Day | closed | — | CME holiday PDF `christmas-day-2023` | verified |
+| 2024-01-01 | New Year's Day | closed | — | CME trading-hours JSON `2023-12-31_2024-01-02` | verified |
+| 2024-01-15 | Martin Luther King Jr. Day | early_close | 13:30 | CME trading-hours JSON `2024-01-14_2024-01-16` | verified |
+| 2024-02-19 | Presidents Day | early_close | 13:30 | CME trading-hours JSON `2024-02-18_2024-02-20` | verified |
+| 2024-03-29 | Good Friday | closed | — | CME trading-hours JSON `2024-03-28_2024-03-30` | verified |
+| 2024-05-27 | Memorial Day | early_close | 13:30 | CME trading-hours JSON `2024-05-26_2024-05-28` | verified |
+| 2024-06-19 | Juneteenth | early_close | 13:30 | CME trading-hours JSON `2024-06-18_2024-06-20` | verified |
+| 2024-07-04 | Independence Day | early_close | 13:30 | CME trading-hours JSON `2024-07-03_2024-07-05` | verified |
+| 2024-09-02 | Labor Day | early_close | 13:30 | CME trading-hours JSON `2024-09-01_2024-09-03` | verified |
+| 2024-11-28 | Thanksgiving Day | early_close | 13:30 | CME trading-hours JSON `2024-11-27_2024-11-29` | verified |
+| 2024-11-29 | Day after Thanksgiving | early_close | 13:45 | CME trading-hours JSON `2024-11-27_2024-11-29` | verified |
+| 2024-12-24 | Christmas Eve | early_close | 12:45 | CME trading-hours JSON `2024-12-24_2024-12-26` | verified |
+| 2024-12-25 | Christmas Day | closed | — | CME trading-hours JSON `2024-12-24_2024-12-26` | verified |
+| 2025-01-01 | New Year's Day | closed | — | CME trading-hours JSON `2024-12-31_2025-01-02` | verified |
+| 2025-01-20 | Martin Luther King Jr. Day | early_close | 13:30 | CME trading-hours JSON `2025-01-19_2025-01-21` | verified |
+| 2025-02-17 | Presidents Day | early_close | 13:30 | CME trading-hours JSON `2025-02-16_2025-02-18` | verified |
+| 2025-04-18 | Good Friday | closed | — | CME trading-hours JSON `2025-04-17_2025-04-19` | verified |
+| 2025-05-26 | Memorial Day | early_close | 13:30 | CME trading-hours JSON `2025-05-25_2025-05-27` | verified |
+| 2025-06-19 | Juneteenth | early_close | 13:30 | CME trading-hours JSON `2025-06-18_2025-06-20` | verified |
+| 2025-07-04 | Independence Day | early_close | 12:00 | CME trading-hours JSON `2025-07-03_2025-07-05` | verified |
+| 2025-09-01 | Labor Day | early_close | 13:30 | CME trading-hours JSON `2025-08-31_2025-09-02` | verified |
+| 2025-11-27 | Thanksgiving Day | early_close | 13:30 | CME trading-hours JSON `2025-11-26_2025-11-28` | verified |
+| 2025-11-28 | Day after Thanksgiving | early_close | 13:45 | CME trading-hours JSON `2025-11-26_2025-11-28` | verified |
+| 2025-12-24 | Christmas Eve | early_close | 12:45 | CME trading-hours JSON `2025-12-24_2025-12-26` | verified |
+| 2025-12-25 | Christmas Day | closed | — | CME trading-hours JSON `2025-12-24_2025-12-26` | verified |
+| 2026-01-01 | New Year's Day | closed | — | CME trading-hours JSON `2025-12-31_2026-01-02` | verified |
+| 2026-01-19 | Martin Luther King Jr. Day | early_close | 13:30 | CME trading-hours JSON `2026-01-18_2026-01-20` | verified |
+| 2026-02-16 | Presidents Day | early_close | 13:30 | CME trading-hours JSON `2026-02-15_2026-02-17` | verified |
+| 2026-04-03 | Good Friday (jobs report) | closed | — | CME trading-hours JSON `2026-04-01_2026-04-03` | verified |
+| 2026-05-25 | Memorial Day | early_close | 13:30 | CME trading-hours JSON `2026-05-24_2026-05-26` | verified |
+| 2026-06-19 | Juneteenth | early_close | 12:00 | CME trading-hours JSON `2026-06-18_2026-06-20` | verified |
+| 2026-07-03 | Independence Day (observed) | early_close | 12:00 | CME trading-hours JSON `2026-07-03_2026-07-05` | verified |
+| 2026-09-07 | Labor Day | early_close | 13:30 | CME trading-hours JSON `2026-09-06_2026-09-08` | verified |
+| 2026-11-26 | Thanksgiving Day | early_close | 13:30 | CME trading-hours JSON `2026-11-25_2026-11-27` | future (CME only) |
+| 2026-11-27 | Day after Thanksgiving | early_close | 13:45 | CME trading-hours JSON `2026-11-25_2026-11-27` | future (CME only) |
+| 2026-12-24 | Christmas Eve | early_close | 12:45 | CME trading-hours JSON `2026-12-24_2026-12-26` | future (CME only) |
+| 2026-12-25 | Christmas Day | closed | — | CME trading-hours JSON `2026-12-24_2026-12-26` | future (CME only) |
+| 2027-01-01 | New Year's Day | closed | — | CME trading-hours JSON `2026-12-31_2027-01-02` | future (CME only) |
+| 2027-01-18 | Martin Luther King Jr. Day | early_close | 13:30 | CME trading-hours JSON `2027-01-17_2027-01-19` | future (CME only) |
+| 2027-02-15 | Presidents Day | early_close | 13:30 | CME trading-hours JSON `2027-02-14_2027-02-16` | future (CME only) |
+| 2027-03-26 | Good Friday | closed | — | CME trading-hours JSON `2027-03-25_2027-03-27` | future (CME only) |
+| 2027-05-31 | Memorial Day | early_close | 13:30 | CME trading-hours JSON `2027-05-30_2027-06-01` | future (CME only) |
+| 2027-06-18 | Juneteenth (observed) | early_close | 12:00 | CME trading-hours JSON `2027-06-17_2027-06-19` | future (CME only) |
+| 2027-07-05 | Independence Day (observed) | early_close | 13:30 | CME trading-hours JSON `2027-07-04_2027-07-06` | future (CME only) |
+| 2027-09-06 | Labor Day | early_close | 13:30 | CME trading-hours JSON `2027-09-05_2027-09-07` | future (CME only) |
+| 2027-11-25 | Thanksgiving Day | early_close | 13:30 | CME trading-hours JSON `2027-11-24_2027-11-26` | future (CME only) |
+| 2027-11-26 | Day after Thanksgiving | early_close | 13:45 | CME trading-hours JSON `2027-11-24_2027-11-26` | future (CME only) |
+| 2027-12-24 | Christmas Day (observed) | closed | — | CME trading-hours JSON `2027-12-22_2027-12-24` | future (CME only) |
+
+### pandas_market_calendars cross-check (task 2.4)
+
+Run from the scratchpad with `uv run --no-project --with pandas_market_calendars` (5.5.0). `CMEGlobex_GC` resolves to `CMEGlobex_EnergyAndMetals`. Compared over every weekday 2020-01-01 → 2027-12-31: 13 differences, each resolved from a CME document; the library is wrong on all 13. `git status` shows no dependency change.
+
+| date | table | library | resolution |
+|---|---|---|---|
+| 2020-12-24 | 12:45 | regular | CME 2020 Christmas spreadsheet: metals close 12:45. Trades: 1,191 before, 0 after |
+| 2022-09-05, 2023-09-04, 2024-09-02, 2025-09-01, 2027-09-06 | 13:30 | 12:00 | CME 2022 Labor Day spreadsheet, 2023 PDF, JSON 2024/2025/2027: 13:30 halt. Trades confirm 2022–2025 (0 after 13:30, 131–461 in the 30 minutes before) |
+| 2024-11-29, 2025-11-28, 2027-11-26 | 13:45 | 12:45 | CME JSON 2024, 2025, 2027: 13:45. Trades confirm 2024 and 2025 |
+| 2024-12-24, 2025-12-24 | 12:45 | regular | CME JSON: 12:45 close (the design's known case). Trades: 642 / 695 before, 0 after |
+| 2025-07-04, 2027-06-18 | 12:00 | 13:30 | CME JSON: Friday holiday, 12:00 close. Trades confirm 2025 (687 before, 0 after) |
