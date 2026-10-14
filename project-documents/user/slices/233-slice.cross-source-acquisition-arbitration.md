@@ -227,6 +227,18 @@ already measured (226, and the history in Technical Decision 5), so keeping
 it out isolates minute × tick. The 00:35/12:35 daily and 13:05 minute
 firings are excluded by the preflight's time-of-day bounds.
 
+A clear window also contains no backup firing. The preflight reads the
+installed `/etc/cron.d/manta-trading-backup` (source:
+`deploy/cron.d/manta-trading-backup.cluster`) and refuses a window in which
+any entry fires, or in which one fired within `BACKUP_SETTLE_MINUTES` before
+the window starts. That constant is the longest `--timeout` on those lines
+(5 min, the WAL offsite syncs), and its docstring cites them. The hourly WAL
+syncs read `nvme1n1`, the device the tick load writes. The nightly, weekly
+and system backups (02:00–05:00 local) are already outside the weekday
+afternoon. The parser reads the minute, hour and day-of-week fields leniently
+(`*`, `*/N`, lists and single values). An entry it cannot read fails the
+preflight; it is never skipped.
+
 ### State Management
 
 - **Production:** the run adds three minute `pass_runs` rows and walk
@@ -337,6 +349,22 @@ refused by the preflight.
   `max(control, 30-day walk max)` is **measurable contention**. Otherwise
   the verdict is **none measured at `TICK_INGEST_WORKERS` workers**. This is
   226's rule, applied to the minute pass.
+- **Validity.** The verdict counts only if the tick load really ran for the
+  whole of each overlapped walk. Each overlapped walk is fired only once
+  `TickLoop` is in an ingest phase. A walk is valid only if, across its whole
+  duration, the loop thread is alive, the scratch server accepts
+  connections, and every sampler interval shows tick rows/s above zero. A
+  reset phase inside a walk, a dead thread, or a crashed or OOM-killed
+  scratch server makes the run **invalid**: the report says which walk and
+  why, and the run exits 2. Step 3's dry build measures how long an ingest
+  phase lasts. If it is shorter than `WALK_CEILING_SECONDS`, the run stops
+  there and reports it, because no overlapped walk could be valid.
+- **Tick-side contention.** A valid walk whose median tick rows/s falls
+  below `TICK_RATE_FLOOR` × the alone median is also **measurable
+  contention**. The slowdown runs the other way, but it is still contention.
+  `TICK_RATE_FLOOR = 0.90` matches the 10 % change 226 treats as material
+  (`TIME_CHANGE_FRACTION` in `proof_226/batch.py`), and its docstring says
+  so.
 
 **Guards** (constants in `contention_233_run.py`; the first two are 226's
 floors, imported):
@@ -344,7 +372,8 @@ floors, imported):
 | Condition | Action |
 |---|---|
 | `MemAvailable` < 16 GiB, or `/data` free < 50 GB | Stop the loop at once, report the trip, exit non-zero. If the first sample is already below a floor, exit before any load. |
-| An overlapped walk still running at 2 × the walk bound | Stop the loop and record the trip. The pass is production's and is left alone. |
+| An overlapped walk still running at 2 × the walk bound | The blocking `sudo systemctl start` runs under a subprocess timeout of 2 × `WALK_CEILING_SECONDS`. At the timeout the client is killed. Killing the client does not cancel the systemd job, so the pass keeps running and is left alone, since it is production's. Stop the loop, record the trip, and exit non-zero. |
+| An invalid walk (Validity above) | Stop the loop, report the walk and the reason, exit 2. |
 | No clear window within `WINDOW_HORIZON` | Exit non-zero without firing. |
 | Interrupted or raised | `finally`: stop `TickLoop` (SIGINT, then settle), stop the scratch server, remove the directory. A minute pass already started finishes on its own. |
 
@@ -376,6 +405,15 @@ MemoryMax = ceil_GiB( 2 × Σ over slice members of max 30-day journal memory pe
   The killed pass is closed as abandoned by the existing `pass_runs`
   mechanism (`close_abandoned`), and its unit fails. `mt-run status` and
   `systemctl --failed` show it like any other failed pass.
+- **Accepted tradeoff: one budget for the whole slice.** The OOM killer
+  picks by size, not by fault, so in principle it can kill a pass other than
+  the leaking one. At a bound of 2 × the summed peaks, a runaway must grow
+  past every member's worst case before the bound bites, so it is the
+  largest process when the kill comes. A per-unit `MemoryMax` would isolate
+  each pass more tightly, but it means one derived value per unit file, each
+  re-derived at every add-a-source edit, against one value today. Reopen
+  this if `memory.events` ever records an `oom_kill` that hit a unit other
+  than the leaking one.
 
 #### Technical Decision 5: keep calendar stagger; no lock, no scheduler
 
@@ -454,16 +492,13 @@ anything is installed. 233 closes without installing, and it builds no
 cutover script of its own. Its success criteria are what can be shown
 before the install.
 
-**Deferred to 234's cutover script** (issue #33): after the install, it
-reads `systemctl show manta-acquisition.slice -p MemoryMax`, the cgroup's
-`memory.max`, and `memory.events`, with no contention re-run. It handles
-what it sees as follows:
-
-| Seen | Meaning | Script | Operator |
-|---|---|---|---|
-| `memory.max` ≠ the declared value | The file is installed but the bound is not applied. Behaviour is unchanged from today, with no limit. | Exit 1. The report shows expected against seen. It never restarts the slice, which would stop running passes. | Re-run the installer, whose `daemon-reload` applies slice properties. If it still differs, the bound applies at the next boot; record that and do nothing else. |
-| `memory.events` `oom_kill` > 0 | A pass was killed at the bound since install. | Exit 1. The report names the units whose journal shows `Result=oom-kill`. | The killed pass is closed as abandoned and re-runs at its next firing; pass semantics make that safe. Re-derive with `--memory-bound`, raise `MemoryMax` in a follow-up commit, and reinstall. |
-| `memory.events` `max` > 0, `oom_kill` = 0 | The bound throttled reclaim but killed nothing. | Exit 0, with a warning in the report. | Re-derive at the next add-a-source edit. |
+**Deferred to 234's cutover** (issue #33; recorded in 234's slice plan
+entry): after the install, read the slice cgroup's `memory.max` and
+`memory.events`, and fail on a `memory.max` that differs from the declared
+value or on any `oom_kill`. How the script reports and what the operator
+does are 234's design. **Until 234 ships, the bound is declared but
+inert:** the unit file in the repo carries it, and production runs
+without it.
 
 ### Patterns and Conventions
 
@@ -555,8 +590,10 @@ The harness's command line:
 ### Technical Requirements
 
 - Unit tests (no host, no database) cover:
-  - the verdict rule;
-  - clear-window selection, against the Kalshi timer and the active state;
+  - the verdict rule, including tick-side contention;
+  - walk validity (dead thread, server down, a zero-rate interval);
+  - clear-window selection, against the Kalshi timer, the active state and
+    the backup cron entries (parsed from a copy of the real file);
   - the walk classifier;
   - the journal memory-peak parser, on real lines;
   - the `MemoryMax` rule and member discovery from the unit files;
