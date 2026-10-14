@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **COMEX gold (GC) futures ticks** (slice 232). GC is the second product in
+  the tick universe: tbbo for 2024-11-02 → 2025-01-01 (Thanksgiving closes and
+  the December → February roll), on every tick surface (`status`,
+  `coverage`, `active`, `get`, `/api/v1/futures/*`) with no new commands.
+- **`CME_METALS` trading calendar** (slice 232, migration 059): metals hours
+  and every holiday close from 2020 through 2027, each sourced from CME and
+  checked against traded data. GC's sessions come from it, not from ES's
+  equity calendar (metals close at 13:30 CT on US holidays, 13:45 CT the day
+  after Thanksgiving since 2024, 12:45 CT on Christmas Eve).
+- **Runbook: "Adding a futures product"** — the steps from calendar to
+  verified data for the next product.
 - **Futures ticks over the API: `/api/v1/futures/*`** (slice 231).
   - Catalog: `products` (each product's active contract per status rule and
     the next roll), `products/{product}/contracts` (every definition, spreads
@@ -132,6 +143,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pass buys nothing and `mt data tick status` reads caught up.
 
 ### Fixed
+- `mt data tick coverage` counts only the product's own instruments. With
+  more than one product stored, each product's coverage used to report the
+  other product's trades as mismatches and exit 3 (slice 232).
 - An unreachable calendar database no longer stalls `mt data tick active`,
   `get --product` or the futures API for 30 s: the roll path's calendar read
   gives up within the 10 s connect timeout.

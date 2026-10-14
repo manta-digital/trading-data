@@ -7,7 +7,7 @@ dependencies: [231-slice.api-surface-coverage-futures-tick, 226-slice.proof-on-e
 interfaces: [234-slice.tick-pass-production-wiring]
 dateCreated: 20261014
 dateUpdated: 20261014
-status: not_started
+status: complete
 ---
 
 # Slice Design: Universe Expansion — GC
@@ -302,30 +302,33 @@ There is no tick-track migration. GC uses the same tables, layout, tier CHECK an
 
 ### Verification Walkthrough
 
-This is a draft, refined after implementation. The commands run from the dev checkout (`uv run mt …`) until 234 wires `mt-run data tick`.
+As run on 2026-10-14 from the dev checkout (`uv run mt …`; 234 wires `mt-run data tick`). Steps 2–3 spend money and need the PM; every other step is free and repeatable. Times are UTC unless marked CT.
 
-1. **Calendar.**
+1. **Calendar** (migration 059 needs a PM go on production; it is frozen once applied).
    ```bash
-   uv run mt data migrate status            # 059_seed_cme_metals_calendar pending
-   uv run mt data migrate apply
-   uv run mt data calendars list            # CME_METALS … holidays seeded through 2027-12-31
+   uv run mt data migrate status            # 059_seed_cme_metals_calendar pending, nothing else
+   uv run mt data migrate apply             # "Applied: 059_seed_cme_metals_calendar"; then 70 applied, 0 pending
+   uv run mt data calendars list            # CME_METALS  CME Globex Metals  America/Chicago  17:00:00-16:00:00  2027-12-31
    uv run mt data calendars sessions --calendar CME_METALS --from 2024-11-27 --to 2024-12-02
    uv run mt data calendars sessions --calendar CME_EQUITY --from 2024-11-27 --to 2024-12-02
+   uv run mt data calendars sessions --calendar CME_METALS --from 2024-12-23 --to 2025-01-03
    ```
-   Expected: metals closes at 13:30 CT on 11-28 and 13:45 CT on 11-29. Equity is unchanged at 12:00 and 12:15. There is no session dated 12-25 or 2025-01-01 on either calendar.
+   Result: metals 11-28 closes 13:30 CT (Thanksgiving Day) and 11-29 closes **13:45 CT** (corrected from the draft's 12:45, see Implementation Findings); equity 12:00 and 12:15. Metals 12-24 closes 12:45 CT; no session dated 12-25 or 2025-01-01 on either calendar. NYSE, NASDAQ and CME_EQUITY rows, holidays and sessions are byte-identical before and after (md5 digests).
 
 2. **Estimate (free).**
    ```bash
    uv run mt data tick pass --estimate-only
    ```
-   Expected: ES plans nothing because it is caught up. GC plans the definition and tbbo days for 2024-11-03 → 12-31. The bundle cost is about $8.43, and the run is refused at the current $0.50 ceiling.
+   Result: ES plans nothing. GC plans 51 days each of tbbo and definition in two requests per schema; `planned $8.4346`, refused at the $0.50 per-pass ceiling and the $5.00 30-day cap ("the cap must be raised for this plan"). Databento's `get_cost` can return HTTP 504 (`provider_abort`, exit 2); re-run.
 
-3. **Purchase (PM-authorised spend).** The PM sets `MT_TICK_SPEND_CEILING_USD` and `MT_TICK_SPEND_30D_CEILING_USD` at or above the printed figure, then:
+3. **Purchase (PM-authorised spend).** The PM set `MT_TICK_SPEND_CEILING_USD` and `MT_TICK_SPEND_30D_CEILING_USD` to $10 (needed: ≥ 8.4346 and ≥ trailing + planned = 8.4387).
    ```bash
-   uv run mt data tick pass                 # submits, waits within 1,800 s, downloads, verifies, projects definitions
+   uv run mt data tick pass                 # verdict allowed; 4 jobs submitted; waits, downloads, verifies
+   uv run mt data tick pass                 # only if the first ended provider_abort/with jobs in flight:
+                                            # reconciles and downloads first; "nothing_to_buy"
    uv run mt data tick ingest
    ```
-   Expected: every GC unit ends *ingested*, with no failed units. Record the ingest wall-clock and the slowest unit in the walkthrough notes against the bounds under Testing. If the 1,800 s wait budget ends with a job still in flight, the pass prints it with its deadline. Downloading it before that deadline is then the operator's job (architecture, manual regime): run `uv run mt data tick pass` again, which reconciles and downloads before it buys anything. Afterwards the per-pass ceiling is restored.
+   Result: charged $8.4346, equal to the estimate per request. A gateway timeout ended the first submitting run's wait; the re-run verified the remaining units and bought nothing. Ingest: 51 units, 4,031,298 records, 0 failed; 14.4 s wall clock for the range (bound 2 h); slowest unit 1.369 s (2024-11-25; bound 120 s). Afterwards the PM restored the per-pass ceiling. On a `nothing_to_buy` run the report prints "trailing 30 days $0.0000"; the guard did not run, and the window still holds the spend.
 
 4. **Proof surfaces.**
    ```bash
@@ -333,14 +336,16 @@ This is a draft, refined after implementation. The commands run from the dev che
    uv run mt data tick coverage --start 2024-11-02 --end 2025-01-01
    uv run mt data overview
    ```
-   Expected: a GC line with tier tbbo and caught up, and coverage ok on every GC session. The overview tick line names both products.
+   Result: a `GC (CME_METALS, GLBX.MDP3, GC.FUT parent) tier: tbbo` block, 41 sessions held and complete, caught up, `v.0` GCG5 and `c.0` GCF5 at 2024-12-31. Coverage exit 0, `ok` on all 41 GC sessions and all 41 ES sessions. The overview has one store-wide `futures ticks` line (newest tick 2024-12-31 21:59 UTC); it names no product, by 230's design.
 
-5. **Session model, too-wide direction.**
+5. **Session model, too-wide direction.** Read the contracts trading, not only the served one: on a roll's edge the served contract can stop trading before the close.
    ```bash
-   uv run mt data tick get 1m --product GC --start 2024-11-28 --end 2024-11-29
-   uv run mt data tick get 1m --product GC --start 2024-11-29 --end 2024-11-30
+   uv run mt data tick get 1m --contract GCG5 --start 2024-11-28 --end 2024-11-29 --csv > gcg5-1128.csv
+   uv run mt data tick get 1m --contract GCG5 --start 2024-11-29 --end 2024-11-30 --csv > gcg5-1129.csv
+   uv run mt data tick get 1m --contract GCG5 --start 2024-12-24 --end 2024-12-25 --csv > gcg5-1224.csv
+   uv run mt data tick get 1m --contract GCG5 --start 2024-12-26 --end 2024-12-27 --csv > gcg5-1226.csv
    ```
-   The dates are session dates, so `--start 2024-11-28` is the session that opens on 11-27 at 17:00 CT. Expected: the last bar of the 11-28 session is at 13:29 CT (19:29 UTC), and the last bar of the 11-29 session is at 13:44 CT (19:44 UTC). Record each exception session's last-bar time in the walkthrough notes.
+   Dates are session dates and `--end` is exclusive. Result: last bar 19:29 UTC (13:29 CT) on 11-28, 19:44 UTC (13:44 CT) on 11-29, 18:44 UTC (12:44 CT) on 12-24; the 11-29 session's first bar is 11-28 23:00 UTC (17:00 CT) and the 12-26 session's first bar is 12-25 23:00 UTC (17:00 CT), so Christmas Day has none. `mt data tick get 1m --product GC …` serves GCZ4 (`v.0`) on 11-28, whose last bar is 12:59 CT because it had stopped trading.
 
 6. **Roll.**
    ```bash
@@ -348,14 +353,15 @@ This is a draft, refined after implementation. The commands run from the dev che
    uv run python scripts/record_229_roll_fixture.py --product GC
    uv run pytest test/unit/data/tick/test_roll_provider_equivalence.py
    ```
-   Expected: under `v.0`, GCZ4 serves until the session Databento's `GC.v.0` switches on (2024-11-29), and GCG5 serves after it. The first two sessions are listed as unresolved. The test passes for ES and GC.
+   Result: `v.0` GCZ4 2024-11-06 → 11-28, GCG5 11-29 → 12-31 (Databento's `GC.v.0` switches 11-29); 11-04 and 11-05 unresolved (volume inputs 10-31 and 11-01 missing); exit 3. The recorder writes `gc_{definitions,volumes,calendar,databento}.json`. The test passes (29) for ES and GC: `v.0`, `c.0`, `c.1` agree with Databento on every held session; GC's `v.1` differs on 3 sessions, pinned as `KNOWN_DIVERGENCE` (PM decision).
 
-7. **API.**
+7. **API.** The installed `mt-serve` runs the deployed code; until this slice ships, start a branch build:
    ```bash
+   uv run mt serve --host 127.0.0.1 --port 8137 &
    curl -s localhost:8137/api/v1/futures/products | jq '.products[] | {product, calendar}'
    curl -s 'localhost:8137/api/v1/futures/products/GC/schedule?start=2024-11-04&end=2025-01-01' | jq '.segments'
    ```
-   Expected: GC is on `CME_METALS`, and its segments match step 6's `active` output.
+   Result: ES on `CME_EQUITY`, GC on `CME_METALS`; two segments, GCZ4 2024-11-06 → 11-28 and GCG5 11-29 → 12-31, with the same two unresolved sessions as step 6.
 
 ## Risk Assessment
 
@@ -580,3 +586,19 @@ Unit tier after the GC entry: 4716 passed, 5 skipped, 0 failed. Integration tier
 - **GC fixtures** (`record_229_roll_fixture.py --product GC`, free calls): `gc_definitions.json` 24 rows, `gc_volumes.json` 1,720, `gc_calendar.json` 153, `gc_databento.json` 4 symbols. Databento: `GC.c.0` GCX4 → 11-27 GCZ4 → 12-29 GCF5; `GC.v.0` GCZ4 → 11-29 GCG5; `GC.v.1` → 11-29 GCZ4 → 12-02 GCJ5.
 - **Equivalence at `VOLUME_RANK_LAG_SESSIONS = 2`, inside GC's held range (from 2024-11-04):** `v.0` 40/40 sessions agree (TD8's stop condition does not fire); `c.0` and `c.1` 42/42 agree; **`v.1` disagrees on 3 of 40**: 12-02 (ours GCZ4, ranked on Thanksgiving 11-28: GCZ4 1,764 vs GCJ5 379), 12-09 (ours GCF5, 12-05: 1,104 vs 1,086), 12-12 (ours GCF5, 12-10: 1,153 vs 1,140); Databento says GCJ5 on all three. Lag 1 would match all three but moves `v.0`'s switch to 11-28, a session before Databento's; no single lag fits. **PM decision (2026-10-14): keep the lag whole at 2; rely on `v.0` (and `c.0`, `c.1`); note `v.1` for potential later use.** `test_roll_provider_equivalence.py` lists ES and GC; the three GC `v.1` sessions are an explicit `KNOWN_DIVERGENCE` set, and the test fails if that set changes either way.
 - **Test-side issues the GC fixtures exposed, now fixed:** the shared resolve span starts 2024-08-30, before GC is held, so `c.*` "resolves" 46 pre-range sessions to contracts whose definitions GC does not hold (all 43 pre-range mismatches); and `assert len(resolved) > 40` was sized for ES's two held ranges (GC resolves exactly 40 under `v.*`). Each product is now compared from its first session with recorded volume (`_held_from`: ES 2024-08-30, the span start, so ES's compared set is unchanged; GC 2024-11-04), and the floor is `>= 40`. 29 tests pass.
+
+### Final gate (task 10.5)
+
+Unit 4724 passed, 5 skipped, 0 failed. Integration (after the coverage fix) 6 failed, all known, 1031 passed. Load 4 known failures; `test_224_tick_pass_nfr.py` passes after its ES pin. Kalshi parity 31 passed. ruff: no new error in any touched `.py` file. mypy (one invocation over `data/kalshi`, `data/tick`, `market/schema`, the touched tests, `test/tick_support`, the recorder): only the pre-existing `runner.py:85` error; the load test checks clean in its own invocation (mixing tier directories trips mypy's duplicate-module path artifact). Src diff: `constants.py`, `universe.py`, `seed_cme_calendar.py`, `seed_cme_metals_calendar.py`, `migrations/minute.py`, `scripts/record_229_roll_fixture.py`, plus `status_reads.py` and `tick_coverage.py` for the PM-approved coverage fix. Migration 058 is untouched; one 058 test (the calendar-set assertion) changed.
+
+### Results against the Functional Requirements
+
+1. **Met.** 059 applies on a fresh database (8 integration tests) and on production; `calendars list` shows `CME_METALS … 2027-12-31`; other calendars byte-identical (test and production digests).
+2. **Met.** Every row carries a `# source:` comment (unit-tested, mutation-checked); 13 cross-check differences, each resolved from CME.
+3. **Met, with the corrected value.** CME_METALS 11-28 13:30 CT and 11-29 13:45 CT (not 12:45); CME_EQUITY 12:00 and 12:15.
+4. **Met.** `calendar_for_product("GC")` is `CME_METALS`; the universe validates with ES and GC.
+5. **Met.** The estimate planned only GC days ($8.4346); the pass bought them within the PM's ceilings; 51/51 units ingested with all three checks; coverage ok on all 41 GC sessions.
+6. **Met.** Too-wide check recorded for every metals exception session in the range (11-28, 11-29, 12-24, 12-25).
+7. **Met, one expectation corrected.** Status shows GC caught up at tbbo with its active contracts; the API lists GC on `CME_METALS` and its schedule shows GCZ4 → GCG5. The overview's tick line names no product (by 230's design). Surface code: only coverage's `raw_counts` changed, the leaked assumption found and fixed with the PM's approval.
+8. **Met for `v.0`, `c.0`, `c.1`;** `v.1` differs on 3 GC sessions, accepted by the PM and pinned in the test.
+9. **Met.** Open interest deferred (PM, 2026-10-14), recorded in the slice plan (Future Work 2) and the architecture Revision Log.

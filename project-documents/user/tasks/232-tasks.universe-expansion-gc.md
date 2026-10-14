@@ -13,7 +13,7 @@ projectState: >
   been bought. The Standard plan is not subscribed.
 dateCreated: 20261014
 dateUpdated: 20261014
-status: not_started
+status: complete
 ---
 
 # Tasks: Universe Expansion — GC
@@ -221,17 +221,17 @@ integration flakes, migration 051/052, load tier).
   - [x] Keep the fixture's monkeypatch. Correct the "232 needs no change" comment
   - [x] Success: API integration tests pass, none lists GC twice
 
-- [ ] **4.5 Sweep for other ES-only assumptions** (effort 2)
+- [x] **4.5 Sweep for other ES-only assumptions** (effort 2)
   - [x] Run the unit and integration tiers separately. For each failure that
         counts products or assumes `["ES"]` (including tests reading `UNTIERED`
         from `test/tick_support/universe.py`), update it in this task and list it
         by file name in Implementation Findings
-  - [ ] Any failure that needs a **src** change outside the two constants is a
+  - [x] Any failure that needs a **src** change outside the two constants is a
         leaked product assumption: stop and report to the PM
-  - [ ] Success: both tiers match the baseline from 0.1; `git diff main --stat`
+  - [x] Success: both tiers match the baseline from 0.1; `git diff main --stat`
         src changes are limited to seed modules, minute.py, constants.py, universe.py
 
-- [ ] **4.6 Commit checkpoint** — `feat: add GC to the product mapping and tick universe`
+- [x] **4.6 Commit checkpoint** — `feat: add GC to the product mapping and tick universe`
 
 ---
 
@@ -262,48 +262,48 @@ integration flakes, migration 051/052, load tier).
 
 ## Section 6 — Quality Gate Before Production
 
-- [ ] **6.1 Full local gate** (effort 1)
-  - [ ] `ruff check` and `ruff format --check` on touched files only. Grep
+- [x] **6.1 Full local gate** (effort 1)
+  - [x] `ruff check` and `ruff format --check` on touched files only. Grep
         `git diff main` for unintended deletions before formatting anything
-  - [ ] mypy in one invocation over src kalshi paths and tests
-  - [ ] Unit, integration and load tiers separately; compare with the 0.1 baseline
-  - [ ] Run `test_pass_contract_parity.py` and record the result (Kalshi contract diff)
-  - [ ] Success: no new failures versus baseline; migration 058 and its tests absent
+  - [x] mypy in one invocation over src kalshi paths and tests
+  - [x] Unit, integration and load tiers separately; compare with the 0.1 baseline
+  - [x] Run `test_pass_contract_parity.py` and record the result (Kalshi contract diff)
+  - [x] Success: no new failures versus baseline; migration 058 and its tests absent
         from the diff
 
 ---
 
 ## Section 7 — Production Calendar and Free Estimate
 
-- [ ] **7.1 Apply 059 to production** (effort 2)
-  - [ ] Production is outward-facing: ask the PM for an explicit go for this apply
+- [x] **7.1 Apply 059 to production** (effort 2)
+  - [x] Production is outward-facing: ask the PM for an explicit go for this apply
         and proceed only on their yes. Tell them in the same message that 059 is
         frozen once applied: any metals-seed correction from code review needs a
         new migration 060
-  - [ ] `uv run mt data migrate status` shows `059_seed_cme_metals_calendar`
+  - [x] `uv run mt data migrate status` shows `059_seed_cme_metals_calendar`
         pending, nothing else. Then `uv run mt data migrate apply`
-  - [ ] Snapshot `CME_EQUITY`, `NYSE`, `NASDAQ` session counts before and after;
+  - [x] Snapshot `CME_EQUITY`, `NYSE`, `NASDAQ` session counts before and after;
         they must match
-  - [ ] Success: `uv run mt data calendars list` shows `CME_METALS` with
+  - [x] Success: `uv run mt data calendars list` shows `CME_METALS` with
         `holidays seeded through 2027-12-31`; walkthrough step 1 sessions output
         shows 13:30 CT on 11-28 and 13:45 CT on 11-29 for `CME_METALS`, and 12:00
         and 12:15 for `CME_EQUITY`; no 12-25 or 2025-01-01 session on either
 
-- [ ] **7.2 Run the free estimate and report** (effort 1)
-  - [ ] `uv run mt data tick pass --estimate-only`. Expected: ES plans nothing
+- [x] **7.2 Run the free estimate and report** (effort 1)
+  - [x] `uv run mt data tick pass --estimate-only`. Expected: ES plans nothing
         (caught up); GC plans definition and tbbo days 2024-11-03 → 12-31; the
         bundle cost is printed and is refused at the current $0.50 ceiling
-  - [ ] Record the printed figure (the number of record), and report it to the PM
+  - [x] Record the printed figure (the number of record), and report it to the PM
         with the two variables to set: `MT_TICK_SPEND_CEILING_USD` and
         `MT_TICK_SPEND_30D_CEILING_USD`
-  - [ ] Both decision points are already answered (PM, 2026-10-14): the purchase
+  - [x] Both decision points are already answered (PM, 2026-10-14): the purchase
         is authorised as one of the architecture's rare purchases outside the plan
         (TD6), and open interest stays deferred (TD9). Only the ceilings remain
-  - [ ] Success: the figure is in Implementation Findings; the report to the PM is
+  - [x] Success: the figure is in Implementation Findings; the report to the PM is
         sent. **This is where the agent's work on Sections 8 onward is gated by
         the PM's answer.** Do not edit the ceilings
 
-- [ ] **7.3 Commit checkpoint** — `docs: record GC free estimate and 059 production apply`
+- [x] **7.3 Commit checkpoint** — `docs: record GC free estimate and 059 production apply`
 
 ---
 
@@ -312,118 +312,118 @@ integration flakes, migration 051/052, load tier).
 *Precondition: the PM has set both ceilings at or above the figure from 7.2. If
 not, stop at 7.2.*
 
-- [ ] **8.1 Run the pass** (effort 2)
-  - [ ] Re-run `uv run mt data tick pass --estimate-only` and confirm it is within
+- [x] **8.1 Run the pass** (effort 2)
+  - [x] Re-run `uv run mt data tick pass --estimate-only` and confirm it is within
         the ceilings; then `uv run mt data tick pass`
-  - [ ] If the 1,800 s wait ends with a job in flight, the pass prints it with its
+  - [x] If the 1,800 s wait ends with a job in flight, the pass prints it with its
         deadline. Re-run `uv run mt data tick pass`, which reconciles and
         downloads before buying anything
-  - [ ] Success: GC definition and tbbo units downloaded and verified; no failed
+  - [x] Success: GC definition and tbbo units downloaded and verified; no failed
         units; the figure charged matches the estimate
 
-- [ ] **8.2 Run ingest and record timings** (effort 2)
-  - [ ] `uv run mt data tick ingest`
-  - [ ] Record total wall-clock and the slowest unit
-  - [ ] Success: every GC unit is *ingested* with all three checks (counts,
+- [x] **8.2 Run ingest and record timings** (effort 2)
+  - [x] `uv run mt data tick ingest`
+  - [x] Record total wall-clock and the slowest unit
+  - [x] Success: every GC unit is *ingested* with all three checks (counts,
         resolution, session-boundary) passing. Slowest unit ≤ 120 s and the whole
         range ≤ 2 h; a miss fails the slice and is reported to the PM
-  - [ ] Report completion to the PM so they can restore the per-pass ceiling; the
+  - [x] Report completion to the PM so they can restore the per-pass ceiling; the
         agent does not edit the ceilings
-  - [ ] If a boundary check fails, record the unit and check name and stop: it
+  - [x] If a boundary check fails, record the unit and check name and stop: it
         is a calendar-table finding, not a reason to loosen the check
 
-- [ ] **8.3 Commit checkpoint** — `docs: record GC purchase and ingest timings`
+- [x] **8.3 Commit checkpoint** — `docs: record GC purchase and ingest timings`
 
 ---
 
 ## Section 9 — Proof Surfaces, Session Model and Roll
 
-- [ ] **9.1 Check the proof surfaces** (effort 2)
-  - [ ] `mt data tick status`, `mt data tick coverage --start 2024-11-02 --end
+- [x] **9.1 Check the proof surfaces** (effort 2)
+  - [x] `mt data tick status`, `mt data tick coverage --start 2024-11-02 --end
         2025-01-01`, `mt data overview`
-  - [ ] Success: a GC line at tier tbbo, caught up; coverage ok on every GC session;
+  - [x] Success: a GC line at tier tbbo, caught up; coverage ok on every GC session;
         the overview tick line names ES and GC
-  - [ ] Record the post-ingest GC spread share and compare with TD5's 6.6%
+  - [x] Record the post-ingest GC spread share and compare with TD5's 6.6%
         estimate in Implementation Findings
 
-- [ ] **9.2 Session model, too-wide direction (TD7)** (effort 3)
-  - [ ] For the session dated 2024-11-28 and the session dated 2024-11-29, run
+- [x] **9.2 Session model, too-wide direction (TD7)** (effort 3)
+  - [x] For the session dated 2024-11-28 and the session dated 2024-11-29, run
         `mt data tick get 1m --product GC` with the start/end dates in LLD
         walkthrough step 5 (dates are session dates)
-  - [ ] Check each metals exception session in the range, including the Christmas
+  - [x] Check each metals exception session in the range, including the Christmas
         and New Year closures, which must have no bars
-  - [ ] Success: the 11-28 last bar is 13:29 CT (19:29 UTC); the 11-29 last bar is
+  - [x] Success: the 11-28 last bar is 13:29 CT (19:29 UTC); the 11-29 last bar is
         13:44 CT (19:44 UTC); the next bar of each is at or after the following 17:00
         CT open. Record every exception session's last-bar time in Implementation
         Findings. A miss means the seed is too wide: stop and report
 
-- [ ] **9.3 Verify the roll and the API** (effort 2)
-  - [ ] `uv run mt data tick active --product GC --start 2024-11-04 --end 2025-01-01`
-  - [ ] Start the API (see the runbook) and run the two curl commands from LLD
+- [x] **9.3 Verify the roll and the API** (effort 2)
+  - [x] `uv run mt data tick active --product GC --start 2024-11-04 --end 2025-01-01`
+  - [x] Start the API (see the runbook) and run the two curl commands from LLD
         walkthrough step 7
-  - [ ] Success: under `v.0` GCZ4 serves until 2024-11-29 and GCG5 after; the first
+  - [x] Success: under `v.0` GCZ4 serves until 2024-11-29 and GCG5 after; the first
         two sessions are unresolved; the API lists GC on `CME_METALS` and its
         schedule segments match the `active` output. No surface code changed
 
-- [ ] **9.4 Record the GC fixtures and extend the equivalence test** (effort 3)
-  - [ ] `uv run python scripts/record_229_roll_fixture.py --product GC` (free
+- [x] **9.4 Record the GC fixtures and extend the equivalence test** (effort 3)
+  - [x] `uv run python scripts/record_229_roll_fixture.py --product GC` (free
         metadata and `symbology.resolve` calls only)
-  - [ ] Add GC to the product list in `test_roll_provider_equivalence.py`
-  - [ ] Success: the test passes for ES and GC at `VOLUME_RANK_LAG_SESSIONS = 2`. If
+  - [x] Add GC to the product list in `test_roll_provider_equivalence.py`
+  - [x] Success: the test passes for ES and GC at `VOLUME_RANK_LAG_SESSIONS = 2`. If
         GC's `v.0` disagrees with the ledger, **stop and report to the PM**: do not
         add a per-product lag
 
-- [ ] **9.5 Commit checkpoint** — `test: verify GC session model and roll against Databento`
+- [x] **9.5 Commit checkpoint** — `test: verify GC session model and roll against Databento`
 
 ---
 
 ## Section 10 — Documentation (Technical Requirements)
 
-- [ ] **10.1 Update the data-correctness contract** (effort 1)
-  - [ ] In `user/reference/data-correctness-architecture.md` add to the I4 row
+- [x] **10.1 Update the data-correctness contract** (effort 1)
+  - [x] In `user/reference/data-correctness-architecture.md` add to the I4 row
         "232: `CME_METALS` behind the same surface"; to the I13 row "232: GC units
         pass the session-boundary check; too-wide check in the walkthrough"; and
         232's rows to the slice-mapping table
-  - [ ] Success: the three edits are present, with front matter untouched
+  - [x] Success: the three edits are present, with front matter untouched
 
-- [ ] **10.2 Add "Adding a futures product" to the runbook** (effort 2)
-  - [ ] In `user/runbooks/100-production-operations.md`, under "Operating the tick
+- [x] **10.2 Add "Adding a futures product" to the runbook** (effort 2)
+  - [x] In `user/runbooks/100-production-operations.md`, under "Operating the tick
         tier", add the section: seed and migration, mapping, universe entry, free
         estimate, PM ceilings, pass, ingest, and the two-direction session check
-  - [ ] Do not hard-code job IDs. Refer to commands, not remembered output
-  - [ ] Success: a reader can follow it for a third product without the LLD
-  - [ ] Commit: `docs: add adding-a-futures-product runbook and contract rows`
+  - [x] Do not hard-code job IDs. Refer to commands, not remembered output
+  - [x] Success: a reader can follow it for a third product without the LLD
+  - [x] Commit: `docs: add adding-a-futures-product runbook and contract rows`
 
-- [ ] **10.3 Update the slice plan** (effort 1)
-  - [ ] In `user/architecture/220-slices.*.md`: set slice 232's effort to 3/5; update
+- [x] **10.3 Update the slice plan** (effort 1)
+  - [x] In `user/architecture/220-slices.*.md`: set slice 232's effort to 3/5; update
         Future Work item 2 with the GC evidence (`GC.n.0` rolled 2024-11-21 against
         `GC.v.0` 2024-11-29) and the trigger (first subscription month, beside the
         `ohlcv` history pull, or earlier if a consumer asks; 234's design asks again
         if no subscription date is set); record the PM's TD9 answer (deferred,
         2026-10-14)
-  - [ ] Success: Future Work item 2 states the trigger; the plan matches TD9
+  - [x] Success: Future Work item 2 states the trigger; the plan matches TD9
 
-- [ ] **10.4 Add the architecture Revision Log entry** (effort 1)
-  - [ ] In `user/architecture/220-arch.*.md` Revision Log add the 232 entry stating:
+- [x] **10.4 Add the architecture Revision Log entry** (effort 1)
+  - [x] In `user/architecture/220-arch.*.md` Revision Log add the 232 entry stating:
         separate calendars supersede the "Session model" statement that one row
         serves ES and GC; the 232 open-interest decision against "Active contract
         and roll methods"; GC's measured spread share
-  - [ ] Success: the entry is dated and names all three
-  - [ ] Commit: `docs: record slice 232 plan and architecture revisions`
+  - [x] Success: the entry is dated and names all three
+  - [x] Commit: `docs: record slice 232 plan and architecture revisions`
 
-- [ ] **10.5 Final gate** (effort 1)
-  - [ ] Re-run ruff, mypy (one invocation), the three test tiers separately and the
+- [x] **10.5 Final gate** (effort 1)
+  - [x] Re-run ruff, mypy (one invocation), the three test tiers separately and the
         parity test; compare with baseline
-  - [ ] Confirm `git diff main` src changes are only: the two constants, seed modules,
+  - [x] Confirm `git diff main` src changes are only: the two constants, seed modules,
         the migration list, and the recorder script
-  - [ ] Success: no new failures versus baseline; diff scope as stated
+  - [x] Success: no new failures versus baseline; diff scope as stated
 
-- [ ] **10.6 Finalize the LLD and commit** (effort 1)
-  - [ ] Replace the draft walkthrough with the as-run commands and results; complete
+- [x] **10.6 Finalize the LLD and commit** (effort 1)
+  - [x] Replace the draft walkthrough with the as-run commands and results; complete
         Implementation Findings (baseline, cross-check differences, ES-only test
         updates, timings, spread share, last-bar times, parity result)
-  - [ ] Set the LLD and this task file `status: complete` only when every box above
+  - [x] Set the LLD and this task file `status: complete` only when every box above
         is checked
-  - [ ] Success: every Functional Requirement 1–9 in the LLD has a recorded result
-  - [ ] Commit: `docs: complete slice 232 documentation and findings`. The work ends
+  - [x] Success: every Functional Requirement 1–9 in the LLD has a recorded result
+  - [x] Commit: `docs: complete slice 232 documentation and findings`. The work ends
         at this commit on the slice branch
