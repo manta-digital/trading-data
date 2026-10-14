@@ -51,8 +51,9 @@ dropped weights are plan scope, and they need the PM's confirmation
 
 **Cutover timing (decided):** the install is held for the release that
 follows 234. 233 closes with the measurement, the unit file, the drift
-guard, the documents, and a cutover script that has passed its `--check`
-(Technical Decision 7).
+guard and the documents. It builds no cutover script. 234's cutover
+installs the file and verifies the bound (issue #33, Technical
+Decision 7).
 
 ## Value
 
@@ -101,18 +102,7 @@ guard, the documents, and a cutover script that has passed its `--check`
    `deploy/systemd/` that names the slice is a `Type=oneshot` pass. The
    guard's comment says the weight assertion is intentional: taking up a
    reopen trigger (Technical Decision 5) means editing this test on purpose.
-5. **The cutover script** (`scripts/cutover_233_arbitration.py`), verify
-   only. It does the following in order:
-   - installs the given ref through `cutover_common` (preflight, install);
-   - verifies that the slice's `MemoryMax` is live in systemd and in
-     `memory.max`;
-   - reads the slice's `memory.events` (`max`, `oom_kill`);
-   - writes the cutover report.
-
-   Failure handling is in Technical Decision 7. The script runs at the
-   release after 234, not in this slice. In this slice it only has to pass
-   `--check`.
-6. **Documents**:
+5. **Documents**:
    - Runbook 100: the unit table row; a new add-a-source step to re-derive
      the bound when a unit joins the slice; and the "two limits" bullet,
      rewritten from "arbitration does not exist yet" to the decision.
@@ -162,10 +152,9 @@ guard, the documents, and a cutover script that has passed its `--check`
   and GC tbbo jobs. Rebuilding from it is the tick load.
 - **916 / 921 / 922 (complete):** the production units, the narrow
   `manta-ops` sudoers list (blocking and `--no-block` start of
-  `mt-minute-pass.service`, the install script), `cutover_common`, and
-  `pass_runs`.
-- **No sudoers change and no PM host step** apart from running the cutover
-  script (see Special Considerations about what that install deploys).
+  `mt-minute-pass.service`) and `pass_runs`.
+- **No sudoers change and no PM host step.** Nothing is installed in this
+  slice (Technical Decision 7).
 
 ### Interfaces Required
 
@@ -193,7 +182,6 @@ scripts/contention_233.py                 entry: --check | --memory-bound | run;
 scripts/contention_233_scratch.py         initdb + conf + start/stop of the scratch tick server
 scripts/contention_233_run.py             the firing schedule, guards, verdict (pure, unit-tested)
 scripts/contention_233_memory.py          journal-peak parse + MemoryMax rule (pure, unit-tested)
-scripts/cutover_233_arbitration.py        install → verify bound → contention again → report
 
 reused, unchanged:
   proof_226.contention_sampler            /proc + production pg_stat_database + tick rows/s
@@ -201,7 +189,6 @@ reused, unchanged:
   proof_226.guard.reset_proof_database    the guarded reset (name = TICK_PROOF_DB_NAME)
   drill_228_lifecycle                     pg_ctl, drill-dir create/assert/remove, lock
   drill_228_rebuild.rebuild_commands      migrate → adopt each job → estimate → ingest
-  cutover_common                          preflight, install, report log
 ```
 
 Where a reused function's signature is tied to its slice's context object
@@ -250,9 +237,9 @@ firings are excluded by the preflight's time-of-day bounds.
   matched on the `233-contention-` prefix only.
 - **Host configuration:** one file, `manta-acquisition.slice`, installed by
   `install-production.sh`. systemd applies a changed slice's properties on
-  `daemon-reload`, which the installer runs. The cutover verifies this by
-  reading `memory.max`. **The slice is never restarted**, because that would
-  stop every pass in it.
+  `daemon-reload`, which the installer runs. 234's cutover verifies this by
+  reading `memory.max` (issue #33). **The slice is never restarted**,
+  because that would stop every pass in it.
 
 ## Technical Decisions
 
@@ -289,9 +276,10 @@ evidence:
   at the report, and the PM chooses a placement for a weight (Technical
   Decision 5).
 
-**PM confirmation required.** Dropping plan-assigned `CPUWeight`/`IOWeight`
-is plan scope. It is listed for the PM at slice review and has not yet been
-confirmed.
+**PM confirmation required, not yet given.** Dropping plan-assigned
+`CPUWeight`/`IOWeight` and the post-setting re-run is plan scope.
+Implementation stops at a PM gate before the unit file is written
+(Development Approach, step 5).
 
 #### Technical Decision 2: the tick load runs on a scratch server, not on `17/tick`
 
@@ -455,26 +443,21 @@ verdict.
     to be harmless, stagger is kept for quota reasons, and the bullet names
     the reopen triggers.
 
-#### Technical Decision 7: the cutover is held for the release after 234, and is verify-only
+#### Technical Decision 7: the install and its check ride 234's cutover
 
 **Timing.** `install-production.sh` installs the whole checkout at a ref.
 Production `/opt` is at `v0.19.0`, 351 commits behind main, so any install
 is a production code upgrade. The PM already plans one release after 233
 and 234 (project memory), so the one-line bound rides that release. That
 also puts 234's tick unit, and its peak, in the same derivation before
-anything is installed. 233 closes without installing: its success criteria
-are what can be shown before the install.
+anything is installed. 233 closes without installing, and it builds no
+cutover script of its own. Its success criteria are what can be shown
+before the install.
 
-**At the release**, the script does the following, with no contention
-re-run:
-1. `cutover_common` preflight and install (the minute timer is held during
-   the install, and the installed commit is verified).
-2. Reads `systemctl show manta-acquisition.slice -p MemoryMax` and the
-   cgroup's `memory.max`.
-3. Reads `memory.events`.
-4. Writes `<date>-233-cutover.md`.
-
-**Failure handling after the install step:**
+**Deferred to 234's cutover script** (issue #33): after the install, it
+reads `systemctl show manta-acquisition.slice -p MemoryMax`, the cgroup's
+`memory.max`, and `memory.events`, with no contention re-run. It handles
+what it sees as follows:
 
 | Seen | Meaning | Script | Operator |
 |---|---|---|---|
@@ -515,8 +498,6 @@ The harness's command line:
 | `uv run python scripts/contention_233.py --check` | Preflight only. Prints each condition, expected against seen. | 0 ready / 1 not ready |
 | `uv run python scripts/contention_233.py --memory-bound` | Derivation only: members, their peaks, the result. | 0 / 2 could not read the journal |
 | `uv run python scripts/contention_233.py` | The full run. Writes `<date>-233-contention-minute.md`. | 0 none measured / 1 measurable contention / 2 guard trip or setup failure |
-| `uv run python scripts/cutover_233_arbitration.py --check` | The cutover's preflight only. Installs nothing. | 0 ready / 1 not |
-| `uv run python scripts/cutover_233_arbitration.py --ref <ref>` | At the release after 234: install, bound verification, `memory.events`, then `<date>-233-cutover.md` (Technical Decision 7). | 0 / 1 per the Technical Decision 7 table |
 
 ## Integration Points
 
@@ -540,8 +521,8 @@ The harness's command line:
   reused module's behaviour no longer fits, it is fixed in place with a
   test, not forked.
 - **228:** the scratch-server lifecycle and the rebuild command sequence.
-- **916 / 921 / 922:** the minute unit, the sudoers entries, `pass_runs`,
-  and `cutover_common`.
+- **916 / 921 / 922:** the minute unit, the sudoers entries, and
+  `pass_runs`.
 - **Failure handling:**
   - production unreachable at preflight: exit 2 before any load;
   - unreachable mid-run: the loop stops and a partial report marked
@@ -561,15 +542,11 @@ The harness's command line:
 3. `manta-acquisition.slice` declares `MemoryMax` equal to the
    derivation's result. The unit file's comment cites the report and states
    why `CPUWeight`/`IOWeight` are absent.
-4. `scripts/cutover_233_arbitration.py --check` passes. The cutover itself
-   runs at the release after 234 (Technical Decision 7). This slice's claim
-   is narrower: the bound is in force, and weekday passes are unaffected.
-   Whether Saturday's 6.2 GiB pass fits is argued from the 2× headroom, not
+4. Nothing is installed in this slice, so it claims only that the bound is
+   declared and derived. The claim that the bound is in force is checked by
+   234's cutover (issue #33, Technical Decision 7). Whether Saturday's
+   6.2 GiB pass fits under the bound is argued from the 2× headroom, not
    shown, since no weekday run can reach that peak.
-   At that release, the following hold:
-   - `systemctl show manta-acquisition.slice -p MemoryMax` and the cgroup's
-     `memory.max` both equal the declared value;
-   - the slice's `memory.events` `oom_kill` is 0.
 5. The scratch directory is gone after every run, including an interrupted
    one. Production received only the minute pass's own run rows.
 6. EODHD credits spent by all of the run's walks are reported. A walk that
@@ -654,32 +631,15 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
    ```bash
    uv run pytest test/unit/deploy/test_units.py -q
    ```
-5. **Cutover preflight** (in this slice):
+5. **Overview spot check.**
 
    ```bash
-   uv run python scripts/cutover_233_arbitration.py --check
-   ```
-
-   Expected: exit 0, with nothing installed.
-6. **At the release after 234** (not this slice): on the release commit,
-   which must be on origin:
-
-   ```bash
-   uv run python scripts/cutover_233_arbitration.py --ref <sha>
-   ```
-
-   Expected: install OK; `MemoryMax=<n>G` seen in systemd and in
-   `memory.max`; `memory.events oom_kill 0`. The report sits at
-   `<date>-233-cutover.md`. Exit 0. Then the spot check:
-
-   ```bash
-   systemctl show manta-acquisition.slice -p MemoryMax -p MemoryPeak
-   cat /sys/fs/cgroup/manta.slice/manta-acquisition.slice/memory.max
    uv run mt data overview
    ```
 
-   Expected: the declared bound; the overview shows the extra minute runs
-   as `complete` and every pass idle or running normally.
+   Expected: the extra minute runs show as `complete`, and every pass is
+   idle or running normally. The installed bound is checked at 234's
+   cutover (issue #33).
 
 ## Risk Assessment
 
@@ -692,9 +652,8 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
 
 ### Mitigation Strategies
 
-- An OOM kill at the bound is detected and handled by the cutover's
-  `memory.events` check (Technical Decision 7). The install's coupling to a
-  full code upgrade is settled in the same decision.
+- An OOM kill at the bound is detected and handled by the `memory.events`
+  check in 234's cutover (issue #33, Technical Decision 7).
 
 ## Implementation Notes
 
@@ -711,10 +670,11 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
    the "tick alone" rate.
 4. **Entry and report:** the `--check` and `--memory-bound` modes, then the
    full run on a weekday afternoon. Commit after each section.
-5. **Unit file and drift guard** from the report's numbers.
-6. **Documents:** runbook, plans, architecture, CHANGELOG.
-7. **Cutover script:** dry preflight (`--check`) only. The cutover runs at
-   the release after 234 (Technical Decision 7).
+5. **PM gate.** The PM confirms the two plan-scope changes (Technical
+   Decision 6) before the unit file is written. Without that confirmation,
+   implementation stops here.
+6. **Unit file and drift guard** from the report's numbers.
+7. **Documents:** runbook, plans, architecture, CHANGELOG.
 
 ### Special Considerations
 
