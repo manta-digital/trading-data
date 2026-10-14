@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from manta_trading.data.base.session_index import Session
+from manta_trading.data.tick.constants import calendar_for_product
 from manta_trading.data.tick.roll_types import (
     ContractDefinition,
     RollInputs,
@@ -21,7 +22,6 @@ from manta_trading.data.tick.roll_types import (
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
 ROLL_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "tick" / "roll"
-CALENDAR_ID = "CME_EQUITY"
 
 
 @dataclass(frozen=True)
@@ -34,22 +34,24 @@ class ProviderInterval:
     instrument_id: int
 
 
-def _read(name: str) -> dict[str, Any]:
-    body: dict[str, Any] = json.loads((ROLL_FIXTURES / f"{name}.json").read_text())
+def _read(product: str, name: str) -> dict[str, Any]:
+    path = ROLL_FIXTURES / f"{product.lower()}_{name}.json"
+    body: dict[str, Any] = json.loads(path.read_text())
     return body
 
 
-def recorded_inputs() -> RollInputs:
-    definitions = _read("es_definitions")
-    volumes = _read("es_volumes")
+def recorded_inputs(product: str) -> RollInputs:
+    definitions = _read(product, "definitions")
+    volumes = _read(product, "volumes")
+    calendar_id = calendar_for_product(product)
     sessions = tuple(
         Session(
-            CALENDAR_ID,
+            calendar_id,
             date.fromisoformat(row["session_date"]),
             datetime.fromisoformat(row["open_utc"]),
             datetime.fromisoformat(row["close_utc"]),
         )
-        for row in _read("es_calendar")["rows"]
+        for row in _read(product, "calendar")["rows"]
     )
     return RollInputs(
         sessions=sessions,
@@ -69,9 +71,9 @@ def recorded_inputs() -> RollInputs:
     )
 
 
-def provider_intervals() -> dict[str, tuple[ProviderInterval, ...]]:
-    """Databento's intervals per continuous symbol (``ES.v.0``, …)."""
-    body = _read("es_databento")
+def provider_intervals(product: str) -> dict[str, tuple[ProviderInterval, ...]]:
+    """Databento's intervals per continuous symbol (``{product}.v.0``, …)."""
+    body = _read(product, "databento")
     return {
         symbol: tuple(
             ProviderInterval(
@@ -85,7 +87,7 @@ def provider_intervals() -> dict[str, tuple[ProviderInterval, ...]]:
     }
 
 
-def provider_span() -> tuple[date, date]:
+def provider_span(product: str) -> tuple[date, date]:
     """The resolved span, ``[start, end)``."""
-    body = _read("es_databento")
+    body = _read(product, "databento")
     return date.fromisoformat(body["start"]), date.fromisoformat(body["end_exclusive"])
