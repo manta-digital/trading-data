@@ -56,173 +56,173 @@ integration flakes, migration 051/052, load tier).
 
 ## Section 0 — Branch and Baseline
 
-- [ ] **0.1 Create the slice branch and capture the baseline** (effort 1)
-  - [ ] `cf config get git.integration_branch` is empty, so the target is `main`
-  - [ ] From `main`: `git checkout -b 232-slice.universe-expansion-gc main`
-  - [ ] Run the unit tier and `ruff check`; record failures that already exist
-  - [ ] Run `test/unit/data/tick/test_pass_contract_parity.py`; record the result
-  - [ ] Append an empty `## Implementation Findings` section at the end of
+- [x] **0.1 Create the slice branch and capture the baseline** (effort 1)
+  - [x] `cf config get git.integration_branch` is empty, so the target is `main`
+  - [x] From `main`: `git checkout -b 232-slice.universe-expansion-gc main`
+  - [x] Run the unit tier and `ruff check`; record failures that already exist
+  - [x] Run `test/unit/data/tick/test_pass_contract_parity.py`; record the result
+  - [x] Append an empty `## Implementation Findings` section at the end of
         `user/slices/232-slice.universe-expansion-gc.md`; later tasks write to it
-  - [ ] Success: branch exists; the section exists and holds the baseline failure
+  - [x] Success: branch exists; the section exists and holds the baseline failure
         list
 
 ---
 
 ## Section 1 — Data-Driven CME Seed Shape (TD3)
 
-- [ ] **1.1 Add `CmeCalendarSeed` and the seed-taking builders** (effort 2)
-  - [ ] In `src/manta_trading/market/schema/seed_cme_calendar.py` add a frozen
+- [x] **1.1 Add `CmeCalendarSeed` and the seed-taking builders** (effort 2)
+  - [x] In `src/manta_trading/market/schema/seed_cme_calendar.py` add a frozen
         dataclass `CmeCalendarSeed` with `calendar_id`, `calendar` (row mapping),
         `seed_start`, `holidays_seeded_through`, `exceptions`
-  - [ ] Add `CME_EQUITY_SEED`, an instance built from the existing equity
+  - [x] Add `CME_EQUITY_SEED`, an instance built from the existing equity
         constants. Keep every existing constant name exported
-  - [ ] Add `cme_calendar_insert(seed)` and `cme_holidays_insert(seed)` holding
+  - [x] Add `cme_calendar_insert(seed)` and `cme_holidays_insert(seed)` holding
         the SQL once (the logic currently in the two equity builders)
-  - [ ] Turn `cme_equity_calendar_insert()` and `cme_equity_holidays_insert()`
+  - [x] Turn `cme_equity_calendar_insert()` and `cme_equity_holidays_insert()`
         into one-line calls with the equity seed. Same names, same signatures
         (they exist so 058 and its tests stay untouched)
-  - [ ] Success: no SQL string or column list is duplicated; module still
+  - [x] Success: no SQL string or column list is duplicated; module still
         under about 460 lines
 
-- [ ] **1.2 Test the seed shape** (effort 1)
-  - [ ] In `test/unit/test_seed_cme_calendar.py` add tests: the equity wrappers
+- [x] **1.2 Test the seed shape** (effort 1)
+  - [x] In `test/unit/test_seed_cme_calendar.py` add tests: the equity wrappers
         return exactly what the seed-taking builders return for `CME_EQUITY_SEED`;
         the seed dataclass is frozen
-  - [ ] Run `test_seed_cme_calendar.py`, `test/unit/data/base/test_cme_equity_boundaries.py`,
+  - [x] Run `test_seed_cme_calendar.py`, `test/unit/data/base/test_cme_equity_boundaries.py`,
         `test_migration_057_058_cme_calendar.py`, `test_schema_migrations.py`
         **without editing any existing assertion**
-  - [ ] Success: all pass; `git diff main` shows no edit to migration 058 or
+  - [x] Success: all pass; `git diff main` shows no edit to migration 058 or
         its existing tests
 
-- [ ] **1.3 Commit checkpoint** — `refactor: make CME calendar seed data-driven`
+- [x] **1.3 Commit checkpoint** — `refactor: make CME calendar seed data-driven`
 
 ---
 
 ## Section 2 — CME_METALS Exceptions (TD1, TD2)
 
-- [ ] **2.1 Gather CME sources** (effort 3)
-  - [ ] Follow the 221 method recorded in `seed_cme_calendar.py`'s comments
+- [x] **2.1 Gather CME sources** (effort 3)
+  - [x] Follow the 221 method recorded in `seed_cme_calendar.py`'s comments
         (Wayback snapshots of CME's yearly Globex holiday spreadsheets and the
         trading-hours JSON; the live site refuses automated reads)
-  - [ ] For each year 2020 → 2027, read the **Metals** row (GC). Never
+  - [x] For each year 2020 → 2027, read the **Metals** row (GC). Never
         extrapolate from another year or from the equity table
-  - [ ] Confirm GC hours are 17:00 → 16:00 CT in every year read. A change
+  - [x] Confirm GC hours are 17:00 → 16:00 CT in every year read. A change
         inside the range stops the work and goes to the PM
-  - [ ] Expected patterns to confirm per year (not to assume): US holidays halt
+  - [x] Expected patterns to confirm per year (not to assume): US holidays halt
         at 13:30 CT from 2022; day after Thanksgiving closes 12:45 CT (13:45 from 2024, as sourced); Good
         Friday is closed in years equities trade an abbreviated session
-  - [ ] Success: a list of (date, name, closed/early_close, time, source
+  - [x] Success: a list of (date, name, closed/early_close, time, source
         URL), written to Implementation Findings in the LLD, for every weekday GC did not trade the regular session. Any year
         that cannot be sourced is reported to the PM, not guessed
 
-- [ ] **2.2 Create `seed_cme_metals_calendar.py`** (effort 3)
-  - [ ] New module `src/manta_trading/market/schema/seed_cme_metals_calendar.py`
+- [x] **2.2 Create `seed_cme_metals_calendar.py`** (effort 3)
+  - [x] New module `src/manta_trading/market/schema/seed_cme_metals_calendar.py`
         with `CME_METALS_CALENDAR_ID = "CME_METALS"`, the TD1 calendar row
         (`CME Globex Metals`, `America/Chicago`, 17:00/16:00, no extended hours),
         `CME_METALS_SEED_START`, `CME_METALS_HOLIDAYS_SEEDED_THROUGH = 2027-12-31`
-  - [ ] Add `CME_METALS_EXCEPTIONS` using the existing `_closed` / `_early_close`
+  - [x] Add `CME_METALS_EXCEPTIONS` using the existing `_closed` / `_early_close`
         helpers (import them; do not copy them). Every row has a `# source:` comment
-  - [ ] Add `CME_METALS_SEED`, an instance of `CmeCalendarSeed`
-  - [ ] If an early year was unsourceable, set `CME_METALS_SEED_START` to the first
+  - [x] Add `CME_METALS_SEED`, an instance of `CmeCalendarSeed`
+  - [x] If an early year was unsourceable, set `CME_METALS_SEED_START` to the first
         fully sourced year and file a GitHub issue to widen backward (TD2)
-  - [ ] Success: module imports without a cycle; the module carries the metals
+  - [x] Success: module imports without a cycle; the module carries the metals
         table only, with no logic beyond the helpers
 
-- [ ] **2.3 Unit-test the metals seed** (effort 2)
-  - [ ] New `test/unit/test_seed_cme_metals_calendar.py`: every row has a
+- [x] **2.3 Unit-test the metals seed** (effort 2)
+  - [x] New `test/unit/test_seed_cme_metals_calendar.py`: every row has a
         source comment (parse the module text); every date is a weekday inside
         `[seed_start, holidays_seeded_through]`; statuses are `closed` or
         `early_close`; early closes have a time and closures have none; no
         duplicate dates; row values match TD1
-  - [ ] Add explicit assertions for 2024-11-28 (13:30), 2024-11-29 (13:45, sourced; the LLD's 12:45 was corrected),
+  - [x] Add explicit assertions for 2024-11-28 (13:30), 2024-11-29 (13:45, sourced; the LLD's 12:45 was corrected),
         2024-12-25 and 2025-01-01 (closed)
-  - [ ] Success: tests pass; a mutation (delete a source comment) fails the
+  - [x] Success: tests pass; a mutation (delete a source comment) fails the
         source test
 
-- [ ] **2.4 Run the `pandas_market_calendars` cross-check** (effort 2)
-  - [ ] From a scratch directory outside the repo, with
+- [x] **2.4 Run the `pandas_market_calendars` cross-check** (effort 2)
+  - [x] From a scratch directory outside the repo, with
         `uv run --no-project --with pandas_market_calendars`, compare
         `CMEGlobex_GC` sessions for 2020–2027 against `CME_METALS_EXCEPTIONS`.
         Never add the library to the project
-  - [ ] Resolve each difference from a CME document (Christmas Eve 2024 is a known
+  - [x] Resolve each difference from a CME document (Christmas Eve 2024 is a known
         case: settle from CME's 2024 spreadsheet, not the library)
-  - [ ] Record every difference and its resolution in the LLD's Implementation
+  - [x] Record every difference and its resolution in the LLD's Implementation
         Findings
-  - [ ] Success: zero unresolved differences; `git status` shows no dependency
+  - [x] Success: zero unresolved differences; `git status` shows no dependency
         change
 
-- [ ] **2.5 Commit checkpoint** — `feat: add CME_METALS calendar seed with sourced exceptions`
+- [x] **2.5 Commit checkpoint** — `feat: add CME_METALS calendar seed with sourced exceptions`
 
 ---
 
 ## Section 3 — Migration 059 (Database / Storage Schema)
 
-- [ ] **3.1 Add the 059 callable and entry** (effort 2)
-  - [ ] In `src/manta_trading/market/schema/migrations/minute.py` add
+- [x] **3.1 Add the 059 callable and entry** (effort 2)
+  - [x] In `src/manta_trading/market/schema/migrations/minute.py` add
         `_seed_cme_metals_calendar(conn)` beside `_seed_cme_equity_calendar`, of
         the same three steps: insert the calendar row, `executemany` the
         exceptions, `extend_calendar_sessions(conn, CME_METALS_CALENDAR_ID,
         start=CME_METALS_SEED_START, end=Dec 31 of current_year +
         TRADING_SESSIONS_EXTENSION_YEARS)`. Use the seed-taking builders
-  - [ ] Append `059_seed_cme_metals_calendar` after 058, with a `description`
+  - [x] Append `059_seed_cme_metals_calendar` after 058, with a `description`
         in the style of 058's. Do not edit 058
-  - [ ] In the same task, move the chain-tail test that 059 breaks: in
+  - [x] In the same task, move the chain-tail test that 059 breaks: in
         `test/unit/test_schema_migrations.py` rename `test_chain_ends_at_058` to
         `..._059` and expect `059_seed_cme_metals_calendar`; if the stubbed
         session-extension helper (line ~102) names only 058, stub 059's callable too
-  - [ ] Success: callable has a docstring stating idempotence and that NYSE,
+  - [x] Success: callable has a docstring stating idempotence and that NYSE,
         NASDAQ and CME_EQUITY are untouched; `test_schema_migrations.py` passes with
         the other 058 assertions unedited
 
-- [ ] **3.2 Integration test for 059** (effort 3)
-  - [ ] New `test/integration/test_migration_059_cme_metals_calendar.py`, modelled
+- [x] **3.2 Integration test for 059** (effort 3)
+  - [x] New `test/integration/test_migration_059_cme_metals_calendar.py`, modelled
         on `test_migration_057_058_cme_calendar.py`, on a throwaway database
-  - [ ] Assert: the `CME_METALS` row and `holidays_seeded_through = 2027-12-31`;
+  - [x] Assert: the `CME_METALS` row and `holidays_seeded_through = 2027-12-31`;
         every exception row present; sessions populated from seed start to the
         bound; 11-28 closes 13:30 CT and 11-29 closes 13:45 CT in the sessions
         table; no session dated 2024-12-25 or 2025-01-01
-  - [ ] Assert byte-identical `NYSE`, `NASDAQ`, `CME_EQUITY` rows, holidays and
+  - [x] Assert byte-identical `NYSE`, `NASDAQ`, `CME_EQUITY` rows, holidays and
         sessions before and after 059 (snapshot, apply, compare)
-  - [ ] Assert idempotence: running the callable twice changes nothing
-  - [ ] Success: all pass on the test cluster
+  - [x] Assert idempotence: running the callable twice changes nothing
+  - [x] Success: all pass on the test cluster
 
-- [ ] **3.3 Commit checkpoint** — `feat: add migration 059 seeding the CME_METALS calendar`
+- [x] **3.3 Commit checkpoint** — `feat: add migration 059 seeding the CME_METALS calendar`
 
 ---
 
 ## Section 4 — Product Mapping and Universe (TD4, TD10)
 
-- [ ] **4.1 Add the GC calendar mapping** (effort 1)
-  - [ ] In `src/manta_trading/data/tick/constants.py` import
+- [x] **4.1 Add the GC calendar mapping** (effort 1)
+  - [x] In `src/manta_trading/data/tick/constants.py` import
         `CME_METALS_CALENDAR_ID` from the metals module and add
         `"GC": CME_METALS_CALENDAR_ID` to `FUTURES_PRODUCT_CALENDAR`
-  - [ ] Success: `calendar_for_product("GC")` returns `CME_METALS`; the error
+  - [x] Success: `calendar_for_product("GC")` returns `CME_METALS`; the error
         message for an unknown product still lists known products
 
-- [ ] **4.2 Add the GC universe entry** (effort 1)
-  - [ ] In `src/manta_trading/data/tick/universe.py` add
+- [x] **4.2 Add the GC universe entry** (effort 1)
+  - [x] In `src/manta_trading/data/tick/universe.py` add
         `TickUniverseEntry("GC", ("GC.FUT",), SType.PARENT, tier=TickSchema.TBBO,
         start=date(2024, 11, 2), end=date(2025, 1, 1))` after ES
-  - [ ] Success: universe validation passes with ES and GC
+  - [x] Success: universe validation passes with ES and GC
 
-- [ ] **4.3 Update `test_universe.py`** (effort 1)
-  - [ ] In `test/unit/data/tick/test_universe.py` change the product-list assertion
+- [x] **4.3 Update `test_universe.py`** (effort 1)
+  - [x] In `test/unit/data/tick/test_universe.py` change the product-list assertion
         to `["ES", "GC"]` and add GC field assertions (symbols, stype, tier tbbo,
         range) plus one assertion that GC maps to `CME_METALS`
-  - [ ] Add a constants test for `calendar_for_product("GC")` if the existing
+  - [x] Add a constants test for `calendar_for_product("GC")` if the existing
         constants tests list products
-  - [ ] Success: tests pass
+  - [x] Success: tests pass
 
-- [ ] **4.4 Fix the API fixture's synthetic second product** (effort 2)
-  - [ ] In `test/integration/api_server/conftest.py` the `two_products` fixture adds
+- [x] **4.4 Fix the API fixture's synthetic second product** (effort 2)
+  - [x] In `test/integration/api_server/conftest.py` the `two_products` fixture adds
         a synthetic `SECOND` named GC mapped onto `CME_EQUITY`. Rename the root to
         one no CME product uses, together with its symbols in `seed_second_product`
         and every test reference (`grep -rn SECOND test/`)
-  - [ ] Keep the fixture's monkeypatch. Correct the "232 needs no change" comment
-  - [ ] Success: API integration tests pass, none lists GC twice
+  - [x] Keep the fixture's monkeypatch. Correct the "232 needs no change" comment
+  - [x] Success: API integration tests pass, none lists GC twice
 
 - [ ] **4.5 Sweep for other ES-only assumptions** (effort 2)
-  - [ ] Run the unit and integration tiers separately. For each failure that
+  - [x] Run the unit and integration tiers separately. For each failure that
         counts products or assumes `["ES"]` (including tests reading `UNTIERED`
         from `test/tick_support/universe.py`), update it in this task and list it
         by file name in Implementation Findings
@@ -237,26 +237,26 @@ integration flakes, migration 051/052, load tier).
 
 ## Section 5 — Roll Fixture Recorder and Equivalence Test (TD8, code part)
 
-- [ ] **5.1 Add `--product` to the recorder** (effort 2)
-  - [ ] In `scripts/record_229_roll_fixture.py` replace the module constant
+- [x] **5.1 Add `--product` to the recorder** (effort 2)
+  - [x] In `scripts/record_229_roll_fixture.py` replace the module constant
         `PRODUCT = "ES"` with a required `--product` option; change the docstring
         usage line to match
-  - [ ] Resolve `{product}.c.0/.c.1/.v.0/.v.1` and read the product's calendar
+  - [x] Resolve `{product}.c.0/.c.1/.v.0/.v.1` and read the product's calendar
         through `calendar_for_product`. Write `{product.lower()}_*.json`
         (replace the hard-coded `es_*` keys at lines ~121–176)
-  - [ ] Do not rename or re-read ES's fixtures
-  - [ ] Success: `--help` shows `--product` as required; running without it errors
+  - [x] Do not rename or re-read ES's fixtures
+  - [x] Success: `--help` shows `--product` as required; running without it errors
 
-- [ ] **5.2 Parametrize the equivalence test over products** (effort 2)
-  - [ ] In `test/unit/data/tick/test_roll_provider_equivalence.py` parametrize over
+- [x] **5.2 Parametrize the equivalence test over products** (effort 2)
+  - [x] In `test/unit/data/tick/test_roll_provider_equivalence.py` parametrize over
         the products that have fixtures under `test/fixtures/tick/roll/`; replace the
         hard-coded `ES.{rule}` and `es_*` references. Keep the module docstring
         accurate
-  - [ ] GC's fixtures do not exist yet (recorded in Section 9), so GC is added to
+  - [x] GC's fixtures do not exist yet (recorded in Section 9), so GC is added to
         the product list only in task 9.4; at this task ES alone must pass unchanged
-  - [ ] Success: the ES cases pass with the same assertions as before
+  - [x] Success: the ES cases pass with the same assertions as before
 
-- [ ] **5.3 Commit checkpoint** — `refactor: parametrize roll fixture recorder and equivalence test by product`
+- [x] **5.3 Commit checkpoint** — `refactor: parametrize roll fixture recorder and equivalence test by product`
 
 ---
 
