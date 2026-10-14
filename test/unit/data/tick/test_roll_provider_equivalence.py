@@ -28,14 +28,29 @@ from manta_trading.data.tick.roll_types import ActiveContract, Answer, Unresolve
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
 #: Products with recorded fixtures under ``test/fixtures/tick/roll/``.
-PRODUCTS = ["ES"]
+PRODUCTS = ["ES", "GC"]
 RULES = ["c.0", "c.1", "v.0", "v.1"]
+#: Sessions where our rule names another contract than Databento's, accepted
+#: by the PM (2026-10-14; 232). GC's rank-2 volumes there are in the low
+#: thousands, two near-ties; lag 1 would match them but move ``GC.v.0``'s
+#: switch a session early, so the lag stays whole. ``v.1`` is kept for
+#: later use, not relied on. Any change to this set fails the test.
+KNOWN_DIVERGENCE: dict[tuple[str, str], set[date]] = {
+    ("GC", "v.1"): {date(2024, 12, 2), date(2024, 12, 9), date(2024, 12, 12)},
+}
 
 
 @cache
 def _answers(product: str, rule: str) -> tuple[Answer, ...]:
     start, end = provider_span(product)
     return resolve_sessions(RollRule.parse(rule), recorded_inputs(product), start, end)
+
+
+@cache
+def _held_from(product: str) -> date:
+    """The product's first session with recorded volume: before it nothing is
+    held, not even the definitions of contracts that expired earlier."""
+    return min(v.session_date for v in recorded_inputs(product).volumes if v.volume)
 
 
 def _provider(product: str, rule: str, day: date) -> int:
@@ -47,14 +62,18 @@ def _provider(product: str, rule: str, day: date) -> int:
 @pytest.mark.parametrize("rule", RULES)
 @pytest.mark.parametrize("product", PRODUCTS)
 def test_every_resolved_session_matches_the_provider(product: str, rule: str) -> None:
-    resolved = [a for a in _answers(product, rule) if isinstance(a, ActiveContract)]
-    assert len(resolved) > 40
-    mismatched = [
-        (a.session_date, a.raw_symbol)
+    resolved = [
+        a
+        for a in _answers(product, rule)
+        if isinstance(a, ActiveContract) and a.session_date >= _held_from(product)
+    ]
+    assert len(resolved) >= 40
+    mismatched = {
+        a.session_date
         for a in resolved
         if a.instrument_id != _provider(product, rule, a.session_date)
-    ]
-    assert mismatched == []
+    }
+    assert mismatched == KNOWN_DIVERGENCE.get((product, rule), set())
 
 
 def _lag_incomplete(product: str) -> set[date]:
