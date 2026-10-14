@@ -14,43 +14,49 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261014
 dateUpdated: 20261014
-reviewedSha: c2750ad4605d3150489ae9c2c785344f7af0f63a
+reviewedSha: e1de6fdece9a18d73f71e2eae2d3141f245a5ca7
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 7
-durationSeconds: 60.3
+toolCallsMade: 8
+durationSeconds: 41.6
 runId: run-20261014-p4-9d59dc12
 squadronVersion: 0.21.7
 findings:
   - id: F001
     severity: concern
     category: scope
-    summary: "Plan-assigned `IOWeight`/`CPUWeight` scope is dropped"
-    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md:249-269"
+    summary: "Plan-assigned CPUWeight/IOWeight and the post-setting re-run are dropped, and the PM has not confirmed it"
+    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md#Technical Decision 1: only `MemoryMax`; no `CPUWeight` or `IOWeight`"
   - id: F002
     severity: concern
-    category: proportionality
-    summary: "Measurement and cutover machinery is heavier than the decision needs"
-    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md:94-101"
+    category: consistency
+    summary: "Success Criterion 4 claims the bound is in force, but nothing is installed"
+    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md#Functional Requirements (item 4); Technical Decision 7"
   - id: F003
     severity: concern
-    category: verification
-    summary: "After-install verification cannot exercise the failure the bound guards against"
-    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md:507-512"
+    category: proportionality
+    summary: "The cutover script is built now for an install that will not run in this slice"
+    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md#Technical Scope (Included item 5); Technical Decision 7"
   - id: F004
     severity: concern
-    category: failure-modes
-    summary: "Cutover coupling and failure handling are left open"
-    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md:621-639"
+    category: consistency
+    summary: "The component table contradicts Technical Decision 7 on a contention re-run"
+    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md:196"
   - id: F005
     severity: note
-    category: integration
-    summary: "234 interface assumes a scheduled pass and a stagger slot"
-    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md:468-474"
-  - id: F006
-    severity: pass
     category: architecture-alignment
-    summary: "Boundaries, dependency direction and failure enumeration are sound"
-    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md#Architecture"
+    summary: "Scratch tick server deviates from 226's harness, and the design discloses it"
+    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md#Technical Decision 2"
+  - id: F006
+    severity: note
+    category: error-handling
+    summary: "Failure modes are enumerated for each new I/O path"
+    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md#Technical Decision 3 (Guards); Technical Decision 7"
+  - id: F007
+    severity: note
+    category: dependencies
+    summary: "Dependency direction and the 234 interface are consistent with the architecture"
+    location: "project-documents/user/slices/233-slice.cross-source-acquisition-arbitration.md#Integration Points"
 ---
 
 # Review: slice — slice 233
@@ -60,53 +66,52 @@ findings:
 
 ## Findings
 
-### [CONCERN] Plan-assigned `IOWeight`/`CPUWeight` scope is dropped
+### [CONCERN] Plan-assigned CPUWeight/IOWeight and the post-setting re-run are dropped, and the PM has not confirmed it
 
-The 220 slice plan entry for 233 (line 112) and the architecture's "Cross-source arbitration" section both assign `IOWeight`/`CPUWeight`/`MemoryMax`. The slice sets only `MemoryMax`. Its reasons are host facts read on 2026-10-14. `manta-acquisition.slice` has no sibling cgroup. Both NVMe schedulers are `none`. `io.cost.qos` is absent. CPU sits at 10–15 % under tick load. The architecture says the choice is made "on that evidence", so the evidence-based deviation is legitimate. Technical Decision 6 records it as a superseded statement and as an architecture Revision Log entry.
+The architecture ("Cross-source arbitration") and slice plan entry 14 assign this slice three things:
+- setting `IOWeight`, `CPUWeight` and `MemoryMax` on `manta-acquisition.slice`;
+- choosing among three mechanisms;
+- repeating the measurement "to show the chosen setting works".
 
-Two gaps remain:
-- The omission rests on a pre-measurement baseline and on 226's Kalshi-only result. The minute run is not what decided it.
-- Nothing shows the PM has confirmed dropping plan-assigned scope. State that confirmation in the slice, or list it as a review question.
+The design sets only `MemoryMax`. It replaces the re-run with a verify-only check at install. The technical reasoning is sound: the slice has no sibling cgroups, `io.cost` is inactive, and the NVMe schedulers are `none`. But the design says itself (Overview, TD1, TD6) that the PM has not confirmed the change. Dropping plan scope is a CONCERN until the PM signs off. Until then the 220 Revision Log and the plan's superseded-statements note describe a deviation that has not been approved. Record the PM's decision before the design is treated as final.
 
-### [CONCERN] Measurement and cutover machinery is heavier than the decision needs
+The design also leaves the mechanism undecided in the "measurable contention" branch. TD5 says the slice "stops after the report and goes to the PM". The plan expects 233 to choose a mechanism, so that branch does not deliver the slice's goal.
 
-The slice adds six scripts, a scratch PostgreSQL server, a rebuild generalisation in 228's code, and a cutover script. The cutover script re-runs the full contention run after install. The effort is re-rated from 2/5 to 3/5. What is delivered is one `MemoryMax=` line, an unchanged mechanism (calendar stagger), and documents. Things that can be cut or deferred:
-- **The after-install contention re-run.** It costs three more minute walks and a scratch rebuild. Its only purpose is to show the bound doesn't slow weekday walks, and weekday walks peak at 75–144 M, far below the bound. Verifying the bound is live needs only `systemctl show`, `memory.max` and `memory.events`, which the cutover already reads.
-- **The separate `--memory-bound` and `--label` modes.** They could be one derivation function plus the run.
-- **The `contention_233_report.py` split.** Fold it into the entry script.
-- **The tick term in the bound.** It is derived for a unit (234's) that is deferred and may never get a timer.
+### [CONCERN] Success Criterion 4 claims the bound is in force, but nothing is installed
 
-Proportionate scope is one measured run, a derivation, the unit-file change with its drift guard, and a verify-only cutover check.
+The Overview and TD7 hold the install until the release after 234, and 233 closes without installing. Criterion 4 nevertheless says "the bound is in force, and weekday passes are unaffected". It also says the 2× headroom argument "is not shown". Nothing in this slice verifies enforcement. The `MemoryMax` that this slice sets does not reach production until another slice's release, and the Saturday 6.2 GiB pass has no test against the bound. The architecture assigns 233 the job of setting the limit, and the plan expects the setting to be shown working. Restate criterion 4 as "declared, drift-guarded and cutover-checkable". Add the install-time verification, which sits outside this slice's closing evidence, as an explicit handoff to 234's release.
 
-### [CONCERN] After-install verification cannot exercise the failure the bound guards against
+### [CONCERN] The cutover script is built now for an install that will not run in this slice
 
-Success Criterion 4 treats "none measured" after install, plus flat `memory.events`, as showing the bound works. The only pressure case the design identifies is the Saturday trailing phase, with a 6.2 GiB peak. The weekday walk cannot reach it, and the design excludes the Saturday pass (lines 123-129). A weekday run therefore shows only that the setting is live, not that Saturday's pass fits under it. The 2× headroom argument is reasonable. Either state the criterion as "bound is in force, weekday passes unaffected", or add a defined follow-up check, such as reading `memory.peak` after the first Saturday firing. Today that check is "normal monitoring, not a task".
+This slice delivers `scripts/cutover_233_arbitration.py` with a failure-handling table, a report file and an exit-code contract. It exercises only `--check`. The install-time logic runs at a later release, after 234 has added its tick pass unit and changed the member set that the bound is derived from. `cutover_common` already provides preflight, install and report. Verification reduces to two reads, `systemctl show -p MemoryMax` and `memory.max`, plus `memory.events`. These could be steps in the 234 release cutover, or a short checklist in runbook 100. Building and reviewing an untested `--ref` path now adds code that 234 may need to change. Defer the script, or cut it to the `--check` preflight plus a runbook checklist.
 
-### [CONCERN] Cutover coupling and failure handling are left open
+### [CONCERN] The component table contradicts Technical Decision 7 on a contention re-run
 
-`install-production.sh` installs the whole checkout. The cutover is therefore the first production code upgrade since v0.19.0, 351 commits behind main. A one-line memory bound is coupled to that upgrade. The design defers the timing to "the PM chooses at slice review". The slice's own completeness shouldn't depend on an undecided option, so resolve it before implementation. The recommended default is to hold the cutover for the release that follows 234, which also lets the tick term be validated.
+The component structure describes `cutover_233_arbitration.py` as "install → verify bound → contention again → report". TD7 and Technical Scope item 5 say the cutover has no contention re-run. The Overview dropped it deliberately. An implementer reading the component table could build the re-run back in. Correct the table line.
 
-Failure handling after the install step is also thin:
-- If `memory.max` doesn't match, the script "fails and says so", but it names no recovery for a slice file already installed.
-- If `memory.events` shows `oom_kill` during the after-install run, a production pass may have been killed. Only the exit code is specified, not the operator response.
+### [NOTE] Scratch tick server deviates from 226's harness, and the design discloses it
 
-### [NOTE] 234 interface assumes a scheduled pass and a stagger slot
+The architecture's principle that backup is part of done, together with 227's WAL archiving, makes looping the tick rebuild on `17/tick` impractical. A scratch server under `/data/restore-test` with settings copied from `17/tick` is proportionate, and it reuses 226's and 228's modules rather than forking them. The design states the known difference, no `zstd` WAL compression, and bounds it at under one core of 32. The `TRUNCATE` guard has two parts: the database name and a private socket. That satisfies the project's destructive-statement rule.
 
-234 is deferred until the cadence decision and may add no timer. The "firing time follows the stagger convention" requirement and the "full contention run if scheduled" step apply only if a timer exists. That is conditionally stated, which is acceptable. Also, the drift guard that asserts no `CPUWeight`/`IOWeight` on the slice would block the reopen triggers (Technical Decision 5) until someone edits the test. That is fine if intended. Say so in the guard's comment.
+### [NOTE] Failure modes are enumerated for each new I/O path
 
-### [PASS] Boundaries, dependency direction and failure enumeration are sound
+The guards table covers:
+- memory and disk floors;
+- a walk running past twice the ceiling;
+- no clear window;
+- interrupt or raise, with teardown in `finally`.
 
-- **Layering:** the slice touches no `src/` path, so the source-isolation principle (no source → source import) is not engaged. Harness scripts import only the 226 and 228 harness modules.
-- **Isolation:** the scratch server keeps throwaway WAL out of the archived tick cluster, consistent with the backup and isolation goals.
-- **Failure modes:** the guard table covers memory and disk floors, a walk running past 2× the bound, no clear window, and interrupt or exception cleanup. Production-unreachable handling is stated for preflight and mid-run.
-- **Standing 220 obligations:** the Kalshi contract diff, realtime paths and data-correctness contract are addressed.
-- **Documents:** the architecture Revision Log and the plan's superseded-statements note are updated in the same slice.
+Production unreachable at preflight or mid-run is handled with a partial report. Failures after install are tabulated, including a `memory.max` mismatch, `oom_kill`, and `max` without a kill, and the design says the slice is never restarted. No NFR in the architecture governs this path, and the memory-oversubscription concern is addressed through `MemoryMax`.
+
+### [NOTE] Dependency direction and the 234 interface are consistent with the architecture
+
+The slice consumes 226, 228 and 916/921/922, and provides to 234 the rule for placing a tick pass unit and re-deriving the bound. This matches the architecture's deferred-cadence position for 234. The added dependency on 228, beyond the plan's `[226]`, is justified by the scratch-server reuse. The reopen triggers are recorded: a measurable-contention verdict, or a `Type=simple` streaming source. This matches the architecture's realtime-not-precluded stance.
 
 ### Run Digest
 
-- Response length: 6424 chars
+- Response length: 6662 chars
 - Response is newline-free: no
-- Tool calls made: 7
+- Tool calls made: 8
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -116,10 +121,10 @@ Failure handling after the install step is also thin:
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 60.3 s
+- Duration: 41.6 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 6
+- Finding-shaped matches — whole response: 7
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 6
-- Finding-shaped matches — surviving validation: 6
+- Finding-shaped matches — in findings section: 7
+- Finding-shaped matches — surviving validation: 7
