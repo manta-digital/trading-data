@@ -36,6 +36,7 @@ from manta_trading.data.tick.constants import (
     CME_EQUITY_CALENDAR_ID,
     TICK_ROLL_MAX_SESSIONS,
 )
+from manta_trading.data.tick.universe import TICK_UNIVERSE
 
 CONTRACTS = "/api/v1/futures/products/{}/contracts"
 PRODUCTS = "/api/v1/futures/products"
@@ -72,7 +73,7 @@ async def test_contracts_for_lists_held_ranges_in_expiration_order(
         migrated_tick_db, autocommit=True
     ) as conn:
         rows = await contracts_for(conn, "ES")
-        other = await contracts_for(conn, "GC")
+        other = await contracts_for(conn, SECOND.product)
 
     by_id = {r.instrument_id: r for r in rows}
     outrights = [r.raw_symbol for r in rows if r.instrument_id != SPREAD_ID]
@@ -168,7 +169,9 @@ def test_products_matches_the_cli_active_lines(
         monkeypatch, migrated_tick_db, session_migrated_db, "--product", "ES", "--json"
     )
 
-    (es,) = body["products"]
+    by_product = {p["product"]: p for p in body["products"]}
+    assert list(by_product) == [e.product for e in TICK_UNIVERSE]
+    es = by_product["ES"]
     assert (es["product"], es["calendar"]) == ("ES", CME_EQUITY_CALENDAR_ID)
     assert [line["rule"] for line in es["active"]] == ["v.0", "c.0"]
     assert es["active"] == cli["lines"]
@@ -273,6 +276,6 @@ def test_a_second_product_is_served_with_no_route_change(
 
     assert [p["product"] for p in products] == ["ES", SECOND.product]
     assert contracts.status_code == 200
-    assert contracts.json()["contracts"][0]["raw_symbol"] == "GCZ4"
+    assert contracts.json()["contracts"][0]["raw_symbol"] == "ZZZ4"
     assert schedule.status_code == 200
     assert schedule.json()["segments"] == []

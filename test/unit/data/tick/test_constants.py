@@ -38,6 +38,7 @@ from manta_trading.data.tick.constants import (
     tier_rank_sql,
 )
 from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
+from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_CALENDAR_ID
 
 
 def test_schema_values_are_provider_spellings() -> None:
@@ -79,11 +80,12 @@ def test_estimate_schemas_are_every_tier_then_definition() -> None:
 
 def test_calendar_for_known_product() -> None:
     assert calendar_for_product("ES") == CME_EQUITY_CALENDAR_ID
+    assert calendar_for_product("GC") == CME_METALS_CALENDAR_ID
 
 
 def test_calendar_for_unknown_product_names_known_ones() -> None:
-    with pytest.raises(KeyError, match="'GC'.*known: ES"):
-        calendar_for_product("GC")
+    with pytest.raises(KeyError, match="'ZZ'.*known: ES, GC"):
+        calendar_for_product("ZZ")
 
 
 def test_unit_state_values_in_lifecycle_order() -> None:

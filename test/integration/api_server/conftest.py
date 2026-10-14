@@ -46,14 +46,16 @@ def unconfigured_tick_client(session_migrated_db: str) -> Iterator[TestClient]:
     yield from client_for(session_migrated_db, None)
 
 
-# -- two-product universe (Integration Requirements; 232 needs no change) -----
+# -- two-product universe (Integration Requirements) ---------------------------
 
 
 @pytest.fixture
 def two_products(migrated_tick_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """ES plus a second product on a calendar the test primary holds; the
-    routes read the universe through ``futures_params`` and the catalog."""
-    universe = (*TICK_UNIVERSE, SECOND)
+    """ES plus a synthetic second product on a calendar the test primary holds;
+    the routes read the universe through ``futures_params`` and the catalog.
+    Pinned to ES, so later universe edits (232's GC) never reach these tests."""
+    es = next(entry for entry in TICK_UNIVERSE if entry.product == "ES")
+    universe = (es, SECOND)
     for module in (futures_catalog, futures_params):
         monkeypatch.setattr(module, "TICK_UNIVERSE", universe)
     monkeypatch.setitem(

@@ -135,7 +135,7 @@ def test_a_coverage_mismatch_exits_3(ingested: None, migrated_tick_db: str) -> N
 @pytest.mark.parametrize(
     "args",
     [
-        ["data", "tick", "status", "--product", "GC"],
+        ["data", "tick", "status", "--product", "ZZ"],
         ["data", "tick", "coverage", "--start", "2024-09-05", "--end", "2024-09-05"],
     ],
 )

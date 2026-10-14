@@ -75,10 +75,12 @@ def closed_port_url() -> str:
     return f"postgresql://tick:{CLOSED_PORT_SECRET}@127.0.0.1:{closed_port()}/tick"
 
 
-# -- two-product universe (Integration Requirements; 232 needs no change) -----
+# -- two-product universe (Integration Requirements) ---------------------------
 
-#: The second product of the two-product universe, and its one contract.
-SECOND = TickUniverseEntry("GC", ("GC.FUT",), SType.PARENT, None, None, None)
+#: A synthetic second product and its one contract. ``ZZ`` is a root no CME
+#: product uses, so it never collides with a real universe entry (232 put GC
+#: there, on its own calendar).
+SECOND = TickUniverseEntry("ZZ", ("ZZ.FUT",), SType.PARENT, None, None, None)
 SECOND_CONTRACT_ID = 777
 
 
@@ -102,6 +104,6 @@ def seed_second_product(url: str) -> None:
             conn,
             unit,
             instrument_id=SECOND_CONTRACT_ID,
-            raw_symbol="GCZ4",
+            raw_symbol="ZZZ4",
             asset=SECOND.product,
         )

@@ -78,7 +78,7 @@ async def test_status_buckets_contracts_and_json(
     status = await build_status(
         ingested, session_migrated_db, UNTIERED, NOW, tick_url=migrated_tick_db
     )
-    (es,) = status.products
+    (es,) = [p for p in status.products if p.product == "ES"]  # only ES is seeded
     assert {k: v for k, v in es.buckets.items() if v} == {
         "complete": 1,  # 09-03: 09-02 and 09-03 both ingested
         "missing": 1,  # 09-04: 09-04 has no unit, condition available
@@ -102,7 +102,8 @@ async def test_status_buckets_contracts_and_json(
         tick_url=migrated_tick_db,
         all_instruments=True,
     )
-    assert len(every.products[0].contracts) == len(es.contracts) + es.spreads_hidden
+    (every_es,) = [p for p in every.products if p.product == "ES"]
+    assert len(every_es.contracts) == len(es.contracts) + es.spreads_hidden
 
 
 async def test_coverage_is_ok_then_names_a_deleted_row(

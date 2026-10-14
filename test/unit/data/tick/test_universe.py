@@ -8,11 +8,19 @@ from typing import Any
 
 import pytest
 
-from manta_trading.data.tick.constants import STORED_TIERS, SType, TickSchema
+from manta_trading.data.tick.constants import (
+    STORED_TIERS,
+    SType,
+    TickSchema,
+    calendar_for_product,
+)
 from manta_trading.data.tick.universe import (
     TICK_UNIVERSE,
     TickUniverseEntry,
     validate_universe,
+)
+from manta_trading.market.schema.seed_cme_metals_calendar import (
+    CME_METALS_CALENDAR_ID,
 )
 
 GOOD = TickUniverseEntry(
@@ -29,12 +37,22 @@ def test_the_shipped_universe_validates_with_a_bounded_tier_range() -> None:
     """226's go/no-go set ES's tier and the range held at it; the values are
     the PM's to change, so this checks their shape, not the values."""
     validate_universe(TICK_UNIVERSE)
-    assert [e.product for e in TICK_UNIVERSE] == ["ES"]
+    assert [e.product for e in TICK_UNIVERSE] == ["ES", "GC"]
     es = TICK_UNIVERSE[0]
     assert es.tier in STORED_TIERS
     assert es.start is not None and es.end is not None and es.start < es.end
     assert TICK_UNIVERSE[0].symbols == ("ES.FUT",)
     assert TICK_UNIVERSE[0].stype_in is SType.PARENT
+
+
+def test_gc_entry_matches_td4() -> None:
+    """Slice 232 TD4: GC.FUT parent at tbbo over ES's range, on CME_METALS."""
+    gc = next(e for e in TICK_UNIVERSE if e.product == "GC")
+    assert gc.symbols == ("GC.FUT",)
+    assert gc.stype_in is SType.PARENT
+    assert gc.tier is TickSchema.TBBO
+    assert (gc.start, gc.end) == (date(2024, 11, 2), date(2025, 1, 1))
+    assert calendar_for_product("GC") == CME_METALS_CALENDAR_ID
 
 
 def test_a_well_formed_entry_validates() -> None:

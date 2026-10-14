@@ -58,7 +58,7 @@ async def test_the_line_equals_status_buckets(
     seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
 ) -> None:
     async with await psycopg.AsyncConnection.connect(migrated_tick_db) as conn:
-        (line,) = await accounting_lines(conn, session_migrated_db, TICK_UNIVERSE)
+        lines = await accounting_lines(conn, session_migrated_db, TICK_UNIVERSE)
         status = await build_status(
             conn,
             session_migrated_db,
@@ -67,7 +67,10 @@ async def test_the_line_equals_status_buckets(
             tick_url=migrated_tick_db,
         )
 
-    (product,) = status.products
+    # One line per universe product; only ES is seeded (232 added GC).
+    assert [x.product for x in lines] == [e.product for e in TICK_UNIVERSE]
+    (line,) = [x for x in lines if x.product == "ES"]
+    (product,) = [p for p in status.products if p.product == "ES"]
     assert line.buckets == product.buckets  # FR12: the same function
     assert line.sessions_in_scope == sum(product.buckets.values())
     assert line.sessions_complete == product.buckets["complete"] > 0
@@ -88,12 +91,15 @@ def test_text_and_json_with_a_reachable_tick_database(
     assert text.exit_code == 0, text.output
     lines = text.stdout.splitlines()
     assert MINUTE_SUMMARY in lines
-    assert lines[-2] == "futures tick universe:"
-    assert lines[-1].startswith("  ES  ") and "sessions complete (" in lines[-1]
-    assert "records" in lines[-1]
+    # One line per universe product after the header (232 added GC).
+    header = lines.index("futures tick universe:")
+    es_line, *others = lines[header + 1 :]
+    assert len(others) == len(TICK_UNIVERSE) - 1
+    assert es_line.startswith("  ES  ") and "sessions complete (" in es_line
+    assert "records" in es_line
     tick = body["tick"]
     assert (tick["state"], tick["detail"]) == ("ok", None)
-    (product,) = tick["products"]
+    (product,) = [p for p in tick["products"] if p["product"] == "ES"]
     assert list(product) == [
         "product",
         "sessions_in_scope",

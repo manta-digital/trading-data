@@ -48,10 +48,23 @@ class TickUniverseEntry:
 # widening it to the plan year is this one edit. It starts 2024-11-02, not
 # 11-01: the session dated 11-01 opens at 22:00 UTC on 10-31, a day the tbbo
 # job does not hold, so the first session held whole is the one dated 11-04.
+#
+# GC (slice 232 TD4, TD5): ES's range, which holds GC's December -> February
+# roll and the metals Thanksgiving closes, bought at tbbo. GC.FUT parent keeps
+# the spreads, measured before purchase at 6.6% of GC's tbbo rows; a product
+# drops its spreads only above a quarter of its rows.
 TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
     TickUniverseEntry(
         "ES",
         ("ES.FUT",),
+        SType.PARENT,
+        tier=TickSchema.TBBO,
+        start=date(2024, 11, 2),
+        end=date(2025, 1, 1),
+    ),
+    TickUniverseEntry(
+        "GC",
+        ("GC.FUT",),
         SType.PARENT,
         tier=TickSchema.TBBO,
         start=date(2024, 11, 2),

@@ -125,12 +125,19 @@ def test_no_product_answers_every_universe_product_and_status_rule(
     seeded: None,
 ) -> None:
     result = _invoke("--json")
-    assert result.exit_code == 0, result.output
     lines = json.loads(result.output)["lines"]
     assert [(line["product"], line["rule"]) for line in lines] == [
         (e.product, rule) for e in TICK_UNIVERSE for rule in ("v.0", "c.0")
     ]
-    assert {line["raw_symbol"] for line in lines} == {"ESZ4"}
+    # Only ES is seeded: every other product (GC since 232) answers with its
+    # reason, and a product with nothing held keeps the nothing-held exit.
+    es = [line for line in lines if line["product"] == "ES"]
+    others = [line for line in lines if line["product"] != "ES"]
+    assert {line["raw_symbol"] for line in es} == {"ESZ4"}
+    assert {line["reason"] for line in others} == {
+        f"no sessions held for {line['product']}" for line in others
+    }
+    assert result.exit_code == 3, result.output
 
 
 def test_unreachable_tick_database_exits_four(

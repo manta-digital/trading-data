@@ -18,6 +18,7 @@ from typing import Final
 
 from manta_trading.constants import Granularity
 from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
+from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_CALENDAR_ID
 
 
 class TickSchema(StrEnum):
@@ -146,8 +147,11 @@ TICK_DOWNLOAD_TIMEOUT_SECONDS = 100.0
 TICK_SPEND_CEILING_ENV = "MT_TICK_SPEND_CEILING_USD"
 
 #: Futures product → the trading calendar its sessions come from (slice 221
-#: D8). GC joins with ``CME_METALS`` in slice 232; there is no default.
-FUTURES_PRODUCT_CALENDAR: Final[Mapping[str, str]] = {"ES": CME_EQUITY_CALENDAR_ID}
+#: D8); GC is on ``CME_METALS`` (slice 232). There is no default.
+FUTURES_PRODUCT_CALENDAR: Final[Mapping[str, str]] = {
+    "ES": CME_EQUITY_CALENDAR_ID,
+    "GC": CME_METALS_CALENDAR_ID,
+}
 
 
 def calendar_for_product(product: str) -> str:
