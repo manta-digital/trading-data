@@ -295,6 +295,41 @@ def _seed_cme_equity_calendar(conn: Any) -> None:
     )
 
 
+def _seed_cme_metals_calendar(conn: Any) -> None:
+    """Python callable for migration 059 (slice 232): seed ``CME_METALS``.
+
+    The same three steps as 058, through the seed-taking builders: the
+    calendar row (with its holiday bound), every sourced exception, then
+    sessions from ``CME_METALS_SEED_START`` through Dec 31 of
+    ``current_year + TRADING_SESSIONS_EXTENSION_YEARS``, clamped to the bound
+    by the shared extension routine. NYSE, NASDAQ and CME_EQUITY are not
+    touched. Idempotent: inserts are ON CONFLICT DO NOTHING and sessions
+    upsert.
+    """
+    from datetime import datetime
+
+    from manta_trading.data.base.session_extension import extend_calendar_sessions
+    from manta_trading.market.schema.seed_cme_calendar import (
+        cme_calendar_insert,
+        cme_holidays_insert,
+    )
+    from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_SEED
+
+    calendar_sql, calendar_params = cme_calendar_insert(CME_METALS_SEED)
+    holidays_sql, holiday_rows = cme_holidays_insert(CME_METALS_SEED)
+    with conn.cursor() as cur:
+        cur.execute(calendar_sql, calendar_params)
+        cur.executemany(holidays_sql, holiday_rows)
+
+    end_year = datetime.now().year + TRADING_SESSIONS_EXTENSION_YEARS
+    extend_calendar_sessions(
+        conn,
+        CME_METALS_SEED.calendar_id,
+        start=CME_METALS_SEED.seed_start,
+        end=date(end_year, 12, 31),
+    )
+
+
 def _history_horizon_disjunct() -> str:
     """Build the third disjunct of the symbols_x_granularity WHERE clause.
 
@@ -2588,5 +2623,16 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "NYSE and NASDAQ are untouched."
         ),
         "python_fn": _seed_cme_equity_calendar,
+    },
+    {
+        "id": "059_seed_cme_metals_calendar",
+        "description": (
+            "Seed the CME_METALS calendar (slice 232 TD1, TD2): CME Globex "
+            "metals hours for GC (17:00 -> 16:00 America/Chicago, sessions "
+            "dated by close), every sourced exception from 2020, and its "
+            "sessions through the holiday bound via the shared extension. "
+            "NYSE, NASDAQ and CME_EQUITY are untouched."
+        ),
+        "python_fn": _seed_cme_metals_calendar,
     },
 ]

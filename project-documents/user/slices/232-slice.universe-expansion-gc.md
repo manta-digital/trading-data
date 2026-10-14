@@ -515,3 +515,9 @@ Run from the scratchpad with `uv run --no-project --with pandas_market_calendars
 | 2024-11-29, 2025-11-28, 2027-11-26 | 13:45 | 12:45 | CME JSON 2024, 2025, 2027: 13:45. Trades confirm 2024 and 2025 |
 | 2024-12-24, 2025-12-24 | 12:45 | regular | CME JSON: 12:45 close (the design's known case). Trades: 642 / 695 before, 0 after |
 | 2025-07-04, 2027-06-18 | 12:00 | 13:30 | CME JSON: Friday holiday, 12:00 close. Trades confirm 2025 (687 before, 0 after) |
+
+### Migration 059 test changes (task 3.1–3.2)
+
+- `test/unit/test_schema_migrations.py`: `test_chain_ends_at_058` → `test_chain_ends_at_059` (planned, TD10), and the migration-count assertion 61 → 62, which counts every migration and so moves with each new one. No other assertion changed.
+- `test/integration/test_migration_057_058_cme_calendar.py`: `test_calendars_list_shows_all_three` asserted the database holds exactly NYSE, NASDAQ and CME_EQUITY, so it fails once 059 adds a calendar. It is now `test_calendars_list_shows_every_calendar` and expects `CME_METALS` too: a one-line test-side change of the kind TD10 names (a test that counts calendars), and the only edit to a 058 test file. Migration 058 itself is untouched.
+- New `test/integration/test_migration_059_cme_metals_calendar.py`: 8 tests (TD1 row, exceptions equal the seed, sessions from seed start to the bound, the purchased-range sessions 11-28 13:30 / 11-29 13:45 / 12-24 12:45 with no 12-25 or 2025-01-01, other calendars byte-identical across 059, idempotence, `calendars list`, `calendars sessions`). All pass.

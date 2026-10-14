@@ -238,7 +238,7 @@ def test_strict_exits_4_when_bound_is_near(migrated_db: str) -> None:
     assert "seed the next year's CME_EQUITY schedule" in output
 
 
-def test_calendars_list_shows_all_three(session_migrated_db: str) -> None:
+def test_calendars_list_shows_every_calendar(session_migrated_db: str) -> None:
     result = invoke_cli(session_migrated_db, "data", "calendars", "list", "--json")
     assert result.exit_code == 0, result.output
     bounds = {
@@ -247,6 +247,7 @@ def test_calendars_list_shows_all_three(session_migrated_db: str) -> None:
     }
     assert bounds == {
         CME_EQUITY_CALENDAR_ID: CME_EQUITY_HOLIDAYS_SEEDED_THROUGH.isoformat(),
+        "CME_METALS": "2027-12-31",  # migration 059 (slice 232)
         "NASDAQ": "2026-12-31",
         "NYSE": "2026-12-31",
     }

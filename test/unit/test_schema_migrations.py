@@ -99,7 +99,7 @@ def _patch_runner_psycopg_connect():
 
 @pytest.fixture(autouse=True)
 def _stub_calendar_session_extension():
-    """Stub the session extension migration 058's callable runs.
+    """Stub the session extension migrations 058's and 059's callables run.
 
     The runner tests here hand every migration MagicMock connections, whose
     rows are not dates. The extension has its own integration tests
@@ -228,7 +228,8 @@ class TestMigrationsListIntegrity:
         # anchor).
         # 59 -> 61 with slice 221's 057 (calendar holidays_seeded_through)
         # and 058 (CME_EQUITY calendar seed).
-        assert len(MIGRATIONS) == 61
+        # 61 -> 62 with slice 232's 059 (CME_METALS calendar seed).
+        assert len(MIGRATIONS) == 62
 
 
 # ---------------------------------------------------------------------------
@@ -1306,9 +1307,9 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_058() -> None:
+def test_chain_ends_at_059() -> None:
     """The newest migration must be last (slice 922 retargeted this from 054;
-    slice 221 from 056).
+    slice 221 from 056; slice 232 from 058).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
@@ -1319,7 +1320,7 @@ def test_chain_ends_at_058() -> None:
     (see ``POSITION_CRITICAL_IDS``), which is why the tip check names a later
     migration.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == "058_seed_cme_equity_calendar"
+    assert MINUTE_MIGRATIONS[-1]["id"] == "059_seed_cme_metals_calendar"
 
 
 class TestMigration054DailyMonthlyRefreshWindow:
