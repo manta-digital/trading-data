@@ -43,7 +43,7 @@ The 226 go/no-go set the inputs: "GC: follow at tbbo … Slice 232 still decides
 - Roll verification for GC: 229's provider-equivalence test extended to GC (TD8).
 - The open-interest revisit: a recorded decision (TD9).
 - Test updates where a fixture or assertion assumed ES is the only product (TD10).
-- Documentation: the data-correctness contract's mapping rows, a runbook entry for adding a product, and the slice plan's Future Work item 2.
+- Documentation: the data-correctness contract's mapping rows, a runbook entry for adding a product, the slice plan's Future Work item 2, and an entry in the architecture's Revision Log. The entry records the separate calendars that supersede the "Session model" statement that one row serves ES and GC, the 232 open-interest decision against "Active contract and roll methods", and GC's measured spread share.
 
 **Excluded**
 
@@ -139,6 +139,8 @@ The 221 findings say what to expect, and each still has to be sourced per year:
 
 A one-off cross-check is run from the scratchpad against `pandas_market_calendars`' `CMEGlobex_GC`, with `uv run --no-project --with pandas_market_calendars`. It is never a project dependency (221 D5). Each difference is resolved from a CME document and recorded in this design's Implementation Findings. A year that cannot be sourced is reported to the PM, not guessed.
 
+**Effort is re-rated from 2/5 to 3/5** for this sourcing, and the slice plan entry is updated to match. The plan's 2/5 did not count eight years of exceptions.
+
 **Why the seed starts at 2020, not at the purchased range.** The PM's standing direction is that the 2020-onward universe is the target, and that cost is cut, never scope by date. A metals calendar that starts in 2024 would make GC's first backfill before that date fail on the calendar. The sourcing cost is small: 221 read the equity rows from CME's yearly holiday spreadsheets, and each spreadsheet carries one row per product group (221's source comments cite its "Equity Products" row). The metals rows are a re-read of the same documents.
 
 **The slice does not stall on an early year.** If a year's metals row cannot be found, the seed starts on the first fully sourced year. That date becomes `CME_METALS_SEED_START`, a declared lower bound, as 2020-01-01 is for equity. Widening backward is filed as a GitHub issue and named in Implementation Findings. The purchased 2024 range never depends on the early years.
@@ -153,7 +155,7 @@ Christmas Eve 2024 is an example of why the table is sourced row by row. The lib
 - `holidays_seeded_through`
 - `exceptions`
 
-Both `CME_EQUITY_SEED` and `CME_METALS_SEED` are instances of it. New builders `cme_calendar_insert(seed)` and `cme_holidays_insert(seed)` hold the SQL once. `cme_equity_calendar_insert()` and `cme_equity_holidays_insert()` keep their names and signatures and become one-line calls with the equity seed.
+Both `CME_EQUITY_SEED` and `CME_METALS_SEED` are instances of it. New builders `cme_calendar_insert(seed)` and `cme_holidays_insert(seed)` hold the SQL once. `cme_equity_calendar_insert()` and `cme_equity_holidays_insert()` keep their names and signatures and become one-line calls with the equity seed. These wrappers exist only so that 058 and its tests stay untouched. 059 uses the seed-taking builders directly.
 
 **Migration 058 and its tests are not edited.** An applied migration stays frozen, and the SQL it shares with 059 already lives in the builders. 059 gets its own callable, `_seed_cme_metals_calendar`, of the same three steps (Database / Storage Schema).
 
@@ -218,13 +220,13 @@ This puts `VOLUME_RANK_LAG_SESSIONS = 2` to its first test outside ES. The const
 - **Size:** shipping it needs a new archived schema, a tick-track migration, a table, a projection and universe entries. That is a slice of its own, larger than this one.
 - **Need:** the default rule `v.0` is Databento's own default convention, and no consumer has asked for an open-interest roll.
 
-Slice plan Future Work item 2 gets the GC evidence and a trigger: build it in the first subscription month, beside the `ohlcv` history pull (Future Work item 7), or earlier if a consumer needs it. If no subscription date has been set when 234 is designed, 234's design asks the question again, because 234 is the first slice that runs passes unattended. **PM decision point:** confirm the deferral, or direct that it ship here. Shipping it here moves this slice's effort from 2 to 4 and adds a second purchase.
+Slice plan Future Work item 2 gets the GC evidence and a trigger: build it in the first subscription month, beside the `ohlcv` history pull (Future Work item 7), or earlier if a consumer needs it. If no subscription date has been set when 234 is designed, 234's design asks the question again, because 234 is the first slice that runs passes unattended. **PM decision point:** confirm the deferral, or direct that it ship here. Shipping it here moves this slice's effort from 3 to 5 and adds a second purchase.
 
 ### Patterns and Conventions
 
 - **TD10 — "No code change" is tested, not asserted.** Status, overview, `active`, `get` and every `/api/v1/futures/*` route iterate `TICK_UNIVERSE` or go through `calendar_for_product`. A grep at design time found no `"ES"` literal on any surface. Three test-side assumptions do change:
   - `test/unit/data/tick/test_universe.py` asserts the product list is `["ES"]`. It becomes `["ES", "GC"]` and gains GC's field assertions.
-  - The API fixture `two_products` (`test/integration/api_server/conftest.py`) adds a synthetic `SECOND = TickUniverseEntry("GC", …)` and maps it onto `CME_EQUITY`. With GC in the real universe, that would list GC twice and put it on the wrong calendar. The fixture is replaced by the real universe and the `CME_METALS` sessions 059 provides. The monkeypatch of the universe and of `FUTURES_PRODUCT_CALENDAR` is removed, and `seed_second_product` seeds GC rows on metals sessions. The fixture's comment, "232 needs no change", is corrected.
+  - The API fixture `two_products` (`test/integration/api_server/conftest.py`) adds a synthetic `SECOND = TickUniverseEntry("GC", …)` and maps it onto `CME_EQUITY`. With GC in the real universe, that would list GC twice and put it on the wrong calendar. The fixture keeps its monkeypatch, so the API tests stay isolated from later universe edits. The synthetic product is renamed to a root no CME product uses, together with its symbols in `seed_second_product`. The fixture's comment, "232 needs no change", is corrected. The real universe's GC on `CME_METALS` is asserted once, in `test_universe.py`.
   - The migration-chain test moves its expected tail from 058 to 059.
 
   Tests that read `UNTIERED` (`test/tick_support/universe.py`) gain an untiered GC entry automatically. Any test whose expectations count products is updated in the same task and named in the task file.
@@ -280,6 +282,7 @@ There is no tick-track migration. GC uses the same tables, layout, tier CHECK an
 - Seed SQL is shared through the seed-taking builders, not copied (TD3). Migration 058 and its tests are unchanged in the diff.
 - ruff, mypy (one invocation over the src and test paths) and the unit, integration and load tiers pass, apart from the known pre-existing failures already recorded for main.
 - The Kalshi pass-contract parity test passes.
+- The architecture's Revision Log gains the 232 entry (Technical Scope, Documentation).
 - The data-correctness contract's I4 row gains "232: `CME_METALS` behind the same surface". The I13 row gains "232: GC units pass the session-boundary check; too-wide check in the walkthrough". The slice-mapping table gains 232's rows.
 - The runbook (`100-production-operations.md`, "Operating the tick tier") gains "Adding a futures product": seed and migration, mapping, universe entry, estimate, PM ceilings, pass, ingest, and the two-direction session check.
 
@@ -313,7 +316,7 @@ This is a draft, refined after implementation. The commands run from the dev che
    uv run mt data tick pass                 # submits, waits within 1,800 s, downloads, verifies, projects definitions
    uv run mt data tick ingest
    ```
-   Expected: every GC unit ends *ingested*, with no failed units. Record the ingest wall-clock and the slowest unit in the walkthrough notes against the bounds under Testing. Afterwards the per-pass ceiling is restored.
+   Expected: every GC unit ends *ingested*, with no failed units. Record the ingest wall-clock and the slowest unit in the walkthrough notes against the bounds under Testing. If the 1,800 s wait budget ends with a job still in flight, the pass prints it with its deadline. Downloading it before that deadline is then the operator's job (architecture, manual regime): run `uv run mt data tick pass` again, which reconciles and downloads before it buys anything. Afterwards the per-pass ceiling is restored.
 
 4. **Proof surfaces.**
    ```bash
@@ -368,7 +371,7 @@ This is a draft, refined after implementation. The commands run from the dev che
 5. Apply 059 on production. Run the free estimate and stop for the PM's ceilings.
 6. Run the purchase and ingest, then the proof surfaces and the too-wide check (TD7).
 7. Record the GC roll fixture and parametrize the equivalence test (TD8).
-8. Update the docs: contract mapping, runbook entry, slice plan Future Work item 2, and the Kalshi parity result. Commit at each section checkpoint.
+8. Update the docs: contract mapping, runbook entry, slice plan Future Work item 2, the architecture's Revision Log entry, and the Kalshi parity result. Commit at each section checkpoint.
 
 **Testing:** unit tests cover the seed shape and the GC rows (sources present, dates are weekdays, statuses valid). Integration tests cover migration 059 on a throwaway database. The provider-equivalence test runs over the recorded GC fixtures. **Ingest target (architecture, "Ingest throughput and the write path"):** a day of sessions ingests far faster than a day of market time, and a month within an operator's working session. GC is checked against 226's bounds for that target: the slowest unit at most 120 s, and the whole range at most 2 h. The measured wall-clock is recorded in walkthrough step 3, and a miss fails the slice. No new load test is added, because the ingest code path is unchanged and step 3 measures it on real GC data.
 
