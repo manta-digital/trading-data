@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import re
-from datetime import time
+from datetime import date, time
+
+import pytest
 
 import manta_trading.market.schema.seed_cme_calendar as seed
 from manta_trading.data.base.trading_calendar import MarketStatus
@@ -12,9 +15,12 @@ from manta_trading.market.schema.seed_cme_calendar import (
     CME_EQUITY_CALENDAR_ID,
     CME_EQUITY_EXCEPTIONS,
     CME_EQUITY_HOLIDAYS_SEEDED_THROUGH,
+    CME_EQUITY_SEED,
     CME_EQUITY_SEED_START,
+    cme_calendar_insert,
     cme_equity_calendar_insert,
     cme_equity_holidays_insert,
+    cme_holidays_insert,
 )
 
 _REGULAR_CLOSE = time(16, 0)
@@ -85,3 +91,14 @@ def test_holidays_insert_columns() -> None:
     assert len(rows) == len(CME_EQUITY_EXCEPTIONS)
     assert {r["calendar_id"] for r in rows} == {CME_EQUITY_CALENDAR_ID}
     assert all(isinstance(r["market_status"], str) for r in rows)
+
+
+def test_equity_wrappers_match_the_seed_taking_builders() -> None:
+    """058's wrappers render exactly what the shared builders do (232 TD3)."""
+    assert cme_equity_calendar_insert() == cme_calendar_insert(CME_EQUITY_SEED)
+    assert cme_equity_holidays_insert() == cme_holidays_insert(CME_EQUITY_SEED)
+
+
+def test_calendar_seed_is_frozen() -> None:
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        CME_EQUITY_SEED.seed_start = date(2021, 1, 1)  # type: ignore[misc]

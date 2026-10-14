@@ -24,6 +24,8 @@ migrations 007/008 render through it, and it predates ``holidays_seeded_through`
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, time
 from typing import Any, Final
 
@@ -417,23 +419,52 @@ def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
     return f"INSERT INTO {table} ({names}) VALUES ({params}) ON CONFLICT DO NOTHING"
 
 
-def cme_equity_calendar_insert() -> tuple[str, dict[str, Any]]:
-    """Parameterized INSERT for the ``CME_EQUITY`` trading_calendars row."""
-    params = {
-        **CME_EQUITY_CALENDAR,
-        "holidays_seeded_through": CME_EQUITY_HOLIDAYS_SEEDED_THROUGH,
-    }
+@dataclass(frozen=True)
+class CmeCalendarSeed:
+    """A CME calendar's row, exceptions and bounds (232 TD3)."""
+
+    calendar_id: str
+    calendar: Mapping[str, Any]
+    seed_start: date
+    holidays_seeded_through: date
+    exceptions: tuple[dict[str, Any], ...]
+
+
+CME_EQUITY_SEED: Final = CmeCalendarSeed(
+    calendar_id=CME_EQUITY_CALENDAR_ID,
+    calendar=CME_EQUITY_CALENDAR,
+    seed_start=CME_EQUITY_SEED_START,
+    holidays_seeded_through=CME_EQUITY_HOLIDAYS_SEEDED_THROUGH,
+    exceptions=CME_EQUITY_EXCEPTIONS,
+)
+
+
+def cme_calendar_insert(seed: CmeCalendarSeed) -> tuple[str, dict[str, Any]]:
+    """Parameterized INSERT for a CME calendar's trading_calendars row."""
+    params = {**seed.calendar, "holidays_seeded_through": seed.holidays_seeded_through}
     return _insert_sql("trading_calendars", _CALENDAR_COLUMNS), params
 
 
-def cme_equity_holidays_insert() -> tuple[str, list[dict[str, Any]]]:
+def cme_holidays_insert(seed: CmeCalendarSeed) -> tuple[str, list[dict[str, Any]]]:
     """Parameterized INSERT (for ``executemany``) of every exception row."""
     rows = [
         {
             **row,
-            "calendar_id": CME_EQUITY_CALENDAR_ID,
+            "calendar_id": seed.calendar_id,
             "market_status": row["market_status"].value,
         }
-        for row in CME_EQUITY_EXCEPTIONS
+        for row in seed.exceptions
     ]
     return _insert_sql("trading_holidays", _HOLIDAY_COLUMNS), rows
+
+
+# The equity wrappers keep 058's names and signatures so 058 and its tests
+# stay frozen; new migrations call the seed-taking builders.
+def cme_equity_calendar_insert() -> tuple[str, dict[str, Any]]:
+    """Parameterized INSERT for the ``CME_EQUITY`` trading_calendars row."""
+    return cme_calendar_insert(CME_EQUITY_SEED)
+
+
+def cme_equity_holidays_insert() -> tuple[str, list[dict[str, Any]]]:
+    """Parameterized INSERT (for ``executemany``) of every exception row."""
+    return cme_holidays_insert(CME_EQUITY_SEED)

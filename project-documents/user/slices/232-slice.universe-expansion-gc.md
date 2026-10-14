@@ -388,3 +388,11 @@ This is a draft, refined after implementation. The commands run from the dev che
 
 - **Spend is the PM's.** No agent raises a ceiling. The walkthrough stops at step 2 until the PM has set both ceilings.
 - **Production migration:** 059 writes only new calendar rows and sessions. It is idempotent, and no other calendar's rows change (criterion 1).
+
+## Implementation Findings
+
+### Baseline (task 0.1, branch 232-slice.universe-expansion-gc from main 9cea3a7)
+
+- Unit tier: 4707 passed, 5 skipped, 0 failed.
+- `ruff check src test scripts`: 1479 pre-existing errors on main, so the ruff gate runs on touched files only.
+- `test/unit/data/tick/test_pass_contract_parity.py`: 31 passed.
