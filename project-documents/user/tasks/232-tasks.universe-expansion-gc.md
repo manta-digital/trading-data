@@ -61,8 +61,10 @@ integration flakes, migration 051/052, load tier).
   - [ ] From `main`: `git checkout -b 232-slice.universe-expansion-gc main`
   - [ ] Run the unit tier and `ruff check`; record failures that already exist
   - [ ] Run `test/unit/data/tick/test_pass_contract_parity.py`; record the result
-  - [ ] Success: branch exists; the baseline failure list is written in the
-        Implementation Findings section at the end of the LLD
+  - [ ] Append an empty `## Implementation Findings` section at the end of
+        `user/slices/232-slice.universe-expansion-gc.md`; later tasks write to it
+  - [ ] Success: branch exists; the section exists and holds the baseline failure
+        list
 
 ---
 
@@ -408,18 +410,19 @@ confirmed TD6. If not, stop at 7.2.*
         and roll methods"; GC's measured spread share
   - [ ] Success: the entry is dated and names all three
 
-- [ ] **10.5 Finalize the LLD** (effort 1)
+- [ ] **10.5 Final gate** (effort 1)
+  - [ ] Re-run ruff, mypy (one invocation), the three test tiers separately and the
+        parity test; compare with baseline
+  - [ ] Confirm `git diff main` src changes are only: the two constants, seed modules,
+        the migration list, and the recorder script
+  - [ ] Success: no new failures versus baseline; diff scope as stated
+
+- [ ] **10.6 Finalize the LLD and commit** (effort 1)
   - [ ] Replace the draft walkthrough with the as-run commands and results; complete
         Implementation Findings (baseline, cross-check differences, ES-only test
         updates, timings, spread share, last-bar times, parity result)
   - [ ] Set the LLD and this task file `status: complete` only when every box above
         is checked
   - [ ] Success: every Functional Requirement 1–9 in the LLD has a recorded result
-
-- [ ] **10.6 Final gate and commit** (effort 1)
-  - [ ] Re-run ruff, mypy (one invocation), the three test tiers separately and the
-        parity test; compare with baseline
-  - [ ] Confirm `git diff main` src changes are only: the two constants, seed modules,
-        the migration list, and the recorder script
   - [ ] Commit: `docs: complete slice 232 documentation and findings`. The work ends
         at this commit on the slice branch
