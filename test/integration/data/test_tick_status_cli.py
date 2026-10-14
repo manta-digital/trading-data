@@ -107,15 +107,17 @@ def test_coverage_json_is_to_dict_plus_exit_code(
     result = runner.invoke(app, [*COVERAGE, "--json"])
     assert result.exit_code == 0, result.output
 
-    async def expected() -> dict[str, Any]:
+    async def expected() -> list[dict[str, Any]]:
         async with connect(migrated_tick_db) as conn:
-            coverage = await build_coverage(
-                conn, session_migrated_db, TICK_UNIVERSE[0], START, END
-            )
-            return coverage.to_dict()
+            return [
+                (
+                    await build_coverage(conn, session_migrated_db, e, START, END)
+                ).to_dict()
+                for e in TICK_UNIVERSE
+            ]
 
     body = json.loads(result.stdout)
-    assert body == {"products": [asyncio.run(expected())], "exit_code": 0}
+    assert body == {"products": asyncio.run(expected()), "exit_code": 0}
 
 
 def test_a_coverage_mismatch_exits_3(ingested: None, migrated_tick_db: str) -> None:

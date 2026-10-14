@@ -118,6 +118,7 @@ async def test_raw_counts_assign_rows_to_sessions_across_midnight(
     db: Any, aconn: AConn
 ) -> None:
     unit = _unit(db)
+    insert_definition(db, unit)  # ES; ingest stores no trade without one
     for sequence, ts in enumerate(
         (
             MIDNIGHT - 3600 * NS,  # 09-02 23:00: session 09-03
@@ -127,6 +128,25 @@ async def test_raw_counts_assign_rows_to_sessions_across_midnight(
         )
     ):
         insert_trade(db, unit, ts_event=ts, ts_recv=ts + 1, sequence=sequence)
-    counts = await raw_counts(aconn, [S03, S04])
+    counts = await raw_counts(aconn, "ES", [S03, S04])
     assert counts == {(42_035_063, S03[0]): 2, (42_035_063, S04[0]): 1}
-    assert await raw_counts(aconn, []) == {}
+    assert await raw_counts(aconn, "ES", []) == {}
+
+
+async def test_raw_counts_count_only_the_products_instruments(
+    db: Any, aconn: AConn
+) -> None:
+    """Products share ``tick_trade`` and overlapping sessions (232): each
+    product's count holds only the instruments defined for it."""
+    unit = _unit(db)
+    insert_definition(db, unit)  # ES 42_035_063
+    insert_definition(db, unit, instrument_id=7, raw_symbol="GCZ4", asset="GC")
+    for sequence, instrument in enumerate((42_035_063, 42_035_063, 7)):
+        ts = MIDNIGHT + 3600 * NS
+        insert_trade(
+            db, unit, instrument_id=instrument, ts_event=ts, ts_recv=ts + 1,
+            sequence=sequence,
+        )  # fmt: skip
+    assert await raw_counts(aconn, "ES", [S03]) == {(42_035_063, S03[0]): 2}
+    assert await raw_counts(aconn, "GC", [S03]) == {(7, S03[0]): 1}
+    assert await raw_counts(aconn, "ZZ", [S03]) == {}

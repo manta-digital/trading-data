@@ -110,6 +110,7 @@ async def build_coverage(
     ledger = await ledger_totals(tick_conn, shape_of(entry), start, last)
     raw = await raw_counts(
         tick_conn,
+        entry.product,
         [(s.session_date, utc_ns(s.open_utc), utc_ns(s.close_utc)) for s in sessions],
     )
     rows = tuple(_session_row(v, ledger, raw) for v in verdicts)

@@ -184,13 +184,15 @@ async def contract_lines(conn: Conn, shape: Shape) -> list[ContractLine]:
 
 
 async def raw_counts(
-    conn: Conn, sessions: Sequence[tuple[date, int, int]]
+    conn: Conn, product: str, sessions: Sequence[tuple[date, int, int]]
 ) -> dict[tuple[int, date], int]:
     """``count(*)`` of ``tick_trade`` per (instrument, session) — the one scan.
 
     ``sessions`` are ``(session_date, open_ns, close_ns)``; the scan is
     bounded by the first open and last close, and each row is assigned to its
-    session by a join against the sessions passed as arrays.
+    session by a join against the sessions passed as arrays. Only instruments
+    defined for ``product`` count: products share ``tick_trade`` and their
+    sessions overlap (232), and ingest stores no trade without its definition.
     """
     if not sessions:
         return {}
@@ -200,8 +202,11 @@ async def raw_counts(
         " JOIN unnest(%s::date[], %s::bigint[], %s::bigint[])"
         " AS s(session_date, open_ns, close_ns)"
         " ON t.ts_event BETWEEN s.open_ns AND s.close_ns"
-        " WHERE t.ts_event BETWEEN %s AND %s GROUP BY 1, 2",
-        (list(dates), list(opens), list(closes), min(opens), max(closes)),
+        " WHERE t.ts_event BETWEEN %s AND %s"
+        " AND t.instrument_id IN"
+        " (SELECT instrument_id FROM tick_definition WHERE asset = %s)"
+        " GROUP BY 1, 2",
+        (list(dates), list(opens), list(closes), min(opens), max(closes), product),
     )
     return {(i, d): int(n) for i, d, n in await cursor.fetchall()}
 
