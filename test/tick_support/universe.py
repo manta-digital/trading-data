@@ -23,3 +23,11 @@ def use_untiered(monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the pass's two readers of the universe at ``UNTIERED``."""
     monkeypatch.setattr(acquisition_pass, "TICK_UNIVERSE", UNTIERED)
     monkeypatch.setattr(purchase_plan, "TICK_UNIVERSE", UNTIERED)
+
+
+def use_only(monkeypatch: pytest.MonkeyPatch, product: str) -> None:
+    """Point the pass's two readers of the universe at one shipped entry, for
+    tests seeded with that product's history alone (232 added GC)."""
+    only = tuple(entry for entry in TICK_UNIVERSE if entry.product == product)
+    monkeypatch.setattr(acquisition_pass, "TICK_UNIVERSE", only)
+    monkeypatch.setattr(purchase_plan, "TICK_UNIVERSE", only)

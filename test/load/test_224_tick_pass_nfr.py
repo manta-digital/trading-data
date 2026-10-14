@@ -46,6 +46,7 @@ import pytest
 from tick_support.fake_provider import FakeClock, FakeTickProvider
 from tick_support.runs import connect, tick_run
 from tick_support.seed import seed_availability, seed_owned_days
+from tick_support.universe import use_only
 
 from manta_trading.data.tick.acquisition_pass import AwaitTiming, run_pass
 from manta_trading.data.tick.databento.dbn_file import DbnFileReader
@@ -129,7 +130,13 @@ async def conn(migrated_tick_db: str, history: list[date]) -> AsyncIterator[ACon
 
 
 @pytest.fixture
-def run(conn: AConn, tmp_path: Path, session_migrated_db: str) -> TickRun:
+def run(
+    conn: AConn,
+    tmp_path: Path,
+    session_migrated_db: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> TickRun:
+    use_only(monkeypatch, "ES")  # the seeded history is ES's alone
     clock = FakeClock(START)
     return tick_run(
         conn,
