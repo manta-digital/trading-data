@@ -1,0 +1,10481 @@
+{
+ "source": "trading_tick (read-only): roll_inputs.session_volumes, status_reads.session_verdicts",
+ "read_at": "2026-10-14T17:13:10.395661+00:00",
+ "statuses": {
+  "2024-08-28": "edge_unknown",
+  "2024-08-29": "edge_unknown",
+  "2024-08-30": "missing",
+  "2024-09-02": "missing",
+  "2024-09-03": "missing",
+  "2024-09-04": "missing",
+  "2024-09-05": "missing",
+  "2024-09-06": "missing",
+  "2024-09-09": "missing",
+  "2024-09-10": "missing",
+  "2024-09-11": "missing",
+  "2024-09-12": "missing",
+  "2024-09-13": "missing",
+  "2024-09-16": "missing",
+  "2024-09-17": "missing",
+  "2024-09-18": "missing",
+  "2024-09-19": "missing",
+  "2024-09-20": "missing",
+  "2024-09-23": "missing",
+  "2024-09-24": "missing",
+  "2024-09-25": "missing",
+  "2024-09-26": "missing",
+  "2024-09-27": "missing",
+  "2024-09-30": "missing",
+  "2024-10-01": "missing",
+  "2024-10-02": "missing",
+  "2024-10-03": "missing",
+  "2024-10-04": "missing",
+  "2024-10-07": "missing",
+  "2024-10-08": "missing",
+  "2024-10-09": "missing",
+  "2024-10-10": "missing",
+  "2024-10-11": "missing",
+  "2024-10-14": "missing",
+  "2024-10-15": "missing",
+  "2024-10-16": "missing",
+  "2024-10-17": "missing",
+  "2024-10-18": "missing",
+  "2024-10-21": "missing",
+  "2024-10-22": "missing",
+  "2024-10-23": "missing",
+  "2024-10-24": "missing",
+  "2024-10-25": "missing",
+  "2024-10-28": "missing",
+  "2024-10-29": "missing",
+  "2024-10-30": "missing",
+  "2024-10-31": "missing",
+  "2024-11-01": "missing",
+  "2024-11-04": "complete",
+  "2024-11-05": "complete",
+  "2024-11-06": "complete",
+  "2024-11-07": "complete",
+  "2024-11-08": "complete",
+  "2024-11-11": "complete",
+  "2024-11-12": "complete",
+  "2024-11-13": "complete",
+  "2024-11-14": "complete",
+  "2024-11-15": "complete",
+  "2024-11-18": "complete",
+  "2024-11-19": "complete",
+  "2024-11-20": "complete",
+  "2024-11-21": "complete",
+  "2024-11-22": "complete",
+  "2024-11-25": "complete",
+  "2024-11-26": "complete",
+  "2024-11-27": "complete",
+  "2024-11-28": "complete",
+  "2024-11-29": "complete",
+  "2024-12-02": "complete",
+  "2024-12-03": "complete",
+  "2024-12-04": "complete",
+  "2024-12-05": "complete",
+  "2024-12-06": "complete",
+  "2024-12-09": "complete",
+  "2024-12-10": "complete",
+  "2024-12-11": "complete",
+  "2024-12-12": "complete",
+  "2024-12-13": "complete",
+  "2024-12-16": "complete",
+  "2024-12-17": "complete",
+  "2024-12-18": "complete",
+  "2024-12-19": "complete",
+  "2024-12-20": "complete",
+  "2024-12-23": "complete",
+  "2024-12-24": "complete",
+  "2024-12-26": "complete",
+  "2024-12-27": "complete",
+  "2024-12-30": "complete",
+  "2024-12-31": "complete",
+  "2025-01-02": "edge_unknown",
+  "2025-01-03": "edge_unknown",
+  "2025-01-06": "edge_unknown",
+  "2025-01-07": "edge_unknown",
+  "2025-01-08": "edge_unknown",
+  "2025-01-09": "edge_unknown",
+  "2025-01-10": "edge_unknown",
+  "2025-01-13": "edge_unknown",
+  "2025-01-14": "edge_unknown",
+  "2025-01-15": "edge_unknown",
+  "2025-01-16": "edge_unknown",
+  "2025-01-17": "edge_unknown",
+  "2025-01-20": "edge_unknown",
+  "2025-01-21": "edge_unknown",
+  "2025-01-22": "edge_unknown",
+  "2025-01-23": "edge_unknown",
+  "2025-01-24": "edge_unknown",
+  "2025-01-27": "edge_unknown",
+  "2025-01-28": "edge_unknown",
+  "2025-01-29": "edge_unknown",
+  "2025-01-30": "edge_unknown",
+  "2025-01-31": "edge_unknown",
+  "2025-02-03": "edge_unknown",
+  "2025-02-04": "edge_unknown",
+  "2025-02-05": "edge_unknown",
+  "2025-02-06": "edge_unknown",
+  "2025-02-07": "edge_unknown",
+  "2025-02-10": "edge_unknown",
+  "2025-02-11": "edge_unknown",
+  "2025-02-12": "edge_unknown",
+  "2025-02-13": "edge_unknown",
+  "2025-02-14": "edge_unknown",
+  "2025-02-17": "edge_unknown",
+  "2025-02-18": "edge_unknown",
+  "2025-02-19": "edge_unknown",
+  "2025-02-20": "edge_unknown",
+  "2025-02-21": "edge_unknown",
+  "2025-02-24": "edge_unknown",
+  "2025-02-25": "edge_unknown",
+  "2025-02-26": "edge_unknown",
+  "2025-02-27": "edge_unknown",
+  "2025-02-28": "edge_unknown",
+  "2025-03-03": "edge_unknown",
+  "2025-03-04": "edge_unknown",
+  "2025-03-05": "edge_unknown",
+  "2025-03-06": "edge_unknown",
+  "2025-03-07": "edge_unknown",
+  "2025-03-10": "edge_unknown",
+  "2025-03-11": "edge_unknown",
+  "2025-03-12": "edge_unknown",
+  "2025-03-13": "edge_unknown",
+  "2025-03-14": "edge_unknown",
+  "2025-03-17": "edge_unknown",
+  "2025-03-18": "edge_unknown",
+  "2025-03-19": "edge_unknown",
+  "2025-03-20": "edge_unknown",
+  "2025-03-21": "edge_unknown",
+  "2025-03-24": "edge_unknown",
+  "2025-03-25": "edge_unknown",
+  "2025-03-26": "edge_unknown",
+  "2025-03-27": "edge_unknown",
+  "2025-03-28": "edge_unknown",
+  "2025-03-31": "edge_unknown",
+  "2025-04-01": "edge_unknown"
+ },
+ "rows": [
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 287,
+   "volume": 11,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 287,
+   "volume": 202,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 393,
+   "volume": 5097,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 393,
+   "volume": 120784,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 1551,
+   "volume": 56,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 1551,
+   "volume": 2107,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 19604,
+   "volume": 11,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 19604,
+   "volume": 208,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 39231,
+   "volume": 6,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 39231,
+   "volume": 90,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42001967,
+   "volume": 1,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42003962,
+   "volume": 6,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42008094,
+   "volume": 4,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42008094,
+   "volume": 19,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42010851,
+   "volume": 8,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 181
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 287,
+   "volume": 192,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 393,
+   "volume": 1077,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 393,
+   "volume": 127188,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 1551,
+   "volume": 6,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 1551,
+   "volume": 3312,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 19604,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 19604,
+   "volume": 526,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 39231,
+   "volume": 91,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42001967,
+   "volume": 175,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42003962,
+   "volume": 11,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42008094,
+   "volume": 28,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42010851,
+   "volume": 60,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 182
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 287,
+   "volume": 503,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 393,
+   "volume": 1450,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 393,
+   "volume": 316705,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 1551,
+   "volume": 11,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 1551,
+   "volume": 10281,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 19604,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 19604,
+   "volume": 702,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 39231,
+   "volume": 351,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42000890,
+   "volume": 2,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42001967,
+   "volume": 266,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42003962,
+   "volume": 28,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42008094,
+   "volume": 68,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42010851,
+   "volume": 61,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 183
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 287,
+   "volume": 250,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 393,
+   "volume": 2374,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 393,
+   "volume": 203611,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 1551,
+   "volume": 23,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 1551,
+   "volume": 8165,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 19604,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 19604,
+   "volume": 774,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 39231,
+   "volume": 84,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42000890,
+   "volume": 2,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42001967,
+   "volume": 55,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42003962,
+   "volume": 10,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42003962,
+   "volume": 179,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42008094,
+   "volume": 17,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42010851,
+   "volume": 174,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 184
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 287,
+   "volume": 1,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 287,
+   "volume": 283,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 393,
+   "volume": 2232,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 393,
+   "volume": 153260,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 1551,
+   "volume": 40,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 1551,
+   "volume": 6676,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 19604,
+   "volume": 4,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 19604,
+   "volume": 1014,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 39231,
+   "volume": 103,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42000890,
+   "volume": 1,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42001967,
+   "volume": 39,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42003962,
+   "volume": 27,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42008094,
+   "volume": 32,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42010851,
+   "volume": 107,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 185
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 186
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 287,
+   "volume": 7,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 287,
+   "volume": 328,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 393,
+   "volume": 2442,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 393,
+   "volume": 200534,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 1551,
+   "volume": 86,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 1551,
+   "volume": 7815,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 19604,
+   "volume": 26,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 19604,
+   "volume": 839,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 39231,
+   "volume": 68,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 41271,
+   "volume": 1,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42000890,
+   "volume": 1,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42001967,
+   "volume": 57,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42003962,
+   "volume": 19,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42008094,
+   "volume": 4,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42008094,
+   "volume": 186,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42010851,
+   "volume": 3,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42010851,
+   "volume": 204,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 187
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 287,
+   "volume": 272,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 393,
+   "volume": 2263,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 393,
+   "volume": 204472,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 1551,
+   "volume": 69,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 1551,
+   "volume": 9154,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 5991,
+   "volume": 1,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 19604,
+   "volume": 7,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 19604,
+   "volume": 513,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 39231,
+   "volume": 65,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42001025,
+   "volume": 10,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42001967,
+   "volume": 142,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42003962,
+   "volume": 86,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42008094,
+   "volume": 77,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42010851,
+   "volume": 1,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42010851,
+   "volume": 139,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 188
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 287,
+   "volume": 182,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 393,
+   "volume": 1239,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 393,
+   "volume": 189417,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 1551,
+   "volume": 112,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 1551,
+   "volume": 9211,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 19604,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 19604,
+   "volume": 469,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 39231,
+   "volume": 48,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42001025,
+   "volume": 2,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42001967,
+   "volume": 112,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42003962,
+   "volume": 24,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42008094,
+   "volume": 76,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42010851,
+   "volume": 135,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 189
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 287,
+   "volume": 8,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 287,
+   "volume": 392,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 393,
+   "volume": 9389,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 393,
+   "volume": 214994,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 1551,
+   "volume": 220,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 1551,
+   "volume": 7425,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 19604,
+   "volume": 14,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 19604,
+   "volume": 544,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 39231,
+   "volume": 94,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 41271,
+   "volume": 1,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42000890,
+   "volume": 10,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42001967,
+   "volume": 36,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42003962,
+   "volume": 27,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42008094,
+   "volume": 128,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42010851,
+   "volume": 210,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 190
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 287,
+   "volume": 272,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 393,
+   "volume": 1419,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 393,
+   "volume": 139201,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 1551,
+   "volume": 80,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 1551,
+   "volume": 5735,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 19604,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 19604,
+   "volume": 487,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 39231,
+   "volume": 24,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42001967,
+   "volume": 1,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42001967,
+   "volume": 168,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42008094,
+   "volume": 1,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42008094,
+   "volume": 21,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42010851,
+   "volume": 113,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 191
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 192
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 287,
+   "volume": 3,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 287,
+   "volume": 393,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 393,
+   "volume": 5267,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 393,
+   "volume": 152936,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 1551,
+   "volume": 368,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 1551,
+   "volume": 11448,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 19604,
+   "volume": 54,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 19604,
+   "volume": 698,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 39231,
+   "volume": 5,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 39231,
+   "volume": 175,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42001967,
+   "volume": 138,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42003962,
+   "volume": 19,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42008094,
+   "volume": 110,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42010851,
+   "volume": 13,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42010851,
+   "volume": 435,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 193
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 287,
+   "volume": 328,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 393,
+   "volume": 1569,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 393,
+   "volume": 159285,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 1551,
+   "volume": 50,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 1551,
+   "volume": 11440,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 19604,
+   "volume": 4,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 19604,
+   "volume": 672,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 39231,
+   "volume": 231,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42001025,
+   "volume": 15,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42001967,
+   "volume": 94,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42003962,
+   "volume": 5,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42008094,
+   "volume": 30,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42010851,
+   "volume": 1,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42010851,
+   "volume": 136,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 194
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 287,
+   "volume": 1,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 287,
+   "volume": 324,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 393,
+   "volume": 1826,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 393,
+   "volume": 137924,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 1551,
+   "volume": 25,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 1551,
+   "volume": 12008,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 19181,
+   "volume": 5,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 19604,
+   "volume": 3,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 19604,
+   "volume": 482,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 39231,
+   "volume": 3,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 39231,
+   "volume": 132,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42000890,
+   "volume": 1,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42001967,
+   "volume": 36,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42003962,
+   "volume": 8,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42008094,
+   "volume": 47,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42010851,
+   "volume": 2,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42010851,
+   "volume": 299,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 195
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 287,
+   "volume": 237,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 393,
+   "volume": 1551,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 393,
+   "volume": 125024,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 1551,
+   "volume": 146,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 1551,
+   "volume": 16990,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 19604,
+   "volume": 11,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 19604,
+   "volume": 521,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 39231,
+   "volume": 40,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42000890,
+   "volume": 1,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42001967,
+   "volume": 22,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42003962,
+   "volume": 4,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42008094,
+   "volume": 27,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42010851,
+   "volume": 2,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42010851,
+   "volume": 220,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 196
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 287,
+   "volume": 547,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 393,
+   "volume": 1243,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 393,
+   "volume": 162992,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 1551,
+   "volume": 202,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 1551,
+   "volume": 24974,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 19604,
+   "volume": 3,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 19604,
+   "volume": 780,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 39231,
+   "volume": 147,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42001967,
+   "volume": 36,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42003962,
+   "volume": 34,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42008094,
+   "volume": 53,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42010851,
+   "volume": 7,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42010851,
+   "volume": 513,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 197
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 198
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 287,
+   "volume": 34,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 287,
+   "volume": 471,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 393,
+   "volume": 8485,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 393,
+   "volume": 220674,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 1551,
+   "volume": 2116,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 1551,
+   "volume": 81758,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 19604,
+   "volume": 41,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 19604,
+   "volume": 1448,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 39231,
+   "volume": 276,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42001967,
+   "volume": 135,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42003962,
+   "volume": 17,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42008094,
+   "volume": 2,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42008094,
+   "volume": 50,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42010851,
+   "volume": 155,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42010851,
+   "volume": 2254,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 199
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 287,
+   "volume": 14,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 287,
+   "volume": 316,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 393,
+   "volume": 6598,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 393,
+   "volume": 103349,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 1551,
+   "volume": 4649,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 1551,
+   "volume": 81341,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 19604,
+   "volume": 157,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 19604,
+   "volume": 1096,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 39231,
+   "volume": 21,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 39231,
+   "volume": 139,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42001967,
+   "volume": 2,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42001967,
+   "volume": 199,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42003962,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42003962,
+   "volume": 1,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42008094,
+   "volume": 4,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42008094,
+   "volume": 26,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42010851,
+   "volume": 75,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42010851,
+   "volume": 1959,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 200
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 287,
+   "volume": 234,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 393,
+   "volume": 271,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 393,
+   "volume": 27935,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 1551,
+   "volume": 1592,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 1551,
+   "volume": 124520,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 19604,
+   "volume": 16,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 19604,
+   "volume": 1551,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 39231,
+   "volume": 1,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 39231,
+   "volume": 50,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42001967,
+   "volume": 13,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42008094,
+   "volume": 41,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42010851,
+   "volume": 45,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42010851,
+   "volume": 1808,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 201
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 287,
+   "volume": 1,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 287,
+   "volume": 68,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 393,
+   "volume": 2,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 393,
+   "volume": 1762,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 1551,
+   "volume": 702,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 1551,
+   "volume": 63229,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 19604,
+   "volume": 4,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 19604,
+   "volume": 375,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 39231,
+   "volume": 14,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42001967,
+   "volume": 7,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42008094,
+   "volume": 16,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42010851,
+   "volume": 8,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42010851,
+   "volume": 519,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 202
+  },
+  {
+   "session_date": "2024-11-28",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 287,
+   "volume": 1,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 287,
+   "volume": 339,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 393,
+   "volume": 4,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 393,
+   "volume": 859,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 1551,
+   "volume": 1072,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 1551,
+   "volume": 103246,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 19604,
+   "volume": 1,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 19604,
+   "volume": 1168,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 39231,
+   "volume": 88,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42001967,
+   "volume": 83,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42008094,
+   "volume": 15,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42010851,
+   "volume": 6,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42010851,
+   "volume": 610,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 203
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 204
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 287,
+   "volume": 13,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 287,
+   "volume": 181,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 393,
+   "volume": 24,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 393,
+   "volume": 185,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 1551,
+   "volume": 4230,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 1551,
+   "volume": 149022,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 19604,
+   "volume": 66,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 19604,
+   "volume": 1822,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 39231,
+   "volume": 10,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 39231,
+   "volume": 75,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42001025,
+   "volume": 14,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42001967,
+   "volume": 1,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42001967,
+   "volume": 111,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42008094,
+   "volume": 33,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42010851,
+   "volume": 53,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42010851,
+   "volume": 853,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42011464,
+   "volume": 1,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 232
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 287,
+   "volume": 245,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 393,
+   "volume": 2,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 393,
+   "volume": 393,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 1551,
+   "volume": 1575,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 1551,
+   "volume": 129305,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 19604,
+   "volume": 17,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 19604,
+   "volume": 879,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 39231,
+   "volume": 71,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42001025,
+   "volume": 20,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42001967,
+   "volume": 12,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42001967,
+   "volume": 153,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42008094,
+   "volume": 12,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42010851,
+   "volume": 4,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42010851,
+   "volume": 558,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 233
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 287,
+   "volume": 1,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 287,
+   "volume": 157,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 393,
+   "volume": 152,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 1551,
+   "volume": 1023,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 1551,
+   "volume": 145150,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 19604,
+   "volume": 18,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 19604,
+   "volume": 1464,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 39231,
+   "volume": 51,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42001025,
+   "volume": 5,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42001967,
+   "volume": 164,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42008094,
+   "volume": 7,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42010851,
+   "volume": 1,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42010851,
+   "volume": 696,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 234
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 287,
+   "volume": 263,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 393,
+   "volume": 181,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 1551,
+   "volume": 1024,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 1551,
+   "volume": 139691,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 19604,
+   "volume": 8,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 19604,
+   "volume": 1078,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 39231,
+   "volume": 124,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42001967,
+   "volume": 28,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42008094,
+   "volume": 14,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42010851,
+   "volume": 6,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42010851,
+   "volume": 1098,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 235
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 287,
+   "volume": 3,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 287,
+   "volume": 286,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 393,
+   "volume": 50,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 1551,
+   "volume": 1315,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 1551,
+   "volume": 147495,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 19604,
+   "volume": 7,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 19604,
+   "volume": 1205,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 39231,
+   "volume": 3,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 39231,
+   "volume": 63,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42001967,
+   "volume": 106,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42008094,
+   "volume": 58,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42010851,
+   "volume": 3,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42010851,
+   "volume": 562,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 236
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 237
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 287,
+   "volume": 12,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 287,
+   "volume": 305,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 393,
+   "volume": 534,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 1551,
+   "volume": 7753,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 1551,
+   "volume": 159050,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 19604,
+   "volume": 36,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 19604,
+   "volume": 1545,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 39231,
+   "volume": 49,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 41271,
+   "volume": 5,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42001025,
+   "volume": 2,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42001967,
+   "volume": 34,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42008094,
+   "volume": 17,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42008094,
+   "volume": 17,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42010851,
+   "volume": 51,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42010851,
+   "volume": 750,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 238
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 287,
+   "volume": 2,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 287,
+   "volume": 560,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 393,
+   "volume": 136,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 1551,
+   "volume": 1629,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 1551,
+   "volume": 165548,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 19604,
+   "volume": 10,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 19604,
+   "volume": 1130,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 39231,
+   "volume": 1,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 39231,
+   "volume": 102,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42001967,
+   "volume": 20,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42008094,
+   "volume": 38,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42010851,
+   "volume": 1153,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42011464,
+   "volume": 1,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 239
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 287,
+   "volume": 18,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 287,
+   "volume": 1005,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 393,
+   "volume": 280,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 1551,
+   "volume": 3857,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 1551,
+   "volume": 224273,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 19604,
+   "volume": 43,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 19604,
+   "volume": 4124,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 39231,
+   "volume": 47,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42001967,
+   "volume": 20,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42008094,
+   "volume": 73,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42010851,
+   "volume": 43,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42010851,
+   "volume": 1975,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 240
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 287,
+   "volume": 3,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 287,
+   "volume": 533,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 393,
+   "volume": 741,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 1551,
+   "volume": 2008,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 1551,
+   "volume": 197220,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 19604,
+   "volume": 8,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 19604,
+   "volume": 2376,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 39231,
+   "volume": 50,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 41271,
+   "volume": 1,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42001967,
+   "volume": 7,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42008094,
+   "volume": 154,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42010851,
+   "volume": 4,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42010851,
+   "volume": 812,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 241
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 287,
+   "volume": 2,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 287,
+   "volume": 469,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 393,
+   "volume": 726,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 1551,
+   "volume": 1144,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 1551,
+   "volume": 163928,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 19604,
+   "volume": 29,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 19604,
+   "volume": 3074,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 39231,
+   "volume": 40,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 41271,
+   "volume": 1,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42001025,
+   "volume": 3,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42001967,
+   "volume": 35,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42008094,
+   "volume": 23,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42010851,
+   "volume": 7,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42010851,
+   "volume": 575,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 242
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 243
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 287,
+   "volume": 8,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 287,
+   "volume": 358,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 393,
+   "volume": 36,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 1551,
+   "volume": 2702,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 1551,
+   "volume": 100633,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 19604,
+   "volume": 32,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 19604,
+   "volume": 1196,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 39231,
+   "volume": 10,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 39231,
+   "volume": 126,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42001967,
+   "volume": 2,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42001967,
+   "volume": 14,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42008094,
+   "volume": 21,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42010851,
+   "volume": 36,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42010851,
+   "volume": 465,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 244
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 287,
+   "volume": 1,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 287,
+   "volume": 513,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 393,
+   "volume": 3,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 393,
+   "volume": 125,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 1551,
+   "volume": 807,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 1551,
+   "volume": 131089,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 19604,
+   "volume": 3,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 19604,
+   "volume": 1749,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 39231,
+   "volume": 73,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42001025,
+   "volume": 4,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42001967,
+   "volume": 3,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42008094,
+   "volume": 41,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42010851,
+   "volume": 7,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42010851,
+   "volume": 426,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 245
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 287,
+   "volume": 2,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 287,
+   "volume": 426,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 393,
+   "volume": 47,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 1551,
+   "volume": 953,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 1551,
+   "volume": 142497,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 19604,
+   "volume": 8,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 19604,
+   "volume": 1423,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 39231,
+   "volume": 106,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42000890,
+   "volume": 1,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42001025,
+   "volume": 2,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42001967,
+   "volume": 19,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42008094,
+   "volume": 17,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42010851,
+   "volume": 7,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42010851,
+   "volume": 498,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 246
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 287,
+   "volume": 5,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 287,
+   "volume": 460,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 393,
+   "volume": 1,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 393,
+   "volume": 130,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 1551,
+   "volume": 3657,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 1551,
+   "volume": 175188,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 19604,
+   "volume": 44,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 19604,
+   "volume": 1750,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 39231,
+   "volume": 82,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42001967,
+   "volume": 10,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42008094,
+   "volume": 45,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42010851,
+   "volume": 21,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42010851,
+   "volume": 758,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 247
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 287,
+   "volume": 1,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 287,
+   "volume": 665,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 393,
+   "volume": 319,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 1551,
+   "volume": 1269,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 1551,
+   "volume": 139451,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 19604,
+   "volume": 6,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 19604,
+   "volume": 1840,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 39231,
+   "volume": 85,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42001967,
+   "volume": 8,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42008094,
+   "volume": 46,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42010851,
+   "volume": 19,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42010851,
+   "volume": 358,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 248
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 249
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 287,
+   "volume": 334,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 393,
+   "volume": 13,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 1551,
+   "volume": 2003,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 1551,
+   "volume": 96187,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 19604,
+   "volume": 8,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 19604,
+   "volume": 952,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 39231,
+   "volume": 2,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 39231,
+   "volume": 23,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42001967,
+   "volume": 6,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42008094,
+   "volume": 50,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42010851,
+   "volume": 29,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42010851,
+   "volume": 326,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 250
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 287,
+   "volume": 8,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 287,
+   "volume": 185,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 393,
+   "volume": 15,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 1551,
+   "volume": 1165,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 1551,
+   "volume": 49704,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 19604,
+   "volume": 26,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 19604,
+   "volume": 687,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 39231,
+   "volume": 6,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42001967,
+   "volume": 1,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42008094,
+   "volume": 11,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42010851,
+   "volume": 198,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 251
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 252
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 287,
+   "volume": 9,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 287,
+   "volume": 266,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 393,
+   "volume": 13,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 1551,
+   "volume": 1558,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 1551,
+   "volume": 73181,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 19604,
+   "volume": 15,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 19604,
+   "volume": 1044,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 39231,
+   "volume": 1,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 39231,
+   "volume": 32,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42001967,
+   "volume": 6,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42008094,
+   "volume": 25,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42010851,
+   "volume": 4,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42010851,
+   "volume": 370,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 253
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 287,
+   "volume": 2,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 287,
+   "volume": 419,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 393,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 393,
+   "volume": 2,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 1551,
+   "volume": 1461,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 1551,
+   "volume": 87735,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 19604,
+   "volume": 15,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 19604,
+   "volume": 1015,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 39231,
+   "volume": 339,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42001025,
+   "volume": 1,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42001967,
+   "volume": 9,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42008094,
+   "volume": 6,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42008094,
+   "volume": 11,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42010851,
+   "volume": 3,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42010851,
+   "volume": 375,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 254
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 255
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 287,
+   "volume": 19,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 287,
+   "volume": 491,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 1551,
+   "volume": 1856,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 1551,
+   "volume": 96883,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 19604,
+   "volume": 15,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 19604,
+   "volume": 1284,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 39231,
+   "volume": 37,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42001967,
+   "volume": 2,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42008094,
+   "volume": 46,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42010851,
+   "volume": 9,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42010851,
+   "volume": 550,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 256
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 287,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 287,
+   "volume": 387,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 1551,
+   "volume": 944,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 1551,
+   "volume": 68386,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 4782,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 5991,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 6254,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 19181,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 19604,
+   "volume": 9,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 19604,
+   "volume": 1048,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 27459,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 39231,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 39231,
+   "volume": 66,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 41271,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 4119847,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42000890,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42001025,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42001967,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42001967,
+   "volume": 7,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42002856,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42005598,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42008094,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42008094,
+   "volume": 42,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42010851,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42010851,
+   "volume": 184,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42011464,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42012428,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42012428,
+   "volume": 38,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42033700,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42033700,
+   "volume": 0,
+   "unit_id": 258
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 257
+  },
+  {
+   "session_date": "2024-12-31",
+   "instrument_id": 42063221,
+   "volume": 0,
+   "unit_id": 258
+  }
+ ]
+}

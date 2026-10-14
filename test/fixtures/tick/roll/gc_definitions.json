@@ -1,0 +1,175 @@
+{
+ "source": "trading_tick (read-only): roll_inputs.outright_definitions",
+ "read_at": "2026-10-14T17:13:10.386729+00:00",
+ "definitions_as_of": "2024-12-31",
+ "rows": [
+  {
+   "instrument_id": 42003962,
+   "raw_symbol": "GCX4",
+   "activation_ns": 1724967000000000000,
+   "expiration_ns": 1732645800000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 393,
+   "raw_symbol": "GCZ4",
+   "activation_ns": 1546036200000000000,
+   "expiration_ns": 1735324200000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42010851,
+   "raw_symbol": "GCF5",
+   "activation_ns": 1730323800000000000,
+   "expiration_ns": 1738175400000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 1551,
+   "raw_symbol": "GCG5",
+   "activation_ns": 1680211800000000000,
+   "expiration_ns": 1740594600000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42012428,
+   "raw_symbol": "GCH5",
+   "activation_ns": 1735597800000000000,
+   "expiration_ns": 1743096600000000000,
+   "unit_id": 218
+  },
+  {
+   "instrument_id": 19604,
+   "raw_symbol": "GCJ5",
+   "activation_ns": 1685482200000000000,
+   "expiration_ns": 1745861400000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 287,
+   "raw_symbol": "GCM5",
+   "activation_ns": 1561671000000000000,
+   "expiration_ns": 1750959000000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42008094,
+   "raw_symbol": "GCQ5",
+   "activation_ns": 1695936600000000000,
+   "expiration_ns": 1756315800000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42001967,
+   "raw_symbol": "GCV5",
+   "activation_ns": 1701297000000000000,
+   "expiration_ns": 1761759000000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 39231,
+   "raw_symbol": "GCZ5",
+   "activation_ns": 1577745000000000000,
+   "expiration_ns": 1767033000000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42001025,
+   "raw_symbol": "GCG6",
+   "activation_ns": 1711575000000000000,
+   "expiration_ns": 1772044200000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42000890,
+   "raw_symbol": "GCJ6",
+   "activation_ns": 1717104600000000000,
+   "expiration_ns": 1777397400000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 19181,
+   "raw_symbol": "GCM6",
+   "activation_ns": 1593466200000000000,
+   "expiration_ns": 1782495000000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42011464,
+   "raw_symbol": "GCQ6",
+   "activation_ns": 1727472600000000000,
+   "expiration_ns": 1787851800000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42063221,
+   "raw_symbol": "GCV6",
+   "activation_ns": 1732746600000000000,
+   "expiration_ns": 1793208600000000000,
+   "unit_id": 166
+  },
+  {
+   "instrument_id": 41271,
+   "raw_symbol": "GCZ6",
+   "activation_ns": 1609367400000000000,
+   "expiration_ns": 1798569000000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 27459,
+   "raw_symbol": "GCM7",
+   "activation_ns": 1625002200000000000,
+   "expiration_ns": 1814203800000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 5991,
+   "raw_symbol": "GCZ7",
+   "activation_ns": 1640903400000000000,
+   "expiration_ns": 1830105000000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 6254,
+   "raw_symbol": "GCM8",
+   "activation_ns": 1656538200000000000,
+   "expiration_ns": 1845826200000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 4782,
+   "raw_symbol": "GCZ8",
+   "activation_ns": 1672353000000000000,
+   "expiration_ns": 1861554600000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 4119847,
+   "raw_symbol": "GCM9",
+   "activation_ns": 1688074200000000000,
+   "expiration_ns": 1877275800000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42002856,
+   "raw_symbol": "GCZ9",
+   "activation_ns": 1703802600000000000,
+   "expiration_ns": 1893090600000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42005598,
+   "raw_symbol": "GCM0",
+   "activation_ns": 1719523800000000000,
+   "expiration_ns": 1908725400000000000,
+   "unit_id": 157
+  },
+  {
+   "instrument_id": 42033700,
+   "raw_symbol": "GCZ0",
+   "activation_ns": 1735597800000000000,
+   "expiration_ns": 1924626600000000000,
+   "unit_id": 218
+  }
+ ]
+}

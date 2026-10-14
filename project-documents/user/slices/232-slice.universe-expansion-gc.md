@@ -558,3 +558,25 @@ Unit tier after the GC entry: 4716 passed, 5 skipped, 0 failed. Integration tier
 - **Trailing spend display.** The third run printed "trailing 30 days $0.0000" because a `nothing_to_buy` plan does not run the guard. The window itself holds $8.4387 (8 requests); the cap still sees it. A report quirk, not a guard fault.
 - **Ingest** (`mt data tick ingest`, 16:58 UTC): 51 tbbo units ingested, **4,031,298 records** (equal to TD5's pre-purchase estimate), 0 failed, with all three checks (counts, resolution, session boundary) passing on every unit. **Wall clock 14.4 s** for the whole range (bound 2 h); **slowest unit 1.369 s** (unit 200, 2024-11-25, 223,647 records; bound 120 s).
 - The PM restores the per-pass ceiling after the slice's purchase work.
+
+### Proof surfaces, session model and roll (tasks 9.1–9.4)
+
+- **Status** (`mt data tick status`, exit 0): `GC (CME_METALS, GLBX.MDP3, GC.FUT parent) tier: tbbo`, 41 sessions held, 41 complete, caught up; 16 outrights listed, 50 spreads hidden. `v.0` GCG5, `c.0` GCF5 at session 2024-12-31.
+- **Coverage** (`mt data tick coverage --start 2024-11-02 --end 2025-01-01`, exit 0): GC 41/41 sessions `ok`, and ES 41/41 `ok` (the `raw_counts` product filter on production, with both products stored).
+- **Overview.** `mt data overview` has one store-wide `futures ticks` line (newest tick, `2024-12-31 21:59 UTC`); it has named no product since slice 230 (`newest_event_ns`). The expectation "the overview tick line names ES and GC" was wrong about the shipped surface; nothing changed and nothing is needed.
+- **Spread share.** Outrights 3,766,376 records (equal to TD5's outright estimate), spreads 264,922: **6.57%** of 4,031,298 (TD5 estimated 6.6%).
+- **Too-wide check (TD7).** The served `v.0` contract is not the right probe on a roll's edge: on 11-28 `v.0` serves GCZ4, whose last bar is 18:59 UTC (12:59 CT) because it had stopped trading, not because the session closed. The check therefore reads the latest bar across the contracts trading (`mt data tick get 1m --contract GCG5 / GCZ4`):
+
+  | session | seeded close | last bar (GCG5) | next bar |
+  |---|---|---|---|
+  | 2024-11-28 | 13:30 CT | 19:29 UTC = 13:29 CT | 11-28 23:00 UTC = 17:00 CT |
+  | 2024-11-29 | 13:45 CT | 19:44 UTC = 13:44 CT | 12-01 23:00 UTC = Sunday 17:00 CT |
+  | 2024-12-24 | 12:45 CT | 18:44 UTC = 12:44 CT | 12-25 23:00 UTC = 17:00 CT |
+  | 2024-12-25 | closed | no bars | — |
+
+  2025-01-01 (closed) lies past the range end; the last session, 12-31, ends 21:59 UTC (15:59 CT, regular). No miss.
+- **Roll** (`mt data tick active --product GC --start 2024-11-04 --end 2025-01-01`, exit 3 for the unresolved sessions): `v.0` GCZ4 2024-11-06 → 11-28, GCG5 11-29 → 12-31 (Databento's `GC.v.0` switches 11-29); 11-04 and 11-05 unresolved ("volume inputs: session 2024-10-31 / 11-01 is missing"). `c.0` GCX4 → 11-26, GCZ4 11-27 → 12-27, GCF5 from 12-30.
+- **API** (branch build, `mt serve --port 8137`; the installed `mt-serve` runs the deployed code): `/api/v1/futures/products` lists ES on `CME_EQUITY` and GC on `CME_METALS`; `/products/GC/schedule` returns the same two `v.0` segments and the same two unresolved sessions as `active`. No surface code changed for either.
+- **GC fixtures** (`record_229_roll_fixture.py --product GC`, free calls): `gc_definitions.json` 24 rows, `gc_volumes.json` 1,720, `gc_calendar.json` 153, `gc_databento.json` 4 symbols. Databento: `GC.c.0` GCX4 → 11-27 GCZ4 → 12-29 GCF5; `GC.v.0` GCZ4 → 11-29 GCG5; `GC.v.1` → 11-29 GCZ4 → 12-02 GCJ5.
+- **Equivalence at `VOLUME_RANK_LAG_SESSIONS = 2`, inside GC's held range (from 2024-11-04):** `v.0` 40/40 sessions agree (TD8's stop condition does not fire); `c.0` and `c.1` 42/42 agree; **`v.1` disagrees on 3 of 40**: 12-02 (ours GCZ4, ranked on Thanksgiving 11-28: GCZ4 1,764 vs GCJ5 379), 12-09 (ours GCF5, 12-05: 1,104 vs 1,086), 12-12 (ours GCF5, 12-10: 1,153 vs 1,140); Databento says GCJ5 on all three. Lag 1 would match all three but moves `v.0`'s switch to 11-28, a session before Databento's; no single lag fits. **Reported to the PM; the test does not yet list GC.**
+- **Test-side issues the GC fixtures exposed** (pending the same decision): the shared resolve span starts 2024-08-30, before GC is held, so `c.*` "resolves" 46 pre-range sessions to contracts whose definitions GC does not hold (all 43 pre-range mismatches); and `assert len(resolved) > 40` was sized for ES's two held ranges (GC resolves exactly 40 under `v.*`).
